@@ -235,7 +235,7 @@ Round 8 found three RED forecasts whose counts the authored blocks do not contai
 npx tsx .claude/probe/planCensus.ts docs/superpowers/plans/2026-08-16-premisescan-import-edge-fidelity.md
 ```
 
-Expected: `mismatched=0 anchorFails=0 shellFails=0`, exit 0. **It also checks every bash block for a fail-open guard.** Rounds 15, 16 and 17 were one axis three times — a command block that PRINTS a failure and returns 0, so the next block runs anyway — and three rounds on one axis is the trigger for a check rather than a fourth reading. Per OCCURRENCE, not per block: a failure `echo` must be followed by `exit 1` on its own line or within the two that follow, because a block whose OTHER guard exits is not evidence that this one does. Across 46 bash blocks, `shellFails=0`; removing one `exit 1` reports `plan:<line> SHELL-FAIL-OPEN` by name. **It also checks every `red-target=` anchor**, because rounds 12 and 13 each found a stale one and a third hand sweep is the wrong repair for a second round on one axis: the anchored file and line must exist, and if the marker's `why=` cites a `path:line` of its own, that citation must BE the anchor. A `why=` arguing about the cross-module lookup while its marker points at an unrelated line in `isFunctionLike` is exactly what round 13 found, and it now fails by name. The script counts EXECUTIONS, not `it(` sites — an `it.each` row is an execution, which is precisely the distinction all three round-8 miscounts got wrong — and classifies each by what it expects: `reported` covers both `expectReported(...)` and a bare `.toBe("unclassifiable")`; `other` is a case asserting something else (there is exactly one, `a reason is reported once, not twice`, which asserts a `toHaveLength`).
+Expected: `mismatched=0 anchorFails=0 shellFails=0 reasonFails=0`, exit 0. **`reasonFails` matches every `REPORTS` pattern against the reason table the plan declares**, because two rounds went to an assertion string that did not match the reason specified beside it — the second one costing three executions that could never have gone green. Perturbing the namespace matcher back to its round-19 wording reports `REASON-UNMATCHED REPORTS.nsNonMember`. **It also checks every bash block for a fail-open guard.** Rounds 15, 16 and 17 were one axis three times — a command block that PRINTS a failure and returns 0, so the next block runs anyway — and three rounds on one axis is the trigger for a check rather than a fourth reading. Per OCCURRENCE, not per block: a failure `echo` must be followed by `exit 1` on its own line or within the two that follow, because a block whose OTHER guard exits is not evidence that this one does. Across 46 bash blocks, `shellFails=0`; removing one `exit 1` reports `plan:<line> SHELL-FAIL-OPEN` by name. **It also checks every `red-target=` anchor**, because rounds 12 and 13 each found a stale one and a third hand sweep is the wrong repair for a second round on one axis: the anchored file and line must exist, and if the marker's `why=` cites a `path:line` of its own, that citation must BE the anchor. A `why=` arguing about the cross-module lookup while its marker points at an unrelated line in `isFunctionLike` is exactly what round 13 found, and it now fails by name. The script counts EXECUTIONS, not `it(` sites — an `it.each` row is an execution, which is precisely the distinction all three round-8 miscounts got wrong — and classifies each by what it expects: `reported` covers both `expectReported(...)` and a bare `.toBe("unclassifiable")`; `other` is a case asserting something else (there is exactly one, `a reason is reported once, not twice`, which asserts a `toHaveLength`).
 
 <!-- plan-census: computed by .claude/probe/planCensus.ts; DO NOT hand-edit -->
 
@@ -559,13 +559,35 @@ const REPORTS = {
   exportEquals: /export =/i,
   exportNamespace: /export namespace/i,
   nsLocalReexport: /local re-export of a namespace binding/i,
-  nsNonMember: /namespace ns used without a statically known member/i,
+  nsNonMember: /namespace ns \(imported from [^)]+\) used in a position with no statically known member/i,
   computedProcess: /computed member access on process/i,
 } as const;
 
 /** The generated test file, for own-file constructs. */
 const OWN_FILE = /case\d+/;
 ```
+
+**The reason each construct emits, specified once.** Round 20 lost three executions to a matcher that read `namespace ns used without a statically known member` while the implementation step specified `namespace ${name} (imported from ${spec}) used in a position with no statically known member` — an assertion that could never go green, and the second round spent on an assertion string that does not match the reason beside it. Every `REPORTS` matcher above is checked against this table by `planCensus` (`reasonFails`), so a matcher that matches no promised reason fails at Task 0 rather than at Task 5.
+
+<!-- plan-reasons: each row is a reason the implementation emits verbatim; planCensus matches every REPORTS pattern against this table -->
+
+```text
+unsupported module shape for ${spec}
+unresolved in-repo specifier ${spec}
+side-effect import of ${spec}
+unbindable dynamic import of ${spec}
+unfollowable re-export of ${exportName} from ${spec}
+re-export cycle at ${path}#${exportName}
+unsupported export form: export * as ${name} from ${spec}
+unsupported export form: export = in ${path}
+unsupported export form: export namespace ${name} in ${path}
+local re-export of a namespace binding (${name})
+namespace ${name} (imported from ${spec}) used in a position with no statically known member
+dynamic import() with a non-literal specifier
+computed member access on process
+```
+
+The last two are SHIPPED strings, unchanged by this arc (`tests/mutation/source/premiseScan.ts:1090` and `tests/mutation/source/premiseScan.ts:1104`); the rest are this arc's, and each task's implementation step emits its rows verbatim. §2.6 item 2 prefixes the module the construct was FOUND in, which is what `module` / `notModule` assert.
 
 - Consumes: `ModuleFacts`, `resolveSpecifier`, `bindingIdentifiers`, `unclassifiableWithin`, all already in `premiseScan.ts`.
 
@@ -843,7 +865,7 @@ describe("export resolution: the lookup asks for an EXPORT, not a local name", (
         `import { spawnHelper } from "__MODULE_page__";
          it("x", () => { spawnHelper(); });`,
       ),
-      { construct: REPORTS.moduleShape, module: /mod\d+_page\.mdx/ },
+      { construct: REPORTS.moduleShape, module: /mod\d+_page\.mdx/, notModule: OWN_FILE },
     ); // expectReported: construct /unsupported module shape|mdx/, module /page/
   });
 
@@ -922,7 +944,7 @@ describe("export resolution: the lookup asks for an EXPORT, not a local name", (
         `import { x } from "__MODULE_d__";
          it("x", () => { void x; });`,
       ),
-      { construct: REPORTS.moduleShape, module: /mod\d+_d/ },
+      { construct: REPORTS.moduleShape, module: /mod\d+_d/, notModule: OWN_FILE },
     );
   });
 
