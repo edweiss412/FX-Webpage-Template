@@ -25,7 +25,7 @@
 - **No bound expressed as a NUMBER.** Termination comes from the finite `(modulePath, exportName)` visited set (spec §2.5), never a depth counter.
 - impeccable-gate: N/A — no UI surface. No file under `app/`, `components/`, `app/globals.css`, `tailwind.config.*` or `DESIGN.md` is touched.
 
-**Meta-test inventory (writing-plans rule):** **EXTENDS** `tests/mutation/source/premiseScan.test.ts` (new fixture groups and three module-scope helpers); **EXTENDS** `tests/mutation/source/registry.ts` (the `premiseScan` row's `accepted` array — re-keyed where the reasoning survives, one row RETIRED); **EXTENDS** `tests/mutation/source/expectedLedgerKinds.ts` (`EXPECTED_LEDGER_KINDS.premiseScan` is `{ equivalent: 3, "accepted-gap": 1 }`, `tests/mutation/source/expectedLedgerKinds.ts:33`, asserted with `toEqual` by `tests/mutation/guardSurfaces.gates.test.ts:21`, so retiring a row reds it — this file was missing from the round-1 plan, and its omission is the exact fan-out class this inventory exists to catch; **PR #834 sharded the gate after this plan was drafted**, splitting the old single gate suite into `tests/mutation/guardSurfaces.gates.test.ts` plus four shard suites (`tests/mutation/guardSurfaces.shard0.test.ts` through shard3) and lifting the expectations into their own module, so the old path resolves to nothing); **EXTENDS COMMENTS ONLY** in `tests/mutation/_metaPremiseContract.test.ts`. **CREATES** no new meta-test — `_metaPremiseContract.test.ts` already walks the enrolled suites from the registry and already asserts the unclassifiable set is empty. No Supabase call boundary, no `admin_alerts` row, no tile sentinel, no advisory lock, no §12.4 row, no migration.
+**Meta-test inventory (writing-plans rule):** **EXTENDS** `tests/mutation/source/premiseScan.test.ts` (new fixture groups and three module-scope helpers); **EXTENDS** `tests/mutation/source/registry.ts` (the `premiseScan` row's `accepted` array — re-keyed where the reasoning survives, one row RETIRED); **EXTENDS** `tests/mutation/source/expectedLedgerKinds.ts` (`EXPECTED_LEDGER_KINDS.premiseScan` is `{ equivalent: 3, "accepted-gap": 1 }`, `tests/mutation/source/expectedLedgerKinds.ts:33`, asserted with `toEqual` by `tests/mutation/source/surfaceCases.ts:59` (the gate suite at `tests/mutation/guardSurfaces.gates.test.ts:21` compares registry KEYS only, so it is the wrong anchor for the count assertion), so retiring a row reds it — this file was missing from the round-1 plan, and its omission is the exact fan-out class this inventory exists to catch; **PR #834 sharded the gate after this plan was drafted**, splitting the old single gate suite into `tests/mutation/guardSurfaces.gates.test.ts` plus four shard suites (`tests/mutation/guardSurfaces.shard0.test.ts` through shard3) and lifting the expectations into their own module, so the old path resolves to nothing); **EXTENDS COMMENTS ONLY** in `tests/mutation/_metaPremiseContract.test.ts`. **CREATES** no new meta-test — `_metaPremiseContract.test.ts` already walks the enrolled suites from the registry and already asserts the unclassifiable set is empty. No Supabase call boundary, no `admin_alerts` row, no tile sentinel, no advisory lock, no §12.4 row, no migration.
 
 **Mutation-family closure (writing-plans rule):** the operator families are fixed by the ratified registry row — `relational-boundary`, `equality-flip`, `integer-literal` over `tests/mutation/source/premiseScan.ts`, `scoreFloor: 0.95`. A reviewer-proposed NEW family is a registry change carrying its own before/after numbers, not a finding against this plan.
 
@@ -206,7 +206,7 @@ Expected: `reported=0 shapes=0 badFixtures=0`, exit 0. The script splices every 
 
 **It also compiles every FIXTURE MODULE standalone.** A fixture is a module written as a string, and a string is not checked by the splice that surrounds it: `` `${SPAWNER}\nexport default spawnHelper;` `` over a `SPAWNER` that already carries a default export is a module with TWO default exports, and `` `${SPAWNER}\nexport = spawnHelper;` `` is an export assignment in a module that also has ES exports. The scanner's parser is error-tolerant, so both still classify — the case passes while proving nothing about any module an ordinary refactor produces, which puts the proof outside the spec's probe domain. Round 8 found the first; the arm found the second in the same sweep, over 63 fixtures. Only CONFLICT codes are reported (`TS2528`, `TS2309`, `TS2300`, `TS2323`, `TS2393`), because a fixture legitimately cannot resolve `node:child_process` or a `__MODULE_*` placeholder.
 
-**It also carries shape checks the compiler cannot make.** `expect(classificationWithModules(…)).toBe("environment-touching")` compares an OBJECT to a STRING; `toBe` accepts anything, so it typechecks cleanly and fails at runtime on every such case. Six survived a pass that reported zero diagnostics, which is why `shapes` is a separate counter and why "the typecheck was green" is not by itself evidence a block is sound. **Re-run it after ANY edit to a test block in this plan** — that is the gate the three rounds above were paying for, and copying a block into `premiseScan.test.ts` before it typechecks here just moves the failure.
+**It also carries shape checks the compiler cannot make.** `expect(classificationWithModules(…)).toBe("environment-touching")` compares an OBJECT to a STRING; `toBe` accepts anything, so it typechecks cleanly and fails at runtime on every such case. Six survived a pass that reported zero diagnostics, which is why `shapes` is a separate counter and why "the typecheck was green" is not by itself evidence a block is sound. **Re-run all three oracles — `planTypecheck`, `planCensus`, `planRun` — after ANY edit to a test block in this plan** — that is the gate the three rounds above were paying for, and copying a block into `premiseScan.test.ts` before it typechecks here just moves the failure.
 
 - [ ] **Step 5c: Diff every case count this plan states against the blocks it states them about.**
 
@@ -223,13 +223,103 @@ Expected: `mismatched=0`, exit 0. The script counts EXECUTIONS, not `it(` sites 
 ```text
 declined export forms: recognized, unresolvable, and REPORTED | touching=1 free=1 reported=4 other=0
 declined export forms: unmodelled runtime references REPORT (AC-5c) | touching=0 free=1 reported=11 other=0
-export resolution: the lookup asks for an EXPORT, not a local name | touching=18 free=3 reported=2 other=0
+export resolution: the lookup asks for an EXPORT, not a local name | touching=17 free=4 reported=2 other=0
 forwarded exports: a re-export is followed to its source | touching=13 free=5 reported=1 other=0
 namespace bindings: member-precise, and nothing else | touching=8 free=3 reported=4 other=0
 unclassifiable propagation: a construct anywhere reachable reaches the verdict | touching=10 free=2 reported=13 other=1
 ```
 
-**Every case count stated anywhere in this plan comes from that table.** A count written from memory is the defect this step exists to stop, and it is the fifth instance in this arc of the same shape — a claim wider, or narrower, than the artifact it describes.
+**Every case count stated anywhere in this plan comes from that table, or from a `CLAIM` line in Step 5d's `plan-redset` block.** The census counts what the blocks CONTAIN; the `CLAIM` lines pin what the blocks DO. Round 9 perturbed four prose forecasts without any oracle noticing, because the census block alone does not read them; a `CLAIM` line is read, and fails by name. A count written from memory is the defect this step exists to stop, and it is the fifth instance in this arc of the same shape — a claim wider, or narrower, than the artifact it describes.
+
+- [ ] **Step 5d: MEASURE the red/foil split instead of forecasting it.**
+
+Rounds 8 and 9 both found a hand-written forecast wrong: round 8 miscounted executions, and round 9 found a case listed RED that is already GREEN — `E4: a NAMED default class declaration resolves` passed on the merged scanner because today's local-declaration lookup finds the class's own name, so the case could not discriminate the rule it was written for. Neither is findable by re-reading. Both are trivially findable by RUNNING, because the blocks are test code and the scanner is on disk.
+
+```bash
+npx tsx .claude/probe/planRun.ts          # add --list to see every case
+```
+
+Expected: `mismatched=0`, exit 0. The script splices every test-shaped `ts` block into a real suite in front of the shipped harness (`tests/mutation/source/premiseScan.test.ts:1-20`), runs vitest, and diffs the OBSERVED failing set against the `plan-redset` block below. A case the plan expects red that passes today, or one it expects green that fails, breaks the diff by name — which is exactly the two defects those rounds spent themselves on.
+
+**Read the declaration as a measurement of the PRE-implementation tree.** It is the transcript each task's Step 3 compares against, and after Tasks 1-5 land every RED row must have flipped; a row still failing at Task 6 is an unfinished task, and a row that was never red is a case that proves nothing.
+
+<!-- plan-redset: measured by .claude/probe/planRun.ts against the merged scanner; DO NOT hand-edit -->
+
+```text
+executions=101 red=66 green=35
+CLAIM titleContains="export resolution" red=10 green=13
+CLAIM titleContains="forwarded exports" red=14 green=5
+CLAIM titleContains="declined export forms" red=15 green=3
+CLAIM titleContains="namespace bindings" red=9 green=6
+CLAIM titleContains="unclassifiable propagation" red=18 green=8
+CLAIM titleContains="TOP-LEVEL" red=9 green=1
+RED  declined export forms: recognized, unresolvable, and REPORTED `export * as ns from` reports
+RED  declined export forms: recognized, unresolvable, and REPORTED `export =` reports
+RED  declined export forms: recognized, unresolvable, and REPORTED `export namespace` reports
+RED  declined export forms: recognized, unresolvable, and REPORTED an unfollowable re-export reports, naming the module
+RED  declined export forms: unmodelled runtime references REPORT (AC-5c) an EXPORTED dynamic binding REPORTS: const ns = await import(); export { ns } (spec §2.2)
+RED  declined export forms: unmodelled runtime references REPORT (AC-5c) an EXPORTED dynamic binding REPORTS: const { spawner } = await import(); export { spawner } (spec §2.2)
+RED  declined export forms: unmodelled runtime references REPORT (AC-5c) an EXPORTED dynamic binding REPORTS: export const ns = await import() (spec §2.2)
+RED  declined export forms: unmodelled runtime references REPORT (AC-5c) an EXPORTED dynamic binding REPORTS: export const { spawner } = await import() (spec §2.2)
+RED  declined export forms: unmodelled runtime references REPORT (AC-5c) an EXPORTED embedded dynamic import REPORTS through the importer
+RED  declined export forms: unmodelled runtime references REPORT (AC-5c) an in-repo STATIC side-effect import REPORTS
+RED  declined export forms: unmodelled runtime references REPORT (AC-5c) an in-repo specifier that does NOT resolve REPORTS
+RED  declined export forms: unmodelled runtime references REPORT (AC-5c) an unmodelled runtime reference REPORTS: assignment position
+RED  declined export forms: unmodelled runtime references REPORT (AC-5c) an unmodelled runtime reference REPORTS: bare side-effect dynamic
+RED  declined export forms: unmodelled runtime references REPORT (AC-5c) an unmodelled runtime reference REPORTS: embedded: .then destructure
+RED  declined export forms: unmodelled runtime references REPORT (AC-5c) an unmodelled runtime reference REPORTS: embedded: awaited member call
+RED  export resolution: the lookup asks for an EXPORT, not a local name E3: `export default <expr>` resolves under a renamed default (AC-5d)
+RED  export resolution: the lookup asks for an EXPORT, not a local name E4: a default-exported class is NOT exported under its own name (AC-5d)
+RED  export resolution: the lookup asks for an EXPORT, not a local name E4: an ANONYMOUS default function declaration resolves (AC-5d)
+RED  export resolution: the lookup asks for an EXPORT, not a local name `export { x as y }` with no specifier resolves by the EXPORTED name
+RED  export resolution: the lookup asks for an EXPORT, not a local name a data import is PURE, on a fixture that is RED today (AC-9)
+RED  export resolution: the lookup asks for an EXPORT, not a local name a default export that is an EXPRESSION resolves
+RED  export resolution: the lookup asks for an EXPORT, not a local name a renamed default CLASS resolves (AC-4b)
+RED  export resolution: the lookup asks for an EXPORT, not a local name a renamed default import resolves
+RED  export resolution: the lookup asks for an EXPORT, not a local name an `.mdx` target is REPORTED, not purified (AC-9d)
+RED  export resolution: the lookup asks for an EXPORT, not a local name an unrecognized module shape is REPORTED, not purified (AC-9c)
+RED  forwarded exports: a re-export is followed to its source E2: a DEFAULT import then a local export forwards as `default`
+RED  forwarded exports: a re-export is followed to its source E2: an import ALIAS then a local export forwards by the IMPORTED name
+RED  forwarded exports: a re-export is followed to its source E5: `export { x as default } from` forwards named-to-DEFAULT
+RED  forwarded exports: a re-export is followed to its source `export * from` is followed
+RED  forwarded exports: a re-export is followed to its source `export { default as x } from` is followed
+RED  forwarded exports: a re-export is followed to its source `export { default } from` is followed
+RED  forwarded exports: a re-export is followed to its source `export { x as y } from` is followed by the SOURCE name
+RED  forwarded exports: a re-export is followed to its source `export { x } from` is followed
+RED  forwarded exports: a re-export is followed to its source a TOUCHING diamond still short-circuits on the first branch
+RED  forwarded exports: a re-export is followed to its source a re-export CYCLE terminates and reports, with its own reason
+RED  forwarded exports: a re-export is followed to its source a re-export chain two deep is followed
+RED  forwarded exports: a re-export is followed to its source an EXPORT beats a same-named non-exported local (AC-10c), moved here from Task 1, because it needs E5
+RED  forwarded exports: a re-export is followed to its source import-then-`export { x }` is followed
+RED  forwarded exports: a re-export is followed to its source star-export ambiguity: the branch that HAS the name wins (AC-5b)
+RED  namespace bindings: member-precise, and nothing else `export { ns }` over a namespace import reports
+RED  namespace bindings: member-precise, and nothing else `ns.member` resolves to that member
+RED  namespace bindings: member-precise, and nothing else `ns["member"]` resolves to that member
+RED  namespace bindings: member-precise, and nothing else `ns[computed]` reports
+RED  namespace bindings: member-precise, and nothing else a DYNAMIC namespace binding resolves (AC-2b)
+RED  namespace bindings: member-precise, and nothing else a destructured namespace reports
+RED  namespace bindings: member-precise, and nothing else a namespace in a NON-member position reports
+RED  namespace bindings: member-precise, and nothing else the namespace dedup identity includes the MEMBER: pure first (AC-2c)
+RED  namespace bindings: member-precise, and nothing else the namespace dedup identity includes the MEMBER: spawn first (AC-2c)
+RED  unclassifiable propagation: a construct anywhere reachable reaches the verdict a CROSS-MODULE helper holding a construct reports, naming that module
+RED  unclassifiable propagation: a construct anywhere reachable reaches the verdict a TOP-LEVEL afterAll holding a construct reports (AC-11)
+RED  unclassifiable propagation: a construct anywhere reachable reaches the verdict a TOP-LEVEL afterAll reaching provenance classifies touching (AC-12)
+RED  unclassifiable propagation: a construct anywhere reachable reaches the verdict a TOP-LEVEL afterEach holding a construct reports (AC-11)
+RED  unclassifiable propagation: a construct anywhere reachable reaches the verdict a TOP-LEVEL afterEach reaching provenance classifies touching (AC-12)
+RED  unclassifiable propagation: a construct anywhere reachable reaches the verdict a TOP-LEVEL beforeAll holding a construct reports (AC-11)
+RED  unclassifiable propagation: a construct anywhere reachable reaches the verdict a TOP-LEVEL beforeAll reaching provenance classifies touching (AC-12)
+RED  unclassifiable propagation: a construct anywhere reachable reaches the verdict a TOP-LEVEL beforeEach holding a construct reports (AC-11)
+RED  unclassifiable propagation: a construct anywhere reachable reaches the verdict a TOP-LEVEL beforeEach reaching provenance classifies touching (AC-12)
+RED  unclassifiable propagation: a construct anywhere reachable reaches the verdict a TOP-LEVEL hook reaching PROVENANCE classifies touching (AC-12)
+RED  unclassifiable propagation: a construct anywhere reachable reaches the verdict a beforeAll body holding a construct reports (C2)
+RED  unclassifiable propagation: a construct anywhere reachable reaches the verdict a beforeEach body holding a construct reports (C1)
+RED  unclassifiable propagation: a construct anywhere reachable reaches the verdict a construct in the test's OWN body outranks a provable environment reach
+RED  unclassifiable propagation: a construct anywhere reachable reaches the verdict a describe-scope helper holding a computed process access reports
+RED  unclassifiable propagation: a construct anywhere reachable reaches the verdict a describe-scope helper holding a non-literal dynamic import reports
+RED  unclassifiable propagation: a construct anywhere reachable reaches the verdict a describe.each producer holding a construct reports (C3)
+RED  unclassifiable propagation: a construct anywhere reachable reaches the verdict a module-scope helper holding a computed process access reports
+RED  unclassifiable propagation: a construct anywhere reachable reaches the verdict a module-scope helper holding a non-literal dynamic import reports
+```
 
 - [ ] **Step 5: Note the corpus base-sha split.** The merge moves `git merge-base origin/main HEAD`, so rows already written under `docs/review-rounds/fix/premisescan-import-edges/` for the pre-merge base sit beside a second file keyed on the post-merge one. That is intended — round counts are per merge-base — but Task 7 must read BOTH.
 
@@ -584,17 +674,28 @@ describe("export resolution: the lookup asks for an EXPORT, not a local name", (
     ).toBe("environment-touching");
   });
 
-  it("E4: a NAMED default class declaration resolves (AC-5d)", () => {
-    // `export default class K {}` exports `default`; the name K is module-local.
-    // A resolver recording BOTH names passes AC-4b while mis-modelling ES.
+  it("E4: a default-exported class is NOT exported under its own name (AC-5d)", () => {
+    // `export default class K {}` exports `default`; `K` is module-local, so a
+    // NAMED import of `K` must resolve noSuchExport and stay pure.
+    //
+    // This shape is what discriminates the "only `default`" half of E4. The
+    // earlier fixture imported the SAME name through DEFAULT syntax and
+    // asserted touching: measured GREEN on the merged scanner (planRun), since
+    // today's local-declaration lookup finds the class's own name `K` and
+    // answers touching for the wrong reason, and a resolver recording BOTH
+    // `default` and `K` would pass it just as happily. This one measures
+    // touching today and must go FREE, so only a resolver that maps `default`
+    // alone can green it.
     expect(
       verdictWithModules(
-        { helper: `import { spawnSync } from "node:child_process";
-            export default class K { go(): string { return String(spawnSync("echo", ["x"]).stdout); } }` },
-        `import K from "__MODULE_helper__";
+        {
+          helper: `import { spawnSync } from "node:child_process";
+            export default class K { go(): string { return String(spawnSync("echo", ["x"]).stdout); } }`,
+        },
+        `import { K } from "__MODULE_helper__";
          it("x", () => { new K().go(); });`,
       ),
-    ).toBe("environment-touching");
+    ).toBe("environment-free");
   });
 
   it("E3: `export default <expr>` resolves under a renamed default (AC-5d)", () => {
@@ -795,9 +896,13 @@ describe("export resolution: the lookup asks for an EXPORT, not a local name", (
 npx vitest run tests/mutation/source/premiseScan.test.ts -t "export resolution"
 ```
 
-Expected: a non-zero FAILING count (never `skipped`). **The membership RULE decides, and the list below is its worked examples, not its definition** — a case added later lands inside the rule instead of needing a sixth name here, which is the whole reason round 8 found this list short by two. Before Step 4, `tests/mutation/source/premiseScan.ts:587` stores the LOCAL binding name into the import fact's `imported` field, and `tests/mutation/source/premiseScan.ts:1001` asks the target for exactly that name; so **a case is RED iff the name its target EXPORTS differs from the name the importing side binds** (every rename, every default, every `export default <expr>`), **or its target's extension is one the guard must claim** (`.json`, `.mdx`), **or its target is not a module at all** (the directory case, which fails by THROWING `EISDIR` rather than by returning a wrong verdict). It is GREEN iff the two names coincide — which is why the coincidence foil is a foil. Census for this block: **23 executions — touching=18, free=3, reported=2** (Task 0 Step 5c).
+Expected: a non-zero FAILING count (never `skipped`). **The membership RULE decides, and the list below is its worked examples, not its definition** — a case added later lands inside the rule instead of needing a sixth name here, which is the whole reason round 8 found this list short by two. Before Step 4, `tests/mutation/source/premiseScan.ts:587` stores the LOCAL binding name into the import fact's `imported` field, and `tests/mutation/source/premiseScan.ts:1001` asks the target for exactly that name; so **a case is RED iff the name its target EXPORTS differs from the name the importing side binds** (every rename, every default, every `export default <expr>`), **or its target's extension is one the guard must claim** (`.json`, `.mdx`), **or its target is not a module at all** (the directory case, which fails by THROWING `EISDIR` rather than by returning a wrong verdict). It is GREEN iff the two names coincide — which is why the coincidence foil is a foil. Census for this block: **23 executions — touching=17, free=4, reported=2** (Task 0 Step 5c).
 
-Red by that rule, named because each carries a distinct rationale: `a renamed default import resolves`, `a default export that is an EXPRESSION resolves` **and its renamed form**, `export { x as y }` (the lookup asks the target for `runIt`), `E4: a NAMED default class declaration resolves` (the class's own name is module-local under ES, so the export is `default` and the import binds something else), **`E4: an ANONYMOUS default function declaration resolves` — omitted by every draft through round 7, and the sharpest of the set, because the declaration binds no local name at all, so there is nothing for today's lookup to coincide with — and the E3 case "export default &lt;expr&gt; resolves under a renamed default"**, and `an unrecognized module shape is REPORTED`. Also red: `a data import is PURE` — a `.json` target is parsed as TypeScript today, so the fixture measures `environment-touching` until the extension guard lands. Also red: `an .mdx target is REPORTED` — an `.mdx` target is likewise parsed as TypeScript today and measures `environment-touching`, so it reds against the expected `unclassifiable` until answer 3 lands; it is the twin of the `.json` case and the two differ in exactly the extension, which is what makes each discriminating. Already green, as foils: `a same-named default import` (name coincidence), `a pure default export stays free` — which passes by lookup MISS, not by purity, so record that rather than letting it read as evidence — `export { x }` local, the exported `const`, and the `.mjs` case. Record which cases were red.
+**The split is MEASURED, not forecast — see Task 0 Step 5d.** The `planRun` harness under the gitignored probe directory splices these blocks into a real suite in front of the shipped harness and runs them against the merged scanner, so which cases are red before implementation is an observation. The plan declares the observed set in its `plan-redset` block and the oracle diffs it, which is what closes the class rounds 8 and 9 both found: a case listed RED that is already GREEN proves nothing, and no amount of re-reading finds it.
+
+Red in this block — TEN of its twenty-three executions, pinned by `CLAIM titleContains="export resolution" red=10 green=13` in Task 0 Step 5d — each for a distinct reason: `a renamed default import resolves`; `a default export that is an EXPRESSION resolves` and its renamed E3 form; `` `export { x as y }` `` (the lookup asks the target for `runIt`); `a renamed default CLASS resolves (AC-4b)`; **`E4: an ANONYMOUS default function declaration resolves` — the declaration binds no local name at all, so there is nothing for today's lookup to coincide with**; **`E4: a default-exported class is NOT exported under its own name` — measures touching today and must go FREE, the only case here that discriminates the "map `default` and ONLY `default`" half of E4**; `an unrecognized module shape is REPORTED`, which fails by THROWING `EISDIR`; `a data import is PURE`, since a `.json` target is parsed as TypeScript today; and `an .mdx target is REPORTED`, its twin, differing in exactly the extension.
+
+Green as foils, and each records WHY it is green, because a foil green for the wrong reason is the same defect one step over: `a same-named default import resolves for the RIGHT reason` (name coincidence — it is green today AND after, which is the point); `a pure default export stays free`, which passes by lookup MISS rather than by purity; `` `export { x }` `` local; the exported `const`, CLASS and ENUM; both E1 binding-pattern cases; `a DIRECT noSuchExport is pure`; `value BEATS type`; and the `.mjs` and `.jsx` cases.
 
 - [ ] **Step 4: Implement — and ONLY what this task's own tests require.** TDD invariant 1 is per task: a production behaviour whose failing test lives in a later task does not get written here. A round-1 draft implemented five such behaviours in this step (the E2 forward stub, static and dynamic namespace marking, `export { ns }` rejection, unresolved-in-repo-specifier reporting, and hook reason merging) and every one of them had its test in Task 2, 3, 4 or 5. Each has moved to the task that tests it; the note at the end of this step records where.
 
@@ -1138,7 +1243,7 @@ describe("forwarded exports: a re-export is followed to its source", () => {
 npx vitest run tests/mutation/source/premiseScan.test.ts -t "forwarded exports"
 ```
 
-Expected: a non-zero FAILING count. **The red reason differs per case and the plan states which, because a wrong rationale is how a red gets accepted for the wrong cause.** After Task 1, a module's `exports` map records only LOCAL forms — no `ExportDeclaration` carrying a `moduleSpecifier` is recorded at all — so E5 and E6 cases resolve `noSuchExport` and classify **`environment-free`**. `import-then-export { x }`, its aliased form and its default form also classify **`environment-free`**, not `unclassifiable`: Task 1 records E2's exported name but has no forward branch at all — that branch is this task's Step 0b — so the local name resolves through neither `extents` nor a forward and answers `noSuchExport`, which is pure. A round-3 draft said these reached a `forwarded export (not yet followed)` stub in Task 1; Task 1 creates no such stub, so the rationale named a mechanism that does not exist even though the command still failed. The cycle case therefore fails on its VERDICT (it is `environment-free`, not `unclassifiable`), and its `detail` assertion is the second gate that stops the stub reason from being mistaken for cycle detection. Already green, as foils: `does NOT forward default`, the benign miss, the pure re-export, the mixed barrel, and the PURE diamond.
+Expected: a non-zero FAILING count. **The red reason differs per case and the plan states which, because a wrong rationale is how a red gets accepted for the wrong cause.** After Task 1, a module's `exports` map records only LOCAL forms — no `ExportDeclaration` carrying a `moduleSpecifier` is recorded at all — so E5 and E6 cases resolve `noSuchExport` and classify **`environment-free`**. `import-then-export { x }`, its aliased form and its default form also classify **`environment-free`**, not `unclassifiable`: Task 1 records E2's exported name but has no forward branch at all — that branch is this task's Step 0b — so the local name resolves through neither `extents` nor a forward and answers `noSuchExport`, which is pure. A round-3 draft said these reached a `forwarded export (not yet followed)` stub in Task 1; Task 1 creates no such stub, so the rationale named a mechanism that does not exist even though the command still failed. The cycle case therefore fails on its VERDICT (it is `environment-free`, not `unclassifiable`), and its `detail` assertion is the second gate that stops the stub reason from being mistaken for cycle detection. FOURTEEN of this block's nineteen executions are red and five are foils, pinned by `CLAIM titleContains="forwarded exports" red=14 green=5` in Task 0 Step 5d. The foils: `does NOT forward default`, the benign miss, the pure re-export, the mixed barrel, and the PURE diamond.
 
 - [ ] **Step 3: Implement.** In `premiseScan.ts`:
 
@@ -1386,7 +1491,7 @@ describe("declined export forms: recognized, unresolvable, and REPORTED", () => 
 npx vitest run tests/mutation/source/premiseScan.test.ts -t "declined export forms"
 ```
 
-Expected: a non-zero FAILING count. **This task authors TWO describe blocks and the `-t` filter runs both**, so the red set is FIFTEEN reporting executions, not five: **eleven** in `unmodelled runtime references REPORT (AC-5c)` — one `it.each` row per §2.4b table row, and a row is an execution — and **four** in `declined export forms: recognized, unresolvable, and REPORTED` (census, Task 0 Step 5c: `reported=11` and `reported=4`). A draft through round 7 said "five", counting `it(` sites in one block and missing the other entirely, which is precisely the miscount the census gate now catches. Every one of the fifteen classifies `environment-free` today — each resolves to `noSuchExport`, which Task 1 makes pure. The `export { ns }` case is NOT in this task; it moved to Task 4 with the namespace flag it depends on. The two foils (`touching=1 free=1` across the two blocks) are already green.
+Expected: a non-zero FAILING count. **This task authors TWO describe blocks and the `-t` filter runs both**, so the red set is FIFTEEN executions, not five — measured, and pinned by `CLAIM titleContains="declined export forms" red=15 green=3` in Task 0 Step 5d's `plan-redset` block, so the number fails the oracle if it drifts: **eleven** in `unmodelled runtime references REPORT (AC-5c)` — one `it.each` row per §2.4b table row, and a row is an execution — and **four** in `declined export forms: recognized, unresolvable, and REPORTED` (census, Task 0 Step 5c: `reported=11` and `reported=4`). A draft through round 7 said "five", counting `it(` sites in one block and missing the other entirely, which is precisely the miscount the census gate now catches. Every one of the fifteen classifies `environment-free` today — each resolves to `noSuchExport`, which Task 1 makes pure. The `export { ns }` case is NOT in this task; it moved to Task 4 with the namespace flag it depends on. The two foils (`touching=1 free=1` across the two blocks) are already green.
 
 - [ ] **Step 3: Implement.** In `moduleFacts`, record the declined forms explicitly so they resolve to `unresolvable` with their own reasons rather than falling through to `noSuchExport`: an `ExportDeclaration` whose clause is a `NamespaceExport` (`export * as ns from`); an `ExportAssignment` with `isExportEquals === true` (`export =`); and a `ModuleDeclaration` carrying an `export` modifier (`export namespace` / `export module`). E1's predicate is already the four registered declaration kinds — Task 1 Step 4.2 writes it that way — so nothing is narrowed here; that is why `export namespace` reaches this task's rule at all rather than resolving to an empty extent.
 
@@ -1587,7 +1692,7 @@ describe("namespace bindings: member-precise, and nothing else", () => {
 npx vitest run tests/mutation/source/premiseScan.test.ts -t "namespace bindings"
 ```
 
-Expected: a non-zero FAILING count. Red: both member cases, the dynamic namespace case, the three reporting cases, BOTH AC-2c ordering cases, **and the `export { ns }` case that moved here from Task 3 — NINE**. A round-1 draft said six and omitted the ordering pair, reasoning that only one order can expose a member-blind `bindingKey`; that is true AFTER the member-precise binding lands, and false before it. Right now neither namespace member resolves at all, so both orders are `environment-free` and both are red. Already green, as foils: the dynamic destructured case, `pureOne`, both AC-10b cases, both provenance-module cases — **six**. Record that split; a foil already green is what makes the reds meaningful, and a red transcript that miscounts is how a red gets accepted for the wrong cause.
+Expected: a non-zero FAILING count. Red: NINE of this block's fifteen executions, pinned by `CLAIM titleContains="namespace bindings" red=9 green=6` in Task 0 Step 5d — both member cases, the dynamic namespace case, the three reporting cases, BOTH AC-2c ordering cases, **and the `export { ns }` case that moved here from Task 3**. A round-1 draft said six and omitted the ordering pair, reasoning that only one order can expose a member-blind `bindingKey`; that is true AFTER the member-precise binding lands, and false before it. Right now neither namespace member resolves at all, so both orders are `environment-free` and both are red. Already green, as foils: the dynamic destructured case, `pureOne`, both AC-10b cases, both provenance-module cases — **six**. Record that split; a foil already green is what makes the reds meaningful, and a red transcript that miscounts is how a red gets accepted for the wrong cause.
 
 - [ ] **Step 3: Implement.** In `premiseScan.ts`:
 
@@ -1744,7 +1849,7 @@ describe("unclassifiable propagation: a construct anywhere reachable reaches the
       // Probe §3.11 row D measures a top-level afterAll environment-free today,
       // exactly as beforeEach is. Pinning only the two before* forms would leave
       // half the defect live while the block read as complete. The shipped
-      // registrar regex already covers all four (premiseScan.ts:827).
+      // registrar regex already covers all four (tests/mutation/source/premiseScan.ts:1119).
       expect(
         classificationWithModules(
           {
@@ -1761,7 +1866,7 @@ describe("unclassifiable propagation: a construct anywhere reachable reaches the
 
   it("the top-level seed does NOT leak a nested hook to a sibling (AC-12b)", () => {
     // The criterion AC-11's pure-hook foil cannot catch. hookBodies walks with
-    // ts.forEachChild (premiseScan.ts:895), so a seed written as one recursive
+    // ts.forEachChild (tests/mutation/source/premiseScan.ts:1113), so a seed written as one recursive
     // call over the SourceFile attaches EVERY hook in the file to EVERY test in
     // it, turning this pure sibling environment-touching. A FALSE POSITIVE,
     // the direction spec §0 forbids trading into.
@@ -1923,7 +2028,7 @@ describe("unclassifiable propagation: a construct anywhere reachable reaches the
 npx vitest run tests/mutation/source/premiseScan.test.ts -t "unclassifiable propagation"
 ```
 
-Expected: a non-zero FAILING count. Red: the four helper-position cases, the three nested hook and producer cases, the cross-module case, and **NINE TOP-LEVEL executions** — one standalone AC-12 provenance case, the FOUR AC-11 construct rows (`it.each` over `beforeEach` / `beforeAll` / `afterEach` / `afterAll`), and the FOUR AC-12 provenance rows over the same four registrars. A draft through round 7 said "both", counting the two `it.each` SITES as two cases when each expands to four executions; the census gate (Task 0 Step 5c) is what makes that arithmetic checkable. The provenance ones matter most: they are `environment-free` today and are the arc's only provenance silent free. Already green, as foils: the C6 nested provenance hook, the top-level PURE hook, the no-construct helper, and both AC-12 helper/own-extent branches. `a reason is reported once` is also green at authoring time — a regression pin for the double-report the merge could introduce, not a red.
+Expected: a non-zero FAILING count. Red: EIGHTEEN of this block's twenty-six executions, pinned by `CLAIM titleContains="unclassifiable propagation" red=18 green=8`. They are the four helper-position cases, the three nested hook and producer cases, the cross-module case, the own-body precedence case, and **NINE TOP-LEVEL executions** — the last pinned separately by `CLAIM titleContains="TOP-LEVEL" red=9 green=1` — one standalone AC-12 provenance case, the FOUR AC-11 construct rows (`it.each` over `beforeEach` / `beforeAll` / `afterEach` / `afterAll`), and the FOUR AC-12 provenance rows over the same four registrars. A draft through round 7 said "both", counting the two `it.each` SITES as two cases when each expands to four executions; the census gate (Task 0 Step 5c) is what makes that arithmetic checkable. The provenance ones matter most: they are `environment-free` today and are the arc's only provenance silent free. Already green, as foils: the C6 nested provenance hook, the top-level PURE hook, the no-construct helper, and both AC-12 helper/own-extent branches. `a reason is reported once` is also green at authoring time — a regression pin for the double-report the merge could introduce, not a red.
 
 - [ ] **Step 3: Implement.** Two changes:
 
