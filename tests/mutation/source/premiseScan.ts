@@ -807,8 +807,15 @@ function followForward(
   active.delete(key);
   // Anything the HOP's own module reports about itself has no other way out:
   // the caller never sees this module (round-13 finding 1).
-  const merged: ExportResolution =
-    carried.length > 0 ? { ...res, reasons: [...(res.reasons ?? []), ...carried] } : res;
+  // `carried.length` truthy, NOT `> 0`: the relational spelling creates a
+  // mutation site whose `>=` variant is equivalent (an empty `reasons: []`
+  // reads the same as `undefined` at every consumer), and a site that needs an
+  // equivalence argument is worse than a site that does not exist. The guard
+  // this replaced was `carried.length && res.kind !== "forward"`, so the truthy
+  // form is what was here before the orphaned variant came out.
+  const merged: ExportResolution = carried.length
+    ? { ...res, reasons: [...(res.reasons ?? []), ...carried] }
+    : res;
   done.set(key, merged);
   return merged;
 }
