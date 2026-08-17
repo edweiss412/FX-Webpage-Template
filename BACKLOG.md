@@ -1126,6 +1126,41 @@ than by role precisely because they are all present. `aria-hidden={!isActive}` i
 change, deferred only because it moves several existing role-based queries and belongs with the
 current-slide announcement decision rather than ahead of it.
 
+### BL-PREMISESCAN-UNPARSEABLE-MODULE-UNREACHABLE — canonical unclassifiable form 4 is dead code and this arc does not make it live
+
+**Status:** OPEN · **Severity:** LOW · **Class:** guard fidelity · **Filed:** 2026-08-16 (`fix/premisescan-import-edges`, spec §3.8) · **Effort:** S
+
+`premiseScan`'s `unresolved.push("unparseable in-repo module")` site is unreachable. **Probed three ways:** `moduleFacts` returns `null` if and only if `!existsSync(path)`; `resolveSpecifier` returns only candidates for which `existsSync` was already true, so that branch cannot fire through the traversal at all; and `ts.createSourceFile` is error-tolerant, parsing `export function spawnHelper(: string { return` to a `SourceFile` carrying a `FunctionDeclaration` without throwing or returning null. The fixture classifies `environment-free`.
+
+Closing it means a new detection rule over `sf.parseDiagnostics` — recognizer growth on an axis with **zero** measured instances, which the owning spec's §1.2(e) forbids. Deferred under class-sweep exception (c): a new detection rule on a surface the arc does not otherwise touch. Canonical AC-8a therefore stands at 3 of 4 after `BL-PREMISESCAN-IMPORT-EDGE-FIDELITY`, stated rather than overclaimed.
+
+### BL-PREMISESCAN-NESTED-HOOK-SIBLING-LEAK — a hook in one nested describe leaks to its siblings
+
+**Status:** OPEN · **Severity:** MEDIUM (a FALSE POSITIVE, pre-existing) · **Class:** guard fidelity · **Filed:** 2026-08-16 (`fix/premisescan-import-edges`, probe §3.11 row A) · **Effort:** M
+
+`hookBodies` collects recursively (`ts.forEachChild`), so under a shared outer `describe` a spawning hook in branch A is attached to tests in sibling branch B. Probed:
+
+```
+A: sibling nested describes, hook only in A  ->  inA=touching, inB=TOUCHING   <- false positive
+B: top-level sibling describes, hook in A    ->  inA=touching, inB=free       [correct]
+```
+
+The leak needs a shared outer `describe`; without one the branches do not share a collection point.
+
+**Why `BL-PREMISESCAN-IMPORT-EDGE-FIDELITY` does not fix it**, under class-sweep exception (c): repairing the recursion moves live verdicts, and that arc's headline constraint is verdict-neutrality against `_metaPremiseContract`'s exact counts. The two cannot ship together by construction. That arc's own top-level hook seed is deliberately NON-recursive so it does not widen this leak, and its AC-12b asserts the leaked value as-is so a later change cannot deepen it silently.
+
+### BL-PLANLINT-ASSERTIONLESS-EXPECT — an `expect(` with no matcher asserts nothing, and is mechanically detectable
+
+**Status:** OPEN · **Severity:** MEDIUM · **Class:** review economy · **Filed:** 2026-08-16 (`fix/premisescan-import-edges`, plan round-4 finding 1) · **Effort:** S
+
+A scripted conversion left 13 planned call sites as `expect(actual, { … })` with no matcher; Vitest returns an assertion object and nothing is asserted, so 16 executions passed regardless of verdict or detail. **Probe evidence:** the round-4 reviewer enumerated all 13 with line numbers, and a brace-balanced scan over fenced `ts` blocks reproduced exactly that set. Proposal: run that scan over `docs/superpowers/plans/**` in `spec-lint`, since the plan's test blocks are the artifact an implementer copies.
+
+### BL-DOCEDIT-POSTCHECK — scripted edits to specs and plans need a post-edit invariant check
+
+**Status:** OPEN · **Severity:** MEDIUM · **Class:** review economy · **Filed:** 2026-08-16 (`fix/premisescan-import-edges`, spec round-5 finding 2 and plan round-4 finding 1) · **Effort:** S
+
+Two silent deletions in one arc, both from a multi-line non-greedy regex whose terminating phrase recurred later in the document: one removed §4 limits 6-14 from a spec, the other mangled reporting assertions in a plan. Neither was visible in the diff summary. **Probe evidence:** both were caught by cross-model review rather than by the author, and both were confirmed by counting structural elements before and after. Proposal: a `pnpm doc:postcheck` that compares section-number continuity, `it(` counts and fenced-block balance across an edit, to be run after any scripted change to these documents.
+
 ### BL-PROBE-RECORD-COVERAGE-TABLE — a probe record's universal claim should be checkable against its harness source
 
 **Status:** OPEN · **Severity:** MEDIUM · **Class:** review economy · **Filed:** 2026-08-16 (`fix/premisescan-import-edges`, spec round-economy filing at `docs/review-rounds/fix/premisescan-import-edges/daa53759a953.md`) · **Effort:** S
