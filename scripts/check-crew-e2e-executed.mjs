@@ -19,6 +19,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { collectInfraRecoveries, printInfraRecoveries } from "./lib/infraRecoveryAnnotations.mjs";
+
 /** Specs the crew-e2e job exists to run, with the minimum each must EXECUTE. */
 // Every count is the spec's FULL executable set, not a floor of 1. Whole-diff review R12 (HIGH):
 // a minimum of 1 let a nested `beforeEach(() => test.skip())` runtime-skip 5 of 6, 5 of 6 and 3 of
@@ -155,6 +157,11 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     if (n < min) failures.push(`${file}: executed ${n}, expected at least ${min}`);
   }
 
+  // PRINT-BEFORE-GATE (spec §4.3). This oracle is the crew job's only consumer of the run report,
+  // so it carries the recovery print duty rather than a separate step — and the duty is worthless
+  // in its tail, because `process.exit(1)` on a floor shortfall would run first. The gating exit is
+  // therefore the LAST statement of this function, with the print unconditionally above it. A
+  // `finally` block is NOT the mechanism: `process.exit()` does not run `finally`.
   if (failures.length > 0) {
     console.error("check-crew-e2e-executed: guarded specs did not run:");
     for (const f of failures) console.error(`  ${f}`);
@@ -162,13 +169,17 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
       "A collected-but-skipped suite reports green. If a skip is deliberate, change the " +
         "REQUIRED table in this script and say why.",
     );
-    process.exit(1);
+  } else {
+    console.log(
+      `check-crew-e2e-executed: ok — ${[...executed.entries()]
+        .map(([f, ids]) => `${f} ${ids.size}`)
+        .sort()
+        .join(", ")}`,
+    );
   }
 
-  console.log(
-    `check-crew-e2e-executed: ok — ${[...executed.entries()]
-      .map(([f, ids]) => `${f} ${ids.size}`)
-      .sort()
-      .join(", ")}`,
-  );
+  // Informational, never a gate: a recovered run is a green run by design.
+  printInfraRecoveries(collectInfraRecoveries(report));
+
+  if (failures.length > 0) process.exit(1);
 }

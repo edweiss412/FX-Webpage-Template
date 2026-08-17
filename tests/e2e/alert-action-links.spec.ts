@@ -45,6 +45,7 @@ import { clearAlerts } from "./helpers/seedAlerts";
 import { settleDashboardAdminState } from "./helpers/dashboardState";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
+import { awaitReviewModalOrRecover, openShowReviewModalAt } from "./helpers/openShowReviewModal";
 
 test.describe.configure({ mode: "serial" });
 
@@ -314,6 +315,10 @@ test("every internal bell link's fragment resolves to a real element (dead-fragm
   // dev mode wedged intermittently (observed ~1-in-4 as a 30s timeout on the
   // SECOND load of the same route), and one load per route is also the honest
   // shape of the contract: the ids either exist on the landed page or not.
+  // A /admin route carrying a `show` param in any position — the only
+  // destinations in this loop whose content lives inside the review modal and
+  // can therefore starve on the route error boundary.
+  const MODAL_ROUTE = /admin\?[^"'`]*\bshow=/;
   const routes = new Map<string, Array<{ fragment: string | null; code: string }>>();
   let internalCount = 0;
   const seenHrefs = new Set<string>();
@@ -352,6 +357,13 @@ test("every internal bell link's fragment resolves to a real element (dead-fragm
         .not.toBe(urlBeforeGoto);
     }
     await expect(page.getByTestId("admin-layout")).toBeVisible();
+    // `admin-layout` survives the route error boundary (app/admin/error.tsx is a
+    // sibling of page.tsx), so it is satisfied on the boundary and proves
+    // nothing. The modal-interior fragment waits below are the class signal, and
+    // only /admin?show= destinations can starve on them.
+    if (MODAL_ROUTE.test(route)) {
+      await awaitReviewModalOrRecover(page, { timeoutMs: 30_000, label: `route-loop:${route}` });
+    }
     for (const { fragment, code } of targets) {
       if (fragment) {
         // toBeAttached, not toBeVisible: the target section may sit offscreen
@@ -378,7 +390,7 @@ test("every internal bell link's fragment resolves to a real element (dead-fragm
 test("attention banner renders the footer action / external destination chip per its own gate", async ({
   page,
 }) => {
-  await page.goto(`/admin?show=${encodeURIComponent(show.slug)}`);
+  await openShowReviewModalAt(page, `/admin?show=${encodeURIComponent(show.slug)}`);
   // The banner renders inside the show review surface; wait for it to settle.
   await page.waitForLoadState("networkidle");
 

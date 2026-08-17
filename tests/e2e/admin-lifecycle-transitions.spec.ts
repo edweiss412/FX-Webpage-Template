@@ -55,6 +55,7 @@ import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { seedHeldShow, readShow, sqlClient, type SeededShow } from "../db/_b2Helpers";
 import { settleDashboardAdminState } from "./helpers/dashboardState";
+import { awaitReviewModalOrRecover, openShowReviewModal } from "./helpers/openShowReviewModal";
 import { deleteSeededShow, seedShowWithCrew } from "./helpers/seedShowWithCrew";
 
 const REPO_ROOT = resolve(__dirname, "../..");
@@ -172,7 +173,10 @@ async function expectFlipLanded(
       await waitForHydration(modal); // kebab open/toggle-close — writes nothing
     } else if (tier === "reload") {
       await page.reload();
-      await expect(modal).toBeVisible({ timeout: 20_000 });
+      await awaitReviewModalOrRecover(page, {
+        timeoutMs: 20_000,
+        label: "reload:expectFlipLanded",
+      });
     }
     try {
       await expect(toggle).toHaveAttribute("aria-checked", expected, {
@@ -279,9 +283,9 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
   }) => {
     // admin-show-modal: the per-show surface is the dashboard modal; the
     // archive control lives in the status band's ShareHub popover.
-    await page.goto(`/admin?show=${held.slug}`);
-    const modal = page.locator(LOADED_REVIEW_MODAL);
-    await expect(modal).toBeVisible({ timeout: 30_000 });
+    const modal = await openShowReviewModal(page, held.slug, {
+      timeoutMs: 30_000,
+    });
     await openShowActions(modal);
     const resting = modal.getByTestId("archive-show-button");
     await expect(resting).toBeVisible();
@@ -307,9 +311,9 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
   test("archive confirm reverts armed→resting via explicit Cancel (instant, no timer)", async ({
     page,
   }) => {
-    await page.goto(`/admin?show=${held.slug}`);
-    const modal = page.locator(LOADED_REVIEW_MODAL);
-    await expect(modal).toBeVisible({ timeout: 30_000 });
+    const modal = await openShowReviewModal(page, held.slug, {
+      timeoutMs: 30_000,
+    });
     await openShowActions(modal);
     await modal.getByTestId("archive-show-button").click();
     await expect(modal.getByTestId("archive-show-confirm-button")).toBeVisible();
@@ -409,9 +413,9 @@ test.describe("admin lifecycle transition audit (§3.4)", () => {
       const crewUrl = `/show/${seeded.slug}/${seeded.shareToken}`;
 
       // Flip OFF from the admin review modal (the per-show surface).
-      await page.goto(`/admin?show=${seeded.slug}`);
-      const modal = page.locator(LOADED_REVIEW_MODAL);
-      await expect(modal).toBeVisible({ timeout: 30_000 });
+      const modal = await openShowReviewModal(page, seeded.slug, {
+        timeoutMs: 30_000,
+      });
       const toggle = modal.getByTestId("published-toggle");
       await expect(toggle).toHaveAttribute("aria-checked", "true");
       // Prove hydration on a control that writes NOTHING, then dispatch this
@@ -536,11 +540,14 @@ test.describe("compound: armed Archive while a realtime refresh lands (cross-tab
     await signInAs(pageB, ADMIN_FIXTURE);
     const modalB = pageB.locator(LOADED_REVIEW_MODAL);
     await expect(async () => {
-      await pageB.goto(`/admin?show=${compoundShow.slug}`);
-      if ((await pageB.getByTestId("admin-layout-infra-error").count()) > 0) {
-        throw new Error("admin infra error page; retrying nav");
+      try {
+        await openShowReviewModal(pageB, compoundShow.slug, { timeoutMs: 15_000 });
+      } catch (err) {
+        if ((await pageB.getByTestId("admin-layout-infra-error").count()) > 0) {
+          throw new Error("admin infra error page; retrying nav");
+        }
+        throw err;
       }
-      await expect(modalB).toBeVisible({ timeout: 15_000 });
     }).toPass({ timeout: 90_000 });
     await waitForHydration(modalB);
     await openShowActions(modalB);
@@ -601,11 +608,14 @@ test.describe("compound: armed Archive while a realtime refresh lands (cross-tab
     // Tab A: archive the same show through its own modal.
     const modalA = page.locator(LOADED_REVIEW_MODAL);
     await expect(async () => {
-      await page.goto(`/admin?show=${compoundShow.slug}`);
-      if ((await page.getByTestId("admin-layout-infra-error").count()) > 0) {
-        throw new Error("admin infra error page; retrying nav");
+      try {
+        await openShowReviewModal(page, compoundShow.slug, { timeoutMs: 15_000 });
+      } catch (err) {
+        if ((await page.getByTestId("admin-layout-infra-error").count()) > 0) {
+          throw new Error("admin infra error page; retrying nav");
+        }
+        throw err;
       }
-      await expect(modalA).toBeVisible({ timeout: 15_000 });
     }).toPass({ timeout: 90_000 });
     await waitForHydration(modalA);
     await openShowActions(modalA);

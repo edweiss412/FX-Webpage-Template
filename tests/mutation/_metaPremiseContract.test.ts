@@ -162,6 +162,12 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // deciding suite for any enrolled surface and is therefore not scanned here.
   "tests/mutation/browser/registry.test.ts": 0,
   "tests/mutation/browser/mutate.test.ts": 0,
+  // The modal-wait guard (2026-08-16). Declared 0 on the same reading as the
+  // rows above: it builds every fixture repo it scans under mkdtempSync and
+  // drives pure functions over them, touching no member of ENVIRONMENT_SOURCES.
+  // `process.cwd()` is not `process.env`, and node:fs is deliberately not
+  // provenance.
+  "tests/ci/_metaModalWaitHelper.test.ts": 0,
   // The serializeError contract suite, enrolled 2026-08-16
   // (fix/serialize-error-structure). 0, and honestly so: every case builds its
   // fixture in the test body and drives it through the imported helper, so the
