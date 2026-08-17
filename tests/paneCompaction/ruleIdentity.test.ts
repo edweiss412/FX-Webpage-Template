@@ -113,6 +113,7 @@ describe("renderRow lines its columns up", () => {
     rule: 12,
     position: { row: 7, cost: "Lowest" },
     inPurview: true,
+    rejectedField: null,
     ...over,
   });
 

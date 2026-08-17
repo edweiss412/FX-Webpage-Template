@@ -448,6 +448,14 @@ export type PaneReport = {
   position: Position;
   /** Whether this pane is in the invoking orchestrator's purview. */
   inPurview: boolean;
+  /**
+   * The field the §4.3 accept-set rejected, when rule 4 decided; null otherwise.
+   *
+   * Carried on the report so a refusal can NAME it. AC-4's clause is
+   * "UNDETERMINED naming the offending field", and a refusal that cannot say
+   * which field does not satisfy it (diff round 1, finding 7).
+   */
+  rejectedField: string | null;
 };
 
 /**
@@ -498,6 +506,13 @@ export function renderRow(p: PaneReport): string {
     (p.branch ?? "(unlabeled)").padEnd(34),
     gauge.padStart(5),
     p.verdict.padEnd(13),
+    // WHICH rule decided, not just what it decided. §6 promises the report shows
+    // its reasoning, and the verdict alone cannot: UNDETERMINED is reachable
+    // from rules 2, 4, 5 and 6, and WAIT from 7, 8, 11 and 12, so a reader
+    // seeing only the verdict cannot tell an observation stop from a banding
+    // one -- which is exactly the distinction that says whether the pane needs
+    // attention or merely needs waiting for (diff round 1, finding 7).
+    `r${p.rule}`.padStart(3),
     `row ${p.position.row} ${p.position.cost}`,
   ].join("  ");
 }
@@ -572,10 +587,36 @@ export type RefusalCause =
   | { kind: "all-rejected" }
   | { kind: "unresolvable-target"; target: string }
   | { kind: "not-drivable"; verdict: Verdict }
+  /**
+   * A rule 1-8 OBSERVATION stopped the pane, as distinct from the verdict gate.
+   *
+   * §6 promises every refusal names its reason, and `not-drivable` named the
+   * wrong one: it always said "which is not COMPACT or FORCE", which is false
+   * for an observation stop and flatly wrong for `--resume`, whose whole point
+   * is that it requires neither verdict (diff round 1, finding 7).
+   */
+  | { kind: "observation-stop"; rule: number; verdict: Verdict; detail: string | null }
   | { kind: "nonce-absent" }
   | { kind: "nonce-mismatch" }
   | { kind: "stale-verdict"; was: Verdict; now: Verdict }
   | { kind: "contested" };
+
+/**
+ * What each observation rule means, in the words an operator can act on.
+ *
+ * §6 requires a refusal to NAME its reason; a bare rule number is a reference to
+ * a spec table the person reading a terminal does not have open.
+ */
+const RULE_REASON: Record<number, string> = {
+  1: "the pane's label resolves to no worktree branch",
+  2: "another pane on the roster shares this agent name",
+  3: "no purview registry claims this pane, or more than one does",
+  4: "an observation was outside the accept-set",
+  5: "the marker's sessionId does not match the pane's live session",
+  6: "gh could not be read for this worktree",
+  7: "the pane is blocked, or its status could not be read",
+  8: "the position is a hard wait",
+};
 
 export type Refusal = { exitCode: 1; sends: never[]; message: string };
 
@@ -598,6 +639,11 @@ export function refuse(cause: RefusalCause): Refusal {
         return `refusing: target ${cause.target} did not resolve (agent_not_found)`;
       case "not-drivable":
         return `refusing: verdict is ${cause.verdict}, which is not COMPACT or FORCE`;
+      case "observation-stop": {
+        const why = RULE_REASON[cause.rule] ?? "an observation rule stopped this pane";
+        const extra = cause.detail === null ? "" : `: ${cause.detail}`;
+        return `refusing: rule ${cause.rule} — ${why}${extra} (verdict ${cause.verdict})`;
+      }
       case "nonce-absent":
         return "refusing: the target's marker carries no checkpointNonce";
       case "nonce-mismatch":

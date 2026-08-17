@@ -324,6 +324,7 @@ function observe(
   const c = classify(observed);
   return {
     paneId: pane.paneId,
+    rejectedField,
     // The RAW label, deliberately, while the classifier above used the RESOLVED
     // one. An operator scanning the report needs to see which pane a row is,
     // and `(unlabeled)` against a NOT-AN-ARC verdict would hide exactly the
@@ -533,7 +534,17 @@ function drive(opts: Parsed, pane: RosterPane, roster: RosterPane[], s: Surface)
   // included, while any rule 1-8 condition holds.
   const OBSERVATION_RULES = 8;
   if (report.rule <= OBSERVATION_RULES) {
-    s.out(refuse({ kind: "not-drivable", verdict: report.verdict }).message);
+    // Named by RULE, not by verdict. The old message said "which is not COMPACT
+    // or FORCE" for every stop, which is false for an observation and wrong for
+    // `--resume`, which requires neither verdict (diff round 1, finding 7).
+    s.out(
+      refuse({
+        kind: "observation-stop",
+        rule: report.rule,
+        verdict: report.verdict,
+        detail: report.rejectedField,
+      }).message,
+    );
     return 1;
   }
   // `--resume` stops there, deliberately: a successful compaction makes

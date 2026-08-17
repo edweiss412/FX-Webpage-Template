@@ -233,6 +233,7 @@ describe("renderRow's gauge and column widths", () => {
     rule: 12,
     position: { row: 3, cost: "High" },
     inPurview: true,
+    rejectedField: null,
     ...over,
   });
 
@@ -255,18 +256,20 @@ describe("renderRow's gauge and column widths", () => {
   it("lays the columns out at fixed absolute offsets", () => {
     const line = renderRow(report());
     expect(line).toBe(
-      "wA:p1     feat/x                               7/10  COMPACT        row 3 High",
+      "wA:p1     feat/x                               7/10  COMPACT        r12  row 3 High",
     );
-    // 8 + 2 + 34 + 2 + 5 + 2 + 13 + 2 + 10, derived from the four widths and the
-    // two-space join. Pinned so a width change fails on the total as well as on
-    // the offsets below.
-    expect(line).toHaveLength(78);
+    // 8 + 2 + 34 + 2 + 5 + 2 + 13 + 2 + 3 + 2 + 10, derived from the five widths
+    // and the two-space joins. Pinned so a width change fails on the total as
+    // well as on the offsets below.
+    expect(line).toHaveLength(83);
     // Named offsets, so a failure says WHICH column moved rather than only that
     // the line differs.
     expect(line.indexOf("feat/x")).toBe(10);
     expect(line.indexOf("7/10")).toBe(47);
     expect(line.indexOf("COMPACT")).toBe(53);
-    expect(line.indexOf("row 3 High")).toBe(68);
+    // The rule column, added for §6's reasoning guarantee.
+    expect(line.indexOf("r12")).toBe(68);
+    expect(line.indexOf("row 3 High")).toBe(73);
   });
 });
 

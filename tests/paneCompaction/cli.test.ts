@@ -20,6 +20,7 @@ const row = (over: Partial<PaneReport> = {}): PaneReport => ({
   rule: 12,
   position: { row: 7, cost: "Lowest" },
   inPurview: true,
+  rejectedField: null,
   ...over,
 });
 

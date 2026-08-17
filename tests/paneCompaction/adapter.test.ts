@@ -464,6 +464,32 @@ describe("every refusal NAMES its reason", () => {
 });
 
 describe("the three commands", () => {
+  it("--resume refused by an observation names the RULE, not COMPACT-or-FORCE", () => {
+    // Diff round 1, finding 7 (P1). Every rule 1-8 stop printed "verdict is X,
+    // which is not COMPACT or FORCE" -- false for an observation stop, and
+    // flatly wrong for --resume, whose whole point is that it requires neither
+    // verdict. An operator told the wrong reason debugs the wrong thing.
+    const { surface, run: r } = fakeSurface({
+      marker: () => ({ sessionId: "sess-target", blockedOn: "waiting on CI" }),
+    });
+    const code = main(["--resume", "wM:p1", "--as", "sess-1"], surface);
+    expect(code).toBe(1);
+    const out = r.lines.join("\n");
+    expect(out).toContain("rule 7");
+    expect(out).not.toContain("not COMPACT or FORCE");
+  });
+
+  it("a rule 4 refusal names the offending field (AC-4)", () => {
+    // "UNDETERMINED naming the offending field" is the whole clause; a refusal
+    // that cannot say which field does not satisfy it.
+    const { surface, run: r } = fakeSurface({
+      marker: () => ({ sessionId: "sess-target", surpriseKey: 1 }),
+    });
+    const code = main(["--checkpoint", "wM:p1", "--as", "sess-1"], surface);
+    expect(code).toBe(1);
+    expect(r.lines.join("\n")).toContain("marker.surpriseKey");
+  });
+
   it("the default report does not call a singly-claimed pane UNOWNED", () => {
     // Diff round 1, finding 5 (P1). Report mode passes "" as the caller, and
     // `resolveOwnership` treated "not you" as unowned, so the plain report --
