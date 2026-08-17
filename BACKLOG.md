@@ -1513,3 +1513,24 @@ The filter is not loose by accident — it covers the eight parser shard files, 
 **Reachability: PROBED as ZERO on the corpus.** Every col0 label in all 20 fixtures under `fixtures/shows/raw` and `fixtures/shows/exporter-xlsx` was matched against the live vocabulary: no label produces a type-(b) hit whose token-set size equals its entry's. Every live type-(b) match is a STRICT subset, so the boundary is undecided by the shipped inputs rather than decided wrongly.
 
 **Why it is a row and not a kill.** The killing input is a label the corpus does not contain, and `tests/parser/fieldNearMiss.test.ts`'s header forbids hand-written rows precisely because one can be tuned until it passes — so the gap is ledgered as `accepted-gap` with this ref rather than closed with a fixture that proves nothing about real sheets. **First scheduled step:** decide whether an equal-size token match SHOULD be a type-(b) hit at all (it is set equality, so arguably it belongs in the type-(a) arm keyed on the token set rather than the normalized string), then pin whichever direction is chosen. A real reordered-label instance appearing in a future sheet promotes this from a boundary question to an ordinary near-miss.
+
+### BL-CARVE-GUARD-SCANS-GITIGNORED-PATHS — a guard reds on files git cannot see, so the failure exists only on the author's machine
+
+**Severity:** LOW (a FALSE POSITIVE that is local-only — CI never sees these paths, so it costs investigation time rather than correctness) · **Class:** guard premise / discovery scope · **Filed:** 2026-08-17 (`fix/premisescan-import-edges`, found while triaging a full-suite run during whole-diff round-1 repair) · **Effort:** S
+
+**Probed, not theorized.** The `sheet-link phrase containment` guard walks the repo for non-exempt files importing from `tests/`. Its discovery does not consult gitignore, so an arc's own scratch under `.claude/` — a directory `.gitignore:55` excludes wholesale — is scanned like source:
+
+```
+$ pnpm vitest run tests/components/admin/sheetIconLinkContainment.test.ts
+  AssertionError: expected [ …(4) ] to deeply equal []
+  + ".claude/probe/mutateSurface.ts: non-exempt file imports from tests/ (carve laundering channel): …"
+  + ".claude/probe/premiseScan827.ts: non-exempt file imports from tests/ (carve laundering channel): …"
+
+$ mv .claude/probe /tmp/aside && pnpm vitest run tests/components/admin/sheetIconLinkContainment.test.ts
+  Tests  7 passed (7)
+$ mv /tmp/aside .claude/probe
+```
+
+`git check-ignore -v .claude/probe/mutateSurface.ts` -> `.gitignore:55:.claude/`. A fresh checkout has no such file, so the guard is green in CI and red for whoever is actually working on the surface — the inversion that makes it worth fixing rather than tolerating. The same discovery shape is likely shared by the other repo-walking containment guards; the repair is to filter discovery through `git ls-files` (or `check-ignore`) rather than a raw filesystem walk, which also makes the walked set the same set CI reviews.
+
+**Not fixed in `fix/premisescan-import-edges`** under class-sweep exception (c): the repair is to a discovery helper that arc does not otherwise touch, and the sweep for peer guards sharing the walk is its own scope.
