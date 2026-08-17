@@ -222,7 +222,7 @@ Expected: `mismatched=0 anchorFails=0`, exit 0. **It also checks every `red-targ
 
 ```text
 declined export forms: recognized, unresolvable, and REPORTED | touching=1 free=1 reported=4 other=0
-declined export forms: unmodelled runtime references REPORT (AC-5c) | touching=0 free=1 reported=12 other=0
+declined export forms: unmodelled runtime references REPORT (AC-5c) | touching=0 free=1 reported=13 other=0
 export resolution: the lookup asks for an EXPORT, not a local name | touching=17 free=4 reported=2 other=0
 forwarded exports: a re-export is followed to its source | touching=13 free=5 reported=1 other=0
 namespace bindings: member-precise, and nothing else | touching=8 free=3 reported=4 other=0
@@ -248,10 +248,10 @@ Expected: `mismatched=0 claimFails=0 proseCounts=0`, exit 0. The script splices 
 <!-- plan-redset: measured by .claude/probe/planRun.ts against the merged scanner; DO NOT hand-edit -->
 
 ```text
-executions=102 red=67 green=35
+executions=103 red=68 green=35
 CLAIM titleContains="export resolution" red=10 green=13
 CLAIM titleContains="forwarded exports" red=14 green=5
-CLAIM titleContains="declined export forms" red=16 green=3
+CLAIM titleContains="declined export forms" red=17 green=3
 CLAIM titleContains="namespace bindings" red=9 green=6
 CLAIM titleContains="unclassifiable propagation" red=18 green=8
 CLAIM titleContains="TOP-LEVEL" red=9 green=1
@@ -260,6 +260,7 @@ RED  declined export forms: recognized, unresolvable, and REPORTED `export =` re
 RED  declined export forms: recognized, unresolvable, and REPORTED `export namespace` reports
 RED  declined export forms: recognized, unresolvable, and REPORTED an unfollowable re-export reports, naming the module
 RED  declined export forms: unmodelled runtime references REPORT (AC-5c) a side-effect import inside a REACHED module REPORTS, naming that module
+RED  declined export forms: unmodelled runtime references REPORT (AC-5c) a side-effect import on a FORWARDING barrel REPORTS, naming the barrel
 RED  declined export forms: unmodelled runtime references REPORT (AC-5c) an EXPORTED dynamic binding REPORTS: const ns = await import(); export { ns } (spec §2.2)
 RED  declined export forms: unmodelled runtime references REPORT (AC-5c) an EXPORTED dynamic binding REPORTS: const { spawner } = await import(); export { spawner } (spec §2.2)
 RED  declined export forms: unmodelled runtime references REPORT (AC-5c) an EXPORTED dynamic binding REPORTS: export const ns = await import() (spec §2.2)
@@ -352,11 +353,19 @@ Spec §2.1, §2.2 rows E1-E4, §2.4, and §2.6 items 1 and 3. The structural tas
 
 ```ts
 type ExportResolution =
-  | { kind: "extent"; nodes: ts.Node[] }
+  | { kind: "extent"; nodes: ts.Node[]; reasons?: string[] }
   | { kind: "forward"; spec: string; exportName: string }
-  | { kind: "data" }                       // .json ONLY -> pure, like a bare specifier (.mdx REPORTS)
-  | { kind: "noSuchExport" }               // pure on a direct request, benign miss on a star branch
-  | { kind: "unresolvable"; reason: string };
+  | { kind: "data"; reasons?: string[] }   // .json ONLY -> pure, like a bare specifier (.mdx REPORTS)
+  | { kind: "noSuchExport"; reasons?: string[] } // pure on a direct request, benign miss on a star branch
+  | { kind: "unresolvable"; reason: string; reasons?: string[] };
+
+// `reasons` is the RETURN CHANNEL FOR MODULES THE CALLER NEVER SEES, declared
+// here with the rest of the topology and populated only by the tasks that own
+// those facts (Task 2 for a forward hop, Task 3 for §2.4b). Task 1 never sets
+// it. Without it a barrel that FORWARDS is loaded inside `resolveExport`, its
+// own module-level facts reach nothing, and a side-effect import on an
+// intermediate barrel disappears while the terminal extent stays pure, a
+// silent free one ordinary edit from Task 3's fixture (round-13 finding 1).
 
 type Reach = { verdict: Verdict; reasons: string[] };
 
@@ -1362,6 +1371,27 @@ describe("declined export forms: unmodelled runtime references REPORT (AC-5c)", 
     );
   });
 
+  it("a side-effect import on a FORWARDING barrel REPORTS, naming the barrel", () => {
+    // One ordinary edit further: the module carrying the import now FORWARDS
+    // rather than declaring, so it is loaded INSIDE resolveExport and the
+    // caller never sees its ModuleFacts. Merging side-effect reasons only in
+    // `reaches` loses it: the terminal extent is pure, so the test reads
+    // environment-free with nothing reported (round-13 finding 1). It greens
+    // only when a forward hop returns its module's reasons through
+    // `ExportResolution.reasons`.
+    expectReported(
+      classificationWithModules(
+        {
+          side: `import { spawnSync } from "node:child_process";\n spawnSync("echo", []);`,
+          leaf: `export function pureOne(): number { return 1; }`,
+          barrel: `import "__MODULE_side__";\n export { pureOne } from "__MODULE_leaf__";`,
+        },
+        `import { pureOne } from "__MODULE_barrel__";\n it("x", () => { pureOne(); });`,
+      ),
+      { construct: REPORTS.sideEffect, module: /mod\d+_barrel/, notModule: OWN_FILE },
+    );
+  });
+
   it("an in-repo specifier that does NOT resolve REPORTS", () => {
     // Extensionless `./h` for a `.mjs` sibling. resolveSpecifier's candidates are
     // NOT widened (spec §2.4b): the miss is reported instead of passed as pure.
@@ -1522,7 +1552,7 @@ Expected: a non-zero FAILING count. **This task authors a pair of describe block
   **Implement spec §2.4b's rule in this same step**, since Step 1 authored its block: in `reaches`/`moduleFacts`, a literal `import()` whose enclosing node is NOT a direct local variable-declaration initializer — assignment position, embedded in a larger expression, or a bare statement — reports `{ kind: "unresolvable", reason: \`unbindable dynamic import of ${spec}\` }`; an in-repo static `import "./x"` with NO import clause reports likewise — **and this one needs a SEED, not a traversal rule**: the walk starts at the `it` call, its hooks and its producers, so a top-level `ImportDeclaration` that nothing references is never visited. Collect clause-less in-repo import declarations in `moduleFacts` as a file-level `sideEffectImports: string[]`, and merge them at **BOTH** the places a module enters a classification, because they are two different routes and a draft through round 10 named only the first:
 
   - **The test file's own**, merged by `classifyTests` into EVERY test in that file, exactly as a top-level hook applies to every test. The walk starts at the `it` call, its hooks and its producers, so a top-level `ImportDeclaration` that nothing references is never visited — hence a seed rather than a traversal rule.
-  - **Every module the traversal LOADS**, merged by `reaches` wherever it obtains a target's `ModuleFacts`. A side-effect import inside a helper is outside the exported function's extent, so following the edge to that function never passes over it; without this the helper's entry sits in its own `ModuleFacts` and reaches no verdict, and a test importing a pure function from a module that loads a spawning one classifies **silently `environment-free`** — one ordinary edit from the fixture, probed on the merged scanner, and a direct breach of §1's bound. The reason names the module the import was FOUND in (spec §2.6 item 2), not the test file.
+  - **Every module the traversal LOADS, at the ONE place loading happens.** `factsFor` is the single loader (`tests/mutation/source/premiseScan.ts:960`), and it is reached from TWO callers: `reaches`, for a direct edge, and `resolveExport`, for each hop of a forward chain. Merge at both, and route the second through the `reasons` field Task 1 declares on `ExportResolution` — `reaches` merges `res.reasons` alongside the extent it already consumes. **Merging only in `reaches` is the defect round 13 named**: a barrel that FORWARDS is loaded inside `resolveExport`, so its module-level facts never reach the caller, and a side-effect import sitting on that barrel disappears while the terminal extent stays pure. That is a silent free, one ordinary edit from the fixture below. A side-effect import inside a helper is outside the exported function's extent, so following the edge to that function never passes over it; without this the helper's entry sits in its own `ModuleFacts` and reaches no verdict, and a test importing a pure function from a module that loads a spawning one classifies **silently `environment-free`** — one ordinary edit from the fixture, probed on the merged scanner, and a direct breach of §1's bound. The reason names the module the import was FOUND in (spec §2.6 item 2), not the test file.
 
   Both routes are verdict-neutral on the enrolled domain for the same measured reason: the live population of in-repo static side-effect imports is ZERO (spec §3.13), against 9 in the near domain. A round-2 draft said only "report it in `reaches`/`moduleFacts`", which named no route by which the reason could ever reach a classification; an EXPORTED dynamic binding reports (spec §2.2); and an in-repo specifier that does not resolve reports — **owned HERE, not in Task 1**, whose deferral table assigns it to this task along with the rest of §2.4b. Live-domain population of every row is ZERO (spec §3.13), so `_metaPremiseContract` must stay green with no declared count moving — if one moves, the rule over-reached and the task stops.
 
@@ -2248,16 +2278,23 @@ ls docs/review-rounds/fix/premisescan-import-edges/
 
 Expected: all PASS. **Read every file in that directory, not one** — Task 0's merge moved the merge-base, so the arc's rows are split across a pre-merge and a post-merge base sha. If `_metaReviewRoundEconomy` reds, a stage reached `ROUND_THRESHOLD` counted rounds and the arc owes a filing beside the rows that triggered it. A `no_verdict` dispatch is NOT a counted round.
 
-- [ ] **Step 5: Commit the graduation.** This is NOT yet the PR's last commit, and an earlier draft's claim that it was could not survive its own next paragraph: review repairs, the corpus rows and any newly owed filing all land after it. Invariant 12 wants the marker off in the last commit; writing-plans wants the review to examine what merges. Below is the ordering that satisfies both, rather than asserting an exception to either.
+- [ ] **Step 5: Commit the graduation, and make that commit the PR's LAST.** Invariant 12 is literal — the marker comes off in the PR's last commit, and a graduating entry's marker comes off in the same commit that archives it — so archive move, marker strip, graduation record, the review-corpus rows and any newly owed filing are ONE commit, and nothing follows it before the merge. Two earlier drafts each broke this in the opposite direction, one by deferring the strip out of the archive commit and one by admitting three kinds of commit after it.
 
-**Sequencing, and the constraint it has to satisfy in both directions.**
+**The ordering that satisfies invariant 12 AND "the review examines what merges", with no exception claimed against either:**
 
-1. **Steps 2-5 land BEFORE the whole-diff review** — archive move, marker strip and graduation record in one commit. The reviewer therefore sees every substantive line, the graduation included.
-2. **The marker comes off WITH the archive, in Step 3.** Invariant 12 is explicit that a graduating entry works this way, and `tests/docs/_metaLedgerInProgress.test.ts` enforces it: an archived entry still marked in progress is rejected, so deferring the strip makes Step 4 un-greenable.
-3. Any repair commits from the review land next.
-4. **Then the record commit**: the review-corpus rows, plus any filing a stage newly owes on the strength of those rows. The rows cannot be in the reviewed tree by construction — the wrapper writes them at dispatch time, so a row describing a review always postdates the tree that review examined.
-5. **A filing is substantive, so it gets its own review rather than an exception.** An earlier draft called the record commit "mechanically generated dispatch records, not substantive change" and let a filing ride along on that reasoning; a `## <stage> — <n> rounds` filing is prose someone must read. If step 4's commit carries one, dispatch a `--stage diff` review scoped to THAT COMMIT ALONE (`git show --stat HEAD` is the whole surface) before merging, and land its own row in the same way. It is small, docs-only, and it is the only way "the review covers what merges" stays true of the last commit too.
-6. **The marker is already off by step 2, so no later commit can reintroduce it** — which is what invariant 12 protects. Verify it directly rather than by argument, immediately before the merge:
+1. **The whole-diff review runs FIRST, on Tasks 1-6**, while the ledger entry is still marked in progress. Its repairs land as ordinary commits.
+2. **Steps 2-4 are then performed in the WORKING TREE and left uncommitted.**
+3. **The graduation content is reviewed as a working-tree diff**, not as a commit — dispatch a scoped `--stage diff` review whose brief names `git diff` (and `git status --short` for the archive move) as the surface. It is small and docs-only. This is what keeps the last commit reviewed even though nothing may follow it.
+4. **The wrapper writes that review's corpus row at DISPATCH time, into the worktree**, so the row is already on disk, uncommitted, beside the graduation edits — which is exactly why this ordering works. A row cannot describe a commit it precedes, and here it does not have to.
+5. **One commit closes the PR's history**: archive move, marker strip, graduation record, every corpus row, and any filing a stage newly owes. Verify before pushing it that nothing else is outstanding.
+
+```bash
+git add -A BACKLOG.md BACKLOG-archive.md docs/review-rounds/
+git status --short          # must show NOTHING unstaged and nothing untracked
+git commit -m "docs(backlog): graduate BL-PREMISESCAN-IMPORT-EDGE-FIDELITY"
+```
+
+Then prove the marker is gone from the tree that merges, and that no commit after it can reintroduce one:
 
 ```bash
 git log origin/main..HEAD -S"**Status:** IN PROGRESS" --oneline -- BACKLOG.md BACKLOG-archive.md
@@ -2267,19 +2304,51 @@ fi
 echo "no in-progress marker in the tree that merges"
 ```
 
-Expected: the first command lists the commit that ADDED the marker and the commit that removed it, and nothing after the removal; the second prints the success line and exits 0. **`git grep`, not `rg`**, and an `if/then/fi` rather than `grep … || echo`: `rg` is not guaranteed on the PATH (probed — `rg: command not found` in a shell where the `|| echo` form still printed the success line and exited 0), which is precisely the command-that-lies-about-its-status shape this plan's Global Constraints ban. A marker still present here means the merge would carry it to `main`, where the origin-existence rule fails the moment the branch is deleted.
+Expected: the first command lists the commit that ADDED the marker and this commit, which removed it; the second prints the success line and exits 0. **`git grep`, not `rg`**, and an `if/then/fi` rather than `grep … || echo`: `rg` is not guaranteed on the PATH (probed — `rg: command not found` in a shell where the `|| echo` form still printed the success line and exited 0), which is precisely the command-that-lies-about-its-status shape this plan's Global Constraints ban.
 
-- [ ] **Step 6: Open the PR and let the merge queue take it — four facts measured on this repo's CI, 2026-08-16.**
-
-1. **Use `gh pr merge --merge --auto`, not a poll-then-merge loop.** A CI cycle here runs about 50 minutes and `main` lands other arcs faster than that, so a run that waits for green and then merges keeps losing the race to a newer `main`. `--auto` hands the merge to GitHub, which performs it the moment the required contexts pass.
-2. **Assert the required-context COUNT is 12, not merely that nothing is pending.** A rollup with zero pending contexts and only nine required ones present is a rollup that has not finished registering, and reading it as green merges on a partial gate.
-3. **`source-shards (0)` (`rowScanOpener`) and `source-shards (3)` (`shardBudget`) are RED on `main`** — inherited, not required, and not this arc's to fix. Do not debug them and do not re-push to clear them.
-4. **Prefer GraphQL when the REST budget is thin.** `gh pr view <n> --json statusCheckRollup,mergeStateStatus` is GraphQL and keeps working; `gh run list` / `gh run view` are REST and return HTTP 403 once the hourly core budget is spent. An empty or errored CI reading under a spent budget is a RATE LIMIT, never a red check.
+- [ ] **Step 6: Open the PR, assert the gate, and merge — as COMMANDS, because a pipeline cannot execute prose.** Every command below was probed against this repository on 2026-08-16; the four facts each encodes follow it.
 
 ```bash
-git add BACKLOG.md BACKLOG-archive.md docs/review-rounds/
-git commit -m "docs(backlog): graduate BL-PREMISESCAN-IMPORT-EDGE-FIDELITY"
+git push -u origin fix/premisescan-import-edges
+gh pr create --fill --base main
+PR=$(gh pr view --json number --jq .number)
 ```
+
+**The required set comes FROM branch protection, never from a list typed into a plan** — a list here goes stale the day a workflow is added, and the count is the thing being asserted:
+
+```bash
+set -o pipefail
+REPO=edweiss412/FX-Webpage-Template
+REQ=$(gh api "repos/$REPO/branches/main/protection/required_status_checks" --jq '.contexts[]' | sort)
+test "$(printf '%s\n' "$REQ" | wc -l | tr -d ' ')" -eq 12 || { echo "required-context COUNT moved; re-read protection before merging"; exit 1; }
+GREEN=$(gh pr view "$PR" --json statusCheckRollup --jq '.statusCheckRollup[] | select(.conclusion=="SUCCESS") | .name' | sort -u)
+MISSING=$(comm -23 <(printf '%s\n' "$REQ") <(printf '%s\n' "$GREEN"))
+if [ -n "$MISSING" ]; then echo "NOT GREEN yet:"; printf '%s\n' "$MISSING"; else echo "all 12 required contexts SUCCESS"; fi
+```
+
+Probed on the merged PR #827: `required count: 12`, then `all required contexts SUCCESS`. The twelve are `quality`, `unit-suite`, `x1-catalog-parity`, `x2-no-raw-codes`, `x3-trust-domain`, `x4-no-global-cursor`, `x5-email-canonicalization`, `x6-pg-cron-pivot`, `validation-schema-parity`, `affordance-matrix-parity`, `postgrest-dml-lockdown`, `traceability-audit` — quoted as a measurement date, since the command reads them live.
+
+**`gh pr view --json statusCheckRollup` carries NO `isRequired` field** (probed: the rows expose `name`, `status`, `conclusion`, `workflowName`, `detailsUrl`, `startedAt`, `completedAt` and nothing else), which is why the required set is read from protection and intersected by NAME rather than filtered out of the rollup. A plan that filtered on `isRequired` would silently match zero rows and report green.
+
+```bash
+gh pr merge "$PR" --merge --auto
+```
+
+**`--auto`, not a poll-then-merge loop.** A CI cycle here runs about 50 minutes and `main` lands other arcs faster than that, so a run that waits for green and then merges keeps losing the race to a newer `main`. `--auto` hands the merge to GitHub, which performs it the moment the required contexts pass.
+
+**`source-shards (0)` (`rowScanOpener`) and `source-shards (3)` (`shardBudget`) are RED on `main`** — inherited, not required, and not this arc's to fix. They are absent from the required set above, so the intersection ignores them. Do not debug them and do not re-push to clear them.
+
+**Prefer GraphQL when the REST budget is thin.** `gh pr view <n> --json statusCheckRollup,mergeStateStatus` is GraphQL and keeps working; `gh run list` and `gh run view` are REST and return HTTP 403 once the hourly core budget is spent. An empty or errored CI reading under a spent budget is a RATE LIMIT, never a red check.
+
+- [ ] **Step 7: Confirm the merge landed and sync the main checkout — the run is complete only at `0  0`.**
+
+```bash
+gh pr view "$PR" --json state,mergedAt,mergeCommit --jq '{state, mergedAt, sha: .mergeCommit.oid}'
+git -C /Users/ericweiss/FX-Webpage-Template pull --ff-only
+git -C /Users/ericweiss/FX-Webpage-Template rev-list --left-right --count main...origin/main
+```
+
+Expected: `{"state":"MERGED", …}` with a merge sha, the fast-forward succeeding, and the last command printing `0	0`. Anything else means the pipeline is not finished, whatever the PR page shows. The main checkout is read-only apart from this fast-forward (AGENTS.md invariant 11).
 
 <!-- tasks: end -->
 
