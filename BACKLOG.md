@@ -1534,3 +1534,33 @@ $ mv /tmp/aside .claude/probe
 `git check-ignore -v .claude/probe/mutateSurface.ts` -> `.gitignore:55:.claude/`. A fresh checkout has no such file, so the guard is green in CI and red for whoever is actually working on the surface — the inversion that makes it worth fixing rather than tolerating. The same discovery shape is likely shared by the other repo-walking containment guards; the repair is to filter discovery through `git ls-files` (or `check-ignore`) rather than a raw filesystem walk, which also makes the walked set the same set CI reviews.
 
 **Not fixed in `fix/premisescan-import-edges`** under class-sweep exception (c): the repair is to a discovery helper that arc does not otherwise touch, and the sweep for peer guards sharing the walk is its own scope.
+
+### BL-EXPORTRESOLUTION-SPREAD-NOT-RELITERAL — a caller rebuilds a union value by hand and drops a field, three times in three rounds
+
+**Severity:** MEDIUM (each instance is a SILENT free — the dropped field is `reasons`, so the loss shows up as a missing explanation rather than a wrong verdict) · **Class:** guard fidelity / mechanizable review class · **Filed:** 2026-08-17 (`fix/premisescan-import-edges`, diff rounds 1 and 3) · **Effort:** S
+
+**Measured, not theorized.** One defect, found THREE times across three review rounds at three different returns in `tests/mutation/source/premiseScan.ts`: diff R1 #2 caught the star loop's two returns, diff R3 #1 caught the E2 extent merge. Each repair fixed the instance in front of it; none derived the cover. `followForward` merges a hop's module reports into whatever it returns, so any caller that rebuilds an `ExportResolution` by hand — `{ kind: "extent", nodes: [...] }` instead of `{ ...via, nodes: [...] }` — silently drops `reasons`.
+
+The derived enumeration exists now and took one grep:
+
+```
+$ grep -n 'kind: "extent"\|kind: "data"\|kind: "noSuchExport"\|kind: "unresolvable"' tests/mutation/source/premiseScan.ts
+11 sites; exactly one had a `via`/`res` of the same type in scope
+```
+
+**The mechanical form:** a lint rule or structural test asserting that a site constructing a discriminated-union value, with a value of that same union in scope, SPREADS it rather than re-literalling. That enumeration is what should have existed at round 1, and it is a grep rather than a judgement — which is what makes this mechanizable rather than a review habit.
+
+### BL-MUTATION-SITEID-LINE-KEYED-CHURN — every diff that moves lines invalidates the accepted-mutant ledger
+
+**Severity:** LOW (pure bookkeeping — it never produces a wrong verdict, it consumes wall clock and reviewer attention) · **Class:** mutation harness ergonomics · **Effort:** S-M
+
+**Measured.** `accepted` siteIds are `operator:LINE:COL:from>to`. On `fix/premisescan-import-edges` the two `premiseScan` equivalences were re-keyed FOUR times in one day — `601 -> 721 -> 604 -> 603` and `1752 -> 2061 -> 1864 -> 1872` — each discovery costing a ~8-minute gate cycle and each verification another. The expressions and their 1-based columns were byte-identical at every key; only the line moved.
+
+The information to fix it is already in the failing run, and the two sets are complementary:
+
+```
+FAIL unaccepted-survivor: 2 survivor(s) with no ledger row: relational-boundary:604:29:>>>=, relational-boundary:1864:28:<><=
+FAIL stale-ledger-row: 2 ledger row(s) whose site no longer survives: relational-boundary:721:29:>>>=, relational-boundary:2061:28:<><=
+```
+
+**The mechanical form:** key on the mutated EXPRESSION plus a disambiguator instead of the line, or have the gate emit a `--rekey` patch when the stale set and the unaccepted set are the same size and the expressions match. A third shape belongs here too, measured on the same arc: **removing dead code widened the mutation surface** — deleting an orphaned union variant forced a rewrite of its enclosing condition, and the natural rewrite turned a truthy numeric check into `carried.length > 0`, an operator where there had been none, producing a brand-new survivor. Nothing warned; the gate noticed one cycle later.
