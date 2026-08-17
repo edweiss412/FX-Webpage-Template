@@ -174,12 +174,15 @@ export const GUARD_SURFACES: GuardSurface[] = [
     operators: ["relational-boundary", "equality-flip", "integer-literal"],
     scoreFloor: 0.95,
     // Blinds the `process.env` global test, so every env-reading test classifies
-    // environment-free. Verified unique on the post-edit source
-    // (`grep -c -F 'text.startsWith("process.env")'` = 1); the provenance
-    // fixtures kill it deterministically.
+    // environment-free. Re-anchored when R3 #1 replaced the text match with a
+    // structural one — the old `from` was that deleted expression, and a control
+    // whose text no longer occurs proves nothing. Verified unique on the current
+    // source (`grep -c -F 'id.text === "process"'` = 1; the sibling check in
+    // `unclassifiableWithin` reads `obj.text`); the provenance fixtures kill it
+    // deterministically.
     control: {
-      from: 'text.startsWith("process.env")',
-      to: 'text.startsWith("process.env.NEVER.MATCHES")',
+      from: 'id.text === "process"',
+      to: 'id.text === "processNEVERMATCHES"',
     },
     accepted: [
       {

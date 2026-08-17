@@ -171,7 +171,9 @@ describe("`process` is a BINDING, not the six characters before `.env` (whole-di
 
   it("a LOCAL named process is not the global", () => {
     expect(
-      verdict(`it("x", () => { const process = { env: { ROOT: "." } }; const r = process.env.ROOT; });`),
+      verdict(
+        `it("x", () => { const process = { env: { ROOT: "." } }; const r = process.env.ROOT; });`,
+      ),
     ).toBe("environment-free");
   });
 
@@ -189,7 +191,9 @@ describe("`process` is a BINDING, not the six characters before `.env` (whole-di
 
   it("the global still reads through an `as` cast", () => {
     expect(
-      verdict(`it("x", () => { const r = (process as { env: Record<string, string> }).env.ROOT; });`),
+      verdict(
+        `it("x", () => { const r = (process as { env: Record<string, string> }).env.ROOT; });`,
+      ),
     ).toBe("environment-touching");
   });
 
@@ -1078,9 +1082,9 @@ describe("R3 — heritage, dynamic-import priority, pattern defaults, premise do
     });
 
     it("an else branch", () => {
-      expect(conditioned(`if (rows.length) { void 0; } else { premise("rows", rows.length, 0); }`)).toBe(
-        false,
-      );
+      expect(
+        conditioned(`if (rows.length) { void 0; } else { premise("rows", rows.length, 0); }`),
+      ).toBe(false);
     });
 
     it("a short-circuit right operand", () => {
@@ -1092,14 +1096,16 @@ describe("R3 — heritage, dynamic-import priority, pattern defaults, premise do
     });
 
     it("a loop body that may run zero times", () => {
-      expect(conditioned(`for (const r of rows) { premise("rows", rows.length, 0); void r; }`)).toBe(
-        false,
-      );
+      expect(
+        conditioned(`for (const r of rows) { premise("rows", rows.length, 0); void r; }`),
+      ).toBe(false);
     });
 
     it("a switch case that may not match", () => {
       expect(
-        conditioned(`switch (rows.length) { case 99: premise("rows", rows.length, 0); break; default: break; }`),
+        conditioned(
+          `switch (rows.length) { case 99: premise("rows", rows.length, 0); break; default: break; }`,
+        ),
       ).toBe(false);
     });
 
@@ -1128,7 +1134,9 @@ describe("R3 — heritage, dynamic-import priority, pattern defaults, premise do
     });
 
     it("still credits a finally block, which runs", () => {
-      expect(conditioned(`try { void 0; } finally { premise("rows", rows.length, 0); }`)).toBe(true);
+      expect(conditioned(`try { void 0; } finally { premise("rows", rows.length, 0); }`)).toBe(
+        true,
+      );
     });
   });
 

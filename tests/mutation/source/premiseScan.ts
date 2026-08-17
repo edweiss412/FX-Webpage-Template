@@ -1124,8 +1124,7 @@ function executesWhenever(child: ts.Node, parent: ts.Node): boolean {
   if (ts.isCatchClause(parent)) return false;
   if (ts.isWhileStatement(parent) || ts.isDoStatement(parent)) return within(parent.expression);
   if (ts.isForStatement(parent)) return within(parent.initializer);
-  if (ts.isForOfStatement(parent) || ts.isForInStatement(parent))
-    return within(parent.expression);
+  if (ts.isForOfStatement(parent) || ts.isForInStatement(parent)) return within(parent.expression);
   if (ts.isBinaryExpression(parent)) {
     const k = parent.operatorToken.kind;
     if (
