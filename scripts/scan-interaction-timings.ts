@@ -54,18 +54,20 @@
  * runtime — read off a config object, returned by a call, computed from
  * arithmetic — is reported as `unclassified` rather than resolved.
  *
- * PROPERTIES ARE LITERAL-ONLY, unlike delays, and this is a REAL GAP rather
- * than a principled fence: a timing-named property whose value is not a numeric
- * literal is DROPPED, not reported. Five sites in the tree today are invisible
- * for that reason — the reduced-motion ternaries at
- * components/admin/telemetry/EventRow.tsx and components/crew/RightNowHero.tsx
- * (`duration: reduce ? 0 : 0.22`), and the resolved-elsewhere values in
- * components/diagrams/GalleryLightbox.tsx. The behavior predates the key
- * widening (the original `duration:` form dropped non-literals the same way);
- * closing it means reporting them `unclassified` and dispositioning five
- * pre-existing sites on surfaces this arc does not otherwise touch, so it is
- * filed as BL-TIMING-SCAN-PROPERTY-TOTALITY rather than done here. Surfaced by
- * whole-diff review round 7, with the site list above as its probe. A COMPUTED
+ * PROPERTIES ARE TOTAL, on the same contract as delays: a timing-named property
+ * whose value is not a numeric literal is reported `unclassified` and NAMED,
+ * never dropped. The accept-set is keyed on NODE KINDS rather than one position
+ * — PropertyAssignment, ShorthandPropertyAssignment, and JsxAttribute (an
+ * expression container, or a string that does not parse as a number) — because
+ * enumerating positions is what let the shorthand `{ duration }` at
+ * components/crew/CrewSectionTransition.tsx stay invisible past two reviews.
+ * That closed BL-TIMING-SCAN-PROPERTY-TOTALITY; the six live sites it surfaced
+ * carry UNCLASSIFIED_DISPOSITIONS rows below.
+ *
+ * The KEY PREDICATE on these non-literal paths is `isBoundaryTimingKey`, which
+ * is narrower than the `TIMING_NAME` suffix the numeric paths keep, and the
+ * asymmetry is deliberate: see that function for the measurement (48 candidates
+ * versus 8). A COMPUTED
  * key (`{ ["ttlMs"]: 17000 }`, `class C { ["ttlMs"] = 17000 }`) is likewise not
  * a site: the key is an expression, and writing one to declare a fixed timing
  * is not a spelling an ordinary contributor reaches for — unlike the quoted key
@@ -78,6 +80,27 @@ import { join, relative, sep } from "node:path";
 import ts from "typescript";
 
 export type TimingKind = "timer-literal" | "named-constant" | "motion-duration" | "unclassified";
+
+/**
+ * A key `TIMING_NAME` accepted and `isBoundaryTimingKey` turned away — the
+ * population where the two halves of one property DISAGREE.
+ *
+ * The drop is intended (`items`, `rooms`, `searchParams` end in `ms` and are
+ * not timings), but a drop nobody can see is how `timeoutMilliseconds` sat in
+ * the gap between a numeric path that inventories it and a non-literal path
+ * that dropped it. Recording the population lets a test pin it, so a real
+ * timing landing there is a failing assertion rather than a silence.
+ *
+ * Only the paths with an OUTER `TIMING_NAME` gate report here. The shorthand
+ * form has no outer gate — its only gate IS the boundary predicate — so
+ * recording its rejects would mean recording every shorthand property in the
+ * universe, which is not a disagreement, just a scan.
+ */
+export type BoundaryReject = {
+  readonly file: string;
+  readonly line: number;
+  readonly propertyKey: string;
+};
 
 export type TimingSite = {
   /** Repo-relative path, POSIX separators. */
@@ -147,6 +170,53 @@ export const UNCLASSIFIED_DISPOSITIONS: readonly {
   readonly name: string;
   readonly reason: string;
 }[] = [
+  // ── The property-totality census (BL-TIMING-SCAN-PROPERTY-TOTALITY) ──────
+  // Six live sites that were invisible while properties were literal-only. Each
+  // resolves to a value already represented among its named-constant peers; the
+  // values live here rather than in DESIGN.md §5.5, which cannot represent them
+  // — an unclassified site carries `value: null` and `inventoryRows` skips it.
+  {
+    file: "components/admin/telemetry/EventRow.tsx",
+    name: "reduce ? 0 : 0.22",
+    reason:
+      "The standard reduced-motion ternary: 0 when the user asks for reduced motion, otherwise " +
+      "0.22 — the repo's standard motion duration, already a §5.5 row among its named-constant " +
+      "peers. The ternary is the ACCESSIBILITY contract, so collapsing it to one literal would be " +
+      "a regression, and naming a constant for `0` would not make either branch more visible.",
+  },
+  {
+    file: "components/crew/RightNowHero.tsx",
+    name: "prefersReducedMotion === true ? 0 : 0.22",
+    reason:
+      "The same reduced-motion ternary as EventRow.tsx, spelled with an explicit === comparison. " +
+      "0 reduced, 0.22 otherwise — the standard motion duration.",
+  },
+  {
+    file: "components/crew/CrewSectionTransition.tsx",
+    name: "duration",
+    reason:
+      "The shorthand `{ duration }` form, which the scanner could not see at all until the " +
+      "accept-set covered ShorthandPropertyAssignment — a sixth live timing that no census had " +
+      "counted. The binding behind it is the same reduced-motion ternary as its two peers above: " +
+      "0 reduced, 0.22 otherwise.",
+  },
+  {
+    file: "components/diagrams/GalleryLightbox.tsx",
+    name: "emblaDuration(prefersReducedMotion)",
+    reason:
+      "Embla's TWEEN-SPEED unit, not seconds and not milliseconds, so a §5.5 duration row would " +
+      "misstate it by naming a number in the wrong unit. Resolves in-file to the committed live " +
+      "value 22. Two occurrences share this row because the registry keys by (file, name) and both " +
+      "call sites are the identical expression; the six-site liveness pin below asserts the COUNT, " +
+      "so one of the two vanishing still fails.",
+  },
+  {
+    file: "components/diagrams/GalleryLightbox.tsx",
+    name: "motionDuration",
+    reason:
+      "An in-file binding holding 0.22, the standard motion duration that already carries a §5.5 " +
+      "row. The indirection is local and one hop; a second row would duplicate the constant.",
+  },
   {
     file: "components/admin/announceLog.tsx",
     name: "ttlMs",
@@ -193,6 +263,71 @@ export const UNCLASSIFIED_DISPOSITIONS: readonly {
 
 /** Identifier suffixes that mark a number as a timing, case-insensitively. */
 const TIMING_NAME = /(?:ms|delay|duration|timeout|seconds)$/i;
+
+/** The timing words both key predicates are built from. ONE definition. */
+const TIMING_WORDS = ["ms", "delay", "duration", "timeout", "seconds"] as const;
+
+/**
+ * Time UNITS, spelled out. A named, closed, sub-second family.
+ *
+ * `timeoutMilliseconds` carries its timing word INSIDE the final word, so the
+ * segment rule below sees the segment `milliseconds` and nothing shorter. The
+ * numeric path already inventories that key (`TIMING_NAME` matches the bare
+ * `seconds` suffix), so without the family the two halves of one property
+ * disagree and the non-literal half drops it in silence — the totality break
+ * this predicate exists to close (whole-diff R1 #4).
+ *
+ * `min` and `sec` are deliberately absent: they are `minimum` and `section` at
+ * least as often as they are time, and this predicate's whole job is to not
+ * flood. SINGULAR unit spellings are absent for a different reason — they are
+ * unreachable: this predicate is only ever consulted for a key `TIMING_NAME`
+ * has already accepted, and `oneMillisecond` does not end in `seconds`. Both
+ * halves of that property agree on dropping it, so totality holds; listing it
+ * here would be an accept-set entry no input can reach.
+ */
+const TIME_UNITS = ["milliseconds", "microseconds", "nanoseconds"] as const;
+
+/** A key's camel / snake / digit segments, lowercased. `retry_ttlMs` → retry, ttl, ms.
+ *
+ *  MATCHED rather than split-and-filtered: a split has to discard the empty
+ *  strings that separators produce, and that discard is a second decision with
+ *  its own boundary (`deadline_ms_` and `deadline_ms_x` both turn on it). A
+ *  match yields only non-empty segments by construction, so there is no
+ *  boundary to get wrong — the mutation gate found both of the discarded
+ *  branch's mutants unpinned, and this deletes the branch instead of arguing
+ *  about it. */
+function keySegments(key: string): string[] {
+  return (key.match(/[A-Z]+(?![a-z])|[A-Z]?[a-z0-9]+/g) ?? []).map((s) => s.toLowerCase());
+}
+
+/**
+ * The key predicate for the NON-LITERAL property paths — deliberately NARROWER
+ * than `TIMING_NAME`, which stays untouched on every numeric path.
+ *
+ * A key qualifies when its FINAL SEGMENT is a timing word or a time unit:
+ * `ttlMs`, `deadline_ms`, `fooTimeout`, `timeoutMilliseconds`. Reading segments
+ * rather than doing suffix arithmetic is what makes the rule one derivation
+ * instead of a growing list of boundary cases — the arithmetic form both missed
+ * the unit family and had to special-case the leading underscore.
+ *
+ * The bare suffix `TIMING_NAME` uses cannot be reused here: measured on the
+ * live universe it matches 48 non-literal candidates, because ordinary plurals
+ * end in `ms` (`items`, `rooms`, `searchParams`, `diagrams`, `problems`), which
+ * would bury the 8 real ones. The asymmetry is intentional and load-bearing: on
+ * NUMERIC values a sloppy match is fail-open and visible as a bogus inventory
+ * row; on non-literals it is fail-flood, and a flooded report is not read.
+ */
+function isBoundaryTimingKey(key: string): boolean {
+  const segments = keySegments(key);
+  const last = segments[segments.length - 1];
+  if (last === undefined) return false;
+  return TIMING_WORDS.some((word) => last === word) || TIME_UNITS.some((unit) => last === unit);
+}
+
+/** The delay contract's own rendering, reused verbatim so an unclassified
+ * property reads like an unclassified delay. */
+const collapsed = (node: ts.Node, sf: ts.SourceFile): string =>
+  node.getText(sf).replace(/\s+/g, " ").slice(0, 60);
 
 const SCANNED_EXTENSIONS = [".ts", ".tsx"] as const;
 
@@ -265,11 +400,21 @@ function isTimerCall(expr: ts.CallExpression): boolean {
  * Scan one source file. `filePath` is the repo-relative path that lands in the
  * returned sites, so callers do not have to re-derive it.
  */
-export function scanTimingSites(source: string, filePath: string): TimingSite[] {
+export function scanTimingSites(
+  source: string,
+  filePath: string,
+  rejected?: BoundaryReject[],
+): TimingSite[] {
   const sf = ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const sites: TimingSite[] = [];
   const lineOf = (node: ts.Node): number =>
     sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+  /** A key the OUTER gate accepted and the boundary predicate turned away. The
+   *  drop is the intended behaviour; recording it is what keeps the set of
+   *  dropped keys a pinned population rather than a silent one. */
+  const reject = (key: string, node: ts.Node): void => {
+    rejected?.push({ file: filePath, line: lineOf(node), propertyKey: key });
+  };
 
   const pushNamed = (name: ts.BindingName, initializer: ts.Expression | undefined): void => {
     if (!initializer || !ts.isIdentifier(name)) return;
@@ -338,6 +483,23 @@ export function scanTimingSites(source: string, filePath: string): TimingSite[] 
           value,
           propertyKey: node.name.text,
         });
+      } else if (!isBoundaryTimingKey(node.name.text)) {
+        reject(node.name.text, node);
+      } else {
+        // Totality: a prop whose value is not a literal is NAMED, not dropped.
+        // Both spellings the universe can hold — an expression container and a
+        // string that does not parse as a number.
+        const valueNode = expr ?? (init !== undefined && ts.isStringLiteral(init) ? init : null);
+        if (valueNode !== null) {
+          sites.push({
+            file: filePath,
+            line: lineOf(node),
+            kind: "unclassified",
+            name: ts.isStringLiteral(valueNode) ? valueNode.text : collapsed(valueNode, sf),
+            value: null,
+            propertyKey: node.name.text,
+          });
+        }
       }
     }
 
@@ -374,7 +536,36 @@ export function scanTimingSites(source: string, filePath: string): TimingSite[] 
           value,
           propertyKey,
         });
+      } else if (isBoundaryTimingKey(propertyKey)) {
+        sites.push({
+          file: filePath,
+          line: lineOf(node),
+          kind: "unclassified",
+          name: collapsed(node.initializer, sf),
+          value: null,
+          propertyKey,
+        });
+      } else {
+        reject(propertyKey, node);
       }
+    }
+
+    // Form 3c: `{ duration }` — the shorthand IS a timing property whose value
+    // is the identifier of the same name, and it is how one of the live sites
+    // was written (`CrewSectionTransition.tsx`), invisible until now.
+    if (
+      ts.isShorthandPropertyAssignment(node) &&
+      ts.isIdentifier(node.name) &&
+      isBoundaryTimingKey(node.name.text)
+    ) {
+      sites.push({
+        file: filePath,
+        line: lineOf(node),
+        kind: "unclassified",
+        name: node.name.text,
+        value: null,
+        propertyKey: node.name.text,
+      });
     }
 
     // Form 1 + the totality rule: EVERY timer delay argument, classified or named.
@@ -422,6 +613,8 @@ export type ScanResult = {
   readonly sites: readonly TimingSite[];
   /** Delay arguments that resolved to no covered binding, minus dispositioned rows. */
   readonly unclassified: readonly TimingSite[];
+  /** Keys the outer gate accepted and the boundary predicate dropped (see `BoundaryReject`). */
+  readonly boundaryRejected: readonly BoundaryReject[];
   readonly filesScanned: number;
 };
 
@@ -433,6 +626,7 @@ export type ScanResult = {
 export function scanRepo(repoRoot: string): ScanResult {
   const files = universeFiles(repoRoot);
   const raw: TimingSite[] = [];
+  const boundaryRejected: BoundaryReject[] = [];
   for (const file of files) {
     let source: string;
     try {
@@ -440,7 +634,7 @@ export function scanRepo(repoRoot: string): ScanResult {
     } catch {
       continue;
     }
-    raw.push(...scanTimingSites(source, file));
+    raw.push(...scanTimingSites(source, file, boundaryRejected));
   }
   const coveredNames = new Set(
     raw.filter((s) => s.kind === "named-constant").map((s) => s.name as string),
@@ -455,7 +649,7 @@ export function scanRepo(repoRoot: string): ScanResult {
   const unclassified = sites.filter(
     (s) => s.kind === "unclassified" && !dispositioned.has(`${s.file}::${s.name}`),
   );
-  return { sites, unclassified, filesScanned: files.length };
+  return { sites, unclassified, boundaryRejected, filesScanned: files.length };
 }
 
 /** The inventory rows §5.5 must carry: one per distinct (file, name-or-value) timing. */

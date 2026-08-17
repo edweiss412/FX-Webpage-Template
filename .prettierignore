@@ -36,6 +36,12 @@ docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md
 lib/messages/__generated__/
 lib/audit/*.generated.ts
 lib/admin/__generated__/
+# tests/db/__generated__/postgresExecutionMethods.ts is emitted raw by
+# gen:execution-methods and byte-compared two ways: its --check mode and the
+# x-audits "Verify generated execution-methods module is fresh" step
+# (git diff --exit-code). A prettier reflow of the array literals drifts the
+# committed bytes from the next gen run and both gates go permanently red.
+tests/db/__generated__/
 
 # Parser input fixtures — markdown table column whitespace is load-bearing input
 # read by tests/parser/*; prettier table reflow would churn the test corpus.

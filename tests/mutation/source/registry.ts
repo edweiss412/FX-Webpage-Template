@@ -149,6 +149,97 @@ export function validateSurface(surface: GuardSurface): string[] {
  * an unreviewed surface.
  */
 export const GUARD_SURFACES: GuardSurface[] = [
+  /**
+   * The premise recognizer, enrolled 2026-08-16 with a SCOPED operator subset.
+   *
+   * Both suites are listed because both are load-bearing consumers: the unit
+   * suite pins the recognizer's form-by-form contract, and `_metaPremiseContract`
+   * is the corpus consumer whose declared counts a misclassification moves.
+   *
+   * Budget, measured on the POST-edit source: the full operator set is 148 sites
+   * against a 52.20s suite, unrunnable nightly. The enrolled three are 31 sites
+   * (relational-boundary 4, equality-flip 15, integer-literal 12) at roughly 27
+   * minutes worst case, inside the ~45-minute ceiling. `logical-connector` (51)
+   * and `statement-removal` (66) are excluded for WALL CLOCK and nothing else —
+   * that is a budget, not a claim their mutants are uninteresting; widening is a
+   * registry change carrying its own numbers.
+   */
+  {
+    id: "premiseScan",
+    sourcePath: "tests/mutation/source/premiseScan.ts",
+    suitePaths: [
+      "tests/mutation/source/premiseScan.test.ts",
+      "tests/mutation/_metaPremiseContract.test.ts",
+    ],
+    operators: ["relational-boundary", "equality-flip", "integer-literal"],
+    scoreFloor: 0.95,
+    // Blinds the `process.env` global test, so every env-reading test classifies
+    // environment-free. Re-anchored when R3 #1 replaced the text match with a
+    // structural one — the old `from` was that deleted expression, and a control
+    // whose text no longer occurs proves nothing. Verified unique on the current
+    // source (`grep -c -F 'id.text === "process"'` = 1; the sibling check in
+    // `unclassifiableWithin` reads `obj.text`); the provenance fixtures kill it
+    // deterministically.
+    control: {
+      from: 'id.text === "process"',
+      to: 'id.text === "processNEVERMATCHES"',
+    },
+    accepted: [
+      {
+        siteId: "relational-boundary:504:29:>>>=",
+        kind: "equivalent",
+        reason:
+          "`here.length > 0` versus `>= 0` agree on every reachable input: an extents entry is " +
+          "only ever created by `addExtent` or the write pass, and both PUSH a node before storing, " +
+          "so the array is never empty. The guard reads as belt-and-braces and is exactly that.",
+      },
+      {
+        siteId: "integer-literal:1019:32:0>1",
+        kind: "equivalent",
+        reason:
+          "`unresolved` is provably always empty, so `length > 0` and `> 1` are indistinguishable. " +
+          "It is populated only where `factsFor` returns null, and `moduleFacts` returns null only " +
+          "for a path failing `existsSync` — but `resolveSpecifier` returns ONLY paths that already " +
+          "passed `existsSync`. Reaching it needs the file to vanish between those two calls, which " +
+          "is a TOCTOU race rather than an input an ordinary contributor writes (threat fence).",
+      },
+      {
+        siteId: "relational-boundary:1160:28:<><=",
+        kind: "equivalent",
+        reason:
+          "The premise-placement test asks whether the premise call starts BEFORE the registration " +
+          "call. `<` and `<=` differ only when the two nodes start at the identical offset, which " +
+          "two distinct sibling statements cannot do — equality there would mean they are the same " +
+          "node, and the walk never compares a node against itself.",
+      },
+      {
+        siteId: "integer-literal:882:59:2>3",
+        kind: "accepted-gap",
+        ref: "BL-PREMISESCAN-ALIAS-SLICE-UNCOVERED",
+        reason:
+          "NOT equivalent: slicing one character further breaks every `@/` specifier, so the module " +
+          "silently stops resolving and its provenance is lost. It is UNCOVERED because killing it " +
+          "needs a `@/`-imported repo module whose DECLARATION extent reaches provenance without " +
+          "the specifier itself being a provenance module (which short-circuits before resolution), " +
+          "and no such module exists in the corpus today. Filed rather than blessed.",
+      },
+    ],
+  },
+  {
+    // The heavy-orphan reaper's decision function (2026-08-16 spec §9). One suite:
+    // every rule is reachable from a literal row table, which is why the module is
+    // pure and the CLI is not the enrolled surface.
+    id: "heavyReapClassify",
+    sourcePath: "lib/heavyReap/classify.ts",
+    suitePaths: ["tests/heavyReap/classify.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    control: {
+      from: "export const DEFAULT_MIN_AGE_SECONDS = 14400;",
+      to: "export const DEFAULT_MIN_AGE_SECONDS = 1;",
+    },
+    accepted: [],
+  },
   {
     // The orchestrator pane-compaction classifier. Enrolled BEFORE the
     // whole-diff review, because that review's brief must carry a
@@ -1272,7 +1363,19 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // the current ids. (Whole-diff review round 3 caught all eight of these
     // stale after the recognizer widening moved them 161/287/347/362 to
     // 188/333/393/408 — same columns, same operators, same reasons.)
+    // Re-derived again 2026-08-16 after the property-totality edit
+    // (BL-TIMING-SCAN-PROPERTY-TOTALITY): 208/393/453/468 -> 293/520/580/595,
+    // and ONCE MORE after the whole-diff R1 repair moved every line again:
+    // 293/520/580/595 -> 340/581/644/659, same columns, same operators, same
+    // reasons. A stale row here is not cosmetic — it is what left
+    // `logical-connector:&&>||` reported as an unaccepted survivor on main's
+    // nightly (run 31933821808).
     accepted: [
+      // The JSX initializer narrowing is NOT equivalent, and the argument that
+      // said it was rested on a false claim about the TypeScript API: probed,
+      // `ts.isJsxExpression(undefined)` THROWS rather than returning false, so
+      // with `||` the valueless prop `<Thing ttlMs />` crashes the scan. Killed
+      // by the valueless-attribute case rather than argued away (R1 #5).
       // ---- equivalent: comparator sign-not-magnitude (spec §2.4) ----------
       //
       // Array.sort consumes the SIGN of a comparator's result and never its
@@ -1282,46 +1385,46 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // differ and `<=` cannot decide anything `<` did not. Same class
       // taskContract carries four of.
       {
-        siteId: "relational-boundary:208:14:<><=",
+        siteId: "relational-boundary:343:14:<><=",
         kind: "equivalent",
         reason:
           "universeFiles' comparator reaches this `<` only when the two entry names differ, so `<=` cannot change the ordering",
       },
       {
-        siteId: "integer-literal:208:26:1>2",
+        siteId: "integer-literal:343:26:1>2",
         kind: "equivalent",
         reason: "comparator magnitude is unread — Array.sort consumes the sign only",
       },
       {
-        siteId: "integer-literal:208:30:1>2",
+        siteId: "integer-literal:343:30:1>2",
         kind: "equivalent",
         reason: "same comparator, positive branch; the sign is unchanged",
       },
       {
-        siteId: "relational-boundary:453:50:<><=",
+        siteId: "relational-boundary:647:50:<><=",
         kind: "equivalent",
         reason:
           "the site comparator reaches this `<` only when the files differ, because `a.file === b.file` is tested first",
       },
       {
-        siteId: "integer-literal:453:62:1>2",
+        siteId: "integer-literal:647:62:1>2",
         kind: "equivalent",
         reason: "comparator magnitude is unread — sign only",
       },
       {
-        siteId: "integer-literal:453:66:1>2",
+        siteId: "integer-literal:647:66:1>2",
         kind: "equivalent",
         reason: "same comparator, positive branch; the sign is unchanged",
       },
       // ---- equivalent: the flip cannot change which branch is taken -------
       {
-        siteId: "logical-connector:393:43:&&>||",
+        siteId: "logical-connector:584:43:&&>||",
         kind: "equivalent",
         reason:
           "both arms yield the SAME name for every input that reaches them: for an identifier `delay.text` equals `delay.getText(sf)` (no whitespace, far under the 60-char slice), and for a non-identifier `delay.text` is undefined so the `||` arm is false anyway",
       },
       {
-        siteId: "logical-connector:468:38:||>&&",
+        siteId: "logical-connector:662:38:||>&&",
         kind: "equivalent",
         reason:
           "the operands are never independently true: a site is `unclassified` if and only if its value is null, because the push sites guarantee it — so `||` and `&&` select the same rows",
@@ -1573,6 +1676,35 @@ export const GUARD_SURFACES: GuardSurface[] = [
     },
     accepted: [],
   },
+  /**
+   * Derivation of the destructive-file analyzer's execution-method core from the
+   * driver's type declarations (BL-EXECUTION-METHODS-DERIVED-FROM-DRIVER-TYPES).
+   * Pure AST over a source string, DB-free, fixture-corpus suite -- enrolled
+   * before the arc's first diff-review round per the AGENTS.md contract.
+   */
+  {
+    id: "executionMethodsDerivation",
+    sourcePath: "scripts/execution-methods/lib.ts",
+    suitePaths: ["tests/db/executionMethodsManifest.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    // The FIRST enrolment run scored 10/11 (0.909) with one unaccepted survivor,
+    // logical-connector:44:43; it was repaid with a PROPERTY-signature fixture
+    // rather than blessed, and the re-run measures 1.00 over the same 11 counted
+    // mutants. The floor is that measured 1.00 minus 0.05, rather than the 0.8
+    // placeholder the row was authored with: a floor below the shipped state
+    // cannot detect a regression toward it. At 11 mutants one survivor scores
+    // 0.909, which trips 0.95 -- the granularity is coarse enough that the floor
+    // catches a single lost kill, which is exactly what the first run's survivor
+    // would have cost had it been accepted instead of repaid.
+    scoreFloor: 0.95,
+    // Inverting core classification collects every annotated return type into
+    // core; the Promise-shape and Parameter-routing fixtures reject it.
+    control: {
+      from: "if (CORE_HEADS.has(head)) core.add(member.name.text);",
+      to: "if (!CORE_HEADS.has(head)) core.add(member.name.text);",
+    },
+    accepted: [],
+  },
   {
     // The psql startup-file scanner (2026-08-16 enrolment spec
     // `docs/superpowers/specs/ci/2026-08-16-psql-scan-mutation-enrolment-design.md`
@@ -1756,6 +1888,54 @@ export const GUARD_SURFACES: GuardSurface[] = [
     control: {
       from: 'if (depth > DEPTH_MAX) return "[Truncated: depth]";',
       to: 'if (depth >= DEPTH_MAX) return "[Truncated: depth]";',
+    },
+    accepted: [],
+  },
+  {
+    // The two guard surfaces the mutation-gate sharding arc itself ships
+    // (wall-clock spec docs/superpowers/specs/ci/2026-08-16-mutation-gate-wallclock-design.md).
+    // Enrolled BEFORE this arc's first whole-diff review dispatch, so the
+    // convergence criterion is a mutation score plus an empty unaccepted-survivor
+    // set -- both machine-computed -- rather than reviewer imagination.
+    //
+    // The budget checker's DECISION LOGIC is here and its CLI is a separate file
+    // (scripts/check-shard-budget.ts) deliberately: `phantomGapExecuted` below
+    // records what the combined shape costs, scoring 0.27 with 18 of 19 survivors
+    // in code no referring suite could execute through an import.
+    id: "shardBudget",
+    sourcePath: "lib/ci/shardBudget.ts",
+    suitePaths: ["tests/ci/shardBudget.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Turns the strictly-above budget comparison into at-or-above, which the
+    // exactly-at-budget case is built to notice.
+    control: { from: "r.seconds > budgetSeconds)", to: "r.seconds >= budgetSeconds)" },
+    accepted: [],
+  },
+  {
+    id: "sourceShardPartition",
+    sourcePath: "tests/mutation/source/shardPartition.ts",
+    // TWO deciding suites, and the second is load-bearing rather than tidy. The
+    // unit suite decides every BEHAVIOUR in this module, but it reads
+    // SOURCE_SHARD_COUNT and SHARD_BUDGET_SECONDS to build its own expectations,
+    // so a mutant of either constant is self-consistent and survives -- which is
+    // exactly what enrolment's first run reported (integer-literal:26:35:4>5 and
+    // both halves of 60 * 60). The integrity meta-test compares the same two
+    // constants against the WORKFLOW's hard-coded `[0, 1, 2, 3]` and `"3600"`,
+    // which no mutant of this file can move, so it is what kills them.
+    suitePaths: [
+      "tests/mutation/source/shardPartition.test.ts",
+      "tests/mutation/_metaSourceShardIntegrity.test.ts",
+    ],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Drops the `accepted` term from the weight, which the delta case in the
+    // suite is built to notice: it holds the SOURCE fixed and varies only the
+    // suite count and ledger size, so the mutant moves the asserted delta from
+    // 4 to 2 rather than leaving a self-consistent number.
+    control: {
+      from: "surface.accepted.length * (suites - 1) + suites",
+      to: "suites",
     },
     accepted: [],
   },
