@@ -2,6 +2,8 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { premiseHolds } from "../_shared/premise";
+
 import { childRun, INERT_TARGET } from "./source/childRun";
 import { classifyTests } from "./source/premiseScan";
 import { GUARD_SURFACES } from "./source/registry";
@@ -28,6 +30,19 @@ const ROOT = join(__dirname, "..", "..");
  * Same shape and same reason as EXPECTED_LEDGER_KINDS in source/expectedLedgerKinds.
  */
 const EXPECTED_ENV_TOUCHING: Record<string, number> = {
+  // The premise recognizer's own two suites, enrolled 2026-08-16 with the
+  // premiseScan surface. Both counts are DERIVED from a run of the recognizer
+  // over them, not asserted from reading:
+  //
+  //   premiseScan.test.ts        0 — every case writes a synthetic source under
+  //                                  mkdtempSync and PARSES it. node:fs on a
+  //                                  tree the test builds is not provenance, by
+  //                                  the same rule the corpus suite is 0 under.
+  //   _metaPremiseContract.test.ts  1 — "%s fails as a child run", which spawns
+  //                                  a real child through `childRun`. The other
+  //                                  nine read the live tree via node:fs only.
+  "tests/mutation/source/premiseScan.test.ts": 0,
+  "tests/mutation/_metaPremiseContract.test.ts": 1,
   // 15 -> 16 (2026-08-09): the constructed multi-line hunk case that kills the
   // diffHunks count-collapse pair (BL-MUTATION-LEDGERGIT-SITE-DRIFT) builds a
   // throwaway repo, so it counts as environment-touching like its
@@ -50,22 +65,22 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // pure helpers, reaching no member of ENVIRONMENT_SOURCES.
   "tests/cross-cutting/pgCronSmokesUnit.test.ts": 0,
   "tests/scripts/ledgerClaims.test.ts": 0,
-  // The psql startup-file scanner's deciding suite, enrolled 2026-08-16. The number is
-  // the scanner's own measurement, not a claim about the suite: the enrolment's red cycle
-  // reported "expected +0 to be undefined" here before the row existed.
+  // The psql startup-file scanner's deciding suite, enrolled 2026-08-16 at a
+  // declared 0 — a number the enrolling arc recorded as a KNOWN UNDER-COUNT
+  // rather than papering over, naming BL-PREMISE-SCAN-DESCRIBE-LOCAL-EXTENTS
+  // and saying the number would rise when that row closed.
   //
-  // It is also a KNOWN UNDER-COUNT, recorded rather than papered over (cross-model review
-  // r1 refuted the first version of this comment, which asserted the suite reaches no
-  // ENVIRONMENT_SOURCES member directly). It does: `psqlStartupFileSuppression.test.ts:35`
-  // imports execFileSync and `:1952` runs `git ls-files -z` to derive TRACKED_SOURCE_ROOTS.
-  // That call sits in a describe-local initializer, outside the module-scope extents
-  // classifyTests registers, so the two cases that depend on it (`:1977` and `:1986`) are
-  // classified environment-free. Both already carry executable premises of their own
-  // (`premise(...)` on the derived root count, `premiseHolds(...)` per root), so the gap is
-  // in the CLASSIFIER's reach, not in those cases' rigour. Filed as
-  // BL-PREMISE-SCAN-DESCRIBE-LOCAL-EXTENTS; when it closes, this number rises and the row
-  // is updated to whatever the scanner then measures.
-  "tests/cross-cutting/psqlStartupFileSuppression.test.ts": 0,
+  // It closed here, and the number rose. The suite imports `execFileSync` and
+  // runs `git ls-files -z` inside the initializer for `TRACKED_SOURCE_ROOTS`,
+  // declared in a `describe` callback; the two cases that consume it (`:1977`
+  // and `:1986`) ARE environment-touching and are now classified as such. Both
+  // already carried executable premises, so nothing about them changed — what
+  // changed is that the classifier can see the dependency, which is the
+  // fail-by-default property the contract exists to provide.
+  //
+  // Re-measured across every enrolled suite by walking the registry's
+  // `suitePaths`, as that row required: this is the only count that moved.
+  "tests/cross-cutting/psqlStartupFileSuppression.test.ts": 2,
   // The heavy-orphan reaper's classifier suite, enrolled 2026-08-16. It declares 0
   // because `classify` is pure by construction — no I/O and no clock, which is the
   // property that made the module the enrolled surface rather than the CLI — so every
@@ -140,11 +155,12 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // the same rule the corpus suite is declared 0 under.
   //
   // This count started as a FALSE 0. The spawning helper was declared inside
-  // the describe body, and premiseScan registers declaration extents at module
-  // scope only (premiseScan.ts:146-161), so all three classified
-  // environment-free. The helper is now at module scope. The recognizer's
-  // blindness to nested helpers is the wider class, probed and filed as
-  // BL-PREMISESCAN-NESTED-HELPER-SCOPE.
+  // the describe body, and premiseScan registered declaration extents at module
+  // scope ONLY, so all three classified environment-free; the helper was moved
+  // to module scope to work around it. That blindness is now FIXED
+  // (BL-PREMISESCAN-NESTED-HELPER-SCOPE): extents are keyed by scope and
+  // resolved innermost-out, so a helper declared inside `describe` carries its
+  // provenance and the count no longer depends on where the helper sits.
   "tests/ci/phantomGapExecuted.test.ts": 3,
   // The interactive-scan guard surfaces, enrolled 2026-08-14
   // (fix/ui-interactive-token-policy). All three declare 0, and the declaration
@@ -294,6 +310,10 @@ describe("premise contract — a premise that cannot run is no premise", () => {
   ];
 
   it.each(FIXTURES)("%s fails as a child run", (f) => {
+    // no-premise: the fixtures are COMMITTED and enumerated above, so the case
+    // set cannot silently empty; the child's non-zero exit is itself the
+    // premise that the fixture executed rather than being skipped.
+    premiseHolds(`${f} is a committed fixture this suite enumerates`, FIXTURES.includes(f));
     expect(
       childRun(ROOT, `tests/mutation/source/fixtures/${f}`, INERT_TARGET),
       `${f} must FAIL; an empty producer registers no case, so a green run means ` +

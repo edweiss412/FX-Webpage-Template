@@ -1,3 +1,92 @@
+## BL-PREMISE-SCAN-DESCRIBE-LOCAL-EXTENTS — a describe-local initializer that shells out is classified environment-free — CLOSED 2026-08-16 (`fix/scanner-scope-totality`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-16 · **Effort (as shipped):** M — folded into the arc that was already rebuilding the extent model.
+
+**Resolution 2026-08-16 (`fix/scanner-scope-totality`).** Extents are keyed by SCOPE and resolved innermost-out from the reference, so a binding declared inside a `describe` callback is registered against the tests within that block. The two cases this row named are now classified environment-touching, and the arc did the re-measurement the row required — a walk over the registry's `suitePaths`, not a hand list. Exactly one declared count moved: `tests/cross-cutting/psqlStartupFileSuppression.test.ts` 0 -> 2, updated at its declaration site with the reason.
+
+The row predicted the shape of its own closure correctly, including that the number would rise and that each move is a real classification being corrected rather than a number to bump. Two whole-diff review rounds on the closing arc found the extent model was resolving NAMES rather than bindings in five further places — reference dedup, import-before-lexical order, unbound destructuring forms, file-global dynamic imports, and type positions read as value reads — so what shipped is a lexical scope model rather than a `describe` special case.
+
+**Status:** OPEN · **Filed:** 2026-08-16 (`test/psql-scan-mutation-enrolment`, cross-model review r1 on the enrolment diff). **Severity:** LOW-MEDIUM (guard reach; the premise contract under-counts rather than mis-reports). **Class:** guard coverage. **Effort:** M. **Class-sweep exception:** (c) — the repair changes `classifyTests`'s extent model, a surface the enrolling arc does not otherwise touch. **Reachability:** PROBED — command and output below.
+
+`classifyTests` (`tests/mutation/source/premiseScan.ts`) decides whether a test is environment-touching by resolving what it references back to declarations it has registered. It registers module-scope declarations; a binding declared INSIDE a `describe` callback is outside those extents, so a test that depends on one is classified `environment-free` even when that binding is produced by a real subprocess.
+
+The enrolled psql suite is a live instance. It imports `execFileSync` at `tests/cross-cutting/psqlStartupFileSuppression.test.ts:35` and runs `git ls-files -z` at `:1952`, inside the initializer for `TRACKED_SOURCE_ROOTS` in the `describe("the derived skip set for THIS repo's committed .gitignore")` block at `:1911`. Two cases consume it — `:1977` and `:1986` — and both are reported environment-free:
+
+```
+$ pnpm exec tsx -e '<classifyTests on the enrolled suite>'
+{"environmentTouching":0,"derivedRoots":[{"line":1977,"verdict":"environment-free","hasPremise":true},
+                                         {"line":1986,"verdict":"environment-free","hasPremise":true}]}
+
+$ rg -n 'import \{ execFileSync \}|execFileSync\("git"' tests/cross-cutting/psqlStartupFileSuppression.test.ts
+35:import { execFileSync } from "node:child_process";
+1952:    const tracked = execFileSync("git", ["ls-files", "-z"], {
+```
+
+**What is and is not at risk.** The contract's purpose is to stop a suite reporting green on nothing, and both affected cases already carry executable premises of their own — `premise("git yielded tracked roots holding scannable files", …)` at `:1980` and `premiseHolds(…)` per root at `:1987` — so neither is currently vacuous. The defect is that the CLASSIFIER cannot see the dependency, which means the next such case gets no scrutiny by default. That is the fail-by-default property the contract exists to provide, and it is absent for this shape.
+
+The under-count is recorded at its declaration site rather than hidden: the `EXPECTED_ENV_TOUCHING` row for this suite (`tests/mutation/_metaPremiseContract.test.ts`) states the number is the scanner's measurement, names this row, and says the number rises when it closes.
+
+**What would close it:** extend the extent model to descend into `describe` callbacks so a binding declared there is registered against the tests within that block, then re-measure every enrolled suite — several declared counts will move, and each move is a real classification being corrected rather than a number to bump. A sweep over the other enrolled suites for the same shape (a subprocess or filesystem read in a `describe`-local initializer) belongs to the same arc; enumerate it with a walk over the registry's `suitePaths`, not by hand.
+
+## BL-TIMING-SCAN-PROPERTY-TOTALITY — a timing-named property with a non-literal value is dropped, not reported — RESOLVED 2026-08-16 (`fix/scanner-scope-totality`, SHIPPED)
+
+**Filed:** 2026-08-15 (`feat/wifi-password-legibility`, whole-diff review round 7, finding 2). **Effort:** S. **Class-sweep exception:** (c) — the repair spans surfaces this arc does not otherwise touch. **Reachability: PROBED**, with the site list below as the probe.
+
+**Resolution 2026-08-16 (`fix/scanner-scope-totality`).** The scanner is now TOTAL over property forms. The accept-set is keyed on NODE KINDS — `PropertyAssignment`, `ShorthandPropertyAssignment`, and `JsxAttribute` (expression container, or a string that does not parse as a number) — rather than on one syntactic position, because enumerating positions is exactly what hid the SIXTH live site: the shorthand `{ duration }` in `components/crew/CrewSectionTransition.tsx`, which no census had counted and two reviews had not seen.
+
+The key predicate on the new paths (`isBoundaryTimingKey`) is deliberately narrower than the bare-suffix `TIMING_NAME` the numeric paths keep, and `TIMING_NAME` is untouched on every existing path. Measured: the bare suffix matches 48 live non-literal candidates because ordinary plurals end in `ms` (`items`, `rooms`, `searchParams`), which would have buried the 8 real ones. The asymmetry is recorded at the predicate: on numerics a loose match is fail-open and shows up as a visible bogus row; on non-literals it is fail-flood, and a flooded report is not read.
+
+Six live sites, five reasons-required disposition rows (the two identical `emblaDuration(prefersReducedMotion)` calls share a `(file, name)` key). **`DESIGN.md` is NOT edited** — an unclassified site carries `value: null` and `inventoryRows` categorically skips it, so no §5.5 row can represent one; proven by the byte gate `git diff --exit-code origin/main -- DESIGN.md`.
+
+Three executable pins ship with it, each verified to bite: a six-site liveness pin keyed by `(file, propertyKey, name)` AND COUNT — proved by removing one of the two identical `emblaDuration` calls, which a containment check keyed without counts cannot see; a disposition-usage pin, since `scanRepo` only ever SUBTRACTS keys so a stale row otherwise excuses nothing invisibly; and an assertion that the two `ANNOUNCE_LOG_TTL_MS` pass-throughs auto-resolve rather than an assumption that they do.
+
+Two pre-existing unit rows had asserted the OLD contract (a non-numeric `duration` producing nothing). Their expectations were FLIPPED rather than deleted: the coverage was right, the expectation was the defect.
+
+`scripts/scan-interaction-timings.ts` is complete for TIMER DELAYS — every `setTimeout` / `setInterval` delay argument is walked, and one that is neither a literal nor a resolvable identifier is reported `unclassified` so someone must disposition it. Its PROPERTY forms are not: a timing-named property whose value is not a numeric literal is dropped silently, so it appears in neither `DESIGN.md` §5.5 nor the unclassified list.
+
+Five sites in the tree are invisible for that reason today:
+
+| site                                           | value                                         |
+| ---------------------------------------------- | --------------------------------------------- |
+| `components/admin/telemetry/EventRow.tsx`      | `duration: reduce ? 0 : 0.22`                 |
+| `components/crew/RightNowHero.tsx`             | `duration: prefersReducedMotion ? 0 : 0.22`   |
+| `components/diagrams/GalleryLightbox.tsx` (x2) | `duration: emblaDuration(...)`, live value 22 |
+| `components/diagrams/GalleryLightbox.tsx`      | `duration: motionDuration`, live value 0.22   |
+
+**This predates the key widening** that surfaced it — the original `duration:` form dropped non-literals the same way — so it is a pre-existing gap rather than a regression, and every one of the five is a real interaction timing a person watches.
+
+**Scope if promoted:** report a non-literal property value as `unclassified`, exactly as a delay argument is, and disposition the five above (the reduced-motion ternaries resolve to two constants; the GalleryLightbox pair resolve elsewhere in the same file). The consequence today is bounded and conservative — §5.5 lists fewer timings than exist, so the document undersells rather than misstates — but the guard's whole purpose is that no timing passes silently, and five do.
+
+## BL-PREMISESCAN-NESTED-HELPER-SCOPE — a helper declared inside `describe` hides its environment reach from the recognizer — RESOLVED 2026-08-16 (`fix/scanner-scope-totality`, SHIPPED)
+
+**Severity:** MEDIUM (the recognizer reports a clean corpus it no longer understands — a false NEGATIVE, which is the direction that does not announce itself) · **Class:** guard fidelity · **Filed:** 2026-08-14 (`feat/diagram-viewing-polish`, found because the count it produced for a suite this arc enrolled was a false `0`) · **Effort:** S-M
+
+**Resolution 2026-08-16 (`fix/scanner-scope-totality`).** Extents are keyed by SCOPE and resolved innermost-out from the REFERENCE's own scope, with parameters and every other extent-less binding registered as SHADOWS that stop the walk rather than falling through to a same-named outer one. Writes resolve in a second pass onto the binding their target actually denotes. A scope is any node that introduces a binding environment — the source file, a function-like node, a block, a `for` head, a `catch` clause, a `case` block, or a class expression — because `let`/`const` bind in their block while `var` hoists to the function, and registering a block-scoped name at function scope shadows the references that follow the block. Two whole-diff review rounds moved this from names to bindings: dedup keys on the binding a reference resolves to, imports are consulted only when no enclosing scope binds the name, every destructuring form binds, dynamic imports bind IN THE SCOPE THAT DECLARES THEM rather than in one file-global map, and an identifier in a type, label, or intrinsic-tag position is not a value reference at all.
+
+The module-scope-only rule this replaces was itself a repair, for the AC-10b collision where `reportEnvelope`'s parameter `res` inherited a `const res = spawnSync(...)` from another function. It bought that by discarding every nested binding, which cost the opposite error in silence — the false NEGATIVE this entry reported. Both directions are now closed by one model, and both are regression cases sitting side by side: the describe-scope fixture and the AC-10b fixture.
+
+Landed with it: cross-module lookups resolve through the import's `propertyName`, so `import { helper as h }` finds `helper` in the target module instead of missing on the local alias. `isModuleScope` is deleted rather than left unused.
+
+The recognizer was then ENROLLED in the source-mutation registry (floor 0.95). That run is what exposed the dead duplicated `unclassifiable` rules in `moduleFacts`, whose entries a downstream filter dropped unconditionally — live-looking code that could never affect a verdict, now removed.
+
+**Scope fence held:** namespace, renamed-default and re-export forms, and helper-body unclassifiable propagation, are untouched — `BL-PREMISESCAN-IMPORT-EDGE-FIDELITY` owns those and remains OPEN. One new row was filed from this work: `BL-PREMISESCAN-ALIAS-SLICE-UNCOVERED`.
+
+**Probed, not theorized.** Two sources differing ONLY in where the helper is declared — same `spawnSync`, same import, same call site:
+
+```
+$ # classifyTests(root, "tests/probe.test.ts") on each variant
+helper at MODULE scope   -> ["environment-touching"]
+helper at DESCRIBE scope -> ["environment-free"]
+```
+
+**Mechanism.** `premiseScan` registers declaration extents at MODULE SCOPE ONLY (`tests/mutation/source/premiseScan.ts:146-161`). `isModuleScope` (`:187-200`) walks parents and returns `false` at the first enclosing function — and a `describe("...", () => { ... })` body IS an arrow function. So a helper nested in a `describe` has no registered extent, its `node:child_process` reach is invisible, and every test calling it classifies `environment-free`.
+
+**This is a deliberate trade-off, not an oversight** — and that is the hard part of fixing it. The module-scope restriction exists to prevent OVER-classification (spec AC-10b): a flat name map collided `reportEnvelope`'s parameter `res` with an unrelated `const res` inside `main()`, and every test importing `reportEnvelope` went environment-touching. The comment at `:140-145` records that probe. A naive fix that registers all scopes re-opens exactly that. The repair therefore has to be scope-AWARE resolution (extents keyed by declaring scope, resolved innermost-out), not scope-blind registration.
+
+**Live cost already paid.** `tests/ci/phantomGapExecuted.test.ts` declared its spawning `runCli` inside the `describe` body; all three shipped-CLI cases classified environment-free and `EXPECTED_ENV_TOUCHING` recorded a truthful-looking `0`. Hoisting the helper to module scope moved it to `3`. Nothing failed in between — the corpus simply under-reported, silently, which is the failure mode the premise contract exists to prevent.
+
+**Fix:** scope-aware extent resolution in `premiseScan`, with the AC-10b `reportEnvelope`/`res` collision kept as a regression case so the repair cannot trade a false negative for the false positive it replaced. Until then the recognizer's contract is "module-scope helpers only", which no current caller states.
+
 ## BL-EXECUTION-METHODS-DERIVED-FROM-DRIVER-TYPES — derive the execution-method set from postgres.js's types instead of hand-typing it — CLOSED 2026-08-16 (`test/execution-methods-driver-derived`, SHIPPED)
 
 **Status:** SHIPPED 2026-08-16 · **Severity:** MEDIUM (a silent miss admits an unchecked wipe; the failure mode is acceptance, not rejection) · **Class:** structural guard · **Effort (as shipped):** M · **Filed:** 2026-08-15 (`chore/guard-completeness-wave`, diff review R6)

@@ -22,6 +22,15 @@
  * taskContract's 18/2 against every surface in `describe.each`).
  */
 export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
+  // premiseScan, enrolled 2026-08-16. The gate found 8 survivors on the first
+  // run; five were REPAID with cases and three more disappeared with the dead
+  // duplicated `unclassifiable` rules the gate exposed. What remains is three
+  // proven equivalences (a never-empty array guard, a provably-unreachable
+  // `unresolved` branch, and a start-offset comparison two sibling nodes cannot
+  // tie) plus ONE honest accepted-gap: the `@/` specifier slice, which is not
+  // equivalent and has no killing fixture in today's corpus
+  // (BL-PREMISESCAN-ALIAS-SLICE-UNCOVERED).
+  premiseScan: { equivalent: 3, "accepted-gap": 1 },
   // psqlStartupScan: EIGHTEEN equivalence arguments and NO accepted gap from the
   // 2026-08-16 disposition arc (per-site reasons live on the registry rows). Thirteen of
   // the thirty-one first-run survivors were repaid with tests instead. Both counts moved
