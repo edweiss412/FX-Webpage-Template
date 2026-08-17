@@ -144,7 +144,7 @@ Parameter-expansion operands with INTERNAL quoting (plan round-2 finding 1). Bas
 `PG=${U:-psql}` -> <psql>. Scanner (current tree): the three quoted/escaped-operand spellings
 report 0; the bare-operand spelling reports 1. The zeros persist after the repair by design
 (the `${…}` word is verbatim) and are the `BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE` documented
-limit, spec §6 item 5.
+limit, spec §6 item 6 (renumbered by the round-4 whitespace-directory insertion).
 
 ## Readings the spec relies on
 

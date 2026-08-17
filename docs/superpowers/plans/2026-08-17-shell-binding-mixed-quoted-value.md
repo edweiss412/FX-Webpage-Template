@@ -388,7 +388,7 @@ git commit -m "fix(infra): lexer escape fidelity - EOF backslash, double-quote e
   in this task multiword values are still handled by the untouched `quotedValue`/`boundCommand`
   path.
 
-<!-- task: red=`pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts -t "mixed-quoted assignment"` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:2070` why=`ASSIGNED_VALUE_QUOTED and ASSIGNED_WHOLE_QUOTED admit one optional delimiter around a delimiter-free span, so every quote-concatenated value (PG=p'sql') fails both and scanShellIndirection returns zero hits for the thirteen recall rows` ac=AC-1,AC-3,AC-4,AC-5,AC-7 -->
+<!-- task: red=`pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts -t "mixed-quoted assignment"` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:2070` why=`ASSIGNED_VALUE_QUOTED and ASSIGNED_WHOLE_QUOTED admit one optional delimiter around a delimiter-free span, so every quote-concatenated value (PG=p'sql') fails both and scanShellIndirection returns zero hits for the eighteen recall rows` ac=AC-1,AC-3,AC-4,AC-5,AC-7 -->
 
 - [ ] **Step 1: Write the failing accept-set block.** Add a new describe to the suite:
 
@@ -414,6 +414,13 @@ describe("mixed-quoted assignment values (BL-SHELL-BINDING-MIXED-QUOTED-VALUE)",
     // g3/g6): both of these run psql at their use sites.
     ["quoted leading space", "PG=' psql'\n"],
     ["ANSI-C trailing newline", "PG=$'psql\\n'\n"],
+    // Separator characters in DIRECTORY components (round-4 finding 1): the
+    // basename is psql, so the value binds the command; probed against bash.
+    ["apostrophe directory", 'PG="/tmp/O\'Reilly/psql"\n'],
+    ["double-quote directory", "PG='/tmp/x\"y/psql'\n"],
+    ["semicolon directory", "PG='/tmp/x;y/psql'\n"],
+    ["pipe directory", "PG='/tmp/x|y/psql'\n"],
+    ["ampersand directory", "PG='/tmp/x&y/psql'\n"],
   ])("%s binds the psql command and is reported", (_label, source) => {
     expect(scanShellIndirection(source, "x.sh").length).toBeGreaterThan(0);
   });
@@ -491,7 +498,7 @@ describe("mixed-quoted assignment values (BL-SHELL-BINDING-MIXED-QUOTED-VALUE)",
 - [ ] **Step 2: Run to verify the red set.**
 
 Run: `pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts -t "mixed-quoted assignment"`
-Expected: the thirteen recall rows FAIL (0 hits each), the three trailing-backslash rows FAIL
+Expected: the eighteen recall rows FAIL (0 hits each), the three trailing-backslash rows FAIL
 (1 hit each today), `PG=$(x)psql` FAILS (0 hits today). The six precision survivors (including
 both digit-boundary mutant-kill pins), the R34 wrapped-path duplicate, the discovery handoff,
 and the non-shadowing parity pin PASS (regression premises for the green step, not red cases —
@@ -545,6 +552,15 @@ function assignmentBindingLines(words: ShellWord[], file: string): Set<number> {
     // `;` binds `psql;x`, which is not the psql command), and no trailing
     // literal backslash - the expanded word's basename would be empty, the
     // same shell fact the ratified trailing-backslash contract test pins.
+    // A separator character in a DIRECTORY component changes nothing about
+    // what runs: `/tmp/O'Reilly/psql` has basename psql (plan round-4
+    // finding 1). The basename alternative reuses the module's own word
+    // semantics (basename + isPsqlName), so it is exact, not a widening:
+    // `psql;x`, `psqlx` and a trailing-backslash value all fail it.
+    if (isPsqlName(basename(value))) {
+      found.add(word.line);
+      continue;
+    }
     if (!/\bpsql\b/.test(value)) continue;
     if (/["';|&]/.test(value)) continue;
     if (value.endsWith("\\")) continue;
@@ -748,6 +764,10 @@ describe("documented limits - quote-concatenated spellings outside the assignmen
         "bash -c '$0 -qAt mydb' p'sql'\n",
         "bash -c '$0 -qAt mydb' psql\n",
       ],
+      // IFS whitespace in a quoted DIRECTORY component sends the value to the
+      // multiword branch, where a flagless path is declined - spec 6 item 5
+      // (round-4 fallout, pinned so the zero is declared).
+      ["a whitespace directory component", "PG='/tmp/x y/psql'\n", "PG='/tmp/xy/psql'\n"],
       // ledger: BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE - the ${...} word is
       // kept verbatim by design, so operand-INTERNAL quoting is data (plan
       // round-2 finding 1; bash binds psql for every quoted-operand sibling).
@@ -948,7 +968,10 @@ Re-executed after the plan round-1 repairs with the final block contents (premis
 two digit-boundary zero pins, the non-shadowing parity pin, Task 4 as a single looped test):
 39 tests, 26 failed, 13 passed — matching the tasks' predictions exactly (re-executed once more
 after the plan round-3 repairs: the quoted-Windows-path flip and the newline-separated multiword
-row joined the red set; the unterminated-ANSI-C zero joined the premise-green set). Red: all five Task 1
+row joined the red set; the unterminated-ANSI-C zero joined the premise-green set). The round-4
+delta was spliced separately on the same tree: the five separator-directory recall rows all RED
+(0 hits each today) and the whitespace-directory limit row premise-green — 44 total across both
+runs, 31 red / 13 green. Red: all five Task 1
 fidelity tests, the thirteen Task 2 recall rows, the three trailing-backslash rows, the
 expansion-prefix widening, and both Task 3 multiword recall rows. Green (regression premises):
 the six Task 2 precision-survivor zeros (including both digit-boundary mutant-kill pins, probed
@@ -962,7 +985,7 @@ test as another premise-green pair, changing neither the test count nor the red 
 
 ## Acceptance criteria (from spec §4)
 
-- **AC-1:** the thirteen single-word recall rows (Task 2 block) report ≥1 indirection each.
+- **AC-1:** the eighteen single-word recall rows (Task 2 block) report ≥1 indirection each.
 - **AC-2:** the segment-split multiword binding, the inner-quoted spelling, and the
   newline-separated value report; both quoted
   `run:` scalar spellings (plain and mixed) stay declared limits (spec §6 item 2).

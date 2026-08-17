@@ -122,7 +122,11 @@ value the way its use site can. Then:
   `boundCommand` criterion, unchanged).
   This replaces the `quotedValue` regex: the value is now the lexer's dequoted concatenation, so
   `CMD='psq'"l -qAt mydb"` is read exactly as `CMD='psql -qAt mydb'` is.
-- **V is a single word** (no whitespace) → the word is a name binding iff ALL of:
+- **V is a single word** (no whitespace) → the word is a name binding iff
+  `isPsqlName(basename(V))` — the module's own exact word semantics, which reads a psql basename
+  through ANY directory prefix, separator characters included (`/tmp/O'Reilly/psql` binds psql;
+  plan round-4 finding 1) and rejects `psql;x`, `psqlx` and every trailing-backslash value — OR
+  ALL of:
   1. V matches the pattern `\bpsql\b` — the existing `PSQL_VALUE` core, case-sensitive,
      unchanged;
   2. V contains none of `"`, `'`, `;`, `|`, `&` — post-dequote these are literal data characters
@@ -245,6 +249,8 @@ Recall closures — 0 → 1, oracle value `psql` or a psql path in every row:
 | `PG=$'\x70sql'` | `psql` (ANSI-C hex, §3.2 fix 4) |
 | `PG=$'psql\n'` | `psql` after word-splitting (§3.1 trim) |
 | `PG=' psql'` | `psql` after word-splitting (§3.1 trim) |
+| `PG="/tmp/O'Reilly/psql"` | `/tmp/O'Reilly/psql` (basename clause) |
+| `PG='/tmp/x"y/psql'`, `'/tmp/x;y/psql'`, `'/tmp/x|y/psql'`, `'/tmp/x&y/psql'` | the full path; basename psql in every row (basename clause) |
 
 Precision closures — 1 → 0, oracle value `psql\` (not a command) in every row: `PG=psql\` (EOF),
 `PG=psql\\` (EOF), `PG='psql\'`. Same shell fact as the ratified contract zeros.
@@ -323,7 +329,10 @@ concatenation." Swept across every rule family in `scanShellIndirection`:
 4. Unterminated quotes at end of input keep their current conservative readings; escape decoding
    applies only to well-formed quoting (malformed input is a shell syntax error and runs
    nothing).
-5. Quoting or escapes INSIDE a `${…}` expansion operand (`PG=${U:-'psql'}` and its quote/escape
+5. IFS whitespace inside a quoted directory component (`PG='/tmp/x y/psql'`) sends the value to
+   the multiword branch, where a flagless path is declined — a declared, pinned miss (the plain
+   path reports; bash runs the spaced path only through quoted expansion).
+6. Quoting or escapes INSIDE a `${…}` expansion operand (`PG=${U:-'psql'}` and its quote/escape
    siblings) are not dequoted — the expansion is one verbatim word by design, and only a bare
    `psql` inside it reports (`PG=${U:-psql}` does; probed both instruments). A missed report,
    never a false certification; ledger `BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE`.
