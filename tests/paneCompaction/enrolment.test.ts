@@ -35,9 +35,16 @@ describe("the classifier core is enrolled", () => {
     //
     // SIX mutate a TYPE ANNOTATION, which TypeScript erases and the runner never
     // typechecks, so the emitted JavaScript is byte-identical. TWO are counter
-    // details in `newestVerdictTie`, whose only consumer is `count > 1`: the
-    // counter is reset to 1 at each new maximum, so neither the initial value
-    // nor the increment size can move that predicate.
+    // details in `newestVerdictTie`, and those are argued from EVALUATED OUTPUT
+    // rather than from how the lines look: a differential run over 3616 row
+    // sequences -- every combination up to length 3 over null/invalid/valid
+    // timestamps x verdict/no_verdict/other statuses -- found zero inputs
+    // separating either mutant from the original. A boundary comparison or a
+    // bare integer that merely LOOKS inert is exactly how a real defect gets
+    // blessed as equivalent, so shape was not accepted as the argument.
+    //
+    // Round 2 moved the core again and every row went stale a second time; the
+    // survivor SET was identical, so the repairs added no new gaps.
     //
     // Eight of the seventeen also taught something the score alone would not
     // have: the refusal-message tests I had written lived in adapter.test.ts,
@@ -52,14 +59,14 @@ describe("the classifier core is enrolled", () => {
     expect(accepted.map((r) => r.kind)).toEqual(Array(8).fill("equivalent"));
     expect(accepted.filter((r) => r.kind === "accepted-gap")).toEqual([]);
     expect(accepted.map((r) => r.siteId).sort()).toEqual([
-      "integer-literal:316:15:0>1",
-      "integer-literal:325:16:1>2",
-      "integer-literal:487:53:0>1",
-      "integer-literal:487:57:1>2",
-      "integer-literal:487:61:2>3",
-      "integer-literal:621:35:1>2",
-      "integer-literal:719:17:0>1",
-      "integer-literal:719:21:1>2",
+      "integer-literal:341:15:0>1",
+      "integer-literal:350:16:1>2",
+      "integer-literal:512:53:0>1",
+      "integer-literal:512:57:1>2",
+      "integer-literal:512:61:2>3",
+      "integer-literal:646:35:1>2",
+      "integer-literal:744:17:0>1",
+      "integer-literal:744:21:1>2",
     ]);
     // Not a formality: an empty reason would let a future row be waved through.
     for (const r of accepted) expect(r.reason.length).toBeGreaterThan(40);

@@ -313,55 +313,59 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // is the ledger working, not a defect in it.
     accepted: [
       {
-        siteId: "integer-literal:487:53:0>1",
+        siteId: "integer-literal:512:53:0>1",
         kind: "equivalent",
         reason:
           "`checkExitCode`'s RETURN TYPE `0 | 1 | 2`, not a returned value. The literals it " +
           "actually returns live in the body and are killed by cli.test.ts.",
       },
       {
-        siteId: "integer-literal:487:57:1>2",
+        siteId: "integer-literal:512:57:1>2",
         kind: "equivalent",
         reason: "The `1` of the same `0 | 1 | 2` return-type annotation on `checkExitCode`.",
       },
       {
-        siteId: "integer-literal:487:61:2>3",
+        siteId: "integer-literal:512:61:2>3",
         kind: "equivalent",
         reason: "The `2` of the same `0 | 1 | 2` return-type annotation on `checkExitCode`.",
       },
       {
-        siteId: "integer-literal:621:35:1>2",
+        siteId: "integer-literal:646:35:1>2",
         kind: "equivalent",
         reason:
           "`export type Refusal = { exitCode: 1; ... }` -- a type alias. The refusal objects that " +
           "carry a real `exitCode: 1` are constructed elsewhere and asserted by cli.test.ts.",
       },
       {
-        siteId: "integer-literal:719:17:0>1",
+        siteId: "integer-literal:744:17:0>1",
         kind: "equivalent",
         reason: "The `0` of the `{ exitCode: 0 | 1; message: string }` return-type annotation.",
       },
       {
-        siteId: "integer-literal:719:21:1>2",
+        siteId: "integer-literal:744:21:1>2",
         kind: "equivalent",
         reason:
           "The `1` of the same `{ exitCode: 0 | 1; message: string }` return-type annotation.",
       },
       {
-        siteId: "integer-literal:316:15:0>1",
+        siteId: "integer-literal:341:15:0>1",
         kind: "equivalent",
         reason:
-          "`let count = 0` in newestVerdictTie. The initial value is never read: the counter is " +
-          "ASSIGNED 1 on the first qualifying row, and with no qualifying rows the predicate is " +
-          "`count > 1`, false for both 0 and 1. Unobservable through the only thing it feeds.",
+          "`let count = 0` in newestVerdictTie. PROBED, not argued from the line's shape: a " +
+          "differential run over 3616 row sequences (every combination up to length 3 over " +
+          "null/invalid/valid timestamps x verdict/no_verdict/other statuses) found ZERO inputs " +
+          "separating 0 from 1. The counter is ASSIGNED 1 on the first qualifying row, and with " +
+          "none the predicate `count > 1` is false either way.",
       },
       {
-        siteId: "integer-literal:325:16:1>2",
+        siteId: "integer-literal:350:16:1>2",
         kind: "equivalent",
         reason:
-          "`count += 1` in newestVerdictTie. The increment fires only on a tie, and the predicate " +
-          "is `count > 1`, so one tie yields 2 with `+= 1` and 3 with `+= 2` -- both true. No " +
-          "input separates them, because the count is never compared against anything but 1.",
+          "`count += 1` in newestVerdictTie. PROBED by the same 3616-sequence differential run: ZERO " +
+          "inputs separate `+= 1` from `+= 2`. The increment fires only on a tie, where the count " +
+          "is already >= 1, so `count > 1` is true under both. Argued from evaluated OUTPUT, never " +
+          "from the site's shape -- a boundary or literal that merely LOOKS inert is how a real " +
+          "defect gets blessed as equivalent.",
       },
     ],
   },
