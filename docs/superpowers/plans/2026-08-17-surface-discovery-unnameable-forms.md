@@ -123,6 +123,7 @@ test("static class method carrying the directive -> inline-action unit `doIt` (s
     'export class I {\n  static async doIt() { "use server"; await db.from("t").delete(); }\n}\n',
   );
   expect(units.map((u) => [u.fn, u.kind])).toEqual([["doIt", "inline-action"]]);
+  expect(scanBody(units[0]!.node, { descend: false }).writeBuilder).toBe(true);
 });
 
 test('inline action nested inside a file-level "use server" module -> BOTH units (spec §3.6 row 7)', () => {
@@ -134,6 +135,9 @@ test('inline action nested inside a file-level "use server" module -> BOTH units
     ["nested", "inline-action"],
     ["outer", "module-action"],
   ]);
+  // liveness on BOTH nodes: a correct key on the wrong node is the unpinned failure mode.
+  const nested = units.find((u) => u.fn === "nested")!;
+  expect(scanBody(nested.node, { descend: false }).writeBuilder).toBe(true);
 });
 
 test("a module-exported action whose body ALSO carries the directive is ONE unit, not two (dedupe by node identity)", () => {
@@ -142,6 +146,7 @@ test("a module-exported action whose body ALSO carries the directive is ONE unit
     '"use server";\nexport const mutate = async () => { "use server"; await db.from("t").delete(); };\n',
   );
   expect(units.map((u) => [u.fn, u.kind])).toEqual([["mutate", "module-action"]]);
+  expect(scanBody(units[0]!.node, { descend: false }).writeBuilder).toBe(true);
 });
 ```
 
@@ -212,7 +217,9 @@ function collectFileSurfaceUnits(sf: ts.SourceFile, file: string): SurfaceUnit[]
   discovered — "R1: inline action as an object method", 'R2: inline action NESTED inside a
   file-level "use server" module', "R2: static class method carrying the directive" — move out of
   `ESCAPES` into a new `DISCOVERED_FORMS` table in the same describe, each asserting: the exact
-  units (fn/kind pairs, as in Step 1), AND `undiscoverableConstructs` quiet on the fixture. Keep
+  units (fn/kind pairs, as in Step 1), AND `scanBody(unit.node, { descend: false }).writeBuilder`
+  true for every positive pin (each fixture carries a write builder; a correct key attached to
+  the wrong node must fail), AND `undiscoverableConstructs` quiet on the fixture. Keep
   each row's source string byte-identical to its `ESCAPES` original so the pin's subject does not
   drift. The `premiseHolds` guard is REPLACED by the positive assertion (the premise's own text
   says so: "if it now discovers all N, this fixture no longer exercises the tripwire").
@@ -275,6 +282,14 @@ test("unresolvable initializer (higher-order call) yields NO unit - the refusal 
   expect(units).toEqual([]);
 });
 
+test("COMPUTED binding property refuses even when it names a literal member (plan review R1 F3)", () => {
+  const units = unitsFor(
+    "lib/x/cp.ts",
+    '"use server";\nconst bag = { doIt: async () => { await db.from("t").delete(); } };\nexport const { ["doIt"]: doIt } = bag;\n',
+  );
+  expect(units).toEqual([]);
+});
+
 test("alias CYCLE yields no unit and does not hang", () => {
   const units = unitsFor(
     "lib/x/cy.ts",
@@ -334,10 +349,11 @@ function resolvePatternMember(
     for (const el of pattern.elements) {
       if (!ts.isIdentifier(el.name) || el.name.text !== name) continue;
       if (el.initializer || el.dotDotDotToken) return undefined; // defaults/rest refuse
-      const key =
-        el.propertyName && (ts.isIdentifier(el.propertyName) || ts.isStringLiteral(el.propertyName))
-          ? el.propertyName.text
-          : el.name.text;
+      // computed member names refuse (spec §3.2 rule 3) - falling back to
+      // el.name.text here would let `{ ["doIt"]: doIt }` match a literal member.
+      if (el.propertyName && !(ts.isIdentifier(el.propertyName) || ts.isStringLiteral(el.propertyName)))
+        return undefined;
+      const key = el.propertyName === undefined ? el.name.text : (el.propertyName as ts.Identifier | ts.StringLiteral).text;
       for (const p of reduced.properties) {
         if (ts.isPropertyAssignment(p) && (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)) && p.name.text === key) {
           const r = reduceModuleExpr(sf, p.initializer, seen);
@@ -421,8 +437,12 @@ describe("discoveryGaps - the fail-closed residue (spec §3.4)", () => {
       'export function F() {\n  return <form action={async () => { "use server"; await db.from("t").delete(); }} />;\n}\n',
     );
     expect(gaps).toHaveLength(1);
-    expect(gaps[0]).toContain("components/x/F.tsx");
-    expect(gaps[0]).toContain("named const");
+    // END-ANCHORED so the appended-suffix mutant dies (four-mutant discipline,
+    // docs/agents/writing-plans.md; plan review R1 F4). The path prefix is the
+    // tmpdir fixture root, hence the leading wildcard.
+    expect(gaps[0]).toMatch(
+      /^.*components\/x\/F\.tsx: holds 1 function-scoped "use server" bodies but discovery accounted for 0 - bind each action to a named const or named function; anonymous actions cannot be keyed$/,
+    );
   });
 
   test("anonymous action behind a directive PROLOGUE -> D2 refusal (spec §3.6 row 8)", () => {
@@ -436,8 +456,9 @@ describe("discoveryGaps - the fail-closed residue (spec §3.4)", () => {
   test("unresolvable D1 export -> refusal naming the export (spec §7 higher-order limit)", () => {
     const gaps = gapsFor("lib/x/hof.ts", '"use server";\nexport const x = withFoo(async () => {});\n');
     expect(gaps).toHaveLength(1);
-    expect(gaps[0]).toContain("x");
-    expect(gaps[0]).toContain("lib/x/hof.ts");
+    expect(gaps[0]).toMatch(
+      /^.*lib\/x\/hof\.ts: "use server" module export `x` produced no module-action unit - bind `x` directly to an async function declaration or arrow; discovery cannot statically locate the body behind this initializer$/,
+    );
   });
 
   test("CROSS-DOMAIN COLLISION: unresolvable D1 export sharing a D2 inline unit's name still REFUSES (AC-7, spec-review R1)", () => {
@@ -456,7 +477,11 @@ describe("discoveryGaps - the fail-closed residue (spec §3.4)", () => {
       'export function A() {\n  const doIt = async () => { "use server"; };\n  return doIt;\n}\n' +
         'export function B() {\n  const doIt = async () => { "use server"; };\n  return doIt;\n}\n',
     );
-    expect(gaps.some((g) => g.includes("doIt") && g.includes("rename"))).toBe(true);
+    expect(
+      gaps.some((g) =>
+        /^.*lib\/x\/dup\.ts: 2 units share the key `doIt` - rename so every unit has a unique file\+fn key; registries cannot address two surfaces with one key$/.test(g),
+      ),
+    ).toBe(true);
   });
 
   test("a fully discoverable module is QUIET (negative half)", () => {
@@ -472,8 +497,8 @@ describe("discoveryGaps - the fail-closed residue (spec §3.4)", () => {
 ```
 
   Failure modes caught: a pooled-kind reconciliation passes the collision case (the R1 probe,
-  now a permanent pin); a refusal message that stops naming file/export/rewrite fails the
-  content assertions (four pre-dispatch string-mutants run at implementation time per
+  now a permanent pin); a refusal message that stops naming file/export/rewrite - OR grows a suffix - fails the
+  END-ANCHORED content assertions (four pre-dispatch string-mutants run at implementation time per
   `docs/agents/writing-plans.md` — record all four in the Task 3 commit message: emptied
   message, suffixed message, message present but on the wrong branch, each discriminating
   parameter varied); a reconciliation that fires on ordinary code fails the negative half.
@@ -602,32 +627,47 @@ projects `found.map((u) => u.fn)` across all kinds, so the collision yields zero
 
 ### Task 5: registry enrolment + score
 
-<!-- task: red=`pnpm vitest run tests/mutation/guardSurfaces.gates.test.ts` red-state=authored red-target=`tests/mutation/source/registry.ts:151` why=`GUARD_SURFACES has no row for the discovery engine, so the gates suite asserts nothing about it and pnpm mutation:guards never scores it` ac=AC-5 -->
+<!-- task: red=`pnpm vitest run tests/mutation/_metaGuardSurfaceRegistry.test.ts tests/mutation/source/generate.test.ts` red-state=authored red-target=`tests/mutation/source/registry.ts:151` why=`GUARD_SURFACES has no row for the discovery engine, so nothing validates or scores it; the RED is observed by adding the draft rows with a deliberately absent control.from - the registry-validation suite's "must validate" case fails naming the row (validateSurface checks control.from occurrence in sourcePath) - and the SAME command passes once the control anchors a real unique source literal` ac=AC-5 -->
 
 **What is red and why:** no row in `GUARD_SURFACES`
 (`tests/mutation/source/registry.ts:151`) names `tests/log/mutationSurface/enumerate.ts` or
-totality.ts; the RED here is the registry-validation/gates suite run against the DRAFT row
-(write the row with a deliberately wrong `control.from` first — the gates suite fails naming it —
-then correct it; this observes the row is actually validated rather than inert).
+totality.ts. The RED runs on `tests/mutation/_metaGuardSurfaceRegistry.test.ts` — the suite that
+actually invokes `validateSurface` over every registry row (plan review R1 F1: the gates file
+`tests/mutation/guardSurfaces.gates.test.ts` never calls it, and mutation-project files are not
+collectible by a plain scoped vitest run — probed: `No test files found, exiting with code 1`).
+Cycle: add the rows with `control.from` set to a string absent from the source → the
+"must validate" case fails naming the row → correct the control → the same command passes.
 
-**Files:** Modify `tests/mutation/source/registry.ts`.
+**Files:** Modify `tests/mutation/source/registry.ts`,
+`tests/mutation/source/expectedLedgerKinds.ts`.
 
-- [ ] **Step 1.** Add two rows (engine + totality), operators per the Mutation-family closure
+- [ ] **Step 1 (RED).** Add two rows — ids `mutationSurfaceEnumerate`
+  (`sourcePath: "tests/log/mutationSurface/enumerate.ts"`) and `mutationSurfaceTotality`
+  (sourcePath tests/log/mutationSurface/totality.ts) — operators per the Mutation-family closure
   section above, `scoreFloor: 0.9` initial (raise only with measured numbers),
   `suitePaths: ["tests/log/mutationSurface/enumerate.test.ts", "tests/log/mutationSurface/totality.test.ts"]`
-  for both rows (both suites exercise both modules). Controls: enumerate —
-  `from: 'c.text === "logAdminOutcome"'` mutated to a never-matching name (verify uniqueness with
-  `grep -c -F` first, premiseScan-style); totality — `from: 'u.kind === "module-action"'`
-  similarly verified. RED first with `control.from` set to a string that does not occur; observe
-  the gates suite fail by name; fix; green.
-- [ ] **Step 2 (score, FOREGROUND, heavy-wrapped).**
-  `FX_HEAVY_PRIORITY=1 pnpm heavy pnpm mutation:guards` scoped per the lessons file (filter
-  `GUARD_SURFACES` in a temporary temporary shard-clone file is NOT allowed —
-  `_metaSourceShardIntegrity` pins shard files byte-for-byte; run the five files as shipped).
-  Record: score, per-operator site counts, wall-clock, and every survivor dispositioned as
-  `equivalent` / `accepted-gap` rows or killed by a new test case. Unaccepted survivors block the
-  diff-review dispatch (AGENTS.md convergence bullet 4).
-- [ ] **Step 3.** Commit `infra: enrol the invariant-10 discovery engine in the source-mutation registry` —
+  for both rows (both suites exercise both modules), `accepted: []`. Set each `control.from` to a
+  deliberately absent string first; run the marker's command; observe both rows fail
+  "must validate" (control.from absent from source). This proves the rows are validated rather
+  than inert.
+- [ ] **Step 2 (GREEN).** Real controls, uniqueness verified with `grep -c -F` first,
+  premiseScan-style (`tests/mutation/source/registry.ts:151-166`): enumerate —
+  `from: 'c.text === "logAdminOutcome"'` to a never-matching name; totality —
+  `from: 'u.kind === "module-action"'` likewise (adjust to a grep-verified unique literal if the
+  implementation drifted). Add the two `EXPECTED_LEDGER_KINDS` entries in
+  `tests/mutation/source/expectedLedgerKinds.ts` — `{}` for each at enrolment (`accepted: []`
+  reduces to `{}`; the per-shard "holds the exact ledger-kind counts" case and the gates file's
+  key-set equality both require the entry — plan review R1 F2, probed:
+  `missingExpected: ["<both ids>"]` without them). Marker command green; the five consumer
+  suites green; `pnpm typecheck`.
+- [ ] **Step 3 (score, FOREGROUND, heavy-wrapped).**
+  `FX_HEAVY_PRIORITY=1 pnpm heavy pnpm mutation:guards` — the five shipped files as-is (a
+  temporary shard-clone file is NOT allowed — `_metaSourceShardIntegrity` pins shard files
+  byte-for-byte). Record: score, per-operator site counts, wall-clock, and every survivor
+  dispositioned as `equivalent` / `accepted-gap` rows (which then update the two
+  `EXPECTED_LEDGER_KINDS` entries to match) or killed by a new test case. Unaccepted survivors
+  block the diff-review dispatch (AGENTS.md convergence bullet 4).
+- [ ] **Step 4.** Commit `infra: enrol the invariant-10 discovery engine in the source-mutation registry` —
   body carries the measured numbers.
 
 <!-- tasks: end -->
