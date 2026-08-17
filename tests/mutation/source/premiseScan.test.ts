@@ -3294,3 +3294,138 @@ describe("whole-diff R1 #2 — a star branch that MISSES still carries what its 
     ).toBe("environment-free");
   });
 });
+
+describe("whole-diff R1 #6 — an exported dynamic binding is found by its LOCAL name", () => {
+  // `modelledDynamic` records the names a dynamic import BINDS, which are local
+  // names. The exported-dynamic check looked them up in `exports` and
+  // `forwards`, both keyed by the name a module exports UNDER. The two coincide
+  // only for `export { ns }`, so every renaming spelling evaded the report and
+  // the binding then resolved to an empty extent — silently free. This is the
+  // import-specifier mirror the file's own comments call the easiest thing here
+  // to get backwards.
+  const SPAWNER = `import { spawnSync } from "node:child_process";
+    export function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }`;
+  const REPORTED = {
+    construct: REPORTS.dynamicImport,
+    module: /mod\d+_mid\.ts/,
+    notModule: /case\d+-user/,
+  };
+
+  it("CONTROL: `export { ns }`, where local and exported name coincide", () => {
+    expectReported(
+      classificationWithModules(
+        {
+          helper: SPAWNER,
+          mid: `const ns = await import("__MODULE_helper__");\nexport { ns };`,
+        },
+        `import { ns } from "__MODULE_mid__";
+         it("x", () => { ns.spawnHelper(); });`,
+      ),
+      REPORTED,
+    );
+  });
+
+  it("a namespace binding exported under an ALIAS", () => {
+    expectReported(
+      classificationWithModules(
+        {
+          helper: SPAWNER,
+          mid: `const ns = await import("__MODULE_helper__");\nexport { ns as helpers };`,
+        },
+        `import { helpers } from "__MODULE_mid__";
+         it("x", () => { helpers.spawnHelper(); });`,
+      ),
+      REPORTED,
+    );
+  });
+
+  it("a namespace binding exported as `default` through an export list", () => {
+    expectReported(
+      classificationWithModules(
+        {
+          helper: SPAWNER,
+          mid: `const ns = await import("__MODULE_helper__");\nexport { ns as default };`,
+        },
+        `import helpers from "__MODULE_mid__";
+         it("x", () => { helpers.spawnHelper(); });`,
+      ),
+      REPORTED,
+    );
+  });
+
+  it("a namespace binding exported by an export ASSIGNMENT", () => {
+    // `export default ns` registers a `node` target rather than a `local` one,
+    // so a repair that only walked the `local` targets would leave this live.
+    expectReported(
+      classificationWithModules(
+        {
+          helper: SPAWNER,
+          mid: `const ns = await import("__MODULE_helper__");\nexport default ns;`,
+        },
+        `import helpers from "__MODULE_mid__";
+         it("x", () => { helpers.spawnHelper(); });`,
+      ),
+      REPORTED,
+    );
+  });
+
+  it("a DESTRUCTURED binding exported under an alias", () => {
+    expectReported(
+      classificationWithModules(
+        {
+          helper: SPAWNER,
+          mid: `const { spawnHelper } = await import("__MODULE_helper__");\nexport { spawnHelper as helper };`,
+        },
+        `import { helper } from "__MODULE_mid__";
+         it("x", () => { helper(); });`,
+      ),
+      REPORTED,
+    );
+  });
+
+  it("a DESTRUCTURED binding exported as `default` through an export list", () => {
+    expectReported(
+      classificationWithModules(
+        {
+          helper: SPAWNER,
+          mid: `const { spawnHelper } = await import("__MODULE_helper__");\nexport { spawnHelper as default };`,
+        },
+        `import helper from "__MODULE_mid__";
+         it("x", () => { helper(); });`,
+      ),
+      REPORTED,
+    );
+  });
+
+  it("the foil: a dynamic binding that is NOT exported reports nothing across the boundary", () => {
+    // The report is about what an IMPORTER binds through the module boundary. A
+    // module-local dynamic binding is followed member-precisely and must stay
+    // that way, or the repair reports every dynamic import in the domain.
+    expect(
+      verdictWithModules(
+        {
+          helper: SPAWNER,
+          mid: `const ns = await import("__MODULE_helper__");\nexport function safe(): number { return 1; }`,
+        },
+        `import { safe } from "__MODULE_mid__";
+         it("x", () => { safe(); });`,
+      ),
+    ).toBe("environment-free");
+  });
+
+  it("the foil: an export whose local name merely RESEMBLES a bound name", () => {
+    // `export { other as ns }` exports a different local under the bound name.
+    // A repair that kept asking `exports.has(nm)` passes the cases above and
+    // this one too, so this is what separates the two directions.
+    expect(
+      verdictWithModules(
+        {
+          helper: SPAWNER,
+          mid: `const nsLocal = await import("__MODULE_helper__");\nconst other = 1;\nexport { other as nsLocal };`,
+        },
+        `import { nsLocal } from "__MODULE_mid__";
+         it("x", () => { String(nsLocal); });`,
+      ),
+    ).toBe("environment-free");
+  });
+});

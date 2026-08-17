@@ -1234,8 +1234,22 @@ function moduleFacts(path: string): ModuleFacts | null {
   // module boundary: what an importer binds through `export const ns = await
   // import(...)`, or through a later `export { ns }`, is a promise this
   // scanner cannot follow member-precisely (spec §2.2).
+  //
+  // Asked by the LOCAL name, which is what `modelledDynamic` records. Asking
+  // `exports.has(nm)` compared a local name against a map keyed by the name a
+  // module exports UNDER; the two coincide only for `export { ns }`, so every
+  // renaming spelling evaded the report, and `export { other as ns }` produced
+  // it for a binding it does not export (whole-diff R1 #6). `forwards` names
+  // another module's export and can never expose a local binding, so it is not
+  // consulted at all.
+  const exportedLocals = new Set<string>();
+  for (const target of exports.values()) {
+    if (target.kind === "local") exportedLocals.add(target.name);
+    // `export default ns` registers the EXPRESSION, not a local name.
+    else if (ts.isIdentifier(target.node)) exportedLocals.add(target.node.text);
+  }
   for (const { spec, names } of modelledDynamic)
-    if (names.some((nm) => exports.has(nm) || forwards.has(nm)))
+    if (names.some((nm) => exportedLocals.has(nm)))
       moduleReports.push(`unbindable dynamic import of ${spec} in ${path}`);
 
   return {
