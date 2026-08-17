@@ -101,12 +101,31 @@ echo "re-point verified"   # a NEGATIVE grep as the last command would exit 1 on
 Then run them:
 
 ```bash
-npx tsx .claude/probe/importForms.ts        # spec §3.1 + §3.2 tables
-npx tsx .claude/probe/hookSeed.ts           # spec §3.11 rows A-E
-npx tsx .claude/probe/exportedDynamic.ts    # spec §3.12 exported-dynamic rows
-REGISTRY_SRC=tests/mutation/source/registry.ts npx tsx .claude/probe/runtimeImportShapes.ts # spec §3.13
-REGISTRY_SRC=tests/mutation/source/registry.ts npx tsx .claude/probe/acceptSetCover.ts
-WIDE=1 REGISTRY_SRC=tests/mutation/source/registry.ts npx tsx .claude/probe/acceptSetCover.ts
+set -o pipefail
+export REGISTRY_SRC=tests/mutation/source/registry.ts
+
+# The three behavioural harnesses are read-and-compare against the probe record.
+npx tsx .claude/probe/importForms.ts || { echo "importForms harness failed"; exit 1; }
+npx tsx .claude/probe/hookSeed.ts || { echo "hookSeed harness failed"; exit 1; }
+npx tsx .claude/probe/exportedDynamic.ts || { echo "exportedDynamic harness failed"; exit 1; }
+
+# The two POPULATION harnesses carry a load-bearing zero, so they are ASSERTED,
+# not read. A print-only invocation cannot stop the arc, whatever the prose says.
+SHAPES=$(npx tsx .claude/probe/runtimeImportShapes.ts) || { echo "runtimeImportShapes failed"; exit 1; }
+printf '%s\n' "$SHAPES"
+LIVE_BLOCK=$(printf '%s\n' "$SHAPES" | sed -n '/LIVE DOMAIN/,/NEAR DOMAIN/p')
+if ! printf '%s\n' "$LIVE_BLOCK" | grep -q "NONE — zero unmodelled runtime-import shapes"; then
+  echo "LIVE domain is no longer zero — §2.4b is not verdict-neutral on it; STOP and re-scope"; exit 1
+fi
+
+COVER=$(npx tsx .claude/probe/acceptSetCover.ts) || { echo "acceptSetCover failed"; exit 1; }
+printf '%s\n' "$COVER"
+if ! printf '%s\n' "$COVER" | grep -q "noSuchExport MISSES (silent-demotion risk): 0"; then
+  echo "the live accept-set cover has a MISS — E1-E6 no longer covers the domain; STOP"; exit 1
+fi
+
+WIDE=1 npx tsx .claude/probe/acceptSetCover.ts || { echo "wide acceptSetCover failed"; exit 1; }
+echo "probe harnesses re-run and the two load-bearing zeros asserted"
 ```
 
 **Point every harness at the LIVE registry, not the gitignored snapshot.** The runtime-shape harness and the accept-set cover harness both read `REGISTRY_SRC`, which defaults to a registry SNAPSHOT taken under the gitignored probe directory at draft time; that snapshot held 31 `suitePaths` while the branch had already moved to 33. Re-anchoring against a stale snapshot is the moving-base defect this step exists to catch, wearing the step's own clothes — so each command above passes the tracked registry explicitly.
@@ -222,7 +241,7 @@ Expected: `mismatched=0 anchorFails=0 shellFails=0`, exit 0. **It also checks ev
 
 ```text
 declined export forms: recognized, unresolvable, and REPORTED | touching=1 free=1 reported=4 other=0
-declined export forms: unmodelled runtime references REPORT (AC-5c) | touching=0 free=2 reported=14 other=0
+declined export forms: unmodelled runtime references REPORT (AC-5c) | touching=0 free=3 reported=15 other=0
 export resolution: the lookup asks for an EXPORT, not a local name | touching=17 free=4 reported=2 other=0
 forwarded exports: a re-export is followed to its source | touching=13 free=5 reported=1 other=0
 namespace bindings: member-precise, and nothing else | touching=8 free=3 reported=4 other=0
@@ -248,10 +267,10 @@ Expected: `mismatched=0 claimFails=0 proseCounts=0`, exit 0. The script splices 
 <!-- plan-redset: measured by .claude/probe/planRun.ts against the merged scanner; DO NOT hand-edit -->
 
 ```text
-executions=105 red=69 green=36
+executions=107 red=70 green=37
 CLAIM titleContains="export resolution" red=10 green=13
 CLAIM titleContains="forwarded exports" red=14 green=5
-CLAIM titleContains="declined export forms" red=18 green=4
+CLAIM titleContains="declined export forms" red=19 green=5
 CLAIM titleContains="namespace bindings" red=9 green=6
 CLAIM titleContains="unclassifiable propagation" red=18 green=8
 CLAIM titleContains="TOP-LEVEL" red=9 green=1
@@ -273,6 +292,7 @@ RED  declined export forms: unmodelled runtime references REPORT (AC-5c) an unmo
 RED  declined export forms: unmodelled runtime references REPORT (AC-5c) an unmodelled runtime reference REPORTS: bare side-effect dynamic
 RED  declined export forms: unmodelled runtime references REPORT (AC-5c) an unmodelled runtime reference REPORTS: embedded: .then destructure
 RED  declined export forms: unmodelled runtime references REPORT (AC-5c) an unmodelled runtime reference REPORTS: embedded: awaited member call
+RED  declined export forms: unmodelled runtime references REPORT (AC-5c) its IN-REPO twin REPORTS, differing only in the specifier
 RED  export resolution: the lookup asks for an EXPORT, not a local name E3: `export default <expr>` resolves under a renamed default (AC-5d)
 RED  export resolution: the lookup asks for an EXPORT, not a local name E4: a default-exported class is NOT exported under its own name (AC-5d)
 RED  export resolution: the lookup asks for an EXPORT, not a local name E4: an ANONYMOUS default function declaration resolves (AC-5d)
@@ -1372,6 +1392,32 @@ describe("declined export forms: unmodelled runtime references REPORT (AC-5c)", 
     );
   });
 
+  it("an embedded BARE dynamic import stays PURE (L-2 foil)", () => {
+    // The foil §2.4b needs and had not got: the rule's positions are about
+    // shape, and its DOMAIN is in-repo specifiers. `tests/notify/resend-dep.test.ts:9`
+    // is a live `await expect(import("resend"))` in exactly this shape;
+    // reporting it would break AC-1 on a suite nobody edited. Probed
+    // environment-free today, and it must stay environment-free after.
+    expect(
+      verdict(`it("x", async () => { await expect(import("resend")).resolves.toBeTruthy(); });`),
+    ).toBe("environment-free");
+  });
+
+  it("its IN-REPO twin REPORTS, differing only in the specifier", () => {
+    // The pair is what makes each discriminating: same embedded position, same
+    // await, one bare and one repo-relative. Probed environment-free today.
+    expectReported(
+      classificationWithModules(
+        {
+          helper: `import { spawnSync } from "node:child_process";
+            export function go(): string { return String(spawnSync("echo", []).stdout); }`,
+        },
+        `it("x", async () => { (await import("__MODULE_helper__")).go(); });`,
+      ),
+      { construct: REPORTS.dynamicImport, module: OWN_FILE },
+    );
+  });
+
   it("a MODULE-LOAD dynamic reference REPORTS, though nothing references it", () => {
     // The seed is not only about clause-less STATIC imports. A reportable
     // runtime reference in a TOP-LEVEL STATEMENT runs at module load and is
@@ -1578,7 +1624,7 @@ Expected: a non-zero FAILING count. **This task authors a pair of describe block
 
 - [ ] **Step 3: Implement.** In `moduleFacts`, record the declined forms explicitly so they resolve to `unresolvable` with their own reasons rather than falling through to `noSuchExport`: an `ExportDeclaration` whose clause is a `NamespaceExport` (`export * as ns from`); an `ExportAssignment` with `isExportEquals === true` (`export =`); and a `ModuleDeclaration` carrying an `export` modifier (`export namespace` / `export module`). E1's predicate is already the four registered declaration kinds — Task 1 Step 4.2 writes it that way — so nothing is narrowed here; that is why `export namespace` reaches this task's rule at all rather than resolving to an empty extent.
 
-  **Implement spec §2.4b's rule in this same step**, since Step 1 authored its block: in `reaches`/`moduleFacts`, a literal `import()` whose enclosing node is NOT a direct local variable-declaration initializer — assignment position, embedded in a larger expression, or a bare statement — reports `{ kind: "unresolvable", reason: \`unbindable dynamic import of ${spec}\` }`; an in-repo static `import "./x"` with NO import clause reports likewise — **and the SEED is not only about the static form**: the walk starts at the `it` call, its hooks and its producers, so a top-level `ImportDeclaration` that nothing references is never visited. Collect clause-less in-repo import declarations in `moduleFacts` as a file-level `sideEffectImports: string[]`, and merge them at **BOTH** the places a module enters a classification, because they are two different routes and a draft through round 10 named only the first:
+  **Implement spec §2.4b's rule in this same step**, since Step 1 authored its block: in `reaches`/`moduleFacts`, a literal **IN-REPO** `import()` — a specifier opening `./`, `../` or `@/` — whose enclosing node is NOT a direct local variable-declaration initializer (assignment position, embedded in a larger expression, or a bare statement) reports. **The in-repo test is part of the rule, not a refinement of it:** a literal BARE specifier stays PURE under the ratified L-2 whatever position it sits in, and `tests/notify/resend-dep.test.ts:9` is a LIVE `await expect(import("resend"))` in exactly the embedded shape — probed `environment-free`, and it must stay so. A rule without the check reports it and breaks AC-1 on a suite nobody edited. A NON-LITERAL specifier is a separate branch and reports regardless, since nothing can classify it `{ kind: "unresolvable", reason: \`unbindable dynamic import of ${spec}\` }`; an in-repo static `import "./x"` with NO import clause reports likewise — **and the SEED is not only about the static form**: the walk starts at the `it` call, its hooks and its producers, so a top-level `ImportDeclaration` that nothing references is never visited. Collect clause-less in-repo import declarations in `moduleFacts` as a file-level `sideEffectImports: string[]`, and merge them at **BOTH** the places a module enters a classification, because they are two different routes and a draft through round 10 named only the first:
 
   - **The test file's own**, merged by `classifyTests` into EVERY test in that file, exactly as a top-level hook applies to every test. The walk starts at the `it` call, its hooks and its producers, so nothing in a TOP-LEVEL STATEMENT is ever visited — hence a seed rather than a traversal rule. **The seed covers every §2.4b-reportable reference at module-load position, not just the clause-less `import`**: a bare `await import(specifier)` statement, an assignment-position `import()`, and an embedded one all run at load and sit inside no extent (probed: each measures `environment-free` today, silently). Collect them beside `sideEffectImports` and merge them by the same route. **Position, not occurrence, is the test** — a construct inside a FUNCTION BODY is reachable only by a call, so seeding on mere occurrence would mark a file for an uncalled helper and break AC-1 on the enrolled domain. The foil pair in Step 1 pins both directions.
   - **Every module the traversal LOADS, at the ONE place loading happens.** `factsFor` is the single loader (`tests/mutation/source/premiseScan.ts:960`), and it is reached from TWO callers: `reaches`, for a direct edge, and `resolveExport`, for each hop of a forward chain. Merge at both, and route the second through the `reasons` field Task 1 declares on `ExportResolution` — `reaches` merges `res.reasons` alongside the extent it already consumes. **Merging only in `reaches` is the defect round 13 named**: a barrel that FORWARDS is loaded inside `resolveExport`, so its module-level facts never reach the caller, and a side-effect import sitting on that barrel disappears while the terminal extent stays pure. That is a silent free, one ordinary edit from the fixture below. A side-effect import inside a helper is outside the exported function's extent, so following the edge to that function never passes over it; without this the helper's entry sits in its own `ModuleFacts` and reaches no verdict, and a test importing a pure function from a module that loads a spawning one classifies **silently `environment-free`** — one ordinary edit from the fixture, probed on the merged scanner, and a direct breach of §1's bound. The reason names the module the import was FOUND in (spec §2.6 item 2), not the test file.
@@ -2153,6 +2199,7 @@ git commit -m "fix(mutation): propagate unresolvable constructs from helpers, ho
 - Modify: `tests/mutation/source/registry.ts` (the `premiseScan` row's `accepted` array and comments)
 - Modify: `tests/mutation/source/expectedLedgerKinds.ts` (`EXPECTED_LEDGER_KINDS.premiseScan`) — PR #834 moved this declaration out of the gate suite and sharded the suite itself
 - Modify: `tests/mutation/_metaPremiseContract.test.ts` (comment only — no numeric change)
+- Modify, WHEN Step 5 turns up an unaccepted survivor: `tests/mutation/source/premiseScan.test.ts` — Step 5 explicitly permits "add the case that kills it", and a kill-case left out of this inventory is a file that never gets committed. Task 7's final commit cannot pick it up either: its `git add` names only the ledger and corpus paths, so the survivor-killing test would sit uncommitted until CI failed on a tree nobody pushed.
 
 **Interfaces:** Consumes `enumerateSites` / `siteId` (`tests/mutation/source/operators.ts`). Produces the score and unaccepted-survivor set the round-1 diff brief must state.
 
@@ -2194,6 +2241,7 @@ BASE=$(cat "$PROBE_DIR/corpus-pass-baseline.txt")
 grep -Eq '^[0-9]+(\.[0-9]+)?$' <<<"$BASE" && [ "$(echo "$BASE > 0" | bc)" = 1 ] \
   || { echo "AC-14 FAIL: baseline '$BASE' is not a positive number"; exit 1; }
 npx tsx -e '
+import { writeFileSync } from "node:fs";
 import { classifyTests } from "./tests/mutation/source/premiseScan";
 import { GUARD_SURFACES } from "./tests/mutation/source/registry";
 const base = Number(process.argv[1]);
@@ -2204,9 +2252,12 @@ const t0 = Date.now();
 for (const s of suites) classifyTests(ROOT, s);
 const secs = (Date.now() - t0) / 1000;
 console.log(`corpus-pass=${secs.toFixed(2)}s baseline=${base.toFixed(2)}s ratio=${(secs / base).toFixed(2)}x`);
+// AC-14 requires BOTH figures to PERSIST, and Step 8 reads this file rather
+// than a number retyped into a commit message.
+writeFileSync(process.argv[2]!, secs.toFixed(2), "utf8");
 if (secs > 30) { console.error("AC-14 FAIL: over the 30s budget"); process.exit(1); }
 if (secs > base * 3) { console.error("AC-14 FAIL: over 3x the baseline"); process.exit(1); }
-' "$BASE"
+' "$BASE" "$PROBE_DIR/corpus-pass-after.txt"
 ```
 
 Expected: exit 0. **Both bounds are required** — the 30 s ceiling alone admits a 1.5 s → 29 s regression, and the documented scope-walk regression was 3.7×. The band is 3× rather than 2× because this is an unwrapped `tsx` run on a box running many arcs concurrently, so a 2× band on a ~1.5 s figure measures scheduler noise rather than the scanner. Record both figures in the commit message. A failure means the provenance short-circuit moved; revisit Task 5 Step 3 rather than relaxing the bound.
@@ -2265,9 +2316,24 @@ pnpm typecheck && pnpm exec eslint . && pnpm format:check
 
 - [ ] **Step 8: Commit.**
 
+AC-14 requires BOTH figures to persist, and the commit message is where the spec says they live — so they are read from the recorded files rather than retyped:
+
 ```bash
+set -o pipefail
+PROBE_DIR="$(git rev-parse --show-toplevel)/.claude/probe"
+BASE=$(cat "$PROBE_DIR/corpus-pass-baseline.txt")
+AFTER=$(cat "$PROBE_DIR/corpus-pass-after.txt")
+if [ -z "$BASE" ] || [ -z "$AFTER" ]; then echo "AC-14 figures missing — Step 1 did not record them"; exit 1; fi
 git add tests/mutation/source/registry.ts tests/mutation/source/expectedLedgerKinds.ts tests/mutation/_metaPremiseContract.test.ts
-git commit -m "test(infra): re-derive the premiseScan ledger and retire the acceptance this arc falsifies"
+# Step 5 may have added a survivor-killing case; add it when it exists.
+git diff --quiet -- tests/mutation/source/premiseScan.test.ts || git add tests/mutation/source/premiseScan.test.ts
+git commit -m "test(infra): re-derive the premiseScan ledger and retire the acceptance this arc falsifies
+
+corpus-pass baseline ${BASE}s, after ${AFTER}s (AC-14: both bounds, ratio and ceiling)"
+if [ -n "$(git status --porcelain -- tests/)" ]; then
+  echo "tests/ still dirty after the commit — something this task changed is unstaged"; git status --short -- tests/; exit 1
+fi
+echo "ledger committed with both AC-14 figures"
 ```
 
 ---
@@ -2318,8 +2384,17 @@ Expected: all PASS. **Read every file in that directory, not one** — Task 0's 
 5. **One commit closes the PR's history**: archive move, marker strip, graduation record, every corpus row, and any filing a stage newly owes. Verify before pushing it that nothing else is outstanding.
 
 ```bash
+set -o pipefail
 git add -A BACKLOG.md BACKLOG-archive.md docs/review-rounds/
-git status --short          # must show NOTHING unstaged and nothing untracked
+# `git status --short` PRINTS dirtiness and exits 0, so the check is the
+# emptiness test, not the command (round-18 finding 3).
+# `git status --porcelain` lists STAGED entries too, so testing it whole right
+# after `git add -A` would always fail. The question is what is left OUT of the
+# commit: unstaged modifications (a space or `?` in column 1) and untracked files.
+LEFTOVER=$(git status --porcelain | grep -E '^( [MADRCU?]|\?\?)' || true)
+if [ -n "$LEFTOVER" ]; then
+  echo "the last commit would leave work behind:"; printf '%s\n' "$LEFTOVER"; exit 1
+fi
 git commit -m "docs(backlog): graduate BL-PREMISESCAN-IMPORT-EDGE-FIDELITY"
 ```
 
