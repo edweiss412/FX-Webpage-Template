@@ -3772,3 +3772,62 @@ describe("whole-diff R3 #1 — the E2 extent merge carries the forward's reasons
     ).toBe("environment-free");
   });
 });
+
+describe("whole-diff R5 #1 — a memberless namespace of a BARE specifier stays pure (L-2)", () => {
+  // The memberless-namespace report fired before asking whether the specifier
+  // is in-repo, at BOTH sites: the traversal's namespace branch and the
+  // own-body path that mirrors it. L-2 says a bare specifier is node_modules
+  // and stays pure whatever the member precision, and spec §4 limit 3 says so
+  // explicitly about `import * as ts from "typescript"` — which the near-domain
+  // sweep found in 70 tests across 6 files, every one reported for that reason
+  // alone. The limit is about IN-REPO namespace imports; this made it about all
+  // of them.
+  const HELPER = `export function pure(): number { return 1; }`;
+
+  it("a bare namespace used memberlessly in the test's own body", () => {
+    expect(
+      verdict(`import * as ts from "typescript";
+        it("x", () => { String(ts); });`),
+    ).toBe("environment-free");
+  });
+
+  it("a bare namespace used memberlessly, WITH provenance in the same body", () => {
+    // The own-body precedence path (§4 limit 18) mirrors the traversal's rule,
+    // so it carried the same omission and has to be fixed with it.
+    expect(
+      verdict(`import { spawnSync } from "node:child_process";
+        import * as ts from "typescript";
+        it("x", () => { spawnSync("git", []); String(ts); });`),
+    ).toBe("environment-touching");
+  });
+
+  it("a bare namespace used memberlessly, reached through a helper", () => {
+    expect(
+      verdict(`import * as ts from "typescript";
+        function loader(): string { return String(ts); }
+        it("x", () => { loader(); });`),
+    ).toBe("environment-free");
+  });
+
+  it("the foil: an IN-REPO namespace used memberlessly still reports", () => {
+    // The direction the limit is actually about. Without this the repair could
+    // be satisfied by dropping the rule entirely.
+    expectReported(
+      classificationWithModules(
+        { helper: HELPER },
+        `import * as ns from "__MODULE_helper__";
+         it("x", () => { String(ns); });`,
+      ),
+      { construct: REPORTS.nsNonMember, module: OWN_FILE },
+    );
+  });
+
+  it("the foil: a PROVENANCE-module namespace is still touching, not pure", () => {
+    // L-2 is about purity for non-provenance node_modules; `node:child_process`
+    // is provenance and outranks the member question entirely.
+    expect(
+      verdict(`import * as cp from "node:child_process";
+        it("x", () => { String(cp); });`),
+    ).toBe("environment-touching");
+  });
+});

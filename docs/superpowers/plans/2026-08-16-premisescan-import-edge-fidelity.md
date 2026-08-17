@@ -15,7 +15,7 @@
 - Worktree-only work (AGENTS.md invariant 11); TDD per task (invariant 1); commit per task, conventional-commits (invariant 6). Scope prefix: `fix(mutation)` for scanner changes, `test(infra)` for registry work, `docs(backlog)` for graduation.
 - **PR #827 (`fix/scanner-scope-totality`) HAS MERGED** — `ad9638fa9`, 2026-08-16 22:07 CDT, and the branch is deleted from `origin`. This plan was authored while it was open, so the block it carried is discharged: this branch was rebased onto `ad9638fa9`, `tests/mutation/source/premiseScan.ts` in the worktree IS the merged scanner (1,273 lines), and **every citation below is to that tree, by line, not to a branch that no longer resolves.** Task 0 confirms the rebase rather than performing a merge.
 - Spec §1.1 is binding and every item ratified: scope-aware extents and the AC-10b `res` collision are settled; module-closure resolution is REJECTED; the recognized-unresolvable list stays CLOSED at four forms, and this arc makes form 3 reachable while form 4 stays unreachable and filed; symbol-level data-flow analysis is declined; `node_modules` is pure (L-2) and undetected ≠ unclassifiable (L-8); the §2.7 precedence asymmetry is a decision.
-- **Verdict-neutrality was the headline constraint, and implementation FALSIFIED it — see the amended AC-1 in spec §6.** The `lib/log` barrel hid a real environment reach, moving sixteen live verdicts in two suites (7 -> 10, 0 -> 13). What the constraint became is EXACT-COUNT equality against those ratified numbers, which still reds on a seventeenth. `tests/mutation/_metaPremiseContract.test.ts` asserts each enrolled suite's `environment-touching` count with an exact `toBe` AND asserts the unclassifiable set is EMPTY. No task may leave any enrolled test `unclassifiable`. The two ratified rows are the ONLY numeric edits any task may make, and they were made once, deliberately, with the user's decision recorded; a task that finds it needs a THIRD has over-reached and stops. Spec §3.3 measured zero occurrences of every repaired SPELLING in that domain — that prediction held for spellings and failed for what they compose into, which is exactly the defect this arc exists to fix, and is why the criterion is now equality against measured numbers rather than against zero.
+- **Verdict-neutrality was the headline constraint, and implementation FALSIFIED it — see the amended AC-1 in spec §6.** The `lib/log` barrel hid a real environment reach, moving sixteen live verdicts in two suites (7 -> 10, 0 -> 13). What the constraint became is EXACT-COUNT equality against those ratified numbers, which still reds on a seventeenth. `tests/mutation/_metaPremiseContract.test.ts` asserts each enrolled suite's `environment-touching` count with an exact `toBe` AND asserts the unclassifiable set is EMPTY OF UNEXEMPTED TESTS — it filters reasoned `// no-premise:` exemptions, and the enrolled corpus carries exactly one (`tests/parser/fieldNearMiss.test.ts`). No task may leave any enrolled test `unclassifiable`. The two ratified rows are the ONLY numeric edits any task may make, and they were made once, deliberately, with the user's decision recorded; a task that finds it needs a THIRD has over-reached and stops. Spec §3.3 measured zero occurrences of every repaired SPELLING in that domain — that prediction held for spellings and failed for what they compose into, which is exactly the defect this arc exists to fix, and is why the criterion is now equality against measured numbers rather than against zero.
 - **The test-file placeholder is `__MODULE__`, not `MODULE`.** The shipped helper is `testSrc.replace("__MODULE__", \`./mod${id}\`)`, inside the `scope-aware extent resolution` block. A fixture written `from "./MODULE"` is not substituted at all, `resolveSpecifier` misses, and the case is pure for a TEST-LOCAL reason — an invalid RED by construction that can never go green. Round-1 review found every Task 1 fixture broken this way. Note also that `String.prototype.replace` with a string pattern replaces only the FIRST occurrence, which is why the multi-module helper below uses `split`/`join`.
 - **A `-t` filter that matches nothing EXITS 0 — probed, not assumed.** `npx vitest run tests/mutation/source/premiseScan.test.ts -t "no such block name xyzzy"` reports `Tests 22 skipped (22)` and exits `0`. Every `red=` below filters on a describe block that does not exist until that task's Step 1 writes it, so: (a) Step 1 always precedes the red observation — never reorder; (b) the red criterion is a non-zero **FAILING** count, never a non-zero exit and never `skipped`.
 - **Heavy-slot rule (AGENTS.md).** Every full harness run is `pnpm heavy pnpm mutation:guards`; every full suite run is `pnpm heavy pnpm test`. Scoped vitest runs with an explicit file list stay UNWRAPPED — Tasks 1-5 and 7 use such runs deliberately unwrapped; Task 6's `red=` is the harness itself and IS wrapped.
@@ -25,7 +25,7 @@
 - **No bound expressed as a NUMBER.** Termination comes from the finite `(modulePath, exportName)` visited set (spec §2.5), never a depth counter.
 - impeccable-gate: N/A — no UI surface. No file under `app/`, `components/`, `app/globals.css`, `tailwind.config.*` or `DESIGN.md` is touched.
 
-**Meta-test inventory (writing-plans rule):** **EXTENDS** `tests/mutation/source/premiseScan.test.ts` (new fixture groups and three module-scope helpers); **EXTENDS** `tests/mutation/source/registry.ts` (the `premiseScan` row's `accepted` array — re-keyed where the reasoning survives, one row RETIRED); **EXTENDS** `tests/mutation/source/expectedLedgerKinds.ts` (`EXPECTED_LEDGER_KINDS.premiseScan` is `{ equivalent: 2 }` on this head — the round-1 plan predicted `{ equivalent: 3, "accepted-gap": 1 }`, and the acceptance the arc falsifies was retired rather than re-keyed, `tests/mutation/source/expectedLedgerKinds.ts:33`, asserted with `toEqual` by `tests/mutation/source/surfaceCases.ts:59` (the gate suite at `tests/mutation/guardSurfaces.gates.test.ts:21` compares registry KEYS only, so it is the wrong anchor for the count assertion), so retiring a row reds it — this file was missing from the round-1 plan, and its omission is the exact fan-out class this inventory exists to catch; **PR #834 sharded the gate after this plan was drafted**, splitting the old single gate suite into `tests/mutation/guardSurfaces.gates.test.ts` plus four shard suites (`tests/mutation/guardSurfaces.shard0.test.ts` through shard3) and lifting the expectations into their own module, so the old path resolves to nothing); **EXTENDS** `tests/mutation/_metaPremiseContract.test.ts` — comments PLUS two EXECUTABLE count values (`:62` and `:198`). The round-1 plan said comments only, on the strength of the spec's prediction that no verdict would move; the `lib/log` barrel falsified that, and those two edits ARE AC-1's amendment. **CREATES** no new meta-test — `_metaPremiseContract.test.ts` already walks the enrolled suites from the registry and already asserts the unclassifiable set is empty. No Supabase call boundary, no `admin_alerts` row, no tile sentinel, no advisory lock, no §12.4 row, no migration.
+**Meta-test inventory (writing-plans rule):** **EXTENDS** `tests/mutation/source/premiseScan.test.ts` (new fixture groups and three module-scope helpers); **EXTENDS** `tests/mutation/source/registry.ts` (the `premiseScan` row's `accepted` array — re-keyed where the reasoning survives, one row RETIRED); **EXTENDS** `tests/mutation/source/expectedLedgerKinds.ts` (`EXPECTED_LEDGER_KINDS.premiseScan` is `{ equivalent: 2 }` on this head — the round-1 plan predicted `{ equivalent: 3, "accepted-gap": 1 }`, and the acceptance the arc falsifies was retired rather than re-keyed, `tests/mutation/source/expectedLedgerKinds.ts:33`, asserted with `toEqual` by `tests/mutation/source/surfaceCases.ts:59` (the gate suite at `tests/mutation/guardSurfaces.gates.test.ts:21` compares registry KEYS only, so it is the wrong anchor for the count assertion), so retiring a row reds it — this file was missing from the round-1 plan, and its omission is the exact fan-out class this inventory exists to catch; **PR #834 sharded the gate after this plan was drafted**, splitting the old single gate suite into `tests/mutation/guardSurfaces.gates.test.ts` plus four shard suites (`tests/mutation/guardSurfaces.shard0.test.ts` through shard3) and lifting the expectations into their own module, so the old path resolves to nothing); **EXTENDS** `tests/mutation/_metaPremiseContract.test.ts` — comments PLUS two EXECUTABLE count values (`:62` and `:198`). The round-1 plan said comments only, on the strength of the spec's prediction that no verdict would move; the `lib/log` barrel falsified that, and those two edits ARE AC-1's amendment. **CREATES** no new meta-test — `_metaPremiseContract.test.ts` already walks the enrolled suites from the registry and already asserts the unclassifiable set is empty of unexempted tests. No Supabase call boundary, no `admin_alerts` row, no tile sentinel, no advisory lock, no §12.4 row, no migration.
 
 **Mutation-family closure (writing-plans rule):** the operator families are fixed by the ratified registry row — `relational-boundary`, `equality-flip`, `integer-literal` over `tests/mutation/source/premiseScan.ts`, `scoreFloor: 0.95`. A reviewer-proposed NEW family is a registry change carrying its own before/after numbers, not a finding against this plan.
 
@@ -1025,7 +1025,7 @@ npx vitest run tests/mutation/source/premiseScan.test.ts
 npx vitest run tests/mutation/_metaPremiseContract.test.ts
 ```
 
-Expected: all PASS, EVERY declared count unchanged against the baseline Task 0 Step 4b recorded, unclassifiable set empty. The sharpest live risk is in that last run: `tests/ci/phantomGapExecuted.test.ts` imports named bindings from `scripts/lib/phantomGapExecuted.mjs` (written with the @-alias), the only non-`.ts` in-repo edge inside the enrolled domain, and that module exports exclusively in form E1 (`scripts/lib/phantomGapExecuted.mjs:59-179`). Its declared `3` must hold; if it moves, the extension guard or E1 is wrong.
+Expected: all PASS, EVERY declared count unchanged against the baseline Task 0 Step 4b recorded, unclassifiable set empty of unexempted tests. The sharpest live risk is in that last run: `tests/ci/phantomGapExecuted.test.ts` imports named bindings from `scripts/lib/phantomGapExecuted.mjs` (written with the @-alias), the only non-`.ts` in-repo edge inside the enrolled domain, and that module exports exclusively in form E1 (`scripts/lib/phantomGapExecuted.mjs:59-179`). Its declared `3` must hold; if it moves, the extension guard or E1 is wrong.
 
 - [ ] **Step 6: Commit.**
 
@@ -1389,7 +1389,7 @@ npx vitest run tests/mutation/source/premiseScan.test.ts
 npx vitest run tests/mutation/_metaPremiseContract.test.ts
 ```
 
-Expected: all PASS, every recorded count unchanged, unclassifiable set empty.
+Expected: all PASS, every recorded count unchanged, unclassifiable set empty of unexempted tests.
 
 - [ ] **Step 5: Commit.**
 
@@ -1735,7 +1735,7 @@ npx vitest run tests/mutation/source/premiseScan.test.ts
 npx vitest run tests/mutation/_metaPremiseContract.test.ts
 ```
 
-Expected: all PASS, every recorded count unchanged, unclassifiable set empty.
+Expected: all PASS, every recorded count unchanged, unclassifiable set empty of unexempted tests.
 
 - [ ] **Step 5: Commit.**
 
@@ -1939,7 +1939,7 @@ npx vitest run tests/mutation/source/premiseScan.test.ts
 npx vitest run tests/mutation/_metaPremiseContract.test.ts
 ```
 
-Expected: all PASS, every recorded count unchanged, unclassifiable set empty. This is the task most likely to move a count — spec §3.3 measured zero in-repo namespace imports in the enrolled closure, so if one moves, re-derive rather than re-baseline.
+Expected: all PASS, every recorded count unchanged, unclassifiable set empty of unexempted tests. This is the task most likely to move a count — spec §3.3 measured zero in-repo namespace imports in the enrolled closure, so if one moves, re-derive rather than re-baseline.
 
 - [ ] **Step 5: Commit.**
 
@@ -2273,7 +2273,7 @@ npx vitest run tests/mutation/source/premiseScan.test.ts
 npx vitest run tests/mutation/_metaPremiseContract.test.ts
 ```
 
-Expected: all PASS, every recorded count unchanged, unclassifiable set empty.
+Expected: all PASS, every recorded count unchanged, unclassifiable set empty of unexempted tests.
 
 - [ ] **Step 5: Commit.**
 

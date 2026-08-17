@@ -1565,7 +1565,13 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
           // ordering says a namespace of `node:child_process` is touching
           // whatever the member, and inspecting first would demote it.
           if (isProvenanceModule(imported.spec)) return true;
-          if (imported.namespace === true && member === null) {
+          // L-2 FIRST: a BARE specifier is node_modules and stays pure whatever
+          // the member precision, so the memberless question is only ever asked
+          // about an IN-REPO namespace. Asking it unconditionally reported
+          // `import * as ts from "typescript"` — 70 tests across 6 near-domain
+          // files, every one for that reason alone (whole-diff R5 #1), against
+          // ratified L-2 and §4 limit 3's own words.
+          if (imported.namespace === true && member === null && isInRepoSpecifier(imported.spec)) {
             // A namespace used where no member is statically known resolves to
             // nothing member-precise. Named for the module the USE was written
             // in, and for the namespace's origin, because a reader needs both.
@@ -1780,6 +1786,9 @@ function nonMemberNamespacesWithin(node: ts.Node, facts: ModuleFacts, path: stri
     const binding = resolveBinding(facts, reference.text, reference);
     if (binding.kind !== "import" || binding.namespace !== true) continue;
     if (isProvenanceModule(binding.spec)) continue;
+    // The same L-2 order as the traversal's branch, and it carried the same
+    // omission because it mirrors it (whole-diff R5 #1).
+    if (!isInRepoSpecifier(binding.spec)) continue;
     if (namespaceMember(reference) !== null) continue;
     out.push(nonMemberNamespaceReason(reference.text, binding.spec, path));
   }
