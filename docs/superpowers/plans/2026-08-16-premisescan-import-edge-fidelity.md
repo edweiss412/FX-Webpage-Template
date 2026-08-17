@@ -242,8 +242,8 @@ Expected: `mismatched=0 anchorFails=0 shellFails=0`, exit 0. **It also checks ev
 ```text
 declined export forms: recognized, unresolvable, and REPORTED | touching=1 free=1 reported=4 other=0
 declined export forms: unmodelled runtime references REPORT (AC-5c) | touching=0 free=3 reported=15 other=0
-export resolution: the lookup asks for an EXPORT, not a local name | touching=17 free=4 reported=2 other=0
-forwarded exports: a re-export is followed to its source | touching=13 free=5 reported=1 other=0
+export resolution: the lookup asks for an EXPORT, not a local name | touching=18 free=4 reported=2 other=0
+forwarded exports: a re-export is followed to its source | touching=13 free=8 reported=1 other=0
 namespace bindings: member-precise, and nothing else | touching=8 free=3 reported=4 other=0
 unclassifiable propagation: a construct anywhere reachable reaches the verdict | touching=10 free=2 reported=13 other=1
 ```
@@ -267,9 +267,9 @@ Expected: `mismatched=0 claimFails=0 proseCounts=0`, exit 0. The script splices 
 <!-- plan-redset: measured by .claude/probe/planRun.ts against the merged scanner; DO NOT hand-edit -->
 
 ```text
-executions=107 red=70 green=37
-CLAIM titleContains="export resolution" red=10 green=13
-CLAIM titleContains="forwarded exports" red=14 green=5
+executions=111 red=71 green=40
+CLAIM titleContains="export resolution" red=11 green=13
+CLAIM titleContains="forwarded exports" red=14 green=8
 CLAIM titleContains="declined export forms" red=19 green=5
 CLAIM titleContains="namespace bindings" red=9 green=6
 CLAIM titleContains="unclassifiable propagation" red=18 green=8
@@ -294,6 +294,7 @@ RED  declined export forms: unmodelled runtime references REPORT (AC-5c) an unmo
 RED  declined export forms: unmodelled runtime references REPORT (AC-5c) an unmodelled runtime reference REPORTS: embedded: awaited member call
 RED  declined export forms: unmodelled runtime references REPORT (AC-5c) its IN-REPO twin REPORTS, differing only in the specifier
 RED  export resolution: the lookup asks for an EXPORT, not a local name E3: `export default <expr>` resolves under a renamed default (AC-5d)
+RED  export resolution: the lookup asks for an EXPORT, not a local name E4: a RENAMED import of a default-exported class resolves (AC-5d)
 RED  export resolution: the lookup asks for an EXPORT, not a local name E4: a default-exported class is NOT exported under its own name (AC-5d)
 RED  export resolution: the lookup asks for an EXPORT, not a local name E4: an ANONYMOUS default function declaration resolves (AC-5d)
 RED  export resolution: the lookup asks for an EXPORT, not a local name `export { x as y }` with no specifier resolves by the EXPORTED name
@@ -508,14 +509,31 @@ function expectReported(
   expected: { construct: RegExp; module: RegExp; notModule?: RegExp },
 ): void {
   expect(c?.verdict).toBe("unclassifiable");
-  expect(c?.detail ?? "").toMatch(expected.construct);
-  expect(c?.detail ?? "").toMatch(expected.module);
+  const detail = c?.detail ?? "";
+  expect(detail).toMatch(expected.construct);
+  expect(detail).toMatch(expected.module);
+  // AC-5c: a reason names WHAT could not be bound, not merely WHERE. A generic
+  // `dynamic import in case123-user.ts` satisfies construct and module and
+  // proves nothing, which is what round 19 found across fourteen executions.
+  // The target is a specifier, a generated module name, or - for the shapes
+  // that genuinely have no nameable target - the word that says so.
+  expect(
+    /(\.\/|\.\.\/|@\/|mod\d+_[A-Za-z]+|non-literal|computed)/.test(detail),
+    `the reason names no target: ${detail}`,
+  ).toBe(true);
+  // A generated-module attribution without its negative is tautological: the
+  // importing test file quotes the specifier, so /barrel/ matches a reason
+  // misattributed to the test file. Required, not optional, and enforced here
+  // so a new case cannot omit it (round-19 finding 4 found four that had).
+  if (String(expected.module) !== String(OWN_FILE) && !expected.notModule) {
+    throw new Error(`a generated-module attribution must state notModule: ${String(expected.module)}`);
+  }
   // `notModule` is what stops module attribution passing tautologically. For a
   // BARREL defect the reason must name the barrel and NOT the importing test
   // file (spec §2.6 item 2); without the negative, /barrel/ also matches the
   // import specifier quoted back in a generic reason, so the assertion proves
   // nothing about where the construct was found.
-  if (expected.notModule) expect(c?.detail ?? "").not.toMatch(expected.notModule);
+  if (expected.notModule) expect(detail).not.toMatch(expected.notModule);
 }
 
 /** Single-module sibling of `classificationWithModules`, for `verdict`-style cases. */
@@ -541,7 +559,7 @@ const REPORTS = {
   exportEquals: /export =/i,
   exportNamespace: /export namespace/i,
   nsLocalReexport: /local re-export of a namespace binding/i,
-  nsNonMember: /no statically known member/i,
+  nsNonMember: /namespace ns used without a statically known member/i,
   computedProcess: /computed member access on process/i,
 } as const;
 
@@ -703,6 +721,24 @@ describe("export resolution: the lookup asks for an EXPORT, not a local name", (
             export default function (): string { return String(spawnSync("echo", ["x"]).stdout); }` },
         `import runIt from "__MODULE_helper__";
          it("x", () => { runIt(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("E4: a RENAMED import of a default-exported class resolves (AC-5d)", () => {
+    // The positive arm the named-class branch needs. Its twin below proves the
+    // class's own name is NOT an export; this proves `default` IS one, for a
+    // NAMED class declaration. Without it an implementation can map only
+    // ANONYMOUS default classes, pass every other fixture, and silently lose a
+    // live in-repo edge (round-19 finding 1).
+    expect(
+      verdictWithModules(
+        {
+          helper: `import { spawnSync } from "node:child_process";
+            export default class K { go(): string { return String(spawnSync("echo", ["x"]).stdout); } }`,
+        },
+        `import Renamed from "__MODULE_helper__";
+         it("x", () => { new Renamed().go(); });`,
       ),
     ).toBe("environment-touching");
   });
@@ -996,6 +1032,41 @@ describe("forwarded exports: a re-export is followed to its source", () => {
     export default spawnHelper;
     export function pureOne(): number { return 1; }`;
 
+  it("L-2 through a forward: `export { x } from \"bare\"` stays PURE", () => {
+    // The three forward paths this task introduces each resolve a specifier,
+    // and a resolver that reports every unresolvable forward target violates
+    // the ratified L-2 while passing every DIRECT-import foil. The wide
+    // accept-set probe measures 37 pure-bare edges in the near domain, so this
+    // is a live shape, not a constructed one (round-19 finding 5).
+    expect(
+      verdictWithModules(
+        { barrel: `export { Resend } from "resend";` },
+        `import { Resend } from "__MODULE_barrel__";
+         it("x", () => { void Resend; });`,
+      ),
+    ).toBe("environment-free");
+  });
+
+  it("L-2 through a forward: `export * from \"bare\"` stays PURE", () => {
+    expect(
+      verdictWithModules(
+        { barrel: `export * from "resend";` },
+        `import { Resend } from "__MODULE_barrel__";
+         it("x", () => { void Resend; });`,
+      ),
+    ).toBe("environment-free");
+  });
+
+  it("L-2 through E2: a BARE import then a local re-export stays PURE", () => {
+    expect(
+      verdictWithModules(
+        { barrel: `import { Resend } from "resend";\n export { Resend };` },
+        `import { Resend } from "__MODULE_barrel__";
+         it("x", () => { void Resend; });`,
+      ),
+    ).toBe("environment-free");
+  });
+
   it("`export { x } from` is followed", () => {
     expect(
       verdictWithModules(
@@ -1263,7 +1334,7 @@ describe("forwarded exports: a re-export is followed to its source", () => {
     };
     const src = `import { spawnHelper } from "__MODULE_a__";
       it("x", () => { spawnHelper(); });`;
-    expectReported(classificationWithModules(modules, src), { construct: REPORTS.reexportCycle, module: /mod\d+_/ });
+    expectReported(classificationWithModules(modules, src), { construct: REPORTS.reexportCycle, module: /mod\d+_/, notModule: OWN_FILE });
     // The verdict alone cannot discriminate: Task 1's stub also reports
     // unclassifiable, so the REASON above is what proves cycle detection.
   });
@@ -1544,7 +1615,7 @@ describe("declined export forms: recognized, unresolvable, and REPORTED", () => 
         `import { helpers } from "__MODULE_barrel__";
          it("x", () => { helpers.spawnHelper(); });`,
       ),
-      { construct: REPORTS.namespaceExport, module: /mod\d+_barrel/ },
+      { construct: REPORTS.namespaceExport, module: /mod\d+_barrel/, notModule: OWN_FILE },
     );
   });
 
@@ -1563,7 +1634,7 @@ describe("declined export forms: recognized, unresolvable, and REPORTED", () => 
         `import runIt from "__MODULE_helper__";
          it("x", () => { runIt(); });`,
       ),
-      { construct: REPORTS.exportEquals, module: /mod\d+_helper/ },
+      { construct: REPORTS.exportEquals, module: /mod\d+_helper/, notModule: OWN_FILE },
     );
   });
 
@@ -1582,7 +1653,7 @@ describe("declined export forms: recognized, unresolvable, and REPORTED", () => 
         `import { NS } from "__MODULE_helper__";
          it("x", () => { NS.spawnHelper(); });`,
       ),
-      { construct: REPORTS.exportNamespace, module: /mod\d+_helper/ },
+      { construct: REPORTS.exportNamespace, module: /mod\d+_helper/, notModule: OWN_FILE },
     );
   });
 
