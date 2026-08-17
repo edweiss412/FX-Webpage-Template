@@ -1430,7 +1430,8 @@ So the draft cannot be checked until the freeze lifts and it is copied in, which
 
 ## BL-SEND-AUTH-SINGLE-READ-LINT — a send-authorization path may read each surface at most once per pass
 
-**Status:** OPEN.
+**Status:** OPEN. · **Effort:** M — a structural lint plus a boundary decision about which surface
+methods it ranges over, and one existing passing instance to pin it against.
 
 One class of defect produced a P0 in four consecutive review rounds of
 `feat/orchestrator-pane-compaction`, and every intermediate repair was too
@@ -1460,7 +1461,8 @@ against `scripts/pane-compaction.ts`, which is a passing instance today.
 
 ## BL-ENROLLED-SUITE-PLACEMENT-METATEST — a test that names an enrolled surface must be in its suitePaths
 
-**Status:** OPEN.
+**Status:** OPEN. · **Effort:** S — a filesystem-walking meta-test in the shape of the existing
+mutation-surface registry, gated on how many current files would need an exemption row.
 
 Eight surviving mutants in round 2 of `feat/orchestrator-pane-compaction`
 existed because the assertions covering them lived in
