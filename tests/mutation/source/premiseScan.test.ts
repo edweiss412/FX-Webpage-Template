@@ -3401,11 +3401,16 @@ describe("whole-diff R1 #6 — an exported dynamic binding is found by its LOCAL
     // The report is about what an IMPORTER binds through the module boundary. A
     // module-local dynamic binding is followed member-precisely and must stay
     // that way, or the repair reports every dynamic import in the domain.
+    //
+    // `ns` is REFERENCED, and through a member, so this isolates the export
+    // dimension. An unreferenced binding is a separate report (R1 #5) and a
+    // memberless namespace use is a third, and a fixture tripping either would
+    // pass this case for a reason that has nothing to do with exporting.
     expect(
       verdictWithModules(
         {
-          helper: SPAWNER,
-          mid: `const ns = await import("__MODULE_helper__");\nexport function safe(): number { return 1; }`,
+          helper: `export function pure(): number { return 1; }`,
+          mid: `const ns = await import("__MODULE_helper__");\nexport function safe(): number { return ns.pure(); }`,
         },
         `import { safe } from "__MODULE_mid__";
          it("x", () => { safe(); });`,
@@ -3549,5 +3554,102 @@ describe("whole-diff R1 #4 — `modelled` means what `bindPattern` can actually 
     ]) {
       expect(verdictWithModules({}, `${decl}\nit("x", () => {});`)).toBe("environment-free");
     }
+  });
+});
+
+describe("whole-diff R1 #5 — a modelled dynamic edge nothing REFERENCES is never followed", () => {
+  // §2.4b's report was suppressed for every modelled shape, but a modelled
+  // binding is only a PROMISE of an edge: the traversal follows it when a bound
+  // name is referenced, and otherwise never loads the target's facts at all.
+  // The import still executes, so the target's own load-time report — which has
+  // no other way out — vanished, and the result read as free with an empty
+  // reason set.
+  //
+  // Being unreferenced is not something the resolver can repair, so it is
+  // signalled rather than resolved: the consequence bound asks that no input be
+  // silently wrong, not that every input be followed.
+  const HELPER = `import "./side-effects-here";
+    import { spawnSync } from "node:child_process";
+    export function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }`;
+  const REPORTED = { construct: REPORTS.dynamicImport, module: OWN_FILE };
+
+  it("CONTROL: a REFERENCED namespace binding follows the edge and reaches provenance", () => {
+    expect(
+      verdictWithModules(
+        { helper: HELPER },
+        `const ns = await import("__MODULE_helper__");
+         it("x", () => { ns.spawnHelper(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("CONTROL: a REFERENCED destructured binding follows the edge", () => {
+    expect(
+      verdictWithModules(
+        { helper: HELPER },
+        `const { spawnHelper } = await import("__MODULE_helper__");
+         it("x", () => { spawnHelper(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("an UNUSED namespace binding", () => {
+    expectReported(
+      classificationWithModules(
+        { helper: HELPER },
+        `const ns = await import("__MODULE_helper__");
+         it("x", () => {});`,
+      ),
+      REPORTED,
+    );
+  });
+
+  it("an UNUSED destructured binding", () => {
+    expectReported(
+      classificationWithModules(
+        { helper: HELPER },
+        `const { spawnHelper } = await import("__MODULE_helper__");
+         it("x", () => {});`,
+      ),
+      REPORTED,
+    );
+  });
+
+  it("a binding referenced only in a TYPE position is still unfollowed", () => {
+    // A type reference is erased, so nothing runs through the edge, but the
+    // import executes. The identifier is present in the tree either way, which
+    // is what makes this the case a text-level reference count gets wrong.
+    expectReported(
+      classificationWithModules(
+        { helper: HELPER },
+        `const ns = await import("__MODULE_helper__");
+         type T = typeof ns;
+         it("x", () => { const v: T | undefined = undefined; String(v); });`,
+      ),
+      REPORTED,
+    );
+  });
+
+  it("the foil: a BARE unreferenced dynamic import stays pure", () => {
+    // L-2, unchanged.
+    expect(
+      verdictWithModules(
+        {},
+        `const ns = await import("node:child_process");
+         it("x", () => {});`,
+      ),
+    ).toBe("environment-free");
+  });
+
+  it("the foil: a binding referenced ONCE, anywhere, is followed", () => {
+    // Without this the repair could report every modelled dynamic import, which
+    // is the false-positive direction and moves the declared counts.
+    expect(
+      verdictWithModules(
+        { helper: `export function pure(): number { return 1; }` },
+        `const ns = await import("__MODULE_helper__");
+         it("x", () => { ns.pure(); });`,
+      ),
+    ).toBe("environment-free");
   });
 });

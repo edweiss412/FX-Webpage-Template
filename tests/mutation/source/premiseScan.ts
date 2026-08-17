@@ -920,7 +920,11 @@ function moduleFacts(path: string): ModuleFacts | null {
   const moduleReports: string[] = [];
   /** Dynamic imports in a MODELLED position, decided after the walk: the shape
    * is modelled only while the binding stays module-local. */
-  const modelledDynamic: Array<{ spec: string; names: string[] }> = [];
+  const modelledDynamic: Array<{
+    spec: string;
+    decl: ts.VariableDeclaration;
+    names: string[];
+  }> = [];
   /** Writes, resolved in a SECOND pass: a write's target binding cannot be
    * known until every declaration in the file has been registered. */
   const writes: Array<{ name: string; at: ts.Node; value: ts.Node }> = [];
@@ -1007,7 +1011,11 @@ function moduleFacts(path: string): ModuleFacts | null {
         const decl = modelledDynamicDeclaration(node);
         if (decl === null) moduleReports.push(`unbindable dynamic import of ${spec} in ${path}`);
         else
-          modelledDynamic.push({ spec, names: bindingIdentifiers(decl.name).map((i) => i.text) });
+          modelledDynamic.push({
+            spec,
+            decl,
+            names: bindingIdentifiers(decl.name).map((i) => i.text),
+          });
       }
     }
     if (
@@ -1286,9 +1294,41 @@ function moduleFacts(path: string): ModuleFacts | null {
     // `export default ns` registers the EXPRESSION, not a local name.
     else if (ts.isIdentifier(target.node)) exportedLocals.add(target.node.text);
   }
-  for (const { spec, names } of modelledDynamic)
+  /**
+   * Is any of `names` referenced in a position that RUNS?
+   *
+   * A modelled binding is only the promise of an edge: the traversal follows it
+   * when a bound name is referenced, and otherwise never loads the target's
+   * facts, so the target's own load-time report — which has no other way out —
+   * vanished and the result read as free (whole-diff R1 #5). Type positions are
+   * not descended into: `typeof ns` is erased, so it runs nothing, while the
+   * identifier sits in the tree exactly where a text-level count would find it.
+   */
+  const referencedAtRuntime = (decl: ts.VariableDeclaration, names: string[]): boolean => {
+    const wanted = new Set(names);
+    let found = false;
+    const seek = (n: ts.Node): void => {
+      if (found || ts.isTypeNode(n)) return;
+      // The binding itself is the declaration, not a reference to it.
+      if (n === decl.name) return;
+      if (ts.isIdentifier(n) && wanted.has(n.text)) {
+        found = true;
+        return;
+      }
+      ts.forEachChild(n, seek);
+    };
+    seek(sf);
+    return found;
+  };
+
+  for (const { spec, decl, names } of modelledDynamic) {
     if (names.some((nm) => exportedLocals.has(nm)))
       moduleReports.push(`unbindable dynamic import of ${spec} in ${path}`);
+    else if (!referencedAtRuntime(decl, names))
+      moduleReports.push(
+        `unfollowed dynamic import of ${spec}, bound but never referenced, in ${path}`,
+      );
+  }
 
   return {
     sf,
