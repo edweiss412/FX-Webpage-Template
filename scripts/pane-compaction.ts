@@ -413,7 +413,13 @@ export function main(argv: string[], s: Surface): number {
 
 /** The three one-shot commands, each revalidating on its own predicate (§5.2). */
 function drive(opts: Parsed, pane: RosterPane, roster: RosterPane[], s: Surface): number {
-  const as = opts.as ?? "";
+  // NOT `opts.as ?? ""`. Every sending mode is refused with `missing-as` before
+  // drive() is reachable (the guard above, on mode), so the null branch is dead
+  // — and defaulting it to empty would be the wrong death: an empty `as` yields
+  // an EMPTY PURVIEW, which silently disarms rule 3's collision check rather
+  // than failing. Narrow on the established guarantee, so a future edit that
+  // breaks it fails here instead of quietly driving an unowned pane.
+  const as = opts.as!;
   const cache = cacheOf(s);
   const report = observe(pane, roster, as, s, cache);
   const marker = s.marker(pane.cwd);
