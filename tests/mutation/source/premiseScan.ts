@@ -62,6 +62,18 @@ const parse = (path: string, text: string): ts.SourceFile =>
   );
 
 /** `it`, `test.each`, `describe.skip.each` … → the root identifier, else null. */
+/** The four hook registrars, in the one place both readers of them look. */
+const HOOK_REGISTRARS = /^(beforeEach|beforeAll|afterEach|afterAll)$/;
+
+/** Is this expression a `describe`/`it`/`test` or hook registration call? */
+function isRegistrarCall(expression: ts.Expression): boolean {
+  if (!ts.isCallExpression(expression)) return false;
+  const root = registrarRoot(expression.expression);
+  if (root === "describe" || root === "it" || root === "test") return true;
+  const callee = expression.expression;
+  return ts.isIdentifier(callee) && HOOK_REGISTRARS.test(callee.text);
+}
+
 function registrarRoot(callee: ts.Expression): string | null {
   let node: ts.Expression = callee;
   // A registration call may itself be the RESULT of a call: test.each(rows)(...)
@@ -1686,6 +1698,29 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
   // as a top-level hook does.
   const fileReports = [...facts.moduleReports];
 
+  // A body that RUNS while the module loads is not deferred, whatever its
+  // POSITION says. `isAtModuleLoad` stops at the first function-like ancestor,
+  // so an IIFE, a helper invoked at load, and a chain of them executed their
+  // imports immediately while producing neither a seed nor a traversal edge —
+  // silently free (whole-diff R1 #3).
+  //
+  // Followed with the SAME transitive traversal a call inside a test body gets,
+  // rather than with a list of accepted call spellings. That is why the two-hop
+  // chain works for the reason the one-hop chain does, and why a spelling met
+  // later needs no new case. Only the REASONS are taken: what load-time work
+  // does to the VERDICT is §2.7's lattice and is not re-decided here.
+  //
+  // EXPRESSION statements only. A `function` or `const` declaration at module
+  // scope declares a body without running it, and seeding on mere occurrence is
+  // the false positive `isAtModuleLoad` asks about position to prevent.
+  // Registrar calls are excluded — `it` is reached as a test and a top-level
+  // hook is collected as a hook, and promoting either here would attach one
+  // test's own reasons to every test in the file (AC-12b).
+  for (const st of facts.sf.statements) {
+    if (!ts.isExpressionStatement(st) || isRegistrarCall(st.expression)) continue;
+    fileReports.push(...reaches(st, facts, abs).reasons);
+  }
+
   const suiteText = facts.sf.getFullText();
 
   const walk = (node: ts.Node, hooks: ts.Node[]): void => {
@@ -1777,11 +1812,7 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
     const call = st.expression;
     if (!ts.isCallExpression(call)) continue;
     const callee = call.expression;
-    if (
-      ts.isIdentifier(callee) &&
-      /^(beforeEach|beforeAll|afterEach|afterAll)$/.test(callee.text) &&
-      call.arguments[0]
-    )
+    if (ts.isIdentifier(callee) && HOOK_REGISTRARS.test(callee.text) && call.arguments[0])
       topLevelHooks.push(call.arguments[0]);
   }
   walk(facts.sf, topLevelHooks);

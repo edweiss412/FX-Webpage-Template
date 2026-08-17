@@ -3758,3 +3758,108 @@ describe("whole-diff R1 #7 — own-body precedence covers EVERY own-extent reaso
     ).toBe("environment-free");
   });
 });
+
+describe("whole-diff R1 #3 — a function body is not automatically DEFERRED", () => {
+  // `isAtModuleLoad` walks to the first function-like ancestor and answers
+  // "deferred", which is right for a helper nothing calls and wrong for every
+  // body that runs while the module loads. An IIFE, a helper invoked at load,
+  // and a two-hop chain all execute their imports immediately, and each
+  // produced neither a seed nor a traversal edge — silently free.
+  //
+  // The repair reuses the transitive reference traversal the scanner already
+  // has rather than modelling call spellings: a call at module-load position is
+  // followed by the same machinery that follows a call inside a test body, so
+  // the two-hop case works for the same reason the one-hop case does.
+  const SPEC = `const specifier = "./x" + String(1);`;
+  const OWN = { construct: REPORTS.dynamicImport, module: OWN_FILE };
+
+  it("CONTROL: the construct directly at module load", () => {
+    expectReported(
+      classification(`${SPEC}
+        await import(specifier);
+        it("x", () => {});`),
+      OWN,
+    );
+  });
+
+  it("CONTROL: the same helper called from inside a TEST is already reached", () => {
+    // The other path to the same construct, so the repair below is not credited
+    // with what the traversal already did.
+    expectReported(
+      classification(`${SPEC}
+        async function load(): Promise<unknown> { return await import(specifier); }
+        it("x", async () => { await load(); });`),
+      OWN,
+    );
+  });
+
+  it("an arrow IIFE", () => {
+    expectReported(
+      classification(`${SPEC}
+        void (async () => { await import(specifier); })();
+        it("x", () => {});`),
+      OWN,
+    );
+  });
+
+  it("a function-expression IIFE", () => {
+    expectReported(
+      classification(`${SPEC}
+        void (async function (): Promise<void> { await import(specifier); })();
+        it("x", () => {});`),
+      OWN,
+    );
+  });
+
+  it("a named helper called at module load", () => {
+    expectReported(
+      classification(`${SPEC}
+        async function load(): Promise<unknown> { return await import(specifier); }
+        await load();
+        it("x", () => {});`),
+      OWN,
+    );
+  });
+
+  it("a const-arrow helper called at module load", () => {
+    expectReported(
+      classification(`${SPEC}
+        const load = async (): Promise<unknown> => await import(specifier);
+        await load();
+        it("x", () => {});`),
+      OWN,
+    );
+  });
+
+  it("a TWO-HOP chain called at module load", () => {
+    // The case that decides the repair's shape: a spelling list stops at one
+    // hop, and the transitive traversal does not.
+    expectReported(
+      classification(`${SPEC}
+        async function inner(): Promise<unknown> { return await import(specifier); }
+        async function outer(): Promise<unknown> { return await inner(); }
+        await outer();
+        it("x", () => {});`),
+      OWN,
+    );
+  });
+
+  it("the foil: a helper DECLARED at module scope and never called stays deferred", () => {
+    // The false-positive direction, and the reason `isAtModuleLoad` asks about
+    // POSITION at all: seeding on mere occurrence marks a file for a helper
+    // nothing calls, which is what AC-1 measures on the enrolled domain.
+    expect(
+      verdict(`${SPEC}
+        async function load(): Promise<unknown> { return await import(specifier); }
+        it("x", () => {});`),
+    ).toBe("environment-free");
+  });
+
+  it("the foil: a module-load call into a helper with NO construct stays free", () => {
+    expect(
+      verdict(`function load(): number { return 1; }
+        void load();
+        it("x", () => {});`),
+    ).toBe("environment-free");
+  });
+});
