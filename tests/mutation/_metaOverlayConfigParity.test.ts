@@ -59,7 +59,7 @@ describe("fixtures are never discovered, and every one has a live owner", () => 
   /** Declared per spec §3.3.2.3. Rows land as their tasks land. */
   const OWNERS: Record<string, string> = {
     "aliasImport.fixture.ts": "tests/mutation/_metaOverlayConfigParity.test.ts",
-    "slowTest.fixture.ts": "tests/mutation/guardSurfaces.gate.test.ts",
+    "slowTest.fixture.ts": "tests/mutation/guardSurfaces.gates.test.ts",
     "emptyItEach.fixture.ts": "tests/mutation/_metaPremiseContract.test.ts",
     "emptyTestEach.fixture.ts": "tests/mutation/_metaPremiseContract.test.ts",
     "emptyDescribeEach.fixture.ts": "tests/mutation/_metaPremiseContract.test.ts",

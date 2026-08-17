@@ -1,5 +1,5 @@
 /**
- * NOT discovered. Invoked by tests/mutation/guardSurfaces.gate.test.ts, which
+ * NOT discovered. Invoked by tests/mutation/guardSurfaces.gates.test.ts, which
  * lives in the nightly-only mutation project (vitest.projects.ts:87), because
  * 5.2s is not worth paying on every merge.
  *

@@ -82,9 +82,13 @@ export const ENV_BOUND_EXCLUDES = [
 // (User-directed nightly placement 2026-07-06; parent spec §Non-goals + AC-5.)
 export const MUTATION_TEST_GLOBS = [
   "tests/parser/mutationHarness.*.test.ts",
-  // Source-mutation gate (spec docs/superpowers/specs/ci/2026-08-04-source-mutation-guard-gate.md):
-  // spawns one vitest child per mutant, so it is nightly + on-demand, never merge-gating.
-  "tests/mutation/guardSurfaces.gate.test.ts",
+  // Source-mutation gate (spec docs/superpowers/specs/ci/2026-08-04-source-mutation-guard-gate.md),
+  // sharded across four files plus one corpus-wide gates file (wall-clock spec
+  // docs/superpowers/specs/ci/2026-08-16-mutation-gate-wallclock-design.md §3.2/§3.3).
+  // Each shard spawns one vitest child per mutant, so all of them are nightly +
+  // on-demand, never merge-gating.
+  "tests/mutation/guardSurfaces.shard*.test.ts",
+  "tests/mutation/guardSurfaces.gates.test.ts",
   // Browser-mutant gate (spec docs/superpowers/specs/ci/2026-08-15-mutation-browser-mode.md):
   // spawns a real Playwright child per mutant, ~20-30 min for its first enrolled
   // surface, so it is nightly + on-demand for the same reason and never merge-gating.
@@ -92,7 +96,8 @@ export const MUTATION_TEST_GLOBS = [
 ];
 export const NIGHTLY_ONLY_EXCLUDES = [
   "**/tests/parser/mutationHarness.*.test.ts",
-  "**/tests/mutation/guardSurfaces.gate.test.ts",
+  "**/tests/mutation/guardSurfaces.shard*.test.ts",
+  "**/tests/mutation/guardSurfaces.gates.test.ts",
   "**/tests/mutation/browser/browserSurfaces.gate.test.ts",
 ];
 

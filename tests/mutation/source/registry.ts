@@ -226,6 +226,21 @@ export const GUARD_SURFACES: GuardSurface[] = [
     ],
   },
   {
+    // The heavy-orphan reaper's decision function (2026-08-16 spec §9). One suite:
+    // every rule is reachable from a literal row table, which is why the module is
+    // pure and the CLI is not the enrolled surface.
+    id: "heavyReapClassify",
+    sourcePath: "lib/heavyReap/classify.ts",
+    suitePaths: ["tests/heavyReap/classify.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    control: {
+      from: "export const DEFAULT_MIN_AGE_SECONDS = 14400;",
+      to: "export const DEFAULT_MIN_AGE_SECONDS = 1;",
+    },
+    accepted: [],
+  },
+  {
     // The modal-wait guard's predicate module (2026-08-16 adoption arc §4.4,
     // AC-3). Authored as an importable module with a referring suite from the
     // start, so enrolment is a registry row rather than a restructuring.
@@ -1611,6 +1626,35 @@ export const GUARD_SURFACES: GuardSurface[] = [
     },
     accepted: [],
   },
+  /**
+   * Derivation of the destructive-file analyzer's execution-method core from the
+   * driver's type declarations (BL-EXECUTION-METHODS-DERIVED-FROM-DRIVER-TYPES).
+   * Pure AST over a source string, DB-free, fixture-corpus suite -- enrolled
+   * before the arc's first diff-review round per the AGENTS.md contract.
+   */
+  {
+    id: "executionMethodsDerivation",
+    sourcePath: "scripts/execution-methods/lib.ts",
+    suitePaths: ["tests/db/executionMethodsManifest.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    // The FIRST enrolment run scored 10/11 (0.909) with one unaccepted survivor,
+    // logical-connector:44:43; it was repaid with a PROPERTY-signature fixture
+    // rather than blessed, and the re-run measures 1.00 over the same 11 counted
+    // mutants. The floor is that measured 1.00 minus 0.05, rather than the 0.8
+    // placeholder the row was authored with: a floor below the shipped state
+    // cannot detect a regression toward it. At 11 mutants one survivor scores
+    // 0.909, which trips 0.95 -- the granularity is coarse enough that the floor
+    // catches a single lost kill, which is exactly what the first run's survivor
+    // would have cost had it been accepted instead of repaid.
+    scoreFloor: 0.95,
+    // Inverting core classification collects every annotated return type into
+    // core; the Promise-shape and Parameter-routing fixtures reject it.
+    control: {
+      from: "if (CORE_HEADS.has(head)) core.add(member.name.text);",
+      to: "if (!CORE_HEADS.has(head)) core.add(member.name.text);",
+    },
+    accepted: [],
+  },
   {
     // The psql startup-file scanner (2026-08-16 enrolment spec
     // `docs/superpowers/specs/ci/2026-08-16-psql-scan-mutation-enrolment-design.md`
@@ -1794,6 +1838,54 @@ export const GUARD_SURFACES: GuardSurface[] = [
     control: {
       from: 'if (depth > DEPTH_MAX) return "[Truncated: depth]";',
       to: 'if (depth >= DEPTH_MAX) return "[Truncated: depth]";',
+    },
+    accepted: [],
+  },
+  {
+    // The two guard surfaces the mutation-gate sharding arc itself ships
+    // (wall-clock spec docs/superpowers/specs/ci/2026-08-16-mutation-gate-wallclock-design.md).
+    // Enrolled BEFORE this arc's first whole-diff review dispatch, so the
+    // convergence criterion is a mutation score plus an empty unaccepted-survivor
+    // set -- both machine-computed -- rather than reviewer imagination.
+    //
+    // The budget checker's DECISION LOGIC is here and its CLI is a separate file
+    // (scripts/check-shard-budget.ts) deliberately: `phantomGapExecuted` below
+    // records what the combined shape costs, scoring 0.27 with 18 of 19 survivors
+    // in code no referring suite could execute through an import.
+    id: "shardBudget",
+    sourcePath: "lib/ci/shardBudget.ts",
+    suitePaths: ["tests/ci/shardBudget.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Turns the strictly-above budget comparison into at-or-above, which the
+    // exactly-at-budget case is built to notice.
+    control: { from: "r.seconds > budgetSeconds)", to: "r.seconds >= budgetSeconds)" },
+    accepted: [],
+  },
+  {
+    id: "sourceShardPartition",
+    sourcePath: "tests/mutation/source/shardPartition.ts",
+    // TWO deciding suites, and the second is load-bearing rather than tidy. The
+    // unit suite decides every BEHAVIOUR in this module, but it reads
+    // SOURCE_SHARD_COUNT and SHARD_BUDGET_SECONDS to build its own expectations,
+    // so a mutant of either constant is self-consistent and survives -- which is
+    // exactly what enrolment's first run reported (integer-literal:26:35:4>5 and
+    // both halves of 60 * 60). The integrity meta-test compares the same two
+    // constants against the WORKFLOW's hard-coded `[0, 1, 2, 3]` and `"3600"`,
+    // which no mutant of this file can move, so it is what kills them.
+    suitePaths: [
+      "tests/mutation/source/shardPartition.test.ts",
+      "tests/mutation/_metaSourceShardIntegrity.test.ts",
+    ],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    // Drops the `accepted` term from the weight, which the delta case in the
+    // suite is built to notice: it holds the SOURCE fixed and varies only the
+    // suite count and ledger size, so the mutant moves the asserted delta from
+    // 4 to 2 rather than leaving a self-consistent number.
+    control: {
+      from: "surface.accepted.length * (suites - 1) + suites",
+      to: "suites",
     },
     accepted: [],
   },

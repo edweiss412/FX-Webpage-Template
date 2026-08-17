@@ -27,7 +27,7 @@ const ROOT = join(__dirname, "..", "..");
  * reporting a clean corpus it no longer understands. A genuinely pure suite
  * declares 0 honestly and is not forced to invent a match.
  *
- * Same shape and same reason as EXPECTED_LEDGER_KINDS in guardSurfaces.gate.
+ * Same shape and same reason as EXPECTED_LEDGER_KINDS in source/expectedLedgerKinds.
  */
 const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // The premise recognizer's own two suites, enrolled 2026-08-16 with the
@@ -81,6 +81,19 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // Re-measured across every enrolled suite by walking the registry's
   // `suitePaths`, as that row required: this is the only count that moved.
   "tests/cross-cutting/psqlStartupFileSuppression.test.ts": 2,
+  // The heavy-orphan reaper's classifier suite, enrolled 2026-08-16. It declares 0
+  // because `classify` is pure by construction — no I/O and no clock, which is the
+  // property that made the module the enrolled surface rather than the CLI — so every
+  // case drives a literal row table and reaches no member of ENVIRONMENT_SOURCES. The
+  // arc's environment-touching cases all live in the two suites that are deliberately
+  // NOT enrolled: `tests/heavyReap/collect.test.ts` (real `ps`, spawned children) and
+  // `tests/heavyReap/cli.test.ts` (the CLI as a child process, real orphans).
+  //
+  // The number is the scanner's own measurement, not an assertion about the suite: the
+  // enrolment's red cycle reported "expected +0 to be undefined" here before the row
+  // existed. This registry was missing from the plan's meta-test inventory and was found
+  // by running the enrolment rather than by reading it.
+  "tests/heavyReap/classify.test.ts": 0,
   // The interaction-timing scanner's two suites, enrolled 2026-08-10. The
   // inventory suite reads DESIGN.md and walks the repo, but through the module
   // under test rather than any member of ENVIRONMENT_SOURCES directly; the unit
@@ -178,6 +191,19 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // deciding suite for any enrolled surface and is therefore not scanned here.
   "tests/mutation/browser/registry.test.ts": 0,
   "tests/mutation/browser/mutate.test.ts": 0,
+  // The execution-methods derivation suite, enrolled by this branch
+  // (BL-EXECUTION-METHODS-DERIVED-FROM-DRIVER-TYPES). It declares 0, and the
+  // declaration was PROBED rather than guessed: the classifier reported zero
+  // environment-touching tests for this suite before the row existed, which is
+  // why the row reads 0 and not 1. The suite's one read under node_modules is
+  // the version sentinel's `node_modules/postgres/package.json` JSON read, and
+  // a bare `node:fs` read is not provenance to this classifier — the same rule
+  // the browser suites above and the corpus suite are declared 0 under. Every
+  // other arm drives literal type-declaration source strings through a pure AST
+  // function. The sentinel keeps its `premiseHolds` line regardless: it states
+  // the read's premise for the human reader even though the classifier does not
+  // demand it.
+  "tests/db/executionMethodsManifest.test.ts": 0,
   // The modal-wait guard (2026-08-16). Declared 0 on the same reading as the
   // rows above: it builds every fixture repo it scans under mkdtempSync and
   // drives pure functions over them, touching no member of ENVIRONMENT_SOURCES.
@@ -190,6 +216,28 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // suite reaches no member of ENVIRONMENT_SOURCES — no child process, no
   // ledger-git, no process.env, and no filesystem read at all.
   "tests/log/serializeError.test.ts": 0,
+  // The two surfaces the mutation-gate sharding arc enrols (2026-08-16). Both
+  // measured 0 with the scanner, and the enrolment's red cycle reported
+  // "expected +0 to be undefined" here before these rows existed.
+  //
+  // shardBudget's 0 is a genuine 0: lib/ci/shardBudget.ts is pure decision logic
+  // with no `process` and no I/O -- that separation is why it is enrollable at
+  // all -- and the suite drives literal record arrays through it.
+  "tests/ci/shardBudget.test.ts": 0,
+  // shardPartition's 0 is a SCANNER-RULE 0 and a known under-count, recorded
+  // rather than papered over. The suite imports no member of
+  // ENVIRONMENT_SOURCES directly, which is what the scanner classifies on, but
+  // every case reaches the filesystem TRANSITIVELY: `weightOf` readFileSync's
+  // each enrolled surface's source to generate its mutants. The count is the
+  // scanner's own measurement under its own rule, not a claim that these cases
+  // are hermetic. Widening the rule to transitive reachability is a change to
+  // the scanner with its own before/after numbers, not a number to adjust here.
+  "tests/mutation/source/shardPartition.test.ts": 0,
+  // sourceShardPartition's SECOND deciding suite, added when enrolment's first
+  // run showed the unit suite cannot kill a mutant of either constant it reads.
+  // Also a scanner-rule 0 with the same caveat: it readFileSync's the workflow
+  // and the shard files, but imports no member of ENVIRONMENT_SOURCES.
+  "tests/mutation/_metaSourceShardIntegrity.test.ts": 0,
 };
 
 const suites = [...new Set(GUARD_SURFACES.flatMap((s) => s.suitePaths))].sort();
