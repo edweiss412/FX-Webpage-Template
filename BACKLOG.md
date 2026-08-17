@@ -1427,3 +1427,56 @@ So the draft cannot be checked until the freeze lifts and it is copied in, which
 **Reachability: PROBED as ZERO on the corpus.** Every col0 label in all 20 fixtures under `fixtures/shows/raw` and `fixtures/shows/exporter-xlsx` was matched against the live vocabulary: no label produces a type-(b) hit whose token-set size equals its entry's. Every live type-(b) match is a STRICT subset, so the boundary is undecided by the shipped inputs rather than decided wrongly.
 
 **Why it is a row and not a kill.** The killing input is a label the corpus does not contain, and `tests/parser/fieldNearMiss.test.ts`'s header forbids hand-written rows precisely because one can be tuned until it passes — so the gap is ledgered as `accepted-gap` with this ref rather than closed with a fixture that proves nothing about real sheets. **First scheduled step:** decide whether an equal-size token match SHOULD be a type-(b) hit at all (it is set equality, so arguably it belongs in the type-(a) arm keyed on the token set rather than the normalized string), then pin whichever direction is chosen. A real reordered-label instance appearing in a future sheet promotes this from a boundary question to an ordinary near-miss.
+
+## BL-SEND-AUTH-SINGLE-READ-LINT — a send-authorization path may read each surface at most once per pass
+
+**Status:** OPEN.
+
+One class of defect produced a P0 in four consecutive review rounds of
+`feat/orchestrator-pane-compaction`, and every intermediate repair was too
+small. r1 re-read the marker but authorized against a nonce captured earlier.
+r2 re-observed the pane but compared only the verdict. r3 compared the whole
+decision but ran it against the original roster. r4 fixed all of that and still
+read the marker twice — once inside revalidation, once for the nonce — so a
+takeover changing `sessionId` between the two reads preserved the nonce and
+passed rule 5 on the stale copy, and `/compact` was sent.
+
+**Probed, not theorized.** Each was demonstrated by a reviewer probe that
+exited 0 and sent bytes; the round-4 case is pinned by
+`tests/paneCompaction/adapter.test.ts` counting MARKER READS rather than
+asserting on a verdict, which is the only form that can see it.
+
+**Why a lint and not a test.** No suite assertion can express "these two values
+came from different instants" — four rounds of green tests coexisted with the
+defect. The mechanizable form is structural: inside a function that authorizes a
+send, each injected surface method may be invoked at most once per pass, so a
+second read is a lint error rather than a race nobody can see. Closing repair
+shipped in that arc (one snapshot per authorization) is the shape the lint would
+enforce.
+
+**First scheduled step:** decide the surface boundary the rule ranges over —
+every `Surface` method, or only the ones feeding a classification — then pin it
+against `scripts/pane-compaction.ts`, which is a passing instance today.
+
+## BL-ENROLLED-SUITE-PLACEMENT-METATEST — a test that names an enrolled surface must be in its suitePaths
+
+**Status:** OPEN.
+
+Eight surviving mutants in round 2 of `feat/orchestrator-pane-compaction`
+existed because the assertions covering them lived in
+`tests/paneCompaction/adapter.test.ts`, which is not among that surface's
+`suitePaths`. They ran, they passed, and they contributed nothing to the score.
+
+**Probed, not theorized.** Moving the same assertions into an enrolled suite
+killed all eight with no change to the assertions themselves.
+
+**Why it recurs.** Nothing signals the omission: the suite is green, the tests
+are real, and the only symptom is a score that will not move for reasons the
+author cannot see. Mechanizable as a meta-test — a test file importing an
+enrolled surface's exports is either listed in that surface's `suitePaths` or
+carries an explicit exemption comment, the same fail-by-default shape as the
+mutation-surface registry.
+
+**First scheduled step:** measure how many existing test files would need an
+exemption row, since a rule that starts with a large exemption list is a rule
+nobody trusts.
