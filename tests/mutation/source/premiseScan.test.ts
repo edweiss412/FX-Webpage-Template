@@ -1,10 +1,10 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
 
-import { classifyTests } from "./premiseScan";
+import { classifyTests, type TestClassification } from "./premiseScan";
 
 const ROOT = join(__dirname, "..", "..", "..");
 const scratch = mkdtempSync(join(tmpdir(), "premise-scan-"));
@@ -1397,5 +1397,528 @@ describe("R3 — heritage, dynamic-import priority, pattern defaults, premise do
       "utf8",
     );
     expect(classifyTests(ROOT, p)[0]?.hasPremise).toBe(false);
+  });
+});
+
+/**
+ * Write N helper modules plus a test importing them; return the classification.
+ * `modules` is keyed by basename; a key containing a dot carries its own
+ * extension ("data.json"), otherwise `.ts`. In every source string,
+ * `__MODULE_<basename>__` is replaced by the generated specifier, and
+ * `__MODULE_NOEXT_<basename>__` by the same specifier with its extension
+ * stripped (AC-5c's extensionless case): with the
+ * extension included when it is not `.ts`, because `resolveSpecifier` only
+ * reaches a non-TS file when the specifier spells it out.
+ * split/join, not `replace`, so a module referenced twice substitutes twice.
+ *
+ * A key containing a SLASH ("d/index.tsx") builds a directory and registers its
+ * placeholder under the FIRST segment, pointing at the DIRECTORY itself, which
+ * is what AC-9c needs: resolveSpecifier reaches a directory only through its
+ * bare-base candidate. Both halves were probed. Without the mkdir the write
+ * throws ENOENT; without the first-segment rule `__MODULE_d__` substitutes
+ * nothing and the fixture silently tests an unresolved bare specifier instead.
+ */
+function classificationsWithModules(
+  modules: Record<string, string>,
+  testSrc: string,
+): TestClassification[] {
+  const id = n++;
+  const parse = (key: string): { base: string; ext: string } => {
+    const dot = key.lastIndexOf(".");
+    return dot === -1
+      ? { base: key, ext: ".ts" }
+      : { base: key.slice(0, dot), ext: key.slice(dot) };
+  };
+  const spec: Record<string, string> = {};
+  for (const key of Object.keys(modules)) {
+    const { base, ext } = parse(key);
+    const slash = base.indexOf("/");
+    if (slash !== -1) spec[base.slice(0, slash)] = `./mod${id}_${base.slice(0, slash)}`;
+    else spec[base] = ext === ".ts" ? `./mod${id}_${base}` : `./mod${id}_${base}${ext}`;
+  }
+  const subst = (text: string): string => {
+    let out = text;
+    for (const [base, s] of Object.entries(spec)) {
+      // `__MODULE_NOEXT_<base>__` yields the SAME specifier with its extension
+      // stripped. AC-5c's unresolved-specifier case needs an extensionless
+      // reference to an EXISTING `.mjs` sibling, same basename, so that it
+      // reports only because candidate generation is not widened. A fixture
+      // pointing at a different basename reports either way and cannot pin
+      // that settled decision.
+      out = out.split(`__MODULE_NOEXT_${base}__`).join(s.replace(/\.[^./]+$/, ""));
+      out = out.split(`__MODULE_${base}__`).join(s);
+    }
+    return out;
+  };
+  for (const [key, src] of Object.entries(modules)) {
+    const { base, ext } = parse(key);
+    const abs = join(scratch, `mod${id}_${base}${ext}`);
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, subst(src), "utf8");
+  }
+  const p = join(scratch, `case${id}-user.ts`);
+  writeFileSync(p, subst(testSrc), "utf8");
+  return classifyTests(ROOT, p);
+}
+
+/**
+ * The FIRST classification. Most cases build a single test, so this is the
+ * ergonomic form, but a case asserting about a SIBLING test must use
+ * `classificationsWithModules` and select by `testName`, or it asserts about a
+ * test it never meant (AC-12b).
+ */
+function classificationWithModules(
+  modules: Record<string, string>,
+  testSrc: string,
+): TestClassification | undefined {
+  return classificationsWithModules(modules, testSrc)[0];
+}
+
+function verdictWithModules(modules: Record<string, string>, testSrc: string): string {
+  return classificationWithModules(modules, testSrc)?.verdict ?? "<no test found>";
+}
+
+/**
+ * EVERY case that expects a report goes through this, never through a bare
+ * `.toBe("unclassifiable")`. A verdict-only assertion passes on a generic or
+ * MISATTRIBUTED reason, and the whole contract of reporting is that the reader
+ * is told which construct, in which module (spec §2.6 item 2), so a
+ * verdict-only reporting case leaves the arc's central claim unproved.
+ *
+ * `construct` matches the reason text; `module` matches the module the
+ * construct was FOUND in, which for a barrel defect is the BARREL, not the
+ * importing test file.
+ */
+function expectReported(
+  c: TestClassification | undefined,
+  expected: { construct: RegExp; module: RegExp; notModule?: RegExp },
+): void {
+  expect(c?.verdict).toBe("unclassifiable");
+  const detail = c?.detail ?? "";
+  expect(detail).toMatch(expected.construct);
+  expect(detail).toMatch(expected.module);
+  // AC-5c: a reason names WHAT could not be bound, not merely WHERE. A generic
+  // `dynamic import in case123-user.ts` satisfies construct and module and
+  // proves nothing, which is what round 19 found across fourteen executions.
+  // The target is a specifier, a generated module name, or - for the shapes
+  // that genuinely have no nameable target - the word that says so.
+  expect(
+    /(\.\/|\.\.\/|@\/|mod\d+_[A-Za-z]+|non-literal|computed)/.test(detail),
+    `the reason names no target: ${detail}`,
+  ).toBe(true);
+  // A generated-module attribution without its negative is tautological: the
+  // importing test file quotes the specifier, so /barrel/ matches a reason
+  // misattributed to the test file. Required, not optional, and enforced here
+  // so a new case cannot omit it (round-19 finding 4 found four that had).
+  if (String(expected.module) !== String(OWN_FILE) && !expected.notModule) {
+    throw new Error(
+      `a generated-module attribution must state notModule: ${String(expected.module)}`,
+    );
+  }
+  // `notModule` is what stops module attribution passing tautologically. For a
+  // BARREL defect the reason must name the barrel and NOT the importing test
+  // file (spec §2.6 item 2); without the negative, /barrel/ also matches the
+  // import specifier quoted back in a generic reason, so the assertion proves
+  // nothing about where the construct was found.
+  if (expected.notModule) expect(detail).not.toMatch(expected.notModule);
+}
+
+/** Single-module sibling of `classificationWithModules`, for `verdict`-style cases. */
+function classification(src: string): TestClassification | undefined {
+  const p = join(scratch, `case${n++}.ts`);
+  writeFileSync(p, src, "utf8");
+  return classifyTests(ROOT, p)[0];
+}
+
+/**
+ * The reason families this arc reports. Cases name a family rather than
+ * re-spelling a regex, so a wording change is one edit and no case silently
+ * stops discriminating.
+ */
+const REPORTS = {
+  dynamicImport: /dynamic import/i,
+  sideEffect: /side-effect/i,
+  unresolvedSpecifier: /unresolved in-repo specifier/i,
+  moduleShape: /unsupported module shape/i,
+  reexportCycle: /re-export cycle/i,
+  unfollowable: /unfollowable re-export/i,
+  namespaceExport: /export \* as/i,
+  exportEquals: /export =/i,
+  exportNamespace: /export namespace/i,
+  nsLocalReexport: /local re-export of a namespace binding/i,
+  nsNonMember:
+    /namespace ns \(imported from [^)]+\) used in a position with no statically known member/i,
+  computedProcess: /computed member access on process/i,
+} as const;
+
+/** The generated test file, for own-file constructs. */
+const OWN_FILE = /case\d+/;
+
+describe("export resolution: the lookup asks for an EXPORT, not a local name", () => {
+  const SPAWNER_DEFAULT = `import { spawnSync } from "node:child_process";
+    export default function spawnHelper(): string {
+      return String(spawnSync("echo", ["x"]).stdout);
+    }`;
+
+  // A NON-default spawning declaration, for the AC-5d branch cases that need a
+  // local to re-export or merge with. Kept separate from SPAWNER_DEFAULT so no
+  // case accidentally passes through E4 when it means to exercise E1 or E3.
+  const SPAWNER_NAMED = `import { spawnSync } from "node:child_process";
+    function spawnHelper(): string {
+      return String(spawnSync("echo", ["x"]).stdout);
+    }`;
+
+  it("a renamed default import resolves", () => {
+    expect(
+      classificationWithModules(
+        { helper: SPAWNER_DEFAULT },
+        `import runIt from "__MODULE_helper__";
+         it("x", () => { runIt(); });`,
+      )?.verdict,
+    ).toBe("environment-touching");
+  });
+
+  it("a same-named default import resolves for the RIGHT reason", () => {
+    // The foil: passes even before the repair, by coincidence, because the local
+    // name happens to match a module-scope declaration. Kept so no future repair
+    // can be validated by it alone.
+    expect(
+      classificationWithModules(
+        { helper: SPAWNER_DEFAULT },
+        `import spawnHelper from "__MODULE_helper__";
+         it("x", () => { spawnHelper(); });`,
+      )?.verdict,
+    ).toBe("environment-touching");
+  });
+
+  it("a default export that is an EXPRESSION resolves", () => {
+    expect(
+      verdictWithModules(
+        {
+          helper: `import { spawnSync } from "node:child_process";
+            export default () => String(spawnSync("echo", ["x"]).stdout);`,
+        },
+        `import runIt from "__MODULE_helper__";
+         it("x", () => { runIt(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("a pure default export stays free", () => {
+    expect(
+      verdictWithModules(
+        { helper: `export default function pureHelper(): number { return 2; }` },
+        `import runIt from "__MODULE_helper__";
+         it("x", () => { runIt(); });`,
+      ),
+    ).toBe("environment-free");
+  });
+
+  it("an exported `const` resolves: the modifier is on the STATEMENT", () => {
+    // `export const` carries its modifiers on the VariableStatement, not on the
+    // VariableDeclaration. An E1 predicate read off the declaration misses the
+    // commonest exported form in the repository (971 exported variable statements).
+    expect(
+      verdictWithModules(
+        {
+          helper: `import { spawnSync } from "node:child_process";
+            export const spawnHelper = (): string => String(spawnSync("echo", ["x"]).stdout);`,
+        },
+        `import { spawnHelper } from "__MODULE_helper__";
+         it("x", () => { spawnHelper(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("`export { x }` with no specifier resolves to the local declaration", () => {
+    expect(
+      verdictWithModules(
+        {
+          helper: `import { spawnSync } from "node:child_process";
+            function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }
+            export { spawnHelper };`,
+        },
+        `import { spawnHelper } from "__MODULE_helper__";
+         it("x", () => { spawnHelper(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("`export { x as y }` with no specifier resolves by the EXPORTED name", () => {
+    expect(
+      verdictWithModules(
+        {
+          helper: `import { spawnSync } from "node:child_process";
+            function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }
+            export { spawnHelper as runIt };`,
+        },
+        `import { runIt } from "__MODULE_helper__";
+         it("x", () => { runIt(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("a data import is PURE, on a fixture that is RED today (AC-9)", () => {
+    // Two conditions make this discriminating. The specifier must spell out the
+    // extension, or resolveSpecifier never reaches the file at all. And the
+    // payload must be TypeScript that reaches node:child_process, because a
+    // .json target IS parsed as TypeScript today: probed environment-touching
+    // on the unrepaired tree. A fixture holding real JSON is free before and
+    // after and proves nothing.
+    expect(
+      verdictWithModules(
+        {
+          "data.json": `import { spawnSync } from "node:child_process";
+            export function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }`,
+        },
+        `import { spawnHelper } from "__MODULE_data__";
+         it("x", () => { spawnHelper(); });`,
+      ),
+    ).toBe("environment-free");
+  });
+
+  it("E4: an ANONYMOUS default function declaration resolves (AC-5d)", () => {
+    expect(
+      verdictWithModules(
+        {
+          helper: `import { spawnSync } from "node:child_process";
+            export default function (): string { return String(spawnSync("echo", ["x"]).stdout); }`,
+        },
+        `import runIt from "__MODULE_helper__";
+         it("x", () => { runIt(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("E4: a RENAMED import of a default-exported class resolves (AC-5d)", () => {
+    // The positive arm the named-class branch needs. Its twin below proves the
+    // class's own name is NOT an export; this proves `default` IS one, for a
+    // NAMED class declaration. Without it an implementation can map only
+    // ANONYMOUS default classes, pass every other fixture, and silently lose a
+    // live in-repo edge (round-19 finding 1).
+    expect(
+      verdictWithModules(
+        {
+          helper: `import { spawnSync } from "node:child_process";
+            export default class K { go(): string { return String(spawnSync("echo", ["x"]).stdout); } }`,
+        },
+        `import Renamed from "__MODULE_helper__";
+         it("x", () => { new Renamed().go(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("E4: a default-exported class is NOT exported under its own name (AC-5d)", () => {
+    // `export default class K {}` exports `default`; `K` is module-local, so a
+    // NAMED import of `K` must resolve noSuchExport and stay pure.
+    //
+    // This shape is what discriminates the "only `default`" half of E4. The
+    // earlier fixture imported the SAME name through DEFAULT syntax and
+    // asserted touching: measured GREEN on the merged scanner (planRun), since
+    // today's local-declaration lookup finds the class's own name `K` and
+    // answers touching for the wrong reason, and a resolver recording BOTH
+    // `default` and `K` would pass it just as happily. This one measures
+    // touching today and must go FREE, so only a resolver that maps `default`
+    // alone can green it.
+    expect(
+      verdictWithModules(
+        {
+          helper: `import { spawnSync } from "node:child_process";
+            export default class K { go(): string { return String(spawnSync("echo", ["x"]).stdout); } }`,
+        },
+        `import { K } from "__MODULE_helper__";
+         it("x", () => { new K().go(); });`,
+      ),
+    ).toBe("environment-free");
+  });
+
+  it("E3: `export default <expr>` resolves under a renamed default (AC-5d)", () => {
+    // E3 has NO fixture in the round-3 plan and probes environment-free TODAY
+    // (spec §3.13). AC-4 covers E4's `export default function`; an implementation
+    // can omit E3 entirely and satisfy every other criterion.
+    expect(
+      verdictWithModules(
+        { helper: `${SPAWNER_NAMED}\nexport default spawnHelper;` },
+        `import runIt from "__MODULE_helper__";
+         it("x", () => { runIt(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("E1: an ARRAY binding pattern binds every identifier (AC-5d)", () => {
+    expect(
+      verdictWithModules(
+        { helper: `${SPAWNER_NAMED}\nexport const [ , second ] = [null, spawnHelper];` },
+        `import { second } from "__MODULE_helper__";
+         it("x", () => { second(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("E1: MULTIPLE declarators in one statement each bind (AC-5d)", () => {
+    // `export const a = …, b = …`: the modifier is on the VariableStatement and
+    // must map to every declarator, not just the first.
+    expect(
+      verdictWithModules(
+        { helper: `${SPAWNER_NAMED}\nexport const first = 1, second = spawnHelper;` },
+        `import { second } from "__MODULE_helper__";
+         it("x", () => { second(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("value BEATS type when both export the same name (AC-5d)", () => {
+    // Declaration merging is legal. A resolver checking typeOnly first returns
+    // pure and silently frees the value, with every other AC still green.
+    expect(
+      verdictWithModules(
+        {
+          helper: `${SPAWNER_NAMED}\nexport interface thing { k: string }\nexport const thing = spawnHelper;`,
+        },
+        `import { thing } from "__MODULE_helper__";
+         it("x", () => { thing(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("a DIRECT noSuchExport is pure, not reported (AC-5d)", () => {
+    // A guard is not a type checker: inventing a diagnostic here would fire on
+    // every mid-edit tree. AC-5b covers only the star-fan-out miss.
+    expect(
+      verdictWithModules(
+        { helper: SPAWNER_NAMED },
+        `import { absent } from "__MODULE_helper__";
+         it("x", () => { void absent; });`,
+      ),
+    ).toBe("environment-free");
+  });
+
+  it("an `.mdx` target is REPORTED, not purified (AC-9d)", () => {
+    // AC-9's discriminating twin: byte-identical payload, only the extension
+    // differs. MDX is EXECUTABLE in this repo (next.config.ts:54 pageExtensions,
+    // @mdx-js/rollup in vitest.config.ts), so answer 2 would be a silent free
+    // introduced by this repair; spec §2.4, §3.11, §4 limit 13. 31 .mdx import
+    // edges live in the near-domain across 14 files; 0 are enrolled, so AC-1 holds.
+    expectReported(
+      classificationWithModules(
+        {
+          "page.mdx": `import { spawnSync } from "node:child_process";
+            export function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }`,
+        },
+        `import { spawnHelper } from "__MODULE_page__";
+         it("x", () => { spawnHelper(); });`,
+      ),
+      { construct: REPORTS.moduleShape, module: /mod\d+_page\.mdx/, notModule: OWN_FILE },
+    ); // expectReported: construct /unsupported module shape|mdx/, module /page/
+  });
+
+  it("a renamed default CLASS resolves (AC-4b)", () => {
+    // An E4 branch AC-4's default-FUNCTION fixture never reaches. Probe §3.9
+    // measures this environment-free today.
+    expect(
+      classificationWithModules(
+        {
+          helper: `import { spawnSync } from "node:child_process";
+            export default class { go(): string { return String(spawnSync("echo", ["x"]).stdout); } }`,
+        },
+        `import K from "__MODULE_helper__";
+         it("x", () => { new K().go(); });`,
+      )?.verdict,
+    ).toBe("environment-touching");
+  });
+
+  it("an exported CLASS resolves (AC-5, E1 branch)", () => {
+    expect(
+      classificationWithModules(
+        {
+          helper: `import { spawnSync } from "node:child_process";
+            export class C { go(): string { return String(spawnSync("echo", ["x"]).stdout); } }`,
+        },
+        `import { C } from "__MODULE_helper__";
+         it("x", () => { new C().go(); });`,
+      )?.verdict,
+    ).toBe("environment-touching");
+  });
+
+  it("an exported ENUM resolves (AC-5, E1 branch)", () => {
+    // Ask for the ENUM by name. A round-1 draft imported a sibling `useIt` that
+    // merely READ the enum, so the case passed even if EnumDeclaration were
+    // dropped from the E1 predicate entirely, it never requested the exported
+    // enum, which is the branch it claims to pin.
+    expect(
+      verdictWithModules(
+        {
+          helper: `import { spawnSync } from "node:child_process";
+            export enum E { A = String(spawnSync("echo", ["x"]).stdout) as unknown as never }`,
+        },
+        `import { E } from "__MODULE_helper__";
+         it("x", () => { void E; });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("a DESTRUCTURED exported const resolves (AC-5, E1 branch)", () => {
+    // The modifier is on the VariableStatement and the names come out of a
+    // binding pattern; an implementation reading only simple identifiers misses it.
+    expect(
+      verdictWithModules(
+        {
+          helper: `import { spawnSync } from "node:child_process";
+            export const { stdout: out } = spawnSync("echo", ["x"]);`,
+        },
+        `import { out } from "__MODULE_helper__";
+         it("x", () => { void out; });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("an unrecognized module shape is REPORTED, not purified (AC-9c)", () => {
+    // A directory reached through resolveSpecifier's bare-base candidate.
+    // NOTE THE RED'S SHAPE: today this case THROWS EISDIR rather than returning
+    // a wrong verdict (probe §3.9), so Step 3 sees an ERROR, not a mismatch.
+    // That is a valid red (the test fails, and greens on the same command) but
+    // an implementer who expects a wrong verdict may read the exception as a
+    // broken fixture and repair the test instead of the scanner.
+    // A guard that only moved the extension test before the read would turn the
+    // crash into a silent pure, which is why the third answer must REPORT.
+    expectReported(
+      classificationWithModules(
+        { "d/index.tsx": `export const x = 1;` },
+        `import { x } from "__MODULE_d__";
+         it("x", () => { void x; });`,
+      ),
+      { construct: REPORTS.moduleShape, module: /mod\d+_d/, notModule: OWN_FILE },
+    );
+  });
+
+  it("an explicit `.jsx` target stays ANALYZED (AC-9b)", () => {
+    // Probed environment-touching TODAY. An allowlist omitting .jsx would make
+    // this repair introduce the very silent free the arc exists to close.
+    expect(
+      classificationWithModules(
+        {
+          "helper.jsx": `import { spawnSync } from "node:child_process";
+            export function spawnHelper() { return String(spawnSync("echo", ["x"]).stdout); }`,
+        },
+        `import { spawnHelper } from "__MODULE_helper__";
+         it("x", () => { spawnHelper(); });`,
+      )?.verdict,
+    ).toBe("environment-touching");
+  });
+
+  it("a `.mjs` target stays ANALYZED (AC-9b)", () => {
+    // AC-9's foil. The live tests/ci/phantomGapExecuted.test.ts edge is a named
+    // import of an in-repo .mjs module; an over-reaching allowlist turns it into
+    // data and silences a real environment reach.
+    expect(
+      classificationWithModules(
+        {
+          "helper.mjs": `import { spawnSync } from "node:child_process";
+            export function spawnHelper() { return String(spawnSync("echo", ["x"]).stdout); }`,
+        },
+        `import { spawnHelper } from "__MODULE_helper__";
+         it("x", () => { spawnHelper(); });`,
+      )?.verdict,
+    ).toBe("environment-touching");
   });
 });

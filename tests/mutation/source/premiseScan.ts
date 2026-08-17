@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, extname, join, resolve } from "node:path";
 
 import ts from "typescript";
 
@@ -415,6 +415,48 @@ function isVarDeclaration(decl: ts.VariableDeclaration): boolean {
   return (list.flags & blockScoped) === 0;
 }
 
+/** What an EXPORTED name denotes in its own module. */
+type ExportTarget = { kind: "local"; name: string } | { kind: "node"; node: ts.Node };
+
+/**
+ * The answer to "what does this module export under this name" (spec §2.2).
+ *
+ * `reasons` is the return channel for modules the CALLER never sees: a forward
+ * hop loads a module inside `resolveExport`, so anything that module reports
+ * about itself has no other way out. Task-ordered: `forward` is an internal
+ * step, never returned to `reaches`.
+ */
+type ExportResolution =
+  | { kind: "extent"; nodes: ts.Node[]; reasons?: string[] }
+  | { kind: "forward"; spec: string; exportName: string }
+  | { kind: "data"; reasons?: string[] }
+  | { kind: "noSuchExport"; reasons?: string[] }
+  | { kind: "unresolvable"; reason: string; reasons?: string[] };
+
+/** A traversal answer and everything it could not resolve on the way. */
+type Reach = { verdict: Verdict; reasons: string[] };
+
+/**
+ * §2.4's three answers, decided by EXTENSION before any read.
+ *
+ * `.jsx` is a language extension because it is analyzed today; omitting it
+ * would make this repair introduce a silent free. `.json` is the only data
+ * extension: this repo EXECUTES MDX (`next.config.ts` pageExtensions,
+ * `@mdx-js/rollup`), so purifying `.mdx` would be a silent free, and it falls
+ * to the third answer with every other shape a directory included.
+ */
+const LANGUAGE_EXTENSIONS: readonly string[] = [
+  ".ts",
+  ".tsx",
+  ".mts",
+  ".cts",
+  ".js",
+  ".mjs",
+  ".cjs",
+  ".jsx",
+];
+const DATA_EXTENSIONS: readonly string[] = [".json"];
+
 type ModuleFacts = {
   sf: ts.SourceFile;
   /** local name → the module it came from, and the name it has THERE. */
@@ -449,6 +491,18 @@ type ModuleFacts = {
    * static import's edge (whole-diff R2 #1).
    */
   scopedImports: Map<Scope, Map<string, { spec: string; imported: string }>>;
+  /**
+   * EXPORTED name → what it names here: a module-local binding, or the node the
+   * declaration itself contributes (`export default <expr>`, `export default
+   * function`, `export default class`).
+   *
+   * The lookup a cross-module reference needs is "what does this module EXPORT
+   * under this name", and `extents` answers a different question — "what is
+   * declared here under this name". They coincide only when the two names
+   * coincide, which is why every rename and every default resolved to nothing
+   * before this map existed (spec §2.1).
+   */
+  exports: Map<string, ExportTarget>;
   /** Memo for `resolveBinding`, keyed (scope, name) — see there for why that is the identity. */
   resolved: Map<Scope, Map<string, Binding>>;
   /** Memo for `extentIsProvenance`, per node of THIS file. */
@@ -529,8 +583,51 @@ function bindingKey(name: string, binding: Binding): string | null {
 }
 
 /** A module's EXPORTED binding, looked up by the name it carries there. */
-function moduleScopeExtent(facts: ModuleFacts, name: string): ts.Node[] {
-  return facts.extents.get(facts.sf)?.get(name) ?? [];
+/**
+ * What `facts` exports under `exportName` (spec §2.2).
+ *
+ * Consults `exports` FIRST and never `extents` on its own: `extents` answers
+ * "what is declared here", and reaching it directly is what let a local
+ * declaration stand in for an export of the same name. A name in neither map
+ * is `noSuchExport`, which is PURE on a direct request and adds no reason - an
+ * import of something a module does not export is a broken program, not an
+ * unanalyzable one (spec §2.1).
+ *
+ * `root`, `active` and `done` are threaded from the outset so the topology is
+ * stated once: Task 2 follows forwards INSIDE this function, and a signature
+ * widened later would leave the star fan-out without its continuation.
+ */
+function resolveExport(
+  root: string,
+  facts: ModuleFacts,
+  exportName: string,
+  active: Set<string>,
+  done: Map<string, ExportResolution>,
+): ExportResolution {
+  void root;
+  void active;
+  void done;
+  const target = facts.exports.get(exportName);
+  if (target === undefined) return { kind: "noSuchExport" };
+  if (target.kind === "node") return { kind: "extent", nodes: [target.node] };
+  return { kind: "extent", nodes: facts.extents.get(facts.sf)?.get(target.name) ?? [] };
+}
+
+/**
+ * §2.4's three answers for a resolved specifier, decided BEFORE any read.
+ *
+ * A directory reaches `readFileSync` otherwise and throws `EISDIR`; an `.mdx`
+ * target parses as TypeScript and yields a garbage tree that reads as pure.
+ * Both are reported instead.
+ */
+function classifyTarget(
+  target: string,
+  spec: string,
+): "analyze" | "data" | { kind: "unresolvable"; reason: string } {
+  const ext = extname(target).toLowerCase();
+  if (LANGUAGE_EXTENSIONS.includes(ext)) return "analyze";
+  if (DATA_EXTENSIONS.includes(ext)) return "data";
+  return { kind: "unresolvable", reason: `unsupported module shape for ${spec}` };
 }
 
 function moduleFacts(path: string): ModuleFacts | null {
@@ -540,6 +637,7 @@ function moduleFacts(path: string): ModuleFacts | null {
   const extents = new Map<Scope, Map<string, ts.Node[]>>();
   const shadows = new Map<Scope, Set<string>>();
   const scopedImports = new Map<Scope, Map<string, { spec: string; imported: string }>>();
+  const exports = new Map<string, ExportTarget>();
   /** Writes, resolved in a SECOND pass: a write's target binding cannot be
    * known until every declaration in the file has been registered. */
   const writes: Array<{ name: string; at: ts.Node; value: ts.Node }> = [];
@@ -580,11 +678,67 @@ function moduleFacts(path: string): ModuleFacts | null {
   };
 
   const walk = (node: ts.Node): void => {
+    // EXPORTS: what this module offers under each name (spec §2.2, forms E1-E4).
+    // Registered here rather than derived later because the declaration is the
+    // only place both names are visible at once - the EXPORTED one and the
+    // local one - and every rename loses one of them the moment the walk moves
+    // on. Type-only forms are skipped entirely, which is also what makes VALUE
+    // beat type under declaration merging: a type never enters the map, so a
+    // same-named value is the only thing there to find.
+    if (
+      ts.isExportDeclaration(node) &&
+      !node.moduleSpecifier &&
+      !node.isTypeOnly &&
+      node.exportClause &&
+      ts.isNamedExports(node.exportClause)
+    ) {
+      // E2: `export { x }` and `export { x as y }` - the exported name is
+      // `name`, the local one is `propertyName ?? name`, which is the mirror of
+      // an import specifier and the easiest thing here to get backwards.
+      for (const e of node.exportClause.elements) {
+        if (e.isTypeOnly) continue;
+        exports.set(e.name.text, { kind: "local", name: (e.propertyName ?? e.name).text });
+      }
+    }
+    if (ts.isExportAssignment(node) && !node.isExportEquals) {
+      // E3: `export default <expr>` exports the EXPRESSION under `default`.
+      exports.set("default", { kind: "node", node: node.expression });
+    }
+    if (ts.canHaveModifiers(node)) {
+      const mods = ts.getModifiers(node);
+      const exported = mods?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
+      const isDefault = mods?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword) ?? false;
+      if (exported && isDefault) {
+        // E4: a declaration carrying BOTH modifiers exports `default` and ONLY
+        // `default` - function or class, named or anonymous - because the
+        // declaration's own name is module-local under ES.
+        exports.set("default", { kind: "node", node });
+      } else if (exported && ts.isVariableStatement(node)) {
+        // E1, read from the STATEMENT: the modifier lives there, not on the
+        // declaration, and every declarator and every identifier a binding
+        // pattern introduces is exported.
+        for (const d of node.declarationList.declarations)
+          for (const id of bindingIdentifiers(d.name))
+            exports.set(id.text, { kind: "local", name: id.text });
+      } else if (
+        exported &&
+        (ts.isFunctionDeclaration(node) ||
+          ts.isClassDeclaration(node) ||
+          ts.isEnumDeclaration(node)) &&
+        node.name
+      ) {
+        exports.set(node.name.text, { kind: "local", name: node.name.text });
+      }
+    }
+
     // static imports, including aliases and namespaces
     if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
       const spec = node.moduleSpecifier.text;
       const clause = node.importClause;
-      if (clause?.name) imports.set(clause.name.text, { spec, imported: clause.name.text });
+      // A default import binds a LOCAL name for the target's `default` export.
+      // Recording the local name here is what made every renamed default ask
+      // the target for a name it does not export (spec §2.1, half 2).
+      if (clause?.name) imports.set(clause.name.text, { spec, imported: "default" });
       const b = clause?.namedBindings;
       if (b && ts.isNamespaceImport(b)) imports.set(b.name.text, { spec, imported: b.name.text });
       if (b && ts.isNamedImports(b)) {
@@ -758,6 +912,7 @@ function moduleFacts(path: string): ModuleFacts | null {
     extents,
     shadows,
     scopedImports,
+    exports,
     resolved: new Map<Scope, Map<string, Binding>>(),
     provenance: new WeakMap<ts.Node, boolean>(),
   };
@@ -964,7 +1119,7 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
 
   const out: TestClassification[] = [];
 
-  const reaches = (start: ts.Node, home: ModuleFacts, homePath: string): Verdict => {
+  const reaches = (start: ts.Node, home: ModuleFacts, homePath: string): Reach => {
     const seen = new Set<string>();
     const unresolved: string[] = [];
     const visit = (node: ts.Node, f: ModuleFacts, path: string): boolean => {
@@ -992,14 +1147,39 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
             }
             continue;
           }
+          // Classify the target BEFORE any read (spec §2.4): a directory would
+          // throw EISDIR inside `factsFor`, and a non-language, non-data shape
+          // must be reported rather than parsed as TypeScript.
+          const shape = classifyTarget(target, imported.spec);
+          if (shape !== "analyze") {
+            if (shape !== "data") unresolved.push(shape.reason);
+            // `data` is pure exactly as a bare specifier is; both still visit
+            // any WRITE to the same local binding below.
+            for (const ext of binding.extent) {
+              if (visit(ext, f, path)) return true;
+            }
+            continue;
+          }
           const tf = factsFor(target);
           if (tf === null) {
             unresolved.push(`unparseable in-repo module ${imported.spec}`);
             continue;
           }
-          // By the name it carries THERE, not the local alias.
-          for (const ext of moduleScopeExtent(tf, imported.imported)) {
-            if (visit(ext, tf, target)) return true;
+          // By the name the target EXPORTS, not the local alias and not a local
+          // declaration that merely shares the name.
+          const res = resolveExport(
+            root,
+            tf,
+            imported.imported,
+            new Set<string>(),
+            new Map<string, ExportResolution>(),
+          );
+          if (res.kind === "unresolvable") unresolved.push(res.reason);
+          if (res.kind !== "forward" && res.reasons) unresolved.push(...res.reasons);
+          if (res.kind === "extent") {
+            for (const ext of res.nodes) {
+              if (visit(ext, tf, target)) return true;
+            }
           }
           // …and anything later ASSIGNED to the same local binding.
           for (const ext of binding.extent) {
@@ -1015,8 +1195,12 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
       }
       return false;
     };
-    if (visit(start, home, homePath)) return "environment-touching";
-    return unresolved.length > 0 ? "unclassifiable" : "environment-free";
+    if (visit(start, home, homePath))
+      return { verdict: "environment-touching", reasons: unresolved };
+    return {
+      verdict: unresolved.length > 0 ? "unclassifiable" : "environment-free",
+      reasons: unresolved,
+    };
   };
 
   const suiteText = facts.sf.getFullText();
@@ -1040,10 +1224,14 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
 
         // the test's extent is the WHOLE call expression, so a .each producer
         // is inside it by construction
-        let verdict = reaches(node, facts, abs);
+        const own = reaches(node, facts, abs);
+        let verdict = own.verdict;
+        const reachReasons = [...own.reasons];
         if (verdict !== "environment-touching") {
           for (const h of hooks) {
-            if (reaches(h, facts, abs) === "environment-touching") {
+            // Hook REASONS are still discarded here; Task 5 is where the hook
+            // call site merges them, and its cases red on exactly that.
+            if (reaches(h, facts, abs).verdict === "environment-touching") {
               verdict = "environment-touching";
               break;
             }
@@ -1067,7 +1255,7 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
           testName,
           line,
           verdict,
-          detail: ownUnresolved.join("; "),
+          detail: [...ownUnresolved, ...reachReasons].join("; "),
           hasPremise,
           exemption,
         });
