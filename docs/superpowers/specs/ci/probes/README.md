@@ -8,3 +8,4 @@ Written under the probe-before-argue rule in [`../../../../agents/spec-self-revi
 | --- | --- | --- |
 | [`2026-08-04-finding-format-probe.md`](./2026-08-04-finding-format-probe.md) | Can a finding count be recognized from reviewer output, or must it be declared? | [`../2026-08-04-review-round-economy.md`](../2026-08-04-review-round-economy.md) §3 |
 | [`2026-08-04-mergebase-stability-probe.md`](./2026-08-04-mergebase-stability-probe.md) | Is `git merge-base` stable enough to key an arc identity on? | [`../2026-08-04-review-round-economy.md`](../2026-08-04-review-round-economy.md) §5.2 |
+| [`2026-08-16-timing-scan-binding-probes.md`](./2026-08-16-timing-scan-binding-probes.md) | What does the timing scan's global name filter suppress, and can a binding-identity resolver reproduce it at a tolerable cost? | [`../2026-08-16-timing-scan-binding-resolution-design.md`](../2026-08-16-timing-scan-binding-resolution-design.md) §3 |

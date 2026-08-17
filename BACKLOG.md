@@ -64,21 +64,15 @@ $ for v in "PG=p'sql'" "PG='p'sql" 'PG="ps"ql' "PG='/usr/bin/'psql"; do
 
 **What would close it:** read an assignment value as a CONCATENATION of quoted and bare segments (the same shape `lexShellWords` already implements for command words) instead of as one delimiter-matched span, and pin all four reassembling spellings above in the deciding suite — together with the two whose zero must SURVIVE the repair (`PG='psql'x`, `PG='psql'\`), since a fix that reports those has traded a recall gap for a false positive. The lexer is the natural source of truth — the patterns exist because the binding rules run per line before words exist, so the alternative is routing them through the lexer rather than widening the regex family one spelling at a time.
 
-## BL-TIMING-SCAN-NAME-VS-BINDING — an identifier delay resolves by spelling, so a local shadow is suppressed
+## BL-TIMING-SCAN-VALUATION-VS-REASSIGNMENT — a reassigned `let` is inventoried at its initializer
 
-**Filed:** 2026-08-15 (`feat/wifi-password-legibility`, whole-diff review round 9, finding 2). **Effort:** M — scope-aware resolution, not a pattern tweak. **Class-sweep exception:** (c) — a redesign of the resolution step on a surface this arc does not otherwise own. **Reachability: PROBED** (constructed, see below); no live instance exists today.
+**Filed:** 2026-08-16 (`fix/timing-scan-scope-resolution`, spec authoring, probe P9). **Effort:** S. **Class-sweep exception:** (c) — the valuation axis is a different surface from the resolution step that arc rewrites, and widening into it mid-arc is the recognizer ratchet the round-economy rules forbid. **Reachability: PROBED** (constructed); **zero live instances** on the tree at filing.
 
-`scripts/scan-interaction-timings.ts` resolves an identifier delay by NAME against the set of covered bindings, so any binding anywhere that carries the same spelling counts as coverage. A local one that shadows it is therefore suppressed:
+`scripts/scan-interaction-timings.ts` values a `named-constant` by its INITIALIZER. A `let RETRY_MS = 100` that `init()` later reassigns from config is therefore a §5.5 row reading 100, and a `setTimeout(fn, RETRY_MS)` resolves to it and suppresses. The resolution is right — it IS that binding — but the number a reader sees is the one the source states at declaration, not the one the timer uses.
 
-```ts
-// in some component, alongside the real lib/ui/copyFeedback.ts export
-const COPY_FEEDBACK_RESET_MS = readDelayFromRuntimeConfig();
-setTimeout(fn, COPY_FEEDBACK_RESET_MS);
-```
+This is the one shape where a CORRECT resolution still yields a row someone could act on wrongly; everywhere else the scanner's failure direction is a surfaced `unclassified`. Probe and the zero-instance sweep: `docs/superpowers/specs/ci/probes/2026-08-16-timing-scan-binding-probes.md` §P9. Documented limit: the 2026-08-16 binding-resolution spec §4 item 7.
 
-Probed: before resolution the site is correctly `unclassified`; the global name filter then removes it, and neither §5.5 nor the unclassified list mentions it. That contradicts the delay-side totality claim — the one half of the scanner that IS complete — which is why this is a separate row from `BL-TIMING-SCAN-PROPERTY-TOTALITY` rather than folded into it.
-
-**Scope if promoted:** resolve identifiers against the binding in scope (the TypeScript checker already models this) instead of a name set, or narrow the name set per-file and report cross-file identifiers as `unclassified`. The consequence today is bounded — the value is a runtime one, so no fixed timing is being hidden, and the current tree contains no shadowing instance — but the claim the guard makes about delays should be true of delays.
+**Scope if promoted:** treat a binding that is assigned anywhere after its declaration as `unclassified` rather than a valued constant (the checker already knows the write sites), or keep the row and annotate it as an initial value. Either way it is a valuation decision, not a resolution one, and it wants its own probe of how many live `let` timing bindings exist when it is scheduled.
 
 ## BL-DESTRUCTIVE-GUARD-DISCOVERY-BY-CONNECTION — discover destructive-analysis files by connection, not by SQL spelling
 

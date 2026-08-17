@@ -39,15 +39,28 @@
  *
  * TOTALITY IS PER-FORM, and the boundary is worth stating because the two
  * halves differ. For TIMER DELAYS every `setTimeout` / `setInterval` delay
- * ARGUMENT is walked, not only the ones that happen to be literals — with one
- * hole: an identifier delay resolves by NAME, not by binding, so a LOCAL
- * binding that happens to share a covered constant's spelling is treated as
- * that constant and suppressed. `BL-TIMING-SCAN-NAME-VS-BINDING` carries it. A delay that is neither a numeric literal (form 1) nor an identifier
- * resolving to a covered binding (form 2) is emitted as `unclassified` and fails
- * the inventory test until it is dispositioned — renamed into the pattern, or
- * given a reasons-required row in `UNCLASSIFIED_DISPOSITIONS`. Every timer delay
- * in the universe is therefore literal, resolved, or reported BY NAME. None
- * passes silently.
+ * ARGUMENT is walked, not only the ones that happen to be literals. An
+ * identifier delay resolves against the DECLARATION IT BINDS TO — the
+ * TypeScript checker's own answer, over a program built from the universe
+ * files — and never against its spelling, so a LOCAL binding that happens to
+ * share a covered constant's name is a different binding and is REPORTED. Two
+ * distinct bindings that share a name never resolve to each other; that is what
+ * closed `BL-TIMING-SCAN-NAME-VS-BINDING`. A delay that is neither a numeric
+ * literal (form 1) nor an identifier resolving to a covered DECLARATION (form
+ * 2) is emitted as `unclassified` and fails the inventory test until it is
+ * dispositioned — renamed into the pattern, or given a reasons-required row in
+ * `UNCLASSIFIED_DISPOSITIONS`. Every timer delay in the universe is therefore
+ * literal, resolved against its binding, or reported BY NAME. None passes
+ * silently.
+ *
+ * The same resolution serves timing-named PROPERTY VALUES: there is exactly one
+ * resolution step in this module and both positions flow through it. Every
+ * uncertainty — no symbol, an unresolvable alias, a declaration outside the
+ * program, a declaration that produced no covered row — defaults to REPORTING.
+ * Documented limits, with their probes, live in the 2026-08-16 binding-
+ * resolution spec §4: a covered constant reached through a re-export module
+ * OUTSIDE the universe reports rather than resolving, and this arc resolves
+ * REFERENCES rather than evaluating expressions.
  *
  * DOCUMENTED LIMIT (threat-model fence: accidental authoring mistakes by an
  * ordinary contributor, not adversarial obfuscation). A DELAY assembled at
@@ -75,6 +88,7 @@
  * conservative direction: the worst case is a surfaced name someone must
  * disposition, never a silently unlisted timing.
  */
+import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import ts from "typescript";
@@ -116,6 +130,17 @@ export type TimingSite = {
    *  `ttlMs(17000)` rather than being filed under a key it does not have.
    *  `duration` for the motion form, which keeps every existing row byte-identical. */
   readonly propertyKey?: string;
+  /** Absolute start offset of the REFERENCE identifier, on the paths where the
+   *  value IS a bare identifier. `scanRepo` resolves it against its binding;
+   *  a site without one is never resolved, only reported. Absent — not
+   *  `undefined` — on every other path (`exactOptionalPropertyTypes`). */
+  readonly refPos?: number;
+  /** Absolute start offset of the DECLARATION NAME node, on every
+   *  `named-constant` site. The covered set is keyed `${file}:${declPos}`, an
+   *  identity a LINE does not provide: `const CLOSE_DELAY_MS = 220, other =
+   *  readConfig();` declares two bindings on one line, and a line key would
+   *  lend the constant's coverage to `other` (probe P10). */
+  readonly declPos?: number;
 };
 
 /**
@@ -427,6 +452,7 @@ export function scanTimingSites(
       kind: "named-constant",
       name: name.text,
       value,
+      declPos: name.getStart(sf),
     });
   };
 
@@ -462,6 +488,11 @@ export function scanTimingSites(
           kind: "named-constant",
           name: node.name.text,
           value,
+          // From the NAME node, never the property node: the two starts
+          // coincide on a bare property and diverge the moment it carries a
+          // modifier or decorator (probe P13), and the resolver reads
+          // `getNameOfDeclaration`, which returns this string literal.
+          declPos: node.name.getStart(sf),
         });
       }
     }
@@ -498,6 +529,9 @@ export function scanTimingSites(
             name: ts.isStringLiteral(valueNode) ? valueNode.text : collapsed(valueNode, sf),
             value: null,
             propertyKey: node.name.text,
+            // Built without the key rather than with `refPos: undefined`:
+            // `exactOptionalPropertyTypes` rejects the explicit undefined.
+            ...(ts.isIdentifier(valueNode) ? { refPos: valueNode.getStart(sf) } : {}),
           });
         }
       }
@@ -544,6 +578,7 @@ export function scanTimingSites(
           name: collapsed(node.initializer, sf),
           value: null,
           propertyKey,
+          ...(ts.isIdentifier(node.initializer) ? { refPos: node.initializer.getStart(sf) } : {}),
         });
       } else {
         reject(propertyKey, node);
@@ -565,6 +600,12 @@ export function scanTimingSites(
         name: node.name.text,
         value: null,
         propertyKey: node.name.text,
+        // The shorthand's value IS its name, so the reference offset is the
+        // name node's. The resolver reaches the VALUE binding through
+        // `getShorthandAssignmentValueSymbol`; `getSymbolAtLocation` here
+        // returns the property's own symbol and would never match a covered
+        // key (probe P12).
+        refPos: node.name.getStart(sf),
       });
     }
 
@@ -581,15 +622,23 @@ export function scanTimingSites(
             name: null,
             value,
           });
-        } else if (ts.isIdentifier(delay) && TIMING_NAME.test(delay.text)) {
+        } else if (ts.isIdentifier(delay)) {
           // Resolution happens across the whole universe in `scanRepo`; the
           // per-file pass records the reference and lets the caller decide.
+          //
+          // The `TIMING_NAME` gate this branch used to carry is GONE: a bare
+          // identifier delay is resolved against its BINDING, so its spelling
+          // decides nothing. Live effect zero — the three bare-identifier
+          // delays that do not match the pattern (`ttlMs`, `ms`, `delay`)
+          // resolve to non-covered bindings and stay `unclassified` with
+          // byte-identical `name` text (probe P7).
           sites.push({
             file: filePath,
             line: lineOf(node),
             kind: "unclassified",
             name: delay.text,
             value: null,
+            refPos: delay.getStart(sf),
           });
         } else {
           sites.push({
@@ -606,6 +655,191 @@ export function scanTimingSites(
   };
   visit(sf);
   return sites;
+}
+
+/**
+ * The module-alias mapping the resolver pins, exported so a structural test can
+ * assert it still matches `tsconfig.json`. Pinned in CODE rather than read from
+ * the tsconfig so a synthetic-root scan — the temp-tree tests, and any caller
+ * passing a root with no tsconfig — resolves identically to a repo scan.
+ */
+export const RESOLVER_PATH_ALIASES: Readonly<Record<string, readonly string[]>> = {
+  "@/*": ["./*"],
+};
+
+/**
+ * Map a reference identifier to the declaration keys its binding produces.
+ *
+ * Takes the `(file, text)` pairs `scanRepo` ALREADY READ rather than a path
+ * list, and serves them through a `ts.CompilerHost`, so the resolver never
+ * touches the filesystem. Two consequences the design rests on: `refPos`
+ * offsets are guaranteed to index the same text the sites were computed from,
+ * and the existing unreadable-file case keeps behaving exactly as before —
+ * a file `scanRepo` could not read simply is not in the pairs.
+ *
+ * `noResolve` keeps the program at the universe roots instead of the 3121
+ * source files that following imports into `node_modules` pulls in: 211 ms
+ * against 6.3-8.0 s (probes P3/P4). Its cost is stated as a documented limit —
+ * a covered constant reached through a re-export module OUTSIDE the universe
+ * reports rather than resolving.
+ *
+ * Returns the keys of EVERY declaration of the resolved symbol; an empty array
+ * means "not resolved", which reports. Every uncertainty defaults to reporting;
+ * nothing degrades back to name matching.
+ */
+type BindingResolver = (file: string, pos: number, name: string) => readonly string[];
+
+/**
+ * One memoized resolver per distinct scan input.
+ *
+ * The suites call `scanRepo(REPO_ROOT)` seven times in one process, and the
+ * mutation harness pays that per mutant. Building the program once per call
+ * measured +93.5% on the scoped gate against a +25% budget (AC-10(b)); the same
+ * work memoized is paid once. Keyed on the exact `(file list, contents)` the
+ * scan just read, which is correct BY CONSTRUCTION because that key IS the
+ * resolver's entire input — a changed byte anywhere yields a different key and
+ * a fresh program. Deliberately not a weaker resolver: the budget is met by not
+ * repeating identical work, never by resolving less.
+ *
+ * One entry, not a growing map: consecutive calls in a process are
+ * overwhelmingly the same tree, and an unbounded cache of TypeScript programs
+ * is a memory leak in a long-lived process.
+ */
+let resolverMemo: { key: string; resolve: BindingResolver } | undefined;
+
+function sourcesKey(
+  repoRoot: string,
+  sources: readonly { readonly file: string; readonly text: string }[],
+): string {
+  const hash = createHash("sha1").update(repoRoot).update("\0");
+  for (const { file, text } of sources) {
+    // The LENGTH is in the key as well as the text, so no concatenation of
+    // adjacent files can collide with a different split of the same bytes.
+    hash
+      .update(file)
+      .update("\0")
+      .update(String(text.length))
+      .update("\0")
+      .update(text)
+      .update("\0");
+  }
+  return hash.digest("hex");
+}
+
+function createBindingResolver(
+  repoRoot: string,
+  sources: readonly { readonly file: string; readonly text: string }[],
+): BindingResolver {
+  const key = sourcesKey(repoRoot, sources);
+  if (resolverMemo !== undefined && resolverMemo.key === key) return resolverMemo.resolve;
+  const resolve = buildBindingResolver(repoRoot, sources);
+  resolverMemo = { key, resolve };
+  return resolve;
+}
+
+function buildBindingResolver(
+  repoRoot: string,
+  sources: readonly { readonly file: string; readonly text: string }[],
+): BindingResolver {
+  const rootPosix = posix(repoRoot).replace(/\/$/, "");
+  const absOf = (file: string): string => `${rootPosix}/${file}`;
+  const canonical = (fileName: string): string => posix(fileName);
+
+  const texts = new Map<string, string>();
+  for (const { file, text } of sources) texts.set(absOf(file), text);
+
+  const parsed = new Map<string, ts.SourceFile>();
+  const sourceFileFor = (fileName: string): ts.SourceFile | undefined => {
+    const key = canonical(fileName);
+    const cached = parsed.get(key);
+    if (cached !== undefined) return cached;
+    const text = texts.get(key);
+    if (text === undefined) return undefined;
+    const sf = ts.createSourceFile(key, text, ts.ScriptTarget.Latest, true);
+    parsed.set(key, sf);
+    return sf;
+  };
+
+  const host: ts.CompilerHost = {
+    getSourceFile: (fileName) => sourceFileFor(fileName),
+    getDefaultLibFileName: () => "lib.d.ts",
+    writeFile: () => {},
+    getCurrentDirectory: () => rootPosix,
+    getDirectories: () => [],
+    getCanonicalFileName: canonical,
+    useCaseSensitiveFileNames: () => true,
+    getNewLine: () => "\n",
+    fileExists: (fileName) => texts.has(canonical(fileName)),
+    readFile: (fileName) => texts.get(canonical(fileName)),
+  };
+
+  const program = ts.createProgram({
+    rootNames: [...texts.keys()],
+    options: {
+      noEmit: true,
+      noResolve: true,
+      noLib: true,
+      types: [],
+      allowJs: false,
+      target: ts.ScriptTarget.Latest,
+      jsx: ts.JsxEmit.Preserve,
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      baseUrl: rootPosix,
+      paths: RESOLVER_PATH_ALIASES as Record<string, string[]>,
+    },
+    host,
+  });
+  const checker = program.getTypeChecker();
+
+  const toRepoRelative = (absPath: string): string => {
+    const normalized = canonical(absPath);
+    return normalized.startsWith(`${rootPosix}/`)
+      ? normalized.slice(rootPosix.length + 1)
+      : normalized;
+  };
+
+  return (file, pos, name) => {
+    const sf = program.getSourceFile(absOf(file));
+    if (sf === undefined) return [];
+
+    let found: ts.Identifier | undefined;
+    const walk = (n: ts.Node): void => {
+      if (found !== undefined) return;
+      if (pos < n.getStart(sf) || pos >= n.getEnd()) return;
+      if (ts.isIdentifier(n) && n.getStart(sf) === pos) {
+        found = n;
+        return;
+      }
+      ts.forEachChild(n, walk);
+    };
+    walk(sf);
+    // An anchor that is not an identifier of the site's own name is not
+    // trusted: a mis-anchored token is the one path that could resolve a
+    // DIFFERENT binding, so it reports instead.
+    if (found === undefined || found.text !== name) return [];
+
+    const parent = found.parent as ts.Node | undefined;
+    let symbol =
+      parent !== undefined && ts.isShorthandPropertyAssignment(parent) && parent.name === found
+        ? checker.getShorthandAssignmentValueSymbol(parent)
+        : checker.getSymbolAtLocation(found);
+    if (symbol === undefined) return [];
+    if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
+      try {
+        symbol = checker.getAliasedSymbol(symbol);
+      } catch {
+        // A non-alias throw leaves the original symbol.
+      }
+    }
+    const declarations = symbol.declarations;
+    if (declarations === undefined) return [];
+    return declarations.map((decl) => {
+      const declSf = decl.getSourceFile();
+      const nameNode: ts.Node = ts.getNameOfDeclaration(decl) ?? decl;
+      return `${toRepoRelative(declSf.fileName)}:${nameNode.getStart(declSf)}`;
+    });
+  };
 }
 
 export type ScanResult = {
@@ -626,6 +860,7 @@ export type ScanResult = {
 export function scanRepo(repoRoot: string): ScanResult {
   const files = universeFiles(repoRoot);
   const raw: TimingSite[] = [];
+  const sources: { file: string; text: string }[] = [];
   const boundaryRejected: BoundaryReject[] = [];
   for (const file of files) {
     let source: string;
@@ -634,15 +869,27 @@ export function scanRepo(repoRoot: string): ScanResult {
     } catch {
       continue;
     }
+    sources.push({ file, text: source });
     raw.push(...scanTimingSites(source, file, boundaryRejected));
   }
-  const coveredNames = new Set(
-    raw.filter((s) => s.kind === "named-constant").map((s) => s.name as string),
+  // Keyed by declaration IDENTITY — the name node's start offset — never by
+  // line, which two bindings declared on one line share (probe P10).
+  const coveredDeclarations = new Set(
+    raw
+      .filter((s) => s.kind === "named-constant" && s.declPos !== undefined)
+      .map((s) => `${s.file}:${s.declPos as number}`),
   );
+  const resolveBinding = createBindingResolver(repoRoot, sources);
   const dispositioned = new Set(UNCLASSIFIED_DISPOSITIONS.map((row) => `${row.file}::${row.name}`));
-  const resolved = raw.filter(
-    (s) => !(s.kind === "unclassified" && s.name !== null && coveredNames.has(s.name)),
-  );
+  const resolved = raw.filter((s) => {
+    if (s.kind !== "unclassified" || s.refPos === undefined || s.name === null) return true;
+    // SOME declaration of the resolved symbol, never `declarations[0]`:
+    // a declaration MERGE yields one symbol with several declarations of the
+    // same binding, and the stricter rule would report a covered constant
+    // (probe P8). Shadowing yields two distinct SYMBOLS, so this cannot
+    // smuggle a shadow in.
+    return !resolveBinding(s.file, s.refPos, s.name).some((key) => coveredDeclarations.has(key));
+  });
   const sites = [...resolved].sort((a, b) =>
     a.file === b.file ? a.line - b.line : a.file < b.file ? -1 : 1,
   );

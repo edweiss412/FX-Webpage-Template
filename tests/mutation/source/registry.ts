@@ -1335,49 +1335,120 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // differ and `<=` cannot decide anything `<` did not. Same class
       // taskContract carries four of.
       {
-        siteId: "relational-boundary:343:14:<><=",
+        siteId: "relational-boundary:368:14:<><=",
         kind: "equivalent",
         reason:
           "universeFiles' comparator reaches this `<` only when the two entry names differ, so `<=` cannot change the ordering",
       },
       {
-        siteId: "integer-literal:343:26:1>2",
+        siteId: "integer-literal:368:26:1>2",
         kind: "equivalent",
         reason: "comparator magnitude is unread — Array.sort consumes the sign only",
       },
       {
-        siteId: "integer-literal:343:30:1>2",
+        siteId: "integer-literal:368:30:1>2",
         kind: "equivalent",
         reason: "same comparator, positive branch; the sign is unchanged",
       },
       {
-        siteId: "relational-boundary:647:50:<><=",
+        siteId: "relational-boundary:894:50:<><=",
         kind: "equivalent",
         reason:
           "the site comparator reaches this `<` only when the files differ, because `a.file === b.file` is tested first",
       },
       {
-        siteId: "integer-literal:647:62:1>2",
+        siteId: "integer-literal:894:62:1>2",
         kind: "equivalent",
         reason: "comparator magnitude is unread — sign only",
       },
       {
-        siteId: "integer-literal:647:66:1>2",
+        siteId: "integer-literal:894:66:1>2",
         kind: "equivalent",
         reason: "same comparator, positive branch; the sign is unchanged",
       },
       // ---- equivalent: the flip cannot change which branch is taken -------
       {
-        siteId: "logical-connector:584:43:&&>||",
-        kind: "equivalent",
-        reason:
-          "both arms yield the SAME name for every input that reaches them: for an identifier `delay.text` equals `delay.getText(sf)` (no whitespace, far under the 60-char slice), and for a non-identifier `delay.text` is undefined so the `||` arm is false anyway",
-      },
-      {
-        siteId: "logical-connector:662:38:||>&&",
+        siteId: "logical-connector:909:38:||>&&",
         kind: "equivalent",
         reason:
           "the operands are never independently true: a site is `unclassified` if and only if its value is null, because the push sites guarantee it — so `||` and `&&` select the same rows",
+      },
+      // ---- the resolver this arc added (2026-08-16 binding resolution) -----
+      //
+      // Every row below was probed against the shipped guard, not argued from
+      // the diff. The memo's OWN key is deliberately absent from this list: its
+      // statement-removal mutant is KILLED by the "second scan of the SAME
+      // root" case, which was written for it after the first attempt passed
+      // against the mutant for an accidental reason (unequal offsets).
+      {
+        siteId: "statement-removal:736:3:resolverMemo = { key, resolve };>(removed)",
+        kind: "equivalent",
+        reason:
+          "removing the memo WRITE only stops the cache from ever being populated: every scan then builds its own program and returns the same answer, so the mutation is observable in wall clock alone",
+      },
+      {
+        siteId: "statement-removal:759:5:parsed.set(key, sf);>(removed)",
+        kind: "equivalent",
+        reason:
+          "same shape one level down — the parse cache is re-populated per lookup instead of once, and ts.createSourceFile is a pure function of (name, text), so every consumer sees an identical tree",
+      },
+      {
+        siteId: "logical-connector:809:32:||>&&",
+        kind: "equivalent",
+        reason:
+          "the bounds test only PRUNES the walk; with `&&` fewer subtrees are skipped and more are descended, but the identifier is accepted on the exact-offset test below it, so a wider walk finds the same node",
+      },
+      {
+        siteId: "relational-boundary:809:39:>=>>",
+        kind: "equivalent",
+        reason:
+          "same pruning test at its upper bound: `pos === n.getEnd()` is the only input the flip changes, and descending into a node whose end equals pos finds no identifier STARTING at pos either",
+      },
+      {
+        siteId: "integer-literal:828:51:0>1",
+        kind: "equivalent",
+        reason:
+          "ts.SymbolFlags.Alias is 2097152, so `flags & Alias` is 0 or 2097152 and can never be 1 (probed); `!== 1` is therefore always true, and calling getAliasedSymbol on a non-alias is already handled — the catch keeps the original symbol",
+      },
+      {
+        siteId: "logical-connector:879:50:&&>||",
+        kind: "equivalent",
+        reason:
+          "declPos is written on named-constant sites and on no other kind, so the right operand IMPLIES the left and `A || B` selects exactly the rows `A && B` did",
+      },
+      {
+        siteId: "logical-connector:885:35:||>&&",
+        kind: "equivalent",
+        reason:
+          "narrowing the early return sends non-resolvable sites into resolveBinding instead of past it; with refPos undefined the walk matches nothing, the key list is empty, and the site is kept exactly as the early return would have kept it",
+      },
+      {
+        siteId: "logical-connector:885:61:||>&&",
+        kind: "equivalent",
+        reason:
+          "same early return, the name leg: a site with a null name reaches the resolver, whose anchor check requires found.text === name and rejects it, so the site is kept either way",
+      },
+      // ---- defensive guards no EMIT PATH can reach -------------------------
+      //
+      // `equivalent`, not `accepted-gap`, and the distinction is the point. A
+      // gap needs a `ref` to open work; these have no work to open. Each mutant
+      // changes behaviour only for an input no emit path in this module can
+      // produce, so across every reachable input the mutated program computes
+      // what the original does — which is what equivalent MEANS here. The
+      // guards stay because a future emit path could produce that input; that
+      // is an argument for keeping them, not for filing a queue entry whose
+      // worst case today is unreachable.
+      {
+        siteId: "logical-connector:820:29:||>&&",
+        kind: "equivalent",
+        reason:
+          "the mis-anchored-token guard: under `&&` a refPos landing on a non-identifier would resolve whatever symbol it hit instead of reporting. Every refPos this module writes is taken from an identifier node, so no emit path produces the input that distinguishes them",
+      },
+      {
+        siteId: "logical-connector:824:72:&&>||",
+        kind: "equivalent",
+        reason:
+          "the shorthand discriminator: under `||` a non-shorthand parent whose NAME node is the anchor would take the shorthand branch. Property emits anchor refPos at the VALUE and shorthand emits at the name, so parent.name === found holds only where the branch is already correct",
       },
     ],
   },

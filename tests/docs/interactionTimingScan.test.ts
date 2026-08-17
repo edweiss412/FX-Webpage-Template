@@ -15,14 +15,17 @@
  * parity test remains the integration half and keeps DESIGN.md §5.5 honest; this
  * is the half that says what the scanner MEANS.
  */
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, test } from "vitest";
+
+import { premiseHolds } from "@/tests/_shared/premise";
 import {
   EXCLUDED_PREFIXES,
   EXPLICIT_INCLUDES,
   inventoryRows,
+  RESOLVER_PATH_ALIASES,
   scanRepo,
   scanTimingSites,
   universeFiles,
@@ -399,6 +402,358 @@ describe("scanRepo over a synthetic tree", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  // ── shared fixture bodies ────────────────────────────────────────────────────
+  // The covered constant lives under `components/`, which is a UNIVERSE_ROOT, so
+  // no case depends on EXPLICIT_INCLUDES existing in a temp tree.
+
+  const COVERED = [
+    "export const COPY_FEEDBACK_RESET_MS = 1600;",
+    "export const OTHER_DELAY_MS = 400;",
+    "",
+  ].join("\n");
+
+
+  // ── case 1: module-level shadow (FIRES — AC-1) ──────────────────────────────
+  test("a module-level binding that shadows a covered constant's spelling is REPORTED", () => {
+    // Kills the resolution step reverting to name equality: under the name
+    // filter this site is deleted before the caller sees it, so the scan reports
+    // nothing at all for this file. Resolution keyed on the DECLARATION reports
+    // it, because the local binding produced no named-constant row.
+    const root = tree({
+      "components/timings.ts": COVERED,
+      "components/Shadow.tsx": [
+        "const COPY_FEEDBACK_RESET_MS = readDelayFromRuntimeConfig();",
+        "setTimeout(fn, COPY_FEEDBACK_RESET_MS);",
+        "",
+      ].join("\n"),
+    });
+    try {
+      premiseHolds(
+        "the shadowing file is in the scan universe",
+        universeFiles(root).includes("components/Shadow.tsx"),
+      );
+      const residual = scanRepo(root).unclassified;
+      expect(residual.map((s) => [s.file, s.name])).toContainEqual([
+        "components/Shadow.tsx",
+        "COPY_FEEDBACK_RESET_MS",
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // ── case 2: inner-scope shadow + precision (FIRES — AC-2) ───────────────────
+  test("only the SHADOWED call reports; the unshadowed call in the same file stays resolved", () => {
+    // Kills a repair that reports every identifier delay: a blanket reporter
+    // passes case 1 and fails here, because the second call resolves to the
+    // imported covered constant and must stay silent.
+    const root = tree({
+      "components/timings.ts": COVERED,
+      "components/Mixed.tsx": [
+        'import { COPY_FEEDBACK_RESET_MS } from "@/components/timings";',
+        "function inner() {",
+        "  const COPY_FEEDBACK_RESET_MS = readDelayFromRuntimeConfig();",
+        "  setTimeout(fn, COPY_FEEDBACK_RESET_MS);",
+        "}",
+        "setTimeout(fn, COPY_FEEDBACK_RESET_MS);",
+        "",
+      ].join("\n"),
+    });
+    try {
+      premiseHolds(
+        "the mixed file is in the scan universe",
+        universeFiles(root).includes("components/Mixed.tsx"),
+      );
+      const residual = scanRepo(root).unclassified.filter(
+        (s) => s.file === "components/Mixed.tsx",
+      );
+      // Exactly one — the shadowed call on line 4. The module-scope call on
+      // line 6 resolves, so a second row here is the precision failure.
+      expect(residual).toHaveLength(1);
+      expect(residual[0]?.line).toBe(4);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // ── case 3: parameter shadow (FIRES — AC-3) ─────────────────────────────────
+  test("a PARAMETER shadowing a covered constant is REPORTED", () => {
+    // Kills a resolver that only walks variable declarations: a parameter is a
+    // binding like any other, and the checker models it as one.
+    const root = tree({
+      "components/timings.ts": COVERED,
+      "components/Param.tsx": [
+        'import { COPY_FEEDBACK_RESET_MS } from "@/components/timings";',
+        "export function schedule(COPY_FEEDBACK_RESET_MS) {",
+        "  setTimeout(fn, COPY_FEEDBACK_RESET_MS);",
+        "}",
+        "",
+      ].join("\n"),
+    });
+    try {
+      premiseHolds(
+        "the parameter file is in the scan universe",
+        universeFiles(root).includes("components/Param.tsx"),
+      );
+      const residual = scanRepo(root).unclassified;
+      expect(residual.map((s) => [s.file, s.name])).toContainEqual([
+        "components/Param.tsx",
+        "COPY_FEEDBACK_RESET_MS",
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // ── case 4: legit local (QUIET — AC-5) ──────────────────────────────────────
+  test("a legit same-file constant resolves — no residual", () => {
+    // Kills a repair that reports any identifier whose declaration is local:
+    // locality is not the discriminator, being a COVERED ROW is.
+    const root = tree({
+      "components/Local.tsx": ["const CLOSE_DELAY_MS = 220;", "setTimeout(fn, CLOSE_DELAY_MS);", ""].join(
+        "\n",
+      ),
+    });
+    try {
+      premiseHolds(
+        "the local-constant file is in the scan universe",
+        universeFiles(root).includes("components/Local.tsx"),
+      );
+      expect(scanRepo(root).unclassified).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // ── case 5: direct import (QUIET — AC-5) ────────────────────────────────────
+  test("a covered constant imported directly resolves — no residual", () => {
+    // Kills a resolver that never follows an import alias: the reference's
+    // symbol is an Alias, and without getAliasedSymbol its declaration is the
+    // import specifier rather than the covered binding.
+    const root = tree({
+      "components/timings.ts": COVERED,
+      "components/Direct.tsx": [
+        'import { COPY_FEEDBACK_RESET_MS } from "@/components/timings";',
+        "setTimeout(fn, COPY_FEEDBACK_RESET_MS);",
+        "",
+      ].join("\n"),
+    });
+    try {
+      premiseHolds(
+        "the importing file is in the scan universe",
+        universeFiles(root).includes("components/Direct.tsx"),
+      );
+      expect(scanRepo(root).unclassified).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // ── case 6: aliased import (FIRES-to-quiet — AC-5) ──────────────────────────
+  test("an ALIASED import resolves — the one residual this arc removes", () => {
+    // The only fires-to-quiet row in the arc: `localAliasMs` ends in `Ms`, so
+    // today it is emitted unclassified and the name set has no such name to
+    // suppress it. Kills a resolver that keys on the LOCAL spelling.
+    const root = tree({
+      "components/timings.ts": COVERED,
+      "components/Aliased.tsx": [
+        'import { OTHER_DELAY_MS as localAliasMs } from "@/components/timings";',
+        "setTimeout(fn, localAliasMs);",
+        "",
+      ].join("\n"),
+    });
+    try {
+      premiseHolds(
+        "the aliasing file is in the scan universe",
+        universeFiles(root).includes("components/Aliased.tsx"),
+      );
+      expect(scanRepo(root).unclassified).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // ── case 7: barrel re-export (QUIET — AC-5) ─────────────────────────────────
+  test("a covered constant reached through a barrel re-export resolves", () => {
+    // Kills a one-hop hand-rolled import resolution (the rejected §4 item 5
+    // design): `export *` needs the compiler's own module semantics.
+    const root = tree({
+      "components/timings.ts": COVERED,
+      "components/barrel.ts": 'export * from "@/components/timings";\n',
+      "components/ViaBarrel.tsx": [
+        'import { COPY_FEEDBACK_RESET_MS } from "@/components/barrel";',
+        "setTimeout(fn, COPY_FEEDBACK_RESET_MS);",
+        "",
+      ].join("\n"),
+    });
+    try {
+      premiseHolds(
+        "the barrel consumer is in the scan universe",
+        universeFiles(root).includes("components/ViaBarrel.tsx"),
+      );
+      expect(scanRepo(root).unclassified).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // ── case 8: same-line neighbour (REGRESSION PIN — AC-12) ────────────────────
+  test("a binding declared on the same LINE as a covered constant does not inherit its coverage", () => {
+    // REGRESSION PIN, not a RED: green on the current tree (probe P16), red only
+    // against the rejected line-keyed design (probe P10). Kills a covered set
+    // keyed `${file}:${line}` — under that key `other` shares CLOSE_DELAY_MS's
+    // key and is suppressed, one binding wearing another's coverage.
+    const root = tree({
+      "components/SameLine.tsx": [
+        "const CLOSE_DELAY_MS = 220, other = readConfig();",
+        "setTimeout(fn, other);",
+        "",
+      ].join("\n"),
+    });
+    try {
+      premiseHolds(
+        "the same-line file is in the scan universe",
+        universeFiles(root).includes("components/SameLine.tsx"),
+      );
+      const residual = scanRepo(root).unclassified;
+      expect(residual.map((s) => [s.file, s.name])).toContainEqual([
+        "components/SameLine.tsx",
+        "other",
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+
+  // ── case 9: property-value shadow (FIRES — AC-4) ────────────────────────────
+  test("a timing-named PROPERTY whose value shadows a covered constant is REPORTED, with its key", () => {
+    // Kills the surviving `coveredNames` filter on the property path: written as
+    // an explicit `key: value` pair so the shorthand path cannot satisfy it.
+    const root = tree({
+      "components/timings.ts": COVERED,
+      "components/PropShadow.tsx": [
+        "const COPY_FEEDBACK_RESET_MS = readDelayFromRuntimeConfig();",
+        "const opts = { ttlMs: COPY_FEEDBACK_RESET_MS };",
+        "",
+      ].join("\n"),
+    });
+    try {
+      premiseHolds(
+        "the property-shadow file is in the scan universe",
+        universeFiles(root).includes("components/PropShadow.tsx"),
+      );
+      const residual = scanRepo(root).unclassified.filter(
+        (s) => s.file === "components/PropShadow.tsx",
+      );
+      expect(residual).toHaveLength(1);
+      expect(residual[0]?.name).toBe("COPY_FEEDBACK_RESET_MS");
+      expect(residual[0]?.propertyKey).toBe("ttlMs");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // ── case 10: live-shaped pass-through (QUIET — AC-4) ────────────────────────
+  test("a timing-named property whose value is the COVERED import resolves — the live ttlMs shape", () => {
+    // The discriminator is the BINDING, not the key spelling: same `ttlMs` key
+    // as case 9, covered import instead of a shadow. Kills a property-path
+    // repair that reports every identifier-valued timing property.
+    const root = tree({
+      "components/timings.ts": COVERED,
+      "components/PropOk.tsx": [
+        'import { COPY_FEEDBACK_RESET_MS } from "@/components/timings";',
+        "const opts = { ttlMs: COPY_FEEDBACK_RESET_MS };",
+        "",
+      ].join("\n"),
+    });
+    try {
+      premiseHolds(
+        "the pass-through file is in the scan universe",
+        universeFiles(root).includes("components/PropOk.tsx"),
+      );
+      expect(scanRepo(root).unclassified).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // ── case 11: shorthand resolves (QUIET — pins probe P12's API choice) ───────
+  // NOT in the spec's original eleven. Added on measured evidence: the in-process
+  // survivor probe showed the shorthand branch's guards UNPINNED — neither the
+  // landed suite nor the live `{ duration }` at CrewSectionTransition.tsx kills
+  // them. This case kills two of them. It is a declared 11 -> 12 meta-test
+  // inventory delta and must be recorded in the plan/closeout.
+  test("a shorthand timing property whose value binding IS covered resolves — no residual", () => {
+    // Kills the shorthand branch reverting to getSymbolAtLocation, which returns
+    // the ShorthandPropertyAssignment's OWN symbol — declared at the property,
+    // not at the value binding — so the covered key never matches and the site
+    // reports forever (probe P12).
+    const root = tree({
+      "components/Short.tsx": ["const duration = 300;", "const opts = { duration };", ""].join("\n"),
+    });
+    try {
+      premiseHolds(
+        "the shorthand file is in the scan universe",
+        universeFiles(root).includes("components/Short.tsx"),
+      );
+      expect(scanRepo(root).unclassified).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+
+  test("a second scan of the SAME root sees a file edited between the two calls", () => {
+    // Kills the memo key. The resolver is memoized on `(file list, contents)`,
+    // and the claim that this is correct BY CONSTRUCTION is exactly that a
+    // changed byte yields a different key. Drop the contents from that key and
+    // the second scan is served the FIRST tree's resolver — a program for a
+    // tree that no longer exists. Nothing else in the suite scans one root
+    // twice, so without this case the key could be the path alone and stay
+    // green.
+    //
+    // The two versions are padded to the SAME LENGTH on purpose. An earlier
+    // draft of this case let the line lengths differ, and it passed against the
+    // mutant for an accidental reason: the stale program's text no longer had
+    // an identifier at the new offset, so resolution failed and the site
+    // reported anyway. Equal offsets remove that escape — under the mutant the
+    // stale resolver finds the OLD import and suppresses, which is the failure
+    // this case exists to catch. `premiseHolds` states the padding rather than
+    // trusting it.
+    const resolvingLine = 'import { COPY_FEEDBACK_RESET_MS } from "@/components/timings";';
+    const shadowingLine = "const COPY_FEEDBACK_RESET_MS = readDelayFromRuntimeConfig();".padEnd(
+      resolvingLine.length,
+      " ",
+    );
+    const body = (first: string): string =>
+      [first, "setTimeout(fn, COPY_FEEDBACK_RESET_MS);", ""].join("\n");
+    const root = tree({
+      "components/timings.ts": COVERED,
+      "components/Edited.tsx": body(resolvingLine),
+    });
+    try {
+      premiseHolds(
+        "both versions put the reference identifier at the same offset",
+        resolvingLine.length === shadowingLine.length,
+      );
+      premiseHolds(
+        "the first scan resolves, so the second has something to lose",
+        scanRepo(root).unclassified.length === 0,
+      );
+      // Same path, same offsets, different bytes: the import is now a shadow.
+      writeFileSync(join(root, "components/Edited.tsx"), body(shadowingLine), "utf8");
+      const residual = scanRepo(root).unclassified;
+      expect(residual.map((s) => [s.file, s.name])).toContainEqual([
+        "components/Edited.tsx",
+        "COPY_FEEDBACK_RESET_MS",
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
 });
 
 // ── Property totality: a timing-named property whose value is not a literal ──
@@ -546,5 +901,27 @@ describe("form 3 totality — non-literal timing property values", () => {
       (s) => s.kind === "unclassified",
     );
     expect(site?.value).toBeNull();
+  });
+});
+
+describe("the resolver's module-alias assumption", () => {
+  test("matches tsconfig.json's compilerOptions.paths, and tsconfig declares no baseUrl", () => {
+    // Failure mode: the repo adopts a second alias or renames `@/`, every
+    // `@/`-specified import silently stops resolving, and 17 live sites
+    // quietly become unclassified. A paths-only assertion misses the baseUrl
+    // half — adding `"baseUrl": "./src"` mis-resolves every `@/…` specifier
+    // while the paths map still matches.
+    // tsconfig.json is plain JSON on this repo (zero `//` occurrences), so it
+    // parses directly — no comment stripping, and no dependency on a helper
+    // that would itself need pinning.
+    const raw = readFileSync(join(process.cwd(), "tsconfig.json"), "utf8");
+    const compilerOptions = (
+      JSON.parse(raw) as { compilerOptions: Record<string, unknown> }
+    ).compilerOptions;
+    expect(compilerOptions.paths).toEqual(RESOLVER_PATH_ALIASES);
+    // The baseUrl half is load-bearing and a paths-only assertion misses it:
+    // the resolver pins `baseUrl: repoRoot`, so adding `"baseUrl": "./src"`
+    // here mis-resolves every `@/…` specifier while `paths` still matches.
+    expect(compilerOptions).not.toHaveProperty("baseUrl");
   });
 });
