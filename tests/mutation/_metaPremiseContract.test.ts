@@ -30,6 +30,23 @@ const ROOT = join(__dirname, "..", "..");
  * Same shape and same reason as EXPECTED_LEDGER_KINDS in source/expectedLedgerKinds.
  */
 const EXPECTED_ENV_TOUCHING: Record<string, number> = {
+  // The pane-compaction suites, enrolled 2026-08-16. All declare 0 honestly and
+  // structurally: ENVIRONMENT_SOURCES.modules is ["node:child_process",
+  // "scripts/lib/ledger-git"], and these suites import neither. That holds only
+  // because the core takes its git/gh/fs/clock surface by INJECTION -- the core
+  // itself may reach child_process, since the scanner classifies suites, not
+  // targets. A later suite importing a real surface must declare a non-zero
+  // count, the way ledgerGitSpawnSeam declares 16.
+  "tests/paneCompaction/bands.test.ts": 0,
+  "tests/paneCompaction/precedence.test.ts": 0,
+  "tests/paneCompaction/acceptSet.test.ts": 0,
+  "tests/paneCompaction/position.test.ts": 0,
+  "tests/paneCompaction/purview.test.ts": 0,
+  "tests/paneCompaction/cli.test.ts": 0,
+  "tests/paneCompaction/driver.test.ts": 0,
+  "tests/paneCompaction/revalidate.test.ts": 0,
+  "tests/paneCompaction/ruleIdentity.test.ts": 0,
+  "tests/paneCompaction/mutantKills.test.ts": 0,
   // The premise recognizer's own two suites, enrolled 2026-08-16 with the
   // premiseScan surface. Both counts are DERIVED from a run of the recognizer
   // over them, not asserted from reading:
@@ -42,6 +59,17 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   //                                  a real child through `childRun`. The other
   //                                  nine read the live tree via node:fs only.
   "tests/mutation/source/premiseScan.test.ts": 0,
+  // fix/mutation-child-lifetime (2026-08-17): the bounded-spawn module's mocked
+  // suite, enrolled as the spawnBounded surface's only decider. EIGHT — every case
+  // that calls `spawnBounded` and therefore reaches the `spawnSync` seam
+  // statically; the five `interpretSpawnOutcome` cases and the four `killGroup`
+  // cases call neither and classify environment-free. Each of the eight carries a
+  // `no-premise:` exemption rather than a premise, because the seam is mocked at
+  // module scope: there is no ambient precondition to state, and a mock that
+  // failed to install reds the case immediately. The surface's LIVE suite spawns
+  // real process trees and is deliberately not enrolled, so it never reaches this
+  // table.
+  "tests/mutation/source/spawnBounded.test.ts": 8,
   "tests/mutation/_metaPremiseContract.test.ts": 1,
   // 15 -> 16 (2026-08-09): the constructed multi-line hunk case that kills the
   // diffHunks count-collapse pair (BL-MUTATION-LEDGERGIT-SITE-DRIFT) builds a
