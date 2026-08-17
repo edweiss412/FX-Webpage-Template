@@ -13,6 +13,9 @@ import {
   newestVerdictRow,
   newestVerdictTie,
   corpusHasUnparsableVerdict,
+  corpusHasMalformedRow,
+  MALFORMED_CORPUS_STATUS,
+  parseGauge,
   positionFor,
   refuse,
   renderRow,
@@ -391,5 +394,69 @@ describe("an unparsable verdict timestamp is NAMED, not silently dropped", () =>
         { status: "verdict", verdict: "APPROVE", endedAt: "2026-01-01T00:00:00Z" },
       ]),
     ).toBe(false);
+  });
+});
+
+describe("round-4 boundary repairs, pinned in an ENROLLED suite", () => {
+  it("the gauge is read from the FOOTER, not from conversation text", () => {
+    // Diff round 4, finding 2 (P0). `GAUGE.exec` took the FIRST match, so a
+    // transcript line merely MENTIONING a gauge beat the real footer: an
+    // earlier `ctx ████░` parsed as 8 while the footer read `ctx █░░░░` = 2, and
+    // the pane was driven on pressure it never had. Nothing hostile is needed --
+    // an agent discussing this tool produces exactly that, and this repository
+    // is full of such lines.
+    const screen = ["some note about ctx ████░ in passing", "", "Opus 5 ctx █░░░░ 5h"].join("\n");
+    expect(parseGauge(screen)).toBe(2);
+  });
+
+  it("still reads a screen whose only gauge is the footer", () => {
+    // The other side: taking the last match must not require two.
+    expect(parseGauge("Opus 5 ctx ███░░ 5h")).toBe(6);
+  });
+
+  it("a corpus line that cannot be read is STAMPED, never dropped", () => {
+    // Diff round 4, finding 3 (P0). Skipping an unreadable line infers position
+    // from a corpus known to be incomplete -- the same silent-exclusion defect
+    // as the unparsable timestamp, one layer earlier.
+    expect(
+      corpusHasMalformedRow([{ status: MALFORMED_CORPUS_STATUS, verdict: null, endedAt: null }]),
+    ).toBe(true);
+    expect(
+      corpusHasMalformedRow([
+        { status: "verdict", verdict: "APPROVE", endedAt: "2026-01-01T00:00:00Z" },
+      ]),
+    ).toBe(false);
+  });
+
+  it("the report NAMES the offending field when rule 4 decided (AC-4)", () => {
+    // Diff round 4, finding 4. The plain report rendered
+    // `UNDETERMINED r4 row 8 Low` -- untrusted, with no reason.
+    const row = renderRow({
+      paneId: "wA:p1",
+      branch: "feat/x",
+      tenths: 7,
+      verdict: "UNDETERMINED",
+      rule: 4,
+      position: { row: 8, cost: "Low" },
+      inPurview: true,
+      rejectedField: "marker.stage (missing)",
+    });
+    expect(row).toContain("marker.stage (missing)");
+  });
+
+  it("omits the field entirely when nothing was rejected", () => {
+    // Trailing and variable-width, so it must not appear as an empty column on
+    // the ordinary rows that make up most of a report.
+    const row = renderRow({
+      paneId: "wA:p1",
+      branch: "feat/x",
+      tenths: 7,
+      verdict: "COMPACT",
+      rule: 12,
+      position: { row: 3, cost: "High" },
+      inPurview: true,
+      rejectedField: null,
+    });
+    expect(row.endsWith("row 3 High")).toBe(true);
   });
 });

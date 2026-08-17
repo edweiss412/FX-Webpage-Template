@@ -604,6 +604,34 @@ describe("the three commands", () => {
     expect(r.lines.join("\n")).toContain("purview");
   });
 
+  it("AC-17: a sessionId change that PRESERVES the nonce still refuses", () => {
+    // Diff round 4, finding 1 (P0) -- the FOURTH appearance of one class. By
+    // this round the roster was re-read and the whole decision compared, and the
+    // marker was STILL read twice: once inside revalidation's observe, once by
+    // the nonce thunk. A takeover that changed `sessionId` between those two
+    // reads while preserving the nonce passed rule 5 on the stale copy and sent.
+    //
+    // The repair is one snapshot per authorization, so this counts MARKER READS
+    // and asserts the decision cannot straddle two of them.
+    let markerReads = 0;
+    let sessionId = "sess-target";
+    const sent: Array<{ target: string; text: string }> = [];
+    const { surface } = fakeSurface({
+      nonceRead: () => "n1",
+      marker: () => {
+        markerReads += 1;
+        // Flip on the read that the OLD code used for revalidation, leaving the
+        // nonce untouched so only rule 5 can catch it.
+        if (markerReads > 1) sessionId = "sess-successor";
+        return fullMarker({ sessionId, checkpointNonce: "n1" });
+      },
+      send: (target, text) => sent.push({ target, text }),
+    });
+    const code = main(["--compact", "wM:p1", "--as", "sess-1"], surface);
+    expect(code).toBe(1);
+    expect(sent).toEqual([]);
+  });
+
   it("AC-17: a takeover between observation and send refuses, having sent nothing", () => {
     // Diff round 3, finding 1 (P0). Revalidation re-observed but reused the
     // ORIGINAL roster and pane, so every roster-derived rule (1, 2, 5, 7) was

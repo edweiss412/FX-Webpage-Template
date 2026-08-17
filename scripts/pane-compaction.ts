@@ -38,6 +38,8 @@ import {
   mintNonce,
   newestVerdictTie,
   corpusHasUnparsableVerdict,
+  corpusHasMalformedRow,
+  MALFORMED_CORPUS_STATUS,
   GH_BUCKETS,
   planSends,
   positionFor,
@@ -211,6 +213,8 @@ export function rejectedFieldOf(opts: {
   corpusTie?: boolean;
   /** A `status: verdict` row whose `endedAt` does not parse (spec §3.5). */
   corpusUnparsable?: boolean;
+  /** Ingestion could not read at least one corpus line. */
+  corpusMalformed?: boolean;
   /** An unrecognized `gh pr checks` bucket value, or null when all are known. */
   ghBucket?: string | null;
 }): string | null {
@@ -222,6 +226,7 @@ export function rejectedFieldOf(opts: {
   if (opts.marker === MALFORMED_MARKER) return "marker (unparseable JSON)";
   if (opts.corpusTie === true) return "corpus.endedAt (tie for newest verdict)";
   if (opts.corpusUnparsable === true) return "corpus.endedAt (unparsable on a verdict row)";
+  if (opts.corpusMalformed === true) return "corpus (a row could not be read)";
   if (opts.ghBucket !== undefined && opts.ghBucket !== null) {
     return `gh bucket=${opts.ghBucket}`;
   }
@@ -358,6 +363,7 @@ function observe(
     marker,
     corpusTie: newestVerdictTie(corpusRows),
     corpusUnparsable: corpusHasUnparsableVerdict(corpusRows),
+    corpusMalformed: corpusHasMalformedRow(corpusRows),
     ghBucket: unknownBucketOf(ghRunForAccept),
   });
 
@@ -712,60 +718,63 @@ function drive(opts: Parsed, pane: RosterPane, roster: RosterPane[], s: Surface)
   // no dry run at all. What it must not do is CONSUME: reading and comparing
   // the record is the gate, spending it is the side effect, so the dry run gets
   // a no-op consume and a send that prints.
+  // ONE ATOMIC AUTHORIZATION READ, and this is the FOURTH repair of one class.
+  //
+  // r1: the marker was re-read but the NONCE came from an earlier capture.
+  // r2: the pane was re-observed but only the VERDICT was compared.
+  // r3: the comparison was complete but ran against the ORIGINAL roster.
+  // r4: everything above was fixed and the marker was still read TWICE -- once
+  //     inside revalidation's observe, once by the nonce thunk. A takeover that
+  //     changed `sessionId` between those two reads preserved the nonce, so rule
+  //     5 held on the stale copy and `/compact` was sent (AC-13/AC-17).
+  //
+  // Three rounds of adding another field or another re-read did not close it,
+  // because the defect is not WHICH inputs are refreshed -- it is that the
+  // decision was assembled from SEVERAL reads taken at different instants. So
+  // authorization now takes exactly one snapshot: the marker is read once per
+  // pass and both the classification and the nonce are derived from that same
+  // copy. Two reads cannot disagree if there is only one.
+  let pass: { report: PaneReport; nonce: string | null } | null = null;
+  const authorize = (): { report: PaneReport; nonce: string | null } => {
+    const freshRoster = s.roster();
+    const freshPane = freshRoster.find((r) => r.paneId === pane.paneId);
+    if (freshPane === undefined) return { report: report, nonce: null };
+    let markerOnce: Record<string, unknown> | null | undefined;
+    const snapshot: Surface = {
+      ...s,
+      marker: (cwd) => {
+        if (markerOnce === undefined) markerOnce = s.marker(cwd);
+        return markerOnce;
+      },
+    };
+    const fresh = observe(freshPane, freshRoster, as, snapshot, cacheOf(snapshot));
+    const m = snapshot.marker(freshPane.cwd);
+    const nonce = typeof m?.["checkpointNonce"] === "string" ? m["checkpointNonce"] : null;
+    return { report: fresh, nonce };
+  };
+
   const result = runCompact({
     store: {
       read: () => s.nonceRead(as, pane.paneId),
       consume: opts.dryRun ? (): void => {} : (): void => s.nonceConsume(as, pane.paneId),
     },
-    // Re-READ at authorization time, not the value captured at line 426. The
-    // captured one is still correct for `--checkpoint`'s collision check, but
-    // authorizing `/compact` against it lets a marker that changed during the
-    // command through (AC-19, diff round 1 finding 3).
-    markerNonce: () => {
-      const now = s.marker(pane.cwd);
-      return typeof now?.["checkpointNonce"] === "string" ? now["checkpointNonce"] : null;
-    },
+    // From the SAME snapshot the revalidation classified, never a second read.
+    markerNonce: () => (pass ?? authorize()).nonce,
     send: (text) => {
       if (opts.dryRun) s.outRaw(text);
       else s.send(pane.paneId, text);
     },
     // Revalidated a second time at the moment of the send, per §5.2.
     revalidate: () => {
-      // RE-READ EVERY INPUT, not merely re-run the classifier over old ones.
-      //
-      // This is a CLASS repair, and the class has now cost three rounds. Round 1
-      // read the marker fresh but authorized against a nonce captured earlier.
-      // Round 2 re-observed but compared only the verdict. Round 3 found the
-      // roster itself was the stale input: `pane` and `roster` were captured
-      // before the send, so rules 1, 2, 5 and 7 -- every roster-derived rule --
-      // could not change. A takeover that swapped `agent_session` mid-command
-      // was invisible, `rosterReads` stayed 1, and `/compact` went out (AC-13,
-      // AC-17).
-      //
-      // Each round I fixed the input the finding named. The defect was never
-      // one input: it was revalidating from a snapshot. So the roster is read
-      // AGAIN here and the pane re-found in it, which is what makes the
-      // comparison below a comparison of two observations rather than one
-      // observation compared with itself.
-      const freshRoster = s.roster();
-      const freshPane = freshRoster.find((r) => r.paneId === pane.paneId);
-      if (freshPane === undefined) {
-        // Gone from the roster between observation and send: a closing pane.
+      // ONE snapshot, shared with `markerNonce` above. See the note there for
+      // why this is a single read rather than another re-read: the class was
+      // never about which inputs get refreshed, it was about assembling one
+      // decision from several reads taken at different instants.
+      pass = authorize();
+      const fresh = pass.report;
+      if (fresh.paneId !== pane.paneId) {
         return { ok: false, message: `refusing: ${pane.paneId} left the roster before sending` };
       }
-      const fresh = observe(freshPane, freshRoster, as, s, cacheOf(s));
-      // COMPARE THE WHOLE DECISION, not just the verdict.
-      //
-      // Comparing `verdict` alone let a purview TRANSFER through: ownership
-      // moving from this caller to exactly one other owner leaves the verdict
-      // COMPACT while `inPurview` goes false, so the probe saw two purview reads
-      // and still sent (diff round 2, finding 4, AC-13). This is the same shape
-      // as round 1's stale-nonce finding -- re-observing and then comparing one
-      // field is not revalidation, it is a fresh read of a stale question.
-      //
-      // `rule` is included because two rules can yield one verdict: a pane that
-      // moves from rule 12 COMPACT to a rule 10 FORCE has changed in a way the
-      // verdict alone would hide.
       if (fresh.verdict !== report.verdict) {
         return {
           ok: false,
@@ -1021,10 +1030,24 @@ export function realSurface(): Surface {
         for (const line of readFileSync(join(dir, name), "utf8").split("\n")) {
           if (line.trim() === "") continue;
           try {
-            const r = JSON.parse(line) as CorpusRow;
-            rows.push(r);
+            const parsed: unknown = JSON.parse(line);
+            // SHAPE-checked, not just parsed. A row missing `status` used to
+            // survive the cast and then fail every `status === "verdict"` test,
+            // so it vanished instead of being reported.
+            if (
+              typeof parsed !== "object" ||
+              parsed === null ||
+              typeof (parsed as { status?: unknown }).status !== "string"
+            ) {
+              rows.push({ status: MALFORMED_CORPUS_STATUS, verdict: null, endedAt: null });
+            } else {
+              rows.push(parsed as CorpusRow);
+            }
           } catch {
-            // A malformed corpus line is skipped, not guessed at.
+            // Stamped, never skipped: a line we cannot read is a fact about the
+            // corpus, and silently dropping it infers position from a corpus we
+            // know is incomplete.
+            rows.push({ status: MALFORMED_CORPUS_STATUS, verdict: null, endedAt: null });
           }
         }
       }

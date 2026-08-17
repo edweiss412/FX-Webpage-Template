@@ -45,7 +45,7 @@ const EMPTY = "░";
  */
 const CELLS = `${FULL}${HALF}${EMPTY}`;
 /** Built from the cell constants, so the glyphs have exactly one definition. */
-const GAUGE = new RegExp(String.raw`ctx\s+([${CELLS}]{5})`);
+const GAUGE = new RegExp(String.raw`ctx\s+([${CELLS}]{5})`, "g");
 
 /**
  * Pressure as an integer in 0..10: `2 * full + half`.
@@ -55,8 +55,20 @@ const GAUGE = new RegExp(String.raw`ctx\s+([${CELLS}]{5})`);
  * silent classification of something never observed.
  */
 export function parseGauge(screen: string): number | null {
-  const m = GAUGE.exec(screen);
-  const cells = m?.[1];
+  // The LAST occurrence, not the first.
+  //
+  // The gauge lives in the pane's FOOTER, which is the bottom of the screen.
+  // Taking the first match let ordinary conversation text win: a transcript line
+  // that merely mentions `ctx ████░` parsed as 8 while the real footer read
+  // `ctx █░░░░` = 2, and the pane was driven on a pressure it never had (diff
+  // round 4, finding 2). Nothing hostile is required -- an agent discussing this
+  // very tool would produce it, and this file is full of such lines.
+  //
+  // Anchoring to the footer's POSITION rather than its content, because the
+  // content is exactly what a transcript can imitate.
+  GAUGE.lastIndex = 0;
+  let cells: string | undefined;
+  for (let m = GAUGE.exec(screen); m !== null; m = GAUGE.exec(screen)) cells = m[1];
   if (cells === undefined) return null;
   let tenths = 0;
   for (const c of cells) {
@@ -319,6 +331,26 @@ export type Position = { row: number; cost: PositionCost };
  * timestamp inferred a position from NO verdict at all and drove (diff round 2,
  * finding 3). Exclusion without naming is the silent half of the same clause.
  */
+/**
+ * The status a reader stamps on a corpus line it could not read.
+ *
+ * Ingestion used to SKIP an unparsable line and cast the rest without checking
+ * the row shape, so a BLOCKING row missing only `status` disappeared: position
+ * was then inferred from a corpus that silently omitted the row which would
+ * have held the pane (diff round 4, finding 3). Dropping a row you cannot read
+ * is the same silent-exclusion defect as round 3's unparsable timestamp, one
+ * layer earlier.
+ *
+ * A sentinel rather than a boolean out-of-band, so it travels in the row list
+ * itself and cannot be lost by a caller that forgets to thread a flag.
+ */
+export const MALFORMED_CORPUS_STATUS = "__malformed__";
+
+/** Whether ingestion stamped any line it could not read. */
+export function corpusHasMalformedRow(rows: CorpusRow[]): boolean {
+  return rows.some((r) => r.status === MALFORMED_CORPUS_STATUS);
+}
+
 export function corpusHasUnparsableVerdict(rows: CorpusRow[]): boolean {
   return rows.some(
     (r) => r.status === "verdict" && (r.endedAt === null || Number.isNaN(Date.parse(r.endedAt))),
@@ -539,6 +571,15 @@ export function renderRow(p: PaneReport): string {
     // attention or merely needs waiting for (diff round 1, finding 7).
     `r${p.rule}`.padStart(3),
     `row ${p.position.row} ${p.position.cost}`,
+    // The offending field, when rule 4 decided. AC-4's clause is "UNDETERMINED
+    // NAMING the offending field", and the plain report -- the one an operator
+    // actually reads between protocol steps -- rendered only
+    // `UNDETERMINED r4 row 8 Low`, which says a pane is untrusted without
+    // saying why (diff round 4, finding 4).
+    //
+    // LAST, and variable-width, so the fixed columns before it keep the
+    // absolute offsets their own case pins.
+    ...(p.rejectedField === null ? [] : [p.rejectedField]),
   ].join("  ");
 }
 
