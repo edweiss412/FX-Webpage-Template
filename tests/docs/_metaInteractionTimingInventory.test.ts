@@ -22,6 +22,8 @@ import {
   inventoryRows,
   scanRepo,
   scanTimingSites,
+  type BoundaryReject,
+  UNCLASSIFIED_DISPOSITIONS,
 } from "@/scripts/scan-interaction-timings";
 import { premise, premiseHolds } from "../_shared/premise";
 
@@ -143,5 +145,102 @@ describe("DESIGN.md §5.5 interaction-timing inventory", () => {
       universe.filter((f) => EXCLUDED_PREFIXES.some((p) => f.startsWith(p))),
       "excluded-tree files that leaked into the scanned universe",
     ).toEqual([]);
+  });
+});
+
+// ── Property-totality census pins (BL-TIMING-SCAN-PROPERTY-TOTALITY) ─────────
+
+describe("the non-literal timing-property census", () => {
+  /** The six live sites, by (file, propertyKey, name) and by COUNT. */
+  const CENSUS: ReadonlyArray<readonly [string, string, string, number]> = [
+    ["components/admin/telemetry/EventRow.tsx", "duration", "reduce ? 0 : 0.22", 1],
+    ["components/crew/CrewSectionTransition.tsx", "duration", "duration", 1],
+    ["components/crew/RightNowHero.tsx", "duration", "prefersReducedMotion === true ? 0 : 0.22", 1],
+    ["components/diagrams/GalleryLightbox.tsx", "duration", "emblaDuration(prefersReducedMotion)", 2],
+    ["components/diagrams/GalleryLightbox.tsx", "duration", "motionDuration", 1],
+  ];
+
+  const unclassifiedCounts = (): Map<string, number> => {
+    const counts = new Map<string, number>();
+    for (const site of scanRepo(REPO_ROOT).sites) {
+      if (site.kind !== "unclassified" || site.propertyKey === undefined) continue;
+      const k = `${site.file} ${site.propertyKey} ${site.name}`;
+      counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
+    return counts;
+  };
+
+  test("every census site is live, with its exact COUNT", () => {
+    // Counts, not containment: the two GalleryLightbox `emblaDuration(...)`
+    // calls are the identical expression, so a containment check keyed without
+    // a count cannot see ONE of them disappear. That is line-independent — it
+    // survives the file moving — while still failing if an occurrence is lost.
+    const counts = unclassifiedCounts();
+    premise("the repo scan produced unclassified property sites at all", counts.size, 0);
+    const actual = CENSUS.map(([f, k, n]) => [f, k, n, counts.get(`${f} ${k} ${n}`) ?? 0]);
+    expect(actual).toEqual(CENSUS.map((row) => [...row]));
+  });
+
+  test("every disposition row matches at least one live site", () => {
+    // `scanRepo` only ever SUBTRACTS disposition keys, so a stale row is
+    // invisible to every other assertion — it silently excuses nothing.
+    const live = new Set<string>();
+    for (const site of scanRepo(REPO_ROOT).sites) {
+      if (site.kind === "unclassified") live.add(`${site.file} ${site.name}`);
+    }
+    premiseHolds("the scan produced unclassified sites to match against", live.size > 0);
+    const stale = UNCLASSIFIED_DISPOSITIONS.filter((row) => !live.has(`${row.file} ${row.name}`)).map(
+      (row) => `${row.file} ${row.name}`,
+    );
+    expect(stale, "disposition rows matching no live site").toEqual([]);
+  });
+});
+
+// ── The disagreement census (whole-diff R1 #4) ──────────────────────────────
+//
+// The numeric path and the non-literal path gate on DIFFERENT predicates, which
+// is deliberate and measured. The cost is a population where they disagree: a
+// key `TIMING_NAME` accepts and `isBoundaryTimingKey` drops. Every drop is
+// correct today, but `timeoutMilliseconds` proves the gap is reachable by an
+// ordinary name — it was inventoried when its value was a literal and dropped
+// in silence when it was not.
+//
+// Pinning the population is what makes the drop visible. It is DERIVED from the
+// live universe rather than enumerated by hand, so a new key lands in the diff
+// of a failing assertion and has to be dispositioned — either it is a timing
+// (widen the accept-set) or it is not (extend this list with its reason).
+describe("keys the boundary predicate drops that the numeric path would keep", () => {
+  test("the live population is exactly the known non-timing plurals", () => {
+    const result = scanRepo(REPO_ROOT);
+    premise("the scan reached a universe with rejects in it at all", result.boundaryRejected.length, 0);
+    const keys = [...new Set(result.boundaryRejected.map((r) => r.propertyKey))].sort();
+    // Every one of these ends in `ms` as an ordinary English plural — items,
+    // rooms, params, problems, diagrams. None is a duration.
+    expect(keys).toEqual([
+      "alert_on_sync_problems",
+      "attentionItems",
+      "diagrams",
+      "items",
+      "p_triggered_items",
+      "rooms",
+      "searchParams",
+      "triggeredItems",
+      "triggeredReviewItems",
+      "triggered_review_items",
+    ]);
+  });
+
+  test("a planted unit-named property is NOT in the dropped population", () => {
+    // The premise for the pin above: the census can only be evidence if the key
+    // family this entry repaired would actually show up as a site rather than a
+    // reject. Planted, because the live universe holds no such key yet.
+    const rejects: BoundaryReject[] = [];
+    const sites = scanTimingSites(
+      "const o = { timeoutMilliseconds: someExpr, items: other };",
+      "components/__planted-units__.tsx",
+      rejects,
+    );
+    expect(sites.map((s) => s.propertyKey)).toEqual(["timeoutMilliseconds"]);
+    expect(rejects.map((r) => r.propertyKey)).toEqual(["items"]);
   });
 });
