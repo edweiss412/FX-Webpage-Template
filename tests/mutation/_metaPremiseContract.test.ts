@@ -54,7 +54,12 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // resolveSiteOrigin). The proxy-independence guard is environment-FREE: it
   // parses a committed file and touches no ambient state. Decided per case from
   // what each case does and only THEN checked against the scanner.
-  "tests/auth/sameOriginServerAction.test.ts": 7,
+  // 7 -> 10 on 2026-08-17, when the import-edge repair made the scanner follow
+  // `lib/log/index.ts`'s re-export of `log` from `./logger`. `logger.ts` was
+  // ALREADY environment-touching on a DIRECT import; the barrel hid it, so the
+  // three refusal cases that emit through `log.warn` read free. The number is
+  // re-derived, not adjusted: the reach was always there.
+  "tests/auth/sameOriginServerAction.test.ts": 10,
   "tests/scripts/ledgerClaimsCheck.test.ts": 16,
   // chore/guard-completeness-wave (2026-08-15): the spawn-seam suite, enrolled as
   // ledgerGit's second suite. All 16 of its cases import `realGitSurface`, so the scanner
@@ -186,7 +191,11 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // child process, imports ledger-git, or reads `process.env`; the baseline suite's regen path
   // is env-gated but the gate is read by the SCRIPT, not the suite.
   "tests/parser/fieldNearMiss.test.ts": 0,
-  "tests/parser/fieldNearMissBaseline.test.ts": 0,
+  // 0 -> 13 for the same edge: this suite reaches `lib/parser`, which imports
+  // `log` from the `@/lib/log` barrel. Every one of the thirteen now carries a
+  // premise stating the corpus condition its assertion depends on, because a
+  // filter over an unread corpus passes over nothing.
+  "tests/parser/fieldNearMissBaseline.test.ts": 13,
   "tests/styles/interactiveScanCore.test.ts": 0,
   "tests/styles/_metaSubtleOnInteractive.test.ts": 0,
   "tests/styles/_metaTapTargetFloor.test.ts": 0,

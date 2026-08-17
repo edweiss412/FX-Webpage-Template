@@ -247,6 +247,14 @@ describe("the designated refusal exports", () => {
   });
 
   it("rejectCrossOriginPicker returns the catalogued picker refusal and emits", () => {
+    // The emit assertion below reads a SHARED mock. If a previous case's warn
+    // survives into this one, `toHaveBeenCalledWith` is satisfied by that call
+    // and proves nothing about this refusal. Reachable: drop the `mockClear` in
+    // `beforeEach`, or nest these cases under a describe that emits first.
+    premiseHolds(
+      "the log mock is clear before the refusal runs, or a prior emit satisfies the assertion below",
+      logMock.warn.mock.calls.length === 0,
+    );
     expect(rejectCrossOriginPicker("a")).toEqual({ ok: false, code: "PICKER_INVALID_INPUT" });
     expect(logMock.warn).toHaveBeenCalledWith(
       expect.any(String),
@@ -259,6 +267,10 @@ describe("the designated refusal exports", () => {
   });
 
   it("rejectCrossOriginNeutral returns the confirm page's own neutral state and emits", () => {
+    premiseHolds(
+      "the log mock is clear before the refusal runs, or a prior emit satisfies the assertion below",
+      logMock.warn.mock.calls.length === 0,
+    );
     expect(rejectCrossOriginNeutral("b")).toEqual({ status: "neutral" });
     expect(logMock.warn).toHaveBeenCalledWith(
       expect.any(String),
@@ -270,6 +282,10 @@ describe("the designated refusal exports", () => {
   });
 
   it("rejectCrossOriginVoid resolves undefined and emits", async () => {
+    premiseHolds(
+      "the log mock is clear before the refusal runs, or a prior emit satisfies the assertion below",
+      logMock.warn.mock.calls.length === 0,
+    );
     await expect(rejectCrossOriginVoid("c")).resolves.toBeUndefined();
     expect(logMock.warn).toHaveBeenCalledWith(
       expect.any(String),
