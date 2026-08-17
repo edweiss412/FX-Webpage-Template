@@ -294,49 +294,74 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // as eligible, which bands.test.ts asserts IN PROCESS. Run, not merely
     // asserted non-equal to the source.
     control: { from: "export const ELIGIBLE_AT = 5;", to: "export const ELIGIBLE_AT = 0;" },
-    // All six mutate a TYPE ANNOTATION, not a value. TypeScript erases types and
-    // the mutation runner's children transpile without typechecking, so the
-    // emitted JavaScript is byte-identical to the original and no observable
-    // behaviour changes. These are equivalent mutants in the strict sense -- not
-    // an untested branch, not a deferred gap, and no test could ever kill one.
+    // Eight survivors, every one argued rather than deferred. NO `accepted-gap`
+    // rows: a gap is real coverage debt and owes a BL- ref, and none of these is
+    // debt.
     //
-    // They are the ONLY survivors left alive: the other 22 were repaid with
-    // tests/paneCompaction/mutantKills.test.ts rather than argued away.
+    // SIX are TYPE ANNOTATIONS (`: 0 | 1 | 2`, `exitCode: 1`,
+    // `{ exitCode: 0 | 1 }`). TypeScript erases them and the runner's children
+    // transpile without typechecking, so the emitted JavaScript is byte-identical
+    // and no test could ever kill one.
+    //
+    // TWO are counter details inside `newestVerdictTie`, which reports
+    // `count > 1`. Neither the initial value nor the increment SIZE can move that
+    // predicate: the counter is reset to 1 on every new maximum, so it is 1 with
+    // no tie and >= 2 with one, whichever constant is used. Argued, not assumed.
+    //
+    // Line-keyed, and re-keyed once already: the round-1 repairs moved the core
+    // and the gate correctly reported all six original rows stale. That staleness
+    // is the ledger working, not a defect in it.
     accepted: [
       {
-        siteId: "integer-literal:404:53:0>1",
+        siteId: "integer-literal:487:53:0>1",
         kind: "equivalent",
         reason:
           "`checkExitCode`'s RETURN TYPE `0 | 1 | 2`, not a returned value. The literals it " +
           "actually returns live in the body and are killed by cli.test.ts.",
       },
       {
-        siteId: "integer-literal:404:57:1>2",
+        siteId: "integer-literal:487:57:1>2",
         kind: "equivalent",
         reason: "The `1` of the same `0 | 1 | 2` return-type annotation on `checkExitCode`.",
       },
       {
-        siteId: "integer-literal:404:61:2>3",
+        siteId: "integer-literal:487:61:2>3",
         kind: "equivalent",
         reason: "The `2` of the same `0 | 1 | 2` return-type annotation on `checkExitCode`.",
       },
       {
-        siteId: "integer-literal:505:35:1>2",
+        siteId: "integer-literal:621:35:1>2",
         kind: "equivalent",
         reason:
           "`export type Refusal = { exitCode: 1; ... }` -- a type alias. The refusal objects that " +
           "carry a real `exitCode: 1` are constructed elsewhere and asserted by cli.test.ts.",
       },
       {
-        siteId: "integer-literal:585:17:0>1",
+        siteId: "integer-literal:719:17:0>1",
         kind: "equivalent",
         reason: "The `0` of the `{ exitCode: 0 | 1; message: string }` return-type annotation.",
       },
       {
-        siteId: "integer-literal:585:21:1>2",
+        siteId: "integer-literal:719:21:1>2",
         kind: "equivalent",
         reason:
           "The `1` of the same `{ exitCode: 0 | 1; message: string }` return-type annotation.",
+      },
+      {
+        siteId: "integer-literal:316:15:0>1",
+        kind: "equivalent",
+        reason:
+          "`let count = 0` in newestVerdictTie. The initial value is never read: the counter is " +
+          "ASSIGNED 1 on the first qualifying row, and with no qualifying rows the predicate is " +
+          "`count > 1`, false for both 0 and 1. Unobservable through the only thing it feeds.",
+      },
+      {
+        siteId: "integer-literal:325:16:1>2",
+        kind: "equivalent",
+        reason:
+          "`count += 1` in newestVerdictTie. The increment fires only on a tie, and the predicate " +
+          "is `count > 1`, so one tie yields 2 with `+= 1` and 3 with `+= 2` -- both true. No " +
+          "input separates them, because the count is never compared against anything but 1.",
       },
     ],
   },

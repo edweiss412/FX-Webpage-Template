@@ -21,33 +21,45 @@ describe("the classifier core is enrolled", () => {
     expect(surface, `no GUARD_SURFACES row with id ${ID}`).toBeDefined();
   });
 
-  it("accepts ONLY type-annotation mutants, and argues each as equivalent", () => {
+  it("accepts ONLY argued-equivalent mutants, never a coverage gap", () => {
     // Enrolment started with an empty ledger deliberately: a `siteId` is
     // line-keyed, so any later edit to the source shifts every accepted row
     // below it and the gate reports the whole set stale by construction. That
     // trap could not bite until survivors were actually classified -- which has
     // now happened, so the assertion moves from "empty" to "exactly these".
     //
-    // The first measurement scored 0.8282 with 28 survivors. 22 were repaid by
-    // tests (mutantKills.test.ts). The 6 that remain all mutate a TYPE
-    // ANNOTATION, which TypeScript erases and the runner never typechecks, so
-    // the emitted JavaScript is byte-identical and no test could kill them.
+    // The first measurement scored 0.8282 with 28 survivors; the round-1 repairs
+    // then moved the core, the gate correctly reported every accepted row stale,
+    // and the re-measurement found 17. Both rounds were repaid by tests
+    // (mutantKills.test.ts) except the eight argued below.
+    //
+    // SIX mutate a TYPE ANNOTATION, which TypeScript erases and the runner never
+    // typechecks, so the emitted JavaScript is byte-identical. TWO are counter
+    // details in `newestVerdictTie`, whose only consumer is `count > 1`: the
+    // counter is reset to 1 at each new maximum, so neither the initial value
+    // nor the increment size can move that predicate.
+    //
+    // Eight of the seventeen also taught something the score alone would not
+    // have: the refusal-message tests I had written lived in adapter.test.ts,
+    // which is NOT in this surface's suitePaths, so they never counted. Coverage
+    // that does not run under the mutant is not coverage.
     //
     // The bar this pins is the one that matters: NO `accepted-gap` rows. A gap
     // is real coverage debt and would need a BL- ref; an equivalent mutant is
     // not debt at all. Keeping the two apart is what stops the ledger from
     // becoming a place to park survivors nobody wanted to kill.
     const accepted = surface?.accepted ?? [];
-    expect(accepted.map((r) => r.kind)).toEqual(Array(6).fill("equivalent"));
+    expect(accepted.map((r) => r.kind)).toEqual(Array(8).fill("equivalent"));
     expect(accepted.filter((r) => r.kind === "accepted-gap")).toEqual([]);
-    // Every one names a line that is a type position, not a value position.
     expect(accepted.map((r) => r.siteId).sort()).toEqual([
-      "integer-literal:404:53:0>1",
-      "integer-literal:404:57:1>2",
-      "integer-literal:404:61:2>3",
-      "integer-literal:505:35:1>2",
-      "integer-literal:585:17:0>1",
-      "integer-literal:585:21:1>2",
+      "integer-literal:316:15:0>1",
+      "integer-literal:325:16:1>2",
+      "integer-literal:487:53:0>1",
+      "integer-literal:487:57:1>2",
+      "integer-literal:487:61:2>3",
+      "integer-literal:621:35:1>2",
+      "integer-literal:719:17:0>1",
+      "integer-literal:719:21:1>2",
     ]);
     // Not a formality: an empty reason would let a future row be waved through.
     for (const r of accepted) expect(r.reason.length).toBeGreaterThan(40);

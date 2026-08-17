@@ -13,6 +13,7 @@ import {
   newestVerdictRow,
   newestVerdictTie,
   positionFor,
+  refuse,
   renderRow,
 } from "@/scripts/lib/pane-compaction-core";
 
@@ -298,5 +299,57 @@ describe("mintNonce's retry bound", () => {
     };
     expect(mintNonce({ markerNonce: "same", random: gen })).toBe("fresh");
     expect(calls).toBe(3);
+  });
+});
+
+describe("every observation rule refuses in its OWN words", () => {
+  // The reason table is a map keyed 1..8, so each key is an integer-literal
+  // mutation site: renumbering one key drops that rule to the generic fallback
+  // while every "did it refuse?" assertion stays green. §6 promises a refusal
+  // NAMES its reason, so the words are the contract and have to be asserted.
+  //
+  // These live HERE rather than in adapter.test.ts on purpose. adapter.test.ts
+  // is not in paneCompactionCore's suitePaths, so assertions there do not
+  // participate in the mutation score at all -- which is precisely why these
+  // eight survived a round in which I had already written adapter-level tests
+  // covering the same behaviour.
+  const EXPECTED: ReadonlyArray<readonly [number, string]> = [
+    [1, "worktree branch"],
+    [2, "shares this agent name"],
+    [3, "purview registry"],
+    [4, "accept-set"],
+    [5, "sessionId"],
+    [6, "gh could not be read"],
+    [7, "blocked"],
+    [8, "hard wait"],
+  ];
+
+  it.each(EXPECTED)("rule %i names its own condition", (rule, needle) => {
+    const m = refuse({ kind: "observation-stop", rule, verdict: "WAIT", detail: null }).message;
+    expect(m).toContain(`rule ${rule}`);
+    expect(m).toContain(needle);
+    // Not the generic fallback: a renumbered key would otherwise pass on the
+    // rule number alone.
+    expect(m).not.toContain("an observation rule stopped this pane");
+  });
+
+  it("appends the offending field when there is one, and nothing when there is not", () => {
+    // Both sides, because the ternary's flip swaps them: with the condition
+    // inverted a real field vanishes and a null one prints the string "null".
+    const withField = refuse({
+      kind: "observation-stop",
+      rule: 4,
+      verdict: "UNDETERMINED",
+      detail: "marker.surpriseKey",
+    }).message;
+    expect(withField).toContain("marker.surpriseKey");
+
+    const without = refuse({
+      kind: "observation-stop",
+      rule: 7,
+      verdict: "WAIT",
+      detail: null,
+    }).message;
+    expect(without).not.toContain("null");
   });
 });
