@@ -1234,35 +1234,6 @@ signature of a class that wants a rule.
 under class-sweep exception (c). May share one lint surface with
 `BL-PLANLINT-ACCEPT-SET-CALIBRATION-PROBE`; the implementing arc decides and records it.
 
-## BL-SURFACE-DISCOVERY-UNNAMEABLE-ACTION-FORMS — the invariant-10 engine misses Server Action forms Next registers
-
-**Status:** IN PROGRESS · **Branch:** fix/surface-discovery-unnameable-forms · **Filed:** 2026-08-16, from the diff review round-1 finding on
-`fix/server-action-origin-sweep` (`docs/review-rounds/fix/server-action-origin-sweep/`) ·
-**Severity:** high · **Class:** shared guard infrastructure (`tests/log/mutationSurface/enumerate.ts`) ·
-**Effort:** M
-
-`collectSurfaceUnits` models specific export and action forms, and Next registers several it does
-not. Probed against the live engine, each returning ZERO units: a paren-wrapped module export
-(`export const x = (async () => {})`), an export aliased through an intermediate binding
-(`const a = impl; export { a as doIt }`), an ANONYMOUS inline action passed straight to a JSX
-`action={...}` prop, and an inline object method. All four are ordinary things a contributor may
-write.
-
-The blast radius is wider than the arc that found it. **Invariant 10's own mutation-surface
-observability walk runs the same discovery**, so a mutating action in one of these forms is a dark
-mutation surface there too — it is not merely ungated, it is uninstrumented, and
-`tests/log/_metaMutationSurfaceObservability.test.ts` reports nothing because the unit never exists.
-
-**Reachability:** PROBED — the reviewer demonstrated it with an in-memory Next 16.3 transformer
-showing all eight probed forms register (`CROSS_SITE_UNGATED_MUTATIONS=8/8`), and it was reproduced
-independently against the committed engine with four fixtures. Filed under class-sweep exception (c):
-repairing discovery is a redesign of shared invariant-10 infrastructure that
-`fix/server-action-origin-sweep` does not otherwise touch, and widening the recognizer is the repair
-direction AGENTS.md warns against taking casually. The origin walk closes its own exposure by
-failing CLOSED on anything discovery cannot classify (spec §7), so nothing is silently ungated in
-the meantime; what this entry buys is the same protection for invariant 10, and discovery that is
-total rather than merely honest about its gaps.
-
 ## BL-PLANLINT-RED-CLAIM-EXECUTION — a plan's declared red is executed, not just parsed
 
 **Status:** OPEN. · **Filed:** 2026-08-16, from
