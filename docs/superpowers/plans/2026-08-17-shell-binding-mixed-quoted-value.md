@@ -777,6 +777,16 @@ describe("documented limits - quote-concatenated spellings outside the assignmen
         "bash -c '$0 -qAt mydb' p'sql'\n",
         "bash -c '$0 -qAt mydb' psql\n",
       ],
+      // A wrapper-prefixed quoted-directory value is declined by BOTH
+      // readings (spec 6 item 6; round-6 disposition, bl-orch option b): the
+      // split reading requires psql at argv[0], the eval reading reads the
+      // pathname quote as syntax. The premise shows wrapper-invoked psql with
+      // an unquoted path reporting via the eval reading.
+      [
+        "a wrapper-prefixed quoted-directory value",
+        'CMD="sudo /tmp/O\'Reilly/psql -X mydb"\n',
+        "CMD='sudo psql -X mydb'\n",
+      ],
       // IFS whitespace in a quoted DIRECTORY component sends the value to the
       // multiword branch, where a flagless path is declined - spec 6 item 5
       // (round-4 fallout, pinned so the zero is declared).
@@ -984,8 +994,9 @@ after the plan round-3 repairs: the quoted-Windows-path flip and the newline-sep
 row joined the red set; the unterminated-ANSI-C zero joined the premise-green set). The round-4
 delta was spliced separately on the same tree: the five separator-directory recall rows all RED
 (0 hits each today) and the whitespace-directory limit row premise-green; the round-5 delta
-likewise: both quote-character-directory multiword rows RED (0 hits each today) — 46 total
-across the runs, 33 red / 13 green. Red: all five Task 1
+likewise: both quote-character-directory multiword rows RED (0 hits each today); the round-6
+disposition delta: the wrapper-prefixed limit row premise-green (probed: wrapper value 0,
+unquoted-path premise 1) — 47 total across the runs, 33 red / 14 green. Red: all five Task 1
 fidelity tests, the thirteen Task 2 recall rows, the three trailing-backslash rows, the
 expansion-prefix widening, and both Task 3 multiword recall rows. Green (regression premises):
 the six Task 2 precision-survivor zeros (including both digit-boundary mutant-kill pins, probed

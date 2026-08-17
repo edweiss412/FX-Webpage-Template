@@ -58,6 +58,14 @@ regex family one spelling per round).
   invocation WITH a flag keeps prose out"; the deciding suite pins
   `MSG="psql failed to connect"` at zero). A flagless-psql multiword value files to §6, not to a
   finding — accepting it would report the pinned prose fixture.
+- **The word-split reading decides psql at argv[0], ratified in BOTH directions (plan round-6
+  disposition, bl-orch).** Wrapper-aware splitting — modeling `sudo`/`env`/wrapper chains and
+  their flag vocabularies inside a quoted VALUE — is explicitly OUT OF SCOPE and files to §6
+  item 6; and the narrowed argv[0] claim is the ratified boundary. Neither side relitigates: a
+  finding proposing wrapper vocabulary modeling is out of contract, and a finding that the
+  narrowed claim is "incomplete" re-argues this ratification. Wrapper-invoked psql with an
+  UNQUOTED path keeps reporting through the eval reading (`CMD='sudo psql -X mydb'` reports
+  today and after).
 - **The mutation-registry accepted set is maintained, not frozen.** The surface is enrolled
   (`tests/mutation/source/registry.ts`, id `psqlStartupScan`, scoreFloor 1, empty
   unaccepted-survivor set). This diff moves and deletes mutant sites, so accepted `siteId`s are
@@ -119,10 +127,13 @@ value the way its use site can. Then:
   shell SOURCE (`scanShellText(V, file, 0)` yields a psql site with a flag-shaped token —
   `/^-{1,2}[A-Za-z0-9]/`, the existing `boundCommand` criterion, unchanged), and the unquoted
   `$CMD` reading treats V as DATA word-split on IFS whitespace (a plain split; psql-shaped
-  argv[0] via `isPsqlCommandWord`, plus a flag-shaped later token). The split reading is exact
-  for its grammar — quotes are literal pathname characters and newlines ordinary separators
-  there, so `/tmp/O'Reilly/psql -X mydb` and `$'psql\n-X mydb'` both report, while the prose
-  fixture stays out (its later tokens carry no flag).
+  argv[0] via `isPsqlCommandWord`, plus a flag-shaped later token). The split reading is exact for
+  ARGV[0]-PSQL command lines — quotes are literal pathname characters and newlines ordinary
+  separators there, so `/tmp/O'Reilly/psql -X mydb` and `$'psql\n-X mydb'` both report, while
+  the prose fixture stays out (its later tokens carry no flag). It decides psql at argv[0] and
+  nothing deeper: a WRAPPER-prefixed value whose psql path needs the split reading
+  (`CMD="sudo /tmp/O'Reilly/psql -X mydb"`) is a declared §6 item-6 limit (plan round-6
+  disposition, bl-orch option b).
   This replaces the `quotedValue` regex: the value is now the lexer's dequoted concatenation, so
   `CMD='psq'"l -qAt mydb"` is read exactly as `CMD='psql -qAt mydb'` is.
 - **V is a single word** (no whitespace) → the word is a name binding iff
@@ -335,7 +346,15 @@ concatenation." Swept across every rule family in `scanShellIndirection`:
 5. IFS whitespace inside a quoted directory component (`PG='/tmp/x y/psql'`) sends the value to
    the multiword branch, where a flagless path is declined — a declared, pinned miss (the plain
    path reports; bash runs the spaced path only through quoted expansion).
-6. Quoting or escapes INSIDE a `${…}` expansion operand (`PG=${U:-'psql'}` and its quote/escape
+6. A WRAPPER-prefixed multiword value whose psql path itself needs the word-split reading
+   (`CMD="sudo /tmp/O'Reilly/psql -X mydb"` — bash argv `sudo`, `/tmp/O'Reilly/psql`, `-X`,
+   `mydb`; scanner 0 before and after) is declined by both readings: the split reading requires
+   psql at argv[0], and the eval reading reads the pathname quote as syntax. Worst case is a
+   CONSERVATIVE, DECLARED zero on wrapper-invoked psql — pinned in the deciding suite with its
+   premise (`CMD='sudo psql -X mydb'` reports via the eval reading), never silent-wrong on
+   anything the readings claim. Wrapper-aware splitting is out of scope in both directions
+   (§1.1).
+7. Quoting or escapes INSIDE a `${…}` expansion operand (`PG=${U:-'psql'}` and its quote/escape
    siblings) are not dequoted — the expansion is one verbatim word by design, and only a bare
    `psql` inside it reports (`PG=${U:-psql}` does; probed both instruments). A missed report,
    never a false certification; ledger `BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE`.
