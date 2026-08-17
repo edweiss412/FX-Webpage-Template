@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { parseVenue } from "@/lib/parser/blocks/venue";
+import {
+  parseVenue,
+  SECTION_HEADER_TOKENS as VENUE_SECTION_HEADER_TOKENS,
+} from "@/lib/parser/blocks/venue";
+import { matchesSectionHeader } from "@/lib/parser/blocks/_sectionHeaderMatch";
+import { splitRow } from "@/lib/parser/blocks/_helpers";
 import { detectVersion } from "@/lib/parser/schema";
 import { newAggregator } from "@/lib/parser/warnings";
 import { inScopeAliases, resolveAlias, TYPO_ALIASES } from "@/lib/parser/aliases";
@@ -252,7 +257,10 @@ describe("parseVenue — corpus coverage (all 10 fixtures)", () => {
 
 describe("parseVenue — field-label typo recovery (FIELD_LABEL_AUTOCORRECTED)", () => {
   it("recovers a typo'd venue field label, emits FIELD_LABEL_AUTOCORRECTED, and fires NO UNKNOWN_FIELD", () => {
-    // 'Venue Adress' (deletion) → venue.address. Today: empty address + UNKNOWN_FIELD (verified).
+    // 'Venue Adress' (deletion) → venue.address. Before the scoped fuzzy fallback existed this
+    // left an empty address; the UNKNOWN_FIELD half of that old behaviour is now impossible
+    // from a direct parseVenue call either way, so the assertion below is a no-downgrade pin
+    // on the fuzzy path, not a claim about the retired emitter.
     const md = [
       "| VENUE NAME | Four Seasons Hotel |",
       "| Venue Adress | 120 E Delaware Pl Chicago, IL 60611 |",
@@ -268,9 +276,11 @@ describe("parseVenue — field-label typo recovery (FIELD_LABEL_AUTOCORRECTED)",
   });
 
   it("warns on a FIRST-row typo'd venue field label (no premature scope-gate suppression)", () => {
-    // idx53: the misspelled label is on ROW 1 — BEFORE any field-assignment branch sets
-    // inVenueFieldScope=true. The field must still recover AND emit FIELD_LABEL_AUTOCORRECTED;
-    // a first-row fuzzy correction must never be a silent re-route (spec §2 rule 4: always warn).
+    // idx53: the misspelled label is on ROW 1 — the position the retired positional scope
+    // window opened AFTER. The field must still recover AND emit FIELD_LABEL_AUTOCORRECTED;
+    // a first-row fuzzy correction must never be a silent re-route (spec §2 rule 4: always
+    // warn). Still load-bearing after the window's removal: this emit is deliberately
+    // ungated, so it must not acquire the venue-block-membership gate TYPO_NORMALIZED took.
     const md = [
       "| Venue Adress | 120 E Delaware Pl Chicago, IL 60611 |",
       "| VENUE NAME | Four Seasons Hotel |",
@@ -298,14 +308,21 @@ describe("parseVenue — field-label typo recovery (FIELD_LABEL_AUTOCORRECTED)",
     expect(agg.warnings.find((w) => w.code === "FIELD_LABEL_AUTOCORRECTED")).toBeUndefined();
   });
 
-  it("a typo near an OUT-of-scope alias is NOT fuzzed into venue (stays UNKNOWN_FIELD)", () => {
+  it("a typo near an OUT-of-scope alias is NOT fuzzed into venue", () => {
     // 'Clent Contact' is Damerau 1 from the OUT-of-scope alias 'Client Contact' (client.contact)
-    // but is NOT near any venue.* alias → the venue-scoped fuzzy returns null → UNKNOWN_FIELD.
+    // but is NOT near any venue.* alias → the venue-scoped fuzzy returns null → the label is
+    // left unresolved. It is NOT downgraded into a venue field, which is the claim here.
+    // `parseVenue` emits no UNKNOWN_FIELD at all any more: the near-miss detector at the
+    // `parseSheet` seam owns that code (field-near-miss spec §2.1), so a DIRECT call has no
+    // replacement emission to assert.
     const md = ["| VENUE NAME | Four Seasons |", "| Clent Contact | someone@x.com |"].join("\n");
     const agg = newAggregator();
-    parseVenue(md, "v4", agg);
+    const r = parseVenue(md, "v4", agg);
+    // Non-vacuity: the row was read and refused, not skipped along with the whole document.
+    expect(r?.name).toBe("Four Seasons");
+    expect(r?.address).toBe("");
     expect(agg.warnings.find((w) => w.code === "FIELD_LABEL_AUTOCORRECTED")).toBeUndefined();
-    expect(agg.warnings.find((w) => w.code === "UNKNOWN_FIELD")).toBeTruthy();
+    expect(agg.warnings.find((w) => w.code === "UNKNOWN_FIELD")).toBeUndefined();
   });
 
   /**
@@ -399,12 +416,22 @@ describe("parseVenue — field-label typo recovery (FIELD_LABEL_AUTOCORRECTED)",
           if (typo.trim() === alias.toUpperCase()) {
             // Leading/trailing-space neighbours are not typos: resolveAliasScoped trims, so they
             // resolve EXACTLY and must not be reported as a correction. TYPO_NORMALIZED fires iff
-            // the alias is itself a registered typo spelling (e.g. 'hotal contact info').
+            // the alias is a registered typo spelling (e.g. 'hotal contact info') AND the row's
+            // physical block is the VENUE block — the gate re-keyed from the retired positional
+            // scope window to block membership (field-near-miss spec §2.1). Both anchor rows
+            // here open a v4 two-column table (`VENUE NAME` / `LOADING DOCK`), a different
+            // namespace, so this generator exhaustively pins the SILENT direction. The
+            // membership term is derived from the document rather than folded into a constant
+            // `false`, so re-widening the gate reds all 8453 cases instead of passing.
+            const opensVenueBlock = matchesSectionHeader(
+              splitRow(anchorRow.trim())[0] ?? "",
+              VENUE_SECTION_HEADER_TOKENS,
+            );
             expect(autocorrected, `${where} resolves exactly after trim`).toHaveLength(0);
             expect(
               agg.warnings.some((w) => w.code === "TYPO_NORMALIZED"),
-              `${where}: TYPO_NORMALIZED must fire iff '${alias}' is a registered typo alias`,
-            ).toBe(TYPO_ALIASES.has(alias));
+              `${where}: TYPO_NORMALIZED must fire iff '${alias}' is a registered typo alias AND the row sits in the venue block`,
+            ).toBe(TYPO_ALIASES.has(alias) && opensVenueBlock);
           } else {
             expect(autocorrected, `${where} should emit exactly one autocorrect`).toHaveLength(1);
             expect(autocorrected[0]!.severity, `${where}`).toBe("warn");

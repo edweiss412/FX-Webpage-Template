@@ -1,0 +1,461 @@
+/**
+ * tests/ci/_metaModalWaitHelper.test.ts — the modal-wait structural guard.
+ *
+ * Spec: docs/superpowers/specs/ci/2026-08-16-modal-wait-boundary-helper-adoption-design.md
+ * §4.4 (the guard), AC-2b / AC-2b-pattern (the total disposition and the shared
+ * route constant), AC-3 (the executable premise proof).
+ * Plan: docs/superpowers/plans/ci/2026-08-16-modal-wait-boundary-helper-adoption.md Task 2.
+ *
+ * What this file is FOR: after the adoption sweep, no e2e spec navigates
+ * `/admin?…show=` with its own `page.goto` — every open routes through
+ * tests/e2e/helpers/openShowReviewModal.ts, so a transient gateway 502 recovers
+ * once and says so instead of starving a full timeout. This guard is what stops
+ * the next spec from re-authoring the unguarded navigation.
+ *
+ * What it is NOT for (the §4.4 fence): it recognizes the single-line navigation
+ * shape only. A URL assembled on one line and passed as a variable on the next,
+ * a click-open, and any adversarial spelling are OUT OF SCOPE and file to
+ * documented limits 5 and 7, never to guard growth. The threat model is an
+ * ordinary contributor copy-pasting an existing pattern, not an adversary.
+ */
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, describe, expect, test } from "vitest";
+
+import { premise, premiseHolds } from "../_shared/premise";
+import {
+  MODAL_ROUTE_PATTERN,
+  classifyCandidates,
+  enumerateCandidates,
+  productOpenSurfaces,
+  scanForViolations,
+  type Candidate,
+} from "./modalWaitHelper/scan";
+import { DISPOSITION_RULES } from "./modalWaitHelper/disposition";
+
+const REPO_ROOT = process.cwd();
+
+/**
+ * The exemption inventory, pinned. A third entry fails this suite until an
+ * author edits the list deliberately — an accepted limit is a claim someone has
+ * to re-make, never a hole that widens silently (spec §4.4).
+ *
+ * Pinned by FILE and CLASS, not by line: the spec's `:298` / `:344` were an
+ * as-of-authoring rendering, and every adoption edit above them shifts those
+ * numbers. A line-keyed pin would then red on edits that changed nothing about
+ * the inventory, and the reflex fix — retyping the new numbers — is exactly how
+ * a pin stops meaning anything. Class is the property that must not drift.
+ */
+const PINNED_EXEMPTIONS = [
+  {
+    file: "tests/e2e/published-review-modal.deeplink.spec.ts",
+    // §2.5: the loader redirect()s to bare /admin and the test asserts NO
+    // modal, so there is no modal-interior wait to harden.
+    reasonMatches: /non-member/,
+  },
+  {
+    file: "tests/e2e/published-review-modal.deeplink.spec.ts",
+    // Limit 3b: MODAL_ANY matches the Suspense skeleton, so a modal-or-boundary
+    // race resolves on the skeleton and would HIDE the fault.
+    reasonMatches: /skeleton-tolerant/,
+  },
+] as const;
+
+const tempRoots: string[] = [];
+
+/** A throwaway repo root holding one `tests/e2e/<name>.spec.ts` with `body`. */
+function fixtureRoot(name: string, body: string): string {
+  const root = mkdtempSync(join(tmpdir(), "modal-wait-guard-"));
+  tempRoots.push(root);
+  mkdirSync(join(root, "tests", "e2e"), { recursive: true });
+  writeFileSync(join(root, "tests", "e2e", `${name}.spec.ts`), body, "utf8");
+  return root;
+}
+
+afterAll(() => {
+  // Left in the OS temp dir deliberately: the fixtures are tiny, and a failed
+  // run is easier to diagnose with them still on disk.
+  tempRoots.length = 0;
+});
+
+describe("modal-wait guard — premise proof (BL-GUARD-PREMISE-REACHABILITY)", () => {
+  test("FLAGS a bare goto of the modal route", () => {
+    const root = fixtureRoot(
+      "bare",
+      ['test("x", async ({ page }) => {', "  await page.goto(`/admin?show=${slug}`);", "});"].join(
+        "\n",
+      ),
+    );
+    const { violations } = scanForViolations(root);
+    expect(violations.map((v) => v.line)).toEqual([2]);
+  });
+
+  test("STAYS QUIET on a helper call carrying the same URL text", () => {
+    // The false-positive direction. Identical route text, no `goto(`.
+    const helperLine = "  await openShowReviewModalAt(page, `/admin?show=${slug}`);";
+    premiseHolds(
+      "the quiet fixture carries the very route text the flagged one does",
+      MODAL_ROUTE_PATTERN.test(helperLine),
+    );
+    const root = fixtureRoot(
+      "adopted",
+      ['test("x", async ({ page }) => {', helperLine, "});"].join("\n"),
+    );
+    expect(scanForViolations(root).violations).toEqual([]);
+  });
+
+  test("STAYS QUIET on a valid exemption, on the line and on the line above", () => {
+    const root = fixtureRoot(
+      "exempt",
+      [
+        'test("inline", async ({ page }) => {',
+        "  await page.goto(`/admin?show=${slug}`); // modal-wait-exempt: asserts no modal renders",
+        "});",
+        'test("above", async ({ page }) => {',
+        "  // modal-wait-exempt: skeleton-tolerant wait, cannot be hardened",
+        "  await page.goto(`/admin?show=${other}`);",
+        "});",
+      ].join("\n"),
+    );
+    const { violations, exemptions } = scanForViolations(root);
+    expect(violations).toEqual([]);
+    expect(exemptions.map((e) => e.reason)).toEqual([
+      "asserts no modal renders",
+      "skeleton-tolerant wait, cannot be hardened",
+    ]);
+  });
+
+  test("FLAGS an exemption whose reason is empty", () => {
+    // An exemption that explains nothing is not an exemption.
+    const root = fixtureRoot(
+      "empty-reason",
+      [
+        'test("x", async ({ page }) => {',
+        "  await page.goto(`/admin?show=${slug}`); // modal-wait-exempt:",
+        "});",
+      ].join("\n"),
+    );
+    expect(scanForViolations(root).violations.map((v) => v.line)).toEqual([2]);
+  });
+
+  test("FLAGS a bare goto in a file that ALSO imports the helper", () => {
+    // The R1 finding-2 regression pin. A file-level "does this file import the
+    // helper" predicate is a false-negative machine: one adopted site would
+    // silence every other site in the same file. The refuted predicate passes
+    // this fixture; the shipped per-site one must not.
+    const root = fixtureRoot(
+      "mixed",
+      [
+        'import { openShowReviewModalAt } from "./helpers/openShowReviewModal";',
+        'test("adopted", async ({ page }) => {',
+        "  await openShowReviewModalAt(page, `/admin?show=${a}`);",
+        "});",
+        'test("naked", async ({ page }) => {',
+        "  await page.goto(`/admin?show=${b}`);",
+        "});",
+      ].join("\n"),
+    );
+    const { violations } = scanForViolations(root);
+    premiseHolds(
+      "the fixture really does import the helper, or the refuted predicate is not exercised",
+      readFileSync(join(root, "tests", "e2e", "mixed.spec.ts"), "utf8").includes(
+        "helpers/openShowReviewModal",
+      ),
+    );
+    expect(violations.map((v) => v.line)).toEqual([6]);
+  });
+
+  test("STAYS QUIET on a COMMENTED-OUT goto, line and block", () => {
+    // The false-positive direction, and a real defect until this case landed:
+    // commenting a navigation out while a fixture is reseeded is ordinary
+    // authoring inside the threat fence, and both spellings reported as
+    // violations. Resolved through the shared stripCommentsForFile, so the
+    // block-comment INTERIOR — which need not begin with `*` — is covered too.
+    const root = fixtureRoot(
+      "commented-out",
+      [
+        "// disabled while the fixture is reseeded:",
+        "// await page.goto(`/admin?show=${slug}`);",
+        "/*",
+        "  await page.goto(`/admin?show=${other}`);",
+        "*/",
+        'test("live", async ({ page }) => {',
+        "  await openShowReviewModal(page, slug);",
+        "});",
+      ].join("\n"),
+    );
+    const { violations } = scanForViolations(root);
+    expect(violations, "a commented-out navigation is not a navigation").toEqual([]);
+  });
+
+  test("STAYS QUIET on a goto of a different /admin route", () => {
+    const root = fixtureRoot(
+      "other-route",
+      [
+        'test("x", async ({ page }) => {',
+        '  await page.goto("/admin/needs-attention");',
+        '  await page.goto("/admin?bucket=archived");',
+        "});",
+      ].join("\n"),
+    );
+    expect(scanForViolations(root).violations).toEqual([]);
+  });
+});
+
+describe("modal-wait guard — the shared route constant (AC-2b-pattern)", () => {
+  test("the guard and candidate origin (a) agree on a param-position-agnostic URL", () => {
+    // R5 finding 1 measured the cost of two regexes: the guard was widened to
+    // match a `show` param in any position while origin (a) stayed on the
+    // literal `admin?show=`, so this URL — one ordinary edit from
+    // published-review-modal.interactions.spec.ts:281, which already holds it —
+    // was flagged by the guard and never proposed as a candidate.
+    const line = "  await page.goto(`/admin?bucket=archived&show=${slug}&alert_id=${id}`);";
+    const root = fixtureRoot(
+      "any-position",
+      ['test("x", async ({ page }) => {', line, "});"].join("\n"),
+    );
+
+    expect(scanForViolations(root).violations.map((v) => v.line)).toEqual([2]);
+    expect(
+      enumerateCandidates(root)
+        .filter((c) => c.origin === "a-route-literal")
+        .map((c) => c.line),
+    ).toEqual([2]);
+  });
+
+  test("the predicate module declares exactly ONE route regex", () => {
+    // Two regexes that happen to agree today are the drift this pins shut.
+    const source = readFileSync(join(REPO_ROOT, "tests/ci/modalWaitHelper/scan.ts"), "utf8");
+    const routeRegexLiterals = source.match(/\/[^\n/]*admin\\\?[^\n]*show=[^\n]*\//g) ?? [];
+    expect(routeRegexLiterals).toHaveLength(1);
+    expect(source).toContain("export const MODAL_ROUTE_PATTERN");
+  });
+});
+
+describe("modal-wait guard — the live corpus", () => {
+  const { violations, exemptions } = scanForViolations(REPO_ROOT);
+
+  test("no e2e spec navigates the modal route with its own page.goto", () => {
+    expect(
+      violations.map((v) => `${v.file}:${v.line}  ${v.text}`),
+      "each line must route through tests/e2e/helpers/openShowReviewModal.ts, or declare " +
+        "an inline `// modal-wait-exempt: <reason>` and be added to PINNED_EXEMPTIONS here",
+    ).toEqual([]);
+  });
+
+  test("the exemption inventory is exactly the two pinned entries", () => {
+    expect(
+      exemptions.map((e) => `${e.file}:${e.line} — ${e.reason}`),
+      "a third exemption is an accepted limit nobody re-stated: add it to PINNED_EXEMPTIONS " +
+        "with its class, or adopt the site",
+    ).toHaveLength(PINNED_EXEMPTIONS.length);
+
+    PINNED_EXEMPTIONS.forEach((pinned, index) => {
+      const actual = exemptions[index];
+      expect(actual?.file, `exemption ${index}`).toBe(pinned.file);
+      expect(actual?.reason, `exemption ${index}`).toMatch(pinned.reasonMatches);
+    });
+
+    // Distinct classes, so two copies of one exemption cannot satisfy the pin.
+    expect(new Set(exemptions.map((e) => e.reason)).size).toBe(exemptions.length);
+    for (const exemption of exemptions) expect(exemption.reason.length).toBeGreaterThan(10);
+  });
+
+  test("the product-surface scan actually found surfaces, so origin (d) is not vacuous", () => {
+    // The product half of origin (d) tolerates an absent app/ or components/
+    // tree, which is right for a throwaway fixture root and catastrophic if it
+    // ever silently held in the repo: every click-open candidate would vanish
+    // and the disposition would look total while covering nothing.
+    const surfaces = productOpenSurfaces(REPO_ROOT);
+    premise("app/ + components/ yielded modal-route open surfaces", surfaces.length, 10);
+    const prefixes = surfaces.map((s) => s.testIdPrefix).filter((p): p is string => p !== null);
+    premise("those surfaces resolved to testid prefixes", prefixes.length, 5);
+    // The two the census names explicitly (§2.1 (d)).
+    expect(prefixes).toContain("shows-table-row-");
+    expect(prefixes.some((p) => p.startsWith("needs-attention-link-"))).toBe(true);
+  });
+
+  test("the testid window has a real BOUND, and same-line and far testids sit either side of it", () => {
+    // Repays three surviving mutants from the first real mutation run:
+    // TESTID_WINDOW 12->13, `distance <= WINDOW` -> `<`, and `distance = 0` -> 1.
+    // Each moves the window by one, so the fixture puts an href exactly ON the
+    // boundary, one past it, and one on the SAME line as its testid.
+    const href = "        href={`/admin?show=${row.slug}`}";
+    const testid = "        data-testid={`probe-row-${row.slug}`}";
+    const mk = (gap: number): string => {
+      const filler = Array.from({ length: gap - 1 }, () => "        // filler");
+      return ["export function P() {", "  return (", href, ...filler, testid, "  );", "}"].join(
+        "\n",
+      );
+    };
+    const rootAt = (body: string): string => {
+      const root = mkdtempSync(join(tmpdir(), "modal-wait-product-"));
+      tempRoots.push(root);
+      mkdirSync(join(root, "components"), { recursive: true });
+      mkdirSync(join(root, "tests", "e2e"), { recursive: true });
+      writeFileSync(join(root, "components", "Probe.tsx"), body, "utf8");
+      return root;
+    };
+    const prefixOf = (body: string): string | null =>
+      productOpenSurfaces(rootAt(body)).find((s) => s.file.endsWith("Probe.tsx"))?.testIdPrefix ??
+      null;
+
+    // Same line: `distance = 0` is the only pass that can see it.
+    expect(prefixOf(`export const P = () => <a ${href.trim()} ${testid.trim()} />;`)).toBe(
+      "probe-row-",
+    );
+    // Exactly ON the window: found. One past it: NOT found.
+    expect(prefixOf(mk(12))).toBe("probe-row-");
+    expect(prefixOf(mk(13))).toBeNull();
+  });
+
+  test("a QUOTED data-testid resolves, not just the template-literal form", () => {
+    // Repays the `match[1] ?? match[2]` -> `match[3]` survivor: the corpus's
+    // quoted form (PreviewBanner's admin-preview-banner-exit) was never asserted,
+    // so dropping the quoted capture group left the suite green.
+    const prefixes = productOpenSurfaces(REPO_ROOT)
+      .map((s) => s.testIdPrefix)
+      .filter((p): p is string => p !== null);
+    expect(prefixes, "the quoted-attribute capture group is load-bearing").toContain(
+      "admin-preview-banner-exit",
+    );
+  });
+
+  test("a product surface reports the line it was actually found on", () => {
+    // Repays the `line: index + 1` -> `index + 2` survivor. Nothing consumed the
+    // line number, so an off-by-one in it was invisible.
+    const root = mkdtempSync(join(tmpdir(), "modal-wait-line-"));
+    tempRoots.push(root);
+    mkdirSync(join(root, "components"), { recursive: true });
+    mkdirSync(join(root, "tests", "e2e"), { recursive: true });
+    writeFileSync(
+      join(root, "components", "Line.tsx"),
+      ["// one", "// two", "const href = `/admin?show=${slug}`;"].join("\n"),
+      "utf8",
+    );
+    const found = productOpenSurfaces(root).find((s) => s.file.endsWith("Line.tsx"));
+    expect(found?.line, "the route literal is on line 3").toBe(3);
+  });
+
+  test("a candidate claimed by exactly TWO rules is reported ambiguous", () => {
+    // Repays the `hits.length > 1` -> `> 2` survivor: with the threshold at 2, a
+    // two-rule overlap — the ordinary way a disposition goes ambiguous — passed
+    // silently, and only a three-rule pile-up was reported.
+    const candidate: Candidate = {
+      origin: "a-route-literal",
+      file: "tests/e2e/two-rules.spec.ts",
+      line: 1,
+      text: "await page.goto(`/admin?show=${slug}`);",
+      exemptReason: null,
+      isComment: false,
+    };
+    const always = { origin: "a-route-literal" as const, expectedCount: 1, match: () => true };
+    const result = classifyCandidates(
+      [candidate],
+      [
+        { ...always, id: "probe/one" },
+        { ...always, id: "probe/two" },
+      ],
+    );
+    expect(result.ambiguous).toHaveLength(1);
+    expect(result.ambiguous[0]?.ruleIds).toEqual(["probe/one", "probe/two"]);
+    expect(result.undisposed).toHaveLength(0);
+  });
+
+  test("the guard's population is walked from disk, so a new spec is covered by default", () => {
+    const populated = new Set(enumerateCandidates(REPO_ROOT).map((c) => c.file));
+    premise("the corpus walk found spec files", populated.size, 20);
+    expect([...populated].every((file) => file.startsWith("tests/e2e/"))).toBe(true);
+    // helpers/** is outside the population by construction, which is why the
+    // helper's own page.goto needs no exemption.
+    expect([...populated].some((file) => file.startsWith("tests/e2e/helpers/"))).toBe(false);
+  });
+});
+
+describe("modal-wait census — total disposition (AC-2b)", () => {
+  const candidates = enumerateCandidates(REPO_ROOT);
+  const classification = classifyCandidates(candidates, DISPOSITION_RULES);
+
+  test("every candidate carries a disposition", () => {
+    premise("the five origins produced candidates to disposition", candidates.length, 100);
+    expect(
+      classification.undisposed.map((c) => `${c.origin} ${c.file}:${c.line}  ${c.text}`),
+      "an undispositioned candidate is a site nobody decided about: adopt it (§4.2), " +
+        "or add an exclusion rule carrying its reason in tests/ci/modalWaitHelper/disposition.ts",
+    ).toEqual([]);
+  });
+
+  test("no candidate is claimed by two rules", () => {
+    expect(
+      classification.ambiguous.map((a) => `${a.candidate.file}:${a.candidate.line} ${a.ruleIds}`),
+    ).toEqual([]);
+  });
+
+  test("every rule still matches something, and every exclusion matches its stated count", () => {
+    const drift: string[] = [];
+    for (const rule of DISPOSITION_RULES) {
+      const actual = classification.countsByRule.get(rule.id) ?? 0;
+      if (actual === 0) drift.push(`${rule.id}: matches nothing — its class is gone`);
+      if (rule.expectedCount !== undefined && actual !== rule.expectedCount) {
+        drift.push(`${rule.id}: ${actual} candidates, rule declares ${rule.expectedCount}`);
+      }
+    }
+    expect(drift).toEqual([]);
+  });
+
+  test("every rule carries a count, and every member rule names a §4.2 shape", () => {
+    // EVERY rule, members included. An earlier version exempted members on the
+    // theory that recognizing the adopted shape is self-evidencing; diff review
+    // refuted it by probe — the origin (b)-(e) member rules match the raw click
+    // or reload line, which is unchanged when the post-open helper wait beside
+    // it is deleted, so a site kept its `member` label while silently regaining
+    // the starve exposure. Counting origin (f) is what closes that.
+    for (const rule of DISPOSITION_RULES) {
+      expect(rule.disposition.reason.length, rule.id).toBeGreaterThan(20);
+      expect(rule.expectedCount, `${rule.id}: every rule must carry a count`).toBeTypeOf("number");
+      if (rule.disposition.kind === "member") {
+        expect(["G", "U", "N"], rule.id).toContain(rule.disposition.shape);
+      }
+    }
+  });
+
+  test("the adopted-site counts ARE the §4.2 arithmetic, asserted not retyped", () => {
+    // 30 G (this arc's 28 plus the parent arc's 2 in admin-changes-feed-layout),
+    // 9 U, 12 N edit locations = 51 adopted sites discharging 51 member opens.
+    const byId = new Map(DISPOSITION_RULES.map((r) => [r.id, r.expectedCount]));
+    expect(byId.get("f/member-shape-G")).toBe(30);
+    expect(byId.get("f/member-shape-U")).toBe(9);
+    expect(byId.get("f/member-shape-N")).toBe(12);
+    const adopted =
+      (byId.get("f/member-shape-G") ?? 0) +
+      (byId.get("f/member-shape-U") ?? 0) +
+      (byId.get("f/member-shape-N") ?? 0);
+    expect(adopted, "49 edit locations in this arc plus the parent arc's 2").toBe(51);
+  });
+
+  test("a constructed candidate with no disposition FAILS the check", () => {
+    // The AC-2b red-first pin: the assertion above must be capable of failing.
+    const orphan: Candidate = {
+      origin: "a-route-literal",
+      file: "tests/e2e/nobody-decided.spec.ts",
+      line: 1,
+      text: "await somethingNew(page, `/admin?show=${slug}`);",
+      exemptReason: null,
+      isComment: false,
+    };
+    const result = classifyCandidates([orphan], DISPOSITION_RULES);
+    expect(result.undisposed).toHaveLength(1);
+  });
+
+  test("a subset assertion would be vacuous here, which is why totality is the contract", () => {
+    // Origins (b)-(e) deliberately yield non-members, so a bare
+    // `members === candidates` equality could never pass and a subset
+    // assertion could never notice an omission. Both halves must be non-empty
+    // for the disposition to be the load-bearing assertion.
+    const memberRules = DISPOSITION_RULES.filter((r) => r.disposition.kind === "member");
+    const exclusionRules = DISPOSITION_RULES.filter((r) => r.disposition.kind === "exclusion");
+    premise("the disposition has members", memberRules.length, 0);
+    premise("the disposition has exclusions", exclusionRules.length, 0);
+  });
+});

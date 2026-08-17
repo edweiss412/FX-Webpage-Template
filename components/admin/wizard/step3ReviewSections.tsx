@@ -3091,9 +3091,10 @@ export function WarningsBreakdown({
                       </span>
                       {(() => {
                         // The offending row label (from rawSnippet "<label> | <value>"): the
-                        // catalog title is generic ("Unrecognized row in sheet"), so this is
-                        // the only per-row discriminator — makes otherwise-identical entries
-                        // scannable and identifies the row when the deep link is absent.
+                        // catalog title names the CLASS ("Row we couldn't match"), never the
+                        // row, so this is the only per-row discriminator — makes otherwise-
+                        // identical entries scannable and identifies the row when the deep
+                        // link is absent.
                         const rowLabel = labelFromRawSnippet(w.rawSnippet);
                         return rowLabel ? (
                           <span

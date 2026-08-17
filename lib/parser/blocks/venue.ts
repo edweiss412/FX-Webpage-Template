@@ -1,8 +1,8 @@
 import type { ShowRow } from "@/lib/parser/types";
 import { resolveAlias, resolveAliasFull, resolveAliasScoped } from "@/lib/parser/aliases";
-import type { ParseAggregator } from "@/lib/parser/warnings";
-import { emitUnknownField } from "@/lib/parser/warnings";
-import { presence, parseTableRows } from "./_helpers";
+import { type ParseAggregator, markConsumed } from "@/lib/parser/warnings";
+import { clean, presence } from "./_helpers";
+import { scanRowsWithOpener } from "./_rowScan";
 import { matchesSectionHeader } from "./_sectionHeaderMatch";
 
 export const SECTION_HEADER_TOKENS = ["VENUE"] as const;
@@ -60,7 +60,7 @@ export function parseVenue(
   version: "v1" | "v2" | "v4",
   agg?: ParseAggregator,
 ): ShowRow["venue"] {
-  const rows = parseTableRows(markdown);
+  const rows = scanRowsWithOpener(markdown);
 
   let name: string | null = null;
   let address: string | null = null;
@@ -72,33 +72,7 @@ export function parseVenue(
   // so blank-col0 continuation rows (| | VENUE ADDRESS | ... |) are attributed correctly.
   let inV2VenueBlock = false;
 
-  // UNKNOWN_FIELD scope guard: true once we've resolved the first venue field;
-  // set to false when we encounter a known block-terminator header row so we
-  // don't false-positive on other blocks' rows that appear later in the document.
-  let inVenueFieldScope = false;
-
-  // Block headers that signal we've left the venue block entirely.
-  // These are strong v4/v2/v1 block-opener labels (all-caps or well-known names).
-  const VENUE_BLOCK_TERMINATORS = new Set([
-    "CREW",
-    "TECH",
-    "DATES",
-    "TRANSPORTATION",
-    "HOTEL",
-    "HOTELS",
-    "ROOMS",
-    "CONTACTS",
-    "DETAILS",
-    "EVENT DETAILS",
-    "GS DETAILS",
-    "PULL SHEET",
-    "PULL",
-    "DIAGRAMS",
-    "CLIENT",
-    "SCHEDULE",
-  ]);
-
-  for (const row of rows) {
+  for (const { cells: row, opener } of rows) {
     const col0 = row[0] ?? "";
     const col0Upper = col0.toUpperCase().trim();
     const col0Full = resolveAliasFull(col0);
@@ -113,26 +87,30 @@ export function parseVenue(
       if (fuzzy?.corrected) {
         col0Canon = fuzzy.canonical;
         fieldLabelCorrectedTo = fuzzy.canonical;
+        // A fuzzy recovery IS a resolution (spec §3.3 resolution-site semantics), so it
+        // ledgers like the exact branch. Without this the row drives field assignment,
+        // emits FIELD_LABEL_AUTOCORRECTED, and THEN the near-miss detector calls the same
+        // row unrecognized — two contradictory warnings about a row the parser understood
+        // (whole-diff r3 P1, probed with `Venue-Address`, an ordinary punctuation edit).
+        markConsumed(agg, opener, clean(col0), clean(row[1] ?? ""));
       }
     }
 
-    // Check for block terminators — if we see a strong block-opener label, leave
-    // the venue field scope so UNKNOWN_FIELD stops firing for other blocks' rows.
-    // Use prefix matching since some headers include slashes (e.g. "TRANSPORTATION/Equipment Transporter").
-    if (col0 !== "" && inVenueFieldScope) {
-      const upperTrimmed = col0Upper;
-      const isTerminator =
-        VENUE_BLOCK_TERMINATORS.has(upperTrimmed) ||
-        [...VENUE_BLOCK_TERMINATORS].some(
-          (t) => upperTrimmed.startsWith(t + "/") || upperTrimmed.startsWith(t + " "),
-        );
-      if (isTerminator) {
-        inVenueFieldScope = false;
-      }
-    }
+    // TYPO_NORMALIZED is gated on VENUE-BLOCK MEMBERSHIP (field-near-miss spec §2.1),
+    // not on the retired positional scope window. The predicate is the one the near-miss
+    // detector's anchor-namespace mapping uses for its "venue" arm — same helper, same
+    // token set — so a row's block reads identically on both sides. Content-keyed, so it
+    // is swap-invariant: the opener text moves with its rows.
+    //
+    // Consequence, deliberate: a v4 two-column sheet opens its venue table on `VENUE NAME`
+    // rather than a standalone `VENUE` cell, so those rows are NOT the "venue" namespace
+    // and a typo alias sitting in one stays silent. The corpus census is 0 either way
+    // (every `Hotal Contact Info` row sits in a hotel block), which is the ratified
+    // outcome; the emission stays REACHABLE through the v2 three-column shape.
+    const inVenueBlock = matchesSectionHeader(opener, SECTION_HEADER_TOKENS);
 
-    // Emit TYPO_NORMALIZED if col0 matched a known-typo alias (only within venue scope)
-    if (col0Full?.isTypo && agg && inVenueFieldScope) {
+    // Emit TYPO_NORMALIZED if col0 matched a known-typo alias inside the venue block.
+    if (col0Full?.isTypo && agg && inVenueBlock) {
       agg.warnings.push({
         severity: "info",
         code: "TYPO_NORMALIZED",
@@ -146,13 +124,14 @@ export function parseVenue(
     // recovered a misspelled label — preserving venue's operator visibility (NOT the silent
     // info downgrade). `message` is the internal admin diagnostic; the user sees the catalog
     // copy ("Auto-corrected a field label"). canonical is the precise internal identifier.
-    // NOTE: intentionally NOT gated on `inVenueFieldScope`. `fieldLabelCorrectedTo` is row-local
-    // (re-declared null each iteration, above) and is set ONLY when the venue-scoped
-    // `resolveAliasScoped(col0, "venue.")` returns a `corrected` hit — so a non-null value already
-    // proves a venue field-label correction happened on THIS row. Gating on `inVenueFieldScope`
-    // (which the field-assignment branches below only flip true AFTER this check) silently
-    // suppressed the warn for a misspelled FIRST venue field row (idx53) — a silent re-route,
-    // violating spec §2 rule 4 "always warn". The TYPO_NORMALIZED emit above keeps its scope gate.
+    // NOTE: intentionally UNGATED — no block-membership test, no scope test.
+    // `fieldLabelCorrectedTo` is row-local (re-declared null each iteration, above) and is
+    // set ONLY when the venue-scoped `resolveAliasScoped(col0, "venue.")` returns a
+    // `corrected` hit — so a non-null value already proves a venue field-label correction
+    // happened on THIS row. The retired positional gate (which the field-assignment
+    // branches below only flipped true AFTER this check) silently suppressed the warn for a
+    // misspelled FIRST venue field row (idx53) — a silent re-route, violating spec §2 rule 4
+    // "always warn". The TYPO_NORMALIZED emit above keeps a gate; this one must not.
     if (fieldLabelCorrectedTo && agg) {
       agg.warnings.push({
         severity: "warn",
@@ -181,13 +160,10 @@ export function parseVenue(
         const val = presence(row[2] ?? "");
         if (subCanon === "venue.name" && val && name === null) {
           name = val;
-          inVenueFieldScope = true;
         } else if (subCanon === "venue.address" && val && address === null) {
           address = val;
-          inVenueFieldScope = true;
         } else if (subCanon === "venue.loading_dock" && val && loadingDock === null) {
           loadingDock = val;
-          inVenueFieldScope = true;
         } else if (subCanon === null && presence(subLabel) !== null && name === null) {
           // col1 doesn't resolve to a field label but is non-empty.
           // Special case: "VENUE NAME/VENUE ADDRESS" combined label — split value on first '/'.
@@ -224,16 +200,12 @@ export function parseVenue(
       const val = presence(row[2] ?? "");
       if (subCanon === "venue.address" && val && address === null) {
         address = val;
-        inVenueFieldScope = true;
       } else if (subCanon === "venue.loading_dock" && val && loadingDock === null) {
         loadingDock = val;
-        inVenueFieldScope = true;
       } else if (subCanon === "venue.google_link" && val && googleLink === null) {
         googleLink = val;
-        inVenueFieldScope = true;
       } else if (subCanon === "venue.notes" && val && notes === null) {
         notes = val;
-        inVenueFieldScope = true;
       }
       continue;
     }
@@ -258,7 +230,6 @@ export function parseVenue(
       const valCanon = val !== null ? resolveAlias(val) : null;
       if (val && valCanon === null && name === null) {
         name = val;
-        inVenueFieldScope = true;
       }
       continue;
     }
@@ -269,7 +240,6 @@ export function parseVenue(
       // protects against reference-table header rows. No ordering requirement.
       if (val && valCanon === null && address === null) {
         address = val;
-        inVenueFieldScope = true;
       }
       continue;
     }
@@ -278,7 +248,6 @@ export function parseVenue(
       // Fix 4: anyVenueFieldSet guard removed — no ordering requirement.
       if (val && loadingDock === null) {
         loadingDock = val;
-        inVenueFieldScope = true;
       }
       continue;
     }
@@ -289,7 +258,6 @@ export function parseVenue(
       // Fix 4: anyVenueFieldSet guard removed — no ordering requirement.
       if (val && googleLink === null) {
         googleLink = val;
-        inVenueFieldScope = true;
       }
       continue;
     }
@@ -300,19 +268,15 @@ export function parseVenue(
       // Fix 4: anyVenueFieldSet guard removed — no ordering requirement.
       if (val && notes === null) {
         notes = val;
-        inVenueFieldScope = true;
       }
       continue;
     }
 
-    // UNKNOWN_FIELD: col0 is non-empty, not a scope marker ("VENUE"), not a
-    // blank-continuation row, resolves to no canonical, AND we are inside the
-    // active venue field scope (at least one venue field seen, block not yet
-    // terminated by a known block-opener).
-    if (agg && inVenueFieldScope && col0 !== "" && col0Upper !== "VENUE" && col0Canon === null) {
-      const rawVal = presence(row[1] ?? "") ?? "";
-      emitUnknownField(agg, { block: "venue", kind: "venue", key: col0.trim(), value: rawVal });
-    }
+    // NO UNKNOWN_FIELD here. The positional scope window this file used to carry — open at
+    // the first resolved venue field, close at a terminator label — swept ~380 junk rows
+    // out of neighbouring blocks and changed its emission set whenever a block moved.
+    // `detectFieldNearMisses` (lib/parser/fieldNearMiss.ts), called once at the document
+    // seam in lib/parser/index.ts, owns the code now and keys on row CONTENT alone.
   }
 
   if (!name) return null;

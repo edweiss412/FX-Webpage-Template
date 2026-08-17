@@ -36,6 +36,7 @@ import {
 import { admin } from "./helpers/supabaseAdmin";
 import { setCrewRoleLocked } from "./helpers/lockedCrewRestriction";
 import { settleDashboardAdminState } from "./helpers/dashboardState";
+import { awaitReviewModalOrRecover, openShowReviewModal } from "./helpers/openShowReviewModal";
 import {
   CONTENT_SWAP_TIMEOUT_MS,
   SECTION_FRESHNESS_FLASH_MS_E2E,
@@ -318,11 +319,10 @@ async function runScenario(browser: Browser): Promise<ScenarioOutcome> {
 
     await signInAs(page, ADMIN_FIXTURE);
     const gotoAt = Date.now();
-    await page.goto(`/admin?show=${seeded.slug}`);
 
     // Gate 1: loaded modal + the post-open ?show= RSC refresh COMPLETED
     // (network-observed; a content marker cannot prove the refresh finished).
-    await expect(page.locator(MODAL)).toBeVisible({ timeout: MODAL_OPEN_TIMEOUT_MS });
+    await openShowReviewModal(page, seeded.slug, { timeoutMs: MODAL_OPEN_TIMEOUT_MS });
     const openResp = await poll(
       () =>
         requests.find(
@@ -787,7 +787,10 @@ test.describe("published review modal — realtime broadcast refresh (realtime-r
       await page.goto("/admin");
       await waitForRowHydration(page, seeded.slug);
       await page.click(`[data-testid="shows-table-row-${seeded.slug}"]`);
-      await expect(page.locator(MODAL)).toBeVisible({ timeout: MODAL_OPEN_TIMEOUT_MS });
+      await awaitReviewModalOrRecover(page, {
+        timeoutMs: MODAL_OPEN_TIMEOUT_MS,
+        label: "click:dashboard-row",
+      });
 
       // SUBSCRIBED on the wire before any stimulus: the file's own comments
       // record that a broadcast fired before the join is simply dropped, which

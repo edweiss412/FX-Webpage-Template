@@ -114,6 +114,15 @@ export type ParseWarning = {
     subject: string | null;
     corrections: { detected: string; corrected: string }[];
   };
+  // The vocabulary label the near-miss detector matched this row's label against, as
+  // its RAW spelling (spec 2026-08-15-field-near-miss-detector-design §3.1 tie-break:
+  // `Address:` carries `VENUE ADDRESS`, never a lowercased normalized form). STRUCTURED
+  // so a surface reads the suggestion instead of parsing it back out of `message` (§5).
+  // Set by `emitUnknownField` when a candidate is supplied; ABSENT on every other code,
+  // and absent on an UNKNOWN_FIELD emitted without one (absence discriminates).
+  // jsonb-persisted on shows_internal.parse_warnings and pending_syncs.parse_result —
+  // additive, backward-compatible, no migration (mirrors `roleToken`, `autocorrect`).
+  candidate?: string;
 };
 export type ParseError = { code: string; message: string; blockRef?: { kind: string } };
 
