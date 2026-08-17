@@ -1002,7 +1002,7 @@ export function modalStateScenarios(): AttentionScenario[] {
       ],
       // All codes cataloged (invariant 5): MI11_* and UNDO_NOT_FOUND are the
       // components' real error codes; SYNC_INFRA_ERROR is what the accept
-      // actions actually emit (app/admin/_actions/autoApplied.ts:51,86).
+      // actions actually emit (app/admin/_actions/autoApplied.ts:53,89).
       actionOutcomes: {
         approve: { kind: "error", code: "MI11_TARGET_MOVED" },
         reject: { kind: "error", code: "MI11_DRIVE_RECHECK_FAILED" },

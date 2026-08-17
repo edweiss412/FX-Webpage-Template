@@ -505,18 +505,6 @@ gh api -X POST repos/edweiss412/FX-Webpage-Template/branches/main/protection/req
 Run it, confirm with `gh api repos/edweiss412/FX-Webpage-Template/branches/main/protection/required_status_checks --jq '.contexts'`,
 then archive this entry. Nothing else is owed.
 
-## BL-SERVER-ACTION-ORIGIN-GATE-SWEEP — gate the remaining destructive Server Actions on same-origin
-
-**Status:** OPEN · **Severity:** low · **Surfaced:** `fix/auth-picker-hardening` spec/plan (2026-08-15) · **Effort:** M
-
-`fix/auth-picker-hardening` closes the crew picker's identity-clear actions (`clearIdentity` / `clearIdentityAndSkip` / `clearIdentityCore`) with `isSameOriginServerAction()` (`lib/auth/sameOriginServerAction.ts`), a proxy-independent Fetch-Metadata gate that never trusts `x-forwarded-host`/`host`. That helper reduces each peer destructive Server Action to a one-line guard, but the arc deliberately scoped itself to the picker surface (class-sweep disposition exception (c): a redesign spanning enough sites to blow the review scope).
-
-**Reachable surface (stated, not probed here):** `rg -n '"use server"' lib app` at authoring time returned 38 files; not all are destructive, and the exact destructive set is the first step of this entry. Each destructive exported action that mutates on a forced cross-site POST has the same logout/CSRF shape as the filed `BL-SERVER-ACTION-ORIGIN-GATE`, minus a demonstrated higher-impact payload.
-
-**Trigger / first step:** enumerate the destructive `"use server"` exports; gate each on `isSameOriginServerAction()` (admin actions behind a `require`-gate get it additively). Admin mutating routes under `app/api/admin/` are a separate transport (route handlers, not actions) and are out of this entry's scope.
-
----
-
 ## BL-SWITCH-PERSON-GOOGLE-LOOPBACK — menu "Switch person" is ineffective for a Google-authenticated viewer
 
 **Status:** OPEN · **Severity:** low · **Class:** UX correctness / product decision · **Surfaced:** `fix/auth-picker-hardening` spec R1-F1 (2026-08-15) · **Effort:** M
@@ -1258,6 +1246,57 @@ signature of a class that wants a rule.
 **Reachability:** PROBED in the originating filing (three rounds, three live instances). Filed
 under class-sweep exception (c). May share one lint surface with
 `BL-PLANLINT-ACCEPT-SET-CALIBRATION-PROBE`; the implementing arc decides and records it.
+
+## BL-SURFACE-DISCOVERY-UNNAMEABLE-ACTION-FORMS — the invariant-10 engine misses Server Action forms Next registers
+
+**Status:** OPEN. · **Filed:** 2026-08-16, from the diff review round-1 finding on
+`fix/server-action-origin-sweep` (`docs/review-rounds/fix/server-action-origin-sweep/`) ·
+**Severity:** high · **Class:** shared guard infrastructure (`tests/log/mutationSurface/enumerate.ts`) ·
+**Effort:** M
+
+`collectSurfaceUnits` models specific export and action forms, and Next registers several it does
+not. Probed against the live engine, each returning ZERO units: a paren-wrapped module export
+(`export const x = (async () => {})`), an export aliased through an intermediate binding
+(`const a = impl; export { a as doIt }`), an ANONYMOUS inline action passed straight to a JSX
+`action={...}` prop, and an inline object method. All four are ordinary things a contributor may
+write.
+
+The blast radius is wider than the arc that found it. **Invariant 10's own mutation-surface
+observability walk runs the same discovery**, so a mutating action in one of these forms is a dark
+mutation surface there too — it is not merely ungated, it is uninstrumented, and
+`tests/log/_metaMutationSurfaceObservability.test.ts` reports nothing because the unit never exists.
+
+**Reachability:** PROBED — the reviewer demonstrated it with an in-memory Next 16.3 transformer
+showing all eight probed forms register (`CROSS_SITE_UNGATED_MUTATIONS=8/8`), and it was reproduced
+independently against the committed engine with four fixtures. Filed under class-sweep exception (c):
+repairing discovery is a redesign of shared invariant-10 infrastructure that
+`fix/server-action-origin-sweep` does not otherwise touch, and widening the recognizer is the repair
+direction AGENTS.md warns against taking casually. The origin walk closes its own exposure by
+failing CLOSED on anything discovery cannot classify (spec §7), so nothing is silently ungated in
+the meantime; what this entry buys is the same protection for invariant 10, and discovery that is
+total rather than merely honest about its gaps.
+
+## BL-PLANLINT-RED-CLAIM-EXECUTION — a plan's declared red is executed, not just parsed
+
+**Status:** OPEN. · **Filed:** 2026-08-16, from
+`docs/review-rounds/fix/server-action-origin-sweep/119895a7c756.md` (plan §, Mechanizable arm 2) ·
+**Severity:** medium · **Class:** plan-lint arm (sibling of the resolved
+`BL-SPECLINT-RED-EXECUTABILITY-ARM`, which shipped the DECLARATION and stopped there) ·
+**Effort:** M
+
+The `red-contract` arm parses every task marker and validates the `red-target` citation's grammar;
+what it never does is EXECUTE the claim. An arm that ran `vitest list` on each `red=` command and
+asserted the declared `red-target`'s file appears in the collected set would settle a whole family
+of plan defects mechanically — a `red=` that collects nothing, a declared RED that is a PASS, a RED
+cause that is vacuous over an empty array, a whole-suite green asserted on a branch where a guard is
+red by design.
+
+**Reachability:** PROBED in the originating filing — five findings across four plan rounds of one
+arc, each one a pass/fail state the branch could not produce, and each found by the reviewer running
+the declared command by hand. The collection case (R3 #1) is the sharpest: the declared `red=`
+command could not collect its own `red-target`, because that file lives only in a vitest project
+gated behind `VITEST_INCLUDE_MUTATION_HARNESS=1`. Filed under class-sweep exception (c): a lint
+surface of its own, in a tree this arc does not otherwise touch.
 
 ## BL-SPECLINT-POSTREPAIR-FORWARD-REF-SWEEP — a repair round stale-ifies forward references the term-grep cannot see
 

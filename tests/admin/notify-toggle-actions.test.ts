@@ -50,6 +50,32 @@ vi.mock("@/lib/supabase/server", () => ({
 // tests/log/adminOutcomeBehavior.test.ts).
 vi.mock("@/lib/log/logAdminOutcome", () => ({ logAdminOutcome: vi.fn(async () => undefined) }));
 
+// ── same-origin gate plumbing (origin-sweep spec §6B, class-A representative) ──
+// This suite mocked `next/headers` not at all, which matters more than it looks:
+// a missing `headers` export lands the gate in its no-request-scope catch-allow,
+// so a "cross-site" case would be ALLOWED rather than refused and would prove
+// nothing. The default below is same-origin, so every pre-existing case above
+// still passes the gate and keeps exercising the real body.
+const originHeaders = vi.hoisted(
+  () => new Map<string, string>([["sec-fetch-site", "same-origin"]]),
+);
+vi.mock("next/headers", () => ({
+  headers: async () => ({ get: (k: string) => originHeaders.get(k.toLowerCase()) ?? null }),
+}));
+const forbiddenSpy = vi.hoisted(() =>
+  vi.fn((): never => {
+    throw new Error("NEXT_HTTP_ERROR_FALLBACK;403");
+  }),
+);
+vi.mock("next/navigation", () => ({ forbidden: forbiddenSpy }));
+const logMock = vi.hoisted(() => ({
+  warn: vi.fn(),
+  error: vi.fn(),
+  info: vi.fn(),
+  debug: vi.fn(),
+}));
+vi.mock("@/lib/log", () => ({ log: logMock }));
+
 import { setAlertOnSyncProblems } from "@/app/admin/settings/_actions/setAlertOnSyncProblems";
 import { setDailyReviewDigest } from "@/app/admin/settings/_actions/setDailyReviewDigest";
 import { setAlertOnAutoPublish } from "@/app/admin/settings/_actions/setAlertOnAutoPublish";
@@ -100,5 +126,57 @@ describe.each(CASES)("$name (invariant-9 setter)", ({ action, column }) => {
     requireAdmin.mockRejectedValueOnce(new Error("AdminInfraError"));
     await expect(action(true)).rejects.toThrow(/AdminInfraError/);
     expect(from).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The class-A representative behavioral proof (origin-sweep spec §6B.1).
+ *
+ * A STANDALONE describe, deliberately NOT a row inside `describe.each(CASES)`
+ * above: a premise or baseline written inside an `.each` callback is unreachable
+ * in exactly the degenerate case it guards against, which the project rule
+ * forbids. Both cases below run on the SAME spies, so the baseline is what
+ * proves the zero-call assertion means "never reached" rather than "spy never
+ * records".
+ */
+describe("setAlertOnAutoPublish — the same-origin gate (class-A representative)", () => {
+  const setOrigin = (value: string): void => {
+    originHeaders.clear();
+    originHeaders.set("sec-fetch-site", value);
+  };
+
+  beforeEach(() => {
+    select.mockResolvedValue({ data: [{ id: "default" }], error: null });
+  });
+  afterEach(() => {
+    setOrigin("same-origin");
+  });
+
+  it("refuses a cross-site request BEFORE the app_settings UPDATE, and emits", async () => {
+    // `cross-site` is the truth table's own reject row, not an ad-hoc header set.
+    setOrigin("cross-site");
+    await expect(setAlertOnAutoPublish(true)).rejects.toThrow("NEXT_HTTP_ERROR_FALLBACK;403");
+    expect(update).toHaveBeenCalledTimes(0);
+    expect(requireAdmin).toHaveBeenCalledTimes(0);
+    expect(forbiddenSpy).toHaveBeenCalledTimes(1);
+    expect(logMock.warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        code: "SERVER_ACTION_ORIGIN_REJECTED",
+        action: "setAlertOnAutoPublish",
+        source: "admin.settings.alertOnAutoPublish",
+      }),
+    );
+  });
+
+  it("same-origin baseline, same spies: the UPDATE is reached and performed", async () => {
+    // Asserts the MUTATION, not merely `{ ok: true }` — a return-value-only
+    // baseline is satisfied by an implementation that reached no mutation at
+    // all, and would leave the zero-call assertion above unfalsifiable.
+    setOrigin("same-origin");
+    await expect(setAlertOnAutoPublish(true)).resolves.toEqual({ ok: true });
+    expect(update).toHaveBeenCalledWith({ alert_on_auto_publish: true });
+    expect(logMock.warn).not.toHaveBeenCalled();
+    expect(forbiddenSpy).not.toHaveBeenCalled();
   });
 });

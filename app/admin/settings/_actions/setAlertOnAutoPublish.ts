@@ -22,6 +22,7 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin, requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
+import { assertSameOriginServerAction } from "@/lib/auth/sameOriginServerAction";
 
 export type SetAlertOnAutoPublishResult = { ok: true } | { ok: false };
 
@@ -29,6 +30,7 @@ export async function setAlertOnAutoPublish(next: boolean): Promise<SetAlertOnAu
   // Defense-in-depth gate. AdminInfraError propagates to the catalog 500 boundary
   // (invariant 9 — infra faults are never swallowed into a benign action result);
   // a non-admin identity throws here before any write.
+  await assertSameOriginServerAction("setAlertOnAutoPublish", "admin.settings.alertOnAutoPublish");
   await requireAdmin();
   // Actor identity resolved BEFORE the mutation (cached; invariant 10, §5.1).
   const { email } = await requireAdminIdentity();

@@ -13,6 +13,10 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { buildShowReturnUrl } from "@/lib/crew/buildShowReturnUrl";
 import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { log } from "@/lib/log";
+import {
+  isSameOriginServerAction,
+  rejectCrossOriginPicker,
+} from "@/lib/auth/sameOriginServerAction";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,80}$/;
@@ -35,6 +39,7 @@ type SelectIdentityRpcRow = {
 };
 
 export async function selectIdentity(formData: FormData): Promise<SelectIdentityResult> {
+  if (!(await isSameOriginServerAction())) return rejectCrossOriginPicker("selectIdentity");
   const slug = formData.get("slug");
   const shareToken = formData.get("shareToken");
   const crewMemberId = formData.get("crewMemberId");
@@ -100,6 +105,7 @@ export async function selectIdentityCore(
   input: SelectIdentityInput,
 ): Promise<SelectIdentityResult> {
   // no-telemetry: try/catch wrapper; PICKER_IDENTITY_SELECTED emit fires at the mutation boundary in selectIdentityCoreImpl
+  if (!(await isSameOriginServerAction())) return rejectCrossOriginPicker("selectIdentityCore");
   try {
     return await selectIdentityCoreImpl(input);
   } catch {

@@ -6,7 +6,7 @@ const ALL_IDS = new Set<SectionId>([...BASE_SECTION_IDS, "budget"]);
  * The complete set of `?gate=` values the live app accepts. The crew show
  * route (`app/show/[slug]/[shareToken]/page.tsx:75`) tests `gate === "skip"`
  * and nothing else; `"skip"` is the only value ever written into a URL
- * (`_SignInOrSkipGate.tsx:115`, `lib/auth/picker/clearIdentity.ts:47`). The
+ * (`_SignInOrSkipGate.tsx:115`, `lib/auth/picker/clearIdentity.ts:122`). The
  * section sub-nav re-emits `gate` ONLY when the incoming value is in this set,
  * so a hand-crafted `?gate=<anything-else>` is dropped from nav URLs rather
  * than propagated. Single source of truth for the gate allow-list (Task 12).

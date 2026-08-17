@@ -3,6 +3,7 @@
 import { requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
+import { assertSameOriginServerAction } from "@/lib/auth/sameOriginServerAction";
 
 // not-subject-to-revalidate (nav-perf tag-caching Task 9): rotating the share token mutates only
 // shows.share_token / picker_epoch — picker/auth columns NOT in the getShowForViewer DATA
@@ -27,6 +28,7 @@ export async function rotateShareToken(input: {
   showId: string;
   previousShareToken?: string;
 }): Promise<RotateShareTokenResult> {
+  await assertSameOriginServerAction("rotateShareToken", "admin.picker.rotateShareToken");
   const { email } = await requireAdminIdentity();
 
   try {

@@ -5,6 +5,7 @@ import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { hashForLog } from "@/lib/email/hashForLog";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
+import { assertSameOriginServerAction } from "@/lib/auth/sameOriginServerAction";
 
 // not-subject-to-revalidate (nav-perf tag-caching Task 9): resetting the picker epoch mutates only
 // shows.picker_epoch — a picker/auth column NOT in the getShowForViewer DATA projection. The
@@ -15,6 +16,7 @@ type ResetPickerEpochResult =
   | { ok: false; code: "PICKER_RESOLVER_LOOKUP_FAILED" };
 
 export async function resetPickerEpoch(input: { showId: string }): Promise<ResetPickerEpochResult> {
+  await assertSameOriginServerAction("resetPickerEpoch", "admin.picker.resetEpoch");
   const adminCtx = await requireAdminIdentity();
 
   try {

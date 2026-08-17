@@ -11,7 +11,7 @@
  * would silently observe "no_selection" instead of the staged state.
  *
  * Cookie attributes mirror the canonical server writer
- * (lib/auth/picker/selectIdentity.ts:136-142): httpOnly, secure, sameSite=Lax.
+ * (lib/auth/picker/selectIdentity.ts:170-176): httpOnly, secure, sameSite=Lax.
  * We pass `url` (NOT `domain`+`path`) — Playwright derives the path from the
  * url and REJECTS passing both `url` and `path` ("Cookie should have either url
  * or path"). The url's path is `/`, which is what the `__Host-` prefix requires.

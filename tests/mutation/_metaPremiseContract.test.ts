@@ -47,6 +47,14 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // diffHunks count-collapse pair (BL-MUTATION-LEDGERGIT-SITE-DRIFT) builds a
   // throwaway repo, so it counts as environment-touching like its
   // single-line sibling.
+  // Seven: the truth-table `.each` (one classification for the whole table),
+  // the unresolvable-site-origin row, the no-request-scope row, the scoped-catch
+  // sibling, the two assertSameOriginServerAction cases, and the derived
+  // no-dark-refusal sweep (which calls the throwing member and so reaches
+  // resolveSiteOrigin). The proxy-independence guard is environment-FREE: it
+  // parses a committed file and touches no ambient state. Decided per case from
+  // what each case does and only THEN checked against the scanner.
+  "tests/auth/sameOriginServerAction.test.ts": 7,
   "tests/scripts/ledgerClaimsCheck.test.ts": 16,
   // chore/guard-completeness-wave (2026-08-15): the spawn-seam suite, enrolled as
   // ledgerGit's second suite. All 16 of its cases import `realGitSurface`, so the scanner

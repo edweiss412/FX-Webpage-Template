@@ -80,19 +80,19 @@ export const PRODUCER_CONTEXT_LIST: ProducerContextEntry[] = [
   },
   // 5. app/auth/callback/route.ts:173-178 — global
   { code: "CALLBACK_CLAIM_THREW", showId: null, context: { error_name: "TypeError" } },
-  // 6. lib/auth/picker/cleanupStaleEntry.ts:105-113
+  // 6. lib/auth/picker/cleanupStaleEntry.ts:111-119
   {
     code: "PICKER_SELECTION_RACE",
     showId: SHOW_ID,
     context: { show_id: SHOW_ID, stale_epoch: 1, stale_crew_member_id: CREW_ID },
   },
-  // 7. lib/auth/picker/resetPickerEpoch.ts:27-34
+  // 7. lib/auth/picker/resetPickerEpoch.ts:29-36
   {
     code: "PICKER_EPOCH_RESET",
     showId: SHOW_ID,
     context: { show_id: SHOW_ID, new_epoch: 2, admin_email_hash: "h" },
   },
-  // lib/auth/picker/selectIdentity.ts:74 — global (showId null on the rejected-tamper path)
+  // lib/auth/picker/selectIdentity.ts:79 — global (showId null on the rejected-tamper path)
   {
     code: "PICKER_IDENTITY_CLAIMED_TAMPER",
     showId: null,

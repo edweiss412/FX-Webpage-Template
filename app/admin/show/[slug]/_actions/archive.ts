@@ -20,8 +20,10 @@ import { revalidateShow } from "@/lib/data/showCacheTag";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import { archiveShow, type LifecycleResult } from "@/lib/showLifecycle/archiveShow";
 import { resolveShowBySlug, SHOW_NOT_FOUND } from "./shared";
+import { assertSameOriginServerAction } from "@/lib/auth/sameOriginServerAction";
 
 export async function archiveShowAction(slug: string): Promise<LifecycleResult> {
+  await assertSameOriginServerAction("archiveShowAction", "admin.show.archive");
   await requireAdmin();
   const { email } = await requireAdminIdentity();
   const resolved = await resolveShowBySlug(slug);
