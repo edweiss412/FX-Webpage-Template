@@ -19,6 +19,7 @@ import {
   scanBody,
   type SurfaceUnit,
 } from "./mutationSurface/enumerate";
+import { discoveryGaps } from "./mutationSurface/totality";
 import { walkSourceFiles } from "@/lib/messages/__internal__/walkSourceFiles";
 import { AUDITABLE_MUTATIONS, type AuditableMutation } from "./_auditableMutations";
 import {
@@ -692,6 +693,20 @@ describe("live discovery — zero unaccounted surfaces", () => {
     expect(
       offenders,
       formatFailures(offenders.map(({ unit, decision }) => ({ unit, reason: decision.reason }))),
+    ).toEqual([]);
+  });
+
+  // The accounting above ranges over units that EXIST. A Server Action written
+  // in a form discovery cannot key produces no unit at all, so that test reports
+  // nothing about it — the dark-mutation-surface hole this closes. The
+  // reconciliation is total over both derived domains, so such a construct fails
+  // HERE, by name, carrying the rewrite that fixes it.
+  test("discovery is TOTAL over the live tree, or this meta-test fails by name (invariant-10 parity)", () => {
+    const roots = ["app", "lib", "components"];
+    const gaps = discoveryGaps(roots, collectSurfaceUnits(roots));
+    expect(
+      gaps,
+      ["surface discovery could not key these constructs:", ...gaps].join("\n  "),
     ).toEqual([]);
   });
 });
