@@ -1,5 +1,12 @@
 # Orchestrator pane compaction (project-scoped)
 
+> **The sending modes are disabled in this release.** `--checkpoint`, `--compact` and
+> `--resume` refuse immediately and name `BL-PANE-COMPACTION-SEND-AUTHORIZATION`. What ships
+> is the classifier and the read-only surfaces: the default report, `--check` and `--json`.
+> Everything below about the three-step protocol describes the design those modes will
+> implement when the authorization arc lands; it is not what the shipped binary does today.
+
+
 Extracted so it loads on demand instead of in every session. This file is canonical for its
 subject and carries the same authority as `AGENTS.md`; `AGENTS.md` links here. Applies to every
 agent harness working in this repo.

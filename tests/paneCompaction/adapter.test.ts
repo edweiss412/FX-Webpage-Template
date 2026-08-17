@@ -19,11 +19,8 @@ import { execFileSync } from "node:child_process";
 
 import { describe, expect, it } from "vitest";
 
-import { CHECKPOINT_TEXT, RESUME_TEXT, classifyGh } from "@/scripts/lib/pane-compaction-core";
+import { classifyGh } from "@/scripts/lib/pane-compaction-core";
 import {
-  MALFORMED_MARKER,
-  SendFailed,
-  unknownBucketOf,
   type Surface,
   main,
   parseAgentGet,
@@ -378,57 +375,6 @@ describe("rule 5 compares the marker against the PANE's session, not against --a
   });
 });
 
-describe("--dry-run shows the refusal it would hit, and spends nothing", () => {
-  it("--compact --dry-run refuses on an absent nonce instead of printing /compact", () => {
-    // AC-19. A dry run that prints the command when the real one would exit 1
-    // tells an operator it is ready to go, which is worse than no dry run.
-    const run = drive(["--compact", "wM:p1", "--as", "sess-1", "--dry-run"], {
-      marker: () => ({
-        branch: "feat/alpha",
-        stage: "x",
-        sessionId: "sess-target",
-        blockedOn: "",
-        checkpointNonce: "n1",
-      }),
-    });
-    expect(run.code).toBe(1);
-    expect(run.lines.join("\n")).not.toContain("/compact");
-    expect(run.sent).toEqual([]);
-  });
-
-  it("--checkpoint --dry-run does not WRITE a nonce", () => {
-    // The mirror of the consume case, and the more dangerous of the two: a dry
-    // run that stored a freshly minted nonce would overwrite the record, and the
-    // target — which never saw this prompt — could then never satisfy the real
-    // --compact that follows.
-    const written: string[] = [];
-    const { surface, run } = fakeSurface({
-      nonceWrite: (sessionId, paneId, nonce) => written.push(`${sessionId}/${paneId}/${nonce}`),
-    });
-    const code = main(["--checkpoint", "wM:p1", "--as", "sess-1", "--dry-run"], surface);
-    expect(code).toBe(0);
-    premiseHolds("the dry run really did produce the prompt", run.raw.join("").length > 0);
-    expect(written).toEqual([]);
-    expect(run.sent).toEqual([]);
-  });
-
-  it("--compact --dry-run does not CONSUME the nonce it checked", () => {
-    // Reading and comparing is the gate; spending it is the side effect. A dry
-    // run that consumed would make the real --compact that follows it fail.
-    const consumed: string[] = [];
-    const { surface, run } = fakeSurface({
-      marker: () => fullMarker({ checkpointNonce: "n1" }),
-      nonceRead: () => "n1",
-      nonceConsume: (sessionId, paneId) => consumed.push(`${sessionId}/${paneId}`),
-    });
-    const code = main(["--compact", "wM:p1", "--as", "sess-1", "--dry-run"], surface);
-    expect(code).toBe(0);
-    expect(run.raw.join("")).toContain("/compact");
-    expect(consumed).toEqual([]);
-    expect(run.sent).toEqual([]);
-  });
-});
-
 describe("every refusal NAMES its reason", () => {
   it("--check without --as exits 1 and says so", () => {
     const run = drive(["--check"]);
@@ -436,554 +382,93 @@ describe("every refusal NAMES its reason", () => {
     expect(run.lines.join("\n")).toContain("--as");
   });
 
-  it("--as followed by a flag is a MISSING --as, not an orchestrator named --dry-run", () => {
-    // Swallowing the flag would invent an identity AND drop the option behind
-    // it. §6 turns on --as being explicit and never inferred.
-    const run = drive(["--checkpoint", "wM:p1", "--as", "--dry-run"]);
-    expect(run.code).toBe(1);
-    expect(run.lines.join("\n")).toContain("--as");
-    expect(run.sent).toEqual([]);
-  });
-
   it("--all is rejected by name rather than silently ignored", () => {
-    const run = drive(["--compact", "--all", "--as", "sess-1"]);
+    // Reached through a NON-sending mode now: the send fence returns before
+    // argv is validated further, so `--compact --all` reports the fence. That
+    // ordering is deliberate -- "this command is disabled" is the more relevant
+    // truth than "and also --all is not accepted".
+    const run = drive(["--all", "--check", "--as", "sess-1"]);
     expect(run.code).toBe(1);
     expect(run.lines.join("\n")).toContain("--all");
   });
-
-  it("an unresolvable target exits 1 naming it, and sends nothing", () => {
-    const run = drive(["--compact", "wM:pZZ", "--as", "sess-1"]);
-    expect(run.code).toBe(1);
-    expect(run.lines.join("\n")).toContain("wM:pZZ");
-    expect(run.sent).toEqual([]);
-  });
-
-  it("a herdr FAULT is not reported as a missing target", () => {
-    // `herdr agent get` exits 0 for a missing target and puts the answer in a
-    // structured code, so a fault and a typo are distinguishable only by that
-    // code. Calling a broken tool "not found" sends an operator to check their
-    // spelling while the tool is what is wrong — and it is exit 2, untrusted,
-    // not exit 1.
-    const run = drive(["--compact", "wM:p1", "--as", "sess-1"], {
-      resolveTarget: () => ({ fault: "herdr server unreachable" }),
-    });
-    expect(run.code).toBe(2);
-    expect(run.lines.join("\n")).toContain("herdr server unreachable");
-    expect(run.lines.join("\n")).not.toContain("agent_not_found");
-    expect(run.sent).toEqual([]);
-  });
-
-  it("a target herdr resolves but the roster does not carry gets its OWN reason", () => {
-    // A pane closing between the roster read and the resolve. Neither a typo nor
-    // a fault, so it says what actually happened.
-    const run = drive(["--compact", "wM:p1", "--as", "sess-1"], {
-      resolveTarget: () => ({ paneId: "wM:pGONE" }),
-    });
-    expect(run.code).toBe(1);
-    expect(run.lines.join("\n")).toContain("wM:pGONE");
-    expect(run.sent).toEqual([]);
-  });
-
-  it("accepts a target only herdr can resolve — a terminal id, not a pane id or label", () => {
-    // The gap that matching the roster ourselves would leave: herdr resolves
-    // terminal ids and agent names too, and rejecting them would tell a user a
-    // legitimate target does not exist.
-    const run = drive(["--checkpoint", "term_65931c3", "--as", "sess-1"], {
-      resolveTarget: () => ({ paneId: "wM:p1" }),
-    });
-    expect(run.code).toBe(0);
-    expect(run.sent.map((x) => x.target)).toContain("wM:p1");
-  });
-
-  it("a sending mode with NO target says so, rather than blaming --as or the resolver", () => {
-    // Absent is not unresolvable, and neither is a missing --as. A refusal that
-    // named the wrong condition would send an operator to fix the wrong thing.
-    const run = drive(["--compact", "--as", "sess-1"]);
-    expect(run.code).toBe(1);
-    const text = run.lines.join("\n");
-    expect(text).toContain("target");
-    expect(text).not.toContain("--as");
-    expect(text).not.toContain("agent_not_found");
-    expect(run.sent).toEqual([]);
-  });
-
-  it("a driving command without --as exits 1 rather than inferring an orchestrator", () => {
-    const run = drive(["--checkpoint", "wM:p1"]);
-    expect(run.code).toBe(1);
-    expect(run.lines.join("\n")).toContain("--as");
-    expect(run.sent).toEqual([]);
-  });
 });
 
-describe("the three commands", () => {
-  it("--resume refused by an observation names the RULE, not COMPACT-or-FORCE", () => {
-    // Diff round 1, finding 7 (P1). Every rule 1-8 stop printed "verdict is X,
-    // which is not COMPACT or FORCE" -- false for an observation stop, and
-    // flatly wrong for --resume, whose whole point is that it requires neither
-    // verdict. An operator told the wrong reason debugs the wrong thing.
-    const { surface, run: r } = fakeSurface({
-      marker: () => fullMarker({ blockedOn: "waiting on CI" }),
-    });
-    const code = main(["--resume", "wM:p1", "--as", "sess-1"], surface);
-    expect(code).toBe(1);
-    const out = r.lines.join("\n");
-    expect(out).toContain("rule 7");
-    expect(out).not.toContain("not COMPACT or FORCE");
-  });
+describe("the send fence refuses the COMMAND, without observing the pane", () => {
+  // The send path is deferred to its own arc
+  // (BL-PANE-COMPACTION-SEND-AUTHORIZATION) after five review rounds produced a
+  // P0 in every one, all of them here from round 3 on.
+  //
+  // These cases assert something STRONGER than the ones they replace: not just
+  // that nothing is sent, but that nothing is READ. That is the property which
+  // makes the refusal message true. One of the defects being fenced was a
+  // refusal that named the wrong condition -- "marker carries no
+  // checkpointNonce" while a matching nonce sat in the marker -- and a fence
+  // placed after observation could reproduce exactly that, refusing a disabled
+  // command by citing whatever pane state it happened to find.
+  const MODES = ["--checkpoint", "--compact", "--resume"] as const;
 
-  it("a rule 4 refusal names the offending field (AC-4)", () => {
-    // "UNDETERMINED naming the offending field" is the whole clause; a refusal
-    // that cannot say which field does not satisfy it.
-    const { surface, run: r } = fakeSurface({
-      marker: () => fullMarker({ surpriseKey: 1 }),
-    });
-    const code = main(["--checkpoint", "wM:p1", "--as", "sess-1"], surface);
-    expect(code).toBe(1);
-    expect(r.lines.join("\n")).toContain("marker.surpriseKey");
-  });
-
-  it("the default report does not call a singly-claimed pane UNOWNED", () => {
-    // Diff round 1, finding 5 (P1). Report mode passes "" as the caller, and
-    // `resolveOwnership` treated "not you" as unowned, so the plain report --
-    // the one used between protocol steps -- labelled every claimed pane UNOWNED.
-    const { surface, run: r } = fakeSurface();
-    const code = main([], surface);
-    expect(code).toBe(0);
-    const row = r.lines.find((l) => l.includes("wM:p1")) ?? "";
-    expect(row).not.toContain("UNOWNED");
-  });
-
-  it("a pane claimed by another orchestrator is refused BY NAME, not driven", () => {
-    // The hole the fix above could have opened: rule 3 no longer fires for a
-    // pane someone else claims, so the drive gate must refuse it itself. Named
-    // as its own condition rather than folded into `not-drivable`, because
-    // "someone else owns this" and "this pane is not ready" are different things
-    // for an operator to act on.
-    const sent: Array<{ target: string; text: string }> = [];
-    const { surface, run: r } = fakeSurface({
-      send: (target, text) => sent.push({ target, text }),
-    });
-    const code = main(["--checkpoint", "wM:p1", "--as", "not-the-owner"], surface);
-    expect(code).toBe(1);
-    expect(sent).toEqual([]);
-    expect(r.lines.join("\n")).toContain("claimed by");
-  });
-
-  it("AC-13: a purview transfer between observation and send refuses, having sent nothing", () => {
-    // Diff round 2, finding 4 (P0), through the REAL revalidate closure rather
-    // than a stubbed one. Ownership moves from the caller to exactly one other
-    // owner, which leaves the verdict COMPACT while `inPurview` goes false --
-    // so a revalidation comparing only the verdict passed it through and sent.
-    //
-    // The closure builds a FRESH cache, so `purview()` is called again; this
-    // fixture answers differently on the second read, which is what a concurrent
-    // registry write looks like from here.
-    const row = {
-      paneId: "wM:p1",
-      agentName: "feat/alpha",
-      branch: "feat/alpha",
-      dispatchedAt: "2026-08-16T00:00:00Z",
-    };
-    let reads = 0;
-    const sent: Array<{ target: string; text: string }> = [];
-    const { surface, run: r } = fakeSurface({
-      marker: () => fullMarker({ checkpointNonce: "n1" }),
-      nonceRead: () => "n1",
+  it.each(MODES)("%s refuses and reads NOTHING", (mode) => {
+    const reads: string[] = [];
+    const { surface, run } = fakeSurface();
+    const watched: Surface = {
+      ...surface,
+      roster: () => {
+        reads.push("roster");
+        return surface.roster();
+      },
+      marker: (cwd) => {
+        reads.push("marker");
+        return surface.marker(cwd);
+      },
+      gh: (cwd) => {
+        reads.push("gh");
+        return surface.gh(cwd);
+      },
+      screen: (id) => {
+        reads.push("screen");
+        return surface.screen(id);
+      },
       purview: () => {
-        reads += 1;
-        // First read: ours. Every later read: transferred to one other owner,
-        // which keeps it singly-claimed and therefore still COMPACT-shaped.
-        return [{ sessionId: reads === 1 ? "sess-1" : "sess-other", rows: [row] }];
+        reads.push("purview");
+        return surface.purview();
       },
-      send: (target, text) => sent.push({ target, text }),
-    });
-    const code = main(["--compact", "wM:p1", "--as", "sess-1"], surface);
-    premiseHolds("the purview was actually re-read after the first observation", reads > 1);
-    expect(code).toBe(1);
-    expect(sent).toEqual([]);
-    expect(r.lines.join("\n")).toContain("purview");
-  });
-
-  it.each(["--checkpoint", "--resume"])(
-    "%s revalidates before sending, like --compact does",
-    (mode) => {
-      // Diff round 5, finding 1 (P0). Only --compact revalidated; the other two
-      // observed once and then sent, so a marker that changed in between was
-      // never seen. §6's first guarantee is that no pane is driven while any
-      // rule 1-8 condition holds, and "held when we looked" is not that.
-      let reads = 0;
-      const sent: Array<{ target: string; text: string }> = [];
-      const { surface, run: r } = fakeSurface({
-        marker: () => {
-          reads += 1;
-          // Blocked from the SECOND read on: quiet at observation, blocked at
-          // the send.
-          return fullMarker(reads > 1 ? { blockedOn: "waiting on CI" } : {});
-        },
-        send: (target, text) => sent.push({ target, text }),
-      });
-      const code = main([mode, "wM:p1", "--as", "sess-1"], surface);
-      premiseHolds("the marker was re-read for revalidation", reads > 1);
-      expect(code).toBe(1);
-      expect(sent).toEqual([]);
-      void r;
-    },
-  );
-
-  it("a pane that leaves the roster refuses with THAT reason, not a nonce reason", () => {
-    // Diff round 5, finding 4 (P1) -- a defect in my own round-4 repair. The
-    // disappearance case returned the STALE report with a null nonce, so the
-    // "left the roster" branch compared the pane against itself and could never
-    // fire, and the null nonce then refused with "marker carries no
-    // checkpointNonce" while a MATCHING nonce sat in the marker. A refusal that
-    // names the wrong condition sends an operator to fix the wrong thing.
-    let rosterReads = 0;
-    const sent: Array<{ target: string; text: string }> = [];
-    const { surface, run: r } = fakeSurface({
-      marker: () => fullMarker({ checkpointNonce: "n1" }),
-      nonceRead: () => "n1",
-      send: (target, text) => sent.push({ target, text }),
-    });
-    const base = surface.roster();
-    const patched: Surface = {
-      ...surface,
-      roster: () => {
-        rosterReads += 1;
-        return rosterReads === 1 ? base : base.filter((p) => p.paneId !== "wM:p1");
+      resolveTarget: (t) => {
+        reads.push("resolveTarget");
+        return surface.resolveTarget(t);
       },
     };
-    const code = main(["--compact", "wM:p1", "--as", "sess-1"], patched);
-    expect(code).toBe(1);
-    expect(sent).toEqual([]);
-    const out = r.lines.join("\n");
-    expect(out).toContain("left the roster");
-    expect(out).not.toContain("checkpointNonce");
-  });
-
-  it("AC-17: a sessionId change that PRESERVES the nonce still refuses", () => {
-    // Diff round 4, finding 1 (P0) -- the FOURTH appearance of one class. By
-    // this round the roster was re-read and the whole decision compared, and the
-    // marker was STILL read twice: once inside revalidation's observe, once by
-    // the nonce thunk. A takeover that changed `sessionId` between those two
-    // reads while preserving the nonce passed rule 5 on the stale copy and sent.
-    //
-    // The repair is one snapshot per authorization, so this counts MARKER READS
-    // and asserts the decision cannot straddle two of them.
-    let markerReads = 0;
-    let sessionId = "sess-target";
-    const sent: Array<{ target: string; text: string }> = [];
-    const { surface } = fakeSurface({
-      nonceRead: () => "n1",
-      marker: () => {
-        markerReads += 1;
-        // Flip on the read that the OLD code used for revalidation, leaving the
-        // nonce untouched so only rule 5 can catch it.
-        if (markerReads > 1) sessionId = "sess-successor";
-        return fullMarker({ sessionId, checkpointNonce: "n1" });
-      },
-      send: (target, text) => sent.push({ target, text }),
-    });
-    const code = main(["--compact", "wM:p1", "--as", "sess-1"], surface);
-    expect(code).toBe(1);
-    expect(sent).toEqual([]);
-  });
-
-  it("AC-17: a takeover between observation and send refuses, having sent nothing", () => {
-    // Diff round 3, finding 1 (P0). Revalidation re-observed but reused the
-    // ORIGINAL roster and pane, so every roster-derived rule (1, 2, 5, 7) was
-    // frozen. A takeover swapping `agent_session` mid-command was invisible:
-    // rosterReads stayed 1 and `/compact` went out.
-    //
-    // Third appearance of one class -- round 1 froze the nonce, round 2 froze
-    // the comparison, round 3 froze the roster. The repair is that revalidation
-    // re-reads EVERY input, so this asserts the roster is read more than once.
-    let rosterReads = 0;
-    const sent: Array<{ target: string; text: string }> = [];
-    const { surface, run: r } = fakeSurface({
-      marker: () => fullMarker({ checkpointNonce: "n1" }),
-      nonceRead: () => "n1",
-      send: (target, text) => sent.push({ target, text }),
-    });
-    const base = surface.roster();
-    const patched: Surface = {
-      ...surface,
-      roster: () => {
-        rosterReads += 1;
-        // First read: the session that owns the marker. Later reads: a takeover
-        // has replaced it, which is exactly what AC-17 asks rule 5 to catch.
-        return base.map((p) =>
-          p.paneId === "wM:p1"
-            ? { ...p, agentSession: rosterReads === 1 ? "sess-target" : "sess-successor" }
-            : p,
-        );
-      },
-    };
-    const code = main(["--compact", "wM:p1", "--as", "sess-1"], patched);
-    premiseHolds("the roster was actually re-read for revalidation", rosterReads > 1);
-    expect(code).toBe(1);
-    expect(sent).toEqual([]);
-    void r;
-  });
-
-  it("herdr agent get returning literal null is a named fault, not a crash", () => {
-    // Diff round 3, finding 2 (P0), second half. `JSON.parse("null")` succeeds
-    // and `typeof null === "object"`, so the property reads threw instead of
-    // faulting. A malformed reply from a subprocess is ordinary operation.
-    const out = parseAgentGet({ exitCode: 0, stdout: "null", stderr: "" });
-    expect("fault" in out).toBe(true);
-  });
-
-  it("a gh table containing a null row is a named rejection, not a crash", () => {
-    expect(unknownBucketOf({ exitCode: 0, stdout: "[null]", stderr: "" })).toBe("(missing)");
-  });
-
-  it("a marker whose known key holds the wrong TYPE is not driven", () => {
-    // Diff round 2, finding 1 (P0), end to end.
-    const sent: Array<{ target: string; text: string }> = [];
-    const { surface } = fakeSurface({
-      marker: () => ({ sessionId: 123 }),
-      send: (target, text) => sent.push({ target, text }),
-    });
-    expect(main(["--checkpoint", "wM:p1", "--as", "sess-1"], surface)).toBe(1);
-    expect(sent).toEqual([]);
-  });
-
-  it("an unrecognized gh bucket is not driven", () => {
-    // Diff round 2, finding 2 (P0), end to end.
-    const sent: Array<{ target: string; text: string }> = [];
-    const { surface } = fakeSurface({
-      gh: () => ({ exitCode: 0, stdout: '[{"bucket":"mystery"}]', stderr: "" }),
-      send: (target, text) => sent.push({ target, text }),
-    });
-    expect(main(["--checkpoint", "wM:p1", "--as", "sess-1"], surface)).toBe(1);
-    expect(sent).toEqual([]);
-  });
-
-  it("a corpus whose only verdict row has an unparsable timestamp is not driven", () => {
-    // Diff round 2, finding 3 (P0), end to end.
-    const sent: Array<{ target: string; text: string }> = [];
-    const { surface } = fakeSurface({
-      corpus: () => [{ status: "verdict", verdict: "APPROVE", endedAt: "not-a-date" }],
-      send: (target, text) => sent.push({ target, text }),
-    });
-    expect(main(["--checkpoint", "wM:p1", "--as", "sess-1"], surface)).toBe(1);
-    expect(sent).toEqual([]);
-  });
-
-  it("a second positional target is refused, never silently ignored", () => {
-    // Diff round 2, finding 5 (P1), end to end. Refused BEFORE any observation.
-    const sent: Array<{ target: string; text: string }> = [];
-    const { surface, run: r } = fakeSurface({
-      send: (target, text) => sent.push({ target, text }),
-    });
-    expect(main(["--checkpoint", "wM:p1", "wM:p2", "--as", "sess-1"], surface)).toBe(1);
-    expect(sent).toEqual([]);
-    expect(r.lines.join("\n")).toContain("single target");
-  });
-
-  it("a refused send is a named fault, not a silent success", () => {
-    // Diff round 1, finding 4 (P1). `send` discarded the exit code and the
-    // command returned 0 regardless, so a refused send reported success. An
-    // injected throwing send also escaped `main` entirely.
-    const { surface, run: r } = fakeSurface({
-      send: (target) => {
-        throw new SendFailed(target, "no such pane");
-      },
-    });
-    const code = main(["--checkpoint", "wM:p1", "--as", "sess-1"], surface);
+    const code = main([mode, "wM:p1", "--as", "sess-1"], watched);
     expect(code).toBe(2);
-    expect(r.lines.join("\n")).toContain("failed");
-  });
-
-  it("a refused --compact says the checkpoint must be re-minted", () => {
-    // The consequence an operator cannot infer: --compact consumes the nonce
-    // BEFORE sending, so the obvious retry refuses. Without this line the tool
-    // reports a failure whose only remedy looks like the thing that just failed.
-    const { surface, run: r } = fakeSurface({
-      marker: () => fullMarker({ checkpointNonce: "n1" }),
-      nonceRead: () => "n1",
-      send: (target) => {
-        throw new SendFailed(target, "pane closed");
-      },
-    });
-    const code = main(["--compact", "wM:p1", "--as", "sess-1"], surface);
-    expect(code).toBe(2);
-    expect(r.lines.join("\n")).toContain("re-run --checkpoint");
-  });
-
-  it("a corpus tie for newest verdict is UNDETERMINED, and is not driven", () => {
-    // Diff round 1, finding 6 (P1). Spec §3.5 and the §9 table both say a tie
-    // yields UNDETERMINED; nothing implemented it, so the winner was whichever
-    // row was read first. Position feeds the band, so that arbitrary pick chose
-    // between row 4 (triage pending, High) and row 6 (verdict recorded, Low) --
-    // between holding a pane and compacting it.
-    const sent: Array<{ target: string; text: string }> = [];
-    const { surface } = fakeSurface({
-      corpus: () => [
-        { status: "verdict", verdict: "APPROVE", endedAt: "2026-01-01T00:00:00Z" },
-        { status: "verdict", verdict: "NEEDS-ATTENTION", endedAt: "2026-01-01T00:00:00Z" },
-      ],
-      send: (target, text) => sent.push({ target, text }),
-    });
-    const code = main(["--checkpoint", "wM:p1", "--as", "sess-1"], surface);
-    expect(code).toBe(1);
-    expect(sent).toEqual([]);
-  });
-
-  it("AC-4: exit-zero gh with an unparseable table is UNDETERMINED, and is not driven", () => {
-    // Diff round 1, finding 2 (P0), end to end. The reviewer's probe was exactly
-    // this: `exitCode:0, stdout:"{"` exited 0 and SENT both checkpoint bytes.
-    const sent: Array<{ target: string; text: string }> = [];
-    const { surface } = fakeSurface({
-      gh: () => ({ exitCode: 0, stdout: "{", stderr: "" }),
-      send: (target, text) => sent.push({ target, text }),
-    });
-    const code = main(["--checkpoint", "wM:p1", "--as", "sess-1"], surface);
-    expect(code).toBe(1);
-    expect(sent).toEqual([]);
-  });
-
-  it("AC-4: a marker that is present but corrupt is UNDETERMINED, and is not driven", () => {
-    // The absent-versus-malformed collapse, the half that is not about gh.
-    // `readJson` returned null for both, and absent is a SUPPORTED state
-    // (AC-20), so a half-written marker read as "no marker" and drove on.
-    // `--checkpoint` asks the target to rewrite this very file, so the adapter
-    // creates the interleaving itself.
-    const sent: Array<{ target: string; text: string }> = [];
-    const { surface } = fakeSurface({
-      marker: () => MALFORMED_MARKER,
-      send: (target, text) => sent.push({ target, text }),
-    });
-    const code = main(["--checkpoint", "wM:p1", "--as", "sess-1"], surface);
-    expect(code).toBe(1);
-    expect(sent).toEqual([]);
-  });
-
-  it("an ABSENT marker still drives, so the fix did not swallow the supported case", () => {
-    // The discrimination is the point: if malformed and absent both refused, the
-    // bug would read as fixed while the tool stopped working on every pane whose
-    // worktree has no marker yet.
-    const { run: r } = fakeSurface();
-    const out = drive(["--checkpoint", "wM:p1", "--as", "sess-1"], { marker: () => null });
-    expect(out.code).toBe(0);
-    expect(out.sent.length).toBeGreaterThan(0);
-    void r;
-  });
-
-  it("AC-16: a labelled pane that resolves to no worktree branch is NOT-AN-ARC", () => {
-    // Diff round 1, finding 1 (P0). The adapter took the label's mere EXISTENCE
-    // as proof of an arc, so the orchestrator panes -- labelled precisely
-    // because they dispatch arcs rather than being one -- classified as
-    // drivable. The reviewer probed `bl-mediums-orchestrator` and a checkpoint
-    // was SENT to it. Spec §3.6 names that pane and `smalls-batch-orchestrator`
-    // as the two live cases; `git worktree list` resolves neither.
-    //
-    // The override is the point: the fake's DEFAULT resolves every roster label,
-    // so this case must remove one to say anything at all.
-    const { surface, run: r } = fakeSurface({ branches: () => new Set(["feat/beta"]) });
-    const code = main([], surface);
-    expect(code).toBe(0);
-    // wM:p1 carries `feat/alpha`, which the branch set above deliberately omits.
-    const row = r.lines.find((l) => l.includes("wM:p1")) ?? "";
-    expect(row).toContain("NOT-AN-ARC");
-    // The RAW label still shows, so an operator can see WHY it is not an arc.
-    expect(row).toContain("feat/alpha");
-  });
-
-  it("AC-16: a pane that is not an arc is never driven", () => {
-    const sent: Array<{ target: string; text: string }> = [];
-    const { surface } = fakeSurface({
-      branches: () => new Set(["feat/beta"]),
-      send: (target, text) => sent.push({ target, text }),
-    });
-    const code = main(["--checkpoint", "wM:p1", "--as", "sess-1"], surface);
-    expect(code).toBe(1);
-    expect(sent).toEqual([]);
-  });
-
-  it("--checkpoint sends the spec text with the minted nonce substituted", () => {
-    const run = drive(["--checkpoint", "wM:p1", "--as", "sess-1"]);
-    expect(run.code).toBe(0);
-    const text = run.sent.map((s) => s.text).join("");
-    expect(text).toContain("nonce-fresh");
-    expect(text).toContain(CHECKPOINT_TEXT.replace("<NONCE>", "nonce-fresh"));
-    expect(run.sent.every((s) => s.target === "wM:p1")).toBe(true);
-  });
-
-  it("--resume sends the resume text", () => {
-    const run = drive(["--resume", "wM:p1", "--as", "sess-1"], {
-      screen: () => gaugeFor(2),
-    });
-    expect(run.sent.map((s) => s.text).join("")).toContain(RESUME_TEXT);
-  });
-
-  it("--resume refuses when an OBSERVATION stopped the pane, not merely when banding says WAIT", () => {
-    // Rule 7 (a non-empty blockedOn) and rules 11/12 (banding) both yield WAIT,
-    // so a verdict-based gate cannot tell them apart and would drive a pane an
-    // observation had stopped. The rule number is what discriminates.
-    const blocked = {
-      branch: "feat/alpha",
-      stage: "x",
-      sessionId: "sess-target",
-      blockedOn: "waiting on a human",
-    };
-    // The premise is about the FIXTURE, read off the fixture — not a restatement
-    // of the thing under test.
-    premiseHolds("the fixture carries a blockedOn for rule 7 to fire on", blocked.blockedOn !== "");
-    // Pressure that would otherwise band to COMPACT, so the refusal cannot be
-    // credited to a quiet pane.
-    const run = drive(["--resume", "wM:p1", "--as", "sess-1"], {
-      marker: () => blocked,
-      screen: () => gaugeFor(6),
-    });
-    expect(run.code).toBe(1);
+    expect(reads).toEqual([]);
     expect(run.sent).toEqual([]);
   });
 
-  it("--dry-run prints the bytes and sends NOTHING", () => {
-    const run = drive(["--checkpoint", "wM:p1", "--as", "sess-1", "--dry-run"]);
-    expect(run.code).toBe(0);
+  it.each(MODES)("%s --dry-run is fenced too, and prints no bytes", (mode) => {
+    // A dry run of a disabled command must not print the payload it would have
+    // sent: that reads as "ready to go" for a command that cannot run.
+    const { surface, run } = fakeSurface();
+    const code = main([mode, "wM:p1", "--as", "sess-1", "--dry-run"], surface);
+    expect(code).toBe(2);
+    expect(run.raw).toEqual([]);
     expect(run.sent).toEqual([]);
-    expect(run.raw.join("")).toContain("nonce-fresh");
   });
 
-  it("AC-6: --compact --dry-run emits the live bytes EXACTLY, hex-compared", () => {
-    // Diff round 3, finding 4 (P1). The dry run routed `\r` through the
-    // line-oriented `out`, so `/compact\r` printed as `/compact\n\r\n`
-    // (2f636f6d706163740a0d0a) where the live path sends 2f636f6d706163740d. A
-    // dry run whose bytes differ from the real ones previews nothing -- and
-    // this surface's entire contract is which bytes reach another session.
-    //
-    // Hex, because the difference is invisible in a rendered string.
-    const dry = drive(["--compact", "wM:p1", "--as", "sess-1", "--dry-run"], {
-      marker: () => fullMarker({ checkpointNonce: "n1" }),
-      nonceRead: () => "n1",
-    });
-    const live = drive(["--compact", "wM:p1", "--as", "sess-1"], {
-      marker: () => fullMarker({ checkpointNonce: "n1" }),
-      nonceRead: () => "n1",
-    });
-    premiseHolds("the live path actually sent something", live.sent.length > 0);
-    const hex = (s: string): string => Buffer.from(s, "utf8").toString("hex");
-    expect(hex(dry.raw.join(""))).toBe(hex(live.sent.map((x) => x.text).join("")));
-    expect(dry.sent).toEqual([]);
+  it("says WHY, and does not blame the pane", () => {
+    const { surface, run } = fakeSurface();
+    main(["--compact", "wM:p1", "--as", "sess-1"], surface);
+    const out = run.lines.join("\n");
+    expect(out).toContain("disabled in this release");
+    expect(out).toContain("BL-PANE-COMPACTION-SEND-AUTHORIZATION");
+    // The message must not imply anything was inspected.
+    expect(out).toContain("nothing was observed");
   });
 
-  it("emits no ESC byte on the live send path, across every command", () => {
-    for (const cmd of ["--checkpoint", "--compact", "--resume"]) {
-      const run = drive([cmd, "wM:p1", "--as", "sess-1"], {
-        marker: () => ({
-          branch: "feat/alpha",
-          stage: "x",
-          sessionId: "sess-1",
-          blockedOn: "",
-          checkpointNonce: "n1",
-        }),
-      });
-      premiseHolds(`${cmd} produced output to inspect`, run.sent.length + run.lines.length > 0);
-      for (const s of run.sent) expect(s.text).not.toContain("\x1b");
-      for (const l of run.lines) expect(l).not.toContain("\x1b");
-    }
+  it("the read-only surfaces still work", () => {
+    // The fence must not take the shipped half with it: the report and --check
+    // are what this release delivers.
+    expect(drive([]).code).toBe(0);
+    expect([0, 1, 2]).toContain(drive(["--check", "--as", "sess-1"]).code);
+    expect(drive(["--json"]).code).toBe(0);
   });
 });
 

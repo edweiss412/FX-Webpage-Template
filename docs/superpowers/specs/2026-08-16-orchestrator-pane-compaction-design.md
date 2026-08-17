@@ -626,6 +626,21 @@ about what this surface declines to promise.
    orchestrator believed cheaper than it was, which is the same class of outcome as the
    auto-compaction it replaces.
 
+2. **[SHIPPED DISABLED] The three sending modes are fenced in this release.** `--checkpoint`,
+   `--compact` and `--resume` refuse before any observation and name
+   `BL-PANE-COMPACTION-SEND-AUTHORIZATION`. The classifier and the read-only surfaces (default
+   report, `--check`, `--json`) ship enabled.
+
+   This is a conservative behaviour plus a surfaced signal, which is what a documented limit
+   requires: the refusal is a real disable rather than a note, and its message names the COMMAND
+   rather than the pane. That last part is load-bearing — the fence runs before anything is read, so
+   it cannot refuse a disabled command by citing pane state it happened to observe. One of the
+   defects being fenced was exactly that shape: a refusal that named the wrong condition.
+
+   Five diff rounds produced 9, 5, 4, 4, 4 findings with a P0 in every round, and from round 3 on
+   every P0 was in this path. Two repairs introduced the next round's defect. The round-economy
+   filing at `docs/review-rounds/feat/orchestrator-pane-compaction/7d332074ec97.md` is the evidence.
+
 2. **[bounded] A checkpoint can be issued and never followed by `--compact`.** The orchestrator may simply
    not run the second command. The consequence is a marker update the target performs at its own
    pace and no compaction — harmless. **The report does not surface the outstanding record**: its

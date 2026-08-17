@@ -559,6 +559,44 @@ const SENDING = new Set(["checkpoint", "compact", "resume"]);
 export function main(argv: string[], s: Surface): number {
   const opts = parseArgv(argv);
 
+  // ---------------------------------------------------------------------------
+  // FENCE: the three sending modes are DISABLED in this release.
+  // ---------------------------------------------------------------------------
+  //
+  // Placed here, before argv is validated any further and before ANY observation,
+  // and the position is the point rather than an implementation convenience.
+  //
+  // Five adversarial rounds produced findings at a flat rate (9, 5, 4, 4, 4) with
+  // a P0 in every one, and from round 3 onward EVERY P0 was in this send path.
+  // Two of the repairs introduced the next round's defect. One of those made a
+  // refusal LIE: roster disappearance was encoded as a stale report with a null
+  // nonce, so the command refused with "marker carries no checkpointNonce" while
+  // a matching nonce sat in the marker, and an operator reading it would go
+  // re-checkpoint a pane that no longer exists.
+  //
+  // That is exactly the failure a careless fence would reproduce. If this check
+  // ran AFTER observation, the tool could refuse a disabled mode by naming
+  // whatever pane condition it happened to find -- a true-sounding sentence about
+  // the wrong subject. Refusing before anything is observed means the only reason
+  // available is the real one.
+  //
+  // The classifier and the read-only surfaces (the default report, `--check`,
+  // `--json`) ship: they carry the same five rounds of repairs and are pinned by
+  // a mutation score rather than by reviewer opinion. Authorization gets its own
+  // arc; see BL-PANE-COMPACTION-SEND-AUTHORIZATION.
+  if (SENDING.has(opts.mode)) {
+    s.out(
+      "refusing: --checkpoint, --compact and --resume are disabled in this release. " +
+        "The classifier and the read-only report ship; the send path is deferred to its own arc " +
+        "(BL-PANE-COMPACTION-SEND-AUTHORIZATION). This refusal is about the COMMAND, not about " +
+        "this pane -- nothing was observed and no pane state was consulted.",
+    );
+    // 2, not 1. A refusal (1) means "asked and answered: not now"; this is
+    // "cannot answer", which is what the untrusted code has always meant, and
+    // `--check`'s contract already gives 2 that reading.
+    return 2;
+  }
+
   if (opts.all) {
     s.out(refuse({ kind: "all-rejected" }).message);
     return 1;
