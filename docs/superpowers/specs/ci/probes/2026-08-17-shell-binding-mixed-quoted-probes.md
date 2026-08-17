@@ -155,6 +155,10 @@ argument bash never passes.
    because `psql` happens to sit wholly inside the first quoted segment).
 5. **Quoted workflow `run:` scalars never reached the binding rules at all** — the plain
    `- run: "PG=psql; $PG -qAt mydb"` scores 0 today (the `"` before `PG` fails the patterns'
-   boundary class), an adjacent recall gap the word route closes structurally.
+   boundary class). *Corrected after spec round 1:* the word route does NOT close this row — the
+   scalar lexes to one assignment word whose multiword value's psql carries no flag token (the
+   `-qAt` belongs to `$PG`), so the flag criterion declines it and the zero PERSISTS as a
+   documented limit (spec §6 item 2). The measured zero above stands; this reading's original
+   forward-looking claim was wrong.
 6. **The exotic mixed spellings in non-assignment families** (`bash -c '$0 …' p'sql'` positional,
    `alias p'sql'=…`) score 0 and stay documented limits — see the spec's §6.

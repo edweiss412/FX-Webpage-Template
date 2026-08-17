@@ -416,6 +416,13 @@ describe("mixed-quoted assignment values (BL-SHELL-BINDING-MIXED-QUOTED-VALUE)",
       scanShellIndirection('X=$(PG=psql; "$PG" -qAt mydb)\n', "x.sh").length,
     ).toBeGreaterThan(0);
   });
+
+  // Spec 3.1 reporting parity (round-2 finding 2): every assignment-shaped
+  // word is examined independently - a non-qualifying one neither reports nor
+  // shadows a later binding on the same line.
+  test("a non-qualifying assignment does not shadow a later binding on the line", () => {
+    expect(scanShellIndirection("A=no PG=psql\n", "x.sh").length).toBeGreaterThan(0);
+  });
 });
 ```
 
@@ -827,7 +834,10 @@ spec's round-1 revision)
 
 Every fenced test block above was spliced into a temporary suite file and RUN against the
 unmodified tree (2026-08-16 batch lesson: executable plan blocks are executed, not read). Result:
-35 tests, 24 failed, 11 passed — matching the tasks' predictions exactly. Red: all five Task 1
+35 tests, 24 failed, 11 passed — matching the tasks' predictions exactly. (The
+non-shadowing parity pin added after spec round 2 was probed separately on the same tree:
+`A=no PG=psql` reports one hit today, per the round-2 reviewer's probe and this session's
+re-run, making 12 premise-green of 36.) Red: all five Task 1
 fidelity tests (including the wrapped-path site test — the current double-quote branch appends
 the newline into the word, so no site reports today), all thirteen Task 2 recall rows, all three
 trailing-backslash rows, the expansion-prefix widening, and both Task 3 multiword recall rows.

@@ -142,9 +142,12 @@ executable-discovery walk (`visitBody`) keeps reporting them — the same divisi
 parameter-default forms (`PG=${PSQL:-psql}`, quoted or not) keep reporting through clause 1.
 
 **Reporting shape parity.** Hits keep the exact current shape `{file, line, text}`: the rule
-contributes at most ONE hit per physical line (first candidate wins, matching today's
-one-`assigned`-per-line), `line` is the word's opening physical line (the lexer's per-word `line`,
-+1), and `text` is the comment-stripped trimmed physical line the per-line loop already computes.
+contributes at most ONE hit per physical line, `line` is the word's opening physical line (the
+lexer's per-word `line`, +1), and `text` is the comment-stripped trimmed physical line the
+per-line loop already computes. Precisely: EVERY assignment-shaped word is examined
+independently, and a line reports iff at least one QUALIFIES — a non-qualifying assignment word
+neither reports nor shadows a later word, so `A=no PG=psql` reports exactly as `PG=psql` does
+(today's behavior, confirmed by the round-2 reviewer's probe; pinned in the deciding suite).
 Implementation shape: the word pass produces a set of binding line indexes consumed by the
 existing per-line loop where `assigned`/`boundCommand` sit today, so ordering against
 `aliased`/`functionDef`/`githubEnvWrite`/`positionalBinding` and the one-hit-per-line contract are
