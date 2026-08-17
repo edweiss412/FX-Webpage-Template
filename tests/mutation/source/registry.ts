@@ -2128,4 +2128,47 @@ export const GUARD_SURFACES: GuardSurface[] = [
     },
     accepted: [],
   },
+  /**
+   * The bounded-spawn module, enrolled 2026-08-17 with a SCOPED operator subset.
+   *
+   * Only the mocked suite decides verdicts. The live process-tree suite is
+   * deliberately NOT listed: every one of its cases spawns real processes, and
+   * `suitePaths` is executed once per mutant, so listing it would multiply the
+   * whole surface's cost by a live-spawn suite for behaviour the registry
+   * cannot mutate anyway.
+   *
+   * `regex-quantifier-bound` is excluded because the module contains no regex,
+   * and `relational-boundary` because it contains no ordering comparison — both
+   * would generate zero sites rather than being a judgement call. The remaining
+   * four are the module's whole substance: the equality checks that separate a
+   * timeout from an infra fault, the connector in `killGroup`'s guard, the
+   * default ceiling, and the statements that arm and reap.
+   *
+   * The perl watchdog is a string literal and no declared operator rewrites
+   * string content (`./operators.ts:17-24`), so the registry can generate no
+   * semantic mutant of the program's behaviour: CANNOT-EXPRESS, guarded by
+   * `./spawnBounded.live.test.ts` instead (spec §8).
+   */
+  {
+    id: "spawnBounded",
+    sourcePath: "tests/mutation/source/spawnBounded.ts",
+    suitePaths: ["tests/mutation/source/spawnBounded.test.ts"],
+    operators: ["equality-flip", "logical-connector", "integer-literal", "statement-removal"],
+    // MEASURED 12/12 on 2026-08-17, no survivor and no no-op, so the floor is
+    // the score. Twelve sites: equality-flip 5, integer-literal 3,
+    // logical-connector 2, statement-removal 2. A floor of 1 means the first
+    // survivor this surface ever produces reds the gate and owes a written
+    // disposition, which is the right trade on a module this small — there is
+    // no coarse-floor slack to hide a row migrating between kinds.
+    scoreFloor: 1,
+    // Reaps the group on the arm that must NOT reap it and skips the two that
+    // must, so the suite's "never reaps after a clean exit" case and both
+    // "reaps after ..." cases move in opposite directions at once. Verified
+    // unique on the current source (grep -c -F = 1).
+    control: {
+      from: 'if (outcome.kind !== "exit") killGroup(result.pid, ownGroup);',
+      to: 'if (outcome.kind === "exit") killGroup(result.pid, ownGroup);',
+    },
+    accepted: [],
+  },
 ];

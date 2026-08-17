@@ -31,6 +31,13 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // equivalent and has no killing fixture in today's corpus
   // (BL-PREMISESCAN-ALIAS-SLICE-UNCOVERED).
   premiseScan: { equivalent: 3, "accepted-gap": 1 },
+  // spawnBounded, enrolled 2026-08-17. EMPTY, and measured rather than asserted:
+  // the scoped run scored 12/12 with no survivor to dispose of and no no-op, so
+  // there is no ledger row of any kind. The surface's `scoreFloor` is 1 to match,
+  // which makes this the strictest declaration in the table — any future row here
+  // arrives together with a floor edit and its own written argument, rather than
+  // slipping under coarse-floor slack.
+  spawnBounded: {},
   // psqlStartupScan: EIGHTEEN equivalence arguments and NO accepted gap from the
   // 2026-08-16 disposition arc (per-site reasons live on the registry rows). Thirteen of
   // the thirty-one first-run survivors were repaid with tests instead. Both counts moved
