@@ -203,6 +203,42 @@
  * runner, a container action, a non-POSIX workflow step, or any psql
  * invocation built through a glob or a `shell:` spawn option.
  *
+ * ── Documented limits (mixed-quoted values, 2026-08-17) ────────────────────
+ *
+ * Assignment VALUES are lexer-read and immune to quote concatenation, but the
+ * rule families that still read a per-line pattern are not. Each of the
+ * following is a missed report, never a false certification, and each is
+ * DECLARED in the deciding suite's "documented limits — quote-concatenated
+ * spellings outside the assignment family" block so it cannot drift silently.
+ * Design:
+ * docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md.
+ *
+ *  - Quote-concatenated spellings of a rule KEYWORD or non-assignment operand:
+ *    a mixed-quoted here-string target (`read PG <<< p'sql'` — ledger
+ *    BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE, since the lexer drops a
+ *    redirection operand before words exist), a mixed-quoted interpreter
+ *    positional (`bash -c '$0 …' p'sql'`), and a mixed-quoted `alias`/
+ *    `function` NAME. The alias case is narrower than it looks: an alias
+ *    definition is an assignment-SHAPED word, so `alias p'sql'='psql -F'` IS
+ *    reported through the assignment route; only an alias whose body binds
+ *    another program (`alias p'sql'='pgcli -F'`) escapes.
+ *  - A multiword assignment value whose psql command carries no flag-shaped
+ *    token, which is the deliberate line between a command binding and prose
+ *    (`MSG="psql failed to connect"`). This covers a quoted YAML `run:` scalar
+ *    read as one word — a binding there is one indirection deeper than the
+ *    shell layer reads — and a quoted DIRECTORY component carrying IFS
+ *    whitespace (`PG='/tmp/x y/psql'`).
+ *  - A WRAPPER-prefixed multiword value whose psql path itself needs the
+ *    word-split reading (`CMD="sudo /tmp/O'Reilly/psql -X mydb"`): the split
+ *    reading requires psql at ARGV[0] and the eval reading takes the pathname
+ *    quote as syntax, so both decline. Wrapper-aware splitting is out of scope
+ *    in both directions.
+ *  - Quoting or escapes INSIDE a `${…}` expansion operand (`PG=${U:-'psql'}`),
+ *    which is data to a word the lexer keeps verbatim by design — ledger
+ *    BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE. A bare `PG=${U:-psql}` reports.
+ *  - `PG=$(x)psql`-shaped values over-report conservatively, matching the
+ *    trailing-path reading of `isPsqlCommandWord`.
+ *
  * ── Exemptions ─────────────────────────────────────────────────────────────
  *
  * A site may opt out with `psql-startup-files-ok: <reason>` in a comment on the

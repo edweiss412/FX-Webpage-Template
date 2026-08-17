@@ -4910,3 +4910,71 @@ describe("mixed-quoted assignment values (BL-SHELL-BINDING-MIXED-QUOTED-VALUE)",
     expect(scanShellIndirection(source, ".github/workflows/x.yml")).toHaveLength(0);
   });
 });
+
+describe("documented limits - quote-concatenated spellings outside the assignment family", () => {
+  // Spec §6: these families still read their KEYWORD or operand through a
+  // per-line pattern, so a quote-concatenated spelling of it is missed. The
+  // failure direction is a missed report, never a false certification. Each
+  // zero is DECLARED here so it cannot drift silently. Premises use
+  // tests/_shared/premise.ts and run in ONE test over a literal array - never
+  // inside a .each callback, per the executable-premise rule (plan round-1
+  // finding 5).
+  test("each quote-concatenated keyword/operand spelling is a declared miss", () => {
+    const rows: Array<[label: string, missed: string, plain: string]> = [
+      // ledger: BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE - the here-string
+      // target is a redirection operand the lexer drops before words exist.
+      ["a mixed-quoted here-string", "read -r PG <<< p'sql'\n", "read -r PG <<< psql\n"],
+      // The alias row's BODY deliberately binds something OTHER than psql. An
+      // alias definition is an assignment-SHAPED word, so `alias p'sql'='psql
+      // -F'` dequotes to the candidate `psql=psql -F` and the assignment route
+      // reports it incidentally - a real recall closure, since that line does
+      // rewrite psql's argv. What the `aliased` rule still cannot see is the
+      // quote-concatenated NAME itself, and that is only observable when the
+      // body binds another program: `alias p'sql'='pgcli -F'` redirects psql
+      // and stays a declared miss.
+      ["a mixed-quoted alias name", "alias p'sql'='pgcli -F'\n", "alias psql='pgcli -F'\n"],
+      [
+        "a mixed-quoted interpreter positional",
+        "bash -c '$0 -qAt mydb' p'sql'\n",
+        "bash -c '$0 -qAt mydb' psql\n",
+      ],
+      // A wrapper-prefixed quoted-directory value is declined by BOTH
+      // readings (spec 6 item 6; round-6 disposition, bl-orch option b): the
+      // split reading requires psql at argv[0], the eval reading reads the
+      // pathname quote as syntax. The premise shows wrapper-invoked psql with
+      // an unquoted path reporting via the eval reading.
+      [
+        "a wrapper-prefixed quoted-directory value",
+        'CMD="sudo /tmp/O\'Reilly/psql -X mydb"\n',
+        "CMD='sudo psql -X mydb'\n",
+      ],
+      // IFS whitespace in a quoted DIRECTORY component sends the value to the
+      // multiword branch, where a flagless path is declined - spec 6 item 5
+      // (round-4 fallout, pinned so the zero is declared).
+      ["a whitespace directory component", "PG='/tmp/x y/psql'\n", "PG='/tmp/xy/psql'\n"],
+      // ledger: BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE - the ${...} word is
+      // kept verbatim by design, so operand-INTERNAL quoting is data (plan
+      // round-2 finding 1; bash binds psql for every quoted-operand sibling).
+      ["a quoted expansion operand", "PG=${U:-'psql'}\n", "PG=${U:-psql}\n"],
+    ];
+    for (const [label, missed, plain] of rows) {
+      premiseHolds(
+        `${label}: the plain spelling reaches the rule`,
+        scanShellIndirection(plain, "x.sh").length > 0,
+      );
+      expect(scanShellIndirection(missed, "x.sh"), label).toHaveLength(0);
+    }
+  });
+
+  // The other half of the alias row above, pinned so the incidental closure is
+  // a declared behavior rather than an accident: an alias definition is an
+  // assignment-SHAPED word, so a quote-concatenated alias name whose BODY
+  // binds psql reaches the assignment route and reports. Both spellings of the
+  // name, since the point is that the name's quoting is irrelevant here.
+  test.each([
+    ["a mixed-quoted alias name", "alias p'sql'='psql -F'\n"],
+    ["a plain alias name", "alias psql='psql -F'\n"],
+  ])("%s whose body binds psql is reported", (_label, source) => {
+    expect(scanShellIndirection(source, "x.sh").length).toBeGreaterThan(0);
+  });
+});
