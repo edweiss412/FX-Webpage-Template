@@ -163,6 +163,9 @@ function makeFixture(relPath: string, contents: string): string {
   return root;
 }
 
+const unitsFor = (relPath: string, contents: string) =>
+  collectSurfaceUnits([makeFixture(relPath, contents)]);
+
 describe("collectSurfaceUnits — module-level server actions", () => {
   test("2 exported async fns → 2 module-action units, correct fn names", () => {
     const root = makeFixture(
@@ -256,5 +259,50 @@ describe("collectSurfaceUnits — admin classification", () => {
     );
     const units = collectSurfaceUnits([root]);
     expect(units[0]!.admin).toBe(false);
+  });
+});
+
+describe("collectSurfaceUnits — D2 total inline collection", () => {
+  test("inline object method carrying the directive → inline-action unit `doIt` (spec §3.6 row 4)", () => {
+    const units = unitsFor(
+      "components/x/G.tsx",
+      'export function G() {\n  const a = { async doIt() { "use server"; await db.from("t").delete(); } };\n  return a;\n}\n',
+    );
+    expect(units.map((u) => [u.fn, u.kind])).toEqual([["doIt", "inline-action"]]);
+    // anti-tautology: the resolved node is live for instrumentation — scanBody
+    // sees the fixture's write builder through the SAME node the unit carries.
+    expect(scanBody(units[0]!.node, { descend: false }).writeBuilder).toBe(true);
+  });
+
+  test("static class method carrying the directive → inline-action unit `doIt` (spec §3.6 row 9)", () => {
+    const units = unitsFor(
+      "components/x/I.tsx",
+      'export class I {\n  static async doIt() { "use server"; await db.from("t").delete(); }\n}\n',
+    );
+    expect(units.map((u) => [u.fn, u.kind])).toEqual([["doIt", "inline-action"]]);
+    expect(scanBody(units[0]!.node, { descend: false }).writeBuilder).toBe(true);
+  });
+
+  test('inline action nested inside a file-level "use server" module → BOTH units (spec §3.6 row 7)', () => {
+    const units = unitsFor(
+      "lib/x/e.ts",
+      '"use server";\nexport async function outer() {\n  const nested = async () => { "use server"; await db.from("t").delete(); };\n  return nested;\n}\n',
+    );
+    expect(units.map((u) => [u.fn, u.kind]).sort()).toEqual([
+      ["nested", "inline-action"],
+      ["outer", "module-action"],
+    ]);
+    // liveness on BOTH nodes: a correct key on the wrong node is the unpinned failure mode.
+    const nested = units.find((u) => u.fn === "nested")!;
+    expect(scanBody(nested.node, { descend: false }).writeBuilder).toBe(true);
+  });
+
+  test("a module-exported action whose body ALSO carries the directive is ONE unit, not two (dedupe by node identity)", () => {
+    const units = unitsFor(
+      "lib/x/dd.ts",
+      '"use server";\nexport const mutate = async () => { "use server"; await db.from("t").delete(); };\n',
+    );
+    expect(units.map((u) => [u.fn, u.kind])).toEqual([["mutate", "module-action"]]);
+    expect(scanBody(units[0]!.node, { descend: false }).writeBuilder).toBe(true);
   });
 });

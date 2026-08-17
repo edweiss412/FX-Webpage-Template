@@ -291,6 +291,15 @@ function collectModuleActions(sf: ts.SourceFile): { fn: string; node: ts.Node }[
 function inlineName(node: ts.Node): string | undefined {
   if ((ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node)) && node.name)
     return node.name.text;
+  // A member's own name IS its nearest naming context — object methods and
+  // class members (`static` included) have no parent binding to read.
+  if (
+    (ts.isMethodDeclaration(node) ||
+      ts.isGetAccessorDeclaration(node) ||
+      ts.isSetAccessorDeclaration(node)) &&
+    (ts.isIdentifier(node.name) || ts.isStringLiteral(node.name))
+  )
+    return node.name.text;
   const p = node.parent;
   if (p) {
     if (ts.isVariableDeclaration(p) && ts.isIdentifier(p.name)) return p.name.text;
@@ -300,16 +309,18 @@ function inlineName(node: ts.Node): string | undefined {
   return undefined;
 }
 
-/** Every function-scoped inline `"use server"` action anywhere in a file that
- * does NOT itself carry a module-level directive (a function/arrow whose
- * block body opens with the directive, e.g. a React form-action). */
+/** Every function-scoped inline `"use server"` action anywhere in a file — a
+ * function-like whose block body opens with the directive, e.g. a React
+ * form-action. Runs for EVERY file, module-directive ones included: an action
+ * nested inside a file-level `"use server"` module is still a distinct
+ * endpoint (spec §3.3 rule 1). */
 function collectInlineActions(sf: ts.SourceFile): { fn: string; node: ts.Node }[] {
   const out: { fn: string; node: ts.Node }[] = [];
   const visit = (n: ts.Node) => {
-    if (
-      (ts.isFunctionDeclaration(n) || ts.isFunctionExpression(n) || ts.isArrowFunction(n)) &&
-      functionBodyHasUseServer(n)
-    ) {
+    // `isFunctionLike` is the TOTAL predicate (mirrors the origin tripwire's
+    // counter): signature-only kinds have no body and fall out of the
+    // directive check, so the cast is safe rather than a widening.
+    if (ts.isFunctionLike(n) && functionBodyHasUseServer(n as ts.FunctionLikeDeclaration)) {
       const fn = inlineName(n);
       if (fn) out.push({ fn, node: n });
     }
@@ -334,21 +345,32 @@ function collectFileSurfaceUnits(sf: ts.SourceFile, file: string): SurfaceUnit[]
       admin: isAdminRoutePath(file),
     }));
   }
+  const units: SurfaceUnit[] = [];
+  // Module actions claim their nodes first; an inline body already emitted as a
+  // module-action is ONE unit, not two (dedupe by node identity, spec §3.3.1).
+  const taken = new Set<ts.Node>();
   if (moduleHasUseServer(sf))
-    return collectModuleActions(sf).map(({ fn, node }) => ({
+    for (const { fn, node } of collectModuleActions(sf)) {
+      taken.add(node);
+      units.push({
+        file,
+        fn,
+        kind: "module-action" as const,
+        node,
+        admin: scanBody(node, { descend: false }).adminGated,
+      });
+    }
+  for (const { fn, node } of collectInlineActions(sf)) {
+    if (taken.has(node)) continue;
+    units.push({
       file,
       fn,
-      kind: "module-action" as const,
+      kind: "inline-action" as const,
       node,
       admin: scanBody(node, { descend: false }).adminGated,
-    }));
-  return collectInlineActions(sf).map(({ fn, node }) => ({
-    file,
-    fn,
-    kind: "inline-action" as const,
-    node,
-    admin: scanBody(node, { descend: false }).adminGated,
-  }));
+    });
+  }
+  return units;
 }
 
 /** Walk `roots` (typically `app/`, `lib/`, `components/`) for every mutation

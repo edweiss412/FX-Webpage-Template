@@ -1246,12 +1246,6 @@ describe("the discovery tripwire — fixture self-tests (the round-1 and round-2
       src: 'export function F() {\n  return <form action={async () => { "use server"; await db.from("t").delete(); }} />;\n}\n',
       actions: 1,
     },
-    {
-      label: "R1: inline action as an object method",
-      rel: "components/x/G.tsx",
-      src: 'export function G() {\n  const a = { async doIt() { "use server"; await db.from("t").delete(); } };\n  return a;\n}\n',
-      actions: 1,
-    },
     // ── round 2 ──────────────────────────────────────────────────────────────
     {
       label: "R2: OBJECT binding-pattern export",
@@ -1266,24 +1260,70 @@ describe("the discovery tripwire — fixture self-tests (the round-1 and round-2
       actions: 1,
     },
     {
-      label: 'R2: inline action NESTED inside a file-level "use server" module',
-      rel: "lib/x/e.ts",
-      src: '"use server";\nexport async function outer() {\n  const nested = async () => { "use server"; await db.from("t").delete(); };\n  return nested;\n}\n',
-      actions: 2,
-    },
-    {
       label: 'R2: directive PROLOGUE — "use strict" before "use server"',
       rel: "components/x/H.tsx",
       src: 'export function H() {\n  return <form action={async () => { "use strict"; "use server"; await db.from("t").delete(); }} />;\n}\n',
       actions: 1,
     },
+  ];
+
+  /**
+   * Forms that USED to escape and now resolve to keyed units — the other half of
+   * the same matrix (spec §3.6). Each source stays byte-identical to its
+   * `ESCAPES` original so the pin's subject does not drift; the `premiseHolds`
+   * guard is REPLACED by the positive assertion, exactly as its own text
+   * demanded ("if it now discovers all N, this fixture no longer exercises the
+   * tripwire").
+   */
+  const DISCOVERED_FORMS: ReadonlyArray<{
+    label: string;
+    rel: string;
+    src: string;
+    /** `[fn, kind, the write builder is in THIS unit's own action scope]`. */
+    units: ReadonlyArray<readonly [string, SurfaceUnit["kind"], boolean]>;
+  }> = [
+    {
+      label: "R1: inline action as an object method",
+      rel: "components/x/G.tsx",
+      src: 'export function G() {\n  const a = { async doIt() { "use server"; await db.from("t").delete(); } };\n  return a;\n}\n',
+      units: [["doIt", "inline-action", true]],
+    },
+    {
+      label: 'R2: inline action NESTED inside a file-level "use server" module',
+      rel: "lib/x/e.ts",
+      src: '"use server";\nexport async function outer() {\n  const nested = async () => { "use server"; await db.from("t").delete(); };\n  return nested;\n}\n',
+      // `outer` is false BY DESIGN: the delete lives in `nested`'s scope, and an
+      // action scope does not descend into nested functions. A resolver that
+      // attached `outer`'s key to the nested body would read true here.
+      units: [
+        ["nested", "inline-action", true],
+        ["outer", "module-action", false],
+      ],
+    },
     {
       label: "R2: static class method carrying the directive",
       rel: "components/x/I.tsx",
       src: 'export class I {\n  static async doIt() { "use server"; await db.from("t").delete(); }\n}\n',
-      actions: 1,
+      units: [["doIt", "inline-action", true]],
     },
   ];
+
+  test.each(DISCOVERED_FORMS.map((d) => [d.label, d] as const))(
+    "%s is DISCOVERED as a keyed unit, and the tripwire is quiet",
+    (_label, d) => {
+      const root = makeFixture(d.rel, d.src);
+      const units = collectSurfaceUnits([root]).filter((u) => u.kind !== "route");
+      // Keys AND node liveness in one projection: a correct key attached to the
+      // WRONG node — the unpinned failure mode — moves the third element.
+      expect(
+        units
+          .map((u) => [u.fn, u.kind, scanBody(u.node, { descend: false }).writeBuilder] as const)
+          .sort(),
+        `${d.label}: unit set drifted`,
+      ).toEqual([...d.units].sort());
+      expect(undiscoverableConstructs([root], units)).toEqual([]);
+    },
+  );
 
   test.each(ESCAPES.map((e) => [e.label, e] as const))(
     "%s is SIGNALLED, never silently dropped",
