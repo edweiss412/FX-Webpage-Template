@@ -4168,13 +4168,18 @@ describe("R40 — hypothetical gaps closed cheaply; the rest are documented limi
     expect(sitesIn("C:\\pg\\bin\\psql.exe -qAt mydb\n", "x.sh")).toEqual([]);
   });
 
-  // The QUOTED form is a documented limit, pinned here so the limit is a fact
-  // rather than a claim: inside double quotes bash keeps a backslash that
-  // precedes an ordinary character, so the word really is the Windows path —
-  // but this lexer strips it. Recorded in the scan.ts residual-limits list and
-  // in DEFERRED.md; no such path exists in this tree, which is Linux-only.
-  test("a QUOTED backslash path in shell text is a KNOWN miss", () => {
-    expect(sitesIn('"C:\\pg\\bin\\psql.exe" -qAt mydb\n', "x.sh")).toEqual([]);
+  // The QUOTED form used to be a documented limit: inside double quotes bash
+  // keeps a backslash that precedes an ordinary character, so the word really
+  // is the Windows path — and this lexer stripped it. The 2026-08-17
+  // escape-fidelity fix (spec §3.2 fix 3) keeps the backslash, so the word IS
+  // the Windows path and `basename` — which has split on backslash since
+  // R40 — finds `psql.exe`. The R40-era miss is CLOSED; scan.ts
+  // residual-limits item 3 records the closure. (The old comment pointed at
+  // DEFERRED.md, where the entry no longer lives: it was demoted into the
+  // scan.ts documented-limits block on 2026-08-04, and its archive record is
+  // `PSQL-GUARD-RECALL-RESIDUAL` in DEFERRED-archive.md.)
+  test("a QUOTED backslash path in shell text is read, as of the 2026-08-17 escape-fidelity fix", () => {
+    expect(sitesIn('"C:\\pg\\bin\\psql.exe" -qAt mydb\n', "x.sh")).toHaveLength(1);
   });
 
   // The workflow BINDING tripwire stayed case-sensitive after the R39 pass made
@@ -4611,6 +4616,67 @@ describe("enrolment survivors - batch D", () => {
     // the trailing backslash IS read, so the zeros above are attributable to the
     // backslash rather than to a fixture family that never reaches the patterns.
     expect(scanShellIndirection("PG='psql'\n", "x.sh").length).toBeGreaterThan(0);
+  });
+
+  // Spec §3.2: the lexer's escape infidelities, repaired as one class. Bash is
+  // the oracle for every row (probe record, round-1 supplement).
+  describe("lexer escape fidelity (spec 3.2)", () => {
+    test("a psql command word glued to a dangling final backslash is not psql", () => {
+      // The zero below is attributable to the backslash, not to a fixture that
+      // never reaches the scanner (tests/_shared/premise.ts contract).
+      premise("the same command WITH a newline is a site", sitesIn("psql\n", "x.sh").length, 0);
+      expect(sitesIn("psql\\", "x.sh")).toHaveLength(0);
+    });
+
+    test("a certified flag glued to a dangling final backslash loses certification", () => {
+      // Bash passes the argument `--no-psqlrc\` (supplement g7), which psql's
+      // exact long-option recognition does not accept. Certifying it was a
+      // false SAFE; the site stays, unsuppressed.
+      const sites = sitesIn("psql --no-psqlrc\\", "x.sh");
+      expect(sites).toHaveLength(1);
+      expect(sites[0]!.suppressesStartupFiles).toBe(false);
+    });
+
+    test('a double-quoted "p\\sql" command word is not psql', () => {
+      // Inside double quotes a backslash is LITERAL except before $ ` " \
+      // (supplement g5: `PG="p\sql"` binds p-backslash-sql).
+      premise(
+        "the plainly double-quoted command word is a site",
+        sitesIn('"psql" -X -qAt mydb\n', "x.sh").length,
+        0,
+      );
+      expect(sitesIn('"p\\sql" -X -qAt mydb\n', "x.sh")).toHaveLength(0);
+    });
+
+    test("a double-quoted backslash-newline pair is removed, keeping the word whole", () => {
+      // The R34 wrapped-path fixture reads through the word route once the
+      // spliced consumer is gone (Task 2); this pins the LEXER half: the glued
+      // path word is one site, on the opening line.
+      const source = '"/opt/pg/\\\npsql" -X -qAt mydb\n';
+      const sites = sitesIn(source, "x.sh");
+      expect(sites).toHaveLength(1);
+    });
+
+    test("a QUOTED Windows path is now read - the R40-era known miss closes", () => {
+      // The existing suite test "a QUOTED backslash path in shell text is a
+      // KNOWN miss" pins today's zero; fix 3 makes the lexer keep the literal
+      // backslashes, the word becomes the real Windows path, and basename()
+      // already splits on backslash - so the site appears. Step 3b updates the
+      // old pin, the scan.ts residual-limits item 3, and their DEFERRED pointer.
+      const sites = sitesIn('"C:\\pg\\bin\\psql.exe" -qAt mydb\n', "x.sh");
+      expect(sites).toHaveLength(1);
+    });
+
+    test("ANSI-C escapes decode, so an escaped spelling of psql is still psql", () => {
+      // $'p\163ql' and $'\x70sql' both expand to psql (supplement g1/g2). As
+      // COMMAND words they must be sites; before the decode they lexed as their
+      // raw escape text and were silently nothing.
+      expect(sitesIn("$'p\\163ql' -X -qAt mydb\n", "x.sh").length).toBeGreaterThan(0);
+      expect(sitesIn("$'\\x70sql' -X -qAt mydb\n", "x.sh").length).toBeGreaterThan(0);
+      // An unknown escape keeps BOTH characters, as bash does: $'p\zsql' is
+      // p\zsql, never psql.
+      expect(sitesIn("$'p\\zsql' -X -qAt mydb\n", "x.sh")).toHaveLength(0);
+    });
   });
 
   // Boundary pin for the relational-boundary:2455:31, 2587:35 and 2697:32

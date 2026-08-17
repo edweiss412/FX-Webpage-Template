@@ -161,7 +161,8 @@
  * fails by default. Adversarial review rounds R28-R40 hardened the guard's
  * RECALL well past that — roughly 120 defects fixed, including several real
  * false safes — and closed every gap that touches a surface this repo uses.
- * Three demonstrated gaps remain, all on surfaces this repo does not use:
+ * Three demonstrated gaps were recorded here, all on surfaces this repo does
+ * not use; item 3 has since been CLOSED (2026-08-17), leaving two live:
  *
  * 1. A cardinality-changing GLOB in the COMMAND WORD.
  *    `/opt/homebrew/Cellar/postgresql@*` + `/` + `*` + `/bin/psql -X mydb`
@@ -177,21 +178,26 @@
  *    PowerShell splatting removes the empty `@args`, so `-F` consumes `-X`.
  *    PROBE 2026-08-04: one site, tokens `["-F", "@args", "-X", "mydb"]`,
  *    `suppressesStartupFiles: true` — certified under the POSIX reading.
- * 3. A QUOTED Windows path in SHELL text. `"C:\pg\bin\psql.exe"` — inside
- *    double quotes bash keeps a backslash that precedes an ordinary character,
- *    and this lexer strips it. The JS spawn form of the same path IS read, as
- *    of R40.
- *    PROBE 2026-08-04: zero sites — invisible, not merely uncertified. Pinned
- *    by "a QUOTED backslash path in shell text is a KNOWN miss" in
- *    `tests/cross-cutting/psqlStartupFileSuppression.test.ts`.
+ * 3. A QUOTED Windows path in SHELL text — CLOSED 2026-08-17. `"C:\pg\bin\
+ *    psql.exe"`: inside double quotes bash keeps a backslash that precedes an
+ *    ordinary character, and this lexer used to strip it (PROBE 2026-08-04:
+ *    zero sites — invisible, not merely uncertified). The mixed-quoted-value
+ *    repair's lexer-fidelity fix (`BL-SHELL-BINDING-MIXED-QUOTED-VALUE`, spec
+ *    §3.2 fix 3) keeps the literal backslash, `basename` already splits on it,
+ *    and the site now reports. Pinned by "a QUOTED backslash path in shell
+ *    text is read, as of the 2026-08-17 escape-fidelity fix" in
+ *    `tests/cross-cutting/psqlStartupFileSuppression.test.ts`. The JS spawn
+ *    form of the same path has been read since R40.
  *
  * Why recorded rather than fixed: none is a miss on any call site in this
  * tree. The census stayed 75 sites / 0 unprotected through all thirteen
  * rounds, and each of these needs a structural change (command-word glob
  * analysis, reading the spawn options object the guard deliberately does not
- * read, and a lexer change to double-quote backslash handling) whose
- * regression risk exceeds the risk it removes for a Linux-only, no-container,
- * no-Windows repository.
+ * read, and — for item 3, since carried out — a lexer change to double-quote
+ * backslash handling) whose regression risk exceeded the risk it removes for a
+ * Linux-only, no-container, no-Windows repository. Item 3's change arrived as
+ * a by-product of the mixed-quoted-value repair, which needed bash-faithful
+ * escape semantics for the assignment-binding route regardless.
  *
  * UN-DEFER TRIGGER (verbatim from the entry): this repo adding a Windows
  * runner, a container action, a non-POSIX workflow step, or any psql
@@ -786,6 +792,56 @@ function matchBrace(text: string, start: number, open: string, close: string): n
 
 type NestedShell = { text: string; line: number; offset: number; backtick: boolean };
 
+/**
+ * Decode one ANSI-C escape at `text[at] === "\\"` inside `$'…'`, per bash:
+ * the simple table, octal \nnn (1-3 digits), hex \xHH (1-2), \uHHHH (1-4),
+ * \UHHHHHHHH (1-8), control \cX. An UNKNOWN escape keeps both characters,
+ * exactly as bash does.
+ */
+function decodeAnsiCEscape(text: string, at: number): { decoded: string; consumed: number } {
+  const next = text[at + 1];
+  if (next === undefined) return { decoded: "\\", consumed: 1 };
+  const simple: Record<string, string> = {
+    a: "\x07",
+    b: "\b",
+    e: "\x1b",
+    E: "\x1b",
+    f: "\f",
+    n: "\n",
+    r: "\r",
+    t: "\t",
+    v: "\v",
+    "\\": "\\",
+    "'": "'",
+    '"': '"',
+    "?": "?",
+  };
+  const mapped = simple[next];
+  if (mapped !== undefined) return { decoded: mapped, consumed: 2 };
+  if (next >= "0" && next <= "7") {
+    const octal = /^[0-7]{1,3}/.exec(text.slice(at + 1))![0];
+    return { decoded: String.fromCharCode(parseInt(octal, 8) & 0xff), consumed: 1 + octal.length };
+  }
+  if (next === "x") {
+    const hex = /^[0-9A-Fa-f]{1,2}/.exec(text.slice(at + 2));
+    if (hex)
+      return { decoded: String.fromCharCode(parseInt(hex[0], 16)), consumed: 2 + hex[0].length };
+  }
+  if (next === "u" || next === "U") {
+    const width = next === "u" ? 4 : 8;
+    const hex = new RegExp(`^[0-9A-Fa-f]{1,${width}}`).exec(text.slice(at + 2));
+    if (hex)
+      return { decoded: String.fromCodePoint(parseInt(hex[0], 16)), consumed: 2 + hex[0].length };
+  }
+  const control = text[at + 2];
+  if (next === "c" && control !== undefined)
+    return {
+      decoded: String.fromCharCode(control.toUpperCase().charCodeAt(0) & 0x1f),
+      consumed: 3,
+    };
+  return { decoded: `\\${next}`, consumed: 2 };
+}
+
 function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
   const words: ShellWord[] = [];
   let buffer = "";
@@ -875,6 +931,12 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
         i++;
         continue;
       }
+      // A dangling backslash at end of input escapes NOTHING, so bash keeps it
+      // as a literal character of the word (`PG='psql'\` at EOF binds `psql\`).
+      // Dropping it lexed the word as bare `psql` - a site for a command that is
+      // not psql, and (post word-route) a binding the shell never makes.
+      begin(i);
+      append("\\", i, true);
       continue;
     }
 
@@ -933,8 +995,49 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
       continue;
     }
 
-    // ANSI-C (`$'…'`) and locale (`$"…"`) quoting are ordinary quoted words.
-    if (character === "$" && (text[i + 1] === "'" || text[i + 1] === '"')) {
+    // ANSI-C quoting `$'…'` DECODES its escapes (\n, \163, \x70, …) and `\'`
+    // does NOT close the string; feeding it through the plain single-quote
+    // branch read the raw escape text, so $'p\163ql' was never psql. Locale
+    // quoting `$"…"` keeps double-quote semantics: skip the `$`, let the
+    // double-quote branch run.
+    if (character === "$" && text[i + 1] === "'") {
+      // Find the closing quote FIRST, honoring \' escapes. An UNTERMINATED
+      // ANSI-C string is a shell syntax error that runs nothing (spec 6.4), so
+      // it keeps the old undecoded reading instead of decoding a fragment.
+      let close = -1;
+      for (let k = i + 2; k < text.length; k++) {
+        if (text[k] === "\\") {
+          k++;
+          continue;
+        }
+        if (text[k] === "'") {
+          close = k;
+          break;
+        }
+      }
+      begin(i);
+      if (close === -1) {
+        appendRun(text.slice(i + 2), i + 2, true);
+        i = text.length;
+        continue;
+      }
+      let k = i + 2;
+      while (k < close) {
+        if (text[k] === "\\") {
+          const { decoded, consumed } = decodeAnsiCEscape(text, k);
+          // append, NOT appendRun: a DECODED "\n" is data, not a physical line -
+          // appendRun's per-character line counting is for source text only.
+          append(decoded, k, true);
+          k += consumed;
+          continue;
+        }
+        appendRun(text[k]!, k, true); // physical chars (incl. a literal newline) count lines
+        k++;
+      }
+      i = close;
+      continue;
+    }
+    if (character === "$" && text[i + 1] === '"') {
       continue; // the quote itself is handled on the next iteration
     }
 
@@ -952,9 +1055,24 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
       i++;
       for (; i < text.length && text[i] !== '"'; i++) {
         if (text[i] === "\\" && text[i + 1] !== undefined) {
-          i++;
-          if (text[i] === "\n") line++; // a continuation still eats a line
-          append(text[i]!, i, true);
+          const escaped = text[i + 1]!;
+          if (escaped === "\n") {
+            // Bash REMOVES a backslash-newline pair inside double quotes
+            // outright (line continuation), so `"/opt/pg/\` + newline + `psql"`
+            // is the single word /opt/pg/psql. Appending the newline split the
+            // value the shell glues together.
+            line++;
+            i++;
+            continue;
+          }
+          if (escaped === "$" || escaped === "`" || escaped === '"' || escaped === "\\") {
+            append(escaped, i + 1, true); // the backslash removes its meaning
+            i++;
+            continue;
+          }
+          // Before any other character the backslash is LITERAL and both
+          // survive: "p\sql" is p-backslash-sql, never psql.
+          append("\\", i, true);
           continue;
         }
         // `"$(psql …)"` and "`psql …`" still EXECUTE inside double quotes.
