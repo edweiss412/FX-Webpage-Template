@@ -2337,17 +2337,25 @@ Expected: the first command lists the commit that ADDED the marker and this comm
 
 - [ ] **Step 6: Open the PR, assert the gate, and merge — as COMMANDS, because a pipeline cannot execute prose.** Every command below was probed against this repository on 2026-08-16; the four facts each encodes follow it.
 
+**Every block below re-derives `PR` and `SHA` from the repository.** A fenced block is a fresh shell under the normal agent execution model, so a variable captured in one block is empty in the next — round 16 measured exactly that: `PR=<>`, then `fatal: Not a valid object name`, then a Step 7 that fails on an empty `$SHA` before it can reach the `0  0` it promises. The derivation is one line and it is repeated deliberately.
+
 ```bash
-git push -u origin fix/premisescan-import-edges
+BRANCH=fix/premisescan-import-edges
+git push -u origin "$BRANCH"
 gh pr create --fill --base main
-PR=$(gh pr view --json number --jq .number)
+gh pr list --head "$BRANCH" --state all --json number,state --jq '.[0]'
 ```
+
+Expected: a JSON object with the new PR's `number`. `gh pr list --head <branch>` is the derivation used everywhere below — probed against a merged PR of this repository, where it returns `{"number":827,"state":"MERGED"}`, and against a branch with no PR, where it prints nothing and exits 0 (hence the `// empty` guards).
 
 **The required set comes FROM branch protection, never from a list typed into a plan** — a list here goes stale the day a workflow is added, and the count is the thing being asserted:
 
 ```bash
 set -o pipefail
 REPO=edweiss412/FX-Webpage-Template
+BRANCH=fix/premisescan-import-edges
+PR=$(gh pr list --head "$BRANCH" --state all --json number --jq '.[0].number // empty')
+if [ -z "$PR" ]; then echo "no PR for $BRANCH"; exit 1; fi
 REQ=$(gh api "repos/$REPO/branches/main/protection/required_status_checks" --jq '.contexts[]' | sort)
 test "$(printf '%s\n' "$REQ" | wc -l | tr -d ' ')" -eq 12 || { echo "required-context COUNT moved; re-read protection before merging"; exit 1; }
 GREEN=$(gh pr view "$PR" --json statusCheckRollup --jq '.statusCheckRollup[] | select(.conclusion=="SUCCESS") | .name' | sort -u)
@@ -2360,6 +2368,9 @@ Probed on the merged PR #827: `required count: 12`, then `all required contexts 
 **`gh pr view --json statusCheckRollup` carries NO `isRequired` field** (probed: the rows expose `name`, `status`, `conclusion`, `workflowName`, `detailsUrl`, `startedAt`, `completedAt` and nothing else), which is why the required set is read from protection and intersected by NAME rather than filtered out of the rollup. A plan that filtered on `isRequired` would silently match zero rows and report green.
 
 ```bash
+BRANCH=fix/premisescan-import-edges
+PR=$(gh pr list --head "$BRANCH" --state all --json number --jq '.[0].number // empty')
+if [ -z "$PR" ]; then echo "no PR for $BRANCH"; exit 1; fi
 gh pr merge "$PR" --merge --auto
 ```
 
@@ -2367,6 +2378,9 @@ gh pr merge "$PR" --merge --auto
 
 ```bash
 set -o pipefail
+BRANCH=fix/premisescan-import-edges
+PR=$(gh pr list --head "$BRANCH" --state all --json number --jq '.[0].number // empty')
+if [ -z "$PR" ]; then echo "no PR for $BRANCH"; exit 1; fi
 STATE=""
 for _ in $(seq 1 60); do
   STATE=$(gh pr view "$PR" --json state --jq .state)
@@ -2392,6 +2406,10 @@ echo "merged as $SHA"
 ```bash
 set -o pipefail
 MAIN=/Users/ericweiss/FX-Webpage-Template
+BRANCH=fix/premisescan-import-edges
+PR=$(gh pr list --head "$BRANCH" --state all --json number --jq '.[0].number // empty')
+SHA=$(gh pr view "$PR" --json mergeCommit --jq '.mergeCommit.oid // empty')
+if [ -z "$SHA" ]; then echo "no merge commit for PR $PR — it has not merged"; exit 1; fi
 git -C "$MAIN" pull --ff-only
 # `0  0` alone only says local matches origin. Assert THIS merge is in main.
 if ! git -C "$MAIN" merge-base --is-ancestor "$SHA" main; then
@@ -2402,7 +2420,7 @@ if [ "$COUNT" != "$(printf '0\t0')" ]; then echo "main and origin diverge: $COUN
 echo "shipped $SHA; main == origin/main"
 ```
 
-Expected: the fast-forward succeeds, the ancestry check passes, and the block's last command prints `shipped <sha>; main == origin/main` with exit 0. **Each of the three failure modes exits 1 by itself**, which is the difference between this block and the prose it replaces: `git rev-list --left-right --count` exits 0 on `27  111`, so the comparison — not the command — is the assertion. The main checkout is read-only apart from this fast-forward (AGENTS.md invariant 11).
+Expected: the fast-forward succeeds, the ancestry check passes, and the block's last command prints `shipped <sha>; main == origin/main` with exit 0. **The whole chain was probed end to end** against this repository's most recent merge, substituting that PR's head branch: it printed `PR=827`, `SHA=ad9638fa9d0141cb4008980b76997ed76fcbd67d`, then `shipped ad9638fa9d0141cb4008980b76997ed76fcbd67d; main == origin/main`, exit 0 — derivation, merge sha, ancestry and count, in one fresh shell with nothing inherited. **Each of the three failure modes exits 1 by itself**, which is the difference between this block and the prose it replaces: `git rev-list --left-right --count` exits 0 on `27  111`, so the comparison — not the command — is the assertion. The main checkout is read-only apart from this fast-forward (AGENTS.md invariant 11).
 
 <!-- tasks: end -->
 
