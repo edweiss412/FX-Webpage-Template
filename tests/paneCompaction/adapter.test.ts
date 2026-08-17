@@ -517,6 +517,85 @@ describe("the three commands", () => {
     expect(r.lines.join("\n")).toContain("claimed by");
   });
 
+  it("AC-13: a purview transfer between observation and send refuses, having sent nothing", () => {
+    // Diff round 2, finding 4 (P0), through the REAL revalidate closure rather
+    // than a stubbed one. Ownership moves from the caller to exactly one other
+    // owner, which leaves the verdict COMPACT while `inPurview` goes false --
+    // so a revalidation comparing only the verdict passed it through and sent.
+    //
+    // The closure builds a FRESH cache, so `purview()` is called again; this
+    // fixture answers differently on the second read, which is what a concurrent
+    // registry write looks like from here.
+    const row = {
+      paneId: "wM:p1",
+      agentName: "feat/alpha",
+      branch: "feat/alpha",
+      dispatchedAt: "2026-08-16T00:00:00Z",
+    };
+    let reads = 0;
+    const sent: Array<{ target: string; text: string }> = [];
+    const { surface, run: r } = fakeSurface({
+      marker: () => ({ sessionId: "sess-target", checkpointNonce: "n1" }),
+      nonceRead: () => "n1",
+      purview: () => {
+        reads += 1;
+        // First read: ours. Every later read: transferred to one other owner,
+        // which keeps it singly-claimed and therefore still COMPACT-shaped.
+        return [{ sessionId: reads === 1 ? "sess-1" : "sess-other", rows: [row] }];
+      },
+      send: (target, text) => sent.push({ target, text }),
+    });
+    const code = main(["--compact", "wM:p1", "--as", "sess-1"], surface);
+    premiseHolds("the purview was actually re-read after the first observation", reads > 1);
+    expect(code).toBe(1);
+    expect(sent).toEqual([]);
+    expect(r.lines.join("\n")).toContain("purview");
+  });
+
+  it("a marker whose known key holds the wrong TYPE is not driven", () => {
+    // Diff round 2, finding 1 (P0), end to end.
+    const sent: Array<{ target: string; text: string }> = [];
+    const { surface } = fakeSurface({
+      marker: () => ({ sessionId: 123 }),
+      send: (target, text) => sent.push({ target, text }),
+    });
+    expect(main(["--checkpoint", "wM:p1", "--as", "sess-1"], surface)).toBe(1);
+    expect(sent).toEqual([]);
+  });
+
+  it("an unrecognized gh bucket is not driven", () => {
+    // Diff round 2, finding 2 (P0), end to end.
+    const sent: Array<{ target: string; text: string }> = [];
+    const { surface } = fakeSurface({
+      gh: () => ({ exitCode: 0, stdout: '[{"bucket":"mystery"}]', stderr: "" }),
+      send: (target, text) => sent.push({ target, text }),
+    });
+    expect(main(["--checkpoint", "wM:p1", "--as", "sess-1"], surface)).toBe(1);
+    expect(sent).toEqual([]);
+  });
+
+  it("a corpus whose only verdict row has an unparsable timestamp is not driven", () => {
+    // Diff round 2, finding 3 (P0), end to end.
+    const sent: Array<{ target: string; text: string }> = [];
+    const { surface } = fakeSurface({
+      corpus: () => [{ status: "verdict", verdict: "APPROVE", endedAt: "not-a-date" }],
+      send: (target, text) => sent.push({ target, text }),
+    });
+    expect(main(["--checkpoint", "wM:p1", "--as", "sess-1"], surface)).toBe(1);
+    expect(sent).toEqual([]);
+  });
+
+  it("a second positional target is refused, never silently ignored", () => {
+    // Diff round 2, finding 5 (P1), end to end. Refused BEFORE any observation.
+    const sent: Array<{ target: string; text: string }> = [];
+    const { surface, run: r } = fakeSurface({
+      send: (target, text) => sent.push({ target, text }),
+    });
+    expect(main(["--checkpoint", "wM:p1", "wM:p2", "--as", "sess-1"], surface)).toBe(1);
+    expect(sent).toEqual([]);
+    expect(r.lines.join("\n")).toContain("single target");
+  });
+
   it("a refused send is a named fault, not a silent success", () => {
     // Diff round 1, finding 4 (P1). `send` discarded the exit code and the
     // command returned 0 regardless, so a refused send reported success. An

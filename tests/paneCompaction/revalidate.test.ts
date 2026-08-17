@@ -148,6 +148,32 @@ describe("revalidation runs immediately before sending", () => {
     expect(r.message).toContain("not the one this command recorded");
   });
 
+  it("a revalidation that only compares the verdict is not a revalidation", () => {
+    // Diff round 2, finding 4 (P0), as a CONTRACT case rather than an adapter
+    // one: `runCompact` delegates the whole freshness question to `revalidate`,
+    // so the gate's guarantee is only as good as what that callback compares.
+    // Comparing `verdict` alone let a purview TRANSFER through -- ownership
+    // moving from the caller to exactly one other owner leaves the verdict
+    // COMPACT while `inPurview` goes false, and the probe saw two purview reads
+    // and still sent (AC-13).
+    //
+    // Same shape as round 1's stale-nonce finding: re-observing and then
+    // comparing ONE field is a fresh read of a stale question.
+    const sent: string[] = [];
+    const r = runCompact({
+      store: aStore(N1),
+      markerNonce: () => N1,
+      send: (s) => sent.push(s),
+      revalidate: () => ({
+        ok: false,
+        message: "refusing: wM:p1 left owner's purview before sending",
+      }),
+    });
+    expect(r.exitCode).toBe(1);
+    expect(sent).toEqual([]);
+    expect(r.message).toContain("purview");
+  });
+
   it("revalidates BEFORE consuming, so a refusal leaves the record reusable", () => {
     // A refusal must not burn the checkpoint: the orchestrator should be able
     // to fix the condition and retry without re-checkpointing the target.

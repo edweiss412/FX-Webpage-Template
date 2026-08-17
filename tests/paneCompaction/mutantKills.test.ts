@@ -12,6 +12,7 @@ import {
   mintNonce,
   newestVerdictRow,
   newestVerdictTie,
+  corpusHasUnparsableVerdict,
   positionFor,
   refuse,
   renderRow,
@@ -351,5 +352,44 @@ describe("every observation rule refuses in its OWN words", () => {
       detail: null,
     }).message;
     expect(without).not.toContain("null");
+  });
+});
+
+describe("an unparsable verdict timestamp is NAMED, not silently dropped", () => {
+  // Diff round 2, finding 3 (P0). Spec §3.5 says such a row is "excluded AND
+  // NAMED". `newestVerdictRow` excluded it and nothing named it, so a corpus
+  // whose only verdict row had an unparsable `endedAt` inferred a position from
+  // NO verdict at all and drove. Exclusion without naming is the silent half of
+  // the same clause -- and the invalid timestamp already exists in the committed
+  // fixture, so reaching it takes removing a sibling, not constructing anything.
+  const bad: CorpusRow = { status: "verdict", verdict: "APPROVE", endedAt: "not-a-date" };
+
+  it("detects a verdict row whose endedAt does not parse", () => {
+    expect(corpusHasUnparsableVerdict([bad])).toBe(true);
+    // And it is still excluded from selection, as before.
+    expect(newestVerdictRow([bad])).toBeNull();
+  });
+
+  it("detects a null endedAt on a verdict row", () => {
+    expect(
+      corpusHasUnparsableVerdict([{ status: "verdict", verdict: "APPROVE", endedAt: null }]),
+    ).toBe(true);
+  });
+
+  it("does NOT fire on a non-verdict row carrying a bad timestamp", () => {
+    // The committed corpus holds `no_verdict` rows; treating their timestamps as
+    // a fault would demote healthy panes to UNDETERMINED for someone else's
+    // wrapper failure.
+    expect(
+      corpusHasUnparsableVerdict([{ status: "no_verdict", verdict: null, endedAt: "not-a-date" }]),
+    ).toBe(false);
+  });
+
+  it("does NOT fire on a clean corpus", () => {
+    expect(
+      corpusHasUnparsableVerdict([
+        { status: "verdict", verdict: "APPROVE", endedAt: "2026-01-01T00:00:00Z" },
+      ]),
+    ).toBe(false);
   });
 });

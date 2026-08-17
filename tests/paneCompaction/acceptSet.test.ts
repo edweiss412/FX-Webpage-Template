@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { classifyGh } from "@/scripts/lib/pane-compaction-core";
+import { GH_BUCKETS, classifyGh } from "@/scripts/lib/pane-compaction-core";
+import { rejectedFieldOf, unknownBucketOf } from "@/scripts/pane-compaction";
 import { premiseHolds } from "@/tests/_shared/premise";
 
 /**
@@ -100,5 +101,66 @@ describe("classifyGh discriminates no-PR from failure", () => {
       stderr: `X  build  fails: no pull requests found for branch "x" was logged`,
     });
     expect(out.kind).toBe("fault");
+  });
+});
+
+describe("the accept-set validates VALUES, not only shapes", () => {
+  // Diff round 2. All four P0s were ONE class: every boundary validator checked
+  // shape -- key present, is-array, parses -- and never content. Round 1's
+  // finding 2 was the same class and was fixed per-instance, which is exactly
+  // the whack-a-mole AGENTS.md's class-sweep rule exists to stop. These are the
+  // class, swept.
+  it("rejects a known marker key holding the wrong value TYPE", () => {
+    // `sessionId: 123` passed a name-only accept-set and then failed rule 5's
+    // `!==` against a string -- silently, since a number never matches a live
+    // session id. The probe exited 0 and sent both checkpoint bytes.
+    const f = rejectedFieldOf({ status: "idle", tenths: 6, marker: { sessionId: 123 } });
+    expect(f).toContain("marker.sessionId");
+    expect(f).toContain("string");
+  });
+
+  it("still accepts the correct value types", () => {
+    // The other side, so the fix cannot be "reject everything with a marker".
+    expect(
+      rejectedFieldOf({
+        status: "idle",
+        tenths: 6,
+        marker: { sessionId: "s1", tasksRemaining: 3, blockedOn: "" },
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects a numeric field holding a string", () => {
+    // Both directions of the type table, not just the string case.
+    const f = rejectedFieldOf({
+      status: "idle",
+      tenths: 6,
+      marker: { tasksRemaining: "3" },
+    });
+    expect(f).toContain("marker.tasksRemaining");
+    expect(f).toContain("number");
+  });
+
+  it("names an unrecognized gh bucket instead of absorbing it", () => {
+    // `anyFailed`/`anyPending` are `some(...)` tests, so an unknown bucket reads
+    // as NEITHER and the pane falls through to the cheap fallback position.
+    // `[{"bucket":"mystery"}]` exited 0 and sent checkpoint bytes.
+    const b = unknownBucketOf({ exitCode: 0, stdout: '[{"bucket":"mystery"}]', stderr: "" });
+    expect(b).toBe("mystery");
+    expect(rejectedFieldOf({ status: "idle", tenths: 6, marker: null, ghBucket: b })).toContain(
+      "mystery",
+    );
+  });
+
+  it("names a row carrying no bucket at all", () => {
+    expect(unknownBucketOf({ exitCode: 0, stdout: "[{}]", stderr: "" })).toBe("(missing)");
+  });
+
+  it("accepts every bucket gh is known to emit", () => {
+    // Derived from the shipped set rather than retyped, so the two cannot drift;
+    // the case would be vacuous if the set were empty, which the premise pins.
+    premiseHolds("the known-bucket set is non-empty", GH_BUCKETS.size > 0);
+    const rows = JSON.stringify([...GH_BUCKETS].map((b) => ({ bucket: b })));
+    expect(unknownBucketOf({ exitCode: 0, stdout: rows, stderr: "" })).toBeNull();
   });
 });

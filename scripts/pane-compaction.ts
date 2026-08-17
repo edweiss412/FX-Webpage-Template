@@ -37,6 +37,8 @@ import {
   classifyGh,
   mintNonce,
   newestVerdictTie,
+  corpusHasUnparsableVerdict,
+  GH_BUCKETS,
   planSends,
   positionFor,
   refuse,
@@ -123,16 +125,26 @@ export type Surface = {
 };
 
 /** §4.3's marker shape, plus the optional `checkpointNonce` §5.2 adds. */
-const MARKER_FIELDS = new Set([
-  "branch",
-  "stage",
-  "tasksRemaining",
-  "next",
-  "blockedOn",
-  "cronJobId",
-  "sessionId",
-  "checkpointNonce",
-]);
+/**
+ * §4.3's marker shape, as field -> EXPECTED TYPE rather than a set of names.
+ *
+ * A name set validates that no unknown key is present and nothing else, so
+ * `sessionId: 123` passed the accept-set and then failed to match any live
+ * session id -- silently, because rule 5's comparison is `!==` against a string
+ * (diff round 2, finding 1). Checking the key and not the value is the same
+ * shape as round 1's finding 2, which is why this is a TYPE table now: the
+ * validator cannot be written without deciding what each field is.
+ */
+const MARKER_FIELDS: Record<string, "string" | "number"> = {
+  branch: "string",
+  stage: "string",
+  tasksRemaining: "number",
+  next: "string",
+  blockedOn: "string",
+  cronJobId: "string",
+  sessionId: "string",
+  checkpointNonce: "string",
+};
 
 const STATUSES = new Set(["idle", "working", "blocked", "done", "unknown"]);
 
@@ -162,6 +174,10 @@ export function rejectedFieldOf(opts: {
    * the arbitrary pick chose between holding a pane and compacting it.
    */
   corpusTie?: boolean;
+  /** A `status: verdict` row whose `endedAt` does not parse (spec §3.5). */
+  corpusUnparsable?: boolean;
+  /** An unrecognized `gh pr checks` bucket value, or null when all are known. */
+  ghBucket?: string | null;
 }): string | null {
   if (!STATUSES.has(opts.status)) return `agent_status=${opts.status}`;
   if (opts.tenths === null) return "ctx gauge";
@@ -170,10 +186,45 @@ export function rejectedFieldOf(opts: {
   // reported as though the file had named it.
   if (opts.marker === MALFORMED_MARKER) return "marker (unparseable JSON)";
   if (opts.corpusTie === true) return "corpus.endedAt (tie for newest verdict)";
+  if (opts.corpusUnparsable === true) return "corpus.endedAt (unparsable on a verdict row)";
+  if (opts.ghBucket !== undefined && opts.ghBucket !== null) {
+    return `gh bucket=${opts.ghBucket}`;
+  }
   if (opts.marker !== null) {
-    for (const key of Object.keys(opts.marker)) {
-      if (!MARKER_FIELDS.has(key)) return `marker.${key}`;
+    for (const [key, value] of Object.entries(opts.marker)) {
+      const expected = MARKER_FIELDS[key];
+      // Unknown KEY, as before.
+      if (expected === undefined) return `marker.${key}`;
+      // Known key, wrong VALUE TYPE. The half that was missing: a marker is
+      // JSON someone else writes, so its values are as untrusted as its keys.
+      if (typeof value !== expected) return `marker.${key} (expected ${expected})`;
     }
+  }
+  return null;
+}
+
+/**
+ * The first `gh pr checks` bucket value we do not recognize, or null.
+ *
+ * `anyFailed` and `anyPending` are `some(...)` tests, so an unknown bucket reads
+ * as NEITHER: the pane falls through to the cheap fallback position and drives.
+ * A `gh` upgrade emitting a new bucket is ordinary drift, so it surfaces as a
+ * named accept-set rejection rather than being absorbed (diff round 2, finding 2).
+ */
+export function unknownBucketOf(run: GhInvocation): string | null {
+  if (classifyGh(run).kind !== "checks") return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(run.stdout);
+  } catch {
+    return null; // classifyGh already faults on this
+  }
+  if (!Array.isArray(parsed)) return null;
+  for (const r of parsed) {
+    const b = (r as { bucket?: unknown }).bucket;
+    // A row with no `bucket` at all is as unusable as an unrecognized one.
+    if (typeof b !== "string") return "(missing)";
+    if (!GH_BUCKETS.has(b)) return b;
   }
   return null;
 }
@@ -259,11 +310,14 @@ function observe(
   // the value here keeps the tie check and the position inference provably over
   // the same rows.
   const corpusRows = pane.agentName === null ? [] : cache.corpus(pane.agentName);
+  const ghRunForAccept = cache.gh(pane.cwd);
   const rejectedField = rejectedFieldOf({
     status: pane.status,
     tenths,
     marker,
     corpusTie: newestVerdictTie(corpusRows),
+    corpusUnparsable: corpusHasUnparsableVerdict(corpusRows),
+    ghBucket: unknownBucketOf(ghRunForAccept),
   });
 
   const ghRun = cache.gh(pane.cwd);
@@ -345,6 +399,8 @@ type Parsed = {
   all: boolean;
   as: string | null;
   target: string | null;
+  /** Positional arguments beyond the first; a non-empty list is a usage error. */
+  extraTargets: string[];
 };
 
 /** argv, with no defaulting that could stand in for a missing `--as`. */
@@ -356,6 +412,7 @@ export function parseArgv(argv: string[]): Parsed {
     all: false,
     as: null,
     target: null,
+    extraTargets: [],
   };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
@@ -380,8 +437,14 @@ export function parseArgv(argv: string[]): Parsed {
         out.target = next;
         i += 1;
       }
-    } else if (a !== undefined && !a.startsWith("--") && out.target === null) {
-      out.target = a;
+    } else if (a !== undefined && !a.startsWith("--")) {
+      // EXTRAS ARE RECORDED, not dropped. `out.target === null` used to guard
+      // this branch, so `--checkpoint pane-a pane-b` silently drove pane-a and
+      // exited 0 -- AC-7 specifies a single-target grammar, and an orchestrator
+      // typo that drives the WRONG PANE while reporting success is exactly the
+      // failure this tool must not have (diff round 2, finding 5).
+      if (out.target === null) out.target = a;
+      else out.extraTargets.push(a);
     }
   }
   return out;
@@ -401,6 +464,13 @@ export function main(argv: string[], s: Surface): number {
 
   if (opts.all) {
     s.out(refuse({ kind: "all-rejected" }).message);
+    return 1;
+  }
+  if (opts.extraTargets.length > 0) {
+    // Refused BEFORE `--as` and before any observation: naming a second target
+    // means the operator's intent is not knowable, and guessing which one they
+    // meant is the one thing worse than refusing.
+    s.out(`refusing: name a single target; also given ${opts.extraTargets.join(", ")} (AC-7)`);
     return 1;
   }
   if ((opts.mode === "check" || SENDING.has(opts.mode)) && opts.as === null) {
@@ -605,13 +675,38 @@ function drive(opts: Parsed, pane: RosterPane, roster: RosterPane[], s: Surface)
       // Revalidation must OBSERVE AGAIN, so it takes a fresh cache rather than
       // the one the first classification filled.
       const fresh = observe(pane, roster, as, s, cacheOf(s));
-      return fresh.verdict === report.verdict
-        ? { ok: true }
-        : {
-            ok: false,
-            message: refuse({ kind: "stale-verdict", was: report.verdict, now: fresh.verdict })
-              .message,
-          };
+      // COMPARE THE WHOLE DECISION, not just the verdict.
+      //
+      // Comparing `verdict` alone let a purview TRANSFER through: ownership
+      // moving from this caller to exactly one other owner leaves the verdict
+      // COMPACT while `inPurview` goes false, so the probe saw two purview reads
+      // and still sent (diff round 2, finding 4, AC-13). This is the same shape
+      // as round 1's stale-nonce finding -- re-observing and then comparing one
+      // field is not revalidation, it is a fresh read of a stale question.
+      //
+      // `rule` is included because two rules can yield one verdict: a pane that
+      // moves from rule 12 COMPACT to a rule 10 FORCE has changed in a way the
+      // verdict alone would hide.
+      if (fresh.verdict !== report.verdict) {
+        return {
+          ok: false,
+          message: refuse({ kind: "stale-verdict", was: report.verdict, now: fresh.verdict })
+            .message,
+        };
+      }
+      if (fresh.rule !== report.rule) {
+        return {
+          ok: false,
+          message: `refusing: the deciding rule changed from ${report.rule} to ${fresh.rule} before sending`,
+        };
+      }
+      if (!fresh.inPurview) {
+        return {
+          ok: false,
+          message: `refusing: ${pane.paneId} left ${as}'s purview before sending`,
+        };
+      }
+      return { ok: true };
     },
   });
   if (result.message !== "") s.out(result.message);

@@ -311,6 +311,31 @@ export type Position = { row: number; cost: PositionCost };
  * only want the newest row should not have to destructure a tie they do not care
  * about.
  */
+/**
+ * A `status: verdict` row whose `endedAt` does not parse.
+ *
+ * Spec §3.5: such a row is "excluded and NAMED". `newestVerdictRow` excluded it
+ * and nothing named it, so a corpus whose only verdict row had an unparsable
+ * timestamp inferred a position from NO verdict at all and drove (diff round 2,
+ * finding 3). Exclusion without naming is the silent half of the same clause.
+ */
+export function corpusHasUnparsableVerdict(rows: CorpusRow[]): boolean {
+  return rows.some(
+    (r) => r.status === "verdict" && (r.endedAt === null || Number.isNaN(Date.parse(r.endedAt))),
+  );
+}
+
+/**
+ * The bucket values `gh pr checks --json bucket` is known to emit.
+ *
+ * An UNKNOWN bucket is not a fourth flag to guess at: `anyFailed`/`anyPending`
+ * are `some(...)` tests, so an unrecognized value silently reads as neither,
+ * and the pane falls through to the cheap fallback position and drives (diff
+ * round 2, finding 2). Payload drift from a `gh` upgrade is ordinary operation,
+ * so it must surface rather than be absorbed.
+ */
+export const GH_BUCKETS = new Set(["pass", "fail", "pending", "skipping", "cancel"]);
+
 export function newestVerdictTie(rows: CorpusRow[]): boolean {
   let bestAt = Number.NEGATIVE_INFINITY;
   let count = 0;

@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { parseArgv } from "@/scripts/pane-compaction";
 import {
   type PaneReport,
   checkExitCode,
@@ -95,5 +96,36 @@ describe("the shipped entry point", () => {
     const alias = scripts["panes:compact"];
     expect(alias, "package.json has no panes:compact script").toBeDefined();
     expect(alias).toContain("scripts/pane-compaction.ts");
+  });
+});
+
+describe("the single-target grammar (AC-7)", () => {
+  // Diff round 2, finding 5 (P1). The positional branch was guarded by
+  // `out.target === null`, so a second target was silently dropped:
+  // `--checkpoint pane-a pane-b --as owner` exited 0 and drove pane-a. An
+  // orchestrator typo that drives the WRONG PANE while reporting success is
+  // precisely the failure a tool that types into other sessions must not have.
+  it("records positionals beyond the first rather than dropping them", () => {
+    const p = parseArgv(["--checkpoint", "pane-a", "pane-b", "--as", "owner"]);
+    expect(p.target).toBe("pane-a");
+    expect(p.extraTargets).toEqual(["pane-b"]);
+  });
+
+  it("records every extra, not just the second", () => {
+    const p = parseArgv(["--checkpoint", "a", "b", "c", "--as", "o"]);
+    expect(p.extraTargets).toEqual(["b", "c"]);
+  });
+
+  it("leaves extraTargets empty for a well-formed single target", () => {
+    // The other side: the guard must not fire on ordinary usage.
+    const p = parseArgv(["--checkpoint", "pane-a", "--as", "owner"]);
+    expect(p.target).toBe("pane-a");
+    expect(p.extraTargets).toEqual([]);
+  });
+
+  it("does not treat a flag VALUE as an extra target", () => {
+    // `--as owner` consumes `owner`; counting it as a positional would refuse
+    // every correct invocation.
+    expect(parseArgv(["--check", "--as", "owner"]).extraTargets).toEqual([]);
   });
 });
