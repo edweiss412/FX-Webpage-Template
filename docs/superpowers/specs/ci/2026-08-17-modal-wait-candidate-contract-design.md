@@ -20,7 +20,7 @@ In scope:
 - **Candidate contract v2** in `tests/ci/modalWaitHelper/scan.ts`: `enumerateCandidates` rebuilt on TypeScript statement units (§4.1). The `typescript` package is already a dependency of this tree (`tests/_shared/stripComments.ts:5`, `tests/mutation/source/operators.ts:1`).
 - **Disposition rewrite** in `tests/ci/modalWaitHelper/disposition.ts`: every rule re-authored against the v2 candidate shape; comment-mention rules retired (comments leave the candidate domain by construction); counts re-derived (§4.3).
 - **Site-associated N-wait registry** (§4.2): a declared table associating each `awaitReviewModalOrRecover` call with the file and test/describe scope it protects, asserted exactly.
-- **Meta-test extension** in `tests/ci/_metaModalWaitHelper.test.ts`: premise proofs for both ledger probes (now red-by-construction) and for the registry assertions (§4.4).
+- **Meta-test extension**: premise proofs for both ledger probes (now red-by-construction) and for the registry assertions (§4.4), landing in `tests/ci/_metaModalWaitHelper.test.ts` or in a sibling suite file under `tests/ci/` added to the mutation row's `suitePaths` — the sibling form keeps the pre-existing 24 cases loadable while the new cases are authored red (plan review R1 finding 1: an unresolved import in the SAME file fails collection and masks every case behind one loader error).
 - **Mutation-registry duties**: `modal-wait-helper-scan` re-scored (every accepted `siteId` relocates on any `scan.ts` edit — `tests/mutation/source/registry.ts:280-284` NOTE); enrolment posture for `disposition.ts` resolved with a probe run (§4.5).
 - Ledger graduation for both rows + README index row (§4.7).
 

@@ -28,19 +28,22 @@ impeccable-gate: N/A — no UI surface
 
 ## Deliberate-red span
 
-Task 1 authors the v2 premise proofs and they FAIL (the API does not exist). Task 2 lands scan v2 + the disposition rewrite + the registry and drives the WHOLE suite green. Between Task 1's commit and Task 2's, `tests/ci/_metaModalWaitHelper.test.ts` is red **only in the new describe block** — the existing 24 cases stay green through Task 1 because Task 1 touches no production file. This is the plan's one declared red span (parent-plan precedent: its Task 2→7 span). Do not push a PR-ready state inside it; Tasks 1+2 may land as one push.
+<!-- spec-lint: ignore — tests/ci/_metaModalWaitCandidateV2.test.ts is created by Task 1 -->
+Task 1 authors the v2 premise proofs **in a NEW sibling suite file, `tests/ci/_metaModalWaitCandidateV2.test.ts`** (matched by the unit-suite include `tests/**/*.test.ts` — `BASE_INCLUDE`, `vitest.projects.ts:34` — so no wiring task is needed), and that file FAILS: its import of the v2 API does not resolve. Plan review R1 finding 1 is why the cases do NOT land in `_metaModalWaitHelper.test.ts` during the span — an unresolved import there fails collection of the whole file and masks the existing 24 cases behind one loader error. With the sibling file, `pnpm vitest run tests/ci/_metaModalWaitHelper.test.ts` stays green through Task 1 (verified claim: Task 1 touches neither that file nor any production file). Task 2 lands scan v2 + the disposition rewrite + the registry and drives BOTH files green; the sibling file is permanent and Task 2 adds it to the mutation row's `suitePaths` so its cases count as deciders (spec §1 as amended). This is the plan's one declared red span (parent-plan precedent: its Task 2→7 span). Do not push a PR-ready state inside it; Tasks 1+2 may land as one push.
 
-Typecheck note (writing-plans snippet rule): the fenced block in Task 1 was typechecked at plan time by splicing it into a scratch `.ts` file beside the suite with `pnpm exec tsc --noEmit -p tsconfig.json` semantics via the repo's strict options; it imports only symbols Task 2 creates, so at plan time it fails to RESOLVE (that is the authored red), and its internal syntax is valid TypeScript.
+Typecheck note (writing-plans snippet rule, stated exactly): the fenced block below was typechecked at plan time under the repo's strict flags (`--strict --noUncheckedIndexedAccess --exactOptionalPropertyTypes`) with `declare`-stub declarations standing in for the not-yet-existing v2 API — `tsc` exit 0. Resolution of the real import is DESIGNED to fail until Task 2; the stub typecheck proves the snippet's own syntax and typing, and the resolution failure is the authored red, not a typecheck pass.
 
 <!-- tasks: depth=3 red-contract -->
 
 ### Task 1: Author the v2 premise proofs (RED)
 
-<!-- task: red=`pnpm vitest run tests/ci/_metaModalWaitHelper.test.ts` red-state=authored red-target=`tests/ci/modalWaitHelper/scan.ts:300` why=`enumerateCandidates at :300 is line-unit — it exports no statement-attributed candidate (no scopeTitle, matchLineText, endLine: probe shows 0 hits) and no label extraction, so every new case fails to resolve or assert` ac=AC-1,AC-2 -->
+<!-- spec-lint: ignore — tests/ci/_metaModalWaitCandidateV2.test.ts is created by this task -->
+<!-- task: red=`pnpm vitest run tests/ci/_metaModalWaitCandidateV2.test.ts` red-state=authored red-target=`tests/ci/modalWaitHelper/scan.ts:300` why=`enumerateCandidates at :300 is line-unit — it exports no statement-attributed candidate (no scopeTitle, matchLineText, endLine: probe shows 0 hits) and no label extraction, so the new suite's v2 import does not resolve and every case fails` ac=AC-1,AC-2 -->
 
-**Files:** `tests/ci/_metaModalWaitHelper.test.ts` (new describe block only).
+<!-- spec-lint: ignore — tests/ci/_metaModalWaitCandidateV2.test.ts is created by this task -->
+**Files:** `tests/ci/_metaModalWaitCandidateV2.test.ts` (new sibling suite; reuses the `fixtureRoot` pattern via a small shared helper or a local copy of the four-line fixture builder).
 
-Author a new `describe("candidate contract v2 premise proofs")` block with the spec §4.4 cases, each using the suite's existing `fixtureRoot` pattern (`tests/ci/_metaModalWaitHelper.test.ts:68-74`):
+Author the spec §4.4 cases in the new file, each on a throwaway fixture root (the pattern at `tests/ci/_metaModalWaitHelper.test.ts:68-74`):
 
 1. **Split-chained activation is undisposed** — fixture statement `await page\n.getByTestId("shows-table-row-x")\n.press("Enter");` plus a nearby N-wait; classification against the shipped rules reports the origin-(d) candidate `undisposed`, claimed by no reference-only rule. Failure mode caught: the line-unit census certified exactly this shape as `d/reference-not-activation` (ledger row 2, member 1).
 2. **Evaluate-body activation is undisposed** — the corpus hydration-poll shape with `(el as HTMLElement).click()` in the body; same assertion. Paired positive: the un-mutated poll (body reads only) is NOT undisposed once Task 2's `d/evaluate-poll` exclusion lands. Failure mode: ledger row 2, member 2 — the suite stayed 24/24 green under this exact edit.
@@ -77,52 +80,70 @@ test("split-chained activation is undisposed", () => {
 
 (Naming — whether v2 replaces `enumerateCandidates` in place or ships beside it during the span — is Task 2's call; the RED does not depend on it.)
 
-Commit: `test(ci): author candidate-contract v2 premise proofs (red)`.
+After authoring, verify the span claim: `pnpm vitest run tests/ci/_metaModalWaitHelper.test.ts` → 24 passed, and `pnpm vitest run tests/ci/_metaModalWaitCandidateV2.test.ts` → observed red (unresolved import). Commit: `test(ci): author candidate-contract v2 premise proofs (red)`.
 
 ### Task 2: Statement-unit producer + disposition rewrite + N-wait registry (GREEN)
 
-<!-- task: red=`pnpm vitest run tests/ci/_metaModalWaitHelper.test.ts` red-state=authored red-target=`tests/ci/modalWaitHelper/scan.ts:300` why=`same command Task 1 observed red; this task lands the v2 producer, rewritten rules, and registry that drive it green — the SAME command passes at task end` ac=AC-1,AC-2,AC-3,AC-4,AC-5 -->
+<!-- task: red=`pnpm vitest run tests/ci/_metaModalWaitCandidateV2.test.ts` red-state=authored red-target=`tests/ci/modalWaitHelper/scan.ts:300` why=`same command Task 1 observed red; this task lands the v2 producer, rewritten rules, and registry that drive it green — the SAME command passes at task end` ac=AC-1,AC-2,AC-3,AC-4,AC-5,AC-6 -->
 
-**Files:** `tests/ci/modalWaitHelper/scan.ts`, `tests/ci/modalWaitHelper/disposition.ts`, `tests/ci/_metaModalWaitHelper.test.ts` (live-corpus assertions updated to v2 counts).
+**Files:** `tests/ci/modalWaitHelper/scan.ts`, `tests/ci/modalWaitHelper/disposition.ts`, `tests/ci/_metaModalWaitHelper.test.ts` (live-corpus assertions updated to v2 counts), `tests/mutation/source/registry.ts` + `tests/mutation/source/expectedLedgerKinds.ts` (SAME commit — see step 5).
 
 1. **scan.ts:** implement the spec §4.1 contract — parse with `ts.createSourceFile`; run origin regexes over `stripCommentsForFile` output (offset-preserving; `tests/_shared/stripComments.ts:215`); attribute each match to its nearest enclosing `ts.Statement`; dedupe per (statement, origin); slice `text`/`matchLineText` from the stripped bytes; resolve `scopeTitle` (nearest `test`/`describe` title, null at module scope) and `exemptReason` (existing `exemptionReasonAt`); extract the `label:` property source text for `awaitReviewModalOrRecover` statements. `MODAL_ROUTE_PATTERN` stays the single exported route regex (AC-4); `scanForViolations` and `productOpenSurfaces` byte-unchanged (AC-5).
 2. **disposition.ts:** re-author every rule against the v2 shape under the spec §4.3 principles (refusal gates read statement text; title/assertion discrimination reads `matchLineText`); retire the five prose rules; add `d/evaluate-poll` with the statement-level activation refusal; add `N_WAIT_SITES` (12 rows from the spec §2.2 table, re-derived); derive `f/member-shape-N`'s count from the registry.
 3. **Meta test:** update live-corpus expected counts to the re-derived v2 numbers; add the registry assertions (extractability, exact triple match, scope-local uniqueness, derived count).
 4. Reconciliation (run, paste output in the commit body): rule count = 30 − 5 + 1 = 26 expected (divergence named with reason); registry rows = 12 = `rg -c` sum; candidate totals re-derived and compared against the spec §2.2 calibration (at or below, per the strip-before-match caveat).
-5. `pnpm typecheck` + full deciding suite green + `pnpm test:fast` for collateral.
+5. **Mutation ledger refresh, SAME commit as the scan.ts edit** (plan review R1 finding 2: the registry NOTE at `tests/mutation/source/registry.ts:278-284` mandates same-commit id refresh, so deferring it to a later task knowingly commits stale rows). Recreate the scoped shard per the baseline recipe, run the gate, re-derive both accepted rows' siteIds (same equivalence arguments if the code shapes survived; re-argue or drop otherwise), repay or accept any new survivors, and reconcile `tests/mutation/source/expectedLedgerKinds.ts:225` (`"modal-wait-helper-scan": { equivalent: 2 }`) if the accepted kinds/count moved — `guardSurfaces.gates.test.ts:21-23` pins the key set and counts (R1 finding 3). Add the Task 1 sibling suite to the row's `suitePaths` so its cases count as deciders. Delete the temp shard file before committing.
+6. `pnpm typecheck` + both deciding suites green + `pnpm vitest run tests/mutation/guardSurfaces.gates.test.ts` + `pnpm test:fast` for collateral. Record the score + unaccepted-survivor set (must be empty) in the commit body — the number the round-1 diff brief states.
 
-Commit: `fix(ci): modal-wait census v2 — statement unit, strip-before-match, site-associated N-wait registry`.
+Commit: `fix(ci): modal-wait census v2 — statement unit, strip-before-match, site-associated N-wait registry (mutation ledger refreshed same-commit)`.
 
-### Task 3: Mutation ledger re-score + disposition enrolment decision
+### Task 3: disposition.ts enrolment decision
 
-<!-- task: red=`VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy vitest run --project mutation tests/mutation/guardSurfaces.shardX.test.ts` red-state=authored red-target=`tests/ci/modalWaitHelper/scan.ts:300` why=`Task 2's rewrite of scan.ts relocates every generated mutation siteId, and the two accepted registry rows (tests/mutation/source/registry.ts:283-296) pin ids by line:column into the PRE-edit file — so the scoped gate, recreated per the plan-time baseline recipe, is OBSERVED red (stale-ledger-row) at this task's start and passes after the ledger re-derivation; red-state=live would be factually wrong at plan time because the temp shard file does not exist on the tree and the baseline run exits 0` ac=AC-6 -->
+<!-- task: red=`pnpm vitest run tests/mutation/guardSurfaces.gates.test.ts` red-state=authored red-target=`tests/mutation/source/expectedLedgerKinds.ts:225` why=`enrolling disposition.ts adds a GUARD_SURFACES row whose id has no EXPECTED_LEDGER_KINDS key; gates.test.ts:21-23 pins key-set equality, so this suite is OBSERVED red the moment the row lands and green once the key and accepted rows are reconciled — and on the not-expressible branch the probe row is removed again, completing the same red-then-green on the same command` ac=AC-6 -->
 
 <!-- spec-lint: ignore — tests/mutation/guardSurfaces.shardX.test.ts is a transient file this task creates and deletes; deliberately never tracked -->
-**Files:** `tests/mutation/source/registry.ts`; temporary `tests/mutation/guardSurfaces.shardX.test.ts` (created for the run, DELETED before commit — `_metaSourceShardIntegrity` pins the real shard set).
+**Files:** `tests/mutation/source/registry.ts`, `tests/mutation/source/expectedLedgerKinds.ts`; temporary `tests/mutation/guardSurfaces.shardX.test.ts` (created for the run, DELETED before commit — `_metaSourceShardIntegrity` pins the real shard set).
 
-1. Recreate the scoped shard file exactly as the plan-time baseline (filter `GUARD_SURFACES` to `modal-wait-helper-scan`); run the gate. Expect stale-ledger-row / survivor output naming the relocated ids.
-2. Re-derive: update both accepted rows' siteIds to their new locations (same equivalence arguments if the code shapes survived; re-argue or drop otherwise). New survivors: repay each with a deciding case in the meta suite, or add an accepted row with a per-row reason. `scoreFloor` stays 0.95.
-3. Re-run to green; record score + unaccepted-survivor set (must be empty) in the commit body — this is the number the implementation arc's round-1 diff brief states (AGENTS.md criterion 4).
-4. **disposition.ts enrolment (spec §4.5):** add a candidate registry row (`sourcePath: tests/ci/modalWaitHelper/disposition.ts`, `suitePaths: [tests/ci/_metaModalWaitHelper.test.ts]`), run scoped; if the survivor set is dominated by equivalent mutants of `reason`/`protects` prose strings, either accept per-row or record a probe-backed not-expressible disposition in the commit body and drop the row — honest outcome either way, decided by the run, before the first diff-review dispatch.
-5. Delete the temp shard file; `git status` clean of it.
+The `modal-wait-helper-scan` re-score already landed inside Task 2's commit (same-commit ledger contract). This task settles the OTHER §4.5 duty: whether `disposition.ts` enrolls.
 
-Gate-red validation (mutant-red treatment for declared gate commands): the plan-time baseline run proves the command executes and passes on the pre-edit tree; the gate mechanism's non-zero exit on failure is pinned by the registry contract itself (`stale-ledger-row` and unaccepted-survivor are red states by construction, exercised live in this repo — `docs/superpowers/specs/ci/2026-08-04-source-mutation-guard-gate.md`).
+1. Add the candidate row (`sourcePath: "tests/ci/modalWaitHelper/disposition.ts"`, `suitePaths: [both deciding suites]`, `operators: [...OPERATOR_NAMES]`) — observe `guardSurfaces.gates.test.ts` red (missing `EXPECTED_LEDGER_KINDS` key).
+2. Run the scoped gate (temp shard filtered to the new id). Decide from the run: survivors dominated by equivalent mutants of `reason`/`protects` prose strings → accept per-row with reasons, add the `EXPECTED_LEDGER_KINDS` entry, keep the row; or record a probe-backed not-expressible disposition in the commit body and remove the row (step 1's red still completed; the gates suite returns green on removal). Honest outcome either way, decided by the run, BEFORE the first diff-review dispatch (AGENTS.md criterion 4).
+3. Delete the temp shard file; `git status` clean of it; `pnpm vitest run tests/mutation/guardSurfaces.gates.test.ts` green.
 
-Commit: `test(mutation): re-score modal-wait-helper-scan post-v2; disposition enrolment disposition`.
+Gate-red capability is DEMONSTRATED, not asserted (plan review R1 finding 4) — constructed failing input run at plan time: the scoped shard with one accepted `siteId` corrupted to `statement-removal:1:1:bogus>(removed)` produced
+
+```text
+EXIT=1
+FAIL |mutation| … > source-mutation gate — modal-wait-helper-scan > passes every gate condition
+AssertionError: gate failures: … unaccepted-survivor: 1 survivor(s) with no ledger row: statement-removal:189:9:continue;>(removed)
+```
+
+so the exact wrapper path Task 2 step 5 and this task rely on exits non-zero on a ledger/mutant mismatch.
+
+Commit: `test(mutation): disposition.ts enrolment disposition (probe-backed)`.
 
 <!-- tasks: end -->
 
 ### Task 4: Bookkeeping tail (outside the red-contract region)
 
-Discharges AC-7 in prose with its own observed red-then-green: `pnpm vitest run tests/docs/` green before merge.
+Discharges AC-7 in prose with its own observed red-then-green on `pnpm vitest run tests/docs/_metaDeferralLedgerGraduation.test.ts` (plan review R1 finding 5 — the naive "move the entries" order produces no red because the meta-test iterates only `BACKLOG_GRADUATED`):
 
-1. `docs/superpowers/plans/ci/README.md` gains this plan's index row.
-2. Ledger: both rows graduate to `BACKLOG-archive.md` recording the contract change and this spec/plan as the durable form; the `**Status:** IN PROGRESS · **Branch:**` markers come off **in the PR's last commit before merge** (invariant 12 — never merged into main; archives reject in-flight entries, so graduation and marker removal are the same commit).
-3. Review-rounds corpus rows for the implementation arc's own dispatches committed with the arc.
-4. PR body: cross-model whole-diff review verdict, mutation score + survivor set, the reconciliation outputs, and any label-only e2e edits named individually (expected: none).
+1. **Red first:** add both `{ id, provenance: "fix/modal-wait-candidate-contract" }` rows to `BACKLOG_GRADUATED` (`tests/docs/_metaDeferralLedgerGraduation.test.ts:99`) while the entries still sit in `BACKLOG.md` — the "every graduated id is archive-only" case fails with `still in BACKLOG.md` for both ids (observed red).
+2. **Green:** move both entries to `BACKLOG-archive.md` (splice per the lessons file's seam rules; section heading + branch provenance per the meta-test's section-scoped assertion), removing the `**Status:** IN PROGRESS · **Branch:**` markers in the same commit — invariant 12: this is the PR's LAST commit before merge, so the markers never reach main and the archive never holds in-flight rows.
+3. `docs/superpowers/plans/ci/README.md` index row: **already present** (landed with the plan commit, `docs/superpowers/plans/ci/README.md:18` per the R1 probe) — verify, do not re-add.
+4. Review-rounds corpus rows for the implementation arc's own dispatches committed with the arc.
+5. PR body: whole-diff review verdict (Task 5), mutation score + survivor set, the reconciliation outputs, and any label-only e2e edits named individually (expected: none).
+
+### Task 5: Whole-diff adversarial review → CI → merge (execution handoff tail)
+
+The convergence ordering plan review R1 finding 6 requires, stated as steps rather than notes:
+
+1. **Dispatch** the whole-diff cross-model review after Task 4 step 1-2 are staged (review covers what merges): `node scripts/codex-guard.mjs review --brief <round brief> --cwd <worktree> --out <fresh dir> --stage diff --round <n> --max-attempts 2 --attempt-max-secs 1380 --total-max-secs 2800 --stall-secs 900`, backgrounded. Round-1 brief carries the `GUARD SURFACE:` line with `MUTATION SCORE: <killed>/<total>` + "0 unaccepted survivors" from Task 2's recorded run (the wrapper exits 2 without it), the spec §6 consequence bound / `PROBE DOMAIN:` / threat fence, REVIEWER ONLY, and the do-not-relitigate list below.
+2. **Result handling:** read the dispatch's result JSON in its out dir; `status: "no_verdict"` is an infra fault (retry ladder), never a clean review; findings are repaired with a class-sweep per finding, committed, pushed, and the next round dispatched with the repair recorded in the brief. Iterate to `VERDICT: APPROVE`. Corpus rows append automatically; at 4 counted rounds on the diff stage the round-economy filing is owed (`docs/review-rounds/README.md`).
+3. **Merge tail:** push; `gh pr merge --merge --auto` and RE-ARM after every subsequent push; real CI green on required contexts read from branch protection by name (never `isRequired`); `git rev-list --left-right --count main...origin/main` == `0  0` after fast-forward; then Stage 4.4 — CronDelete the nudge, clear pane + agent labels. The ledger markers came off in Task 4's merge commit, not here.
 
 ## Execution notes for the implementation session
 
-- Diff-review briefs: this is a guard surface — every brief carries the spec §6 consequence bound, `PROBE DOMAIN:` line, threat fence, and (round 1) the `GUARD SURFACE: … MUTATION SCORE: <killed>/<total> … 0 unaccepted survivors` line from Task 3's recorded run, per AGENTS.md codex-guard rules.
+- Diff-review briefs: this is a guard surface — every brief carries the spec §6 consequence bound, `PROBE DOMAIN:` line, threat fence, and (round 1) the `GUARD SURFACE: … MUTATION SCORE: <killed>/<total> … 0 unaccepted survivors` line from Task 2's recorded run, per AGENTS.md codex-guard rules (Task 5 step 1 is the executable form).
 - Do-not-relitigate list for diff briefs: inherit spec §1.1 verbatim, plus the two recorded review dispositions (within-scope placement = documented limit 2 with its R1 probe; comment handling = strip-before-match with its R2 probe).
 - Same-axis watch: if two consecutive diff rounds land on candidate-shape grammar corners, stop patching and re-read the spec §4.3 principles — the repair direction is narrowing (undisposed fall-through) per both ledger rows, never a wider rule.
