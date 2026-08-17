@@ -115,11 +115,12 @@ const countBy = (rows: BaselineRow[], pick: (r: BaselineRow) => string): Map<str
 
 describe("field near-miss corpus baseline (AC-N1)", () => {
   it("covers the whole harness corpus", () => {
-    // Every assertion in this block reads rows the harness produced by READING
-    // FIXTURE FILES. If discovery finds nothing — a renamed corpus directory,
-    // a moved path constant — the row set is empty and the filter-shaped
-    // assertions below pass over nothing.
-    premise("harness fixtures discovered on disk", FIXTURES.length, 0);
+    // No premise here, deliberately. `toBe(17)` already reds on a renamed
+    // corpus directory or a moved path constant, so a premise stating that
+    // discovery found something is DOMINATED by it: on the empty-corpus
+    // degeneration both are false together and only one of them is doing any
+    // work (whole-diff R1 #8). The rule asks for the condition under which the
+    // assertion has discriminating power, not for a premise on every test.
     expect(FIXTURES.length).toBe(17);
     expect(perFixture.map((f) => f.path).sort()).toEqual(FIXTURES.map((f) => f.path).sort());
   });
@@ -158,13 +159,16 @@ describe("field near-miss corpus baseline (AC-N1)", () => {
   });
 
   it("emits exactly 65 rows (spec §3.2, followup probe Part D)", () => {
-    premise("rows produced from the corpus", actual.length, 0);
+    // No premise: the assertion IS a nonzero count, so it dominates any premise
+    // that rows were produced at all (whole-diff R1 #8).
     expect(actual.length).toBe(EXPECTED_TOTAL);
   });
 
   it("composition partitions into the §3.2 groups with nothing left over", () => {
-    // A partition of nothing partitions perfectly.
-    premise("rows produced from the corpus", actual.length, 0);
+    // No premise: a partition of nothing does partition perfectly, but the five
+    // fixed group counts below are each nonzero, so an empty corpus reds on
+    // them before the partition identity is reached. A premise saying rows
+    // exist is dominated by every one of them (whole-diff R1 #8).
     const byKey = countBy(actual, (r) => r.key);
     const n = (k: string): number => byKey.get(k) ?? 0;
 
@@ -199,12 +203,11 @@ describe("field near-miss corpus baseline (AC-N1)", () => {
     // §3.2's load-bearing claim: every DETAILS-family `Room Diagram` is consumption-excluded,
     // so the 15 that survive are the Google-Forms echo rows only. A ledger regression would
     // re-admit a DETAILS one and this fails while the raw count could still read 15.
-    // With no Room Diagram rows there is no claim to make about their blocks.
-    premise(
-      "Room Diagram rows in the baseline",
-      actual.filter((r) => r.key === "Room Diagram").length,
-      0,
-    );
+    //
+    // No premise: `toEqual(["timestamp"])` is unsatisfiable by an empty set, so
+    // it already reds when there are no Room Diagram rows to make a claim
+    // about. A premise counting those rows is dominated by it (whole-diff
+    // R1 #8).
     const kinds = new Set(actual.filter((r) => r.key === "Room Diagram").map((r) => r.kind));
     expect([...kinds]).toEqual(["timestamp"]);
   });
