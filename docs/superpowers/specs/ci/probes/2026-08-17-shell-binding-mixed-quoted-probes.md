@@ -137,6 +137,15 @@ same lexer-infidelity class as the dangling-EOF backslash; `PG="p\sql"` binds a 
 value (must stay unreported); the `--no-psqlrc` dangling-backslash site is certified today on an
 argument bash never passes.
 
+## Round-2 supplement (2026-08-17, after the plan's second adversarial round)
+
+Parameter-expansion operands with INTERNAL quoting (plan round-2 finding 1). Bash oracle:
+`PG=${U:-'psql'}` -> <psql>; `PG=${U:-p"sql"}` -> <psql>; `PG=${U:-$'p\163ql'}` -> <psql>;
+`PG=${U:-psql}` -> <psql>. Scanner (current tree): the three quoted/escaped-operand spellings
+report 0; the bare-operand spelling reports 1. The zeros persist after the repair by design
+(the `${…}` word is verbatim) and are the `BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE` documented
+limit, spec §6 item 5.
+
 ## Readings the spec relies on
 
 1. **The filed gap reproduces, wider than filed.** Six mixed/concatenated spellings the shell

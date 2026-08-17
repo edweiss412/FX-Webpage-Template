@@ -690,6 +690,10 @@ describe("documented limits - quote-concatenated spellings outside the assignmen
         "bash -c '$0 -qAt mydb' p'sql'\n",
         "bash -c '$0 -qAt mydb' psql\n",
       ],
+      // ledger: BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE - the ${...} word is
+      // kept verbatim by design, so operand-INTERNAL quoting is data (plan
+      // round-2 finding 1; bash binds psql for every quoted-operand sibling).
+      ["a quoted expansion operand", "PG=${U:-'psql'}\n", "PG=${U:-psql}\n"],
     ];
     for (const [label, missed, plain] of rows) {
       premiseHolds(
@@ -732,6 +736,17 @@ numbered items):
 **Status:** OPEN · **Filed:** 2026-08-17 (`fix/shell-binding-mixed-quoted-value`, class sweep of the mixed-quoted-value repair). **Severity:** LOW (guard recall; needs `read` + a here-string + a quote-concatenated value). **Class:** guard coverage. **Effort:** M. **Class-sweep exception:** (c) — the repair requires retaining redirection TARGETS in `lexShellWords`, a lexer surface the assignment-binding repair does not otherwise touch, with ripple into every redirection consumer. **Reachability:** PROBED — `read -r PG <<< p'sql'` binds `psql` (bash oracle) and `scanShellIndirection` reports 0 (probe record `docs/superpowers/specs/ci/probes/2026-08-17-shell-binding-mixed-quoted-probes.md`, instruments 1–2); zero live corpus instances.
 
 `READ_HERE_STRING` (`tests/cross-cutting/psqlStartupFiles/scan.ts`) reads the here-string value through the single-delimiter `["']?` + `PSQL_VALUE` shape the assignment family retired in the 2026-08-17 mixed-quoted-value repair; the lexer cannot supply the dequoted value because a redirection target is dropped before words exist (`dropWord`). The deciding suite declares the miss ("documented limits — quote-concatenated spellings outside the assignment family"). **What would close it:** retain redirection targets as non-argv words (flagged, not certified) so `READ_HERE_STRING`'s value can be read dequoted, and re-pin the declared miss as a hit; the flag criterion and the `read` grammar stay unchanged.
+```
+
+- [ ] **Step 4b: File the second ledger row** (plan round-2 finding 1), directly after the
+  here-string row:
+
+```markdown
+## BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE — quoting inside a `${…}` operand hides a psql default
+
+**Status:** OPEN · **Filed:** 2026-08-17 (`fix/shell-binding-mixed-quoted-value`, plan adversarial round 2). **Severity:** LOW (guard recall; needs a parameter-expansion default whose operand is itself quoted or escaped). **Class:** guard coverage. **Effort:** M. **Class-sweep exception:** (c) — reading operand-internal quoting requires operand-aware expansion parsing (operator grammar, nested expansions), a redesign of the deliberate keep-`${…}`-verbatim lexer contract that the assignment-binding repair does not otherwise touch. **Reachability:** PROBED — `PG=${U:-'psql'}`, `${U:-p"sql"}`, `${U:-$'p\163ql'}` all bind `psql` (bash oracle) and `scanShellIndirection` reports 0 for each, before and after the 2026-08-17 repair (probe record, round-2 supplement); the bare-operand `PG=${U:-psql}` reports 1. Zero live corpus instances.
+
+The lexer keeps a `${…}` expansion as ONE verbatim word by design (the whole-consumption exists so brace-protected whitespace cannot split argv), so quoting inside the operand is data to the binding predicate and only a bare `psql` in the operand reports. The deciding suite declares the miss (the documented-limits test's quoted-expansion-operand row). **What would close it:** parse the operand after the expansion operator with the lexer's own quote rules (nested expansions included) and decide the reassembled default word; the outer predicate stays unchanged.
 ```
 
 - [ ] **Step 5: Run the docs meta-suites and commit.**
@@ -844,7 +859,8 @@ Expected: PASS — score 1.0 counted, empty unaccepted-survivor set.
 
 ```bash
 rm tests/mutation/guardSurfaces.shardScoped.test.ts
-git status --porcelain tests/mutation/  # expect: only registry.ts modified
+git status --porcelain tests/mutation/  # expect: registry.ts, plus expectedLedgerKinds.ts only
+# if step 3 moved kind counts; the temporary shard filter file must be GONE
 ```
 
 Run: `pnpm vitest run tests/mutation/_metaSourceShardIntegrity.test.ts`
@@ -879,14 +895,10 @@ the six Task 2 precision-survivor zeros (including both digit-boundary mutant-ki
 against bash: `\0160sql` binds SO+`0sql`, `\x070sql` binds BEL+`0sql`), the R34 wrapped-path
 binding duplicate, the discovery handoff, the non-shadowing parity pin, both Task 3
 quoted-scalar limits, and the Task 4 documented-limits test. The splice file was deleted after
-the run. Red: all five Task 1
-fidelity tests (including the wrapped-path site test — the current double-quote branch appends
-the newline into the word, so no site reports today), all thirteen Task 2 recall rows, all three
-trailing-backslash rows, the expansion-prefix widening, and both Task 3 multiword recall rows.
-Green (regression premises, as predicted): the four Task 2 precision survivors, the R34
-wrapped-path binding duplicate (today via the `spliced` regex consumer), the discovery handoff,
-both Task 3 quoted-scalar limits, and the three Task 4 documented-limit rows. The splice file
-was deleted after the run.
+the run. (The Task 4 row added by plan round-2 finding 1 — the quoted expansion operand — was
+probed separately on the same tree: `PG=${U:-'psql'}` and its quote/escape siblings report 0
+today while `PG=${U:-psql}` reports 1, both instruments; it joins the existing looped Task 4
+test as another premise-green pair, changing neither the test count nor the red set.)
 
 ## Acceptance criteria (from spec §4)
 
@@ -904,8 +916,10 @@ was deleted after the run.
   is not — and the live-tree walk test passes unchanged.
 - **AC-7:** substitution values stay the discovery walk's jurisdiction (`PG=$(command -v psql)`
   and `X=$(PG=psql; …)` still report exactly once, via discovery).
-- **AC-8:** the documented-limits describe declares the here-string/alias/positional misses with
-  premises, and `BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE` is filed with probe evidence.
+- **AC-8:** the documented-limits describe declares the here-string/alias/positional/
+  quoted-expansion-operand misses with premises, and both peer ledger rows
+  (`BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE`, `BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE`) are
+  filed with probe evidence.
 - **AC-9:** the scoped mutation gate passes at `scoreFloor: 1` with an empty unaccepted-survivor
   set over the post-repair source; numbers land in the PR body.
 

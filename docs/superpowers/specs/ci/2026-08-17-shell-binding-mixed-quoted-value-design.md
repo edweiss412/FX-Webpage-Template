@@ -139,7 +139,12 @@ Command substitutions are excluded STRUCTURALLY instead of by lookahead: `$(...)
 lex to the opaque word `${}`, which contains no `psql`, so the binding rule is silent and the
 executable-discovery walk (`visitBody`) keeps reporting them — the same division of labor the
 `(?!\$\(|\`)` lookahead encodes today. `${…}` expansions are kept verbatim by the lexer, so the
-parameter-default forms (`PG=${PSQL:-psql}`, quoted or not) keep reporting through clause 1.
+parameter-default forms with UNQUOTED operands (`PG=${PSQL:-psql}`, itself quoted or not) keep
+reporting through clause 1. Quoting or escapes INSIDE the operand (`PG=${U:-'psql'}`,
+`${U:-p"sql"}`, `${U:-$'p\163ql'}`) are data to the verbatim-kept word, so those spellings stay
+unreported — exactly as today (probed 0 both instruments) — and are a §6 documented limit, not a
+behavior change: reading them needs operand-aware expansion parsing, the recognizer growth §1.1
+forbids (plan round-2 finding 1's disposition).
 
 **Reporting shape parity.** Hits keep the exact current shape `{file, line, text}`: the rule
 contributes at most ONE hit per physical line, `line` is the word's opening physical line (the
@@ -310,6 +315,10 @@ concatenation." Swept across every rule family in `scanShellIndirection`:
 4. Unterminated quotes at end of input keep their current conservative readings; escape decoding
    applies only to well-formed quoting (malformed input is a shell syntax error and runs
    nothing).
+5. Quoting or escapes INSIDE a `${…}` expansion operand (`PG=${U:-'psql'}` and its quote/escape
+   siblings) are not dequoted — the expansion is one verbatim word by design, and only a bare
+   `psql` inside it reports (`PG=${U:-psql}` does; probed both instruments). A missed report,
+   never a false certification; ledger `BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE`.
 
 ## 7. Verification contract
 
