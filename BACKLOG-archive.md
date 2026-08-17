@@ -1,3 +1,15 @@
+## BL-TIMING-SCAN-NAME-VS-BINDING — an identifier delay resolves by spelling, so a local shadow is suppressed — CLOSED 2026-08-16 (`fix/timing-scan-scope-resolution`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-16 · **Effort (as shipped):** M — scope-aware resolution, as filed, not a pattern tweak. · **Spec:** `docs/superpowers/specs/ci/2026-08-16-timing-scan-binding-resolution-design.md` · **Plan:** `docs/superpowers/plans/2026-08-16-timing-scan-binding-resolution/`
+
+**Resolution 2026-08-16 (`fix/timing-scan-scope-resolution`).** `scanRepo` no longer collects the identifier TEXT of every covered binding in the universe. An identifier delay — and, in the same step, a timing-named property value — resolves against the DECLARATION it binds to, via the TypeScript checker over a program built from the universe files, with the covered set keyed `${file}:${declPos}` off the declaration NAME node's start offset. A line key was rejected by probe P10: `const CLOSE_DELAY_MS = 220, other = readConfig();` declares two bindings on one line, and a line key would lend the constant's coverage to `other`.
+
+Both positions flow through exactly one resolution step, so the property half of the gap closed with the delay half rather than being deferred. Every uncertainty reports rather than resolving — no symbol, an unresolvable alias, a declaration outside the program, a mis-anchored token whose text does not match the site's name. Nothing degrades back to name matching.
+
+The resolver is served the `(file, text)` pairs `scanRepo` already read, through a `ts.CompilerHost`, so it never touches the filesystem: `refPos` offsets are guaranteed to index the same text the sites were computed from, and an unreadable file keeps its prior behaviour by simply not being in the pairs.
+
+**Documented limits, each with its probe, in spec §4.** `noResolve` keeps the program at the universe roots instead of the 3121 files that following imports into `node_modules` pulls in — 211 ms against 6.3-8.0 s (probes P3/P4) — and its accepted cost is that a covered constant reached through a re-export module OUTSIDE the universe reports rather than resolving. This arc resolves REFERENCES; it does not evaluate expressions. Valuation is a separate axis, filed as `BL-TIMING-SCAN-VALUATION-VS-REASSIGNMENT`.
+
 ## BL-PREMISE-SCAN-DESCRIBE-LOCAL-EXTENTS — a describe-local initializer that shells out is classified environment-free — CLOSED 2026-08-16 (`fix/scanner-scope-totality`, SHIPPED)
 
 **Status:** SHIPPED 2026-08-16 · **Effort (as shipped):** M — folded into the arc that was already rebuilding the extent model.

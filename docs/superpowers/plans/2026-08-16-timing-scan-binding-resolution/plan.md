@@ -187,4 +187,37 @@ Not a code change; the gate that makes Tasks 1-2 legal.
 
 ## 12. Closeout
 
+**Tasks.** `72f9c3bab` merge (#827) · `0328e3c5e` Task 0 citation retarget · `8ffa6a0d8` Task 1 · `57e00b781` Task 2 · `ed6c7085e` Task 3 · `4a5e3c6e3` Task 4 + the AC-10 memo · this commit Task 5.
+
+**AC status.** AC-1 to AC-9, AC-11 and AC-12 met. AC-10(a) met. **AC-10(b) is BREACHED and is not waived** — see below.
+
+**AC-10, all three runs, one method** (a single gitignored measurement script under `.review/impl-probes/`, ac10-measure.ts, which times the suite pair and the SCOPED per-surface `runSurface` + `evaluateGate` path in a single artifact so BEFORE and AFTER cannot diverge by technique):
+
+| run | suite pair | scoped mutation | mutants |
+| --- | --- | --- | --- |
+| BEFORE (`0328e3c5e`) | 3090 ms | 328.5 s | 105/113 |
+| AFTER, un-memoized | 4355 ms | 635.5 s | 127/143 |
+| AFTER, memoized (shipped) | 3207 ms | 497.2 s | 131/148 |
+
+**(a) PASSES:** +117 ms against a ≤ 2 s budget; peak RSS 525 → 335 MB.
+
+**(b) FAILS as written:** +51.4% against ≤ 25%. The un-memoized run was +93.5%, and spec §2.4's prescribed response to a breach — "a memo keyed on the exact `(file list, contents)` the scan just read, correct by construction because that key IS the scan's input, not a weaker resolver" — is implemented and recovered 138 s of it. What remains cannot be recovered by any implementation:
+
+```
+baseline          328.5 s over 113 mutants (2907 ms each)
+AC-10(b) ceiling  410.6 s  (+25%)
+a FREE resolver   430.2 s  = 148 mutants x the BASELINE per-mutant cost
+actual            497.2 s
+```
+
+A resolver costing zero still breaches by 19.6 s, because the criterion is quoted in TOTAL wall clock while the harness pays per mutant and this diff adds 35 mutation sites. Per mutant the cost is 2907 → 3359 ms, **+15.6%**, inside the budget. AC-10(b) therefore conflates per-run cost with corpus size, and any diff that adds code to an enrolled surface breaches it by growing the denominator. Spec is canonical (invariant 7), so this is filed as an open question rather than silently reinterpreted.
+
+**Gate (scoped, and stated as scoped).** `runSurface` + `evaluateGate` for `interactionTimingScan` alone: **131/131 counted, 17 excluded, score 1.00, zero unaccepted survivors**. Per plan Task 4 step 4 this is evidence about THIS surface and is never evidence that the whole gate is green; the corpus-wide `tests/mutation/guardSurfaces.gates.test.ts` passes separately (5 tests), which is what pins the registry ↔ `EXPECTED_LEDGER_KINDS` agreement in both directions.
+
+**Accepted set.** Re-derived from the final scanner text with `pnpm mutation:sites`, never hand-adjusted. Seven of the original eight rows remapped by line only; the eighth (`logical-connector:584:43:&&>||`) was DELETED because its site is gone with the `TIMING_NAME` gate. Ten rows added, all `equivalent`. The two defensive guards among them (mis-anchored token, shorthand discriminator) are `equivalent` rather than `accepted-gap` deliberately: a gap needs a `ref` to open work, and no emit path in the module can produce the input that distinguishes those mutants. `EXPECTED_LEDGER_KINDS.interactionTimingScan` moves 8 → 17 in the same commit as the registry.
+
+**One test was rewritten after it failed to discriminate.** The memo needs a case proving the key is the CONTENTS; the first draft scanned one root twice with a file edited between, and passed against the mutant that drops contents from the key — the two versions had different lengths, so the stale program had no identifier at the new offset and the site reported for an unrelated reason. Both versions are now padded to equal length with `premiseHolds` stating it, and the mutant dies.
+
+**Infrastructure note.** Two backgrounded gate runs aborted with `MutantRunInfraError` (`signal=SIGTERM, code=none`) on different mutants. Ruled out by evidence: not the harness timeout (`killSignal` is SIGKILL and `ETIMEDOUT` is exit 124), not the codex reaper (its state file reads "no codex procs" and its last kill logged 2026-08-04), not `heavy-reap` (min age 14400 s; these were seconds old), not the OS (newest JetsamEvent 2026-08-14). The identical command in the FOREGROUND ran to completion. Recorded because the harness refusing to score a signalled child as KILLED is why these numbers can be trusted.
+
 impeccable-gate: N/A — no UI surface
