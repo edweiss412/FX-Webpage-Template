@@ -369,13 +369,21 @@ function assignmentTargets(target: ts.Expression): Array<[ts.Identifier, ts.Expr
     }
     return out;
   }
-  // `[a = dflt] = xs` needs NO arm here. The element's own default is itself an
-  // assignment expression, and the write pass walks every node, so it records
-  // that write directly on its own visit. An arm for it was written first and
-  // the mutation gate then reported it as a survivor no operator could
-  // distinguish — probed by running both fixture shapes through a mutated copy,
-  // which returned identical verdicts. Deleted rather than ledgered, the same
-  // disposition the QualifiedName rule and the `?? 0` flag fallbacks got.
+  // `[a = dflt] = xs` — the element's own default runs when the source has no
+  // value for it, AND the name still takes the outer right-hand side when it
+  // does. Both edges are needed.
+  //
+  // This arm was deleted once, on the argument that the write pass walks every
+  // node and so records the inner `a = dflt` assignment on its own visit. That
+  // is true and insufficient: the inner visit attaches only the DEFAULT, never
+  // the outer RHS, so `[value = "d"] = [process.env.X]` silently lost the
+  // environment read that `[value] = [process.env.X]` keeps. The probe that
+  // "confirmed" the deletion used an empty outer RHS, where both paths agree —
+  // it could not have discriminated. Restored, with a fixture whose provenance
+  // is in the outer RHS (whole-diff R4 #4).
+  if (ts.isBinaryExpression(t) && t.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+    for (const [id, defaults] of assignmentTargets(t.left)) out.push([id, [...defaults, t.right]]);
+  }
   return out;
 }
 
@@ -637,17 +645,22 @@ function moduleFacts(path: string): ModuleFacts | null {
       // local extent for it too would shadow that edge with the bare `await
       // import(...)` expression, which names no provenance by itself and has no
       // module edge to follow.
-      if (!isDynamicImportInitializer(node.initializer)) {
-        for (const [id, fallbacks] of boundNames(node.name)) {
-          // A declaration with NO initializer still BINDS the name here, so a
-          // later write inside a nested function attaches to this binding rather
-          // than falling through to a same-named outer one.
-          if (node.initializer) addExtentIn(home, id.text, node.initializer);
-          else if (fallbacks.length === 0) addShadowIn(home, id.text);
-          // EVERY default is part of the extent, because each is what runs when
-          // the source supplies nothing at its own level of the pattern.
-          for (const fallback of fallbacks) addExtentIn(home, id.text, fallback);
-        }
+      const dynamicImport = isDynamicImportInitializer(node.initializer);
+      for (const [id, fallbacks] of boundNames(node.name)) {
+        // A declaration with NO initializer still BINDS the name here, so a
+        // later write inside a nested function attaches to this binding rather
+        // than falling through to a same-named outer one.
+        if (node.initializer && !dynamicImport) addExtentIn(home, id.text, node.initializer);
+        else if (!node.initializer && fallbacks.length === 0) addShadowIn(home, id.text);
+        // EVERY default is part of the extent, because each is what runs when
+        // the source supplies nothing at its own level of the pattern — and
+        // that is true of a dynamic import too. Skipping the whole clause for
+        // one dropped `const { helper = spawnSync } = await import(…)`, whose
+        // default RUNS when the imported export is undefined (R4 #2). Only the
+        // INITIALIZER is withheld for a dynamic import, because the bare
+        // `await import(…)` expression names no provenance by itself and its
+        // module edge is already registered in `scopedImports`.
+        for (const fallback of fallbacks) addExtentIn(home, id.text, fallback);
       }
     }
     if (ts.isFunctionDeclaration(node) && node.name) addExtent(node.name.text, node, node);
@@ -715,7 +728,19 @@ function moduleFacts(path: string): ModuleFacts | null {
   const bindingScope = (name: string, from: ts.Node): Scope => {
     let scope: Scope | null = scopeOf(from) ?? sf;
     while (scope) {
-      if (extents.get(scope)?.has(name) || shadows.get(scope)?.has(name)) return scope;
+      if (
+        extents.get(scope)?.has(name) ||
+        shadows.get(scope)?.has(name) ||
+        // A dynamic import BINDS its name too. Consulting only `extents` and
+        // `shadows` walked straight past it, so a write to such a binding
+        // resolved outward and landed on whatever same-named thing it met —
+        // module scope via the fallback below, in practice. It happened to look
+        // right at module scope and lost the write in every block and `describe`
+        // (R4 #3).
+        scopedImports.get(scope)?.has(name)
+      ) {
+        return scope;
+      }
       scope = scopeOf(scope);
     }
     return sf; // unresolved: record the write at module scope rather than drop it
@@ -751,6 +776,59 @@ function unwrap(node: ts.Expression): ts.Expression {
   return n;
 }
 
+/** Does this binding pattern or assignment pattern extract a property named `env`? */
+function bindsEnv(target: ts.Node): boolean {
+  if (ts.isObjectBindingPattern(target)) {
+    return target.elements.some((el) => {
+      const key = el.propertyName ?? el.name;
+      return ts.isIdentifier(key) && key.text === "env";
+    });
+  }
+  // The assignment form: `({ env } = process)` parses its target as an object
+  // LITERAL, not a binding pattern, so the two spellings need separate reads.
+  if (ts.isObjectLiteralExpression(target)) {
+    return target.properties.some(
+      (p) =>
+        (ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p)) &&
+        ts.isIdentifier(p.name) &&
+        p.name.text === "env",
+    );
+  }
+  return false;
+}
+
+/**
+ * Is this node the SOURCE of a destructuring that extracts `env`?
+ *
+ * Wrappers are climbed rather than enumerated at the call site, so `as`, `!`,
+ * `satisfies` and parentheses all reach the same answer.
+ */
+function extractsEnvFrom(node: ts.Node): boolean {
+  let cur: ts.Node = node;
+  let p: ts.Node | undefined = cur.parent;
+  while (
+    p !== undefined &&
+    (ts.isParenthesizedExpression(p) ||
+      ts.isAsExpression(p) ||
+      ts.isNonNullExpression(p) ||
+      ts.isSatisfiesExpression(p))
+  ) {
+    cur = p;
+    p = p.parent;
+  }
+  if (p === undefined) return false;
+  if (ts.isVariableDeclaration(p) && p.initializer === cur) return bindsEnv(p.name);
+  if (ts.isParameter(p) && p.initializer === cur) return bindsEnv(p.name);
+  if (
+    ts.isBinaryExpression(p) &&
+    p.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+    p.right === cur
+  ) {
+    return bindsEnv(unwrap(p.left));
+  }
+  return false;
+}
+
 /**
  * `process.env`, reached through the BINDER rather than matched as text.
  *
@@ -774,7 +852,17 @@ function readsProcessEnv(n: ts.Node, facts: ModuleFacts): boolean {
   )
     base = n.expression;
   else return false;
-  const id = unwrap(base);
+  let id = unwrap(base);
+  // `globalThis.process.env` names the same global by its qualified spelling.
+  if (
+    ts.isPropertyAccessExpression(id) &&
+    id.name.text === "process" &&
+    ts.isIdentifier(unwrap(id.expression)) &&
+    (unwrap(id.expression) as ts.Identifier).text === "globalThis"
+  ) {
+    id = unwrap(id.expression);
+    return resolveBinding(facts, "globalThis", id).kind === "unbound";
+  }
   return (
     ts.isIdentifier(id) &&
     id.text === "process" &&
@@ -825,19 +913,19 @@ function extentIsProvenance(node: ts.Node, facts: ModuleFacts): boolean {
     ) {
       hit = true;
     }
-    // `const { env } = process` registers `process` as env's extent, so what
-    // reaches here is the initializer. Narrow to exactly that: `process` as the
-    // object of a member access is handled by the `process.env` prefix test
-    // above, and treating every bare mention as provenance would swallow the
-    // computed-access case that must report as UNCLASSIFIABLE instead.
+    // `const { env } = process` — the global DESTRUCTURED rather than accessed.
+    //
+    // Keyed on what is extracted and on the binder, not on one syntactic shape.
+    // Asking for "the bare identifier `process` as a declaration's initializer"
+    // was wrong in both directions and silent in both: it counted
+    // `const { version } = process`, which reads no environment, and it missed
+    // the extraction through a wrapper, through a destructuring assignment, and
+    // through a parameter default (whole-diff R4 #1).
     if (
       ts.isIdentifier(n) &&
       n.text === "process" &&
-      ts.isVariableDeclaration(n.parent) &&
-      // The INITIALIZER, never the declared name: `const process = { env: {} }`
-      // put the identifier in a declaration-name position, and reading that as
-      // a reference made a suite's own local shadow classify as the global.
-      n.parent.initializer === n &&
+      isReferenceIdentifier(n) &&
+      extractsEnvFrom(n) &&
       resolveBinding(facts, "process", n).kind === "unbound"
     ) {
       hit = true;

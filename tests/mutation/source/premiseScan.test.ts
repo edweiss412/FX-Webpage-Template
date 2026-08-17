@@ -567,14 +567,148 @@ describe("the repairs' own edges, each pinned by a surviving mutant the gate nam
     expect(classifyTests(ROOT, p)[0]?.hasPremise).toBe(true);
   });
 
-  it("a destructuring-assignment element default is reached through its `=`", () => {
+  it("a defaulted destructuring target still takes the OUTER right-hand side", () => {
     // equality-flip on `t.operatorToken.kind === ts.SyntaxKind.EqualsToken` in
     // assignmentTargets — the `[a = dflt]` arm.
+    //
+    // The provenance is deliberately in the OUTER RHS, not in the default. A
+    // fixture with an empty outer RHS cannot discriminate this arm from its
+    // absence: the write pass visits the inner `a = dflt` assignment on its own
+    // and records the default either way. That non-discriminating shape is what
+    // made this arm look redundant, and deleting it silently dropped the
+    // environment read (whole-diff R4 #4).
     expect(
-      verdict(`${spawner}
-        let cache;
-        [cache = spawning] = [] as Array<() => unknown>;
-        function read() { return cache; }
+      verdict(`let value;
+        [value = "d"] = [process.env.ROOT];
+        function read() { return value; }
+        it("x", () => { read(); });`),
+    ).toBe("environment-touching");
+  });
+
+  it("a RENAMED object target with a default takes the outer right-hand side too", () => {
+    expect(
+      verdict(`let value;
+        ({ a: value = "d" } = { a: process.env.ROOT });
+        function read() { return value; }
+        it("x", () => { read(); });`),
+    ).toBe("environment-touching");
+  });
+
+  it("the same target WITHOUT a default is the control", () => {
+    // The pair: if this one ever goes free, the loss is in the plain path rather
+    // than the defaulted one.
+    expect(
+      verdict(`let value;
+        [value] = [process.env.ROOT];
+        function read() { return value; }
+        it("x", () => { read(); });`),
+    ).toBe("environment-touching");
+  });
+});
+
+describe("extracting `env` FROM the global, in every form (whole-diff R4 #1)", () => {
+  // The clause read "the identifier `process`, bare, as a declaration's
+  // initializer". That is wrong in both directions: it counted every extraction
+  // from `process` whether or not `env` was among them, and it missed every
+  // extraction that is not a bare identifier initializer — through a wrapper,
+  // through an assignment, through a parameter default. Both directions silent.
+
+  it("extracting something OTHER than env is not an environment read", () => {
+    expect(
+      verdict(`const { version } = process;
+        function read() { return version; }
+        it("x", () => { read(); });`),
+    ).toBe("environment-free");
+  });
+
+  it("through an `as` cast", () => {
+    expect(
+      verdict(`const { env } = process as { env: Record<string, string> };
+        function read() { return env.ROOT; }
+        it("x", () => { read(); });`),
+    ).toBe("environment-touching");
+  });
+
+  it("through parentheses and a non-null assertion", () => {
+    expect(
+      verdict(`const { env } = (process)!;
+        function read() { return env.ROOT; }
+        it("x", () => { read(); });`),
+    ).toBe("environment-touching");
+  });
+
+  it("through a destructuring ASSIGNMENT rather than a declaration", () => {
+    expect(
+      verdict(`let env;
+        ({ env } = process);
+        function read() { return env.ROOT; }
+        it("x", () => { read(); });`),
+    ).toBe("environment-touching");
+  });
+
+  it("through a parameter default", () => {
+    expect(
+      verdict(`function read({ env } = process) { return env.ROOT; }
+        it("x", () => { read(); });`),
+    ).toBe("environment-touching");
+  });
+
+  it("a RENAMED extraction of env still counts", () => {
+    expect(
+      verdict(`const { env: vars } = process;
+        function read() { return vars.ROOT; }
+        it("x", () => { read(); });`),
+    ).toBe("environment-touching");
+  });
+
+  it("`globalThis.process.env` is the same global", () => {
+    expect(verdict(`it("x", () => { const r = globalThis.process.env.ROOT; });`)).toBe(
+      "environment-touching",
+    );
+  });
+
+  it("a LOCAL named process is still not the global, in the destructuring form", () => {
+    expect(
+      verdict(`it("x", () => {
+          const process = { env: { ROOT: "." } };
+          const { env } = process;
+          void env;
+        });`),
+    ).toBe("environment-free");
+  });
+});
+
+describe("a dynamic-import binding still has a local extent (whole-diff R4 #2, #3)", () => {
+  // Registering a dynamic import in `scopedImports` and NOTHING else dropped two
+  // things that are not the module edge: the pattern's own defaults, which run
+  // when the imported export is undefined, and later WRITES to the name, whose
+  // scope lookup consulted `extents` and `shadows` but never `scopedImports`.
+  // Both losses are silent.
+  //
+  // Every fixture is at MODULE scope, for the reason the nested-default cases
+  // are: inside a test body the walk covers the body's own text and reaches the
+  // provenance whether or not the binding recorded it, so a body-scoped fixture
+  // passes either way and pins nothing.
+
+  it("a destructuring DEFAULT on a dynamic import is reachable code", () => {
+    expect(
+      verdict(`import { spawnSync } from "node:child_process";
+        const { helper = spawnSync } = await import("node:path");
+        function read() { return helper; }
+        it("x", () => { read(); });`),
+    ).toBe("environment-touching");
+  });
+
+  it("a WRITE to a dynamic-import binding inside a block reaches that binding", () => {
+    expect(
+      verdict(`import { spawnSync } from "node:child_process";
+        let out;
+        {
+          let mod = await import("node:path");
+          mod = spawnSync as never;
+          out = mod;
+        }
+        function read() { return out; }
         it("x", () => { read(); });`),
     ).toBe("environment-touching");
   });
