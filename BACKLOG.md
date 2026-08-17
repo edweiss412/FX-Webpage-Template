@@ -348,18 +348,6 @@ Every lifetime bound in the mutation harness is enforced BY THE PARENT: the per-
 
 **First scheduled step:** decide whether the watchdog (component 1) makes the process group (component 2) unnecessary, since a child that exits on parent death does not need to be reachable by a group signal. If it does, the repair is a simplification rather than an addition.
 
-## BL-MUTATION-HARNESS-WALLCLOCK-CEILING — the nightly job's wall clock grows with every enrolled surface and nothing bounds it
-
-**Filed:** 2026-08-15 (`fix/ui-interactive-token-policy`, Task 5 enrolment). **Class:** CI capacity. **Effort:** M. **Class-sweep exception:** (c) — the repair is a redesign of the harness's execution model (sharding) on a surface this branch only enrols into. **Reachability:** PROBED — three measured runs, below.
-
-`mutation-harness` runs `vitest run --project mutation`: 8 LPT-balanced parser shard files plus `tests/mutation/guardSurfaces.gate.test.ts`, which runs EVERY registered source-mutation surface serially, one `vitest` child per mutant (`tests/mutation/source/runner.ts`; serial execution is ratified in the harness spec as R6 / limit L-4). The gates file therefore grows monotonically as surfaces enrol, and no layer bounds it.
-
-Measured 2026-08-15: 138 min on `main` (run 31871859884, 07:24:20Z..09:42:08Z) at 519 gate mutants; **180m15s on this arc's PR head, which had enrolled nothing** (run 31876214966, step cancelled at the `timeout-minutes: 180` ceiling); 146 min and red on a concurrent sibling arc (run 31877020683). The headroom was gone to runner variance ALONE, before any new surface. This branch enrols `interactiveScanCore` (207 mutants, +40% on the gates file) and raises `timeout-minutes` to 300 with those run ids in the workflow comment — headroom, not a fix.
-
-**Why it is not merely a bigger number.** The job is non-gating by design, so a timeout is silent to everyone except whoever reads the nightly. The failure mode is that enrolment — the thing the round-economy rule in `AGENTS.md` asks arcs to do BEFORE their first review dispatch — is exactly what pushes the job over, so the incentive runs toward not enrolling.
-
-**First scheduled step:** lift the parser harness's existing sharding (`tests/parser/mutation/shardPartition.ts:11`) to the gates file so surfaces partition across workers instead of accumulating on one. The harness spec already files serial execution as a deferred limit with that mechanism named; this entry is its trigger.
-
 ## BL-ADMIN-DEV-PANEL-TAP-FLOOR — the two dev-panel buttons are ~28px, and their classes are not even compiled
 
 **Filed:** 2026-08-14 (`fix/ui-interactive-token-policy`, found by the shipped tap-height scanner's first run). **Class:** accessibility / dev-only surface. **Effort:** S. **Class-sweep exception:** (c) — the repair is a build-scope decision about a surface this branch does not otherwise touch. **Reachability:** PROBED — `pnpm vitest run tests/styles/_metaTapTargetFloor.test.ts` against an empty census names both sites.

@@ -25,7 +25,7 @@ const ROOT = join(__dirname, "..", "..");
  * reporting a clean corpus it no longer understands. A genuinely pure suite
  * declares 0 honestly and is not forced to invent a match.
  *
- * Same shape and same reason as EXPECTED_LEDGER_KINDS in guardSurfaces.gate.
+ * Same shape and same reason as EXPECTED_LEDGER_KINDS in source/expectedLedgerKinds.
  */
 const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // 15 -> 16 (2026-08-09): the constructed multi-line hunk case that kills the
@@ -187,6 +187,28 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // suite reaches no member of ENVIRONMENT_SOURCES — no child process, no
   // ledger-git, no process.env, and no filesystem read at all.
   "tests/log/serializeError.test.ts": 0,
+  // The two surfaces the mutation-gate sharding arc enrols (2026-08-16). Both
+  // measured 0 with the scanner, and the enrolment's red cycle reported
+  // "expected +0 to be undefined" here before these rows existed.
+  //
+  // shardBudget's 0 is a genuine 0: lib/ci/shardBudget.ts is pure decision logic
+  // with no `process` and no I/O -- that separation is why it is enrollable at
+  // all -- and the suite drives literal record arrays through it.
+  "tests/ci/shardBudget.test.ts": 0,
+  // shardPartition's 0 is a SCANNER-RULE 0 and a known under-count, recorded
+  // rather than papered over. The suite imports no member of
+  // ENVIRONMENT_SOURCES directly, which is what the scanner classifies on, but
+  // every case reaches the filesystem TRANSITIVELY: `weightOf` readFileSync's
+  // each enrolled surface's source to generate its mutants. The count is the
+  // scanner's own measurement under its own rule, not a claim that these cases
+  // are hermetic. Widening the rule to transitive reachability is a change to
+  // the scanner with its own before/after numbers, not a number to adjust here.
+  "tests/mutation/source/shardPartition.test.ts": 0,
+  // sourceShardPartition's SECOND deciding suite, added when enrolment's first
+  // run showed the unit suite cannot kill a mutant of either constant it reads.
+  // Also a scanner-rule 0 with the same caveat: it readFileSync's the workflow
+  // and the shard files, but imports no member of ENVIRONMENT_SOURCES.
+  "tests/mutation/_metaSourceShardIntegrity.test.ts": 0,
 };
 
 const suites = [...new Set(GUARD_SURFACES.flatMap((s) => s.suitePaths))].sort();

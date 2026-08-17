@@ -253,8 +253,8 @@ describe("vitest projects split — partition is complete and correctly wired", 
       }
       expect(
         nightlyCount,
-        "exactly the 12 nightly files (10 parser harness + the source-mutation gate + the browser-mutant gate) live in no default project",
-      ).toBe(12);
+        "exactly the 16 nightly files (10 parser harness + 4 source-mutation shards + the source-mutation gates file + the browser-mutant gate) live in no default project",
+      ).toBe(16);
       // Anti-collapse floors, computed from RESOLVED membership (not the
       // matchesParallel helper): exact-once alone permits massive drift, since
       // every file could pile into one project and still be admitted exactly
