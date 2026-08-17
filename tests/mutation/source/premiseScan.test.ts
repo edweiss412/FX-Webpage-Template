@@ -2240,3 +2240,332 @@ describe("forwarded exports: a re-export is followed to its source", () => {
     // unclassifiable, so the REASON above is what proves cycle detection.
   });
 });
+
+const SPAWNS = `import { spawnSync } from "node:child_process";
+  export function spawner(): string { return String(spawnSync("echo", ["x"]).stdout); }`;
+
+describe("declined export forms: unmodelled runtime references REPORT (AC-5c)", () => {
+  // Every case in this block reports, so every case goes through
+  // `expectReported` with the construct AND the module it was found in, the
+  // BARREL for a re-export defect, never the importing test file (spec §2.6
+  // item 2). A bare .toBe("unclassifiable") is not sufficient here.
+  it.each([
+    [
+      "assignment position",
+      `let m: any; m = await import("__MODULE_helper__"); it("x", async () => { (await m).spawner(); });`,
+      REPORTS.dynamicImport,
+    ],
+    [
+      "embedded: awaited member call",
+      `it("x", async () => { (await import("__MODULE_helper__")).spawner(); });`,
+      REPORTS.dynamicImport,
+    ],
+    [
+      "embedded: .then destructure",
+      `it("x", () => { void import("__MODULE_helper__").then(({ spawner }) => spawner()); });`,
+      REPORTS.dynamicImport,
+    ],
+    [
+      "bare side-effect dynamic",
+      `it("x", async () => { await import("__MODULE_helper__"); });`,
+      REPORTS.dynamicImport,
+    ],
+  ])("an unmodelled runtime reference REPORTS: %s", (_label, testSrc, construct) => {
+    // Assert the REASON, not only the verdict. A generic or misattributed
+    // reason satisfies a verdict-only assertion while violating AC-5c, and the
+    // whole point of REPORTING is that the reader is told WHICH construct and
+    // WHICH module. Spec §2.6 item 2: the path names the module the construct
+    // was FOUND in.
+    // `module` matches the GENERATED module path (mod<N>_helper), not the bare
+    // word "helper", and `notModule` rules out the test file. A round-2 draft
+    // used /helper/, which the import specifier already contains, so it matched
+    // even when the reason named the wrong module or none.
+    // Each row carries its OWN construct, never a union: a union lets any row
+    // pass on another row's reason. And these four constructs sit in the
+    // GENERATED TEST FILE, not in the helper, so the module is OWN_FILE, a
+    // round-3 draft asserted /mod\d+_helper/ and rejected the test file, which
+    // is backwards for this table.
+    expectReported(classificationWithModules({ helper: SPAWNS }, testSrc), {
+      construct,
+      module: OWN_FILE,
+    });
+  });
+
+  it("an EXPORTED embedded dynamic import REPORTS through the importer", () => {
+    expectReported(
+      classificationWithModules(
+        {
+          helper: SPAWNS,
+          barrel: `export const run = (await import("__MODULE_helper__")).spawner;`,
+        },
+        `import { run } from "__MODULE_barrel__";\n it("x", () => { run(); });`,
+      ),
+      // The construct is in the BARREL (spec §2.6 item 2), not the test file.
+      { construct: REPORTS.dynamicImport, module: /mod\d+_barrel/, notModule: /case\d+-user/ },
+    );
+  });
+
+  it("an in-repo STATIC side-effect import REPORTS", () => {
+    // `import "./side"` has no importClause at all, so every clause-driven
+    // branch skips it and the module's spawn is never seen. 9 near-domain sites.
+    expectReported(
+      classificationWithModules(
+        { side: `import { spawnSync } from "node:child_process";\n spawnSync("echo", []);` },
+        `import "__MODULE_side__";\n it("x", () => { expect(1).toBe(1); });`,
+      ),
+      // The construct is the side-effect IMPORT, in the test file that writes it.
+      { construct: REPORTS.sideEffect, module: OWN_FILE },
+    );
+  });
+
+  it("a side-effect import inside a REACHED module REPORTS, naming that module", () => {
+    // One ordinary edit from the case above, and the one that decides whether
+    // the seed is enough: the import sits in a helper, OUTSIDE the extent of the
+    // pure function the test calls, so following the edge never passes over it.
+    // Probed on the merged scanner: environment-free today, and silently so,
+    // which is the failure mode §1's bound exists to forbid. It greens only when `reaches`
+    // merges `sideEffectImports` for every module whose facts it loads.
+    expectReported(
+      classificationWithModules(
+        {
+          side: `import { spawnSync } from "node:child_process";\n spawnSync("echo", []);`,
+          helper: `import "__MODULE_side__";\n export function pureOne(): number { return 1; }`,
+        },
+        `import { pureOne } from "__MODULE_helper__";\n it("x", () => { pureOne(); });`,
+      ),
+      // Named for the HELPER that carries the import, not the test file and not
+      // the side-effect target (spec §2.6 item 2).
+      { construct: REPORTS.sideEffect, module: /mod\d+_helper/, notModule: OWN_FILE },
+    );
+  });
+
+  it("an embedded BARE dynamic import stays PURE (L-2 foil)", () => {
+    // The foil §2.4b needs and had not got: the rule's positions are about
+    // shape, and its DOMAIN is in-repo specifiers. `tests/notify/resend-dep.test.ts:9`
+    // is a live `await expect(import("resend"))` in exactly this shape;
+    // reporting it would break AC-1 on a suite nobody edited. Probed
+    // environment-free today, and it must stay environment-free after.
+    expect(
+      verdict(`it("x", async () => { await expect(import("resend")).resolves.toBeTruthy(); });`),
+    ).toBe("environment-free");
+  });
+
+  it("its IN-REPO twin REPORTS, differing only in the specifier", () => {
+    // The pair is what makes each discriminating: same embedded position, same
+    // await, one bare and one repo-relative. Probed environment-free today.
+    expectReported(
+      classificationWithModules(
+        {
+          helper: `import { spawnSync } from "node:child_process";
+            export function go(): string { return String(spawnSync("echo", []).stdout); }`,
+        },
+        `it("x", async () => { (await import("__MODULE_helper__")).go(); });`,
+      ),
+      { construct: REPORTS.dynamicImport, module: OWN_FILE },
+    );
+  });
+
+  it("a MODULE-LOAD dynamic reference REPORTS, though nothing references it", () => {
+    // The seed is not only about clause-less STATIC imports. A reportable
+    // runtime reference in a TOP-LEVEL STATEMENT runs at module load and is
+    // inside no extent, so the walk - which starts at the `it`, its hooks and
+    // its producers - never visits it. Probed: environment-free today, silently.
+    // One ordinary edit from the near-domain case at
+    // tests/auth/requireAdmin.getClaims.test.ts:211, hoisted out of its test.
+    expectReported(
+      classification(`const specifier = "./x" + String(1);
+        void (await import(specifier));
+        it("x", () => { expect(1).toBe(1); });`),
+      { construct: REPORTS.dynamicImport, module: OWN_FILE },
+    );
+  });
+
+  it("the same shape inside an UNCALLED helper does NOT seed", () => {
+    // The foil that stops the seed from becoming "any occurrence anywhere in
+    // the file". A construct inside a function body is reachable only by a
+    // CALL, and nothing calls this one, so the test stays pure. Without this
+    // pair, an implementation that seeds every `import()` in the file passes
+    // the case above while breaking AC-1 on the enrolled domain.
+    expect(
+      verdict(`const specifier = "./x" + String(1);
+        async function unused(): Promise<void> { void (await import(specifier)); }
+        it("x", () => { expect(1).toBe(1); });`),
+    ).toBe("environment-free");
+  });
+
+  it("a side-effect import on a FORWARDING barrel REPORTS, naming the barrel", () => {
+    // One ordinary edit further: the module carrying the import now FORWARDS
+    // rather than declaring, so it is loaded INSIDE resolveExport and the
+    // caller never sees its ModuleFacts. Merging side-effect reasons only in
+    // `reaches` loses it: the terminal extent is pure, so the test reads
+    // environment-free with nothing reported (round-13 finding 1). It greens
+    // only when a forward hop returns its module's reasons through
+    // `ExportResolution.reasons`.
+    expectReported(
+      classificationWithModules(
+        {
+          side: `import { spawnSync } from "node:child_process";\n spawnSync("echo", []);`,
+          leaf: `export function pureOne(): number { return 1; }`,
+          barrel: `import "__MODULE_side__";\n export { pureOne } from "__MODULE_leaf__";`,
+        },
+        `import { pureOne } from "__MODULE_barrel__";\n it("x", () => { pureOne(); });`,
+      ),
+      { construct: REPORTS.sideEffect, module: /mod\d+_barrel/, notModule: OWN_FILE },
+    );
+  });
+
+  it("an in-repo specifier that does NOT resolve REPORTS", () => {
+    // Extensionless `./h` for a `.mjs` sibling. resolveSpecifier's candidates are
+    // NOT widened (spec §2.4b): the miss is reported instead of passed as pure.
+    expectReported(
+      classificationWithModules(
+        { "helper.mjs": SPAWNS },
+        `import { spawner } from "__MODULE_NOEXT_helper__";\n it("x", () => { spawner(); });`,
+      ),
+      { construct: REPORTS.unresolvedSpecifier, module: OWN_FILE },
+    );
+  });
+
+  it("a BARE unresolved specifier stays FREE, L-2 is unchanged", () => {
+    // The foil that stops the rule swallowing node_modules. Without it, §2.4b
+    // would report every third-party import in the corpus.
+    expect(
+      verdictWithModules(
+        {},
+        `import { thing } from "some-npm-package";\n it("x", () => { thing(); });`,
+      ),
+    ).toBe("environment-free");
+  });
+
+  // NOTE the LOCAL dynamic-namespace foil is NOT here. It expects
+  // `environment-touching`, which needs Task 4's member resolution; probe DYN-NS
+  // measures it environment-free today and nothing in this task changes that, so
+  // asserting it here would make this task's green command depend on a later one.
+  // It lives in Task 4 beside the other namespace cases.
+
+  it.each([
+    [
+      "export const ns = await import()",
+      `export const ns = await import("__MODULE_helper__");`,
+      "ns",
+    ],
+    [
+      "export const { spawner } = await import()",
+      `export const { spawner } = await import("__MODULE_helper__");`,
+      "spawner",
+    ],
+    [
+      "const ns = await import(); export { ns }",
+      `const ns = await import("__MODULE_helper__");\nexport { ns };`,
+      "ns",
+    ],
+    [
+      "const { spawner } = await import(); export { spawner }",
+      `const { spawner } = await import("__MODULE_helper__");\nexport { spawner };`,
+      "spawner",
+    ],
+  ])("an EXPORTED dynamic binding REPORTS: %s (spec §2.2)", (_l, barrel, name) => {
+    // Each imports the name its own barrel exports. A fixture importing a name
+    // the barrel lacks would be pure for a test-local reason and never go green.
+    expectReported(
+      classificationWithModules(
+        { helper: SPAWNS, barrel },
+        `import { ${name} } from "__MODULE_barrel__";\n it("x", () => { void ${name}; });`,
+      ),
+      // The construct is in the BARREL, not the test file (spec §2.6 item 2).
+      { construct: REPORTS.dynamicImport, module: /mod\d+_barrel/, notModule: /case\d+-user/ },
+    );
+  });
+});
+
+describe("declined export forms: recognized, unresolvable, and REPORTED", () => {
+  const SPAWNER = `import { spawnSync } from "node:child_process";
+    export function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }`;
+
+  it("an unfollowable re-export reports, naming the module", () => {
+    const modules = { barrel: `export { spawnHelper } from "./definitely-not-here";` };
+    const src = `import { spawnHelper } from "__MODULE_barrel__";
+      it("x", () => { spawnHelper(); });`;
+    expectReported(classificationWithModules(modules, src), {
+      construct: REPORTS.unfollowable,
+      module: /mod\d+_barrel/,
+      notModule: /case\d+-user/,
+    });
+    expect(classificationWithModules(modules, src)?.detail ?? "").toMatch(/barrel/);
+  });
+
+  it("`export * as ns from` reports", () => {
+    expectReported(
+      classificationWithModules(
+        { helper: SPAWNER, barrel: `export * as helpers from "__MODULE_helper__";` },
+        `import { helpers } from "__MODULE_barrel__";
+         it("x", () => { helpers.spawnHelper(); });`,
+      ),
+      { construct: REPORTS.namespaceExport, module: /mod\d+_barrel/, notModule: OWN_FILE },
+    );
+  });
+
+  it("`export =` reports", () => {
+    expectReported(
+      classificationWithModules(
+        // An export assignment cannot sit in a module that also has ES exports
+        // (`TS2309`), so this fixture keeps the spawning function LOCAL and
+        // exports it only through `export =`, which is the shape a CommonJS-authored
+        // in-repo module actually has (round-8 finding 1, swept).
+        {
+          helper: `import { spawnSync } from "node:child_process";
+            function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }
+            export = spawnHelper;`,
+        },
+        `import runIt from "__MODULE_helper__";
+         it("x", () => { runIt(); });`,
+      ),
+      { construct: REPORTS.exportEquals, module: /mod\d+_helper/, notModule: OWN_FILE },
+    );
+  });
+
+  it("`export namespace` reports", () => {
+    // Probe B9: it carries an `export` modifier but registers no extent, so an
+    // E1 predicate keyed on the modifier resolves it to an EMPTY extent and
+    // passes it as free.
+    expectReported(
+      classificationWithModules(
+        {
+          helper: `import { spawnSync } from "node:child_process";
+            export namespace NS {
+              export function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }
+            }`,
+        },
+        `import { NS } from "__MODULE_helper__";
+         it("x", () => { NS.spawnHelper(); });`,
+      ),
+      { construct: REPORTS.exportNamespace, module: /mod\d+_helper/, notModule: OWN_FILE },
+    );
+  });
+
+  it("a VALUE import of a type-only export is PURE, not unresolvable", () => {
+    // NOT written as `import type { Thing }`: that form is filtered by
+    // isInTypePosition before any resolution, so it would pass whatever §2.2
+    // decides about type-only exports and could not discriminate the rule it is
+    // the foil for. This imports the name in a VALUE position, so it genuinely
+    // reaches resolveExport and pins that a type-only export resolves pure.
+    expect(
+      verdictWithModules(
+        { helper: `export type Thing = { a: number };\n${SPAWNER}` },
+        `import { Thing } from "__MODULE_helper__";
+         it("x", () => { void Thing; });`,
+      ),
+    ).toBe("environment-free");
+  });
+
+  it("an ordinary named export is NOT reported", () => {
+    // The foil that stops this task's rule becoming "report everything".
+    expect(
+      verdictWithModules(
+        { helper: SPAWNER },
+        `import { spawnHelper } from "__MODULE_helper__";
+         it("x", () => { spawnHelper(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+});

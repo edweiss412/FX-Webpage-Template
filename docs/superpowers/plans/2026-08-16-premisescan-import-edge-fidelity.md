@@ -573,16 +573,17 @@ const OWN_FILE = /case\d+/;
 
 ```text
 unsupported module shape for ${spec}
-unresolved in-repo specifier ${spec}
-side-effect import of ${spec}
-unbindable dynamic import of ${spec}
-unfollowable re-export of ${exportName} from ${spec}
+unresolved in-repo specifier ${spec} in ${path}
+side-effect import of ${spec} in ${path}
+unbindable dynamic import of ${spec} in ${path}
+unfollowable re-export of ${exportName} from ${spec} in ${path}
 re-export cycle at ${path}#${exportName}
-unsupported export form: export * as ${name} from ${spec}
+unsupported export form: export * as ${name} from ${spec} in ${path}
 unsupported export form: export = in ${path}
 unsupported export form: export namespace ${name} in ${path}
 local re-export of a namespace binding (${name})
 namespace ${name} (imported from ${spec}) used in a position with no statically known member
+dynamic import() with a non-literal specifier in ${path}
 dynamic import() with a non-literal specifier
 computed member access on process
 ```
