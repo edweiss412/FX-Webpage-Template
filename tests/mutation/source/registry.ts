@@ -186,42 +186,23 @@ export const GUARD_SURFACES: GuardSurface[] = [
     },
     accepted: [
       {
-        siteId: "relational-boundary:504:29:>>>=",
+        siteId: "relational-boundary:601:29:>>>=",
         kind: "equivalent",
         reason:
           "`here.length > 0` versus `>= 0` agree on every reachable input: an extents entry is " +
           "only ever created by `addExtent` or the write pass, and both PUSH a node before storing, " +
-          "so the array is never empty. The guard reads as belt-and-braces and is exactly that.",
+          "so the array is never empty. The guard reads as belt-and-braces and is exactly that. " +
+          "Re-keyed 2026-08-17 by the mutated EXPRESSION, not by line: the import-edge repair moved " +
+          "every line below its first hunk.",
       },
       {
-        siteId: "integer-literal:1019:32:0>1",
-        kind: "equivalent",
-        reason:
-          "`unresolved` is provably always empty, so `length > 0` and `> 1` are indistinguishable. " +
-          "It is populated only where `factsFor` returns null, and `moduleFacts` returns null only " +
-          "for a path failing `existsSync` — but `resolveSpecifier` returns ONLY paths that already " +
-          "passed `existsSync`. Reaching it needs the file to vanish between those two calls, which " +
-          "is a TOCTOU race rather than an input an ordinary contributor writes (threat fence).",
-      },
-      {
-        siteId: "relational-boundary:1160:28:<><=",
+        siteId: "relational-boundary:1752:28:<><=",
         kind: "equivalent",
         reason:
           "The premise-placement test asks whether the premise call starts BEFORE the registration " +
           "call. `<` and `<=` differ only when the two nodes start at the identical offset, which " +
           "two distinct sibling statements cannot do — equality there would mean they are the same " +
-          "node, and the walk never compares a node against itself.",
-      },
-      {
-        siteId: "integer-literal:882:59:2>3",
-        kind: "accepted-gap",
-        ref: "BL-PREMISESCAN-ALIAS-SLICE-UNCOVERED",
-        reason:
-          "NOT equivalent: slicing one character further breaks every `@/` specifier, so the module " +
-          "silently stops resolving and its provenance is lost. It is UNCOVERED because killing it " +
-          "needs a `@/`-imported repo module whose DECLARATION extent reaches provenance without " +
-          "the specifier itself being a provenance module (which short-circuits before resolution), " +
-          "and no such module exists in the corpus today. Filed rather than blessed.",
+          "node, and the walk never compares a node against itself. Re-keyed 2026-08-17.",
       },
     ],
   },

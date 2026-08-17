@@ -30,7 +30,12 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // tie) plus ONE honest accepted-gap: the `@/` specifier slice, which is not
   // equivalent and has no killing fixture in today's corpus
   // (BL-PREMISESCAN-ALIAS-SLICE-UNCOVERED).
-  premiseScan: { equivalent: 3, "accepted-gap": 1 },
+  // 3 -> 2 equivalences on 2026-08-17. The `unresolved` row is RETIRED, not
+  // re-keyed: it argued that `unresolved` is provably always empty, and the
+  // import-edge repair populates it with every §2.3 and §2.4b reason, so the
+  // argument is false rather than relocated. The site itself is gone too — one
+  // place now decides the unclassifiable verdict.
+  premiseScan: { equivalent: 2 },
   // psqlStartupScan: EIGHTEEN equivalence arguments and NO accepted gap from the
   // 2026-08-16 disposition arc (per-site reasons live on the registry rows). Thirteen of
   // the thirty-one first-run survivors were repaid with tests instead. Both counts moved

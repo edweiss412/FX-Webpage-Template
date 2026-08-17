@@ -2042,6 +2042,37 @@ describe("forwarded exports: a re-export is followed to its source", () => {
     ).toBe("environment-touching");
   });
 
+  it("a forward onto a DATA target is pure, like a direct one (mutation gate)", () => {
+    // The data answer has a second entry point: `followForward` classifies the
+    // hop's target too. Without a case here the whole `data` branch of that
+    // classification is unobserved — the gate found it as a surviving mutant.
+    expect(
+      verdictWithModules(
+        { "rows.json": `{ "a": 1 }`, barrel: `export { a } from "__MODULE_rows.json__";` },
+        `import { a } from "__MODULE_barrel__";
+         it("x", () => { void a; });`,
+      ),
+    ).toBe("environment-free");
+  });
+
+  it("a forward onto an UNSUPPORTED shape REPORTS, like a direct one (mutation gate)", () => {
+    // The third answer of §2.4's classification also has two entry points, and
+    // the forward one was unobserved: a mutant that answered `data` for every
+    // non-analyze shape passed every case, turning an executable `.mdx` target
+    // into a silent free one hop away.
+    expectReported(
+      classificationWithModules(
+        {
+          "page.mdx": `export const meta = 1;`,
+          barrel: `export { meta } from "__MODULE_page__";`,
+        },
+        `import { meta } from "__MODULE_barrel__";
+         it("x", () => { void meta; });`,
+      ),
+      { construct: REPORTS.moduleShape, module: /mod\d+_page\.mdx/, notModule: OWN_FILE },
+    );
+  });
+
   it("a star-export miss on every branch is benign, not a report", () => {
     // AC-5b's foil: a name in no target resolves pure rather than loud.
     expect(
@@ -2411,6 +2442,43 @@ describe("declined export forms: unmodelled runtime references REPORT (AC-5c)", 
         `import { pureOne } from "__MODULE_barrel__";\n it("x", () => { pureOne(); });`,
       ),
       { construct: REPORTS.sideEffect, module: /mod\d+_barrel/, notModule: OWN_FILE },
+    );
+  });
+
+  it("a module report from TWO hops away still arrives (mutation gate)", () => {
+    // The carrying channel has two halves: `reaches` pushes the reports of the
+    // module it imports DIRECTLY, and `followForward` carries those of every
+    // module a forward hop loads. Only a chain deeper than one hop separates
+    // them, and without this case the second half is unobserved — the gate
+    // found both halves as surviving mutants.
+    expectReported(
+      classificationWithModules(
+        {
+          side: `import { spawnSync } from "node:child_process";\n spawnSync("echo", []);`,
+          leaf: `import "__MODULE_side__";\n export function pureOne(): number { return 1; }`,
+          barrel: `export { pureOne } from "__MODULE_leaf__";`,
+        },
+        `import { pureOne } from "__MODULE_barrel__";\n it("x", () => { pureOne(); });`,
+      ),
+      { construct: REPORTS.sideEffect, module: /mod\d+_leaf/, notModule: OWN_FILE },
+    );
+  });
+
+  it("a MODULE-LOAD dynamic import with a LITERAL specifier REPORTS (mutation gate)", () => {
+    // The literal branch of the module-load seed: its sibling case uses a
+    // NON-literal specifier, which the shipped rule reports for its own reason,
+    // so the in-repo literal path was unobserved — a surviving mutant that read
+    // argument 1 instead of argument 0 passed every other case.
+    expectReported(
+      classificationWithModules(
+        { helper: `export function pureOne(): number { return 1; }` },
+        `void (await import("__MODULE_helper__"));\n it("x", () => { expect(1).toBe(1); });`,
+      ),
+      {
+        construct: REPORTS.dynamicImport,
+        module: /mod\d+_helper/,
+        notModule: /nothing-matches-this/,
+      },
     );
   });
 

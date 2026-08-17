@@ -2389,15 +2389,22 @@ Expected: `premiseScan` meets `scoreFloor: 0.95` with an EMPTY unaccepted-surviv
 - [ ] **Step 6: Run the mechanical AC-1 gate, after proving it discriminates.** The suite alone cannot catch a re-baseline; it passes afterwards.
 
 ```bash
+set -o pipefail
 BASE=$(git merge-base origin/main HEAD)
-if git diff "$BASE" -- tests/mutation/_metaPremiseContract.test.ts | rg -q '^[-+].*: *[0-9]+,'; then
-  echo "AC-1 FAIL: a declared count moved"; exit 1
-else
-  echo "AC-1 ok"
+MOVED=$(git diff "$BASE" -- tests/mutation/_metaPremiseContract.test.ts |
+  grep -E '^[-+].*": *[0-9]+,$' |
+  grep -vE 'sameOriginServerAction|fieldNearMissBaseline' || true)
+if [ -n "$MOVED" ]; then
+  echo "AC-1 FAIL: an UNDECLARED count moved"; printf '%s\n' "$MOVED"; exit 1
 fi
+echo "AC-1 ok — only the two counts this arc re-derived moved"
 ```
 
-Expected: `AC-1 ok`, exit 0. The base is the merge-base, not `origin/main`, which moves under a live arc. **Prove the gate before trusting it:** temporarily change one declared number, confirm the command prints `AC-1 FAIL` and exits 1, then revert and re-run.
+Expected: `AC-1 ok`, exit 0. The base is the merge-base, not `origin/main`, which moves under a live arc. `grep`, not `rg`, because `rg` is not guaranteed on the PATH.
+
+**TWO counts are exempt BY NAME, and the exemption is the finding rather than a loophole.** This arc was written expecting verdict-neutrality to hold, on the strength of spec §3.3's measurement of zero occurrences. That measurement was of the probe's own rows and missed the corpus's own barrels: `lib/log/index.ts` re-exports `log` from `./logger`, and `logger.ts` is environment-touching on a DIRECT import. Sixteen tests in two enrolled suites were therefore reading free while genuinely reaching environment state — the exact silent free §1's bound forbids — so the counts are RE-DERIVED, not adjusted, and each of the twelve that carried neither premise nor exemption now carries a premise proved failable. Any THIRD count moving is still an unreviewed re-baseline and still fails.
+
+**Prove the gate before trusting it:** temporarily change a declared number OTHER than those two, confirm the command prints `AC-1 FAIL` and exits 1, then revert and re-run. Probed on `tests/scripts/ledgerClaimsCheck.test.ts` 16 -> 17: `AC-1 FAIL: an UNDECLARED count moved`, exit 1.
 
 - [ ] **Step 7: Run the full suite and the static gates — but note what it CANNOT be green on yet.**
 

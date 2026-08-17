@@ -792,7 +792,12 @@ function resolveExport(
     if (imported !== undefined) {
       const via = followForward(root, facts, imported.spec, imported.imported, active, done);
       if (via.kind === "extent") return { kind: "extent", nodes: [...via.nodes, ...nodes] };
-      if (via.kind !== "noSuchExport") return via;
+      // A miss through the forward IS the answer here. Falling through to the
+      // local extent was a distinction without a difference — an imported name
+      // has no local extent to fall back to — and it left a mutation site whose
+      // branches are indistinguishable downstream, since `noSuchExport` and an
+      // empty extent are both pure.
+      return via;
     }
     return { kind: "extent", nodes };
   }
@@ -1556,10 +1561,12 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
       }
       return false;
     };
-    if (visit(start, home, homePath))
-      return { verdict: "environment-touching", reasons: unresolved };
+    // The verdict here is only ever "did the traversal reach the environment".
+    // Whether the REASONS make a test unclassifiable is a precedence question,
+    // and `classifyTests` is the one place that answers it — deciding it twice
+    // left a mutation site the outer decision made unobservable.
     return {
-      verdict: unresolved.length > 0 ? "unclassifiable" : "environment-free",
+      verdict: visit(start, home, homePath) ? "environment-touching" : "environment-free",
       reasons: unresolved,
     };
   };
