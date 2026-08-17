@@ -2569,3 +2569,191 @@ describe("declined export forms: recognized, unresolvable, and REPORTED", () => 
     ).toBe("environment-touching");
   });
 });
+
+describe("namespace bindings: member-precise, and nothing else", () => {
+  // The three non-member cases in this block report; each uses
+  // `expectReported` with construct /namespace .* no statically known member/
+  // and the module the namespace was imported from.
+  const MIXED = `import { spawnSync } from "node:child_process";
+    export function spawner(): string { return String(spawnSync("echo", ["x"]).stdout); }
+    export function pureOne(): number { return 1; }`;
+
+  const ENVELOPE = `import { spawnSync } from "node:child_process";
+    export function reportEnvelope(res: { ok: boolean }): string { return res.ok ? "ok" : "no"; }
+    export function main(): string {
+      const res = spawnSync("git", ["status"]);
+      return String(res.stdout);
+    }`;
+
+  it("`ns.member` resolves to that member", () => {
+    expect(
+      verdictWithModules(
+        { helper: MIXED },
+        `import * as ns from "__MODULE_helper__";
+        it("x", () => { ns.spawner(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it('`ns["member"]` resolves to that member', () => {
+    expect(
+      verdictWithModules(
+        { helper: MIXED },
+        `import * as ns from "__MODULE_helper__";
+        it("x", () => { ns["spawner"](); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("a DYNAMIC namespace binding resolves (AC-2b)", () => {
+    // bindPattern's identifier branch records the LOCAL name: the same
+    // substitution, in the one place the round-1 draft called out of scope.
+    expect(
+      verdictWithModules(
+        { helper: MIXED },
+        `it("x", async () => { const ns = await import("__MODULE_helper__"); ns.spawner(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("a DYNAMIC destructured binding still resolves", () => {
+    // AC-2b's foil: already touching today, so it proves the dynamic path was
+    // never wholly broken and only the namespace spelling was.
+    expect(
+      verdictWithModules(
+        { helper: MIXED },
+        `it("x", async () => { const { spawner } = await import("__MODULE_helper__"); spawner(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("the namespace dedup identity includes the MEMBER: pure first (AC-2c)", () => {
+    // The traversal dedups by the BINDING a reference resolves to. A namespace
+    // resolves the SAME binding to DIFFERENT exports, so a member-blind key
+    // marks it seen on ns.pureOne() and never visits ns.spawner().
+    expect(
+      verdictWithModules(
+        { helper: MIXED },
+        `import * as ns from "__MODULE_helper__";
+        it("x", () => { ns.pureOne(); ns.spawner(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("the namespace dedup identity includes the MEMBER: spawn first (AC-2c)", () => {
+    // Both orders are required: a member-blind key fails in exactly one of them
+    // depending on which reference the walk meets first, so a single-order
+    // fixture can pass while the hole remains.
+    expect(
+      verdictWithModules(
+        { helper: MIXED },
+        `import * as ns from "__MODULE_helper__";
+        it("x", () => { ns.spawner(); ns.pureOne(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("`export { ns }` over a namespace import reports", () => {
+    // E2 forwarding would ask the target for an export named after the local
+    // alias, get noSuchExport, and go silently pure. Probe §3.9 measures free
+    // today; population 0 repo-wide, so reporting costs nothing.
+    expectReported(
+      classificationWithModules(
+        {
+          helper: MIXED,
+          barrel: `import * as helpers from "__MODULE_helper__";
+                   export { helpers };`,
+        },
+        `import { helpers } from "__MODULE_barrel__";
+         it("x", () => { helpers.spawnHelper(); });`,
+      ),
+      { construct: REPORTS.nsLocalReexport, module: /mod\d+_barrel/, notModule: /case\d+-user/ },
+    );
+  });
+
+  it("a namespace member that is PURE stays free even when a sibling spawns", () => {
+    // AC-3, and the regression case for spec §1.1 item 2: a module-closure rule
+    // fails here. AC-2's foil; neither may be removed without the other.
+    expect(
+      classificationWithModules(
+        { helper: MIXED },
+        `import * as ns from "__MODULE_helper__";
+        it("x", () => { ns.pureOne(); });`,
+      )?.verdict,
+    ).toBe("environment-free");
+  });
+
+  it("AC-10b stays quiet through a namespace", () => {
+    expect(
+      verdictWithModules(
+        { helper: ENVELOPE },
+        `import * as env from "__MODULE_helper__";
+        it("x", () => { env.reportEnvelope({ ok: true }); });`,
+      ),
+    ).toBe("environment-free");
+  });
+
+  it("AC-10b stays quiet through a direct import", () => {
+    expect(
+      verdictWithModules(
+        { helper: ENVELOPE },
+        `import { reportEnvelope } from "__MODULE_helper__";
+        it("x", () => { reportEnvelope({ ok: true }); });`,
+      ),
+    ).toBe("environment-free");
+  });
+
+  it("a namespace in a NON-member position reports", () => {
+    expectReported(
+      classificationWithModules(
+        { helper: MIXED },
+        `import * as ns from "__MODULE_helper__";
+        it("x", () => { Object.entries(ns); });`,
+      ),
+      // Found in the TEST file; the helper is named too, as the origin.
+      { construct: REPORTS.nsNonMember, module: OWN_FILE },
+    );
+  });
+
+  it("a destructured namespace reports", () => {
+    expectReported(
+      classificationWithModules(
+        { helper: MIXED },
+        `import * as ns from "__MODULE_helper__";
+        it("x", () => { const { pureOne } = ns; pureOne(); });`,
+      ),
+      { construct: REPORTS.nsNonMember, module: OWN_FILE },
+    );
+  });
+
+  it("`ns[computed]` reports", () => {
+    expectReported(
+      classificationWithModules(
+        { helper: MIXED },
+        `import * as ns from "__MODULE_helper__";
+        const k = "spawner";
+        it("x", () => { ns[k as keyof typeof ns]; });`,
+      ),
+      // A NON-literal element access is a namespace used with no statically
+      // known member (spec §2.3), not a dynamic import. Found in the TEST file.
+      { construct: REPORTS.nsNonMember, module: OWN_FILE },
+    );
+  });
+
+  it("a namespace import of a PROVENANCE module stays touching whatever the member", () => {
+    // AC-13. isProvenanceModule is checked before member resolution.
+    expect(
+      verdict(`import * as cp from "node:child_process";
+        it("x", () => { cp.execSync("git status"); });`),
+    ).toBe("environment-touching");
+  });
+
+  it("a namespace of a provenance module in a NON-member position stays touching", () => {
+    // Order matters: provenance first, member precision second. A repair that
+    // resolved members first would report unclassifiable here.
+    expect(
+      classification(`import * as cp from "node:child_process";
+        it("x", () => { void Object.keys(cp); });`)?.verdict,
+    ).toBe("environment-touching");
+  });
+});

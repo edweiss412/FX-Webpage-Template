@@ -472,7 +472,7 @@ const DATA_EXTENSIONS: readonly string[] = [".json"];
 type ModuleFacts = {
   sf: ts.SourceFile;
   /** local name → the module it came from, and the name it has THERE. */
-  imports: Map<string, { spec: string; imported: string }>;
+  imports: Map<string, { spec: string; imported: string; namespace?: boolean }>;
   /**
    * scope → (local name → the nodes forming its extent).
    *
@@ -502,7 +502,7 @@ type ModuleFacts = {
    * dynamic provenance, and a pure dynamic binding inherited an unrelated
    * static import's edge (whole-diff R2 #1).
    */
-  scopedImports: Map<Scope, Map<string, { spec: string; imported: string }>>;
+  scopedImports: Map<Scope, Map<string, { spec: string; imported: string; namespace?: boolean }>>;
   /**
    * EXPORTED name → what it names here: a module-local binding, or the node the
    * declaration itself contributes (`export default <expr>`, `export default
@@ -560,7 +560,14 @@ type Binding =
   /** `extent` carries any WRITES to the imported name — `let m = await
    *  import("p"); m = spawnSync(...)` binds once and is assigned twice, so the
    *  module edge is not the whole story. */
-  | { kind: "import"; scope: Scope; spec: string; imported: string; extent: ts.Node[] }
+  | {
+      kind: "import";
+      scope: Scope;
+      spec: string;
+      imported: string;
+      namespace?: boolean;
+      extent: ts.Node[];
+    }
   | { kind: "unbound" };
 
 function resolveBinding(facts: ModuleFacts, name: string, from: ts.Node): Binding {
@@ -611,11 +618,36 @@ function resolveUncached(facts: ModuleFacts, name: string, start: Scope): Bindin
 }
 
 /** Identity of the binding a reference resolves to — the dedup key. */
-function bindingKey(name: string, binding: Binding): string | null {
+/**
+ * The export a namespace reference names, or `null` when it names none.
+ *
+ * `ns.member` and `ns["member"]` select statically; every other position —
+ * `Object.entries(ns)`, `vi.spyOn(ns, name)`, passing `ns` itself — selects
+ * nothing this scanner can resolve, and §2.4b reports rather than guesses.
+ */
+function namespaceMember(reference: ts.Identifier): string | null {
+  const p = reference.parent;
+  if (p && ts.isPropertyAccessExpression(p) && p.expression === reference) return p.name.text;
+  if (
+    p &&
+    ts.isElementAccessExpression(p) &&
+    p.expression === reference &&
+    ts.isStringLiteralLike(p.argumentExpression)
+  )
+    return p.argumentExpression.text;
+  return null;
+}
+
+function bindingKey(name: string, binding: Binding, member?: string | null): string | null {
   if (binding.kind === "unbound") return null;
   // The scope is part of the identity for imports too: two dynamic imports of
-  // one name in different scopes are two different edges to follow.
-  return `${name}@${binding.kind}@${binding.scope.kind}:${binding.scope.pos}`;
+  // one name in different scopes are two different edges to follow. For a
+  // NAMESPACE the identity also carries the resolved MEMBER: one binding
+  // stands for many exports, and a member-blind key lets the first member
+  // visited mark the binding seen and skips every other — a silent free whose
+  // direction depends on source order (spec §2.3).
+  const suffix = member === undefined ? "" : `#${member ?? "<no-member>"}`;
+  return `${name}@${binding.kind}@${binding.scope.kind}:${binding.scope.pos}${suffix}`;
 }
 
 /** A module's EXPORTED binding, looked up by the name it carries there. */
@@ -749,6 +781,14 @@ function resolveExport(
     // only IMPORTS, so the local map answers with an empty extent unless the
     // edge is followed. Any WRITE to the same binding stays in the answer.
     const imported = facts.imports.get(target.name);
+    if (imported !== undefined && imported.namespace === true)
+      // 2b: `import * as ns from "./h"; export { ns }` exports the namespace
+      // OBJECT, not a target export. Forwarding it asks the target for `ns`,
+      // which answers noSuchExport and goes silently pure (probe H1).
+      return {
+        kind: "unresolvable",
+        reason: `local re-export of a namespace binding (${target.name}) in ${facts.sf.fileName}`,
+      };
     if (imported !== undefined) {
       const via = followForward(root, facts, imported.spec, imported.imported, active, done);
       if (via.kind === "extent") return { kind: "extent", nodes: [...via.nodes, ...nodes] };
@@ -807,10 +847,13 @@ function classifyTarget(
 function moduleFacts(path: string): ModuleFacts | null {
   if (!existsSync(path)) return null;
   const sf = parse(path, readFileSync(path, "utf8"));
-  const imports = new Map<string, { spec: string; imported: string }>();
+  const imports = new Map<string, { spec: string; imported: string; namespace?: boolean }>();
   const extents = new Map<Scope, Map<string, ts.Node[]>>();
   const shadows = new Map<Scope, Set<string>>();
-  const scopedImports = new Map<Scope, Map<string, { spec: string; imported: string }>>();
+  const scopedImports = new Map<
+    Scope,
+    Map<string, { spec: string; imported: string; namespace?: boolean }>
+  >();
   const exports = new Map<string, ExportTarget>();
   const forwards = new Map<string, { spec: string; sourceName: string }>();
   const starExports: string[] = [];
@@ -843,8 +886,10 @@ function moduleFacts(path: string): ModuleFacts | null {
 
   /** Bind a dynamic import's names IN THE SCOPE THAT DECLARES THEM. */
   const bindPattern = (name: ts.BindingName, spec: string, scope: Scope): void => {
-    const here = scopedImports.get(scope) ?? new Map<string, { spec: string; imported: string }>();
-    if (ts.isIdentifier(name)) here.set(name.text, { spec, imported: name.text });
+    const here =
+      scopedImports.get(scope) ??
+      new Map<string, { spec: string; imported: string; namespace?: boolean }>();
+    if (ts.isIdentifier(name)) here.set(name.text, { spec, imported: name.text, namespace: true });
     else if (ts.isObjectBindingPattern(name)) {
       for (const el of name.elements) {
         if (!ts.isIdentifier(el.name)) continue;
@@ -990,7 +1035,10 @@ function moduleFacts(path: string): ModuleFacts | null {
       // the target for a name it does not export (spec §2.1, half 2).
       if (clause?.name) imports.set(clause.name.text, { spec, imported: "default" });
       const b = clause?.namedBindings;
-      if (b && ts.isNamespaceImport(b)) imports.set(b.name.text, { spec, imported: b.name.text });
+      // A namespace binding is ONE binding for MANY exports; the member is
+      // what selects the export, so the flag travels with the binding.
+      if (b && ts.isNamespaceImport(b))
+        imports.set(b.name.text, { spec, imported: b.name.text, namespace: true });
       if (b && ts.isNamedImports(b)) {
         for (const e of b.elements) {
           // `import { helper as h }` binds `h` locally but names `helper` in the
@@ -1389,7 +1437,13 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
         // different scopes are two different things to visit, and collapsing
         // them made the verdict depend on which occurrence came first.
         const binding = resolveBinding(f, name, reference);
-        const bk = bindingKey(name, binding);
+        // A namespace reference selects its export through the MEMBER at the
+        // use site, so the member is read before the dedup key is formed.
+        const member =
+          binding.kind === "import" && binding.namespace === true
+            ? namespaceMember(reference)
+            : undefined;
+        const bk = bindingKey(name, binding, member);
         if (bk === null) continue; // unbound: nothing to visit
         const key = `${path}#${bk}`;
         if (seen.has(key)) continue;
@@ -1397,7 +1451,22 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
 
         if (binding.kind === "import") {
           const imported = binding;
+          // Provenance FIRST, before any member inspection: the shipped
+          // ordering says a namespace of `node:child_process` is touching
+          // whatever the member, and inspecting first would demote it.
           if (isProvenanceModule(imported.spec)) return true;
+          if (imported.namespace === true && member === null) {
+            // A namespace used where no member is statically known resolves to
+            // nothing member-precise. Named for the module the USE was written
+            // in, and for the namespace's origin, because a reader needs both.
+            unresolved.push(
+              `namespace ${name} (imported from ${imported.spec}) used in a position with no statically known member, in ${path}`,
+            );
+            for (const ext of binding.extent) {
+              if (visit(ext, f, path)) return true;
+            }
+            continue;
+          }
           const target = resolveSpecifier(root, path, imported.spec);
           if (target === null) {
             // An IN-REPO specifier that does not resolve is NOT a bare one:
@@ -1438,7 +1507,9 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
           const res = resolveExport(
             root,
             tf,
-            imported.imported,
+            imported.namespace === true && member !== null && member !== undefined
+              ? member
+              : imported.imported,
             new Set<string>(),
             new Map<string, ExportResolution>(),
           );
