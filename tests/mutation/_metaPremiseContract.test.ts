@@ -46,6 +46,7 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   "tests/paneCompaction/driver.test.ts": 0,
   "tests/paneCompaction/revalidate.test.ts": 0,
   "tests/paneCompaction/ruleIdentity.test.ts": 0,
+  "tests/paneCompaction/mutantKills.test.ts": 0,
   // The premise recognizer's own two suites, enrolled 2026-08-16 with the
   // premiseScan surface. Both counts are DERIVED from a run of the recognizer
   // over them, not asserted from reading:

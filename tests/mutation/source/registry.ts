@@ -258,6 +258,12 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // share a verdict and rules 7/8/11/12 can share one, so without this the
       // hit(5..8) and verdictFor-key mutants all survived.
       "tests/paneCompaction/ruleIdentity.test.ts",
+      // Lands ON the band boundaries the other suites straddle, pins renderRow's
+      // absolute column offsets, and COUNTS mintNonce's retries. The first run
+      // scored 0.8282 with 28 survivors and every one was a boundary approached
+      // from both sides but never landed on, an offset nothing asserted, or a
+      // loop bound nothing counted.
+      "tests/paneCompaction/mutantKills.test.ts",
       "tests/paneCompaction/revalidate.test.ts",
     ],
     // Five of the six. `regex-quantifier-bound` is EXCLUDED, and the exclusion
@@ -288,7 +294,51 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // as eligible, which bands.test.ts asserts IN PROCESS. Run, not merely
     // asserted non-equal to the source.
     control: { from: "export const ELIGIBLE_AT = 5;", to: "export const ELIGIBLE_AT = 0;" },
-    accepted: [],
+    // All six mutate a TYPE ANNOTATION, not a value. TypeScript erases types and
+    // the mutation runner's children transpile without typechecking, so the
+    // emitted JavaScript is byte-identical to the original and no observable
+    // behaviour changes. These are equivalent mutants in the strict sense -- not
+    // an untested branch, not a deferred gap, and no test could ever kill one.
+    //
+    // They are the ONLY survivors left alive: the other 22 were repaid with
+    // tests/paneCompaction/mutantKills.test.ts rather than argued away.
+    accepted: [
+      {
+        siteId: "integer-literal:404:53:0>1",
+        kind: "equivalent",
+        reason:
+          "`checkExitCode`'s RETURN TYPE `0 | 1 | 2`, not a returned value. The literals it " +
+          "actually returns live in the body and are killed by cli.test.ts.",
+      },
+      {
+        siteId: "integer-literal:404:57:1>2",
+        kind: "equivalent",
+        reason: "The `1` of the same `0 | 1 | 2` return-type annotation on `checkExitCode`.",
+      },
+      {
+        siteId: "integer-literal:404:61:2>3",
+        kind: "equivalent",
+        reason: "The `2` of the same `0 | 1 | 2` return-type annotation on `checkExitCode`.",
+      },
+      {
+        siteId: "integer-literal:505:35:1>2",
+        kind: "equivalent",
+        reason:
+          "`export type Refusal = { exitCode: 1; ... }` -- a type alias. The refusal objects that " +
+          "carry a real `exitCode: 1` are constructed elsewhere and asserted by cli.test.ts.",
+      },
+      {
+        siteId: "integer-literal:585:17:0>1",
+        kind: "equivalent",
+        reason: "The `0` of the `{ exitCode: 0 | 1; message: string }` return-type annotation.",
+      },
+      {
+        siteId: "integer-literal:585:21:1>2",
+        kind: "equivalent",
+        reason:
+          "The `1` of the same `{ exitCode: 0 | 1; message: string }` return-type annotation.",
+      },
+    ],
   },
   {
     // The modal-wait guard's predicate module (2026-08-16 adoption arc §4.4,
