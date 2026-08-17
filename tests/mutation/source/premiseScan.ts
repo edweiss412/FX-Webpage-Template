@@ -831,13 +831,26 @@ function resolveExport(
   // that is not `noSuchExport` wins, because "stop at the first provenance" is
   // not decidable here — this returns an extent and cannot know what the
   // traversal will make of it (spec §2.2).
+  //
+  // A miss is benign for PROVENANCE and not for REASONS: `followForward` merges
+  // the hop's own module reports into whatever it returns, `noSuchExport`
+  // included, and those reports have no other way out — the caller never sees
+  // that module. Dropping the missed branch wholesale lost them in both
+  // directions, whether a later branch supplied the name or none did
+  // (whole-diff R1 #2). They are carried onto whichever answer this returns.
+  const carried: string[] = [];
+  const withCarried = (res: ExportResolution): ExportResolution =>
+    carried.length === 0 || res.kind === "forward"
+      ? res
+      : { ...res, reasons: [...(res.reasons ?? []), ...carried] };
   if (exportName !== "default") {
     for (const spec of facts.starExports) {
       const via = followForward(root, facts, spec, exportName, active, done);
-      if (via.kind !== "noSuchExport") return via;
+      if (via.kind !== "noSuchExport") return withCarried(via);
+      if (via.reasons) carried.push(...via.reasons);
     }
   }
-  return { kind: "noSuchExport" };
+  return withCarried({ kind: "noSuchExport" });
 }
 
 /**

@@ -3223,3 +3223,74 @@ describe("whole-diff R1 #1 — an unresolved in-repo target reports through EVER
     }
   });
 });
+
+describe("whole-diff R1 #2 — a star branch that MISSES still carries what its module reported", () => {
+  // `resolveExport`'s star loop returned only the first branch that was not
+  // `noSuchExport`, and `noSuchExport` carries a `reasons` channel — the module
+  // reports `followForward` merges in at the hop. Every reason on a MISSING
+  // branch was therefore dropped: the reached module's load-time report had no
+  // other way out, and the result read as silently free.
+  const SIDE = { side: `export const k = 1;` };
+  const REPORTER = `import "__MODULE_side__";\nexport const other = 1;`;
+  const PURE_TARGET = `export function spawnHelper(): number { return 1; }`;
+  const CALL = `it("x", () => { spawnHelper(); });`;
+
+  it("CONTROL: the same module reached DIRECTLY reports", () => {
+    // The branch that was already correct. Without it the repair below could be
+    // satisfied by a report invented at the star loop rather than carried from
+    // the module that made it.
+    expectReported(
+      classificationWithModules(
+        { ...SIDE, a: REPORTER },
+        `import { other } from "__MODULE_a__";
+         it("x", () => { String(other); });`,
+      ),
+      { construct: REPORTS.sideEffect, module: /mod\d+_a\.ts/, notModule: /case\d+-user/ },
+    );
+  });
+
+  it("a LATER star branch supplies the name, and the earlier branch's report survives", () => {
+    expectReported(
+      classificationWithModules(
+        {
+          ...SIDE,
+          a: REPORTER,
+          b: PURE_TARGET,
+          barrel: `export * from "__MODULE_a__";\nexport * from "__MODULE_b__";`,
+        },
+        `import { spawnHelper } from "__MODULE_barrel__";
+         ${CALL}`,
+      ),
+      { construct: REPORTS.sideEffect, module: /mod\d+_a\.ts/, notModule: /case\d+-user/ },
+    );
+  });
+
+  it("NO branch supplies the name, and the report still survives", () => {
+    // The `noSuchExport` fallthrough at the end of the loop, which is a
+    // separate return from the one above and drops reasons independently.
+    expectReported(
+      classificationWithModules(
+        { ...SIDE, a: REPORTER, barrel: `export * from "__MODULE_a__";` },
+        `import { spawnHelper } from "__MODULE_barrel__";
+         ${CALL}`,
+      ),
+      { construct: REPORTS.sideEffect, module: /mod\d+_a\.ts/, notModule: /case\d+-user/ },
+    );
+  });
+
+  it("the foil: a star fan-out over modules that report NOTHING stays pure", () => {
+    // Without this the repair could be satisfied by reporting every star miss,
+    // which would move the declared counts on the enrolled domain.
+    expect(
+      verdictWithModules(
+        {
+          a: `export const other = 1;`,
+          b: PURE_TARGET,
+          barrel: `export * from "__MODULE_a__";\nexport * from "__MODULE_b__";`,
+        },
+        `import { spawnHelper } from "__MODULE_barrel__";
+         ${CALL}`,
+      ),
+    ).toBe("environment-free");
+  });
+});
