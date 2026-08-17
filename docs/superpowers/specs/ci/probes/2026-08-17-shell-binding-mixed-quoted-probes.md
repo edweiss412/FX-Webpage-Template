@@ -125,7 +125,12 @@ g4 PSQL="/opt/pg/\<NL>psql" -> </opt/pg/psql>
 g5 PG="p\sql"           -> <p\sql>
 g6 PG=' psql'           -> < psql>; unquoted use word-splits to <psql>
 g7 psql --no-psqlrc\<EOF>   -> the argument is <--no-psqlrc\>
+h1 PG=$'\0160sql'       -> <^N0sql> (SO control + 0sql; a fourth octal digit would make 0x70 `p`)
+h2 PG=$'\x070sql'       -> <^G0sql> (BEL + 0sql; a third hex digit would make 0x70 `p`)
 ```
+
+(h1/h2 added with the plan round-1 repairs: digit-boundary fixtures whose zeros preemptively
+kill the decode helper's widened-quantifier mutants; scanner today reports 0 for both.)
 
 Readings: the ANSI-C decode gaps and the double-quote backslash-newline continuation are the
 same lexer-infidelity class as the dangling-EOF backslash; `PG="p\sql"` binds a literal-backslash

@@ -64,16 +64,22 @@ rows sit at scan.ts sites in `commentIndexPerLine`, `matchBrace`, `exemptionOnLi
 `INTERPRETER_POSITIONAL_BINDING` (2107:21), the `logical` join (2155:54), and the YAML alias
 resolvers; the deleted constants (`ASSIGNED_VALUE_QUOTED`, `ASSIGNED_WHOLE_QUOTED`,
 `ASSIGNED_NAME`, `DECLARE_KEYWORD`, `quotedValue`) carried only KILLED mutants, which need no
-rows. Expected Task 6 maintenance is therefore: line:col refresh on rows at or below the edit
-region (2107 onward), mutant-count drop from the deleted regex sites, and fresh disposition of
-any NEW site the helper introduces. The spliced-loop kill site (relational-boundary:2167:54)
-disappears with its consumers' rewrite only if the `spliced` loop itself moves — it stays
-(`githubEnvWrite` still reads `spliced`), so its killing test keeps working unchanged.
-`decodeAnsiCEscape` (Task 1) is expected to contribute NEW sites in both declared families —
-`regex-quantifier-bound` on its `{1,3}`/`{1,2}` bounded quantifiers, `relational-boundary` on
-the `next >= "0" && next <= "7"` octal guard — each killable with an escape-boundary fixture in
-the deciding suite (a 3-digit octal `$'\160sql'`-class case reds a widened `{1,4}`; a `$'\7…'`
-case reds a narrowed octal guard) or argued per-site if genuinely equivalent.
+rows. Expected Task 6 maintenance (corrected by plan round-1 finding 4): `decodeAnsiCEscape`
+lands ABOVE `lexShellWords` (near current line 789), so FIFTEEN of the eighteen accepted rows
+move — 1223, 1304, 1314, 1394, 1568, 1569, 1754, 1755, 1771, 1772, 2107, 2155, 2455, 2587,
+2697 — and only 635, 695, 761 keep their coordinates; plus mutant-count drop from the deleted
+regex sites, and fresh disposition of any NEW site the helper introduces. The spliced-loop kill
+site (relational-boundary:2167:54) disappears with its consumers' rewrite only if the `spliced`
+loop itself moves — it stays (`githubEnvWrite` still reads `spliced`), so its killing test keeps
+working unchanged. `decodeAnsiCEscape` (Task 1) contributes NEW sites in both declared
+families — `regex-quantifier-bound` on its `{1,3}`/`{1,2}` bounded quantifiers,
+`relational-boundary` on the `next >= "0" && next <= "7"` octal guard. The quantifier mutants
+are killed PREEMPTIVELY by the two digit-boundary zero pins in the Task 2 block (plan round-1
+finding 3): `PG=$'\0160sql'` decodes to control-14 + `0sql` under the shipped `{1,3}` but to
+`psql` under a widened `{1,4}` (the fourth octal digit turns 016 into 0160 = 0x70), and
+`PG=$'\x070sql'` decodes to bell + `0sql` under `{1,2}` but to `psql` under `{1,3}` — so each
+mutant flips a pinned zero to a hit. The octal-guard relational mutant is killable with a
+`$'\7…'`-boundary case or argued per-site if genuinely equivalent.
 
 ---
 
@@ -106,10 +112,9 @@ case reds a narrowed octal guard) or argued per-site if genuinely equivalent.
 // the oracle for every row (probe record, round-1 supplement).
 describe("lexer escape fidelity (spec 3.2)", () => {
   test("a psql command word glued to a dangling final backslash is not psql", () => {
-    // Premise: the same command WITH a newline IS a site, so the zero below is
-    // attributable to the backslash, not to a fixture that never reaches the
-    // scanner.
-    expect(sitesIn("psql\n", "x.sh").length).toBeGreaterThan(0);
+    // The zero below is attributable to the backslash, not to a fixture that
+    // never reaches the scanner (tests/_shared/premise.ts contract).
+    premise("the same command WITH a newline is a site", sitesIn("psql\n", "x.sh").length, 0);
     expect(sitesIn("psql\\", "x.sh")).toHaveLength(0);
   });
 
@@ -124,8 +129,12 @@ describe("lexer escape fidelity (spec 3.2)", () => {
 
   test('a double-quoted "p\\sql" command word is not psql', () => {
     // Inside double quotes a backslash is LITERAL except before $ ` " \
-    // (supplement g5: `PG="p\sql"` binds p-backslash-sql). Premise first.
-    expect(sitesIn('"psql" -X -qAt mydb\n', "x.sh").length).toBeGreaterThan(0);
+    // (supplement g5: `PG="p\sql"` binds p-backslash-sql).
+    premise(
+      "the plainly double-quoted command word is a site",
+      sitesIn('"psql" -X -qAt mydb\n', "x.sh").length,
+      0,
+    );
     expect(sitesIn('"p\\sql" -X -qAt mydb\n', "x.sh")).toHaveLength(0);
   });
 
@@ -387,6 +396,13 @@ describe("mixed-quoted assignment values (BL-SHELL-BINDING-MIXED-QUOTED-VALUE)",
     ["whole-argument quoting with a literal quote", "export 'PG=p'\\''sql'\n"], // binds `p'sql`
     ["double-quoted literal backslash", 'PG="p\\sql"\n'], // binds `p\sql` (supplement g5)
     ["ANSI-C unknown escape", "PG=$'p\\zsql'\n"], // binds `p\zsql` (bash keeps both chars)
+    // Digit-boundary pins, doubling as PREEMPTIVE mutant kills for the
+    // decodeAnsiCEscape quantifier sites (Task 6 / Global Constraints): a
+    // widened octal {1,4} would decode \0160 as 0x70 (`psql`) where bash's
+    // three-digit read yields control-14 + `0sql`; a widened hex {1,3} would
+    // decode \x070 as 0x70 where bash's two-digit read yields bell + `0sql`.
+    ["ANSI-C octal digit bound", "PG=$'\\0160sql'\n"], // binds SO + `0sql`, never psql
+    ["ANSI-C hex digit bound", "PG=$'\\x070sql'\n"], // binds BEL + `0sql`, never psql
   ])("%s does not bind psql and stays unreported", (_label, source) => {
     expect(scanShellIndirection(source, "x.sh")).toHaveLength(0);
   });
@@ -430,10 +446,10 @@ describe("mixed-quoted assignment values (BL-SHELL-BINDING-MIXED-QUOTED-VALUE)",
 
 Run: `pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts -t "mixed-quoted assignment"`
 Expected: the thirteen recall rows FAIL (0 hits each), the three trailing-backslash rows FAIL
-(1 hit each today), `PG=$(x)psql` FAILS (0 hits today). The four precision survivors, the R34
-wrapped-path duplicate, and the discovery handoff PASS (regression premises for the green step,
-not red cases — the two new ANSI-C-dependent rows read correctly because Task 1's decode landed
-first).
+(1 hit each today), `PG=$(x)psql` FAILS (0 hits today). The six precision survivors (including
+both digit-boundary mutant-kill pins), the R34 wrapped-path duplicate, the discovery handoff,
+and the non-shadowing parity pin PASS (regression premises for the green step, not red cases —
+the ANSI-C-dependent zero rows read correctly because Task 1's decode landed first).
 
 - [ ] **Step 3: Implement.** In `scan.ts`:
 
@@ -635,7 +651,13 @@ git add tests/cross-cutting/psqlStartupFiles/scan.ts tests/cross-cutting/psqlSta
 git commit -m "fix(infra): multiword command bindings read the lexer's dequoted value"
 ```
 
+<!-- tasks: end -->
+
 ### Task 4: Documented limits, here-string peer ledger row
+
+(Deliberately OUTSIDE the task-marker regions, like Task 5: it authors declarations and pins of
+CURRENT behavior — there is no defective production line whose repair turns a red green, so a
+red-contract marker cannot be truthfully written for it. Plan round-1 finding 1.)
 
 **Files:**
 - Modify: `tests/cross-cutting/psqlStartupFiles/scan.ts` (module-header documented-limits note)
@@ -646,8 +668,6 @@ git commit -m "fix(infra): multiword command bindings read the lexer's dequoted 
 - Consumes: nothing new.
 - Produces: the documented-limit pin tests and the ledger row later work schedules from.
 
-<!-- task: red=`pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts -t "documented limits"` red-state=authored red-target=`tests/cross-cutting/psqlStartupFileSuppression.test.ts:1` why=`the new documented-limits describe does not exist yet, so the -t filter matches zero tests and vitest exits nonzero on "no tests found" — the pins land with the docs they pin` ac=AC-8 -->
-
 - [ ] **Step 1: Write the documented-limit pins.** New describe in the suite:
 
 ```ts
@@ -655,31 +675,38 @@ describe("documented limits - quote-concatenated spellings outside the assignmen
   // Spec §6: these families still read their KEYWORD or operand through a
   // per-line pattern, so a quote-concatenated spelling of it is missed. The
   // failure direction is a missed report, never a false certification. Each
-  // zero is DECLARED here so it cannot drift silently; each premise row shows
-  // the plain spelling reaching the rule.
-  test.each([
-    // ledger: BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE - the here-string target
-    // is a redirection operand the lexer drops before words exist.
-    ["a mixed-quoted here-string", "read -r PG <<< p'sql'\n", "read -r PG <<< psql\n"],
-    ["a mixed-quoted alias name", "alias p'sql'='psql -F'\n", "alias psql='psql -F'\n"],
-    [
-      "a mixed-quoted interpreter positional",
-      "bash -c '$0 -qAt mydb' p'sql'\n",
-      "bash -c '$0 -qAt mydb' psql\n",
-    ],
-  ])("%s is a declared miss", (_label, missed, plain) => {
-    expect(scanShellIndirection(plain, "x.sh").length).toBeGreaterThan(0); // premise
-    expect(scanShellIndirection(missed, "x.sh")).toHaveLength(0); // the declared limit
+  // zero is DECLARED here so it cannot drift silently. Premises use
+  // tests/_shared/premise.ts and run in ONE test over a literal array - never
+  // inside a .each callback, per the executable-premise rule (plan round-1
+  // finding 5).
+  test("each quote-concatenated keyword/operand spelling is a declared miss", () => {
+    const rows: Array<[label: string, missed: string, plain: string]> = [
+      // ledger: BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE - the here-string
+      // target is a redirection operand the lexer drops before words exist.
+      ["a mixed-quoted here-string", "read -r PG <<< p'sql'\n", "read -r PG <<< psql\n"],
+      ["a mixed-quoted alias name", "alias p'sql'='psql -F'\n", "alias psql='psql -F'\n"],
+      [
+        "a mixed-quoted interpreter positional",
+        "bash -c '$0 -qAt mydb' p'sql'\n",
+        "bash -c '$0 -qAt mydb' psql\n",
+      ],
+    ];
+    for (const [label, missed, plain] of rows) {
+      premiseHolds(
+        `${label}: the plain spelling reaches the rule`,
+        scanShellIndirection(plain, "x.sh").length > 0,
+      );
+      expect(scanShellIndirection(missed, "x.sh"), label).toHaveLength(0);
+    }
   });
 });
 ```
 
-- [ ] **Step 2: Run to verify the describe is red-before-green.**
+- [ ] **Step 2: Run the block.**
 
 Run: `pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts -t "documented limits"`
-Expected: PASS on the assertions once the block exists (these pin CURRENT behavior); the RED
-state for this task is the marker's "no tests found" nonzero exit before the block lands. The
-task's substance is the declarations, not a behavior change.
+Expected: PASS — these pin CURRENT behavior (all three rows probed green at plan time). This
+task's substance is declarations, which is why it sits outside the red-contract regions.
 
 - [ ] **Step 3: Add the module-header documented-limits note.** In the scan.ts header comment
 block (the "Documented limits" region near the R28–R40 narrative — append after the existing
@@ -717,8 +744,6 @@ git add tests/cross-cutting/psqlStartupFiles/scan.ts tests/cross-cutting/psqlSta
 git commit -m "docs(infra): declare the quote-concatenation limits; file the here-string peer"
 ```
 
-<!-- tasks: end -->
-
 ### Task 5: Whole-tree gates
 
 (Verification-only — deliberately OUTSIDE the task-marker regions: it authors no red and changes
@@ -745,7 +770,9 @@ Expected: exit 0; spec:lint reports 0 hard findings per document.
 
 - [ ] **Step 3: Full suite (wrapped).**
 
-Run: `pnpm heavy test`
+Run: `pnpm heavy pnpm test`
+(`pnpm heavy test` would execvp the external `test` builtin, not the package script — plan
+round-1 finding 2.)
 Expected: PASS. The temporary Task 6 filter file must NOT exist yet
 (`_metaSourceShardIntegrity` walks `tests/mutation/` from disk).
 
@@ -762,6 +789,11 @@ Expected: PASS. The temporary Task 6 filter file must NOT exist yet
   citation-shaped path because the file must never be tracked.
 - Modify: `tests/mutation/source/registry.ts` (the `psqlStartupScan` row: accepted `siteId`
   line:col refresh, row-comment kind counts, any new-site dispositions)
+- Modify (as reconciliation demands - plan round-1 finding 3):
+  `tests/cross-cutting/psqlStartupFileSuppression.test.ts` (kill tests for new surviving sites;
+  the two digit-boundary quantifier kills are pre-planted by Task 2) and
+  `tests/mutation/source/expectedLedgerKinds.ts` (its exact kind-count assertion moves whenever
+  the accepted row set's counts move)
 
 **Interfaces:**
 - Consumes: `GUARD_SURFACES`, `registerSurfaceCases` (`tests/mutation/source/surfaceCases.ts`),
@@ -821,9 +853,13 @@ Expected: PASS.
 - [ ] **Step 6: Commit.**
 
 ```bash
-git add tests/mutation/source/registry.ts
+git add tests/mutation/source/registry.ts tests/mutation/source/expectedLedgerKinds.ts \
+  tests/cross-cutting/psqlStartupFileSuppression.test.ts
 git commit -m "test(infra): re-derive psqlStartupScan accepted sites over the lexer-routed scan"
 ```
+
+(Stage `expectedLedgerKinds.ts` and the deciding suite only when step 3 actually changed them;
+`git add` on an unchanged path is a no-op, so the command is safe either way.)
 
 <!-- tasks: end -->
 
@@ -833,11 +869,17 @@ git commit -m "test(infra): re-derive psqlStartupScan accepted sites over the le
 spec's round-1 revision)
 
 Every fenced test block above was spliced into a temporary suite file and RUN against the
-unmodified tree (2026-08-16 batch lesson: executable plan blocks are executed, not read). Result:
-35 tests, 24 failed, 11 passed — matching the tasks' predictions exactly. (The
-non-shadowing parity pin added after spec round 2 was probed separately on the same tree:
-`A=no PG=psql` reports one hit today, per the round-2 reviewer's probe and this session's
-re-run, making 12 premise-green of 36.) Red: all five Task 1
+unmodified tree (2026-08-16 batch lesson: executable plan blocks are executed, not read).
+Re-executed after the plan round-1 repairs with the final block contents (premise helpers, the
+two digit-boundary zero pins, the non-shadowing parity pin, Task 4 as a single looped test):
+36 tests, 24 failed, 12 passed — matching the tasks' predictions exactly. Red: all five Task 1
+fidelity tests, the thirteen Task 2 recall rows, the three trailing-backslash rows, the
+expansion-prefix widening, and both Task 3 multiword recall rows. Green (regression premises):
+the six Task 2 precision-survivor zeros (including both digit-boundary mutant-kill pins, probed
+against bash: `\0160sql` binds SO+`0sql`, `\x070sql` binds BEL+`0sql`), the R34 wrapped-path
+binding duplicate, the discovery handoff, the non-shadowing parity pin, both Task 3
+quoted-scalar limits, and the Task 4 documented-limits test. The splice file was deleted after
+the run. Red: all five Task 1
 fidelity tests (including the wrapped-path site test — the current double-quote branch appends
 the newline into the word, so no site reports today), all thirteen Task 2 recall rows, all three
 trailing-backslash rows, the expansion-prefix widening, and both Task 3 multiword recall rows.
