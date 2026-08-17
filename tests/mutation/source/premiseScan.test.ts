@@ -3429,3 +3429,125 @@ describe("whole-diff R1 #6 — an exported dynamic binding is found by its LOCAL
     ).toBe("environment-free");
   });
 });
+
+describe("whole-diff R1 #4 — `modelled` means what `bindPattern` can actually represent", () => {
+  // Two functions disagreed about one question. `modelledDynamicDeclaration`
+  // declared every direct variable initializer modelled, so §2.4b's report was
+  // suppressed; `bindPattern` represents only identifiers and identifier-keyed
+  // object elements, so it silently dropped everything else. In the gap a
+  // binding either registered under the WRONG name or registered nothing, the
+  // lookup missed, and a spawning export read as free.
+  //
+  // The repair is one predicate both sides ask, not a longer list of accepted
+  // spellings: a pattern `bindPattern` cannot represent member-precisely is not
+  // modelled, so §2.4b reports it (spec §2.4b, the inverted accept-set).
+  const HELPER = `import { spawnSync } from "node:child_process";
+    export function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }
+    export const nested = { spawnHelper };`;
+  const REPORTED = { construct: REPORTS.dynamicImport, module: OWN_FILE };
+
+  it("CONTROL: an identifier-keyed object binding is modelled, and resolves", () => {
+    expect(
+      verdictWithModules(
+        { helper: HELPER },
+        `const { spawnHelper } = await import("__MODULE_helper__");
+         it("x", () => { spawnHelper(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("CONTROL: a plain identifier namespace binding is modelled, and resolves", () => {
+    expect(
+      verdictWithModules(
+        { helper: HELPER },
+        `const ns = await import("__MODULE_helper__");
+         it("x", () => { ns.spawnHelper(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("a STRING-LITERAL property key", () => {
+    expectReported(
+      classificationWithModules(
+        { helper: HELPER },
+        `const { "spawnHelper": run } = await import("__MODULE_helper__");
+         it("x", () => { run(); });`,
+      ),
+      REPORTED,
+    );
+  });
+
+  it("a COMPUTED property key", () => {
+    expectReported(
+      classificationWithModules(
+        { helper: HELPER },
+        `const key = "spawnHelper";
+         const { [key]: run } = await import("__MODULE_helper__");
+         it("x", () => { run(); });`,
+      ),
+      REPORTED,
+    );
+  });
+
+  it("an object REST element", () => {
+    // Registered as a named export called `rest`, which no module exports.
+    expectReported(
+      classificationWithModules(
+        { helper: HELPER },
+        `const { ...rest } = await import("__MODULE_helper__");
+         it("x", () => { rest.spawnHelper(); });`,
+      ),
+      REPORTED,
+    );
+  });
+
+  it("a NESTED object pattern", () => {
+    // Registered nothing at all: the element's name is a pattern, not an
+    // identifier, and the loop skipped it.
+    expectReported(
+      classificationWithModules(
+        { helper: HELPER },
+        `const { nested: { spawnHelper } } = await import("__MODULE_helper__");
+         it("x", () => { spawnHelper(); });`,
+      ),
+      REPORTED,
+    );
+  });
+
+  it("an ARRAY binding pattern", () => {
+    // Neither branch of `bindPattern` matches, so the whole declaration bound
+    // nothing while the import still executed.
+    expectReported(
+      classificationWithModules(
+        { helper: HELPER },
+        `const [first] = await import("__MODULE_helper__");
+         it("x", () => { String(first); });`,
+      ),
+      REPORTED,
+    );
+  });
+
+  it("an EMPTY object pattern", () => {
+    // Binds no name, so there is no edge to follow, but the import executes.
+    expectReported(
+      classificationWithModules(
+        { helper: HELPER },
+        `const {} = await import("__MODULE_helper__");
+         it("x", () => {});`,
+      ),
+      REPORTED,
+    );
+  });
+
+  it("the foil: the same unmodelled patterns over a BARE specifier stay pure", () => {
+    // L-2, unchanged. Without this the repair reports every unmodelled
+    // destructure in the domain, including the node_modules ones AC-1 counts.
+    for (const decl of [
+      `const { "spawnSync": run } = await import("node:child_process");`,
+      `const { ...rest } = await import("node:child_process");`,
+      `const [first] = await import("node:child_process");`,
+    ]) {
+      expect(verdictWithModules({}, `${decl}\nit("x", () => {});`)).toBe("environment-free");
+    }
+  });
+});

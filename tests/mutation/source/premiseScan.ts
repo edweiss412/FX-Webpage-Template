@@ -706,12 +706,45 @@ function isAtModuleLoad(node: ts.Node): boolean {
   return false;
 }
 
+/**
+ * Can `bindPattern` represent this whole pattern member-precisely?
+ *
+ * The ONE question both sides of "is this shape modelled" ask. They used to
+ * answer it separately: `modelledDynamicDeclaration` declared every direct
+ * variable initializer modelled — which suppresses §2.4b's report — while
+ * `bindPattern` skipped everything outside two shapes, so in the gap a binding
+ * registered under the WRONG name or registered nothing and the lookup missed
+ * silently (whole-diff R1 #4). Answering it once is the derived cover: a
+ * pattern form added to one side cannot drift from the other.
+ *
+ * A form that is NOT modelled is not a limit filed as pure — §2.4b inverts the
+ * accept-set, so it is REPORTED.
+ */
+function bindPatternIsModelled(name: ts.BindingName): boolean {
+  // `const ns = await import(...)` — the namespace binding.
+  if (ts.isIdentifier(name)) return true;
+  if (!ts.isObjectBindingPattern(name)) return false; // array patterns bind nothing here
+  // An EMPTY pattern binds no name, so there is no edge to follow at all while
+  // the import still executes.
+  if (name.elements.length === 0) return false;
+  return name.elements.every(
+    (el) =>
+      // `const { ...rest } = …` binds an OBJECT, not the export called `rest`.
+      el.dotDotDotToken === undefined &&
+      ts.isIdentifier(el.name) &&
+      // A string-literal or computed key names an export this scanner cannot
+      // read off the syntax; the local name is not it.
+      (el.propertyName === undefined || ts.isIdentifier(el.propertyName)),
+  );
+}
+
 function modelledDynamicDeclaration(call: ts.CallExpression): ts.VariableDeclaration | null {
   let p: ts.Node = call;
   while (p.parent && (ts.isAwaitExpression(p.parent) || ts.isParenthesizedExpression(p.parent)))
     p = p.parent;
   const parent = p.parent;
-  if (parent && ts.isVariableDeclaration(parent) && parent.initializer === p) return parent;
+  if (parent && ts.isVariableDeclaration(parent) && parent.initializer === p)
+    return bindPatternIsModelled(parent.name) ? parent : null;
   return null;
 }
 
@@ -912,6 +945,11 @@ function moduleFacts(path: string): ModuleFacts | null {
 
   /** Bind a dynamic import's names IN THE SCOPE THAT DECLARES THEM. */
   const bindPattern = (name: ts.BindingName, spec: string, scope: Scope): void => {
+    // The same predicate `modelledDynamicDeclaration` asks. Registering a
+    // partial answer for a pattern only partly representable is what produced
+    // bindings under the wrong name; an unmodelled pattern binds NOTHING here
+    // and is reported instead (whole-diff R1 #4).
+    if (!bindPatternIsModelled(name)) return;
     const here =
       scopedImports.get(scope) ??
       new Map<string, { spec: string; imported: string; namespace?: boolean }>();
