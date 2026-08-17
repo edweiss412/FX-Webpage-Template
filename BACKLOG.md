@@ -1227,7 +1227,7 @@ class-sweep exception (c). May share one lint surface with
 
 ## BL-MUTATION-HARNESS-MAIN-RED-TWO-SURFACES — the nightly gate is red on main for two surfaces, and every PR inherits it
 
-**Status:** OPEN. · **Filed:** 2026-08-16 (found while shipping `chore/round-economy-enforcement-pair`, whose own enrolled surfaces passed) · **Severity:** MEDIUM (a permanently red non-required gate trains every arc to read its verdict as noise, which is how the twelve-survivor catch of #786 nearly did not happen) · **Class:** CI gate fidelity · **Effort:** S-M
+**Status:** IN PROGRESS · **Branch:** docs/mutation-ledger-accuracy · **Filed:** 2026-08-16 (found while shipping `chore/round-economy-enforcement-pair`, whose own enrolled surfaces passed) · **Severity:** MEDIUM (a permanently red non-required gate trains every arc to read its verdict as noise, which is how the twelve-survivor catch of #786 nearly did not happen) · **Class:** CI gate fidelity · **Effort:** S-M
 
 `mutation-harness` fails on main-side state with exactly two failures, and both reproduce on unrelated branches:
 
