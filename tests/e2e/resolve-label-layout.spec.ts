@@ -21,9 +21,15 @@
  *     twice.
  *
  * The label travels the production code -> intent -> label path: the harness
- * imports resolveActionLabels rather than hardcoding strings. The real
- * <PerShowAlertResolveButton> cannot mount in this bundle (no Next runtime,
- * useRouter), so its classes are mirrored in the harness; the label strings
+ * imports resolveActionLabels rather than hardcoding strings.
+ *
+ * The harness renders a local stand-in rather than <PerShowAlertResolveButton>,
+ * and NOT because the component cannot mount: this spec aliases
+ * `next/navigation` to `_nextNavigationStub.ts`, so `useRouter` resolves and the
+ * real component bundles fine (whole-diff R7 probe, 2026-08-16). The stand-in
+ * keeps the label driven straight off `resolveActionLabels(?code=)`. Its class
+ * list is a measurement-relevant SUBSET, not a verbatim mirror — see the
+ * inventory in `_compactAlertCardLiveEntry.tsx`; the label strings
  * themselves are pinned to one module by
  * tests/components/admin/_metaResolveLabelSingleSource.test.ts.
  *

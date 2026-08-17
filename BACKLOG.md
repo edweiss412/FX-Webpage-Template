@@ -163,28 +163,6 @@ The alert pill has two branches. Monitoring-only ("clearing on their own, no act
 
 **First scheduled step:** decide whether an interactive pill whose whole message is "nothing to do here" is a Family D dim member (it is a state pair, and it already carries two non-colour cues), or whether the urgent branch should instead gain weight.
 
-## BL-CONTROL-OUTLINE-BORDER-STRONG-ON-SURFACE-FILLS — 23 control outlines still at 1.4-1.8:1 on non-ground fills
-
-**Filed:** 2026-08-14 (`fix/ui-interactive-token-policy`, invariant-8 impeccable critique round 2, P1). **Class:** visual boundary / DESIGN scope. **Effort:** M. **Class-sweep exception:** (a) — the repair needs a DESIGN.md scope decision this PR cannot settle. **Reachability:** PROBED, with a DERIVED cover (below).
-
-This arc moved the secondary-action outline to `border-text-faint` (3.35:1 on `bg-surface`) at the shared constant, at the 25 sites that carry the same recipe inline over a `bg-bg` fill, and at six further controls whose fill is a SURFACE rather than the page ground — because leaving each at the old outline while a sibling it renders with had moved would have shipped a split treatment inside one view. Two are DIRECT pairs (`Step2Verify`'s re-scan beside its folder input, `DriveConnectionPanel`'s two actions); two are connected through a shared row rather than adjacency (`RecentAutoAppliedStrip`, whose near-ground control is in its confirmation row, and the `AcceptChangeButton`/`UndoChangeButton` pair `ChangeFeedEntry.tsx:135` renders); one inherits `Step2Verify`'s file-local `SECONDARY_BUTTON`. Twenty-three in-scope CONTROLS still carry `border border-border-strong` over `bg-surface`, `bg-surface-sunken`, `bg-surface-raised` or `bg-transparent` fills — at the per-ground ratios in the paragraph below, all of them far under the 3:1 non-text floor.
-
-**The 1.59:1 / 1.60:1 figures are `bg-surface`'s, not every fill's** (whole-diff R4 F4). Measured 2026-08-15 against the runtime tokens, `border-strong` sits at 1.59 light / 1.60 dark on `surface`, **1.43 / 1.75** on `surface-sunken`, **1.59 / 1.50** on `surface-raised` and 1.52 / 1.70 on `bg`; a `bg-transparent` control takes whatever its rendered ground is, which no static measurement can supply. All of them are far under the 3:1 non-text floor, which is the entry's point — but the entry should not quote one ground's number for twenty-three controls that do not share it.
-
-**Derived cover** (re-run it rather than trusting this list — it is a query, not an enumeration):
-
-```ts
-scanInteractiveElements(process.cwd()).filter((e) =>
-  allStrings(e).some((s) => /(^|\s)border-border-strong(\s|$)/.test(s)),
-);
-```
-
-from `tests/styles/interactiveScanCore.ts`. On 2026-08-14 it returned 29 elements; six were repaired on the filing branch because THIS diff created their inconsistency — two beside a swapped sibling (`Step2Verify.tsx:126`, `settings/DriveConnectionPanel.tsx:284`), two connected through a shared row (`RecentAutoAppliedStrip.tsx:516`, and the `AcceptChangeButton`/`UndoChangeButton` pair rendered by `ChangeFeedEntry.tsx:135`), and one by inheritance of `Step2Verify`'s file-local constant. That leaves 23, none of them co-visible with a swapped peer.
-
-**Why the sweep stopped there, and what has to be decided first.** DESIGN.md §1.2a's predicate is a control "whose fill is the near-ground". A `bg-surface` button ON a `bg-surface` card measures 1.00:1 against its container, so extending the rule to it is defensible — but that extension REWRITES the predicate from "the fill is the page ground" to "the fill equals its container", and the wider predicate then also captures the three switch TRACKS in the set (`PublishedToggle.tsx:292`, `settings/AutoPublishToggle.tsx:123`, `settings/NotifyToggle.tsx:131`), whose OFF-state boundary is pinned separately in §1.2 against `--color-accent-edge` as the load-bearing 1.4.11 pair. A blanket swap would silently retune that pinned pair. The text-level cover is also NOT safe to apply mechanically: of the 69 lines carrying `border border-border-strong` as of 2026-08-15 (74 when the entry was filed; the difference is this arc's own swaps), most are cards, chips, tiles and popover surfaces that must keep the border token.
-
-**First scheduled step:** settle §1.2a's predicate — "near-ground" as page-ground only, or as fill-equals-container — and state explicitly whether switch tracks are in or out. The swap itself is one token per site once that is written down.
-
 ## BL-TEXT-FAINT-AS-RESTING-INTERACTIVE-COLOUR — four controls rest one rung BELOW the token this arc retired
 
 **Filed:** 2026-08-14 (`fix/ui-interactive-token-policy`, invariant-8 impeccable critique round 2, P1). **Class:** colour policy completeness. **Effort:** S-M. **Class-sweep exception:** (a) — whether a control may rest at the faint rung is a design decision, and the census this arc shipped was ratified around one token. **Reachability:** PROBED — all four sites read from the live tree.
@@ -216,11 +194,136 @@ DESIGN §1.1a's Family S sanctions a resting `text-text-subtle` on a `<summary>`
 
 The secondary action paints its own `bg-bg` fill, so its outline has two neighbours: the fill inside it (3.21:1 light / 4.00:1 dark) and whatever it stands on outside. On the four neutral grounds DESIGN §1.2 pins, both sides clear 3:1. On a tinted plate the outer edge does not, in exactly one theme per plate: `warning-bg` **2.79** dark (3.04 light), `info-bg` **2.87** light (3.48 dark), `danger-bg` **2.88** light (3.19 dark).
 
-Eleven shipped controls stand on such a plate, across ten sites: `components/admin/DataQualityWarningControls.tsx:21`, `MaintenanceResetButtons.tsx:308` and `:328`, `PerShowAlertResolveButton.tsx:94`, `ReapStaleSessionsButton.tsx:146`, `RecentAutoAppliedStrip.tsx:551`, `ReSyncButton.tsx:286`, `ShowRowActions.tsx:932`, `wizard/step3ReviewSections.tsx:2682`, and `wizard/archivedTabOffer.tsx:140` (both its accept and revoke controls).
+Fourteen shipped controls stand on such a plate, across thirteen sites: `components/admin/DataQualityWarningControls.tsx:21`, `MaintenanceResetButtons.tsx:308` and `:328`, `PerShowAlertResolveButton.tsx:94`, `ReapStaleSessionsButton.tsx:146`, `RecentAutoAppliedStrip.tsx:551`, `ReSyncButton.tsx:286`, `ShowRowActions.tsx:932`, `wizard/step3ReviewSections.tsx:2682`, `wizard/archivedTabOffer.tsx:140` (both its accept and revoke controls), and `StagedPreviewBanner.tsx:72` — the picker link, which joined this entry on 2026-08-16 when the control-outline swap took it from 1.44/1.19 to 3.04 light / **2.79** dark, clearing in light and landing on this entry's own `warning-bg` dark figure (spec `docs/superpowers/specs/2026-08-16-control-outline-surface-fills-design.md` §4.4), and two more the same swap put on this plate, found by whole-diff review R5: `app/admin/settings/roles/RoleMappingRow.tsx:343` (inside the `bg-warning-bg` confirm card opened at `:330`) and `components/shared/ReportModal.tsx:622` (inside the start-fresh warning plate at `:615`). Those two differ from the picker link and the difference is the entry's whole subject: they carry their OWN `bg-surface` fill, so the outline's INNER edge clears at 3.35/3.76 and only the OUTER edge against the plate sits at 3.04 light / **2.79** dark. The picker link is `bg-transparent`, so both of its edges are the plate.
 
 **Why it is recorded rather than repaired here.** `BL-SECONDARY-BUTTON-BOUNDARY-INVISIBLE` was explicit that the prior 1.59:1 boundary was NOT a WCAG failure — the label carried the affordance — and this arc shipped the upgrade under that frame (spec §1.1 R5). A boundary that is strong against its own fill and 2.79-2.88:1 against a tinted plate is a weaker instance of the upgrade, not a regression against the state before it. Choosing the treatment — a darker token used only on tinted plates, a plate-matched outline, or accepting the current numbers — is a design decision, and picking one silently inside a policy arc is what the ledger exists to prevent.
 
 **First scheduled step:** decide whether tinted plates get their own outline token. If yes, the shape is a per-plate `border-*` in the same recipe rather than a new global token, because the neutral grounds already clear and moving the shared token would push them the other way.
+
+## BL-ROWACTIONS-SUBMENU-REVEAL-E2E-FLAKE — the capped-submenu focus-reveal case fails ~40% of CI runs on identical code
+
+**Status:** OPEN · **Severity:** MEDIUM (a merge-gating leg that reds at random; every arc touching `admin-layout-e2e`'s path filter pays for it) · **Class:** CI reliability / e2e flake · **Effort:** M · **Filed:** 2026-08-16 (`fix/control-outline-surface-fills`, seen while shipping an unrelated colour-token change) · **Class-sweep exception:** (c) — the repair is a redesign of a scroll-reveal path in a component this PR does not otherwise touch · **Reachability:** PROBED — eight runs on one branch, byte-identical product code, both outcomes.
+
+`tests/e2e/rowactions-geometry.spec.ts:327` — _"keyboard focus in a CAPPED submenu is revealed, never left off-screen"_ — is intermittently red on the merge-gating `admin-layout-e2e` leg.
+
+**The probe is the run history, and it is decisive** because the input was held constant. Eight consecutive runs of workflow `316007124` on `fix/control-outline-surface-fills`, every one at a sha whose `app/**` and `components/**` are byte-identical (`git diff --name-only <sha>..HEAD -- 'app/**' 'components/**'` returns zero files for each):
+
+| sha         | outcome     |
+| ----------- | ----------- |
+| `393a4e2aa` | success     |
+| `3e96b7476` | **failure** |
+| `c7f019e11` | success     |
+| `2357eb321` | success     |
+| `3a9d509ac` | success     |
+| `4b92b8ed7` | success     |
+| `20707a204` | **failure** |
+| `a601e838e` | **failure** |
+
+Five green, three red, one program. The commits between them are documentation and test prose only, and `components/admin/ShowRowActions.tsx` — the component under test — is untouched by that branch entirely.
+
+**The failure shape.** Focus lands below the panel's visible box after `End`:
+
+```
+Expected: <= 509.96875
+Received:    587
+```
+
+so roughly 77px past the fold — the scroll-reveal did not run, rather than running and landing slightly off. Every failing run's log also carries a degraded dev server: `Error: The destination stream closed early.` repeated dozens of times, plus `show_review_snapshot_failed` and `[client.realtime] subscription failed: initial JWT mint returned no token`. The likely mechanism is that the reveal is racing something — a scroll handler, a layout settle, or a portal reflow — and loses when the server is slow enough to stretch the gap.
+
+**Why it is filed rather than fixed here.** The arc that found it ships 22 colour-token edits and touches neither the component, the spec, nor the portal-scroll path. Its own diff cannot cause a geometry change: a border COLOUR moves no box, and the run table proves the outcome varies with the input held constant. Fixing a reveal race needs the component's scroll path in hand.
+
+**First scheduled step:** determine whether the reveal is a `scrollIntoView` racing the portal's own layout, and if so await the settle rather than the keypress. The spec already has a premise guard (the panel must overflow its cap), so the case is not vacuous — it is genuinely observing the wrong post-condition some of the time. Until then, a red on this leg alone, with product code unchanged, is a re-run rather than a regression.
+
+## BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER — two families of low-contrast outline the element-level cover cannot see in either direction
+
+**Status:** OPEN · **Severity:** LOW-MEDIUM (a resting boundary at 1.4-1.8:1, on surfaces whose peers moved to 3.35:1 on 2026-08-16) · **Class:** visual boundary / DESIGN scope · **Effort:** S per site, M as a class · **Filed:** 2026-08-16 (`fix/control-outline-surface-fills`, spec §3.2) · **Class-sweep exception:** (a) — the repair needs a design decision this PR cannot settle, stated per family below · **Reachability:** PROBED — every claim below is a transcript, not an argument.
+
+The 2026-08-16 ruling swapped the 21 controls a DERIVED cover found: interactive elements whose OWN className `tests/styles/interactiveScanCore.ts` statically resolves. Two families sit outside that cover **in both directions** — the census will never flag them and never exempt them — so they are recorded here rather than hand-added to a swap set that is otherwise entirely derived.
+
+**Family B first, because one of its members has the strongest claim to have belonged in the 21.**
+
+- `components/admin/wizard/VenueMapTile.tsx:123` — a `<span>` painted as a button visual inside an anchor. A resting outline on a neutral fill; its ONLY difference from the 21 is that the paint lands on a child. Named first deliberately.
+- `components/admin/OnboardingWizard.tsx:240` — the done-branch pill inside the `Link` at `:251`.
+- `components/admin/ShowRowActions.tsx:650` and `components/admin/wizard/CrewRowActions.tsx:273` — open-state menu-trigger visuals.
+
+**Probe.** The scanner attributes a className to the interactive element. Where the border is painted on a child `<span>`, the interactive element's own class list is clean and the element reports `strong=false`, so the cover never sees the outline at all. Two switch tracks have the identical shape and were promoted into the ruling's exemption family for exactly this reason (spec §3.1) — the mechanism is live, not hypothetical.
+
+**Family A — text-entry fields.**
+
+- `components/admin/BellPanel.tsx:836` and `:847` — `type="number"` fields, `min-h-tap-min w-20 rounded-sm border border-border-strong bg-surface`.
+- `components/admin/wizard/step3ReviewSections.tsx:4200` — a `<textarea>` (spec §3.2 cites `:4171`; the live line moved under the 2026-08-16 sibling merges).
+
+**Probe.** The rule is explicit and narrow: `tests/styles/interactiveScanCore.ts:868-870` admits an `<input>` **only** when its `type` is `checkbox` or `radio`. The scanner does see inputs — nine repo-wide, all checkboxes and radios — but a `type="number"` field and a `<textarea>` are outside its vocabulary by that rule. `scanInteractiveElements` over `components/admin/BellPanel.tsx` returns rows tagged `a`, `button` and `div`, and zero inputs.
+
+**Why each family is filed rather than repaired, and why "same defect, different file" is not the reason.** Both differ from the 21 in element kind and in whether the outline is a resting boundary at all.
+
+- **Family A:** whether an `<input>`'s border is a "control outline" under §1.2a is an open question. The user ruled against a mockup of BUTTONS resting on cards; a text field's border is arguably a field affordance rather than a control boundary, and moving it silently would answer a question the ruling did not ask.
+- **Family B:** the closed state of these nested-child outlines is `border-border`, a DIFFERENT token doing a different job (§1.2a preserves it for tile edges, dividers and hover chrome). Whether an open/active STATE treatment is a resting outline or a state cue is the second unanswered question.
+
+**Why `VenueMapTile.tsx:123` was not simply included.** Including it would make the swap set "the 21 the cover found, plus one the cover did not, chosen by hand" — a hand-extended list is exactly the enumerated cover the arc refused everywhere else. It goes here, named first.
+
+**First scheduled step:** answer the two design questions — is a text field's border a control outline, and is an open-state child outline a resting boundary — then apply each answer as a derived sweep over its own family, starting with `VenueMapTile.tsx:123`.
+
+## BL-CONTROL-OUTLINE-FORWARD-GUARD — a guard that keeps the control-outline population correct going forward, with five escapes already closed
+
+**Status:** OPEN · **Severity:** LOW (no shipped defect; this is a regression-prevention ambition) · **Class:** guard design / design-system enforcement · **Effort:** L · **Filed:** 2026-08-16 (`fix/control-outline-surface-fills`, spec §5.2, §6) · **Class-sweep exception:** (c) — the repair is a redesign of a surface the shipping PR does not otherwise touch, and a guard that consumed five review rounds without converging does not belong in a 22-token-edit diff · **Reachability:** PROBED — every escape below was demonstrated against a LIVE mechanism during spec review, not reasoned about.
+
+The 2026-08-16 arc ships a **regression pin** (`tests/styles/_metaControlOutlineFill.test.ts`): the 21 elements it swapped carry `border-text-faint` and no longer carry `border-border-strong`. That is a changelog assertion over a closed set the PR itself defines. It does **not** stop a future arc from adding a NEW control at `border-border-strong`, and the spec does not pretend otherwise.
+
+The forward guard was attempted in five forms across five review rounds and escaped structurally each time. The table is carried here verbatim so the next attempt starts from five CLOSED escapes rather than from scratch:
+
+| Round | Mechanism                                                 | The escape that killed it                                                                                                                                                                                                                                                                                                                                                                                      |
+| ----- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| draft | some branch carries `border-accent-edge`                  | move a track's OFF fill to `bg-surface`: green, while the recorded 1.43/1.75 becomes an unrecorded 1.59/1.60. And `border-accent-edge` is not toggle-exclusive — `DESIGN.md:35` gives it the active step pill and the show-day progress segment                                                                                                                                                                |
+| R1 F2 | existential: has an `ON` branch AND has an `OFF` branch   | append a third branch `border-border-strong bg-surface`: green at 1.59/1.60. An existential predicate is a denylist in disguise                                                                                                                                                                                                                                                                                |
+| R2 F1 | universal accept-set: EVERY branch is an `ON` or an `OFF` | "tokens include" is not "tokens are": `border-border-strong bg-surface-sunken bg-warning-bg` still includes the `OFF` pair while `bg-warning-bg` wins the cascade (1.44/1.19)                                                                                                                                                                                                                                  |
+| R3 F2 | (as above, exactness attempted)                           | exactness requires deciding which of two paint tokens on one branch wins — that is the CSS cascade, i.e. a CSS evaluator in a test helper                                                                                                                                                                                                                                                                      |
+| R5 F1 | enumerated five-row FILE registry                         | membership binds the exemption to the FILE, not the ELEMENT. Refactor a registered toggle so its track moves onto a nested span — **the live `components/admin/telemetry/AutoRefreshControl.tsx:106` pattern** — and the outer control becomes a plain `border-border-strong bg-surface` at 1.59/1.60: cover still three elements, file-set equality still true, recipe still present in the file, guard green |
+
+**The reason, stated once so the next attempt does not re-derive it.** Deciding "is this element a switch track" is a question about rendered structure and effective paint, and `scanInteractiveElements` reports neither — it reports an interactive element's own statically-resolvable class strings. Every mechanism above tried to recover structure from that projection, and each recovered a slightly larger subset while leaving the next mutation available. R5's escape is composed entirely of two patterns already live in this repository, so the finding rate did not decay.
+
+**AGENTS.md gives three repair directions when successive rounds each widen a recognizer:** narrow it, file the documented limit, or take the `2d9d0ba11`-style kill. Narrowing was tried twice (R3, R5). The arc took the kill, and this is the filing half of it.
+
+**First scheduled step:** decide whether the guard needs a signal the scanner does not currently produce — a rendered-structure or effective-paint input, e.g. a real-browser computed-style pass over a seeded admin route — rather than a sixth predicate over the same projection. If the answer is no, close this entry as a documented limit instead of attempting a sixth mechanism.
+
+## BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT — two non-interactive chips now read lighter than the control they sit beside
+
+**Status:** OPEN · **Severity:** LOW-MEDIUM (a visible weight inversion in two places; neither loses information, both carry their state in the semantic tree) · **Class:** visual hierarchy / DESIGN scope · **Effort:** S per site, M as a rule · **Filed:** 2026-08-16 (`fix/control-outline-surface-fills`, invariant-8 impeccable gate — critique P1, audit P2) · **Class-sweep exception:** (b) a ratified scope decision fences it, AND (a) the rule it would need is a design decision this PR cannot settle · **Reachability:** PROBED — both pairs read out of the live tree, and both were verified to match on `origin/main` and diverge only after this branch.
+
+The 2026-08-16 swap moved 21 CONTROLS. DESIGN.md §1.2a keeps `--color-border-strong` for non-interactive chrome, so two elements that shared a recipe with a swapped control correctly stayed put — and are now the quieter half of a pair a reader sees at once:
+
+- `components/diagrams/GalleryLightbox.tsx:773` — the `aria-hidden` `pointer-events-none` demote chip ("Full detail unavailable"), `rounded-pill border border-border-strong bg-surface-raised px-4`, at `bottom-2`. The Reset chip it matches (`components/diagrams/GalleryLightbox.tsx:708`, `top-2`) is census row 20 and moved to `border-text-faint`. Same pill, same fill, same shadow, same padding; the two can be up in one frame, at opposite ends of the image. 1.59/1.50 versus 3.35/3.53.
+- `components/admin/StagedPreviewBanner.tsx:65` — the `aria-current` chip, `border border-border-strong bg-surface`, standing IN A ROW with the picker `<Link>`s at `components/admin/StagedPreviewBanner.tsx:75` that moved. The entry marked current now carries the weakest boundary in its own row.
+
+**Why it is filed and not repaired.** Spec §4.4 ratifies the second site verbatim — "The sibling `<span aria-current>` at `components/admin/StagedPreviewBanner.tsx:65` is non-interactive chrome: outside the census, keeps its token" — and §1.2a's scope paragraph ratifies the first. Moving either would be moving a non-interactive element under a ruling the user took against a mockup of BUTTONS resting on cards. The general question is the one worth answering, and it is a design decision: **should chrome that visually PAIRS with a control follow that control's outline weight, or does chrome follow chrome?** DESIGN.md's own 2026-08-14 rationale for moving six controls was "leaving a control at the old outline while a control it renders WITH had moved would have shipped a split treatment inside one view" — that reason now points the other way, at chrome, and no rule covers it.
+
+**Not a contrast finding.** Neither element is interactive, so SC 1.4.11 does not reach either, and both carry their state programmatically (`aria-current`, `aria-hidden`). This is hierarchy, not accessibility.
+
+**First scheduled step:** decide whether §1.2a gains a pairing clause (chrome that renders in-frame with a control of the same recipe takes that control's outline weight) or an explicit "chrome follows chrome" statement. Either answer closes both sites; a per-site judgment call closes neither.
+
+## BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL — 30 controls with a neutral fill rest at `border-border`, inside the new predicate's words and outside its swap
+
+**Status:** OPEN · **Severity:** MEDIUM (1.15-1.38:1 resting boundaries on controls the widened predicate describes; thirteen of the thirty are crew surfaces read in direct sunlight) · **Class:** visual boundary / DESIGN scope · **Effort:** M-L · **Filed:** 2026-08-16 (`fix/control-outline-surface-fills`, invariant-8 impeccable gate — critique P2) · **Class-sweep exception:** (b) a ratified scope decision fences it, (a) moving `border-border` is a design decision the ruling did not make, and (c) 30 sites across admin AND crew surfaces is a redesign of surfaces the filing PR does not otherwise touch · **Reachability:** PROBED — the derived cover below was run on the live tree 2026-08-16 and its 30 rows are reproduced here as a count, not an enumeration. The count is the PUBLISHED query's, run verbatim.
+
+DESIGN.md §1.2a now reads: a control filled with one of the four neutral ground tokens takes the text ramp. The 2026-08-16 swap moved every such control that carried **`border-border-strong`** AND that the element-level cover could see — the enumerated 21. Text-entry fields carrying the same token (`components/admin/BellPanel.tsx:836` and `:847`, `components/admin/wizard/step3ReviewSections.tsx:4200`) are outside that cover and are filed as `BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER` family A, not moved. Controls carrying **`border-border`** — a different token, one rung quieter at **1.27:1** on `bg-surface` — were never in the cover, and the predicate as written describes them. Measured against all four neutral grounds from the runtime tokens 2026-08-16: `bg` **1.22** light / **1.35** dark, `surface` **1.27** / **1.27**, `surface-raised` **1.27** / **1.19**, `surface-sunken` **1.15** / **1.38**. The widest is 1.38:1 and the narrowest 1.15:1, so the token is under the 3:1 non-text floor on every ground and by a wider margin than a single figure suggests.
+
+**Derived cover** (a query, not a list — re-run it rather than trusting a count):
+
+```ts
+scanInteractiveElements(process.cwd()).filter(
+  (e) =>
+    allStrings(e).some((s) => /(^|\s)border-border(\s|$)/.test(s)) &&
+    allStrings(e).some((s) => /(^|\s)bg-(bg|surface|surface-raised|surface-sunken)(\s|$)/.test(s)),
+);
+```
+
+Returned **30** elements on 2026-08-16 against a universe of 362, of which **thirteen** are crew-facing (counted by render chain, not by directory — see the list below). Run the query above rather than a variant: an earlier count of 28 came from testing both tokens against the SAME class string, which misses an element whose outline and fill are contributed by different strings of one `cn()` call.
+
+**The two the gate surfaced by name are the sharpest instances**, because in both the control is the ESCAPE ROUTE from a destructive confirm whose trigger this arc just strengthened to 3.35:1: `components/admin/ArchiveShowButton.tsx:344` and `app/admin/show/[slug]/ResetPickerEpochButton.tsx:266`. The user taps a firmly-outlined control, it morphs in place, and the Cancel beside the filled destructive confirm is the faintest element on screen. The same shape is live at `app/admin/show/[slug]/RotateShareTokenButton.tsx:379`, `app/admin/show/[slug]/PickerResetControl.tsx:255` and `components/admin/ShowRowActions.tsx:821`.
+
+**Why it is filed and not swept.** Spec §2.1 and §6 fence it in both directions and the fence is quoted here so neither side is relitigated: _"Widening the swap to `border-border` is NOT the repair. `border-border` is a different token doing a different job — DESIGN.md §1.2a explicitly preserves the border tokens for tile edges, card edges, dividers and hover chrome — and moving it is a design decision this ruling did not make."_ The cover also reaches THIRTEEN crew surfaces, which the admin-scoped 2026-08-16 mockup never showed the user. Nine sit under a crew path: `app/me/meShowSections.tsx:174`, `:213` and `:258`; `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:233`; `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx:103` and `:121`; `components/crew/SectionChipLink.tsx:48`; `components/crew/primitives/PersonRow.tsx:196` and `:213`. Four more reach a crew surface through a RENDER CHAIN and a path regex misses them, which is how the count was wrong until whole-diff R10: `components/agenda/AgendaEmbed.tsx:83` and `components/agenda/AgendaPdfViewer.tsx:198` via `components/crew/sections/ScheduleSection.tsx`; `components/layout/ThemeToggle.tsx:91` via `components/layout/Header.tsx`, the `/show/[slug]` page chrome; and `components/shared/ReportButton.tsx:142` via `components/layout/Footer.tsx`.
+
+**First scheduled step:** put the narrower question to the user with a rendered mockup — does a control whose ONLY outline is `border-border` on a neutral fill take the text ramp too, or is `border-border` a deliberate third weight for quiet controls? If the answer is "text ramp", the sweep is derived and mechanical; if it is "third weight", §1.2a gains one sentence and this closes as a documented limit. Start with the five confirm-row Cancels, which have the strongest case either way.
 
 ## BL-CHECKBOX-ROW-LABEL-UNDER-FLOOR — three native-input rows are targeted through a label that carries no floor
 
@@ -1209,6 +1312,29 @@ a term-grep of the repaired text cannot see.
 
 **Reachability:** PROBED in the originating filing (R2-F3/R5, two live escapes each costing a
 round). Filed under class-sweep exception (c).
+
+## BL-SPECLINT-ENUMERATED-UNIVERSAL-PARITY — a spec asserting a universal over an enumerated population owes the command that enumerates it
+
+**Status:** OPEN. · **Filed:** 2026-08-16, from
+`docs/review-rounds/fix/control-outline-surface-fills/119895a7c756.md` (spec §, Mechanizable) ·
+**Severity:** medium · **Class:** spec-lint arm · **Effort:** M
+
+A spec:lint arm that flags a quantified claim over a population the same document enumerates,
+when no probe command sits with it. `NUMERIC_NOUN_MISMATCH` does not reach this class because
+the quantified noun is a CLASS TOKEN, not a number — "every one of the 21 lands on a neutral
+ground", "every swapped control carries `transition-colors duration-fast`", "hover changes the
+fill, not the outline". Each was one grep away and each cost a round.
+
+The repair the originating arc found is the arm's likely shape and is worth carrying: re-wording
+the universal never worked, because the failure is a universal in one section contradicting a
+measurement in ANOTHER. Removing the duplicate did work — one section owns the numbers and every
+other section references it. So the arm's useful output may be "this universal restates a
+measurement stated elsewhere" rather than "this universal has no probe".
+
+**Reachability:** PROBED — three live escapes in the originating filing (R1 F3, R1 F4, R3 F3),
+each a false universal in normative spec text, plus R2 F2 one level down. Filed under class-sweep
+exception (c): a spec:lint arm is a redesign of a surface the originating PR does not otherwise
+touch.
 
 ## BL-SPECLINT-BL-DISPOSITION-CLOSEOUT-ARM — a spec dispositioning `BL-` ids owes a closeout naming each id's terminal state
 

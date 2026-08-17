@@ -190,6 +190,16 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   "tests/styles/interactiveScanCore.test.ts": 0,
   "tests/styles/_metaSubtleOnInteractive.test.ts": 0,
   "tests/styles/_metaTapTargetFloor.test.ts": 0,
+  // The control-outline regression pin, enrolled 2026-08-16
+  // (fix/control-outline-surface-fills). 0, by the same rule as its three
+  // siblings above: it reads the live tree through node:fs via
+  // `scanInteractiveElements`, and its negative control builds a fixture under
+  // mkdtempSync and scans that — node:fs is deliberately NOT provenance here.
+  // It spawns no child process, imports no ledger-git, and reads no process.env.
+  // Its two `premise` calls (the repo-scan universe at module scope, and the
+  // fixture's own parsed-and-produced-an-element check) are both about tree
+  // content, not environment.
+  "tests/styles/_metaControlOutlineFill.test.ts": 0,
   // The browser mode's two deciding suites (2026-08-15). Both declare 0, and the
   // declaration is honest rather than convenient: each builds the scratch trees it
   // reads under mkdtempSync and drives pure functions, touching no member of

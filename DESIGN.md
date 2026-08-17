@@ -178,12 +178,62 @@ signal.
 the border-shaped choice. The `-faint`/`-subtle` text pair is the sanctioned
 hairline ramp.
 
-**The rule extends to CONTROL OUTLINES (2026-08-14).** An outline drawn around
-a control whose fill is the near-ground (`bg-bg` on a `bg-surface` card, or on
-the `bg-surface-sunken` attention plate) is a standalone stroke by the same
-argument: the fill it encloses carries no visual weight of its own, so the
-stroke IS the control's boundary. Worked example — the one secondary action
-treatment (`lib/ui/actionClass.ts`, `SECONDARY_ACTION_CLASS`, 8 call sites):
+**The rule extends to CONTROL OUTLINES (2026-08-14; predicate widened
+2026-08-16).** An outline drawn around a control whose **fill carries no visual
+weight against what it stands on** is a standalone stroke by the same argument:
+the fill it encloses carries no visual weight of its own, so the stroke IS the
+control's boundary and takes the text ramp. In practice that is any control
+filled with one of the four neutral ground tokens (`--color-bg`,
+`--color-surface`, `--color-surface-sunken`, `--color-surface-raised`) or left
+unfilled. Pair any two of those four tokens and the widest result is **1.17:1**
+— `surface-raised` on `surface-sunken`, 1.163:1 dark; the five pairings the app
+actually renders are all **≤1.13:1** (measured 2026-08-16; that table is in
+`docs/superpowers/specs/2026-08-16-control-outline-surface-fills-design.md` §3).
+Both numbers are stated because the second is the evidence and the first is the
+bound: in every one of them the fill is invisible against its container, so the
+stroke is the only boundary there is.
+
+**Two families are OUT, and they are out by decision rather than by omission.**
+A control with a **weight-bearing fill** — the accent-filled primary action — is
+not a standalone stroke and keeps its own treatment. The **switch tracks** (five
+render paths) keep their existing recipe in both states (`border-accent-edge
+bg-accent` ON, `border-border-strong bg-surface-sunken` OFF): the toggle's
+ON/OFF boundary is a deliberately tuned relationship, and lifting only the OFF
+ring would make the OFF state read heavier while the ON state stood still. The
+OFF ring's **1.43:1** light / **1.75:1** dark against its own track fill is a
+documented limit of that decision, recorded here so it cannot drift into looking
+like an oversight (ruled 2026-08-16). The ON boundary — `accent-edge` vs
+`accent`, 3.61:1 light — is the load-bearing SC 1.4.11 pair and is untouched.
+The five paths are `components/admin/PublishedToggle.tsx:305`,
+`components/admin/settings/AutoPublishToggle.tsx:136`,
+`components/admin/settings/NotifyToggle.tsx:144`,
+`components/admin/telemetry/AutoRefreshControl.tsx:106` and
+`components/admin/settings/DeveloperToggleButton.tsx:97`; the last two paint the
+track on a nested `<span>`, which is why an element-level census reported three.
+
+**What did not move with the 21, and now reads lighter beside it** (2026-08-16
+invariant-8 gate). Two elements share a recipe with a swapped control and stayed
+put, so each is now the quieter half of a visible pair: the lightbox's
+`aria-hidden` demote chip (`components/diagrams/GalleryLightbox.tsx:773`, same
+`rounded-pill bg-surface-raised` as the Reset chip it can share a frame with) and
+the staged-preview banner's `aria-current` chip
+(`components/admin/StagedPreviewBanner.tsx:65`, standing in a row of picker links
+that moved). Both are non-interactive chrome and both are therefore CORRECT under
+the scope paragraph below — recorded here rather than implied away, because the
+2026-08-14 rationale for moving six controls was that a control they render WITH
+had already moved, and that reason now points the other way. Whether chrome that visually
+pairs with a control should follow it is `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT`.
+
+Separately: a control with a neutral fill but a `border-border` outline — the
+confirm-row Cancels at `components/admin/ArchiveShowButton.tsx:344` and
+`app/admin/show/[slug]/ResetPickerEpochButton.tsx:266`, both **1.27:1** — falls
+inside this predicate's words and outside the 2026-08-16 swap, which moved only
+`border-border-strong`. Widening to `border-border` is a separate design decision
+this ruling did not make, filed as
+`BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL`.
+
+Worked example — the one secondary action treatment (`lib/ui/actionClass.ts`,
+`SECONDARY_ACTION_CLASS`, 8 call sites):
 
 | Boundary | Token | Light vs `--color-surface` | Dark vs `--color-surface` |
 | --- | --- | --- | --- |
@@ -195,15 +245,18 @@ The four neutral ground pairings are pinned as §1.2 rows above (`surface`,
 `tests/styles/secondary-action-contrast.test.ts`, which also pins that the
 constant still wears the token the ratios are about.
 
-**What the outline is measured against, and where it does not clear 3:1.** The
-button paints its own `bg-bg` fill, so the outline has two neighbours: the fill
-INSIDE it (3.21:1 light / 4.00:1 dark, every instance) and whatever the button
-stands on OUTSIDE it. On the four neutral grounds above, both sides clear. On a
+**What the outline is measured against, and where it does not clear 3:1.** An
+outlined control has two neighbours: the fill INSIDE it and whatever it stands
+on OUTSIDE. The inner figure depends on the control's own fill, and the
+population below carries three of them: `bg-bg` gives 3.21:1 light / 4.00:1
+dark, `bg-surface` gives 3.35:1 / 3.76:1, and a `bg-transparent` control has no
+inner fill at all — its inner neighbour IS the plate, which is why the
+`StagedPreviewBanner` picker link is the one row under 3:1 on BOTH edges. On the four neutral grounds above, both sides clear. On a
 TINTED plate they do not, and the measured numbers are recorded here rather than
 implied away — `warning-bg` 3.04 light / **2.79** dark, `info-bg` **2.87** light
-/ 3.48 dark, `danger-bg` **2.88** light / 3.19 dark. Eleven shipped controls stand on such a plate, across ten sites (the data-quality card, the maintenance and reap actions, the
-per-show alert resolve, the re-sync and show-row actions, the step-3 review and
-archived-tab offers).
+/ 3.48 dark, `danger-bg` **2.88** light / 3.19 dark. Fourteen shipped controls stand on such a plate, across thirteen sites; the enumerated list is
+in `BL-CONTROL-OUTLINE-ON-TINTED-PLATES` and is not duplicated here, because a summary that
+drifts from the list it summarises is worse than a pointer.
 
 Two things follow, and the second is why this is a recorded position and not a
 defect. First, the outer edge dips to 2.79–2.88:1 in exactly one theme per
@@ -211,12 +264,13 @@ plate, never both. Second, R5 above is the standing frame: the outline is an
 upgrade over a label that already carried the affordance, so a boundary that is
 strong against its own fill and slightly under 3:1 against a tinted plate is a
 weaker version of the upgrade, not a regression against the prior state (which
-was 1.59:1 against everything). Whether tinted plates should get their own
+was 1.59:1 on `surface` — and 1.52/1.70 on `bg`, 1.44/1.19 on `warning-bg`; recomputed 2026-08-16 after whole-diff R7 caught "against everything" as a false universal). Whether tinted plates should get their own
 treatment — a darker token, or a plate-matched outline — is a design decision
 this policy did not make, filed as `BL-CONTROL-OUTLINE-ON-TINTED-PLATES`.
 
-**This was a design upgrade, not a compliance repair.** The 1.59:1 boundary
-was not a WCAG failure: the button's LABEL carried the affordance at 18.35:1,
+**This was a design upgrade, not a compliance repair.** The prior boundary —
+1.59:1 on `surface`, the figure this section quotes throughout — was not a WCAG
+failure: the button's LABEL carried the affordance at 18.35:1,
 and SC 1.4.11 asks for a perceivable control boundary, which a legible label
 inside a padded, focusable target supplies. What was missing was a written-down
 posture, and the upgrade is that the outline now carries its own weight rather
@@ -233,9 +287,14 @@ edges, hover borders, focus-adjacent chrome, and the status-emphasis outline on
 non-interactive chrome (the flagged pill, the judgment chip). A card is not a
 control, and its edge is read against the fill beside it rather than as a
 standalone stroke. Controls whose fill is a SURFACE rather than the page ground
-are the open question — 23 of them still carry the border token, tracked as
-`BL-CONTROL-OUTLINE-BORDER-STRONG-ON-SURFACE-FILLS` with the predicate decision
-that has to come first.
+WERE the open question. **That question is closed: ruled 2026-08-16**, and the
+predicate above is the ruling — fill-equals-container, not page-ground-only.
+Twenty-one button and link controls standing on card and panel fills moved to
+`--color-text-faint` on that date; the switch tracks were ruled OUT and their
+OFF ring is the documented limit above.
+`BL-CONTROL-OUTLINE-BORDER-STRONG-ON-SURFACE-FILLS` is archived, and the
+outlines the element-level census cannot see — text-entry fields, and outlines
+painted on a nested child — are filed separately with their probe transcripts.
 
 Six such controls DID move on 2026-08-14, for one reason applied at three
 distances: leaving a control at the old outline while a control it renders WITH
@@ -246,9 +305,11 @@ rather than by adjacency — `RecentAutoAppliedStrip`, whose near-ground control
 sits in its confirmation row, and the `AcceptChangeButton`/`UndoChangeButton`
 pair that `ChangeFeedEntry.tsx:135` renders. One is inheritance:
 `Step2Verify`'s portaled footer advance takes the same file-local
-`SECONDARY_BUTTON` constant as the re-scan button. That is a consistency repair
-within a view, not a ruling on the general predicate — which is still the ledger
-entry's to make.
+`SECONDARY_BUTTON` constant as the re-scan button. That was a consistency repair
+within a view, not a ruling on the general predicate — which on 2026-08-14 was
+still the ledger entry's to make. **The user made it two days later**, and the
+fill-equals-container predicate above is that ruling; this paragraph is retained
+as the record of what moved before it, and why.
 
 The pair's render path was cited as `RecentAutoAppliedStrip` until the whole-diff
 review read it (R2 F2): that strip passes `quiet` to `UndoChangeButton`, whose
