@@ -186,26 +186,27 @@ export const GUARD_SURFACES: GuardSurface[] = [
     },
     accepted: [
       {
-        siteId: "relational-boundary:721:29:>>>=",
+        siteId: "relational-boundary:604:29:>>>=",
         kind: "equivalent",
         reason:
           "`here.length > 0` versus `>= 0` agree on every reachable input: an extents entry is " +
           "only ever created by `addExtent` or the write pass, and both PUSH a node before storing, " +
           "so the array is never empty. The guard reads as belt-and-braces and is exactly that. " +
           "Re-keyed by the mutated EXPRESSION, not by line: the import-edge repair moved every line " +
-          "below its first hunk, and the whole-diff round-1 repairs moved it again (601 -> 721). " +
-          "The expression and its 1-based column are byte-identical at both keys, which is what " +
+          "below its first hunk, the round-1 repairs moved it again, and the round-2 withdrawal moved " +
+          "it back (601 -> 721 -> 604). The expression and its 1-based column are byte-identical at " +
+          "every key, which is what " +
           "makes this a re-key rather than a new acceptance.",
       },
       {
-        siteId: "relational-boundary:2061:28:<><=",
+        siteId: "relational-boundary:1864:28:<><=",
         kind: "equivalent",
         reason:
           "The premise-placement test asks whether the premise call starts BEFORE the registration " +
           "call. `<` and `<=` differ only when the two nodes start at the identical offset, which " +
           "two distinct sibling statements cannot do — equality there would mean they are the same " +
           "node, and the walk never compares a node against itself. Re-keyed by the mutated " +
-          "EXPRESSION (1752 -> 2061), byte-identical at both keys.",
+          "EXPRESSION (1752 -> 2061 -> 1864), byte-identical at every key.",
       },
     ],
   },
