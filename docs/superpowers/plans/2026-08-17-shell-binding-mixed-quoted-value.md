@@ -649,6 +649,11 @@ git commit -m "fix(infra): assignment bindings read lexed words — mixed-quoted
     // The literal-newline single-quoted spelling reaches the same branch,
     // because the branch decides the lexed value CONTENT, not the spelling.
     ["a newline-separated command binding", "PG=$'psql\\n-X mydb'\n"],
+    // Literal quote characters in a directory component are DATA to the
+    // word-split consumer (round-5 finding 1): bash argv is the full path
+    // plus -X mydb for both rows.
+    ["an apostrophe-directory command binding", 'CMD="/tmp/O\'Reilly/psql -X mydb"\n'],
+    ["a double-quote-directory command binding", "CMD='/tmp/x\"y/psql -X mydb'\n"],
   ])("multiword binding value: %s is reported", (_label, source) => {
     expect(scanShellIndirection(source, "x.sh").length).toBeGreaterThan(0);
   });
@@ -669,7 +674,7 @@ git commit -m "fix(infra): assignment bindings read lexed words — mixed-quoted
 - [ ] **Step 2: Run to verify the red set.**
 
 Run: `pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts -t "multiword binding value"`
-Expected: the three recall rows FAIL (0 hits each today); both documented-limit zeros PASS
+Expected: the five recall rows FAIL (0 hits each today); both documented-limit zeros PASS
 (regression premises).
 
 - [ ] **Step 3: Implement.** In `assignmentBindingLines`, replace
@@ -686,17 +691,25 @@ Expected: the three recall rows FAIL (0 hits each today); both documented-limit 
       // misses must still carry a quote or backslash character, which the
       // second alternative admits.
       if (!/\bpsql\b/.test(value) && !/["'\\]/.test(value)) continue;
-      // TWO consumer grammars decide a multiword value: `eval "$CMD"` reads a
-      // newline as a command separator, while an unquoted `$CMD` word-splits
-      // it as ordinary IFS whitespace into ONE argv - bash runs `psql -X`
-      // from `PG=$'psql\n-X'; $PG mydb` (plan round-3 finding 3). Report if
-      // EITHER reading yields a flagged psql invocation.
-      const flagged = (candidate: string): boolean =>
-        scanShellText(candidate, file, 0).some((site) =>
-          site.tokens.some((token) => /^-{1,2}[A-Za-z0-9]/.test(token)),
-        );
-      if (flagged(value) || (value.includes("\n") && flagged(value.replace(/\n/g, " "))))
-        found.add(word.line);
+      // TWO consumer grammars decide a multiword value, each read by ITS OWN
+      // rules (plan round-3 finding 3; round-5 finding 1):
+      //  - `eval "$CMD"`: the value is shell SOURCE - quotes are syntax,
+      //    newlines separate commands. Read with scanShellText, as before.
+      //  - unquoted `$CMD`: the value is DATA word-split on IFS whitespace -
+      //    quotes are literal pathname characters and newlines are ordinary
+      //    separators, so re-lexing it as shell turned `/tmp/O'Reilly/psql -X`
+      //    into the wrong words. Read with a plain split: psql-shaped argv[0]
+      //    plus a flag-shaped later token, the same flag criterion.
+      // Report if EITHER reading yields a flagged psql invocation.
+      const evalBound = scanShellText(value, file, 0).some((site) =>
+        site.tokens.some((token) => /^-{1,2}[A-Za-z0-9]/.test(token)),
+      );
+      const parts = value.split(/[ \t\n]+/).filter((part) => part.length > 0);
+      const splitBound =
+        parts.length > 1 &&
+        isPsqlCommandWord(parts[0]!) &&
+        parts.slice(1).some((token) => /^-{1,2}[A-Za-z0-9]/.test(token));
+      if (evalBound || splitBound) found.add(word.line);
       continue;
     }
 ```
@@ -970,8 +983,9 @@ two digit-boundary zero pins, the non-shadowing parity pin, Task 4 as a single l
 after the plan round-3 repairs: the quoted-Windows-path flip and the newline-separated multiword
 row joined the red set; the unterminated-ANSI-C zero joined the premise-green set). The round-4
 delta was spliced separately on the same tree: the five separator-directory recall rows all RED
-(0 hits each today) and the whitespace-directory limit row premise-green — 44 total across both
-runs, 31 red / 13 green. Red: all five Task 1
+(0 hits each today) and the whitespace-directory limit row premise-green; the round-5 delta
+likewise: both quote-character-directory multiword rows RED (0 hits each today) — 46 total
+across the runs, 33 red / 13 green. Red: all five Task 1
 fidelity tests, the thirteen Task 2 recall rows, the three trailing-backslash rows, the
 expansion-prefix widening, and both Task 3 multiword recall rows. Green (regression premises):
 the six Task 2 precision-survivor zeros (including both digit-boundary mutant-kill pins, probed
@@ -986,8 +1000,8 @@ test as another premise-green pair, changing neither the test count nor the red 
 ## Acceptance criteria (from spec §4)
 
 - **AC-1:** the eighteen single-word recall rows (Task 2 block) report ≥1 indirection each.
-- **AC-2:** the segment-split multiword binding, the inner-quoted spelling, and the
-  newline-separated value report; both quoted
+- **AC-2:** the segment-split multiword binding, the inner-quoted spelling, the
+  newline-separated value, and both quote-character-directory values report; both quoted
   `run:` scalar spellings (plain and mixed) stay declared limits (spec §6 item 2).
 - **AC-3:** the three trailing-backslash-value spellings report ZERO (were 1).
 - **AC-4:** every parity zero from the probe record stays zero (`PG='psql'x`, the ratified EOF

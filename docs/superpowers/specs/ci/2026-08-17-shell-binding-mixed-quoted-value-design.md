@@ -114,12 +114,15 @@ value the way its use site can. Then:
 - **V is empty** → not a binding.
 - **V contains whitespace** (inside one lexed word, whitespace is always quoted or escaped data;
   the opaque `${}` introduces none) → the MULTIWORD branch: the word is a command-line
-  binding iff `scanShellText(V, file, 0)` — evaluated under BOTH consumer grammars where V
-  contains a newline: as written (`eval "$CMD"` reads a newline as a command separator) and with
-  newlines read as IFS separators (an unquoted `$CMD` word-splits them into one argv; bash runs
-  `psql -X` from `PG=$'psql\n-X'; $PG mydb` — plan round-3 finding 3) — yields at least one psql
-  site whose tokens include a flag-shaped token (`/^-{1,2}[A-Za-z0-9]/` — the existing
-  `boundCommand` criterion, unchanged).
+  binding iff EITHER consumer grammar yields a flagged psql invocation, each grammar read by its
+  own rules (plan round-3 finding 3; round-5 finding 1): the `eval "$CMD"` reading treats V as
+  shell SOURCE (`scanShellText(V, file, 0)` yields a psql site with a flag-shaped token —
+  `/^-{1,2}[A-Za-z0-9]/`, the existing `boundCommand` criterion, unchanged), and the unquoted
+  `$CMD` reading treats V as DATA word-split on IFS whitespace (a plain split; psql-shaped
+  argv[0] via `isPsqlCommandWord`, plus a flag-shaped later token). The split reading is exact
+  for its grammar — quotes are literal pathname characters and newlines ordinary separators
+  there, so `/tmp/O'Reilly/psql -X mydb` and `$'psql\n-X mydb'` both report, while the prose
+  fixture stays out (its later tokens carry no flag).
   This replaces the `quotedValue` regex: the value is now the lexer's dequoted concatenation, so
   `CMD='psq'"l -qAt mydb"` is read exactly as `CMD='psql -qAt mydb'` is.
 - **V is a single word** (no whitespace) → the word is a name binding iff
