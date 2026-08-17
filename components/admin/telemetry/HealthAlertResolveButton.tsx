@@ -25,7 +25,7 @@ function SubmitButton({ alertId, code }: { alertId: string; code: string }) {
       type="submit"
       data-testid={`health-alert-resolve-${alertId}`}
       disabled={pending}
-      className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+      className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-text-faint bg-surface px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
     >
       {pending ? labels.pending : labels.idle}
     </button>

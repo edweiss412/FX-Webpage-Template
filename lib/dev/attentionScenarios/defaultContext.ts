@@ -47,7 +47,7 @@ const DEFAULT_CONTEXT_BY_CODE: Record<string, Record<string, unknown>> = {
     crew_member_id: ROSTER_AVERY,
     user_email: SHARED_EMAIL,
   },
-  // lib/auth/picker/cleanupStaleEntry.ts:111
+  // lib/auth/picker/cleanupStaleEntry.ts:117
   PICKER_SELECTION_RACE: {
     stale_crew_member_id: ROSTER_BLAKE,
   },

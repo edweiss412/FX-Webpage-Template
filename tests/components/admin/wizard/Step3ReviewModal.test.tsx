@@ -702,7 +702,7 @@ describe("Step3ReviewModal — footer note + buttons (spec §9.1)", () => {
     const { q: q2 } = renderModal({ checked: true });
     const unpublish = within(q2.getByTestId(tid("footer"))).getByTestId(tid("publish"));
     expect(unpublish.className).toMatch(/\bborder\b/);
-    expect(unpublish.className).toMatch(/\bborder-border-strong\b/);
+    expect(unpublish.className).toMatch(/\bborder-text-faint\b/);
     expect(unpublish.className).toMatch(/\bbg-surface\b/);
     expect(unpublish.className).not.toMatch(/\bbg-accent\b/);
     expect(unpublish.className).toMatch(/\bmin-h-tap-min\b/);
@@ -718,7 +718,7 @@ describe("Step3ReviewModal — footer note + buttons (spec §9.1)", () => {
     fireEvent.click(q.getByTestId(tid("publish")));
     await waitFor(() => expect(q.getByTestId(tid("publish")).textContent).toBe("Removing…"));
     const pending = q.getByTestId(tid("publish"));
-    expect(pending.className).toMatch(/\bborder-border-strong\b/);
+    expect(pending.className).toMatch(/\bborder-text-faint\b/);
     expect(pending.className).not.toMatch(/\bbg-accent\b/);
     await act(async () => settle(true));
   });
@@ -979,7 +979,7 @@ describe("Step3ReviewModal — footer Unpublish + demoted gate (spec §C2/§C3)"
     const btn = within(footer).getByTestId(tid("publish")) as HTMLButtonElement;
     // Quiet/secondary treatment persists through the flight — the flipped
     // checked prop must NOT swap in the accent publish CTA mid-unpublish.
-    expect(btn.className).toMatch(/\bborder-border-strong\b/);
+    expect(btn.className).toMatch(/\bborder-text-faint\b/);
     expect(btn.className).not.toMatch(/\bbg-accent\b/);
     expect(btn.disabled).toBe(true);
     expect(btn.getAttribute("aria-busy")).toBe("true");

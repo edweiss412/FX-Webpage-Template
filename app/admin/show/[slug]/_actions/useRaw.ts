@@ -38,6 +38,7 @@ import {
   type UseRawWarningRef,
 } from "@/lib/sync/useRawDecisionState";
 import { resolveShowById } from "./shared";
+import { assertSameOriginServerAction } from "@/lib/auth/sameOriginServerAction";
 
 export type SetUseRawDecisionResult =
   | { ok: true; state: "settled" }
@@ -61,6 +62,7 @@ export async function setUseRawDecisionAction(
   warningRef: UseRawWarningRef,
   useRaw: boolean,
 ): Promise<SetUseRawDecisionResult> {
+  await assertSameOriginServerAction("setUseRawDecisionAction", "admin.show.useRaw");
   await requireAdmin();
   const { email } = await requireAdminIdentity();
 

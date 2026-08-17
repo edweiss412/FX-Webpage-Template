@@ -29,12 +29,18 @@
 
 import { messageFor } from "@/lib/messages/lookup";
 import { clearIdentityAndSkip } from "@/lib/auth/picker/clearIdentity";
+import { isSameOriginServerAction, rejectCrossOriginVoid } from "@/lib/auth/sameOriginServerAction";
 import { buildShowReturnUrl } from "@/lib/crew/buildShowReturnUrl";
 
 async function clearIdentityAndSkipFormAction(formData: FormData): Promise<void> {
   "use server";
   // no-telemetry: thin crew form-action wrapper; delegates to lib/auth/picker clearIdentityAndSkip,
   // which is the crew-picker observability surface tracked by BL-CREW-PICKER-OBSERVABILITY.
+  //
+  // GATED, not exempted (origin-sweep spec Resolved scope #9r): the delegate
+  // returns a typed refusal rather than throwing.
+  if (!(await isSameOriginServerAction()))
+    return rejectCrossOriginVoid("clearIdentityAndSkipFormAction");
   await clearIdentityAndSkip(formData);
 }
 

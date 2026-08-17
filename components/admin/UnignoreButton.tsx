@@ -60,7 +60,7 @@ export function UnignoreButton({ driveFileId }: UnignoreButtonProps) {
         disabled={pending}
         aria-busy={pending}
         data-testid={`unignore-button-${driveFileId}`}
-        className="min-h-tap-min rounded-sm border border-border-strong bg-surface px-4 py-1.5 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60"
+        className="min-h-tap-min rounded-sm border border-text-faint bg-surface px-4 py-1.5 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60"
       >
         {pending ? "Un-ignoring…" : "Un-ignore"}
       </button>

@@ -31,6 +31,7 @@ import { writeSyncLog } from "@/lib/sync/syncLog";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import type { ParseWarning } from "@/lib/parser/types";
 import { resolveShowById } from "./shared";
+import { assertSameOriginServerAction } from "@/lib/auth/sameOriginServerAction";
 
 export type MapRoleTokenResult =
   | { ok: true; state: "applied" | "apply_pending" }
@@ -49,6 +50,7 @@ export async function mapRoleToken(
   rawToken: string,
   rawGrants: string[],
 ): Promise<MapRoleTokenResult> {
+  await assertSameOriginServerAction("mapRoleToken", "admin.show.roleToken");
   await requireAdmin();
   const { email } = await requireAdminIdentity();
 

@@ -64,6 +64,14 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // diffHunks count-collapse pair (BL-MUTATION-LEDGERGIT-SITE-DRIFT) builds a
   // throwaway repo, so it counts as environment-touching like its
   // single-line sibling.
+  // Seven: the truth-table `.each` (one classification for the whole table),
+  // the unresolvable-site-origin row, the no-request-scope row, the scoped-catch
+  // sibling, the two assertSameOriginServerAction cases, and the derived
+  // no-dark-refusal sweep (which calls the throwing member and so reaches
+  // resolveSiteOrigin). The proxy-independence guard is environment-FREE: it
+  // parses a committed file and touches no ambient state. Decided per case from
+  // what each case does and only THEN checked against the scanner.
+  "tests/auth/sameOriginServerAction.test.ts": 7,
   "tests/scripts/ledgerClaimsCheck.test.ts": 16,
   // chore/guard-completeness-wave (2026-08-15): the spawn-seam suite, enrolled as
   // ledgerGit's second suite. All 16 of its cases import `realGitSurface`, so the scanner
@@ -199,6 +207,16 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   "tests/styles/interactiveScanCore.test.ts": 0,
   "tests/styles/_metaSubtleOnInteractive.test.ts": 0,
   "tests/styles/_metaTapTargetFloor.test.ts": 0,
+  // The control-outline regression pin, enrolled 2026-08-16
+  // (fix/control-outline-surface-fills). 0, by the same rule as its three
+  // siblings above: it reads the live tree through node:fs via
+  // `scanInteractiveElements`, and its negative control builds a fixture under
+  // mkdtempSync and scans that — node:fs is deliberately NOT provenance here.
+  // It spawns no child process, imports no ledger-git, and reads no process.env.
+  // Its two `premise` calls (the repo-scan universe at module scope, and the
+  // fixture's own parsed-and-produced-an-element check) are both about tree
+  // content, not environment.
+  "tests/styles/_metaControlOutlineFill.test.ts": 0,
   // The browser mode's two deciding suites (2026-08-15). Both declare 0, and the
   // declaration is honest rather than convenient: each builds the scratch trees it
   // reads under mkdtempSync and drives pure functions, touching no member of

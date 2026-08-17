@@ -40,6 +40,7 @@ import { redirect } from "next/navigation";
 
 import { messageFor } from "@/lib/messages/lookup";
 import { selectIdentity } from "@/lib/auth/picker/selectIdentity";
+import { isSameOriginServerAction, rejectCrossOriginVoid } from "@/lib/auth/sameOriginServerAction";
 import { isValidShowPathPair } from "@/lib/auth/picker/validateClearIdentityInput";
 import { ClaimedRowButton } from "./_ClaimedRowButton";
 import { buildShowReturnUrl } from "@/lib/crew/buildShowReturnUrl";
@@ -83,6 +84,12 @@ async function selectIdentityFormAction(formData: FormData): Promise<void> {
   "use server";
   // no-telemetry: thin crew form-action wrapper; delegates to lib/auth/picker selectIdentity,
   // which is the crew-picker observability surface tracked by BL-CREW-PICKER-OBSERVABILITY.
+  //
+  // GATED, not exempted (origin-sweep spec Resolved scope #9r). The delegate
+  // returns a TYPED refusal rather than throwing, so this wrapper would keep
+  // executing after a rejected cross-site request — a first-statement
+  // delegation claim covers nothing about what follows it.
+  if (!(await isSameOriginServerAction())) return rejectCrossOriginVoid("selectIdentityFormAction");
   const result = await selectIdentity(formData);
   if (!result.ok) return;
 

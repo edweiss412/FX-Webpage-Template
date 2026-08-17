@@ -412,7 +412,7 @@ describe("ReportIssueSection — form mechanics (spec §D3)", () => {
     expect(submit.className).toMatch(/\bmin-h-tap-min\b/);
   });
 
-  test("impeccable dual-gate P2 pins: quiet secondary submit (never accent — one accent CTA per view), ring-offset matches the bg pane, textarea boundary uses border-strong + surface fill (WCAG 1.4.11)", () => {
+  test("impeccable dual-gate P2 pins: quiet secondary submit (never accent — one accent CTA per view), ring-offset matches the bg pane, textarea keeps border-strong + surface fill", () => {
     stubFetch();
     const q = renderInChrome(sectionData(), () => "venue");
     const submit = q.getByTestId(ttid("submit"));
@@ -422,13 +422,24 @@ describe("ReportIssueSection — form mechanics (spec §D3)", () => {
     expect(submitClasses).not.toContain("bg-accent");
     expect(submitClasses).not.toContain("text-accent-text");
     expect(submitClasses).toContain("border");
-    expect(submitClasses).toContain("border-border-strong");
+    expect(submitClasses).toContain("border-text-faint");
     expect(submitClasses).toContain("bg-surface");
     expect(submitClasses).toContain("hover:bg-surface-sunken");
     // Ring-offset color present so the focus halo isn't white in dark mode.
     expect(submitClasses).toContain("focus-visible:ring-offset-bg");
-    // Textarea boundary ≥3:1-capable pairing: border-strong + surface fill
-    // (border-border on bg-bg computed 1.22:1 — audit P2).
+    // The textarea keeps `border-strong` on a `surface` fill. NOT a 3:1 pairing,
+    // and the old wording here claimed it was: recomputed from the runtime
+    // tokens 2026-08-16, `border-strong` on `surface` is 1.5897:1 light /
+    // 1.6017:1 dark. It is pinned because it is the shipped recipe and because
+    // `border-border` on `bg-bg` is quieter still at 1.22:1 (audit P2), not
+    // because it clears SC 1.4.11.
+    //
+    // The 2026-08-16 control-outline swap deliberately did NOT move it: a text
+    // field is outside the scanner's element vocabulary (it admits `<input>`
+    // only at type checkbox/radio) and outside the user's ruling, which was
+    // taken against a mockup of buttons resting on cards. Filed as
+    // BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER family A, with
+    // CONTROLOUTLINE-BORDER-TOKEN-NEUTRAL-FILL-1 in DEFERRED.md.
     const textarea = q.getByTestId(ttid("textarea"));
     const textareaClasses = textarea.className.split(/\s+/);
     expect(textareaClasses).toContain("border-border-strong");

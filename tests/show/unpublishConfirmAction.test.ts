@@ -58,6 +58,25 @@ vi.mock("@/lib/sync/unpublishConfirmPage", async (importOriginal) => {
 const logAdminOutcomeMock = vi.hoisted(() => vi.fn(async (_o: unknown) => undefined));
 vi.mock("@/lib/log/logAdminOutcome", () => ({ logAdminOutcome: logAdminOutcomeMock }));
 
+// ── same-origin gate plumbing (origin-sweep spec §6B.3, class-C representative) ──
+// This suite mocked `next/headers` not at all. A missing `headers` export lands
+// the gate in its no-request-scope catch-allow, so a "cross-site" case would be
+// ALLOWED rather than refused and would prove nothing. The default below is
+// same-origin, so every pre-existing case still passes the gate.
+const originHeaders = vi.hoisted(
+  () => new Map<string, string>([["sec-fetch-site", "same-origin"]]),
+);
+vi.mock("next/headers", () => ({
+  headers: async () => ({ get: (k: string) => originHeaders.get(k.toLowerCase()) ?? null }),
+}));
+const logMock = vi.hoisted(() => ({
+  warn: vi.fn(),
+  error: vi.fn(),
+  info: vi.fn(),
+  debug: vi.fn(),
+}));
+vi.mock("@/lib/log", () => ({ log: logMock }));
+
 function form(fields: Record<string, string>): FormData {
   const fd = new FormData();
   for (const [k, v] of Object.entries(fields)) fd.set(k, v);
@@ -78,6 +97,9 @@ beforeEach(() => {
   precheckMock.result = { kind: "ok", title: "Client Show" };
   precheckMock.calls = [];
   logAdminOutcomeMock.mockClear();
+  logMock.warn.mockClear();
+  originHeaders.clear();
+  originHeaders.set("sec-fetch-site", "same-origin");
 });
 
 describe("confirmUnpublishAction", () => {
@@ -206,5 +228,45 @@ describe("confirmUnpublishAction", () => {
     // `unpublishShow(` with a word boundary would not match the wrapper name
     // (which continues with "ViaEmailedLink"), so this pins the bypass out.
     expect(source).not.toMatch(/\bunpublishShow\(/);
+  });
+});
+
+/**
+ * The class-C representative behavioral proof (origin-sweep spec §6B.3).
+ *
+ * Both cases run on the SAME spy. Neutral is the value this action already
+ * returns for a missing field, so the refusal adds no state and no copy — and no
+ * token is consumed, because the pre-check is never reached.
+ */
+describe("confirmUnpublishAction — the same-origin gate (class-C representative)", () => {
+  test("refuses a cross-site request before the binding pre-check, and emits", async () => {
+    // `cross-site` is the truth table's own reject row, not an ad-hoc header set.
+    originHeaders.clear();
+    originHeaders.set("sec-fetch-site", "cross-site");
+
+    await expect(runAction()).resolves.toEqual({ status: "neutral" });
+    expect(precheckMock.calls).toEqual([]);
+    expect(wrapperMock.calls).toEqual([]);
+    expect(logMock.warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        code: "SERVER_ACTION_ORIGIN_REJECTED",
+        action: "confirmUnpublishAction",
+      }),
+    );
+  });
+
+  test("same-origin baseline, same spy: the pre-check is called with the submitted fields", async () => {
+    // Proves the spy RECORDS. "reaches the pre-check" asserted only as a return
+    // value would be satisfied by an action that recorded nothing at all, which
+    // would make the zero-call assertion above unfalsifiable.
+    originHeaders.clear();
+    originHeaders.set("sec-fetch-site", "same-origin");
+
+    await runAction();
+    expect(precheckMock.calls).toEqual([
+      { slug: VALID_FIELDS.slug, token: VALID_FIELDS.token, r: VALID_FIELDS.r },
+    ]);
+    expect(logMock.warn).not.toHaveBeenCalled();
   });
 });

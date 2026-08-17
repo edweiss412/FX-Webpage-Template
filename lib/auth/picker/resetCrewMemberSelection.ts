@@ -4,6 +4,7 @@ import { requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { log } from "@/lib/log";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { assertSameOriginServerAction } from "@/lib/auth/sameOriginServerAction";
 
 // not-subject-to-revalidate (nav-perf tag-caching Task 9): resetting a crew member's picker
 // selection mutates only crew_members.selections_reset_at — a picker/auth column NOT in the
@@ -55,6 +56,10 @@ export async function resetCrewMemberSelection(input: {
 }): Promise<ResetCrewMemberSelectionResult> {
   // requireAdminIdentity (not the bare requireAdmin) so the audit trail can attribute the
   // reset to the acting admin (canonical email, hashed inside logAdminOutcome).
+  await assertSameOriginServerAction(
+    "resetCrewMemberSelection",
+    "admin.picker.resetCrewMemberSelection",
+  );
   const adminCtx = await requireAdminIdentity();
 
   if (!UUID_RE.test(input.showId) || !UUID_RE.test(input.crewMemberId)) {
