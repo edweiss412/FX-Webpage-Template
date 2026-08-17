@@ -24,17 +24,20 @@
 export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // The invariant-10 discovery engine, enrolled 2026-08-17. The first scored run
   // reported 64 survivors on `enumerate.ts` (score 0.6168) and 5 on totality.ts
-  // (0.75); 68 of the 69 were REPAID with cases rather than accepted — the module
-  // had one deciding suite and a large pre-existing surface (`scanBody`,
-  // `isLocallyRebound`, `routeMutatingMethods`) that no test discriminated.
-  // FIVE proven equivalences remain on `enumerate.ts` and NO accepted gap: a
-  // modifier comparison whose two conjuncts cannot disagree, a `continue` whose
-  // skipped branch matches nothing anyway, and three guards the downstream
-  // `isCheckableFunction` test re-applies (per-site arguments on the registry
-  // rows). An `accepted-gap` appearing here would be this surface's first and
+  // (0.75); the module had one deciding suite and a large pre-existing surface
+  // (`scanBody`, `isLocallyRebound`, `routeMutatingMethods`) that no test
+  // discriminated. All but three were REPAID with cases rather than accepted.
+  // THREE proven equivalences remain and NO accepted gap: a modifier comparison
+  // whose two conjuncts cannot both hold, a body requirement no reachable node
+  // can distinguish, and a disjunct the flip makes dead (per-site arguments on
+  // the registry rows). Two further rows were claimed at first and REFUTED in
+  // diff review round 1 — both rested on a downstream re-check that an
+  // unresolvable member value never reaches — and are now killed by fixtures;
+  // an argument resting on double-guarding is the shape to distrust here.
+  // An `accepted-gap` appearing in this row would be the surface's first and
   // owes its own filing; a NEW equivalent row is a coverage regression to explain.
   // totality.ts declares an EMPTY ledger — every mutant of it is killed.
-  mutationSurfaceEnumerate: { equivalent: 5 },
+  mutationSurfaceEnumerate: { equivalent: 3 },
   mutationSurfaceTotality: {},
   // premiseScan, enrolled 2026-08-16. The gate found 8 survivors on the first
   // run; five were REPAID with cases and three more disappeared with the dead

@@ -262,12 +262,21 @@ function exportedValueBindings(sf: ts.SourceFile): ExportedValueBinding[] {
       const mods = ts.getModifiers(st);
       if (mods?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)) {
         const isDefault = !!mods.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword);
-        if (ts.isFunctionDeclaration(st) && st.name)
-          out.push({ exported: st.name.text, local: st.name.text, isDefault });
         if (ts.isVariableStatement(st)) {
           const names: string[] = [];
           for (const d of st.declarationList.declarations) collectBindingNames(d.name, names);
           for (const n of names) out.push({ exported: n, local: n, isDefault });
+        } else {
+          // Every OTHER exported declaration kind contributes its own name, read
+          // GENERICALLY. A kind list here would be an enumeration to keep
+          // current, and the two kinds it first omitted -- `export class` and
+          // `export enum` -- were silently absent from BOTH the unit set and the
+          // refusal set (diff review round 1, finding 1). A declaration whose
+          // name is not an identifier (`declare module "x"`) is not an
+          // addressable export name and is skipped.
+          const named = st as ts.Statement & { name?: ts.Node };
+          if (named.name && ts.isIdentifier(named.name))
+            out.push({ exported: named.name.text, local: named.name.text, isDefault });
         }
       }
     }
@@ -297,12 +306,18 @@ export function exportedValueNames(sf: ts.SourceFile): string[] {
   return exportedValueBindings(sf).map((b) => b.exported);
 }
 
-/** A node whose body is a checkable action scope. */
+/** A node whose body is a checkable action scope.
+ *
+ * The BODY requirement is load-bearing, not belt-and-braces: an overload
+ * signature is a `FunctionDeclaration` with no body, and accepting one produced
+ * a keyed unit whose node had nothing to scan while the real implementation was
+ * never reached (diff review round 1, finding 4). */
 const isCheckableFunction = (n: ts.Node): boolean =>
-  ts.isFunctionDeclaration(n) ||
-  ts.isArrowFunction(n) ||
-  ts.isFunctionExpression(n) ||
-  ts.isMethodDeclaration(n);
+  (ts.isFunctionDeclaration(n) ||
+    ts.isArrowFunction(n) ||
+    ts.isFunctionExpression(n) ||
+    ts.isMethodDeclaration(n)) &&
+  !!(n as ts.FunctionLikeDeclaration).body;
 
 /** Unwrap parens; follow module-scope identifier alias chains (cycle-safe). */
 function reduceModuleExpr(
@@ -332,7 +347,10 @@ function resolveModuleName(
   if (seen.has(name)) return undefined; // alias cycle — terminate, refuse
   seen.add(name);
   for (const st of sf.statements) {
-    if (ts.isFunctionDeclaration(st) && st.name?.text === name) return st;
+    // A bodyless declaration is an overload SIGNATURE; the implementation
+    // carries the same name further down, so keep walking rather than binding
+    // the export to a scope that cannot be scanned.
+    if (ts.isFunctionDeclaration(st) && st.name?.text === name && st.body) return st;
     if (ts.isVariableStatement(st))
       for (const d of st.declarationList.declarations) {
         if (ts.isIdentifier(d.name) && d.name.text === name && d.initializer)
@@ -356,6 +374,17 @@ function resolvePatternMember(
   const reduced = reduceModuleExpr(sf, init, seen);
   if (!reduced) return undefined;
   if (ts.isObjectBindingPattern(pattern) && ts.isObjectLiteralExpression(reduced)) {
+    // A spread or a computed member can REPLACE a syntactically-matching member
+    // at runtime, so the literal no longer determines which body executes.
+    // Refusing by name is the only honest answer; picking the syntactic match
+    // scanned the wrong body silently (diff review round 1, finding 3).
+    if (
+      reduced.properties.some(
+        (p) =>
+          ts.isSpreadAssignment(p) || (p.name !== undefined && ts.isComputedPropertyName(p.name)),
+      )
+    )
+      return undefined;
     for (const el of pattern.elements) {
       if (!ts.isIdentifier(el.name) || el.name.text !== name) continue;
       if (el.initializer || el.dotDotDotToken) return undefined; // defaults/rest refuse
@@ -392,6 +421,10 @@ function resolvePatternMember(
     }
   }
   if (ts.isArrayBindingPattern(pattern) && ts.isArrayLiteralExpression(reduced)) {
+    // A spread ANYWHERE shifts every later runtime index away from its
+    // syntactic position, so the index match below stops meaning what it says.
+    // Same finding, array half.
+    if (reduced.elements.some(ts.isSpreadElement)) return undefined;
     for (let i = 0; i < pattern.elements.length; i++) {
       const el = pattern.elements[i];
       if (!el || ts.isOmittedExpression(el)) continue;

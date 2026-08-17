@@ -2047,47 +2047,41 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "comparison can only matter where `some(=== Export)` and `some(!== Export)` disagree AND " +
           "a default modifier is present. Disagreement needs either no export modifier (then " +
           "`default` stands alone, which does not parse) or a modifier list of exactly `[export]` " +
-          "(then there is no default modifier). Both conjuncts cannot hold, so no input distinguishes " +
-          "them. The sibling flip on the DefaultKeyword line IS distinguishable and is killed by the " +
-          "`export async function` negative.",
+          "(then there is no default modifier). Both conjuncts cannot hold, so no input " +
+          "distinguishes them. The sibling flip on the DefaultKeyword line IS distinguishable and " +
+          "is killed by the `export async function` negative.",
       },
       {
-        siteId: "logical-connector:260:39:||>&&",
+        siteId: "logical-connector:319:32:&&>||",
         kind: "equivalent",
         reason:
-          "The type-alias/interface `continue` is a short-circuit, not a filter. A declaration that " +
-          "reaches the rest of the loop instead of being skipped is matched by neither the " +
-          "FunctionDeclaration arm nor the VariableStatement arm nor the ExportDeclaration branch, " +
-          "so it contributes no binding either way. Removing the skip changes cost, not output.",
+          "`isCheckableFunction`'s body requirement, flipped to `(one of four kinds) || has a " +
+          "body`. To distinguish it a node must reach here with NO kind match but a `body` " +
+          "property, or a kind match with no body. The second is impossible: the only producer of " +
+          "a bodyless candidate was the overload signature, and `resolveModuleName` now refuses " +
+          "those at the source. The first requires a non-function node carrying `.body`, and every " +
+          "node reaching here is either a body-checked `FunctionDeclaration` or the result of " +
+          "`reduceModuleExpr` — an `Expression`, and the only Expression kinds with a `body` are " +
+          "`ArrowFunction` and `FunctionExpression`, both already in the accept list. Accessors and " +
+          "`ModuleDeclaration` do carry `.body` but cannot reach this call: the object-literal " +
+          "branch matches only property assignments, method declarations and shorthands, and a " +
+          "namespace is never returned by the resolver. Probed: `const bag = { get doIt() {...} }` " +
+          "refuses identically under both.",
       },
       {
-        siteId: "logical-connector:380:20:&&>||",
+        siteId: "logical-connector:433:49:||>&&",
         kind: "equivalent",
         reason:
-          "`r && isCheckableFunction(r) ? r : undefined` is guarded a SECOND time downstream: every " +
-          "consumer of a resolved node re-tests it (`collectModuleActions` refuses a non-checkable " +
-          "node; `resolvePatternMember` re-tests its `reduced` against the literal predicates). A " +
-          "non-function leaking past this ternary is filtered before it can become a unit, so the " +
-          "observable unit set and the refusal set are identical. Verified against " +
-          "`const bag = { doIt: 5 }` — refused under both.",
-      },
-      {
-        siteId: "logical-connector:403:16:&&>||",
-        kind: "equivalent",
-        reason:
-          "The array-branch twin of `logical-connector:380:20`, with the same downstream double " +
-          "guard and the same argument.",
-      },
-      {
-        siteId: "logical-connector:401:49:||>&&",
-        kind: "equivalent",
-        reason:
-          "The SECOND disjunct of `!item || isOmitted(item) || isSpread(item)`. Under the flip the " +
-          "guard reads `!item || (isOmitted(item) && isSpread(item))`, and a node cannot be both an " +
-          "omitted expression and a spread element, so the arm is dead — which returns the same " +
-          "`undefined` the downstream `isCheckableFunction` test would produce for either node kind " +
-          "anyway. The `!item` disjunct is untouched and still short-circuits the past-the-end case. " +
-          "The FIRST disjunct IS distinguishable and is killed by the past-the-end fixture.",
+          "The SECOND disjunct of `!item || isOmitted(item) || isSpread(item)`. Under the flip it " +
+          "reads `!item || (isOmitted(item) && isSpread(item))`, and a node cannot be both an " +
+          "omitted expression and a spread element, so that arm is dead. Its two inputs then fall " +
+          "through to `reduceModuleExpr`, which returns the node unchanged, and " +
+          "`isCheckableFunction` rejects it — the same `undefined` the guard would have returned. " +
+          "The `!item` disjunct is untouched and still short-circuits the past-the-end case (killed " +
+          "by its own fixture), and an array literal containing a spread is now refused BEFORE this " +
+          "line is reached. This argument does not rest on a downstream re-check being reachable: " +
+          "the reachable inputs are enumerated above, which is what round 1 refuted about two " +
+          "earlier rows on this surface — both are now killed by fixtures instead.",
       },
     ],
   },

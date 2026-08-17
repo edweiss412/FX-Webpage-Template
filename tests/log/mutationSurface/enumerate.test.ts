@@ -581,13 +581,96 @@ describe("the D1 resolver's closed reductions, pinned reduction by reduction", (
   const shape = (units: ReturnType<typeof collectSurfaceUnits>) =>
     units.map((u) => [u.fn, scanBody(u.node, { descend: false }).writeBuilder] as const);
 
-  test("an exported CLASS resolves to no unit and is refused, not silently dropped", () => {
+  // The D1 domain reads NAMES, so it must be total over exported declaration
+  // KINDS. Round-1 review probed three that an earlier kind list omitted; each
+  // was silently absent from BOTH the unit set and the refusal set.
+  test.each([
+    ["class", "export class Thing {}", "Thing"],
+    ["enum", "export enum Thing { A }", "Thing"],
+    ["namespace", "export namespace Thing { export const a = 1; }", "Thing"],
+  ])("an exported %s is refused by name, not silently dropped", (_kind, decl, name) => {
     const { units, gaps } = resolveFixture(
-      "lib/x/cls.ts",
-      '"use server";\nexport class Thing {}\nexport async function mutate() { await db.from("t").delete(); }\n',
+      "lib/x/kind.ts",
+      `"use server";\n${decl}\nexport async function mutate() { await db.from("t").delete(); }\n`,
+    );
+    expect(shape(units)).toEqual([["mutate", true]]);
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]).toContain(`\`${name}\``);
+  });
+
+  test("an ANONYMOUS default export contributes no name and does not crash the reader", () => {
+    // It has no name to be addressed by, so it cannot be a D1 member. It is not
+    // silently absent either: a `"use server"` module with ANY default export
+    // fails by name in the observability walk's sibling check
+    // (`tests/log/_metaMutationSurfaceObservability.test.ts:190`).
+    const root = makeFixture(
+      "lib/x/anondefault.ts",
+      '"use server";\nexport default async function () { await db.from("t").delete(); }\n',
+    );
+    const units = collectSurfaceUnits([root]);
+    expect(units).toEqual([]);
+    expect(discoveryGaps([root], units)).toEqual([]);
+    expect(moduleDefaultExports(parse(join(root, "lib/x/anondefault.ts")))).toBe(true);
+  });
+
+  test("an OVERLOAD signature does not become the action body", () => {
+    // The signature is a bodyless FunctionDeclaration carrying the same name.
+    // Binding the export to it produced a unit with nothing to scan while the
+    // real implementation was never reached — silently wrong, not refused.
+    const { units, gaps } = resolveFixture(
+      "lib/x/overload.ts",
+      '"use server";\nexport async function mutate(a: string): Promise<void>;\nexport async function mutate(a: unknown) { await db.from("t").delete(); }\n',
     );
     expect(shape(units)).toEqual([["mutate", true]]);
     expect(gaps).toEqual([]);
+  });
+
+  test("an object literal carrying a SPREAD refuses — the spread can replace the member", () => {
+    const { units, gaps } = resolveFixture(
+      "lib/x/objspread.ts",
+      '"use server";\nconst bag = { doIt: async () => { await db.from("t").delete(); }, ...other };\nexport const { doIt } = bag;\n',
+    );
+    expect(units).toEqual([]);
+    expect(gaps).toHaveLength(1);
+  });
+
+  test("an object literal carrying a COMPUTED member refuses — it can override the match", () => {
+    const { units, gaps } = resolveFixture(
+      "lib/x/objcomputed.ts",
+      '"use server";\nconst bag = { doIt: async () => { await db.from("t").delete(); }, [key]: other };\nexport const { doIt } = bag;\n',
+    );
+    expect(units).toEqual([]);
+    expect(gaps).toHaveLength(1);
+  });
+
+  test("an array literal carrying a SPREAD refuses — every later index shifts", () => {
+    const { units, gaps } = resolveFixture(
+      "lib/x/arrspread.ts",
+      '"use server";\nconst arr = [...xs, async () => { await db.from("t").delete(); }];\nexport const [doIt] = arr;\n',
+    );
+    expect(units).toEqual([]);
+    expect(gaps).toHaveLength(1);
+  });
+
+  test("an UNRESOLVABLE object member value refuses rather than crashing", () => {
+    // `fetch` has no module-scope declaration, so the reduction yields nothing.
+    // The guard must short-circuit BEFORE the checkable-function test rather
+    // than lean on a downstream re-check that is never reached.
+    const { units, gaps } = resolveFixture(
+      "lib/x/objunres.ts",
+      '"use server";\nconst bag = { doIt: fetch };\nexport const { doIt } = bag;\n',
+    );
+    expect(units).toEqual([]);
+    expect(gaps).toHaveLength(1);
+  });
+
+  test("an UNRESOLVABLE array member value refuses rather than crashing", () => {
+    const { units, gaps } = resolveFixture(
+      "lib/x/arrunres.ts",
+      '"use server";\nconst arr = [fetch];\nexport const [doIt] = arr;\n',
+    );
+    expect(units).toEqual([]);
+    expect(gaps).toHaveLength(1);
   });
 
   test("a re-export WITH a module specifier is checked where declared, not here", () => {

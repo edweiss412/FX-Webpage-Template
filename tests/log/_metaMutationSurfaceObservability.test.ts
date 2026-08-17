@@ -703,7 +703,16 @@ describe("live discovery — zero unaccounted surfaces", () => {
   // HERE, by name, carrying the rewrite that fixes it.
   test("discovery is TOTAL over the live tree, or this meta-test fails by name (invariant-10 parity)", () => {
     const roots = ["app", "lib", "components"];
-    const gaps = discoveryGaps(roots, collectSurfaceUnits(roots));
+    const units = collectSurfaceUnits(roots);
+    // A premise, executably: `discoveryGaps` over an EMPTY walk returns `[]` and
+    // this assertion would pass forever while inspecting nothing. An ordinary
+    // roots refactor is one edit away from that, so the walk's own non-emptiness
+    // is asserted rather than assumed (diff review round 1, finding 1).
+    expect(
+      units.length,
+      "the live walk found no surfaces at all — the roots moved",
+    ).toBeGreaterThan(50);
+    const gaps = discoveryGaps(roots, units);
     expect(
       gaps,
       ["surface discovery could not key these constructs:", ...gaps].join("\n  "),

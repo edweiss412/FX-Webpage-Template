@@ -170,6 +170,22 @@ describe("discoveryGaps — the fail-closed residue (spec §3.4)", () => {
     );
   });
 
+  test("two export names resolving to ONE body credit the D2 ledger ONCE", () => {
+    // `export { impl as one, impl as two }` yields two module units sharing one
+    // node. Counting UNITS credited that body twice, which covered the unrelated
+    // anonymous action below and made its refusal vanish (round-1 finding 2).
+    const gaps = gapsFor(
+      "lib/x/aliasdup.ts",
+      '"use server";\nconst impl = async () => { "use server"; await db.from("t").delete(); };\n' +
+        "export { impl as one, impl as two };\n" +
+        'export async function host() { register(async () => { "use server"; await db.from("t").delete(); }); }\n',
+    );
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]).toMatch(
+      /lib\/x\/aliasdup\.ts: holds 2 function-scoped "use server" bodies but discovery accounted for 1/,
+    );
+  });
+
   test("vendored and build-output trees are NOT walked (node_modules, .next, .git)", () => {
     // `walkSourceFiles` itself skips none of these, so the filter here is the
     // only thing standing between the reconciliation and every dependency in

@@ -115,8 +115,15 @@ export function discoveryGaps(roots: string[], units: readonly SurfaceUnit[]): s
     }
 
     const directiveBodies = inlineDirectiveBearingCount(sf);
-    const accounted =
-      inlineUnits.length + moduleUnits.filter((u) => bodyHasDirective(u.node)).length;
+    // DISTINCT nodes, not units. Two export names can resolve to ONE body
+    // (`export { impl as one, impl as two }`), and counting units credited that
+    // body twice -- which covered an unrelated anonymous action and made its
+    // refusal vanish (diff review round 1, finding 2). The D2 domain counts
+    // bodies, so its ledger has to as well.
+    const directiveBearingModuleNodes = new Set(
+      moduleUnits.filter((u) => bodyHasDirective(u.node)).map((u) => u.node),
+    );
+    const accounted = inlineUnits.length + directiveBearingModuleNodes.size;
     if (directiveBodies > accounted)
       problems.push(
         `${file}: holds ${directiveBodies} function-scoped "use server" bodies but discovery ` +

@@ -1176,6 +1176,21 @@ describe("the discovery tripwire — fixture self-tests (the round-1 and round-2
     },
   ];
 
+  // The same unconditional-membership pin as `ESCAPES` above, for the same
+  // reason: a `.each` over an emptied table registers zero cases and reports
+  // green. Round-1 review emptied this one and 69 other tests still passed.
+  test("all seven discovered-form pins are still present (spec §3.6 rows 1, 2, 4, 5, 6, 7, 9)", () => {
+    expect(DISCOVERED_FORMS.map((d) => d.rel).sort()).toEqual([
+      "components/x/G.tsx",
+      "components/x/I.tsx",
+      "lib/x/a.ts",
+      "lib/x/b.ts",
+      "lib/x/c.ts",
+      "lib/x/d.ts",
+      "lib/x/e.ts",
+    ]);
+  });
+
   test.each(DISCOVERED_FORMS.map((d) => [d.label, d] as const))(
     "%s is DISCOVERED as a keyed unit, and the tripwire is quiet",
     (_label, d) => {
