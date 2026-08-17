@@ -2643,3 +2643,26 @@ Expected: the fast-forward succeeds, the ancestry check passes, and the block's 
 | AC-13 provenance-module precedence | Task 4, both `node:child_process` namespace cases |
 | AC-14 performance, ratio-bounded | Task 6 Step 1 against Task 0 Step 4 |
 | AC-15 mutation gate, acceptance retired | Task 6 Steps 2-5 |
+
+### Whole-diff round-1 repairs, and where each is pinned
+
+Round 1 returned BLOCKING with 8 findings. Every one was the same defect — **a path where the resolver gives up returned a FREE or EMPTY answer instead of a reported one** — so each repair is a narrowing with a derived cover rather than a new accepted spelling, per the same-axis repair rule. Four further residues were caught by the implementer's own sweep before round 2 was dispatched; they are listed here because they are the same mistake in miniature, a repair applied at one SITE rather than as the rule.
+
+| # | commit | pinned by |
+| --- | --- | --- |
+| 1 | `c33875165` | `whole-diff R1 #1` — E2 named/aliased/default and E6 star, with the E3 control that already passed and a BARE-specifier foil over both branches (L-2) |
+| 2 | `99a170d05` | `whole-diff R1 #2` — a later branch supplying the name and no branch supplying it, two separate returns, plus the reports-nothing foil |
+| 6 | `ad9eb67a6` | `whole-diff R1 #6` — alias, `default`, both namespace and destructured, the `export default ns` node form, and the `export { other as ns }` foil that pins the opposite direction |
+| 4 | `db89b3d48` | `whole-diff R1 #4` — string-literal key, computed key, object rest, nested pattern, array pattern, empty pattern, two controls, bare-specifier foil |
+| 5 | `a91c521cd` | `whole-diff R1 #5` — unused namespace and destructured bindings, a type-position-only reference, two controls, two foils |
+| 7 | `feeb59d60` | `whole-diff R1 #7` — static and dynamic own-body namespace against provenance, with the provenance-module, helper-branch, with-member and traversal-can-follow foils |
+| 3 | `458f2e07e` | `whole-diff R1 #3` — arrow IIFE, function IIFE, named helper, const arrow, two-hop chain, two controls, two foils |
+| 8 | `d3d2436c9` | four premises removed; the surviving eight swept against their own assertions |
+| 3b | `aae3cfc5b` | `whole-diff R1 #3b` — variable initializer, exported initializer, `if`, loop, `try`, plus three binding foils |
+| 8b | `aae3cfc5b` | `_metaPremiseContract`'s own offender list; the four are now `// no-premise:` with reasons |
+| 5b | `c6ae26c89` | `whole-diff R1 #5b` — inside a called helper and inside an IIFE, with the referenced foil |
+| 3c | `a8aea5691` | `whole-diff R1 #3c` — three foils for a nested declaration never called, two cases that still report (nested declaration invoked in the same statement, nested IIFE) |
+
+Two spec sections moved with the code so the shipped rule and its statement do not drift: §2.4b gained the two rows findings 4 and 5 added, and §2.6 gained item 5 for the module-load traversal.
+
+**AC-1 is unmoved by all twelve.** `_metaPremiseContract` is green at every commit above, so the arc's declared verdict movement is still exactly the sixteen tests Task 0 measured. **AC-14 is measured rather than argued:** the contract suite runs at 29.9-34.7s on this head against 33.9s / 34.1s measured twice on the pre-repair scanner (`a28ef9f9c`'s `premiseScan.ts` dropped into this tree), so the traversal that findings 3 and 5 added does not cost §2.7's provenance short-circuit.
