@@ -199,14 +199,14 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "makes this a re-key rather than a new acceptance.",
       },
       {
-        siteId: "relational-boundary:1872:28:<><=",
+        siteId: "relational-boundary:1881:28:<><=",
         kind: "equivalent",
         reason:
           "The premise-placement test asks whether the premise call starts BEFORE the registration " +
           "call. `<` and `<=` differ only when the two nodes start at the identical offset, which " +
           "two distinct sibling statements cannot do — equality there would mean they are the same " +
           "node, and the walk never compares a node against itself. Re-keyed by the mutated " +
-          "EXPRESSION (1752 -> 2061 -> 1864 -> 1872), byte-identical at every key.",
+          "EXPRESSION (1752 -> 2061 -> 1864 -> 1872 -> 1881), byte-identical at every key. Five moves in one day is the measurement behind BL-MUTATION-SITEID-LINE-KEYED-CHURN.",
       },
     ],
   },
