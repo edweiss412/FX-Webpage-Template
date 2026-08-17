@@ -86,6 +86,7 @@ helper at DESCRIBE scope -> ["environment-free"]
 **Live cost already paid.** `tests/ci/phantomGapExecuted.test.ts` declared its spawning `runCli` inside the `describe` body; all three shipped-CLI cases classified environment-free and `EXPECTED_ENV_TOUCHING` recorded a truthful-looking `0`. Hoisting the helper to module scope moved it to `3`. Nothing failed in between — the corpus simply under-reported, silently, which is the failure mode the premise contract exists to prevent.
 
 **Fix:** scope-aware extent resolution in `premiseScan`, with the AC-10b `reportEnvelope`/`res` collision kept as a regression case so the repair cannot trade a false negative for the false positive it replaced. Until then the recognizer's contract is "module-scope helpers only", which no current caller states.
+
 ## BL-MODAL-WAIT-BOUNDARY-HELPER-ADOPTION — adopt the boundary-recovering wait helper across the other modal-waiting e2e specs — CLOSED 2026-08-16 (`test/modal-wait-helper-adoption`, SHIPPED)
 
 **Status:** SHIPPED 2026-08-16 · **Effort (as shipped):** M · **Class:** e2e flake hardening · **Filed:** 2026-08-15 · **Spec:** `docs/superpowers/specs/ci/2026-08-16-modal-wait-boundary-helper-adoption-design.md` · **Plan:** `docs/superpowers/plans/ci/2026-08-16-modal-wait-boundary-helper-adoption.md`
