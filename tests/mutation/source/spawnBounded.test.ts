@@ -329,6 +329,25 @@ describe("WATCHDOG_SCRIPT — the self-signal arms (AC-11)", () => {
   // by SIGNAL, never by a numeric exit, because exit codes 0-255 all belong to
   // the child (AC-2) and a numeric wrapper failure would alias one and be scored
   // as a verdict.
+  //
+  // A text pin is the shape most likely to be tautological, so these were
+  // mutated by hand and RUN before the diff was reviewed. Each mutant was
+  // applied to the module, both suites run, and the module reverted:
+  //
+  //   (a)  WATCHDOG_SCRIPT emptied                mocked RED 2/21  live RED 7/8
+  //   (b)  ` # noop` appended to the exec arm     mocked GREEN     live GREEN
+  //   (b2) ` kill('TERM', $$);` appended there    mocked GREEN     live RED 8/8
+  //   (c)  the kills present but inert, as q{}    mocked RED 1/21  live RED 1/8
+  //   (d)  the `--` separator varied to `-`       mocked RED 1/21  live RED 7/8
+  //
+  // (b) survives, and is EQUIVALENT: a perl comment runs to end of line, so it
+  // changes nothing. Catching it would need exact-text equality on the whole
+  // program, which reds on every legitimate comment edit and guarantees no
+  // behaviour in exchange. (b2) is the same shape made behaviour-changing — a
+  // live statement appended after the arm's closing brace, which kills the
+  // supervisor right after the fork — and it is caught, by the live suite. That
+  // division is the design (spec §8), not a gap: these pins own TEXT PRESENCE
+  // for the arm fork exhaustion cannot reach, and the live suite owns behaviour.
   it("kills itself rather than exiting when the fork fails", () => {
     expect(WATCHDOG_SCRIPT).toContain(
       "my $pid = fork() // do { kill('USR2', $$); kill('KILL', $$) };",
