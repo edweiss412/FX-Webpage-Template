@@ -38,20 +38,31 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // arrives together with a floor edit and its own written argument, rather than
   // slipping under coarse-floor slack.
   spawnBounded: {},
-  // psqlStartupScan: EIGHTEEN equivalence arguments and NO accepted gap from the
-  // 2026-08-16 disposition arc (per-site reasons live on the registry rows). Thirteen of
+  // psqlStartupScan: TWENTY-TWO equivalence arguments and NO accepted gap. FOUR arrived
+  // with the 2026-08-17 lexer-routing repair, and only one of the four is a disposition
+  // rather than new code. That repair's re-measure surfaced six survivors: two were
+  // repaid with tests pinning the octal escape's digit range at both ends, three are new
+  // code whose mutants no consumer can distinguish (an ANSI-C close scan read one past
+  // the end, and the word-split reading's two count guards, each redundant with a
+  // conjunct beside it), and the sixth is `relational-boundary:2411:54` — whose killing
+  // test ran through a consumer the repair DELETED. Its registry row argues equivalence
+  // against the two consumers that remain rather than restoring the accepted gap it used
+  // to be, so the surface still declares no counted survivor.
+  //
+  // The other EIGHTEEN came from the 2026-08-16 disposition arc (per-site reasons live
+  // on the registry rows). Thirteen of
   // the thirty-one first-run survivors were repaid with tests instead. Both counts moved
   // during cross-model review, and in the same direction — each round refuted a written
   // argument with a probe the argument had not been checked against, and each refutation
   // became a test rather than a re-argued row. Equivalents went 19 -> 18
-  // (`regex-quantifier-bound:2684:32` IS distinguishable by a malformed three-indicator
+  // (`regex-quantifier-bound:2905:32` IS distinguishable by a malformed three-indicator
   // block-scalar header), and the surface's only accepted gap went 1 -> 0
   // (`relational-boundary:2167:54` IS distinguishable by a trailing backslash at end of
   // input, which the shell leaves literal). So the surface now declares a ledger with no
   // counted survivor at all: an `accepted-gap` appearing here would be this surface's
   // first, owing its own filing AND a `scoreFloor` edit, and a new equivalent row is a
   // coverage regression to explain.
-  psqlStartupScan: { equivalent: 18 },
+  psqlStartupScan: { equivalent: 22 },
   // The pane-compaction classifier, enrolled with an EMPTY ledger: it is a pure
   // classifier over injected fixtures, so every survivor is repayable by a test
   // rather than blessable. A row appearing here later is a coverage regression
