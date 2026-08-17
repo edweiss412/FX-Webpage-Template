@@ -39,7 +39,7 @@ Out of scope:
 - **`readySelector` stays removed; recovery bound stays 1; `--retries=0` posture untouched** (parent §1.1, §4.1). No finding on helper semantics is in scope — the helper is not an edited surface.
 - **Counts are as-of-authoring and non-normative** (parent §2 precedent). Every `expectedCount` and the registry row set are re-derived at implementation; the tables in this spec render the probe of 2026-08-17. Findings that a count in this document is stale against the live tree are not admissible; the meta-test's drift check is the normative comparison.
 - **The two skeleton-tolerant sites stay excluded** (parent §2.5, limit 3b; `d/skeleton-tolerant-click` at `tests/ci/modalWaitHelper/disposition.ts:403-412`). Their repair is the fenced-out sibling arc (§1, §4.6).
-- **Comment-mention candidates leave the domain by construction, deliberately** (§4.1). The parent's five prose rules existed only because the line unit could not tell trivia from code; a parser can. Findings that the census "lost" comment coverage relitigate the unit change both rows prescribe. The violation guard's comment handling (`stripCommentsForFile` at `tests/ci/modalWaitHelper/scan.ts:232`) is unchanged.
+- **Comment-mention candidates leave the domain deliberately, via strip-before-match** (§4.1). The parent's five prose rules existed only because the line unit had to disposition comment lines; v2 blanks comment bytes before any origin regex runs (shared `stripCommentsForFile`, the single source `tests/cross-cutting/_metaStripCommentsSingleSource.test.ts` pins), and a comment-out of a member site reds the member count. Findings that the census "lost" comment coverage relitigate the unit change both rows prescribe. The violation guard's own comment handling (`stripCommentsForFile` at `tests/ci/modalWaitHelper/scan.ts:232`) is unchanged.
 
 ## 2. Current mechanism and probes (run 2026-08-17; re-derive at implementation)
 
@@ -79,7 +79,7 @@ The collapse in (a)/(c) is comments and multi-match statements leaving the domai
 
 `"click:dashboard-row"` recurs in three FILES and never within one scope, so identity keyed on (file, scope, label source) needs zero corpus renames.
 
-Both ledger probes re-confirmed under the statement unit: the hydration poll whose testid sits on the evaluate ARGUMENT line resolves to one 15-line statement at `published-review-modal.realtime.spec.ts:92` whose text carries NO activation verb today — so replacing a body read with `.click()` flips the statement-level refusal, which is exactly the visibility row 2 asks for. The multiline chained style the corpus uses at `admin-layout-dimensions.spec.ts:297-299` (`await page` / `.getByTestId(…)` / `.evaluate(…)`) attributes the same way; rewriting the single-line activation at `admin-layout-dimensions.spec.ts:260` into that style lands the verb inside one statement rather than off the candidate line.
+The probe matched RAW text and excluded only trivia with no enclosing statement; the shipped strip-before-match contract (§4.1) also excludes comment matches that inherit an enclosing statement's span, so implementation-time counts re-derive at or below these. Both ledger probes re-confirmed under the statement unit: the hydration poll whose testid sits on the evaluate ARGUMENT line resolves to one 15-line statement at `published-review-modal.realtime.spec.ts:92` whose text carries NO activation verb today — so replacing a body read with `.click()` flips the statement-level refusal, which is exactly the visibility row 2 asks for. The multiline chained style the corpus uses at `admin-layout-dimensions.spec.ts:297-299` (`await page` / `.getByTestId(…)` / `.evaluate(…)`) attributes the same way; rewriting the single-line activation at `admin-layout-dimensions.spec.ts:260` into that style lands the verb inside one statement rather than off the candidate line.
 
 ## 3. Approaches considered
 
@@ -93,7 +93,7 @@ Both ledger probes re-confirmed under the statement unit: the hydration poll who
 
 ### 4.1 Candidate contract v2 — the statement unit
 
-`enumerateCandidates` parses each population file with `ts.createSourceFile` and attributes every origin-match position to its **nearest enclosing `ts.Statement`**. Origin predicates run over file TEXT exactly as today (same regexes, same shared `MODAL_ROUTE_PATTERN` per AC-2b-pattern); only the attribution unit changes.
+`enumerateCandidates` parses each population file with `ts.createSourceFile` and attributes every origin-match position to its **nearest enclosing `ts.Statement`**. Origin predicates run over the **comment-STRIPPED file text** — the shared `stripCommentsForFile` (`tests/_shared/stripComments.ts:215`), which blanks every comment to spaces "preserving length, offsets and line numbers" (its own contract), so a match offset in the stripped text addresses the same location in the raw AST. The regexes and the shared `MODAL_ROUTE_PATTERN` (AC-2b-pattern) are unchanged; what changes is the attribution unit and the match domain.
 
 The v2 `Candidate`:
 
@@ -104,11 +104,11 @@ export type Candidate = {
   line: number;
   endLine: number;
   origin: CandidateOrigin;
-  /** Full source text of the owning statement (nested callback bodies included). */
+  /** Statement span sliced from the comment-STRIPPED text (nested callback bodies included). */
   text: string;
   /** 1-based line of the first origin match inside the statement. */
   matchLine: number;
-  /** Raw text of that line; the discrimination handle for title/assertion rules. */
+  /** That line, from the stripped text; the discrimination handle for title/assertion rules. */
   matchLineText: string;
   /** Nearest enclosing test()/describe() title, or null at module scope. */
   scopeTitle: string | null;
@@ -118,7 +118,8 @@ export type Candidate = {
 
 Contract consequences, each deliberate:
 
-- **Comments produce no candidates.** A match position inside comment trivia has no enclosing statement. The five prose rules (`a/prose`, `b/prose`, `c/prose`, `d/prose`, `e/prose`) and the `isComment` field are retired; a commented-out helper call is likewise no longer an origin-(f) candidate, closing by construction what `scan.ts:331-343` closes by stripped-line regex today. The violation guard keeps its own comment handling unchanged.
+- **Comments produce no candidates — because their bytes are blanked BEFORE matching, not by any parser premise.** Spec-review R2 refuted the earlier "trivia has no enclosing statement" premise with a probe: comment-out the live activation at `needs-attention-holds.spec.ts:336` and the comment position sits inside an enclosing statement's span, whose `getText` includes interior comments — the raw-text census silently re-certified the disabled site at all nine current-corpus instances of the class. Strip-before-match is the mechanism that survives it: a comment byte is a space when the regexes run, so no origin can match there, whatever statement spans it. Candidate `text` and `matchLineText` are sliced from the SAME stripped text over the statement's span, so rules and refusal gates see live code only. The five prose rules (`a/prose`, `b/prose`, `c/prose`, `d/prose`, `e/prose`) and the `isComment` field are retired; a commented-out helper call is no longer an origin-(f) candidate, matching what `scan.ts:331-343` achieves by stripped-line regex today. The violation guard keeps its own comment handling unchanged.
+- **A comment-out is loud, not silent.** Commenting out a member open site removes its candidate, and the member rule's pinned count drifts — the census REDS naming the rule (v1 reached the same loudness through prose-rule counts; v2 reaches it through domain exclusion plus the same count pins). An executable premise proof pins this (§4.4).
 - **Nested attribution is automatic.** A match inside a callback BODY attributes to the innermost statement in that body; a match in a statement's direct expression — arguments, chained calls, template literals — attributes to the whole statement. That is what re-unites a split-chained activation (`await page` / `.getByTestId(…)` / `.press("Enter")` is ONE statement) and what puts a `page.evaluate` body's `.click()` into the same candidate text as the testid on the argument line — the two probed members of row 2, closed by the same property.
 - **Dedupe per (statement, origin).** Several matches of one origin in one statement yield one candidate; `matchLine`/`matchLineText` come from the first. Distinct origins on one statement still yield distinct candidates, as today.
 - **Container statements are legal candidates.** A route mention in a `test(…)` TITLE attributes to the whole test-call statement, whose text contains the body. Rules discriminate these via `matchLineText` (§4.3); the safety net is unchanged — a mis-claimed container turns up as `ambiguous` or `undisposed`, both loud.
@@ -172,6 +173,7 @@ New executable premise proofs (fixture-root pattern already in the suite, `tests
 - **A deleted N-wait fails naming its row** (row 1): classification of a fixture corpus derived from a registry of 2 rows with one wait removed reports the missing `(file, scopeTitle, labelSource)` triple.
 - **A cross-scope move fails naming both ends** (row 1, the ledger's probe): the same wait relocated into a different test block reds with the declared scope and the observed scope in the message.
 - **An unlabeled N-wait fails extractability**: `awaitReviewModalOrRecover(page, { timeoutMs: 30_000 })` in a fixture is reported by file:line.
+- **A commented-out member activation is not silently certified** (spec-review R2 pin): a fixture holding a live row activation plus its N-wait passes; the same fixture with the activation line commented out drops the activation candidate and REDS the member-count assertion — and the commented line yields no candidate of ANY origin (the strip-before-match mechanism, asserted directly).
 - **Container discrimination**: a fixture `test("covers /admin?show= deeplinks", …)` whose body holds an adopted helper call classifies the container to the title rule and the call to its member rule, with `ambiguous === []`.
 
 Existing guard premise proofs (`tests/ci/_metaModalWaitHelper.test.ts:82-204`), the shared-route-constant cases (`tests/ci/_metaModalWaitHelper.test.ts:206-234`), and the exemption-inventory pin (`tests/ci/_metaModalWaitHelper.test.ts:247-263`) stay green; edits to them are limited to the v2 candidate field names.
@@ -200,7 +202,7 @@ Nothing in the candidate producer, the statement unit, or the registry ASSERTION
 
 ## 5. Acceptance criteria
 
-- **AC-1 (statement unit):** `enumerateCandidates` produces v2 candidates per §4.1 — statement-attributed, comment-free, container-legal, deduped per (statement, origin) — and the two row-2 premise proofs (§4.4) pass: both probed member shapes classify `undisposed` against the shipped rules, red-first (asserted failing against the v1 line-unit rules before the rewrite lands, in the plan's RED step).
+- **AC-1 (statement unit):** `enumerateCandidates` produces v2 candidates per §4.1 — statement-attributed, matched and texted on the comment-stripped bytes, container-legal, deduped per (statement, origin) — and the row-2 premise proofs (§4.4) pass: both probed member shapes classify `undisposed` against the shipped rules, and the comment-out proof reds the member count, red-first (asserted failing against the v1 line-unit rules before the rewrite lands, in the plan's RED step).
 - **AC-2 (registry):** `N_WAIT_SITES` ships with the §4.2 assertions — extractability, exact (file, scopeTitle, labelSource) match, scope-local uniqueness, derived N count — and the three row-1 premise proofs (delete, cross-scope move, unlabeled) pass red-first. The live corpus passes with 12 rows and zero e2e spec edits (or label-only edits, each named in the PR body).
 - **AC-3 (total disposition preserved):** on the live corpus, `undisposed === []`, `ambiguous === []`, drift `=== []`; every rule carries a count and matches ≥1 candidate; member shapes remain G/U/N with the §4.2 arithmetic asserted, `f/member-shape-N` derived from the registry.
 - **AC-4 (route-pattern single source):** `MODAL_ROUTE_PATTERN` remains the one exported route regex consumed by both the guard and origin (a) (`tests/ci/_metaModalWaitHelper.test.ts:227-233` green with at most candidate-shape edits).
