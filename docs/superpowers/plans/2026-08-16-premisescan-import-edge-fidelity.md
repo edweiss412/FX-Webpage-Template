@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Worktree-only work (AGENTS.md invariant 11); TDD per task (invariant 1); commit per task, conventional-commits (invariant 6). Scope prefix: `fix(mutation)` for scanner changes, `test(infra)` for registry work, `docs(backlog)` for graduation.
-- **BLOCKED ON PR #827 (`fix/scanner-scope-totality`) MERGING.** That PR rewrites the very lookup this arc replaces. Do not edit `tests/mutation/source/premiseScan.ts` before Task 0 confirms #827 is on `origin/main`.
+- **PR #827 (`fix/scanner-scope-totality`) HAS MERGED** — `ad9638fa9`, 2026-08-16 22:07 CDT, and the branch is deleted from `origin`. This plan was authored while it was open, so the block it carried is discharged: this branch was rebased onto `ad9638fa9`, `tests/mutation/source/premiseScan.ts` in the worktree IS the merged scanner (1,273 lines), and **every citation below is to that tree, by line, not to a branch that no longer resolves.** Task 0 confirms the rebase rather than performing a merge.
 - Spec §1.1 is binding and every item ratified: scope-aware extents and the AC-10b `res` collision are settled; module-closure resolution is REJECTED; the recognized-unresolvable list stays CLOSED at four forms, and this arc makes form 3 reachable while form 4 stays unreachable and filed; symbol-level data-flow analysis is declined; `node_modules` is pure (L-2) and undetected ≠ unclassifiable (L-8); the §2.7 precedence asymmetry is a decision.
 - **Verdict-neutrality is the headline constraint.** `tests/mutation/_metaPremiseContract.test.ts` asserts each enrolled suite's `environment-touching` count with an exact `toBe` AND asserts the unclassifiable set is EMPTY. No task may edit a numeric value in `EXPECTED_ENV_TOUCHING`, and no task may leave any enrolled test `unclassifiable`. Spec §3.3 measured zero occurrences of every repaired form in that domain, so this is achievable rather than aspirational — if a task needs to change a number, the repair over-reached and the task stops.
 - **The test-file placeholder is `__MODULE__`, not `MODULE`.** The shipped helper is `testSrc.replace("__MODULE__", \`./mod${id}\`)`, inside the `scope-aware extent resolution` block. A fixture written `from "./MODULE"` is not substituted at all, `resolveSpecifier` misses, and the case is pure for a TEST-LOCAL reason — an invalid RED by construction that can never go green. Round-1 review found every Task 1 fixture broken this way. Note also that `String.prototype.replace` with a string pattern replaces only the FIRST occurrence, which is why the multi-module helper below uses `split`/`join`.
@@ -25,11 +25,18 @@
 - **No bound expressed as a NUMBER.** Termination comes from the finite `(modulePath, exportName)` visited set (spec §2.5), never a depth counter.
 - impeccable-gate: N/A — no UI surface. No file under `app/`, `components/`, `app/globals.css`, `tailwind.config.*` or `DESIGN.md` is touched.
 
-**Meta-test inventory (writing-plans rule):** **EXTENDS** `tests/mutation/source/premiseScan.test.ts` (new fixture groups and three module-scope helpers); **EXTENDS** `tests/mutation/source/registry.ts` (the `premiseScan` row's `accepted` array — re-keyed where the reasoning survives, one row RETIRED); **EXTENDS** `tests/mutation/guardSurfaces.gate.test.ts` (`EXPECTED_LEDGER_KINDS.premiseScan` is `{ equivalent: 3, "accepted-gap": 1 }` asserted with `toEqual`, so retiring a row reds it — this file was missing from the round-1 plan, and its omission is the exact fan-out class this inventory exists to catch); **EXTENDS COMMENTS ONLY** in `tests/mutation/_metaPremiseContract.test.ts`. **CREATES** no new meta-test — `_metaPremiseContract.test.ts` already walks the enrolled suites from the registry and already asserts the unclassifiable set is empty. No Supabase call boundary, no `admin_alerts` row, no tile sentinel, no advisory lock, no §12.4 row, no migration.
+**Meta-test inventory (writing-plans rule):** **EXTENDS** `tests/mutation/source/premiseScan.test.ts` (new fixture groups and three module-scope helpers); **EXTENDS** `tests/mutation/source/registry.ts` (the `premiseScan` row's `accepted` array — re-keyed where the reasoning survives, one row RETIRED); **EXTENDS** `tests/mutation/source/expectedLedgerKinds.ts` (`EXPECTED_LEDGER_KINDS.premiseScan` is `{ equivalent: 3, "accepted-gap": 1 }`, `tests/mutation/source/expectedLedgerKinds.ts:33`, asserted with `toEqual` by `tests/mutation/guardSurfaces.gates.test.ts:21`, so retiring a row reds it — this file was missing from the round-1 plan, and its omission is the exact fan-out class this inventory exists to catch; **PR #834 sharded the gate after this plan was drafted**, splitting the old single gate suite into `tests/mutation/guardSurfaces.gates.test.ts` plus four shard suites (`tests/mutation/guardSurfaces.shard0.test.ts` through shard3) and lifting the expectations into their own module, so the old path resolves to nothing); **EXTENDS COMMENTS ONLY** in `tests/mutation/_metaPremiseContract.test.ts`. **CREATES** no new meta-test — `_metaPremiseContract.test.ts` already walks the enrolled suites from the registry and already asserts the unclassifiable set is empty. No Supabase call boundary, no `admin_alerts` row, no tile sentinel, no advisory lock, no §12.4 row, no migration.
 
 **Mutation-family closure (writing-plans rule):** the operator families are fixed by the ratified registry row — `relational-boundary`, `equality-flip`, `integer-literal` over `tests/mutation/source/premiseScan.ts`, `scoreFloor: 0.95`. A reviewer-proposed NEW family is a registry change carrying its own before/after numbers, not a finding against this plan.
 
-**Probe evidence, authored AND run**, re-verified 2026-08-16 against `origin/fix/scanner-scope-totality` at **`4e40db2b3`** — the branch advanced five commits during spec review and every row below was re-run against the new head UNCHANGED (spec §3.12). Task 0 Step 3 re-runs them once more against the merged tree:
+**Probe evidence, authored AND run**, re-verified 2026-08-16 against the MERGED tree at **`ad9638fa9`** — the base is no longer moving, which retires the re-pin churn three rounds paid for. The pre-merge pins (`ac9a40cd8`, then `4e40db2b3`) are measurement dates in the probe record, not contracts. Every behavioural row below was re-run against the merged scanner and **every row is unchanged**; the two population probes grew with the domain and neither conclusion moved:
+
+| probe | pre-merge (`4e40db2b3`) | merged (`ad9638fa9`) | conclusion |
+| --- | --- | --- | --- |
+| accept-set cover, live domain | 90 modules / 233 edges / **0 misses** | 175 modules / 588 edges / **0 misses** | E1-E6 still covers every live value edge |
+| unmodelled runtime-import shapes, live | **0** | **0** | §2.4b stays verdict-neutral — the whole basis for the rule |
+| unmodelled runtime-import shapes, near | 63 | 65 | the near-domain population the rule serves |
+| `hookSeed` A-E, `exportedDynamic` × 5 | as recorded | identical | every red this plan forecasts is still red |
 
 | task | probe rows | current verdict |
 | --- | --- | --- |
@@ -47,23 +54,27 @@
 
 **Interfaces:** Produces a worktree whose `tests/mutation/source/premiseScan.ts` is the post-#827 version, a confirmation that the probe tables still hold, and the corpus-pass baseline AC-14's ratio is measured against. Every later task assumes all three.
 
-- [ ] **Step 1: Confirm #827 is merged.**
+- [ ] **Step 1: Confirm the merge landed and this branch sits on it.**
+
+#827 merged as `ad9638fa9` on 2026-08-16 at 22:07 CDT and its branch was deleted, so the gate is no longer "has it merged" but "is this branch rebased onto it" — a branch still carrying the pre-merge base would write every task against a scanner that no longer exists.
 
 ```bash
-git fetch origin
-gh pr view 827 --json state,mergedAt --jq '{state, mergedAt}'
+git fetch origin --prune
+git merge-base --is-ancestor ad9638fa9 HEAD && echo "rebased onto the merge" || {
+  echo "NOT rebased — run: git rebase origin/main"; exit 1; }
 ```
 
-Expected: `{"state":"MERGED", …}`. If still `OPEN`, STOP — set the ship marker's `blockedOn` to `awaiting PR #827 merge` and wait. Nothing below is safe to start.
+Expected: `rebased onto the merge`, exit 0. If it fails, rebase before anything else; do NOT `git merge origin/main` into this branch — the arc's review corpus is keyed on `git merge-base`, and a merge commit moves that base without moving the branch onto the tree the citations name.
 
-- [ ] **Step 2: Merge and verify the target is present.**
+- [ ] **Step 2: Verify the target surface is present.**
 
 ```bash
-git merge origin/main --no-edit
 rg -n "function moduleScopeExtent|function unclassifiableWithin|function resolveSpecifier|function extentIsProvenance|const scopeCache" tests/mutation/source/premiseScan.ts
 ```
 
 Expected: all five symbols resolve. If `moduleScopeExtent` is absent, the design's central citation is stale — STOP and re-derive spec §2.1 before writing code.
+
+The four anchors every later task edits, **verified on the merged tree** (they were cited by their pre-merge line numbers in earlier rounds, and those numbers are dead): the default-import registration that records the LOCAL name is `tests/mutation/source/premiseScan.ts:587`; the import-fact value type is `tests/mutation/source/premiseScan.ts:421`; `factsFor` is local to `classifyTests` at `tests/mutation/source/premiseScan.ts:960`, so Task 2 must lift it; the two `reaches` call sites are `tests/mutation/source/premiseScan.ts:1043` (test extent) and `tests/mutation/source/premiseScan.ts:1046` (hook). The cross-module lookup now asks `moduleScopeExtent(tf, imported.imported)` (`tests/mutation/source/premiseScan.ts:1001`) — it asks by the name the binding carries, which is exactly why the defect survives the merge: `tests/mutation/source/premiseScan.ts:587` stores the local alias INTO `imported`, so a renamed default still asks the target for `runIt`.
 
 - [ ] **Step 3: Re-run the BEHAVIOURAL probe harnesses against the merged tree.** Recreate them from the probe record's Method sections under a gitignored `.claude/probe/` directory, importing `classifyTests` from the merged source. **Name what is re-run and what is not** — a round-1 draft ran one script and claimed the probe record's tables entire, which is the "claim wider than its harness" class that cost the spec three rounds.
 
@@ -72,11 +83,12 @@ Expected: all five symbols resolve. If `moduleScopeExtent` is absent, the design
 ```bash
 mkdir -p .claude/probe && git check-ignore -v .claude/probe
 # 1. Point every harness at the MERGED source and the TRACKED registry.
-cp tests/mutation/source/premiseScan.ts .claude/probe/premiseScan827.ts
+printf 'export { classifyTests, ENVIRONMENT_SOURCES, type TestClassification, type Verdict } from "../../tests/mutation/source/premiseScan";\n' \
+  > .claude/probe/premiseScan827.ts   # a RE-EXPORT, not a copy: a copy is a second tree to drift
 perl -pi -e 's{readFileSync\(join\(ROOT, "\.claude/probe/registry827\.ts"\)}{readFileSync(join(ROOT, process.env.REGISTRY_SRC ?? "tests/mutation/source/registry.ts")}g' \
   .claude/probe/runtimeImportShapes.ts
-# 2. Prove the re-point took: the copied snapshot must equal the merged source.
-diff -q .claude/probe/premiseScan827.ts tests/mutation/source/premiseScan.ts \
+# 2. Prove the re-point took: the harness module must RESOLVE to the merged source.
+grep -q 'from "../../tests/mutation/source/premiseScan"' .claude/probe/premiseScan827.ts \
   || { echo "harness is not reading the merged scanner"; exit 1; }
 if grep -q 'registry827' .claude/probe/runtimeImportShapes.ts; then
   echo "runtime harness still hardcodes the snapshot registry"; exit 1
@@ -99,7 +111,7 @@ WIDE=1 REGISTRY_SRC=tests/mutation/source/registry.ts npx tsx .claude/probe/acce
 
 **Point every harness at the LIVE registry, not the gitignored snapshot.** The runtime-shape harness and the accept-set cover harness both read `REGISTRY_SRC`, which defaults to a registry SNAPSHOT taken under the gitignored probe directory at draft time; that snapshot held 31 `suitePaths` while the branch had already moved to 33. Re-anchoring against a stale snapshot is the moving-base defect this step exists to catch, wearing the step's own clothes — so each command above passes the tracked registry explicitly.
 
-Expected: spec §3.1, §3.2, §3.11, §3.12 and §3.13 unchanged, and §3.3b's live figure still zero misses. **NOT re-run here, and not claimed:** probe 3 (the §3.3/§3.4 population walk) whose source the probe record deliberately describes rather than reproduces, and the §3.6-§3.9 one-off narrowing probes. Those fed draft-time design decisions that AC-1 re-derives executably; if a §3.1/§3.2/§3.11/§3.13 row has moved, **the design is re-derived before implementation, not after.**
+Expected, **as re-measured against the merged tree on 2026-08-16 and quoted as a measurement date rather than a contract**: `hookSeed` A-E and the five `exportedDynamic` rows identical to the probe record; `runtimeImportShapes` **live = 0** unmodelled shapes (near = 65, up from 63 with the domain); `acceptSetCover` live = 175 modules / 588 value edges / **0 misses / 0 `noSuchExport`**. The live zero is the only one of these that is load-bearing — §2.4b's rule is verdict-neutral exactly because nothing live falls under it, so a NON-zero live figure stops the arc rather than adjusting a number. Spec §3.1, §3.2, §3.11, §3.12 and §3.13 unchanged, and §3.3b's live figure still zero misses. **NOT re-run here, and not claimed:** probe 3 (the §3.3/§3.4 population walk) whose source the probe record deliberately describes rather than reproduces, and the §3.6-§3.9 one-off narrowing probes. Those fed draft-time design decisions that AC-1 re-derives executably; if a §3.1/§3.2/§3.11/§3.13 row has moved, **the design is re-derived before implementation, not after.**
 
 - [ ] **Step 4: Record the AC-14 baseline — the CORPUS PASS, not the suite duration.** The two deciding suites take about 20.7 s of vitest wall clock, roughly 19 s of which is four spawned `childRun` fixtures; the scan itself is ~1.5 s, and the regression AC-14 guards against is a 3.7× move at that grain.
 
@@ -144,7 +156,22 @@ grep -Eq '^[0-9]+(\.[0-9]+)?$' "$PROBE_DIR/corpus-pass-baseline.txt" \
   || { echo "baseline is not a bare positive number"; exit 1; }
 ```
 
-The file is a gitignored scratch file in the worktree's probe directory — Task 6 Step 1 reads that file and fails on a ratio, so the baseline must be a recorded value rather than a remembered one. The pre-merge measurement on 2026-08-16 was `suites=29 tests=1314 corpus-pass=1.49s`; post-#827 the suite count is 33 unique `suitePaths` across 40 registry rows (re-parsed from the tracked registry at round 3; a round-1 draft said 31, which was the count when this plan was first drafted and the branch has moved since), so re-measure rather than reusing that number. Expected: the meta-contract PASSES with every declared count holding — 33 rows post-#827, the two added being `tests/mutation/source/premiseScan.test.ts` (declared `0`) and `tests/mutation/_metaPremiseContract.test.ts` (declared `1`).
+The file is a gitignored scratch file in the worktree's probe directory — Task 6 Step 1 reads that file and fails on a ratio, so the baseline must be a recorded value rather than a remembered one. The pre-merge measurement on 2026-08-16 was `suites=29 tests=1314 corpus-pass=1.49s`, so re-measure rather than reusing that number.
+
+**The enrolled-suite count is DERIVED, never quoted.** Three rounds spent correcting it — 31, then 33, then 34 in review, and **39 unique `suitePaths` across 46 registry entries** at the rebase onto `ad9638fa9` — because `main` enrols surfaces from other arcs continuously and any number written into this plan is stale by the time it is read. The command below is the authority; the figure in this sentence is a measurement date.
+
+```bash
+PROBE_DIR="$(git rev-parse --show-toplevel)/.claude/probe"; mkdir -p "$PROBE_DIR"
+npx tsx -e '
+import { GUARD_SURFACES } from "./tests/mutation/source/registry";
+const all = GUARD_SURFACES.flatMap((s) => s.suitePaths);
+console.log(`entries=${all.length} unique=${new Set(all).size} surfaces=${GUARD_SURFACES.length}`);
+' | tee "$PROBE_DIR/enrolled-baseline.txt"
+```
+
+- [ ] **Step 4b: Record that baseline, and read every later "counts unchanged" against IT.** Every task below expects the `_metaPremiseContract` declared counts to hold; "hold" means equal to what `"$PROBE_DIR/enrolled-baseline.txt"` recorded at this step, not equal to a number typed into this document. A count that moves because `main` enrolled another surface is not this arc's regression; a count that moves for the same suite between two of this arc's tasks is.
+
+Expected: the meta-contract PASSES with every declared count holding, the two rows #827 added being `tests/mutation/source/premiseScan.test.ts` (declared `0`) and `tests/mutation/_metaPremiseContract.test.ts` (declared `1`).
 
 - [ ] **Step 6: Confirm the two backlog rows are present** — they are already filed on this branch, in the spec+plan segment, because the tracked spec and plan cite both IDs and `_metaLedgerReferentialIntegrity.test.ts` reds the moment a citation has no definition. That gate is red on a docs-only branch, not merely at Task 6, which is why the rows could not wait for the implementation segment.
 
@@ -175,9 +202,34 @@ Three consecutive review rounds found defects in the fenced `ts` blocks below th
 npx tsx .claude/probe/planTypecheck.ts docs/superpowers/plans/2026-08-16-premisescan-import-edge-fidelity.md
 ```
 
-Expected: `reported=0 shapes=0`, exit 0. The script splices every test-shaped `ts` block into one virtual file ahead of the module surface those blocks assume and reports the diagnostic classes that matter here (`TS2393` duplicate implementation, `TS2304` undefined name, `TS2554` wrong arity, `TS2339`/`TS2551` bad property, `TS2367` impossible comparison, `TS2345` bad argument).
+Expected: `reported=0 shapes=0 badFixtures=0`, exit 0. The script splices every test-shaped `ts` block into one virtual file ahead of the module surface those blocks assume and reports the diagnostic classes that matter here (`TS2393` duplicate implementation, `TS2304` undefined name, `TS2554` wrong arity, `TS2339`/`TS2551` bad property, `TS2367` impossible comparison, `TS2345` bad argument).
+
+**It also compiles every FIXTURE MODULE standalone.** A fixture is a module written as a string, and a string is not checked by the splice that surrounds it: `` `${SPAWNER}\nexport default spawnHelper;` `` over a `SPAWNER` that already carries a default export is a module with TWO default exports, and `` `${SPAWNER}\nexport = spawnHelper;` `` is an export assignment in a module that also has ES exports. The scanner's parser is error-tolerant, so both still classify — the case passes while proving nothing about any module an ordinary refactor produces, which puts the proof outside the spec's probe domain. Round 8 found the first; the arm found the second in the same sweep, over 63 fixtures. Only CONFLICT codes are reported (`TS2528`, `TS2309`, `TS2300`, `TS2323`, `TS2393`), because a fixture legitimately cannot resolve `node:child_process` or a `__MODULE_*` placeholder.
 
 **It also carries shape checks the compiler cannot make.** `expect(classificationWithModules(…)).toBe("environment-touching")` compares an OBJECT to a STRING; `toBe` accepts anything, so it typechecks cleanly and fails at runtime on every such case. Six survived a pass that reported zero diagnostics, which is why `shapes` is a separate counter and why "the typecheck was green" is not by itself evidence a block is sound. **Re-run it after ANY edit to a test block in this plan** — that is the gate the three rounds above were paying for, and copying a block into `premiseScan.test.ts` before it typechecks here just moves the failure.
+
+- [ ] **Step 5c: Diff every case count this plan states against the blocks it states them about.**
+
+Round 8 found three RED forecasts whose counts the authored blocks do not contain — "the five reporting cases" over a block holding FIFTEEN reporting executions, "both TOP-LEVEL cases" over NINE. Each is a prose number describing an artifact three screens away, and each was written by hand. The census below is computed from the blocks and diffed against the declaration, so a count that drifts fails here instead of in a review round.
+
+```bash
+npx tsx .claude/probe/planCensus.ts docs/superpowers/plans/2026-08-16-premisescan-import-edge-fidelity.md
+```
+
+Expected: `mismatched=0`, exit 0. The script counts EXECUTIONS, not `it(` sites — an `it.each` row is an execution, which is precisely the distinction all three round-8 miscounts got wrong — and classifies each by what it expects: `reported` covers both `expectReported(...)` and a bare `.toBe("unclassifiable")`; `other` is a case asserting something else (there is exactly one, `a reason is reported once, not twice`, which asserts a `toHaveLength`).
+
+<!-- plan-census: computed by .claude/probe/planCensus.ts; DO NOT hand-edit -->
+
+```text
+declined export forms: recognized, unresolvable, and REPORTED | touching=1 free=1 reported=4 other=0
+declined export forms: unmodelled runtime references REPORT (AC-5c) | touching=0 free=1 reported=11 other=0
+export resolution: the lookup asks for an EXPORT, not a local name | touching=18 free=3 reported=2 other=0
+forwarded exports: a re-export is followed to its source | touching=13 free=5 reported=1 other=0
+namespace bindings: member-precise, and nothing else | touching=8 free=3 reported=4 other=0
+unclassifiable propagation: a construct anywhere reachable reaches the verdict | touching=10 free=2 reported=13 other=1
+```
+
+**Every case count stated anywhere in this plan comes from that table.** A count written from memory is the defect this step exists to stop, and it is the fifth instance in this arc of the same shape — a claim wider, or narrower, than the artifact it describes.
 
 - [ ] **Step 5: Note the corpus base-sha split.** The merge moves `git merge-base origin/main HEAD`, so rows already written under `docs/review-rounds/fix/premisescan-import-edges/` for the pre-merge base sit beside a second file keyed on the post-merge one. That is intended — round counts are per merge-base — but Task 7 must read BOTH.
 
@@ -743,7 +795,9 @@ describe("export resolution: the lookup asks for an EXPORT, not a local name", (
 npx vitest run tests/mutation/source/premiseScan.test.ts -t "export resolution"
 ```
 
-Expected: a non-zero FAILING count (never `skipped`). Red: `a renamed default import resolves`, `a default export that is an EXPRESSION resolves`, `export { x as y }` (the lookup asks the target for `runIt`), `a renamed default CLASS resolves`, and `an unrecognized module shape is REPORTED` — that last one fails by THROWING `EISDIR`, not by returning a wrong verdict. Also red: `a data import is PURE` — a `.json` target is parsed as TypeScript today, so the fixture measures `environment-touching` until the extension guard lands. Also red: `an .mdx target is REPORTED` — an `.mdx` target is likewise parsed as TypeScript today and measures `environment-touching`, so it reds against the expected `unclassifiable` until answer 3 lands; it is the twin of the `.json` case and the two differ in exactly the extension, which is what makes each discriminating. Already green, as foils: `a same-named default import` (name coincidence), `a pure default export stays free` — which passes by lookup MISS, not by purity, so record that rather than letting it read as evidence — `export { x }` local, the exported `const`, and the `.mjs` case. Record which cases were red.
+Expected: a non-zero FAILING count (never `skipped`). **The membership RULE decides, and the list below is its worked examples, not its definition** — a case added later lands inside the rule instead of needing a sixth name here, which is the whole reason round 8 found this list short by two. Before Step 4, `tests/mutation/source/premiseScan.ts:587` stores the LOCAL binding name into the import fact's `imported` field, and `tests/mutation/source/premiseScan.ts:1001` asks the target for exactly that name; so **a case is RED iff the name its target EXPORTS differs from the name the importing side binds** (every rename, every default, every `export default <expr>`), **or its target's extension is one the guard must claim** (`.json`, `.mdx`), **or its target is not a module at all** (the directory case, which fails by THROWING `EISDIR` rather than by returning a wrong verdict). It is GREEN iff the two names coincide — which is why the coincidence foil is a foil. Census for this block: **23 executions — touching=18, free=3, reported=2** (Task 0 Step 5c).
+
+Red by that rule, named because each carries a distinct rationale: `a renamed default import resolves`, `a default export that is an EXPRESSION resolves` **and its renamed form**, `export { x as y }` (the lookup asks the target for `runIt`), `E4: a NAMED default class declaration resolves` (the class's own name is module-local under ES, so the export is `default` and the import binds something else), **`E4: an ANONYMOUS default function declaration resolves` — omitted by every draft through round 7, and the sharpest of the set, because the declaration binds no local name at all, so there is nothing for today's lookup to coincide with — and the E3 case "export default &lt;expr&gt; resolves under a renamed default"**, and `an unrecognized module shape is REPORTED`. Also red: `a data import is PURE` — a `.json` target is parsed as TypeScript today, so the fixture measures `environment-touching` until the extension guard lands. Also red: `an .mdx target is REPORTED` — an `.mdx` target is likewise parsed as TypeScript today and measures `environment-touching`, so it reds against the expected `unclassifiable` until answer 3 lands; it is the twin of the `.json` case and the two differ in exactly the extension, which is what makes each discriminating. Already green, as foils: `a same-named default import` (name coincidence), `a pure default export stays free` — which passes by lookup MISS, not by purity, so record that rather than letting it read as evidence — `export { x }` local, the exported `const`, and the `.mjs` case. Record which cases were red.
 
 - [ ] **Step 4: Implement — and ONLY what this task's own tests require.** TDD invariant 1 is per task: a production behaviour whose failing test lives in a later task does not get written here. A round-1 draft implemented five such behaviours in this step (the E2 forward stub, static and dynamic namespace marking, `export { ns }` rejection, unresolved-in-repo-specifier reporting, and hook reason merging) and every one of them had its test in Task 2, 3, 4 or 5. Each has moved to the task that tests it; the note at the end of this step records where.
 
@@ -774,7 +828,7 @@ npx vitest run tests/mutation/source/premiseScan.test.ts
 npx vitest run tests/mutation/_metaPremiseContract.test.ts
 ```
 
-Expected: all PASS, all 33 declared counts unchanged, unclassifiable set empty. The sharpest live risk is in that last run: `tests/ci/phantomGapExecuted.test.ts` imports named bindings from `scripts/lib/phantomGapExecuted.mjs` (written with the @-alias), the only non-`.ts` in-repo edge inside the enrolled domain, and that module exports exclusively in form E1 (`scripts/lib/phantomGapExecuted.mjs:59-179`). Its declared `3` must hold; if it moves, the extension guard or E1 is wrong.
+Expected: all PASS, EVERY declared count unchanged against the baseline Task 0 Step 4b recorded, unclassifiable set empty. The sharpest live risk is in that last run: `tests/ci/phantomGapExecuted.test.ts` imports named bindings from `scripts/lib/phantomGapExecuted.mjs` (written with the @-alias), the only non-`.ts` in-repo edge inside the enrolled domain, and that module exports exclusively in form E1 (`scripts/lib/phantomGapExecuted.mjs:59-179`). Its declared `3` must hold; if it moves, the extension guard or E1 is wrong.
 
 - [ ] **Step 6: Commit.**
 
@@ -976,7 +1030,11 @@ describe("forwarded exports: a re-export is followed to its source", () => {
     expect(
       verdictWithModules(
         {
-          helper: `${SPAWNER}\nexport default spawnHelper;`,
+          // `SPAWNER` already carries `export default spawnHelper`, so appending a
+          // second one makes a module with two default exports, which the
+          // error-tolerant parser still classifies while proving nothing about
+          // any module a refactor produces (round-8 finding 1).
+          helper: SPAWNER,
           barrel: `import runIt from "__MODULE_helper__";
                    export { runIt };`,
         },
@@ -1099,7 +1157,7 @@ npx vitest run tests/mutation/source/premiseScan.test.ts
 npx vitest run tests/mutation/_metaPremiseContract.test.ts
 ```
 
-Expected: all PASS, 33 counts unchanged, unclassifiable set empty.
+Expected: all PASS, every recorded count unchanged, unclassifiable set empty.
 
 - [ ] **Step 5: Commit.**
 
@@ -1259,7 +1317,15 @@ describe("declined export forms: recognized, unresolvable, and REPORTED", () => 
   it("`export =` reports", () => {
     expectReported(
       classificationWithModules(
-        { helper: `${SPAWNER}\nexport = spawnHelper;` },
+        // An export assignment cannot sit in a module that also has ES exports
+        // (`TS2309`), so this fixture keeps the spawning function LOCAL and
+        // exports it only through `export =`, which is the shape a CommonJS-authored
+        // in-repo module actually has (round-8 finding 1, swept).
+        {
+          helper: `import { spawnSync } from "node:child_process";
+            function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }
+            export = spawnHelper;`,
+        },
         `import runIt from "__MODULE_helper__";
          it("x", () => { runIt(); });`,
       ),
@@ -1320,7 +1386,7 @@ describe("declined export forms: recognized, unresolvable, and REPORTED", () => 
 npx vitest run tests/mutation/source/premiseScan.test.ts -t "declined export forms"
 ```
 
-Expected: a non-zero FAILING count. The five reporting cases classify `environment-free` — each resolves to `noSuchExport`, which Task 1 makes pure — The `export { ns }` case is NOT in this task; it moved to Task 4 with the namespace flag it depends on. Both foils are already green.
+Expected: a non-zero FAILING count. **This task authors TWO describe blocks and the `-t` filter runs both**, so the red set is FIFTEEN reporting executions, not five: **eleven** in `unmodelled runtime references REPORT (AC-5c)` — one `it.each` row per §2.4b table row, and a row is an execution — and **four** in `declined export forms: recognized, unresolvable, and REPORTED` (census, Task 0 Step 5c: `reported=11` and `reported=4`). A draft through round 7 said "five", counting `it(` sites in one block and missing the other entirely, which is precisely the miscount the census gate now catches. Every one of the fifteen classifies `environment-free` today — each resolves to `noSuchExport`, which Task 1 makes pure. The `export { ns }` case is NOT in this task; it moved to Task 4 with the namespace flag it depends on. The two foils (`touching=1 free=1` across the two blocks) are already green.
 
 - [ ] **Step 3: Implement.** In `moduleFacts`, record the declined forms explicitly so they resolve to `unresolvable` with their own reasons rather than falling through to `noSuchExport`: an `ExportDeclaration` whose clause is a `NamespaceExport` (`export * as ns from`); an `ExportAssignment` with `isExportEquals === true` (`export =`); and a `ModuleDeclaration` carrying an `export` modifier (`export namespace` / `export module`). E1's predicate is already the four registered declaration kinds — Task 1 Step 4.2 writes it that way — so nothing is narrowed here; that is why `export namespace` reaches this task's rule at all rather than resolving to an empty extent.
 
@@ -1336,7 +1402,7 @@ npx vitest run tests/mutation/source/premiseScan.test.ts
 npx vitest run tests/mutation/_metaPremiseContract.test.ts
 ```
 
-Expected: all PASS, 33 counts unchanged, unclassifiable set empty.
+Expected: all PASS, every recorded count unchanged, unclassifiable set empty.
 
 - [ ] **Step 5: Commit.**
 
@@ -1540,7 +1606,7 @@ npx vitest run tests/mutation/source/premiseScan.test.ts
 npx vitest run tests/mutation/_metaPremiseContract.test.ts
 ```
 
-Expected: all PASS, 33 counts unchanged, unclassifiable set empty. This is the task most likely to move a count — spec §3.3 measured zero in-repo namespace imports in the enrolled closure, so if one moves, re-derive rather than re-baseline.
+Expected: all PASS, every recorded count unchanged, unclassifiable set empty. This is the task most likely to move a count — spec §3.3 measured zero in-repo namespace imports in the enrolled closure, so if one moves, re-derive rather than re-baseline.
 
 - [ ] **Step 5: Commit.**
 
@@ -1857,7 +1923,7 @@ describe("unclassifiable propagation: a construct anywhere reachable reaches the
 npx vitest run tests/mutation/source/premiseScan.test.ts -t "unclassifiable propagation"
 ```
 
-Expected: a non-zero FAILING count. Red: the four helper-position cases, the three nested hook and producer cases, the cross-module case, and **both TOP-LEVEL cases** — the provenance one especially, which is `environment-free` today and is the arc's only provenance silent free. Already green, as foils: the C6 nested provenance hook, the top-level PURE hook, the no-construct helper, and both AC-12 helper/own-extent branches. `a reason is reported once` is also green at authoring time — a regression pin for the double-report the merge could introduce, not a red.
+Expected: a non-zero FAILING count. Red: the four helper-position cases, the three nested hook and producer cases, the cross-module case, and **NINE TOP-LEVEL executions** — one standalone AC-12 provenance case, the FOUR AC-11 construct rows (`it.each` over `beforeEach` / `beforeAll` / `afterEach` / `afterAll`), and the FOUR AC-12 provenance rows over the same four registrars. A draft through round 7 said "both", counting the two `it.each` SITES as two cases when each expands to four executions; the census gate (Task 0 Step 5c) is what makes that arithmetic checkable. The provenance ones matter most: they are `environment-free` today and are the arc's only provenance silent free. Already green, as foils: the C6 nested provenance hook, the top-level PURE hook, the no-construct helper, and both AC-12 helper/own-extent branches. `a reason is reported once` is also green at authoring time — a regression pin for the double-report the merge could introduce, not a red.
 
 - [ ] **Step 3: Implement.** Two changes:
 
@@ -1874,7 +1940,7 @@ npx vitest run tests/mutation/source/premiseScan.test.ts
 npx vitest run tests/mutation/_metaPremiseContract.test.ts
 ```
 
-Expected: all PASS, 33 counts unchanged, unclassifiable set empty.
+Expected: all PASS, every recorded count unchanged, unclassifiable set empty.
 
 - [ ] **Step 5: Commit.**
 
@@ -1892,7 +1958,7 @@ git commit -m "fix(mutation): propagate unresolvable constructs from helpers, ho
 **Files:**
 
 - Modify: `tests/mutation/source/registry.ts` (the `premiseScan` row's `accepted` array and comments)
-- Modify: `tests/mutation/guardSurfaces.gate.test.ts` (`EXPECTED_LEDGER_KINDS.premiseScan`)
+- Modify: `tests/mutation/source/expectedLedgerKinds.ts` (`EXPECTED_LEDGER_KINDS.premiseScan`) — PR #834 moved this declaration out of the gate suite and sharded the suite itself
 - Modify: `tests/mutation/_metaPremiseContract.test.ts` (comment only — no numeric change)
 
 **Interfaces:** Consumes `enumerateSites` / `siteId` (`tests/mutation/source/operators.ts`). Produces the score and unaccepted-survivor set the round-1 diff brief must state.
@@ -1902,6 +1968,12 @@ git commit -m "fix(mutation): propagate unresolvable constructs from helpers, ho
 ```bash
 pnpm heavy pnpm mutation:guards
 ```
+
+**Three facts about this harness, measured by the #827 arc on the merged tree — none is derivable by reading the plan, and each costs an hour to rediscover.**
+
+1. **`-t` CANNOT scope this gate.** `guardSurfaces.*.test.ts` calls `runSurface(root, surface)` in the DESCRIBE BODY, which vitest executes at COLLECTION time for every registry row before `--testNamePattern` filters anything. `-t` decides which `it`s REPORT, never which surfaces get MUTATED, so every run pays for all enrolled surfaces. To iterate on `premiseScan` alone, call what the gate calls — `runSurface` and `evaluateGate` are both exported, and a ~40-line driver ran two surfaces in ~7 and ~6 minutes. **PR #834 has since sharded the gate** into `tests/mutation/guardSurfaces.gates.test.ts` plus four shard suites, so re-check the collection-time shape before reusing the trick.
+2. **Sampling `mutantOverlay` processes globally is meaningless** — most belong to other worktrees on this machine. Filter by `MUTATION_ROOT`.
+3. **The baseline on the shipped tree is `premiseScan` 100/104 with FOUR ledgered survivors, ZERO unaccepted and ZERO stale** (`tests/mutation/source/registry.ts`, four `accepted` rows: three `equivalent`, one `accepted-gap`; `tests/mutation/source/expectedLedgerKinds.ts:33`). That is the number this task must not regress, and it is why Step 0's red is a STALE-LEDGER failure rather than a score failure.
 
 Expected: **FAIL**, with `stale-ledger-row` for `premiseScan`. Tasks 1-5 moved every line below their first hunk and the accepted `siteId`s are LINE-keyed, so the ledger holds stale rows on entry to this task. A round-1 draft ran this command only at Step 5, AFTER re-deriving and retiring — so the named `red=` was never observed red before being made green, which is the same-command red/green contract this plan is written under. Record the failing condition and the rows it names.
 
@@ -1962,9 +2034,11 @@ for (const s of enumerateSites(SOURCE, src, ["relational-boundary", "equality-fl
 
 Match each surviving row to its new `siteId` by the mutated EXPRESSION, never by line.
 
+**Run `pnpm format:check` clean BEFORE deriving a single id.** A `siteId` is line-keyed, so editing the enrolled source shifts every later id — and **so does prettier**. Deriving ids from a tree prettier has not yet touched produces rows that go stale the moment the formatter runs at Step 7, which is how the #827 arc re-derived the same four rows twice.
+
 - [ ] **Step 3: RETIRE the falsified acceptance.** The `integer-literal` row accepted `equivalent` on the grounds that "`unresolved` is provably always empty… populated only where `factsFor` returns null" has its premise destroyed by Tasks 1 and 5: `reasons` is now populated from two ordinary constructs plus every declined export form, so the `> 0` → `> 1` mutant becomes a live silent-free at exactly one reason. **Delete the row** — re-keying it moves a line and never re-tests its argument — and let the gate demand a kill. If the mutant survives, the case that kills it is a fixture with exactly one propagated reason, which Task 5's cross-module case already is.
 
-- [ ] **Step 4: Update `EXPECTED_LEDGER_KINDS`.** `tests/mutation/guardSurfaces.gate.test.ts` declares `premiseScan: { equivalent: 3, "accepted-gap": 1 }` and asserts it with `toEqual`, so retiring the row reds it until the declaration matches the ledger.
+- [ ] **Step 4: Update `EXPECTED_LEDGER_KINDS`.** `tests/mutation/source/expectedLedgerKinds.ts:33` declares `premiseScan: { equivalent: 3, "accepted-gap": 1 }` and asserts it with `toEqual`, so retiring the row reds it until the declaration matches the ledger.
 
 - [ ] **Step 5: Run the gate** — a full harness run, under the heavy semaphore. This is the task's `red=` command.
 
@@ -1999,7 +2073,7 @@ pnpm typecheck && pnpm exec eslint . && pnpm format:check
 - [ ] **Step 8: Commit.**
 
 ```bash
-git add tests/mutation/source/registry.ts tests/mutation/guardSurfaces.gate.test.ts tests/mutation/_metaPremiseContract.test.ts
+git add tests/mutation/source/registry.ts tests/mutation/source/expectedLedgerKinds.ts tests/mutation/_metaPremiseContract.test.ts
 git commit -m "test(infra): re-derive the premiseScan ledger and retire the acceptance this arc falsifies"
 ```
 
@@ -2051,6 +2125,13 @@ The resolution, and it has to account for the review's own footprint:
 3. Any repair commits from the review land next.
 4. **The only post-review commit is the review-corpus rows for that review**, and there is no marker in it. The corpus rows cannot be in the reviewed tree by construction — the wrapper writes them at dispatch time, so the row describing a review always postdates the tree that review examined. That is true of every arc in this repo, not a property of this plan, and AGENTS.md's corpus contract already says the rows are committed with the arc. They are mechanically generated dispatch records, not substantive change. Nothing else may enter this commit.
 5. Re-read `docs/review-rounds/` before that commit: the diff-stage rows do not exist when Steps 2-4 first run, and a stage may cross `ROUND_THRESHOLD` on the strength of them, which would owe a filing that must itself be in the final commit.
+
+- [ ] **Step 6: Open the PR and let the merge queue take it — four facts measured on this repo's CI, 2026-08-16.**
+
+1. **Use `gh pr merge --merge --auto`, not a poll-then-merge loop.** A CI cycle here runs about 50 minutes and `main` lands other arcs faster than that, so a run that waits for green and then merges keeps losing the race to a newer `main`. `--auto` hands the merge to GitHub, which performs it the moment the required contexts pass.
+2. **Assert the required-context COUNT is 12, not merely that nothing is pending.** A rollup with zero pending contexts and only nine required ones present is a rollup that has not finished registering, and reading it as green merges on a partial gate.
+3. **`source-shards (0)` (`rowScanOpener`) and `source-shards (3)` (`shardBudget`) are RED on `main`** — inherited, not required, and not this arc's to fix. Do not debug them and do not re-push to clear them.
+4. **Prefer GraphQL when the REST budget is thin.** `gh pr view <n> --json statusCheckRollup,mergeStateStatus` is GraphQL and keeps working; `gh run list` / `gh run view` are REST and return HTTP 403 once the hourly core budget is spent. An empty or errored CI reading under a spent budget is a RATE LIMIT, never a red check.
 
 ```bash
 git add BACKLOG.md BACKLOG-archive.md docs/review-rounds/

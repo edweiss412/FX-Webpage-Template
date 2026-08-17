@@ -1,13 +1,13 @@
 # Probe — which import and export forms does `premiseScan` actually follow, and where do they occur?
 
 **Run:** 2026-08-16 · **Feeds:** `docs/superpowers/specs/ci/2026-08-16-premisescan-import-edge-fidelity-design.md` §3
-**Target tree:** `origin/fix/scanner-scope-totality` at **`4e40db2b3`** (PR #827, 1,000 lines) — the scanner as that PR currently stands, not the copy on `main`. **Re-pinned in round 3:** the branch advanced five commits during review (`ac9a40cd8` → `4e40db2b3`) and a round-2 draft cited two different trees at once. Every behavioural row below was re-run against `4e40db2b3`; all are unchanged. Where a row is dated to the earlier pin it says so.
+**Target tree:** the MERGED scanner at **`ad9638fa9`** (`tests/mutation/source/premiseScan.ts`, 1,273 lines) — PR #827 landed on 2026-08-16 at 22:07 CDT and its branch was deleted, so every `git show origin/fix/scanner-scope-totality:…` invocation in this record is historical and no longer resolves; read the tracked file instead. **Two re-pins are recorded here as history:** the branch advanced `ac9a40cd8` → `4e40db2b3` during review (a round-2 draft cited two trees at once), and then merged. Every behavioural row below was re-run at `4e40db2b3` AND again at `ad9638fa9`; all are unchanged at both. The population rows grew with the domain and are labelled per-tree where they differ. Where a row is dated to the earlier pin it says so.
 
 ## Resolved scope — do not relitigate
 
 | Decision | Why |
 | --- | --- |
-| The target is the **unmerged #827 tree**, obtained with `git show origin/fix/scanner-scope-totality:tests/mutation/source/premiseScan.ts`. Measuring `main`'s 446-line copy would measure a scanner nobody will ship. | Parent spec §7 |
+| The target WAS the unmerged #827 tree (obtained with `git show origin/fix/scanner-scope-totality:…` while that branch existed) because `main`'s 446-line copy was a scanner nobody would ship. Since `ad9638fa9` the target IS `main`, read from the tracked path. | Parent spec §7 |
 | The harnesses ran from a **gitignored `.claude/probe/` directory** in the branch worktree. They are draft-time measurements; nothing re-runs them and no gate depends on them. **What is reproduced here is stated per probe rather than claimed in general:** probes 1 and 2 give the runner plus the complete fixture table, which is enough to rebuild them; **probe 4's source is INLINED in full below**, because a gitignored path does not survive in a committed record (round-3 finding 1); probe 3's AST walker is DESCRIBED, not reproduced, and its iteration completeness therefore cannot be checked from this document alone. A round-1 draft said the harnesses "are reproduced below" without that distinction — a claim wider than the artifact, corrected after cross-model review found the seed-filter defect below that such a claim would have hidden. | Same posture as the two 2026-08-04 probes beside this file |
 | The measurement is a **draft-time input**. The parent spec's AC-1 re-derives the live-domain figure executably; the numbers here are not a gate. | Parent spec §6 |
 
@@ -148,6 +148,8 @@ The round-1 figure was the `.ts`/`.tsx` subset, so it silently omitted **12 `.js
 
 ## Results — probe 3: population
 
+**Live domain, measured three times — the count is a moving one, which is why the plan derives it rather than quoting it.** At the rebase onto `ad9638fa9` it was **39 unique `suitePaths` across 46 registry entries**, and the accept-set cover re-ran at 175 modules / 588 value edges / **0 misses**.
+
 **Live domain, measured twice.** PR #827 enrols `premiseScan` itself, so the domain grows when it lands: 29 enrolled suites / 86 in-repo modules against the registry on `main`, and, at the round-3 re-measurement against `git show origin/fix/scanner-scope-totality:tests/mutation/source/registry.ts`, **33 unique `suitePaths` across 40 registry rows** / 90 modules (it read 31 when this arc was drafted; the branch has enrolled two more surfaces since, which is the moving base §Target tree records) (the two added suites are `tests/mutation/source/premiseScan.test.ts` and `tests/mutation/_metaPremiseContract.test.ts`). **Every count below is zero in both.** The figures shown are the post-#827 ones, which are the binding domain at implementation time:
 
 ```
@@ -278,7 +280,7 @@ Two consequences follow and both are stated rather than left to be re-derived. T
 
 **So the zero-miss conclusion is scoped to the classes marked YES**, which is the claim spec §3.3b now makes. The classes marked NO are exactly what spec §2.4b's single rule REPORTS, and their populations are measured independently by probe 5 below — so nothing in this table is an unmeasured gap.
 
-Run against `origin/fix/scanner-scope-totality` at `4e40db2b3`:
+Run against `4e40db2b3`, and re-run unchanged against the merged `ad9638fa9`:
 
 ```
 live domain (post-#827 registry):   90 modules,    233 value import edges
