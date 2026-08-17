@@ -3863,3 +3863,97 @@ describe("whole-diff R1 #3 — a function body is not automatically DEFERRED", (
     ).toBe("environment-free");
   });
 });
+
+describe("whole-diff R1 #3b — statements RUN, declarations BIND", () => {
+  // The first repair of R1 #3 seeded expression statements only, which is one
+  // statement kind rather than a rule. `const x = setup();` runs at load and so
+  // does a call inside a top-level `if`, a loop or a `try`. The rule is the
+  // distinction the language already draws: a top-level STATEMENT executes, a
+  // top-level DECLARATION binds a body for later, and the single exception is a
+  // function-valued initializer, which is a declaration wearing a statement's
+  // syntax.
+  const SPEC = `const specifier = "./x" + String(1);`;
+  const HELPER = `async function load(): Promise<unknown> { return await import(specifier); }`;
+  const OWN = { construct: REPORTS.dynamicImport, module: OWN_FILE };
+
+  it("a variable initializer that CALLS at module load", () => {
+    expectReported(
+      classification(`${SPEC}
+        ${HELPER}
+        const started = load();
+        it("x", () => { String(started); });`),
+      OWN,
+    );
+  });
+
+  it("an EXPORTED variable initializer that calls at module load", () => {
+    expectReported(
+      classification(`${SPEC}
+        ${HELPER}
+        export const started = load();
+        it("x", () => {});`),
+      OWN,
+    );
+  });
+
+  it("a call inside a top-level `if`", () => {
+    expectReported(
+      classification(`${SPEC}
+        ${HELPER}
+        if (String(1) === "1") { void load(); }
+        it("x", () => {});`),
+      OWN,
+    );
+  });
+
+  it("a call inside a top-level loop", () => {
+    expectReported(
+      classification(`${SPEC}
+        ${HELPER}
+        for (const _ of [1]) { void load(); }
+        it("x", () => {});`),
+      OWN,
+    );
+  });
+
+  it("a call inside a top-level `try`", () => {
+    expectReported(
+      classification(`${SPEC}
+        ${HELPER}
+        try { void load(); } catch { /* ignored */ }
+        it("x", () => {});`),
+      OWN,
+    );
+  });
+
+  it("the foil: a function-valued initializer BINDS and does not run", () => {
+    // The one exception, and the direction that moves AC-1: `const f = () => …`
+    // is a declaration wearing a statement's syntax. Seeding its body marks a
+    // file for a helper nothing calls.
+    expect(
+      verdict(`${SPEC}
+        const load = async (): Promise<unknown> => await import(specifier);
+        it("x", () => {});`),
+    ).toBe("environment-free");
+  });
+
+  it("the foil: a function EXPRESSION initializer also binds", () => {
+    expect(
+      verdict(`${SPEC}
+        const load = async function (): Promise<unknown> { return await import(specifier); };
+        it("x", () => {});`),
+    ).toBe("environment-free");
+  });
+
+  it("the foil: a class declaration with a method holding the construct binds", () => {
+    // The test does NOT reference `Loader`. Referencing it would reach the
+    // method body through the shipped declaration-reference traversal — which
+    // is correct, and is AC-12's helper branch — and this case would then pass
+    // for a reason that has nothing to do with the module-load seed.
+    expect(
+      verdict(`${SPEC}
+        class Loader { async go(): Promise<unknown> { return await import(specifier); } }
+        it("x", () => {});`),
+    ).toBe("environment-free");
+  });
+});

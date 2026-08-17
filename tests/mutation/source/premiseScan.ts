@@ -65,6 +65,46 @@ const parse = (path: string, text: string): ts.SourceFile =>
 /** The four hook registrars, in the one place both readers of them look. */
 const HOOK_REGISTRARS = /^(beforeEach|beforeAll|afterEach|afterAll)$/;
 
+/**
+ * A top-level statement BINDS a body for later rather than executing one.
+ *
+ * The seed's whole question. Stated over the runs-versus-binds distinction the
+ * language already draws, so a statement kind met later lands in the rule
+ * already — the first draft of this repair asked `isExpressionStatement`, which
+ * is one kind rather than a rule, and left `const x = setup()`, a top-level
+ * `if`, a loop and a `try` unseeded.
+ */
+function bindsRatherThanRuns(st: ts.Statement): boolean {
+  return (
+    ts.isFunctionDeclaration(st) ||
+    ts.isClassDeclaration(st) ||
+    ts.isInterfaceDeclaration(st) ||
+    ts.isTypeAliasDeclaration(st) ||
+    ts.isEnumDeclaration(st) ||
+    ts.isModuleDeclaration(st) ||
+    ts.isImportDeclaration(st) ||
+    ts.isImportEqualsDeclaration(st) ||
+    ts.isExportDeclaration(st)
+  );
+}
+
+/** The nodes of one top-level statement that RUN while the module loads. */
+function moduleLoadSeeds(st: ts.Statement): ts.Node[] {
+  if (bindsRatherThanRuns(st)) return [];
+  // A function-valued initializer is a declaration wearing a statement's
+  // syntax: `const load = () => …` binds exactly as `function load()` does.
+  if (ts.isVariableStatement(st))
+    return st.declarationList.declarations
+      .map((d) => d.initializer)
+      .filter((init): init is ts.Expression => init !== undefined && !isFunctionLike(init));
+  if (ts.isExportAssignment(st)) return isFunctionLike(st.expression) ? [] : [st.expression];
+  // `it` is reached as a test and a top-level hook is collected as a hook, so
+  // promoting either here would attach one test's own reasons to every test in
+  // the file — the leak AC-12b forbids.
+  if (ts.isExpressionStatement(st) && isRegistrarCall(st.expression)) return [];
+  return [st];
+}
+
 /** Is this expression a `describe`/`it`/`test` or hook registration call? */
 function isRegistrarCall(expression: ts.Expression): boolean {
   if (!ts.isCallExpression(expression)) return false;
@@ -1710,15 +1750,15 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
   // later needs no new case. Only the REASONS are taken: what load-time work
   // does to the VERDICT is §2.7's lattice and is not re-decided here.
   //
-  // EXPRESSION statements only. A `function` or `const` declaration at module
-  // scope declares a body without running it, and seeding on mere occurrence is
-  // the false positive `isAtModuleLoad` asks about position to prevent.
-  // Registrar calls are excluded — `it` is reached as a test and a top-level
-  // hook is collected as a hook, and promoting either here would attach one
-  // test's own reasons to every test in the file (AC-12b).
+  // Which top-level statements those are is the distinction the language
+  // already draws: a STATEMENT executes, a DECLARATION binds a body for later.
+  // Seeding a declaration marks a file for a helper nothing calls, which is the
+  // false positive the position test exists to prevent and the direction AC-1
+  // measures. `moduleLoadSeeds` is that one rule; a statement kind met later
+  // lands in it already, because it is stated over runs-versus-binds rather
+  // than over a list of kinds.
   for (const st of facts.sf.statements) {
-    if (!ts.isExpressionStatement(st) || isRegistrarCall(st.expression)) continue;
-    fileReports.push(...reaches(st, facts, abs).reasons);
+    for (const seed of moduleLoadSeeds(st)) fileReports.push(...reaches(seed, facts, abs).reasons);
   }
 
   const suiteText = facts.sf.getFullText();

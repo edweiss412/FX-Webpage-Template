@@ -197,6 +197,12 @@ Concretely, each of these resolves to `unresolvable` with the specifier in the r
 | bare side-effect `import()` | `await import("./side")` as a statement | 1 |
 | in-repo STATIC side-effect import | `import "./side"` | 9 |
 | an in-repo specifier that does NOT resolve | extensionless `./h` for a `.mjs` sibling | 5 |
+| a binding pattern `bindPattern` cannot represent | `const { "spawnHelper": run } = await import("./h")`, a computed key, `{ ...rest }`, a nested pattern, an array pattern, `const {} = …` | 0 |
+| a modelled binding NOTHING references | `const ns = await import("./h")` with no later use of `ns` | 0 |
+
+**The last two rows are diff round-1's findings 4 and 5, and they are this rule reaching one step further rather than two shapes someone thought of.** Both are about the word MODELLED. It was asserted by `modelledDynamicDeclaration` and implemented by `bindPattern`, and the two disagreed: the first called every direct variable initializer modelled — which suppresses this report — while the second represents only identifiers and identifier-keyed object elements. In the gap a binding registered under the LOCAL name, which is an export no module has, or registered nothing at all, and the lookup missed silently. `bindPatternIsModelled` is now the single predicate both sides ask, so the accept-set is one derived answer instead of two that drift.
+
+The second row is the same word again: a modelled binding is only the PROMISE of an edge. The traversal follows it when a bound name is referenced, and otherwise never loads the target's facts — so the target's own load-time report, which has no other way out, vanished while the import still executed. Being unreferenced is not something the resolver can repair, so it is signalled rather than resolved. Type positions do not count as references: `typeof ns` is erased and runs nothing, while the identifier sits exactly where a text-level count would find it.
 
 **Live-domain population of every row: ZERO** (§3.13), so the rule is verdict-neutral and AC-1 is preserved. Near-domain total 63 — the same order as §4 limit 3's 41 namespace sites, and the same cost shape: an explicit `// no-premise:` the day such a suite is enrolled.
 
@@ -242,6 +248,14 @@ TOP-LEVEL beforeEach, pure (the foil)   ->  environment-free
 > **The seed collects only hook calls that are direct top-level statements of the `SourceFile`** — a hook lexically inside any `describe` is collected by that `describe`'s existing branch and by nothing else. All four registrar names participate (`beforeEach`, `beforeAll`, `afterEach`, `afterAll`), matching the shipped regex at `tests/mutation/source/premiseScan.ts:1119`; §3.11 measures a top-level `afterAll` reaching provenance as `environment-free` today, so naming only the two `before*` forms would leave half the defect live.
 
 AC-12b is the isolation fixture, and it is required: AC-11's pure-hook foil stays green under the recursive seed and cannot discriminate it.
+
+5. **Work that RUNS at module load is followed, and a function body is not automatically deferred** (diff round-1 finding 3). The seed asks about POSITION — a construct inside a function body is reachable only by a CALL, so seeding on mere occurrence would mark a file for a helper nothing calls and break AC-1. That test stopped at the first function-like ancestor and answered "deferred", which is right for an uncalled helper and wrong for every body that runs while the module loads: an arrow IIFE, a function IIFE, a named helper invoked at load, a bound arrow, and a chain of them each execute their imports immediately and produced neither a seed nor a traversal edge — a silent free.
+
+   The repair reuses the transitive reference traversal rather than modelling call spellings, which is what keeps it a rule instead of a list:
+
+   > **Every EXPRESSION statement at the top level of the file is followed by the same `reaches` traversal a call inside a test body gets, and its REASONS join the file's module-load reports.**
+
+   The two-hop chain therefore works for the reason the one-hop chain does, and a spelling met later needs no new case. Three boundaries are load-bearing. **Expression statements only** — `function f(){…}` and `const f = () => …` at module scope declare a body without running it, so seeding them is the false positive the position test exists to prevent. **Registrar calls are excluded** — `it` is reached as a test and a top-level hook is collected as a hook by item 4, and promoting either here would attach one test's own reasons to every test in the file, which is exactly what AC-12b forbids. **Only the reasons are taken**, never the verdict: what load-time work does to the verdict is §2.7's lattice and is not re-decided here.
 
 Item 3 is one ordinary edit from the live corpus: `tests/parser/_metaTransformSitesWalker.test.ts` declares `scanFiles()`, whose body holds a non-literal `import()`, and calls it from six separate `it` bodies. Hoisting it into a `beforeAll` — the exact refactor §0 records as already performed once on `phantomGapExecuted.test.ts` — moves it into the discarded path.
 
