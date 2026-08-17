@@ -4249,7 +4249,7 @@ describe("R40 — hypothetical gaps closed cheaply; the rest are documented limi
  * the ORIGINAL behaviour the equivalence argument rests on.
  */
 describe("enrolment survivors - batch A", () => {
-  // Kills relational-boundary:570:47 (`token.length > 1` mutated to `>= 1`).
+  // Kills relational-boundary:586:47 (`token.length > 1` mutated to `>= 1`).
   // A bare `-` is not a flag cluster. getopt(3) and psql alike read it as a
   // NON-OPTION argument, so it is the DBNAME positional and option parsing
   // stops there — the `-X` after it is never reached. Under the mutant `-`
@@ -4261,7 +4261,7 @@ describe("enrolment survivors - batch A", () => {
     expect(argvSuppressesStartupFiles(["-X", "-"])).toBe(true);
   });
 
-  // Kills relational-boundary:628:35 (`l < to.line` mutated to `l <= to.line`).
+  // Kills relational-boundary:644:35 (`l < to.line` mutated to `l <= to.line`).
   // The closing line of a block comment is comment-qualified only up to the
   // `*/`; everything after it is ordinary code. A marker sitting in STRING DATA
   // after the terminator is not in a comment and grants nothing. The mutant
@@ -4284,7 +4284,7 @@ describe("enrolment survivors - batch A", () => {
     expect(sites[0]!.exemptReason).toBeNull();
   });
 
-  // Kills relational-boundary:737:69 (`at >= from` mutated to `at > from`).
+  // Kills relational-boundary:753:69 (`at >= from` mutated to `at > from`).
   // A middle line of a multi-line comment is comment-qualified from column 0,
   // so a marker written flush-left on that line IS inside the comment. The
   // mutant excludes exactly the column-0 case and loses the exemption.
@@ -4312,7 +4312,7 @@ describe("enrolment survivors - batch A", () => {
    */
   const CR = String.fromCharCode(13);
 
-  // Kills relational-boundary:628:50 (`l < out.length` mutated to `<=`).
+  // Kills relational-boundary:644:50 (`l < out.length` mutated to `<=`).
   // to.line is 2 and the per-line array holds 1 entry, so the mutant's extra
   // iteration writes past the end and the scan throws instead of reporting.
   test("a CR-delimited block comment spanning past the line array still reports its site", () => {
@@ -4323,7 +4323,7 @@ describe("enrolment survivors - batch A", () => {
     expect(sites[0]!.exemptReason).toBeNull();
   });
 
-  // Kills relational-boundary:629:17 (`to.line < out.length` mutated to `<=`).
+  // Kills relational-boundary:645:17 (`to.line < out.length` mutated to `<=`).
   // Same shape one line shorter: to.line is 1 and the array holds 1 entry, so
   // the closing-line write is the one that goes out of bounds.
   test("a CR-delimited block comment closing past the line array still reports its site", () => {
@@ -4334,7 +4334,7 @@ describe("enrolment survivors - batch A", () => {
     expect(sites[0]!.exemptReason).toBeNull();
   });
 
-  // Boundary pin for the relational-boundary:737:83 equivalence row
+  // Boundary pin for the relational-boundary:753:83 equivalence row
   // (`at < to` mutated to `at <= to`). The marker starts at exactly the column
   // the comment ends at, which is the only column the widened bound admits.
   // The original reports no exemption because the marker is not contained; the
@@ -4352,7 +4352,7 @@ describe("enrolment survivors - batch A", () => {
     expect(sites[0]!.exemptReason).toBeNull();
   });
 
-  // Boundary pin for the relational-boundary:677:23 equivalence row
+  // Boundary pin for the relational-boundary:693:23 equivalence row
   // (`i < line.length` mutated to `<=`). The argument is that the extra
   // iteration reads `undefined` and changes nothing; its premise is that the
   // loop already covers index `line.length - 1`. Here the closing quote IS the
@@ -4371,7 +4371,7 @@ describe("enrolment survivors - batch A", () => {
     expect(sites[0]!.exemptReason).toBe("throwaway container, no HOME");
   });
 
-  // Boundary pin for the relational-boundary:803:25 equivalence row
+  // Boundary pin for the relational-boundary:819:25 equivalence row
   // (`i < text.length` mutated to `<=`). Same shape: the extra iteration reads
   // `undefined` and matches no branch. Its premise is that an UNCLOSED
   // substitution consumes the text to its final character — the fallback
@@ -4391,7 +4391,7 @@ describe("enrolment survivors - batch A", () => {
  * boundary pins their arguments rest on.
  */
 describe("enrolment survivors - batch B", () => {
-  // Kills relational-boundary:1368:26 (`command.length > 0` mutated to `>= 0`
+  // Kills relational-boundary:1390:26 (`command.length > 0` mutated to `>= 0`
   // in the pipeline splitter). A newline after `|` continues the pipeline —
   // POSIX shell grammar allows linebreaks after `|`, so this is one pipeline
   // whose second stage is a bare `bash`, and the printf argument IS the script
@@ -4406,7 +4406,7 @@ describe("enrolment survivors - batch B", () => {
     expect(sites[0]!.suppressesStartupFiles).toBe(false);
   });
 
-  // Boundary pin for the relational-boundary:1377:22 equivalence row
+  // Boundary pin for the relational-boundary:1399:22 equivalence row
   // (`command.length > 0` mutated to `>= 0` in the trailing flush). The mutant
   // can only APPEND an empty command, never insert one, so the pin is that a
   // text ending in an operator still reports the command before it.
@@ -4416,7 +4416,7 @@ describe("enrolment survivors - batch B", () => {
     expect(sites[0]!.suppressesStartupFiles).toBe(false);
   });
 
-  // Boundary pin for the relational-boundary:1458:30 equivalence row
+  // Boundary pin for the relational-boundary:1480:30 equivalence row
   // (`remaining.length > 0` mutated to `>= 0`). `ssh host` with no remote
   // command leaves the joined-argument list empty — the reachable input the
   // guard exists for. Nothing is scanned and no site is reported.
@@ -4428,7 +4428,7 @@ describe("enrolment survivors - batch B", () => {
     expect(sitesIn("ssh database psql -qAt mydb\n", "x.sh")).toHaveLength(1);
   });
 
-  // Boundary pin for the relational-boundary:1468:19 equivalence row
+  // Boundary pin for the relational-boundary:1490:19 equivalence row
   // (`k > 0` mutated to `k >= 0` in the joined-string builder). The mutant
   // prepends one separator to the joined string AND one entry to each parallel
   // offset/line array, so every index shifts by exactly one and the mapping is
@@ -4442,7 +4442,7 @@ describe("enrolment survivors - batch B", () => {
     expect(sites[0]!.suppressesStartupFiles).toBe(false);
   });
 
-  // Boundary pin for the relational-boundary:1548:46 equivalence row
+  // Boundary pin for the relational-boundary:1570:46 equivalence row
   // (`candidate.text.length > 2` mutated to `>= 2`). The conjunct that follows
   // it, /^-[a-zA-Z]*S[\s\S]/, already requires a character AFTER the `S`, so a
   // two-character `-S` is rejected either way. Both spellings are pinned: `-S`
@@ -4457,7 +4457,7 @@ describe("enrolment survivors - batch B", () => {
     expect(attached[0]!.suppressesStartupFiles).toBe(false);
   });
 
-  // Boundary pin for the relational-boundary:1722:22 and 1723:26 equivalence
+  // Boundary pin for the relational-boundary:1744:22 and 1745:26 equivalence
   // rows (the opening/closing delimiter bounds in `mapRawToLines`). Both
   // mutants only widen a bound into a raw slice too short to hold a body, where
   // the walk emits nothing either way. The pin is the mapping the bounds serve:
@@ -4478,7 +4478,7 @@ describe("enrolment survivors - batch B", () => {
  * asks `looksLikePsqlCommandLine` whether a JS string literal is a command.
  */
 describe("enrolment survivors - batch C", () => {
-  // Kills regex-quantifier-bound:1951:45 (`-{1,2}` widened to `-{1,3}` in the
+  // Kills regex-quantifier-bound:1979:45 (`-{1,2}` widened to `-{1,3}` in the
   // backtick head check). A backtick span is a markdown code span in prose and
   // a command substitution in code; what separates them is the outer string
   // starting with a bare program name that then takes a FLAG. POSIX and GNU
@@ -4492,7 +4492,7 @@ describe("enrolment survivors - batch C", () => {
     expect(scanBinaryIndirection(real, "x.mjs").length).toBeGreaterThan(0);
   });
 
-  // Kills relational-boundary:1979:26 (`site.tokens.length <= 3` mutated to
+  // Kills relational-boundary:2007:26 (`site.tokens.length <= 3` mutated to
   // `< 3`). `psql -- mydb postgres` is a real, flagless invocation: `--` ends
   // option parsing, so `mydb` is DBNAME and `postgres` is USERNAME, and no
   // startup file is suppressed. It carries exactly three argv tokens, the
@@ -4502,7 +4502,7 @@ describe("enrolment survivors - batch C", () => {
     expect(scanBinaryIndirection(source, "x.mjs").length).toBeGreaterThan(0);
   });
 
-  // Kills relational-boundary:1981:49 (`words <= 8` mutated to `< 8`). With no
+  // Kills relational-boundary:2009:49 (`words <= 8` mutated to `< 8`). With no
   // preceding words the heuristic admits a terse command inside a string of at
   // most eight words. This one is exactly eight, so it must read as a command;
   // the nine-word control must not.
@@ -4514,8 +4514,8 @@ describe("enrolment survivors - batch C", () => {
   });
 
   // Boundary pin for the four index-guard equivalence rows
-  // (relational-boundary:1908:12 and 1909:12 in `isStrongPrefixWord`, and their
-  // twins 1925:16 and 1926:16 in `prefixIsCommandish`). Each widened guard
+  // (relational-boundary:1936:12 and 1937:12 in `isStrongPrefixWord`, and their
+  // twins 1953:16 and 1954:16 in `prefixIsCommandish`). Each widened guard
   // reaches a lookback that is out of range, where `?? ""` yields the empty
   // string, the local `basename("")` yields `""`, and the anchored WRAPPERS
   // alternation matches nothing — the same `false` the short-circuit produced.
@@ -4536,7 +4536,7 @@ describe("enrolment survivors - batch C", () => {
  * the pins below carry the arguments the blessed rows rest on.
  */
 describe("enrolment survivors - batch D", () => {
-  // Kills regex-quantifier-bound:2278:40 (`-{1,2}` widened to `-{1,3}` in the
+  // Kills regex-quantifier-bound:2360:38 (`-{1,2}` widened to `-{1,3}` in the
   // bound-command flag test). A quoted binding is reported only when its value
   // lexes to a psql invocation carrying a FLAG, which is what keeps
   // `MSG="psql failed to connect"` out. POSIX and GNU flags take one or two
@@ -4548,7 +4548,7 @@ describe("enrolment survivors - batch D", () => {
     expect(scanShellIndirection("CMD='psql -x mydb'\n", "x.sh").length).toBeGreaterThan(0);
   });
 
-  // Kills relational-boundary:3009:48 (`scanShellText(...).length > 0` mutated
+  // Kills relational-boundary:3085:48 (`scanShellText(...).length > 0` mutated
   // to `>= 0`, making the test unconditional). A binding key whose value merely
   // CONTAINS the word psql is not a binding: `psql-tuning` is a hyphenated
   // English compound, and the shell reader finds no psql command word in it.
@@ -4569,7 +4569,7 @@ describe("enrolment survivors - batch D", () => {
     expect(scanWorkflowIndirection(bound, "w.yml").length).toBeGreaterThan(0);
   });
 
-  // Boundary pin for the regex-quantifier-bound:2335:21 equivalence row. The
+  // Boundary pin for the regex-quantifier-bound:2411:21 equivalence row. The
   // dash run is followed by `[A-Za-z-]*`, a class that already contains a dash,
   // so `-{1,2}` and `-{1,3}` accept the same language — any leading dash plus
   // any run of letters and dashes. The pin is that consequence: an extra dash
@@ -4582,7 +4582,7 @@ describe("enrolment survivors - batch D", () => {
     expect(scanShellIndirection(three, "x.sh").length).toBeGreaterThan(0);
   });
 
-  // Boundary pin for the relational-boundary:2399:54 equivalence row (the
+  // Boundary pin for the relational-boundary:2475:54 equivalence row (the
   // `logical` continuation join). The widened bound can only add a final
   // iteration that replaces a dangling trailing backslash with a space and
   // appends nothing, and the one consumer of `logical` cannot tell those apart.
@@ -4597,7 +4597,7 @@ describe("enrolment survivors - batch D", () => {
   // directions, so neither side is relitigable.
   //
   // This test used to KILL the `spliced` continuation join's widened bound
-  // (relational-boundary:2167:54 then, 2411:54 now), because the assignment
+  // (relational-boundary:2167:54 then, 2487:54 now), because the assignment
   // family read `spliced`. It reads LEXED WORDS as of this arc, and the lexer
   // performs its own splice, so the mutant is no longer observable from here:
   // the site is dispositioned `equivalent` against the two consumers `spliced`
@@ -4720,6 +4720,45 @@ describe("enrolment survivors - batch D", () => {
       );
       expect(() => scanSource(source, "x.ts")).not.toThrow();
       expect(scanSource(source, "x.ts").length).toBeGreaterThan(0);
+      // An uncookable literal is reported CONSERVATIVELY - the site stands and
+      // is NOT certified, because the guard cannot read the argv it would have
+      // to certify. That direction is the whole reason this is a limit rather
+      // than a defect, so it is pinned rather than left to the count.
+      const uncookable = "execSync(`psql -X -qAt \\u{110000}mydb`);\n";
+      const sites = scanSource(uncookable, "x.ts");
+      expect(sites).toHaveLength(1);
+      expect(sites[0]!.suppressesStartupFiles).toBe(false);
+    });
+
+    // The two rows below pin the SAME bound from the other side. A limit that
+    // declines everything is not a limit, it is a hole, so each of the two
+    // guards is pinned at the last code point it must still accept.
+    test("a \\U escape AT the Unicode maximum still decodes", () => {
+      // U+10FFFF decoded is a non-word character, so `psql` keeps its leading
+      // word boundary and the value binds. Left undecoded the value is
+      // `\\U0010FFFFpsql`, where basename splits on the backslash and the `F`
+      // before `psql` destroys the boundary - the guard would see no psql at
+      // all, which is the paired zero asserted here.
+      expect(scanShellIndirection("PG=$'\\U0010FFFFpsql'\n", "x.sh").length).toBeGreaterThan(0);
+      expect(scanShellIndirection("PG=$'\\U00110000psql'\n", "x.sh")).toHaveLength(0);
+    });
+
+    test("a template literal's \\u{...} AT the Unicode maximum still maps its lines", () => {
+      // The guard sits in the per-character LINE MAP, whose null return costs
+      // the exact physical line rather than the site: the fallback attributes
+      // the hit to the literal's OPENING line. So the assertion is the line, not
+      // the count or the verdict - both of which are identical either way, and
+      // neither of which would notice the bound moving one code point.
+      const mapped = [
+        "const q = `\\u{10FFFF}",
+        "header`;",
+        "execSync(`\\u{10FFFF}",
+        "psql -X -qAt mydb`);",
+        "",
+      ].join("\n");
+      const sites = scanSource(mapped, "x.ts");
+      expect(sites).toHaveLength(1);
+      expect(sites[0]!.line).toBe(4);
     });
 
     test("the octal range ends at 7, so $'\\73' decodes to the semicolon it spells", () => {
@@ -4736,7 +4775,7 @@ describe("enrolment survivors - batch D", () => {
     });
   });
 
-  // Boundary pin for the relational-boundary:2676:31, 2808:35 and 2918:32
+  // Boundary pin for the relational-boundary:2752:31, 2884:35 and 2994:32
   // equivalence rows (the alias-resolution depth guards and the alias anchor
   // comparison). The yaml parser refuses to register an anchor on an alias
   // node, so an alias always resolves to a non-alias in one step and the depth
@@ -4758,7 +4797,7 @@ describe("enrolment survivors - batch D", () => {
     expect(sites[0]!.suppressesStartupFiles).toBe(false);
   });
 
-  // Kills regex-quantifier-bound:2905:32 (`[0-9+-]{0,2}` widened to `{0,3}`).
+  // Kills regex-quantifier-bound:2981:32 (`[0-9+-]{0,2}` widened to `{0,3}`).
   // Found by cross-model review r1, which refuted the equivalence row this arc
   // first wrote for the site. YAML permits at most TWO block-scalar indicators —
   // one indentation digit and one chomping character — so `|2-+` is not a
