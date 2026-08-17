@@ -1,22 +1,12 @@
-import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
-import { childRun, INERT_TARGET } from "./source/childRun";
-import { evaluateGate } from "./source/gate";
-import { GUARD_SURFACES } from "./source/registry";
-import { runControl, runSurface } from "./source/runner";
-
-/**
- * The nightly source-mutation gate (spec §3.6, AC-13/AC-15).
- *
- * NIGHTLY ONLY. It spawns one `vitest` child per mutant — 102 on the first
- * enrolled surface, ~77 s — so it lives in no default project. The tests it
- * MOTIVATES are merge-gating (they are ordinary cases in the surface's own
- * suite); this file only detects NEW gaps. That split is spec R4 and it is
- * deliberate.
- *
- * On-demand: `pnpm mutation:guards`.
- */
-const root = process.cwd();
+// tests/mutation/source/expectedLedgerKinds.ts
+// Lifted verbatim out of the retired tests/mutation/guardSurfaces.gate.test.ts
+// when the source-mutation gate was sharded (wall-clock spec §3.2/§3.3). Both
+// the per-surface shard files and the corpus-wide gates file read it, so it
+// cannot live in either: the shards need the per-surface row, the gates file
+// needs the whole key set to prove completeness.
+//
+// Every comment below is a per-surface argument someone paid review rounds for.
+// They moved unmodified.
 
 /**
  * Per-surface ledger-kind expectations.
@@ -31,7 +21,16 @@ const root = process.cwd();
  * first customer's (whole-diff R2 MEDIUM — the previous version asserted
  * taskContract's 18/2 against every surface in `describe.each`).
  */
-const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
+export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
+  // premiseScan, enrolled 2026-08-16. The gate found 8 survivors on the first
+  // run; five were REPAID with cases and three more disappeared with the dead
+  // duplicated `unclassifiable` rules the gate exposed. What remains is three
+  // proven equivalences (a never-empty array guard, a provably-unreachable
+  // `unresolved` branch, and a start-offset comparison two sibling nodes cannot
+  // tie) plus ONE honest accepted-gap: the `@/` specifier slice, which is not
+  // equivalent and has no killing fixture in today's corpus
+  // (BL-PREMISESCAN-ALIAS-SLICE-UNCOVERED).
+  premiseScan: { equivalent: 3, "accepted-gap": 1 },
   // psqlStartupScan: EIGHTEEN equivalence arguments and NO accepted gap from the
   // 2026-08-16 disposition arc (per-site reasons live on the registry rows). Thirteen of
   // the thirty-one first-run survivors were repaid with tests instead. Both counts moved
@@ -160,6 +159,22 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // a number to bump, and an `accepted-gap` appearing here at all would be this surface's
   // first, needing its own backlog entry.
   specLintNumerics: { equivalent: 50 },
+  // chore/heavy-orphan-reaper (2026-08-16): the heavy-orphan reaper's decision function,
+  // enrolled before this arc's first diff-stage review dispatch. An EMPTY declaration,
+  // counted from the surface rather than read back off a run: `accepted` is `[]`, so a row
+  // appearing here later is a coverage regression to repay rather than a number to bump,
+  // and an `accepted-gap` would be this surface's first and would owe its own backlog entry
+  // plus a `scoreFloor` edit.
+  //
+  // Empty is the honest declaration because the two survivors the first probe found were
+  // REMOVED rather than blessed, and both were the same shape — a clause whose deletion or
+  // operator swap changes nothing at runtime. `tokens.length < 2` could not differ from
+  // `< 1`, and the compound `argv0 === undefined || last === undefined` could not differ
+  // from `&&` because the two are undefined together. Taking the last token by reduce over
+  // a provably non-empty array left no such clause to mutate. Reaching for an `equivalent`
+  // row is the move that would have been wrong here: the surface is small and pure enough
+  // that an unkillable mutant is evidence of a dead line, not of an untestable one.
+  heavyReapClassify: {},
   // The interactive-scan surfaces, enrolled 2026-08-15. `tapTargetScan` carries
   // NO blessed survivor: its whole body is one map over the shared core's
   // verdicts, and the census suite kills its single mutant, so a row appearing
@@ -191,6 +206,13 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // repay rather than a number to bump.
   browserRegistry: {},
   browserMutate: { equivalent: 1 },
+  // The execution-methods derivation, enrolled by this branch. EMPTY, and that is
+  // the claim: the first run's single unaccepted survivor
+  // (logical-connector:44:43) was repaid with a fixture rather than blessed, and
+  // the two survivors predicted from reading the source were killed by fixtures
+  // already present. A row appearing here later is a coverage regression to
+  // repair, not a number to update.
+  executionMethodsDerivation: {},
   // The modal-wait guard (2026-08-16). TWO equivalent rows, matching the
   // registry's accepted[] exactly — this file and the registry are compared for
   // equality by the gate below, so an empty declaration here while the registry
@@ -207,128 +229,19 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // were repaid with fixtures sitting exactly on NODES_MAX, so the re-run is
   // 65/65 with an empty ledger.
   serializeErrorStructure: {},
+  // The mutation-gate sharding arc's own two guard surfaces, enrolled 2026-08-16
+  // BEFORE its first whole-diff review dispatch, so the convergence criterion is
+  // a score plus an empty unaccepted-survivor set rather than reviewer
+  // imagination. Both declare an EMPTY ledger, deliberately.
+  //
+  // sourceShardPartition: every branch in the partition is decided by
+  // tests/mutation/source/shardPartition.test.ts, so a row appearing here later
+  // is a coverage regression to repair, not a number to bump.
+  sourceShardPartition: {},
+  // shardBudget: the module is pure decision logic with the CLI deliberately in
+  // a separate file, so every branch is reachable through the referring suite
+  // and a row appearing here is a gap to repay. The separation is not a style
+  // choice -- phantomGapExecuted above records that the combined shape scored
+  // 0.27, with 18 of 19 survivors in code no import can reach.
+  shardBudget: {},
 };
-
-describe("guard-surface registry — ledger-kind expectations", () => {
-  it("declares expected ledger-kind counts for every enrolled surface", () => {
-    expect(Object.keys(EXPECTED_LEDGER_KINDS).sort()).toEqual(
-      GUARD_SURFACES.map((s) => s.id).sort(),
-    );
-  });
-});
-
-describe.each(GUARD_SURFACES.map((s) => [s.id, s] as const))(
-  "source-mutation gate — %s",
-  (_id, surface) => {
-    const before = readFileSync(surface.sourcePath);
-    const run = runSurface(root, surface);
-    const result = evaluateGate({
-      surfaceId: surface.id,
-      mutantCount: run.mutantCount,
-      noOps: run.noOps,
-      baselineGreen: run.baselineGreen,
-      killed: run.killed,
-      survivors: run.survivors,
-      ledger: surface.accepted,
-      scoreFloor: surface.scoreFloor,
-    });
-
-    it("passes every gate condition", () => {
-      expect(
-        result.failures.map((f) => `${f.condition}: ${f.detail}`).join("\n"),
-        "gate failures",
-      ).toBe("");
-      expect(result.passed).toBe(true);
-    });
-
-    it("holds the exact ledger-kind counts declared for THIS surface (AC-13)", () => {
-      // The score floor is deliberately COARSE (spec §4.3): from the shipping
-      // state it takes three further blessed gaps to breach 0.95, so the floor
-      // cannot detect one or two rows silently migrating between kinds.
-      // Expectations are per-surface: §4.3's numbers belong to the FIRST
-      // CUSTOMER, while §3.7 enrollment is per-surface, so a legitimate second
-      // surface must not be measured against taskContract's ledger.
-      const kinds = surface.accepted.reduce<Record<string, number>>((acc, row) => {
-        acc[row.kind] = (acc[row.kind] ?? 0) + 1;
-        return acc;
-      }, {});
-      expect(kinds).toEqual(EXPECTED_LEDGER_KINDS[surface.id]);
-    });
-
-    it("classifies every generated mutant exactly once", () => {
-      // The consequence bound in one assertion: killed + survivors must account
-      // for every mutant produced. A dropped outcome leaves the gate green while
-      // the run tested less than it claims.
-      expect(run.killed + run.survivors.length).toBe(run.mutantCount);
-      expect(new Set(run.survivors).size).toBe(run.survivors.length);
-      expect(run.outcomes).toHaveLength(run.mutantCount);
-    });
-
-    it("generated mutants at all, and none was a no-op", () => {
-      // Guards the vacuity hole from the other side: a run that silently
-      // produced nothing would satisfy the ledger and floor conditions.
-      expect(run.mutantCount).toBeGreaterThan(0);
-      expect(run.noOps).toEqual([]);
-    });
-
-    it("scores at or above the surface's floor", () => {
-      expect(result.score.value).toBeGreaterThanOrEqual(surface.scoreFloor);
-    });
-
-    it("leaves the tracked source byte-identical (AC-4)", () => {
-      // The overlay serves mutant text from memory. If this ever fails, the
-      // harness has been rewritten to patch files in place and a crashed run
-      // can leave a mutant on disk.
-      expect(readFileSync(surface.sourcePath).equals(before)).toBe(true);
-    });
-
-    it("kills THIS surface's own control mutant, proving the overlay is live (AC-3)", () => {
-      // Without this, a harness whose overlay silently failed to apply reports a
-      // PERFECT score -- every mutant running against clean source -- and every
-      // other assertion here still passes.
-      //
-      // The previous version READ as if it made this assertion and did not: it
-      // computed `broken`, asserted it differed from the source, and then called
-      // runSurface with the surface's own operators, never passing `broken` to
-      // anything. So it proved a string occurred in a file. It also hardcoded
-      // taskContract's text inside this describe.each, which meant enrolling a
-      // second surface red the gate.
-      const source = readFileSync(surface.sourcePath, "utf8");
-      const broken = source.replace(surface.control.from, surface.control.to);
-      expect(
-        broken,
-        "control did not apply; validateSurface should have rejected this row",
-      ).not.toBe(source);
-      expect(
-        runControl(root, surface, broken),
-        "the suite did not notice this surface's control mutant",
-      ).not.toBe(0);
-      // Explicit budget, because this case SPAWNS A FULL CHILD SUITE RUN and
-      // the shared 30s default is a per-test budget meant for in-process work.
-      // The gate's other cases run runSurface at module scope, outside any
-      // `it`, so no timeout applies to them -- this one moved inside an `it`
-      // precisely so the control's verdict is asserted, and inherited a budget
-      // that fits an ordinary test rather than a child vitest process. Green
-      // locally at ~33s and RED on CI's slower runner, which is the whole
-      // reason "real CI green" is a separate gate from "local green".
-    }, 600_000);
-  },
-);
-
-/**
- * The per-mutant config's timeout is actually in force (guard-premise Task 3).
- *
- * Nightly, because the fixture sleeps 5.2s. The merge-gating structural check
- * in tests/mutation/_metaOverlayConfigParity.test.ts compares the config VALUE
- * on every merge; this proves the value takes effect, which comparing a number
- * to a number cannot.
- */
-describe("the per-mutant config's timeout is in force", () => {
-  it("runs a fixture that outlives vitest's 5000ms default", () => {
-    expect(childRun(root, "tests/mutation/source/fixtures/slowTest.fixture.ts", INERT_TARGET)).toBe(
-      0,
-    );
-    // Same reason, and doubly so: the fixture deliberately sleeps past 5s, so
-    // the child cannot finish inside a budget meant for in-process work.
-  }, 300_000);
-});

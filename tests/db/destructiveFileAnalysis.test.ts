@@ -1177,6 +1177,20 @@ await sql\`select public.prune_sync_log()\`;`;
     expect(analyseDestructiveFile(P, src)).toEqual({ ok: true });
   });
 
+  it("(cg) keeps `.array()` OUT of the execution set -- the behavioral twin of (cb)'s json case", () => {
+    // Spec 2026-08-16 §2.5: fixture (cb)'s title promises array coverage its body
+    // never exercised (spec review R3 finding 3). A discovered file calling
+    // `.array()` on a non-client must still pass; if `array` ever entered the
+    // execution set, this rejects with an unchecked-execution error.
+    const src = `${IMPORT}
+const DB_URL = assertLocalDbUrl(process.env.LOCAL_TEST_DATABASE_URL);
+const sql = postgres(DB_URL, { max: 1 });
+const parts = new Float32Array(4);
+const halves = parts.array();
+await sql\`select public.prune_sync_log()\`;`;
+    expect(analyseDestructiveFile(P, src)).toEqual({ ok: true });
+  });
+
   it("(cc) rejects a factory reassigned through an `as` assertion", () => {
     // Diff review R6 finding 2. The census must see through every wrapper TypeScript
     // allows around an assignment target, or a checked factory can be swapped for an
