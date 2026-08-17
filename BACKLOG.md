@@ -1236,7 +1236,7 @@ under class-sweep exception (c). May share one lint surface with
 
 ## BL-SURFACE-DISCOVERY-UNNAMEABLE-ACTION-FORMS — the invariant-10 engine misses Server Action forms Next registers
 
-**Status:** OPEN. · **Filed:** 2026-08-16, from the diff review round-1 finding on
+**Status:** IN PROGRESS · **Branch:** fix/surface-discovery-unnameable-forms · **Filed:** 2026-08-16, from the diff review round-1 finding on
 `fix/server-action-origin-sweep` (`docs/review-rounds/fix/server-action-origin-sweep/`) ·
 **Severity:** high · **Class:** shared guard infrastructure (`tests/log/mutationSurface/enumerate.ts`) ·
 **Effort:** M

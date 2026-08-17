@@ -2129,6 +2129,123 @@ export const GUARD_SURFACES: GuardSurface[] = [
     accepted: [],
   },
   /**
+   * The invariant-10 discovery engine, enrolled 2026-08-17 (spec §3.7).
+   *
+   * Two rows rather than one because the arc split the engine in two modules:
+   * `enumerate.ts` decides WHAT is a unit, totality.ts decides what the
+   * residue is. Both suites decide both rows — `enumerate.test.ts` pins the
+   * accept side and totality.test.ts the refusal side, and the two are one
+   * contract (a unit that stops being produced becomes a refusal, which the
+   * OTHER suite is what notices). Listing one suite per row would let exactly
+   * that swap survive.
+   *
+   * Operator subset: the defect class here is "reports units/gaps while the
+   * truth moved" — a dropped statement (a skipped export form), a flipped
+   * predicate (kind checks, directive comparison), a flipped connector (the
+   * per-kind filters). `relational-boundary` and `integer-literal` have almost
+   * no sites (no numeric thresholds beyond the D2 count comparison), and
+   * `regex-quantifier-bound` touches only `SHOUTY`, which is scanBody's
+   * inherited surface rather than discovery's.
+   */
+  {
+    id: "mutationSurfaceEnumerate",
+    sourcePath: "tests/log/mutationSurface/enumerate.ts",
+    suitePaths: [
+      "tests/log/mutationSurface/enumerate.test.ts",
+      "tests/log/mutationSurface/totality.test.ts",
+    ],
+    operators: ["equality-flip", "logical-connector", "statement-removal"],
+    // 0.95, set FROM the measured 169/172 = 0.9826 (2026-08-17, after the
+    // round-1 repairs). Headroom is eight survivors, so the floor cannot
+    // detect one or two rows migrating between kinds -- that is
+    // EXPECTED_LEDGER_KINDS' job, not this number's.
+    scoreFloor: 0.95,
+    // Blinds the awaited-logAdminOutcome recogniser, so every admin action
+    // classifies as emitting nothing. Verified unique on the current source
+    // (`grep -c -F 'c.text === "logAdminOutcome"'` = 1); the scanBody durability
+    // cases at the head of enumerate.test.ts kill it deterministically.
+    control: {
+      from: 'c.text === "logAdminOutcome"',
+      to: 'c.text === "logAdminOutcomeNEVERMATCHES"',
+    },
+    // Every siteId below is RE-DERIVED from a run against the current source
+    // after each edit, never carried forward: a siteId is a line number, and
+    // diff review round 2 caught this ledger citing 433 after the round-1 repair
+    // moved the site to 434. The gate says so in both directions at once --
+    // `unaccepted-survivor` for the real site and `stale-ledger-row` for the
+    // citation -- so a green report taken before an edit is not evidence after
+    // one.
+    accepted: [
+      {
+        siteId: "equality-flip:204:50:===>!==",
+        kind: "equivalent",
+        reason:
+          "`moduleDefaultExports` reads `hasExport && hasDefault`, so flipping the ExportKeyword " +
+          "comparison can only matter where `some(=== Export)` and `some(!== Export)` disagree AND " +
+          "a default modifier is present. Disagreement needs either no export modifier (then " +
+          "`default` stands alone, which does not parse) or a modifier list of exactly `[export]` " +
+          "(then there is no default modifier). Both conjuncts cannot hold, so no input " +
+          "distinguishes them. The sibling flip on the DefaultKeyword line IS distinguishable and " +
+          "is killed by the `export async function` negative.",
+      },
+      {
+        siteId: "logical-connector:338:32:&&>||",
+        kind: "equivalent",
+        reason:
+          "`isCheckableFunction`'s body requirement, flipped to `(one of four kinds) || has a " +
+          "body`. To distinguish it a node must reach here with NO kind match but a `body` " +
+          "property, or a kind match with no body. The second is impossible: the only producer of " +
+          "a bodyless candidate was the overload signature, and `resolveModuleName` now refuses " +
+          "those at the source. The first requires a non-function node carrying `.body`, and every " +
+          "node reaching here is either a body-checked `FunctionDeclaration` or the result of " +
+          "`reduceModuleExpr` — an `Expression`, and the only Expression kinds with a `body` are " +
+          "`ArrowFunction` and `FunctionExpression`, both already in the accept list. Accessors and " +
+          "`ModuleDeclaration` do carry `.body` but cannot reach this call: the object-literal " +
+          "branch matches only property assignments, method declarations and shorthands, and a " +
+          "namespace is never returned by the resolver. Probed: `const bag = { get doIt() {...} }` " +
+          "refuses identically under both.",
+      },
+      {
+        siteId: "logical-connector:538:49:||>&&",
+        kind: "equivalent",
+        reason:
+          "The SECOND disjunct of `!item || isOmitted(item) || isSpread(item)`. Under the flip it " +
+          "reads `!item || (isOmitted(item) && isSpread(item))`, and a node cannot be both an " +
+          "omitted expression and a spread element, so that arm is dead. Its two inputs then fall " +
+          "through to `reduceModuleExpr`, which returns the node unchanged, and " +
+          "`isCheckableFunction` rejects it — the same `undefined` the guard would have returned. " +
+          "The `!item` disjunct is untouched and still short-circuits the past-the-end case (killed " +
+          "by its own fixture), and an array literal containing a spread is now refused BEFORE this " +
+          "line is reached. This argument does not rest on a downstream re-check being reachable: " +
+          "the reachable inputs are enumerated above, which is what round 1 refuted about two " +
+          "earlier rows on this surface — both are now killed by fixtures instead.",
+      },
+    ],
+  },
+  {
+    id: "mutationSurfaceTotality",
+    sourcePath: "tests/log/mutationSurface/totality.ts",
+    suitePaths: [
+      "tests/log/mutationSurface/enumerate.test.ts",
+      "tests/log/mutationSurface/totality.test.ts",
+    ],
+    operators: ["equality-flip", "logical-connector", "statement-removal"],
+    // 0.95, set FROM the measured 20/20 = 1.0 (2026-08-17). Headroom is ONE
+    // survivor: this module is new, small, and fully covered, so the first
+    // survivor is a coverage question and the second is a gate failure.
+    scoreFloor: 0.95,
+    // Empties the module-action side of the per-kind reconciliation, so every
+    // "use server" export reads as unresolved. Verified unique on the current
+    // source (`grep -c -F 'u.kind === "module-action"'` = 1); the QUIET negative
+    // halves in totality.test.ts kill it deterministically — which is the point
+    // of having them, since the refusal cases alone would pass under it.
+    control: {
+      from: 'u.kind === "module-action"',
+      to: 'u.kind === "module-actionNEVERMATCHES"',
+    },
+    accepted: [],
+  },
+  /**
    * The bounded-spawn module, enrolled 2026-08-17 with a SCOPED operator subset.
    *
    * Only the mocked suite decides verdicts. The live process-tree suite is
