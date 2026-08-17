@@ -59,14 +59,14 @@ describe("the classifier core is enrolled", () => {
     expect(accepted.map((r) => r.kind)).toEqual(Array(8).fill("equivalent"));
     expect(accepted.filter((r) => r.kind === "accepted-gap")).toEqual([]);
     expect(accepted.map((r) => r.siteId).sort()).toEqual([
-      "integer-literal:341:15:0>1",
-      "integer-literal:350:16:1>2",
-      "integer-literal:512:53:0>1",
-      "integer-literal:512:57:1>2",
-      "integer-literal:512:61:2>3",
-      "integer-literal:646:35:1>2",
-      "integer-literal:744:17:0>1",
-      "integer-literal:744:21:1>2",
+      "integer-literal:386:15:0>1",
+      "integer-literal:395:16:1>2",
+      "integer-literal:557:53:0>1",
+      "integer-literal:557:57:1>2",
+      "integer-literal:557:61:2>3",
+      "integer-literal:700:35:1>2",
+      "integer-literal:798:17:0>1",
+      "integer-literal:798:21:1>2",
     ]);
     // Not a formality: an empty reason would let a future row be waved through.
     for (const r of accepted) expect(r.reason.length).toBeGreaterThan(40);

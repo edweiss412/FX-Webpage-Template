@@ -409,6 +409,31 @@ describe("round-4 boundary repairs, pinned in an ENROLLED suite", () => {
     expect(parseGauge(screen)).toBe(2);
   });
 
+  it("consecutive calls on one screen agree", () => {
+    // The invariant behind the `/g` regex. `lastIndex` is per-REGEX-OBJECT and
+    // the object is module-level, so a leak between calls would make the same
+    // screen parse differently on a second read -- and a report renders every
+    // pane through this one function, so pane N would be misread because of
+    // pane N-1.
+    //
+    // Pinned as BEHAVIOUR rather than as the reset statement that used to
+    // implement it: the mutation gate showed that statement was dead (exhaustive
+    // iteration self-resets when `exec` returns null), so asserting the property
+    // keeps holding however the loop is written.
+    const screen = ["note about ctx ████░", "Opus 5 ctx █░░░░ 5h"].join("\n");
+    const reads = [parseGauge(screen), parseGauge(screen), parseGauge(screen)];
+    expect(reads).toEqual([2, 2, 2]);
+  });
+
+  it("a screen with no gauge does not poison the next read", () => {
+    // The interleaving that a leaked `lastIndex` would break: a miss between two
+    // hits. Ordinary in a real report, where panes without a gauge sit beside
+    // panes with one.
+    expect(parseGauge("Opus 5 ctx ███░░ 5h")).toBe(6);
+    expect(parseGauge("no gauge on this screen")).toBeNull();
+    expect(parseGauge("Opus 5 ctx ███░░ 5h")).toBe(6);
+  });
+
   it("still reads a screen whose only gauge is the footer", () => {
     // The other side: taking the last match must not require two.
     expect(parseGauge("Opus 5 ctx ███░░ 5h")).toBe(6);

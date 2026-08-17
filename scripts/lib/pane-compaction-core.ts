@@ -66,7 +66,20 @@ export function parseGauge(screen: string): number | null {
   //
   // Anchoring to the footer's POSITION rather than its content, because the
   // content is exactly what a transcript can imitate.
-  GAUGE.lastIndex = 0;
+  // No `lastIndex` reset, deliberately. The loop below runs to EXHAUSTION, and
+  // a `/g` regex resets `lastIndex` to 0 the moment `exec` returns null, so the
+  // state cannot leak into the next call. Probed rather than reasoned: 4000
+  // call sequences against a REUSED regex object, with and without an explicit
+  // reset, produced identical results on every one.
+  //
+  // The reset was here and the mutation gate flagged its removal as a surviving
+  // mutant. It was right -- the line could not affect behaviour, which makes it
+  // dead code rather than a guard. Removed instead of ledgered as equivalent:
+  // the invariant it was standing in for is "consecutive calls agree", and that
+  // is pinned by a test, which keeps holding if this loop is ever rewritten.
+  //
+  // The one thing that WOULD break it is exiting the loop early. Do not add a
+  // `break` here without restoring the reset.
   let cells: string | undefined;
   for (let m = GAUGE.exec(screen); m !== null; m = GAUGE.exec(screen)) cells = m[1];
   if (cells === undefined) return null;

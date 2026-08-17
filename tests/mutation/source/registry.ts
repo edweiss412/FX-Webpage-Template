@@ -313,42 +313,42 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // is the ledger working, not a defect in it.
     accepted: [
       {
-        siteId: "integer-literal:512:53:0>1",
+        siteId: "integer-literal:557:53:0>1",
         kind: "equivalent",
         reason:
           "`checkExitCode`'s RETURN TYPE `0 | 1 | 2`, not a returned value. The literals it " +
           "actually returns live in the body and are killed by cli.test.ts.",
       },
       {
-        siteId: "integer-literal:512:57:1>2",
+        siteId: "integer-literal:557:57:1>2",
         kind: "equivalent",
         reason: "The `1` of the same `0 | 1 | 2` return-type annotation on `checkExitCode`.",
       },
       {
-        siteId: "integer-literal:512:61:2>3",
+        siteId: "integer-literal:557:61:2>3",
         kind: "equivalent",
         reason: "The `2` of the same `0 | 1 | 2` return-type annotation on `checkExitCode`.",
       },
       {
-        siteId: "integer-literal:646:35:1>2",
+        siteId: "integer-literal:700:35:1>2",
         kind: "equivalent",
         reason:
           "`export type Refusal = { exitCode: 1; ... }` -- a type alias. The refusal objects that " +
           "carry a real `exitCode: 1` are constructed elsewhere and asserted by cli.test.ts.",
       },
       {
-        siteId: "integer-literal:744:17:0>1",
+        siteId: "integer-literal:798:17:0>1",
         kind: "equivalent",
         reason: "The `0` of the `{ exitCode: 0 | 1; message: string }` return-type annotation.",
       },
       {
-        siteId: "integer-literal:744:21:1>2",
+        siteId: "integer-literal:798:21:1>2",
         kind: "equivalent",
         reason:
           "The `1` of the same `{ exitCode: 0 | 1; message: string }` return-type annotation.",
       },
       {
-        siteId: "integer-literal:341:15:0>1",
+        siteId: "integer-literal:386:15:0>1",
         kind: "equivalent",
         reason:
           "`let count = 0` in newestVerdictTie. PROBED, not argued from the line's shape: a " +
@@ -358,7 +358,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "none the predicate `count > 1` is false either way.",
       },
       {
-        siteId: "integer-literal:350:16:1>2",
+        siteId: "integer-literal:395:16:1>2",
         kind: "equivalent",
         reason:
           "`count += 1` in newestVerdictTie. PROBED by the same 3616-sequence differential run: ZERO " +
