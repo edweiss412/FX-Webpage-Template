@@ -36,7 +36,7 @@ describe("precedence ordering — the cases prior rounds found", () => {
     // Ownership resolves from paneId alone and needs no marker, so rule 3 must
     // precede the accept-set. Both rules genuinely match this pane; only the
     // order decides, which is why it is asserted rather than assumed.
-    const pane = aPane({ owned: false, rejectedField: "marker" });
+    const pane = aPane({ claimed: false, rejectedField: "marker" });
     const v = classify(pane);
     premiseHolds("this pane really does fail the accept-set too", v.alsoMatched.includes(4));
     expect(v.verdict).toBe("UNOWNED");
@@ -46,7 +46,7 @@ describe("precedence ordering — the cases prior rounds found", () => {
   it("spec round 1: below-band + missing marker field is UNDETERMINED, not HOLD", () => {
     // Validation precedes banding. Without the ordering this pane is HOLD,
     // which reads as "nothing to do" for a pane we could not actually classify.
-    const pane = aPane({ owned: true, tenths: 2, rejectedField: "next" });
+    const pane = aPane({ claimed: true, tenths: 2, rejectedField: "next" });
     const v = classify(pane);
     expect(v.verdict).toBe("UNDETERMINED");
     expect(v.rule).toBe(4);

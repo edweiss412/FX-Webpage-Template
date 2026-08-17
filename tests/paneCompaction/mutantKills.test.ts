@@ -40,7 +40,7 @@ function quietPane(over: Partial<ObservedPane> = {}): ObservedPane {
     branch: "feat/x",
     duplicateName: false,
     status: "idle",
-    owned: true,
+    claimed: true,
     contested: false,
     rejectedField: null,
     sessionMismatch: false,

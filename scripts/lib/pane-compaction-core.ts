@@ -103,7 +103,15 @@ export type ObservedPane = {
   /** true when another roster entry shares this pane's agent name. */
   duplicateName: boolean;
   status: "idle" | "working" | "blocked" | "done" | "unknown";
-  owned: boolean;
+  /**
+   * A valid, uncontested registry row claims this pane -- by ANYONE.
+   *
+   * Rule 3 asks whether the pane is claimed at all, which is what spec §4.2's
+   * UNOWNED means. Whether the CALLER may drive it is a separate question the
+   * adapter asks at the drive gate, because the report has no caller to compare
+   * against and must not answer it.
+   */
+  claimed: boolean;
   contested: boolean;
   /** null when the accept-set rejected an input; the string names the offending field. */
   rejectedField: string | null;
@@ -140,7 +148,7 @@ export function classify(pane: ObservedPane): Classification {
 
   hit(1, pane.branch === null);
   hit(2, pane.branch !== null && pane.duplicateName);
-  hit(3, !pane.owned || pane.contested);
+  hit(3, !pane.claimed || pane.contested);
   hit(4, pane.rejectedField !== null);
   hit(5, pane.sessionMismatch);
   hit(6, pane.ghFault);
@@ -374,6 +382,17 @@ export type PurviewFile = { sessionId: string; rows: PurviewRow[] };
 
 export type Ownership =
   | { kind: "owned" }
+  /**
+   * A VALID, uncontested claim held by a different session.
+   *
+   * Distinct from `unowned`, and the distinction is spec §4.2: UNOWNED means
+   * "not in any purview registry, or in more than one", NOT "claimed by someone
+   * other than you". Collapsing the two made the DEFAULT report -- which has no
+   * `--as` and so compares against the empty string -- call every singly-claimed
+   * pane UNOWNED (diff round 1, finding 5). Driving still requires `owned`; the
+   * report just stops mislabelling other people's panes as unclaimed.
+   */
+  | { kind: "owned-by-other"; sessionId: string }
   | { kind: "unowned"; reason: string }
   | { kind: "contested"; claimants: string[] };
 
@@ -411,7 +430,7 @@ export function resolveOwnership(
     };
   }
   if (file.sessionId !== asSessionId) {
-    return { kind: "unowned", reason: `owned by ${file.sessionId}` };
+    return { kind: "owned-by-other", sessionId: file.sessionId };
   }
   return { kind: "owned" };
 }

@@ -22,6 +22,7 @@ import { describe, expect, it } from "vitest";
 import { CHECKPOINT_TEXT, RESUME_TEXT, classifyGh } from "@/scripts/lib/pane-compaction-core";
 import {
   MALFORMED_MARKER,
+  SendFailed,
   type Surface,
   main,
   parseAgentGet,
@@ -463,6 +464,63 @@ describe("every refusal NAMES its reason", () => {
 });
 
 describe("the three commands", () => {
+  it("the default report does not call a singly-claimed pane UNOWNED", () => {
+    // Diff round 1, finding 5 (P1). Report mode passes "" as the caller, and
+    // `resolveOwnership` treated "not you" as unowned, so the plain report --
+    // the one used between protocol steps -- labelled every claimed pane UNOWNED.
+    const { surface, run: r } = fakeSurface();
+    const code = main([], surface);
+    expect(code).toBe(0);
+    const row = r.lines.find((l) => l.includes("wM:p1")) ?? "";
+    expect(row).not.toContain("UNOWNED");
+  });
+
+  it("a pane claimed by another orchestrator is refused BY NAME, not driven", () => {
+    // The hole the fix above could have opened: rule 3 no longer fires for a
+    // pane someone else claims, so the drive gate must refuse it itself. Named
+    // as its own condition rather than folded into `not-drivable`, because
+    // "someone else owns this" and "this pane is not ready" are different things
+    // for an operator to act on.
+    const sent: Array<{ target: string; text: string }> = [];
+    const { surface, run: r } = fakeSurface({
+      send: (target, text) => sent.push({ target, text }),
+    });
+    const code = main(["--checkpoint", "wM:p1", "--as", "not-the-owner"], surface);
+    expect(code).toBe(1);
+    expect(sent).toEqual([]);
+    expect(r.lines.join("\n")).toContain("claimed by");
+  });
+
+  it("a refused send is a named fault, not a silent success", () => {
+    // Diff round 1, finding 4 (P1). `send` discarded the exit code and the
+    // command returned 0 regardless, so a refused send reported success. An
+    // injected throwing send also escaped `main` entirely.
+    const { surface, run: r } = fakeSurface({
+      send: (target) => {
+        throw new SendFailed(target, "no such pane");
+      },
+    });
+    const code = main(["--checkpoint", "wM:p1", "--as", "sess-1"], surface);
+    expect(code).toBe(2);
+    expect(r.lines.join("\n")).toContain("failed");
+  });
+
+  it("a refused --compact says the checkpoint must be re-minted", () => {
+    // The consequence an operator cannot infer: --compact consumes the nonce
+    // BEFORE sending, so the obvious retry refuses. Without this line the tool
+    // reports a failure whose only remedy looks like the thing that just failed.
+    const { surface, run: r } = fakeSurface({
+      marker: () => ({ sessionId: "sess-target", checkpointNonce: "n1" }),
+      nonceRead: () => "n1",
+      send: (target) => {
+        throw new SendFailed(target, "pane closed");
+      },
+    });
+    const code = main(["--compact", "wM:p1", "--as", "sess-1"], surface);
+    expect(code).toBe(2);
+    expect(r.lines.join("\n")).toContain("re-run --checkpoint");
+  });
+
   it("a corpus tie for newest verdict is UNDETERMINED, and is not driven", () => {
     // Diff round 1, finding 6 (P1). Spec §3.5 and the §9 table both say a tie
     // yields UNDETERMINED; nothing implemented it, so the winner was whichever

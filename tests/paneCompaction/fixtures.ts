@@ -46,7 +46,7 @@ export function aPane(overrides: PaneOverrides = {}): ObservedPane {
     branch: "feat/example",
     duplicateName: false,
     status: "working",
-    owned: true,
+    claimed: true,
     contested: false,
     rejectedField: null,
     sessionMismatch: false,

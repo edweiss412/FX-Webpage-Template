@@ -47,12 +47,25 @@ describe("resolveOwnership", () => {
     expect(resolveOwnership("wM:p1", "feat/x", all, THEM).kind).toBe("contested");
   });
 
-  it("a pane owned by ANOTHER orchestrator is unowned to me, not owned", () => {
+  it("a pane owned by ANOTHER orchestrator is owned-by-other, never mine", () => {
+    // Diff round 1, finding 5 (P1). This previously returned `unowned`, and that
+    // collapse is what made the DEFAULT report -- which has no `--as`, so it
+    // compares against the empty string -- call every singly-claimed pane
+    // UNOWNED. Spec §4.2 defines UNOWNED as "not in any purview registry, or in
+    // more than one", which a pane someone else validly claims is neither.
+    //
+    // The distinction must not become a licence to drive: `owned-by-other` is
+    // refused at the drive gate by its own named condition, asserted in
+    // adapter.test.ts. Here we pin only that it is not `owned` and not
+    // `unowned`.
     const all = files({
       sessionId: THEM,
       rows: [{ paneId: "wM:p1", agentName: "feat/x", branch: "feat/x", dispatchedAt: "" }],
     });
-    expect(resolveOwnership("wM:p1", "feat/x", all, ME).kind).toBe("unowned");
+    const o = resolveOwnership("wM:p1", "feat/x", all, ME);
+    expect(o.kind).toBe("owned-by-other");
+    expect(o.kind).not.toBe("owned");
+    if (o.kind === "owned-by-other") expect(o.sessionId).toBe(THEM);
   });
 
   it("a row whose branch no longer matches the pane is STALE and confers nothing", () => {

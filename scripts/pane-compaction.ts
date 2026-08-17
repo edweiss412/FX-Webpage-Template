@@ -295,7 +295,12 @@ function observe(
     duplicateName:
       resolvedBranch !== null && roster.filter((r) => r.agentName === pane.agentName).length > 1,
     status: (STATUSES.has(pane.status) ? pane.status : "unknown") as ObservedPane["status"],
-    owned: ownership.kind === "owned",
+    // CLAIMED, not owned-by-me. Rule 3's question is spec §4.2's UNOWNED --
+    // "not in any purview registry, or in more than one" -- and the report has
+    // no caller to compare against, so answering "owned by you?" there labelled
+    // every singly-claimed pane UNOWNED (diff round 1, finding 5). Whether THIS
+    // caller may drive is asked at the drive gate instead.
+    claimed: ownership.kind === "owned" || ownership.kind === "owned-by-other",
     contested: ownership.kind === "contested",
     rejectedField,
     // Rule 5 asks whether the session that WROTE the marker is still the one in
@@ -449,7 +454,25 @@ export function main(argv: string[], s: Surface): number {
       );
       return 1;
     }
-    return drive(opts, pane, roster, s);
+    // A refused send is a FAULT (exit 2), not a refusal (exit 1): the command
+    // was authorized and the tool underneath failed, which is a different thing
+    // for an operator to do something about. Caught here so it cannot escape
+    // `main` as an unhandled throw, which is what the round-1 probe observed.
+    try {
+      return drive(opts, pane, roster, s);
+    } catch (e) {
+      if (e instanceof SendFailed) {
+        s.out(`refusing: ${e.message}`);
+        // Said explicitly, because the retry is NOT obvious: --compact consumes
+        // the nonce before sending, so re-running it will refuse. The target
+        // needs a fresh --checkpoint first.
+        if (opts.mode === "compact") {
+          s.out("the checkpoint was already consumed; re-run --checkpoint before --compact");
+        }
+        return 2;
+      }
+      throw e;
+    }
   }
 
   const cache = cacheOf(s);
@@ -473,6 +496,29 @@ function drive(opts: Parsed, pane: RosterPane, roster: RosterPane[], s: Surface)
   const as = opts.as!;
   const cache = cacheOf(s);
   const report = observe(pane, roster, as, s, cache);
+
+  // OWNERSHIP BY THIS CALLER, asked here rather than by rule 3.
+  //
+  // Rule 3 now answers spec §4.2's question -- is the pane claimed AT ALL --
+  // because the report has no caller and must not label other people's panes
+  // unclaimed. That correction would otherwise open a hole in the other
+  // direction: a pane validly claimed by ANOTHER orchestrator passes rule 3 and
+  // would be drivable. It is refused here, before any send, and named as its own
+  // condition rather than folded into `not-drivable`.
+  const ownership = resolveOwnership(
+    pane.paneId,
+    pane.agentName !== null && cache.branches.has(pane.agentName) ? pane.agentName : null,
+    cache.purview,
+    as,
+  );
+  if (ownership.kind === "owned-by-other") {
+    s.out(`refusing: ${pane.paneId} is claimed by ${ownership.sessionId}, not by ${as}`);
+    return 1;
+  }
+  if (ownership.kind === "unowned") {
+    s.out(`refusing: ${pane.paneId} is not in your purview: ${ownership.reason}`);
+    return 1;
+  }
   const marker = s.marker(pane.cwd);
   const markerNonce =
     typeof marker?.["checkpointNonce"] === "string" ? marker["checkpointNonce"] : null;
@@ -566,6 +612,26 @@ function drive(opts: Parsed, pane: RosterPane, roster: RosterPane[], s: Surface)
 
 const PURVIEW_DIR = join(homedir(), ".claude", "pane-purview");
 const NONCE_DIR = join(homedir(), ".claude", "pane-nonces");
+
+/**
+ * A send that herdr refused, kept distinct from every other throw.
+ *
+ * Diff round 1, finding 4 (P1). `send` discarded `sh`'s exit code and the
+ * command returned 0 regardless, so a refused send reported success. The prompt
+ * text and the submitting `\r` are SEPARATE subprocesses, so a failure between
+ * them leaves a typed-but-unsubmitted prompt sitting in the target's box -- and
+ * for `--compact` the nonce has already been consumed, so the obvious retry
+ * refuses too.
+ */
+export class SendFailed extends Error {
+  constructor(
+    readonly target: string,
+    detail: string,
+  ) {
+    super(`herdr agent send to ${target} failed: ${detail}`);
+    this.name = "SendFailed";
+  }
+}
 
 function sh(cmd: string, args: string[], cwd?: string): GhInvocation {
   try {
@@ -717,7 +783,10 @@ export function realSurface(): Surface {
     screen: (paneId) => sh("herdr", ["pane", "read", paneId, "--source", "visible"]).stdout,
     resolveTarget: (target) => parseAgentGet(sh("herdr", ["agent", "get", target])),
     send: (target, text) => {
-      sh("herdr", ["agent", "send", target, text]);
+      const run = sh("herdr", ["agent", "send", target, text]);
+      if (run.exitCode !== 0) {
+        throw new SendFailed(target, run.stderr.trim() || `exited ${run.exitCode}`);
+      }
     },
     purview: () => {
       if (!existsSync(PURVIEW_DIR)) return [];
