@@ -241,6 +241,135 @@ export const GUARD_SURFACES: GuardSurface[] = [
     accepted: [],
   },
   {
+    // The orchestrator pane-compaction classifier. Enrolled BEFORE the
+    // whole-diff review, because that review's brief must carry a
+    // `GUARD SURFACE:` line with a real score.
+    id: "paneCompactionCore",
+    sourcePath: "scripts/lib/pane-compaction-core.ts",
+    suitePaths: [
+      "tests/paneCompaction/bands.test.ts",
+      "tests/paneCompaction/precedence.test.ts",
+      "tests/paneCompaction/acceptSet.test.ts",
+      "tests/paneCompaction/position.test.ts",
+      "tests/paneCompaction/purview.test.ts",
+      "tests/paneCompaction/cli.test.ts",
+      "tests/paneCompaction/driver.test.ts",
+      // Pins which RULE decided, not merely which verdict came out. Rules 4-6
+      // share a verdict and rules 7/8/11/12 can share one, so without this the
+      // hit(5..8) and verdictFor-key mutants all survived.
+      "tests/paneCompaction/ruleIdentity.test.ts",
+      // Lands ON the band boundaries the other suites straddle, pins renderRow's
+      // absolute column offsets, and COUNTS mintNonce's retries. The first run
+      // scored 0.8282 with 28 survivors and every one was a boundary approached
+      // from both sides but never landed on, an offset nothing asserted, or a
+      // loop bound nothing counted.
+      "tests/paneCompaction/mutantKills.test.ts",
+      "tests/paneCompaction/revalidate.test.ts",
+    ],
+    // Five of the six. `regex-quantifier-bound` is EXCLUDED, and the exclusion
+    // is probed rather than assumed: it recognizes only `{m,n}` quantifiers
+    // inside literal text, and this surface's two regexes use `{5}` (exact) and
+    // `\s+` / `\b`, so it generates ZERO sites here. Measured:
+    //
+    //     11  relational-boundary      65  integer-literal
+    //     51  equality-flip             0  regex-quantifier-bound
+    //     19  logical-connector        17  statement-removal
+    //
+    // Declaring it anyway would be a DARK operator: the gate asserts only that
+    // total mutants exceed zero, so it would pass while contributing nothing.
+    // The enrolment suite asserts every DECLARED operator has a site, which is
+    // what turned this from a plan claim into a measurement.
+    operators: [
+      "relational-boundary",
+      "equality-flip",
+      "logical-connector",
+      "integer-literal",
+      "statement-removal",
+    ],
+    // The house value. A FLOOR, not a snapshot: pinning it at the measured
+    // score turns every future line of this module into a gate failure before
+    // it has a test, which is how a ratchet becomes a wall.
+    scoreFloor: 0.95,
+    // Lowering the eligibility threshold makes every below-band fixture band
+    // as eligible, which bands.test.ts asserts IN PROCESS. Run, not merely
+    // asserted non-equal to the source.
+    control: { from: "export const ELIGIBLE_AT = 5;", to: "export const ELIGIBLE_AT = 0;" },
+    // Eight survivors, every one argued rather than deferred. NO `accepted-gap`
+    // rows: a gap is real coverage debt and owes a BL- ref, and none of these is
+    // debt.
+    //
+    // SIX are TYPE ANNOTATIONS (`: 0 | 1 | 2`, `exitCode: 1`,
+    // `{ exitCode: 0 | 1 }`). TypeScript erases them and the runner's children
+    // transpile without typechecking, so the emitted JavaScript is byte-identical
+    // and no test could ever kill one.
+    //
+    // TWO are counter details inside `newestVerdictTie`, which reports
+    // `count > 1`. Neither the initial value nor the increment SIZE can move that
+    // predicate: the counter is reset to 1 on every new maximum, so it is 1 with
+    // no tie and >= 2 with one, whichever constant is used. Argued, not assumed.
+    //
+    // Line-keyed, and re-keyed once already: the round-1 repairs moved the core
+    // and the gate correctly reported all six original rows stale. That staleness
+    // is the ledger working, not a defect in it.
+    accepted: [
+      {
+        siteId: "integer-literal:557:53:0>1",
+        kind: "equivalent",
+        reason:
+          "`checkExitCode`'s RETURN TYPE `0 | 1 | 2`, not a returned value. The literals it " +
+          "actually returns live in the body and are killed by cli.test.ts.",
+      },
+      {
+        siteId: "integer-literal:557:57:1>2",
+        kind: "equivalent",
+        reason: "The `1` of the same `0 | 1 | 2` return-type annotation on `checkExitCode`.",
+      },
+      {
+        siteId: "integer-literal:557:61:2>3",
+        kind: "equivalent",
+        reason: "The `2` of the same `0 | 1 | 2` return-type annotation on `checkExitCode`.",
+      },
+      {
+        siteId: "integer-literal:700:35:1>2",
+        kind: "equivalent",
+        reason:
+          "`export type Refusal = { exitCode: 1; ... }` -- a type alias. The refusal objects that " +
+          "carry a real `exitCode: 1` are constructed elsewhere and asserted by cli.test.ts.",
+      },
+      {
+        siteId: "integer-literal:798:17:0>1",
+        kind: "equivalent",
+        reason: "The `0` of the `{ exitCode: 0 | 1; message: string }` return-type annotation.",
+      },
+      {
+        siteId: "integer-literal:798:21:1>2",
+        kind: "equivalent",
+        reason:
+          "The `1` of the same `{ exitCode: 0 | 1; message: string }` return-type annotation.",
+      },
+      {
+        siteId: "integer-literal:386:15:0>1",
+        kind: "equivalent",
+        reason:
+          "`let count = 0` in newestVerdictTie. PROBED, not argued from the line's shape: a " +
+          "differential run over 3616 row sequences (every combination up to length 3 over " +
+          "null/invalid/valid timestamps x verdict/no_verdict/other statuses) found ZERO inputs " +
+          "separating 0 from 1. The counter is ASSIGNED 1 on the first qualifying row, and with " +
+          "none the predicate `count > 1` is false either way.",
+      },
+      {
+        siteId: "integer-literal:395:16:1>2",
+        kind: "equivalent",
+        reason:
+          "`count += 1` in newestVerdictTie. PROBED by the same 3616-sequence differential run: ZERO " +
+          "inputs separate `+= 1` from `+= 2`. The increment fires only on a tie, where the count " +
+          "is already >= 1, so `count > 1` is true under both. Argued from evaluated OUTPUT, never " +
+          "from the site's shape -- a boundary or literal that merely LOOKS inert is how a real " +
+          "defect gets blessed as equivalent.",
+      },
+    ],
+  },
+  {
     // The modal-wait guard's predicate module (2026-08-16 adoption arc §4.4,
     // AC-3). Authored as an importable module with a referring suite from the
     // start, so enrolment is a registry row rather than a restructuring.
@@ -2017,6 +2146,49 @@ export const GUARD_SURFACES: GuardSurface[] = [
     control: {
       from: "surface.accepted.length * (suites - 1) + suites",
       to: "suites",
+    },
+    accepted: [],
+  },
+  /**
+   * The bounded-spawn module, enrolled 2026-08-17 with a SCOPED operator subset.
+   *
+   * Only the mocked suite decides verdicts. The live process-tree suite is
+   * deliberately NOT listed: every one of its cases spawns real processes, and
+   * `suitePaths` is executed once per mutant, so listing it would multiply the
+   * whole surface's cost by a live-spawn suite for behaviour the registry
+   * cannot mutate anyway.
+   *
+   * `regex-quantifier-bound` is excluded because the module contains no regex,
+   * and `relational-boundary` because it contains no ordering comparison — both
+   * would generate zero sites rather than being a judgement call. The remaining
+   * four are the module's whole substance: the equality checks that separate a
+   * timeout from an infra fault, the connector in `killGroup`'s guard, the
+   * default ceiling, and the statements that arm and reap.
+   *
+   * The perl watchdog is a string literal and no declared operator rewrites
+   * string content (`./operators.ts:17-24`), so the registry can generate no
+   * semantic mutant of the program's behaviour: CANNOT-EXPRESS, guarded by
+   * `./spawnBounded.live.test.ts` instead (spec §8).
+   */
+  {
+    id: "spawnBounded",
+    sourcePath: "tests/mutation/source/spawnBounded.ts",
+    suitePaths: ["tests/mutation/source/spawnBounded.test.ts"],
+    operators: ["equality-flip", "logical-connector", "integer-literal", "statement-removal"],
+    // MEASURED 12/12 on 2026-08-17, no survivor and no no-op, so the floor is
+    // the score. Twelve sites: equality-flip 5, integer-literal 3,
+    // logical-connector 2, statement-removal 2. A floor of 1 means the first
+    // survivor this surface ever produces reds the gate and owes a written
+    // disposition, which is the right trade on a module this small — there is
+    // no coarse-floor slack to hide a row migrating between kinds.
+    scoreFloor: 1,
+    // Reaps the group on the arm that must NOT reap it and skips the two that
+    // must, so the suite's "never reaps after a clean exit" case and both
+    // "reaps after ..." cases move in opposite directions at once. Verified
+    // unique on the current source (grep -c -F = 1).
+    control: {
+      from: 'if (outcome.kind !== "exit") killGroup(result.pid, ownGroup);',
+      to: 'if (outcome.kind === "exit") killGroup(result.pid, ownGroup);',
     },
     accepted: [],
   },
