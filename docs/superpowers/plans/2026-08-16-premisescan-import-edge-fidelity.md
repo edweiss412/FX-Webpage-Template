@@ -167,7 +167,9 @@ Three consecutive review rounds found defects in the fenced `ts` blocks below th
 npx tsx .claude/probe/planTypecheck.ts docs/superpowers/plans/2026-08-16-premisescan-import-edge-fidelity.md
 ```
 
-Expected: `reported=0`, exit 0. The script splices every test-shaped `ts` block into one virtual file ahead of the module surface those blocks assume and reports the diagnostic classes that matter here (`TS2393` duplicate implementation, `TS2304` undefined name, `TS2554` wrong arity, `TS2339`/`TS2551` bad property, `TS2367` impossible comparison, `TS2345` bad argument). **Re-run it after ANY edit to a test block in this plan** — that is the gate the three rounds above were paying for, and copying a block into `premiseScan.test.ts` before it typechecks here just moves the failure.
+Expected: `reported=0 shapes=0`, exit 0. The script splices every test-shaped `ts` block into one virtual file ahead of the module surface those blocks assume and reports the diagnostic classes that matter here (`TS2393` duplicate implementation, `TS2304` undefined name, `TS2554` wrong arity, `TS2339`/`TS2551` bad property, `TS2367` impossible comparison, `TS2345` bad argument).
+
+**It also carries shape checks the compiler cannot make.** `expect(classificationWithModules(…)).toBe("environment-touching")` compares an OBJECT to a STRING; `toBe` accepts anything, so it typechecks cleanly and fails at runtime on every such case. Six survived a pass that reported zero diagnostics, which is why `shapes` is a separate counter and why "the typecheck was green" is not by itself evidence a block is sound. **Re-run it after ANY edit to a test block in this plan** — that is the gate the three rounds above were paying for, and copying a block into `premiseScan.test.ts` before it typechecks here just moves the failure.
 
 - [ ] **Step 5: Note the corpus base-sha split.** The merge moves `git merge-base origin/main HEAD`, so rows already written under `docs/review-rounds/fix/premisescan-import-edges/` for the pre-merge base sit beside a second file keyed on the post-merge one. That is intended — round counts are per merge-base — but Task 7 must read BOTH.
 
@@ -421,7 +423,7 @@ describe("export resolution: the lookup asks for an EXPORT, not a local name", (
         { helper: SPAWNER_DEFAULT },
         `import spawnHelper from "__MODULE_helper__";
          it("x", () => { spawnHelper(); });`,
-      ),
+      )?.verdict,
     ).toBe("environment-touching");
   });
 
@@ -639,7 +641,7 @@ describe("export resolution: the lookup asks for an EXPORT, not a local name", (
         },
         `import { C } from "__MODULE_helper__";
          it("x", () => { new C().go(); });`,
-      ),
+      )?.verdict,
     ).toBe("environment-touching");
   });
 
@@ -721,7 +723,7 @@ describe("export resolution: the lookup asks for an EXPORT, not a local name", (
         },
         `import { spawnHelper } from "__MODULE_helper__";
          it("x", () => { spawnHelper(); });`,
-      ),
+      )?.verdict,
     ).toBe("environment-touching");
   });
 });
@@ -1367,7 +1369,7 @@ describe("namespace bindings: member-precise, and nothing else", () => {
 
   it("`ns.member` resolves to that member", () => {
     expect(
-      classificationWithModules({ helper: MIXED }, `import * as ns from "__MODULE_helper__";
+      verdictWithModules({ helper: MIXED }, `import * as ns from "__MODULE_helper__";
         it("x", () => { ns.spawner(); });`),
     ).toBe("environment-touching");
   });
@@ -1446,7 +1448,7 @@ describe("namespace bindings: member-precise, and nothing else", () => {
 
   it("AC-10b stays quiet through a namespace", () => {
     expect(
-      classificationWithModules({ helper: ENVELOPE }, `import * as env from "__MODULE_helper__";
+      verdictWithModules({ helper: ENVELOPE }, `import * as env from "__MODULE_helper__";
         it("x", () => { env.reportEnvelope({ ok: true }); });`),
     ).toBe("environment-free");
   });
@@ -1678,7 +1680,7 @@ describe("unclassifiable propagation: a construct anywhere reachable reaches the
           `import { spawnHelper } from "__MODULE_helper__";
            ${hook}(() => { spawnHelper(); });
            it("x", () => { expect(1).toBe(1); });`,
-        ),
+        )?.verdict,
       ).toBe("environment-touching");
     },
   );
@@ -2014,7 +2016,7 @@ npx vitest run tests/docs/_metaLedgerInProgress.test.ts
 
 Expected: FAIL — an archive may not hold an entry whose status is IN PROGRESS.
 
-- [ ] **Step 3: Write the graduation record. Do NOT strip the marker yet** — it comes off in the final commit (see the ordering note at Step 5). Replace only the entry's body with the graduation record: date, PR number, what shipped, and which of spec §4's limits remain open as documented limits rather than defects. The `**Status:** IN PROGRESS · **Branch:** …` field stays until the final commit.
+- [ ] **Step 3: Strip the `**Status:** IN PROGRESS · **Branch:** fix/premisescan-import-edges` field**, replacing it with the graduation record: date, PR number, what shipped, and which of spec §4's limits remain open as documented limits rather than defects. **This is the same edit session as Step 2's archive move, and that is required rather than convenient:** AGENTS.md invariant 12 says a GRADUATING entry's marker comes off in the same commit that archives it, precisely because archives categorically reject in-progress entries. A round-5 draft deferred the strip to a post-review commit, which left Step 4's `_metaLedgerInProgress` run asserting PASS over an archived entry still marked in progress — a state the guard rejects by construction (`{"isArchive":true,"isInProgress":true,"rejected":true}`).
 
 - [ ] **Step 4: Run the ledger and docs gates.**
 
@@ -2036,10 +2038,10 @@ Expected: all PASS. **Read every file in that directory, not one** — Task 0's 
 
 The resolution, and it has to account for the review's own footprint:
 
-1. **Steps 2-4 land BEFORE the whole-diff review** — archive move, graduation record, gate runs. The reviewer therefore sees every substantive line that will merge.
-2. **Step 3 does NOT remove the marker.** A round-4 draft had it removing the marker there and then claimed the post-review commit was marker-only; both cannot be true. Step 3 writes the graduation record and leaves the marker in place.
+1. **Steps 2-5 land BEFORE the whole-diff review** — archive move, marker strip and graduation record in one commit, then the gate runs. The reviewer therefore sees every substantive line that will merge, including the graduation.
+2. **The marker comes off WITH the archive, in Step 3, not later.** Invariant 12 is explicit that a graduating entry works this way, and the guard enforces it: an archived entry still marked in progress is rejected, so deferring the strip makes Step 4 un-greenable. This arc's marker therefore never reaches `main` by virtue of the archive commit itself, which is the outcome invariant 12 wants.
 3. Any repair commits from the review land next.
-4. **The final commit is the marker deletion plus the review-corpus rows for that review.** The corpus rows cannot be in the reviewed tree by construction — the wrapper writes them at dispatch time, so the row describing a review always postdates the tree that review examined. That is true of every arc in this repo, not a property of this plan, and AGENTS.md's corpus contract already says the rows are committed with the arc. They are mechanically generated dispatch records, not substantive change; the marker deletion beside them is a one-line field removal whose entire purpose is to not exist on `main`. Nothing else may enter this commit.
+4. **The only post-review commit is the review-corpus rows for that review**, and there is no marker in it. The corpus rows cannot be in the reviewed tree by construction — the wrapper writes them at dispatch time, so the row describing a review always postdates the tree that review examined. That is true of every arc in this repo, not a property of this plan, and AGENTS.md's corpus contract already says the rows are committed with the arc. They are mechanically generated dispatch records, not substantive change. Nothing else may enter this commit.
 5. Re-read `docs/review-rounds/` before that commit: the diff-stage rows do not exist when Steps 2-4 first run, and a stage may cross `ROUND_THRESHOLD` on the strength of them, which would owe a filing that must itself be in the final commit.
 
 ```bash
