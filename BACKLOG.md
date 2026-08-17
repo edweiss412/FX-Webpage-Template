@@ -1413,6 +1413,28 @@ The filter is not loose by accident — it covers the eight parser shard files, 
 
 **The fix is a judgment call and is left open on purpose.** Raising the timeout for this case, bounding the walk to a window, caching the log per run, or restructuring what the case proves are all defensible, and they trade against each other differently depending on whether the point is the producer's correctness or its coverage of all history. **First scheduled step:** whoever owns `tests/reviewRounds/` picks between those, rather than the next arc that trips over it picking under time pressure.
 
+---
+
+### BL-SPECLINT-LINT-DRAFT-OUTSIDE-REPO — `spec:lint` refuses out-of-repo paths, so a draft written during a review freeze cannot be linted until it lands
+
+**Status:** OPEN · **Severity:** LOW · **Class:** tooling reach · **Filed:** 2026-08-16 (`feat/orchestrator-pane-compaction`, spec round-economy filing) · **Effort:** S
+
+**Probed, not theorized.** Invariant 11 puts every arc in a worktree, and the adversarial-review runbook freezes that worktree while a `codex-guard` dispatch is live — the wrapper reads the working tree, not the commit it was pointed at. The productive use of that window is drafting the next artifact in the session scratchpad. But:
+
+```
+$ pnpm spec:lint /private/tmp/claude-501/.../scratchpad/plan-draft.md
+document is outside the repository: /private/tmp/claude-501/.../scratchpad/plan-draft.md
+exit 2
+```
+
+So the draft cannot be checked until the freeze lifts and it is copied in, which is exactly when a defect becomes expensive.
+
+**What it cost here.** All ten task markers in a plan drafted during the spec round-3 freeze had `ac=` before `why=`. The grammar is fixed-order — `red=` → `red-state=` → `red-target=` → `why=` → `ac=` (`lib/specLint/taskContract.ts:49-52`) — so every one would have returned `TASK_MARKER_MALFORMED` on the plan dispatch. They were caught by hand-matching the regex, which is the check `spec:lint` exists to make unnecessary.
+
+**Why it is filed rather than fixed here.** Class-sweep disposition exception (c): the repair is to a surface this PR does not otherwise touch. It is also genuinely small — the checks that matter for a draft (task-marker grammar, numerics, copy, sections) are content-only; the citation checks are the sole part needing repo resolution, and they already resolve paths against the repo root rather than against the document. A `--content-only` flag, or resolving citations against the repo while accepting any readable path, would cover it.
+
+**Reachability:** PROBED — the command above, on this branch, 2026-08-16.
+
 ## BL-SPECLINT-CITED-SYMBOL-EXISTENCE — spec:lint proves a cited FILE exists and stops there, so a cited symbol that does not can survive to dispatch
 
 **Status:** OPEN. · **Filed:** 2026-08-16, from the review-round filing `docs/review-rounds/feat/mutation-section-order/40a7adfa5f29.md` (spec §, candidate a) · **Severity:** LOW (review-round cost; no product surface) · **Class:** review-round reduction (tooling) · **Effort:** S-M
@@ -1454,3 +1476,102 @@ The filter is not loose by accident — it covers the eight parser shard files, 
 **Reachability: PROBED as ZERO on the corpus.** Every col0 label in all 20 fixtures under `fixtures/shows/raw` and `fixtures/shows/exporter-xlsx` was matched against the live vocabulary: no label produces a type-(b) hit whose token-set size equals its entry's. Every live type-(b) match is a STRICT subset, so the boundary is undecided by the shipped inputs rather than decided wrongly.
 
 **Why it is a row and not a kill.** The killing input is a label the corpus does not contain, and `tests/parser/fieldNearMiss.test.ts`'s header forbids hand-written rows precisely because one can be tuned until it passes — so the gap is ledgered as `accepted-gap` with this ref rather than closed with a fixture that proves nothing about real sheets. **First scheduled step:** decide whether an equal-size token match SHOULD be a type-(b) hit at all (it is set equality, so arguably it belongs in the type-(a) arm keyed on the token set rather than the normalized string), then pin whichever direction is chosen. A real reordered-label instance appearing in a future sheet promotes this from a boundary question to an ordinary near-miss.
+
+## BL-SEND-AUTH-SINGLE-READ-LINT — a send-authorization path may read each surface at most once per pass
+
+**Status:** OPEN. · **Effort:** M — a structural lint plus a boundary decision about which surface
+methods it ranges over, and one existing passing instance to pin it against.
+
+One class of defect produced a P0 in four consecutive review rounds of
+`feat/orchestrator-pane-compaction`, and every intermediate repair was too
+small. r1 re-read the marker but authorized against a nonce captured earlier.
+r2 re-observed the pane but compared only the verdict. r3 compared the whole
+decision but ran it against the original roster. r4 fixed all of that and still
+read the marker twice — once inside revalidation, once for the nonce — so a
+takeover changing `sessionId` between the two reads preserved the nonce and
+passed rule 5 on the stale copy, and `/compact` was sent.
+
+**Probed, not theorized.** Each was demonstrated by a reviewer probe that
+exited 0 and sent bytes; the round-4 case is pinned by
+`tests/paneCompaction/adapter.test.ts` counting MARKER READS rather than
+asserting on a verdict, which is the only form that can see it.
+
+**Why a lint and not a test.** No suite assertion can express "these two values
+came from different instants" — four rounds of green tests coexisted with the
+defect. The mechanizable form is structural: inside a function that authorizes a
+send, each injected surface method may be invoked at most once per pass, so a
+second read is a lint error rather than a race nobody can see. Closing repair
+shipped in that arc (one snapshot per authorization) is the shape the lint would
+enforce.
+
+**First scheduled step:** decide the surface boundary the rule ranges over —
+every `Surface` method, or only the ones feeding a classification — then pin it
+against `scripts/pane-compaction.ts`, which is a passing instance today.
+
+## BL-ENROLLED-SUITE-PLACEMENT-METATEST — a test that names an enrolled surface must be in its suitePaths
+
+**Status:** OPEN. · **Effort:** S — a filesystem-walking meta-test in the shape of the existing
+mutation-surface registry, gated on how many current files would need an exemption row.
+
+Eight surviving mutants in round 2 of `feat/orchestrator-pane-compaction`
+existed because the assertions covering them lived in
+`tests/paneCompaction/adapter.test.ts`, which is not among that surface's
+`suitePaths`. They ran, they passed, and they contributed nothing to the score.
+
+**Probed, not theorized.** Moving the same assertions into an enrolled suite
+killed all eight with no change to the assertions themselves.
+
+**Why it recurs.** Nothing signals the omission: the suite is green, the tests
+are real, and the only symptom is a score that will not move for reasons the
+author cannot see. Mechanizable as a meta-test — a test file importing an
+enrolled surface's exports is either listed in that surface's `suitePaths` or
+carries an explicit exemption comment, the same fail-by-default shape as the
+mutation-surface registry.
+
+**First scheduled step:** measure how many existing test files would need an
+exemption row, since a rule that starts with a large exemption list is a rule
+nobody trusts.
+
+## BL-PANE-COMPACTION-SEND-AUTHORIZATION — the pane-compaction send path needs its own arc
+
+**Status:** OPEN. · **Effort:** L — an authorization redesign plus its own review arc; five diff
+rounds could not close it as a sub-part of the classifier PR.
+
+`pnpm panes:compact` ships with `--checkpoint`, `--compact` and `--resume` DISABLED. The classifier
+and the read-only surfaces (default report, `--check`, `--json`) ship enabled and mutation-scored.
+The three sending modes refuse before any observation and name this row.
+
+**Which deferral exception applies: (c)** — a redesign of a surface the PR does not otherwise
+settle. Not "same defect, different file": the send path needs an authorization model, and five
+adversarial rounds demonstrated that it does not converge as a sub-part of this diff.
+
+**Reachability: PROBED, repeatedly, by the reviewer.** Every one of these exited 0 and SENT bytes
+before its repair:
+
+- `--compact` authorized against a nonce captured before revalidation (AC-19).
+- Revalidation compared only the verdict, so a purview TRANSFER passed through (AC-13).
+- Revalidation ran against the ORIGINAL roster, freezing rules 1, 2, 5 and 7, so a takeover
+  swapping `agent_session` was invisible (AC-17).
+- The marker was read TWICE per authorization, so a `sessionId` change between the two reads
+  preserved the nonce and passed rule 5 on the stale copy (AC-13/AC-17).
+- `--checkpoint` and `--resume` never revalidated at all: they observed once and then sent, so a
+  marker that changed in between was never seen (§6 guarantee 1).
+- A labelled non-arc was driven and a checkpoint SENT to an orchestrator pane (AC-16).
+
+**Why this is a row and not more rounds.** Findings per diff round were 9, 5, 4, 4, 4 — flat, with
+a P0 in every round, and from round 3 on every P0 was in this path. The round cap is 4. Decisively,
+**two repairs introduced the following round's defect**: one added dead code the mutation gate
+caught, and one made a refusal LIE — roster disappearance encoded as a stale report with a null
+nonce, refusing with "marker carries no checkpointNonce" while a matching nonce sat in the marker,
+which would send an operator to re-checkpoint a pane that no longer exists. That is the ratchet: each
+repair is a bigger target for the next round.
+
+**First scheduled step:** decide the authorization model before writing code — specifically whether
+one atomic snapshot per authorization is sufficient, or whether the target must acknowledge before
+any byte is sent. Every defect above is an instance of "the decision and the send were separated by
+a window", and four incremental repairs narrowed that window without closing it.
+
+**Evidence:** the round-economy filing at
+`docs/review-rounds/feat/orchestrator-pane-compaction/7d332074ec97.md` carries the full round-by-round
+account. The adapter-level tests for the send path were removed when the fence landed and are
+recoverable from git history on this branch; restore them with the arc rather than rewriting them.

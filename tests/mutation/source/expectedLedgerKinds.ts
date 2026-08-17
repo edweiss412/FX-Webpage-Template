@@ -45,6 +45,11 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // first, owing its own filing AND a `scoreFloor` edit, and a new equivalent row is a
   // coverage regression to explain.
   psqlStartupScan: { equivalent: 18 },
+  // The pane-compaction classifier, enrolled with an EMPTY ledger: it is a pure
+  // classifier over injected fixtures, so every survivor is repayable by a test
+  // rather than blessable. A row appearing here later is a coverage regression
+  // to explain, not a number to bump.
+  paneCompactionCore: { equivalent: 8 },
   // 18/2 → 22/0 (2026-08-04, BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY). The two
   // `accepted-gap` rows were the comparator's equal-key blind spot, and adding
   // the message as a third key removed the gap rather than re-accepting it. The
