@@ -98,6 +98,40 @@ PG='psql'\ EOF               -> <psql\> (backslash is last byte, no newline)
 PG='psql'\ NL                -> <psql> (backslash-newline then EOF)
 ```
 
+## Round-1 supplement (2026-08-17, after the spec's first adversarial round)
+
+The round-1 review surfaced a wider lexer-fidelity class (double-quote backslash semantics,
+ANSI-C escapes) and one flag-criterion consequence. Probes, same two instruments:
+
+Scanner (current tree, same probe-script method):
+
+```
+{"label":"ANSI-C octal escape","hits":0}            PG=$'p\163ql'
+{"label":"ANSI-C hex escape","hits":0}              PG=$'\x70sql'
+{"label":"ANSI-C trailing newline escape","hits":0} PG=$'psql\n'
+{"label":"dq backslash-newline continuation","hits":1}  PSQL="/opt/pg/\<newline>psql"
+{"label":"dq literal backslash","hits":0}           PG="p\sql"
+{"label":"quoted leading space","hits":0}           PG=' psql'
+{"label":"site: psql --no-psqlrc<dangling backslash EOF>","sites":1,"suppresses":true}
+```
+
+Bash oracle (same runner; `g7` read back as words):
+
+```
+g1 PG=$'p\163ql'        -> <psql>
+g2 PG=$'\x70sql'        -> <psql>
+g3 PG=$'psql\n'         -> <psql> followed by a newline; unquoted use word-splits to <psql>
+g4 PSQL="/opt/pg/\<NL>psql" -> </opt/pg/psql>
+g5 PG="p\sql"           -> <p\sql>
+g6 PG=' psql'           -> < psql>; unquoted use word-splits to <psql>
+g7 psql --no-psqlrc\<EOF>   -> the argument is <--no-psqlrc\>
+```
+
+Readings: the ANSI-C decode gaps and the double-quote backslash-newline continuation are the
+same lexer-infidelity class as the dangling-EOF backslash; `PG="p\sql"` binds a literal-backslash
+value (must stay unreported); the `--no-psqlrc` dangling-backslash site is certified today on an
+argument bash never passes.
+
 ## Readings the spec relies on
 
 1. **The filed gap reproduces, wider than filed.** Six mixed/concatenated spellings the shell

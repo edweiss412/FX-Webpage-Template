@@ -9,9 +9,10 @@ and retire the wholly-quoted-or-wholly-bare regex family.
 **Architecture:** One new module-scope helper in `scan.ts` derives assignment-binding line indexes
 from the words `scanShellIndirection` already lexes; the per-line rule chain consumes that set in
 place of `ASSIGNED_VALUE_QUOTED`/`ASSIGNED_WHOLE_QUOTED` (single-word values) and
-`quotedValue`/`boundCommand` (multiword values). One lexer fidelity fix (dangling final backslash
-stays literal, as bash keeps it) makes the ratified trailing-backslash zeros fall out of shell
-semantics instead of pattern accidents.
+`quotedValue`/`boundCommand` (multiword values). Four lexer fidelity fixes (spec §3.2: dangling
+final backslash literal, double-quote backslash-newline removed, double-quote backslash literal
+except before its four specials, ANSI-C escapes decoded) make the words bash-faithful first, so
+the ratified trailing-backslash zeros fall out of shell semantics instead of pattern accidents.
 
 **Tech Stack:** TypeScript, vitest, the repo's source-mutation gate (`pnpm mutation:guards`
 scoped-run mechanics).
@@ -68,72 +69,100 @@ region (2107 onward), mutant-count drop from the deleted regex sites, and fresh 
 any NEW site the helper introduces. The spliced-loop kill site (relational-boundary:2167:54)
 disappears with its consumers' rewrite only if the `spliced` loop itself moves — it stays
 (`githubEnvWrite` still reads `spliced`), so its killing test keeps working unchanged.
+`decodeAnsiCEscape` (Task 1) is expected to contribute NEW sites in both declared families —
+`regex-quantifier-bound` on its `{1,3}`/`{1,2}` bounded quantifiers, `relational-boundary` on
+the `next >= "0" && next <= "7"` octal guard — each killable with an escape-boundary fixture in
+the deciding suite (a 3-digit octal `$'\160sql'`-class case reds a widened `{1,4}`; a `$'\7…'`
+case reds a narrowed octal guard) or argued per-site if genuinely equivalent.
 
 ---
 
 <!-- tasks: depth=3 red-contract -->
 
-### Task 1: Lexer fidelity — a dangling final backslash is literal
+### Task 1: Lexer fidelity — escape semantics per quoting context (spec §3.2, all four fixes)
 
 **Files:**
-- Modify: `tests/cross-cutting/psqlStartupFiles/scan.ts` (the backslash branch at the top of
-  `lexShellWords`'s character loop)
+- Modify: `tests/cross-cutting/psqlStartupFiles/scan.ts` (the backslash branch of
+  `lexShellWords`'s character loop; the double-quote branch's escape handling; the `$'…'` skip;
+  one new module-private helper `decodeAnsiCEscape`)
 - Test: `tests/cross-cutting/psqlStartupFileSuppression.test.ts`
 
 **Interfaces:**
-- Consumes: `lexShellWords` (module-private), `sitesIn` (existing suite helper wrapping
-  `scanSource`).
-- Produces: lexer words now carry a literal trailing `\` when the input's last byte is a dangling
-  backslash. Task 2's clause-3 reject depends on this.
+- Consumes: `lexShellWords` (module-private), `appendRun`/`append` (its inner helpers), `sitesIn`
+  (existing suite helper wrapping `scanSource`).
+- Produces: words that carry a literal trailing `\` at end of input; double-quote bodies with
+  bash's backslash rules (pair-removed continuations, literal backslash except before `$`,
+  `` ` ``, `"`, `\`); decoded ANSI-C `$'…'` content via
+  `decodeAnsiCEscape(text: string, at: number): { decoded: string; consumed: number }`. Task 2's
+  predicate depends on all four.
 
-<!-- task: red=`pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts -t "dangling final backslash"` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:872` why=`the backslash branch drops a dangling final backslash (next === undefined falls through to continue), so the word lexes as bare psql and sitesIn reports a site where bash runs the non-command psql-backslash` ac=AC-6 -->
+<!-- task: red=`pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts -t "lexer escape fidelity"` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:872` why=`the backslash branch drops a dangling final backslash, the double-quote branch appends the newline of a backslash-newline pair and drops the backslash of every other escape, and the ANSI-C skip feeds $'…' through the plain single-quote branch undecoded - so the new site assertions (psql-backslash not a site, "p\sql" not a site, --no-psqlrc-backslash uncertified) all read the wrong words today` ac=AC-6 -->
 
-- [ ] **Step 1: Write the failing test.** Add to the suite, next to the existing "a trailing
+- [ ] **Step 1: Write the failing tests.** Add to the suite, next to the existing "a trailing
   backslash at end of input is literal, so it binds nothing" block:
 
 ```ts
-// Bash keeps a dangling final backslash as a literal character (probe record,
-// instrument 2: `PG='psql'\` at EOF binds `psql\`). The lexer used to DROP it,
-// so a psql command word glued to one lexed as bare `psql` and reported a site
-// for a command bash cannot resolve (`psql\` - basename empty, never psql).
-test("a psql command word glued to a dangling final backslash is not psql", () => {
-  // Premise: the same command WITH a newline IS a site, so the zero below is
-  // attributable to the backslash, not to a fixture that never reaches the
-  // scanner.
-  expect(sitesIn("psql\n", "x.sh").length).toBeGreaterThan(0);
-  expect(sitesIn("psql\\", "x.sh")).toHaveLength(0);
+// Spec §3.2: the lexer's escape infidelities, repaired as one class. Bash is
+// the oracle for every row (probe record, round-1 supplement).
+describe("lexer escape fidelity (spec 3.2)", () => {
+  test("a psql command word glued to a dangling final backslash is not psql", () => {
+    // Premise: the same command WITH a newline IS a site, so the zero below is
+    // attributable to the backslash, not to a fixture that never reaches the
+    // scanner.
+    expect(sitesIn("psql\n", "x.sh").length).toBeGreaterThan(0);
+    expect(sitesIn("psql\\", "x.sh")).toHaveLength(0);
+  });
+
+  test("a certified flag glued to a dangling final backslash loses certification", () => {
+    // Bash passes the argument `--no-psqlrc\` (supplement g7), which psql's
+    // exact long-option recognition does not accept. Certifying it was a
+    // false SAFE; the site stays, unsuppressed.
+    const sites = sitesIn("psql --no-psqlrc\\", "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.suppressesStartupFiles).toBe(false);
+  });
+
+  test('a double-quoted "p\\sql" command word is not psql', () => {
+    // Inside double quotes a backslash is LITERAL except before $ ` " \
+    // (supplement g5: `PG="p\sql"` binds p-backslash-sql). Premise first.
+    expect(sitesIn('"psql" -X -qAt mydb\n', "x.sh").length).toBeGreaterThan(0);
+    expect(sitesIn('"p\\sql" -X -qAt mydb\n', "x.sh")).toHaveLength(0);
+  });
+
+  test("a double-quoted backslash-newline pair is removed, keeping the word whole", () => {
+    // The R34 wrapped-path fixture reads through the word route once the
+    // spliced consumer is gone (Task 2); this pins the LEXER half: the glued
+    // path word is one site, on the opening line.
+    const source = '"/opt/pg/\\\npsql" -X -qAt mydb\n';
+    const sites = sitesIn(source, "x.sh");
+    expect(sites).toHaveLength(1);
+  });
+
+  test("ANSI-C escapes decode, so an escaped spelling of psql is still psql", () => {
+    // $'p\163ql' and $'\x70sql' both expand to psql (supplement g1/g2). As
+    // COMMAND words they must be sites; before the decode they lexed as their
+    // raw escape text and were silently nothing.
+    expect(sitesIn("$'p\\163ql' -X -qAt mydb\n", "x.sh").length).toBeGreaterThan(0);
+    expect(sitesIn("$'\\x70sql' -X -qAt mydb\n", "x.sh").length).toBeGreaterThan(0);
+    // An unknown escape keeps BOTH characters, as bash does: $'p\zsql' is
+    // p\zsql, never psql.
+    expect(sitesIn("$'p\\zsql' -X -qAt mydb\n", "x.sh")).toHaveLength(0);
+  });
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails.**
+- [ ] **Step 2: Run to verify the red set.**
 
-Run: `pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts -t "dangling final backslash"`
-Expected: FAIL — `sitesIn("psql\\", "x.sh")` returns one site today (the dropped backslash leaves
-the word `psql`).
+Run: `pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts -t "lexer escape fidelity"`
+Expected: all five FAIL (observed at plan time) — the dangling-backslash site reports today,
+`--no-psqlrc\` certifies today, `"p\sql"` reports as a site today, the wrapped-path word carries
+the appended NEWLINE so its basename is `\n`+psql and no site reports today, and both ANSI-C
+spellings are invisible today.
 
-- [ ] **Step 3: Implement.** In `lexShellWords`, the backslash branch currently reads:
+- [ ] **Step 3: Implement.** Three edits in `lexShellWords` plus one helper.
 
-```ts
-if (character === "\\") {
-  const next = text[i + 1];
-  if (next === "\n") {
-    // A backslash IMMEDIATELY followed by the newline is a continuation:
-    // the word (if any) keeps going. Whitespace in between is not.
-    line++;
-    i++;
-    continue;
-  }
-  if (next !== undefined) {
-    begin(i);
-    append(next, i + 1, true); // a backslash removes the next char's meaning
-    i++;
-    continue;
-  }
-  continue;
-}
-```
-
-Replace the final bare `continue` with a literal append:
+(a) The top-level backslash branch — replace the final bare `continue` (the
+`next === undefined` fall-through) with:
 
 ```ts
   // A dangling backslash at end of input escapes NOTHING, so bash keeps it as
@@ -145,17 +174,150 @@ Replace the final bare `continue` with a literal append:
   continue;
 ```
 
-- [ ] **Step 4: Run the new test and the suite's existing trailing-backslash + R3 spelling tests.**
+(b) The double-quote branch's escape handling — currently:
 
-Run: `pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts -t "backslash"`
-Expected: PASS (the existing "trailing backslash at end of input is literal" test still passes —
-the binding REGEXES, still live in this task, never matched those spellings and still do not).
+```ts
+if (text[i] === "\\" && text[i + 1] !== undefined) {
+  i++;
+  if (text[i] === "\n") line++; // a continuation still eats a line
+  append(text[i]!, i, true);
+  continue;
+}
+```
+
+becomes:
+
+```ts
+if (text[i] === "\\" && text[i + 1] !== undefined) {
+  const escaped = text[i + 1]!;
+  if (escaped === "\n") {
+    // Bash REMOVES a backslash-newline pair inside double quotes outright
+    // (line continuation), so `"/opt/pg/\` + newline + `psql"` is the single
+    // word /opt/pg/psql. Appending the newline split the value the shell
+    // glues together.
+    line++;
+    i++;
+    continue;
+  }
+  if (escaped === "$" || escaped === "`" || escaped === '"' || escaped === "\\") {
+    append(escaped, i + 1, true); // the backslash removes its meaning
+    i++;
+    continue;
+  }
+  // Before any other character the backslash is LITERAL and both survive:
+  // "p\sql" is p-backslash-sql, never psql.
+  append("\\", i, true);
+  continue;
+}
+```
+
+(the enclosing `for (; i < text.length && text[i] !== '"'; i++)` supplies one `i++` per
+`continue`, so the two-character consumptions advance by two and the literal-backslash case
+leaves the next character to the following iteration).
+
+(c) The ANSI-C/locale skip — currently:
+
+```ts
+// ANSI-C (`$'…'`) and locale (`$"…"`) quoting are ordinary quoted words.
+if (character === "$" && (text[i + 1] === "'" || text[i + 1] === '"')) {
+  continue; // the quote itself is handled on the next iteration
+}
+```
+
+becomes:
+
+```ts
+// ANSI-C quoting `$'…'` DECODES its escapes (\n, \163, \x70, …) and `\'` does
+// NOT close the string; feeding it through the plain single-quote branch read
+// the raw escape text, so $'p\163ql' was never psql. Locale quoting `$"…"`
+// keeps double-quote semantics: skip the `$`, let the double-quote branch run.
+if (character === "$" && text[i + 1] === "'") {
+  begin(i);
+  let k = i + 2;
+  while (k < text.length && text[k] !== "'") {
+    if (text[k] === "\\") {
+      const { decoded, consumed } = decodeAnsiCEscape(text, k);
+      // append, NOT appendRun: a DECODED "\n" is data, not a physical line -
+      // appendRun's per-character line counting is for source text only.
+      append(decoded, k, true);
+      k += consumed;
+      continue;
+    }
+    appendRun(text[k]!, k, true); // physical chars (incl. a literal newline) count lines
+    k++;
+  }
+  i = k; // the closing quote (or end of input)
+  continue;
+}
+if (character === "$" && text[i + 1] === '"') {
+  continue; // the quote itself is handled on the next iteration
+}
+```
+
+(d) The helper, at module scope above `lexShellWords`:
+
+```ts
+/**
+ * Decode one ANSI-C escape at `text[at] === "\\"` inside `$'…'`, per bash:
+ * the simple table, octal \nnn (1-3 digits), hex \xHH (1-2), \uHHHH (1-4),
+ * \UHHHHHHHH (1-8), control \cX. An UNKNOWN escape keeps both characters,
+ * exactly as bash does.
+ */
+function decodeAnsiCEscape(text: string, at: number): { decoded: string; consumed: number } {
+  const next = text[at + 1];
+  if (next === undefined) return { decoded: "\\", consumed: 1 };
+  const simple: Record<string, string> = {
+    a: "\x07",
+    b: "\b",
+    e: "\x1b",
+    E: "\x1b",
+    f: "\f",
+    n: "\n",
+    r: "\r",
+    t: "\t",
+    v: "\v",
+    "\\": "\\",
+    "'": "'",
+    '"': '"',
+    "?": "?",
+  };
+  const mapped = simple[next];
+  if (mapped !== undefined) return { decoded: mapped, consumed: 2 };
+  if (next >= "0" && next <= "7") {
+    const octal = /^[0-7]{1,3}/.exec(text.slice(at + 1))![0];
+    return { decoded: String.fromCharCode(parseInt(octal, 8) & 0xff), consumed: 1 + octal.length };
+  }
+  if (next === "x") {
+    const hex = /^[0-9A-Fa-f]{1,2}/.exec(text.slice(at + 2));
+    if (hex) return { decoded: String.fromCharCode(parseInt(hex[0], 16)), consumed: 2 + hex[0].length };
+  }
+  if (next === "u" || next === "U") {
+    const width = next === "u" ? 4 : 8;
+    const hex = new RegExp(`^[0-9A-Fa-f]{1,${width}}`).exec(text.slice(at + 2));
+    if (hex) return { decoded: String.fromCodePoint(parseInt(hex[0], 16)), consumed: 2 + hex[0].length };
+  }
+  const control = text[at + 2];
+  if (next === "c" && control !== undefined)
+    return {
+      decoded: String.fromCharCode(control.toUpperCase().charCodeAt(0) & 0x1f),
+      consumed: 3,
+    };
+  return { decoded: `\\${next}`, consumed: 2 };
+}
+```
+
+- [ ] **Step 4: Run the fidelity block plus every backslash/spelling test.**
+
+Run: `pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts`
+Expected: PASS across the file. The binding REGEXES are still live in this task and read raw
+text, so no binding verdict moves yet; the R34 describe, the R3 spelling tests
+(`p"s"ql`, `p\s\q\l`), and the ratified trailing-backslash block all stay green.
 
 - [ ] **Step 5: Commit.**
 
 ```bash
 git add tests/cross-cutting/psqlStartupFiles/scan.ts tests/cross-cutting/psqlStartupFileSuppression.test.ts
-git commit -m "fix(infra): lexer keeps a dangling final backslash literal, as bash does"
+git commit -m "fix(infra): lexer escape fidelity - EOF backslash, double-quote escapes, ANSI-C decode"
 ```
 
 ### Task 2: Single-word assignment bindings read lexed words
@@ -174,7 +336,7 @@ git commit -m "fix(infra): lexer keeps a dangling final backslash literal, as ba
   in this task multiword values are still handled by the untouched `quotedValue`/`boundCommand`
   path.
 
-<!-- task: red=`pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts -t "mixed-quoted assignment"` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:2070` why=`ASSIGNED_VALUE_QUOTED and ASSIGNED_WHOLE_QUOTED admit one optional delimiter around a delimiter-free span, so every quote-concatenated value (PG=p'sql') fails both and scanShellIndirection returns zero hits for the nine recall rows` ac=AC-1,AC-3,AC-4,AC-5,AC-7 -->
+<!-- task: red=`pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts -t "mixed-quoted assignment"` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:2070` why=`ASSIGNED_VALUE_QUOTED and ASSIGNED_WHOLE_QUOTED admit one optional delimiter around a delimiter-free span, so every quote-concatenated value (PG=p'sql') fails both and scanShellIndirection returns zero hits for the thirteen recall rows` ac=AC-1,AC-3,AC-4,AC-5,AC-7 -->
 
 - [ ] **Step 1: Write the failing accept-set block.** Add a new describe to the suite:
 
@@ -191,9 +353,15 @@ describe("mixed-quoted assignment values (BL-SHELL-BINDING-MIXED-QUOTED-VALUE)",
     ["quoted path prefix", "PG='/usr/bin/'psql\n"],
     ["escaped spelling", "PG=p\\sql\n"],
     ["ANSI-C quoted", "PG=$'psql'\n"],
+    ["ANSI-C octal escape", "PG=$'p\\163ql'\n"],
+    ["ANSI-C hex escape", "PG=$'\\x70sql'\n"],
     ["locale quoted", 'PG=$"psql"\n'],
     ["mixed inside declare", "declare -x PG=p'sql'\n"],
     ["mixed whole-argument quoting", "export 'PG=p'sql\n"],
+    // Word-splitting trims an unquoted expansion (spec §3.1 trim; supplement
+    // g3/g6): both of these run psql at their use sites.
+    ["quoted leading space", "PG=' psql'\n"],
+    ["ANSI-C trailing newline", "PG=$'psql\\n'\n"],
   ])("%s binds the psql command and is reported", (_label, source) => {
     expect(scanShellIndirection(source, "x.sh").length).toBeGreaterThan(0);
   });
@@ -217,8 +385,21 @@ describe("mixed-quoted assignment values (BL-SHELL-BINDING-MIXED-QUOTED-VALUE)",
   test.each([
     ["quoted semicolon value", "PG='psql;x'\n"], // binds `psql;x`
     ["whole-argument quoting with a literal quote", "export 'PG=p'\\''sql'\n"], // binds `p'sql`
+    ["double-quoted literal backslash", 'PG="p\\sql"\n'], // binds `p\sql` (supplement g5)
+    ["ANSI-C unknown escape", "PG=$'p\\zsql'\n"], // binds `p\zsql` (bash keeps both chars)
   ])("%s does not bind psql and stays unreported", (_label, source) => {
     expect(scanShellIndirection(source, "x.sh")).toHaveLength(0);
+  });
+
+  // The R34 wrapped-path binding must survive the spliced consumer's deletion:
+  // the double-quote continuation fix (Task 1) glues the word, the word route
+  // reads it. Premise-style duplicate of the committed R34 fixture, kept here
+  // because THIS block is the one that owns the regex deletion.
+  test("a double-quoted backslash-newline wrapped path still binds", () => {
+    expect(
+      scanShellIndirection('PSQL="/opt/postgresql/17/bin/\\\npsql"\n"$PSQL" -qAt mydb\n', "x.sh")
+        .length,
+    ).toBeGreaterThan(0);
   });
 
   // Conservative widening, spec §4: the expansion-prefixed psql suffix is the
@@ -241,10 +422,11 @@ describe("mixed-quoted assignment values (BL-SHELL-BINDING-MIXED-QUOTED-VALUE)",
 - [ ] **Step 2: Run to verify the red set.**
 
 Run: `pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts -t "mixed-quoted assignment"`
-Expected: the nine recall rows FAIL (0 hits each), the three trailing-backslash rows FAIL (1 hit
-each today), `PG=$(x)psql` FAILS (0 hits today). The two precision survivors and the discovery
-handoff PASS already (zeros/one today) — they are regression premises for the green step, not
-red cases.
+Expected: the thirteen recall rows FAIL (0 hits each), the three trailing-backslash rows FAIL
+(1 hit each today), `PG=$(x)psql` FAILS (0 hits today). The four precision survivors, the R34
+wrapped-path duplicate, and the discovery handoff PASS (regression premises for the green step,
+not red cases — the two new ANSI-C-dependent rows read correctly because Task 1's decode landed
+first).
 
 - [ ] **Step 3: Implement.** In `scan.ts`:
 
@@ -283,7 +465,10 @@ function assignmentBindingLines(words: ShellWord[], file: string): Set<number> {
     if (word.operator) continue;
     const match = ASSIGNMENT_WORD.exec(word.text);
     if (!match) continue;
-    const value = match[1]!;
+    // Trim default-IFS edges (space, tab, newline): an unquoted expansion
+    // word-splits, so `PG=' psql'` and `PG=$'psql\n'` both run psql at their
+    // use sites (spec 3.1; probe supplement g3/g6).
+    const value = match[1]!.replace(/^[ \t\n]+|[ \t\n]+$/g, "");
     if (value.length === 0) continue;
     if (/\s/.test(value)) continue; // multiword values: Task 3
     // The PSQL_VALUE core, decided on the DEQUOTED value: psql with word
@@ -363,7 +548,7 @@ git commit -m "fix(infra): assignment bindings read lexed words — mixed-quoted
 - Produces: the multiword branch inside `assignmentBindingLines`; `quotedValue`/`boundCommand`
   deleted from `scanShellIndirection`.
 
-<!-- task: red=`pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts -t "multiword binding value"` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:2204` why=`the quotedValue regex requires the whole multiword value inside ONE quote pair, so a segment-split value (CMD='psq'"l -qAt mydb") and a quoted workflow run: scalar (the quote before the name fails the boundary class) both return zero hits` ac=AC-2 -->
+<!-- task: red=`pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts -t "multiword binding value"` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:2204` why=`the quotedValue regex requires the whole multiword value inside ONE quote pair, so a segment-split value (CMD='psq'"l -qAt mydb") and an inner-quoted spelling (CMD='p"s"ql -X mydb') both return zero hits` ac=AC-2 -->
 
 - [ ] **Step 1: Write the failing tests.** Append to the Task 2 describe:
 
@@ -374,31 +559,28 @@ git commit -m "fix(infra): assignment bindings read lexed words — mixed-quoted
   test.each([
     ["a segment-split command binding", "CMD='psq'\"l -qAt mydb\"\neval \"$CMD\"\n"],
     ["an inner-quoted spelling in the value", "CMD='p\"s\"ql -X mydb'\neval \"$CMD\"\n"],
-    [
-      "a quoted workflow run: scalar binding",
-      '- run: "PG=psql; $PG -qAt mydb"\n',
-    ],
   ])("multiword binding value: %s is reported", (_label, source) => {
-    const file = source.startsWith("- run:") ? ".github/workflows/x.yml" : "x.sh";
-    expect(scanShellIndirection(source, file).length).toBeGreaterThan(0);
+    expect(scanShellIndirection(source, "x.sh").length).toBeGreaterThan(0);
   });
 
-  // Documented limit, spec §6: a binding whose own quoting sits INSIDE a
-  // quoted YAML scalar is one indirection deeper than the shell layer reads -
-  // the value re-lexes to a lone flagless psql, and the flag criterion
-  // (deliberately unchanged) keeps prose out by requiring one.
-  test("multiword binding value: a mixed spelling inside a quoted run: scalar stays a limit", () => {
-    expect(
-      scanShellIndirection("- run: \"PG=p'sql'; $PG -qAt mydb\"\n", ".github/workflows/x.yml"),
-    ).toHaveLength(0);
+  // Documented limit, spec §6 item 2 (round-1 finding 1): a quoted YAML `run:`
+  // scalar lexes to ONE assignment word whose multiword value's psql command
+  // carries no flag token - the -qAt below belongs to the $PG command - and
+  // the flag criterion (deliberately unchanged) is the line between a command
+  // binding and prose. Plain and mixed spellings alike are declared misses.
+  test.each([
+    ["the plain spelling", '- run: "PG=psql; $PG -qAt mydb"\n'],
+    ["the mixed spelling", "- run: \"PG=p'sql'; $PG -qAt mydb\"\n"],
+  ])("multiword binding value: a quoted run: scalar (%s) stays a limit", (_label, source) => {
+    expect(scanShellIndirection(source, ".github/workflows/x.yml")).toHaveLength(0);
   });
 ```
 
 - [ ] **Step 2: Run to verify the red set.**
 
 Run: `pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts -t "multiword binding value"`
-Expected: the three recall rows FAIL (0 hits each today); the documented-limit zero PASSES
-(regression premise).
+Expected: the two recall rows FAIL (0 hits each today); both documented-limit zeros PASS
+(regression premises).
 
 - [ ] **Step 3: Implement.** In `assignmentBindingLines`, replace
 `if (/\s/.test(value)) continue; // multiword values: Task 3` with:
@@ -640,28 +822,34 @@ git commit -m "test(infra): re-derive psqlStartupScan accepted sites over the le
 
 ---
 
-## Plan-time observed red set (executed 2026-08-17, pre-implementation tree)
+## Plan-time observed red set (executed 2026-08-17, pre-implementation tree; re-run after the
+spec's round-1 revision)
 
 Every fenced test block above was spliced into a temporary suite file and RUN against the
 unmodified tree (2026-08-16 batch lesson: executable plan blocks are executed, not read). Result:
-24 tests, 17 failed, 7 passed — matching the tasks' predictions exactly. Red: the Task 1 site
-test, all nine Task 2 recall rows, all three trailing-backslash rows, the expansion-prefix
-widening, and all three Task 3 multiword recall rows. Green (regression premises, as predicted):
-the two Task 2 precision survivors, the discovery handoff, the Task 3 quoted-scalar mixed limit,
-and the three Task 4 documented-limit rows. The splice file was deleted after the run.
+35 tests, 24 failed, 11 passed — matching the tasks' predictions exactly. Red: all five Task 1
+fidelity tests (including the wrapped-path site test — the current double-quote branch appends
+the newline into the word, so no site reports today), all thirteen Task 2 recall rows, all three
+trailing-backslash rows, the expansion-prefix widening, and both Task 3 multiword recall rows.
+Green (regression premises, as predicted): the four Task 2 precision survivors, the R34
+wrapped-path binding duplicate (today via the `spliced` regex consumer), the discovery handoff,
+both Task 3 quoted-scalar limits, and the three Task 4 documented-limit rows. The splice file
+was deleted after the run.
 
 ## Acceptance criteria (from spec §4)
 
-- **AC-1:** the nine single-word recall rows (Task 2 block) report ≥1 indirection each.
-- **AC-2:** the segment-split multiword binding, the inner-quoted spelling, and the plain quoted
-  `run:` scalar binding report; the mixed quoted-scalar spelling stays a declared limit.
+- **AC-1:** the thirteen single-word recall rows (Task 2 block) report ≥1 indirection each.
+- **AC-2:** the segment-split multiword binding and the inner-quoted spelling report; both quoted
+  `run:` scalar spellings (plain and mixed) stay declared limits (spec §6 item 2).
 - **AC-3:** the three trailing-backslash-value spellings report ZERO (were 1).
 - **AC-4:** every parity zero from the probe record stays zero (`PG='psql'x`, the ratified EOF
   pair, prose, `PG=notpsql`, `PG='psql;x'`, `export 'PG=p'\''sql'`, comment mention, `DSN=…`).
 - **AC-5:** every baseline hit from the probe record still reports (bare/quoted/whole-argument/
   path/param-default/subscript/append/declare rows), and the full suite passes.
-- **AC-6:** `sitesIn("psql\\", "x.sh")` is empty while `sitesIn("psql\n", "x.sh")` reports; the
-  live-tree walk test passes unchanged.
+- **AC-6:** the Task 1 fidelity block passes in full — the dangling-backslash psql word is not a
+  site, `psql --no-psqlrc\` at EOF reports UNSUPPRESSED, `"p\sql"` is not a site, the
+  double-quoted wrapped path is one site, the ANSI-C spellings are sites and the unknown escape
+  is not — and the live-tree walk test passes unchanged.
 - **AC-7:** substitution values stay the discovery walk's jurisdiction (`PG=$(command -v psql)`
   and `X=$(PG=psql; …)` still report exactly once, via discovery).
 - **AC-8:** the documented-limits describe declares the here-string/alias/positional misses with

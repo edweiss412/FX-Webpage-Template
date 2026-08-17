@@ -52,6 +52,12 @@ regex family one spelling per round).
 - **`githubEnvWrite` is outside the defect class.** Probed non-instance (probe record, reading 3):
   GitHub's env-file parser does no quote removal, so the mixed spelling binds the literal
   `p'sql'` and the current zero is correct. Not a peer; do not propose "fixing" it.
+- **The multiword flag criterion is unchanged and not up for widening.** A psql site carrying a
+  flag-shaped token is the ratified line between a command binding and prose
+  (`scanShellIndirection`'s bound-command comment: "Requiring the quoted value to lex to a psql
+  invocation WITH a flag keeps prose out"; the deciding suite pins
+  `MSG="psql failed to connect"` at zero). A flagless-psql multiword value files to §6, not to a
+  finding — accepting it would report the pinned prose fixture.
 - **The mutation-registry accepted set is maintained, not frozen.** The surface is enrolled
   (`tests/mutation/source/registry.ts`, id `psqlStartupScan`, scoreFloor 1, empty
   unaccepted-survivor set). This diff moves and deletes mutant sites, so accepted `siteId`s are
@@ -81,9 +87,11 @@ removal for `'…'`/`"…"` segments, escape processing (`p\sql`), ANSI-C/locale
 `$"…"`), backslash-newline continuations, `$(...)`/backtick bodies replaced by the opaque word
 `${}`, `${…}` expansions consumed whole and kept verbatim.
 
-One lexer infidelity matters here: a dangling backslash at end of input (`next === undefined` in
-the backslash branch of `lexShellWords`) is silently DROPPED, where bash keeps it as a literal
-character (probe record, instrument 2: `PG='psql'\` at EOF binds `psql\`).
+The lexer carries a small class of escape infidelities that only matter once bindings read its
+words — a dangling backslash at end of input is dropped where bash keeps it literal, the
+double-quote branch mis-handles backslash-newline and non-special escapes, and `$'…'` escapes are
+never decoded. §3.2 enumerates and repairs the whole class (round-1 adversarial findings 2–3;
+probe record, round-1 supplement).
 
 ## 3. Design
 
@@ -98,7 +106,10 @@ candidate** when its dequoted text matches the assignment shape
 ```
 
 (the same name grammar `ASSIGNED_NAME` encodes today: name, optional subscript, optional `+=`).
-Candidates are decided by V, keyed on structure:
+Candidates are decided by V, keyed on structure. V is first TRIMMED of leading and trailing
+default-IFS whitespace (space, tab, newline): an unquoted expansion word-splits, so `PG=' psql'`
+and `PG=$'psql\n'` both run psql (probe record, round-1 supplement, g3/g6) — the trim reads the
+value the way its use site can. Then:
 
 - **V is empty** → not a binding.
 - **V contains whitespace** (inside one lexed word, whitespace is always quoted or escaped data;
@@ -139,24 +150,54 @@ existing per-line loop where `assigned`/`boundCommand` sit today, so ordering ag
 `aliased`/`functionDef`/`githubEnvWrite`/`positionalBinding` and the one-hit-per-line contract are
 untouched.
 
-### 3.2 Lexer fidelity: dangling backslash at end of input
+### 3.2 Lexer fidelity: escape semantics per quoting context
 
-`lexShellWords` appends a dangling final backslash as a literal character of the in-progress word
-(quoted-flagged, like any escape output) instead of dropping it: bash keeps it (probe record,
-instrument 2), and the module header's contract is "read text the way the shell reads it". With
-the append, `PG='psql'\` at EOF lexes to the word `PG=psql\` and clause 3 of §3.1 declines it —
-the ratified contract test passes through the same shell fact it cites, rather than through a
-pattern accident.
+The binding rules can only be as faithful as the words they read, and the round-1 adversarial
+pass demonstrated the dangling-EOF backslash is not the lexer's only escape infidelity. All four
+members of the class are repaired together (probes: the probe record's round-1 supplement; bash
+is the oracle for every row). The module header's contract — "read text the way the shell reads
+it" — is the fence: each fix implements a documented bash rule, none widens a recognizer.
 
-Site-path ripple, accepted and pinned: a file whose last byte is a dangling backslash glued to a
-psql command word (`…\npsql\` with no trailing newline) currently lexes to the word `psql` and
-reports a site; after the fix it lexes to `psql\`, whose basename is empty, and reports nothing —
-which is shell truth (bash runs the command `psql\`, which is not psql; psql never executes, so
-there is nothing to guard). No file in the live corpus ends in a dangling backslash (files end
-with newlines; the walk gate in §7 proves the tree-level no-op). A word ending in a dangling
-backslash NOT preceded by an assignment shape changes only its token spelling (`mydb` → `mydb\`
-as a positional), never a certification direction, because option recognition keys on `-`-leading
-tokens and dbname positionals are opaque.
+1. **Dangling final backslash is literal.** `lexShellWords`'s backslash branch drops a backslash
+   whose `next` is undefined; bash keeps it (`PG='psql'\` at EOF binds `psql\`). Fixed by
+   appending the literal `\` to the in-progress word. With the append, `PG='psql'\` lexes to the
+   word `PG=psql\` and clause 3 of §3.1 declines it — the ratified contract test passes through
+   the same shell fact it cites, rather than through a pattern accident.
+2. **Double-quote backslash-newline is a continuation.** Inside double quotes the current branch
+   appends the NEWLINE for a `\`+newline pair; bash removes the pair outright, so
+   `PSQL="/opt/pg/\` + newline + `psql"` is the single word `/opt/pg/psql` (supplement g4, and
+   the committed R34 fixture - "R34 escaping mutants - a spliced word is one word", whose current
+   hits flow through the `spliced` consumer §3.3 deletes; this fix is what carries them through
+   the word route instead). Fixed by consuming the pair and counting the line.
+3. **Double-quote backslash is literal except before `$`, `` ` ``, `"`, `\`.** The current branch
+   drops the backslash and appends the next character for EVERY escape; bash keeps BOTH
+   characters unless the next is one of those four, so `PG="p\sql"` binds `p\sql` — not psql
+   (supplement g5) — and the word route must see the backslash to stay silent there. Fixed by
+   appending backslash+character for the non-special cases.
+4. **ANSI-C quoting decodes its escapes.** `$'…'` is currently skipped into the plain
+   single-quote branch, which neither decodes escapes nor honors `\'`; bash decodes the full
+   ANSI-C table, so `PG=$'p\163ql'` and `PG=$'\x70sql'` bind psql while the scanner reports
+   nothing today (supplement g1/g2) — silent misses one ordinary edit from the admitted
+   `PG=$'psql'` fixture. Fixed by a dedicated `$'…'` branch that decodes the bash escape table
+   (`\a \b \e \E \f \n \r \t \v \\ \' \" \?`, octal `\nnn`, hex `\xHH`, `\uHHHH`, `\UHHHHHHHH`,
+   `\cX`; an unknown escape keeps both characters, as bash does) and treats `\'` as content
+   rather than the closing quote. Locale quoting `$"…"` keeps its current double-quote reading.
+
+Site-path ripples, each shell truth, each pinned in the deciding suite (§4 lists them as deltas):
+
+- A file whose last byte is a dangling backslash glued to a psql command word (`…psql\` at EOF)
+  currently reports a site; after fix 1 the word is `psql\`, whose basename is empty, and nothing
+  reports — bash runs the command `psql\`, which is not psql, so psql never executes and there is
+  nothing to guard.
+- `psql --no-psqlrc\` at EOF is currently CERTIFIED (`suppressesStartupFiles: true` on the token
+  `--no-psqlrc`); bash actually passes the argument `--no-psqlrc\` (supplement g7), which psql's
+  exact long-option recognition does not accept. After fix 1 the token carries the backslash and
+  the site reports UNSUPPRESSED — the conservative direction, and the honest one.
+- A double-quoted command word spelled `"p\sql"` currently lexes to `psql` and reports a site;
+  after fix 3 it lexes to `p\sql` (basename `sql` after the Windows-separator split in
+  `basename`) and reports nothing — bash cannot run psql from it.
+- No file in the live corpus ends in a dangling backslash or spells psql through a double-quoted
+  literal backslash (the §7 walk gate proves the tree-level no-op).
 
 ### 3.3 Deleted, kept, untouched
 
@@ -184,13 +225,24 @@ Recall closures — 0 → 1, oracle value `psql` or a psql path in every row:
 | `declare -x PG=p'sql'` | `psql` |
 | `export 'PG=p'sql` | `psql` |
 | `CMD='psq'"l -qAt mydb"` + `eval "$CMD"` | `psql -qAt mydb` (multiword branch) |
-| `- run: "PG=psql; $PG -qAt mydb"` (`.yml`) | `psql` (quoted `run:` scalar; the `"` before the name defeated the old boundary class — multiword branch reads it) |
+| `PG=$'p\163ql'` | `psql` (ANSI-C octal, §3.2 fix 4) |
+| `PG=$'\x70sql'` | `psql` (ANSI-C hex, §3.2 fix 4) |
+| `PG=$'psql\n'` | `psql` after word-splitting (§3.1 trim) |
+| `PG=' psql'` | `psql` after word-splitting (§3.1 trim) |
 
 Precision closures — 1 → 0, oracle value `psql\` (not a command) in every row: `PG=psql\` (EOF),
 `PG=psql\\` (EOF), `PG='psql\'`. Same shell fact as the ratified contract zeros.
 
-Site-path delta — a psql command word glued to a dangling final backslash at end of input stops
-reporting as a site (§3.2). No corpus instance; pinned by test.
+Site-path deltas (§3.2 ripples, each pinned): a psql command word glued to a dangling final
+backslash at end of input stops reporting as a site; `psql --no-psqlrc\` at EOF flips from
+CERTIFIED to unsuppressed-reported (bash passes `--no-psqlrc\`, which psql does not accept); a
+`"p\sql"` command word stops reporting as a site (bash runs `p\sql`, never psql). No corpus
+instances of any of the three.
+
+Parity rows the round-1 findings make load-bearing (each pinned): the R34 wrapped-path binding
+`PSQL="/opt/postgresql/17/bin/\` + newline + `psql"` keeps reporting (§3.2 fix 2 carries it
+through the word route after the `spliced` consumer is deleted); `PG="p\sql"` stays ZERO as a
+binding (binds the literal-backslash value `p\sql`, supplement g5).
 
 Everything else in the probe record's tables is PARITY: all ten baseline hits stay hits; all
 contract/precision zeros (`PG='psql'x`, `PG='psql'\` EOF, `export 'PG=psql'\` EOF,
@@ -200,6 +252,12 @@ rows, bound-command baselines unchanged. One conservative widening inherited fro
 lookahead: `PG=$(x)psql` (0 today) reports after the repair — the value's expansion has the
 suffix `psql`, the same trailing-path shape `isPsqlCommandWord` treats as psql-capable; direction
 is report-not-silence, consistent with the tripwire's contract.
+
+Removed from the recall table by round-1 finding 1, refiled to §6: the quoted workflow `run:`
+scalar `- run: "PG=psql; $PG -qAt mydb"` stays ZERO — its value's psql command carries no flag
+token, and the flag criterion (deliberately unchanged; it is what keeps
+`MSG="psql failed to connect"` out) declines it. The 0→1 the first draft claimed for this row
+was wrong: the flag in the fixture belongs to the `$PG` command, not to psql.
 
 ## 5. Class-sweep disposition (peers of the shape, each probed)
 
@@ -225,11 +283,13 @@ concatenation." Swept across every rule family in `scanShellIndirection`:
   quote-splits a VALUE while editing a path or adding a segment; nobody spells `alias p'sql'=` by
   accident), and the ledger filing bar demands a reachable live surface or probe-backed
   plausibility, which these lack (corpus instances: zero).
-- **YAML mixed `run:` scalar** (`- run: "PG=p'sql'; …"` — current 0, still 0 after): documented
-  limit (§6) — the inner quotes are data at the YAML layer and shell syntax only one indirection
-  deeper; the multiword branch re-lexes the value and correctly finds no flagged psql site
-  (`p'sql'` dequotes to `psql` as a lone command with no flag token). Recall here needs
-  YAML-aware value extraction, a different surface (`resolveRunShells` family).
+- **Quoted YAML `run:` scalars, plain or mixed** (`- run: "PG=psql; $PG -qAt mydb"` and its
+  `PG=p'sql'` spelling — both current 0, both still 0 after; round-1 finding 1): documented
+  limit (§6). The scalar lexes to one assignment word whose multiword value's psql command
+  carries NO flag token — the fixture's `-qAt` belongs to the `$PG` command — and the flag
+  criterion is deliberately unchanged: it is the line between a command binding and prose
+  (`MSG="psql failed to connect"`). Recall here needs YAML-aware value extraction, a different
+  surface (`resolveRunShells` family).
 
 ## 6. Documented limits (module-header additions, shipped with the diff)
 
@@ -238,10 +298,15 @@ concatenation." Swept across every rule family in `scanShellIndirection`:
    mixed-quoted here-string target (`read PG <<< p'sql'`, ledger-filed) — is not recognized by
    those rule families. Failure direction: a missed report (recall), never a false certification;
    the site path is unaffected because it already reads lexed words.
-2. A binding spelled inside a quoted YAML scalar with its own inner shell quoting
-   (`- run: "PG=p'sql'; …"`) is one indirection deeper than the shell layer reads.
+2. A multiword assignment value whose psql command carries no flag-shaped token is declined by
+   the flag criterion — the deliberate line between a command binding and prose. This covers
+   quoted YAML `run:` scalars read as one word (`- run: "PG=psql; $PG -qAt mydb"`, plain or
+   mixed): a binding there is one indirection deeper than the shell layer reads.
 3. `PG=$(x)psql`-shaped values (expansion-prefixed psql suffix) report as bindings — a
    conservative over-report, matching the trailing-path reading of `isPsqlCommandWord`.
+4. Unterminated quotes at end of input keep their current conservative readings; escape decoding
+   applies only to well-formed quoting (malformed input is a shell syntax error and runs
+   nothing).
 
 ## 7. Verification contract
 
@@ -253,7 +318,8 @@ concatenation." Swept across every rule family in `scanShellIndirection`:
   exists). Premise discipline per `tests/_shared/premise.ts` where a zero rests on a fixture
   actually reaching the rule (the existing trailing-backslash test's premise line is the
   template).
-- **Live-tree gate:** the R19 walk test (`the widened binding reading leaves the tree certified`)
+- **Live-tree gate:** the walk test `the widened binding reading leaves the tree certified`
+  (in the "R29 escaping mutants - the binding surface YAML can spell" describe)
   must stay green — the repair changes no verdict on the live corpus.
 - **Mutation gate:** surface `psqlStartupScan` stays enrolled with `scoreFloor: 1` and an empty
   unaccepted-survivor set. After the diff, re-run the scoped gate (temporary
