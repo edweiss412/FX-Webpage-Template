@@ -21,6 +21,7 @@
 - **Heavy-slot rule (AGENTS.md).** Every full harness run is `pnpm heavy pnpm mutation:guards`; every full suite run is `pnpm heavy pnpm test`. Scoped vitest runs with an explicit file list stay UNWRAPPED — Tasks 1-5 and 7 use such runs deliberately unwrapped; Task 6's `red=` is the harness itself and IS wrapped.
 - **AST only, never the type checker.** `premiseScan` builds source files with `ts.createSourceFile` and has no `ts.Program`. Introducing one would need a program build per module and blow AC-14.
 - **Every reporting case asserts its REASON, via `expectReported` — no bare `.toBe("unclassifiable")` anywhere.** Round-2 review counted 28 such executions and round-3 counted 30 after the re-cut that asserted only the verdict, across Tasks 1, 3, 4 and 5; each would pass on a generic or misattributed reason while the arc's central reason-carrying contract went unproved. The rule is stated once here and enforced by the helper rather than by 30 hand-written checks, so a case added later inherits it: if a new case expects `unclassifiable`, it calls `expectReported(classificationWithModules(…), { construct, module })`. The only exception is a case whose subject IS the verdict lattice (AC-12's precedence branches), which asserts the verdict alone and says so inline.
+- **Shell commands report their own status honestly.** Two shapes are banned in this plan because both were found reporting the wrong thing: a NEGATIVE `grep ... && { …; exit 1; }` as a block's final command exits 1 on the GOOD state (use `if/then/fi` and end the block with an explicit success line), and any pipeline whose left-hand side is the thing under test (`vitest … | tail`) discards its exit status unless the block sets `set -o pipefail`. A command that cannot fail, or that fails when it should pass, is not a gate.
 - **No bound expressed as a NUMBER.** Termination comes from the finite `(modulePath, exportName)` visited set (spec §2.5), never a depth counter.
 - impeccable-gate: N/A — no UI surface. No file under `app/`, `components/`, `app/globals.css`, `tailwind.config.*` or `DESIGN.md` is touched.
 
@@ -77,8 +78,12 @@ perl -pi -e 's{readFileSync\(join\(ROOT, "\.claude/probe/registry827\.ts"\)}{rea
 # 2. Prove the re-point took: the copied snapshot must equal the merged source.
 diff -q .claude/probe/premiseScan827.ts tests/mutation/source/premiseScan.ts \
   || { echo "harness is not reading the merged scanner"; exit 1; }
-grep -q 'registry827' .claude/probe/runtimeImportShapes.ts \
-  && { echo "runtime harness still hardcodes the snapshot registry"; exit 1; }
+if grep -q 'registry827' .claude/probe/runtimeImportShapes.ts; then
+  echo "runtime harness still hardcodes the snapshot registry"; exit 1
+fi
+echo "re-point verified"   # a NEGATIVE grep as the last command would exit 1 on
+                           # the good state; `if/then/fi` plus an explicit final
+                           # success line is what keeps the block's status honest
 ```
 
 Then run them:
@@ -109,6 +114,8 @@ let n = 0;
 for (const s of suites) n += classifyTests(ROOT, s).length;
 console.log(`suites=${suites.length} tests=${n} corpus-pass=${((Date.now() - t0) / 1000).toFixed(2)}s`);
 '
+set -o pipefail   # without this, `| tail` reports 0 even when vitest FAILS,
+                  # and Task 0 would proceed from an invalid baseline
 npx vitest run tests/mutation/_metaPremiseContract.test.ts 2>&1 | tail -6
 ```
 
@@ -123,6 +130,7 @@ PROBE_DIR="$(git rev-parse --show-toplevel)/.claude/probe"; mkdir -p "$PROBE_DIR
 # regression would pass the very gate that exists to catch it. This is the whole
 # command, with no elision: a round-2 draft wrote `npx tsx -e '…the measurement
 # above…'`, which is not runnable (`ERROR: Unexpected "…"`).
+set -o pipefail
 npx tsx -e '
 import { classifyTests } from "./tests/mutation/source/premiseScan";
 import { GUARD_SURFACES } from "./tests/mutation/source/registry";
