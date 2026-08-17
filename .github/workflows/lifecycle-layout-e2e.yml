@@ -107,7 +107,18 @@ jobs:
       - run: pnpm exec playwright install-deps chromium webkit
       - run: pnpm exec playwright install chromium webkit
       - name: Run admin lifecycle layout e2e (mobile-safari, :3000 only)
-        run: pnpm exec playwright test --project=mobile-safari tests/e2e/admin-lifecycle-layout.spec.ts
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/lifecycle-layout-e2e-report.json
+        run: pnpm exec playwright test --reporter=list,json --project=mobile-safari tests/e2e/admin-lifecycle-layout.spec.ts
+      # Informational, never a gate (spec §4.3). `if: always()` is load-bearing: without it
+      # this is an ordinary prerequisite-gated step, so a run that RECOVERS and then fails a
+      # downstream assertion skips the print entirely — the recovery happened, the list
+      # reporter prints no annotations, and a failed run's artifact is not where an operator
+      # looks first. The printer always exits 0, so `always()` cannot convert a red run green;
+      # the Playwright step's own status remains this job's verdict.
+      - name: Print infra-recovery annotations (lifecycle layout)
+        if: always()
+        run: node scripts/print-infra-recoveries.mjs --report test-results/lifecycle-layout-e2e-report.json
       # admin-lifecycle-transitions (BL-E2E-LIFECYCLE-TRANSITIONS-ROUNDTRIP-FLAKE):
       # the round-trip flake was traced to a CLIENT-side wedge, not CI slowness —
       # the unpublish action POST returned 200 {ok:true} in 237ms with the
@@ -122,16 +133,26 @@ jobs:
           # workflow_dispatch input only (write-access callers); still validated
           # numeric below before interpolation.
           REPEATS: ${{ github.event.inputs.transitions_repeats || '1' }}
+          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/lifecycle-transitions-e2e-report.json
         run: |
           case "$REPEATS" in
             ''|*[!0-9]*) echo "transitions_repeats must be numeric, got: $REPEATS" >&2; exit 2 ;;
           esac
           if [ "$REPEATS" = "1" ]; then
-            pnpm exec playwright test --project=mobile-safari tests/e2e/admin-lifecycle-transitions.spec.ts
+            pnpm exec playwright test --reporter=list,json --project=mobile-safari tests/e2e/admin-lifecycle-transitions.spec.ts
           else
-            pnpm exec playwright test --project=mobile-safari tests/e2e/admin-lifecycle-transitions.spec.ts \
+            pnpm exec playwright test --reporter=list,json --project=mobile-safari tests/e2e/admin-lifecycle-transitions.spec.ts \
               -g "Published toggle round-trip" --repeat-each="$REPEATS" --retries=0 --trace=on
           fi
+      # Informational, never a gate (spec §4.3). `if: always()` is load-bearing: without it
+      # this is an ordinary prerequisite-gated step, so a run that RECOVERS and then fails a
+      # downstream assertion skips the print entirely — the recovery happened, the list
+      # reporter prints no annotations, and a failed run's artifact is not where an operator
+      # looks first. The printer always exits 0, so `always()` cannot convert a red run green;
+      # the Playwright step's own status remains this job's verdict.
+      - name: Print infra-recovery annotations (lifecycle transitions)
+        if: always()
+        run: node scripts/print-infra-recoveries.mjs --report test-results/lifecycle-transitions-e2e-report.json
       # AC-11 of the cn-migration arc: the two sizing canonicalizations (C1 max-w-[60px]
       # -> max-w-confirm-box, C5 min-h-(--spacing-right-now-min-h) -> min-h-right-now-min-h)
       # must not move geometry, verified against a baseline captured BEFORE the fix landed.

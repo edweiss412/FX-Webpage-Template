@@ -41,6 +41,7 @@ import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { seedShowWithCrew, deleteSeededShow, type SeededShow } from "./helpers/seedShowWithCrew";
 import { settleDashboardAdminState } from "./helpers/dashboardState";
+import { awaitReviewModalOrRecover, openShowReviewModalAt } from "./helpers/openShowReviewModal";
 
 const TOL = 0.5;
 
@@ -117,9 +118,8 @@ test.describe("published review modal — deep links (spec §3, D7/D8/D10)", () 
 
   async function openModal(page: Page, url: string) {
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.goto(url);
     // Suspense-streamed server loader — allow a dev-server compile on first hit.
-    await expect(page.locator(MODAL)).toBeVisible({ timeout: 30_000 });
+    await openShowReviewModalAt(page, url, { timeoutMs: 30_000 });
   }
 
   /** Poll until `target` is scrolled into the scroller's viewport — the
@@ -245,7 +245,10 @@ test.describe("published review modal — deep links (spec §3, D7/D8/D10)", () 
     expect(u.searchParams.get("show"), "redirect carries the slug as ?show").toBe(show.slug);
     expect(u.searchParams.get("alert_id"), "redirect preserves alert_id").toBe(alertId);
 
-    await expect(page.locator(MODAL)).toBeVisible({ timeout: 30_000 });
+    await awaitReviewModalOrRecover(page, {
+      timeoutMs: 30_000,
+      label: "legacy-307:alert_id",
+    });
     const highlighted = page.locator(`${MODAL} [data-attention-anchor][aria-current="true"]`);
     await expect(highlighted).toHaveAttribute("data-testid", `attention-banner-${alertId}`);
   });
@@ -277,7 +280,10 @@ test.describe("published review modal — deep links (spec §3, D7/D8/D10)", () 
       expect(u.hash, "streamed client-side redirect carries no fragment (documented)").toBe("");
     }
 
-    await expect(page.locator(MODAL)).toBeVisible({ timeout: 30_000 });
+    await awaitReviewModalOrRecover(page, {
+      timeoutMs: 30_000,
+      label: "legacy-307:alert_id+fragment",
+    });
     const highlighted = page.locator(`${MODAL} [data-attention-anchor][aria-current="true"]`);
     await expect(highlighted, "highlight applied").toHaveCount(1);
     await expect(highlighted).toHaveAttribute("data-testid", `attention-banner-${alertId}`);
@@ -295,6 +301,7 @@ test.describe("published review modal — deep links (spec §3, D7/D8/D10)", () 
     page,
   }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
+    // modal-wait-exempt: non-member — the loader redirect()s to bare /admin and this test asserts NO modal, so there is no modal-interior wait to harden
     await page.goto(`/admin?show=definitely-not-a-show-${randomUUID().slice(0, 8)}`);
 
     // The streamed loader redirect()s → the client navigates to bare /admin.
@@ -341,6 +348,7 @@ test.describe("published review modal — deep links (spec §3, D7/D8/D10)", () 
   // (spec §5). Reduced motion → the close is synchronous once dispatched.
   test("Esc during load closes whichever frame is up and strips ?show", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
+    // modal-wait-exempt: skeleton-tolerant wait (MODAL_ANY matches the Suspense skeleton), so a modal-or-boundary race would return on the skeleton and HIDE the fault — spec limit 3b, BL-MODAL-WAIT-SKELETON-TOLERANT-SITES
     await page.goto(`/admin?show=${show.slug}`);
     // ANY frame — skeleton or loaded, whichever the stream timing yields.
     await expect(page.locator(MODAL_ANY).first()).toBeVisible({ timeout: 30_000 });

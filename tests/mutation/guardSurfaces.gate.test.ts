@@ -195,6 +195,16 @@ const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // repay rather than a number to bump.
   browserRegistry: {},
   browserMutate: { equivalent: 1 },
+  // The modal-wait guard (2026-08-16). TWO equivalent rows, matching the
+  // registry's accepted[] exactly — this file and the registry are compared for
+  // equality by the gate below, so an empty declaration here while the registry
+  // carries rows fails deterministically. It did: the accepted rows were added
+  // when the score was first measured and this expectation was not updated with
+  // them, which diff review caught by static probe
+  // (actualKindCounts={"equivalent":2} vs {}). Six of the first run's eight
+  // survivors were repaid with cases rather than blessed, so a THIRD row is a
+  // gap to repay rather than a number to bump.
+  "modal-wait-helper-scan": { equivalent: 2 },
   // Fresh enrolment: every survivor is repaid or argued in the registry row's
   // accepted list; a nonzero count appearing here later is a regression to
   // repair rather than a number to bump. First run scored 63/65; both survivors
