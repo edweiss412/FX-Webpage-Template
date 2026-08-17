@@ -35,6 +35,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
+import { openShowReviewModal } from "./helpers/openShowReviewModal";
 import {
   seedArchivedShow,
   seedHeldShow,
@@ -51,12 +52,10 @@ const NAV_BREAKPOINT = 720;
 // and three desktop widths. NOT one desktop + one mobile (B1 band-sweep lesson).
 const WIDTHS = [600, 719, 720, 860, 1024, 1280];
 
-// admin-show-modal: the per-show surface is the /admin?show= review modal. The
-// Suspense SKELETON shares the shell testIdBase, and both frames transiently
-// coexist during the streaming swap — scope to the LOADED modal (the skeleton
-// renders no title node) so the twin never trips Playwright strict mode.
-const LOADED_REVIEW_MODAL =
-  '[data-testid="published-show-review-modal"]:has([data-testid="published-show-review-title"])';
+// admin-show-modal: the per-show surface is the /admin?show= review modal. Its
+// selector, the Suspense-skeleton twin rationale, and the boundary recovery all
+// live in tests/e2e/helpers/openShowReviewModal.ts, which every open here now
+// routes through — this file's own copy of the constant had no reader left.
 
 type Rect = {
   top: number;
@@ -246,9 +245,9 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
       await page.setViewportSize({ width, height: 1000 });
       // admin-show-modal: the per-show surface is the dashboard modal; the
       // archive control lives in the status band's ShareHub popover.
-      await page.goto(`/admin?show=${held.slug}`);
-      const modal = page.locator(LOADED_REVIEW_MODAL);
-      await expect(modal).toBeVisible({ timeout: 30_000 });
+      const modal = await openShowReviewModal(page, held.slug, {
+        timeoutMs: 30_000,
+      });
 
       // The lifecycle control moved into the status band's ShareHub popover
       // ("Show" section), so it is reachable only after opening the hub.
@@ -359,9 +358,9 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
       };
     });
     await page.setViewportSize({ width: 390, height: 560 });
-    await page.goto(`/admin?show=${held.slug}`);
-    const modal = page.locator(LOADED_REVIEW_MODAL);
-    await expect(modal).toBeVisible({ timeout: 30_000 });
+    const modal = await openShowReviewModal(page, held.slug, {
+      timeoutMs: 30_000,
+    });
     // Sentinel: the init script reached this document.
     expect(
       await page.evaluate(() => Array.isArray((window as never as { __siv: unknown[] }).__siv)),
@@ -472,9 +471,9 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
       };
     });
     await page.setViewportSize({ width: 390, height: 560 });
-    await page.goto(`/admin?show=${published.slug}`);
-    const modal = page.locator(LOADED_REVIEW_MODAL);
-    await expect(modal).toBeVisible({ timeout: 30_000 });
+    const modal = await openShowReviewModal(page, published.slug, {
+      timeoutMs: 30_000,
+    });
     expect(
       await page.evaluate(() => Array.isArray((window as never as { __siv: unknown[] }).__siv)),
     ).toBe(true);
@@ -600,9 +599,9 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
     const openHub = async (height: number) => {
       await page.setViewportSize({ width: 390, height });
       await ensureWatchedFolder();
-      await page.goto(`/admin?show=${held.slug}`);
-      const modal = page.locator(LOADED_REVIEW_MODAL);
-      await expect(modal).toBeVisible({ timeout: 30_000 });
+      const modal = await openShowReviewModal(page, held.slug, {
+        timeoutMs: 30_000,
+      });
       const popover = modal.getByTestId("share-hub-popover");
       await expect(async () => {
         await modal.getByTestId("share-hub-kebab").click();
@@ -701,9 +700,9 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
     }) => {
       await page.setViewportSize({ width: 390, height });
       await ensureWatchedFolder();
-      await page.goto(`/admin?show=${held.slug}`);
-      const modal = page.locator(LOADED_REVIEW_MODAL);
-      await expect(modal).toBeVisible({ timeout: 30_000 });
+      const modal = await openShowReviewModal(page, held.slug, {
+        timeoutMs: 30_000,
+      });
       const popover = modal.getByTestId("share-hub-popover");
       await expect(async () => {
         await modal.getByTestId("share-hub-kebab").click();
@@ -782,9 +781,9 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
   test("T-BACKDROP: the popover surface stays above the backdrop", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await ensureWatchedFolder();
-    await page.goto(`/admin?show=${held.slug}`);
-    const modal = page.locator(LOADED_REVIEW_MODAL);
-    await expect(modal).toBeVisible({ timeout: 30_000 });
+    const modal = await openShowReviewModal(page, held.slug, {
+      timeoutMs: 30_000,
+    });
     const popover = modal.getByTestId("share-hub-popover");
     await expect(async () => {
       await modal.getByTestId("share-hub-kebab").click();
@@ -826,9 +825,9 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
   async function openHubOnHeldShow(page: Page) {
     await page.setViewportSize({ width: 390, height: 844 });
     await ensureWatchedFolder();
-    await page.goto(`/admin?show=${held.slug}`);
-    const modal = page.locator(LOADED_REVIEW_MODAL);
-    await expect(modal).toBeVisible({ timeout: 30_000 });
+    const modal = await openShowReviewModal(page, held.slug, {
+      timeoutMs: 30_000,
+    });
     const popover = modal.getByTestId("share-hub-popover");
     await expect(async () => {
       await modal.getByTestId("share-hub-kebab").click();
@@ -912,9 +911,9 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
     }) => {
       await page.setViewportSize({ width: 390, height });
       await ensureWatchedFolder();
-      await page.goto(`/admin?show=${held.slug}`);
-      const modal = page.locator(LOADED_REVIEW_MODAL);
-      await expect(modal).toBeVisible({ timeout: 30_000 });
+      const modal = await openShowReviewModal(page, held.slug, {
+        timeoutMs: 30_000,
+      });
       const popover = modal.getByTestId("share-hub-popover");
       await expect(async () => {
         await modal.getByTestId("share-hub-kebab").click();
@@ -966,9 +965,9 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
       test.setTimeout(120_000);
       await page.setViewportSize({ width: 390, height });
       await ensureWatchedFolder();
-      await page.goto(`/admin?show=${held.slug}`);
-      const modal = page.locator(LOADED_REVIEW_MODAL);
-      await expect(modal).toBeVisible({ timeout: 30_000 });
+      const modal = await openShowReviewModal(page, held.slug, {
+        timeoutMs: 30_000,
+      });
       const popover = modal.getByTestId("share-hub-popover");
       await expect(async () => {
         await modal.getByTestId("share-hub-kebab").click();
@@ -1147,9 +1146,9 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
     test.setTimeout(120_000);
     await page.setViewportSize({ width: 390, height: 844 });
     await ensureWatchedFolder();
-    await page.goto(`/admin?show=${held.slug}`);
-    const modal = page.locator(LOADED_REVIEW_MODAL);
-    await expect(modal).toBeVisible({ timeout: 30_000 });
+    const modal = await openShowReviewModal(page, held.slug, {
+      timeoutMs: 30_000,
+    });
     const popover = modal.getByTestId("share-hub-popover");
     await expect(async () => {
       await modal.getByTestId("share-hub-kebab").click();
@@ -1239,9 +1238,9 @@ test.describe("admin lifecycle layout dimensions (real browser, §3.3)", () => {
     test.setTimeout(120_000);
     await page.setViewportSize({ width: 390, height: 844 });
     await ensureWatchedFolder();
-    await page.goto(`/admin?show=${held.slug}`);
-    const modal = page.locator(LOADED_REVIEW_MODAL);
-    await expect(modal).toBeVisible({ timeout: 30_000 });
+    const modal = await openShowReviewModal(page, held.slug, {
+      timeoutMs: 30_000,
+    });
     const popover = modal.getByTestId("share-hub-popover");
 
     const caretCentreFor = async (openerTestId: string) => {

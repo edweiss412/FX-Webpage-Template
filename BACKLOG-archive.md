@@ -40,6 +40,67 @@ from `tests/styles/interactiveScanCore.ts`. On 2026-08-14 it returned 29 element
 
 **First scheduled step:** settle §1.2a's predicate — "near-ground" as page-ground only, or as fill-equals-container — and state explicitly whether switch tracks are in or out. The swap itself is one token per site once that is written down.
 
+---
+
+## BL-MODAL-WAIT-BOUNDARY-HELPER-ADOPTION — adopt the boundary-recovering wait helper across the other modal-waiting e2e specs — CLOSED 2026-08-16 (`test/modal-wait-helper-adoption`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-16 · **Effort (as shipped):** M · **Class:** e2e flake hardening · **Filed:** 2026-08-15 · **Spec:** `docs/superpowers/specs/ci/2026-08-16-modal-wait-boundary-helper-adoption-design.md` · **Plan:** `docs/superpowers/plans/ci/2026-08-16-modal-wait-boundary-helper-adoption.md`
+
+51 member open sites across 17 e2e specs now route their post-open wait through
+`tests/e2e/helpers/openShowReviewModal.ts`, which recovers exactly once from the `/admin` error
+boundary and surfaces every recovery as an `infra-recovery` annotation. The helper grew two
+additive exports so every navigation shape in the corpus could adopt without re-authoring the
+recovery: `awaitReviewModalOrRecover` (the wait plus the single retry, for callers that own their
+own navigation) and `openShowReviewModalAt` (goto-with-options). `openShowReviewModal` keeps its
+ratified signature and is now a thin delegation through both — label defaults to `slug=<slug>`, so
+every error message and annotation description is byte-identical to before.
+
+**THE ENTRY'S OWN CENSUS WAS WRONG, AND THE CORRECTION IS THE DURABLE PART.** This row proposed
+two literal greps (`rg -l 'published-show-review-modal'` and `rg -c 'admin\?show='`) and named 7 + 7
+specs. Both mis-census: the first misses every `published-*` spec, which builds its selector from a
+`const BASE`, while including a harness-only gallery; the second counts comment mentions and `href`
+assertion strings. The larger gap is that both are FILE-keyed and literal, so they cannot see an
+open that is not a literal `goto` — row clicks, keyboard activation, legacy 307 redirects, and a
+`page.reload()` of the current `?show=` route. The unit is the OPEN SITE, not the file, and the
+derivation is five origin commands, not two greps.
+
+Four consecutive spec rounds landed a finding on census completeness. Round 3 triggered the
+same-vector rule and its repair shipped the mandated comprehensive re-analysis — a hand-written
+product-keyed table — and round 4 found THAT table incomplete: it miscounted itself and still
+omitted five live surfaces. Per AGENTS.md, a finding on the same vector after the comprehensive
+re-analysis means the analysis was wrong in KIND, so **the census is closed as CODE**: a candidate
+enumeration over the five origins with no hand-maintained list on either side, plus a TOTAL
+DISPOSITION asserting `members ∪ exclusions = candidates` exactly. An undispositioned candidate
+fails. The §2.3-§2.5 tables are a non-normative rendering; where they and the code disagree, the
+code is right. As shipped: 271 candidates, 0 undispositioned, 0 ambiguous.
+
+**Both exclusion classes, stated rather than silently dropped.**
+`published-review-modal.prefetch.spec.ts` keeps the exposure because its assertions COUNT `?show=`
+network requests and a recovery re-runs the loader — adoption would convert a rare visible starve
+into a rare wrong-count failure that reads as a product regression (documented limit 3). And two
+member sites (`deeplink.spec.ts:344`, `realtime.spec.ts:913`) wait on a selector the Suspense
+skeleton also matches, so a modal-or-boundary race resolves on the SKELETON and would hide the
+fault rather than surface it — the `readySelector` option drafted for exactly those two callers was
+removed rather than patched, and they are filed as `BL-MODAL-WAIT-SKELETON-TOLERANT-SITES`
+(disposition reason (c)), which stays OPEN as this arc's filed peer.
+
+Recovery visibility was the half nobody would have noticed missing: the annotation was
+operator-visible in ONE workflow, and both executed-count oracles gated by `process.exit(1)` placed
+ABOVE their reporting tail — so the app oracle's shipped recovery print was already unreachable on
+a floor shortfall, the exact failure path the duty exists for. Both oracles are now ordered by
+construction (gating exit LAST), nine steps across five workflows emit a JSON report and print
+recoveries under `if: always()`, and green-run stdout is byte-identical so the existing pin stayed
+unedited.
+
+Two things the row did not describe were found on the way. `if: always()` on the crew oracle made
+the repo's shared wiring-activation predicate read that step as UNWIRED — a guard reporting that
+hardening a step removed it — so `always()` is now an exact-literal exception at step level, and a
+one-element YAML sequence that stringified to `always()` was caught by review and refused. And a
+reporter-flag edit turned out to be a complex-invocation-registry edit too, that registry being
+keyed on verbatim command text.
+
+---
+
 ## BL-PSQL-SCAN-MUTATION-ENROLMENT — the psql startup-file scanner is measurable now, and scores 0.354 — CLOSED 2026-08-16 (`test/psql-scan-mutation-enrolment`, SHIPPED)
 
 **Status:** SHIPPED 2026-08-16 · **Effort (as shipped):** M · **Filed:** 2026-08-15 (`fix/local-harness-false-failures`, from that arc's own enrolment probe) · **Class:** guard coverage · **Effort:** M · **Class-sweep exception:** (a) — the disposition of 31 survivors is a judgment call the filing PR cannot settle, ratified by the user against repaying in-branch. · **Reachability:** PROBED — the numbers below are a real run, not an estimate.

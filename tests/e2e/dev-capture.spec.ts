@@ -24,6 +24,7 @@ import { signInAs, signOut } from "./helpers/signInAs";
 import { ADMIN_FIXTURE, NORMAL_ADMIN_FIXTURE } from "./helpers/fixtures";
 import { seedShowWithCrew, deleteSeededShow, type SeededShow } from "./helpers/seedShowWithCrew";
 import { settleDashboardAdminState } from "./helpers/dashboardState";
+import { openShowReviewModal } from "./helpers/openShowReviewModal";
 import { seedStagedRow, cleanupStagedRow, openStep3Modal } from "./helpers/devCaptureStaged";
 
 let show: SeededShow;
@@ -165,7 +166,7 @@ test.describe("dev-capture full-content proof + redaction (spec §3.4/§4.4)", (
     page,
   }) => {
     await signInAs(page, ADMIN_FIXTURE);
-    await page.goto(`/admin?show=${show.slug}`);
+    await openShowReviewModal(page, show.slug);
     await awaitModalHydrated(page);
     await page.getByTestId("share-hub-kebab").click();
     await expect(page.getByTestId("share-hub-dev-capture")).toBeVisible();
@@ -224,7 +225,7 @@ test.describe("dev-capture visibility (spec §2.1-§2.3)", () => {
 
   test("developer sees the kebab capture row in the published modal", async ({ page }) => {
     await signInAs(page, ADMIN_FIXTURE);
-    await page.goto(`/admin?show=${show.slug}`);
+    await openShowReviewModal(page, show.slug);
     await awaitModalHydrated(page);
     await page.getByTestId("share-hub-kebab").click();
     await expect(page.getByTestId("share-hub-dev-capture")).toBeVisible();
@@ -233,7 +234,7 @@ test.describe("dev-capture visibility (spec §2.1-§2.3)", () => {
 
   test("non-developer admin never sees the capture affordances", async ({ page }) => {
     await signInAs(page, NORMAL_ADMIN_FIXTURE);
-    await page.goto(`/admin?show=${show.slug}`);
+    await openShowReviewModal(page, show.slug);
     await awaitModalHydrated(page);
     await page.getByTestId("share-hub-kebab").click();
     await expect(page.getByTestId("share-hub-popover")).toBeVisible();

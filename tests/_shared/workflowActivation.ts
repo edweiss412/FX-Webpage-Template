@@ -21,7 +21,15 @@
  * guards exist to prevent.
  *
  * Refused (any occurrence ⇒ that run is not counted):
- *   - `if:` at step or job level — an expression this code cannot evaluate is not proof.
+ *   - `if:` at step or job level — an expression this code cannot evaluate is not proof. ONE
+ *     literal is excepted at STEP level, `always()`: it is the only expression whose value is
+ *     decidable without evaluating anything, and it decides in the SAFE direction — a step
+ *     carrying it runs even when an earlier step failed, which is strictly MORE execution than
+ *     the unconditional default this function already counts. The exception is the exact literal
+ *     only (whitespace and an optional `${{ … }}` wrapper aside), so `always() && <anything>` is
+ *     refused like any other expression. Introduced 2026-08-16, when the modal-wait adoption arc
+ *     put `if: always()` on crew-e2e.yml's executed-count oracle so a recovered-then-failed run
+ *     still reaches it: without the exception, hardening that step read as UNWIRING it.
  *   - `continue-on-error:` at step or job level, unless it is literally `false`. `${{ true }}`
  *     parses as a STRING, so an `=== true` test misses it (R7 probe); so would `yes`/`on`.
  *   - `needs:` on the job — a gate job carrying `if: false` skips this job implicitly, even though
@@ -50,7 +58,28 @@ function swallowsFailure(block: Record<string, unknown>): boolean {
 }
 
 const REFUSED_JOB_KEYS = ["if", "needs", "defaults", "container"] as const;
-const REFUSED_STEP_KEYS = ["if", "shell", "working-directory"] as const;
+const REFUSED_STEP_KEYS = ["shell", "working-directory"] as const;
+
+/**
+ * The one `if:` that is proof of execution rather than an obstacle to it.
+ *
+ * Deliberately exact-match, not a prefix or a contains: `always() && inputs.x` is an expression
+ * this code cannot evaluate, and accepting it because it starts with `always()` is precisely the
+ * recognizer growth this file's refusal policy exists to avoid.
+ */
+function stepIfIsProvablyAlways(raw: unknown): boolean {
+  if (raw === undefined) return true;
+  // SCALAR ONLY. `String(raw)` on a one-element sequence yields the element's own
+  // text, so `if: [always()]` and its block form stringified to exactly "always()"
+  // and were admitted — diff-review round 1 probed all four spellings (flow/block ×
+  // bare/wrapped) against the shipped function and every one passed. A sequence is
+  // not the scalar this exception was measured on, and GitHub's own semantics for
+  // one are not something this file models.
+  if (typeof raw !== "string") return false;
+  const text = raw.trim();
+  const inner = /^\$\{\{(.*)\}\}$/.exec(text)?.[1] ?? text;
+  return inner.trim() === "always()";
+}
 
 /**
  * Every `run:` scalar whose step, job and workflow carry no construct that can switch it off,
@@ -76,6 +105,7 @@ export function activatedRunScalars(yamlText: string): string[] {
       const step = raw as StepLike;
       if (typeof step.run !== "string") continue;
       if (REFUSED_STEP_KEYS.some((k) => step[k] !== undefined)) continue;
+      if (!stepIfIsProvablyAlways(step["if"])) continue;
       if (swallowsFailure(step)) continue;
       runs.push(step.run);
     }

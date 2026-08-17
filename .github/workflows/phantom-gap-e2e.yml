@@ -191,7 +191,18 @@ jobs:
       # refuses to count. What stays here is the real-mount work below, which the
       # standalone config cannot run.
       - name: Phantom-gap probe — /admin dashboard + show modal
-        run: pnpm exec playwright test --reporter=list --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "T-NOPHANTOM"
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/phantom-gap-nophantom-report.json
+        run: pnpm exec playwright test --reporter=list,json --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "T-NOPHANTOM"
+      # Informational, never a gate (spec §4.3). `if: always()` is load-bearing: without it
+      # this is an ordinary prerequisite-gated step, so a run that RECOVERS and then fails a
+      # downstream assertion skips the print entirely — the recovery happened, the list
+      # reporter prints no annotations, and a failed run's artifact is not where an operator
+      # looks first. The printer always exits 0, so `always()` cannot convert a red run green;
+      # the Playwright step's own status remains this job's verdict.
+      - name: Print infra-recovery annotations (phantom-gap probe)
+        if: always()
+        run: node scripts/print-infra-recoveries.mjs --report test-results/phantom-gap-nophantom-report.json
       - name: Phantom-gap probe — crew page
         run: pnpm exec playwright test --reporter=list --project=mobile-safari tests/e2e/crew-layout-dimensions.spec.ts -g "T-NOPHANTOM-CREW"
       # The width chain, which is what stops the two standalone steps above from
@@ -201,13 +212,35 @@ jobs:
       # filter above, because that filter would not match it — a spec matched by a
       # project but invoked by no step runs nowhere.
       - name: Section-header width chain (real route)
-        run: pnpm exec playwright test --reporter=list --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "width chain"
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/phantom-gap-width-chain-report.json
+        run: pnpm exec playwright test --reporter=list,json --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "width chain"
+      # Informational, never a gate (spec §4.3). `if: always()` is load-bearing: without it
+      # this is an ordinary prerequisite-gated step, so a run that RECOVERS and then fails a
+      # downstream assertion skips the print entirely — the recovery happened, the list
+      # reporter prints no annotations, and a failed run's artifact is not where an operator
+      # looks first. The printer always exits 0, so `always()` cannot convert a red run green;
+      # the Playwright step's own status remains this job's verdict.
+      - name: Print infra-recovery annotations (width chain)
+        if: always()
+        run: node scripts/print-infra-recoveries.mjs --report test-results/phantom-gap-width-chain-report.json
       # Its OWN step, for the reason the comment above gives: a case matched by a
       # project but selected by no `-g` filter runs NOWHERE. The freshness-cue
       # geometry case matches neither filter above, and the e2e coverage guard
       # tracks the FILE rather than the filters, so it cannot see that gap.
       - name: Freshness cue geometry (real route)
-        run: pnpm exec playwright test --reporter=list --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "T-FRESHNESS-GEOMETRY"
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/phantom-gap-freshness-report.json
+        run: pnpm exec playwright test --reporter=list,json --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "T-FRESHNESS-GEOMETRY"
+      # Informational, never a gate (spec §4.3). `if: always()` is load-bearing: without it
+      # this is an ordinary prerequisite-gated step, so a run that RECOVERS and then fails a
+      # downstream assertion skips the print entirely — the recovery happened, the list
+      # reporter prints no annotations, and a failed run's artifact is not where an operator
+      # looks first. The printer always exits 0, so `always()` cannot convert a red run green;
+      # the Playwright step's own status remains this job's verdict.
+      - name: Print infra-recovery annotations (freshness cue)
+        if: always()
+        run: node scripts/print-infra-recoveries.mjs --report test-results/phantom-gap-freshness-report.json
       # Its OWN step, for the same reason as the two above: the private-image-pipeline
       # cases live in crew-layout-dimensions.spec.ts but match NEITHER
       # `-g "T-NOPHANTOM-CREW"` nor any other filter this job runs, so without this
