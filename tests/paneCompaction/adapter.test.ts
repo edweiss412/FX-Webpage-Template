@@ -327,6 +327,22 @@ describe("--dry-run shows the refusal it would hit, and spends nothing", () => {
     expect(run.sent).toEqual([]);
   });
 
+  it("--checkpoint --dry-run does not WRITE a nonce", () => {
+    // The mirror of the consume case, and the more dangerous of the two: a dry
+    // run that stored a freshly minted nonce would overwrite the record, and the
+    // target — which never saw this prompt — could then never satisfy the real
+    // --compact that follows.
+    const written: string[] = [];
+    const { surface, run } = fakeSurface({
+      nonceWrite: (sessionId, paneId, nonce) => written.push(`${sessionId}/${paneId}/${nonce}`),
+    });
+    const code = main(["--checkpoint", "wM:p1", "--as", "sess-1", "--dry-run"], surface);
+    expect(code).toBe(0);
+    premiseHolds("the dry run really did produce the prompt", run.lines.join("").length > 0);
+    expect(written).toEqual([]);
+    expect(run.sent).toEqual([]);
+  });
+
   it("--compact --dry-run does not CONSUME the nonce it checked", () => {
     // Reading and comparing is the gate; spending it is the side effect. A dry
     // run that consumed would make the real --compact that follows it fail.
