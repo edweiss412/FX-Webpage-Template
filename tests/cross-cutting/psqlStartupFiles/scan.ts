@@ -2215,7 +2215,40 @@ function assignmentBindingLines(words: ShellWord[], file: string): Set<number> {
     // use sites (spec 3.1; probe supplement g3/g6).
     const value = match[1]!.replace(/^[ \t\n]+|[ \t\n]+$/g, "");
     if (value.length === 0) continue;
-    if (/\s/.test(value)) continue; // multiword values: Task 3
+    if (/\s/.test(value)) {
+      // A MULTIWORD value binds a command LINE (`CMD='psql -qAt mydb'; eval
+      // "$CMD"`): re-lex the dequoted value and require a psql site carrying a
+      // flag-shaped token - the same criterion the retired quotedValue path
+      // used, which keeps prose (`MSG="psql failed to connect"`) out. The
+      // cheap skip below is NOT the forbidden R4 prefilter: it runs on the
+      // already-DEQUOTED value, and any spelling of psql the literal test
+      // misses must still carry a quote or backslash character, which the
+      // second alternative admits.
+      if (!/\bpsql\b/.test(value) && !/["'\\]/.test(value)) continue;
+      // TWO consumer grammars decide a multiword value, each read by ITS OWN
+      // rules (plan round-3 finding 3; round-5 finding 1):
+      //  - `eval "$CMD"`: the value is shell SOURCE - quotes are syntax,
+      //    newlines separate commands. Read with scanShellText, as before.
+      //  - unquoted `$CMD`: the value is DATA word-split on IFS whitespace -
+      //    quotes are literal pathname characters and newlines are ordinary
+      //    separators, so re-lexing it as shell turned `/tmp/O'Reilly/psql -X`
+      //    into the wrong words. Read with a plain split: psql-shaped argv[0]
+      //    plus a flag-shaped later token, the same flag criterion. The split
+      //    reading decides psql at ARGV[0] and nothing deeper - a wrapper-
+      //    prefixed value whose psql path needs it (`CMD="sudo
+      //    /tmp/O'Reilly/psql -X mydb"`) is a declared limit, spec §6 item 6.
+      // Report if EITHER reading yields a flagged psql invocation.
+      const evalBound = scanShellText(value, file, 0).some((site) =>
+        site.tokens.some((token) => /^-{1,2}[A-Za-z0-9]/.test(token)),
+      );
+      const parts = value.split(/[ \t\n]+/).filter((part) => part.length > 0);
+      const splitBound =
+        parts.length > 1 &&
+        isPsqlCommandWord(parts[0]!) &&
+        parts.slice(1).some((token) => /^-{1,2}[A-Za-z0-9]/.test(token));
+      if (evalBound || splitBound) found.add(word.line);
+      continue;
+    }
     // The PSQL_VALUE core, decided on the DEQUOTED value: psql with word
     // boundaries, no surviving quote or separator DATA characters (a quoted
     // `;` binds `psql;x`, which is not the psql command), and no trailing
@@ -2320,8 +2353,10 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
     // A backslash-newline CONTINUATION makes one logical line: the quoted
     // multiline binding `CMD='psql -qAt mydb \\` + newline + `-c "select 1"'`
     // is one assignment, and a per-line view saw only its first half. Joined
-    // ONLY for the binding rule below — the other rules stay line-local, since
-    // joining them wholesale produced five false positives on this tree.
+    // ONLY for `INTERPRETER_POSITIONAL_BINDING` below — the other line-local
+    // rules stay line-local, since joining them wholesale produced five false
+    // positives on this tree. (The assignment family no longer reads either
+    // joined view: it reads the LEXED words, which the lexer joins itself.)
     const rawCode = comment === undefined ? line : line.slice(0, comment);
     const code = rawCode;
     let logical = rawCode;
@@ -2333,9 +2368,9 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
     // `/opt/postgresql/17/bin/psql`. `logical` joins with a SPACE, which is
     // right for separating WORDS but splits the very word the shell is gluing
     // together, so every binding rule read two halves and neither contained a
-    // psql-shaped value. `spliced` is the shell's own reading; the binding
-    // rules use it, while the rules that care about word boundaries keep
-    // `logical`.
+    // psql-shaped value. `spliced` is the shell's own reading. Its remaining
+    // consumers are `READ_HERE_STRING` and `githubEnvWrite` — the assignment
+    // family reads lexed words now, where the lexer performs the same splice.
     let spliced = rawCode;
     for (let k = index; /\\$/.test(spliced) && k + 1 < lines.length; k++) {
       spliced = `${spliced.replace(/\\$/, "")}${(lines[k + 1] ?? "").replace(/^\s+/, "")}`;
@@ -2362,21 +2397,6 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
     // and `alias "psql=…"`, plus a shell FUNCTION named psql.
     const aliased = /(?:^|\s)alias\s+(?:-\w+\s+)*["']?psql=/.exec(code);
     const functionDef = /(?:^|\s)(?:function\s+psql\b|psql\s*\(\s*\)\s*\{)/.exec(code);
-    // A MULTIWORD command binding: `CMD='psql -qAt mydb'; eval "$CMD"`. The
-    // literal survives but the command word only exists after expansion, so no
-    // site is produced. Requiring the quoted value to lex to a psql invocation
-    // WITH a flag keeps prose out — `MSG="psql failed to connect"` carries none.
-    const quotedValue =
-      /(?:^|\s)(?:export\s+|readonly\s+|declare\s+-\w+\s+|local\s+)?[A-Za-z_]\w*=(?:'([^']*\bpsql\b[^']*)'|"([^"]*\bpsql\b[^"]*)")/.exec(
-        logical,
-      );
-    const boundCommand =
-      quotedValue !== null &&
-      scanShellText(quotedValue[1] ?? quotedValue[2] ?? "", file, 0).some((site) =>
-        site.tokens.some((token) => /^-{1,2}[A-Za-z0-9]/.test(token)),
-      )
-        ? quotedValue
-        : null;
     // `$GITHUB_ENV` and `$GITHUB_OUTPUT` are THE documented way one step hands
     // a value to a later one, so `echo "PSQL=psql" >> "$GITHUB_ENV"` binds a
     // command name exactly as `PSQL=psql` does — and was invisible, because the
@@ -2399,8 +2419,7 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
     // positional on different lines, where the rule could not see either. Same
     // `logical` join the bound-command rule uses, for the same reason.
     const positionalBinding = INTERPRETER_POSITIONAL_BINDING.test(logical) ? ["", ""] : null;
-    const hit =
-      assigned ?? boundCommand ?? aliased ?? functionDef ?? githubEnvWrite ?? positionalBinding;
+    const hit = assigned ?? aliased ?? functionDef ?? githubEnvWrite ?? positionalBinding;
     if (hit) hits.push({ file, line: index + 1, text: code.trim() });
   }
   return hits;

@@ -4877,4 +4877,36 @@ describe("mixed-quoted assignment values (BL-SHELL-BINDING-MIXED-QUOTED-VALUE)",
   test("a non-qualifying assignment does not shadow a later binding on the line", () => {
     expect(scanShellIndirection("A=no PG=psql\n", "x.sh").length).toBeGreaterThan(0);
   });
+
+  // A MULTIWORD command binding read as the lexer's dequoted concatenation:
+  // the retired quotedValue regex required the whole value inside ONE quote
+  // pair, so a segment split anywhere lost it.
+  test.each([
+    ["a segment-split command binding", 'CMD=\'psq\'"l -qAt mydb"\neval "$CMD"\n'],
+    ["an inner-quoted spelling in the value", 'CMD=\'p"s"ql -X mydb\'\neval "$CMD"\n'],
+    // An internal newline is IFS whitespace to an unquoted expansion: bash
+    // word-splits $'psql\n-X mydb' into one flagged argv (round-3 finding 3).
+    // The literal-newline single-quoted spelling reaches the same branch,
+    // because the branch decides the lexed value CONTENT, not the spelling.
+    ["a newline-separated command binding", "PG=$'psql\\n-X mydb'\n"],
+    // Literal quote characters in a directory component are DATA to the
+    // word-split consumer (round-5 finding 1): bash argv is the full path
+    // plus -X mydb for both rows.
+    ["an apostrophe-directory command binding", 'CMD="/tmp/O\'Reilly/psql -X mydb"\n'],
+    ["a double-quote-directory command binding", "CMD='/tmp/x\"y/psql -X mydb'\n"],
+  ])("multiword binding value: %s is reported", (_label, source) => {
+    expect(scanShellIndirection(source, "x.sh").length).toBeGreaterThan(0);
+  });
+
+  // Documented limit, spec §6 item 2 (round-1 finding 1): a quoted YAML `run:`
+  // scalar lexes to ONE assignment word whose multiword value's psql command
+  // carries no flag token - the -qAt below belongs to the $PG command - and
+  // the flag criterion (deliberately unchanged) is the line between a command
+  // binding and prose. Plain and mixed spellings alike are declared misses.
+  test.each([
+    ["the plain spelling", '- run: "PG=psql; $PG -qAt mydb"\n'],
+    ["the mixed spelling", "- run: \"PG=p'sql'; $PG -qAt mydb\"\n"],
+  ])("multiword binding value: a quoted run: scalar (%s) stays a limit", (_label, source) => {
+    expect(scanShellIndirection(source, ".github/workflows/x.yml")).toHaveLength(0);
+  });
 });
