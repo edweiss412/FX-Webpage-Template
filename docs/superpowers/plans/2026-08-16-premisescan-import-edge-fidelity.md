@@ -587,7 +587,7 @@ dynamic import() with a non-literal specifier
 computed member access on process
 ```
 
-The last two are SHIPPED strings, unchanged by this arc (`tests/mutation/source/premiseScan.ts:1090` and `tests/mutation/source/premiseScan.ts:1104`); the rest are this arc's, and each task's implementation step emits its rows verbatim. §2.6 item 2 prefixes the module the construct was FOUND in, which is what `module` / `notModule` assert.
+The last two are SHIPPED strings, unchanged by this arc (`tests/mutation/source/premiseScan.ts:1090` and `tests/mutation/source/premiseScan.ts:1103`); the rest are this arc's, and each task's implementation step emits its rows verbatim. §2.6 item 2 prefixes the module the construct was FOUND in, which is what `module` / `notModule` assert.
 
 - Consumes: `ModuleFacts`, `resolveSpecifier`, `bindingIdentifiers`, `unclassifiableWithin`, all already in `premiseScan.ts`.
 
