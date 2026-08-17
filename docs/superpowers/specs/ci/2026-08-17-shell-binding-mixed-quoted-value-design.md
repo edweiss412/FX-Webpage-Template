@@ -358,6 +358,22 @@ concatenation." Swept across every rule family in `scanShellIndirection`:
    siblings) are not dequoted — the expansion is one verbatim word by design, and only a bare
    `psql` inside it reports (`PG=${U:-psql}` does; probed both instruments). A missed report,
    never a false certification; ledger `BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE`.
+8. An ANSI-C `\U` escape ABOVE the Unicode maximum keeps its raw `\U` text instead of the byte
+   sequence bash emits for it, and a template literal's `\u{…}` above the same bound is treated
+   as not cookable. The alternative here is not a better reading but a THROW —
+   `String.fromCodePoint` rejects the code point, and one such line aborts the walk before it
+   inspects anything after it, which is strictly worse than any miss. Neither raw reading can be
+   psql, so both are missed reports. Added by diff review r1 finding 2, swept as a class across
+   both sites that hand a file-derived code point to `String.fromCodePoint`.
+
+Not a limit, and recorded here because the first cut made it one: a COMPOUND ARRAY value
+(`PG=(psql)`, `PG=([0]=psql)`, `declare -a`/`-A`, `+=`) IS read. `(` is the only member of
+`OPERATOR_STARTS` that can appear inside an assignment value — `;`, `&` and `|` each terminate the
+assignment word, which is why the lexer is right to split on them — so the compound case hands each
+element word back to the same value predicate rather than owning a second grammar. Diff review r1
+finding 1 caught this as a REGRESSION against the retired line-text patterns (probed base-versus-new:
+the whole vector went 1 → 0), and the deciding suite pins that vector plus a derived cover ranging
+over `OPERATOR_STARTS` itself, so a future operator cannot inherit an answer written today.
 
 ## 7. Verification contract
 

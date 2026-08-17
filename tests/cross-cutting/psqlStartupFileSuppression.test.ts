@@ -43,6 +43,7 @@ import { stripCommentsForFile } from "../_shared/stripComments";
 
 import {
   EXEMPTION_MARKER,
+  OPERATOR_STARTS,
   analyzeNaming,
   scanShellIndirection,
   argvSuppressesStartupFiles,
@@ -4696,6 +4697,31 @@ describe("enrolment survivors - batch D", () => {
       expect(scanShellIndirection("PG=$'\\057psql'\n", "x.sh").length).toBeGreaterThan(0);
     });
 
+    // Diff review r1 finding 2, swept as a CLASS: an input that makes the guard
+    // THROW is worse than any miss, because one such line aborts the walk before
+    // it can inspect anything after it. Both sites that can throw take a code
+    // point out of file text and hand it to String.fromCodePoint, which rejects
+    // anything above the Unicode maximum - where bash and the JS spec differ
+    // from each other, and neither of them crashes. Out of range keeps the
+    // undecoded reading, which cannot be psql: a documented limit, never a
+    // crash. The two rows below are the two sites.
+    test("a \\U escape above the Unicode maximum keeps its undecoded reading", () => {
+      const source = "NOTE=$'\\U00110000'\npsql -X -qAt mydb\n";
+      expect(() => sitesIn(source, "x.sh")).not.toThrow();
+      // The point of not throwing: the psql call AFTER the offending line is
+      // still inspected. `psql -X` is a real site, so a zero here would mean the
+      // walk died rather than that the escape was read conservatively.
+      expect(sitesIn(source, "x.sh").length).toBeGreaterThan(0);
+    });
+
+    test("a template literal's \\u{...} above the Unicode maximum keeps its raw reading", () => {
+      const source = ["const note = `\\u{110000}`;", "execSync(`psql -X -qAt mydb`);", ""].join(
+        "\n",
+      );
+      expect(() => scanSource(source, "x.ts")).not.toThrow();
+      expect(scanSource(source, "x.ts").length).toBeGreaterThan(0);
+    });
+
     test("the octal range ends at 7, so $'\\73' decodes to the semicolon it spells", () => {
       // Read as octal the value is `psql;`, which is not the psql command - bash
       // looks for a file of that name - so the zero is correct. Left undecoded
@@ -4774,6 +4800,98 @@ describe("enrolment survivors - batch D", () => {
     const sites = sitesIn(source, "w.yml");
     expect(sites).toHaveLength(1);
     expect(sites[0]!.line).toBe(5);
+  });
+});
+
+describe("compound-array assignment values (diff review r1 finding 1)", () => {
+  // A REGRESSION this arc introduced and review caught: the retired line-text
+  // patterns read `PG=([0]=psql)` because they never saw the shell's words, and
+  // the lexed-word route lost it because `(` and `)` are OPERATORS that split
+  // the value into its own words. Probed base-versus-new on the whole vector,
+  // every row 1 -> 0.
+  //
+  // The repair is the shell's own grammar rather than a second one: `(` is the
+  // ONLY member of OPERATOR_STARTS that can appear INSIDE an assignment value -
+  // `;`, `&` and `|` each terminate the assignment word, which is why the lexer
+  // is right to split on them - so the compound case is read by handing each
+  // element word to the SAME value predicate the single-word case uses.
+  test.each([
+    ["bare element", "PG=(psql)\n"],
+    ["keyed element", "PG=([0]=psql)\n"],
+    ["append form", "PG+=(psql)\n"],
+    ["declare -a", "declare -a PG=([0]=psql)\n"],
+    ["associative", "declare -A PG=([x]=psql)\n"],
+    ["mixed-quoted element", "PG=([0]=p'sql')\n"],
+    ["quoted path element", "PG=('/usr/bin/'psql)\n"],
+    ["later element", "PG=(pgcli psql)\n"],
+    ["multi-line compound", "PG=(\n  psql\n)\n"],
+  ])("%s binds the psql command and is reported", (_label, source) => {
+    expect(scanShellIndirection(source, "x.sh").length).toBeGreaterThan(0);
+  });
+
+  test("a compound array of other programs binds nothing", () => {
+    premise(
+      "the same shape with a psql element IS reported",
+      scanShellIndirection("PG=([0]=psql)\n", "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection("PG=([0]=pgcli)\n", "x.sh")).toHaveLength(0);
+  });
+
+  test("an element after the closing paren is not part of the value", () => {
+    // `)` ends the compound value, so the word after it is a separate command
+    // word rather than an element. `pgcli` there leaves the assignment binding
+    // nothing, and the zero is attributable to the paren rather than to a
+    // fixture the rule never sees.
+    premise(
+      "the same word INSIDE the parens is an element and is reported",
+      scanShellIndirection("PG=(psql)\n", "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection("PG=(x) pgcli\n", "x.sh")).toHaveLength(0);
+  });
+
+  test("every operator the lexer knows is either inside a value or ends it", () => {
+    // The SWEEP, derived rather than enumerated: the class this finding belongs
+    // to is "an assignment value the lexer splits across an operator", so the
+    // cover has to range over the lexer's own operator set. Adding a member to
+    // OPERATOR_STARTS later forces this test to account for it instead of
+    // silently inheriting a list written today.
+    //
+    // `(` opens a compound value and `)` closes it; a newline inside one is
+    // ordinary whitespace. Every OTHER operator TERMINATES the assignment word,
+    // so what follows is a separate command rather than part of the value -
+    // which is exactly why the lexer splitting on it is right and no second
+    // grammar is owed.
+    const insideAValue = new Set(["(", ")", "\n"]);
+    premiseHolds(
+      "the operator set still carries members outside the compound delimiters",
+      [...OPERATOR_STARTS].some((operator) => !insideAValue.has(operator)),
+    );
+    premiseHolds(
+      "the compound delimiters are still members of the operator set",
+      [...insideAValue].every((operator) => OPERATOR_STARTS.has(operator)),
+    );
+    for (const operator of OPERATOR_STARTS) {
+      if (insideAValue.has(operator)) continue;
+      expect(scanShellIndirection(`PG=${operator}psql\n`, "x.sh")).toHaveLength(0);
+    }
+    // And the delimiters do their two jobs, so the zeros above are attributable
+    // to the operator rather than to a rule that reports nothing at all.
+    expect(scanShellIndirection("PG=(psql)\n", "x.sh").length).toBeGreaterThan(0);
+    expect(scanShellIndirection("PG=\npsql\n", "x.sh")).toHaveLength(0);
+  });
+
+  test("an UNTERMINATED compound assignment binds nothing", () => {
+    // `PG=(` with no closing paren is a bash syntax error: the file runs
+    // nothing, so no binding is correct. Pinned because the alternative -
+    // scanning to end of input - would let one stray paren report every psql
+    // word in the rest of the file against this one line.
+    premiseHolds(
+      "the same source WITH the closing paren is reported",
+      scanShellIndirection("PG=(\n  psql\n)\n", "x.sh").length > 0,
+    );
+    expect(scanShellIndirection("PG=(\n  psql\n", "x.sh")).toHaveLength(0);
   });
 });
 

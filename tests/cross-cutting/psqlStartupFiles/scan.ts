@@ -238,6 +238,22 @@
  *    BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE. A bare `PG=${U:-psql}` reports.
  *  - `PG=$(x)psql`-shaped values over-report conservatively, matching the
  *    trailing-path reading of `isPsqlCommandWord`.
+ *  - An ANSI-C `\U` escape ABOVE the Unicode maximum keeps its raw `\U` text
+ *    rather than the byte sequence bash emits for it. The alternative is not a
+ *    better reading, it is a THROW: `String.fromCodePoint` rejects the code
+ *    point, and one such line would abort the walk before it inspected anything
+ *    after it (diff review r1 finding 2). The same guard covers a template
+ *    literal's `\u{…}` — a literal the JS engine would itself reject is simply
+ *    not cookable. Neither raw reading can be psql, so both are missed reports.
+ *
+ * A NON-limit worth naming, because it looked like one: a COMPOUND ARRAY value
+ * (`PG=(psql)`, `PG=([0]=psql)`, `declare -a PG=(…)`) is read. `(` is the only
+ * member of `OPERATOR_STARTS` that can appear INSIDE an assignment value, so the
+ * lexer splits such a value into its own words, and `compoundArrayBinds` hands
+ * each element back to the SAME predicate. That the retired line-text patterns
+ * read these by accident — and the first cut of the lexed-word route did not —
+ * is why the deciding suite pins the whole vector plus a derived cover over the
+ * operator set (diff review r1 finding 1).
  *
  * ── Exemptions ─────────────────────────────────────────────────────────────
  *
@@ -789,7 +805,7 @@ type ShellWord = {
   operator: boolean;
 };
 
-const OPERATOR_STARTS = new Set([";", "&", "|", "(", ")", "\n"]);
+export const OPERATOR_STARTS = new Set([";", "&", "|", "(", ")", "\n"]);
 
 /** A file descriptor sitting in front of a redirection operator: a plain number
  * (`2>err`) or bash's dynamic form (`{fd}>err`, which assigns the fd to `fd`).
@@ -866,7 +882,13 @@ function decodeAnsiCEscape(text: string, at: number): { decoded: string; consume
   if (next === "u" || next === "U") {
     const width = next === "u" ? 4 : 8;
     const hex = new RegExp(`^[0-9A-Fa-f]{1,${width}}`).exec(text.slice(at + 2));
-    if (hex)
+    // Only \U can exceed the Unicode maximum (\u tops out at FFFF). Bash accepts
+    // such an escape and emits its own byte encoding; String.fromCodePoint
+    // THROWS on it, which would abort the whole walk on one line and take every
+    // later psql call in the file with it. Out of range falls through to the
+    // unknown-escape return below, keeping the raw \U text - which cannot be
+    // psql, so the direction is a documented limit rather than a crash.
+    if (hex && parseInt(hex[0], 16) <= 0x10ffff)
       return { decoded: String.fromCodePoint(parseInt(hex[0], 16)), consumed: 2 + hex[0].length };
   }
   const control = text[at + 2];
@@ -1763,6 +1785,12 @@ function mapRawToLines(raw: string, cooked: string, startLine: number): number[]
           if (close === -1) return null;
           const hex = raw.slice(i + 3, close);
           if (!/^[0-9a-fA-F]+$/.test(hex)) return null;
+          // Same class as the ANSI-C \U guard above: an unbounded run of hex
+          // digits can exceed the Unicode maximum (or parse to Infinity), where
+          // String.fromCodePoint throws and would abort the walk. A literal the
+          // JS engine itself would reject is not cookable, which is exactly what
+          // this function's null return means.
+          if (parseInt(hex, 16) > 0x10ffff) return null;
           emit(String.fromCodePoint(parseInt(hex, 16)));
           i = close + 1;
           continue;
@@ -2242,7 +2270,8 @@ const ASSIGNMENT_WORD = /^[A-Za-z_]\w*(?:\[[^\]]*\])?\+?=([\s\S]*)$/;
  */
 function assignmentBindingLines(words: ShellWord[], file: string): Set<number> {
   const found = new Set<number>();
-  for (const word of words) {
+  for (let index = 0; index < words.length; index++) {
+    const word = words[index]!;
     if (word.operator) continue;
     const match = ASSIGNMENT_WORD.exec(word.text);
     if (!match) continue;
@@ -2250,61 +2279,108 @@ function assignmentBindingLines(words: ShellWord[], file: string): Set<number> {
     // word-splits, so `PG=' psql'` and `PG=$'psql\n'` both run psql at their
     // use sites (spec 3.1; probe supplement g3/g6).
     const value = match[1]!.replace(/^[ \t\n]+|[ \t\n]+$/g, "");
+    // A COMPOUND ARRAY value (`PG=(psql)`, `PG=([0]=psql)`, `declare -a PG=(…)`)
+    // is not one word: `(` is the ONLY member of OPERATOR_STARTS that can appear
+    // INSIDE an assignment value, so the lexer splits the value into its own
+    // words exactly where bash's grammar does. Each element is read through the
+    // SAME predicate as a single-word value rather than through a second grammar
+    // (diff review r1 finding 1 — a REGRESSION against the retired line-text
+    // patterns, which saw the raw text and never had to know this).
+    if (value.length === 0 && words[index + 1]?.operator && words[index + 1]!.text === "(") {
+      if (compoundArrayBinds(words, index + 2, file)) found.add(word.line);
+      continue;
+    }
     if (value.length === 0) continue;
-    if (/\s/.test(value)) {
-      // A MULTIWORD value binds a command LINE (`CMD='psql -qAt mydb'; eval
-      // "$CMD"`): re-lex the dequoted value and require a psql site carrying a
-      // flag-shaped token - the same criterion the retired quotedValue path
-      // used, which keeps prose (`MSG="psql failed to connect"`) out. The
-      // cheap skip below is NOT the forbidden R4 prefilter: it runs on the
-      // already-DEQUOTED value, and any spelling of psql the literal test
-      // misses must still carry a quote or backslash character, which the
-      // second alternative admits.
-      if (!/\bpsql\b/.test(value) && !/["'\\]/.test(value)) continue;
-      // TWO consumer grammars decide a multiword value, each read by ITS OWN
-      // rules (plan round-3 finding 3; round-5 finding 1):
-      //  - `eval "$CMD"`: the value is shell SOURCE - quotes are syntax,
-      //    newlines separate commands. Read with scanShellText, as before.
-      //  - unquoted `$CMD`: the value is DATA word-split on IFS whitespace -
-      //    quotes are literal pathname characters and newlines are ordinary
-      //    separators, so re-lexing it as shell turned `/tmp/O'Reilly/psql -X`
-      //    into the wrong words. Read with a plain split: psql-shaped argv[0]
-      //    plus a flag-shaped later token, the same flag criterion. The split
-      //    reading decides psql at ARGV[0] and nothing deeper - a wrapper-
-      //    prefixed value whose psql path needs it (`CMD="sudo
-      //    /tmp/O'Reilly/psql -X mydb"`) is a declared limit, spec §6 item 6.
-      // Report if EITHER reading yields a flagged psql invocation.
-      const evalBound = scanShellText(value, file, 0).some((site) =>
-        site.tokens.some((token) => /^-{1,2}[A-Za-z0-9]/.test(token)),
-      );
-      const parts = value.split(/[ \t\n]+/).filter((part) => part.length > 0);
-      const splitBound =
-        parts.length > 1 &&
-        isPsqlCommandWord(parts[0]!) &&
-        parts.slice(1).some((token) => /^-{1,2}[A-Za-z0-9]/.test(token));
-      if (evalBound || splitBound) found.add(word.line);
-      continue;
-    }
-    // The PSQL_VALUE core, decided on the DEQUOTED value: psql with word
-    // boundaries, no surviving quote or separator DATA characters (a quoted
-    // `;` binds `psql;x`, which is not the psql command), and no trailing
-    // literal backslash - the expanded word's basename would be empty, the
-    // same shell fact the ratified trailing-backslash contract test pins.
-    // A separator character in a DIRECTORY component changes nothing about
-    // what runs: `/tmp/O'Reilly/psql` has basename psql (plan round-4
-    // finding 1). The basename alternative reuses the module's own word
-    // semantics (basename + isPsqlName), so it is exact, not a widening:
-    // `psql;x`, `psqlx` and a trailing-backslash value all fail it.
-    if (isPsqlName(basename(value))) {
-      found.add(word.line);
-      continue;
-    }
-    if (!/\bpsql\b/.test(value)) continue;
-    if (/["';|&]/.test(value)) continue;
-    if (value.endsWith("\\")) continue;
-    found.add(word.line);
+    if (valueBinds(value, file)) found.add(word.line);
   }
   return found;
+}
+
+/**
+ * Does a compound-array assignment's ELEMENT list bind the psql command name?
+ * `from` is the index of the word after the opening `(`.
+ *
+ * An UNTERMINATED list is a bash syntax error, so the file runs nothing and
+ * nothing is bound - which is also what keeps one stray paren from reporting
+ * every psql word in the rest of the file against the assignment's line.
+ */
+function compoundArrayBinds(words: ShellWord[], from: number, file: string): boolean {
+  let close = -1;
+  for (let k = from; k < words.length; k++) {
+    const word = words[k]!;
+    if (!word.operator) continue;
+    // A NEWLINE is ordinary whitespace inside a compound value, so a multi-line
+    // array is one assignment. Every other operator is a syntax error there.
+    if (word.text === "\n") continue;
+    if (word.text === ")") close = k;
+    break;
+  }
+  if (close === -1) return false;
+  for (let k = from; k < close; k++) {
+    const word = words[k]!;
+    if (word.operator) continue;
+    // An element is either a bare value or `[key]=value` / `[key]+=value`.
+    const keyed = /^\[[^\]]*\]\+?=([\s\S]*)$/.exec(word.text);
+    const value = (keyed ? keyed[1]! : word.text).replace(/^[ \t\n]+|[ \t\n]+$/g, "");
+    if (value.length > 0 && valueBinds(value, file)) return true;
+  }
+  return false;
+}
+
+/**
+ * Does one DEQUOTED assignment value bind the psql command name? Shared by the
+ * single-word case and by every element of a compound array, so the two cannot
+ * drift into two different readings of the same string.
+ */
+function valueBinds(value: string, file: string): boolean {
+  if (/\s/.test(value)) {
+    // A MULTIWORD value binds a command LINE (`CMD='psql -qAt mydb'; eval
+    // "$CMD"`): re-lex the dequoted value and require a psql site carrying a
+    // flag-shaped token - the same criterion the retired quotedValue path
+    // used, which keeps prose (`MSG="psql failed to connect"`) out. The
+    // cheap skip below is NOT the forbidden R4 prefilter: it runs on the
+    // already-DEQUOTED value, and any spelling of psql the literal test
+    // misses must still carry a quote or backslash character, which the
+    // second alternative admits.
+    if (!/\bpsql\b/.test(value) && !/["'\\]/.test(value)) return false;
+    // TWO consumer grammars decide a multiword value, each read by ITS OWN
+    // rules (plan round-3 finding 3; round-5 finding 1):
+    //  - `eval "$CMD"`: the value is shell SOURCE - quotes are syntax,
+    //    newlines separate commands. Read with scanShellText, as before.
+    //  - unquoted `$CMD`: the value is DATA word-split on IFS whitespace -
+    //    quotes are literal pathname characters and newlines are ordinary
+    //    separators, so re-lexing it as shell turned `/tmp/O'Reilly/psql -X`
+    //    into the wrong words. Read with a plain split: psql-shaped argv[0]
+    //    plus a flag-shaped later token, the same flag criterion. The split
+    //    reading decides psql at ARGV[0] and nothing deeper - a wrapper-
+    //    prefixed value whose psql path needs it (`CMD="sudo
+    //    /tmp/O'Reilly/psql -X mydb"`) is a declared limit, spec §6 item 6.
+    // Report if EITHER reading yields a flagged psql invocation.
+    const evalBound = scanShellText(value, file, 0).some((site) =>
+      site.tokens.some((token) => /^-{1,2}[A-Za-z0-9]/.test(token)),
+    );
+    const parts = value.split(/[ \t\n]+/).filter((part) => part.length > 0);
+    const splitBound =
+      parts.length > 1 &&
+      isPsqlCommandWord(parts[0]!) &&
+      parts.slice(1).some((token) => /^-{1,2}[A-Za-z0-9]/.test(token));
+    return evalBound || splitBound;
+  }
+  // The PSQL_VALUE core, decided on the DEQUOTED value: psql with word
+  // boundaries, no surviving quote or separator DATA characters (a quoted
+  // `;` binds `psql;x`, which is not the psql command), and no trailing
+  // literal backslash - the expanded word's basename would be empty, the
+  // same shell fact the ratified trailing-backslash contract test pins.
+  // A separator character in a DIRECTORY component changes nothing about
+  // what runs: `/tmp/O'Reilly/psql` has basename psql (plan round-4
+  // finding 1). The basename alternative reuses the module's own word
+  // semantics (basename + isPsqlName), so it is exact, not a widening:
+  // `psql;x`, `psqlx` and a trailing-backslash value all fail it.
+  if (isPsqlName(basename(value))) return true;
+  if (!/\bpsql\b/.test(value)) return false;
+  if (/["';|&]/.test(value)) return false;
+  if (value.endsWith("\\")) return false;
+  return true;
 }
 
 /**
