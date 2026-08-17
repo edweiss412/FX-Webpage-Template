@@ -320,6 +320,24 @@ describe("candidate contract v2 — attribution boundaries", () => {
     ).toEqual([4]);
   });
 
+  test("the sign-in exclusion is a CONTINUATION-LINE shape, not a whole-file pass", () => {
+    // `b/crew-and-picker-routes` excludes sign-in-page.spec.ts's SPLIT
+    // `await page.goto(` / `<url>,` spelling — a line that ENDS at the call
+    // paren. Read instead as "any candidate in that file", the rule would
+    // certify a `/admin?show=` navigation added to the same spec later. Nothing
+    // in the live corpus distinguishes the two readings; this fixture does.
+    const root = twoTreeRoot(
+      "sign-in-page",
+      ['test("x", async ({ page }) => {', "  await page.goto(someRoute);", "});"].join("\n"),
+    );
+    const gotos = enumerateCandidates(root).filter((c) => c.origin === "b-nonliteral-goto");
+    expect(gotos).toHaveLength(1);
+    expect(
+      claimsOf(gotos[0] as Candidate),
+      "a SAME-LINE goto in that file is not the excluded shape",
+    ).toEqual([]);
+  });
+
   test("scope resolution ignores an ordinary call that merely takes a string first", () => {
     // The scope key is `test`/`describe` and their chains, NOT "any call with a
     // string argument". A local wrapper taking a label plus a callback is

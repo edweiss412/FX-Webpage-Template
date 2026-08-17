@@ -65,6 +65,8 @@ RED validity: each case fails at plan-authoring time because `tests/ci/modalWait
 Sketch (typechecked shape, not the full block):
 
 ```ts
+import { expect, test } from "vitest";
+
 import { enumerateCandidatesV2, type CandidateV2 } from "./modalWaitHelper/scan";
 
 test("split-chained activation is undisposed", () => {

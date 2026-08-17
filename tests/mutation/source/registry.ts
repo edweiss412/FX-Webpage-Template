@@ -438,12 +438,45 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "Drops the `continue` after `visit(child)` in walkSourceFiles, so a DIRECTORY falls through to the `child.endsWith('.ts') || child.endsWith('.tsx')` test below it. No directory in app/ or components/ ends in .ts or .tsx, so the extra test is always false and the walk's output is identical. Observable only for a directory literally named `*.ts`, which the tree does not contain.",
       },
       {
-        siteId: "integer-literal:638:83:0>1",
+        siteId: "integer-literal:640:83:0>1",
         kind: "equivalent",
         reason:
           "Changes the `?? 0` fallback in classifyCandidates' count increment to `?? 1`. The branch is unreachable: countsByRule is pre-seeded with a 0 entry for EVERY rule at construction (`new Map(rules.map((rule) => [rule.id, 0]))`), so `countsByRule.get(hit.id)` never returns undefined and the nullish fallback never evaluates.",
       },
     ],
+  },
+  {
+    // The modal-wait census's AUTHORED half (2026-08-17 candidate-contract v2
+    // §4.5). Enrolled once the v2 rewrite made it more than a literal table: it
+    // now carries the statement-level refusal gates, the match-line
+    // discriminations, and `reconcileNWaitSites`, all of which are logic a
+    // survivor can hide in. Registry-expressible shape by construction — an
+    // importable module whose two referring suites already exist.
+    id: "modal-wait-disposition",
+    sourcePath: "tests/ci/modalWaitHelper/disposition.ts",
+    suitePaths: [
+      "tests/ci/_metaModalWaitHelper.test.ts",
+      "tests/ci/_metaModalWaitCandidateV2.test.ts",
+    ],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.95,
+    // Drops the NEGATION from the in-page-evaluate refusal, so the rule claims
+    // exactly the activating bodies it exists to refuse and releases the reads it
+    // exists to claim. Both deciding suites notice: the corpus's ten evaluate
+    // reads fall through to `d/reference-not-activation` and drift both counts,
+    // and the premise suite's paired poll case loses its claim.
+    //
+    // The FIRST control tried here was narrowing `isTestTitle` from
+    // `(?:test|describe)` to `(?:test)`, and the gate REFUTED it: the corpus
+    // spells every block `test.describe(`, which `(?:\.\w+)*` still matches, so
+    // the "control" was itself an equivalent mutant and the AC-3 case failed
+    // exactly as designed. Recorded because a control that cannot fail is the
+    // one defect that case exists to catch.
+    control: {
+      from: "/\\.evaluate\\(/.test(candidate.text) && !ACTIVATION_VERB.test(candidate.text)",
+      to: "/\\.evaluate\\(/.test(candidate.text) && ACTIVATION_VERB.test(candidate.text)",
+    },
+    accepted: [],
   },
   {
     // The citation-intent classifier (2026-08-15 arms spec §3, §7). Its three
