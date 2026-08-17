@@ -97,6 +97,13 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // test/modal-wait-helper-adoption (2026-08-16): the peer-adoption sweep whose OWN
+  // census the arc refuted. The row proposed two literal greps naming 7 + 7 specs;
+  // both mis-census, and the larger gap is that a file-keyed literal grep cannot see
+  // an open that is not a literal goto. Closed as CODE — a candidate enumeration over
+  // five origins with a total disposition — rather than as a corrected prose table,
+  // because four consecutive spec rounds proved that format does not converge.
+  { id: "BL-MODAL-WAIT-BOUNDARY-HELPER-ADOPTION", provenance: "test/modal-wait-helper-adoption" },
   // fix/help-refanchor-a11y (2026-08-15): the /help/errors copy-link a11y row, all three
   // filed findings shipped in one arc. The entry left the tab-stop question open on
   // purpose; the owner ratified that the copy-links STAY tabbable, so it graduates with a

@@ -16,6 +16,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { collectInfraRecoveries, printInfraRecoveries } from "./lib/infraRecoveryAnnotations.mjs";
+
 /** Specs the app-e2e job exists to run, with the minimum each must EXECUTE. */
 // Every count below is derived from an ACTUAL run's report — the same shape this script reads,
 // summed over the projects each spec resolves under — never from `--list` arithmetic. `--list`
@@ -57,41 +59,6 @@ export const REQUIRED = {
   // 1 case x 2 projects.
   "sample.spec.ts": 2,
 };
-
-/**
- * Every `infra-recovery` annotation in the run, one row per occurrence.
- *
- * tests/e2e/helpers/openShowReviewModal.ts pushes one whenever it recovers from the admin route
- * error boundary (a transient gateway 502 — spec
- * docs/superpowers/specs/ci/2026-08-15-changes-feed-modal-batch-flake-design.md §4.4). Those runs
- * are GREEN by design, and a green run uploads no Playwright artifact while the list reporter
- * prints no annotations — so this stdout is the only place an operator ever sees them.
- *
- * READ LOCATION: Playwright serializes a runtime-pushed annotation at BOTH `tests[].annotations`
- * and `results[].annotations`. Read the merged `tests[]` location ONLY — traversing both
- * double-counts every recovery, and reading results first-match-only drops later ones.
- */
-export function collectInfraRecoveries(report) {
-  const rows = [];
-  const walk = (suites) => {
-    for (const suite of suites ?? []) {
-      for (const spec of suite.specs ?? []) {
-        for (const test of spec.tests ?? []) {
-          for (const a of test.annotations ?? []) {
-            if (a.type !== "infra-recovery") continue;
-            rows.push({
-              title: `${spec.file}:${spec.line} ${spec.title}`,
-              description: a.description ?? "",
-            });
-          }
-        }
-      }
-      walk(suite.suites);
-    }
-  };
-  walk(report.suites);
-  return rows;
-}
 
 // Importable table, runnable script — no side effects on import, so a guard can pin these
 // thresholds against live Playwright resolution without executing the checker.
@@ -179,6 +146,14 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     if (n < min) failures.push(`${file}: executed ${n}, expected at least ${min}`);
   }
 
+  // PRINT-BEFORE-GATE (spec §4.3). The gating exit is the LAST statement of this function, with
+  // the recovery print unconditionally above it. Before this, `process.exit(1)` sat above the
+  // print, so the failure path this duty exists for — a spec recovers, a downstream assertion then
+  // fails, the executed-count floor falls short — exited before naming the recovery. A `finally`
+  // block is NOT the mechanism: `process.exit()` does not run `finally`.
+  //
+  // Green-run stdout is byte-identical: the `ok — …` line still precedes the `infra-recovery`
+  // lines, which is what tests/ci/appE2eAnnotationPrint.test.ts pins.
   if (failures.length > 0) {
     console.error("check-app-e2e-executed: guarded specs did not run on a clean first attempt:");
     for (const f of failures) console.error(`  ${f}`);
@@ -186,19 +161,18 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
       "A collected-but-skipped suite reports green, and so does a fail-then-pass retry. If a " +
         "shortfall is deliberate, change the REQUIRED table in this script and say why.",
     );
-    process.exit(1);
+  } else {
+    console.log(
+      `check-app-e2e-executed: ok — ${[...executed.entries()]
+        .map(([f, ids]) => `${f} ${ids.size}`)
+        .sort()
+        .join(", ")}`,
+    );
   }
-
-  console.log(
-    `check-app-e2e-executed: ok — ${[...executed.entries()]
-      .map(([f, ids]) => `${f} ${ids.size}`)
-      .sort()
-      .join(", ")}`,
-  );
 
   // Informational, never a gate: a recovered run is a green run by design. The count is printed
   // even when zero, so "no recoveries" and "the print duty regressed" stay distinguishable.
-  const recoveries = collectInfraRecoveries(report);
-  for (const r of recoveries) console.log(`infra-recovery: ${r.title} :: ${r.description}`);
-  console.log(`infra-recovery total: ${recoveries.length}`);
+  printInfraRecoveries(collectInfraRecoveries(report));
+
+  if (failures.length > 0) process.exit(1);
 }

@@ -776,15 +776,69 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
         // per (case, PROJECT) rather than per file.
         governs: [],
       },
+      // ---- 2026-08-16 modal-wait adoption arc (spec §4.3) --------------------
+      // Every workflow step that runs a MEMBER spec now emits a JSON report so the
+      // recovery printer has something to read. Each path is DISTINCT, by the same
+      // design rule as the four above: two steps writing one path would let one
+      // step's output stand in for another's, and phantom-gap-e2e.yml runs
+      // admin-layout-dimensions.spec.ts in THREE -g-filtered steps that would
+      // otherwise overwrite each other's report. Inert with respect to what runs,
+      // exactly like the values above — the printer surfaces a missing report and
+      // exits 0, so a wrong value costs a missing print, never a changed verdict.
+      {
+        text: "test-results/published-modal-e2e-report.json",
+        // Empty by live derivation, for the crew value's reason: published-modal-e2e.yml
+        // is path-filtered, so the census classifies its specs as path-gated.
+        governs: [],
+      },
+      {
+        text: "test-results/admin-layout-e2e-report.json",
+        // Empty by live derivation, same reason — admin-layout-e2e.yml is path-filtered.
+        governs: [],
+      },
+      {
+        text: "test-results/lifecycle-layout-e2e-report.json",
+        // The ONLY one of the seven that derives governance: lifecycle-layout-e2e.yml is
+        // UNfiltered pull_request and its step names one spec — the same shape as the
+        // tap-target value above.
+        governs: ["tests/e2e/admin-lifecycle-layout.spec.ts"],
+      },
+      {
+        text: "test-results/lifecycle-transitions-e2e-report.json",
+        // Empty, and NOT for its trigger — that job is unfiltered too. Its step's run
+        // block is an if/fi shell construct, which `UNMODELLED_SHELL_RE` refuses
+        // outright, so the scanner attributes nothing to it. Both playwright
+        // invocations inside write here; they are alternatives (REPEATS=1 vs the
+        // measurement loop), never concurrent. (2026-08-16 diff review, finding 2:
+        // this row previously implied the empty/non-empty split was by trigger alone.)
+        governs: [],
+      },
+      {
+        text: "test-results/phantom-gap-nophantom-report.json",
+        governs: [],
+      },
+      {
+        text: "test-results/phantom-gap-width-chain-report.json",
+        governs: [],
+      },
+      {
+        text: "test-results/phantom-gap-freshness-report.json",
+        governs: [],
+      },
     ],
     reason:
-      "Destination for a Playwright run's own json report, which that job's post-run " +
-      "executed-count oracle (scripts/check-crew-e2e-executed.mjs, " +
+      "Destination for a Playwright run's own json report. Inert with respect to what runs: it " +
+      "names a Playwright OUTPUT path only — it cannot select, skip or redirect a test. " +
+      "TWO CONSUMER CLASSES, with DIFFERENT failure behavior, and the distinction is recorded " +
+      "because an earlier version of this text claimed the first for all of them (2026-08-16 " +
+      "diff review, finding 2). (1) ORACLE-CONSUMED — the four original paths, read by a " +
+      "post-run executed-count oracle (scripts/check-crew-e2e-executed.mjs, " +
       "scripts/check-app-e2e-executed.mjs, scripts/check-lifecycle-layout-executed.mjs, " +
-      "scripts/check-phantom-gap-executed.mjs) reads. " +
-      "Inert with respect to what runs: it " +
-      "names a Playwright OUTPUT path only — it cannot select, skip or redirect a test, and a " +
-      "wrong value makes the oracle fail closed on a missing report rather than pass.",
+      "scripts/check-phantom-gap-executed.mjs); a wrong value makes the oracle fail CLOSED on a " +
+      "missing report rather than pass. (2) PRINTER-CONSUMED — the seven paths the modal-wait " +
+      "adoption arc added, read only by scripts/print-infra-recoveries.mjs, which always exits 0; " +
+      "a wrong value fails OPEN, losing that step's infra-recovery print while the run's verdict " +
+      "is unchanged. Neither class can alter what executes, which is what this allowlist gates.",
   },
   SUPABASE_URL: {
     values: [
