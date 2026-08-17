@@ -27,7 +27,8 @@ Each row is settled. Re-opening one needs new evidence, not a re-reading.
 | The watchdog lives in the GROUP LEADER (a perl supervisor), not in the vitest child. P-T1 shows only the direct child of the harness ever observes `getppid() == 1`; a poll inside vitest's main process or its workers would never fire because their parents stay alive. | §5.1, P-T1 |
 | The supervisor form (fork-and-wait perl) is accepted HERE even though the heavy-orphan spec rejected fork-and-supervise for `with-heavy-slot.py` (its §3 approach C). The two are different surfaces: the wrapper there carries a slot lock whose zero-cleanup release rides on `execvp`, and its exit-status transparency is a ratified property; here the wrapper carries nothing, and probes P-W1a/P-W1b show exit-status AND signal transparency are preserved by the supervisor. A SIGKILLed supervisor degrades to exactly today's behavior — the orphan the backstop already covers — so the "supervisor is itself killable" objection bounds the residue instead of rejecting the design. | §4, P-W1a, P-W1b |
 | `MutantRunInfraError` discrimination (a signalled child is an infra fault, never a KILLED verdict — `tests/mutation/source/runner.ts:74`) is preserved: the supervisor re-raises the child's fatal signal at itself, so `spawnSync` still reports `status=null, signal=<sig>`. Probed (P-W1b: `status=null signal=SIGKILL`). | §5.1, P-W1b |
-| `childRun`'s repair changes its contract for abnormal outcomes: a timeout or signal death THROWS a typed infra error instead of returning non-zero. Returning non-zero would read as "premise proven" to all three consumers (`tests/mutation/_metaOverlayConfigParity.test.ts:6`, `tests/mutation/_metaPremiseContract.test.ts:7`, `tests/mutation/guardSurfaces.gates.test.ts:10`), and the current `status ?? 1` catch (`tests/mutation/source/childRun.ts:36`) already converts a reaper-killed fixture into a false premise-proof today. | §5.3 |
+| `childRun`'s repair changes its contract for abnormal outcomes: a timeout or signal death THROWS a typed infra error instead of returning non-zero. The three consumers split two ways — `tests/mutation/_metaOverlayConfigParity.test.ts:42` and `tests/mutation/guardSurfaces.gates.test.ts:64` expect `0` (a fabricated non-zero fails them loudly, the tolerable direction), while `tests/mutation/_metaPremiseContract.test.ts:336`'s premise cases read non-zero as PROVEN — so the current `status ?? 1` catch (`tests/mutation/source/childRun.ts:36`) converts a reaper-killed or OOM-killed fixture into a false premise-proof at exactly the consumer where it is silent. The throw closes that path for all of them. | §5.3 |
+| Wrapper-internal failures (fork/exec) surface as SELF-SIGNAL deaths (SIGUSR2, SIGKILL fallback), never as numeric exits — spec review round 1's probe showed exit-code signalling (125/127) aliases legitimate child exits in the 0-255 range AC-2 guarantees, scoring KILLED / premise-proven for a wrapper that never ran the command. Settled by probe P-W2; the residual signal-name degradation is L-4. | §5.1, P-W2, G2/G3 |
 | The mapping asymmetry between the two callers is deliberate: `runSuite` maps a timeout to `MUTANT_TIMEOUT_EXIT` (a KILLED verdict — the mutant's own doing, `tests/mutation/source/runner.ts:60`), while `childRun` maps a timeout to a THROWN infra error (a hung premise fixture is an authoring defect, not a verdict). One bounded-spawn mechanism, two caller-owned interpretations. | §5.3 |
 | The heavy-reap accept-set is NOT widened to cover the orphaned group leader's shape. Prevention closes that shape at the producer; widening a recognizer is the wrong repair direction (AGENTS.md, repair-direction-under-same-axis-recurrence), and the leader's argv (a `node …/pnpm exec vitest run --config …` line) is exactly the sibling-worktree-shaped pattern the heavy-reap spec's own §4.2(a) registry deliberately excludes. | §2, §9 |
 | The perl-missing (`ENOENT`) degraded path is kept as-is: direct spawn, `ownGroup=false`, no watchdog, timeout still armed (`tests/mutation/source/runner.ts:184-187`). Perl ships with macOS and every CI image this runs on; the degraded mode is reported by shape, not silently assumed (comment at `tests/mutation/source/runner.ts:153-156`). | §5.4 |
@@ -186,6 +187,27 @@ REMAINING_IN_GROUP= 0
 SIGKILL still clears the whole group including the grandchild — the group id survives the
 leader's death, as the heavy-orphan spec's own §4.2 probes established.
 
+**P-W2 — wrapper-internal failures surface as SIGUSR2 infra deaths, and transparency survives the
+repair.** The §5.1 script (the spec-R1 repaired form, including the `Config`-based re-raise
+hardening) probed on this machine 2026-08-17:
+
+```
+--- exec-fail: command does not exist
+status= null signal= SIGUSR2
+--- exit transparency: 42 and 127-from-real-child
+status42=42
+status127=127
+--- signal transparency: child SIGKILLed
+status= null signal= SIGKILL
+--- parent-death reap (harness3 shape, repaired script)
+before: 3 in group
+after:  0 in group
+```
+
+A real child `exit 127` now propagates as a clean numeric 127 while a wrapper exec-failure is a
+signal death — the two shapes spec review round 1 proved identical under exit-code signalling are
+now disjoint by construction.
+
 **P-C1 — the `childRun` false-premise path is code-visible, not hypothetical.** No process probe
 needed: `execFileSync` throws on a signalled child with `status: undefined`, and the catch returns
 `(e as { status?: number }).status ?? 1` (`tests/mutation/source/childRun.ts:35-37`) — a reaper
@@ -227,29 +249,46 @@ perl program is, verbatim (the plan pins this text in a fixture-backed test):
 
 ```perl
 use POSIX qw(WNOHANG);
+use Config;
 setpgrp;
-my $pid = fork() // exit 125;
-if ($pid == 0) { exec @ARGV; exit 127 }
+my $pid = fork() // do { kill('USR2', $$); kill('KILL', $$) };
+if ($pid == 0) { exec @ARGV; kill('USR2', $$); kill('KILL', $$) }
+my @signame = split ' ', $Config{sig_name};
 for (;;) {
   my $r = waitpid($pid, WNOHANG);
   if ($r > 0) {
     my $s = $?;
-    if ($s & 127) { kill(($s & 127), $$); exit(128 + ($s & 127)) }
+    if ($s & 127) {
+      my $sig = $s & 127;
+      $SIG{$signame[$sig]} = 'DEFAULT' if defined $signame[$sig];
+      kill($sig, $$);
+      kill('KILL', $$);
+    }
     exit($s >> 8);
   }
-  if (getppid() == 1) { kill('KILL', -$$); exit 111 }
+  if (getppid() == 1) { kill('KILL', -$$) }
   select(undef, undef, undef, 0.5);
 }
 ```
 
 Reading order of the loop is load-bearing: the child's exit is checked before the parent's death,
 so a normally-completed run is never converted into a group kill by a racing harness death. The
-`kill(($s & 127), $$)` re-raise uses perl's numeric-signal `kill` with no handler installed, so the
-default disposition terminates the supervisor by the SAME signal — that is P-W1b's mechanism, and
-it is what keeps `MutantRunInfraError` (`tests/mutation/source/runner.ts:74`) honest. Exit code
-`127` (exec failed) is the shell command-not-found convention; `125` (fork failed) is the
-cannot-run convention (`git bisect`'s skip code); `111` (parent-death path) is unreachable in
-practice because `kill 'KILL', -$$` includes the supervisor itself.
+signal re-raise resets the disposition to DEFAULT first (an inherited-ignored disposition —
+SIGPIPE under some parents — would otherwise swallow the re-raise) and falls back to
+`kill('KILL', $$)`, so the signal path can NEVER fall through to a numeric exit — that is
+P-W1b's mechanism, and it is what keeps `MutantRunInfraError`
+(`tests/mutation/source/runner.ts:74`) honest.
+
+**The wrapper never exits with a numeric code of its own — that is the spec-R1 repair, and it is
+load-bearing.** The child's exit codes 0-255 all belong to the child (AC-2), so a wrapper-internal
+failure signalling itself with an exit code would ALIAS a legitimate child exit and mis-score it
+(spec review round 1's probe: wrapper exec-failure at `127` was indistinguishable from a real
+child `exit 127`, and both scored KILLED / premise-proven). Instead, fork failure and exec failure
+each kill their own process with SIGUSR2 (SIGKILL as the cannot-lose fallback), which surfaces at
+the harness as `status=null, signal=SIGUSR2` — the existing infra path, probed in P-W2. The only
+`exit` statements left are the child-status propagation (`exit($s >> 8)`) and nothing else; the
+parent-death arm has no exit at all because `kill 'KILL', -$$` includes the supervisor itself, and
+any status it could leave has no living reader by construction.
 
 Latency: parent death → whole group SIGKILLed within one 0.5 s poll plus kernel teardown
 (P-W1c measured ≤ 2 s end-to-end). Cost while healthy: one `waitpid(WNOHANG)` + one `getppid()`
@@ -286,8 +325,8 @@ the correct direction for an infra fault).
 | ID | Condition | Behavior |
 | --- | --- | --- |
 | G1 | perl absent (`ENOENT` on the wrapper spawn) | degraded direct spawn: no group, no watchdog, `timeout` still armed; `ownGroup=false` so the negative-pid kill is never attempted (today's contract, `tests/mutation/source/runner.ts:184-187`, `tests/mutation/source/runner.ts:199-206`) |
-| G2 | `fork` fails inside the wrapper | exit 125 → a numeric exit at the harness. During baseline, `assertCleanBaseline` aborts the run loudly (`tests/mutation/source/runner.ts:240-243`); mid-run it scores KILLED for that mutant — bounded misattribution under a machine already failing `fork`, documented as L-4 |
-| G3 | `exec` fails inside the wrapper (command missing) | exit 127 → same shape as G2; the persistent form cannot survive baseline. L-4 |
+| G2 | `fork` fails inside the wrapper | the wrapper kills ITSELF with SIGUSR2 (SIGKILL fallback) → `status=null, signal=SIGUSR2` at the harness → `runSuite` throws `MutantRunInfraError`, `childRun` throws — never a numeric exit, never a verdict (spec-R1 repair; probed P-W2). Residue: L-4 |
+| G3 | `exec` fails inside the wrapper (command missing) | the CHILD kills itself with SIGUSR2 (SIGKILL fallback); the supervisor re-raises it → same infra surface as G2 at both consumers (probed P-W2: `status=null signal=SIGUSR2`). Residue: L-4 |
 | G4 | child exits and harness dies in the same poll window | child-exit branch wins (checked first); the supervisor then exits into a dead parent — no kill was needed, nothing leaks |
 | G5 | supervisor itself SIGKILLed while child lives (includes the `spawnSync`-timeout path) | descendants persist in the group; parent-alive path: harness `killProcessGroup` reaps (P-A1); parent-dead path: heavy-reap backstop, where its predicate matches (§2 table row 3) |
 | G6 | child installs a SIGTERM handler | irrelevant to the ceiling: `killSignal` is SIGKILL (`tests/mutation/source/runner.ts:180`) and the watchdog's group kill is SIGKILL — both untrappable |
@@ -306,11 +345,13 @@ the correct direction for an infra fault).
   macOS does not offer; the design accepts it and says so rather than claiming totality.
 - **L-3 — adversarial children defeat this.** A child that re-`setpgrp`s out of the group escapes
   both the watchdog's group kill and `killProcessGroup`. Out of the threat fence (§1.2).
-- **L-4 — wrapper-internal failures (fork/exec) report as numeric exits 125/127,
-  indistinguishable from a suite exiting 125/127.** The persistent form is caught at baseline
-  (G2/G3); the transient mid-run form misattributes ONE mutant's verdict on a machine already
-  failing `fork`/`exec`. Making them discriminable would need an out-of-band channel the
-  exit-code-only contract (`tests/mutation/source/childRun.ts:12-14`) deliberately does not have.
+- **L-4 — wrapper-internal failures surface as infra faults, but the SIGNAL NAME can degrade.**
+  G2/G3 failures reach the harness as `signal=SIGUSR2` by convention; a child that genuinely dies
+  by SIGUSR2 from some other hand is indistinguishable from an exec failure. Both land in the same
+  infra-abort path, so no verdict is ever wrong — what is lost is diagnostic labeling, not
+  classification. Likewise the re-raise's SIGKILL fallback (an inherited-ignored disposition)
+  reports SIGKILL instead of the child's true fatal signal; same class, same consequence: an
+  infra abort with a coarser name.
 - **L-5 — a clean child exit does not sweep stragglers.** On a normal exit the supervisor
   propagates status without a group kill, matching today's behavior (`runSuite` group-kills only
   on the timeout and infra arms). A vitest run that leaks a worker on a SUCCESSFUL exit leaks it
@@ -347,6 +388,12 @@ the correct direction for an infra fault).
 - **AC-8** — Enrolment per §8: the new spawnBounded module's registry row exists with a declared control and
   an `EXPECTED_LEDGER_KINDS` row (`tests/mutation/source/expectedLedgerKinds.ts`), and the scoped
   gate run reports no unaccepted survivor for it.
+- **AC-11** — Wrapper-failure discrimination: with the wrapped command unspawnable (exec failure)
+  the harness observes a SIGNAL death (`status=null`), `runSuite` throws `MutantRunInfraError`,
+  and `childRun` throws — no numeric exit reaches either consumer, so no wrapper failure can score
+  KILLED or prove a premise (G2/G3, P-W2). The test constructs the exec-failure arm live; the
+  fork-failure arm shares the same self-signal mechanism and is pinned by asserting the script
+  text carries it (fork exhaustion is not constructible safely in CI).
 - **AC-9** — The whole-corpus mutation gate is untouched in shape: no change to
   `tests/mutation/source/surfaceCases.ts` semantics (module-scope cost note,
   `tests/mutation/source/surfaceCases.ts:18-21`), shard files, or the browser gate.
