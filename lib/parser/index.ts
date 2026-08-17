@@ -28,6 +28,7 @@ import { parseDates } from "./blocks/dates";
 import { parseCrew } from "./blocks/crew";
 import { normalizeSectionHeaders } from "./sectionHeaderNormalize";
 import { normalizeLeadingColumn } from "./leadingColumnNormalize";
+import { detectFieldNearMisses } from "./fieldNearMiss";
 import { detectRefErrorLiterals } from "./refErrorDetector";
 import { detectFusedRows } from "./rowWidthDiscriminator";
 import { parseTravelFlights } from "./blocks/travelFlights";
@@ -649,6 +650,19 @@ export function parseSheet(markdown: string, filename?: string): ParsedSheet {
   const eventDetails = parseEventDetails(markdown, version, agg);
   mergeDressCode(eventDetails, parseDress(markdown));
   const ops = parseOps(markdown, version, agg);
+
+  // Step 3.5: Content-keyed field near-miss pass (field-near-miss spec §2.2). One
+  // whole-document scan, same seam family as the Step 2.55 `normalizeLeadingColumn` call,
+  // but placed HERE and not there: it reads the consumption ledger `agg.consumed`, and
+  // every `markConsumed` caller is a Step 3 block parser (event.ts, contacts.ts,
+  // transport.ts), so running it earlier would report curated rows as near-misses of
+  // themselves. It reads the post-normalization `markdown` the block parsers read, so a
+  // header the Step 2.5/2.55 repairs corrected is not re-reported as unrecognized.
+  //
+  // This is the SOLE `UNKNOWN_FIELD` emitter (pinned in tests/parser/fieldNearMiss.test.ts):
+  // it replaced `parseVenue`'s positional scope window and `parseEventDetails`' unknown-label
+  // fallback emission, both removed in the same change.
+  detectFieldNearMisses(markdown, agg);
 
   // parsePullSheet returns { pullSheet, warnings } -- merge warnings into agg.
   const pullSheetResult = parsePullSheet(markdown);

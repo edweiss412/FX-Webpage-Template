@@ -55,6 +55,17 @@ const LABEL_TO_KIND: Record<string, string> = {
 };
 
 /**
+ * The exact table's keys, in DECLARATION order — one of the three vocabulary sources
+ * the field near-miss detector derives from (spec §2.2), and the last of the three in
+ * spec §3.1's normative derivation order. Exported so `lib/parser/fieldNearMiss.ts`
+ * reads the live table instead of re-transcribing it; the calibration probe had to
+ * transcribe these by hand and guard the copy with a staleness check
+ * (`docs/superpowers/specs/parser/probes/2026-08-15-near-miss-followup-probe.ts:47`),
+ * which this export ends.
+ */
+export const LABEL_TO_KIND_KEYS: readonly string[] = Object.keys(LABEL_TO_KIND);
+
+/**
  * Room-family prefixes: these legitimately carry a suffix, so they match on a whole-token
  * boundary rather than exactly. Kept separate from the exact table so a suffix-bearing
  * label cannot accidentally match a non-family header.

@@ -191,7 +191,13 @@ jobs:
       # code all stay green on a suite that ran nothing (whole-diff review R10). This step reads
       # the run's OWN report and fails if a guarded spec did not really run — the same post-run
       # oracle shape as standalone-e2e.yml's baseline comparator.
+      # `if: always()` so a recovered-then-failed run still reaches the oracle: Task 9 put the
+      # recovery print above this script's INTERNAL gating exit, but a step GitHub skips never
+      # runs that ordering at all. The run:, its file list and its gating semantics are
+      # untouched — the oracle still exits 1 on a floor shortfall, so this does not convert a
+      # red run green.
       - name: Assert the guarded crew specs actually executed
+        if: always()
         run: node scripts/check-crew-e2e-executed.mjs
       - name: Upload Playwright traces/report (diagnosis artifact)
         if: failure()

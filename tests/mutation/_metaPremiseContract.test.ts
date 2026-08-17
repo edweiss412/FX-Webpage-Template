@@ -150,6 +150,14 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // process.env. The one suite in this arc that DOES spawn — the contrast
   // suite's tailwindcss compile — is not a mutation suitePath and is therefore
   // not walked here.
+  // The near-miss detector's two suites (spec parser/2026-08-15-field-near-miss-detector-
+  // design.md, AC-N7). Both read the live tree through `node:fs` — the blocks directory, the
+  // repo-wide call-site walk, the committed 65-row baseline — which is declared 0 by the same
+  // rule the corpus suite above is: reading a tracked file is not provenance. Neither spawns a
+  // child process, imports ledger-git, or reads `process.env`; the baseline suite's regen path
+  // is env-gated but the gate is read by the SCRIPT, not the suite.
+  "tests/parser/fieldNearMiss.test.ts": 0,
+  "tests/parser/fieldNearMissBaseline.test.ts": 0,
   "tests/styles/interactiveScanCore.test.ts": 0,
   "tests/styles/_metaSubtleOnInteractive.test.ts": 0,
   "tests/styles/_metaTapTargetFloor.test.ts": 0,
@@ -162,6 +170,12 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // deciding suite for any enrolled surface and is therefore not scanned here.
   "tests/mutation/browser/registry.test.ts": 0,
   "tests/mutation/browser/mutate.test.ts": 0,
+  // The modal-wait guard (2026-08-16). Declared 0 on the same reading as the
+  // rows above: it builds every fixture repo it scans under mkdtempSync and
+  // drives pure functions over them, touching no member of ENVIRONMENT_SOURCES.
+  // `process.cwd()` is not `process.env`, and node:fs is deliberately not
+  // provenance.
+  "tests/ci/_metaModalWaitHelper.test.ts": 0,
   // The serializeError contract suite, enrolled 2026-08-16
   // (fix/serialize-error-structure). 0, and honestly so: every case builds its
   // fixture in the test body and drives it through the imported helper, so the

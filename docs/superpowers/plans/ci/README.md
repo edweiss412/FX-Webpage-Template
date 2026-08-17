@@ -13,3 +13,4 @@ Post-deployment (v1.X+) plans grouped by subsystem. See [`../README.md`](../READ
 | [`2026-08-02-ci-boot-overlap-implementation.md`](./2026-08-02-ci-boot-overlap-implementation.md) | 2026-08-02 |
 | [`2026-08-04-source-mutation-guard-gate.md`](./2026-08-04-source-mutation-guard-gate.md) | 2026-08-04 |
 | [`2026-08-15-changes-feed-modal-batch-flake.md`](./2026-08-15-changes-feed-modal-batch-flake.md) | 2026-08-15 |
+| [`2026-08-16-modal-wait-boundary-helper-adoption.md`](./2026-08-16-modal-wait-boundary-helper-adoption.md) | 2026-08-16 |

@@ -13,11 +13,26 @@ export type UnknownFieldAnchor = {
   anchor: SourceAnchor;
 };
 
-// The two blocks whose parsers call emitUnknownField (venue.ts, event.ts). Headers
-// mirror REGION_ANCHOR_SPEC (lib/sheet-links/buildSheetDeepLink.ts) but are anchored
-// EXACT at both ends ($). REGION_ANCHOR_SPEC's details header is prefix-only, which is
-// fine for a whole-block region rect; here a FALSE-EARLY header match (e.g. a field
-// row "Details Notes") would start the scan at the wrong row and could, under a
+// The two anchor NAMESPACES a warning's `blockRef.kind` can join on. `UNKNOWN_FIELD` now
+// comes from a single emitter — the content-keyed near-miss detector
+// (lib/parser/fieldNearMiss.ts), called once at the lib/parser/index.ts document seam —
+// and its anchor-namespace mapping (field-near-miss spec §2.2) emits exactly these two
+// kinds for venue and DETAILS-family blocks, plus each other block's own normalized
+// opener label. Those other kinds match no entry here and resolve null, which is the
+// documented-safe outcome: they were never anchorable, since this scan only ever built
+// anchors inside VENUE / DETAILS-family blocks.
+//
+// The two sides are deliberately NOT the same set, and the asymmetry is safe in one
+// direction only. The detector's DETAILS family is the five spellings in event.ts's
+// SECTION_HEADER_TOKENS (it also carries "DETAILS/ROOM DIAGRAM" and "GS DETAILS (FOR
+// BOTH)"); the header regexes below stay narrower for the reason that follows. A block
+// this scan does not recognize yields no anchors and the warning degrades to null; a
+// detector kind narrower than these would strand rows this scan DID anchor.
+//
+// Headers mirror REGION_ANCHOR_SPEC (lib/sheet-links/buildSheetDeepLink.ts) but are
+// anchored EXACT at both ends ($). REGION_ANCHOR_SPEC's details header is prefix-only,
+// which is fine for a whole-block region rect; here a FALSE-EARLY header match (e.g. a
+// field row "Details Notes") would start the scan at the wrong row and could, under a
 // (kind,label,value) coincidence, yield a wrong-cell link. For the never-wrong-cell
 // guarantee (spec §5.1.1) a MISSED header degrades to null (safe) while a false-early
 // one does not — so exact matching is strictly safer. The real headers are standalone
