@@ -4073,3 +4073,54 @@ describe("whole-diff R1 #3c — runs-versus-binds holds INSIDE a statement too",
     );
   });
 });
+
+describe("the module-load seed's registrar exclusion, pinned by the mutants the gate named", () => {
+  // `isRegistrarCall` decides which top-level expression statements the seed
+  // skips. All three of its name comparisons survived `equality-flip`, because
+  // every seeded case in this file wraps its call in `void` or `await` — those
+  // are Void and Await expressions, not CallExpressions, so the predicate
+  // returns false whatever the comparisons say. A BARE call statement is the
+  // shape that reaches them.
+  const SPEC = `const specifier = "./x" + String(1);`;
+  const HELPER = `async function load(): Promise<unknown> { return await import(specifier); }`;
+
+  it("a BARE call statement at module load is seeded", () => {
+    // Flipping any of the three `===` to `!==` makes the predicate answer TRUE
+    // for `load()`, which excludes it from the seed and loses the reason.
+    expectReported(
+      classification(`${SPEC}
+        ${HELPER}
+        load();
+        it("x", () => {});`),
+      { construct: REPORTS.dynamicImport, module: OWN_FILE },
+    );
+  });
+
+  it("the foil: a registrar call is NOT seeded, so one test's reason stays its own", () => {
+    // AC-12b's direction. Seeding `it` would promote the first test's own
+    // construct to a FILE report, which applies to every test in the file, and
+    // the pure sibling would turn unclassifiable with a reason it never had.
+    const cs = classificationsWithModules(
+      {},
+      `${SPEC}
+       it("a", async () => { await import(specifier); });
+       it("b", () => {});`,
+    );
+    expect(cs.find((c) => c.testName === "a")?.verdict).toBe("unclassifiable");
+    expect(cs.find((c) => c.testName === "b")?.verdict).toBe("environment-free");
+  });
+
+  it("the foil: a top-level HOOK is not seeded either, and still reaches its tests", () => {
+    // The hook path owns this: a top-level `beforeEach` is collected as a hook
+    // (§2.6 item 4) and attached to every test. Seeding it here as well would
+    // double-count it into `fileReports`, which is a different channel with a
+    // different precedence.
+    const cs = classificationsWithModules(
+      {},
+      `${SPEC}
+       beforeEach(async () => { await import(specifier); });
+       it("a", () => {});`,
+    );
+    expect(cs.find((c) => c.testName === "a")?.verdict).toBe("unclassifiable");
+  });
+});
