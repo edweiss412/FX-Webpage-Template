@@ -193,12 +193,23 @@ detail) reconciles both domains against produced units, per file, and returns on
 offender, empty when discovery was total. It subsumes the origin test's `undiscoverableConstructs`
 and adds:
 
-- **D1 refusal:** an exported value name of a `"use server"` module with no unit — message names
-  the file, the export, and the rewrite ("bind `<name>` directly to an async function declaration
-  or arrow — discovery cannot statically locate the body behind this initializer").
-- **D2 refusal:** more directive-bearing bodies than inline+module units mapped from them —
-  message names the file and the rewrite ("bind this action to a named const/function; anonymous
-  actions cannot be keyed" — wording per family where distinguishable).
+- **D1 refusal (PER-KIND, not pooled):** an exported value name of a `"use server"` module with no
+  unit **of kind `module-action` produced by that file's §3.2 resolution** — message names the
+  file, the export, and the rewrite ("bind `<name>` directly to an async function declaration
+  or arrow — discovery cannot statically locate the body behind this initializer"). Matching D1
+  names against the pooled all-kinds name set is a ratified DEFECT, not a simplification: an
+  inline-action unit that happens to share the unresolved export's name masks the refusal (spec
+  review R1, probe: one unresolvable export named `nested` added to the R2 nested fixture — D1
+  `["nested","outer"]`, module units `["outer"]`, inline units `["nested"]`, pooled set satisfied,
+  zero refusals, zero duplicate keys). The committed private tripwire
+  (`undiscoverableConstructs`, origin test) carries exactly this pooled-kind collision — it reads
+  `found.map((u) => u.fn)` over ALL of the file's units — and the move into the engine (§3.5)
+  repairs it: D1 reconciles against module-action units only, D2 against inline-action units only
+  (the D2 side is already per-kind today).
+- **D2 refusal:** more directive-bearing bodies than the inline-action units plus module-action
+  units whose resolved node is a D2 body — message names the file and the rewrite ("bind this
+  action to a named const/function; anonymous actions cannot be keyed" — wording per family where
+  distinguishable).
 - **Duplicate key:** two units in one file sharing `fn` — message demands a rename. (Two units
   with one `file+fn` key would let one satisfy the other's registry row; refusing is cheaper and
   total, versus qualified-name schemes that re-key existing registries.)
@@ -272,6 +283,10 @@ foreground, before holding a mergeable PR.
 - **AC-5:** the engine is enrolled and scored; score + survivor set stated in the implementation
   round-1 diff brief.
 - **AC-6:** duplicate `file+fn` keys refuse by name (new fixture proving it).
+- **AC-7:** the cross-domain collision fixture (the spec-review R1 probe: an unresolvable D1
+  export sharing its name with a distinct D2 inline unit in one file) REFUSES the D1 name — a
+  pin proving reconciliation is per-kind, in both the engine suite and the origin test's fixture
+  self-tests.
 
 ## 5. Plan-wide invariants touched
 
