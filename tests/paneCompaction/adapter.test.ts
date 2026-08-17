@@ -604,6 +604,62 @@ describe("the three commands", () => {
     expect(r.lines.join("\n")).toContain("purview");
   });
 
+  it.each(["--checkpoint", "--resume"])(
+    "%s revalidates before sending, like --compact does",
+    (mode) => {
+      // Diff round 5, finding 1 (P0). Only --compact revalidated; the other two
+      // observed once and then sent, so a marker that changed in between was
+      // never seen. §6's first guarantee is that no pane is driven while any
+      // rule 1-8 condition holds, and "held when we looked" is not that.
+      let reads = 0;
+      const sent: Array<{ target: string; text: string }> = [];
+      const { surface, run: r } = fakeSurface({
+        marker: () => {
+          reads += 1;
+          // Blocked from the SECOND read on: quiet at observation, blocked at
+          // the send.
+          return fullMarker(reads > 1 ? { blockedOn: "waiting on CI" } : {});
+        },
+        send: (target, text) => sent.push({ target, text }),
+      });
+      const code = main([mode, "wM:p1", "--as", "sess-1"], surface);
+      premiseHolds("the marker was re-read for revalidation", reads > 1);
+      expect(code).toBe(1);
+      expect(sent).toEqual([]);
+      void r;
+    },
+  );
+
+  it("a pane that leaves the roster refuses with THAT reason, not a nonce reason", () => {
+    // Diff round 5, finding 4 (P1) -- a defect in my own round-4 repair. The
+    // disappearance case returned the STALE report with a null nonce, so the
+    // "left the roster" branch compared the pane against itself and could never
+    // fire, and the null nonce then refused with "marker carries no
+    // checkpointNonce" while a MATCHING nonce sat in the marker. A refusal that
+    // names the wrong condition sends an operator to fix the wrong thing.
+    let rosterReads = 0;
+    const sent: Array<{ target: string; text: string }> = [];
+    const { surface, run: r } = fakeSurface({
+      marker: () => fullMarker({ checkpointNonce: "n1" }),
+      nonceRead: () => "n1",
+      send: (target, text) => sent.push({ target, text }),
+    });
+    const base = surface.roster();
+    const patched: Surface = {
+      ...surface,
+      roster: () => {
+        rosterReads += 1;
+        return rosterReads === 1 ? base : base.filter((p) => p.paneId !== "wM:p1");
+      },
+    };
+    const code = main(["--compact", "wM:p1", "--as", "sess-1"], patched);
+    expect(code).toBe(1);
+    expect(sent).toEqual([]);
+    const out = r.lines.join("\n");
+    expect(out).toContain("left the roster");
+    expect(out).not.toContain("checkpointNonce");
+  });
+
   it("AC-17: a sessionId change that PRESERVES the nonce still refuses", () => {
     // Diff round 4, finding 1 (P0) -- the FOURTH appearance of one class. By
     // this round the roster was re-read and the whole decision compared, and the

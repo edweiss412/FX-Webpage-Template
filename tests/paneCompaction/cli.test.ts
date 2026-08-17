@@ -153,8 +153,25 @@ describe("a second COMMAND is a usage error, like a second target (AC-7)", () =>
     expect(parseArgv(["--compact", "p1", "--as", "owner"]).extraModes).toEqual([]);
   });
 
-  it("does not count --check or --json as a sending mode", () => {
-    // Only the three sending modes collide; flags that shape the report do not.
+  it("counts --check as a mode, in EITHER argument order", () => {
+    // Diff round 5, finding 3 (P1). `--check` is a mode, so a second one
+    // collides like a second sending flag. Tracking only the three sending
+    // modes made the grammar order-dependent: `--checkpoint p1 --check`
+    // silently became a report-mode `--check` and exited 0, while
+    // `--check --checkpoint p1` refused. A CLI that means different things
+    // depending on flag order is the one property an operator cannot reason
+    // about.
+    expect(parseArgv(["--checkpoint", "p1", "--check", "--as", "o"]).extraModes).toEqual([
+      "--check",
+    ]);
+    expect(parseArgv(["--check", "--checkpoint", "p1", "--as", "o"]).extraModes).toEqual([
+      "--checkpoint",
+    ]);
+  });
+
+  it("does not count --json as a mode", () => {
+    // The other side: flags that SHAPE the report are not modes, so an ordinary
+    // `--json --check` must not refuse.
     expect(parseArgv(["--json", "--check", "--as", "o"]).extraModes).toEqual([]);
   });
 });

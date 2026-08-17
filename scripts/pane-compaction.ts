@@ -275,6 +275,35 @@ export function unknownBucketOf(run: GhInvocation): string | null {
   return null;
 }
 
+/**
+ * A round-corpus row, validated as a WHOLE row (spec §4.3 line 213: `stage`,
+ * `round`, `status`, `verdict`, `findingCount`, `endedAt`).
+ *
+ * Ingestion checked `status` alone, so a row whose `stage` was a number reached
+ * position inference, which then read `verdict` and `endedAt` off a row nothing
+ * had validated (diff round 5, finding 2). Validating the field you happen to
+ * branch on is not validating the input -- the same partial-check shape as the
+ * marker key walk two rounds earlier.
+ *
+ * Exported so the boundary is assertable directly rather than only through a
+ * filesystem read.
+ */
+export function corpusRowIsWellFormed(parsed: unknown): boolean {
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return false;
+  const row = parsed as Record<string, unknown>;
+  // The three nullable fields are legitimately null on a real row -- a
+  // `no_verdict` row carries all three -- so nullable is accepted and a wrong
+  // TYPE is not.
+  return (
+    typeof row["stage"] === "string" &&
+    typeof row["round"] === "number" &&
+    typeof row["status"] === "string" &&
+    (row["verdict"] === null || typeof row["verdict"] === "string") &&
+    (row["findingCount"] === null || typeof row["findingCount"] === "number") &&
+    (row["endedAt"] === null || typeof row["endedAt"] === "string")
+  );
+}
+
 /** `gh pr checks --json bucket` rows, reduced to the four flags §4.4 reads. */
 function prFrom(
   run: GhInvocation,
@@ -469,8 +498,15 @@ export function parseArgv(argv: string[]): Parsed {
     if (a === "--json") out.json = true;
     else if (a === "--dry-run") out.dryRun = true;
     else if (a === "--all") out.all = true;
-    else if (a === "--check") out.mode = "check";
-    else if (a === "--as") {
+    else if (a === "--check") {
+      // `--check` IS a mode, so a second one collides exactly like a second
+      // sending flag. Tracking only the three sending modes meant
+      // `--checkpoint wM:p1 --check` silently became a report-mode `--check`
+      // and exited 0, while the reverse order refused -- the grammar disagreed
+      // with itself depending on argument order (diff round 5, finding 3).
+      if (out.mode !== "report") out.extraModes.push(a);
+      out.mode = "check";
+    } else if (a === "--as") {
       // A flag is never a session id. `--as --dry-run` is a MISSING `--as`, and
       // swallowing the flag would both invent an orchestrator identity and drop
       // the option that followed — the one thing this parser must not do, since
@@ -690,34 +726,6 @@ function drive(opts: Parsed, pane: RosterPane, roster: RosterPane[], s: Surface)
     return 1;
   }
 
-  if (opts.mode === "checkpoint") {
-    const nonce = mintNonce({ markerNonce, random: s.random });
-    const sends = planSends({ command: "checkpoint", nonce }).sends;
-    if (opts.dryRun) {
-      for (const line of sends) s.outRaw(line);
-      return 0;
-    }
-    s.nonceWrite(as, pane.paneId, nonce);
-    for (const line of sends) s.send(pane.paneId, line);
-    return 0;
-  }
-
-  if (opts.mode === "resume") {
-    const sends = planSends({ command: "resume" }).sends;
-    for (const line of sends) {
-      if (opts.dryRun) s.outRaw(line);
-      else s.send(pane.paneId, line);
-    }
-    return 0;
-  }
-
-  // `--dry-run` goes through the SAME gate rather than around it. Printing
-  // `/compact` unconditionally would tell an operator the command is ready when
-  // the real one would refuse — an absent or mismatched nonce exits 1 and sends
-  // nothing (AC-19), and a dry run that cannot show that refusal is worse than
-  // no dry run at all. What it must not do is CONSUME: reading and comparing
-  // the record is the gate, spending it is the side effect, so the dry run gets
-  // a no-op consume and a send that prints.
   // ONE ATOMIC AUTHORIZATION READ, and this is the FOURTH repair of one class.
   //
   // r1: the marker was re-read but the NONCE came from an earlier capture.
@@ -734,11 +742,19 @@ function drive(opts: Parsed, pane: RosterPane, roster: RosterPane[], s: Surface)
   // authorization now takes exactly one snapshot: the marker is read once per
   // pass and both the classification and the nonce are derived from that same
   // copy. Two reads cannot disagree if there is only one.
-  let pass: { report: PaneReport; nonce: string | null } | null = null;
-  const authorize = (): { report: PaneReport; nonce: string | null } => {
+  type Authz = { gone: true } | { gone: false; report: PaneReport; nonce: string | null };
+  let pass: Authz | null = null;
+  const authorize = (): Authz => {
     const freshRoster = s.roster();
     const freshPane = freshRoster.find((r) => r.paneId === pane.paneId);
-    if (freshPane === undefined) return { report: report, nonce: null };
+    // EXPLICIT, not encoded as a stale report with a null nonce. That encoding
+    // was my own round-4 repair and it was wrong twice over: the caller compared
+    // `fresh.paneId` against the pane it already had, so the "left the roster"
+    // branch was unreachable, and the null nonce then refused with
+    // "marker carries no checkpointNonce" -- a reason that is FALSE while a
+    // matching nonce sits in the marker (diff round 5, finding 4). A refusal
+    // that names the wrong condition sends an operator to fix the wrong thing.
+    if (freshPane === undefined) return { gone: true };
     let markerOnce: Record<string, unknown> | null | undefined;
     const snapshot: Surface = {
       ...s,
@@ -750,8 +766,84 @@ function drive(opts: Parsed, pane: RosterPane, roster: RosterPane[], s: Surface)
     const fresh = observe(freshPane, freshRoster, as, snapshot, cacheOf(snapshot));
     const m = snapshot.marker(freshPane.cwd);
     const nonce = typeof m?.["checkpointNonce"] === "string" ? m["checkpointNonce"] : null;
-    return { report: fresh, nonce };
+    return { gone: false, report: fresh, nonce };
   };
+
+  /**
+   * The freshness check EVERY sending mode runs, not just `--compact`.
+   *
+   * `--checkpoint` and `--resume` observed once and then sent, so a marker that
+   * changed in between was never seen: a probe flipped `blockedOn` on the second
+   * read and both commands exited 0 having sent (diff round 5, finding 1). §6's
+   * first guarantee is that no pane is driven while any rule 1-8 condition
+   * holds, and "held when we looked" is not that guarantee.
+   */
+  const revalidateNow = (): { ok: true } | { ok: false; message: string } => {
+    pass = authorize();
+    if (pass.gone) {
+      return { ok: false, message: `refusing: ${pane.paneId} left the roster before sending` };
+    }
+    const fresh = pass.report;
+    if (fresh.verdict !== report.verdict) {
+      return {
+        ok: false,
+        message: refuse({ kind: "stale-verdict", was: report.verdict, now: fresh.verdict }).message,
+      };
+    }
+    if (fresh.rule !== report.rule) {
+      return {
+        ok: false,
+        message: `refusing: the deciding rule changed from ${report.rule} to ${fresh.rule} before sending`,
+      };
+    }
+    if (!fresh.inPurview) {
+      return { ok: false, message: `refusing: ${pane.paneId} left ${as}'s purview before sending` };
+    }
+    return { ok: true };
+  };
+
+  if (opts.mode === "checkpoint") {
+    // Revalidate first: observing once and then sending is not §6's guarantee.
+    const freshOk = revalidateNow();
+    if (!freshOk.ok) {
+      s.out(freshOk.message);
+      return 1;
+    }
+    const nonce = mintNonce({ markerNonce, random: s.random });
+    const sends = planSends({ command: "checkpoint", nonce }).sends;
+    if (opts.dryRun) {
+      for (const line of sends) s.outRaw(line);
+      return 0;
+    }
+    s.nonceWrite(as, pane.paneId, nonce);
+    for (const line of sends) s.send(pane.paneId, line);
+    return 0;
+  }
+
+  if (opts.mode === "resume") {
+    // `--resume` has its own PREDICATE (it deliberately does not require
+    // COMPACT/FORCE), but it has the same freshness obligation as every other
+    // sending mode: rules 1-8 must still be quiet at the moment of the send.
+    const freshOk = revalidateNow();
+    if (!freshOk.ok) {
+      s.out(freshOk.message);
+      return 1;
+    }
+    const sends = planSends({ command: "resume" }).sends;
+    for (const line of sends) {
+      if (opts.dryRun) s.outRaw(line);
+      else s.send(pane.paneId, line);
+    }
+    return 0;
+  }
+
+  // `--dry-run` goes through the SAME gate rather than around it. Printing
+  // `/compact` unconditionally would tell an operator the command is ready when
+  // the real one would refuse — an absent or mismatched nonce exits 1 and sends
+  // nothing (AC-19), and a dry run that cannot show that refusal is worse than
+  // no dry run at all. What it must not do is CONSUME: reading and comparing
+  // the record is the gate, spending it is the side effect, so the dry run gets
+  // a no-op consume and a send that prints.
 
   const result = runCompact({
     store: {
@@ -759,43 +851,16 @@ function drive(opts: Parsed, pane: RosterPane, roster: RosterPane[], s: Surface)
       consume: opts.dryRun ? (): void => {} : (): void => s.nonceConsume(as, pane.paneId),
     },
     // From the SAME snapshot the revalidation classified, never a second read.
-    markerNonce: () => (pass ?? authorize()).nonce,
+    markerNonce: () => {
+      const p = pass ?? authorize();
+      return p.gone ? null : p.nonce;
+    },
     send: (text) => {
       if (opts.dryRun) s.outRaw(text);
       else s.send(pane.paneId, text);
     },
     // Revalidated a second time at the moment of the send, per §5.2.
-    revalidate: () => {
-      // ONE snapshot, shared with `markerNonce` above. See the note there for
-      // why this is a single read rather than another re-read: the class was
-      // never about which inputs get refreshed, it was about assembling one
-      // decision from several reads taken at different instants.
-      pass = authorize();
-      const fresh = pass.report;
-      if (fresh.paneId !== pane.paneId) {
-        return { ok: false, message: `refusing: ${pane.paneId} left the roster before sending` };
-      }
-      if (fresh.verdict !== report.verdict) {
-        return {
-          ok: false,
-          message: refuse({ kind: "stale-verdict", was: report.verdict, now: fresh.verdict })
-            .message,
-        };
-      }
-      if (fresh.rule !== report.rule) {
-        return {
-          ok: false,
-          message: `refusing: the deciding rule changed from ${report.rule} to ${fresh.rule} before sending`,
-        };
-      }
-      if (!fresh.inPurview) {
-        return {
-          ok: false,
-          message: `refusing: ${pane.paneId} left ${as}'s purview before sending`,
-        };
-      }
-      return { ok: true };
-    },
+    revalidate: revalidateNow,
   });
   if (result.message !== "") s.out(result.message);
   return result.exitCode;
@@ -1034,11 +1099,14 @@ export function realSurface(): Surface {
             // SHAPE-checked, not just parsed. A row missing `status` used to
             // survive the cast and then fail every `status === "verdict"` test,
             // so it vanished instead of being reported.
-            if (
-              typeof parsed !== "object" ||
-              parsed === null ||
-              typeof (parsed as { status?: unknown }).status !== "string"
-            ) {
+            // The COMPLETE declared row, not just `status`. Spec §4.3 line 213
+            // names six fields, and validating one of them let a row whose
+            // `stage` was a number through: it reached position inference,
+            // which then read `verdict` and `endedAt` off a row nothing had
+            // checked (diff round 5, finding 2). Validating the field you
+            // happen to branch on is the same partial-check shape as the marker
+            // key walk two rounds ago.
+            if (!corpusRowIsWellFormed(parsed)) {
               rows.push({ status: MALFORMED_CORPUS_STATUS, verdict: null, endedAt: null });
             } else {
               rows.push(parsed as CorpusRow);

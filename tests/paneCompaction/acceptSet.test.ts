@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { GH_BUCKETS, classifyGh } from "@/scripts/lib/pane-compaction-core";
-import { rejectedFieldOf, unknownBucketOf } from "@/scripts/pane-compaction";
+import { corpusRowIsWellFormed, rejectedFieldOf, unknownBucketOf } from "@/scripts/pane-compaction";
 import { premiseHolds } from "@/tests/_shared/premise";
 
 /**
@@ -184,5 +184,45 @@ describe("the accept-set validates VALUES, not only shapes", () => {
     premiseHolds("the known-bucket set is non-empty", GH_BUCKETS.size > 0);
     const rows = JSON.stringify([...GH_BUCKETS].map((b) => ({ bucket: b })));
     expect(unknownBucketOf({ exitCode: 0, stdout: rows, stderr: "" })).toBeNull();
+  });
+});
+
+describe("a corpus row is validated as a WHOLE row (spec §4.3 line 213)", () => {
+  // Diff round 5, finding 2 (P0). Ingestion checked `status` alone, so a row
+  // whose `stage` was a number reached position inference, which then read
+  // `verdict` and `endedAt` off a row nothing had validated. Same partial-check
+  // shape as the marker key walk two rounds earlier: validating the field you
+  // happen to branch on is not validating the input.
+  const good = {
+    stage: "diff",
+    round: 1,
+    status: "verdict",
+    verdict: "APPROVE",
+    findingCount: 0,
+    endedAt: "2026-01-01T00:00:00Z",
+  };
+
+  it("accepts the committed row shape", () => {
+    expect(corpusRowIsWellFormed(good)).toBe(true);
+  });
+
+  it.each([
+    ["stage", { ...good, stage: 3 }],
+    ["round", { ...good, round: "1" }],
+    ["status", { ...good, status: 7 }],
+    ["verdict", { ...good, verdict: 5 }],
+    ["findingCount", { ...good, findingCount: "0" }],
+    ["endedAt", { ...good, endedAt: 12345 }],
+  ])("rejects a row whose %s has the wrong type", (_f, row) => {
+    expect(corpusRowIsWellFormed(row)).toBe(false);
+  });
+
+  it("accepts the nullable fields as null", () => {
+    // `verdict`, `findingCount` and `endedAt` are legitimately null on real
+    // rows -- a no_verdict row carries all three -- so the check must not
+    // reject the corpus it is meant to read.
+    expect(
+      corpusRowIsWellFormed({ ...good, verdict: null, findingCount: null, endedAt: null }),
+    ).toBe(true);
   });
 });
