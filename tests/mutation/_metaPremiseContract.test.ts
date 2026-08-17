@@ -59,6 +59,17 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   //                                  a real child through `childRun`. The other
   //                                  nine read the live tree via node:fs only.
   "tests/mutation/source/premiseScan.test.ts": 0,
+  // fix/surface-discovery-unnameable-forms (2026-08-17): the invariant-10
+  // discovery engine's two suites, enrolled with the mutationSurfaceEnumerate
+  // and mutationSurfaceTotality surfaces. Both DERIVED from a run of the
+  // recognizer, not from reading: every case writes a synthetic tree under
+  // mkdtempSync and parses it, which is not provenance -- the same rule
+  // premiseScan.test.ts is 0 under. The suites that DO read the live corpus are
+  // the consumers (`tests/log/_metaMutationSurfaceObservability.test.ts`,
+  // `tests/auth/_metaServerActionOriginGate.test.ts`), and each carries its own
+  // non-emptiness premise there rather than here.
+  "tests/log/mutationSurface/enumerate.test.ts": 0,
+  "tests/log/mutationSurface/totality.test.ts": 0,
   // fix/mutation-child-lifetime (2026-08-17): the bounded-spawn module's mocked
   // suite, enrolled as the spawnBounded surface's only decider. EIGHT — every case
   // that calls `spawnBounded` and therefore reaches the `spawnSync` seam

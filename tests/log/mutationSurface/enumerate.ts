@@ -183,6 +183,22 @@ const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 export function moduleDefaultExports(sf: ts.SourceFile): boolean {
   for (const st of sf.statements) {
     if (ts.isExportAssignment(st) && !st.isExportEquals) return true;
+    // An export CLAUSE can name `default` too -- `export { m as default }`,
+    // `export { m as "default" }`, `export { default } from "./m"`, and
+    // `export * as default from "./m"`. The clause form hard-coded
+    // `isDefault: false` and so produced a unit keyed `default` while passing
+    // this ban (diff review round 2, finding 2). This predicate is a BAN, not a
+    // resolver, so it covers re-export forms the binding walk deliberately
+    // skips: the module still exports a default either way.
+    if (ts.isExportDeclaration(st) && !st.isTypeOnly && st.exportClause) {
+      if (ts.isNamespaceExport(st.exportClause) && st.exportClause.name.text === "default")
+        return true;
+      if (
+        ts.isNamedExports(st.exportClause) &&
+        st.exportClause.elements.some((el) => !el.isTypeOnly && el.name.text === "default")
+      )
+        return true;
+    }
     if (ts.canHaveModifiers(st)) {
       const mods = ts.getModifiers(st);
       const hasExport = mods?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
@@ -217,22 +233,312 @@ export function routeMutatingMethods(sf: ts.SourceFile): string[] {
   return [...found];
 }
 
-/** Resolve a local declaration by name — either a `FunctionDeclaration`, or a
- * `const`/`let` whose initializer is an arrow/function expression. Used to
- * resolve `export { local as mutate }` to the declaration whose body is the
- * checked scope (the specifier is NOT itself a checkable scope). */
-function findLocalDeclNode(sf: ts.SourceFile, name: string): ts.Node | undefined {
+/** Every identifier a `BindingName` binds, through both binding-pattern kinds.
+ * `export const { doIt } = obj;` and `export const [doIt] = arr;` are ordinary
+ * refactors of a live module, and both bind an addressable export name. */
+function collectBindingNames(name: ts.BindingName, out: string[]): void {
+  if (ts.isIdentifier(name)) {
+    out.push(name.text);
+    return;
+  }
+  for (const el of name.elements) {
+    if (ts.isOmittedExpression(el)) continue;
+    collectBindingNames(el.name, out);
+  }
+}
+
+/** An exported VALUE name paired with the module-scope name it resolves
+ * through. They differ only for a local export list (`export { local as x }`);
+ * `isDefault` is carried because the two readers disagree about it ON PURPOSE
+ * — a default-exported action produces NO unit (it evades per-function keying,
+ * `moduleDefaultExports`) but is still an exported name the reconciliation must
+ * refuse rather than lose. */
+type ExportedValueBinding = { exported: string; local: string; isDefault: boolean };
+
+/**
+ * Every VALUE name a module-level `"use server"` file exports, with its local
+ * name.
+ *
+ * Total over export forms because it reads NAMES, not initializers: a
+ * paren-wrapped arrow, a higher-order call, a conditional, and an alias chain
+ * all export a name, and the name is what this collects. Type-only exports are
+ * excluded — they are not addressable endpoints. Re-exports with a module
+ * specifier are excluded — they name another module's symbol, checked where it
+ * is declared.
+ *
+ * One traversal feeds both consumers (`exportedValueNames` for the D1 domain,
+ * `collectModuleActions` for resolution) so the domain and the resolver can
+ * never range over different name sets.
+ */
+function exportedValueBindings(sf: ts.SourceFile): ExportedValueBinding[] {
+  const out: ExportedValueBinding[] = [];
   for (const st of sf.statements) {
-    if (ts.isFunctionDeclaration(st) && st.name?.text === name) return st;
+    if (ts.isTypeAliasDeclaration(st) || ts.isInterfaceDeclaration(st)) continue;
+    if (ts.canHaveModifiers(st)) {
+      const mods = ts.getModifiers(st);
+      if (mods?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)) {
+        const isDefault = !!mods.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword);
+        if (ts.isVariableStatement(st)) {
+          const names: string[] = [];
+          for (const d of st.declarationList.declarations) collectBindingNames(d.name, names);
+          for (const n of names) out.push({ exported: n, local: n, isDefault });
+        } else {
+          // Every OTHER exported declaration kind contributes its own name, read
+          // GENERICALLY. A kind list here would be an enumeration to keep
+          // current, and the two kinds it first omitted -- `export class` and
+          // `export enum` -- were silently absent from BOTH the unit set and the
+          // refusal set (diff review round 1, finding 1). A declaration whose
+          // name is not an identifier (`declare module "x"`) is not an
+          // addressable export name and is skipped.
+          const named = st as ts.Statement & { name?: ts.Node };
+          if (named.name && ts.isIdentifier(named.name))
+            out.push({ exported: named.name.text, local: named.name.text, isDefault });
+        }
+      }
+    }
+    if (
+      ts.isExportDeclaration(st) &&
+      !st.moduleSpecifier &&
+      st.exportClause &&
+      ts.isNamedExports(st.exportClause)
+    ) {
+      if (st.isTypeOnly) continue;
+      for (const el of st.exportClause.elements) {
+        if (el.isTypeOnly) continue;
+        out.push({
+          exported: el.name.text,
+          local: (el.propertyName ?? el.name).text,
+          // `export { m as default }` IS a default export; hard-coding false
+          // here produced a unit keyed `default` and skipped the ratified
+          // no-unit-plus-refusal contract (diff review round 2, finding 2).
+          isDefault: el.name.text === "default",
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/** The D1 domain: every exported value name of a `"use server"` module. Total
+ * by construction — see `exportedValueBindings`. */
+export function exportedValueNames(sf: ts.SourceFile): string[] {
+  return exportedValueBindings(sf).map((b) => b.exported);
+}
+
+/** A node whose body is a checkable action scope.
+ *
+ * The BODY requirement is load-bearing, not belt-and-braces: an overload
+ * signature is a `FunctionDeclaration` with no body, and accepting one produced
+ * a keyed unit whose node had nothing to scan while the real implementation was
+ * never reached (diff review round 1, finding 4). */
+const isCheckableFunction = (n: ts.Node): boolean =>
+  (ts.isFunctionDeclaration(n) ||
+    ts.isArrowFunction(n) ||
+    ts.isFunctionExpression(n) ||
+    ts.isMethodDeclaration(n)) &&
+  !!(n as ts.FunctionLikeDeclaration).body;
+
+/** Unwrap parens; follow module-scope identifier alias chains (cycle-safe). */
+function reduceModuleExpr(
+  sf: ts.SourceFile,
+  expr: ts.Expression,
+  seen: Set<string>,
+): ts.Node | undefined {
+  let e: ts.Expression = expr;
+  while (ts.isParenthesizedExpression(e)) e = e.expression;
+  if (!ts.isIdentifier(e)) return e;
+  return resolveModuleName(sf, e.text, seen);
+}
+
+/**
+ * True if a module-scope name can hold a different value at export time than the
+ * declaration a static read reaches: it is DECLARED more than once (`var`
+ * redeclaration -- the later one wins), or something WRITES it (`x = f`,
+ * `x ??= f`, `x.k = f`, `x[k] = f`, `x++`).
+ *
+ * The resolver REFUSES such a name rather than modelling assignment order.
+ * That is deliberate direction: tracking writes would make the closed reduction
+ * set a dataflow grammar, and a wider recognizer is a bigger target every round.
+ * Before this, the unit carried the pre-write node, so `scanBody` read a body
+ * that never runs -- and it did so SILENTLY, because a unit existed and the
+ * refusal ledger stayed empty (diff review round 2, finding 1).
+ *
+ * A write to a LOCALLY REBOUND identifier is a write to a different binding, so
+ * it must not refuse the export -- `isLocallyRebound` is the same predicate
+ * `scanBody` uses for shadowed imports. Without it this fires on correct code,
+ * which is the false advisory the design is most exposed to.
+ */
+function moduleBindingIsUnstable(sf: ts.SourceFile, name: string): boolean {
+  let declared = 0;
+  for (const st of sf.statements) {
+    // A bodyless declaration is an overload SIGNATURE, not a second definition.
+    if (ts.isFunctionDeclaration(st) && st.name?.text === name && st.body) declared++;
+    // Only `var` counts: a duplicate `let`/`const` is a TypeScript error, so a
+    // second block-scoped declaration of one name is not something an ordinary
+    // contributor ships -- and counting it refuses correct fixtures where a
+    // shorthand member and its destructured export share a name.
     if (ts.isVariableStatement(st))
       for (const d of st.declarationList.declarations)
         if (
-          ts.isIdentifier(d.name) &&
-          d.name.text === name &&
-          d.initializer &&
-          (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer))
+          bindingBindsName(d.name, name) &&
+          (ts.getCombinedNodeFlags(d) & (ts.NodeFlags.Let | ts.NodeFlags.Const)) === 0
         )
-          return d.initializer;
+          declared++;
+  }
+  if (declared > 1) return true;
+
+  // `x`, `x.k`, `x[k]`, and longer chains rooted at `x`, on the left of an
+  // assignment; plus `x++` / `--x`.
+  const isWriteTarget = (id: ts.Node): boolean => {
+    // Ascend to the outermost expression this identifier is the TARGET of:
+    // parens, since `(x) = f` is a legal assignment, and member chains ROOTED
+    // at it, since `x.k = f` replaces a member of the very object a literal
+    // appeared to fix. `registry[x] = 1` is not such a chain -- `x` is the
+    // subscript, not the root -- and must stay resolvable.
+    let t: ts.Node = id;
+    for (let up: ts.Node | undefined = t.parent; up; up = t.parent) {
+      if (ts.isParenthesizedExpression(up)) t = up;
+      else if (
+        (ts.isPropertyAccessExpression(up) || ts.isElementAccessExpression(up)) &&
+        up.expression === t
+      )
+        t = up;
+      else break;
+    }
+    const p: ts.Node | undefined = t.parent;
+    if (!p) return false;
+    if (
+      ts.isBinaryExpression(p) &&
+      p.left === t &&
+      p.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      p.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+    )
+      return true;
+    return (
+      (ts.isPostfixUnaryExpression(p) || ts.isPrefixUnaryExpression(p)) &&
+      p.operand === t &&
+      (p.operator === ts.SyntaxKind.PlusPlusToken || p.operator === ts.SyntaxKind.MinusMinusToken)
+    );
+  };
+
+  let written = false;
+  const visit = (n: ts.Node): void => {
+    if (written) return;
+    if (ts.isIdentifier(n) && n.text === name && isWriteTarget(n) && !isLocallyRebound(n, name))
+      written = true;
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return written;
+}
+
+/**
+ * A module-scope name to the declaration whose body is the checkable scope.
+ *
+ * A CLOSED reduction set (spec §3.2), not a grammar: paren unwrap, alias chain,
+ * function/arrow initializer, and literal-member binding-pattern access.
+ * Anything else returns `undefined` — a REFUSAL, reconciled by name in
+ * `./totality`, never a silent absence. Adding a reduction is a spec change.
+ */
+function resolveModuleName(
+  sf: ts.SourceFile,
+  name: string,
+  seen: Set<string>,
+): ts.Node | undefined {
+  if (seen.has(name)) return undefined; // alias cycle — terminate, refuse
+  seen.add(name);
+  // Every alias hop lands here, so one check covers the entry name, the chain,
+  // and an object holder's name (diff review round 2, finding 1).
+  if (moduleBindingIsUnstable(sf, name)) return undefined; // refusal, reconciled in ./totality
+  for (const st of sf.statements) {
+    // A bodyless declaration is an overload SIGNATURE; the implementation
+    // carries the same name further down, so keep walking rather than binding
+    // the export to a scope that cannot be scanned.
+    if (ts.isFunctionDeclaration(st) && st.name?.text === name && st.body) return st;
+    if (ts.isVariableStatement(st))
+      for (const d of st.declarationList.declarations) {
+        if (ts.isIdentifier(d.name) && d.name.text === name && d.initializer)
+          return reduceModuleExpr(sf, d.initializer, seen);
+        if (!ts.isIdentifier(d.name) && bindingBindsName(d.name, name) && d.initializer)
+          return resolvePatternMember(sf, d.name, name, d.initializer, seen);
+      }
+  }
+  return undefined;
+}
+
+/** `const { doIt } = <literal>` / `const [doIt] = <literal>` — literal member
+ * access ONLY (spec §3.2 rule 3); everything else returns undefined (refusal). */
+function resolvePatternMember(
+  sf: ts.SourceFile,
+  pattern: ts.BindingName,
+  name: string,
+  init: ts.Expression,
+  seen: Set<string>,
+): ts.Node | undefined {
+  const reduced = reduceModuleExpr(sf, init, seen);
+  if (!reduced) return undefined;
+  if (ts.isObjectBindingPattern(pattern) && ts.isObjectLiteralExpression(reduced)) {
+    // A spread or a computed member can REPLACE a syntactically-matching member
+    // at runtime, so the literal no longer determines which body executes.
+    // Refusing by name is the only honest answer; picking the syntactic match
+    // scanned the wrong body silently (diff review round 1, finding 3).
+    if (
+      reduced.properties.some(
+        (p) =>
+          ts.isSpreadAssignment(p) || (p.name !== undefined && ts.isComputedPropertyName(p.name)),
+      )
+    )
+      return undefined;
+    for (const el of pattern.elements) {
+      if (!ts.isIdentifier(el.name) || el.name.text !== name) continue;
+      if (el.initializer || el.dotDotDotToken) return undefined; // defaults/rest refuse
+      // A computed member name refuses (spec §3.2 rule 3) — falling back to
+      // el.name.text here would let `{ ["doIt"]: doIt }` match a literal member.
+      if (
+        el.propertyName &&
+        !(ts.isIdentifier(el.propertyName) || ts.isStringLiteral(el.propertyName))
+      )
+        return undefined;
+      const key =
+        el.propertyName === undefined
+          ? el.name.text
+          : (el.propertyName as ts.Identifier | ts.StringLiteral).text;
+      for (const p of reduced.properties) {
+        if (
+          ts.isPropertyAssignment(p) &&
+          (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)) &&
+          p.name.text === key
+        ) {
+          const r = reduceModuleExpr(sf, p.initializer, seen);
+          return r && isCheckableFunction(r) ? r : undefined;
+        }
+        if (
+          ts.isMethodDeclaration(p) &&
+          (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)) &&
+          p.name.text === key
+        )
+          return p;
+        if (ts.isShorthandPropertyAssignment(p) && p.name.text === key)
+          return resolveModuleName(sf, key, seen);
+      }
+      return undefined;
+    }
+  }
+  if (ts.isArrayBindingPattern(pattern) && ts.isArrayLiteralExpression(reduced)) {
+    // A spread ANYWHERE shifts every later runtime index away from its
+    // syntactic position, so the index match below stops meaning what it says.
+    // Same finding, array half.
+    if (reduced.elements.some(ts.isSpreadElement)) return undefined;
+    for (let i = 0; i < pattern.elements.length; i++) {
+      const el = pattern.elements[i];
+      if (!el || ts.isOmittedExpression(el)) continue;
+      if (!ts.isIdentifier(el.name) || el.name.text !== name) continue;
+      if (el.initializer || el.dotDotDotToken) return undefined;
+      const item = reduced.elements[i];
+      if (!item || ts.isOmittedExpression(item) || ts.isSpreadElement(item)) return undefined;
+      const r = reduceModuleExpr(sf, item, seen);
+      return r && isCheckableFunction(r) ? r : undefined;
+    }
   }
   return undefined;
 }
@@ -247,40 +553,15 @@ function findLocalDeclNode(sf: ts.SourceFile, name: string): ts.Node | undefined
 function collectModuleActions(sf: ts.SourceFile): { fn: string; node: ts.Node }[] {
   const out: { fn: string; node: ts.Node }[] = [];
   const seen = new Set<string>();
-  const add = (fn: string, node: ts.Node) => {
-    if (seen.has(fn)) return;
-    seen.add(fn);
-    out.push({ fn, node });
-  };
-  for (const st of sf.statements) {
-    if (ts.canHaveModifiers(st)) {
-      const mods = ts.getModifiers(st);
-      const isExport = mods?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
-      const isDefault = mods?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword);
-      if (isExport && !isDefault) {
-        if (ts.isFunctionDeclaration(st) && st.name) add(st.name.text, st);
-        if (ts.isVariableStatement(st))
-          for (const d of st.declarationList.declarations)
-            if (
-              ts.isIdentifier(d.name) &&
-              d.initializer &&
-              (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer))
-            )
-              add(d.name.text, d.initializer);
-      }
-    }
-    if (
-      ts.isExportDeclaration(st) &&
-      !st.moduleSpecifier &&
-      st.exportClause &&
-      ts.isNamedExports(st.exportClause)
-    )
-      for (const el of st.exportClause.elements) {
-        const localName = (el.propertyName ?? el.name).text;
-        const exportedName = el.name.text;
-        const declNode = findLocalDeclNode(sf, localName);
-        if (declNode) add(exportedName, declNode);
-      }
+  for (const { exported, local, isDefault } of exportedValueBindings(sf)) {
+    // A default-exported action stays excluded (`moduleDefaultExports`): it is
+    // an un-named surface that evades per-function keying. The name still
+    // reaches the D1 domain, so the reconciliation refuses it by name.
+    if (isDefault || seen.has(exported)) continue;
+    const node = resolveModuleName(sf, local, new Set());
+    if (!node || !isCheckableFunction(node)) continue; // refusal, reconciled in ./totality
+    seen.add(exported);
+    out.push({ fn: exported, node });
   }
   return out;
 }
@@ -291,6 +572,15 @@ function collectModuleActions(sf: ts.SourceFile): { fn: string; node: ts.Node }[
 function inlineName(node: ts.Node): string | undefined {
   if ((ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node)) && node.name)
     return node.name.text;
+  // A member's own name IS its nearest naming context — object methods and
+  // class members (`static` included) have no parent binding to read.
+  if (
+    (ts.isMethodDeclaration(node) ||
+      ts.isGetAccessorDeclaration(node) ||
+      ts.isSetAccessorDeclaration(node)) &&
+    (ts.isIdentifier(node.name) || ts.isStringLiteral(node.name))
+  )
+    return node.name.text;
   const p = node.parent;
   if (p) {
     if (ts.isVariableDeclaration(p) && ts.isIdentifier(p.name)) return p.name.text;
@@ -300,16 +590,18 @@ function inlineName(node: ts.Node): string | undefined {
   return undefined;
 }
 
-/** Every function-scoped inline `"use server"` action anywhere in a file that
- * does NOT itself carry a module-level directive (a function/arrow whose
- * block body opens with the directive, e.g. a React form-action). */
+/** Every function-scoped inline `"use server"` action anywhere in a file — a
+ * function-like whose block body opens with the directive, e.g. a React
+ * form-action. Runs for EVERY file, module-directive ones included: an action
+ * nested inside a file-level `"use server"` module is still a distinct
+ * endpoint (spec §3.3 rule 1). */
 function collectInlineActions(sf: ts.SourceFile): { fn: string; node: ts.Node }[] {
   const out: { fn: string; node: ts.Node }[] = [];
   const visit = (n: ts.Node) => {
-    if (
-      (ts.isFunctionDeclaration(n) || ts.isFunctionExpression(n) || ts.isArrowFunction(n)) &&
-      functionBodyHasUseServer(n)
-    ) {
+    // `isFunctionLike` is the TOTAL predicate (mirrors the origin tripwire's
+    // counter): signature-only kinds have no body and fall out of the
+    // directive check, so the cast is safe rather than a widening.
+    if (ts.isFunctionLike(n) && functionBodyHasUseServer(n as ts.FunctionLikeDeclaration)) {
       const fn = inlineName(n);
       if (fn) out.push({ fn, node: n });
     }
@@ -334,21 +626,32 @@ function collectFileSurfaceUnits(sf: ts.SourceFile, file: string): SurfaceUnit[]
       admin: isAdminRoutePath(file),
     }));
   }
+  const units: SurfaceUnit[] = [];
+  // Module actions claim their nodes first; an inline body already emitted as a
+  // module-action is ONE unit, not two (dedupe by node identity, spec §3.3.1).
+  const taken = new Set<ts.Node>();
   if (moduleHasUseServer(sf))
-    return collectModuleActions(sf).map(({ fn, node }) => ({
+    for (const { fn, node } of collectModuleActions(sf)) {
+      taken.add(node);
+      units.push({
+        file,
+        fn,
+        kind: "module-action" as const,
+        node,
+        admin: scanBody(node, { descend: false }).adminGated,
+      });
+    }
+  for (const { fn, node } of collectInlineActions(sf)) {
+    if (taken.has(node)) continue;
+    units.push({
       file,
       fn,
-      kind: "module-action" as const,
+      kind: "inline-action" as const,
       node,
       admin: scanBody(node, { descend: false }).adminGated,
-    }));
-  return collectInlineActions(sf).map(({ fn, node }) => ({
-    file,
-    fn,
-    kind: "inline-action" as const,
-    node,
-    admin: scanBody(node, { descend: false }).adminGated,
-  }));
+    });
+  }
+  return units;
 }
 
 /** Walk `roots` (typically `app/`, `lib/`, `components/`) for every mutation
