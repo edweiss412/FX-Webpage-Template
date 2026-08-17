@@ -3401,9 +3401,9 @@ describe("whole-diff R1 #6 — an exported dynamic binding is found by its LOCAL
     // that way, or the repair reports every dynamic import in the domain.
     //
     // `ns` is REFERENCED, and through a member, so this isolates the export
-    // dimension. An unreferenced binding is a separate report (R1 #5) and a
-    // memberless namespace use is a third, and a fixture tripping either would
-    // pass this case for a reason that has nothing to do with exporting.
+    // dimension: a memberless namespace use is its own report, and a fixture
+    // tripping that would pass this case for a reason unrelated to exporting.
+    // (Being unreferenced is NOT a report — that was withdrawn, §4 limit 17.)
     expect(
       verdictWithModules(
         {
@@ -3655,6 +3655,119 @@ describe("whole-diff R1 #7 — own-body precedence covers EVERY own-extent reaso
         { helper: HELPER },
         `import * as ns from "__MODULE_helper__";
          it("x", () => { ns.pure(); });`,
+      ),
+    ).toBe("environment-free");
+  });
+});
+
+describe("whole-diff R3 #1 — the E2 extent merge carries the forward's reasons", () => {
+  // `followForward` merges a hop's own module reports into whatever it returns,
+  // extents included, because the caller never sees that module. The E2 branch
+  // then rebuilt the extent by hand — `{ kind: "extent", nodes: [...] }` — and
+  // dropped `reasons` on the floor. Round 1 found this shape at the star loop's
+  // two returns and it was repaired there; this is the same class at a third
+  // return the sweep missed, which is why the case names the class.
+  const SIDE = { side: `export const k = 1;` };
+  const LEAF = `import "__MODULE_side__";
+    export function spawnHelper(): number { return 1; }`;
+  const CALL = `it("x", () => { spawnHelper(); });`;
+  const REPORTED = {
+    construct: REPORTS.sideEffect,
+    module: /mod\d+_leaf\.ts/,
+    notModule: /case\d+-user/,
+  };
+
+  it("CONTROL: reached DIRECTLY, the leaf's report surfaces", () => {
+    expectReported(
+      classificationWithModules(
+        { ...SIDE, leaf: LEAF },
+        `import { spawnHelper } from "__MODULE_leaf__";
+         ${CALL}`,
+      ),
+      { construct: REPORTS.sideEffect, module: /mod\d+_leaf\.ts/, notModule: /case\d+-user/ },
+    );
+  });
+
+  it("CONTROL: through an E5 re-export, it surfaces", () => {
+    expectReported(
+      classificationWithModules(
+        { ...SIDE, leaf: LEAF, barrel: `export { spawnHelper } from "__MODULE_leaf__";` },
+        `import { spawnHelper } from "__MODULE_barrel__";
+         ${CALL}`,
+      ),
+      REPORTED,
+    );
+  });
+
+  it("E2 named: import-then-export", () => {
+    expectReported(
+      classificationWithModules(
+        {
+          ...SIDE,
+          leaf: LEAF,
+          barrel: `import { spawnHelper } from "__MODULE_leaf__";\nexport { spawnHelper };`,
+        },
+        `import { spawnHelper } from "__MODULE_barrel__";
+         ${CALL}`,
+      ),
+      REPORTED,
+    );
+  });
+
+  it("E2 import-alias: the local name is renamed on the way in", () => {
+    expectReported(
+      classificationWithModules(
+        {
+          ...SIDE,
+          leaf: LEAF,
+          barrel: `import { spawnHelper as local } from "__MODULE_leaf__";\nexport { local as spawnHelper };`,
+        },
+        `import { spawnHelper } from "__MODULE_barrel__";
+         ${CALL}`,
+      ),
+      REPORTED,
+    );
+  });
+
+  it("E2 export-alias: the exported name is renamed on the way out", () => {
+    expectReported(
+      classificationWithModules(
+        {
+          ...SIDE,
+          leaf: LEAF,
+          barrel: `import { spawnHelper } from "__MODULE_leaf__";\nexport { spawnHelper as helper };`,
+        },
+        `import { helper } from "__MODULE_barrel__";
+         it("x", () => { helper(); });`,
+      ),
+      REPORTED,
+    );
+  });
+
+  it("E2 default: exported under `default`", () => {
+    expectReported(
+      classificationWithModules(
+        {
+          ...SIDE,
+          leaf: LEAF,
+          barrel: `import { spawnHelper } from "__MODULE_leaf__";\nexport { spawnHelper as default };`,
+        },
+        `import spawnHelper from "__MODULE_barrel__";
+         ${CALL}`,
+      ),
+      REPORTED,
+    );
+  });
+
+  it("the foil: a leaf that reports NOTHING stays pure through the same branch", () => {
+    expect(
+      verdictWithModules(
+        {
+          leaf: `export function spawnHelper(): number { return 1; }`,
+          barrel: `import { spawnHelper } from "__MODULE_leaf__";\nexport { spawnHelper };`,
+        },
+        `import { spawnHelper } from "__MODULE_barrel__";
+         ${CALL}`,
       ),
     ).toBe("environment-free");
   });

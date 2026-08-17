@@ -443,7 +443,6 @@ type ExtentNode = { node: ts.Node; facts: ModuleFacts; path: string };
 
 type ExportResolution =
   | { kind: "extent"; nodes: ExtentNode[]; reasons?: string[] }
-  | { kind: "forward"; spec: string; exportName: string }
   | { kind: "data"; reasons?: string[] }
   | { kind: "noSuchExport"; reasons?: string[] }
   | { kind: "unresolvable"; reason: string; reasons?: string[] };
@@ -809,9 +808,7 @@ function followForward(
   // Anything the HOP's own module reports about itself has no other way out:
   // the caller never sees this module (round-13 finding 1).
   const merged: ExportResolution =
-    carried.length && res.kind !== "forward"
-      ? { ...res, reasons: [...(res.reasons ?? []), ...carried] }
-      : res;
+    carried.length > 0 ? { ...res, reasons: [...(res.reasons ?? []), ...carried] } : res;
   done.set(key, merged);
   return merged;
 }
@@ -842,7 +839,13 @@ function resolveExport(
       };
     if (imported !== undefined) {
       const via = followForward(root, facts, imported.spec, imported.imported, active, done);
-      if (via.kind === "extent") return { kind: "extent", nodes: [...via.nodes, ...nodes] };
+      // The extent is rebuilt here to append this module's own writes, and
+      // rebuilding it BY HAND is how `reasons` got dropped: `followForward`
+      // merges the hop's module reports into whatever it returns, extents
+      // included, because the caller never sees that module. Round 1 found this
+      // shape at the star loop's two returns; this is the same class at a third
+      // (whole-diff R3 #1), so the merge SPREADS rather than re-literalling.
+      if (via.kind === "extent") return { ...via, nodes: [...via.nodes, ...nodes] };
       // A miss through the forward IS the answer here. Falling through to the
       // local extent was a distinction without a difference — an imported name
       // has no local extent to fall back to — and it left a mutation site whose
@@ -876,9 +879,7 @@ function resolveExport(
   // (whole-diff R1 #2). They are carried onto whichever answer this returns.
   const carried: string[] = [];
   const withCarried = (res: ExportResolution): ExportResolution =>
-    carried.length === 0 || res.kind === "forward"
-      ? res
-      : { ...res, reasons: [...(res.reasons ?? []), ...carried] };
+    carried.length === 0 ? res : { ...res, reasons: [...(res.reasons ?? []), ...carried] };
   if (exportName !== "default") {
     for (const spec of facts.starExports) {
       const via = followForward(root, facts, spec, exportName, active, done);
@@ -1614,7 +1615,7 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
             new Map<string, ExportResolution>(),
           );
           if (res.kind === "unresolvable") unresolved.push(res.reason);
-          if (res.kind !== "forward" && res.reasons) unresolved.push(...res.reasons);
+          if (res.reasons) unresolved.push(...res.reasons);
           if (res.kind === "extent") {
             // Each node travels with the module it was DECLARED in, which is
             // not `tf` once a forward has been followed.
