@@ -23,6 +23,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { admin } from "./helpers/supabaseAdmin";
+import { openShowReviewModalAt } from "./helpers/openShowReviewModal";
 import {
   scanForPhantomGaps,
   reconcilePhantomLedger,
@@ -548,9 +549,11 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
       // offenders that do not exist — reduced motion plus the settle poll below
       // is what makes the reading real.
       await page.emulateMedia({ reducedMotion: "reduce" });
-      await page.goto(`/admin?show=${slug}`, { waitUntil: "domcontentloaded" });
       // Suspense-streamed server loader — allow a dev-server compile on first hit.
-      await expect(page.locator(MODAL)).toBeVisible({ timeout: 30_000 });
+      await openShowReviewModalAt(page, `/admin?show=${slug}`, {
+        timeoutMs: 30_000,
+        gotoOptions: { waitUntil: "domcontentloaded" },
+      });
       // CONTENT, not just chrome. `:has(title)` and a laid-out panel height are
       // both satisfied by the modal SHELL — the title sits in the header, which
       // streams before the section column. A first CI run measured exactly that
@@ -683,8 +686,10 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
     }) => {
       await page.setViewportSize({ width, height: 900 });
       await page.emulateMedia({ reducedMotion: "reduce" });
-      await page.goto(`/admin?show=${slug}`, { waitUntil: "domcontentloaded" });
-      await page.waitForSelector(MODAL, { timeout: 30_000 });
+      await openShowReviewModalAt(page, `/admin?show=${slug}`, {
+        timeoutMs: 30_000,
+        gotoOptions: { waitUntil: "domcontentloaded" },
+      });
       // Streamed content + hydration, not just the title (2026-07-26 plan R2 f2):
       // the title streams before section content, and the inert marker is applied
       // by a client effect, so these three gates together prove the tree this
@@ -833,8 +838,10 @@ test.describe("phantom gap — /admin?show=<slug> published review modal (hydrat
     }) => {
       await page.setViewportSize({ width, height: 900 });
       await page.emulateMedia({ reducedMotion: "reduce" });
-      await page.goto(`/admin?show=${slug}`, { waitUntil: "domcontentloaded" });
-      await page.waitForSelector(MODAL, { timeout: 30_000 });
+      await openShowReviewModalAt(page, `/admin?show=${slug}`, {
+        timeoutMs: 30_000,
+        gotoOptions: { waitUntil: "domcontentloaded" },
+      });
       // Streamed content + hydration gates — same trio as the width-chain test
       // above (2026-07-26 plan R2 f2).
       await expect(page.locator(`${MODAL} [data-testid$="-review-content"]`)).toBeVisible({
@@ -1179,13 +1186,14 @@ test.describe("freshness cue geometry — /admin?show=<slug> (real browser)", ()
   test("T-FRESHNESS-GEOMETRY: arming and expiring the cue moves nothing", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.goto(`/admin?show=${slug}`, { waitUntil: "domcontentloaded" });
-
     // The same readiness ladder the phantom-gap case above uses, never
     // `networkidle` alone: modal visible, scroll pane visible, one section
     // attached. Without the last one the measurement can land on the streamed
     // shell before any card exists.
-    await expect(page.locator(MODAL)).toBeVisible({ timeout: 30_000 });
+    await openShowReviewModalAt(page, `/admin?show=${slug}`, {
+      timeoutMs: 30_000,
+      gotoOptions: { waitUntil: "domcontentloaded" },
+    });
     const pane = page.locator(`${MODAL} [data-testid$="-review-content"]`);
     await expect(pane).toBeVisible({ timeout: 30_000 });
     const card = page.locator(`${MODAL} [data-testid$="-section-crew-panel-card"]`).first();

@@ -11,6 +11,7 @@ import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { seedShowWithCrew, deleteSeededShow, type SeededShow } from "./helpers/seedShowWithCrew";
 import { settleDashboardAdminState } from "./helpers/dashboardState";
+import { openShowReviewModal } from "./helpers/openShowReviewModal";
 
 const TOL = 0.5;
 const LONG_NAME = "X".repeat(120);
@@ -45,12 +46,11 @@ async function openModal(page: Page) {
   await signInAs(page, ADMIN_FIXTURE);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width: 1280, height: 800 });
-  await page.goto(`/admin?show=${show.slug}`);
   // Mirror published-review-modal.interactions.spec.ts:104-120 — loaded frame
   // visible, skeleton twin gone, and the shell's effect-driven initial focus
   // landed (proves the passive-effect flush; synthetic gestures before that
   // are silently lost).
-  await expect(page.locator(MODAL)).toBeVisible({ timeout: 30_000 });
+  await openShowReviewModal(page, show.slug);
   await expect(page.locator(MODAL_ANY)).toHaveCount(1);
   await expect
     .poll(

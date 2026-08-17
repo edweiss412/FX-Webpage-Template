@@ -40,6 +40,7 @@ import { signInAs } from "./helpers/signInAs";
 import { seedShowWithCrew, type SeededShow } from "./helpers/seedShowWithCrew";
 import { claimStamp } from "./helpers/claimStamp";
 import { admin } from "./helpers/supabaseAdmin";
+import { openShowReviewModalAt } from "./helpers/openShowReviewModal";
 import { isSupabaseAuthCookieName } from "@/lib/auth/supabaseAuthCookieNames";
 
 // Canonical desktop-chromium baseURL (playwright.config.ts). Overridable via
@@ -71,12 +72,10 @@ const BASE_URL = process.env.PICKER_E2E_BASE_URL ?? "http://127.0.0.1:3000";
  */
 const AFTER_SERVER_ACTION = { timeout: 30_000 } as const;
 
-// admin-show-modal: the per-show surface is the /admin?show= review modal. The
-// Suspense SKELETON shares the shell testIdBase, and both frames transiently
-// coexist during the streaming swap — scope to the LOADED modal (the skeleton
-// renders no title node) so the twin never trips Playwright strict mode.
-const LOADED_REVIEW_MODAL =
-  '[data-testid="published-show-review-modal"]:has([data-testid="published-show-review-title"])';
+// admin-show-modal: the per-show surface is the /admin?show= review modal. Its
+// selector, the Suspense-skeleton twin rationale, and the boundary recovery all
+// live in tests/e2e/helpers/openShowReviewModal.ts, which both opens here now
+// route through — this file's own copy of the constant had no reader left.
 
 // Track seeded shows for teardown so a failed run doesn't accrete rows.
 const seededDriveFileIds: string[] = [];
@@ -395,8 +394,9 @@ test.skip("Admin Reset + Rotate flow: changing the share-token invalidates the o
     // nothing and this step could never pass as written. Found by round-1
     // whole-diff review; the test is skipped, which is exactly how it stayed
     // broken unnoticed.
-    await page.goto(`/admin?show=${show.slug}`, { waitUntil: "networkidle" });
-    await expect(page.locator(LOADED_REVIEW_MODAL)).toBeVisible();
+    await openShowReviewModalAt(page, `/admin?show=${show.slug}`, {
+      gotoOptions: { waitUntil: "networkidle" },
+    });
     await page.getByTestId("share-hub-primary").click();
     await expect(page.getByTestId("share-hub-popover")).toBeVisible();
     await expect(page.getByTestId("admin-current-share-link-url")).toContainText(show.shareToken);
@@ -428,8 +428,9 @@ test.skip("Admin Reset + Rotate flow: changing the share-token invalidates the o
     await expect(page.getByTestId("crew-shell")).toBeVisible();
 
     // 10+11: reset picker selections (two-tap) -> success banner.
-    await page.goto(`/admin?show=${show.slug}`, { waitUntil: "networkidle" });
-    await expect(page.locator(LOADED_REVIEW_MODAL)).toBeVisible();
+    await openShowReviewModalAt(page, `/admin?show=${show.slug}`, {
+      gotoOptions: { waitUntil: "networkidle" },
+    });
     await page.getByTestId("admin-reset-picker-epoch-button").click();
     await page.getByTestId("admin-reset-picker-epoch-confirm-button").click();
     await expect(page.getByTestId("admin-reset-picker-epoch-ok")).toHaveText(

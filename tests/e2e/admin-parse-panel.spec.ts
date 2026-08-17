@@ -31,14 +31,13 @@ import { test, expect, type Request } from "@playwright/test";
 import { admin } from "./helpers/supabaseAdmin";
 import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
+import { openShowReviewModal } from "./helpers/openShowReviewModal";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 
-// admin-show-modal: the per-show surface is the /admin?show= review modal. The
-// Suspense SKELETON shares the shell testIdBase, and both frames transiently
-// coexist during the streaming swap — scope to the LOADED modal (the skeleton
-// renders no title node) so the twin never trips Playwright strict mode.
-const LOADED_REVIEW_MODAL =
-  '[data-testid="published-show-review-modal"]:has([data-testid="published-show-review-title"])';
+// admin-show-modal: the per-show surface is the /admin?show= review modal. Its
+// selector, the Suspense-skeleton twin rationale, and the boundary recovery all
+// live in tests/e2e/helpers/openShowReviewModal.ts, which the open here now
+// routes through — this file's own copy of the constant had no reader left.
 
 /**
  * Self-derive a seeded EXISTING show for the Re-sync test (used only there).
@@ -246,9 +245,7 @@ test.describe("admin staged-review card — /admin/show/staged/[stagedId] (first
 
     await signInAs(page, ADMIN_FIXTURE);
     // admin-show-modal: the per-show surface is now the dashboard modal.
-    await page.goto(`/admin?show=${seed.slug}`);
-    const modal = page.locator(LOADED_REVIEW_MODAL);
-    await expect(modal).toBeVisible({ timeout: 30_000 });
+    const modal = await openShowReviewModal(page, seed.slug, { timeoutMs: 30_000 });
 
     const responses: { url: string; status: number }[] = [];
     page.on("response", (res) => {

@@ -27,6 +27,7 @@ import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { deleteSeededShow, seedShowWithCrew } from "./helpers/seedShowWithCrew";
 import { admin } from "./helpers/supabaseAdmin";
+import { awaitReviewModalOrRecover, openShowReviewModal } from "./helpers/openShowReviewModal";
 
 const MOBILE = { width: 390, height: 844 };
 
@@ -334,6 +335,7 @@ test.describe("needs-attention identity holds: cards, badge, chip, clear-through
     await page.goto("/admin/needs-attention");
     await page.getByTestId(`needs-attention-link-identity-hold-${showId(1)}`).click();
     await expect(page).toHaveURL(new RegExp(`show=${slugOf(1)}`));
+    await awaitReviewModalOrRecover(page, { label: "click:inbox-identity-hold" });
     await expect(page.getByTestId("mi11-approve").first()).toBeVisible();
     await expect(page.getByTestId("mi11-reject").first()).toBeVisible();
   });
@@ -347,7 +349,7 @@ test.describe("needs-attention identity holds: cards, badge, chip, clear-through
     const seededBadge = await readBadge(page);
 
     await page.setViewportSize({ width: 1280, height: 800 });
-    await page.goto(`/admin?show=${slugOf(1)}`);
+    await openShowReviewModal(page, slugOf(1));
     // Reject (not approve): approve needs a live Drive modifiedTime match plus a
     // crew_members row, neither of which is seedable here. Reject needs only the
     // hold row and the round-tripped base_modified_time. It is a single direct
