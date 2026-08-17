@@ -222,7 +222,7 @@ Expected: `mismatched=0`, exit 0. The script counts EXECUTIONS, not `it(` sites 
 
 ```text
 declined export forms: recognized, unresolvable, and REPORTED | touching=1 free=1 reported=4 other=0
-declined export forms: unmodelled runtime references REPORT (AC-5c) | touching=0 free=1 reported=11 other=0
+declined export forms: unmodelled runtime references REPORT (AC-5c) | touching=0 free=1 reported=12 other=0
 export resolution: the lookup asks for an EXPORT, not a local name | touching=17 free=4 reported=2 other=0
 forwarded exports: a re-export is followed to its source | touching=13 free=5 reported=1 other=0
 namespace bindings: member-precise, and nothing else | touching=8 free=3 reported=4 other=0
@@ -248,10 +248,10 @@ Expected: `mismatched=0 claimFails=0 proseCounts=0`, exit 0. The script splices 
 <!-- plan-redset: measured by .claude/probe/planRun.ts against the merged scanner; DO NOT hand-edit -->
 
 ```text
-executions=101 red=66 green=35
+executions=102 red=67 green=35
 CLAIM titleContains="export resolution" red=10 green=13
 CLAIM titleContains="forwarded exports" red=14 green=5
-CLAIM titleContains="declined export forms" red=15 green=3
+CLAIM titleContains="declined export forms" red=16 green=3
 CLAIM titleContains="namespace bindings" red=9 green=6
 CLAIM titleContains="unclassifiable propagation" red=18 green=8
 CLAIM titleContains="TOP-LEVEL" red=9 green=1
@@ -259,6 +259,7 @@ RED  declined export forms: recognized, unresolvable, and REPORTED `export * as 
 RED  declined export forms: recognized, unresolvable, and REPORTED `export =` reports
 RED  declined export forms: recognized, unresolvable, and REPORTED `export namespace` reports
 RED  declined export forms: recognized, unresolvable, and REPORTED an unfollowable re-export reports, naming the module
+RED  declined export forms: unmodelled runtime references REPORT (AC-5c) a side-effect import inside a REACHED module REPORTS, naming that module
 RED  declined export forms: unmodelled runtime references REPORT (AC-5c) an EXPORTED dynamic binding REPORTS: const ns = await import(); export { ns } (spec §2.2)
 RED  declined export forms: unmodelled runtime references REPORT (AC-5c) an EXPORTED dynamic binding REPORTS: const { spawner } = await import(); export { spawner } (spec §2.2)
 RED  declined export forms: unmodelled runtime references REPORT (AC-5c) an EXPORTED dynamic binding REPORTS: export const ns = await import() (spec §2.2)
@@ -900,11 +901,11 @@ npx vitest run tests/mutation/source/premiseScan.test.ts -t "export resolution"
 
 Expected: a non-zero FAILING count (never `skipped`). **The membership RULE decides, and the named cases below are its worked examples, not its definition** — a case added later lands inside the rule instead of needing another name here, which is the whole reason round 8 found this list short. Before Step 4, `tests/mutation/source/premiseScan.ts:587` stores the LOCAL binding name into the import fact's `imported` field, and `tests/mutation/source/premiseScan.ts:1001` asks the target for exactly that name; so **a case is RED iff the name its target EXPORTS differs from the name the importing side binds** (every rename, every default, every `export default <expr>`), **or its target's extension is one the guard must claim** (`.json`, `.mdx`), **or its target is not a module at all** (the directory case, which fails by THROWING `EISDIR` rather than by returning a wrong verdict). It is GREEN iff those names coincide, which is why the coincidence foil is a foil. How many of each: the `CLAIM titleContains="export resolution"` line in Task 0 Step 5d's `plan-redset` block, and the census row for this block in Step 5c. **Neither number is restated here, and that is deliberate** — round 9 perturbed a restated count and no oracle noticed, so a count now lives in exactly one gated place.
 
-**The split is MEASURED, not forecast — see Task 0 Step 5d.** The `planRun` harness under the gitignored probe directory splices these blocks into a real suite in front of the shipped harness and runs them against the merged scanner, so which cases are red before implementation is an observation. The plan declares the observed set in its `plan-redset` block and the oracle diffs it, which is what closes the class rounds 8 and 9 both found: a case listed RED that is already GREEN proves nothing, and no amount of re-reading finds it.
+**The split is MEASURED, not forecast — see Task 0 Step 5d.** The `planRun` harness under the gitignored probe directory splices these blocks into a real suite in front of the shipped harness and runs them against the merged scanner, so which cases are red before implementation is an observation. The plan declares the observed set in its `plan-redset` block and the oracle diffs it, which is what closes the class each of rounds 8 and 9 landed on: a case listed RED that is already green proves nothing, and no amount of re-reading finds it.
 
-Red in this block — TEN of its twenty-three executions, pinned by `CLAIM titleContains="export resolution" red=10 green=13` in Task 0 Step 5d — each for a distinct reason: `a renamed default import resolves`; `a default export that is an EXPRESSION resolves` and its renamed E3 form; `` `export { x as y }` `` (the lookup asks the target for `runIt`); `a renamed default CLASS resolves (AC-4b)`; **`E4: an ANONYMOUS default function declaration resolves` — the declaration binds no local name at all, so there is nothing for today's lookup to coincide with**; **`E4: a default-exported class is NOT exported under its own name` — measures touching today and must go FREE, the only case here that discriminates the "map `default` and ONLY `default`" half of E4**; `an unrecognized module shape is REPORTED`, which fails by THROWING `EISDIR`; `a data import is PURE`, since a `.json` target is parsed as TypeScript today; and `an .mdx target is REPORTED`, its twin, differing in exactly the extension.
+Red in this block, sized by `CLAIM titleContains="export resolution"` in Task 0 Step 5d, each for a distinct reason: `a renamed default import resolves`; `a default export that is an EXPRESSION resolves` and its renamed E3 form; `` `export { x as y }` `` (the lookup asks the target for `runIt`); `a renamed default CLASS resolves (AC-4b)`; **`E4: an ANONYMOUS default function declaration resolves` — the declaration binds no local name at all, so there is nothing for today's lookup to coincide with**; **`E4: a default-exported class is NOT exported under its own name` — measures touching today and must go FREE, the only case here that discriminates the "map `default` and ONLY `default`" half of E4**; `an unrecognized module shape is REPORTED`, which fails by THROWING `EISDIR`; `a data import is PURE`, since a `.json` target is parsed as TypeScript today; and `an .mdx target is REPORTED`, its twin, differing in exactly the extension.
 
-Green as foils, and each records WHY it is green, because a foil green for the wrong reason is the same defect one step over: `a same-named default import resolves for the RIGHT reason` (name coincidence — it is green today AND after, which is the point); `a pure default export stays free`, which passes by lookup MISS rather than by purity; `` `export { x }` `` local; the exported `const`, CLASS and ENUM; both E1 binding-pattern cases; `a DIRECT noSuchExport is pure`; `value BEATS type`; and the `.mjs` and `.jsx` cases.
+Green as foils, and each records WHY it is green, because a foil green for the wrong reason is the same defect one step over: `a same-named default import resolves for the RIGHT reason` (name coincidence — it is green today AND after, which is the point); `a pure default export stays free`, which passes by lookup MISS rather than by purity; `` `export { x }` `` local; the exported `const`, CLASS and ENUM; the E1 binding-pattern cases; `a DIRECT noSuchExport is pure`; `value BEATS type`; and the `.mjs` and `.jsx` cases.
 
 - [ ] **Step 4: Implement — and ONLY what this task's own tests require.** TDD invariant 1 is per task: a production behaviour whose failing test lives in a later task does not get written here. A round-1 draft implemented five such behaviours in this step (the E2 forward stub, static and dynamic namespace marking, `export { ns }` rejection, unresolved-in-repo-specifier reporting, and hook reason merging) and every one of them had its test in Task 2, 3, 4 or 5. Each has moved to the task that tests it; the note at the end of this step records where.
 
@@ -1340,6 +1341,27 @@ describe("declined export forms: unmodelled runtime references REPORT (AC-5c)", 
     );
   });
 
+  it("a side-effect import inside a REACHED module REPORTS, naming that module", () => {
+    // One ordinary edit from the case above, and the one that decides whether
+    // the seed is enough: the import sits in a helper, OUTSIDE the extent of the
+    // pure function the test calls, so following the edge never passes over it.
+    // Probed on the merged scanner: environment-free today, and silently so,
+    // which is the failure mode §1's bound exists to forbid. It greens only when `reaches`
+    // merges `sideEffectImports` for every module whose facts it loads.
+    expectReported(
+      classificationWithModules(
+        {
+          side: `import { spawnSync } from "node:child_process";\n spawnSync("echo", []);`,
+          helper: `import "__MODULE_side__";\n export function pureOne(): number { return 1; }`,
+        },
+        `import { pureOne } from "__MODULE_helper__";\n it("x", () => { pureOne(); });`,
+      ),
+      // Named for the HELPER that carries the import, not the test file and not
+      // the side-effect target (spec §2.6 item 2).
+      { construct: REPORTS.sideEffect, module: /mod\d+_helper/, notModule: OWN_FILE },
+    );
+  });
+
   it("an in-repo specifier that does NOT resolve REPORTS", () => {
     // Extensionless `./h` for a `.mjs` sibling. resolveSpecifier's candidates are
     // NOT widened (spec §2.4b): the miss is reported instead of passed as pure.
@@ -1497,7 +1519,12 @@ Expected: a non-zero FAILING count. **This task authors a pair of describe block
 
 - [ ] **Step 3: Implement.** In `moduleFacts`, record the declined forms explicitly so they resolve to `unresolvable` with their own reasons rather than falling through to `noSuchExport`: an `ExportDeclaration` whose clause is a `NamespaceExport` (`export * as ns from`); an `ExportAssignment` with `isExportEquals === true` (`export =`); and a `ModuleDeclaration` carrying an `export` modifier (`export namespace` / `export module`). E1's predicate is already the four registered declaration kinds — Task 1 Step 4.2 writes it that way — so nothing is narrowed here; that is why `export namespace` reaches this task's rule at all rather than resolving to an empty extent.
 
-  **Implement spec §2.4b's rule in this same step**, since Step 1 authored its block: in `reaches`/`moduleFacts`, a literal `import()` whose enclosing node is NOT a direct local variable-declaration initializer — assignment position, embedded in a larger expression, or a bare statement — reports `{ kind: "unresolvable", reason: \`unbindable dynamic import of ${spec}\` }`; an in-repo static `import "./x"` with NO import clause reports likewise — **and this one needs a SEED, not a traversal rule**: the walk starts at the `it` call, its hooks and its producers, so a top-level `ImportDeclaration` that nothing references is never visited. Collect clause-less in-repo import declarations in `moduleFacts` as a file-level `sideEffectImports: string[]`, and have `classifyTests` merge one reason per entry into EVERY test in that file, exactly as a top-level hook applies to every test. A round-2 draft said only "report it in `reaches`/`moduleFacts`", which named no route by which the reason could ever reach a classification; an EXPORTED dynamic binding reports (spec §2.2); and an in-repo specifier that does not resolve reports (Task 1 Step 4.4). Live-domain population of every row is ZERO (spec §3.13), so `_metaPremiseContract` must stay green with no declared count moving — if one moves, the rule over-reached and the task stops.
+  **Implement spec §2.4b's rule in this same step**, since Step 1 authored its block: in `reaches`/`moduleFacts`, a literal `import()` whose enclosing node is NOT a direct local variable-declaration initializer — assignment position, embedded in a larger expression, or a bare statement — reports `{ kind: "unresolvable", reason: \`unbindable dynamic import of ${spec}\` }`; an in-repo static `import "./x"` with NO import clause reports likewise — **and this one needs a SEED, not a traversal rule**: the walk starts at the `it` call, its hooks and its producers, so a top-level `ImportDeclaration` that nothing references is never visited. Collect clause-less in-repo import declarations in `moduleFacts` as a file-level `sideEffectImports: string[]`, and merge them at **BOTH** the places a module enters a classification, because they are two different routes and a draft through round 10 named only the first:
+
+  - **The test file's own**, merged by `classifyTests` into EVERY test in that file, exactly as a top-level hook applies to every test. The walk starts at the `it` call, its hooks and its producers, so a top-level `ImportDeclaration` that nothing references is never visited — hence a seed rather than a traversal rule.
+  - **Every module the traversal LOADS**, merged by `reaches` wherever it obtains a target's `ModuleFacts`. A side-effect import inside a helper is outside the exported function's extent, so following the edge to that function never passes over it; without this the helper's entry sits in its own `ModuleFacts` and reaches no verdict, and a test importing a pure function from a module that loads a spawning one classifies **silently `environment-free`** — one ordinary edit from the fixture, probed on the merged scanner, and a direct breach of §1's bound. The reason names the module the import was FOUND in (spec §2.6 item 2), not the test file.
+
+  Both routes are verdict-neutral on the enrolled domain for the same measured reason: the live population of in-repo static side-effect imports is ZERO (spec §3.13), against 9 in the near domain. A round-2 draft said only "report it in `reaches`/`moduleFacts`", which named no route by which the reason could ever reach a classification; an EXPORTED dynamic binding reports (spec §2.2); and an in-repo specifier that does not resolve reports (Task 1 Step 4.4). Live-domain population of every row is ZERO (spec §3.13), so `_metaPremiseContract` must stay green with no declared count moving — if one moves, the rule over-reached and the task stops.
 
   The unfollowable re-export needs care, because `resolveSpecifier` returns `null` for TWO different things: a relative or `@/` specifier that does not exist, and a BARE specifier, which must stay pure by L-2 (spec §4 limit 6's neighbour). **Split by specifier SHAPE, not by the null**: only a specifier starting `.` or `@/` becomes `{ kind: "unresolvable", reason: \`unfollowable re-export of ${exportName} from ${spec}\` }`; a bare specifier stays pure exactly as today. `export { ns }` over a namespace binding is NOT handled here — it needs the `namespace` flag, which Task 4 Step 3.0-3.1 introduces, so its case lives in Task 4 beside the other namespace work.
 
@@ -2221,17 +2248,26 @@ ls docs/review-rounds/fix/premisescan-import-edges/
 
 Expected: all PASS. **Read every file in that directory, not one** — Task 0's merge moved the merge-base, so the arc's rows are split across a pre-merge and a post-merge base sha. If `_metaReviewRoundEconomy` reds, a stage reached `ROUND_THRESHOLD` counted rounds and the arc owes a filing beside the rows that triggered it. A `no_verdict` dispatch is NOT a counted round.
 
-- [ ] **Step 5: Commit — this must be the PR's LAST commit**, so the IN PROGRESS marker never reaches `main` (AGENTS.md invariant 12).
+- [ ] **Step 5: Commit the graduation.** This is NOT yet the PR's last commit, and an earlier draft's claim that it was could not survive its own next paragraph: review repairs, the corpus rows and any newly owed filing all land after it. Invariant 12 wants the marker off in the last commit; writing-plans wants the review to examine what merges. Below is the ordering that satisfies both, rather than asserting an exception to either.
 
-**Sequencing, and the constraint it has to satisfy in both directions.** Two binding rules meet here: the whole-diff review must examine the diff that actually merges (writing-plans), and the IN PROGRESS marker must come off in the PR's last commit so it never reaches `main` (invariant 12). A round-3 draft deferred ALL of Step 5 until after review, which puts the archive move, the new rows and the corpus update outside the reviewed diff — the first rule broken to satisfy the second.
+**Sequencing, and the constraint it has to satisfy in both directions.**
 
-The resolution, and it has to account for the review's own footprint:
-
-1. **Steps 2-5 land BEFORE the whole-diff review** — archive move, marker strip and graduation record in one commit, then the gate runs. The reviewer therefore sees every substantive line that will merge, including the graduation.
-2. **The marker comes off WITH the archive, in Step 3, not later.** Invariant 12 is explicit that a graduating entry works this way, and the guard enforces it: an archived entry still marked in progress is rejected, so deferring the strip makes Step 4 un-greenable. This arc's marker therefore never reaches `main` by virtue of the archive commit itself, which is the outcome invariant 12 wants.
+1. **Steps 2-5 land BEFORE the whole-diff review** — archive move, marker strip and graduation record in one commit. The reviewer therefore sees every substantive line, the graduation included.
+2. **The marker comes off WITH the archive, in Step 3.** Invariant 12 is explicit that a graduating entry works this way, and `tests/docs/_metaLedgerInProgress.test.ts` enforces it: an archived entry still marked in progress is rejected, so deferring the strip makes Step 4 un-greenable.
 3. Any repair commits from the review land next.
-4. **The only post-review commit is the review-corpus rows for that review**, and there is no marker in it. The corpus rows cannot be in the reviewed tree by construction — the wrapper writes them at dispatch time, so the row describing a review always postdates the tree that review examined. That is true of every arc in this repo, not a property of this plan, and AGENTS.md's corpus contract already says the rows are committed with the arc. They are mechanically generated dispatch records, not substantive change. Nothing else may enter this commit.
-5. Re-read `docs/review-rounds/` before that commit: the diff-stage rows do not exist when Steps 2-4 first run, and a stage may cross `ROUND_THRESHOLD` on the strength of them, which would owe a filing that must itself be in the final commit.
+4. **Then the record commit**: the review-corpus rows, plus any filing a stage newly owes on the strength of those rows. The rows cannot be in the reviewed tree by construction — the wrapper writes them at dispatch time, so a row describing a review always postdates the tree that review examined.
+5. **A filing is substantive, so it gets its own review rather than an exception.** An earlier draft called the record commit "mechanically generated dispatch records, not substantive change" and let a filing ride along on that reasoning; a `## <stage> — <n> rounds` filing is prose someone must read. If step 4's commit carries one, dispatch a `--stage diff` review scoped to THAT COMMIT ALONE (`git show --stat HEAD` is the whole surface) before merging, and land its own row in the same way. It is small, docs-only, and it is the only way "the review covers what merges" stays true of the last commit too.
+6. **The marker is already off by step 2, so no later commit can reintroduce it** — which is what invariant 12 protects. Verify it directly rather than by argument, immediately before the merge:
+
+```bash
+git log origin/main..HEAD -S"**Status:** IN PROGRESS" --oneline -- BACKLOG.md BACKLOG-archive.md
+if git grep -n -F 'Status:** IN PROGRESS' -- BACKLOG.md BACKLOG-archive.md; then
+  echo "marker still present — it would merge to main"; exit 1
+fi
+echo "no in-progress marker in the tree that merges"
+```
+
+Expected: the first command lists the commit that ADDED the marker and the commit that removed it, and nothing after the removal; the second prints the success line and exits 0. **`git grep`, not `rg`**, and an `if/then/fi` rather than `grep … || echo`: `rg` is not guaranteed on the PATH (probed — `rg: command not found` in a shell where the `|| echo` form still printed the success line and exited 0), which is precisely the command-that-lies-about-its-status shape this plan's Global Constraints ban. A marker still present here means the merge would carry it to `main`, where the origin-existence rule fails the moment the branch is deleted.
 
 - [ ] **Step 6: Open the PR and let the merge queue take it — four facts measured on this repo's CI, 2026-08-16.**
 
