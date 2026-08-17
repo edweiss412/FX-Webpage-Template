@@ -88,21 +88,89 @@ function bindsRatherThanRuns(st: ts.Statement): boolean {
   );
 }
 
+function containsFunctionLike(node: ts.Node): boolean {
+  let found = false;
+  const seek = (n: ts.Node): void => {
+    if (found) return;
+    if (isFunctionLike(n)) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(n, seek);
+  };
+  seek(node);
+  return found;
+}
+
+function stripWrappers(e: ts.Expression): ts.Expression {
+  let x = e;
+  while (ts.isParenthesizedExpression(x) || ts.isAsExpression(x)) x = x.expression;
+  return x;
+}
+
+/**
+ * The nodes of `node` that RUN, collected at whatever depth they sit.
+ *
+ * The runs-versus-binds question again, asked recursively. Deciding it only at
+ * the top of a statement and then handing the whole statement to a reason walk
+ * that descends unconditionally reported a function DECLARED inside a top-level
+ * `if`, block or loop and never invoked — a false positive, and §0's rule is
+ * that a repair trading a false negative for a false positive is not a repair.
+ *
+ * A subtree with no function-like node in it is handed over whole, which is the
+ * common case and keeps this cheap. Otherwise the walk descends and applies the
+ * one rule: a function body is entered when the function is INVOKED — an IIFE,
+ * directly — and never on the strength of being written here. A binding NAME is
+ * not collected, because collecting it would let the reference walk reach the
+ * initializer the rule just declined to enter.
+ */
+function executedWithin(node: ts.Node, out: ts.Node[]): void {
+  if (isFunctionLike(node) || (ts.isStatement(node) && bindsRatherThanRuns(node))) return;
+  if (!containsFunctionLike(node)) {
+    out.push(node);
+    return;
+  }
+  if (ts.isVariableDeclaration(node)) {
+    if (node.initializer) executedWithin(node.initializer, out);
+    return;
+  }
+  if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
+    const callee = stripWrappers(node.expression);
+    // The IIFE: the body runs here, so it is entered here. The two spellings
+    // that can appear in callee position are the two named — a declaration
+    // cannot, which is why this is a closed pair rather than `isFunctionLike`.
+    if (ts.isArrowFunction(callee) || ts.isFunctionExpression(callee)) {
+      executedWithin(callee.body, out);
+    } else if (!isFunctionLike(callee)) {
+      executedWithin(callee, out);
+    }
+    for (const arg of node.arguments ?? []) executedWithin(arg, out);
+    return;
+  }
+  ts.forEachChild(node, (c) => executedWithin(c, out));
+}
+
 /** The nodes of one top-level statement that RUN while the module loads. */
 function moduleLoadSeeds(st: ts.Statement): ts.Node[] {
   if (bindsRatherThanRuns(st)) return [];
+  const out: ts.Node[] = [];
   // A function-valued initializer is a declaration wearing a statement's
   // syntax: `const load = () => …` binds exactly as `function load()` does.
-  if (ts.isVariableStatement(st))
-    return st.declarationList.declarations
-      .map((d) => d.initializer)
-      .filter((init): init is ts.Expression => init !== undefined && !isFunctionLike(init));
-  if (ts.isExportAssignment(st)) return isFunctionLike(st.expression) ? [] : [st.expression];
+  if (ts.isVariableStatement(st)) {
+    for (const d of st.declarationList.declarations)
+      if (d.initializer && !isFunctionLike(d.initializer)) executedWithin(d.initializer, out);
+    return out;
+  }
+  if (ts.isExportAssignment(st)) {
+    if (!isFunctionLike(st.expression)) executedWithin(st.expression, out);
+    return out;
+  }
   // `it` is reached as a test and a top-level hook is collected as a hook, so
   // promoting either here would attach one test's own reasons to every test in
   // the file — the leak AC-12b forbids.
-  if (ts.isExpressionStatement(st) && isRegistrarCall(st.expression)) return [];
-  return [st];
+  if (ts.isExpressionStatement(st) && isRegistrarCall(st.expression)) return out;
+  executedWithin(st, out);
+  return out;
 }
 
 /** Is this expression a `describe`/`it`/`test` or hook registration call? */

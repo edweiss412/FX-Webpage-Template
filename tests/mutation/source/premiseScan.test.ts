@@ -4014,3 +4014,62 @@ describe("whole-diff R1 #5b — the unreferenced rule is about the BINDING, not 
     ).toBe("environment-touching");
   });
 });
+
+describe("whole-diff R1 #3c — runs-versus-binds holds INSIDE a statement too", () => {
+  // `moduleLoadSeeds` decides runs-versus-binds at the top level, and then
+  // handed the whole statement to a traversal whose reason walk descends
+  // unconditionally. So a function DECLARED inside a top-level `if`, loop or
+  // block and never invoked was walked as though it ran — a false positive, and
+  // §0's rule is that a repair trading a false negative for a false positive is
+  // not a repair. The same question is now asked at every depth: a function
+  // body is entered when it is INVOKED, and a bare declaration is not.
+  const SPEC = `const specifier = "./x" + String(1);`;
+  const OWN = { construct: REPORTS.dynamicImport, module: OWN_FILE };
+
+  it("the foil: a function declared inside a top-level `if` and never called", () => {
+    expect(
+      verdict(`${SPEC}
+        if (String(1) === "1") { function inner(): Promise<unknown> { return import(specifier); } }
+        it("x", () => {});`),
+    ).toBe("environment-free");
+  });
+
+  it("the foil: a function declared inside a top-level block and never called", () => {
+    expect(
+      verdict(`${SPEC}
+        { const inner = (): Promise<unknown> => import(specifier); }
+        it("x", () => {});`),
+    ).toBe("environment-free");
+  });
+
+  it("the foil: a function declared inside a top-level loop body and never called", () => {
+    expect(
+      verdict(`${SPEC}
+        for (const _ of [1]) { function inner(): Promise<unknown> { return import(specifier); } }
+        it("x", () => {});`),
+    ).toBe("environment-free");
+  });
+
+  it("still reports when that nested function IS invoked in the same statement", () => {
+    // The other direction, and what stops the foils above being satisfied by a
+    // seed that simply stopped looking.
+    expectReported(
+      classification(`${SPEC}
+        if (String(1) === "1") {
+          function inner(): Promise<unknown> { return import(specifier); }
+          void inner();
+        }
+        it("x", () => {});`),
+      OWN,
+    );
+  });
+
+  it("still reports for an IIFE nested inside a top-level statement", () => {
+    expectReported(
+      classification(`${SPEC}
+        if (String(1) === "1") { void (async () => { await import(specifier); })(); }
+        it("x", () => {});`),
+      OWN,
+    );
+  });
+});
