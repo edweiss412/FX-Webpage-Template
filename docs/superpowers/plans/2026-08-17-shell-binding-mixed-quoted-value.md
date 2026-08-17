@@ -107,6 +107,7 @@ mutant flips a pinned zero to a hit. The octal-guard relational mutant is killab
 - [ ] **Step 1: Write the failing tests.** Add to the suite, next to the existing "a trailing
   backslash at end of input is literal, so it binds nothing" block:
 
+<!-- plan-fences: ignore MANGLED_TEMPLATE — the escaped backtick is the CLOSING delimiter of an inline-code span inside a code COMMENT whose quoted shell text ends in a backslash (`--no-psqlrc\`, `PG='psql'\`, `"/opt/pg/\`). The backslash belongs to the shell fixture and the backtick to the markdown span; neither is a template-literal paste artifact. Shipped verbatim in tests/cross-cutting/psqlStartupFiles/scan.ts. -->
 ```ts
 // Spec §3.2: the lexer's escape infidelities, repaired as one class. Bash is
 // the oracle for every row (probe record, round-1 supplement).
@@ -183,6 +184,7 @@ spellings are invisible today.
 (a) The top-level backslash branch — replace the final bare `continue` (the
 `next === undefined` fall-through) with:
 
+<!-- plan-fences: ignore MANGLED_TEMPLATE — the escaped backtick is the CLOSING delimiter of an inline-code span inside a code COMMENT whose quoted shell text ends in a backslash (`--no-psqlrc\`, `PG='psql'\`, `"/opt/pg/\`). The backslash belongs to the shell fixture and the backtick to the markdown span; neither is a template-literal paste artifact. Shipped verbatim in tests/cross-cutting/psqlStartupFiles/scan.ts. -->
 ```ts
   // A dangling backslash at end of input escapes NOTHING, so bash keeps it as
   // a literal character of the word (`PG='psql'\` at EOF binds `psql\`).
@@ -206,6 +208,7 @@ if (text[i] === "\\" && text[i + 1] !== undefined) {
 
 becomes:
 
+<!-- plan-fences: ignore MANGLED_TEMPLATE — the escaped backtick is the CLOSING delimiter of an inline-code span inside a code COMMENT whose quoted shell text ends in a backslash (`--no-psqlrc\`, `PG='psql'\`, `"/opt/pg/\`). The backslash belongs to the shell fixture and the backtick to the markdown span; neither is a template-literal paste artifact. Shipped verbatim in tests/cross-cutting/psqlStartupFiles/scan.ts. -->
 ```ts
 if (text[i] === "\\" && text[i + 1] !== undefined) {
   const escaped = text[i + 1]!;
@@ -295,6 +298,8 @@ if (character === "$" && text[i + 1] === '"') {
 
 (d) The helper, at module scope above `lexShellWords`:
 
+<!-- plan-fences: ignore MANGLED_TEMPLATE — same shape: the escaped sequence sits inside the helper's doc comment and its ANSI-C escape table, where a backslash is the subject matter rather than an escape of the surrounding markdown. Shipped verbatim in tests/cross-cutting/psqlStartupFiles/scan.ts. -->
+<!-- plan-fences: ignore UNCHECKED_INDEX — `hex[0]` is reached only under `if (hex)`, and a successful `RegExpExecArray` always has index 0, so the read cannot be undefined. Typechecks clean as shipped in tests/cross-cutting/psqlStartupFiles/scan.ts. -->
 ```ts
 /**
  * Decode one ANSI-C escape at `text[at] === "\\"` inside `$'…'`, per bash:
@@ -817,6 +822,7 @@ task's substance is declarations, which is why it sits outside the red-contract 
 block (the "Documented limits" region near the R28–R40 narrative — append after the existing
 numbered items):
 
+<!-- plan-fences: ignore FENCE_EM_DASH — this fence quotes PROSE for a source-file comment block, not code; the em dash is the repo's doc style and matches the sentence actually shipped in the scan.ts module header, so removing it would desync the plan from the code. -->
 ```
  *  - Quote-concatenated spellings of a rule KEYWORD or non-assignment operand
  *    (`alias p'sql'=…`, `function p'sql' …`, a mixed-quoted interpreter
