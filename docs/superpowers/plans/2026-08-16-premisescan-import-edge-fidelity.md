@@ -2666,3 +2666,19 @@ Round 1 returned BLOCKING with 8 findings. Every one was the same defect — **a
 Two spec sections moved with the code so the shipped rule and its statement do not drift: §2.4b gained the two rows findings 4 and 5 added, and §2.6 gained item 5 for the module-load traversal.
 
 **AC-1 is unmoved by all twelve.** `_metaPremiseContract` is green at every commit above, so the arc's declared verdict movement is still exactly the sixteen tests Task 0 measured. **AC-14 is measured rather than argued:** the contract suite runs at 29.9-34.7s on this head against 33.9s / 34.1s measured twice on the pre-repair scanner (`a28ef9f9c`'s `premiseScan.ts` dropped into this tree), so the traversal that findings 3 and 5 added does not cost §2.7's provenance short-circuit.
+
+### Diff round 2, and the scope decision it forced
+
+Round 2 returned BLOCKING with 8 findings, every one probed. The split is what decided the arc:
+
+- **Zero findings on the export-resolution core** — round-1 repairs 1, 2, 4 and 6, which are what `BL-PREMISESCAN-IMPORT-EDGE-FIDELITY` actually names.
+- **Six of eight on two heuristics added DURING round-1 repair**: the module-load traversal (repairs 3/3b/3c) drew findings 3, 4, 5 and half of 7; the unreferenced-binding report (5/5b) drew findings 1 and 2.
+- One on precedence (finding 6), one trivial (finding 8, an EOF blank line, fixed).
+
+Findings 4, 5 and 7 were each "one more execution spelling" — class static initializers, enum member initializers, namespace bodies, an inline object method, `functionExpr.call(...)`, an inline class constructor, a hook wrapped in `void`. That is the same-axis recurrence AGENTS.md names, and its answer is never parser growth.
+
+**The user was asked and chose ship-and-fence.** Repairs 3/3b/3c and 5/5b are WITHDRAWN and filed as §4 limits 16 and 17, carrying round 2's probe output so a later arc starts from measurement. Finding 6 is fenced in both directions as §4 limit 18: the two shipped R3 cases win, because the reviewer's reading is the wider clause and adopting it would retire cases an earlier round of this arc added to pin the opposite behaviour.
+
+Limit 16 is the one place this spec knowingly does not meet its consequence bound, and it says so rather than softening it. It is bounded by being PRE-EXISTING — round 2 probed a direct module-load `spawnSync` classifying `environment-free` on the shipped tree, so the withdrawal restores the status quo — by ZERO live population re-checked by AC-1's exact-count equality on every run, and by living behind a single `isAtModuleLoad` predicate.
+
+What ships is the cross-module export model: E1-E6 resolution, forward following with a popped `active` set, member-precise namespace bindings, the declined forms reported rather than passed as pure, and reasons propagated from helpers, hooks and producers.

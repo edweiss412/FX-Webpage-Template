@@ -65,123 +65,6 @@ const parse = (path: string, text: string): ts.SourceFile =>
 /** The four hook registrars, in the one place both readers of them look. */
 const HOOK_REGISTRARS = /^(beforeEach|beforeAll|afterEach|afterAll)$/;
 
-/**
- * A top-level statement BINDS a body for later rather than executing one.
- *
- * The seed's whole question. Stated over the runs-versus-binds distinction the
- * language already draws, so a statement kind met later lands in the rule
- * already — the first draft of this repair asked `isExpressionStatement`, which
- * is one kind rather than a rule, and left `const x = setup()`, a top-level
- * `if`, a loop and a `try` unseeded.
- */
-function bindsRatherThanRuns(st: ts.Statement): boolean {
-  return (
-    ts.isFunctionDeclaration(st) ||
-    ts.isClassDeclaration(st) ||
-    ts.isInterfaceDeclaration(st) ||
-    ts.isTypeAliasDeclaration(st) ||
-    ts.isEnumDeclaration(st) ||
-    ts.isModuleDeclaration(st) ||
-    ts.isImportDeclaration(st) ||
-    ts.isImportEqualsDeclaration(st) ||
-    ts.isExportDeclaration(st)
-  );
-}
-
-function containsFunctionLike(node: ts.Node): boolean {
-  let found = false;
-  const seek = (n: ts.Node): void => {
-    if (found) return;
-    if (isFunctionLike(n)) {
-      found = true;
-      return;
-    }
-    ts.forEachChild(n, seek);
-  };
-  seek(node);
-  return found;
-}
-
-function stripWrappers(e: ts.Expression): ts.Expression {
-  let x = e;
-  while (ts.isParenthesizedExpression(x) || ts.isAsExpression(x)) x = x.expression;
-  return x;
-}
-
-/**
- * The nodes of `node` that RUN, collected at whatever depth they sit.
- *
- * The runs-versus-binds question again, asked recursively. Deciding it only at
- * the top of a statement and then handing the whole statement to a reason walk
- * that descends unconditionally reported a function DECLARED inside a top-level
- * `if`, block or loop and never invoked — a false positive, and §0's rule is
- * that a repair trading a false negative for a false positive is not a repair.
- *
- * A subtree with no function-like node in it is handed over whole, which is the
- * common case and keeps this cheap. Otherwise the walk descends and applies the
- * one rule: a function body is entered when the function is INVOKED — an IIFE,
- * directly — and never on the strength of being written here. A binding NAME is
- * not collected, because collecting it would let the reference walk reach the
- * initializer the rule just declined to enter.
- */
-function executedWithin(node: ts.Node, out: ts.Node[]): void {
-  if (isFunctionLike(node) || (ts.isStatement(node) && bindsRatherThanRuns(node))) return;
-  if (!containsFunctionLike(node)) {
-    out.push(node);
-    return;
-  }
-  if (ts.isVariableDeclaration(node)) {
-    if (node.initializer) executedWithin(node.initializer, out);
-    return;
-  }
-  if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
-    const callee = stripWrappers(node.expression);
-    // The IIFE: the body runs here, so it is entered here. The two spellings
-    // that can appear in callee position are the two named — a declaration
-    // cannot, which is why this is a closed pair rather than `isFunctionLike`.
-    if (ts.isArrowFunction(callee) || ts.isFunctionExpression(callee)) {
-      executedWithin(callee.body, out);
-    } else if (!isFunctionLike(callee)) {
-      executedWithin(callee, out);
-    }
-    for (const arg of node.arguments ?? []) executedWithin(arg, out);
-    return;
-  }
-  ts.forEachChild(node, (c) => executedWithin(c, out));
-}
-
-/** The nodes of one top-level statement that RUN while the module loads. */
-function moduleLoadSeeds(st: ts.Statement): ts.Node[] {
-  if (bindsRatherThanRuns(st)) return [];
-  const out: ts.Node[] = [];
-  // A function-valued initializer is a declaration wearing a statement's
-  // syntax: `const load = () => …` binds exactly as `function load()` does.
-  if (ts.isVariableStatement(st)) {
-    for (const d of st.declarationList.declarations)
-      if (d.initializer && !isFunctionLike(d.initializer)) executedWithin(d.initializer, out);
-    return out;
-  }
-  if (ts.isExportAssignment(st)) {
-    if (!isFunctionLike(st.expression)) executedWithin(st.expression, out);
-    return out;
-  }
-  // `it` is reached as a test and a top-level hook is collected as a hook, so
-  // promoting either here would attach one test's own reasons to every test in
-  // the file — the leak AC-12b forbids.
-  if (ts.isExpressionStatement(st) && isRegistrarCall(st.expression)) return out;
-  executedWithin(st, out);
-  return out;
-}
-
-/** Is this expression a `describe`/`it`/`test` or hook registration call? */
-function isRegistrarCall(expression: ts.Expression): boolean {
-  if (!ts.isCallExpression(expression)) return false;
-  const root = registrarRoot(expression.expression);
-  if (root === "describe" || root === "it" || root === "test") return true;
-  const callee = expression.expression;
-  return ts.isIdentifier(callee) && HOOK_REGISTRARS.test(callee.text);
-}
-
 function registrarRoot(callee: ts.Expression): string | null {
   let node: ts.Expression = callee;
   // A registration call may itself be the RESULT of a call: test.each(rows)(...)
@@ -1040,11 +923,8 @@ function moduleFacts(path: string): ModuleFacts | null {
   const moduleReports: string[] = [];
   /** Dynamic imports in a MODELLED position, decided after the walk: the shape
    * is modelled only while the binding stays module-local. */
-  type DynamicBinding = { spec: string; decl: ts.VariableDeclaration; names: string[] };
   /** Modelled dynamic declarations at MODULE-LOAD position — the exported-binding question. */
-  const modelledDynamic: DynamicBinding[] = [];
-  /** Every modelled dynamic declaration, at any position — the unfollowed-edge question. */
-  const boundDynamic: DynamicBinding[] = [];
+  const modelledDynamic: Array<{ spec: string; names: string[] }> = [];
   /** Writes, resolved in a SECOND pass: a write's target binding cannot be
    * known until every declaration in the file has been registered. */
   const writes: Array<{ name: string; at: ts.Node; value: ts.Node }> = [];
@@ -1131,11 +1011,7 @@ function moduleFacts(path: string): ModuleFacts | null {
         const decl = modelledDynamicDeclaration(node);
         if (decl === null) moduleReports.push(`unbindable dynamic import of ${spec} in ${path}`);
         else
-          modelledDynamic.push({
-            spec,
-            decl,
-            names: bindingIdentifiers(decl.name).map((i) => i.text),
-          });
+          modelledDynamic.push({ spec, names: bindingIdentifiers(decl.name).map((i) => i.text) });
       }
     }
     if (
@@ -1259,18 +1135,6 @@ function moduleFacts(path: string): ModuleFacts | null {
             : (scopeOf(decl) ?? sf);
           bindPattern(decl.name, arg.text, home);
         }
-        // Whether an edge is FOLLOWED is a question about the binding, not
-        // about where it was written. `modelledDynamic` is seeded at
-        // module-load position only — that is what the EXPORTED-binding report
-        // needs — so collecting the unreferenced question there left the same
-        // unfollowed edge live inside a helper and inside an IIFE.
-        const modelled = isInRepoSpecifier(arg.text) ? modelledDynamicDeclaration(node) : null;
-        if (modelled !== null)
-          boundDynamic.push({
-            spec: arg.text,
-            decl: modelled,
-            names: bindingIdentifiers(modelled.name).map((i) => i.text),
-          });
       }
     }
 
@@ -1426,47 +1290,9 @@ function moduleFacts(path: string): ModuleFacts | null {
     // `export default ns` registers the EXPRESSION, not a local name.
     else if (ts.isIdentifier(target.node)) exportedLocals.add(target.node.text);
   }
-  /**
-   * Is any of `names` referenced in a position that RUNS?
-   *
-   * A modelled binding is only the promise of an edge: the traversal follows it
-   * when a bound name is referenced, and otherwise never loads the target's
-   * facts, so the target's own load-time report — which has no other way out —
-   * vanished and the result read as free (whole-diff R1 #5). Type positions are
-   * not descended into: `typeof ns` is erased, so it runs nothing, while the
-   * identifier sits in the tree exactly where a text-level count would find it.
-   */
-  const referencedAtRuntime = (decl: ts.VariableDeclaration, names: string[]): boolean => {
-    const wanted = new Set(names);
-    let found = false;
-    const seek = (n: ts.Node): void => {
-      if (found || ts.isTypeNode(n)) return;
-      // The binding itself is the declaration, not a reference to it.
-      if (n === decl.name) return;
-      if (ts.isIdentifier(n) && wanted.has(n.text)) {
-        found = true;
-        return;
-      }
-      ts.forEachChild(n, seek);
-    };
-    seek(sf);
-    return found;
-  };
-
-  const exportedDynamic = new Set<ts.VariableDeclaration>();
-  for (const { spec, decl, names } of modelledDynamic)
-    if (names.some((nm) => exportedLocals.has(nm))) {
-      exportedDynamic.add(decl);
+  for (const { spec, names } of modelledDynamic)
+    if (names.some((nm) => exportedLocals.has(nm)))
       moduleReports.push(`unbindable dynamic import of ${spec} in ${path}`);
-    }
-  // Asked over EVERY modelled declaration, at any position: whether an edge is
-  // followed is a question about the binding, not about where it was written.
-  // An exported one is already reported above and is not asked twice.
-  for (const { spec, decl, names } of boundDynamic)
-    if (!exportedDynamic.has(decl) && !referencedAtRuntime(decl, names))
-      moduleReports.push(
-        `unfollowed dynamic import of ${spec}, bound but never referenced, in ${path}`,
-      );
 
   return {
     sf,
@@ -1823,29 +1649,6 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
   // The TEST FILE's own module-load reports apply to every test in it, exactly
   // as a top-level hook does.
   const fileReports = [...facts.moduleReports];
-
-  // A body that RUNS while the module loads is not deferred, whatever its
-  // POSITION says. `isAtModuleLoad` stops at the first function-like ancestor,
-  // so an IIFE, a helper invoked at load, and a chain of them executed their
-  // imports immediately while producing neither a seed nor a traversal edge —
-  // silently free (whole-diff R1 #3).
-  //
-  // Followed with the SAME transitive traversal a call inside a test body gets,
-  // rather than with a list of accepted call spellings. That is why the two-hop
-  // chain works for the reason the one-hop chain does, and why a spelling met
-  // later needs no new case. Only the REASONS are taken: what load-time work
-  // does to the VERDICT is §2.7's lattice and is not re-decided here.
-  //
-  // Which top-level statements those are is the distinction the language
-  // already draws: a STATEMENT executes, a DECLARATION binds a body for later.
-  // Seeding a declaration marks a file for a helper nothing calls, which is the
-  // false positive the position test exists to prevent and the direction AC-1
-  // measures. `moduleLoadSeeds` is that one rule; a statement kind met later
-  // lands in it already, because it is stated over runs-versus-binds rather
-  // than over a list of kinds.
-  for (const st of facts.sf.statements) {
-    for (const seed of moduleLoadSeeds(st)) fileReports.push(...reaches(seed, facts, abs).reasons);
-  }
 
   const suiteText = facts.sf.getFullText();
 

@@ -198,11 +198,8 @@ Concretely, each of these resolves to `unresolvable` with the specifier in the r
 | in-repo STATIC side-effect import | `import "./side"` | 9 |
 | an in-repo specifier that does NOT resolve | extensionless `./h` for a `.mjs` sibling | 5 |
 | a binding pattern `bindPattern` cannot represent | `const { "spawnHelper": run } = await import("./h")`, a computed key, `{ ...rest }`, a nested pattern, an array pattern, `const {} = …` | 0 |
-| a modelled binding NOTHING references | `const ns = await import("./h")` with no later use of `ns` | 0 |
 
-**The last two rows are diff round-1's findings 4 and 5, and they are this rule reaching one step further rather than two shapes someone thought of.** Both are about the word MODELLED. It was asserted by `modelledDynamicDeclaration` and implemented by `bindPattern`, and the two disagreed: the first called every direct variable initializer modelled — which suppresses this report — while the second represents only identifiers and identifier-keyed object elements. In the gap a binding registered under the LOCAL name, which is an export no module has, or registered nothing at all, and the lookup missed silently. `bindPatternIsModelled` is now the single predicate both sides ask, so the accept-set is one derived answer instead of two that drift.
-
-The second row is the same word again: a modelled binding is only the PROMISE of an edge. The traversal follows it when a bound name is referenced, and otherwise never loads the target's facts — so the target's own load-time report, which has no other way out, vanished while the import still executed. Being unreferenced is not something the resolver can repair, so it is signalled rather than resolved. Type positions do not count as references: `typeof ns` is erased and runs nothing, while the identifier sits exactly where a text-level count would find it.
+**The binding-pattern row is diff round-1's finding 4, and it is this rule reaching one step further rather than a shape someone thought of.** It is about the word MODELLED. That was asserted by `modelledDynamicDeclaration` and implemented by `bindPattern`, and the two disagreed: the first called every direct variable initializer modelled — which suppresses this report — while the second represents only identifiers and identifier-keyed object elements. In the gap a binding registered under the LOCAL name, which is an export no module has, or registered nothing at all, and the lookup missed silently. `bindPatternIsModelled` is now the single predicate both sides ask, so the accept-set is one derived answer instead of two that drift.
 
 **Live-domain population of every row: ZERO** (§3.13), so the rule is verdict-neutral and AC-1 is preserved. For the two rows added by diff round 1 the evidence is AC-1 itself rather than a separate census, and that is stronger rather than weaker: `_metaPremiseContract` asserts the enrolled domain's verdict counts by EXACT equality, so a single live test reaching either row moves a count and reds it. The suite is green at every commit of those repairs, which is the same claim a census would make and is checked on every run. Near-domain total 63 — the same order as §4 limit 3's 41 namespace sites, and the same cost shape: an explicit `// no-premise:` the day such a suite is enrolled.
 
@@ -248,14 +245,6 @@ TOP-LEVEL beforeEach, pure (the foil)   ->  environment-free
 > **The seed collects only hook calls that are direct top-level statements of the `SourceFile`** — a hook lexically inside any `describe` is collected by that `describe`'s existing branch and by nothing else. All four registrar names participate (`beforeEach`, `beforeAll`, `afterEach`, `afterAll`), matching the shipped regex at `tests/mutation/source/premiseScan.ts:1119`; §3.11 measures a top-level `afterAll` reaching provenance as `environment-free` today, so naming only the two `before*` forms would leave half the defect live.
 
 AC-12b is the isolation fixture, and it is required: AC-11's pure-hook foil stays green under the recursive seed and cannot discriminate it.
-
-5. **Work that RUNS at module load is followed, and a function body is not automatically deferred** (diff round-1 finding 3). The seed asks about POSITION — a construct inside a function body is reachable only by a CALL, so seeding on mere occurrence would mark a file for a helper nothing calls and break AC-1. That test stopped at the first function-like ancestor and answered "deferred", which is right for an uncalled helper and wrong for every body that runs while the module loads: an arrow IIFE, a function IIFE, a named helper invoked at load, a bound arrow, and a chain of them each execute their imports immediately and produced neither a seed nor a traversal edge — a silent free.
-
-   The repair reuses the transitive reference traversal rather than modelling call spellings, which is what keeps it a rule instead of a list:
-
-   > **Every EXPRESSION statement at the top level of the file is followed by the same `reaches` traversal a call inside a test body gets, and its REASONS join the file's module-load reports.**
-
-   The two-hop chain therefore works for the reason the one-hop chain does, and a spelling met later needs no new case. Three boundaries are load-bearing. **Expression statements only** — `function f(){…}` and `const f = () => …` at module scope declare a body without running it, so seeding them is the false positive the position test exists to prevent. **Registrar calls are excluded** — `it` is reached as a test and a top-level hook is collected as a hook by item 4, and promoting either here would attach one test's own reasons to every test in the file, which is exactly what AC-12b forbids. **Only the reasons are taken**, never the verdict: what load-time work does to the verdict is §2.7's lattice and is not re-decided here.
 
 Item 3 is one ordinary edit from the live corpus: `tests/parser/_metaTransformSitesWalker.test.ts` declares `scanFiles()`, whose body holds a non-literal `import()`, and calls it from six separate `it` bodies. Hoisting it into a `beforeAll` — the exact refactor §0 records as already performed once on `phantomGapExecuted.test.ts` — moves it into the discarded path.
 
@@ -588,6 +577,43 @@ function spawner(){…}; export default spawner;  imported as a renamed default 
 13. **`.mdx` is REPORTED, not analyzed and not pure** (§2.4). MDX is executable here (`next.config.ts:54`, `@mdx-js/rollup` in `vitest.config.ts`), so the pure answer would be a silent free; but parsing MDX with `ts.createSourceFile` yields a wrong tree, so the analyzed answer would be a wrong one. Reporting is the only honest third option, and it is the narrowing direction. Cost: **31 import edges across 14 near-domain files, 0 enrolled** (§3.11) — an explicit `// no-premise:` per affected case the day one of those suites is enrolled. Teaching the resolver to compile MDX is recognizer growth and is declined.
 14. **A hook nested inside a `describe` already leaks to sibling nested `describe`s, and this arc does not fix it.** `hookBodies` collects recursively, so under a shared outer `describe` a spawning hook in branch A marks a pure test in sibling branch B `environment-touching` — probed as §3.11 row A. It is a FALSE POSITIVE and it is **pre-existing**: repairing it would move live verdicts and break AC-1's verdict-neutrality, which is this arc's headline constraint. This arc's own seed repair is non-recursive precisely so it does not widen the leak (§2.6 item 4). Filed as `BL-PREMISESCAN-NESTED-HOOK-SIBLING-LEAK` by Task 7 Step 1; that row does not exist yet and this spec does not claim it does.
 15. **CLOSED by §2.4b, no longer a limit.** `m = await import("./x")` in assignment position, and every other `import()` shape outside a direct variable-declaration initializer, is REPORTED by §2.4b's single rule rather than filed as a pure limit. `tests/mutation/source/premiseScan.ts:687` carries the comment handing this case to this backlog row, and the row now closes it instead of re-filing it. Live population 0; near-domain 48 embedded + 1 bare side-effect + 0 assignment. the assignment-position row a round-3 draft planned is consequently NOT filed — Task 7 Step 1 files two rows, not three.
+
+16. **Work that RUNS at module load is not modelled, and a body reached only from module-load position stays deferred** (diff round 1 finding 3, diff round 2 findings 3, 4, 5 and half of 7). `isAtModuleLoad` answers by POSITION: a construct inside a function body is reachable only by a CALL, so it is deferred. That is wrong for every body that actually runs while the module loads, and round 1 raised it as a silent free.
+
+    **The repair was attempted and is WITHDRAWN, which is the finding.** Following module-load statements with the existing traversal took three rounds of widening — first one statement kind, then runs-versus-binds at the top of a statement, then the same question recursively — and round 2 answered each with more execution spellings the recognizer still did not model: class static initializers, enum member initializers, non-ambient namespace bodies, an inline object method, `functionExpr.call(...)`, an inline class constructor, and a hook call wrapped in `void` or parentheses. Deciding "does this run at module load" over JavaScript's whole grammar does not terminate, and each round's repair is a bigger target for the next — the same-axis recurrence rule in AGENTS.md names this shape and says the answer is never parser growth.
+
+    So the axis is declined as a whole rather than modelled in part. **Worst case is a silent `environment-free`, which the consequence bound would otherwise forbid**, and that is stated plainly rather than softened: this limit is the one place in this spec where the bound is knowingly not met. Three things bound the cost. It is PRE-EXISTING and not a regression — round 2 probed `spawnSync("git", [])` as a direct module-load statement classifying `environment-free` on the shipped tree, so the withdrawal restores the status quo rather than opening anything. Live-domain population is ZERO (§3.13) and `_metaPremiseContract`'s exact-count equality re-checks that on every run. And the whole class is one `isAtModuleLoad` predicate, so a later arc that wants it has a single seam rather than a sweep.
+
+    Round-2 probe output, kept so a later arc starts from measurement rather than from this prose:
+
+    ```text
+    direct_module_load_provenance=[{"verdict":"environment-free","detail":""}]
+    initializer_unreferenced=[{"verdict":"environment-free","detail":""}]
+    if_seed=[{"verdict":"environment-free","detail":""}]
+    iife_seed=[{"verdict":"environment-free","detail":""}]
+    class_static_provenance / enum_initializer_provenance / namespace_body_provenance
+    inline_object_method / function_dot_call / inline_class_constructor
+    wrapped_top_hook=[{"verdict":"environment-free","detail":""}]   (`void beforeEach(...)`)
+    ```
+
+17. **A modelled dynamic binding that nothing REFERENCES is not reported** (diff round 1 finding 5, diff round 2 findings 1 and 2). A modelled binding is only the promise of an edge: the traversal follows it when a bound name is referenced, and otherwise never loads the target's facts, so the target's own load-time report has no other way out and the result reads as free.
+
+    **This repair is WITHDRAWN too, and for a sharper reason than limit 16: the question is not answerable by the machinery available here.** "Is this binding referenced" was implemented as a walk for the NAME, and round 2 probed all three escape classes — an unrelated shadow with the same name counts, an object-property key counts, and a reference inside a helper nothing calls counts — each yielding a silent `environment-free`. Answering it correctly needs binding identity plus reachability, which is the module-load axis of limit 16 wearing different clothes. The opposite direction was worse: the report landed in `moduleReports`, which applies to EVERY test in the file, so one uncalled helper marked a pure test and a binding used by test A marked its sibling B — a false positive, and §0's rule is that a repair trading a false negative for a false positive is not a repair.
+
+    Live population ZERO, same AC-1 re-check as limit 16.
+
+    ```text
+    name_collision=[{"verdict":"environment-free","detail":""}]
+    collision_property_key=[{"verdict":"environment-free","detail":""}]
+    deferred_same_binding_reference=[{"verdict":"environment-free","detail":""}]
+    sibling_leak=[{"testName":"a","verdict":"unclassifiable"},{"testName":"b","verdict":"unclassifiable"}]
+    ```
+
+18. **Own-body precedence applies only where the namespace binding has NO followable extent** (diff round 2 finding 6), and the fence is stated in BOTH directions so neither side is relitigated. §2.7 says a construct in the test's own extent outranks a provable environment reach. For a memberless namespace use the rule is asked only when `extentIsProvenance` is true of the test node — the one case the traversal's provenance short-circuit loses.
+
+    Asked unconditionally it also fires on a memberless namespace whose own extent the traversal CAN follow to provenance, and that is `environment-touching`, not `unclassifiable`. **Two shipped R3 cases measure exactly that** — a `process.env`-reading lazy loader reached through a walk-up namespace binding, and `let m = await import("node:path"); m = spawnSync(...)` — and a draft of this repair reddened both. They win: the reviewer's reading is the wider clause, and adopting it would retire two cases an earlier round of this same arc added to pin the opposite behaviour.
+
+    Residual, and it is real: when provenance is reached TRANSITIVELY through a helper, `extentIsProvenance` is false of the test node, so an own-body memberless namespace use loses to it — the reason lands in `reachReasons` rather than `ownUnresolved`. Both directions are loud (`environment-touching`), never a silent free, so this is a precedence limit and not a bound violation. Promoting it is the same one-line lattice change §4 limit 7 already files.
 
 ### Dimensional Invariants
 
