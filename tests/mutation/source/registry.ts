@@ -150,6 +150,21 @@ export function validateSurface(surface: GuardSurface): string[] {
  */
 export const GUARD_SURFACES: GuardSurface[] = [
   {
+    // The heavy-orphan reaper's decision function (2026-08-16 spec §9). One suite:
+    // every rule is reachable from a literal row table, which is why the module is
+    // pure and the CLI is not the enrolled surface.
+    id: "heavyReapClassify",
+    sourcePath: "lib/heavyReap/classify.ts",
+    suitePaths: ["tests/heavyReap/classify.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.9,
+    control: {
+      from: "export const DEFAULT_MIN_AGE_SECONDS = 14400;",
+      to: "export const DEFAULT_MIN_AGE_SECONDS = 1;",
+    },
+    accepted: [],
+  },
+  {
     // The modal-wait guard's predicate module (2026-08-16 adoption arc §4.4,
     // AC-3). Authored as an importable module with a referring suite from the
     // start, so enrolment is a registry row rather than a restructuring.

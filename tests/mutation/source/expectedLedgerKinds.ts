@@ -150,6 +150,22 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // a number to bump, and an `accepted-gap` appearing here at all would be this surface's
   // first, needing its own backlog entry.
   specLintNumerics: { equivalent: 50 },
+  // chore/heavy-orphan-reaper (2026-08-16): the heavy-orphan reaper's decision function,
+  // enrolled before this arc's first diff-stage review dispatch. An EMPTY declaration,
+  // counted from the surface rather than read back off a run: `accepted` is `[]`, so a row
+  // appearing here later is a coverage regression to repay rather than a number to bump,
+  // and an `accepted-gap` would be this surface's first and would owe its own backlog entry
+  // plus a `scoreFloor` edit.
+  //
+  // Empty is the honest declaration because the two survivors the first probe found were
+  // REMOVED rather than blessed, and both were the same shape — a clause whose deletion or
+  // operator swap changes nothing at runtime. `tokens.length < 2` could not differ from
+  // `< 1`, and the compound `argv0 === undefined || last === undefined` could not differ
+  // from `&&` because the two are undefined together. Taking the last token by reduce over
+  // a provably non-empty array left no such clause to mutate. Reaching for an `equivalent`
+  // row is the move that would have been wrong here: the surface is small and pure enough
+  // that an unkillable mutant is evidence of a dead line, not of an untestable one.
+  heavyReapClassify: {},
   // The interactive-scan surfaces, enrolled 2026-08-15. `tapTargetScan` carries
   // NO blessed survivor: its whole body is one map over the shared core's
   // verdicts, and the census suite kills its single mutant, so a row appearing
