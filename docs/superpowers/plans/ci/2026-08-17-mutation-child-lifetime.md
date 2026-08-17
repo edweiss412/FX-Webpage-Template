@@ -44,10 +44,10 @@
 | AC (spec §7) | Task |
 | --- | --- |
 | AC-1 parent-death group reap | 1 (live suite) |
-| AC-2 exit transparency | 1 (live suite) |
+| AC-2 exit transparency (live minimum 0, 1, 42; plus 127) | 1 (live suite) |
 | AC-3 signal transparency → `MutantRunInfraError` | 1 (live), 2 (runner mapping) |
 | AC-4 parent-alive timeout + group reap unchanged | 1 (live), 2 (existing `runner.test.ts:206` stays green) |
-| AC-5 childRun throws on abnormal, codes preserved | 3 |
+| AC-5 childRun throws on abnormal, codes preserved; all three consumers green incl. the nightly-gated gates file | 3, 6 |
 | AC-6 degraded no-perl mode | 1 (mocked ENOENT case) |
 | AC-7 `reapOrphans` comment repaired | 2 |
 | AC-8 enrolment rows + no unaccepted survivor | 5 |
@@ -155,8 +155,9 @@ split out of the scratch suite (11 passed, 6.11s at plan time):
     text assertions, they pin the self-signal mechanism the live exec-fail case exercises, and
     the four string-presence mutants (emptied / suffixed / commented / parameter-varied) are run
     before the review dispatch per the writing-plans rule.
-- Live cases (7, from the scratch run): exit 42; exit 0; exit 127 (disjoint from wrapper-failure
-  shape); SIGKILLed child → `{kind:"infra", signal:"SIGKILL"}` with the OUT-OF-PROCESS killer
+- Live cases (8 — the 7 from the scratch run plus the exit-1 case plan review round 1 added for
+  AC-2's stated minimum of 0, 1 and 42): exit 42; exit 0; exit 1; exit 127 (disjoint from
+  wrapper-failure shape); SIGKILLed child → `{kind:"infra", signal:"SIGKILL"}` with the OUT-OF-PROCESS killer
   (see the verification pass — an in-process killer cannot run while `spawnSync` blocks);
   hung-child-with-grandchild at `timeoutMs: 3_000` → `{kind:"timeout"}` after ≥2.9s;
   exec-failure → `{kind:"infra", signal:"SIGUSR2"}` (AC-11); parent-death: pretend harness →
@@ -365,8 +366,21 @@ export function childRun(root: string, fixture: string, target: string): number 
 
 with the doc comment extended to state WHY abnormal throws (a hung or reaper-killed fixture
 produced no verdict; returning non-zero forges "premise proven" at
-`tests/mutation/_metaPremiseContract.test.ts:336`). Consumers stay untouched and green — validated
-at plan time: `_metaOverlayConfigParity` **5 passed**, `_metaPremiseContract` **10 passed**.
+`tests/mutation/_metaPremiseContract.test.ts:336`). Consumers stay untouched, and ALL THREE run
+green in this task (plan review round 1: the third is nightly-gated and would otherwise never be
+exercised by this arc). Validated at plan time against the scratch state:
+`_metaOverlayConfigParity` **5 passed**, `_metaPremiseContract` **10 passed**; the third consumer
+(`tests/mutation/guardSurfaces.gates.test.ts:64`) is nightly-only, so it runs here explicitly —
+FOREGROUND, wrapped:
+
+```bash
+VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy vitest run --project mutation tests/mutation/guardSurfaces.gates.test.ts
+```
+
+Affordable by construction: the gates file holds registry/partition checks plus ONE real
+`childRun` case and registers no per-mutant surface cases (no `registerSurfaceCases` import) —
+baseline observed at plan time: **5 passed, 6.61s**. Run it once at this task's green (old→new
+childRun) and once more in Task 6's sweeps.
 Commit `fix(infra): childRun bounded; abnormal outcomes are infra faults, not verdicts`.
 
 ### Task 4 — four string-presence mutants, run and recorded
@@ -452,8 +466,10 @@ PR body:
 - `pnpm spec:lint docs/superpowers/specs/ci/2026-08-17-mutation-child-lifetime-design.md` and
   `pnpm spec:lint docs/superpowers/plans/ci/2026-08-17-mutation-child-lifetime.md` → 0 hard;
 - `pnpm typecheck` → clean;
-- scoped suites: the five files this arc touches or creates, one `pnpm vitest run` with the
-  explicit file list → all green;
+- scoped suites: the merge-gating files this arc touches or creates, one `pnpm vitest run` with
+  the explicit file list → all green; PLUS the nightly-gated third childRun consumer, re-run
+  exactly as in Task 3 (`VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy vitest run --project
+  mutation tests/mutation/guardSurfaces.gates.test.ts`) → green;
 - `pnpm ledger:claims` table still shows this branch's claim (invariant 12).
 
 Commit `docs(plan): file the browser-runner lifetime peer and closing sweeps`.
