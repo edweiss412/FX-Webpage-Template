@@ -27,6 +27,7 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin, requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
+import { assertSameOriginServerAction } from "@/lib/auth/sameOriginServerAction";
 
 export type SetAutoPublishResult = { ok: true } | { ok: false };
 
@@ -34,6 +35,7 @@ export async function setAutoPublish(next: boolean): Promise<SetAutoPublishResul
   // Defense-in-depth gate. AdminInfraError propagates to the catalog 500
   // boundary (invariant 9 — infra faults are never swallowed into a benign
   // action result); a non-admin identity throws here before any write.
+  await assertSameOriginServerAction("setAutoPublish", "admin.settings.autoPublish");
   await requireAdmin();
   // Actor identity resolved BEFORE the mutation (cached — no extra RPC,
   // requireAdmin.ts:135 cache(...)) so a requireAdminIdentity infra throw

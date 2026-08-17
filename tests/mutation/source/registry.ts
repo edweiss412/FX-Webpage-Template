@@ -1842,6 +1842,21 @@ export const GUARD_SURFACES: GuardSurface[] = [
     accepted: [],
   },
   {
+    id: "sameOriginServerAction",
+    sourcePath: "lib/auth/sameOriginServerAction.ts",
+    suitePaths: ["tests/auth/sameOriginServerAction.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.95,
+    // Flips the Fetch-Metadata verdict for the ONE state the whole gate exists
+    // to allow. Every `same-origin` row of the truth table reverses, so a
+    // silently-inert overlay cannot report a perfect score off this surface.
+    control: {
+      from: 'return secFetchSite === "same-origin" || secFetchSite === "none";',
+      to: 'return secFetchSite !== "same-origin" || secFetchSite === "none";',
+    },
+    accepted: [],
+  },
+  {
     // The two guard surfaces the mutation-gate sharding arc itself ships
     // (wall-clock spec docs/superpowers/specs/ci/2026-08-16-mutation-gate-wallclock-design.md).
     // Enrolled BEFORE this arc's first whole-diff review dispatch, so the

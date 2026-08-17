@@ -264,7 +264,7 @@ const PUBLIC_TABLE_CLASSIFICATION: Record<string, Classification> = {
   role_token_mappings: {
     posture: "infra",
     reason:
-      "role-token grant mappings; service-role writes behind requireAdmin (app/admin/show/[slug]/_actions/roleToken.ts:57) (supabase/migrations/20260716000000_role_token_mappings.sql:8)",
+      "role-token grant mappings; service-role writes behind requireAdmin (app/admin/show/[slug]/_actions/roleToken.ts:59) (supabase/migrations/20260716000000_role_token_mappings.sql:8)",
   },
   show_change_log: {
     posture: "infra",

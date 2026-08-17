@@ -192,6 +192,42 @@ function awaitCalleeNameOf(stmt: Statement | undefined): string | null {
   return Node.isIdentifier(callee) ? callee.getText() : null;
 }
 
+/**
+ * Drop a leading same-origin gate, so every "the require-gate is the FIRST
+ * statement" assertion below reads "the first AUTH statement" instead.
+ *
+ * The origin sweep (docs/superpowers/specs/2026-08-16-server-action-origin-sweep-design.md
+ * §3.3) puts `await assertSameOriginServerAction(...)` ahead of the require-gate
+ * deliberately: a forged cross-site POST is refused before ANY auth I/O. This
+ * helper is the ONE place that concession is made, applied uniformly rather than
+ * patched per assertion.
+ *
+ * The skip is not a hole. It fires only on an `await` of exactly that callee
+ * whose FIRST argument is the string literal naming this very action — so
+ * `await somethingElse(...)`, an unawaited call, or a gate borrowed from another
+ * action does not shift the window, and the require-gate assertion then fails on
+ * it exactly as it did before. Whether the prelude must be PRESENT is not this
+ * guard's question; the structural walk in
+ * tests/auth/_metaServerActionOriginGate.test.ts is the authority on that.
+ */
+const ORIGIN_GATE_CALLEE = "assertSameOriginServerAction";
+
+function statementsAfterOriginGate(
+  statements: readonly Statement[],
+  actionName: string,
+): readonly Statement[] {
+  const first = statements[0];
+  if (!first || !Node.isExpressionStatement(first)) return statements;
+  if (awaitCalleeNameOf(first) !== ORIGIN_GATE_CALLEE) return statements;
+  const expr = first.getExpression();
+  if (!Node.isAwaitExpression(expr)) return statements;
+  const call = expr.getExpression();
+  if (!Node.isCallExpression(call)) return statements;
+  const arg = call.getArguments()[0];
+  if (!arg || !Node.isStringLiteral(arg) || arg.getLiteralValue() !== actionName) return statements;
+  return statements.slice(1);
+}
+
 /** Every exported async function/arrow — under file-level "use server", these are the server actions. */
 function getExportedAsyncActionNames(sf: SourceFile): string[] {
   const names: string[] = [];
@@ -278,7 +314,7 @@ describe("developerGatingContract (structural defense — developer-tier §6.1)"
             body,
             `${surface.file}#${name}: server action must have a block body`,
           ).toBeDefined();
-          const statements = body!.getStatements();
+          const statements = statementsAfterOriginGate(body!.getStatements(), name);
 
           if (surface.declaredPosture === "boundary-500") {
             const first = statements[0];
@@ -333,7 +369,7 @@ describe("developerGatingContract (structural defense — developer-tier §6.1)"
           body,
           `${DEVELOPER_GATED_ACTION_FILE}#${name}: must have a block body`,
         ).toBeDefined();
-        const first = body!.getStatements()[0];
+        const first = statementsAfterOriginGate(body!.getStatements(), name)[0];
         const gate = awaitCalleeNameOf(first);
         expect(
           gate,

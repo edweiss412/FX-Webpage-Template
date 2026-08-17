@@ -5,7 +5,7 @@
  * the deactivated-row picker test does not depend on first running the OAuth
  * callback chain (C7). A claimed row renders in <PickerInterstitial> with
  * data-claimed="true" + a lock glyph + a GET form to /auth/sign-in
- * (app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:151-187).
+ * (app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:158-194).
  *
  * IMPORTANT: the claim timestamp lives on `crew_members`, NOT on the retired
  * M9.5 per-crew auth table (dropped in

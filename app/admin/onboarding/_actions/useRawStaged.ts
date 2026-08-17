@@ -40,6 +40,7 @@ import {
   findLiveResolvableWarning,
   type UseRawWarningRef,
 } from "@/lib/sync/useRawDecisionState";
+import { assertSameOriginServerAction } from "@/lib/auth/sameOriginServerAction";
 
 export type SetStagedUseRawDecisionResult =
   | { ok: true; state: "saved" }
@@ -109,6 +110,10 @@ export async function setStagedUseRawDecisionAction(
   warningRef: UseRawWarningRef,
   useRaw: boolean,
 ): Promise<SetStagedUseRawDecisionResult> {
+  await assertSameOriginServerAction(
+    "setStagedUseRawDecisionAction",
+    "admin.onboarding.useRawStaged",
+  );
   await requireAdmin();
   const { email } = await requireAdminIdentity();
 

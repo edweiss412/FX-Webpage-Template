@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { requireDeveloperIdentity } from "@/lib/auth/requireDeveloper";
 import { setAdminDeveloper, AdminEmailsInfraError } from "@/lib/data/adminEmails";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
+import { assertSameOriginServerAction } from "@/lib/auth/sameOriginServerAction";
 
 export type SetDeveloperActionResult =
   | { kind: "ok"; email: string; isDeveloper: boolean }
@@ -19,6 +20,7 @@ export async function setDeveloperAction(
   // Gate OUTSIDE the try (boundary-throw): a DeveloperInfraError propagates to
   // the catalog 500 boundary; the non-developer forbidden() digest propagates
   // too — mirrors addAdminAction (admins/actions.ts:76).
+  await assertSameOriginServerAction("setDeveloperAction", "admin.settings.admins.developer");
   const identity = await requireDeveloperIdentity();
 
   const rawEmail = formData.get("email");

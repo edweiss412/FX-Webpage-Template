@@ -97,6 +97,7 @@ import {
 } from "@/lib/dev/materialize/run";
 import { runManualSyncForShow } from "@/lib/sync/runManualSyncForShow";
 import { writeSyncLog } from "@/lib/sync/syncLog";
+import { assertSameOriginServerAction } from "@/lib/auth/sameOriginServerAction";
 
 export type ParseAndStageResult = {
   filename: string;
@@ -140,6 +141,7 @@ export async function parseAndStage(
    */
   prior: ParseResult | null = null,
 ): Promise<ParseAndStageResult> {
+  await assertSameOriginServerAction("parseAndStage", "admin.dev.parseAndStage");
   await requireDeveloper();
   // Actor identity resolved BEFORE the mutation (cached; invariant 10, §5.1).
   const { email } = await requireDeveloperIdentity();
@@ -284,6 +286,7 @@ export async function parseAndStage(
  * action. Callers do not see a return value.
  */
 export async function parseAndStageFormAction(formData: FormData): Promise<void> {
+  await assertSameOriginServerAction("parseAndStageFormAction", "admin.dev.parseAndStage");
   await requireDeveloper();
   const filename = String(formData.get("fixture") ?? "").trim();
   if (!filename) {
@@ -421,6 +424,7 @@ export async function getStagedResult(filename: string): Promise<ParseAndStageRe
  *     wires into <form action={...}>; it returns void after redirecting.
  */
 export async function resetDevSchema(): Promise<{ ok: true }> {
+  await assertSameOriginServerAction("resetDevSchema", "admin.dev.resetDevSchema");
   await requireDeveloper();
   // Actor identity resolved BEFORE the mutation (cached; invariant 10, §5.1).
   const { email } = await requireDeveloperIdentity();
@@ -439,6 +443,7 @@ export async function resetDevSchema(): Promise<{ ok: true }> {
 }
 
 export async function resetDevSchemaFormAction(): Promise<void> {
+  await assertSameOriginServerAction("resetDevSchemaFormAction", "admin.dev.resetDevSchema");
   await requireDeveloper();
   await resetDevSchema();
   // Redirect to a clean /admin/dev so the now-stale ?fixture= query param
@@ -530,6 +535,7 @@ export type MaterializeInput = {
 };
 
 export async function applyAttentionScenario(input: MaterializeInput): Promise<MaterializeResult> {
+  await assertSameOriginServerAction("applyAttentionScenario", "admin.dev.applyAttentionScenario");
   const identity = await requireDeveloperIdentity();
 
   const env = resolveTarget(materializeEnvInput(input.target, input.confirmed));
@@ -585,6 +591,7 @@ export async function applyAttentionScenario(input: MaterializeInput): Promise<M
 export async function clearAttentionScenario(
   input: Omit<MaterializeInput, "scenarioId">,
 ): Promise<MaterializeResult> {
+  await assertSameOriginServerAction("clearAttentionScenario", "admin.dev.clearAttentionScenario");
   const identity = await requireDeveloperIdentity();
 
   const env = resolveTarget(materializeEnvInput(input.target, input.confirmed));
@@ -665,6 +672,10 @@ export async function applyAttentionScenarioFormAction(fd: FormData): Promise<Ma
   // Self-gated as its own first line, matching every other exported action in
   // this file: the wrapper is its own POST entry point, so it must not rely on
   // the delegate's gate to establish that the caller is a developer.
+  await assertSameOriginServerAction(
+    "applyAttentionScenarioFormAction",
+    "admin.dev.applyAttentionScenario",
+  );
   await requireDeveloper();
   return applyAttentionScenario({
     slug: formString(fd, "slug"),
@@ -675,6 +686,10 @@ export async function applyAttentionScenarioFormAction(fd: FormData): Promise<Ma
 }
 
 export async function clearAttentionScenarioFormAction(fd: FormData): Promise<MaterializeResult> {
+  await assertSameOriginServerAction(
+    "clearAttentionScenarioFormAction",
+    "admin.dev.clearAttentionScenario",
+  );
   await requireDeveloper();
   return clearAttentionScenario({
     slug: formString(fd, "slug"),

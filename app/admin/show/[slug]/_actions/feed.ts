@@ -52,6 +52,7 @@ import {
   type AcknowledgeChangesResult,
 } from "@/lib/sync/holds/acknowledgeChanges";
 import { undoChange, type UndoChangeResult } from "@/lib/sync/holds/undoChange";
+import { assertSameOriginServerAction } from "@/lib/auth/sameOriginServerAction";
 
 /** "" (a null base_modified_time round-tripped through the hidden input) → null. */
 function normalizeExpectedBase(formData: FormData): string | null {
@@ -63,6 +64,7 @@ export async function mi11ApproveAction(
   _prev: Mi11GateResult | null,
   formData: FormData,
 ): Promise<Mi11GateResult> {
+  await assertSameOriginServerAction("mi11ApproveAction", "admin.show.feed.mi11Approve");
   const admin = await requireAdminIdentity();
   const holdId = String(formData.get("holdId") ?? "");
   const expectedBaseModifiedTime = normalizeExpectedBase(formData);
@@ -100,6 +102,7 @@ export async function mi11RejectAction(
   _prev: Mi11GateResult | null,
   formData: FormData,
 ): Promise<Mi11GateResult> {
+  await assertSameOriginServerAction("mi11RejectAction", "admin.show.feed.mi11Reject");
   const admin = await requireAdminIdentity();
   const holdId = String(formData.get("holdId") ?? "");
   const expectedBaseModifiedTime = normalizeExpectedBase(formData);
@@ -136,6 +139,7 @@ export async function undoChangeAction(
   _prev: UndoChangeResult | null,
   formData: FormData,
 ): Promise<UndoChangeResult> {
+  await assertSameOriginServerAction("undoChangeAction", "admin.show.feed.undoChange");
   const admin = await requireAdminIdentity();
   const changeLogId = String(formData.get("changeLogId") ?? "");
   const result = await undoChange(changeLogId);
@@ -176,6 +180,7 @@ export async function acceptChangeAction(
   _prev: AcknowledgeChangesResult | null,
   formData: FormData,
 ): Promise<AcknowledgeChangesResult> {
+  await assertSameOriginServerAction("acceptChangeAction", "admin.show.feed.accept");
   const admin = await requireAdminIdentity();
   const showId = String(formData.get("showId") ?? "");
   const changeLogId = String(formData.get("changeLogId") ?? "");
@@ -208,6 +213,7 @@ export async function acceptAllAction(
   _prev: AcknowledgeChangesResult | null,
   formData: FormData,
 ): Promise<AcknowledgeChangesResult> {
+  await assertSameOriginServerAction("acceptAllAction", "admin.show.feed.acceptAll");
   const admin = await requireAdminIdentity();
   const showId = String(formData.get("showId") ?? "");
   const ids = Array.from(
