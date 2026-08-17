@@ -741,8 +741,23 @@ function followForward(
 ): ExportResolution {
   const target = resolveSpecifier(root, facts.sf.fileName, spec);
   // A BARE specifier is node_modules and stays pure under L-2, through a
-  // forward exactly as through a direct import.
-  if (target === null) return { kind: "noSuchExport" };
+  // forward exactly as through a direct import. An IN-REPO specifier that does
+  // not resolve is an edge this scanner cannot follow, and L-2 does not cover
+  // it: L-2 is about node_modules, where there is genuinely nothing in-repo to
+  // analyze (spec §2.4b, last row).
+  //
+  // The question is asked HERE, at the one place a forward hop is taken, rather
+  // than at each caller. It sat on the E3 caller alone and E2's three spellings
+  // and E6's star fan-out reached the miss branch and read it as a bare-package
+  // miss, which is pure (whole-diff R1 #1). A caller added later inherits this.
+  if (target === null) {
+    if (isInRepoSpecifier(spec))
+      return {
+        kind: "unresolvable",
+        reason: `unfollowable re-export of ${exportName} from ${spec} in ${facts.sf.fileName}`,
+      };
+    return { kind: "noSuchExport" };
+  }
   const shape = classifyTarget(target, spec);
   if (shape !== "analyze") return shape === "data" ? { kind: "data" } : shape;
   const key = `${target}#${exportName}`;
@@ -805,17 +820,10 @@ function resolveExport(
   if (declined !== undefined) return { kind: "unresolvable", reason: declined };
   const forwarded = facts.forwards.get(exportName);
   if (forwarded !== undefined) {
-    // An IN-REPO specifier that does not resolve is an edge this scanner cannot
-    // follow, and L-2 does not cover it: L-2 is about node_modules, where there
-    // is genuinely nothing in-repo to analyze.
-    if (
-      isInRepoSpecifier(forwarded.spec) &&
-      resolveSpecifier(root, facts.sf.fileName, forwarded.spec) === null
-    )
-      return {
-        kind: "unresolvable",
-        reason: `unfollowable re-export of ${forwarded.sourceName} from ${forwarded.spec} in ${facts.sf.fileName}`,
-      };
+    // The in-repo-unresolvable question lives in `followForward` now, so this
+    // caller states nothing about it — a second copy here is the enumeration
+    // the derived cover replaces, and it would drift the moment the reason text
+    // moved.
     return followForward(root, facts, forwarded.spec, forwarded.sourceName, active, done);
   }
   // E6: a star fan-out carries every name EXCEPT `default`. Candidates are

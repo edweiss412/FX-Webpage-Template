@@ -3135,3 +3135,91 @@ describe("unclassifiable propagation: a construct anywhere reachable reaches the
     expect((c?.detail ?? "").match(/non-literal specifier/g) ?? []).toHaveLength(1);
   });
 });
+
+describe("whole-diff R1 #1 — an unresolved in-repo target reports through EVERY forward form", () => {
+  // The shipped in-repo-unresolvable guard sat on ONE caller of
+  // `followForward` — the E3 branch of `resolveExport` — so E2's three
+  // spellings and E6's star fan-out reached `target === null` and read it as a
+  // bare-package miss, which is PURE. The repair moves the question INTO
+  // `followForward`, which is the derived cover rather than a longer list of
+  // callers: a caller added later inherits it and cannot forget it.
+  const MISSING = "./definitely-not-here";
+  const CALL = `it("x", () => { spawnHelper(); });`;
+
+  it("E3 named re-export — the shipped control, and it must stay reported", () => {
+    // The one caller that already had the guard. Kept so the repair is not
+    // validated by the branch that was already correct.
+    expectReported(
+      classificationWithModules(
+        { barrel: `export { spawnHelper } from "${MISSING}";` },
+        `import { spawnHelper } from "__MODULE_barrel__";
+         ${CALL}`,
+      ),
+      { construct: REPORTS.unfollowable, module: /mod\d+_barrel/, notModule: /case\d+-user/ },
+    );
+  });
+
+  it("E2 named: a name IMPORTED from an unresolved target and re-exported", () => {
+    expectReported(
+      classificationWithModules(
+        { barrel: `import { spawnHelper } from "${MISSING}";\nexport { spawnHelper };` },
+        `import { spawnHelper } from "__MODULE_barrel__";
+         ${CALL}`,
+      ),
+      { construct: REPORTS.unfollowable, module: /mod\d+_barrel/, notModule: /case\d+-user/ },
+    );
+  });
+
+  it("E2 aliased: the same edge with the local name renamed", () => {
+    expectReported(
+      classificationWithModules(
+        {
+          barrel: `import { spawnHelper as local } from "${MISSING}";\nexport { local as spawnHelper };`,
+        },
+        `import { spawnHelper } from "__MODULE_barrel__";
+         ${CALL}`,
+      ),
+      { construct: REPORTS.unfollowable, module: /mod\d+_barrel/, notModule: /case\d+-user/ },
+    );
+  });
+
+  it("E2 default: the same edge exported under `default`", () => {
+    expectReported(
+      classificationWithModules(
+        { barrel: `import local from "${MISSING}";\nexport { local as default };` },
+        `import spawnHelper from "__MODULE_barrel__";
+         ${CALL}`,
+      ),
+      { construct: REPORTS.unfollowable, module: /mod\d+_barrel/, notModule: /case\d+-user/ },
+    );
+  });
+
+  it("E6 star: an unresolved target in the fan-out", () => {
+    expectReported(
+      classificationWithModules(
+        { barrel: `export * from "${MISSING}";` },
+        `import { spawnHelper } from "__MODULE_barrel__";
+         ${CALL}`,
+      ),
+      { construct: REPORTS.unfollowable, module: /mod\d+_barrel/, notModule: /case\d+-user/ },
+    );
+  });
+
+  it("the foil: a BARE unresolved specifier stays pure through the same branches", () => {
+    // L-2, unchanged. Without this the repair above could be satisfied by
+    // reporting every failed lookup, which would move the declared counts on
+    // the enrolled domain and break AC-1.
+    for (const barrel of [
+      `import { spawnHelper } from "resend";\nexport { spawnHelper };`,
+      `export * from "resend";`,
+    ]) {
+      expect(
+        verdictWithModules(
+          { barrel },
+          `import { spawnHelper } from "__MODULE_barrel__";
+           ${CALL}`,
+        ),
+      ).toBe("environment-free");
+    }
+  });
+});
