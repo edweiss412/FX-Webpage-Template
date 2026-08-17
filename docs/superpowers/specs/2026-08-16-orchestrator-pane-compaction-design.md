@@ -664,7 +664,23 @@ about what this surface declines to promise.
    two commands; each command revalidates, so the consequence is a refused or wasted invocation.
 10. **[bounded] Cross-account panes.** The roster spans workspaces. Purview reporting is the only separation;
     there is no account-level enforcement.
-11. **[demote] A stale claim still counts toward `contested`, so a reused pane can be blocked by an arc
+11. **[demote] Rule 5 is only as useful as herdr's `agent_session`, and today that field is empty.**
+    §3.9's probe table measured 9 of 10 panes MATCHING their marker's `sessionId`, so the field was
+    populated when this spec was written. Re-probed on 2026-08-16 while implementing: **0 of 11**
+    agents on the live roster report an `agent_session` at all, through either `herdr agent list` or
+    `herdr agent get`, while **36** worktree markers carry a `sessionId`. Rule 5 counts a present
+    marker session against an absent live one as a mismatch — deliberately, and this section's
+    §3.9 row records that exact case — so with the field empty, essentially every arc pane carrying
+    a marker classifies `UNDETERMINED` and nothing is driven.
+
+    This is a `[demote]` and not a defect because the direction is right: the tool refuses rather
+    than compacts, and rule 5 is named in the report so an operator sees why. But it means the
+    surface's practical yield depends on a herdr field outside this repo's control, and a reader
+    who sees a roster of `UNDETERMINED` should check that field before suspecting the classifier.
+    Whether herdr populates it again, or the rule should treat an absent live session as
+    "unobserved" rather than "mismatched", is a spec question — the current text is unambiguous
+    that absent counts as mismatch, so the implementation follows it (invariant 7).
+12. **[demote] A stale claim still counts toward `contested`, so a reused pane can be blocked by an arc
     that is over.** The claim count is taken before the staleness filter runs — `claims.length > 1`
     at `scripts/lib/pane-compaction-core.ts:340` short-circuits, while the `row.branch !==
     currentBranch` test that retires a dead claim lives at `:351`, on the single-claim path only. So
