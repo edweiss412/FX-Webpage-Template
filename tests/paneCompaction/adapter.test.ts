@@ -44,6 +44,15 @@ function fakeSurface(over: Partial<Surface> = {}): { surface: Surface; run: Run 
   // In memory, so no case can reach ~/.claude/pane-nonces on the real machine.
   const nonces = new Map<string, string>();
   const surface: Surface = {
+    // Default: every label the roster carries resolves to a worktree branch, so
+    // existing cases keep classifying their panes as arcs. AC-16's behaviour is
+    // asserted by cases that OVERRIDE this, never by the default -- a default
+    // that resolved nothing would make every case a NOT-AN-ARC case by accident.
+    branches: () => {
+      const names = new Set<string>();
+      for (const r of surface.roster()) if (r.agentName !== null) names.add(r.agentName);
+      return names;
+    },
     nonceRead: (sessionId, paneId) => nonces.get(`${sessionId} ${paneId}`) ?? null,
     nonceWrite: (sessionId, paneId, nonce) => nonces.set(`${sessionId} ${paneId}`, nonce),
     nonceConsume: (sessionId, paneId) => {
@@ -453,6 +462,37 @@ describe("every refusal NAMES its reason", () => {
 });
 
 describe("the three commands", () => {
+  it("AC-16: a labelled pane that resolves to no worktree branch is NOT-AN-ARC", () => {
+    // Diff round 1, finding 1 (P0). The adapter took the label's mere EXISTENCE
+    // as proof of an arc, so the orchestrator panes -- labelled precisely
+    // because they dispatch arcs rather than being one -- classified as
+    // drivable. The reviewer probed `bl-mediums-orchestrator` and a checkpoint
+    // was SENT to it. Spec §3.6 names that pane and `smalls-batch-orchestrator`
+    // as the two live cases; `git worktree list` resolves neither.
+    //
+    // The override is the point: the fake's DEFAULT resolves every roster label,
+    // so this case must remove one to say anything at all.
+    const { surface, run: r } = fakeSurface({ branches: () => new Set(["feat/beta"]) });
+    const code = main([], surface);
+    expect(code).toBe(0);
+    // wM:p1 carries `feat/alpha`, which the branch set above deliberately omits.
+    const row = r.lines.find((l) => l.includes("wM:p1")) ?? "";
+    expect(row).toContain("NOT-AN-ARC");
+    // The RAW label still shows, so an operator can see WHY it is not an arc.
+    expect(row).toContain("feat/alpha");
+  });
+
+  it("AC-16: a pane that is not an arc is never driven", () => {
+    const sent: Array<{ target: string; text: string }> = [];
+    const { surface } = fakeSurface({
+      branches: () => new Set(["feat/beta"]),
+      send: (target, text) => sent.push({ target, text }),
+    });
+    const code = main(["--checkpoint", "wM:p1", "--as", "sess-1"], surface);
+    expect(code).toBe(1);
+    expect(sent).toEqual([]);
+  });
+
   it("--checkpoint sends the spec text with the minted nonce substituted", () => {
     const run = drive(["--checkpoint", "wM:p1", "--as", "sess-1"]);
     expect(run.code).toBe(0);

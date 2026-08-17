@@ -76,6 +76,18 @@ export type RosterPane = {
  */
 export type Surface = {
   roster(): RosterPane[];
+  /**
+   * Every branch that currently has a worktree, as `git worktree list` reports.
+   *
+   * AC-16: a pane whose agent name resolves to no worktree branch is
+   * `NOT-AN-ARC`. Without this the adapter took the label's mere EXISTENCE as
+   * proof of an arc, so the orchestrator panes -- which carry labels precisely
+   * because they dispatch arcs rather than being one -- read as drivable. Spec
+   * §3.6 names the two live examples outright (`smalls-batch-orchestrator`,
+   * `bl-mediums-orchestrator`) and diff round 1 probed a checkpoint being SENT
+   * to one of them.
+   */
+  branches(): Set<string>;
   screen(paneId: string): string;
   send(target: string, text: string): void;
   purview(): PurviewFile[];
@@ -204,11 +216,15 @@ type Cached = {
   gh: (cwd: string) => GhInvocation;
   git: (cwd: string) => { clean: boolean; lastCommitAt: number | null };
   corpus: (branch: string) => CorpusRow[];
+  branches: Set<string>;
 };
 
 function cacheOf(s: Surface): Cached {
   return {
     purview: s.purview(),
+    // One `git worktree list` for the whole run, like purview: it is a single
+    // answer for every pane, and a dozen panes was a dozen spawns.
+    branches: s.branches(),
     gh: memoize((cwd) => s.gh(cwd)),
     git: memoize((cwd) => s.git(cwd)),
     corpus: memoize((branch) => s.corpus(branch)),
@@ -242,11 +258,20 @@ function observe(
   const markerSession = typeof marker?.["sessionId"] === "string" ? marker["sessionId"] : null;
   const blockedOn = typeof marker?.["blockedOn"] === "string" ? marker["blockedOn"] : "";
 
+  // AC-16. A label is a CLAIM to be an arc; a worktree branch is what makes it
+  // one. Taking the label's existence as proof classified the orchestrator panes
+  // -- labelled precisely because they dispatch arcs rather than being one -- as
+  // drivable, and diff round 1 probed a checkpoint actually being sent to one.
+  // Unresolved becomes null, which is exactly what rule 1 reads, so the pane
+  // reports NOT-AN-ARC and is never driven.
+  const resolvedBranch =
+    pane.agentName !== null && cache.branches.has(pane.agentName) ? pane.agentName : null;
+
   const observed: ObservedPane = {
     paneId: pane.paneId,
-    branch: pane.agentName,
+    branch: resolvedBranch,
     duplicateName:
-      pane.agentName !== null && roster.filter((r) => r.agentName === pane.agentName).length > 1,
+      resolvedBranch !== null && roster.filter((r) => r.agentName === pane.agentName).length > 1,
     status: (STATUSES.has(pane.status) ? pane.status : "unknown") as ObservedPane["status"],
     owned: ownership.kind === "owned",
     contested: ownership.kind === "contested",
@@ -271,6 +296,10 @@ function observe(
   const c = classify(observed);
   return {
     paneId: pane.paneId,
+    // The RAW label, deliberately, while the classifier above used the RESOLVED
+    // one. An operator scanning the report needs to see which pane a row is,
+    // and `(unlabeled)` against a NOT-AN-ARC verdict would hide exactly the
+    // label that explains the verdict.
     branch: pane.agentName,
     tenths,
     verdict: c.verdict,
@@ -578,6 +607,22 @@ function readJson(path: string): unknown {
 
 export function realSurface(): Surface {
   return {
+    branches: () => {
+      // `--porcelain` because the human format decorates the branch with
+      // brackets and the detached-HEAD case prints something else entirely.
+      // Refs arrive as `refs/heads/<name>`; the roster labels are bare names.
+      const run = sh("git", ["worktree", "list", "--porcelain"]);
+      if (run.exitCode !== 0) {
+        throw new Error(`git worktree list exited ${run.exitCode}: ${run.stderr.trim()}`);
+      }
+      const names = new Set<string>();
+      for (const line of run.stdout.split("\n")) {
+        const m = /^branch\s+refs\/heads\/(.+)$/.exec(line.trim());
+        const name = m?.[1];
+        if (name !== undefined && name !== "") names.add(name);
+      }
+      return names;
+    },
     roster: () => {
       // `herdr agent list` — the roster §3.6 names, and the only call that
       // carries `agent_session`, which rule 5 needs. An earlier version read
