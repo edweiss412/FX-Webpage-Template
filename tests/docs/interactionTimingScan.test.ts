@@ -25,6 +25,7 @@ import {
   EXCLUDED_PREFIXES,
   EXPLICIT_INCLUDES,
   inventoryRows,
+  RESOLVER_PATH_ALIASES,
   scanRepo,
   scanTimingSites,
   universeFiles,
@@ -850,5 +851,27 @@ describe("form 3 totality — non-literal timing property values", () => {
       (s) => s.kind === "unclassified",
     );
     expect(site?.value).toBeNull();
+  });
+});
+
+describe("the resolver's module-alias assumption", () => {
+  test("matches tsconfig.json's compilerOptions.paths, and tsconfig declares no baseUrl", () => {
+    // Failure mode: the repo adopts a second alias or renames `@/`, every
+    // `@/`-specified import silently stops resolving, and 17 live sites
+    // quietly become unclassified. A paths-only assertion misses the baseUrl
+    // half — adding `"baseUrl": "./src"` mis-resolves every `@/…` specifier
+    // while the paths map still matches.
+    // tsconfig.json is plain JSON on this repo (zero `//` occurrences), so it
+    // parses directly — no comment stripping, and no dependency on a helper
+    // that would itself need pinning.
+    const raw = readFileSync(join(process.cwd(), "tsconfig.json"), "utf8");
+    const compilerOptions = (
+      JSON.parse(raw) as { compilerOptions: Record<string, unknown> }
+    ).compilerOptions;
+    expect(compilerOptions.paths).toEqual(RESOLVER_PATH_ALIASES);
+    // The baseUrl half is load-bearing and a paths-only assertion misses it:
+    // the resolver pins `baseUrl: repoRoot`, so adding `"baseUrl": "./src"`
+    // here mis-resolves every `@/…` specifier while `paths` still matches.
+    expect(compilerOptions).not.toHaveProperty("baseUrl");
   });
 });
