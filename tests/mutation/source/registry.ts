@@ -1523,6 +1523,35 @@ export const GUARD_SURFACES: GuardSurface[] = [
     },
     accepted: [],
   },
+  /**
+   * Derivation of the destructive-file analyzer's execution-method core from the
+   * driver's type declarations (BL-EXECUTION-METHODS-DERIVED-FROM-DRIVER-TYPES).
+   * Pure AST over a source string, DB-free, fixture-corpus suite -- enrolled
+   * before the arc's first diff-review round per the AGENTS.md contract.
+   */
+  {
+    id: "executionMethodsDerivation",
+    sourcePath: "scripts/execution-methods/lib.ts",
+    suitePaths: ["tests/db/executionMethodsManifest.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    // The FIRST enrolment run scored 10/11 (0.909) with one unaccepted survivor,
+    // logical-connector:44:43; it was repaid with a PROPERTY-signature fixture
+    // rather than blessed, and the re-run measures 1.00 over the same 11 counted
+    // mutants. The floor is that measured 1.00 minus 0.05, rather than the 0.8
+    // placeholder the row was authored with: a floor below the shipped state
+    // cannot detect a regression toward it. At 11 mutants one survivor scores
+    // 0.909, which trips 0.95 -- the granularity is coarse enough that the floor
+    // catches a single lost kill, which is exactly what the first run's survivor
+    // would have cost had it been accepted instead of repaid.
+    scoreFloor: 0.95,
+    // Inverting core classification collects every annotated return type into
+    // core; the Promise-shape and Parameter-routing fixtures reject it.
+    control: {
+      from: "if (CORE_HEADS.has(head)) core.add(member.name.text);",
+      to: "if (!CORE_HEADS.has(head)) core.add(member.name.text);",
+    },
+    accepted: [],
+  },
   {
     // The psql startup-file scanner (2026-08-16 enrolment spec
     // `docs/superpowers/specs/ci/2026-08-16-psql-scan-mutation-enrolment-design.md`

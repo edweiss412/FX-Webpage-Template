@@ -23,6 +23,7 @@
     "gen:traceability": "tsx scripts/generate-traceability.ts",
     "gen:spec-codes": "tsx scripts/extract-spec-codes.ts",
     "gen:schema-manifest": "tsx scripts/generate-schema-manifest.ts",
+    "gen:execution-methods": "tsx scripts/generate-execution-methods.ts",
     "observe": "tsx scripts/observe.ts",
     "spec:lint": "tsx scripts/spec-lint.ts",
     "ledger:claims": "tsx scripts/ledger-claims.ts",

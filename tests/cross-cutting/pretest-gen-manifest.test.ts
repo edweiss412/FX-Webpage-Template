@@ -92,10 +92,11 @@ function resolveConst(src: string, name: string): string | null {
 }
 
 describe("pretest-gen manifest staleness guard", () => {
-  it("covers all four generators", () => {
+  it("covers all five generators", () => {
     expect(TARGETS.map((t) => t.name).sort()).toEqual([
       "gen:admin-tables",
       "gen:email-boundaries",
+      "gen:execution-methods",
       "gen:traceability",
       "gen:watermark-symbols",
     ]);
