@@ -993,7 +993,7 @@ describe("spec registration detector (spec §3.1)", () => {
    * these commands, update its row in the same commit.
    */
   const COMPLEX_INVOCATION_REGISTRY: Record<string, readonly string[]> = {
-    'pnpm exec playwright test --reporter=list --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "T-NOPHANTOM"':
+    'pnpm exec playwright test --reporter=list,json --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "T-NOPHANTOM"':
       ["playwright.config.ts"],
     'pnpm exec playwright test --reporter=list --project=mobile-safari tests/e2e/crew-layout-dimensions.spec.ts -g "T-NOPHANTOM-CREW"':
       ["playwright.config.ts"],
@@ -1013,20 +1013,20 @@ describe("spec registration detector (spec §3.1)", () => {
     // coverage.
     'pnpm exec playwright test --reporter=list,json --project=mobile-safari --project=desktop-chromium tests/e2e/crew-layout-dimensions.spec.ts -g "T-DIAGRAM-VARIANTS"':
       ["playwright.config.ts"],
-    'pnpm exec playwright test --reporter=list --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "width chain"':
+    'pnpm exec playwright test --reporter=list,json --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "width chain"':
       ["playwright.config.ts"],
     // The freshness-cue geometry probe (spec 2026-08-03-modal-freshness-cue §11.5).
     // Its OWN step because the two filters above select neither: a case matched by
     // a project but selected by no `-g` runs nowhere, which is the failure this
     // whole workflow's header comment documents.
-    'pnpm exec playwright test --reporter=list --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "T-FRESHNESS-GEOMETRY"':
+    'pnpm exec playwright test --reporter=list,json --project=desktop-chromium tests/e2e/admin-layout-dimensions.spec.ts -g "T-FRESHNESS-GEOMETRY"':
       ["playwright.config.ts"],
-    'pnpm exec playwright test --project=mobile-safari tests/e2e/admin-lifecycle-transitions.spec.ts -g "Published toggle round-trip" --repeat-each="$REPEATS" --retries=0 --trace=on':
+    'pnpm exec playwright test --reporter=list,json --project=mobile-safari tests/e2e/admin-lifecycle-transitions.spec.ts -g "Published toggle round-trip" --repeat-each="$REPEATS" --retries=0 --trace=on':
       ["playwright.config.ts"],
     // The plain branch of the same if/fi step (lifecycle-layout-e2e.yml):
     // in-text control flow forces every playwright line in that run block
     // through the registry (R9 G1).
-    "pnpm exec playwright test --project=mobile-safari tests/e2e/admin-lifecycle-transitions.spec.ts":
+    "pnpm exec playwright test --reporter=list,json --project=mobile-safari tests/e2e/admin-lifecycle-transitions.spec.ts":
       ["playwright.config.ts"],
     // R12: env-assignment prefixes are shell state (a PATH= prefix runs a
     // fake binary that exits 0), so command position no longer admits them

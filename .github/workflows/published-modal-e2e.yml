@@ -146,7 +146,18 @@ jobs:
       - run: pnpm exec playwright install-deps chromium
       - run: pnpm exec playwright install chromium
       - name: Run published-modal e2e (desktop-chromium, :3000 only)
-        run: pnpm exec playwright test --reporter=list --project=desktop-chromium tests/e2e/published-review-modal.interactions.spec.ts tests/e2e/published-review-modal.deeplink.spec.ts tests/e2e/published-review-modal.layout.spec.ts tests/e2e/published-review-modal.prefetch.spec.ts tests/e2e/published-review-modal.crew-actions.spec.ts tests/e2e/published-review-modal.realtime.spec.ts tests/e2e/published-review-modal.reopen.spec.ts tests/e2e/published-review-modal.closeFreshness.spec.ts
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/published-modal-e2e-report.json
+        run: pnpm exec playwright test --reporter=list,json --project=desktop-chromium tests/e2e/published-review-modal.interactions.spec.ts tests/e2e/published-review-modal.deeplink.spec.ts tests/e2e/published-review-modal.layout.spec.ts tests/e2e/published-review-modal.prefetch.spec.ts tests/e2e/published-review-modal.crew-actions.spec.ts tests/e2e/published-review-modal.realtime.spec.ts tests/e2e/published-review-modal.reopen.spec.ts tests/e2e/published-review-modal.closeFreshness.spec.ts
+      # Informational, never a gate (spec §4.3). `if: always()` is load-bearing: without it
+      # this is an ordinary prerequisite-gated step, so a run that RECOVERS and then fails a
+      # downstream assertion skips the print entirely — the recovery happened, the list
+      # reporter prints no annotations, and a failed run's artifact is not where an operator
+      # looks first. The printer always exits 0, so `always()` cannot convert a red run green;
+      # the Playwright step's own status remains this job's verdict.
+      - name: Print infra-recovery annotations (published-modal)
+        if: always()
+        run: node scripts/print-infra-recoveries.mjs --report test-results/published-modal-e2e-report.json
       - name: Upload Playwright traces/report (diagnosis artifact)
         if: failure()
         uses: actions/upload-artifact@v4

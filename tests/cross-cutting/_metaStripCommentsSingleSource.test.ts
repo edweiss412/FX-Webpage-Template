@@ -60,6 +60,22 @@ export type StandingRow = { file: string; family: string; marker: string; reason
  *  false positives). NEVER file-wide: an unlisted (family, marker) in the same file
  *  still fails. This list is EXACTLY the plan-time simulation's offender set. */
 export const STANDING_ALLOWLIST: StandingRow[] = [
+  ...(["/*", "*/"] as const).map((marker) => ({
+    file: "tests/ci/_metaModalWaitHelper.test.ts",
+    family: "two-char-literal" as const,
+    marker,
+    reason:
+      "NOT comment handling. Both markers are FIXTURE DATA: the modal-wait guard's " +
+      "premise proof builds a throwaway spec containing a BLOCK-COMMENTED " +
+      "`page.goto('/admin?show=…')` and asserts the guard stays quiet on it. That " +
+      "case exists because the guard DID flag commented-out navigations — probed, " +
+      "two false violations — which is the false-positive direction its threat " +
+      "fence protects, and because a block-comment INTERIOR line need not begin " +
+      "with `*`, so only a real parse classifies it. Removing the markers removes " +
+      "the input under test. The stripping itself is delegated: " +
+      "tests/ci/modalWaitHelper/scan.ts imports stripCommentsForFile from this " +
+      "very module's subject, which is what made the fixture necessary.",
+  })),
   ...(["//", "/*", "*/"] as const).map((marker) => ({
     file: "tests/specLint/numerics.test.ts",
     family: "two-char-literal" as const,

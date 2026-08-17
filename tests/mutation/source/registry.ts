@@ -200,6 +200,61 @@ export const GUARD_SURFACES: GuardSurface[] = [
     accepted: [],
   },
   {
+    // The modal-wait guard's predicate module (2026-08-16 adoption arc §4.4,
+    // AC-3). Authored as an importable module with a referring suite from the
+    // start, so enrolment is a registry row rather than a restructuring.
+    id: "modal-wait-helper-scan",
+    sourcePath: "tests/ci/modalWaitHelper/scan.ts",
+    suitePaths: ["tests/ci/_metaModalWaitHelper.test.ts"],
+    // All six declared families. A narrowed subset is a CLAIM about which
+    // mutations cannot escape, and this surface has no evidence for one. That
+    // is emphatically NOT a claim all six are exercised here: the gate checks
+    // only that the surface produces some mutants, never one per family, so
+    // every family yielding zero sites is recorded in the plan's closeout as
+    // not-exercised. Probed at plan time: `regex-quantifier-bound` recognizes
+    // bounded `{m,n}` syntax only, and this module's regexes use `*`, so it
+    // yields zero sites here.
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.95,
+    // Drops the empty-reason arm of the exemption check, so a
+    // `// modal-wait-exempt:` with nothing after it silently becomes a valid
+    // exemption. The premise proof's empty-reason case is what notices.
+    control: { from: 'reason === null || reason === ""', to: "reason === null" },
+    accepted: [
+      // ---- equivalent: cannot change observable behavior ------------------
+      //
+      // First real run scored 49/57 with EIGHT survivors. Six were coverage gaps
+      // and were repaid with cases in the deciding suite, each proven against its
+      // own mutant (testid-window bound and its same-line edge, the quoted
+      // data-testid capture group, the product surface's own line number, and the
+      // two-rule ambiguity threshold). Re-run: 55/57 with exactly these two left.
+      // Making the scan comment-aware then grew the surface to 61 sites; every
+      // one of the four new sites is killed, so the score is 59/61 = 0.9672 with
+      // these same two rows, and it has stayed those two through every later
+      // revision: 59/61, 60/62, and 58/60 at HEAD. A THIRD row here is a gap to
+      // repay, not a number to bump.
+      //
+      // NOTE FOR THE NEXT EDITOR OF scan.ts: a siteId is
+      // `operator:LINE:column:from>to`, so ANY edit to that file relocates these
+      // ids and the gate then reports a stale-ledger-row for an id no generated
+      // site has. Diff review caught exactly that twice. Re-run the score and
+      // update both ids in the SAME commit as the source change — the ledger is
+      // a measurement of one revision, not a standing claim.
+      {
+        siteId: "statement-removal:189:9:continue;>(removed)",
+        kind: "equivalent",
+        reason:
+          "Drops the `continue` after `visit(child)` in walkSourceFiles, so a DIRECTORY falls through to the `child.endsWith('.ts') || child.endsWith('.tsx')` test below it. No directory in app/ or components/ ends in .ts or .tsx, so the extra test is always false and the walk's output is identical. Observable only for a directory literally named `*.ts`, which the tree does not contain.",
+      },
+      {
+        siteId: "integer-literal:384:83:0>1",
+        kind: "equivalent",
+        reason:
+          "Changes the `?? 0` fallback in classifyCandidates' count increment to `?? 1`. The branch is unreachable: countsByRule is pre-seeded with a 0 entry for EVERY rule at construction (`new Map(rules.map((rule) => [rule.id, 0]))`), so `countsByRule.get(hit.id)` never returns undefined and the nullish fallback never evaluates.",
+      },
+    ],
+  },
+  {
     // The citation-intent classifier (2026-08-15 arms spec §3, §7). Its three
     // suites split the surface deliberately: the unit suite pins the matching
     // discipline per consumer, the wiring suite pins the two-pass relocation
