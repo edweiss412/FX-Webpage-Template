@@ -114,8 +114,12 @@ value the way its use site can. Then:
 - **V is empty** → not a binding.
 - **V contains whitespace** (inside one lexed word, whitespace is always quoted or escaped data;
   the opaque `${}` introduces none) → the MULTIWORD branch: the word is a command-line
-  binding iff `scanShellText(V, file, 0)` yields at least one psql site whose tokens include a
-  flag-shaped token (`/^-{1,2}[A-Za-z0-9]/` — the existing `boundCommand` criterion, unchanged).
+  binding iff `scanShellText(V, file, 0)` — evaluated under BOTH consumer grammars where V
+  contains a newline: as written (`eval "$CMD"` reads a newline as a command separator) and with
+  newlines read as IFS separators (an unquoted `$CMD` word-splits them into one argv; bash runs
+  `psql -X` from `PG=$'psql\n-X'; $PG mydb` — plan round-3 finding 3) — yields at least one psql
+  site whose tokens include a flag-shaped token (`/^-{1,2}[A-Za-z0-9]/` — the existing
+  `boundCommand` criterion, unchanged).
   This replaces the `quotedValue` regex: the value is now the lexer's dequoted concatenation, so
   `CMD='psq'"l -qAt mydb"` is read exactly as `CMD='psql -qAt mydb'` is.
 - **V is a single word** (no whitespace) → the word is a name binding iff ALL of:
@@ -204,6 +208,10 @@ Site-path ripples, each shell truth, each pinned in the deciding suite (§4 list
 - A double-quoted command word spelled `"p\sql"` currently lexes to `psql` and reports a site;
   after fix 3 it lexes to `p\sql` (basename `sql` after the Windows-separator split in
   `basename`) and reports nothing — bash cannot run psql from it.
+- Fix 3 CLOSES the R40-era documented limit "a QUOTED Windows path in SHELL text":
+  `"C:\pg\bin\psql.exe"` now lexes with its backslashes intact, `basename` splits on them, and
+  the site appears — the suite's KNOWN-miss pin flips to a site pin and the scan.ts
+  residual-limits item is retired (plan round-3 finding 1).
 - No file in the live corpus ends in a dangling backslash or spells psql through a double-quoted
   literal backslash (the §7 walk gate proves the tree-level no-op).
 
