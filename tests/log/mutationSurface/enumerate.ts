@@ -217,22 +217,191 @@ export function routeMutatingMethods(sf: ts.SourceFile): string[] {
   return [...found];
 }
 
-/** Resolve a local declaration by name — either a `FunctionDeclaration`, or a
- * `const`/`let` whose initializer is an arrow/function expression. Used to
- * resolve `export { local as mutate }` to the declaration whose body is the
- * checked scope (the specifier is NOT itself a checkable scope). */
-function findLocalDeclNode(sf: ts.SourceFile, name: string): ts.Node | undefined {
+/** Every identifier a `BindingName` binds, through both binding-pattern kinds.
+ * `export const { doIt } = obj;` and `export const [doIt] = arr;` are ordinary
+ * refactors of a live module, and both bind an addressable export name. */
+function collectBindingNames(name: ts.BindingName, out: string[]): void {
+  if (ts.isIdentifier(name)) {
+    out.push(name.text);
+    return;
+  }
+  for (const el of name.elements) {
+    if (ts.isOmittedExpression(el)) continue;
+    collectBindingNames(el.name, out);
+  }
+}
+
+/** An exported VALUE name paired with the module-scope name it resolves
+ * through. They differ only for a local export list (`export { local as x }`);
+ * `isDefault` is carried because the two readers disagree about it ON PURPOSE
+ * — a default-exported action produces NO unit (it evades per-function keying,
+ * `moduleDefaultExports`) but is still an exported name the reconciliation must
+ * refuse rather than lose. */
+type ExportedValueBinding = { exported: string; local: string; isDefault: boolean };
+
+/**
+ * Every VALUE name a module-level `"use server"` file exports, with its local
+ * name.
+ *
+ * Total over export forms because it reads NAMES, not initializers: a
+ * paren-wrapped arrow, a higher-order call, a conditional, and an alias chain
+ * all export a name, and the name is what this collects. Type-only exports are
+ * excluded — they are not addressable endpoints. Re-exports with a module
+ * specifier are excluded — they name another module's symbol, checked where it
+ * is declared.
+ *
+ * One traversal feeds both consumers (`exportedValueNames` for the D1 domain,
+ * `collectModuleActions` for resolution) so the domain and the resolver can
+ * never range over different name sets.
+ */
+function exportedValueBindings(sf: ts.SourceFile): ExportedValueBinding[] {
+  const out: ExportedValueBinding[] = [];
+  for (const st of sf.statements) {
+    if (ts.isTypeAliasDeclaration(st) || ts.isInterfaceDeclaration(st)) continue;
+    if (ts.canHaveModifiers(st)) {
+      const mods = ts.getModifiers(st);
+      if (mods?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)) {
+        const isDefault = !!mods.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword);
+        if (ts.isFunctionDeclaration(st) && st.name)
+          out.push({ exported: st.name.text, local: st.name.text, isDefault });
+        if (ts.isVariableStatement(st)) {
+          const names: string[] = [];
+          for (const d of st.declarationList.declarations) collectBindingNames(d.name, names);
+          for (const n of names) out.push({ exported: n, local: n, isDefault });
+        }
+      }
+    }
+    if (
+      ts.isExportDeclaration(st) &&
+      !st.moduleSpecifier &&
+      st.exportClause &&
+      ts.isNamedExports(st.exportClause)
+    ) {
+      if (st.isTypeOnly) continue;
+      for (const el of st.exportClause.elements) {
+        if (el.isTypeOnly) continue;
+        out.push({
+          exported: el.name.text,
+          local: (el.propertyName ?? el.name).text,
+          isDefault: false,
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/** The D1 domain: every exported value name of a `"use server"` module. Total
+ * by construction — see `exportedValueBindings`. */
+export function exportedValueNames(sf: ts.SourceFile): string[] {
+  return exportedValueBindings(sf).map((b) => b.exported);
+}
+
+/** A node whose body is a checkable action scope. */
+const isCheckableFunction = (n: ts.Node): boolean =>
+  ts.isFunctionDeclaration(n) ||
+  ts.isArrowFunction(n) ||
+  ts.isFunctionExpression(n) ||
+  ts.isMethodDeclaration(n);
+
+/** Unwrap parens; follow module-scope identifier alias chains (cycle-safe). */
+function reduceModuleExpr(
+  sf: ts.SourceFile,
+  expr: ts.Expression,
+  seen: Set<string>,
+): ts.Node | undefined {
+  let e: ts.Expression = expr;
+  while (ts.isParenthesizedExpression(e)) e = e.expression;
+  if (!ts.isIdentifier(e)) return e;
+  return resolveModuleName(sf, e.text, seen);
+}
+
+/**
+ * A module-scope name to the declaration whose body is the checkable scope.
+ *
+ * A CLOSED reduction set (spec §3.2), not a grammar: paren unwrap, alias chain,
+ * function/arrow initializer, and literal-member binding-pattern access.
+ * Anything else returns `undefined` — a REFUSAL, reconciled by name in
+ * `./totality`, never a silent absence. Adding a reduction is a spec change.
+ */
+function resolveModuleName(
+  sf: ts.SourceFile,
+  name: string,
+  seen: Set<string>,
+): ts.Node | undefined {
+  if (seen.has(name)) return undefined; // alias cycle — terminate, refuse
+  seen.add(name);
   for (const st of sf.statements) {
     if (ts.isFunctionDeclaration(st) && st.name?.text === name) return st;
     if (ts.isVariableStatement(st))
-      for (const d of st.declarationList.declarations)
+      for (const d of st.declarationList.declarations) {
+        if (ts.isIdentifier(d.name) && d.name.text === name && d.initializer)
+          return reduceModuleExpr(sf, d.initializer, seen);
+        if (!ts.isIdentifier(d.name) && bindingBindsName(d.name, name) && d.initializer)
+          return resolvePatternMember(sf, d.name, name, d.initializer, seen);
+      }
+  }
+  return undefined;
+}
+
+/** `const { doIt } = <literal>` / `const [doIt] = <literal>` — literal member
+ * access ONLY (spec §3.2 rule 3); everything else returns undefined (refusal). */
+function resolvePatternMember(
+  sf: ts.SourceFile,
+  pattern: ts.BindingName,
+  name: string,
+  init: ts.Expression,
+  seen: Set<string>,
+): ts.Node | undefined {
+  const reduced = reduceModuleExpr(sf, init, seen);
+  if (!reduced) return undefined;
+  if (ts.isObjectBindingPattern(pattern) && ts.isObjectLiteralExpression(reduced)) {
+    for (const el of pattern.elements) {
+      if (!ts.isIdentifier(el.name) || el.name.text !== name) continue;
+      if (el.initializer || el.dotDotDotToken) return undefined; // defaults/rest refuse
+      // A computed member name refuses (spec §3.2 rule 3) — falling back to
+      // el.name.text here would let `{ ["doIt"]: doIt }` match a literal member.
+      if (
+        el.propertyName &&
+        !(ts.isIdentifier(el.propertyName) || ts.isStringLiteral(el.propertyName))
+      )
+        return undefined;
+      const key =
+        el.propertyName === undefined
+          ? el.name.text
+          : (el.propertyName as ts.Identifier | ts.StringLiteral).text;
+      for (const p of reduced.properties) {
         if (
-          ts.isIdentifier(d.name) &&
-          d.name.text === name &&
-          d.initializer &&
-          (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer))
+          ts.isPropertyAssignment(p) &&
+          (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)) &&
+          p.name.text === key
+        ) {
+          const r = reduceModuleExpr(sf, p.initializer, seen);
+          return r && isCheckableFunction(r) ? r : undefined;
+        }
+        if (
+          ts.isMethodDeclaration(p) &&
+          (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)) &&
+          p.name.text === key
         )
-          return d.initializer;
+          return p;
+        if (ts.isShorthandPropertyAssignment(p) && p.name.text === key)
+          return resolveModuleName(sf, key, seen);
+      }
+      return undefined;
+    }
+  }
+  if (ts.isArrayBindingPattern(pattern) && ts.isArrayLiteralExpression(reduced)) {
+    for (let i = 0; i < pattern.elements.length; i++) {
+      const el = pattern.elements[i];
+      if (!el || ts.isOmittedExpression(el)) continue;
+      if (!ts.isIdentifier(el.name) || el.name.text !== name) continue;
+      if (el.initializer || el.dotDotDotToken) return undefined;
+      const item = reduced.elements[i];
+      if (!item || ts.isOmittedExpression(item) || ts.isSpreadElement(item)) return undefined;
+      const r = reduceModuleExpr(sf, item, seen);
+      return r && isCheckableFunction(r) ? r : undefined;
+    }
   }
   return undefined;
 }
@@ -247,40 +416,15 @@ function findLocalDeclNode(sf: ts.SourceFile, name: string): ts.Node | undefined
 function collectModuleActions(sf: ts.SourceFile): { fn: string; node: ts.Node }[] {
   const out: { fn: string; node: ts.Node }[] = [];
   const seen = new Set<string>();
-  const add = (fn: string, node: ts.Node) => {
-    if (seen.has(fn)) return;
-    seen.add(fn);
-    out.push({ fn, node });
-  };
-  for (const st of sf.statements) {
-    if (ts.canHaveModifiers(st)) {
-      const mods = ts.getModifiers(st);
-      const isExport = mods?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
-      const isDefault = mods?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword);
-      if (isExport && !isDefault) {
-        if (ts.isFunctionDeclaration(st) && st.name) add(st.name.text, st);
-        if (ts.isVariableStatement(st))
-          for (const d of st.declarationList.declarations)
-            if (
-              ts.isIdentifier(d.name) &&
-              d.initializer &&
-              (ts.isArrowFunction(d.initializer) || ts.isFunctionExpression(d.initializer))
-            )
-              add(d.name.text, d.initializer);
-      }
-    }
-    if (
-      ts.isExportDeclaration(st) &&
-      !st.moduleSpecifier &&
-      st.exportClause &&
-      ts.isNamedExports(st.exportClause)
-    )
-      for (const el of st.exportClause.elements) {
-        const localName = (el.propertyName ?? el.name).text;
-        const exportedName = el.name.text;
-        const declNode = findLocalDeclNode(sf, localName);
-        if (declNode) add(exportedName, declNode);
-      }
+  for (const { exported, local, isDefault } of exportedValueBindings(sf)) {
+    // A default-exported action stays excluded (`moduleDefaultExports`): it is
+    // an un-named surface that evades per-function keying. The name still
+    // reaches the D1 domain, so the reconciliation refuses it by name.
+    if (isDefault || seen.has(exported)) continue;
+    const node = resolveModuleName(sf, local, new Set());
+    if (!node || !isCheckableFunction(node)) continue; // refusal, reconciled in ./totality
+    seen.add(exported);
+    out.push({ fn: exported, node });
   }
   return out;
 }

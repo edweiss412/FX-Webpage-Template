@@ -1227,36 +1227,10 @@ describe("the discovery tripwire — fixture self-tests (the round-1 and round-2
    * reason, so the premise reds instead of the assertion silently going vacuous.
    */
   const ESCAPES: ReadonlyArray<{ label: string; rel: string; src: string; actions: number }> = [
-    // ── round 1 ──────────────────────────────────────────────────────────────
-    {
-      label: "R1: module export wrapped in parens",
-      rel: "lib/x/a.ts",
-      src: '"use server";\nexport const wrapped = (async () => { await db.from("t").delete(); });\n',
-      actions: 1,
-    },
-    {
-      label: "R1: module export aliased through an intermediate binding",
-      rel: "lib/x/b.ts",
-      src: '"use server";\nconst impl = async () => { await db.from("t").delete(); };\nconst alias = impl;\nexport { alias as doIt };\n',
-      actions: 1,
-    },
     {
       label: "R1: anonymous inline action passed straight to a JSX action prop",
       rel: "components/x/F.tsx",
       src: 'export function F() {\n  return <form action={async () => { "use server"; await db.from("t").delete(); }} />;\n}\n',
-      actions: 1,
-    },
-    // ── round 2 ──────────────────────────────────────────────────────────────
-    {
-      label: "R2: OBJECT binding-pattern export",
-      rel: "lib/x/c.ts",
-      src: '"use server";\nconst bag = { doIt: async () => { await db.from("t").delete(); } };\nexport const { doIt } = bag;\n',
-      actions: 1,
-    },
-    {
-      label: "R2: ARRAY binding-pattern export",
-      rel: "lib/x/d.ts",
-      src: '"use server";\nconst arr = [async () => { await db.from("t").delete(); }];\nexport const [doIt] = arr;\n',
       actions: 1,
     },
     {
@@ -1282,6 +1256,30 @@ describe("the discovery tripwire — fixture self-tests (the round-1 and round-2
     /** `[fn, kind, the write builder is in THIS unit's own action scope]`. */
     units: ReadonlyArray<readonly [string, SurfaceUnit["kind"], boolean]>;
   }> = [
+    {
+      label: "R1: module export wrapped in parens",
+      rel: "lib/x/a.ts",
+      src: '"use server";\nexport const wrapped = (async () => { await db.from("t").delete(); });\n',
+      units: [["wrapped", "module-action", true]],
+    },
+    {
+      label: "R1: module export aliased through an intermediate binding",
+      rel: "lib/x/b.ts",
+      src: '"use server";\nconst impl = async () => { await db.from("t").delete(); };\nconst alias = impl;\nexport { alias as doIt };\n',
+      units: [["doIt", "module-action", true]],
+    },
+    {
+      label: "R2: OBJECT binding-pattern export",
+      rel: "lib/x/c.ts",
+      src: '"use server";\nconst bag = { doIt: async () => { await db.from("t").delete(); } };\nexport const { doIt } = bag;\n',
+      units: [["doIt", "module-action", true]],
+    },
+    {
+      label: "R2: ARRAY binding-pattern export",
+      rel: "lib/x/d.ts",
+      src: '"use server";\nconst arr = [async () => { await db.from("t").delete(); }];\nexport const [doIt] = arr;\n',
+      units: [["doIt", "module-action", true]],
+    },
     {
       label: "R1: inline action as an object method",
       rel: "components/x/G.tsx",

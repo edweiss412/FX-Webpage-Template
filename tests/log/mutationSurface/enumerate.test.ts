@@ -306,3 +306,66 @@ describe("collectSurfaceUnits — D2 total inline collection", () => {
     expect(scanBody(units[0]!.node, { descend: false }).writeBuilder).toBe(true);
   });
 });
+
+describe("collectSurfaceUnits — D1 closed resolver", () => {
+  const D1_CASES: ReadonlyArray<{ label: string; rel: string; src: string; fn: string }> = [
+    {
+      label: "row 1: paren-wrapped module export",
+      rel: "lib/x/a.ts",
+      src: '"use server";\nexport const wrapped = (async () => { await db.from("t").delete(); });\n',
+      fn: "wrapped",
+    },
+    {
+      label: "row 2: export aliased through an intermediate binding",
+      rel: "lib/x/b.ts",
+      src: '"use server";\nconst impl = async () => { await db.from("t").delete(); };\nconst alias = impl;\nexport { alias as doIt };\n',
+      fn: "doIt",
+    },
+    {
+      label: "row 5: OBJECT binding-pattern export",
+      rel: "lib/x/c.ts",
+      src: '"use server";\nconst bag = { doIt: async () => { await db.from("t").delete(); } };\nexport const { doIt } = bag;\n',
+      fn: "doIt",
+    },
+    {
+      label: "row 6: ARRAY binding-pattern export",
+      rel: "lib/x/d.ts",
+      src: '"use server";\nconst arr = [async () => { await db.from("t").delete(); }];\nexport const [doIt] = arr;\n',
+      fn: "doIt",
+    },
+  ];
+
+  test.each(D1_CASES.map((c) => [c.label, c] as const))(
+    "%s resolves to a module-action unit",
+    (_l, c) => {
+      const units = unitsFor(c.rel, c.src);
+      expect(units.map((u) => [u.fn, u.kind])).toEqual([[c.fn, "module-action"]]);
+      // the resolved node is the REAL body, not a stub or the specifier
+      expect(scanBody(units[0]!.node, { descend: false }).writeBuilder).toBe(true);
+    },
+  );
+
+  test("unresolvable initializer (higher-order call) yields NO unit — the refusal is totality's job", () => {
+    const units = unitsFor(
+      "lib/x/hof.ts",
+      '"use server";\nexport const x = withFoo(async () => {});\n',
+    );
+    expect(units).toEqual([]);
+  });
+
+  test("COMPUTED binding property refuses even when it names a literal member (plan review R1 F3)", () => {
+    const units = unitsFor(
+      "lib/x/cp.ts",
+      '"use server";\nconst bag = { doIt: async () => { await db.from("t").delete(); } };\nexport const { ["doIt"]: doIt } = bag;\n',
+    );
+    expect(units).toEqual([]);
+  });
+
+  test("alias CYCLE yields no unit and does not hang", () => {
+    const units = unitsFor(
+      "lib/x/cy.ts",
+      '"use server";\nconst a = b;\nconst b = a;\nexport { a as doIt };\nexport async function ok() { await db.from("t").delete(); }\n',
+    );
+    expect(units.map((u) => u.fn)).toEqual(["ok"]);
+  });
+});
