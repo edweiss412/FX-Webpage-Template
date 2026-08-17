@@ -1922,3 +1922,321 @@ describe("export resolution: the lookup asks for an EXPORT, not a local name", (
     ).toBe("environment-touching");
   });
 });
+
+describe("forwarded exports: a re-export is followed to its source", () => {
+  const SPAWNER = `import { spawnSync } from "node:child_process";
+    export function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }
+    export default spawnHelper;
+    export function pureOne(): number { return 1; }`;
+
+  it('L-2 through a forward: `export { x } from "bare"` stays PURE', () => {
+    // The three forward paths this task introduces each resolve a specifier,
+    // and a resolver that reports every unresolvable forward target violates
+    // the ratified L-2 while passing every DIRECT-import foil. The wide
+    // accept-set probe measures 37 pure-bare edges in the near domain, so this
+    // is a live shape, not a constructed one (round-19 finding 5).
+    expect(
+      verdictWithModules(
+        { barrel: `export { Resend } from "resend";` },
+        `import { Resend } from "__MODULE_barrel__";
+         it("x", () => { void Resend; });`,
+      ),
+    ).toBe("environment-free");
+  });
+
+  it('L-2 through a forward: `export * from "bare"` stays PURE', () => {
+    expect(
+      verdictWithModules(
+        { barrel: `export * from "resend";` },
+        `import { Resend } from "__MODULE_barrel__";
+         it("x", () => { void Resend; });`,
+      ),
+    ).toBe("environment-free");
+  });
+
+  it("L-2 through E2: a BARE import then a local re-export stays PURE", () => {
+    expect(
+      verdictWithModules(
+        { barrel: `import { Resend } from "resend";\n export { Resend };` },
+        `import { Resend } from "__MODULE_barrel__";
+         it("x", () => { void Resend; });`,
+      ),
+    ).toBe("environment-free");
+  });
+
+  it("`export { x } from` is followed", () => {
+    expect(
+      verdictWithModules(
+        { helper: SPAWNER, barrel: `export { spawnHelper } from "__MODULE_helper__";` },
+        `import { spawnHelper } from "__MODULE_barrel__";
+         it("x", () => { spawnHelper(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("`export { x as y } from` is followed by the SOURCE name", () => {
+    expect(
+      verdictWithModules(
+        { helper: SPAWNER, barrel: `export { spawnHelper as renamed } from "__MODULE_helper__";` },
+        `import { renamed } from "__MODULE_barrel__";
+         it("x", () => { renamed(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("`export { default as x } from` is followed", () => {
+    expect(
+      verdictWithModules(
+        { helper: SPAWNER, barrel: `export { default as runIt } from "__MODULE_helper__";` },
+        `import { runIt } from "__MODULE_barrel__";
+         it("x", () => { runIt(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("`export { default } from` is followed", () => {
+    expect(
+      verdictWithModules(
+        { helper: SPAWNER, barrel: `export { default } from "__MODULE_helper__";` },
+        `import runIt from "__MODULE_barrel__";
+         it("x", () => { runIt(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("`export * from` is followed", () => {
+    expect(
+      verdictWithModules(
+        { helper: SPAWNER, barrel: `export * from "__MODULE_helper__";` },
+        `import { spawnHelper } from "__MODULE_barrel__";
+         it("x", () => { spawnHelper(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("`export * from` does NOT forward `default`", () => {
+    // ES semantics, and the foil that stops `export *` becoming a module-closure
+    // rule by the back door. `default` is not exported by the barrel, so the
+    // request answers noSuchExport and resolves pure: loud would be wrong here.
+    expect(
+      verdictWithModules(
+        { helper: SPAWNER, barrel: `export * from "__MODULE_helper__";` },
+        `import runIt from "__MODULE_barrel__";
+         it("x", () => { void runIt; });`,
+      ),
+    ).toBe("environment-free");
+  });
+
+  it("star-export ambiguity: the branch that HAS the name wins (AC-5b)", () => {
+    expect(
+      verdictWithModules(
+        {
+          helper: SPAWNER,
+          other: `export function unrelated(): number { return 7; }`,
+          barrel: `export * from "__MODULE_other__";
+                   export * from "__MODULE_helper__";`,
+        },
+        `import { spawnHelper } from "__MODULE_barrel__";
+         it("x", () => { spawnHelper(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("a star-export miss on every branch is benign, not a report", () => {
+    // AC-5b's foil: a name in no target resolves pure rather than loud.
+    expect(
+      verdictWithModules(
+        {
+          other: `export function unrelated(): number { return 7; }`,
+          barrel: `export * from "__MODULE_other__";`,
+        },
+        `import { absent } from "__MODULE_barrel__";
+         it("x", () => { void absent; });`,
+      ),
+    ).toBe("environment-free");
+  });
+
+  it("a re-export chain two deep is followed", () => {
+    expect(
+      verdictWithModules(
+        {
+          helper: SPAWNER,
+          mid: `export { spawnHelper } from "__MODULE_helper__";`,
+          barrel: `export { spawnHelper } from "__MODULE_mid__";`,
+        },
+        `import { spawnHelper } from "__MODULE_barrel__";
+         it("x", () => { spawnHelper(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("import-then-`export { x }` is followed", () => {
+    // No re-export SYNTAX at all: the case showing the defect is the
+    // extents-only lookup, not any list of export spellings.
+    expect(
+      verdictWithModules(
+        {
+          helper: SPAWNER,
+          barrel: `import { spawnHelper } from "__MODULE_helper__";
+                   export { spawnHelper };`,
+        },
+        `import { spawnHelper } from "__MODULE_barrel__";
+         it("x", () => { spawnHelper(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("an EXPORT beats a same-named non-exported local (AC-10c), moved here from Task 1, because it needs E5", () => {
+    // Resolution order. An extents-first resolver answers with the local and
+    // preserves the silent free through the barrel: the diagnosed defect under
+    // a new name. Probe B8 measures this environment-free today.
+    expect(
+      verdictWithModules(
+        {
+          helper: `import { spawnSync } from "node:child_process";
+            export function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }`,
+          barrel: `function spawnHelper(): number { return 0; }
+            void spawnHelper;
+            export { spawnHelper } from "__MODULE_helper__";`,
+        },
+        `import { spawnHelper } from "__MODULE_barrel__";
+         it("x", () => { spawnHelper(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("E5: `export { x as default } from` forwards named-to-DEFAULT", () => {
+    expect(
+      verdictWithModules(
+        { helper: SPAWNER, barrel: `export { spawnHelper as default } from "__MODULE_helper__";` },
+        `import runIt from "__MODULE_barrel__";
+         it("x", () => { runIt(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("E2: an import ALIAS then a local export forwards by the IMPORTED name", () => {
+    // A resolver forwarding by the LOCAL name asks the target for `h`, gets
+    // noSuchExport, and goes silently pure. The plain import-then-export case
+    // cannot catch that, because there the two names coincide.
+    expect(
+      verdictWithModules(
+        {
+          helper: SPAWNER,
+          barrel: `import { spawnHelper as h } from "__MODULE_helper__";
+                   export { h };`,
+        },
+        `import { h } from "__MODULE_barrel__";
+         it("x", () => { h(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("E2: a DEFAULT import then a local export forwards as `default`", () => {
+    expect(
+      verdictWithModules(
+        {
+          // `SPAWNER` already carries `export default spawnHelper`, so appending a
+          // second one makes a module with two default exports, which the
+          // error-tolerant parser still classifies while proving nothing about
+          // any module a refactor produces (round-8 finding 1).
+          helper: SPAWNER,
+          barrel: `import runIt from "__MODULE_helper__";
+                   export { runIt };`,
+        },
+        `import { runIt } from "__MODULE_barrel__";
+         it("x", () => { runIt(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("a re-exported PURE binding stays free", () => {
+    // The foil: following the edge must not mark the target's whole closure.
+    expect(
+      verdictWithModules(
+        { helper: SPAWNER, barrel: `export { pureOne } from "__MODULE_helper__";` },
+        `import { pureOne } from "__MODULE_barrel__";
+         it("x", () => { pureOne(); });`,
+      ),
+    ).toBe("environment-free");
+  });
+
+  it("a MIXED barrel: importing only the pure name stays free (AC-5 foil)", () => {
+    // Discriminates against a `forward` that falls back to the target's whole
+    // closure: the regression spec §1.1 item 2 fences. A pure-module foil
+    // cannot catch that; this one can.
+    expect(
+      verdictWithModules(
+        {
+          helper: SPAWNER,
+          barrel: `export { spawnHelper, pureOne } from "__MODULE_helper__";`,
+        },
+        `import { pureOne } from "__MODULE_barrel__";
+         it("x", () => { pureOne(); });`,
+      ),
+    ).toBe("environment-free");
+  });
+
+  // NOTE what this pair can and cannot discriminate (spec §2.5, AC-10): it
+  // catches an `active` set that is never POPPED, which would report this legal
+  // barrel shape as a re-export cycle. It does NOT catch removing `done`, and no
+  // fixture here pretends to. The star branch returns on the first arm that is
+  // not noSuchExport, so the shared pair is never revisited inside one
+  // resolution. `done` is a performance structure; AC-14 is its bound.
+  it("a diamond whose shared target MISSES is not mistaken for a cycle (AC-10)", () => {
+    // The shared target must MISS the sought name (spec AC-10). Two earlier
+    // drafts gave `d` the export, and then the FIRST star arm returns an extent,
+    // §2.2's source-order rule short-circuits, the second arm never revisits
+    // (d, name), and the case passes even with an `active` set that is never
+    // popped. Here both arms reach (d, "absent"), the first completes with
+    // noSuchExport and POPS, and the second re-reaches the same pair: a
+    // never-popped set sees a back edge and falsely reports `re-export cycle`.
+    expect(
+      verdictWithModules(
+        {
+          d: `export function present(): number { return 1; }`,
+          b: `export * from "__MODULE_d__";`,
+          c: `export * from "__MODULE_d__";`,
+          a: `export * from "__MODULE_b__";
+              export * from "__MODULE_c__";`,
+        },
+        `import { absent } from "__MODULE_a__";
+         it("t", () => { void absent; });`,
+      ),
+    ).toBe("environment-free");
+  });
+
+  it("a TOUCHING diamond still short-circuits on the first branch", () => {
+    // The pure diamond's companion: pins that the short-circuit is intact, so
+    // the pure case cannot be satisfied by removing it.
+    expect(
+      verdictWithModules(
+        {
+          helper: SPAWNER,
+          left: `export { spawnHelper } from "__MODULE_helper__";`,
+          right: `export { spawnHelper } from "__MODULE_helper__";`,
+          barrel: `export * from "__MODULE_left__";
+                   export * from "__MODULE_right__";`,
+        },
+        `import { spawnHelper } from "__MODULE_barrel__";
+         it("x", () => { spawnHelper(); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("a re-export CYCLE terminates and reports, with its own reason", () => {
+    const modules = {
+      a: `export { spawnHelper } from "__MODULE_b__";`,
+      b: `export { spawnHelper } from "__MODULE_a__";`,
+    };
+    const src = `import { spawnHelper } from "__MODULE_a__";
+      it("x", () => { spawnHelper(); });`;
+    expectReported(classificationWithModules(modules, src), {
+      construct: REPORTS.reexportCycle,
+      module: /mod\d+_/,
+      notModule: OWN_FILE,
+    });
+    // The verdict alone cannot discriminate: Task 1's stub also reports
+    // unclassifiable, so the REASON above is what proves cycle detection.
+  });
+});

@@ -426,8 +426,20 @@ type ExportTarget = { kind: "local"; name: string } | { kind: "node"; node: ts.N
  * about itself has no other way out. Task-ordered: `forward` is an internal
  * step, never returned to `reaches`.
  */
+/**
+ * A node in an export's extent, WITH the module it belongs to.
+ *
+ * The owner is not decoration: a forwarded node is declared in the module at
+ * the END of the chain, so resolving its references against the barrel that
+ * re-exported it finds none of its imports and reads a spawning helper as
+ * pure. The plan's type sketch wrote a bare `ts.Node[]`, which cannot express
+ * that; probed on `export { spawnHelper } from "./h"`, which stayed
+ * `environment-free` until the owner travelled with the node.
+ */
+type ExtentNode = { node: ts.Node; facts: ModuleFacts; path: string };
+
 type ExportResolution =
-  | { kind: "extent"; nodes: ts.Node[]; reasons?: string[] }
+  | { kind: "extent"; nodes: ExtentNode[]; reasons?: string[] }
   | { kind: "forward"; spec: string; exportName: string }
   | { kind: "data"; reasons?: string[] }
   | { kind: "noSuchExport"; reasons?: string[] }
@@ -503,6 +515,10 @@ type ModuleFacts = {
    * before this map existed (spec §2.1).
    */
   exports: Map<string, ExportTarget>;
+  /** EXPORTED name → the module it is forwarded from, and the name it has THERE. */
+  forwards: Map<string, { spec: string; sourceName: string }>;
+  /** `export * from` specifiers, in SOURCE ORDER — a fan-out, not a name. */
+  starExports: string[];
   /** Memo for `resolveBinding`, keyed (scope, name) — see there for why that is the identity. */
   resolved: Map<Scope, Map<string, Binding>>;
   /** Memo for `extentIsProvenance`, per node of THIS file. */
@@ -597,6 +613,57 @@ function bindingKey(name: string, binding: Binding): string | null {
  * stated once: Task 2 follows forwards INSIDE this function, and a signature
  * widened later would leave the star fan-out without its continuation.
  */
+/**
+ * `moduleFacts`, memoized per absolute path.
+ *
+ * Lifted to module scope because `resolveExport` follows forwards INTERNALLY
+ * and must load each hop's facts itself; a cache local to `classifyTests` is
+ * unreachable from there. Cleared at the start of every `classifyTests` call,
+ * so a suite written to a path a previous call also used is re-read.
+ */
+const factsCache = new Map<string, ModuleFacts | null>();
+function factsFor(p: string): ModuleFacts | null {
+  if (!factsCache.has(p)) factsCache.set(p, moduleFacts(p));
+  return factsCache.get(p) ?? null;
+}
+
+/**
+ * Follow ONE forward hop, then keep resolving in the target.
+ *
+ * `active` holds the `(module, exportName)` pairs on the CURRENT path, pushed
+ * on entry and popped on completion: re-entering one is a back edge and IS the
+ * cycle. The popping is the whole mechanism — by the time a diamond's second
+ * arm reaches the shared pair, the first arm has completed and removed it, so
+ * a properly popped set handles an ordinary diamond on its own, and a set that
+ * is never popped reports one as a cycle. `done` is MEMOIZATION only (§2.5).
+ */
+function followForward(
+  root: string,
+  facts: ModuleFacts,
+  spec: string,
+  exportName: string,
+  active: Set<string>,
+  done: Map<string, ExportResolution>,
+): ExportResolution {
+  const target = resolveSpecifier(root, facts.sf.fileName, spec);
+  // A BARE specifier is node_modules and stays pure under L-2, through a
+  // forward exactly as through a direct import.
+  if (target === null) return { kind: "noSuchExport" };
+  const shape = classifyTarget(target, spec);
+  if (shape !== "analyze") return shape === "data" ? { kind: "data" } : shape;
+  const key = `${target}#${exportName}`;
+  if (active.has(key)) return { kind: "unresolvable", reason: `re-export cycle at ${key}` };
+  const memo = done.get(key);
+  if (memo !== undefined) return memo;
+  const tf = factsFor(target);
+  if (tf === null) return { kind: "unresolvable", reason: `unparseable in-repo module ${spec}` };
+  active.add(key);
+  const res = resolveExport(root, tf, exportName, active, done);
+  active.delete(key);
+  done.set(key, res);
+  return res;
+}
+
 function resolveExport(
   root: string,
   facts: ModuleFacts,
@@ -604,13 +671,37 @@ function resolveExport(
   active: Set<string>,
   done: Map<string, ExportResolution>,
 ): ExportResolution {
-  void root;
-  void active;
-  void done;
   const target = facts.exports.get(exportName);
-  if (target === undefined) return { kind: "noSuchExport" };
-  if (target.kind === "node") return { kind: "extent", nodes: [target.node] };
-  return { kind: "extent", nodes: facts.extents.get(facts.sf)?.get(target.name) ?? [] };
+  if (target !== undefined) {
+    const here = (node: ts.Node): ExtentNode => ({ node, facts, path: facts.sf.fileName });
+    if (target.kind === "node") return { kind: "extent", nodes: [here(target.node)] };
+    const nodes = (facts.extents.get(facts.sf)?.get(target.name) ?? []).map(here);
+    // E2: `import { x } from "./h"; export { x }` exports a name this module
+    // only IMPORTS, so the local map answers with an empty extent unless the
+    // edge is followed. Any WRITE to the same binding stays in the answer.
+    const imported = facts.imports.get(target.name);
+    if (imported !== undefined) {
+      const via = followForward(root, facts, imported.spec, imported.imported, active, done);
+      if (via.kind === "extent") return { kind: "extent", nodes: [...via.nodes, ...nodes] };
+      if (via.kind !== "noSuchExport") return via;
+    }
+    return { kind: "extent", nodes };
+  }
+  const forwarded = facts.forwards.get(exportName);
+  if (forwarded !== undefined)
+    return followForward(root, facts, forwarded.spec, forwarded.sourceName, active, done);
+  // E6: a star fan-out carries every name EXCEPT `default`. Candidates are
+  // tried in SOURCE ORDER and a miss on one branch is benign; the first answer
+  // that is not `noSuchExport` wins, because "stop at the first provenance" is
+  // not decidable here — this returns an extent and cannot know what the
+  // traversal will make of it (spec §2.2).
+  if (exportName !== "default") {
+    for (const spec of facts.starExports) {
+      const via = followForward(root, facts, spec, exportName, active, done);
+      if (via.kind !== "noSuchExport") return via;
+    }
+  }
+  return { kind: "noSuchExport" };
 }
 
 /**
@@ -638,6 +729,8 @@ function moduleFacts(path: string): ModuleFacts | null {
   const shadows = new Map<Scope, Set<string>>();
   const scopedImports = new Map<Scope, Map<string, { spec: string; imported: string }>>();
   const exports = new Map<string, ExportTarget>();
+  const forwards = new Map<string, { spec: string; sourceName: string }>();
+  const starExports: string[] = [];
   /** Writes, resolved in a SECOND pass: a write's target binding cannot be
    * known until every declaration in the file has been registered. */
   const writes: Array<{ name: string; at: ts.Node; value: ts.Node }> = [];
@@ -698,6 +791,25 @@ function moduleFacts(path: string): ModuleFacts | null {
       for (const e of node.exportClause.elements) {
         if (e.isTypeOnly) continue;
         exports.set(e.name.text, { kind: "local", name: (e.propertyName ?? e.name).text });
+      }
+    }
+    if (
+      ts.isExportDeclaration(node) &&
+      node.moduleSpecifier &&
+      ts.isStringLiteral(node.moduleSpecifier) &&
+      !node.isTypeOnly
+    ) {
+      // E5/E6: a re-export names another module. Recorded as an EDGE rather
+      // than resolved here, because following it needs the resolver's root and
+      // its cycle structures, which only exist during a traversal.
+      const spec = node.moduleSpecifier.text;
+      if (node.exportClause && ts.isNamedExports(node.exportClause)) {
+        for (const e of node.exportClause.elements) {
+          if (e.isTypeOnly) continue;
+          forwards.set(e.name.text, { spec, sourceName: (e.propertyName ?? e.name).text });
+        }
+      } else if (!node.exportClause) {
+        starExports.push(spec);
       }
     }
     if (ts.isExportAssignment(node) && !node.isExportEquals) {
@@ -913,6 +1025,8 @@ function moduleFacts(path: string): ModuleFacts | null {
     shadows,
     scopedImports,
     exports,
+    forwards,
+    starExports,
     resolved: new Map<Scope, Map<string, Binding>>(),
     provenance: new WeakMap<ts.Node, boolean>(),
   };
@@ -1111,11 +1225,8 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
   const abs = resolve(root, suitePath);
   const facts = moduleFacts(abs);
   if (!facts) return [];
-  const cache = new Map<string, ModuleFacts | null>([[abs, facts]]);
-  const factsFor = (p: string): ModuleFacts | null => {
-    if (!cache.has(p)) cache.set(p, moduleFacts(p));
-    return cache.get(p) ?? null;
-  };
+  factsCache.clear();
+  factsCache.set(abs, facts);
 
   const out: TestClassification[] = [];
 
@@ -1177,8 +1288,10 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
           if (res.kind === "unresolvable") unresolved.push(res.reason);
           if (res.kind !== "forward" && res.reasons) unresolved.push(...res.reasons);
           if (res.kind === "extent") {
+            // Each node travels with the module it was DECLARED in, which is
+            // not `tf` once a forward has been followed.
             for (const ext of res.nodes) {
-              if (visit(ext, tf, target)) return true;
+              if (visit(ext.node, ext.facts, ext.path)) return true;
             }
           }
           // …and anything later ASSIGNED to the same local binding.
