@@ -2169,33 +2169,74 @@ export function scanJsSource(source: string, file: string): PsqlSite[] {
  * either, so both are reported rather than silently mis-read.
  */
 /**
- * ONE declaration grammar, not one spelling of it. Review demonstrated NINE
- * ordinary bash bindings walking past the previous single pattern, each of
- * which makes the later expanded command word psql: whole-ARGUMENT quoting
- * (`export 'PG=psql'`, `readonly "PG=psql"`), a flagless `declare`, `local`
- * inside a function, `typeset`, an indexed element (`PG[0]=psql`), an append
- * (`PG+=psql`), and `read -r PG <<< psql`, which is not an assignment at all.
- *
  * COMPILED ONCE, at module scope. Building these per line inside the scan
  * turned the ~2950-file walk from ~10s into ~75s — past the guard's own 60s
  * test timeout, which is a CI failure rather than a slow test.
  */
-const DECLARE_KEYWORD = "(?:(?:export|readonly|declare|local|typeset)\\s+(?:-\\w+\\s+)*)?";
-const ASSIGNED_NAME = "[A-Za-z_]\\w*(?:\\[[^\\]]*\\])?\\+?=";
 const PSQL_VALUE = "[^\\s\"';|&]*\\bpsql\\b[^\\s\"';|&]*";
-/** The VALUE may be quoted: `PG="psql"`. */
-const ASSIGNED_VALUE_QUOTED = new RegExp(
-  `(?:^|[\\s;&|(])${DECLARE_KEYWORD}${ASSIGNED_NAME}(["']?)(?!\\$\\(|\`)${PSQL_VALUE}\\1(?:[\\s;|&)]|$)`,
-);
-/** …or the whole `NAME=value` ARGUMENT may be, which is the form that carried
- * `export "PG=psql"` past a pattern anchored on whitespace before the name. */
-const ASSIGNED_WHOLE_QUOTED = new RegExp(
-  `(?:^|[\\s;&|(])${DECLARE_KEYWORD}(["'])${ASSIGNED_NAME}${PSQL_VALUE}\\1(?:[\\s;|&)]|$)`,
-);
 /** `read -r PG <<< psql` binds the name from a here-string. */
 const READ_HERE_STRING = new RegExp(
   `(?:^|[\\s;&|(])read\\s+(?:-\\w+\\s+)*[A-Za-z_]\\w*\\b[^\\n]*<<<\\s*["']?${PSQL_VALUE}`,
 );
+
+/**
+ * Assignment bindings are read from LEXED WORDS, not from raw line text. The
+ * lexer already performs the quote removal, escape processing and word
+ * assembly the shell does, so `PG=psql`, `export "PG=psql"`, `PG=p'sql'`,
+ * `PG=p\sql` and `PG=$'psql'` are all the same word once lexed - the regex
+ * family this replaces admitted exactly one delimiter form per pattern and
+ * needed a new spelling per review round (BL-SHELL-BINDING-MIXED-QUOTED-VALUE;
+ * design: docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md).
+ */
+const ASSIGNMENT_WORD = /^[A-Za-z_]\w*(?:\[[^\]]*\])?\+?=([\s\S]*)$/;
+
+/**
+ * Opening line indexes (0-based) of words that BIND the psql command name.
+ * Position-independent on purpose: `env PG=psql cmd` binds at argument
+ * position, and the retired patterns fired anywhere after a separator too.
+ * A `$(…)`/backtick value lexes to the opaque `${}` and stays the discovery
+ * walk's jurisdiction; a `${…}` expansion is kept verbatim, so the
+ * parameter-default forms still report here.
+ *
+ * The declaration keywords need no grammar: `export`, `readonly`, `declare -x`,
+ * `local`, `typeset` and their flags are SEPARATE words, and whole-argument
+ * quoting (`export "PG=psql"`, `export 'PG=p'sql`) dequotes to the same
+ * candidate word — which is why the `DECLARE_KEYWORD` alternation disappeared
+ * rather than being ported.
+ */
+function assignmentBindingLines(words: ShellWord[], file: string): Set<number> {
+  const found = new Set<number>();
+  for (const word of words) {
+    if (word.operator) continue;
+    const match = ASSIGNMENT_WORD.exec(word.text);
+    if (!match) continue;
+    // Trim default-IFS edges (space, tab, newline): an unquoted expansion
+    // word-splits, so `PG=' psql'` and `PG=$'psql\n'` both run psql at their
+    // use sites (spec 3.1; probe supplement g3/g6).
+    const value = match[1]!.replace(/^[ \t\n]+|[ \t\n]+$/g, "");
+    if (value.length === 0) continue;
+    if (/\s/.test(value)) continue; // multiword values: Task 3
+    // The PSQL_VALUE core, decided on the DEQUOTED value: psql with word
+    // boundaries, no surviving quote or separator DATA characters (a quoted
+    // `;` binds `psql;x`, which is not the psql command), and no trailing
+    // literal backslash - the expanded word's basename would be empty, the
+    // same shell fact the ratified trailing-backslash contract test pins.
+    // A separator character in a DIRECTORY component changes nothing about
+    // what runs: `/tmp/O'Reilly/psql` has basename psql (plan round-4
+    // finding 1). The basename alternative reuses the module's own word
+    // semantics (basename + isPsqlName), so it is exact, not a widening:
+    // `psql;x`, `psqlx` and a trailing-backslash value all fail it.
+    if (isPsqlName(basename(value))) {
+      found.add(word.line);
+      continue;
+    }
+    if (!/\bpsql\b/.test(value)) continue;
+    if (/["';|&]/.test(value)) continue;
+    if (value.endsWith("\\")) continue;
+    found.add(word.line);
+  }
+  return found;
+}
 
 /**
  * An interpreter's trailing POSITIONALS become `$0`, `$1`, … of the script it
@@ -2240,7 +2281,20 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
   // as the command word, and inside a quoted workflow `run:` scalar. An
   // earlier line-regex cut matched only the unquoted single-line assignment.
   const nested: NestedShell[] = [];
-  lexShellWords(source, nested);
+  // A YAML block scalar is DEDENTED before the shell ever sees it, so a
+  // backslash-newline continuation inside a `run:` body glues WITHOUT the
+  // block's indentation: `PSQL="/opt/pg/\` + newline + ten spaces + `psql"` is
+  // the single word `/opt/pg/psql`. The lexer is bash-faithful and keeps
+  // whatever follows the continuation, which is right for a `.sh` file and
+  // wrong for the raw YAML this function is handed — the walk feeds it the
+  // FILE, not the resolved `run:` body. The retired `spliced` view stripped
+  // that leading whitespace for EVERY file type; this keeps the strip only
+  // where it is the document's own semantics. Newlines are preserved, so every
+  // word's `line` still names its physical line.
+  const lexedSource = YAML_EXTENSIONS.includes(extensionOf(file))
+    ? source.replace(/\\\n[ \t]+/g, "\\\n")
+    : source;
+  const words = lexShellWords(lexedSource, nested);
   const seenBodies = new Set<string>();
   // In a JS string literal a BACKTICK span is markdown, not shell: prose like
   // "wrap with `command -v psql >/dev/null || (...)`" is documentation. Same
@@ -2260,6 +2314,7 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
     hits.push({ file, line: body.line + 1, text: body.text.trim() });
   };
   for (const body of nested) visitBody(body);
+  const bindingLines = assignmentBindingLines(words, file);
   for (const [index, line] of lines.entries()) {
     const comment = commentAt[index]?.[0]?.[0];
     // A backslash-newline CONTINUATION makes one logical line: the quoted
@@ -2285,31 +2340,24 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
     for (let k = index; /\\$/.test(spliced) && k + 1 < lines.length; k++) {
       spliced = `${spliced.replace(/\\$/, "")}${(lines[k + 1] ?? "").replace(/^\s+/, "")}`;
     }
-    // `PG=psql`, `PSQL="/usr/bin/psql"`, `readonly PG=psql`, `export PG=psql`
-    // Any assignment whose VALUE is a single word mentioning psql binds the
-    // command name: `PG=psql`, `PSQL="/usr/bin/psql"`, and the parameter-default
-    // forms `PSQL="${PSQL:-psql}"` (and `-` `:=` `=` `:+` `+`), where the lexer
+    // Any assignment whose VALUE binds the psql command name: `PG=psql`,
+    // `PSQL="/usr/bin/psql"`, `PG=p'sql'`, and the parameter-default forms
+    // `PSQL="${PSQL:-psql}"` (and `-` `:=` `=` `:+` `+`), where the lexer
     // replaces the whole expansion with an opaque word and the command name
-    // only exists at runtime. Requiring the value to be ONE word keeps prose
-    // like `MSG="psql failed"` out; `\bpsql\b` keeps `notpsql` out.
-    // One declaration grammar, not one spelling of it. Review demonstrated
-    // NINE ordinary bash bindings walking past the previous pattern, each of
-    // which makes the later expanded command word psql: whole-ARGUMENT quoting
-    // (`export 'PG=psql'`, `readonly "PG=psql"`), a flagless `declare`, `local`
-    // inside a function, `typeset`, an indexed element (`PG[0]=psql`), and an
-    // append (`PG+=psql`). The pattern now covers the declaration keywords with
-    // optional flags, both quoting positions, a subscript, and `+=`.
-    // No literal prefilter here, deliberately, even though all three patterns
+    // only exists at runtime. Decided by `assignmentBindingLines` over the
+    // LEXED words above — see its comment for why the declaration-keyword and
+    // quoting-position alternations are gone. `READ_HERE_STRING` still reads
+    // the spliced line: a here-string TARGET is a redirection operand the
+    // lexer drops before words exist (ledger
+    // BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE).
+    // No literal prefilter here, deliberately, even though both readers
     // require a `psql` inside the text they match. A per-line substring guard
     // would be equivalent TODAY and is worth ~6s on the walk, but it is the
     // exact shape the R4 meta-test forbids module-wide — that prefilter shipped
     // once and silently disabled every decoding fix — and a guard is not worth
     // weakening for six seconds. The patterns are compiled once at module
     // scope, which is where the real cost was.
-    const assigned =
-      ASSIGNED_VALUE_QUOTED.exec(spliced) ??
-      ASSIGNED_WHOLE_QUOTED.exec(spliced) ??
-      READ_HERE_STRING.exec(spliced);
+    const assigned = bindingLines.has(index) ? ["", ""] : READ_HERE_STRING.exec(spliced);
     // `alias psql=…`, including the whole-argument quotings `alias 'psql=…'`
     // and `alias "psql=…"`, plus a shell FUNCTION named psql.
     const aliased = /(?:^|\s)alias\s+(?:-\w+\s+)*["']?psql=/.exec(code);

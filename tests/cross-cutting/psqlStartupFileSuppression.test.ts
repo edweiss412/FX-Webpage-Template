@@ -4745,3 +4745,136 @@ describe("enrolment survivors - batch D", () => {
     expect(sites[0]!.line).toBe(5);
   });
 });
+
+describe("mixed-quoted assignment values (BL-SHELL-BINDING-MIXED-QUOTED-VALUE)", () => {
+  // The shell reads an assignment value as a CONCATENATION of quoted, escaped
+  // and bare segments; the retired regex pair read one delimiter form. Oracle
+  // per row: the probe record (instrument 2) - every value below reassembles
+  // to psql or a psql path.
+  test.each([
+    ["quoted then bare", "PG=p'sql'\n"],
+    ["bare then quoted", "PG='p'sql\n"],
+    ["double-quoted split", 'PG="ps"ql\n'],
+    ["quoted path prefix", "PG='/usr/bin/'psql\n"],
+    ["escaped spelling", "PG=p\\sql\n"],
+    ["ANSI-C quoted", "PG=$'psql'\n"],
+    ["ANSI-C octal escape", "PG=$'p\\163ql'\n"],
+    ["ANSI-C hex escape", "PG=$'\\x70sql'\n"],
+    ["locale quoted", 'PG=$"psql"\n'],
+    ["mixed inside declare", "declare -x PG=p'sql'\n"],
+    ["mixed whole-argument quoting", "export 'PG=p'sql\n"],
+    // Word-splitting trims an unquoted expansion (spec §3.1 trim; supplement
+    // g3/g6): both of these run psql at their use sites.
+    ["quoted leading space", "PG=' psql'\n"],
+    ["ANSI-C trailing newline", "PG=$'psql\\n'\n"],
+    // Separator characters in DIRECTORY components (round-4 finding 1): the
+    // basename is psql, so the value binds the command; probed against bash.
+    ["apostrophe directory", 'PG="/tmp/O\'Reilly/psql"\n'],
+    ["double-quote directory", "PG='/tmp/x\"y/psql'\n"],
+    ["semicolon directory", "PG='/tmp/x;y/psql'\n"],
+    ["pipe directory", "PG='/tmp/x|y/psql'\n"],
+    ["ampersand directory", "PG='/tmp/x&y/psql'\n"],
+  ])("%s binds the psql command and is reported", (_label, source) => {
+    expect(scanShellIndirection(source, "x.sh").length).toBeGreaterThan(0);
+  });
+
+  // The same shell fact as the ratified trailing-backslash contract, applied
+  // uniformly: a value whose expansion ends in a literal backslash has an
+  // empty basename and is never the psql command. All three REPORTED before
+  // this repair (probe record, instrument 1) - shell-false hits.
+  test.each([
+    ["bare value, dangling final backslash", "PG=psql\\"],
+    ["bare value, escaped backslash at end of input", "PG=psql\\\\"],
+    ["single-quoted literal trailing backslash", "PG='psql\\'\n"],
+  ])("%s binds a trailing-backslash value and is NOT reported", (_label, source) => {
+    expect(scanShellIndirection(source, "x.sh")).toHaveLength(0);
+  });
+
+  // Precision survivors: values whose dequoted text is NOT the psql command.
+  // `PG='psql'x` and the EOF-backslash pair are already pinned by the ledger
+  // entry's corrected non-instances and the ratified contract test; these two
+  // are the NEW spellings this block must hold at zero.
+  test.each([
+    ["quoted semicolon value", "PG='psql;x'\n"], // binds `psql;x`
+    ["whole-argument quoting with a literal quote", "export 'PG=p'\\''sql'\n"], // binds `p'sql`
+    ["double-quoted literal backslash", 'PG="p\\sql"\n'], // binds `p\sql` (supplement g5)
+    ["ANSI-C unknown escape", "PG=$'p\\zsql'\n"], // binds `p\zsql` (bash keeps both chars)
+    // Digit-boundary pins, doubling as PREEMPTIVE mutant kills for the
+    // decodeAnsiCEscape quantifier sites (Task 6 / Global Constraints): a
+    // widened octal {1,4} would decode \0160 as 0x70 (`psql`) where bash's
+    // three-digit read yields control-14 + `0sql`; a widened hex {1,3} would
+    // decode \x070 as 0x70 where bash's two-digit read yields bell + `0sql`.
+    ["ANSI-C octal digit bound", "PG=$'\\0160sql'\n"], // binds SO + `0sql`, never psql
+    ["ANSI-C hex digit bound", "PG=$'\\x070sql'\n"], // binds BEL + `0sql`, never psql
+    // Unterminated ANSI-C is a shell syntax error that runs nothing; the
+    // lexer keeps the old undecoded reading (spec 6.4, round-3 finding 2).
+    ["unterminated ANSI-C string", "PG=$'p\\163ql"],
+  ])("%s does not bind psql and stays unreported", (_label, source) => {
+    expect(scanShellIndirection(source, "x.sh")).toHaveLength(0);
+  });
+
+  // The R34 wrapped-path binding must survive the spliced consumer's deletion:
+  // the double-quote continuation fix (Task 1) glues the word, the word route
+  // reads it. Premise-style duplicate of the committed R34 fixture, kept here
+  // because THIS block is the one that owns the regex deletion.
+  test("a double-quoted backslash-newline wrapped path still binds", () => {
+    expect(
+      scanShellIndirection('PSQL="/opt/postgresql/17/bin/\\\npsql"\n"$PSQL" -qAt mydb\n', "x.sh")
+        .length,
+    ).toBeGreaterThan(0);
+  });
+
+  // The word route lexes the RAW file, and a YAML block scalar is DEDENTED
+  // before the shell sees it - so a continuation inside a `run:` body glues
+  // without the block's indentation. The retired `spliced` view stripped that
+  // whitespace for every file type; the replacement strips it only where it is
+  // the document's own semantics, which is why the two spellings below differ.
+  // The `.sh` zero is the whitespace-in-a-directory-component limit (spec §6
+  // item 5) reached through a continuation: bash really does bind
+  // `/opt/pg/   psql` there.
+  test("a wrapped path is dedented in YAML and kept literal in shell", () => {
+    const yaml = [
+      "jobs:",
+      "  x:",
+      "    steps:",
+      "      - run: |",
+      '          PSQL="/opt/pg/\\',
+      '          psql"',
+      '          "$PSQL" -qAt mydb',
+      "",
+    ].join("\n");
+    expect(scanShellIndirection(yaml, ".github/workflows/x.yml").length).toBeGreaterThan(0);
+    // Premise: the same shell text WITHOUT the indentation binds, so the zero
+    // below is attributable to the whitespace the shell keeps.
+    premise(
+      "an unindented continuation binds in a .sh file",
+      scanShellIndirection('PSQL="/opt/pg/\\\npsql"\n"$PSQL" -qAt mydb\n', "x.sh").length,
+      0,
+    );
+    expect(
+      scanShellIndirection('PSQL="/opt/pg/\\\n          psql"\n"$PSQL" -qAt mydb\n', "x.sh"),
+    ).toHaveLength(0);
+  });
+
+  // Conservative widening, spec §4: the expansion-prefixed psql suffix is the
+  // same trailing-path shape isPsqlCommandWord treats as psql-capable.
+  test("an expansion-prefixed psql suffix is reported", () => {
+    expect(scanShellIndirection("PG=$(x)psql\n", "x.sh").length).toBeGreaterThan(0);
+  });
+
+  // Structural handoff, spec §3.1: a substitution VALUE is the discovery
+  // walk's jurisdiction, not the binding rule's - the opaque `${}` word
+  // carries no psql text, and visitBody still reports the body.
+  test("a binding inside a substitution body is still reported by discovery", () => {
+    expect(scanShellIndirection('X=$(PG=psql; "$PG" -qAt mydb)\n', "x.sh").length).toBeGreaterThan(
+      0,
+    );
+  });
+
+  // Spec 3.1 reporting parity (round-2 finding 2): every assignment-shaped
+  // word is examined independently - a non-qualifying one neither reports nor
+  // shadows a later binding on the same line.
+  test("a non-qualifying assignment does not shadow a later binding on the line", () => {
+    expect(scanShellIndirection("A=no PG=psql\n", "x.sh").length).toBeGreaterThan(0);
+  });
+});
