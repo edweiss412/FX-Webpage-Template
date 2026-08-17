@@ -579,7 +579,20 @@ export type Revalidation = { ok: true } | { ok: false; message: string };
  */
 export function runCompact(opts: {
   store: NonceStore;
-  markerNonce: string | null;
+  /**
+   * A THUNK, not a value, and that is the whole point (AC-19).
+   *
+   * Taking the marker's nonce as a value meant it was read BEFORE
+   * `revalidate()`, so the revalidation re-read the marker, compared only the
+   * verdict, and then authorized the send against a nonce that could already
+   * have changed underneath it. Diff round 1 probed exactly that: three marker
+   * reads returning `recorded`, `recorded`, `changed-before-revalidation`, and
+   * the command still exited 0 having sent `/compact`.
+   *
+   * Read AFTER revalidation, so the value compared is the one true at the
+   * moment of the send rather than at the moment the command started.
+   */
+  markerNonce: () => string | null;
   send: (s: string) => void;
   revalidate: () => Revalidation;
 }): { exitCode: 0 | 1; message: string } {
@@ -590,10 +603,11 @@ export function runCompact(opts: {
   if (recorded === null) {
     return { exitCode: 1, message: refuse({ kind: "nonce-absent" }).message };
   }
-  if (opts.markerNonce === null) {
+  const current = opts.markerNonce();
+  if (current === null) {
     return { exitCode: 1, message: refuse({ kind: "nonce-absent" }).message };
   }
-  if (opts.markerNonce !== recorded) {
+  if (current !== recorded) {
     return { exitCode: 1, message: refuse({ kind: "nonce-mismatch" }).message };
   }
 

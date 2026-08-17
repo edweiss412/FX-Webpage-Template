@@ -49,7 +49,7 @@ describe("the nonce gate", () => {
     const sent: string[] = [];
     const r = runCompact({
       store: aStore(N1),
-      markerNonce: N1,
+      markerNonce: () => N1,
       send: (s) => sent.push(s),
       revalidate: () => ({ ok: true }),
     });
@@ -69,7 +69,7 @@ describe("the nonce gate", () => {
       const sent: string[] = [];
       const r = runCompact({
         store: aStore(held),
-        markerNonce,
+        markerNonce: () => markerNonce,
         send: (s) => sent.push(s),
         revalidate: () => ({ ok: true }),
       });
@@ -90,7 +90,7 @@ describe("consume-before-send, observed from INSIDE the send", () => {
     const store = aStore(N1);
     runCompact({
       store,
-      markerNonce: N1,
+      markerNonce: () => N1,
       send: () => {
         seenAtCallTime = store.read();
       },
@@ -106,7 +106,7 @@ describe("revalidation runs immediately before sending", () => {
     const sent: string[] = [];
     const r = runCompact({
       store: aStore(N1),
-      markerNonce: N1,
+      markerNonce: () => N1,
       send: (s) => sent.push(s),
       revalidate: () => ({
         ok: false,
@@ -118,13 +118,43 @@ describe("revalidation runs immediately before sending", () => {
     expect(r.message).toContain("verdict changed");
   });
 
+  it("compares the nonce the marker holds AFTER revalidation, not before", () => {
+    // Diff round 1, finding 3. The gate took `markerNonce` as a VALUE, so it was
+    // read before `revalidate()` ran; the revalidation then re-read the marker,
+    // compared only the VERDICT, and authorized the send against a nonce that
+    // had already changed. Probed: three marker reads returning `recorded`,
+    // `recorded`, `changed-before-revalidation`, and the command still exited 0
+    // having sent `/compact`.
+    //
+    // The window is not theoretical: `--checkpoint` asks the target to write its
+    // marker, so a target writing during the subsequent `--compact` is the
+    // ORDINARY case this tool creates, not a race someone has to engineer.
+    //
+    // Fails against a value-captured nonce (it would see N1, match, and send)
+    // and passes only when the thunk is consulted after revalidation.
+    const sent: string[] = [];
+    let markerHolds: string | null = N1;
+    const r = runCompact({
+      store: aStore(N1),
+      markerNonce: () => markerHolds,
+      send: (s) => sent.push(s),
+      revalidate: () => {
+        markerHolds = N2; // the target rewrote its marker mid-command
+        return { ok: true };
+      },
+    });
+    expect(r.exitCode).toBe(1);
+    expect(sent).toEqual([]);
+    expect(r.message).toContain("not the one this command recorded");
+  });
+
   it("revalidates BEFORE consuming, so a refusal leaves the record reusable", () => {
     // A refusal must not burn the checkpoint: the orchestrator should be able
     // to fix the condition and retry without re-checkpointing the target.
     const store = aStore(N1);
     runCompact({
       store,
-      markerNonce: N1,
+      markerNonce: () => N1,
       send: () => undefined,
       revalidate: () => ({ ok: false, message: "refusing: contested" }),
     });

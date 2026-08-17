@@ -479,7 +479,14 @@ function drive(opts: Parsed, pane: RosterPane, roster: RosterPane[], s: Surface)
       read: () => s.nonceRead(as, pane.paneId),
       consume: opts.dryRun ? (): void => {} : (): void => s.nonceConsume(as, pane.paneId),
     },
-    markerNonce,
+    // Re-READ at authorization time, not the value captured at line 426. The
+    // captured one is still correct for `--checkpoint`'s collision check, but
+    // authorizing `/compact` against it lets a marker that changed during the
+    // command through (AC-19, diff round 1 finding 3).
+    markerNonce: () => {
+      const now = s.marker(pane.cwd);
+      return typeof now?.["checkpointNonce"] === "string" ? now["checkpointNonce"] : null;
+    },
     send: (text) => {
       if (opts.dryRun) s.out(text);
       else s.send(pane.paneId, text);
