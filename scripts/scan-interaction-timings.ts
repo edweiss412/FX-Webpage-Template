@@ -39,15 +39,28 @@
  *
  * TOTALITY IS PER-FORM, and the boundary is worth stating because the two
  * halves differ. For TIMER DELAYS every `setTimeout` / `setInterval` delay
- * ARGUMENT is walked, not only the ones that happen to be literals — with one
- * hole: an identifier delay resolves by NAME, not by binding, so a LOCAL
- * binding that happens to share a covered constant's spelling is treated as
- * that constant and suppressed. `BL-TIMING-SCAN-NAME-VS-BINDING` carries it. A delay that is neither a numeric literal (form 1) nor an identifier
- * resolving to a covered binding (form 2) is emitted as `unclassified` and fails
- * the inventory test until it is dispositioned — renamed into the pattern, or
- * given a reasons-required row in `UNCLASSIFIED_DISPOSITIONS`. Every timer delay
- * in the universe is therefore literal, resolved, or reported BY NAME. None
- * passes silently.
+ * ARGUMENT is walked, not only the ones that happen to be literals. An
+ * identifier delay resolves against the DECLARATION IT BINDS TO — the
+ * TypeScript checker's own answer, over a program built from the universe
+ * files — and never against its spelling, so a LOCAL binding that happens to
+ * share a covered constant's name is a different binding and is REPORTED. Two
+ * distinct bindings that share a name never resolve to each other; that is what
+ * closed `BL-TIMING-SCAN-NAME-VS-BINDING`. A delay that is neither a numeric
+ * literal (form 1) nor an identifier resolving to a covered DECLARATION (form
+ * 2) is emitted as `unclassified` and fails the inventory test until it is
+ * dispositioned — renamed into the pattern, or given a reasons-required row in
+ * `UNCLASSIFIED_DISPOSITIONS`. Every timer delay in the universe is therefore
+ * literal, resolved against its binding, or reported BY NAME. None passes
+ * silently.
+ *
+ * The same resolution serves timing-named PROPERTY VALUES: there is exactly one
+ * resolution step in this module and both positions flow through it. Every
+ * uncertainty — no symbol, an unresolvable alias, a declaration outside the
+ * program, a declaration that produced no covered row — defaults to REPORTING.
+ * Documented limits, with their probes, live in the 2026-08-16 binding-
+ * resolution spec §4: a covered constant reached through a re-export module
+ * OUTSIDE the universe reports rather than resolving, and this arc resolves
+ * REFERENCES rather than evaluating expressions.
  *
  * DOCUMENTED LIMIT (threat-model fence: accidental authoring mistakes by an
  * ordinary contributor, not adversarial obfuscation). A DELAY assembled at
@@ -515,6 +528,9 @@ export function scanTimingSites(
             name: ts.isStringLiteral(valueNode) ? valueNode.text : collapsed(valueNode, sf),
             value: null,
             propertyKey: node.name.text,
+            // Built without the key rather than with `refPos: undefined`:
+            // `exactOptionalPropertyTypes` rejects the explicit undefined.
+            ...(ts.isIdentifier(valueNode) ? { refPos: valueNode.getStart(sf) } : {}),
           });
         }
       }
@@ -561,6 +577,7 @@ export function scanTimingSites(
           name: collapsed(node.initializer, sf),
           value: null,
           propertyKey,
+          ...(ts.isIdentifier(node.initializer) ? { refPos: node.initializer.getStart(sf) } : {}),
         });
       } else {
         reject(propertyKey, node);
@@ -582,6 +599,12 @@ export function scanTimingSites(
         name: node.name.text,
         value: null,
         propertyKey: node.name.text,
+        // The shorthand's value IS its name, so the reference offset is the
+        // name node's. The resolver reaches the VALUE binding through
+        // `getShorthandAssignmentValueSymbol`; `getSymbolAtLocation` here
+        // returns the property's own symbol and would never match a covered
+        // key (probe P12).
+        refPos: node.name.getStart(sf),
       });
     }
 
@@ -798,9 +821,6 @@ export function scanRepo(repoRoot: string): ScanResult {
     sources.push({ file, text: source });
     raw.push(...scanTimingSites(source, file, boundaryRejected));
   }
-  const coveredNames = new Set(
-    raw.filter((s) => s.kind === "named-constant").map((s) => s.name as string),
-  );
   // Keyed by declaration IDENTITY — the name node's start offset — never by
   // line, which two bindings declared on one line share (probe P10).
   const coveredDeclarations = new Set(
@@ -811,19 +831,13 @@ export function scanRepo(repoRoot: string): ScanResult {
   const resolveBinding = createBindingResolver(repoRoot, sources);
   const dispositioned = new Set(UNCLASSIFIED_DISPOSITIONS.map((row) => `${row.file}::${row.name}`));
   const resolved = raw.filter((s) => {
-    if (s.kind !== "unclassified" || s.name === null) return true;
-    if (s.refPos !== undefined) {
-      // SOME declaration of the resolved symbol, never `declarations[0]`:
-      // a declaration MERGE yields one symbol with several declarations of the
-      // same binding, and the stricter rule would report a covered constant
-      // (probe P8). Shadowing yields two distinct SYMBOLS, so this cannot
-      // smuggle a shadow in.
-      return !resolveBinding(s.file, s.refPos, s.name).some((key) => coveredDeclarations.has(key));
-    }
-    // The PROPERTY paths still carry no reference offset, so they stay on the
-    // name set until the next task records one for them. This is the last
-    // caller of `coveredNames`.
-    return !coveredNames.has(s.name);
+    if (s.kind !== "unclassified" || s.refPos === undefined || s.name === null) return true;
+    // SOME declaration of the resolved symbol, never `declarations[0]`:
+    // a declaration MERGE yields one symbol with several declarations of the
+    // same binding, and the stricter rule would report a covered constant
+    // (probe P8). Shadowing yields two distinct SYMBOLS, so this cannot
+    // smuggle a shadow in.
+    return !resolveBinding(s.file, s.refPos, s.name).some((key) => coveredDeclarations.has(key));
   });
   const sites = [...resolved].sort((a, b) =>
     a.file === b.file ? a.line - b.line : a.file < b.file ? -1 : 1,

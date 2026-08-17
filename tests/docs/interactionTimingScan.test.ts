@@ -624,6 +624,85 @@ describe("scanRepo over a synthetic tree", () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+
+  // ── case 9: property-value shadow (FIRES — AC-4) ────────────────────────────
+  test("a timing-named PROPERTY whose value shadows a covered constant is REPORTED, with its key", () => {
+    // Kills the surviving `coveredNames` filter on the property path: written as
+    // an explicit `key: value` pair so the shorthand path cannot satisfy it.
+    const root = tree({
+      "components/timings.ts": COVERED,
+      "components/PropShadow.tsx": [
+        "const COPY_FEEDBACK_RESET_MS = readDelayFromRuntimeConfig();",
+        "const opts = { ttlMs: COPY_FEEDBACK_RESET_MS };",
+        "",
+      ].join("\n"),
+    });
+    try {
+      premiseHolds(
+        "the property-shadow file is in the scan universe",
+        universeFiles(root).includes("components/PropShadow.tsx"),
+      );
+      const residual = scanRepo(root).unclassified.filter(
+        (s) => s.file === "components/PropShadow.tsx",
+      );
+      expect(residual).toHaveLength(1);
+      expect(residual[0]?.name).toBe("COPY_FEEDBACK_RESET_MS");
+      expect(residual[0]?.propertyKey).toBe("ttlMs");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // ── case 10: live-shaped pass-through (QUIET — AC-4) ────────────────────────
+  test("a timing-named property whose value is the COVERED import resolves — the live ttlMs shape", () => {
+    // The discriminator is the BINDING, not the key spelling: same `ttlMs` key
+    // as case 9, covered import instead of a shadow. Kills a property-path
+    // repair that reports every identifier-valued timing property.
+    const root = tree({
+      "components/timings.ts": COVERED,
+      "components/PropOk.tsx": [
+        'import { COPY_FEEDBACK_RESET_MS } from "@/components/timings";',
+        "const opts = { ttlMs: COPY_FEEDBACK_RESET_MS };",
+        "",
+      ].join("\n"),
+    });
+    try {
+      premiseHolds(
+        "the pass-through file is in the scan universe",
+        universeFiles(root).includes("components/PropOk.tsx"),
+      );
+      expect(scanRepo(root).unclassified).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // ── case 11: shorthand resolves (QUIET — pins probe P12's API choice) ───────
+  // NOT in the spec's original eleven. Added on measured evidence: the in-process
+  // survivor probe showed the shorthand branch's guards UNPINNED — neither the
+  // landed suite nor the live `{ duration }` at CrewSectionTransition.tsx kills
+  // them. This case kills two of them. It is a declared 11 -> 12 meta-test
+  // inventory delta and must be recorded in the plan/closeout.
+  test("a shorthand timing property whose value binding IS covered resolves — no residual", () => {
+    // Kills the shorthand branch reverting to getSymbolAtLocation, which returns
+    // the ShorthandPropertyAssignment's OWN symbol — declared at the property,
+    // not at the value binding — so the covered key never matches and the site
+    // reports forever (probe P12).
+    const root = tree({
+      "components/Short.tsx": ["const duration = 300;", "const opts = { duration };", ""].join("\n"),
+    });
+    try {
+      premiseHolds(
+        "the shorthand file is in the scan universe",
+        universeFiles(root).includes("components/Short.tsx"),
+      );
+      expect(scanRepo(root).unclassified).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
 });
 
 // ── Property totality: a timing-named property whose value is not a literal ──
