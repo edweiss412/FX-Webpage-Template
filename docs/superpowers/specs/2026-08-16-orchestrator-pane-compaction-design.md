@@ -440,11 +440,17 @@ no external observer can verify Stage 0 registered one.
 | `pnpm panes:compact --compact <target> --as <id>` | §5.2 command 2. `--dry-run` as above. | 0/1 |
 | `pnpm panes:compact --resume <target> --as <id>` | §5.2 command 3. `--dry-run` as above. | 0/1 |
 
-The exit column above assumes the roster could be READ. When it cannot — herdr missing, failing, or
-answering with something that is not JSON — every mode exits **2**, stating the reason, and `--json`
-carries it in the envelope's `degraded` array. Exit 0 there would be a lie in the one direction that
-matters: a report of no panes and a report of no answer are indistinguishable to a reader, and on
-`--check` the first means "nothing needs you".
+The exit column above assumes herdr ANSWERED. Two reads can fail, and both exit **2** rather than
+taking the row's code:
+
+- **The roster** — herdr missing, failing, or answering with something that is not JSON. Every mode
+  exits 2 stating the reason, and `--json` carries it in the envelope's `degraded` array. Exit 0
+  there would be a lie in the one direction that matters: a report of no panes and a report of no
+  answer are indistinguishable to a reader, and on `--check` the first means "nothing needs you".
+- **Target resolution**, in a sending mode. A `fault` from `herdr agent get` — anything that is not
+  the `agent_not_found` code — exits 2 naming the fault, NOT the 1 that an unresolvable target
+  earns. A broken tool is not a typo, and reporting it as one sends an operator to check their
+  spelling while herdr is what is wrong.
 
 Every sending mode requires `--as` and a **single named target**; none accepts `--all`. `--dry-run`
 is available on each and prints the exact bytes without sending. `<target>` resolves through
@@ -521,7 +527,12 @@ tests/mutation/_metaPremiseContract.test.ts     # + one EXPECTED_ENV_TOUCHING en
                                                 #   suite; it walks the registry, so a new surface
                                                 #   reds it by default rather than being exempt
 tests/docs/_metaPaneCompactionContract.test.ts  # NEW: prose pin (§10)
+tests/mutation/guardSurfaces.gate.test.ts       # + the surface's gate cases
 docs/agents/orchestrator-pane-compaction.md     # NEW: the write-up (§10)
+docs/superpowers/plans/2026-08-16-orchestrator-pane-compaction.md   # NEW: the plan
+docs/superpowers/specs/README.md                # + this spec's index row
+docs/review-rounds/feat/orchestrator-pane-compaction/**             # the round corpus + filing
+BACKLOG.md                                      # + BL-SPECLINT-LINT-DRAFT-OUTSIDE-REPO
 AGENTS.md                                       # + pointer under cross-cutting discipline
 ~/.claude/pane-purview/<orchestratorSessionId>.json   # NEW: purview, outside any worktree.
                                                       #   This directory holds ONLY purview
@@ -726,7 +737,11 @@ on the case's own inputs.
 - **AC-6** `--dry-run` on any sending mode sends nothing and prints that command's §5.2 bytes
   verbatim, including the literal texts with `<NONCE>` substituted.
 - **AC-7** Every sending mode rejects `--all`, requires a single named target, and requires
-  `--as`; a missing `--as` exits 1 rather than inferring an orchestrator.
+  `--as`; a missing `--as` exits 1 rather than inferring an orchestrator. **`--check` requires it
+  too** — it aggregates over the invoking orchestrator's purview, so without an identity there is
+  no purview to aggregate over and the exit code would be meaningless rather than merely unscoped.
+  The plain report and `--json` do not require it: they cover every roster pane and mark none as
+  the caller's.
 - **AC-8** `--check` exits per §5.3 aggregation; exit 2 is never an all-clear.
 - **AC-9** The registry is read from the §5.6 purview path, never from a worktree.
 - **AC-10** Enrolled in the source-mutation registry with an empty unaccepted-survivor set.
