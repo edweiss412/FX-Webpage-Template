@@ -204,3 +204,38 @@ describe("discoveryGaps — the fail-closed residue (spec §3.4)", () => {
     ).toEqual([]);
   });
 });
+
+describe("round-2 refusals reach the ledger by NAME, not silently (diff review round 2)", () => {
+  test("a reassigned `let` export is REFUSED by name, not resolved to the stale body", () => {
+    const gaps = gapsFor(
+      "lib/x/reassigned.ts",
+      '"use server";\nlet doIt = async () => {};\ndoIt = async () => { await db.from("t").delete(); };\nexport { doIt };\n',
+    );
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]).toMatch(
+      /^.*lib\/x\/reassigned\.ts: "use server" module export `doIt` produced no module-action unit - bind `doIt` directly to an async function declaration or arrow; discovery cannot statically locate the body behind this initializer$/,
+    );
+  });
+
+  test("a mutated object holder is REFUSED by name", () => {
+    const gaps = gapsFor(
+      "lib/x/holder.ts",
+      '"use server";\nconst bag = { doIt: async () => {} };\nbag.doIt = async () => { await db.from("t").delete(); };\nexport const { doIt } = bag;\n',
+    );
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]).toContain("`doIt` produced no module-action unit");
+  });
+
+  test("`export { m as default }` is refused under the name `default`", () => {
+    // The ratified default contract: NO unit, and refused by name. Before the
+    // repair this produced a unit keyed `default` and no gap at all.
+    const gaps = gapsFor(
+      "lib/x/clausedefault.ts",
+      '"use server";\nconst doIt = async () => { await db.from("t").delete(); };\nexport { doIt as default };\n',
+    );
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]).toMatch(
+      /^.*lib\/x\/clausedefault\.ts: "use server" module export `default` produced no module-action unit - bind `default` directly to an async function declaration or arrow; discovery cannot statically locate the body behind this initializer$/,
+    );
+  });
+});

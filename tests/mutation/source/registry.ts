@@ -2168,9 +2168,16 @@ export const GUARD_SURFACES: GuardSurface[] = [
       from: 'c.text === "logAdminOutcome"',
       to: 'c.text === "logAdminOutcomeNEVERMATCHES"',
     },
+    // Every siteId below is RE-DERIVED from a run against the current source
+    // after each edit, never carried forward: a siteId is a line number, and
+    // diff review round 2 caught this ledger citing 433 after the round-1 repair
+    // moved the site to 434. The gate says so in both directions at once --
+    // `unaccepted-survivor` for the real site and `stale-ledger-row` for the
+    // citation -- so a green report taken before an edit is not evidence after
+    // one.
     accepted: [
       {
-        siteId: "equality-flip:188:50:===>!==",
+        siteId: "equality-flip:204:50:===>!==",
         kind: "equivalent",
         reason:
           "`moduleDefaultExports` reads `hasExport && hasDefault`, so flipping the ExportKeyword " +
@@ -2182,7 +2189,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "is killed by the `export async function` negative.",
       },
       {
-        siteId: "logical-connector:319:32:&&>||",
+        siteId: "logical-connector:338:32:&&>||",
         kind: "equivalent",
         reason:
           "`isCheckableFunction`'s body requirement, flipped to `(one of four kinds) || has a " +
@@ -2199,7 +2206,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "refuses identically under both.",
       },
       {
-        siteId: "logical-connector:433:49:||>&&",
+        siteId: "logical-connector:538:49:||>&&",
         kind: "equivalent",
         reason:
           "The SECOND disjunct of `!item || isOmitted(item) || isSpread(item)`. Under the flip it " +

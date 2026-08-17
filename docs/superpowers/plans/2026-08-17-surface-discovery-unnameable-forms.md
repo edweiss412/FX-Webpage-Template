@@ -508,6 +508,8 @@ describe("discoveryGaps - the fail-closed residue (spec §3.4)", () => {
   `inlineDirectiveBearingCount` VERBATIM (it is already total; that is the point), import
   `exportedValueNames` from `./enumerate` (exported there by Task 2), plus:
 
+<!-- plan-fences: ignore MANGLED_TEMPLATE — the refusal messages are template literals that quote a name in backticks, so \` is the correct escape, not mangling -->
+
 ```ts
 import { basename } from "node:path";
 import ts from "typescript";

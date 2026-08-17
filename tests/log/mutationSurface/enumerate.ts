@@ -183,6 +183,22 @@ const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 export function moduleDefaultExports(sf: ts.SourceFile): boolean {
   for (const st of sf.statements) {
     if (ts.isExportAssignment(st) && !st.isExportEquals) return true;
+    // An export CLAUSE can name `default` too -- `export { m as default }`,
+    // `export { m as "default" }`, `export { default } from "./m"`, and
+    // `export * as default from "./m"`. The clause form hard-coded
+    // `isDefault: false` and so produced a unit keyed `default` while passing
+    // this ban (diff review round 2, finding 2). This predicate is a BAN, not a
+    // resolver, so it covers re-export forms the binding walk deliberately
+    // skips: the module still exports a default either way.
+    if (ts.isExportDeclaration(st) && !st.isTypeOnly && st.exportClause) {
+      if (ts.isNamespaceExport(st.exportClause) && st.exportClause.name.text === "default")
+        return true;
+      if (
+        ts.isNamedExports(st.exportClause) &&
+        st.exportClause.elements.some((el) => !el.isTypeOnly && el.name.text === "default")
+      )
+        return true;
+    }
     if (ts.canHaveModifiers(st)) {
       const mods = ts.getModifiers(st);
       const hasExport = mods?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
@@ -292,7 +308,10 @@ function exportedValueBindings(sf: ts.SourceFile): ExportedValueBinding[] {
         out.push({
           exported: el.name.text,
           local: (el.propertyName ?? el.name).text,
-          isDefault: false,
+          // `export { m as default }` IS a default export; hard-coding false
+          // here produced a unit keyed `default` and skipped the ratified
+          // no-unit-plus-refusal contract (diff review round 2, finding 2).
+          isDefault: el.name.text === "default",
         });
       }
     }
@@ -332,6 +351,88 @@ function reduceModuleExpr(
 }
 
 /**
+ * True if a module-scope name can hold a different value at export time than the
+ * declaration a static read reaches: it is DECLARED more than once (`var`
+ * redeclaration -- the later one wins), or something WRITES it (`x = f`,
+ * `x ??= f`, `x.k = f`, `x[k] = f`, `x++`).
+ *
+ * The resolver REFUSES such a name rather than modelling assignment order.
+ * That is deliberate direction: tracking writes would make the closed reduction
+ * set a dataflow grammar, and a wider recognizer is a bigger target every round.
+ * Before this, the unit carried the pre-write node, so `scanBody` read a body
+ * that never runs -- and it did so SILENTLY, because a unit existed and the
+ * refusal ledger stayed empty (diff review round 2, finding 1).
+ *
+ * A write to a LOCALLY REBOUND identifier is a write to a different binding, so
+ * it must not refuse the export -- `isLocallyRebound` is the same predicate
+ * `scanBody` uses for shadowed imports. Without it this fires on correct code,
+ * which is the false advisory the design is most exposed to.
+ */
+function moduleBindingIsUnstable(sf: ts.SourceFile, name: string): boolean {
+  let declared = 0;
+  for (const st of sf.statements) {
+    // A bodyless declaration is an overload SIGNATURE, not a second definition.
+    if (ts.isFunctionDeclaration(st) && st.name?.text === name && st.body) declared++;
+    // Only `var` counts: a duplicate `let`/`const` is a TypeScript error, so a
+    // second block-scoped declaration of one name is not something an ordinary
+    // contributor ships -- and counting it refuses correct fixtures where a
+    // shorthand member and its destructured export share a name.
+    if (ts.isVariableStatement(st))
+      for (const d of st.declarationList.declarations)
+        if (
+          bindingBindsName(d.name, name) &&
+          (ts.getCombinedNodeFlags(d) & (ts.NodeFlags.Let | ts.NodeFlags.Const)) === 0
+        )
+          declared++;
+  }
+  if (declared > 1) return true;
+
+  // `x`, `x.k`, `x[k]`, and longer chains rooted at `x`, on the left of an
+  // assignment; plus `x++` / `--x`.
+  const isWriteTarget = (id: ts.Node): boolean => {
+    // Ascend to the outermost expression this identifier is the TARGET of:
+    // parens, since `(x) = f` is a legal assignment, and member chains ROOTED
+    // at it, since `x.k = f` replaces a member of the very object a literal
+    // appeared to fix. `registry[x] = 1` is not such a chain -- `x` is the
+    // subscript, not the root -- and must stay resolvable.
+    let t: ts.Node = id;
+    for (let up: ts.Node | undefined = t.parent; up; up = t.parent) {
+      if (ts.isParenthesizedExpression(up)) t = up;
+      else if (
+        (ts.isPropertyAccessExpression(up) || ts.isElementAccessExpression(up)) &&
+        up.expression === t
+      )
+        t = up;
+      else break;
+    }
+    const p: ts.Node | undefined = t.parent;
+    if (!p) return false;
+    if (
+      ts.isBinaryExpression(p) &&
+      p.left === t &&
+      p.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      p.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+    )
+      return true;
+    return (
+      (ts.isPostfixUnaryExpression(p) || ts.isPrefixUnaryExpression(p)) &&
+      p.operand === t &&
+      (p.operator === ts.SyntaxKind.PlusPlusToken || p.operator === ts.SyntaxKind.MinusMinusToken)
+    );
+  };
+
+  let written = false;
+  const visit = (n: ts.Node): void => {
+    if (written) return;
+    if (ts.isIdentifier(n) && n.text === name && isWriteTarget(n) && !isLocallyRebound(n, name))
+      written = true;
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return written;
+}
+
+/**
  * A module-scope name to the declaration whose body is the checkable scope.
  *
  * A CLOSED reduction set (spec §3.2), not a grammar: paren unwrap, alias chain,
@@ -346,6 +447,9 @@ function resolveModuleName(
 ): ts.Node | undefined {
   if (seen.has(name)) return undefined; // alias cycle — terminate, refuse
   seen.add(name);
+  // Every alias hop lands here, so one check covers the entry name, the chain,
+  // and an object holder's name (diff review round 2, finding 1).
+  if (moduleBindingIsUnstable(sf, name)) return undefined; // refusal, reconciled in ./totality
   for (const st of sf.statements) {
     // A bodyless declaration is an overload SIGNATURE; the implementation
     // carries the same name further down, so keep walking rather than binding

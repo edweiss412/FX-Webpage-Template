@@ -924,3 +924,239 @@ describe("admin classification of ACTIONS reads the gate names, not merely a cal
     expect(units.map((u) => [u.fn, u.admin])).toEqual([["mutate", true]]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Diff review round 2. Two shapes, both "silently absent from BOTH sides".
+// ---------------------------------------------------------------------------
+
+describe("a module binding that can differ at export time is REFUSED, not resolved stale (round 2, finding 1)", () => {
+  // The resolver reads the declaration a static walk reaches first. When the
+  // binding is written afterwards, that node is not the body that runs, so the
+  // unit pointed at dead code and `scanBody` read the wrong scope -- silently,
+  // because a unit WAS produced and the refusal ledger stayed empty. The repair
+  // is NARROWING: refuse the name. Modelling assignment order would be a
+  // grammar, and a bigger target every round.
+  test("`let` reassigned after its initializer produces no unit", () => {
+    expect(
+      unitsFor(
+        "lib/x/reassign.ts",
+        '"use server";\nlet doIt = async () => {};\ndoIt = async () => { await db.from("t").delete(); };\nexport { doIt };\n',
+      ),
+    ).toEqual([]);
+  });
+
+  test("`var` redeclared produces no unit (the second declaration is what runs)", () => {
+    expect(
+      unitsFor(
+        "lib/x/redeclare.ts",
+        '"use server";\nvar doIt = async () => {};\nvar doIt = async () => { await db.from("t").delete(); };\nexport { doIt };\n',
+      ),
+    ).toEqual([]);
+  });
+
+  test("an ALIAS hop whose target is reassigned produces no unit", () => {
+    expect(
+      unitsFor(
+        "lib/x/aliasreassign.ts",
+        '"use server";\nlet impl = async () => {};\nimpl = async () => { await db.from("t").delete(); };\nconst doIt = impl;\nexport { doIt };\n',
+      ),
+    ).toEqual([]);
+  });
+
+  test("a destructured holder mutated by a PROPERTY write produces no unit", () => {
+    // `const` protects the binding, not the object: `bag.doIt = other` replaces
+    // the member the literal appears to fix. The holder name is an alias hop,
+    // so the same check catches it.
+    expect(
+      unitsFor(
+        "lib/x/holderwrite.ts",
+        '"use server";\nconst bag = { doIt: async () => {} };\nbag.doIt = async () => { await db.from("t").delete(); };\nexport const { doIt } = bag;\n',
+      ),
+    ).toEqual([]);
+  });
+
+  test("an ELEMENT write to the holder produces no unit", () => {
+    expect(
+      unitsFor(
+        "lib/x/elemwrite.ts",
+        '"use server";\nconst bag = { doIt: async () => {} };\nbag["doIt"] = async () => { await db.from("t").delete(); };\nexport const { doIt } = bag;\n',
+      ),
+    ).toEqual([]);
+  });
+
+  test("a COMPOUND assignment is a write (`??=`, the reachable one on an action)", () => {
+    expect(
+      unitsFor(
+        "lib/x/compound.ts",
+        '"use server";\nlet doIt = async () => {};\ndoIt ??= async () => { await db.from("t").delete(); };\nexport { doIt };\n',
+      ),
+    ).toEqual([]);
+  });
+
+  test("the LAST assignment operator (`^=`) is a write too", () => {
+    // Boundary of the operator range, not a plausible edit: it exists so the
+    // range's upper bound cannot be narrowed without a test noticing.
+    expect(
+      unitsFor(
+        "lib/x/caret.ts",
+        '"use server";\nlet doIt = async () => {};\ndoIt ^= 1;\nexport { doIt };\n',
+      ),
+    ).toEqual([]);
+  });
+
+  test("an increment is a write", () => {
+    expect(
+      unitsFor(
+        "lib/x/incr.ts",
+        '"use server";\nlet doIt = async () => {};\ndoIt++;\nexport { doIt };\n',
+      ),
+    ).toEqual([]);
+  });
+
+  test("a parenthesized assignment `(doIt) = ...` is a write", () => {
+    // `(x) = f` is a legal assignment, so the parens must not hide the write.
+    expect(
+      unitsFor(
+        "lib/x/parenwrite.ts",
+        '"use server";\nlet doIt = async () => {};\n(doIt) = async () => { await db.from("t").delete(); };\nexport { doIt };\n',
+      ),
+    ).toEqual([]);
+  });
+
+  test("NEGATIVE: the name used as a SUBSCRIPT is not a write to it", () => {
+    // `registry[doIt] = 1` writes `registry`, not `doIt`. Ascending here would
+    // refuse an ordinary correct export.
+    const units = unitsFor(
+      "lib/x/subscript.ts",
+      '"use server";\nconst doIt = async () => { await db.from("t").delete(); };\nconst registry: Record<string, number> = {};\nregistry[doIt] = 1;\nexport { doIt };\n',
+    );
+    expect(units.map((u) => [u.fn, u.kind])).toEqual([["doIt", "module-action"]]);
+  });
+
+  test("NEGATIVE: the name READ in a binary expression is not a write", () => {
+    const units = unitsFor(
+      "lib/x/readbinary.ts",
+      '"use server";\nconst doIt = async () => { await db.from("t").delete(); };\nconst enabled = doIt !== undefined;\nexport { doIt };\n',
+    );
+    expect(units.map((u) => [u.fn, u.kind])).toEqual([["doIt", "module-action"]]);
+  });
+
+  test("NEGATIVE: a non-increment unary (`!doIt`) is not a write", () => {
+    const units = unitsFor(
+      "lib/x/readunary.ts",
+      '"use server";\nconst doIt = async () => { await db.from("t").delete(); };\nconst missing = !doIt;\nexport { doIt };\n',
+    );
+    expect(units.map((u) => [u.fn, u.kind])).toEqual([["doIt", "module-action"]]);
+  });
+
+  test("NEGATIVE: an unrelated function declaration is not a second declaration of THIS name", () => {
+    // The tally must compare names. Counting every function declaration would
+    // refuse any `var`-bound action in a file that also declares a helper.
+    const units = unitsFor(
+      "lib/x/tally.ts",
+      '"use server";\nvar doIt = async () => { await db.from("t").delete(); };\nfunction helper() { return 1; }\nexport { doIt };\n',
+    );
+    expect(units.map((u) => [u.fn, u.kind])).toEqual([["doIt", "module-action"]]);
+  });
+
+  test("NEGATIVE: a same-named LOCAL assignment does NOT refuse the export", () => {
+    // The false-advisory case. Refusing here would fire on correct code, which
+    // is the failure this design is most exposed to.
+    const units = unitsFor(
+      "lib/x/localshadow.ts",
+      '"use server";\nexport const doIt = async () => { await db.from("t").delete(); };\nfunction helper() { let doIt = 1; doIt = 2; return doIt; }\n',
+    );
+    expect(units.map((u) => [u.fn, u.kind])).toEqual([["doIt", "module-action"]]);
+    expect(scanBody(units[0]!.node, { descend: false }).writeBuilder).toBe(true);
+  });
+
+  test("NEGATIVE: an ordinary single-declaration const export still resolves", () => {
+    const units = unitsFor(
+      "lib/x/stable.ts",
+      '"use server";\nconst doIt = async () => { await db.from("t").delete(); };\nexport { doIt };\n',
+    );
+    expect(units.map((u) => [u.fn, u.kind])).toEqual([["doIt", "module-action"]]);
+    expect(scanBody(units[0]!.node, { descend: false }).writeBuilder).toBe(true);
+  });
+
+  test("NEGATIVE: an overload pair is ONE definition, not a redeclaration", () => {
+    // The bodyless signature must not count toward the declaration tally, or
+    // round 1's overload repair would regress into a refusal.
+    const units = unitsFor(
+      "lib/x/overload.ts",
+      '"use server";\nexport async function doIt(a: string): Promise<void>;\nexport async function doIt(a: unknown): Promise<void> { await db.from("t").delete(); }\n',
+    );
+    expect(units.map((u) => [u.fn, u.kind])).toEqual([["doIt", "module-action"]]);
+    expect(scanBody(units[0]!.node, { descend: false }).writeBuilder).toBe(true);
+  });
+});
+
+const parseSrc = (src: string) => {
+  const rel = "lib/x/parsed.ts";
+  return parse(join(makeFixture(rel, src), rel));
+};
+
+describe("`export { x as default }` is a DEFAULT export (round 2, finding 2)", () => {
+  // The ratified contract is: a default-exported action produces NO unit and IS
+  // refused by name. The export-clause form hard-coded `isDefault: false`, so
+  // it produced a unit keyed `default` and passed the module-level ban.
+  test("`as default` produces no unit", () => {
+    expect(
+      unitsFor(
+        "lib/x/clausedefault.ts",
+        '"use server";\nconst doIt = async () => { await db.from("t").delete(); };\nexport { doIt as default };\n',
+      ),
+    ).toEqual([]);
+  });
+
+  test('`as "default"` (string form) produces no unit', () => {
+    expect(
+      unitsFor(
+        "lib/x/clausedefaultstr.ts",
+        '"use server";\nconst doIt = async () => { await db.from("t").delete(); };\nexport { doIt as "default" };\n',
+      ),
+    ).toEqual([]);
+  });
+
+  test("`as default` trips moduleDefaultExports, so the module-level ban fires", () => {
+    const src = '"use server";\nconst doIt = async () => {};\nexport { doIt as default };\n';
+    expect(moduleDefaultExports(parseSrc(src))).toBe(true);
+  });
+
+  test('`as "default"` trips moduleDefaultExports', () => {
+    const src = '"use server";\nconst doIt = async () => {};\nexport { doIt as "default" };\n';
+    expect(moduleDefaultExports(parseSrc(src))).toBe(true);
+  });
+
+  test("`export { default } from` (re-export) trips moduleDefaultExports", () => {
+    expect(moduleDefaultExports(parseSrc('"use server";\nexport { default } from "./m";\n'))).toBe(
+      true,
+    );
+  });
+
+  test("`export * as default from` trips moduleDefaultExports", () => {
+    expect(moduleDefaultExports(parseSrc('"use server";\nexport * as default from "./m";\n'))).toBe(
+      true,
+    );
+  });
+
+  test("NEGATIVE: an ordinary export clause does NOT trip the default ban", () => {
+    expect(
+      moduleDefaultExports(
+        parseSrc('"use server";\nconst doIt = async () => {};\nexport { doIt };\n'),
+      ),
+    ).toBe(false);
+  });
+
+  test("NEGATIVE: a re-export of a NAMED symbol does not trip the ban", () => {
+    expect(moduleDefaultExports(parseSrc('"use server";\nexport { doIt } from "./m";\n'))).toBe(
+      false,
+    );
+  });
+
+  test("NEGATIVE: a type-only `default` export clause is not a value default export", () => {
+    expect(
+      moduleDefaultExports(parseSrc('"use server";\nexport type { T as default } from "./m";\n')),
+    ).toBe(false);
+  });
+});
