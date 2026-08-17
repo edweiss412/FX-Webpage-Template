@@ -104,6 +104,15 @@ const BACKLOG_GRADUATED = [
   // and filed as BL-HEAVY-REAP-REPORT-OBSERVABILITY, and the orphans' PRODUCER stays open as
   // BL-MUTATION-CHILD-LIFETIME-PARENT-DEATH under class-sweep exception (c).
   { id: "BL-HEAVY-ORPHAN-WORKER-LIFETIME", provenance: "chore/heavy-orphan-reaper" },
+  // fix/modal-wait-candidate-contract (2026-08-17): the modal-wait census's TWO
+  // precision rows, graduating together because they were one contract — the
+  // site-association repair is unbuildable on the line unit (4 of the 12 live
+  // Shape-N calls carry their label on a different physical line than the call),
+  // so the aggregate-counts row structurally required the line-granularity one.
+  // Both closed by CHANGING THE UNIT and DECLARING the association, which is the
+  // repair direction each row ratified at filing, never by recognizer growth.
+  { id: "BL-MODAL-WAIT-LINE-GRANULARITY-ACTIVATION", provenance: "fix/modal-wait-candidate-contract" },
+  { id: "BL-MODAL-WAIT-SITE-ASSOCIATED-COUNTS", provenance: "fix/modal-wait-candidate-contract" },
   // test/modal-wait-helper-adoption (2026-08-16): the peer-adoption sweep whose OWN
   // census the arc refuted. The row proposed two literal greps naming 7 + 7 specs;
   // both mis-census, and the larger gap is that a file-keyed literal grep cannot see
