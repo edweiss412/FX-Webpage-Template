@@ -42,6 +42,17 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   //                                  a real child through `childRun`. The other
   //                                  nine read the live tree via node:fs only.
   "tests/mutation/source/premiseScan.test.ts": 0,
+  // fix/mutation-child-lifetime (2026-08-17): the bounded-spawn module's mocked
+  // suite, enrolled as the spawnBounded surface's only decider. EIGHT — every case
+  // that calls `spawnBounded` and therefore reaches the `spawnSync` seam
+  // statically; the five `interpretSpawnOutcome` cases and the four `killGroup`
+  // cases call neither and classify environment-free. Each of the eight carries a
+  // `no-premise:` exemption rather than a premise, because the seam is mocked at
+  // module scope: there is no ambient precondition to state, and a mock that
+  // failed to install reds the case immediately. The surface's LIVE suite spawns
+  // real process trees and is deliberately not enrolled, so it never reaches this
+  // table.
+  "tests/mutation/source/spawnBounded.test.ts": 8,
   "tests/mutation/_metaPremiseContract.test.ts": 1,
   // 15 -> 16 (2026-08-09): the constructed multi-line hunk case that kills the
   // diffHunks count-collapse pair (BL-MUTATION-LEDGERGIT-SITE-DRIFT) builds a

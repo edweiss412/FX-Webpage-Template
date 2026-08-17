@@ -185,6 +185,10 @@ describe("killGroup — the group reap, and the cases where it must not fire", (
 
 describe("spawnBounded — how the child is launched", () => {
   it("runs the command under the perl supervisor, preserving cwd and env", () => {
+    // no-premise: the child_process seam is mocked at module scope, so nothing is
+    // spawned and there is no ambient precondition to state. A mock that failed to
+    // install reds this case at once — `calls` stays empty and the assertions below
+    // read `undefined`.
     reset([{ status: 0, signal: null }]);
     const { value } = withKillSpy(() =>
       spawnBounded(ARGV, {
@@ -202,6 +206,10 @@ describe("spawnBounded — how the child is launched", () => {
   });
 
   it("arms the wall-clock ceiling with the caller's value and an untrappable kill signal", () => {
+    // no-premise: the child_process seam is mocked at module scope, so nothing is
+    // spawned and there is no ambient precondition to state. A mock that failed to
+    // install reds this case at once — `calls` stays empty and the assertions below
+    // read `undefined`.
     // Premise, executable: without a real `timeout` on the call no run can ever
     // produce ETIMEDOUT and the timeout arm above is unreachable code that reads
     // as protection. SIGTERM is what vitest's own watchdogs use and a vitest
@@ -220,6 +228,10 @@ describe("spawnBounded — how the child is launched", () => {
   });
 
   it("falls back to the module ceiling when the caller names none", () => {
+    // no-premise: the child_process seam is mocked at module scope, so nothing is
+    // spawned and there is no ambient precondition to state. A mock that failed to
+    // install reds this case at once — `calls` stays empty and the assertions below
+    // read `undefined`.
     reset([{ status: 0, signal: null }]);
     withKillSpy(() =>
       spawnBounded(ARGV, {
@@ -232,6 +244,10 @@ describe("spawnBounded — how the child is launched", () => {
   });
 
   it("spawns the command DIRECTLY when perl is missing, and never signals a group it does not own", () => {
+    // no-premise: the child_process seam is mocked at module scope, so nothing is
+    // spawned and there is no ambient precondition to state. A mock that failed to
+    // install reds this case at once — `calls` stays empty and the assertions below
+    // read `undefined`.
     // G1/AC-6. The fallback result is a signal death precisely so the group reap
     // WOULD fire if `ownGroup` were wrongly true — under a direct spawn the
     // negative-pid form would signal this process's own group.
@@ -255,6 +271,10 @@ describe("spawnBounded — how the child is launched", () => {
   });
 
   it("does NOT fall back when perl itself ran and the failure came from elsewhere", () => {
+    // no-premise: the child_process seam is mocked at module scope, so nothing is
+    // spawned and there is no ambient precondition to state. A mock that failed to
+    // install reds this case at once — `calls` stays empty and the assertions below
+    // read `undefined`.
     // Only ENOENT means "no perl". Widening this to any error would double every
     // genuinely failing spawn, running the command a second time outside its
     // group.
@@ -284,6 +304,10 @@ describe("spawnBounded — which outcomes reap the group", () => {
     ],
     ["a signal death", { status: null, signal: "SIGTERM" }],
   ])("reaps the group after %s", (_label, result) => {
+    // no-premise: the child_process seam is mocked at module scope, so nothing is
+    // spawned and there is no ambient precondition to state. A mock that failed to
+    // install reds this case at once — `calls` stays empty and the assertions below
+    // read `undefined`.
     // The live suite proves the MECHANISM; this proves the WIRING. Without it,
     // deleting the call site leaves every test green and the reap never runs in
     // production.
@@ -298,6 +322,10 @@ describe("spawnBounded — which outcomes reap the group", () => {
   });
 
   it("never reaps the group after a clean exit", () => {
+    // no-premise: the child_process seam is mocked at module scope, so nothing is
+    // spawned and there is no ambient precondition to state. A mock that failed to
+    // install reds this case at once — `calls` stays empty and the assertions below
+    // read `undefined`.
     // A normally-completed run's descendants are not this harness's to kill, and
     // an unconditional reap would SIGKILL the group of every mutant that passed.
     reset([{ status: 0, signal: null }]);
@@ -311,6 +339,10 @@ describe("spawnBounded — which outcomes reap the group", () => {
   });
 
   it("never reaps the group after a non-zero exit either", () => {
+    // no-premise: the child_process seam is mocked at module scope, so nothing is
+    // spawned and there is no ambient precondition to state. A mock that failed to
+    // install reds this case at once — `calls` stays empty and the assertions below
+    // read `undefined`.
     reset([{ status: 1, signal: null }]);
     const { killed } = withKillSpy(() =>
       spawnBounded(ARGV, {
