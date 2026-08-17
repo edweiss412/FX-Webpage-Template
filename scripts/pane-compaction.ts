@@ -52,10 +52,19 @@ export const USAGE =
 /** One roster entry, already reduced to the fields §4.3 admits. */
 export type RosterPane = {
   paneId: string;
-  /** The agent label — the arc name. null when the pane carries none. */
+  /** The agent name — the arc. null when the pane carries none. */
   agentName: string | null;
   cwd: string;
   status: string;
+  /**
+   * The pane's OWN live session id (`agent_session.value`), or null.
+   *
+   * §4.3 makes it optional and §3.9 makes absence a valid observation rather
+   * than a parse failure. Rule 5 compares it against the MARKER's `sessionId`:
+   * the question is whether the session that wrote that marker is still the one
+   * living in the pane, which is the supersession case a takeover creates.
+   */
+  agentSession: string | null;
 };
 
 /**
@@ -240,9 +249,17 @@ function observe(
     owned: ownership.kind === "owned",
     contested: ownership.kind === "contested",
     rejectedField,
-    // Absence is never read as mismatch (§4.5 rule 5 no-ops rather than firing).
+    // Rule 5 asks whether the session that WROTE the marker is still the one in
+    // the pane — the supersession a takeover creates. So it compares the
+    // marker's `sessionId` against the pane's own live `agent_session.value`,
+    // NOT against `--as`: the orchestrator is a different session from every
+    // pane it watches, so comparing against `--as` would fire rule 5 on
+    // essentially every arc pane that carries a marker (spec §4.5 rule 5,
+    // AC-17). An ABSENT live session with a marker that names one IS a
+    // mismatch, which is the measured case in §3.9's probe table; an absent
+    // MARKER cannot mismatch and rule 5 no-ops (AC-20).
     sessionMismatch:
-      asSessionId !== null && markerSession !== null && markerSession !== asSessionId,
+      markerSession !== null && (pane.agentSession === null || pane.agentSession !== markerSession),
     ghFault: ghOutcome.kind === "fault",
     blockedOn,
     tenths,
@@ -442,17 +459,23 @@ function drive(opts: Parsed, pane: RosterPane, roster: RosterPane[], s: Surface)
     return 0;
   }
 
-  if (opts.dryRun) {
-    for (const line of planSends({ command: "compact" }).sends) s.out(line);
-    return 0;
-  }
+  // `--dry-run` goes through the SAME gate rather than around it. Printing
+  // `/compact` unconditionally would tell an operator the command is ready when
+  // the real one would refuse — an absent or mismatched nonce exits 1 and sends
+  // nothing (AC-19), and a dry run that cannot show that refusal is worse than
+  // no dry run at all. What it must not do is CONSUME: reading and comparing
+  // the record is the gate, spending it is the side effect, so the dry run gets
+  // a no-op consume and a send that prints.
   const result = runCompact({
     store: {
       read: () => s.nonceRead(as, pane.paneId),
-      consume: () => s.nonceConsume(as, pane.paneId),
+      consume: opts.dryRun ? (): void => {} : (): void => s.nonceConsume(as, pane.paneId),
     },
     markerNonce,
-    send: (text) => s.send(pane.paneId, text),
+    send: (text) => {
+      if (opts.dryRun) s.out(text);
+      else s.send(pane.paneId, text);
+    },
     // Revalidated a second time at the moment of the send, per §5.2.
     revalidate: () => {
       // Revalidation must OBSERVE AGAIN, so it takes a fresh cache rather than
@@ -541,33 +564,41 @@ function readJson(path: string): unknown {
 export function realSurface(): Surface {
   return {
     roster: () => {
-      const run = sh("herdr", ["pane", "list"]);
+      // `herdr agent list` — the roster §3.6 names, and the only call that
+      // carries `agent_session`, which rule 5 needs. An earlier version read
+      // `herdr pane list` and took the arc from `label`; that call exposes no
+      // `name` and no `agent_session` at all, so rule 5 had nothing to compare
+      // and the roster included panes running no agent.
+      const run = sh("herdr", ["agent", "list"]);
       // Named failures, because the caller turns these into the report's
       // `degraded` reason and a raw SyntaxError would tell an operator nothing
       // about which of the two actually happened.
       if (run.exitCode !== 0) {
-        throw new Error(`herdr pane list exited ${run.exitCode}: ${run.stderr.trim()}`);
+        throw new Error(`herdr agent list exited ${run.exitCode}: ${run.stderr.trim()}`);
       }
-      let parsed: { result?: { panes?: Array<Record<string, unknown>> } };
+      let parsed: { result?: { agents?: Array<Record<string, unknown>> } };
       try {
         parsed = JSON.parse(run.stdout) as typeof parsed;
       } catch {
-        throw new Error("herdr pane list did not return JSON");
+        throw new Error("herdr agent list did not return JSON");
       }
-      const panes = parsed.result?.panes ?? [];
-      // The arc name is the pane's `label` — probed against `herdr pane list`,
-      // whose entries carry no `name` key at all (that is `herdr agent list`).
-      // AGENTS.md's Stage 0 sets the pane label and the agent name to the same
-      // branch string, so the pane-oriented roster reads the pane-side one.
-      // An empty label is ABSENT, not the empty arc: null makes rule 1 fire and
-      // the pane report NOT-AN-ARC rather than being classified on a blank name.
-      return panes.map((p) => {
-        const label = typeof p["label"] === "string" ? p["label"].trim() : "";
+      const agents = parsed.result?.agents ?? [];
+      return agents.map((a) => {
+        // An empty name is ABSENT, not the empty arc: null makes rule 1 fire and
+        // the pane reports NOT-AN-ARC rather than being classified on a blank.
+        const name = typeof a["name"] === "string" ? a["name"].trim() : "";
+        const session = a["agent_session"];
+        const value =
+          typeof session === "object" && session !== null
+            ? (session as { value?: unknown }).value
+            : undefined;
         return {
-          paneId: String(p["pane_id"] ?? ""),
-          agentName: label === "" ? null : label,
-          cwd: String(p["cwd"] ?? ""),
-          status: String(p["agent_status"] ?? "unknown"),
+          paneId: String(a["pane_id"] ?? ""),
+          agentName: name === "" ? null : name,
+          cwd: String(a["cwd"] ?? ""),
+          status: String(a["agent_status"] ?? "unknown"),
+          // Optional by §4.3, and absence is an observation rather than a fault.
+          agentSession: typeof value === "string" && value !== "" ? value : null,
         };
       });
     },

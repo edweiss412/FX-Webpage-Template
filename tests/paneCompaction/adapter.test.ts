@@ -50,8 +50,20 @@ function fakeSurface(over: Partial<Surface> = {}): { surface: Surface; run: Run 
       nonces.delete(`${sessionId} ${paneId}`);
     },
     roster: () => [
-      { paneId: "wM:p1", agentName: "feat/alpha", cwd: "/w/alpha", status: "working" },
-      { paneId: "wM:p2", agentName: "feat/beta", cwd: "/w/beta", status: "idle" },
+      {
+        paneId: "wM:p1",
+        agentName: "feat/alpha",
+        cwd: "/w/alpha",
+        status: "working",
+        agentSession: "sess-target",
+      },
+      {
+        paneId: "wM:p2",
+        agentName: "feat/beta",
+        cwd: "/w/beta",
+        status: "idle",
+        agentSession: "sess-target",
+      },
     ],
     screen: () => gaugeFor(6),
     send: (target, text) => run.sent.push({ target, text }),
@@ -74,7 +86,7 @@ function fakeSurface(over: Partial<Surface> = {}): { surface: Surface; run: Run 
         ],
       },
     ],
-    marker: () => ({ branch: "feat/alpha", stage: "x", sessionId: "sess-1", blockedOn: "" }),
+    marker: () => ({ branch: "feat/alpha", stage: "x", sessionId: "sess-target", blockedOn: "" }),
     git: () => ({ clean: true, lastCommitAt: 1_000 }),
     gh: () => ({ exitCode: 1, stdout: "", stderr: "no pull requests found for branch" }),
     corpus: () => [],
@@ -114,6 +126,7 @@ describe("the report", () => {
       agentName: `feat/a${i}`,
       cwd: `/w/${i}`,
       status: "idle" as const,
+      agentSession: null,
     }));
     const run = drive(["--json"], { roster: () => many });
     const payload: unknown = JSON.parse(run.lines.join("\n"));
@@ -131,9 +144,27 @@ describe("the network read is per WORKTREE, not per pane", () => {
     const cwds: string[] = [];
     const run = drive([], {
       roster: () => [
-        { paneId: "wM:p1", agentName: "feat/alpha", cwd: "/w/same", status: "working" },
-        { paneId: "wM:p2", agentName: "feat/beta", cwd: "/w/same", status: "idle" },
-        { paneId: "wM:p3", agentName: "feat/gamma", cwd: "/w/other", status: "idle" },
+        {
+          paneId: "wM:p1",
+          agentName: "feat/alpha",
+          cwd: "/w/same",
+          status: "working",
+          agentSession: null,
+        },
+        {
+          paneId: "wM:p2",
+          agentName: "feat/beta",
+          cwd: "/w/same",
+          status: "idle",
+          agentSession: null,
+        },
+        {
+          paneId: "wM:p3",
+          agentName: "feat/gamma",
+          cwd: "/w/other",
+          status: "idle",
+          agentSession: null,
+        },
       ],
       gh: (cwd) => {
         cwds.push(cwd);
@@ -170,6 +201,152 @@ describe("--check aggregation", () => {
     // Same actionable pressure, but the registry belongs to someone else.
     const run = drive(["--check", "--as", "sess-OTHER"], { screen: () => gaugeFor(6) });
     expect(run.code).toBe(0);
+  });
+});
+
+describe("rule 5 compares the marker against the PANE's session, not against --as", () => {
+  // The orchestrator is a different session from every pane it watches, so
+  // comparing the marker's sessionId against `--as` would fire rule 5 on
+  // essentially every arc pane carrying a marker. The question rule 5 actually
+  // asks is whether the session that WROTE the marker still lives in the pane —
+  // the supersession a takeover creates (§4.5 rule 5, AC-17).
+  const markerFor = (sessionId: string | null): Record<string, unknown> =>
+    sessionId === null
+      ? { branch: "feat/alpha", stage: "x", blockedOn: "" }
+      : { branch: "feat/alpha", stage: "x", sessionId, blockedOn: "" };
+
+  it("does NOT fire merely because the orchestrator differs from the target", () => {
+    // `--as sess-1` owns the purview, so the pane stays IN purview and its
+    // verdict actually reaches the exit code — while the marker names
+    // `sess-target`, which is not `--as`. Under the old comparison that
+    // difference alone made the pane UNDETERMINED (exit 2). Isolating it from
+    // purview is the point: a different `--as` would drop the pane out of the
+    // aggregation entirely and produce exit 0 for a reason that has nothing to
+    // do with rule 5.
+    const run = drive(["--check", "--as", "sess-1"], {
+      marker: () => markerFor("sess-target"),
+      screen: () => gaugeFor(6),
+    });
+    premiseHolds(
+      "the marker's session really does differ from --as, or this proves nothing",
+      markerFor("sess-target")["sessionId"] !== "sess-1",
+    );
+    // Actionable, not UNDETERMINED: exit 1 rather than 2.
+    expect(run.code).toBe(1);
+  });
+
+  it("fires when the marker names a session the pane no longer runs", () => {
+    const run = drive(["--check", "--as", "sess-1"], {
+      roster: () => [
+        {
+          paneId: "wM:p1",
+          agentName: "feat/alpha",
+          cwd: "/w/alpha",
+          status: "working",
+          agentSession: "sess-SUCCESSOR",
+        },
+      ],
+      purview: () => [
+        {
+          sessionId: "sess-1",
+          rows: [
+            {
+              paneId: "wM:p1",
+              agentName: "feat/alpha",
+              branch: "feat/alpha",
+              dispatchedAt: "2026-08-16T00:00:00Z",
+            },
+          ],
+        },
+      ],
+      marker: () => markerFor("sess-SUPERSEDED"),
+      screen: () => gaugeFor(6),
+    });
+    expect(run.code).toBe(2);
+  });
+
+  it("fires when the marker names a session and the pane reports NONE", () => {
+    // §3.9's probe table measured exactly this on a live pane.
+    const run = drive(["--check", "--as", "sess-1"], {
+      roster: () => [
+        {
+          paneId: "wM:p1",
+          agentName: "feat/alpha",
+          cwd: "/w/alpha",
+          status: "working",
+          agentSession: null,
+        },
+      ],
+      purview: () => [
+        {
+          sessionId: "sess-1",
+          rows: [
+            {
+              paneId: "wM:p1",
+              agentName: "feat/alpha",
+              branch: "feat/alpha",
+              dispatchedAt: "2026-08-16T00:00:00Z",
+            },
+          ],
+        },
+      ],
+      marker: () => markerFor("sess-anything"),
+      screen: () => gaugeFor(6),
+    });
+    expect(run.code).toBe(2);
+  });
+
+  it("no-ops when the marker names no session at all — absent cannot mismatch (AC-20)", () => {
+    const run = drive(["--check", "--as", "sess-1"], {
+      marker: () => markerFor(null),
+      screen: () => gaugeFor(6),
+    });
+    premiseHolds(
+      "the fixture marker really carries no sessionId",
+      !("sessionId" in markerFor(null)),
+    );
+    expect(run.code).toBe(1);
+  });
+});
+
+describe("--dry-run shows the refusal it would hit, and spends nothing", () => {
+  it("--compact --dry-run refuses on an absent nonce instead of printing /compact", () => {
+    // AC-19. A dry run that prints the command when the real one would exit 1
+    // tells an operator it is ready to go, which is worse than no dry run.
+    const run = drive(["--compact", "wM:p1", "--as", "sess-1", "--dry-run"], {
+      marker: () => ({
+        branch: "feat/alpha",
+        stage: "x",
+        sessionId: "sess-target",
+        blockedOn: "",
+        checkpointNonce: "n1",
+      }),
+    });
+    expect(run.code).toBe(1);
+    expect(run.lines.join("\n")).not.toContain("/compact");
+    expect(run.sent).toEqual([]);
+  });
+
+  it("--compact --dry-run does not CONSUME the nonce it checked", () => {
+    // Reading and comparing is the gate; spending it is the side effect. A dry
+    // run that consumed would make the real --compact that follows it fail.
+    const consumed: string[] = [];
+    const { surface, run } = fakeSurface({
+      marker: () => ({
+        branch: "feat/alpha",
+        stage: "x",
+        sessionId: "sess-target",
+        blockedOn: "",
+        checkpointNonce: "n1",
+      }),
+      nonceRead: () => "n1",
+      nonceConsume: (sessionId, paneId) => consumed.push(`${sessionId}/${paneId}`),
+    });
+    const code = main(["--compact", "wM:p1", "--as", "sess-1", "--dry-run"], surface);
+    expect(code).toBe(0);
+    expect(run.lines.join("\n")).toContain("/compact");
+    expect(consumed).toEqual([]);
+    expect(run.sent).toEqual([]);
   });
 });
 
@@ -283,7 +460,7 @@ describe("the three commands", () => {
     const blocked = {
       branch: "feat/alpha",
       stage: "x",
-      sessionId: "sess-1",
+      sessionId: "sess-target",
       blockedOn: "waiting on a human",
     };
     // The premise is about the FIXTURE, read off the fixture — not a restatement
