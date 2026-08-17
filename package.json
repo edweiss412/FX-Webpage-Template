@@ -52,7 +52,7 @@
     "test:fuzz": "vitest run tests/parser/fuzz",
     "test:fuzz:deep": "FUZZ_DEEP=1 vitest run tests/parser/fuzz",
     "mutation:sites": "tsx scripts/print-mutation-sites.ts",
-    "mutation:guards": "VITEST_INCLUDE_MUTATION_HARNESS=1 vitest run --project mutation tests/mutation/guardSurfaces.gate.test.ts",
+    "mutation:guards": "VITEST_INCLUDE_MUTATION_HARNESS=1 vitest run --project mutation tests/mutation/guardSurfaces.shard0.test.ts tests/mutation/guardSurfaces.shard1.test.ts tests/mutation/guardSurfaces.shard2.test.ts tests/mutation/guardSurfaces.shard3.test.ts tests/mutation/guardSurfaces.gates.test.ts",
     "mutation:browser": "VITEST_INCLUDE_MUTATION_HARNESS=1 vitest run --project mutation tests/mutation/browser/browserSurfaces.gate.test.ts",
     "heavy": "python3 scripts/with-heavy-slot.py --",
     "test:e2e": "playwright test",

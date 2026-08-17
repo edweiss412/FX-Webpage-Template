@@ -1,3 +1,23 @@
+## BL-MUTATION-HARNESS-WALLCLOCK-CEILING — the nightly job's wall clock grows with every enrolled surface and nothing bounds it — CLOSED 2026-08-16 (`chore/mutation-gate-sharding`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-16 · **Effort (as shipped):** M · **Filed:** 2026-08-15 (`fix/ui-interactive-token-policy`, Task 5 enrolment). **Class:** CI capacity. **Class-sweep exception:** (c) — the repair is a redesign of the harness's execution model (sharding) on a surface the filing branch only enrolled into. **Reachability:** PROBED — three measured runs, below.
+
+`mutation-harness` ran `vitest run --project mutation` as ONE job: 8 LPT-balanced parser shard files plus `tests/mutation/guardSurfaces.gate.test.ts`, which ran EVERY registered source-mutation surface serially, one `vitest` child per mutant. The gates file therefore grew monotonically as surfaces enrolled, and no layer bounded it.
+
+Measured 2026-08-15: 138 min on `main` (run 31871859884) at 519 gate mutants; **180m15s on the filing arc's PR head, which had enrolled nothing** (run 31876214966, step cancelled at the `timeout-minutes: 180` ceiling); 146 min and red on a concurrent sibling arc (run 31877020683). The headroom was gone to runner variance ALONE, before any new surface.
+
+**Where the entry's own diagnosis was corrected.** The entry proposed lifting the parser harness's sharding to the gates file. The spec measured that this buys almost nothing on its own: the single job was already **97.6% packed against its three vitest workers** (486 min of work, ideal makespan 162.0 min, actual 166.0), so splitting the gate into more FILES inside one job redistributes work among the same three workers. The binding constraint is total work against a fixed 4-vCPU runner, and on GitHub Actions more CPUs means more **jobs**. Sharding was still required — it is what makes the work divisible across jobs — but it is not the fix by itself.
+
+**What shipped (PR #834).** One job became four job families plus a budget job: `parser-shards` (matrix 0..7), `parser-gates`, `source-shards` (matrix 0..3), `source-gates`, `budget`. `timeout-minutes` is **90 per leg**, not a third raise of the 300 the single job carried. The source gate is four same-template shard files plus one corpus-wide gates file, each shard filtering `GUARD_SURFACES` through an LPT partition recomputed live from the registry — no weight table is committed, so every runner computes the identical map. The packing itself is imported from `tests/parser/mutation/shardPartition.ts` and reused rather than re-implemented.
+
+**The entry's SECOND complaint is answered separately, and it is the half easy to skip.** "The job is non-gating by design, so a timeout is silent to everyone except whoever reads the nightly." Sharding does nothing for that. `notify` now needs all five jobs, and its issue body leads with a `FAILED:` line naming which failed, then per-job results, then triage guidance per harness — including that a `budget` failure is not a coverage failure and that its response is raising `SOURCE_SHARD_COUNT`, never `timeout-minutes`. Both notify branches were rewritten, not just re-wired: they tested `needs.mutation-harness.result`, a job this PR deletes, and a dangling `needs.<job>` evaluates to empty rather than erroring — so the failure branch would never have fired and the success branch could have auto-closed a standing issue on a red run, with every structural assertion about `needs` still green.
+
+**Two limits carried forward.** `SOURCE_SHARD_COUNT` remains 4 although the registry left the regime the spec measured — at 21 surfaces the even split (555) exceeds the heaviest surface (521), so the crossover moved to `n >= 5`; the count stays on budget grounds (47.0 min against 3,600 s) and spec limit L-1 carries a dated addendum. Sub-surface partitioning stays deferred as L-2, with the `budget` job as its self-reporting trigger.
+
+Closeout: `docs/superpowers/plans/2026-08-16-mutation-gate-sharding-closeout.md`. Spec: `docs/superpowers/specs/ci/2026-08-16-mutation-gate-wallclock-design.md`.
+
+---
+
 ## BL-MODAL-WAIT-BOUNDARY-HELPER-ADOPTION — adopt the boundary-recovering wait helper across the other modal-waiting e2e specs — CLOSED 2026-08-16 (`test/modal-wait-helper-adoption`, SHIPPED)
 
 **Status:** SHIPPED 2026-08-16 · **Effort (as shipped):** M · **Class:** e2e flake hardening · **Filed:** 2026-08-15 · **Spec:** `docs/superpowers/specs/ci/2026-08-16-modal-wait-boundary-helper-adoption-design.md` · **Plan:** `docs/superpowers/plans/ci/2026-08-16-modal-wait-boundary-helper-adoption.md`

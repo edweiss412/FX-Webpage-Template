@@ -314,19 +314,7 @@ Memory at the same instant: 14.86 GB rss of 18 GB, `Pages free: 4015`, compresso
 
 **Candidate shapes, for the implementing arc to weigh rather than a decision made here:** (a) a max-lifetime reaper for orphaned `mutantOverlay`/vitest workers, matching what a human just ran by hand (`ppid==1` or dead ancestor, age past a ceiling well above the longest legitimate run); (b) the runner passing a hard `--test-timeout`/deadline into each child so a spinning worker self-terminates; (c) process-group kill on wrapper death so a dying harness takes its children with it — the most complete, and the one that needs care because the wrapper deliberately `execvp`s. Whichever wins must not be able to kill a legitimately long heavy phase; the age filter used by hand was ≥12 h, chosen because every live arc's processes were under ten minutes old.
 
-**First scheduled step:** measure the longest legitimate `mutation:guards` wall clock on this machine (the nightly is already at 138-180 min per `BL-MUTATION-HARNESS-WALLCLOCK-CEILING` below, so the ceiling is not small), then pick the shape. The two entries share a surface and should be read together — that one is about a job that runs too long, this one about processes that never stop.
-
-## BL-MUTATION-HARNESS-WALLCLOCK-CEILING — the nightly job's wall clock grows with every enrolled surface and nothing bounds it
-
-**Filed:** 2026-08-15 (`fix/ui-interactive-token-policy`, Task 5 enrolment). **Class:** CI capacity. **Effort:** M. **Class-sweep exception:** (c) — the repair is a redesign of the harness's execution model (sharding) on a surface this branch only enrols into. **Reachability:** PROBED — three measured runs, below.
-
-`mutation-harness` runs `vitest run --project mutation`: 8 LPT-balanced parser shard files plus `tests/mutation/guardSurfaces.gate.test.ts`, which runs EVERY registered source-mutation surface serially, one `vitest` child per mutant (`tests/mutation/source/runner.ts`; serial execution is ratified in the harness spec as R6 / limit L-4). The gates file therefore grows monotonically as surfaces enrol, and no layer bounds it.
-
-Measured 2026-08-15: 138 min on `main` (run 31871859884, 07:24:20Z..09:42:08Z) at 519 gate mutants; **180m15s on this arc's PR head, which had enrolled nothing** (run 31876214966, step cancelled at the `timeout-minutes: 180` ceiling); 146 min and red on a concurrent sibling arc (run 31877020683). The headroom was gone to runner variance ALONE, before any new surface. This branch enrols `interactiveScanCore` (207 mutants, +40% on the gates file) and raises `timeout-minutes` to 300 with those run ids in the workflow comment — headroom, not a fix.
-
-**Why it is not merely a bigger number.** The job is non-gating by design, so a timeout is silent to everyone except whoever reads the nightly. The failure mode is that enrolment — the thing the round-economy rule in `AGENTS.md` asks arcs to do BEFORE their first review dispatch — is exactly what pushes the job over, so the incentive runs toward not enrolling.
-
-**First scheduled step:** lift the parser harness's existing sharding (`tests/parser/mutation/shardPartition.ts:11`) to the gates file so surfaces partition across workers instead of accumulating on one. The harness spec already files serial execution as a deferred limit with that mechanism named; this entry is its trigger.
+**First scheduled step:** measure the longest legitimate `mutation:guards` wall clock on this machine (the nightly was at 138-180 min per `BL-MUTATION-HARNESS-WALLCLOCK-CEILING`, now CLOSED and in `BACKLOG-archive.md` — it sharded that job across runners with a 3,600 s per-shard budget, so the ceiling to measure here is a per-leg one), then pick the shape. The two entries share a surface and should be read together — that one is about a job that runs too long, this one about processes that never stop.
 
 ## BL-ADMIN-DEV-PANEL-TAP-FLOOR — the two dev-panel buttons are ~28px, and their classes are not even compiled
 
