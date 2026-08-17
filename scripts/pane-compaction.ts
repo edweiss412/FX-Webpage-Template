@@ -102,6 +102,17 @@ export type Surface = {
   now(): number;
   random(): string;
   out(line: string): void;
+  /**
+   * Bytes, EXACTLY as given -- no trailing newline, no reformatting.
+   *
+   * AC-6 says `--dry-run` prints that command's §5.2 bytes. Routing them through
+   * the line-oriented `out` produced `/compact\n\r\n`
+   * (`2f636f6d706163740a0d0a`) where the real send emits `/compact\r`
+   * (`2f636f6d706163740d`), so the dry run showed something the live path would
+   * never send (diff round 3, finding 4). A dry run whose bytes differ from the
+   * real ones is not a preview of anything.
+   */
+  outRaw(bytes: string): void;
   nonceRead(sessionId: string, paneId: string): string | null;
   nonceWrite(sessionId: string, paneId: string, nonce: string): void;
   nonceConsume(sessionId: string, paneId: string): void;
@@ -145,6 +156,30 @@ const MARKER_FIELDS: Record<string, "string" | "number"> = {
   sessionId: "string",
   checkpointNonce: "string",
 };
+
+/**
+ * The seven §4.3 requires of a PRESENT marker. `checkpointNonce` is the only
+ * optional one (§5.2 -- written by a target answering CHECKPOINT_TEXT).
+ *
+ * Absence had to be checked separately from type, because a key walk only ever
+ * sees the keys that ARE there: `{branch: "feat/x"}` walked clean and drove.
+ * Spec §9's round-1 precedence case says exactly this -- a below-band pane with
+ * a missing marker field is UNDETERMINED, not HOLD (diff round 3, finding 2).
+ *
+ * An ABSENT marker is still a supported observation (AC-20); this fires only on
+ * a marker that exists and is incomplete, which is what a partial write looks
+ * like -- and `--checkpoint` asks targets to rewrite this file, so partial
+ * writes are ordinary here.
+ */
+const MARKER_REQUIRED = [
+  "branch",
+  "stage",
+  "tasksRemaining",
+  "next",
+  "blockedOn",
+  "cronJobId",
+  "sessionId",
+] as const;
 
 const STATUSES = new Set(["idle", "working", "blocked", "done", "unknown"]);
 
@@ -191,6 +226,9 @@ export function rejectedFieldOf(opts: {
     return `gh bucket=${opts.ghBucket}`;
   }
   if (opts.marker !== null) {
+    for (const key of MARKER_REQUIRED) {
+      if (!(key in opts.marker)) return `marker.${key} (missing)`;
+    }
     for (const [key, value] of Object.entries(opts.marker)) {
       const expected = MARKER_FIELDS[key];
       // Unknown KEY, as before.
@@ -221,6 +259,9 @@ export function unknownBucketOf(run: GhInvocation): string | null {
   }
   if (!Array.isArray(parsed)) return null;
   for (const r of parsed) {
+    // JSON `null` is an object to `typeof`, so property access on it THROWS.
+    // A null row is malformed input, not a crash (diff round 3, finding 2).
+    if (typeof r !== "object" || r === null) return "(missing)";
     const b = (r as { bucket?: unknown }).bucket;
     // A row with no `bucket` at all is as unusable as an unrecognized one.
     if (typeof b !== "string") return "(missing)";
@@ -401,6 +442,8 @@ type Parsed = {
   target: string | null;
   /** Positional arguments beyond the first; a non-empty list is a usage error. */
   extraTargets: string[];
+  /** Sending-mode flags beyond the first; a non-empty list is a usage error. */
+  extraModes: string[];
 };
 
 /** argv, with no defaulting that could stand in for a missing `--as`. */
@@ -413,6 +456,7 @@ export function parseArgv(argv: string[]): Parsed {
     as: null,
     target: null,
     extraTargets: [],
+    extraModes: [],
   };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
@@ -431,10 +475,21 @@ export function parseArgv(argv: string[]): Parsed {
         i += 1;
       }
     } else if (a === "--checkpoint" || a === "--compact" || a === "--resume") {
+      // A SECOND sending mode is a usage error, not a re-aim. This branch used
+      // to overwrite both `mode` and `target`, so `--checkpoint p1 --compact p2`
+      // parsed as compacting p2, exited 0, and SENT -- the operator asked to
+      // checkpoint p1 and the tool typed `/compact` into p2 instead (diff round
+      // 3, finding 3, AC-7). Recorded through the same channel as a second
+      // positional, so one refusal covers both spellings of "which pane did you
+      // mean".
+      if (out.mode !== "report") {
+        out.extraModes.push(a);
+      }
       out.mode = a.slice(2) as Parsed["mode"];
       const next = argv[i + 1];
       if (next !== undefined && !next.startsWith("--")) {
-        out.target = next;
+        if (out.target !== null) out.extraTargets.push(next);
+        else out.target = next;
         i += 1;
       }
     } else if (a !== undefined && !a.startsWith("--")) {
@@ -464,6 +519,10 @@ export function main(argv: string[], s: Surface): number {
 
   if (opts.all) {
     s.out(refuse({ kind: "all-rejected" }).message);
+    return 1;
+  }
+  if (opts.extraModes.length > 0) {
+    s.out(`refusing: name a single command; also given ${opts.extraModes.join(", ")} (AC-7)`);
     return 1;
   }
   if (opts.extraTargets.length > 0) {
@@ -629,7 +688,7 @@ function drive(opts: Parsed, pane: RosterPane, roster: RosterPane[], s: Surface)
     const nonce = mintNonce({ markerNonce, random: s.random });
     const sends = planSends({ command: "checkpoint", nonce }).sends;
     if (opts.dryRun) {
-      for (const line of sends) s.out(line);
+      for (const line of sends) s.outRaw(line);
       return 0;
     }
     s.nonceWrite(as, pane.paneId, nonce);
@@ -640,7 +699,7 @@ function drive(opts: Parsed, pane: RosterPane, roster: RosterPane[], s: Surface)
   if (opts.mode === "resume") {
     const sends = planSends({ command: "resume" }).sends;
     for (const line of sends) {
-      if (opts.dryRun) s.out(line);
+      if (opts.dryRun) s.outRaw(line);
       else s.send(pane.paneId, line);
     }
     return 0;
@@ -667,14 +726,34 @@ function drive(opts: Parsed, pane: RosterPane, roster: RosterPane[], s: Surface)
       return typeof now?.["checkpointNonce"] === "string" ? now["checkpointNonce"] : null;
     },
     send: (text) => {
-      if (opts.dryRun) s.out(text);
+      if (opts.dryRun) s.outRaw(text);
       else s.send(pane.paneId, text);
     },
     // Revalidated a second time at the moment of the send, per §5.2.
     revalidate: () => {
-      // Revalidation must OBSERVE AGAIN, so it takes a fresh cache rather than
-      // the one the first classification filled.
-      const fresh = observe(pane, roster, as, s, cacheOf(s));
+      // RE-READ EVERY INPUT, not merely re-run the classifier over old ones.
+      //
+      // This is a CLASS repair, and the class has now cost three rounds. Round 1
+      // read the marker fresh but authorized against a nonce captured earlier.
+      // Round 2 re-observed but compared only the verdict. Round 3 found the
+      // roster itself was the stale input: `pane` and `roster` were captured
+      // before the send, so rules 1, 2, 5 and 7 -- every roster-derived rule --
+      // could not change. A takeover that swapped `agent_session` mid-command
+      // was invisible, `rosterReads` stayed 1, and `/compact` went out (AC-13,
+      // AC-17).
+      //
+      // Each round I fixed the input the finding named. The defect was never
+      // one input: it was revalidating from a snapshot. So the roster is read
+      // AGAIN here and the pane re-found in it, which is what makes the
+      // comparison below a comparison of two observations rather than one
+      // observation compared with itself.
+      const freshRoster = s.roster();
+      const freshPane = freshRoster.find((r) => r.paneId === pane.paneId);
+      if (freshPane === undefined) {
+        // Gone from the roster between observation and send: a closing pane.
+        return { ok: false, message: `refusing: ${pane.paneId} left the roster before sending` };
+      }
+      const fresh = observe(freshPane, freshRoster, as, s, cacheOf(s));
       // COMPARE THE WHOLE DECISION, not just the verdict.
       //
       // Comparing `verdict` alone let a purview TRANSFER through: ownership
@@ -780,6 +859,13 @@ export function parseAgentGet(
     body = JSON.parse(raw) as typeof body;
   } catch {
     return { fault: `herdr agent get did not return JSON (exit ${run.exitCode})` };
+  }
+  // `JSON.parse("null")` succeeds and yields null, which `typeof` calls an
+  // object -- so the property reads below would THROW rather than fault. A
+  // literal `null` reply is malformed output from the tool, and a malformed
+  // reply is a named fault, never a crash (diff round 3, finding 2).
+  if (typeof body !== "object" || body === null) {
+    return { fault: `herdr agent get returned a non-object body (exit ${run.exitCode})` };
   }
   const code = body.error?.code;
   if (code === "agent_not_found") return { notFound: true };
@@ -954,6 +1040,7 @@ export function realSurface(): Surface {
     // smaller.
     random: () => randomBytes(16).toString("hex"),
     out: (line) => process.stdout.write(`${line}\n`),
+    outRaw: (bytes) => process.stdout.write(bytes),
     nonceRead: (sessionId, paneId) => {
       const body = readJson(join(NONCE_DIR, `${sessionId}.json`)) as Record<string, string> | null;
       return body?.[paneId] ?? null;

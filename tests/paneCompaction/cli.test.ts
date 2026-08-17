@@ -129,3 +129,32 @@ describe("the single-target grammar (AC-7)", () => {
     expect(parseArgv(["--check", "--as", "owner"]).extraTargets).toEqual([]);
   });
 });
+
+describe("a second COMMAND is a usage error, like a second target (AC-7)", () => {
+  // Diff round 3, finding 3 (P1). The mode branch overwrote both `mode` and
+  // `target`, so `--checkpoint p1 --compact p2` parsed as compacting p2, exited
+  // 0, and SENT. The operator asked to checkpoint p1 and the tool typed
+  // `/compact` into a different pane -- the single worst outcome available to a
+  // surface whose entire job is which bytes reach which session.
+  it("records a second sending mode instead of silently re-aiming", () => {
+    const p = parseArgv(["--checkpoint", "p1", "--compact", "p2", "--as", "owner"]);
+    expect(p.extraModes).toEqual(["--compact"]);
+  });
+
+  it("keeps the FIRST target when a second command supplies another", () => {
+    // Recorded, not dropped: the refusal names both so the operator can see
+    // which two readings of their command line were possible.
+    const p = parseArgv(["--checkpoint", "p1", "--compact", "p2", "--as", "owner"]);
+    expect(p.target).toBe("p1");
+    expect(p.extraTargets).toEqual(["p2"]);
+  });
+
+  it("leaves extraModes empty for a single well-formed command", () => {
+    expect(parseArgv(["--compact", "p1", "--as", "owner"]).extraModes).toEqual([]);
+  });
+
+  it("does not count --check or --json as a sending mode", () => {
+    // Only the three sending modes collide; flags that shape the report do not.
+    expect(parseArgv(["--json", "--check", "--as", "o"]).extraModes).toEqual([]);
+  });
+});

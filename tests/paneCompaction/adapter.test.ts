@@ -23,6 +23,7 @@ import { CHECKPOINT_TEXT, RESUME_TEXT, classifyGh } from "@/scripts/lib/pane-com
 import {
   MALFORMED_MARKER,
   SendFailed,
+  unknownBucketOf,
   type Surface,
   main,
   parseAgentGet,
@@ -35,14 +36,39 @@ import { gaugeFor } from "@/tests/paneCompaction/fixtures";
 const ROOT = process.cwd();
 
 /** Lines the adapter emitted, in order. */
-type Run = { code: number; lines: string[]; sent: Array<{ target: string; text: string }> };
+/** `raw` is separate from `lines` so a case can assert BYTES, which is what AC-6 is about. */
+type Run = {
+  code: number;
+  lines: string[];
+  raw: string[];
+  sent: Array<{ target: string; text: string }>;
+};
 
 /**
  * A surface whose every read is a fixture. No case shares one: a shared surface
  * is how a case ends up proving something about its neighbour's inputs.
  */
+/**
+ * A COMPLETE §4.3 marker. All seven fields are required of a marker that
+ * exists, so a partial literal is a rule-4 rejection -- which would silently
+ * turn any case using one into a rejection case instead of what it names.
+ * Cases that deliberately test rejection build their literal inline.
+ */
+function fullMarker(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    branch: "feat/alpha",
+    stage: "x",
+    tasksRemaining: 0,
+    next: "n",
+    blockedOn: "",
+    cronJobId: "c",
+    sessionId: "sess-target",
+    ...over,
+  };
+}
+
 function fakeSurface(over: Partial<Surface> = {}): { surface: Surface; run: Run } {
-  const run: Run = { code: 0, lines: [], sent: [] };
+  const run: Run = { code: 0, lines: [], raw: [], sent: [] };
   // In memory, so no case can reach ~/.claude/pane-nonces on the real machine.
   const nonces = new Map<string, string>();
   const surface: Surface = {
@@ -97,7 +123,18 @@ function fakeSurface(over: Partial<Surface> = {}): { surface: Surface; run: Run 
         ],
       },
     ],
-    marker: () => ({ branch: "feat/alpha", stage: "x", sessionId: "sess-target", blockedOn: "" }),
+    // COMPLETE: §4.3 requires all seven fields of a PRESENT marker, so a
+    // partial fixture would now be UNDETERMINED and every drivable case here
+    // would be testing the rejection path instead of what it names.
+    marker: () => ({
+      branch: "feat/alpha",
+      stage: "x",
+      tasksRemaining: 0,
+      next: "n",
+      blockedOn: "",
+      cronJobId: "c",
+      sessionId: "sess-target",
+    }),
     git: () => ({ clean: true, lastCommitAt: 1_000 }),
     gh: () => ({ exitCode: 1, stdout: "", stderr: "no pull requests found for branch" }),
     corpus: () => [],
@@ -110,6 +147,7 @@ function fakeSurface(over: Partial<Surface> = {}): { surface: Surface; run: Run 
     now: () => 100_000_000,
     random: () => "nonce-fresh",
     out: (line) => run.lines.push(line),
+    outRaw: (bytes) => run.raw.push(bytes),
     ...over,
   };
   return { surface, run };
@@ -221,10 +259,18 @@ describe("rule 5 compares the marker against the PANE's session, not against --a
   // essentially every arc pane carrying a marker. The question rule 5 actually
   // asks is whether the session that WROTE the marker still lives in the pane —
   // the supersession a takeover creates (§4.5 rule 5, AC-17).
-  const markerFor = (sessionId: string | null): Record<string, unknown> =>
-    sessionId === null
-      ? { branch: "feat/alpha", stage: "x", blockedOn: "" }
-      : { branch: "feat/alpha", stage: "x", sessionId, blockedOn: "" };
+  // COMPLETE markers: §4.3 requires all seven fields of a marker that EXISTS,
+  // so a partial fixture would be rejected by rule 4 and every case below would
+  // silently become a rule-4 case instead of the rule-5 case it names.
+  const markerFor = (sessionId: string): Record<string, unknown> => ({
+    branch: "feat/alpha",
+    stage: "x",
+    tasksRemaining: 0,
+    next: "n",
+    blockedOn: "",
+    cronJobId: "c",
+    sessionId,
+  });
 
   it("does NOT fire merely because the orchestrator differs from the target", () => {
     // `--as sess-1` owns the purview, so the pane stays IN purview and its
@@ -307,16 +353,28 @@ describe("rule 5 compares the marker against the PANE's session, not against --a
     expect(run.code).toBe(2);
   });
 
-  it("no-ops when the marker names no session at all — absent cannot mismatch (AC-20)", () => {
+  it("no-ops when there is NO marker at all — absent cannot mismatch (AC-20)", () => {
+    // AC-20 is about an ABSENT marker, and the fixture used to express that as a
+    // marker missing `sessionId`. Those are different things: §4.3 requires all
+    // seven fields of a marker that exists, so the old fixture is now a rule-4
+    // rejection and would have made this case pass for the wrong reason.
     const run = drive(["--check", "--as", "sess-1"], {
-      marker: () => markerFor(null),
+      marker: () => null,
       screen: () => gaugeFor(6),
     });
-    premiseHolds(
-      "the fixture marker really carries no sessionId",
-      !("sessionId" in markerFor(null)),
-    );
     expect(run.code).toBe(1);
+  });
+
+  it("a marker that EXISTS but omits a required field is untrusted, not actionable", () => {
+    // The other half of the same distinction, and spec §9's round-1 precedence
+    // case: a below-band pane with a missing marker field is UNDETERMINED, not
+    // HOLD. A partial write is ordinary here -- `--checkpoint` asks targets to
+    // rewrite this very file.
+    const run = drive(["--check", "--as", "sess-1"], {
+      marker: () => ({ branch: "feat/alpha" }),
+      screen: () => gaugeFor(6),
+    });
+    expect(run.code).toBe(2);
   });
 });
 
@@ -349,7 +407,7 @@ describe("--dry-run shows the refusal it would hit, and spends nothing", () => {
     });
     const code = main(["--checkpoint", "wM:p1", "--as", "sess-1", "--dry-run"], surface);
     expect(code).toBe(0);
-    premiseHolds("the dry run really did produce the prompt", run.lines.join("").length > 0);
+    premiseHolds("the dry run really did produce the prompt", run.raw.join("").length > 0);
     expect(written).toEqual([]);
     expect(run.sent).toEqual([]);
   });
@@ -359,19 +417,13 @@ describe("--dry-run shows the refusal it would hit, and spends nothing", () => {
     // run that consumed would make the real --compact that follows it fail.
     const consumed: string[] = [];
     const { surface, run } = fakeSurface({
-      marker: () => ({
-        branch: "feat/alpha",
-        stage: "x",
-        sessionId: "sess-target",
-        blockedOn: "",
-        checkpointNonce: "n1",
-      }),
+      marker: () => fullMarker({ checkpointNonce: "n1" }),
       nonceRead: () => "n1",
       nonceConsume: (sessionId, paneId) => consumed.push(`${sessionId}/${paneId}`),
     });
     const code = main(["--compact", "wM:p1", "--as", "sess-1", "--dry-run"], surface);
     expect(code).toBe(0);
-    expect(run.lines.join("\n")).toContain("/compact");
+    expect(run.raw.join("")).toContain("/compact");
     expect(consumed).toEqual([]);
     expect(run.sent).toEqual([]);
   });
@@ -470,7 +522,7 @@ describe("the three commands", () => {
     // flatly wrong for --resume, whose whole point is that it requires neither
     // verdict. An operator told the wrong reason debugs the wrong thing.
     const { surface, run: r } = fakeSurface({
-      marker: () => ({ sessionId: "sess-target", blockedOn: "waiting on CI" }),
+      marker: () => fullMarker({ blockedOn: "waiting on CI" }),
     });
     const code = main(["--resume", "wM:p1", "--as", "sess-1"], surface);
     expect(code).toBe(1);
@@ -483,7 +535,7 @@ describe("the three commands", () => {
     // "UNDETERMINED naming the offending field" is the whole clause; a refusal
     // that cannot say which field does not satisfy it.
     const { surface, run: r } = fakeSurface({
-      marker: () => ({ sessionId: "sess-target", surpriseKey: 1 }),
+      marker: () => fullMarker({ surpriseKey: 1 }),
     });
     const code = main(["--checkpoint", "wM:p1", "--as", "sess-1"], surface);
     expect(code).toBe(1);
@@ -535,7 +587,7 @@ describe("the three commands", () => {
     let reads = 0;
     const sent: Array<{ target: string; text: string }> = [];
     const { surface, run: r } = fakeSurface({
-      marker: () => ({ sessionId: "sess-target", checkpointNonce: "n1" }),
+      marker: () => fullMarker({ checkpointNonce: "n1" }),
       nonceRead: () => "n1",
       purview: () => {
         reads += 1;
@@ -550,6 +602,55 @@ describe("the three commands", () => {
     expect(code).toBe(1);
     expect(sent).toEqual([]);
     expect(r.lines.join("\n")).toContain("purview");
+  });
+
+  it("AC-17: a takeover between observation and send refuses, having sent nothing", () => {
+    // Diff round 3, finding 1 (P0). Revalidation re-observed but reused the
+    // ORIGINAL roster and pane, so every roster-derived rule (1, 2, 5, 7) was
+    // frozen. A takeover swapping `agent_session` mid-command was invisible:
+    // rosterReads stayed 1 and `/compact` went out.
+    //
+    // Third appearance of one class -- round 1 froze the nonce, round 2 froze
+    // the comparison, round 3 froze the roster. The repair is that revalidation
+    // re-reads EVERY input, so this asserts the roster is read more than once.
+    let rosterReads = 0;
+    const sent: Array<{ target: string; text: string }> = [];
+    const { surface, run: r } = fakeSurface({
+      marker: () => fullMarker({ checkpointNonce: "n1" }),
+      nonceRead: () => "n1",
+      send: (target, text) => sent.push({ target, text }),
+    });
+    const base = surface.roster();
+    const patched: Surface = {
+      ...surface,
+      roster: () => {
+        rosterReads += 1;
+        // First read: the session that owns the marker. Later reads: a takeover
+        // has replaced it, which is exactly what AC-17 asks rule 5 to catch.
+        return base.map((p) =>
+          p.paneId === "wM:p1"
+            ? { ...p, agentSession: rosterReads === 1 ? "sess-target" : "sess-successor" }
+            : p,
+        );
+      },
+    };
+    const code = main(["--compact", "wM:p1", "--as", "sess-1"], patched);
+    premiseHolds("the roster was actually re-read for revalidation", rosterReads > 1);
+    expect(code).toBe(1);
+    expect(sent).toEqual([]);
+    void r;
+  });
+
+  it("herdr agent get returning literal null is a named fault, not a crash", () => {
+    // Diff round 3, finding 2 (P0), second half. `JSON.parse("null")` succeeds
+    // and `typeof null === "object"`, so the property reads threw instead of
+    // faulting. A malformed reply from a subprocess is ordinary operation.
+    const out = parseAgentGet({ exitCode: 0, stdout: "null", stderr: "" });
+    expect("fault" in out).toBe(true);
+  });
+
+  it("a gh table containing a null row is a named rejection, not a crash", () => {
+    expect(unknownBucketOf({ exitCode: 0, stdout: "[null]", stderr: "" })).toBe("(missing)");
   });
 
   it("a marker whose known key holds the wrong TYPE is not driven", () => {
@@ -615,7 +716,7 @@ describe("the three commands", () => {
     // BEFORE sending, so the obvious retry refuses. Without this line the tool
     // reports a failure whose only remedy looks like the thing that just failed.
     const { surface, run: r } = fakeSurface({
-      marker: () => ({ sessionId: "sess-target", checkpointNonce: "n1" }),
+      marker: () => fullMarker({ checkpointNonce: "n1" }),
       nonceRead: () => "n1",
       send: (target) => {
         throw new SendFailed(target, "pane closed");
@@ -759,7 +860,29 @@ describe("the three commands", () => {
     const run = drive(["--checkpoint", "wM:p1", "--as", "sess-1", "--dry-run"]);
     expect(run.code).toBe(0);
     expect(run.sent).toEqual([]);
-    expect(run.lines.join("\n")).toContain("nonce-fresh");
+    expect(run.raw.join("")).toContain("nonce-fresh");
+  });
+
+  it("AC-6: --compact --dry-run emits the live bytes EXACTLY, hex-compared", () => {
+    // Diff round 3, finding 4 (P1). The dry run routed `\r` through the
+    // line-oriented `out`, so `/compact\r` printed as `/compact\n\r\n`
+    // (2f636f6d706163740a0d0a) where the live path sends 2f636f6d706163740d. A
+    // dry run whose bytes differ from the real ones previews nothing -- and
+    // this surface's entire contract is which bytes reach another session.
+    //
+    // Hex, because the difference is invisible in a rendered string.
+    const dry = drive(["--compact", "wM:p1", "--as", "sess-1", "--dry-run"], {
+      marker: () => fullMarker({ checkpointNonce: "n1" }),
+      nonceRead: () => "n1",
+    });
+    const live = drive(["--compact", "wM:p1", "--as", "sess-1"], {
+      marker: () => fullMarker({ checkpointNonce: "n1" }),
+      nonceRead: () => "n1",
+    });
+    premiseHolds("the live path actually sent something", live.sent.length > 0);
+    const hex = (s: string): string => Buffer.from(s, "utf8").toString("hex");
+    expect(hex(dry.raw.join(""))).toBe(hex(live.sent.map((x) => x.text).join("")));
+    expect(dry.sent).toEqual([]);
   });
 
   it("emits no ESC byte on the live send path, across every command", () => {
@@ -839,7 +962,10 @@ describe("the accept-set keeps classify's unreachable branch unreachable", () =>
     const field = rejectedFieldOf({
       status: "idle",
       tenths: 6,
-      marker: { branch: "feat/x", surpriseKey: 1 },
+      // COMPLETE apart from the extra key: the required-presence check runs
+      // first, so a partial literal here would report a MISSING field and this
+      // case would pass while asserting nothing about undeclared keys.
+      marker: fullMarker({ surpriseKey: 1 }),
     });
     expect(field).toBe("marker.surpriseKey");
   });

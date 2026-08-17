@@ -104,6 +104,24 @@ describe("classifyGh discriminates no-PR from failure", () => {
   });
 });
 
+/**
+ * A COMPLETE §4.3 marker. Required-PRESENCE is checked before value types, so a
+ * partial literal reports a missing field and a type case would pass while
+ * asserting nothing about types.
+ */
+function fullMarker(over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    branch: "feat/x",
+    stage: "x",
+    tasksRemaining: 0,
+    next: "n",
+    blockedOn: "",
+    cronJobId: "c",
+    sessionId: "s1",
+    ...over,
+  };
+}
+
 describe("the accept-set validates VALUES, not only shapes", () => {
   // Diff round 2. All four P0s were ONE class: every boundary validator checked
   // shape -- key present, is-array, parses -- and never content. Round 1's
@@ -114,7 +132,11 @@ describe("the accept-set validates VALUES, not only shapes", () => {
     // `sessionId: 123` passed a name-only accept-set and then failed rule 5's
     // `!==` against a string -- silently, since a number never matches a live
     // session id. The probe exited 0 and sent both checkpoint bytes.
-    const f = rejectedFieldOf({ status: "idle", tenths: 6, marker: { sessionId: 123 } });
+    const f = rejectedFieldOf({
+      status: "idle",
+      tenths: 6,
+      marker: fullMarker({ sessionId: 123 }),
+    });
     expect(f).toContain("marker.sessionId");
     expect(f).toContain("string");
   });
@@ -125,7 +147,7 @@ describe("the accept-set validates VALUES, not only shapes", () => {
       rejectedFieldOf({
         status: "idle",
         tenths: 6,
-        marker: { sessionId: "s1", tasksRemaining: 3, blockedOn: "" },
+        marker: fullMarker({ tasksRemaining: 3 }),
       }),
     ).toBeNull();
   });
@@ -135,7 +157,7 @@ describe("the accept-set validates VALUES, not only shapes", () => {
     const f = rejectedFieldOf({
       status: "idle",
       tenths: 6,
-      marker: { tasksRemaining: "3" },
+      marker: fullMarker({ tasksRemaining: "3" }),
     });
     expect(f).toContain("marker.tasksRemaining");
     expect(f).toContain("number");
