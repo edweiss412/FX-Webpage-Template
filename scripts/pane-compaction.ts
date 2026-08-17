@@ -98,10 +98,12 @@ export type Surface = {
    * terminal ids and agent names, so a legitimate target would have been told it
    * does not exist.
    *
-   * Three outcomes, because `herdr agent get` EXITS 0 for a missing target and
-   * puts the answer in `error.code` (probed 2026-08-16). An exit code cannot
-   * discriminate here, and collapsing a fault into "not found" would report a
-   * broken herdr as a typo.
+   * Three outcomes, because the exit code does not carry enough to pick among
+   * them. A missing target exits 1 (probed 2026-08-16; see `parseAgentGet` for
+   * the full stream behaviour), but so does a herdr that is broken or absent —
+   * so exit 1 alone cannot tell "no such pane" from "no answer". The structured
+   * `error.code` is what discriminates, and keeping the two apart matters
+   * because collapsing a fault into "not found" reports a broken herdr as a typo.
    */
   resolveTarget(target: string): { paneId: string } | { notFound: true } | { fault: string };
 };
