@@ -34,10 +34,6 @@ vi.mock("node:child_process", async (importOriginal) => {
         encoding?: string;
       },
     ) => {
-      // `ps` is delegated to the REAL implementation: `reapOrphans` reads a live
-      // process table, and the orphan case below is only meaningful if that read
-      // is real.
-      if (cmd === "ps") return real.spawnSync(cmd, args, opts as never);
       const suite = opts.env!.MUTATION_SUITE!;
       // The baseline run overlays the PRISTINE source; every other call overlays
       // a mutant. Reading the overlay file is how the mock tells them apart,
@@ -79,7 +75,7 @@ vi.mock("node:child_process", async (importOriginal) => {
  */
 const FIXTURE_PID = 2_147_483_646;
 
-const { GROUP_LEADER_ARGV, MUTANT_TIMEOUT_EXIT, MutantRunInfraError, runSuite, runSurface } =
+const { WATCHDOG_ARGV, MUTANT_TIMEOUT_EXIT, MutantRunInfraError, runSuite, runSurface } =
   await import("./runner");
 
 const { premiseHolds } = await import("../../_shared/premise");
@@ -169,11 +165,13 @@ describe("runner — a mutant that never terminates (fix/ui-interactive-token-po
     runSuite("/root", "/t.ts", SOURCE, "a.test.ts", "site");
     expect(calls[0]!.timeout).toBeGreaterThan(0);
     expect(calls[0]!.killSignal).toBe("SIGKILL");
-    // And the child is launched as a process-GROUP LEADER, which is what makes
-    // the reap possible at all: `spawnSync` returns only after killing the
-    // process it spawned, so a parent link is already broken by then.
+    // And the child is launched under the perl supervisor, which is what makes
+    // the reap possible at all: it setpgrp's before exec'ing the command, and
+    // `spawnSync` returns only after killing the process it spawned, so a parent
+    // link is already broken by the time anything walks the tree. The group
+    // reap itself lives in `spawnBounded`.
     expect(calls[0]!.cmd).toBe("perl");
-    expect(calls[0]!.args.slice(0, GROUP_LEADER_ARGV.length)).toEqual([...GROUP_LEADER_ARGV]);
+    expect(calls[0]!.args.slice(0, WATCHDOG_ARGV.length)).toEqual([...WATCHDOG_ARGV]);
   });
 
   it.each([
@@ -219,11 +217,12 @@ describe("runner — a mutant that never terminates (fix/ui-interactive-token-po
       "setInterval(() => {}, 1000);",
     ].join("\n");
 
-    const timedOut = real.spawnSync(
-      "perl",
-      [...GROUP_LEADER_ARGV, process.execPath, "-e", script],
-      { encoding: "utf8", timeout: 2_000, killSignal: "SIGKILL", stdio: "ignore" },
-    );
+    const timedOut = real.spawnSync("perl", [...WATCHDOG_ARGV, process.execPath, "-e", script], {
+      encoding: "utf8",
+      timeout: 2_000,
+      killSignal: "SIGKILL",
+      stdio: "ignore",
+    });
     let grandchild = 0;
     try {
       premiseHolds(
