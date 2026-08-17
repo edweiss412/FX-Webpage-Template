@@ -21,12 +21,36 @@ describe("the classifier core is enrolled", () => {
     expect(surface, `no GUARD_SURFACES row with id ${ID}`).toBeDefined();
   });
 
-  it("starts with an EMPTY accepted ledger, so nothing can go stale before the first run", () => {
-    // A `siteId` is line-keyed: any later edit to the source shifts every
-    // accepted row below it and the gate reports the whole set stale by
-    // construction. Enrolling empty means the trap cannot bite until survivors
-    // are actually classified.
-    expect(surface?.accepted).toEqual([]);
+  it("accepts ONLY type-annotation mutants, and argues each as equivalent", () => {
+    // Enrolment started with an empty ledger deliberately: a `siteId` is
+    // line-keyed, so any later edit to the source shifts every accepted row
+    // below it and the gate reports the whole set stale by construction. That
+    // trap could not bite until survivors were actually classified -- which has
+    // now happened, so the assertion moves from "empty" to "exactly these".
+    //
+    // The first measurement scored 0.8282 with 28 survivors. 22 were repaid by
+    // tests (mutantKills.test.ts). The 6 that remain all mutate a TYPE
+    // ANNOTATION, which TypeScript erases and the runner never typechecks, so
+    // the emitted JavaScript is byte-identical and no test could kill them.
+    //
+    // The bar this pins is the one that matters: NO `accepted-gap` rows. A gap
+    // is real coverage debt and would need a BL- ref; an equivalent mutant is
+    // not debt at all. Keeping the two apart is what stops the ledger from
+    // becoming a place to park survivors nobody wanted to kill.
+    const accepted = surface?.accepted ?? [];
+    expect(accepted.map((r) => r.kind)).toEqual(Array(6).fill("equivalent"));
+    expect(accepted.filter((r) => r.kind === "accepted-gap")).toEqual([]);
+    // Every one names a line that is a type position, not a value position.
+    expect(accepted.map((r) => r.siteId).sort()).toEqual([
+      "integer-literal:404:53:0>1",
+      "integer-literal:404:57:1>2",
+      "integer-literal:404:61:2>3",
+      "integer-literal:505:35:1>2",
+      "integer-literal:585:17:0>1",
+      "integer-literal:585:21:1>2",
+    ]);
+    // Not a formality: an empty reason would let a future row be waved through.
+    for (const r of accepted) expect(r.reason.length).toBeGreaterThan(40);
   });
 
   it("excludes regex-quantifier-bound, which generates no site on this surface", () => {
