@@ -88,6 +88,7 @@
  * conservative direction: the worst case is a surfaced name someone must
  * disposition, never a silently unlisted timing.
  */
+import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import ts from "typescript";
@@ -686,10 +687,60 @@ export const RESOLVER_PATH_ALIASES: Readonly<Record<string, readonly string[]>> 
  * means "not resolved", which reports. Every uncertainty defaults to reporting;
  * nothing degrades back to name matching.
  */
+type BindingResolver = (file: string, pos: number, name: string) => readonly string[];
+
+/**
+ * One memoized resolver per distinct scan input.
+ *
+ * The suites call `scanRepo(REPO_ROOT)` seven times in one process, and the
+ * mutation harness pays that per mutant. Building the program once per call
+ * measured +93.5% on the scoped gate against a +25% budget (AC-10(b)); the same
+ * work memoized is paid once. Keyed on the exact `(file list, contents)` the
+ * scan just read, which is correct BY CONSTRUCTION because that key IS the
+ * resolver's entire input — a changed byte anywhere yields a different key and
+ * a fresh program. Deliberately not a weaker resolver: the budget is met by not
+ * repeating identical work, never by resolving less.
+ *
+ * One entry, not a growing map: consecutive calls in a process are
+ * overwhelmingly the same tree, and an unbounded cache of TypeScript programs
+ * is a memory leak in a long-lived process.
+ */
+let resolverMemo: { key: string; resolve: BindingResolver } | undefined;
+
+function sourcesKey(
+  repoRoot: string,
+  sources: readonly { readonly file: string; readonly text: string }[],
+): string {
+  const hash = createHash("sha1").update(repoRoot).update("\0");
+  for (const { file, text } of sources) {
+    // The LENGTH is in the key as well as the text, so no concatenation of
+    // adjacent files can collide with a different split of the same bytes.
+    hash
+      .update(file)
+      .update("\0")
+      .update(String(text.length))
+      .update("\0")
+      .update(text)
+      .update("\0");
+  }
+  return hash.digest("hex");
+}
+
 function createBindingResolver(
   repoRoot: string,
   sources: readonly { readonly file: string; readonly text: string }[],
-): (file: string, pos: number, name: string) => readonly string[] {
+): BindingResolver {
+  const key = sourcesKey(repoRoot, sources);
+  if (resolverMemo !== undefined && resolverMemo.key === key) return resolverMemo.resolve;
+  const resolve = buildBindingResolver(repoRoot, sources);
+  resolverMemo = { key, resolve };
+  return resolve;
+}
+
+function buildBindingResolver(
+  repoRoot: string,
+  sources: readonly { readonly file: string; readonly text: string }[],
+): BindingResolver {
   const rootPosix = posix(repoRoot).replace(/\/$/, "");
   const absOf = (file: string): string => `${rootPosix}/${file}`;
   const canonical = (fileName: string): string => posix(fileName);

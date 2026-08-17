@@ -704,6 +704,56 @@ describe("scanRepo over a synthetic tree", () => {
     }
   });
 
+
+  test("a second scan of the SAME root sees a file edited between the two calls", () => {
+    // Kills the memo key. The resolver is memoized on `(file list, contents)`,
+    // and the claim that this is correct BY CONSTRUCTION is exactly that a
+    // changed byte yields a different key. Drop the contents from that key and
+    // the second scan is served the FIRST tree's resolver — a program for a
+    // tree that no longer exists. Nothing else in the suite scans one root
+    // twice, so without this case the key could be the path alone and stay
+    // green.
+    //
+    // The two versions are padded to the SAME LENGTH on purpose. An earlier
+    // draft of this case let the line lengths differ, and it passed against the
+    // mutant for an accidental reason: the stale program's text no longer had
+    // an identifier at the new offset, so resolution failed and the site
+    // reported anyway. Equal offsets remove that escape — under the mutant the
+    // stale resolver finds the OLD import and suppresses, which is the failure
+    // this case exists to catch. `premiseHolds` states the padding rather than
+    // trusting it.
+    const resolvingLine = 'import { COPY_FEEDBACK_RESET_MS } from "@/components/timings";';
+    const shadowingLine = "const COPY_FEEDBACK_RESET_MS = readDelayFromRuntimeConfig();".padEnd(
+      resolvingLine.length,
+      " ",
+    );
+    const body = (first: string): string =>
+      [first, "setTimeout(fn, COPY_FEEDBACK_RESET_MS);", ""].join("\n");
+    const root = tree({
+      "components/timings.ts": COVERED,
+      "components/Edited.tsx": body(resolvingLine),
+    });
+    try {
+      premiseHolds(
+        "both versions put the reference identifier at the same offset",
+        resolvingLine.length === shadowingLine.length,
+      );
+      premiseHolds(
+        "the first scan resolves, so the second has something to lose",
+        scanRepo(root).unclassified.length === 0,
+      );
+      // Same path, same offsets, different bytes: the import is now a shadow.
+      writeFileSync(join(root, "components/Edited.tsx"), body(shadowingLine), "utf8");
+      const residual = scanRepo(root).unclassified;
+      expect(residual.map((s) => [s.file, s.name])).toContainEqual([
+        "components/Edited.tsx",
+        "COPY_FEEDBACK_RESET_MS",
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
 });
 
 // ── Property totality: a timing-named property whose value is not a literal ──
