@@ -19,11 +19,13 @@ import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import { publishShow, type LifecycleResult } from "@/lib/showLifecycle/publishShow";
 import { unpublishShow } from "@/lib/showLifecycle/unpublishShow";
 import { resolveShowBySlug, SHOW_NOT_FOUND } from "./shared";
+import { assertSameOriginServerAction } from "@/lib/auth/sameOriginServerAction";
 
 export async function setShowPublishedAction(
   slug: string,
   next: boolean,
 ): Promise<LifecycleResult> {
+  await assertSameOriginServerAction("setShowPublishedAction", "admin.show.setPublished");
   await requireAdmin();
   const { email } = await requireAdminIdentity();
   const resolved = await resolveShowBySlug(slug);

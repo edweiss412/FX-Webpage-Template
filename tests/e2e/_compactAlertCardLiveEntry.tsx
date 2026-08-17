@@ -43,11 +43,31 @@ const UNBROKEN_TOKEN = "Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
  * the string under measurement travels the real code -> intent -> label path
  * rather than being typed into the harness.
  *
- * The real <PerShowAlertResolveButton> cannot mount here: this bundle has no
- * Next runtime, and that component calls useRouter. Its classes are mirrored
- * verbatim from components/admin/PerShowAlertResolveButton.tsx, and
- * tests/components/admin/_metaResolveLabelSingleSource.test.ts keeps the label
- * strings themselves in exactly one module.
+ * This harness renders a LOCAL <ResolveButton> stand-in rather than the real
+ * <PerShowAlertResolveButton>. The reason is NOT that the component cannot
+ * mount — whole-diff R7 probed that claim false (2026-08-16): both this spec and
+ * compact-alert-card-layout.spec.ts alias `next/navigation` to
+ * `tests/e2e/_nextNavigationStub.ts`, so `useRouter` resolves, and an esbuild
+ * probe finds the stub, AttentionBanner AND PerShowAlertResolveButton in the
+ * bundle. The stand-in exists so the button's LABEL is driven straight off
+ * `resolveActionLabels(?code=)` with no server data, action wiring or router
+ * behaviour in the way, which is what makes the measurement a label
+ * measurement. Its class list is a
+ * MEASUREMENT-RELEVANT SUBSET of that component's, not a verbatim mirror — the
+ * claim was "verbatim" until whole-diff R5 probed it false (2026-08-16). The
+ * harness carries the utilities that set the label's box (`inline-flex`,
+ * `min-h-tap-min`, `items-center`, `rounded-sm`, the 1px border, `px-3`,
+ * `text-sm`, `font-medium`) and deliberately omits everything that cannot move
+ * a rect in a static shot: `justify-center self-start`, `transition-colors
+ * duration-fast`, hover, disabled, and the focus-ring and ring-offset
+ * utilities. It also paints `bg-surface` where production paints `bg-bg`, which
+ * is a fill, not a geometry.
+ *
+ * The border token DOES track production (both are `border-text-faint` since
+ * the 2026-08-16 swap), because a stale token name here is a false citation for
+ * the next reader even when nothing measured depends on it. What this file
+ * asserts is LABEL LAYOUT; `tests/components/admin/_metaResolveLabelSingleSource.test.ts`
+ * keeps the label strings themselves in exactly one module.
  */
 function harnessCode(): string {
   const fromQuery = new URLSearchParams(window.location.search).get("code");
@@ -59,7 +79,7 @@ function ResolveButton() {
     <button
       type="button"
       data-testid="harness-resolve"
-      className="inline-flex min-h-tap-min items-center rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-strong"
+      className="inline-flex min-h-tap-min items-center rounded-sm border border-text-faint bg-surface px-3 text-sm font-medium text-text-strong"
     >
       {resolveActionLabels(harnessCode()).idle}
     </button>

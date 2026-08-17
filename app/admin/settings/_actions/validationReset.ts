@@ -43,6 +43,7 @@ import { buildFixtures, R_COMBOS, SW_COMBOS, type Combo } from "@/lib/validation
 import { mintFixtureCombos, finalizeFixtures } from "@/lib/validation/reseedFixtures";
 import type { MessageCode } from "@/lib/messages/catalog";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
+import { assertSameOriginServerAction } from "@/lib/auth/sameOriginServerAction";
 
 export type ValidationActionResult = { ok: true; count: number } | { ok: false; code: MessageCode };
 
@@ -58,6 +59,7 @@ export type ValidationActionResult = { ok: true; count: number } | { ok: false; 
 // call (Gate 3 below). Returns the count of cleared shows on success.
 // ---------------------------------------------------------------------------
 export async function resetValidationDataAction(): Promise<ValidationActionResult> {
+  await assertSameOriginServerAction("resetValidationDataAction", "admin.settings.validationReset");
   try {
     // Gate 1: developer (FIRST op inside the try — inline-typed posture §6.1)
     await requireDeveloper();
@@ -148,6 +150,10 @@ export async function resetValidationDataAction(): Promise<ValidationActionResul
 // DB-side gate fires before any elevated-privilege operations begin.
 // ---------------------------------------------------------------------------
 export async function reseedValidationFixturesAction(): Promise<ValidationActionResult> {
+  await assertSameOriginServerAction(
+    "reseedValidationFixturesAction",
+    "admin.settings.validationReset",
+  );
   try {
     // Gate 1: developer (FIRST op inside the try — inline-typed posture §6.1)
     await requireDeveloper();

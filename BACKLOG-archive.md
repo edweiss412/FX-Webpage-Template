@@ -1,3 +1,65 @@
+## BL-CONTROL-OUTLINE-BORDER-STRONG-ON-SURFACE-FILLS — control outlines at 1.4-1.8:1 on non-ground fills — CLOSED 2026-08-16 (`fix/control-outline-surface-fills`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-16 · **Effort (as shipped):** M · **Filed:** 2026-08-14 (`fix/ui-interactive-token-policy`, invariant-8 impeccable critique round 2, P1)
+
+**Resolution.** The user ruled **Option B** on 2026-08-16 against a side-by-side mockup rendering all three candidate treatments in the app's real tokens, light and dark. DESIGN.md §1.2a's control-outline predicate is now **fill-equals-container**: a control filled with one of the four neutral ground tokens, or left unfilled, is a standalone stroke and takes the text ramp. Twenty-one button and link controls moved `border-border-strong` → `border-text-faint` in 22 source edits across 16 files (two elements carry the token in both arms of a ternary and need two edits each; two share one file-local constant, so 21 + 2 − 1 = 22). The switch tracks were ruled **OUT** and keep their recipe unchanged in both states.
+
+**Two things the entry had wrong, corrected here rather than left to outlive the arc that disproved them.**
+
+1. **The count was 23; the live cover returned 24.** The `components/diagrams/GalleryLightbox.tsx` reset chip landed on `feat/diagram-demote-notice` on 2026-08-15/16, after this entry was written. 24 − 3 cover-visible switch tracks = the 21 that swapped.
+
+2. **The tracks' OFF-state boundary was NOT "pinned in §1.2 against `--color-accent-edge` as the load-bearing 1.4.11 pair", and this entry's framing of the cost of Option C was wrong because of it.** §1.2 pins the **ON** half — `accent-edge` vs `accent`, 3.61:1 light — and that pair is untouched by any branch of the ruling. The **OFF** half (`border-border-strong` on `bg-surface-sunken`, 1.43:1 light / 1.75:1 dark) has no §1.2 ratio row and no test pin at all, so a blanket swap would have retuned nothing pinned. Option C was rejected on design intent — the ON/OFF pair is a tuned relationship and lifting only the OFF ring makes OFF read heavier while ON stands still — not on the measurement this entry claimed. The OFF ring is now a RATIFIED DOCUMENTED LIMIT recorded in DESIGN.md §1.2a, not an open gap, and it does not get re-filed.
+
+**There are FIVE switch-track render paths, not three.** Two paint the identical recipe on a nested `<span>` inside a button, where the scanner attributes the className to the child and the element-level cover never saw them: `components/admin/telemetry/AutoRefreshControl.tsx:106` and `components/admin/settings/DeveloperToggleButton.tsx:97`, alongside the three the census found. All five are out. The correction moves sites INTO the exempt family, so nothing changes appearance because of it.
+
+**What ships as the guard, and what deliberately does not.** A regression pin over the enumerated census (`tests/styles/_metaControlOutlineFill.test.ts` + `tests/styles/controlOutlineScan.ts`, enrolled in the source-mutation registry as `controlOutlineScan`): the 21 elements carry the new token and no longer carry the old one. A forward guard — one that keeps the control-outline POPULATION correct as controls are added — was attempted in five forms across five spec rounds and escaped structurally each time; the arc took the AGENTS.md `2d9d0ba11`-style kill and filed the ambition with all five closed escapes as `BL-CONTROL-OUTLINE-FORWARD-GUARD`.
+
+**Filed rather than repaired, each under its own class-sweep exception:** `BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER` (text-entry fields and outlines painted on a nested child — the two families the cover cannot see in either direction), `BL-CONTROL-OUTLINE-FORWARD-GUARD`, and, from the invariant-8 gate on the shipping diff, `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT` and `BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL`.
+
+**Spec:** `docs/superpowers/specs/2026-08-16-control-outline-surface-fills-design.md` (spec-APPROVED R8, zero findings). **Plan:** `docs/superpowers/plans/2026-08-16-control-outline-surface-fills.md` (plan-APPROVED R4). **Round corpus + filing:** `docs/review-rounds/fix/control-outline-surface-fills/119895a7c756.{jsonl,md}`.
+
+**The original filing, preserved.**
+
+**Filed:** 2026-08-14 (`fix/ui-interactive-token-policy`, invariant-8 impeccable critique round 2, P1). **Class:** visual boundary / DESIGN scope. **Effort:** M. **Class-sweep exception:** (a) — the repair needs a DESIGN.md scope decision this PR cannot settle. **Reachability:** PROBED, with a DERIVED cover (below).
+
+This arc moved the secondary-action outline to `border-text-faint` (3.35:1 on `bg-surface`) at the shared constant, at the 25 sites that carry the same recipe inline over a `bg-bg` fill, and at six further controls whose fill is a SURFACE rather than the page ground — because leaving each at the old outline while a sibling it renders with had moved would have shipped a split treatment inside one view. Two are DIRECT pairs (`Step2Verify`'s re-scan beside its folder input, `DriveConnectionPanel`'s two actions); two are connected through a shared row rather than adjacency (`RecentAutoAppliedStrip`, whose near-ground control is in its confirmation row, and the `AcceptChangeButton`/`UndoChangeButton` pair `ChangeFeedEntry.tsx:135` renders); one inherits `Step2Verify`'s file-local `SECONDARY_BUTTON`. Twenty-three in-scope CONTROLS still carry `border border-border-strong` over `bg-surface`, `bg-surface-sunken`, `bg-surface-raised` or `bg-transparent` fills — at the per-ground ratios in the paragraph below, all of them far under the 3:1 non-text floor.
+
+**The 1.59:1 / 1.60:1 figures are `bg-surface`'s, not every fill's** (whole-diff R4 F4). Measured 2026-08-15 against the runtime tokens, `border-strong` sits at 1.59 light / 1.60 dark on `surface`, **1.43 / 1.75** on `surface-sunken`, **1.59 / 1.50** on `surface-raised` and 1.52 / 1.70 on `bg`; a `bg-transparent` control takes whatever its rendered ground is, which no static measurement can supply. All of them are far under the 3:1 non-text floor, which is the entry's point — but the entry should not quote one ground's number for twenty-three controls that do not share it.
+
+**Derived cover** (re-run it rather than trusting this list — it is a query, not an enumeration):
+
+```ts
+scanInteractiveElements(process.cwd()).filter((e) =>
+  allStrings(e).some((s) => /(^|\s)border-border-strong(\s|$)/.test(s)),
+);
+```
+
+from `tests/styles/interactiveScanCore.ts`. On 2026-08-14 it returned 29 elements; six were repaired on the filing branch because THIS diff created their inconsistency — two beside a swapped sibling (`Step2Verify.tsx:126`, `settings/DriveConnectionPanel.tsx:284`), two connected through a shared row (`RecentAutoAppliedStrip.tsx:516`, and the `AcceptChangeButton`/`UndoChangeButton` pair rendered by `ChangeFeedEntry.tsx:135`), and one by inheritance of `Step2Verify`'s file-local constant. That leaves 23, none of them co-visible with a swapped peer.
+
+**Why the sweep stopped there, and what has to be decided first.** DESIGN.md §1.2a's predicate is a control "whose fill is the near-ground". A `bg-surface` button ON a `bg-surface` card measures 1.00:1 against its container, so extending the rule to it is defensible — but that extension REWRITES the predicate from "the fill is the page ground" to "the fill equals its container", and the wider predicate then also captures the three switch TRACKS in the set (`PublishedToggle.tsx:292`, `settings/AutoPublishToggle.tsx:123`, `settings/NotifyToggle.tsx:131`), whose OFF-state boundary is pinned separately in §1.2 against `--color-accent-edge` as the load-bearing 1.4.11 pair. A blanket swap would silently retune that pinned pair. The text-level cover is also NOT safe to apply mechanically: of the 69 lines carrying `border border-border-strong` as of 2026-08-15 (74 when the entry was filed; the difference is this arc's own swaps), most are cards, chips, tiles and popover surfaces that must keep the border token.
+
+**First scheduled step:** settle §1.2a's predicate — "near-ground" as page-ground only, or as fill-equals-container — and state explicitly whether switch tracks are in or out. The swap itself is one token per site once that is written down.
+
+---
+
+## BL-SERVER-ACTION-ORIGIN-GATE-SWEEP — gate the remaining destructive Server Actions on same-origin — CLOSED 2026-08-16 (`fix/server-action-origin-sweep`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-16 · **Effort (as shipped):** M · **Filed:** 2026-08-15 (`fix/auth-picker-hardening` spec/plan) · **Severity:** low · **Class-sweep exception (as filed):** (c) — a redesign spanning enough sites to blow the filing arc's review scope.
+
+`fix/auth-picker-hardening` closed the crew picker's identity-clear actions (`clearIdentity` / `clearIdentityAndSkip` / `clearIdentityCore`) with `isSameOriginServerAction()` (`lib/auth/sameOriginServerAction.ts`), a proxy-independent Fetch-Metadata gate that never trusts `x-forwarded-host`/`host`, and deliberately stopped at the picker surface. This entry carried the peers. Its stated-not-probed reachable surface was `rg -n '"use server"' lib app` = 38 files at authoring time, with "the exact destructive set is the first step of this entry."
+
+**The census was the first step, and it was derived rather than written.** `tests/auth/_metaServerActionOriginGate.test.ts` walks every Server Action surface unit in the repo and reconciles `gated + exempted === discovered`: **56 units across 31 files — 53 gated, 3 exempted**. 50 of the 53 gates are new here, over 29 modules; the other three are the filing arc's. The walk replaced the `PENDING_GATE` ratchet it was built with, and asserts that its own source no longer contains the `PENDING_GATE` identifier, so the ratchet cannot be quietly re-introduced.
+
+**What shipped.** Each destructive exported action takes a one-line guard returning one of four designated refusal exports of a single reviewed module — `assertSameOriginServerAction`, `rejectCrossOriginPicker`, `rejectCrossOriginNeutral`, `rejectCrossOriginVoid` — resolved BY NAME rather than by body analysis, which is the narrowing the spec's R3 round forced. Refusals emit `SERVER_ACTION_ORIGIN_REJECTED` with `action` and `source` and no secret. The three exemptions (`captureShowTelemetry`, `getStagedResult`, `listFixtures`) are a closed three-name set cross-checked against two independently maintained registries, and their read-only claim is now FROZEN — a whitespace-normalized digest over each signature and body, so an edit reds the walk until the pin is updated and updating the pin is where the claim gets re-reviewed. `lib/auth/sameOriginServerAction.ts` is enrolled in the source-mutation guard registry (`sameOriginServerAction`, `scoreFloor` 0.95, empty `accepted`), with a control edit that reverses every same-origin row of the truth table so a silently-inert overlay cannot report a perfect score.
+
+**The fence is unchanged.** Admin mutating routes under `app/api/admin/**` are a different transport (route handlers, not actions) and were out of this entry's scope as filed; they still are.
+
+**One residual filed, not silently absorbed.** Discovery itself remains incomplete for Server Action forms the invariant-10 engine cannot name (paren-wrapped exports, aliased exports, anonymous inline actions, object methods, binding-pattern exports, non-statement-zero directive prologues). This arc's walk fails CLOSED on them — a surplus over what discovery produced is reported by name rather than balancing silently — but the engine gap itself backs the mutation-surface observability sweep too, so it is wider than this arc and is tracked by `BL-SURFACE-DISCOVERY-UNNAMEABLE-ACTION-FORMS` under exception (c), with a documented limit in the arc spec §7.
+
+**Arc shape:** 38 commits, 58 files, +3417/-59. Spec APPROVE at R4, plan APPROVE at R10, whole-diff APPROVE on both scoped halves at R5. Round-economy filings: `docs/review-rounds/fix/server-action-origin-sweep/119895a7c756.md` (spec, plan) and `daa53759a953.md` (diff). Spec: `docs/superpowers/specs/2026-08-16-server-action-origin-sweep-design.md`; plan: `docs/superpowers/plans/2026-08-16-server-action-origin-sweep.md`.
+
+---
+
 ## BL-TIMING-SCAN-NAME-VS-BINDING — an identifier delay resolves by spelling, so a local shadow is suppressed — CLOSED 2026-08-16 (`fix/timing-scan-scope-resolution`, SHIPPED)
 
 **Status:** SHIPPED 2026-08-16 · **Effort (as shipped):** M — scope-aware resolution, as filed, not a pattern tweak. · **Spec:** `docs/superpowers/specs/ci/2026-08-16-timing-scan-binding-resolution-design.md` · **Plan:** `docs/superpowers/plans/2026-08-16-timing-scan-binding-resolution/`

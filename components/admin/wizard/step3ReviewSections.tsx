@@ -4156,7 +4156,7 @@ export function ReportIssueSection({ data }: { data: StagedSectionData }) {
         onClick={() => setExpanded((v) => !v)}
         /* §D1 disclosure trigger — same quiet secondary recipe as the submit
            button below (never the accent CTA; that belongs to Publish). */
-        className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-surface px-4 text-sm font-semibold text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+        className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-text-faint bg-surface px-4 text-sm font-semibold text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
       >
         Write a report
       </button>
@@ -4214,7 +4214,7 @@ export function ReportIssueSection({ data }: { data: StagedSectionData }) {
                  path must not compete with the footer's accent Publish CTA —
                  same border/surface recipe as the footer Unpublish button.
                  ring-offset-bg matches the content pane surface. */
-              className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-surface px-4 text-sm font-semibold text-text transition-colors duration-fast hover:bg-surface-sunken disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+              className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-text-faint bg-surface px-4 text-sm font-semibold text-text transition-colors duration-fast hover:bg-surface-sunken disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
             >
               Send report
             </button>

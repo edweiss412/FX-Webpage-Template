@@ -24,6 +24,7 @@ import { rescanWizardSheet } from "@/lib/onboarding/rescanWizardSheet";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import type { ParseResult, ParseWarning } from "@/lib/parser/types";
 import type { MapRoleTokenResult } from "@/app/admin/show/[slug]/_actions/roleToken";
+import { assertSameOriginServerAction } from "@/lib/auth/sameOriginServerAction";
 
 function grantsEqual(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((g, i) => g === b[i]);
@@ -43,6 +44,7 @@ export async function mapRoleTokenStaged(
   rawToken: string,
   rawGrants: string[],
 ): Promise<MapRoleTokenResult> {
+  await assertSameOriginServerAction("mapRoleTokenStaged", "admin.onboarding.roleTokenStaged");
   await requireAdmin();
   const { email } = await requireAdminIdentity();
 

@@ -9,6 +9,10 @@ import {
 } from "@/lib/auth/picker/cookieEnvelope";
 import { pickerCookieSigningKey } from "@/lib/env/pickerCookieSigningKey";
 import { log } from "@/lib/log";
+import {
+  isSameOriginServerAction,
+  rejectCrossOriginPicker,
+} from "@/lib/auth/sameOriginServerAction";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,80}$/;
@@ -29,6 +33,7 @@ type CleanupStaleEntryResult =
 
 export async function cleanupStaleEntry(formData: FormData): Promise<CleanupStaleEntryResult> {
   // no-telemetry: FormData-parse wrapper; PICKER_STALE_ENTRY_CLEANED emit fires in cleanupStaleEntryCoreImpl
+  if (!(await isSameOriginServerAction())) return rejectCrossOriginPicker("cleanupStaleEntry");
   const slug = formData.get("slug");
   const shareToken = formData.get("shareToken");
   const showId = formData.get("showId");
@@ -54,6 +59,7 @@ export async function cleanupStaleEntryCore(
   input: CleanupStaleEntryInput,
 ): Promise<CleanupStaleEntryResult> {
   // no-telemetry: try/catch wrapper; PICKER_STALE_ENTRY_CLEANED emit fires at the mutation boundary in cleanupStaleEntryCoreImpl
+  if (!(await isSameOriginServerAction())) return rejectCrossOriginPicker("cleanupStaleEntryCore");
   try {
     return await cleanupStaleEntryCoreImpl(input);
   } catch {

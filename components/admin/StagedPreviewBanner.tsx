@@ -72,7 +72,7 @@ function PickerEntry({
     <Link
       data-testid="staged-preview-picker-link"
       href={`/admin/wizard/preview/${stagedId}?as=${encodeURIComponent(entry.id)}`}
-      className={`${TARGET_BASE} border border-border-strong text-warning-text hover:bg-surface`}
+      className={`${TARGET_BASE} border border-text-faint text-warning-text hover:bg-surface`}
     >
       {entry.name}
     </Link>

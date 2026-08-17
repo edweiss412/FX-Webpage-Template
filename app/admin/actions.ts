@@ -36,6 +36,7 @@ import { WatchRetryInfraError } from "@/lib/admin/watchRetryError";
 import { requireDeveloperIdentity } from "@/lib/auth/requireDeveloper";
 import { HEALTH_CODES, isAutoResolving } from "@/lib/adminAlerts/audience";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
+import { assertSameOriginServerAction } from "@/lib/auth/sameOriginServerAction";
 
 // Local UUID regex — duplicated from `lib/auth/constants.ts` (UUID_RE) because
 // §B (this file's milestone) cannot import from §A's lib/auth surface. A single
@@ -47,6 +48,7 @@ export async function resolveAdminAlertFormAction(formData: FormData): Promise<v
   // Defense-in-depth: gate independent of the caller (the layout's
   // requireAdmin call has already gated the page render, but the action
   // could be invoked directly with crafted POST + cookies).
+  await assertSameOriginServerAction("resolveAdminAlertFormAction", "admin.actions");
   await requireAdmin();
 
   const id = formData.get("id");
@@ -222,6 +224,10 @@ export async function resolveAdminAlertFormAction(formData: FormData): Promise<v
 export async function resolveHealthAlertFormAction(formData: FormData): Promise<void> {
   // Developer-gated (canonical, attributable email). A confirmed non-developer
   // is rejected here (forbidden()) before any read/write.
+  await assertSameOriginServerAction(
+    "resolveHealthAlertFormAction",
+    "app.admin.actions.resolveHealthAlert",
+  );
   const { email: devEmail } = await requireDeveloperIdentity();
 
   const id = formData.get("id");
@@ -306,6 +312,7 @@ export async function resolveHealthAlertFormAction(formData: FormData): Promise<
 // surfaces them; no_folder_configured is a deliberate, logged no-op (nothing
 // to retry; the 15-minute reconcile treats no-folder as vacuous-healthy).
 export async function retryWatchSubscriptionFormAction(_formData: FormData): Promise<void> {
+  await assertSameOriginServerAction("retryWatchSubscriptionFormAction", "admin.watchRetry");
   await requireAdmin();
 
   const folder = await getActiveWatchedFolder();

@@ -23,8 +23,10 @@ import { revalidateShow } from "@/lib/data/showCacheTag";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import { unarchiveShow } from "@/lib/showLifecycle/unarchiveShow";
 import { resolveShowById } from "./shared";
+import { assertSameOriginServerAction } from "@/lib/auth/sameOriginServerAction";
 
 export async function unarchiveShowAction(showId: string): Promise<void> {
+  await assertSameOriginServerAction("unarchiveShowAction", "admin.show.unarchive");
   await requireAdmin();
   const { email } = await requireAdminIdentity();
   const resolved = await resolveShowById(showId);

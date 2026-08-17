@@ -90,7 +90,7 @@ const CHECKBOX_LABEL: Record<GrantableFlag, string> = {
 // Neutral-outline trigger + secondary buttons (matches the use-raw escape-hatch
 // treatment; the accent is reserved for the primary save CTA below).
 const outlineBtn = cn(
-  "inline-flex min-h-tap-min items-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-strong",
+  "inline-flex min-h-tap-min items-center gap-1.5 rounded-sm border border-text-faint bg-surface px-3 text-sm font-medium text-text-strong",
   "transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",
   "disabled:cursor-not-allowed disabled:opacity-60",
 );

@@ -1697,6 +1697,30 @@ export const GUARD_SURFACES: GuardSurface[] = [
     },
     accepted: [],
   },
+  // ENROLLED after an ATTEMPT, not by analogy. The `subtleInteractiveScan` note
+  // above is the nearest precedent — a filter over `interactiveScanCore` in the
+  // same directory — and an earlier draft of this arc's plan predicted the same
+  // no-mutants outcome from it. Plan review R2 refuted that by running the live
+  // enumerator: the shapes differ where it counts, because this module carries
+  // 21 numeric `line` literals plus a `file === … && line === …` comparison,
+  // which is an integer-literal site per census row plus an equality-flip and a
+  // logical-connector site in the resolver.
+  {
+    id: "controlOutlineScan",
+    sourcePath: "tests/styles/controlOutlineScan.ts",
+    suitePaths: ["tests/styles/_metaControlOutlineFill.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 1,
+    // Detaches the resolver from its census row: every row resolves to the same
+    // first scanned element. The pin still LOOKS like it read 21 elements, and
+    // that is exactly the failure a census reader can have — resolving
+    // something, just not the thing the row names.
+    control: {
+      from: "scanned.find((e) => e.file === row.file && e.line === row.line) ?? null",
+      to: "scanned.find(() => true) ?? null",
+    },
+    accepted: [],
+  },
   /**
    * Derivation of the destructive-file analyzer's execution-method core from the
    * driver's type declarations (BL-EXECUTION-METHODS-DERIVED-FROM-DRIVER-TYPES).
@@ -1909,6 +1933,21 @@ export const GUARD_SURFACES: GuardSurface[] = [
     control: {
       from: 'if (depth > DEPTH_MAX) return "[Truncated: depth]";',
       to: 'if (depth >= DEPTH_MAX) return "[Truncated: depth]";',
+    },
+    accepted: [],
+  },
+  {
+    id: "sameOriginServerAction",
+    sourcePath: "lib/auth/sameOriginServerAction.ts",
+    suitePaths: ["tests/auth/sameOriginServerAction.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.95,
+    // Flips the Fetch-Metadata verdict for the ONE state the whole gate exists
+    // to allow. Every `same-origin` row of the truth table reverses, so a
+    // silently-inert overlay cannot report a perfect score off this surface.
+    control: {
+      from: 'return secFetchSite === "same-origin" || secFetchSite === "none";',
+      to: 'return secFetchSite !== "same-origin" || secFetchSite === "none";',
     },
     accepted: [],
   },

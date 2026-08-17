@@ -606,7 +606,7 @@ export function Step3ReviewModal({
                 data-testid={`wizard-step3-card-${dfid}-review-resolution-ignore`}
                 onClick={handleIgnoreResolve}
                 disabled={resolutionPending || isPublishRunActive}
-                className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-surface px-4 text-sm font-semibold whitespace-nowrap text-text transition-colors duration-fast hover:bg-surface-sunken disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-text-faint bg-surface px-4 text-sm font-semibold whitespace-nowrap text-text transition-colors duration-fast hover:bg-surface-sunken disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
               >
                 Ignore this sheet
               </button>
@@ -691,7 +691,7 @@ export function Step3ReviewModal({
                   onClick={handleUnpublish}
                   disabled={isPending || isPublishRunActive}
                   aria-busy={isPending || undefined}
-                  className="inline-flex min-h-tap-min flex-1 items-center justify-center gap-2 rounded-sm border border-border-strong bg-surface px-4 text-sm font-semibold whitespace-nowrap text-text transition-colors duration-fast hover:bg-surface-sunken disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface sm:flex-none"
+                  className="inline-flex min-h-tap-min flex-1 items-center justify-center gap-2 rounded-sm border border-text-faint bg-surface px-4 text-sm font-semibold whitespace-nowrap text-text transition-colors duration-fast hover:bg-surface-sunken disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface sm:flex-none"
                 >
                   {/* Quiet/secondary treatment, no Check icon (spec §C2); exact
                       weights design-stage-tunable under impeccable. */}

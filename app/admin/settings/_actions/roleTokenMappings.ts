@@ -20,6 +20,7 @@ import { canonicalRoleToken } from "@/lib/parser/roleVocabulary";
 import { normalizeGrants } from "@/lib/sync/roleMappingOverlay";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { assertSameOriginServerAction } from "@/lib/auth/sameOriginServerAction";
 
 export type UpdateRoleTokenMappingResult =
   | { ok: true }
@@ -32,6 +33,7 @@ export async function updateRoleTokenMapping(
   rawToken: string,
   rawGrants: string[],
 ): Promise<UpdateRoleTokenMappingResult> {
+  await assertSameOriginServerAction("updateRoleTokenMapping", "admin.settings.roleTokenMappings");
   await requireAdmin();
   const { email } = await requireAdminIdentity();
 
@@ -86,6 +88,7 @@ export async function updateRoleTokenMapping(
 export async function deleteRoleTokenMapping(
   rawToken: string,
 ): Promise<DeleteRoleTokenMappingResult> {
+  await assertSameOriginServerAction("deleteRoleTokenMapping", "admin.settings.roleTokenMappings");
   await requireAdmin();
   const { email } = await requireAdminIdentity();
 
