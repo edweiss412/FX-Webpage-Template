@@ -68,12 +68,12 @@ FILE block2-L179.test.ts status failed assertions 2
       AssertionError: expected [] to deeply equal [ 'FIXTURE_MALFORMED' ]
 FILE block3-L215.test.ts status failed assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' imported from ...
 FILE block4-L255.test.ts status failed assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' imported from ...
-FILE block5-L346.test.ts status failed assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' imported from ...
+FILE block5-L369.test.ts status failed assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' imported from ...
 ```
 
 Read exactly: **four** blocks red at module resolution naming the absent module, and **one** — Task 2's, which imports only tracked modules — red at its assertion, `expected [] to deeply equal [ 'FIXTURE_MALFORMED' ]`, which is the stronger evidence of the two (it proves the five-argument `runLint` call compiles and that the orchestrator genuinely emits nothing today). No block failed at transform.
 
-This run is the RE-execution after the spec round 5 repair, which removed the clean-observation branch and rewrote Task 4's block around the three-branch ladder; every earlier repair that touched a block was followed by the same re-run, and the line numbers here are the current ones. The record is re-measured on every edit rather than carried forward, which is the discipline the arm itself enforces. Two things the original execution corrected rather than confirmed, which is the argument for running it at all: an earlier draft of this section asserted three module-resolution reds where the measurement shows four, and Task 2's block turns out to carry **one case that passes at base vacuously** — "a clean marker adds no findings" holds today precisely because nothing fires at all. It is kept deliberately as the over-fire guard it becomes once Task 2 lands, and is named here so no reviewer has to discover that it proves nothing before the GREEN step. The splice directory was removed after the run and `git status` is clean.
+This run is the RE-execution after the orchestrator-ruled round 6 repair, which put the sentinel test before the did-not-run branch and widened it to the file-level message channel; every earlier repair that touched a block was followed by the same re-run, and the line numbers here are the current ones. The record is re-measured on every edit rather than carried forward, which is the discipline the arm itself enforces. Two things the original execution corrected rather than confirmed, which is the argument for running it at all: an earlier draft of this section asserted three module-resolution reds where the measurement shows four, and Task 2's block turns out to carry **one case that passes at base vacuously** — "a clean marker adds no findings" holds today precisely because nothing fires at all. It is kept deliberately as the over-fire guard it becomes once Task 2 lands, and is named here so no reviewer has to discover that it proves nothing before the GREEN step. The splice directory was removed after the run and `git status` is clean.
 
 ### 3.1 Dogfood against the landed arms
 
@@ -246,11 +246,11 @@ describe("splice plan (spec §4.1)", () => {
 
 <!-- task: red=`pnpm vitest run tests/specLint/fixtureClassify.test.ts` red-state=authored red-target=`lib/specLint/fixtureContract.ts` why=`synthesizeFixtureFindings does not exist at base and is not added by Tasks 1 or 3, so the import fails to resolve. It greens when the module implements spec §4.3's ladder IN ORDER, emitting exactly one outcome per enrolled block; the cases below are red against any implementation that certifies a block on a proxy — a passing entry, an absent failure, a non-failed file — or that reads a non-sentinel failure as a satisfiability signal` ac=AC-3,AC-4 -->
 
-Export `synthesizeFixtureFindings(plan, results)` implementing spec §4.3's three branches: the advisory when the block did not run, the hard verdict when a failure carries the premise sentinel, and NO finding otherwise. The input carries file status, per-assertion status and failure messages so that an implementation reading any of them as a certificate is catchable — spec §§2.5-2.8 measured each one unsound as evidence. `results === null` (static invocation) yields zero findings. Exactly one outcome per enrolled block.
+Export `synthesizeFixtureFindings(plan, results)` implementing spec §4.3's three branches IN ORDER: the hard verdict when the sentinel appears in EITHER channel (assertion failures or the file-level message), then the advisory when no sentinel appears and the block did not run, then NO finding. The input carries file status, per-assertion status and failure messages so that an implementation reading any of them as a certificate is catchable — spec §§2.5-2.8 measured each one unsound as evidence. `results === null` (static invocation) yields zero findings. Exactly one outcome per enrolled block.
 
 **What is red and why:** the named export does not exist.
 
-**Failure modes caught.** Every case in the third test is a proxy that some earlier draft of this ladder treated as evidence, and each was measured unsound in a review round: a passing entry (spec §2.8 — an empty test body passes), an absent failure over skipped entries (§2.5 — the run exits 0), a non-failed file (§2.6 — `afterAll` fails the file while every assertion passes), and a failed assertion read as a real one (§2.7 — a `beforeEach` explosion arrives identically). The suite asserts `toEqual([])` for each, so reintroducing any certificate reds immediately rather than in a sixth review round.
+**Failure modes caught.** An implementation that tests the empty entry list before the sentinel reports a module-scope premise failure as "did not run" and suppresses the verdict (spec §2.9, one live corpus instance), and one that reads only assertion `failureMessages` never sees that sentinel at all. Beyond that, every case in the third test is a proxy that some earlier draft of this ladder treated as evidence, and each was measured unsound in a review round: a passing entry (spec §2.8 — an empty test body passes), an absent failure over skipped entries (§2.5 — the run exits 0), a non-failed file (§2.6 — `afterAll` fails the file while every assertion passes), and a failed assertion read as a real one (§2.7 — a `beforeEach` explosion arrives identically). The suite asserts `toEqual([])` for each, so reintroducing any certificate reds immediately rather than in a sixth review round.
 
 ```ts
 import { describe, it, expect } from "vitest";
@@ -261,10 +261,18 @@ const ASSERT = "AssertionError: expected false to be true";
 const HOOK = "Error: BEFORE_EACH_EXPLODED";
 
 const entry = (line: number) => ({ line, block: "// b" });
-const file = (o: { statuses?: string[]; failures?: string[]; fileStatus?: string }) => ({
+const file = (o: {
+  statuses?: string[];
+  failures?: string[];
+  fileStatus?: string;
+  fileMessage?: string;
+}) => ({
   fileStatus: o.fileStatus ?? "passed",
   assertions: (o.statuses ?? ["passed"]).map((status, i) => ({ status, title: `t${i}` })),
   failureMessages: o.failures ?? [],
+  // A module-scope premise throws during COLLECTION, so its message arrives
+  // here and never in an assertion's failureMessages (spec section 2.9).
+  fileMessage: o.fileMessage ?? "",
 });
 const only = (r: unknown) =>
   synthesizeFixtureFindings([entry(5)], r as never).map((f) => f.code);
@@ -283,10 +291,23 @@ describe("classification ladder (spec section 4.3)", () => {
     ).toEqual(["FIXTURE_UNSATISFIABLE"]);
   });
 
+  it("a module-scope premise failure is the VERDICT, not the advisory", () => {
+    // spec section 2.9: premise() before any registration throws during
+    // collection, so the report carries ZERO test cases and the sentinel sits
+    // at FILE level. Testing emptiness first would call this "did not run" and
+    // suppress the one verdict this arm exists to emit.
+    expect(
+      only(results(file({ fileStatus: "failed", statuses: [], fileMessage: PREMISE }))),
+    ).toEqual(["FIXTURE_UNSATISFIABLE"]);
+  });
+
   it("the advisory means the block DID NOT RUN, and nothing else", () => {
-    // empty entry list: the report's own statement that no test case existed
-    // (unresolvable import, transform error, no suite, outside-the-globs trap)
-    expect(only(results(file({ fileStatus: "failed", statuses: [] })))).toEqual(["FIXTURE_PROBE_UNVERIFIED"]);
+    // empty entry list AND no sentinel anywhere: the report's own statement
+    // that no test case existed (unresolvable import, transform error, no
+    // suite, outside-the-globs trap)
+    expect(
+      only(results(file({ fileStatus: "failed", statuses: [], fileMessage: "Transform failed with 1 error" }))),
+    ).toEqual(["FIXTURE_PROBE_UNVERIFIED"]);
     // absent from the report entirely
     const absent = synthesizeFixtureFindings([entry(5)], { files: new Map() } as never);
     expect(absent.map((f) => f.code)).toEqual(["FIXTURE_PROBE_UNVERIFIED"]);
@@ -310,11 +331,12 @@ describe("classification ladder (spec section 4.3)", () => {
   });
 
   it("every enrolled block draws at most one outcome, over the whole ladder", () => {
-    const plan = [1, 2, 3, 4].map(entry);
+    const plan = [1, 2, 3, 4, 5].map(entry);
     const map = new Map<number, unknown>([
       [1, file({ fileStatus: "failed", statuses: ["failed"], failures: [PREMISE] })],
       [2, file({ fileStatus: "failed", statuses: [] })],
       [3, file({ statuses: ["passed"] })],
+      [5, file({ fileStatus: "failed", statuses: [], fileMessage: PREMISE })],
       // line 4 deliberately absent from the report
     ]);
     const out = synthesizeFixtureFindings(plan, { files: map } as never);
@@ -322,6 +344,7 @@ describe("classification ladder (spec section 4.3)", () => {
       "1:FIXTURE_UNSATISFIABLE",
       "2:FIXTURE_PROBE_UNVERIFIED",
       "4:FIXTURE_PROBE_UNVERIFIED",
+      "5:FIXTURE_UNSATISFIABLE",
     ]);
     // line 3 ran without a premise failure, so the arm says nothing about it
     expect(out.some((f) => f.docLine === 3)).toBe(false);
