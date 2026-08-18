@@ -51,6 +51,28 @@ const deps: CliDeps = {
   },
   readFileBytes: (p) => readFileSync(p),
   realpath: (p) => realpathSync(p),
+  // The fixture arm's splice seam, which this scan never enables for the same
+  // reason as the executor below: the lifecycle runs only under `--exec-red`.
+  // Refusing loudly is the honest stub -- a silent no-op would let a future
+  // change reach it and read as a clean corpus scan.
+  pid: () => {
+    throw new Error("corpus scan does not splice fixtures");
+  },
+  exists: () => {
+    throw new Error("corpus scan does not splice fixtures");
+  },
+  mkdir: () => {
+    throw new Error("corpus scan does not splice fixtures");
+  },
+  write: () => {
+    throw new Error("corpus scan does not splice fixtures");
+  },
+  readFile: () => {
+    throw new Error("corpus scan does not splice fixtures");
+  },
+  rm: () => {
+    throw new Error("corpus scan does not splice fixtures");
+  },
   // The red-contract arm's executor, which this scan never enables: it lints without
   // `--exec`, so nothing reaches this seam. Refusing loudly is the honest stub — a
   // silent success would let a future `--exec` corpus run report green on no execution.

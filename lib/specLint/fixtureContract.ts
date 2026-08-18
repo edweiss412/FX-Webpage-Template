@@ -277,7 +277,7 @@ export function synthesizeFixtureFindings(
   if (results === null || results === undefined) return [];
   const out: Finding[] = [];
   for (const entry of plan) {
-    const outcome = results.files.get(entry.line);
+    const outcome = results.files.get(entry.line); // drive-call-bound: not a Drive call — `results.files` is a ReadonlyMap keyed by marker line (lib/specLint/types.ts), and `.files.get(...)` collides lexically with the Drive walker's namespace chain
 
     // 1. A premise failed. Tested FIRST and over BOTH channels, because a
     //    module-scope premise fails during collection and surfaces with zero
