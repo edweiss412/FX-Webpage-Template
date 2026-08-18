@@ -566,7 +566,26 @@ describe("classifySpawnResult — error-first precedence (spec §4.4)", () => {
 
 interface MemOpts {
   files?: Record<string, string>;
-  spawnResult?: { status: number | null; signal: string | null; stderr?: string };
+  spawnResult?: {
+    status: number | null;
+    signal: string | null;
+    stderr?: string;
+    stdout?: string;
+    error?: { code?: string; message?: string };
+  };
+  /** Per-(command, mode) override; falls back to `spawnResult`. */
+  spawnFor?: (
+    command: string,
+    mode: "parse" | "exec",
+  ) =>
+    | {
+        status: number | null;
+        signal: string | null;
+        stderr?: string;
+        stdout?: string;
+        error?: { code?: string; message?: string };
+      }
+    | undefined;
   tracked?: string[];
   realpathOverride?: Record<string, string>;
   repoRootThrows?: boolean;
@@ -582,7 +601,7 @@ function memDeps(opts: MemOpts = {}) {
   const calls = {
     repoRoot: 0,
     reads: [] as string[],
-    spawns: [] as { command: string; cwd: string; timeoutMs: number }[],
+    spawns: [] as { command: string; cwd: string; timeoutMs: number; mode: "parse" | "exec" }[],
   };
   const deps: CliDeps = {
     cwd: () => "/repo",
@@ -613,10 +632,22 @@ function memDeps(opts: MemOpts = {}) {
       return Buffer.from(c, "utf8");
     },
     realpath: (p) => opts.realpathOverride?.[p] ?? p,
-    spawn: (command, cwd, timeoutMs) => {
-      calls.spawns.push({ command, cwd, timeoutMs });
-      const r = opts.spawnResult ?? { status: 1, signal: null };
-      return { status: r.status, signal: r.signal, stderr: r.stderr ?? "" };
+    spawn: (command, cwd, timeoutMs, mode) => {
+      calls.spawns.push({ command, cwd, timeoutMs, mode });
+      // Default: parse checks pass, red commands report red. A test that cares
+      // about either overrides through `spawnFor`.
+      const fallback =
+        mode === "parse"
+          ? { status: 0, signal: null }
+          : (opts.spawnResult ?? { status: 1, signal: null });
+      const r = opts.spawnFor?.(command, mode) ?? fallback;
+      return {
+        status: r.status,
+        signal: r.signal,
+        stderr: r.stderr ?? "",
+        stdout: r.stdout ?? "",
+        ...(r.error ? { error: r.error } : {}),
+      };
     },
   };
   return { deps, calls };
@@ -683,7 +714,10 @@ describe("runCli — seam-level infra + containment (spec §2/§7, §1.1 item 11
     const { deps, calls } = memDeps({ files: { [PLAN_DOC]: text }, tracked: ["lib/a.ts"] });
     const r = runCli(["docs/superpowers/plans/p.md", "--exec-red"], deps);
     expect(r.exitCode).toBe(0); // spy default status 1 → red observed
-    expect(calls.spawns).toEqual([{ command: "pnpm probe", cwd: "/repo", timeoutMs: 600_000 }]);
+    expect(calls.spawns).toEqual([
+      { command: "pnpm probe", cwd: "/repo", timeoutMs: 600_000, mode: "parse" },
+      { command: "pnpm probe", cwd: "/repo", timeoutMs: 600_000, mode: "exec" },
+    ]);
   });
 
   it("--exec-red executes NOTHING when the only live marker sits outside a contract region", () => {
@@ -700,7 +734,9 @@ describe("runCli — seam-level infra + containment (spec §2/§7, §1.1 item 11
     const { deps, calls } = memDeps({ files: { [PLAN_DOC]: text }, tracked: ["lib/a.ts"] });
     const r = runCli(["docs/superpowers/plans/p.md", "--exec-red"], deps);
     expect(r.exitCode).toBe(0);
-    expect(calls.spawns).toEqual([]);
+    // The PARSE pass is global over well-formed markers, so it still sees this
+    // command; the EXECUTION population is the narrower owned-and-live one.
+    expect(calls.spawns.filter((sp) => sp.mode === "exec")).toEqual([]);
   });
 
   it("root discovery happens EXACTLY once per invocation", () => {
@@ -708,5 +744,332 @@ describe("runCli — seam-level infra + containment (spec §2/§7, §1.1 item 11
     const r = runCli([DOC], deps);
     expect(r.exitCode).toBe(0);
     expect(calls.repoRoot).toBe(1);
+  });
+});
+
+// ---- verdict-capability arms: real CLI (group 1) --------------------------
+
+describe("spec-lint CLI — parse capability on the DEFAULT invocation (spec §3)", () => {
+  const V = "tests/specLint/fixtures/redVerdict/docs/superpowers/plans";
+  const SENTINEL = join(ROOT, ".tmp-parse-sentinel-redverdict");
+
+  afterAll(() => rmSync(SENTINEL, { force: true }));
+
+  const codesOf = (r: { stdout: string }): string[] =>
+    (JSON.parse(r.stdout) as { findings: { code: string }[] }).findings.map((f) => f.code);
+
+  it(
+    "the mutation-site shape draws RED_UNPARSEABLE with NO --exec-red",
+    () => {
+      // The payoff moment is review-time linting, which never passes the flag.
+      const r = cli([`${V}/unparseable-red.md`, "--json"]);
+      expect(r.code).toBe(1);
+      expect(codesOf(r)).toContain("RED_UNPARSEABLE");
+    },
+    T,
+  );
+
+  it(
+    "the legacy prose red is a true positive of the same code",
+    () => {
+      const r = cli([`${V}/prose-red.md`, "--json"]);
+      expect(r.code).toBe(1);
+      expect(codesOf(r)).toContain("RED_UNPARSEABLE");
+    },
+    T,
+  );
+
+  it(
+    "the same document read as a SPEC draws none of the new codes",
+    () => {
+      const r = cli([`${V}/unparseable-red.md`, "--kind", "spec", "--json"]);
+      expect(codesOf(r)).not.toContain("RED_UNPARSEABLE");
+    },
+    T,
+  );
+
+  it(
+    "a parseable plan stays clean",
+    () => {
+      const r = cli([`${V}/parseable.md`, "--json"]);
+      expect(r.code).toBe(0);
+      expect(codesOf(r)).toEqual([]);
+    },
+    T,
+  );
+
+  it(
+    "a gate cmd= carrying the same shape draws GATE_CMD_UNPARSEABLE, not the red code",
+    () => {
+      const r = cli([`${V}/unparseable-gate.md`, "--json"]);
+      expect(r.code).toBe(1);
+      expect(codesOf(r)).toContain("GATE_CMD_UNPARSEABLE");
+      expect(codesOf(r)).not.toContain("RED_UNPARSEABLE");
+    },
+    T,
+  );
+
+  it(
+    "the parse pass is `sh -nc`, proven by a side effect that never happens",
+    () => {
+      // Mode is otherwise spawn-indistinguishable: `sh -nc 'printf EXECUTED'`
+      // writes 0 bytes and `sh -c` writes 8, so only an effect can tell them
+      // apart through the real production seam.
+      rmSync(SENTINEL, { force: true });
+      const r = cli([`${V}/parse-sentinel.md`, "--json"]);
+      expect(r.code).toBe(0);
+      expect(existsSync(SENTINEL)).toBe(false);
+    },
+    T,
+  );
+});
+
+describe("spec-lint CLI — collection probes under --exec-red (spec §5)", () => {
+  const V = "tests/specLint/fixtures/redVerdict/docs/superpowers/plans";
+  const PROBE_T = 180000;
+
+  const execCli = (args: string[], env: Record<string, string> = {}, cwd: string = ROOT) => {
+    const r = spawnSync(process.execPath, [TSX, join(ROOT, "scripts/spec-lint.ts"), ...args], {
+      cwd,
+      encoding: "utf8",
+      env: { ...process.env, ...env },
+    });
+    return { code: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+  };
+
+  const codesOf = (r: { stdout: string }): string[] =>
+    (JSON.parse(r.stdout) as { findings: { code: string }[] }).findings.map((f) => f.code);
+
+  it(
+    "a live red that exits non-zero for a COLLECTION reason draws RED_COLLECTS_NOTHING",
+    () => {
+      const r = execCli([`${V}/exec-collects-nothing.md`, "--exec-red", "--json"]);
+      expect(codesOf(r)).toContain("RED_COLLECTS_NOTHING");
+    },
+    PROBE_T,
+  );
+
+  it(
+    "a live red that fails for its own reason, with a non-empty collection, is clean",
+    () => {
+      const r = execCli([`${V}/exec-genuine-red.md`, "--exec-red", "--json"]);
+      expect(codesOf(r)).toEqual([]);
+      expect(r.code).toBe(0);
+    },
+    PROBE_T,
+  );
+
+  it(
+    "an authored red naming a tracked-but-uncollectible suite draws RED_SUITE_UNCOLLECTED",
+    () => {
+      const r = execCli([`${V}/exec-authored-uncollected.md`, "--exec-red", "--json"]);
+      expect(codesOf(r)).toContain("RED_SUITE_UNCOLLECTED");
+    },
+    PROBE_T,
+  );
+
+  it(
+    "probes inherit the repo root, proven from a SUBDIRECTORY cwd",
+    () => {
+      // Every path in the fixture red is repo-root-relative. A probe spawned
+      // with the caller's cwd could not find the config and would report
+      // RED_PROBE_UNVERIFIED instead of the collection verdict.
+      const r = execCli(
+        [join(ROOT, V, "exec-authored-uncollected.md"), "--exec-red", "--json"],
+        {},
+        join(ROOT, "lib"),
+      );
+      expect(codesOf(r)).toContain("RED_SUITE_UNCOLLECTED");
+      expect(codesOf(r)).not.toContain("RED_PROBE_UNVERIFIED");
+    },
+    PROBE_T,
+  );
+
+  it(
+    "the per-command ceiling and its env seam bind PROBES too",
+    () => {
+      const r = execCli([`${V}/exec-probe-timeout.md`, "--exec-red", "--json"], {
+        SPEC_LINT_EXEC_TIMEOUT_SECS: "1",
+      });
+      expect(codesOf(r)).toEqual(["RED_PROBE_UNVERIFIED"]);
+    },
+    PROBE_T,
+  );
+
+  it(
+    "red-command stdout stays discarded",
+    () => {
+      // The fixture CONCATENATES its sentinel at run time, so the string it
+      // writes appears nowhere in the document. Asserting a sentinel that is
+      // also a literal in the marker would just be reading the report's own
+      // inventory back — which is what a first draft of this test did.
+      const r = execCli([`${V}/exec-red-stdout.md`, "--exec-red", "--json"]);
+      expect(r.stdout).toContain("SENTINELRED STDOUT"); // premise: the marker IS in the report
+      expect(r.stdout).not.toContain("SENTINELREDSTDOUT");
+      expect(r.stderr).not.toContain("SENTINELREDSTDOUT");
+    },
+    PROBE_T,
+  );
+});
+
+// ---- spawn-authorization matrix at the injected seam (group 2) -------------
+
+describe("runCli — spawn authorization per population cell (spec §3/§5.2)", () => {
+  const PLAN_PATH = "docs/superpowers/plans/p.md";
+  const PLAN_DOC = "/repo/docs/superpowers/plans/p.md";
+  const TRACKED = ["lib/a.ts", "tests/a.test.ts"];
+
+  const planDoc = (...markers: string[]) =>
+    [
+      "# Plan",
+      "<!-- tasks: depth=2 red-contract -->",
+      "## A",
+      ...markers,
+      "AC-1 here.",
+      "<!-- tasks: end -->",
+      "",
+    ].join("\n");
+
+  const runPlan = (text: string, opts: Partial<MemOpts> = {}, argv = [PLAN_PATH, "--exec-red"]) => {
+    const { deps, calls } = memDeps({ files: { [PLAN_DOC]: text }, tracked: TRACKED, ...opts });
+    const out = runCli([...argv, "--json"], deps);
+    const findings = (JSON.parse(out.stdout) as { findings: { code: string }[] }).findings;
+    return {
+      codes: findings.map((f) => f.code),
+      parse: calls.spawns.filter((s) => s.mode === "parse").map((s) => s.command),
+      exec: calls.spawns.filter((s) => s.mode === "exec").map((s) => s.command),
+      spawns: calls.spawns,
+    };
+  };
+
+  const LIVE =
+    "<!-- task: red=`pnpm vitest run tests/a.test.ts` red-state=live why=`w` ac=AC-1 -->";
+  const AUTHORED =
+    "<!-- task: red=`pnpm vitest run tests/a.test.ts` red-state=authored red-target=`lib/a.ts` why=`w` ac=AC-1 -->";
+
+  it("the DEFAULT invocation spawns parse checks ONLY", () => {
+    const r = runPlan(planDoc(LIVE), {}, [PLAN_PATH]);
+    expect(r.parse).toEqual(["pnpm vitest run tests/a.test.ts"]);
+    expect(r.exec).toEqual([]);
+  });
+
+  it.each([
+    ["exit 0", { status: 0, signal: null }],
+    ["exit 126", { status: 126, signal: null }],
+    ["exit 127", { status: 127, signal: null }],
+    [
+      "a timeout",
+      { status: null, signal: null, error: { code: "ETIMEDOUT", message: "timed out" } },
+    ],
+    ["a signal", { status: null, signal: "SIGTERM" }],
+    ["a spawn error", { status: null, signal: null, error: { message: "spawn sh ENOENT" } }],
+  ])("never probes a live marker whose red gave %s", (_label, red) => {
+    const r = runPlan(planDoc(LIVE), {
+      spawnFor: (command, mode) => (mode === "exec" ? red : undefined),
+    });
+    expect(r.exec).toEqual(["pnpm vitest run tests/a.test.ts"]);
+  });
+
+  it("probes a live marker exactly once when its red is genuinely non-zero", () => {
+    const r = runPlan(planDoc(LIVE));
+    expect(r.exec).toEqual(["pnpm vitest run tests/a.test.ts", "pnpm vitest list tests/a.test.ts"]);
+  });
+
+  it.each([
+    ["a timeout", { status: null, signal: null, error: { code: "ETIMEDOUT", message: "t" } }],
+    ["a signal", { status: null, signal: "SIGKILL" }],
+    ["a spawn error", { status: null, signal: null, error: { message: "spawn sh ENOENT" } }],
+  ])("a parse NON-OBSERVATION (%s) excludes the marker from execution and probing", (_l, parse) => {
+    const r = runPlan(planDoc(LIVE), {
+      spawnFor: (command, mode) => (mode === "parse" ? parse : undefined),
+    });
+    expect(r.codes).toEqual(["RED_PROBE_UNVERIFIED"]);
+    expect(r.exec).toEqual([]);
+  });
+
+  it("a parse FAILURE excludes the marker from execution and probing", () => {
+    const r = runPlan(planDoc(LIVE), {
+      spawnFor: (command, mode) => (mode === "parse" ? { status: 2, signal: null } : undefined),
+    });
+    expect(r.codes).toEqual(["RED_UNPARSEABLE"]);
+    expect(r.exec).toEqual([]);
+  });
+
+  it("an AUTHORED marker's red command is never spawned; only its list probe is", () => {
+    const r = runPlan(planDoc(AUTHORED));
+    expect(r.exec).toEqual(["pnpm vitest list tests/a.test.ts"]);
+  });
+
+  it("a compound vitest-shaped red is declined, never probed", () => {
+    const compound =
+      "<!-- task: red=`pnpm vitest run tests/a.test.ts && echo done` red-state=authored red-target=`lib/a.ts` why=`w` ac=AC-1 -->";
+    const r = runPlan(planDoc(compound));
+    expect(r.exec).toEqual([]);
+    expect(r.codes).toContain("RED_PROBE_UNVERIFIED");
+  });
+
+  it.each([
+    [
+      "a bare region",
+      [
+        "# Plan",
+        "<!-- tasks: depth=2 -->",
+        "## A",
+        AUTHORED,
+        "AC-1 here.",
+        "<!-- tasks: end -->",
+        "",
+      ].join("\n"),
+    ],
+    [
+      "an orphaned position",
+      [
+        "# Plan",
+        "<!-- tasks: depth=2 red-contract -->",
+        "## A",
+        "AC-1 here.",
+        "<!-- tasks: end -->",
+        AUTHORED,
+        "",
+      ].join("\n"),
+    ],
+    ["no region at all", ["# Plan", "## A", AUTHORED, "AC-1 here.", ""].join("\n")],
+  ])("an authored marker in %s draws no probe AND no advisory", (_label, text) => {
+    const r = runPlan(text);
+    expect(r.exec).toEqual([]);
+    expect(r.codes).not.toContain("RED_PROBE_UNVERIFIED");
+  });
+
+  it("a v1 marker is parsed but never executed or probed", () => {
+    const v1 = "<!-- task: red=`pnpm vitest run tests/a.test.ts` ac=AC-1 -->";
+    const r = runPlan(planDoc(v1));
+    expect(r.parse).toEqual(["pnpm vitest run tests/a.test.ts"]);
+    expect(r.exec).toEqual([]);
+  });
+
+  it("phases run in order: every parse check, then both reds, then both probes", () => {
+    // Load-bearing: collection executes module scope, so an interleaved probe
+    // would run a suite's imports between two red observations.
+    const a = "<!-- task: red=`pnpm vitest run tests/a.test.ts` red-state=live why=`w` ac=AC-1 -->";
+    const b =
+      "<!-- task: red=`pnpm exec vitest run tests/a.test.ts` red-state=live why=`w` ac=AC-1 -->";
+    const r = runPlan(planDoc(a, b));
+    expect(r.spawns.map((s) => `${s.mode}:${s.command}`)).toEqual([
+      "parse:pnpm vitest run tests/a.test.ts",
+      "parse:pnpm exec vitest run tests/a.test.ts",
+      "exec:pnpm vitest run tests/a.test.ts",
+      "exec:pnpm exec vitest run tests/a.test.ts",
+      "exec:pnpm vitest list tests/a.test.ts",
+      "exec:pnpm exec vitest list tests/a.test.ts",
+    ]);
+  });
+
+  it("a live marker whose red exits 0 yields EXACTLY ONE RED_ALREADY_GREEN", () => {
+    // Additive threading that re-emitted the code from the collection pass
+    // fails this count, not the presence assertion above it.
+    const r = runPlan(planDoc(LIVE), {
+      spawnFor: (command, mode) => (mode === "exec" ? { status: 0, signal: null } : undefined),
+    });
+    expect(r.codes).toEqual(["RED_ALREADY_GREEN"]);
   });
 });

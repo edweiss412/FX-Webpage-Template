@@ -1,4 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { runLint } from "../../lib/specLint/run";
+import { collectionProbePlan, parseCheckPlan } from "../../lib/specLint/redContract";
+import { parseDoc } from "../../lib/specLint/parse";
+import { premise } from "../_shared/premise";
+import type { FileResolver } from "../../lib/specLint/types";
 import {
   planExecutionsForText,
   synthesizeCollectionFindings,
@@ -634,5 +639,171 @@ describe("synthesizeCollectionFindings — non-observations and declines (spec �
       ["RED_SUITE_UNVERIFIED", 3],
       ["RED_COLLECTS_NOTHING", 9],
     ]);
+  });
+});
+
+/**
+ * Corpus distillations through `runLint` (spec §2.4 / AC-7). Each fixture
+ * reproduces a MEASURED corpus shape at small line numbers rather than
+ * relinting a live plan, so the calibration is pinned without importing the
+ * corpus's churn. Outcome maps are constructed: nothing spawns here.
+ */
+
+const OPEN_RC_LINE = "<!-- tasks: depth=2 red-contract -->";
+const CORPUS_TRACKED = [
+  "lib/a.ts",
+  "tests/serializeError.test.ts",
+  "tests/components/admin/wizard/step.test.tsx",
+];
+
+const corpusResolver: FileResolver = {
+  listTrackedFiles: () => CORPUS_TRACKED,
+  readFileLines: (p) => (CORPUS_TRACKED.includes(p) ? ["one", "two"] : null),
+};
+
+/**
+ * Lints a one-marker plan with every command's parse recorded as exit 0 and
+ * one probe outcome/stdout pair, so only the arms under test can speak.
+ */
+const lintDistillation = (
+  marker: string,
+  probeStdout: string | null,
+  redOutcome: ExecOutcome | null = null,
+): string[] => {
+  const text = [OPEN_RC_LINE, "## Task A", marker, "AC-1 here.", END, ""].join("\n");
+  const model = parseDoc(text);
+  const parse: ParseResults = {
+    outcomes: new Map(parseCheckPlan(model).map((e) => [e.line, { kind: "exit", code: 0 }])),
+    stderrTails: new Map(),
+  };
+  const probePlan = collectionProbePlan(model, new Set(CORPUS_TRACKED), new Set());
+  const probes: ProbeResults = {
+    outcomes: new Map(
+      probeStdout === null ? [] : probePlan.map((e) => [e.line, { kind: "exit", code: 0 }]),
+    ),
+    stdout: new Map(probeStdout === null ? [] : probePlan.map((e) => [e.line, probeStdout])),
+    stderrTails: new Map(),
+  };
+  const exec: ExecResults =
+    redOutcome === null
+      ? { outcomes: new Map(), stderrTails: new Map() }
+      : { outcomes: new Map([[3, redOutcome]]), stderrTails: new Map() };
+  return runLint(
+    { text, repoRelPath: "docs/superpowers/plans/x.md", kind: "plan", kindSource: "inferred" },
+    corpusResolver,
+    exec,
+    parse,
+    probes,
+  ).findings.map((f) => f.code);
+};
+
+describe("corpus distillations through runLint (spec §2.4, AC-7)", () => {
+  it("the §2.1 legacy prose red — the corpus's ONE parse true positive", () => {
+    const text = [
+      OPEN_RC_LINE,
+      "## Task A",
+      "<!-- task: red=`none (closeout gate task)` red-state=live why=`w` ac=AC-1 -->",
+      "AC-1 here.",
+      END,
+      "",
+    ].join("\n");
+    const model = parseDoc(text);
+    const parse: ParseResults = {
+      outcomes: new Map(parseCheckPlan(model).map((e) => [e.line, { kind: "exit", code: 2 }])),
+      stderrTails: new Map([[3, "sh: -c: line 1: syntax error near unexpected token"]]),
+    };
+    const codes = runLint(
+      { text, repoRelPath: "docs/superpowers/plans/x.md", kind: "plan", kindSource: "inferred" },
+      corpusResolver,
+      null,
+      parse,
+      null,
+    ).findings.map((f) => f.code);
+    expect(codes).toEqual(["RED_UNPARSEABLE"]);
+  });
+
+  it("a merged-corpus-shaped clean marker set draws nothing new", () => {
+    // Premise: the fixture really does carry a vitest-shaped v2 marker, so the
+    // zero-findings assertion has somewhere to fire from.
+    const marker =
+      "<!-- task: red=`pnpm vitest run tests/serializeError.test.ts` red-state=authored red-target=`lib/a.ts:1` why=`w` ac=AC-1 -->";
+    const model = parseDoc([OPEN_RC_LINE, "## Task A", marker, "AC-1 here.", END, ""].join("\n"));
+    premise(
+      "the distillation carries a vitest-shaped, probe-eligible v2 marker",
+      collectionProbePlan(model, new Set(CORPUS_TRACKED), new Set()).length,
+      0,
+    );
+    expect(lintDistillation(marker, "tests/serializeError.test.ts > case\n")).toEqual([]);
+  });
+
+  it("the premisescan-shaped authored -t marker draws the advisory only", () => {
+    expect(
+      lintDistillation(
+        "<!-- task: red=`pnpm vitest run tests/serializeError.test.ts -t 'new case'` red-state=authored red-target=`lib/a.ts:1` why=`w` ac=AC-1 -->",
+        "tests/serializeError.test.ts > case\n",
+      ),
+    ).toEqual(["RED_TEST_NAME_FILTER"]);
+  });
+
+  it("the serialize-error one-edit typo shape is surfaced by name", () => {
+    expect(
+      lintDistillation(
+        "<!-- task: red=`pnpm vitest run tests/serializeErrors.test.ts` red-state=authored red-target=`lib/a.ts:1` why=`w` ac=AC-1 -->",
+        "",
+      ),
+    ).toEqual(["RED_SUITE_UNVERIFIED"]);
+  });
+
+  it("the step3 directory-selector shape is CLEAN when its probe collects", () => {
+    expect(
+      lintDistillation(
+        "<!-- task: red=`pnpm vitest run tests/components/admin/wizard` red-state=authored red-target=`lib/a.ts:1` why=`w` ac=AC-1 -->",
+        "tests/components/admin/wizard/step.test.tsx > case\n",
+      ),
+    ).toEqual([]);
+  });
+
+  it("the same selector with a one-character directory typo is surfaced", () => {
+    expect(
+      lintDistillation(
+        "<!-- task: red=`pnpm vitest run tests/components/admin/wizrad` red-state=authored red-target=`lib/a.ts:1` why=`w` ac=AC-1 -->",
+        "",
+      ),
+    ).toEqual(["RED_SUITE_UNVERIFIED"]);
+  });
+
+  it("the pnpm heavy wrapper shape is outside the accept-set — no collection finding", () => {
+    expect(
+      lintDistillation(
+        "<!-- task: red=`pnpm heavy pnpm vitest run tests/serializeErrors.test.ts` red-state=authored red-target=`lib/a.ts:1` why=`w` ac=AC-1 -->",
+        "",
+      ),
+    ).toEqual([]);
+  });
+
+  it("the compound shape is declined with a surfaced advisory", () => {
+    expect(
+      lintDistillation(
+        "<!-- task: red=`pnpm vitest run tests/serializeError.test.ts && echo done` red-state=authored red-target=`lib/a.ts:1` why=`w` ac=AC-1 -->",
+        "",
+      ),
+    ).toEqual(["RED_CONJUNCTION", "RED_PROBE_UNVERIFIED"]);
+  });
+
+  it("a static invocation (no maps) draws no §5 findings at all", () => {
+    const text = [
+      OPEN_RC_LINE,
+      "## Task A",
+      "<!-- task: red=`pnpm vitest run tests/serializeErrors.test.ts` red-state=authored red-target=`lib/a.ts:1` why=`w` ac=AC-1 -->",
+      "AC-1 here.",
+      END,
+      "",
+    ].join("\n");
+    expect(
+      runLint(
+        { text, repoRelPath: "docs/superpowers/plans/x.md", kind: "plan", kindSource: "inferred" },
+        corpusResolver,
+      ).findings.map((f) => f.code),
+    ).toEqual([]);
   });
 });

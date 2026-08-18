@@ -4,14 +4,28 @@ import { ambiguousBasenames, basenameOf, checkNumerics, scriptMentionMatcher } f
 import { parseDoc, type DocModel } from "./parse";
 import {
   checkRedContract,
+  collectionProbePlan,
+  parseCheckPlan,
+  parseFailedLines,
   planExecutions,
   redTargetSpans,
+  synthesizeCollectionFindings,
   synthesizeExecFindings,
+  synthesizeParseFindings,
 } from "./redContract";
 import { fenceCoverage, waiverTarget } from "./waiverCoverage";
 import { checkTaskContract } from "./taskContract";
 import { checkSections } from "./sections";
-import type { Check, ExecResults, FileResolver, Finding, LintDoc, LintResult } from "./types";
+import type {
+  Check,
+  ExecResults,
+  FileResolver,
+  Finding,
+  LintDoc,
+  LintResult,
+  ParseResults,
+  ProbeResults,
+} from "./types";
 
 const CHECK_ORDER: Record<Check, number> = {
   document: 0,
@@ -69,6 +83,8 @@ export function runLint(
   doc: LintDoc,
   resolver: FileResolver,
   exec?: ExecResults | null,
+  parse?: ParseResults | null,
+  probes?: ProbeResults | null,
 ): LintResult {
   const model = parseDoc(doc.text);
   // Span-exact exclusion (arms spec §5): a `red-target=` capture IS a citation,
@@ -82,11 +98,32 @@ export function runLint(
   const sections = checkSections(model, doc.kind, citations.resolvedPaths);
   const taskContract = checkTaskContract(model, doc.kind);
   const redContract = checkRedContract(model, doc.kind, resolver);
+  // Parse-capability findings (verdict spec §3). Unlike execution, this pass
+  // runs on EVERY plan-kind invocation — the payoff moment is review-time
+  // linting, which never passes `--exec-red`.
+  const parsePlan = doc.kind === "plan" ? parseCheckPlan(model) : [];
+  const parseResults = parse ?? null;
+  const parseFindings = synthesizeParseFindings(parsePlan, parseResults);
+  // ONE derivation of the exclusion, shared by execution and probing: a
+  // command the shell cannot parse — or whose parseability was never observed —
+  // is not run and not probed (§3).
+  const excluded = parseFailedLines(parsePlan, parseResults);
+
   // Execution findings (arms spec §4.4). The adapter alone runs subprocesses;
   // the core is handed their outcomes. Absent map = static invocation.
+  const execResults = exec ?? null;
   const execFindings =
-    doc.kind === "plan" && exec !== undefined && exec !== null
-      ? synthesizeExecFindings(planExecutions(model), exec)
+    doc.kind === "plan" && execResults !== null
+      ? synthesizeExecFindings(planExecutions(model, excluded), execResults)
+      : [];
+  // Collection findings (verdict spec §5.2), likewise outcome-injected.
+  const collectionFindings =
+    doc.kind === "plan" && probes !== undefined && probes !== null
+      ? synthesizeCollectionFindings(
+          collectionProbePlan(model, new Set(resolver.listTrackedFiles()), excluded),
+          execResults,
+          probes,
+        )
       : [];
 
   let findings: Finding[] = [
@@ -97,7 +134,9 @@ export function runLint(
     ...sections,
     ...taskContract,
     ...redContract,
+    ...parseFindings,
     ...execFindings,
+    ...collectionFindings,
   ];
 
   // ---- ignore-waiver application (spec §3) ----

@@ -24,7 +24,14 @@ import { classifySpan } from "./citations";
 import { parseDoc, type DocModel } from "./parse";
 import { compareFindings, MARKER_ANY, parseMarker, type ParsedMarker } from "./taskContract";
 import { taskTopology } from "./taskContract";
-import type { ExecResults, FileResolver, Finding, ParseResults, ProbeResults } from "./types";
+import type {
+  ExecOutcome,
+  ExecResults,
+  FileResolver,
+  Finding,
+  ParseResults,
+  ProbeResults,
+} from "./types";
 
 const GATE_ANY = /^ {0,3}<!-- gate:/;
 const GATE = /^ {0,3}<!-- gate: cmd=`([^`]*)`( probed=`([^`]*)`)? -->[ \t]*$/;
@@ -749,11 +756,10 @@ export function synthesizeCollectionFindings(
     }
 
     if (state === "live") {
-      // Read the RED outcome first, and only a genuinely observed non-zero,
-      // non-unrunnable exit authorizes looking at the probe at all.
-      const redOutcome = red === null ? undefined : red.outcomes.get(line);
-      if (redOutcome === undefined || redOutcome.kind !== "exit") continue;
-      if (redOutcome.code === 0 || redOutcome.code === 126 || redOutcome.code === 127) continue;
+      // Read the RED outcome first, through the SAME predicate the adapter
+      // spawns by: two copies of this rule would let the report describe a
+      // probe that never ran, or bury one that did.
+      if (!redAuthorizesProbe(red === null ? undefined : red.outcomes.get(line))) continue;
     }
 
     const outcome = probes.outcomes.get(line);
@@ -842,4 +848,75 @@ export function synthesizeCollectionFindings(
     }
   }
   return out;
+}
+
+/**
+ * Whether a LIVE marker's red outcome authorizes running its collection probe.
+ *
+ * ONE owner, two callers: `probesToSpawn` (the adapter's spawn set) and
+ * `synthesizeCollectionFindings` (the report). An exit 0 already draws
+ * `RED_ALREADY_GREEN`, 126/127 and every non-completion already draw their own
+ * advisories, and a marker with no recorded outcome was never observed at all —
+ * in none of those cases does a collection verdict mean anything.
+ */
+function redAuthorizesProbe(outcome: ExecOutcome | undefined): boolean {
+  if (outcome === undefined || outcome.kind !== "exit") return false;
+  return outcome.code !== 0 && outcome.code !== 126 && outcome.code !== 127;
+}
+
+/**
+ * The marker lines whose parse check did not return exit 0 (spec §3) — parse
+ * FAILURES and parse NON-OBSERVATIONS alike. Excluded from execution and from
+ * probing: running a command the shell cannot parse observes nothing, and
+ * running one whose parseability was never observed is the same gamble.
+ *
+ * A null map is an invocation with no parse pass, which excludes nothing.
+ */
+export function parseFailedLines(
+  plan: readonly ParseCheckEntry[],
+  results: ParseResults | null,
+): ReadonlySet<number> {
+  if (results === null) return EMPTY_LINES;
+  const out = new Set<number>();
+  for (const { line } of plan) {
+    const outcome = results.outcomes.get(line);
+    if (outcome === undefined) continue;
+    if (outcome.kind === "exit" && outcome.code === 0) continue;
+    out.add(line);
+  }
+  return out;
+}
+
+/**
+ * The probes the adapter is authorized to spawn, in doc order. Skip records
+ * carry no probe text and can never appear here.
+ */
+export function probesToSpawn(
+  plan: readonly CollectionProbeEntry[],
+  red: ExecResults | null,
+): { line: number; probe: string }[] {
+  const out: { line: number; probe: string }[] = [];
+  for (const entry of plan) {
+    if ("skipped" in entry) continue;
+    if (
+      entry.state === "live" &&
+      !redAuthorizesProbe(red === null ? undefined : red.outcomes.get(entry.line))
+    ) {
+      continue;
+    }
+    out.push({ line: entry.line, probe: entry.probe });
+  }
+  return out;
+}
+
+/**
+ * `parseDoc` + `collectionProbePlan`, so the adapter derives the probe plan
+ * from raw text without importing the parser itself. Pure.
+ */
+export function collectionProbePlanForText(
+  text: string,
+  tracked: ReadonlySet<string>,
+  excludeLines: ReadonlySet<number>,
+): CollectionProbeEntry[] {
+  return collectionProbePlan(parseDoc(text), tracked, excludeLines);
 }
