@@ -182,7 +182,17 @@ Each is the escape route from a destructive confirm whose trigger the 2026-08-16
 
 **The consequence the prior arc did not draw.** `tests/styles/_metaControlOutlineFill.test.ts:112` asserts, per census row, `carries(element, "border-text-faint") === true` and `carries(element, "border-border-strong") === false`. Both hold here — the compact branch supplies the first, and no branch ever carried `border-border-strong`. **The pin is green on an element that renders at 1.27:1 in one of its two states**, and it would stay green if a future edit moved the compact branch back, so long as some branch kept the token.
 
-This is a **limit of the pin, not a defect in it**: its docstring is explicit that it answers "did the 21 elements this PR changed stay changed" over a closed set. The mechanism that closes it already exists in the same file — `everyPathCarries`, used at `tests/styles/_metaControlOutlineFill.test.ts:163` for the `max-sm:border-border` case — so the repair is adopting an existing helper, not writing a new predicate.
+This is a **limit of the pin, not a defect in it**: its docstring is explicit that it answers "did the 21 elements this PR changed stay changed" over a closed set.
+
+**On the repair — this record no longer prescribes one, and the correction matters** (spec review R4 F4). An earlier revision said the fix was to adopt `everyPathCarries`, the helper already used at `tests/styles/_metaControlOutlineFill.test.ts:163`. **The governing spec rejects that**, and a probe settles it: `everyPathCarries(el, "border-text-faint")` fails TWO of the 21, and only one is the defect —
+
+```
+NOT_EVERY_FAINT:
+  app/admin/show/[slug]/ResetPickerEpochButton.tsx:178   <- the intended defect
+  components/admin/Mi11GateActions.tsx:69                <- a ratified exemption
+```
+
+`components/admin/Mi11GateActions.tsx:69` has an `isApprove` branch that is `bg-accent … text-accent-text` with no border at all — the accent-filled primary action `DESIGN.md` §1.2a rules OUT by name. A universal is therefore the wrong shape for this population. The spec's §5.2 carries the chosen mechanism (a negation: no render path carries `border-border`); **this record measures, it does not prescribe**, and it is cited here only so the two documents cannot disagree.
 
 ## 7. Enrollability, checked before round 1
 

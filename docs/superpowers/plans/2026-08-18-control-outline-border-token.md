@@ -43,7 +43,7 @@
 | Test | Status | What it pins |
 | --- | --- | --- |
 | `tests/styles/_metaControlOutlineFill.test.ts` | **EDITED** | census rows carry `border-text-faint`; **new:** no row carries `border-border` on any path; **new:** no NEW row carries `hover:border-border-strong` (§3.6); **new:** five dividers are non-members |
-| `tests/styles/controlOutlineScan.ts` | **EDITED** | `CENSUS` 21 → 58 rows |
+| `tests/styles/controlOutlineScan.ts` | **EDITED** | `CENSUS` 21 → **57** rows (36 additions; the 37th swap-set element overlaps) |
 | `tests/styles/secondary-action-contrast.test.ts` | **EDITED** | **new:** `--color-border` as OUTLINE (before-state) and `--color-text-subtle` as OUTLINE (the §3.6b hover token), four grounds, both themes |
 | `tests/mutation/source/registry.ts` | unchanged rows, **re-scored** | `controlOutlineScan` at `scoreFloor: 1`, `accepted: []` |
 | `tests/docs/_metaInvariant8Closeout.test.ts` | unchanged | this file's marker line grammar |
@@ -75,10 +75,12 @@ Reproduced here so the implementer starts from measurement. Full transcripts in 
 | Scanner universe | 362 elements |
 | Elements carrying `border-border` (whole token, unprefixed) | 42 |
 | Published cover (token + neutral fill) | 30 |
-| Swap set (A 29 + B 8) | **37** |
+| Swap set (A 29 + B 8) | **37** elements, of which **36** are census additions — `app/admin/show/[slug]/ResetPickerEpochButton.tsx:178` is already a census row |
+| Census length after Task 1 | **57** (21 + 36), NOT 58 |
 | Files touched | **26** |
 | Distinct source-edit lines | **32** |
 | `border-border` occurrences in those 26 files | **63** — so 31 must NOT be touched |
+| `disabled:opacity-60` sites among the 37 | **8** — composite measures 1.94-1.96 light / 2.09-2.19 dark, a WCAG-exempt inactive state recorded in spec §6 |
 | Original 21 failing the NEW negation assertion today | **1** (`ResetPickerEpochButton.tsx:178`) |
 | Original 21 failing a hypothetical `everyPathCarries` | **2** — the second (`components/admin/Mi11GateActions.tsx:69`) is a ratified exemption, which is why that form was rejected |
 | Swap-set elements with a `hover:border-*` override | **21** — 12 delete, 6 raise to `text-subtle`, 3 raise to `accent-on-bg` |
@@ -97,7 +99,7 @@ Reproduced here so the implementer starts from measurement. Full transcripts in 
 
 **Files:** `tests/styles/controlOutlineScan.ts`, `tests/styles/_metaControlOutlineFill.test.ts`
 
-- [ ] **1.1** Add the 37 swap-set rows to `CENSUS`, taking `file` and `line` from the spec's probe record §2 table (class A, minus row 13) plus §3.2's table (class B). **Identity is `file` PLUS `line`** — twelve files contribute more than one row. Keep the existing 21 rows unchanged and in place.
+- [ ] **1.1** Add **36** rows to `CENSUS` — the swap set is 37 elements but `app/admin/show/[slug]/ResetPickerEpochButton.tsx:178` IS ALREADY A CENSUS ROW (it is the half-swapped control of spec §3.4), so adding it again breaks the identity-distinct assertion. Final length is **57**, not 58 (spec review R4 F1). Take `file` and `line`, taking `file` and `line` from the spec's probe record §2 table (class A, minus row 13) plus §3.2's table (class B). **Identity is `file` PLUS `line`** — twelve files contribute more than one row. Keep the existing 21 rows unchanged and in place.
 - [ ] **1.2** Add the per-row assertion, mirroring the existing `border-border-strong` case at `tests/styles/_metaControlOutlineFill.test.ts:121`:
       ```ts
       it(`no longer carries border-border (${label})`, () => {
@@ -107,13 +109,13 @@ Reproduced here so the implementer starts from measurement. Full transcripts in 
       ```
       Use the existing `carries` helper (`tests/styles/_metaControlOutlineFill.test.ts:46`) — it reads `allStrings`, which spans every render alternative, so this existential-negation IS the universal claim. **Do NOT introduce `everyPathCarries` here** (see "What this plan does NOT build").
 - [ ] **1.3** Add the divider non-membership assertion: the five class C identities from spec §3.3 are NOT in `CENSUS`. A fixed five-row list compared against census identities — not a `border-t`/`border-b` predicate.
-- [ ] **1.4** Update the census-length premise from 21 to 58, and the distinct-identity assertion to 58.
+- [ ] **1.4** Update the census-length premise from 21 to **57**, and the distinct-identity assertion to 57. If it reads 58, `1.1` double-added the overlapping row.
 - [ ] **1.5** Three fixtures, each with its own `premise("fixture parsed and produced an element", cover.length, 0)` so a fixture that fails to parse cannot pass vacuously:
       - **(a)** `border border-border bg-surface` → found by the scan, FAILS the new assertion.
       - **(b)** two ternary arms, one `border-text-faint`, one `border-border` → PASSES the pre-existing `carries(…, "border-text-faint")` check and FAILS the new one. **This is the `app/admin/show/[slug]/ResetPickerEpochButton.tsx:178` shape and the executable proof the strengthening is not cosmetic.**
       - **(c)** two ternary arms, one `border-text-faint`, one with NO border utility → must PASS both. **This is the `Mi11GateActions.tsx:69` shape and pins that an outline-free branch is not collateral.**
 - [ ] **1.6** Confirm RED for the right reason. `red=pnpm exec vitest run tests/styles/_metaControlOutlineFill.test.ts`
-      Expect failures on exactly the 37 new rows plus `ResetPickerEpochButton.tsx:178` = **38 failing "no longer carries border-border" cases**, fixture (a) and (b) passing (they assert the failure), fixture (c) passing, and **`Mi11GateActions.tsx:69` PASSING**. A run where `Mi11GateActions` fails means `everyPathCarries` crept in — revert to `carries`.
+      Expect failures on exactly the 37 swap-set elements — 36 additions plus the already-present `app/admin/show/[slug]/ResetPickerEpochButton.tsx:178` = **37 failing "no longer carries border-border" cases, not 38**; the two groups OVERLAP at that one row, which is the arithmetic spec review R4 F1 caught, fixture (a) and (b) passing (they assert the failure), fixture (c) passing, and **`Mi11GateActions.tsx:69` PASSING**. A run where `Mi11GateActions` fails means `everyPathCarries` crept in — revert to `carries`.
 - [ ] **1.7** Commit: `test(styles): widen the control-outline census to 58 and pin the border-border negation`
 
 ## Task 2: The swap — 32 source edits (GREEN)
@@ -209,7 +211,7 @@ Without this task the arc ships 21 controls whose outline reads LIGHTER on hover
       - `**Reachability:** PROBED` — the 1.27:1 mobile figure and the 3.35:1 desktop figure on the SAME control.
       - **Mint bar:** `Facing: product` needs no `**Incident:**` field (that requirement is process-facing rows only). Confirm against `tests/docs/_metaLedgerMintBar.test.ts` rather than assuming.
       - First scheduled step: decide whether §1.2a's control-outline rule supersedes the §3 R3 mobile skin.
-- [ ] **7.2** Add the new instance to `BL-CONTROL-OUTLINE-ON-TINTED-PLATES`: `components/admin/showpage/PublishedReviewModal.tsx:964` carries `bg-warning-bg` on its other branch, so its swap puts one more element on that entry's surface (spec §6). Update the entry's site list and figure; do **not** open a new row.
+- [ ] **7.2** **Do NOT touch `BL-CONTROL-OUTLINE-ON-TINTED-PLATES`.** An earlier draft had this task adding `components/admin/showpage/PublishedReviewModal.tsx:964` to it. That was a cross-path union error and is withdrawn (spec review R4 F3): path 0 is `border-border` + `bg-surface-sunken`, path 1 is `bg-warning-bg` with no outline token, so no render path carries the swapped outline on a tinted fill and this arc creates no tinted-plate boundary. The entry is unchanged by this PR.
 - [ ] **7.3** Add any new paired-chrome instance from Task 6 to `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT`.
 - [ ] **7.4** Archive `BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL`, **removing its `**Status:** IN PROGRESS · **Branch:**` marker in the same commit** — archives categorically reject in-progress entries, so the marker cannot ride along.
 - [ ] **7.5** **Ledger-seam conflict is expected** — several arcs edit `BACKLOG.md` concurrently, and four PRs in a row conflicted on it on 2026-08-18. Resolve with set arithmetic, not by eyeballing the hunk. The four ledger files are `BACKLOG.md`, `DEFERRED.md`, `BACKLOG-archive.md`, `DEFERRED-archive.md` (walked from disk by `scripts/lib/ledger-fields.ts`'s `ledgerFiles`, so do not hardcode the list in any new check):
