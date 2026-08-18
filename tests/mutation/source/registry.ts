@@ -1310,6 +1310,96 @@ export const GUARD_SURFACES: GuardSurface[] = [
     ],
   },
   {
+    id: "specLintUniversals",
+    sourcePath: "lib/specLint/universals.ts",
+    suitePaths: [
+      "tests/specLint/universals.test.ts",
+      "tests/specLint/universalsInventory.test.ts",
+      "tests/specLint/universalsMutantKills.test.ts",
+    ],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.94,
+    // Inverts arm A's value bound, so the accept-set admits 0 and 1 and rejects
+    // every real population. Both directions are asserted: the "all 0" fixture
+    // reds because a below-bound value now emits, and the E1 retro-fixture reds
+    // because a 21-row population no longer does.
+    control: {
+      from: "if (Number(cardinal) < MIN_CARDINAL_VALUE) continue;",
+      to: "if (Number(cardinal) > MIN_CARDINAL_VALUE) continue;",
+    },
+    accepted: [
+      // ---- equivalent: cannot change observable behavior (spec §2.4) -------
+      //
+      // The first scored run left 41 survivors at 0.6306. Thirty-five were REPAID with
+      // cases in the deciding suites (`universalsMutantKills.test.ts`), not accepted.
+      // The six below are the ones with an argument that rests on control flow or on
+      // the accept-set rather than on "no test happens to notice".
+      //
+      // FAMILY 1 — widths no lookup can reach. Gate 4's index is keyed by the CLAIM's
+      // cardinal, and the claim regex admits 1-3 digits only, so a token of 4 or 5
+      // digits can never equal a lookup key. Widening the indexer's own bound adds keys
+      // nothing asks for. The paired NARROWING is not here: {1,3} would drop the 4-digit
+      // tokens the record's own rows depend on being absent, which is observable.
+      {
+        siteId: "regex-quantifier-bound:46:29:{1,4}>{1,5}",
+        kind: "equivalent",
+        reason:
+          "CARDINAL_TOKEN only ever indexes keys that UNIVERSAL_CARDINAL's 1-3 digit capture can look up, so a wider token bound adds unreachable keys",
+      },
+      // FAMILY 2 — a span-start shift the match can never sit in. `s.column` is the
+      // 1-based offset of the span's CONTENT, so the character one before it is the
+      // opening backtick. Widening the range's start by one admits only matchStart ===
+      // r.start - 1, and a match must begin with `every`/`each`/`all` — never a
+      // backtick — so the widened cell is unreachable. The paired `- 1 > - 0` mutant is
+      // NOT here: it narrows the span and lets a claim at the span's first character
+      // escape the exclusion, which the boundary case in universalsMutantKills kills.
+      {
+        siteId: "integer-literal:89:35:1>2",
+        kind: "equivalent",
+        reason:
+          "shifting a span's start one character left admits only a match beginning on the opening backtick, which the quantifier accept-set makes impossible",
+      },
+      // FAMILY 3 — one-past-the-end loop bounds. Both scans index `model.lines[i]` at
+      // `i === length`, which is `undefined`; every guard on that iteration coerces to
+      // the string "undefined", which carries no leading pipe, no ISO date, no
+      // quantifier and no digits, so the iteration contributes nothing and cannot
+      // throw. The paired `0 > 1` start mutants ARE observable — they skip line 1 — and
+      // both are killed by first-line fixtures rather than accepted.
+      {
+        siteId: "relational-boundary:152:21:<><=",
+        kind: "equivalent",
+        reason:
+          "the extra iteration reads undefined, and every guard in the evidence scan coerces it to a string with no pipe, date, quantifier or digit",
+      },
+      {
+        siteId: "relational-boundary:169:21:<><=",
+        kind: "equivalent",
+        reason: "same one-past-the-end argument, in the advisory scan",
+      },
+      // FAMILY 4 — a redundant lastIndex reset. The `while ((m = RE.exec(line)) !== null)`
+      // loop runs to exhaustion and `exec` sets `lastIndex` back to 0 when it returns
+      // null, so on entry it is ALREADY 0. Same argument as specLintNumerics' family 1.
+      // The paired `0 > 1` mutant is NOT here: starting at index 1 skips a cardinal at
+      // the line start, and the line-start evidence fixture kills it.
+      {
+        siteId: "statement-removal:156:5:CARDINAL_TOKEN.lastIndex = 0;>(removed)",
+        kind: "equivalent",
+        reason:
+          "the evidence loop runs to exhaustion and exec resets lastIndex to 0 on the null result, so the assignment is redundant on entry",
+      },
+      // FAMILY 5 — an initial value read only after it is overwritten. `regionDepth` is
+      // guarded by `inRegion`, which starts false, and the only path that sets
+      // `inRegion = true` assigns `regionDepth` in the same block. So no read of the
+      // initial value can reach the comparison.
+      {
+        siteId: "integer-literal:244:21:0>1",
+        kind: "equivalent",
+        reason:
+          "regionDepth is read only under inRegion, which is false until the same block that assigns regionDepth sets it",
+      },
+    ],
+  },
+  {
     id: "reviewRoundCorpus",
     sourcePath: "lib/reviewRounds/corpus.ts",
     suitePaths: ["tests/docs/_metaReviewRoundEconomy.test.ts"],
