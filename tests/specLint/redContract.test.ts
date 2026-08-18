@@ -550,6 +550,23 @@ describe("parseCheckPlan", () => {
     ]);
   });
 
+  it("orders BOTH populations by doc line, not reds-then-gates", () => {
+    // The gate sits ABOVE the marker here, so an implementation that appended
+    // the gate population after the red one emits them the other way round.
+    const lines = [
+      "<!-- tasks: depth=2 red-contract -->",
+      "<!-- gate: cmd=`echo gate` probed=`yes` -->",
+      "## Task A",
+      "<!-- task: red=`echo red` ac=AC-1 -->",
+      "AC-1 appears here.",
+      "<!-- tasks: end -->",
+    ];
+    expect(parseCheckPlan(parseDoc(lines.join("\n")))).toEqual([
+      { line: 2, command: "echo gate", source: "gate" },
+      { line: 4, command: "echo red", source: "red" },
+    ]);
+  });
+
   it("excludes malformed markers, malformed gate lines, and blank gate commands", () => {
     // Every excluded line is marker- or gate-SHAPED, so an implementation that
     // planned on the shape rather than on a successful parse would enumerate
@@ -712,6 +729,9 @@ describe("collectionProbePlan — the authored name-filter strip (spec §5.1)", 
     const entry = onlyEntry(authored(red));
     expect(entry).toMatchObject({ state: "authored", skipped: "unstrippable-filter" });
     expect(Object.prototype.hasOwnProperty.call(entry, "probe")).toBe(false);
+    // The decline NAMES the token it declined on: "some filter" would send the
+    // author looking for a filter the command may carry three of.
+    expect((entry as { detail: string }).detail).toContain("-t");
   });
 
   it("leaves a LIVE marker's filters intact — live means observable today", () => {

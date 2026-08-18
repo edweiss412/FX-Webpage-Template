@@ -5,7 +5,9 @@ import { parseDoc } from "../../lib/specLint/parse";
 import { premise } from "../_shared/premise";
 import type { FileResolver } from "../../lib/specLint/types";
 import {
+  parseFailedLines,
   planExecutionsForText,
+  probesToSpawn,
   synthesizeCollectionFindings,
   synthesizeExecFindings,
   synthesizeParseFindings,
@@ -460,7 +462,12 @@ describe("synthesizeCollectionFindings — authored markers (spec §5.2)", () =>
       probes({ 3: { kind: "exit", code: 0 } }, { 3: COLLECTED }),
     );
     expect(found).toEqual([
-      expect.objectContaining({ code: "RED_SUITE_UNCOLLECTED", severity: "fail", docLine: 3 }),
+      expect.objectContaining({
+        code: "RED_SUITE_UNCOLLECTED",
+        severity: "fail",
+        docLine: 3,
+        column: 1,
+      }),
     ]);
     expect(found[0]!.detail).toContain("tests/b.test.tsx");
     expect(found[0]!.detail).not.toContain("tests/a.test.ts > ");
@@ -485,7 +492,12 @@ describe("synthesizeCollectionFindings — authored markers (spec §5.2)", () =>
       probes({ 3: { kind: "exit", code: 0 } }, { 3: COLLECTED }),
     );
     expect(found).toEqual([
-      expect.objectContaining({ code: "RED_SUITE_UNVERIFIED", severity: "advisory", docLine: 3 }),
+      expect.objectContaining({
+        code: "RED_SUITE_UNVERIFIED",
+        severity: "advisory",
+        docLine: 3,
+        column: 1,
+      }),
     ]);
     expect(found[0]!.detail).toContain("tests/mising.test.ts");
   });
@@ -557,7 +569,12 @@ describe("synthesizeCollectionFindings — authored markers (spec §5.2)", () =>
       probes({ 3: { kind: "exit", code: 0 } }, { 3: "" }),
     );
     expect(found).toEqual([
-      expect.objectContaining({ code: "RED_SUITE_UNVERIFIED", severity: "advisory", docLine: 3 }),
+      expect.objectContaining({
+        code: "RED_SUITE_UNVERIFIED",
+        severity: "advisory",
+        docLine: 3,
+        column: 1,
+      }),
     ]);
   });
 });
@@ -581,7 +598,12 @@ describe("synthesizeCollectionFindings — non-observations and declines (spec �
       probes({ 3: o }, {}, { 3: "some stderr" }),
     );
     expect(found).toEqual([
-      expect.objectContaining({ code: "RED_PROBE_UNVERIFIED", severity: "advisory", docLine: 3 }),
+      expect.objectContaining({
+        code: "RED_PROBE_UNVERIFIED",
+        severity: "advisory",
+        docLine: 3,
+        column: 1,
+      }),
     ]);
     expect(found[0]!.detail).toContain(needle);
     expect(found[0]!.detail).toContain("some stderr");
@@ -607,7 +629,12 @@ describe("synthesizeCollectionFindings — non-observations and declines (spec �
       probes({}),
     );
     expect(found).toEqual([
-      expect.objectContaining({ code: "RED_PROBE_UNVERIFIED", severity: "advisory", docLine: 3 }),
+      expect.objectContaining({
+        code: "RED_PROBE_UNVERIFIED",
+        severity: "advisory",
+        docLine: 3,
+        column: 1,
+      }),
     ]);
     expect(found[0]!.detail).toContain(detail);
   });
@@ -639,6 +666,127 @@ describe("synthesizeCollectionFindings — non-observations and declines (spec �
       ["RED_SUITE_UNVERIFIED", 3],
       ["RED_COLLECTS_NOTHING", 9],
     ]);
+  });
+});
+
+/**
+ * The two functions the ADAPTER consults before it spawns anything (spec §3,
+ * §5.2). Both are exercised end-to-end by the CLI suite, but that suite is not
+ * one of this surface's `suitePaths`, so assertions there pin no behavior this
+ * module is measured on.
+ */
+describe("parseFailedLines — the §3 exclusion set", () => {
+  const PLAN = [
+    { line: 3, command: "ok", source: "red" as const },
+    { line: 6, command: "broken", source: "red" as const },
+    { line: 9, command: "gate", source: "gate" as const },
+  ];
+
+  it("excludes a parse FAILURE and keeps a parseable sibling", () => {
+    const excluded = parseFailedLines(
+      PLAN,
+      parseResults({ 3: { kind: "exit", code: 0 }, 6: { kind: "exit", code: 2 } }),
+    );
+    expect([...excluded]).toEqual([6]);
+  });
+
+  it.each([
+    ["a timeout", { kind: "timeout" } as ExecOutcome],
+    ["a signal", { kind: "signal", signal: "SIGKILL" } as ExecOutcome],
+    ["a spawn error", { kind: "spawn-error", message: "boom" } as ExecOutcome],
+  ])("excludes a parse NON-OBSERVATION (%s) as well", (_label, outcome) => {
+    // Running a command whose parseability was never observed is the same
+    // gamble as running one known unparseable.
+    expect([...parseFailedLines(PLAN, parseResults({ 6: outcome }))]).toEqual([6]);
+  });
+
+  it("excludes an unparseable GATE line too", () => {
+    expect([...parseFailedLines(PLAN, parseResults({ 9: { kind: "exit", code: 2 } }))]).toEqual([
+      9,
+    ]);
+  });
+
+  it("excludes nothing when every parse check passed", () => {
+    expect([
+      ...parseFailedLines(
+        PLAN,
+        parseResults({ 3: { kind: "exit", code: 0 }, 6: { kind: "exit", code: 0 } }),
+      ),
+    ]).toEqual([]);
+  });
+
+  it("a planned line with NO recorded outcome is not excluded", () => {
+    expect([...parseFailedLines(PLAN, parseResults({}))]).toEqual([]);
+  });
+
+  it("a null map (no parse pass) excludes nothing", () => {
+    expect([...parseFailedLines(PLAN, null)]).toEqual([]);
+  });
+});
+
+describe("probesToSpawn — the adapter's authorized probe set (spec §5.2)", () => {
+  const liveProbe = (line: number): CollectionProbeEntry => ({
+    line,
+    state: "live",
+    probe: `pnpm vitest list tests/a${line}.test.ts`,
+    trackedTestArgs: [],
+    untrackedTestArgs: [],
+  });
+  const authoredProbe = (line: number): CollectionProbeEntry => ({
+    line,
+    state: "authored",
+    probe: `pnpm vitest list tests/a${line}.test.ts`,
+    trackedTestArgs: [],
+    untrackedTestArgs: [],
+  });
+
+  it("spawns a live probe only after a genuinely non-zero red", () => {
+    expect(probesToSpawn([liveProbe(3)], results({ 3: { kind: "exit", code: 1 } }))).toEqual([
+      { line: 3, probe: "pnpm vitest list tests/a3.test.ts" },
+    ]);
+  });
+
+  it.each([
+    ["exit 0", { kind: "exit", code: 0 } as ExecOutcome],
+    ["exit 126", { kind: "exit", code: 126 } as ExecOutcome],
+    ["exit 127", { kind: "exit", code: 127 } as ExecOutcome],
+    ["a timeout", { kind: "timeout" } as ExecOutcome],
+    ["a signal", { kind: "signal", signal: "SIGTERM" } as ExecOutcome],
+    ["a spawn error", { kind: "spawn-error", message: "boom" } as ExecOutcome],
+  ])("never spawns a live probe after %s", (_label, outcome) => {
+    expect(probesToSpawn([liveProbe(3)], results({ 3: outcome }))).toEqual([]);
+  });
+
+  it("never spawns a live probe when the red was not observed at all", () => {
+    expect(probesToSpawn([liveProbe(3)], results({}))).toEqual([]);
+    expect(probesToSpawn([liveProbe(3)], null)).toEqual([]);
+  });
+
+  it("ALWAYS spawns an authored probe — its red is never run, so nothing gates it", () => {
+    expect(probesToSpawn([authoredProbe(3)], results({}))).toEqual([
+      { line: 3, probe: "pnpm vitest list tests/a3.test.ts" },
+    ]);
+    expect(probesToSpawn([authoredProbe(3)], null)).toEqual([
+      { line: 3, probe: "pnpm vitest list tests/a3.test.ts" },
+    ]);
+  });
+
+  it("never spawns anything for a skip record — it carries no probe text", () => {
+    expect(
+      probesToSpawn(
+        [{ line: 3, state: "authored", skipped: "compound-command", detail: "&&" }],
+        results({}),
+      ),
+    ).toEqual([]);
+  });
+
+  it("keeps doc order across a mixed population", () => {
+    expect(
+      probesToSpawn(
+        [authoredProbe(3), liveProbe(6), authoredProbe(9)],
+        results({ 6: { kind: "exit", code: 1 } }),
+      ).map((entry) => entry.line),
+    ).toEqual([3, 6, 9]);
   });
 });
 
