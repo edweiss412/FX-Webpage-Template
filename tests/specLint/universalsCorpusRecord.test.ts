@@ -25,15 +25,29 @@ const read = (rel: string): string => readFileSync(join(ROOT, rel), "utf8");
 /** `path:line <snippet>` — the row form the record commits. */
 const ROW = /^(\S+?):(\d+) (.+)$/;
 
+/**
+ * Rows are recognised by the row GRAMMAR, never by stripping a comment marker. The
+ * record is a data file, not source: fourteen of its rows legitimately carry a `#`
+ * mid-line (`#283`, `#REF!`, a `#` column header quoted out of a spec), so any
+ * `#`-to-end-of-line rule would silently truncate them. Partitioning on the grammar
+ * also checks more than a marker filter would — every non-row line must sit in the
+ * leading header block, so a malformed row in the middle of the record is a failure
+ * rather than a line quietly skipped.
+ */
 function recordRows(): { path: string; line: number; snippet: string }[] {
-  return read(RECORD)
-    .split("\n")
-    .filter((l) => l.trim() !== "" && !l.startsWith("#"))
-    .map((l) => {
-      const m = ROW.exec(l);
-      if (m === null) throw new Error(`record row is not \`path:line <snippet>\`: ${l}`);
-      return { path: m[1]!, line: Number(m[2]), snippet: m[3]! };
-    });
+  const rows: { path: string; line: number; snippet: string }[] = [];
+  for (const l of read(RECORD).split("\n")) {
+    if (l.trim() === "") continue;
+    const m = ROW.exec(l);
+    if (m === null) {
+      if (rows.length > 0) {
+        throw new Error(`record line is not \`path:line <snippet>\` and follows a row: ${l}`);
+      }
+      continue; // header block, asserted separately below
+    }
+    rows.push({ path: m[1]!, line: Number(m[2]), snippet: m[3]! });
+  }
+  return rows;
 }
 
 describe("layer-3 corpus record (spec §3, §3.3)", () => {
