@@ -63,15 +63,10 @@ export interface CliDeps {
   /**
    * The fixture splice seam (fixture spec §4.2). Every path below is
    * REPO-RELATIVE — the directory name is part of the contract
-   * (`tests/.spec-lint-fixtures-<pid>-<counter>/`, gitignored, collected by
-   * `BASE_INCLUDE`), and resolving it here rather than at the call site keeps
-   * one definition of where a splice lands.
-   *
-   * `pid` is injected rather than read from `process` so the collision refusal
-   * in §4.2 step 1 is reachable by a test at all: with the real pid the
-   * directory name is different on every run and no test could ever seed one.
+   * (`tests/.spec-lint-fixtures/`, gitignored, collected by `BASE_INCLUDE`),
+   * and resolving it here rather than at the call site keeps one definition of
+   * where a splice lands.
    */
-  pid(): number;
   exists(relPath: string): boolean;
   mkdir(relPath: string): void;
   write(relPath: string, body: string): void;
@@ -167,10 +162,26 @@ function renderText(result: LintResult): string {
   return out.join("\n") + "\n";
 }
 
-/** Repo-relative, gitignored (fixture spec §9), and collected by `BASE_INCLUDE`. */
-const SPLICE_DIR_PREFIX = "tests/.spec-lint-fixtures-";
-/** Per-process, so two docs in one invocation never share a directory. */
-let spliceCounter = 0;
+/**
+ * Repo-relative, gitignored (fixture spec §9), collected by `BASE_INCLUDE`, and
+ * deliberately a FIXED name.
+ *
+ * It carried a pid and a per-process counter until whole-diff review round 2.
+ * Both were deleted rather than defended, because together they made spec
+ * §4.2's own central claim FALSE: a directory keyed by the process that created
+ * it is invisible to every later process, so a crash between steps 2 and 4 left
+ * a survivor that step 1 could never see — while that survivor holds test files
+ * `BASE_INCLUDE` collects on the next full run. The counter was dead mechanism
+ * besides: `runCli` accepts exactly one document per invocation
+ * (scripts/spec-lint.ts:349), so this runs at most once per process.
+ *
+ * With a fixed name, ANY survivor collides on the very next invocation and is
+ * loud, which is what step 1 always promised. The cost is stated in spec §8
+ * limit 11 rather than hidden: two concurrent `--exec-red` runs in ONE worktree
+ * no longer proceed independently — the second refuses loudly and runs nothing,
+ * which is strictly safer than two splices racing in one directory tree.
+ */
+const SPLICE_DIR = "tests/.spec-lint-fixtures";
 
 /**
  * The splice lifecycle (fixture spec §4.2), the whole of it in the adapter per
@@ -199,7 +210,7 @@ export function runFixtureSplice(
   });
   if (plan.length === 0) return done({ files: new Map() });
 
-  const dir = `${SPLICE_DIR_PREFIX}${deps.pid()}-${++spliceCounter}`;
+  const dir = SPLICE_DIR;
   if (deps.exists(dir)) {
     // A stale directory is a LOUD non-observation, never a silent overwrite of
     // another session's live splice. Stated before anything is observed, and
@@ -538,15 +549,15 @@ const isEntry = (() => {
 /**
  * The SHIPPED deps, factored out of the entry block so a suite exercising the
  * real filesystem and a real vitest child drives this object rather than a
- * copy of it. `pid` is the only parameter a test varies, and it is a parameter
- * precisely so the §4.2 collision refusal is reachable at all.
+ * copy of it. Since review round 2 deleted the pid from the splice directory's
+ * name, the directory is predictable and nothing has to be varied for the §4.2
+ * collision refusal to be reachable by a test.
  */
-export function nodeDeps(root: string, pid: number): CliDeps {
+export function nodeDeps(root: string): CliDeps {
   const inRepo = (relPath: string) => join(root, relPath);
   return {
     cwd: () => process.cwd(),
     repoRoot: () => root,
-    pid: () => pid,
     exists: (relPath) => lstatSync(inRepo(relPath), { throwIfNoEntry: false }) !== undefined,
     mkdir: (relPath) => void mkdirSync(inRepo(relPath), { recursive: true }),
     write: (relPath, body) => writeFileSync(inRepo(relPath), body),
@@ -597,7 +608,7 @@ if (isEntry) {
     cwd: process.cwd(),
     encoding: "utf8",
   }).trim();
-  const r = runCli(process.argv.slice(2), nodeDeps(root, process.pid));
+  const r = runCli(process.argv.slice(2), nodeDeps(root));
   if (r.stdout) process.stdout.write(r.stdout);
   if (r.stderr) process.stderr.write(r.stderr + "\n");
   // NOT process.exit(): stdout.write is ASYNC on a pipe, so exiting on the next

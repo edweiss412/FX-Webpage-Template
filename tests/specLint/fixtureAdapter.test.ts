@@ -25,17 +25,12 @@ const harness = (
 ) => {
   const calls: string[] = [];
   const files = new Map<string, string>();
-  const dirs = new Set<string>(opts.dirExists ? ["tests/.spec-lint-fixtures-1-1"] : []);
+  const dirs = new Set<string>(opts.dirExists ? ["tests/.spec-lint-fixtures"] : []);
   return {
     calls,
     dirs,
     deps: {
       repoRoot: () => "/repo",
-      // Injected, not read from `process`: with the real pid the splice
-      // directory name differs on every run and the collision refusal below
-      // could never be seeded, so the case that proves the fence would be
-      // unreachable.
-      pid: () => 1,
       exists: (d: string) => dirs.has(d),
       mkdir: (d: string) => {
         dirs.add(d);
@@ -112,7 +107,7 @@ describe("splice lifecycle (spec section 4.2)", () => {
     // A broad finally that deletes the directory would destroy ANOTHER live
     // invocation's splice -- the collision is a refusal, not a takeover.
     expect(h.calls.filter((c) => c.startsWith("rm:"))).toEqual([]);
-    expect([...h.dirs]).toEqual(["tests/.spec-lint-fixtures-1-1"]);
+    expect([...h.dirs]).toEqual(["tests/.spec-lint-fixtures"]);
     expect(out.findings.map((f) => f.code)).toEqual(["FIXTURE_PROBE_UNVERIFIED"]);
   });
 
@@ -300,7 +295,7 @@ describe("cleanup failure is raised, never swallowed", () => {
     // fails silently. runCli's outer catch turns this into exit 2.
     const h = harness({ throwOnRm: true });
     expect(() => runFixtureSplice(plan, h.deps as never)).toThrow(
-      /could not remove the fixture splice directory tests\/\.spec-lint-fixtures-1-\d+/,
+      /could not remove the fixture splice directory tests\/\.spec-lint-fixtures/,
     );
     expect(h.calls.some((c) => c.startsWith("rm:"))).toBe(true);
   });

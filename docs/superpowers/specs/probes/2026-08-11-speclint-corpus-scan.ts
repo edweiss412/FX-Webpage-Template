@@ -55,9 +55,6 @@ const deps: CliDeps = {
   // reason as the executor below: the lifecycle runs only under `--exec-red`.
   // Refusing loudly is the honest stub -- a silent no-op would let a future
   // change reach it and read as a clean corpus scan.
-  pid: () => {
-    throw new Error("corpus scan does not splice fixtures");
-  },
   exists: () => {
     throw new Error("corpus scan does not splice fixtures");
   },

@@ -21,23 +21,28 @@ import { nodeDeps, runCli, type CliDeps, type SpawnResult } from "../../scripts/
 const REPO = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
 /** Matches the .gitignore glob the same PR lands, so a crash leaves nothing tracked. */
 const TMP = "tests/.spec-lint-fixtures-cli-tmp";
+/** The shipped splice directory: a FIXED name since review round 2. */
+const SPLICE_DIR = "tests/.spec-lint-fixtures";
 
 const spliceDirsUnderTests = (): string[] =>
   readdirSync(join(REPO, "tests")).filter(
-    (name) => name.startsWith(".spec-lint-fixtures-") && join("tests", name) !== TMP,
+    (name) => name.startsWith(".spec-lint-fixtures") && join("tests", name) !== TMP,
   );
 
 /**
- * The SHIPPED deps (`nodeDeps`), with three narrowings, each of which is the
- * point of a case rather than a convenience:
- *   - `pid` is fixed, so the §4.2 collision refusal can be constructed;
+ * The SHIPPED deps (`nodeDeps`), with two narrowings, each the point of a case
+ * rather than a convenience:
  *   - `mkdir` and `spawn` are recorded, which is how "ZERO vitest spawns" is
  *     asserted as an observation rather than inferred from a finding;
  *   - `listTrackedFiles` returns [] because these documents cite nothing and a
  *     real `git ls-files` per case would dominate the suite's runtime.
+ *
+ * Nothing else is varied. The splice directory is a fixed name since review
+ * round 2, so the §4.2 collision refusal is constructible without injecting
+ * anything.
  */
-function spyDeps(pid: number): { deps: CliDeps; spawns: string[]; mkdirs: string[] } {
-  const base = nodeDeps(REPO, pid);
+function spyDeps(): { deps: CliDeps; spawns: string[]; mkdirs: string[] } {
+  const base = nodeDeps(REPO);
   const spawns: string[] = [];
   const mkdirs: string[] = [];
   const deps: CliDeps = {
@@ -71,7 +76,7 @@ interface Run {
 }
 
 /** One enrolled block per element, each a complete vitest file. */
-function lintPlan(blocks: string[], pid: number): Run {
+function lintPlan(blocks: string[]): Run {
   mkdirSync(join(REPO, TMP), { recursive: true });
   const rel = `${TMP}/plan-${++docCounter}.md`;
   const text = [
@@ -86,7 +91,7 @@ function lintPlan(blocks: string[], pid: number): Run {
     ]),
   ].join("\n");
   writeFileSync(join(REPO, rel), text);
-  const { deps, spawns, mkdirs } = spyDeps(pid);
+  const { deps, spawns, mkdirs } = spyDeps();
   const out = runCli(["--json", "--exec-red", "--kind", "plan", rel], deps);
   const parsed = JSON.parse(out.stdout) as {
     findings: { code: string; detail?: string }[];
@@ -165,21 +170,9 @@ afterEach(() => {
   rmSync(join(REPO, TMP), { recursive: true, force: true });
 });
 
-describe("the shipped deps factory honours its injected pid", () => {
-  it("nodeDeps(root, pid).pid() returns the INJECTED pid, not the process's", () => {
-    // Without this the suite's "fixed PID" control is a fiction: every case
-    // below still passes, because the collision case LEARNS the directory from
-    // a first real run rather than predicting it, so a factory ignoring its own
-    // parameter is invisible to all of them. Found by cross-model review r1 F2.
-    expect(nodeDeps(REPO, 900001).pid()).toBe(900001);
-    expect(nodeDeps(REPO, 900002).pid()).toBe(900002);
-    expect(nodeDeps(REPO, 900001).pid()).not.toBe(process.pid);
-  });
-});
-
 describe("fixture arm end to end, through the real reporter (spec §6)", () => {
   it("a premise failing INSIDE a test draws the verdict, and the directory does not survive", () => {
-    const run = lintPlan([PREMISE_IN_TEST], 900001);
+    const run = lintPlan([PREMISE_IN_TEST]);
     expect(run.codes).toEqual(["FIXTURE_UNSATISFIABLE"]);
     expect(run.details[0]).toContain("the constructed fixture reached the parser");
     expect(run.exitCode).toBe(1);
@@ -194,7 +187,7 @@ describe("fixture arm end to end, through the real reporter (spec §6)", () => {
     // advisory and the one verdict this arm exists to emit is suppressed --
     // on exactly the shape the live corpus already contains
     // (docs/superpowers/plans/2026-08-04-guard-premise-reachability.md:1174).
-    const run = lintPlan([PREMISE_AT_MODULE_SCOPE], 900002);
+    const run = lintPlan([PREMISE_AT_MODULE_SCOPE]);
     expect(run.codes).toEqual(["FIXTURE_UNSATISFIABLE"]);
     expect(run.codes).not.toContain("FIXTURE_PROBE_UNVERIFIED");
     expect(run.details[0]).toContain("the producer yielded cases");
@@ -203,17 +196,17 @@ describe("fixture arm end to end, through the real reporter (spec §6)", () => {
   });
 
   it("the §2.4 historical pair reproduces: r4 header verdict, merged header silent", () => {
-    const bad = lintPlan([HISTORICAL_R4], 900003);
+    const bad = lintPlan([HISTORICAL_R4]);
     expect(bad.codes).toEqual(["FIXTURE_UNSATISFIABLE"]);
     expect(bad.details[0]).toContain("the live v2 matcher opened a block");
-    const good = lintPlan([HISTORICAL_MERGED], 900004);
+    const good = lintPlan([HISTORICAL_MERGED]);
     expect(good.codes).toEqual([]);
     expect(good.exitCode).toBe(0);
     expect(spliceDirsUnderTests()).toEqual([]);
   });
 
   it("an unresolvable import draws the advisory, naming what the runner said", () => {
-    const run = lintPlan([UNRESOLVABLE_IMPORT], 900005);
+    const run = lintPlan([UNRESOLVABLE_IMPORT]);
     expect(run.codes).toEqual(["FIXTURE_PROBE_UNVERIFIED"]);
     expect(run.details[0]).toContain("@/lib/does/not/exist");
     expect(spliceDirsUnderTests()).toEqual([]);
@@ -225,7 +218,7 @@ describe("fixture arm end to end, through the real reporter (spec §6)", () => {
     // because the report DOES carry test cases, and not a verdict, because no
     // premise failed. Only a real run proves the adapter carries per-assertion
     // statuses through at all.
-    const run = lintPlan([ALL_SKIPPED], 900006);
+    const run = lintPlan([ALL_SKIPPED]);
     expect(run.codes).toEqual([]);
     expect(run.exitCode).toBe(0);
     expect(run.vitestSpawns).toHaveLength(1);
@@ -233,32 +226,43 @@ describe("fixture arm end to end, through the real reporter (spec §6)", () => {
   });
 
   it("two blocks in one doc share ONE vitest boot and map back to their own markers", () => {
-    const run = lintPlan([TRIVIAL, PREMISE_IN_TEST], 900007);
+    const run = lintPlan([TRIVIAL, PREMISE_IN_TEST]);
     expect(run.vitestSpawns).toHaveLength(1);
     expect(run.codes).toEqual(["FIXTURE_UNSATISFIABLE"]);
     expect(spliceDirsUnderTests()).toEqual([]);
   });
 
   it("a pre-existing splice directory spawns NO vitest, draws the advisory, and is left alone", () => {
-    // The directory name carries a per-process counter, so it is LEARNED from a
-    // first real run rather than guessed: guessing would make the collision
-    // case pass whenever the guess was wrong and the arm simply found nothing.
-    const first = lintPlan([TRIVIAL], 900008);
-    expect(first.mkdirs).toHaveLength(1);
-    const next = first.mkdirs[0]!.replace(/-(\d+)$/, (_m, n: string) => `-${Number(n) + 1}`);
-    expect(next).not.toBe(first.mkdirs[0]);
-    mkdirSync(join(REPO, next), { recursive: true });
+    // Round 2's finding, and the reason the directory name no longer carries a
+    // pid: a survivor of an ABRUPT crash — where `finally` never runs at all —
+    // was invisible to every later process, because each checked only a name
+    // derived from its own pid. Here the survivor is created by nobody this
+    // process knows about, exactly as a crash leaves one, and the next
+    // invocation must refuse on it.
+    mkdirSync(join(REPO, SPLICE_DIR), { recursive: true });
+    writeFileSync(join(REPO, SPLICE_DIR, "line-9.fixture.test.ts"), "// stranded by a crash\n");
     try {
-      const run = lintPlan([TRIVIAL], 900008);
+      const run = lintPlan([TRIVIAL]);
       expect(run.mkdirs).toEqual([]);
       expect(run.vitestSpawns).toEqual([]);
       expect(run.codes).toEqual(["FIXTURE_PROBE_UNVERIFIED"]);
-      expect(run.details[0]).toContain(next);
-      // The refusal is not a takeover: the other invocation's directory stands.
-      expect(existsSync(join(REPO, next))).toBe(true);
+      expect(run.details[0]).toContain(SPLICE_DIR);
+      // The refusal is not a takeover: whatever left it there keeps it, and the
+      // stranded file is still on disk for the author to see and remove.
+      expect(existsSync(join(REPO, SPLICE_DIR, "line-9.fixture.test.ts"))).toBe(true);
     } finally {
-      rmSync(join(REPO, next), { recursive: true, force: true });
+      rmSync(join(REPO, SPLICE_DIR), { recursive: true, force: true });
     }
+    expect(spliceDirsUnderTests()).toEqual([]);
+  });
+
+  it("the directory a completed run creates is the SAME one the next run checks", () => {
+    // The property the pid destroyed: two runs in sequence must agree on the
+    // name, or a survivor of the first is invisible to the second.
+    const first = lintPlan([TRIVIAL]);
+    const second = lintPlan([TRIVIAL]);
+    expect(first.mkdirs).toEqual([SPLICE_DIR]);
+    expect(second.mkdirs).toEqual([SPLICE_DIR]);
     expect(spliceDirsUnderTests()).toEqual([]);
   });
 });

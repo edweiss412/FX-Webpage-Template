@@ -205,12 +205,12 @@ Every attached, well-formed fixture marker's block, in doc order, in a plan-kind
 
 The adapter, once per doc:
 
-1. Chooses `tests/.spec-lint-fixtures-<pid>-<counter>/` under the repo root. If that directory already exists, the arm runs NO blocks and every enrolled block draws `FIXTURE_PROBE_UNVERIFIED` naming the collision — a stale directory is a loud non-observation, never a silent overwrite of another session's live splice.
+1. Chooses `tests/.spec-lint-fixtures/` under the repo root — a FIXED name, deliberately. If that directory already exists, the arm runs NO blocks and every enrolled block draws `FIXTURE_PROBE_UNVERIFIED` naming the collision — a stale directory is a loud non-observation, never a silent overwrite of another session's live splice. The name carried a pid and a counter until whole-diff review round 2, and both were DELETED rather than defended: a name derived from the creating process is invisible to every later process, so a crash between steps 2 and 4 left a survivor this step could never see, which made the closing claim below false. The counter was dead mechanism besides — the CLI accepts exactly one document per invocation, so this lifecycle runs at most once per process.
 2. Writes each enrolled block into that directory verbatim, one vitest test file per block, each filename carrying its marker line and the suffix the include glob requires. That is how per-file results map back (§2.3 measured per-file keying as exact).
 3. Runs ONE `vitest run <dir> --reporter=json --outputFile=<dir>/report.json` through the existing spawn seam (`deps.spawn`, repo-root cwd, the same `SPEC_LINT_EXEC_TIMEOUT_SECS` ceiling as red commands), reads the report, and hands the core a pure outcome map.
 4. Removes the directory in a `finally`, so an exception, a timeout, or a signal cannot leave a file under `tests/`. **A removal that itself fails is RAISED, never swallowed** — the adapter throws and the CLI's outer handler turns it into exit 2, naming the path. Nothing downstream can observe such a leak: the surviving directory holds test files the repo's own `BASE_INCLUDE` glob collects on the next full run, and the per-process counter has already advanced, so the next invocation chooses a different name and step 1's collision refusal never sees this one. A best-effort cleanup would therefore break this step's own promise silently, which is the one thing this arm may never do.
 
-The directory is gitignored (§9) so a crash between steps 2 and 4 cannot dirty the tree, and step 1 makes any survivor loud on the next invocation rather than silently reused.
+The directory is gitignored (§9) so a crash between steps 2 and 4 cannot dirty the tree, and step 1 makes ANY survivor loud on the next invocation rather than silently reused — including one left by an abrupt kill, where the `finally` in step 4 never runs at all. That is a claim about a fixed name and holds only because of it.
 
 ### 4.3 Classification, in precedence order
 
@@ -281,14 +281,14 @@ All under `tests/specLint/`, TDD per task, anti-tautology rules of `docs/agents/
 8. **Ambient environment is trusted.** A block runs with whatever env vars, gated projects, and local DB state the invoking shell carries — the same posture as `--exec-red` itself (arms spec §1.1 item 5).
 9. **Cost is the block's.** A block that boots a heavy phase makes the lint a heavy phase; the flag is opt-in precisely so the cost is chosen.
 10. **No sandboxing** (§1.1 item 8). An adversarially constructed block — including one emitting the sentinel string from an ordinary assertion — is outside the threat fence (§1.1 item 11).
-11. **Concurrent invocations in one worktree.** Two `--exec-red` runs get distinct splice directories (pid plus counter), but a full-suite run started concurrently in that worktree can observe a live splice directory during its roughly one-second window. Bounded and accepted.
+11. **Concurrent invocations in one worktree REFUSE rather than interleave.** The splice directory is one fixed name (§4.2 step 1), so a second `--exec-red` run started in the same worktree while the first is mid-splice draws the collision advisory and runs nothing. This is the price of making step 1's survivor claim true, and it is the safer side of the trade: two runs racing in one directory tree is the failure this refusal replaces, and cross-worktree concurrency — the fleet's actual case — is unaffected, since the path is relative to each worktree's own root. A full-suite run started concurrently in that worktree can still observe the live splice directory during its roughly one-second window. Bounded and accepted.
 12. **Only vitest.** A block in another runner's dialect is not executed; the accepted info strings are the measured three (§3.1). A new runner is an accept-set change with its own corpus numbers, not a review round.
 13. **The verdict's DETAIL truncates a multi-sentence premise description.** `tests/_shared/premise.ts` writes `premise not met: <description>. <boilerplate>`, so the description is read up to the first sentence boundary; a description spanning two sentences loses the second in the finding's detail. Surfaced while implementing, kept HERE rather than filed as a ledger row because its worst case is a shorter detail on a verdict that still fires: the sentinel decides the outcome, and truncation cannot change which outcome that is. It becomes a filing if a real description is ever measured to lose something an author needed.
 
 ## 9. Wiring & docs (same PR)
 
 - `package.json`: no new script (everything rides `spec:lint` and its existing flag).
-- `.gitignore`: one entry for `tests/.spec-lint-fixtures-*/`, added with `printf` and verified with `git check-ignore -v` (the append discipline in `docs/agents/writing-plans.md:31`).
+- `.gitignore`: one entry for `tests/.spec-lint-fixtures*/`, added with `printf` and verified with `git check-ignore -v` (the append discipline in `docs/agents/writing-plans.md:31`).
 - `docs/agents/writing-plans.md`: one sentence on the fixture marker, under the anti-tautology rule's premise bullet where the authoring discipline it mechanizes already lives.
 - `BACKLOG.md`: the row archived per house convention (marker off in the PR's last commit, invariant 12).
 - `docs/superpowers/specs/README.md`: one row for this spec.

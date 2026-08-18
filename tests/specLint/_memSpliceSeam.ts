@@ -8,7 +8,6 @@
  * of those fixtures exercises the arm instead of exploding inside a test double.
  */
 export function memSpliceSeam(): {
-  pid(): number;
   exists(relPath: string): boolean;
   mkdir(relPath: string): void;
   write(relPath: string, body: string): void;
@@ -18,7 +17,6 @@ export function memSpliceSeam(): {
   const dirs = new Set<string>();
   const files = new Map<string, string>();
   return {
-    pid: () => 1,
     exists: (relPath) => dirs.has(relPath) || files.has(relPath),
     mkdir: (relPath) => void dirs.add(relPath),
     write: (relPath, body) => void files.set(relPath, body),

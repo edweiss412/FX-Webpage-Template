@@ -222,13 +222,13 @@ describe("classification — pinned against the live premise helper", () => {
     // repair for the author, so the reason must survive to the finding.
     const out = synthesizeFixtureFindings([entry(3), entry(9)], {
       files: new Map(),
-      unavailable: "the splice directory tests/.spec-lint-fixtures-1-1 already exists",
+      unavailable: "the splice directory tests/.spec-lint-fixtures already exists",
     } as never);
     expect(out.map((f) => `${f.docLine}:${f.code}`)).toEqual([
       "3:FIXTURE_PROBE_UNVERIFIED",
       "9:FIXTURE_PROBE_UNVERIFIED",
     ]);
-    for (const f of out) expect(f.detail).toContain("tests/.spec-lint-fixtures-1-1 already exists");
+    for (const f of out) expect(f.detail).toContain("tests/.spec-lint-fixtures already exists");
   });
 
   it("an empty plan draws nothing, and report files with no enrolled block are ignored", () => {
