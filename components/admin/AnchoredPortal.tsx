@@ -33,6 +33,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { placeWithinVisibleViewport } from "@/lib/popover/place";
+import { withNaturalSize } from "@/lib/popover/naturalSize";
 import { createRafCoalescer } from "@/lib/popover/rafCoalescer";
 import { isVisualViewportEngine } from "@/lib/popover/viewport";
 import { GAP, type Rect } from "@/lib/popover/position";
@@ -128,32 +129,30 @@ export function AnchoredPortal({
     const anchor = anchorRef.current;
     const panel = panelRef.current;
     if (!anchor || !panel) return;
-    // Measure NATURAL size: clear the constraints a previous placement applied,
-    // then restore them, so the measurement is never a function of the last
-    // answer. React owns these via the style prop and will not re-write an
-    // unchanged value, which is why the restore happens here and not on the
-    // next render.
-    const heldMaxWidth = panel.style.maxWidth;
-    const heldMaxHeight = panel.style.maxHeight;
-    panel.style.maxWidth = "";
-    panel.style.maxHeight = "";
+    // Measure NATURAL size: the constraints a previous placement applied are
+    // cleared for the measurement and restored after it, so the measurement is
+    // never a function of the last answer. withNaturalSize owns that clear and
+    // restore (spec §4.2) — critically it also snapshots and restores the
+    // panel's SCROLL offsets, because laying out a scrolled panel with its cap
+    // cleared clamps scrollTop to 0 and reverts whatever the keyboard reveal
+    // just scrolled to. React owns these via the style prop and will not
+    // re-write an unchanged value, which is why the restore happens here and
+    // not on the next render.
     const triggerRect = toRect(anchor.getBoundingClientRect());
-    const naturalRect = panel.getBoundingClientRect();
-    const placement = placeWithinVisibleViewport(window, {
-      hostRect: null, // body host degenerates to the viewport (place.ts contract)
-      trigger: triggerRect,
-      naturalSize: { width: naturalRect.width, height: naturalRect.height },
-      wrappedHeightAt: (w) => {
-        panel.style.maxWidth = `${w}px`;
-        const h = panel.getBoundingClientRect().height; // border-box, caps active
-        panel.style.maxWidth = "";
-        return h;
-      },
-      preferredSide,
-      align,
+    const { naturalRect, placement } = withNaturalSize(panel, (probe) => {
+      const measured = panel.getBoundingClientRect();
+      return {
+        naturalRect: measured,
+        placement: placeWithinVisibleViewport(window, {
+          hostRect: null, // body host degenerates to the viewport (place.ts contract)
+          trigger: triggerRect,
+          naturalSize: { width: measured.width, height: measured.height },
+          wrappedHeightAt: probe.heightAtWidth,
+          preferredSide,
+          align,
+        }),
+      };
     });
-    panel.style.maxWidth = heldMaxWidth;
-    panel.style.maxHeight = heldMaxHeight;
 
     if (placement.kind === "hidden") {
       // DIVERGENCE FROM HoverHelp, deliberately: a help tooltip may hide itself
@@ -210,6 +209,14 @@ export function AnchoredPortal({
         onDismissRef.current();
         return;
       }
+      // Self-origin filter (spec §4.5). A scroll INSIDE the panel cannot move
+      // the panel's anchor, so re-placing on it was always semantically void.
+      // It is now also load-bearing: every measurement of a scrolled capped
+      // panel restores its offset and so emits a panel-origin scroll event, and
+      // without this guard that event schedules the next measurement — a
+      // per-frame loop that is visually stable but never idle.
+      const panel = panelRef.current;
+      if (panel && t instanceof Node && panel.contains(t)) return;
       coalescer.schedule();
     };
     window.addEventListener("scroll", onScrollCapture, { capture: true, passive: true });

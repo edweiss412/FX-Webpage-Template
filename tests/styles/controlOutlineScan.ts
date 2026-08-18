@@ -64,7 +64,7 @@ export const CENSUS: readonly CensusRow[] = [
   { file: "components/admin/UnignoreButton.tsx", line: 57 },
   // spec §4.2 row 13 — two-arm ternary, BOTH arms carry the token, and both
   // also carry `max-sm:border-border`, a DIFFERENT token that must survive
-  { file: "components/admin/showpage/ShareHub.tsx", line: 777 },
+  { file: "components/admin/showpage/ShareHub.tsx", line: 781 },
   // spec §4.2 row 14
   { file: "components/admin/telemetry/HealthAlertResolveButton.tsx", line: 24 },
   // spec §4.2 row 15 — Link

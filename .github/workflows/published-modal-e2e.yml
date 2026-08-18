@@ -49,6 +49,7 @@ on:
       - "components/admin/PerShowActionableWarnings.tsx"
       - "components/admin/compactAlertHelp.tsx"
       - "lib/popover/position.ts"
+      - "lib/popover/naturalSize.ts"
       - "tests/e2e/published-review-modal.deeplink.spec.ts"
       - "tests/e2e/published-review-modal.layout.spec.ts"
       - "tests/e2e/published-review-modal.prefetch.spec.ts"

@@ -45,4 +45,5 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-08-17-modal-wait-skeleton-tolerant-sites-design.md`](./2026-08-17-modal-wait-skeleton-tolerant-sites-design.md) | 2026-08-17 |
 | [`2026-08-17-mutation-child-lifetime-design.md`](./2026-08-17-mutation-child-lifetime-design.md) | 2026-08-17 |
 | [`2026-08-17-shell-binding-mixed-quoted-value-design.md`](./2026-08-17-shell-binding-mixed-quoted-value-design.md) | 2026-08-17 |
+| [`2026-08-17-rowactions-submenu-reveal-scroll-clamp-design.md`](./2026-08-17-rowactions-submenu-reveal-scroll-clamp-design.md) | 2026-08-17 |
 | [`probes`](./probes) | 2026-08-04 |

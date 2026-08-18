@@ -158,40 +158,6 @@ Fourteen shipped controls stand on such a plate, across thirteen sites: `compone
 
 **First scheduled step:** decide whether tinted plates get their own outline token. If yes, the shape is a per-plate `border-*` in the same recipe rather than a new global token, because the neutral grounds already clear and moving the shared token would push them the other way.
 
-## BL-ROWACTIONS-SUBMENU-REVEAL-E2E-FLAKE — the capped-submenu focus-reveal case fails ~40% of CI runs on identical code
-
-**Status:** OPEN · **Severity:** MEDIUM (a merge-gating leg that reds at random; every arc touching `admin-layout-e2e`'s path filter pays for it) · **Class:** CI reliability / e2e flake · **Effort:** M · **Filed:** 2026-08-16 (`fix/control-outline-surface-fills`, seen while shipping an unrelated colour-token change) · **Class-sweep exception:** (c) — the repair is a redesign of a scroll-reveal path in a component this PR does not otherwise touch · **Reachability:** PROBED — eight runs on one branch, byte-identical product code, both outcomes.
-
-`tests/e2e/rowactions-geometry.spec.ts:327` — _"keyboard focus in a CAPPED submenu is revealed, never left off-screen"_ — is intermittently red on the merge-gating `admin-layout-e2e` leg.
-
-**The probe is the run history, and it is decisive** because the input was held constant. Eight consecutive runs of workflow `316007124` on `fix/control-outline-surface-fills`, every one at a sha whose `app/**` and `components/**` are byte-identical (`git diff --name-only <sha>..HEAD -- 'app/**' 'components/**'` returns zero files for each):
-
-| sha         | outcome     |
-| ----------- | ----------- |
-| `393a4e2aa` | success     |
-| `3e96b7476` | **failure** |
-| `c7f019e11` | success     |
-| `2357eb321` | success     |
-| `3a9d509ac` | success     |
-| `4b92b8ed7` | success     |
-| `20707a204` | **failure** |
-| `a601e838e` | **failure** |
-
-Five green, three red, one program. The commits between them are documentation and test prose only, and `components/admin/ShowRowActions.tsx` — the component under test — is untouched by that branch entirely.
-
-**The failure shape.** Focus lands below the panel's visible box after `End`:
-
-```
-Expected: <= 509.96875
-Received:    587
-```
-
-so roughly 77px past the fold — the scroll-reveal did not run, rather than running and landing slightly off. Every failing run's log also carries a degraded dev server: `Error: The destination stream closed early.` repeated dozens of times, plus `show_review_snapshot_failed` and `[client.realtime] subscription failed: initial JWT mint returned no token`. The likely mechanism is that the reveal is racing something — a scroll handler, a layout settle, or a portal reflow — and loses when the server is slow enough to stretch the gap.
-
-**Why it is filed rather than fixed here.** The arc that found it ships 22 colour-token edits and touches neither the component, the spec, nor the portal-scroll path. Its own diff cannot cause a geometry change: a border COLOUR moves no box, and the run table proves the outcome varies with the input held constant. Fixing a reveal race needs the component's scroll path in hand.
-
-**First scheduled step:** determine whether the reveal is a `scrollIntoView` racing the portal's own layout, and if so await the settle rather than the keypress. The spec already has a premise guard (the panel must overflow its cap), so the case is not vacuous — it is genuinely observing the wrong post-condition some of the time. Until then, a red on this leg alone, with product code unchanged, is a re-run rather than a regression.
-
 ## BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER — two families of low-contrast outline the element-level cover cannot see in either direction
 
 **Status:** OPEN · **Severity:** LOW-MEDIUM (a resting boundary at 1.4-1.8:1, on surfaces whose peers moved to 3.35:1 on 2026-08-16) · **Class:** visual boundary / DESIGN scope · **Effort:** S per site, M as a class · **Filed:** 2026-08-16 (`fix/control-outline-surface-fills`, spec §3.2) · **Class-sweep exception:** (a) — the repair needs a design decision this PR cannot settle, stated per family below · **Reachability:** PROBED — every claim below is a transcript, not an argument.
@@ -649,49 +615,19 @@ ParsePanel was not alone. Shape swept: **a file under `components/` that no file
 
 **The debt is still not silent**, and it gained a second guard. `tests/components/_metaOrphanedComponents.test.ts` walks `components/**` every run and fails on any zero-production-importer file absent from `ORPHAN_ALLOWLIST`; `tests/docs/retiredIdentifierReferences.test.ts` walks every tracked file for references to what this branch retired, keyed by line content, so a stale citation to a deleted component cannot survive either. Emptying the allowlist is no longer this entry's goal; keeping every row's reason true is.
 
-## BL-ADVISORY-E2E-JOBS-FLAKE-ACROSS-IDENTICAL-CODE — screenshots-drift and admin-layout-e2e both flipped across a markdown-only delta
+## BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED — one `dashboard-overview-light.webp` byte drift that a nine-run probe could not reproduce
 
-**Status:** OPEN · **Severity:** LOW (advisory jobs; neither is a required context) · **Class:** CI-INFRA / flake · **Effort:** M · **Filed:** 2026-08-16 (`feat/admin-ui-surfaces`, PR #812)
+**Severity:** LOW (advisory job; not a required context) · **Class:** CI-INFRA · **Effort:** S (the first step is a capture, not a repair) · **Filed:** 2026-08-18 (`fix/rowactions-submenu-reveal-flake`, as the surviving half of `BL-ADVISORY-E2E-JOBS-FLAKE-ACROSS-IDENTICAL-CODE`) · **Reachability:** INFERRED, NOT PROBED.
 
-**This entry CORRECTS a wrong filing made minutes earlier on the same PR.** `BL-HELP-SCREENSHOT-DASHBOARD-BASELINE-STALE` claimed the `dashboard-overview-light.webp` drift was a stale baseline that main's component churn had outrun. The next run REFUTED that: the byte comparison passed at a head whose only delta was one markdown file.
+`screenshots-drift` failed once on `dashboard-overview-light.webp` at `b5aa6ef7` — Bin 77670 to 82600 — and passed at a head whose only delta was one markdown file. Nine `workflow_dispatch` runs at one fixed sha, distinct-ref method, then returned **0/9** reproductions.
 
-**Probe evidence — two advisory jobs, two heads, identical product code.**
+**Why this is a ledger row and not a documented limit.** The observed failure is real and unexplained, and its worst case is not conservative: a byte-comparison gate that flips at a fixed tree teaches operators to ignore it, which is how a genuine capture regression ships unnoticed. That is a live consequence, not a surfaced-signal-plus-safe-fallback.
 
-| job                 | head                   | delta vs the other head       | result                                                                      |
-| ------------------- | ---------------------- | ----------------------------- | --------------------------------------------------------------------------- |
-| `screenshots-drift` | `b5aa6ef7`             | —                             | FAIL (`dashboard-overview-light.webp`, Bin 77670 -> 82600)                  |
-| `screenshots-drift` | `f6c3ac55`             | one commit, `BACKLOG.md` only | PASS                                                                        |
-| `admin-layout-e2e`  | `b5aa6ef7`, `3bc1ad28` | —                             | PASS                                                                        |
-| `admin-layout-e2e`  | `f6c3ac55`             | one commit, `BACKLOG.md` only | FAIL (`rowactions-geometry.spec.ts:368`, submenu scroll-into-view geometry) |
+**Why it is filed unprobed.** A 0/9 sample rules out a per-run coin flip but cannot rule out a rare runner-population effect — a bimodal capture environment where some fraction of runners encode differently. The nine runs are evidence about rate, not about mechanism, and no instrument in the arc could distinguish the two readings.
 
-A markdown-only commit cannot change a WebP's bytes or a submenu's scroll geometry, so BOTH results are non-deterministic at a fixed tree. They flip in OPPOSITE directions across the same pair of heads, which also rules out "one bad runner": whatever varies is per-job, not per-head.
+**Reachability: INFERRED, NOT PROBED.** The probe that settles it is capturing runner identity — `Runner.Name` plus CPU model, from the runner context — on BOTH outcomes at the next recurrence, and comparing the populations. That capture, not a repair, is the first scheduled step; it is cheap, and it is the only thing that turns the leading reading into a testable one.
 
-**Why it matters even though neither job is required:** an advisory job that flips at a fixed tree teaches operators to ignore it, which is exactly how a real regression in either surface ships unnoticed. The byte-comparison discipline in AGENTS.md pins the Docker image AND the host architecture for this reason; a residual non-determinism inside that pinned environment is the interesting part.
-
-**~~First scheduled step is a probe, not a repair~~ — THE PROBE IS RUN. 2026-08-16, nine dispatches per job at one fixed sha (`119895a7c`, then `main`), and it SPLITS the entry: one job reproduced, the other did not.**
-
-| job                 | fixed-sha runs | fail rate | verdict                         |
-| ------------------- | -------------- | --------- | ------------------------------- |
-| `admin-layout-e2e`  | 9              | **4/9**   | genuine per-run non-determinism |
-| `screenshots-drift` | 9              | **0/9**   | did NOT reproduce               |
-
-Every failure of the four was the SAME assertion the entry names — `rowactions-geometry.spec.ts:368`, `expect(revealed!.bottom).toBeLessThanOrEqual(revealed!.boxBottom + TOL)` in "keyboard focus in a CAPPED submenu is revealed, never left off-screen" — so this is one flaky case, not a flaky job.
-
-**The failing runs carry a mechanism the entry did not suspect, and it is a KNOWN one.** Their server logs hold transient gateway 502s against the admin RPCs, in the Kong wording this repo has already characterised twice:
-
-```
-[admin.show] share-token read failed: ADMIN_SHOW_TOKEN_READ_FAILED
-  admin_read_share_token returned error: An invalid response was received from the upstream server
-Error: show_review_snapshot_failed          # → /admin error boundary, React #441
-```
-
-That is the same fault class as `BL-CHANGES-FEED-MODAL-BATCH-FLAKE` (spec `docs/superpowers/specs/ci/2026-08-15-changes-feed-modal-batch-flake-design.md` §2) and `BL-SNAPSHOT-READ-TRANSIENT-502-POSTURE`. A 502 that throws the loader to the error boundary changes what is mounted underneath the submenu, which is exactly how a scroll-into-view geometry assertion lands off-screen. **This reads as a third instance of that class rather than a new one** — which the repair direction should assume and then falsify, not re-derive from scratch.
-
-**Probe method, recorded because the first attempt was invalid and the failure is instructive.** Eight `workflow_dispatch` calls at the same ref cancelled each other: GitHub's concurrency group is `${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}` (`screenshots-drift.yml:52`, `admin-layout-e2e.yml:108`) and holds only ONE pending run, so six of eight were `cancelled` and only the first and last ever executed. The valid form is one dispatch per DISTINCT ref: seven sibling branches at the identical sha (`probe/advisory-flake-s2`…`s8`) plus the two survivors of the first batch = nine samples per job. Anyone re-running this must not read a `cancelled` run as a sample.
-
-**What the split means for scope.** The `screenshots-drift` half of this entry is now UNSUPPORTED by its own probe — nine green runs at a fixed sha. Its single observed failure remains real but unexplained, and the `feedback_screenshot_capture_runner_bimodality` shape (a rare runner population, not per-run noise) survives as the leading reading precisely because a 0/9 sample cannot rule out a low-rate population effect. Do not open a screenshots repair on this evidence; if it recurs, capture the runner identity (`Runner.Name`, CPU model) on both outcomes before anything else.
-
-**First scheduled step, revised:** treat the `rowactions-geometry` case as a member of the transient-502 class — apply the boundary-recovering posture `BL-MODAL-WAIT-BOUNDARY-HELPER-ADOPTION` is sweeping, or make the case's setup tolerant of a boundary re-render — and re-probe at nine samples to confirm the fail rate collapses. The nine-per-job dispatch above is the acceptance instrument, and the run ids are in this arc's PR.
+**Do NOT open a screenshots repair on the current evidence.** Regenerating or re-pinning a baseline against one unreproduced drift would destroy the signal the capture needs.
 
 ## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — 23 app-dependent e2e specs are named by no CI workflow
 
