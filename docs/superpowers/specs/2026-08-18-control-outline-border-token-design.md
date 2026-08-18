@@ -186,11 +186,19 @@ It is replaced by a paragraph that (a) records the 2026-08-18 ruling and that it
 
 The line numbers `components/admin/ArchiveShowButton.tsx:344` and `app/admin/show/[slug]/ResetPickerEpochButton.tsx:266` in the current text are `className=` anchors and are stale against the scanner's element anchors (probe record §1). The replacement paragraph cites no line numbers for the swept population — the census is the contract (§4.3), and a prose line number is exactly what drifted.
 
-### 4.2 `DESIGN.md` §1.2 — contrast rows
+### 4.2 `DESIGN.md` §1.2 — THREE new contrast rows
 
-§1.2 already carries all four `--color-text-faint` OUTLINE rows (`DESIGN.md:141`, `DESIGN.md:142`, `DESIGN.md:143`, `DESIGN.md:145`) with the figures this arc's controls land on, pinned by `tests/styles/secondary-action-contrast.test.ts`. **No new or repurposed colour token is introduced**, so the "pin the ratio for any NEW token" rule is satisfied by rows that already exist and already assert.
+**This section was internally inconsistent with §3.6 until spec review R3 F5 (plan stage) caught it**, and the correction is recorded rather than made silently. An earlier revision said no new or repurposed colour token is introduced and that one row is added. That was true of the swap alone and became false the moment §3.6's hover repair landed: the repair puts `--color-text-subtle` and `--color-accent-on-bg` on a control's OUTLINE for the first time. Both are existing tokens with existing §1.2 rows for other roles, so neither is a NEW token — but both are **repurposed**, and the pre-code rule requiring a pinned ratio for any new or repurposed token reaches them.
 
-What §1.2 does NOT carry is a row for `--color-border` as an outline — the token being moved AWAY from. One is added, recording 1.22/1.35, 1.27/1.27, 1.27/1.19, 1.15/1.38 as the measured before-state, in the same shape as the predecessor's worked-example table (`DESIGN.md:238-241`), so that a future retune of `--color-border` cannot quietly reintroduce the weight this arc removed without a failing assertion. §5.3 pins it.
+§1.2 already carries all four `--color-text-faint` OUTLINE rows (`DESIGN.md:141`, `DESIGN.md:142`, `DESIGN.md:143`, `DESIGN.md:145`), pinned by `tests/styles/secondary-action-contrast.test.ts`. **Three rows are added:**
+
+| Token as OUTLINE | Why | `bg` | `surface` | `surface-raised` | `surface-sunken` |
+| --- | --- | --- | --- | --- | --- |
+| `--color-border` | the before-state this arc moves away from, so a future retune cannot quietly reintroduce it | 1.22 / 1.35 | 1.27 / 1.27 | 1.27 / 1.19 | 1.15 / 1.38 |
+| `--color-text-subtle` | §3.6(b)'s hover token, repurposed as an outline | 6.47 / 6.75 | 6.76 / 6.35 | 6.76 / 5.97 | 6.09 / 6.94 |
+| `--color-accent-on-bg` | §3.6(c)'s hover token, repurposed as an outline | 5.34 / 9.39 | 5.57 / 8.84 | 5.57 / 8.30 | 5.02 / 9.65 |
+
+**And one RELATION, which is the assertion that actually matters.** `hover > rest` per ground, per theme, computed from the tokens rather than pinned as constants: eight constants go stale the moment either token is retuned and force a reviewer to re-derive whether the pair still reads correctly, whereas a relation fails loudly exactly when a retune breaks it and stays silent when it is harmless. The absolute rows above are the record; the relation is the guard.
 
 ### 4.3 The swap — 37 elements, one token each
 
@@ -213,9 +221,9 @@ The plan owes the enumerated edit list; the SPEC's contract, and the implementat
 
 ## 5. Verification / pins
 
-### 5.1 The ratio side needs one new row
+### 5.1 The ratio side needs three new rows and one relation
 
-`tests/styles/secondary-action-contrast.test.ts` already asserts `text-faint` clears 3:1 on all four neutral grounds in both themes. This arc adds the `--color-border` before-state row of §4.2 to the same suite, so `DESIGN.md`'s new table and the stylesheet move together.
+`tests/styles/secondary-action-contrast.test.ts` already asserts `text-faint` clears 3:1 on all four neutral grounds in both themes. This arc adds the three §4.2 rows and the `hover > rest` relation to the same suite, so `DESIGN.md`'s table and the stylesheet move together and no hover pair can silently re-invert.
 
 ### 5.2 The census pin is WIDENED, and strengthened by NEGATION rather than by universality
 

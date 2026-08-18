@@ -35,16 +35,16 @@ Plus a `DESIGN.md` §1.2a paragraph rewrite, **three** new §1.2 contrast rows w
 - Invariant 1 (TDD): every task in the red-contract region below is failing test → minimal implementation → passing test → commit. Each carries a `red=` command that fails before its implementation lands.
 - Invariant 2 (advisory locks): **N/A** — no `pg_advisory*` surface, no RPC, no DB. `tests/auth/advisoryLockRpcDeadlock.test.ts` untouched.
 - Invariant 3 (email canonicalization): N/A. Invariant 4 (no global sync cursor): N/A.
-- Invariant 5 (no raw error codes in UI): N/A — no user-visible copy changes. Task 2 edits one source COMMENT (step 2.6).
+- Invariant 5 (no raw error codes in UI): N/A — no user-visible copy changes. Task 1 edits one source COMMENT (step 1.11).
 - Invariant 6 (commit per task): conventional commits, `fix(styles)` / `test(styles)` / `docs(design)`.
-- Invariant 8: **APPLIES** — the diff touches `app/**` (non-API), `components/**` and `DESIGN.md`. Task 7 runs both halves and writes the marker in that same commit.
+- Invariant 8: **APPLIES** — the diff touches `app/**` (non-API), `components/**` and `DESIGN.md`. Task 6 runs both halves and writes the marker in that same commit.
 - Invariant 9: N/A. Invariant 10: N/A — no mutating route, no `"use server"` action.
 - Invariant 11: all work in this worktree, never the main checkout.
-- Invariant 12: the `BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL` in-progress marker comes off in Task 8, and **step 8.9 verifies at merge time that Task 8 is still the PR's last commit** rather than assuming it.
+- Invariant 12: the `BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL` in-progress marker comes off in Task 7, and **step 7.9 verifies at merge time that Task 7 is still the PR's last commit** rather than assuming it.
 
 ### Heavy-phase discipline
 
-`pnpm mutation:guards` (Task 6) and any full-suite run go under `pnpm heavy`. The scoped `red=`/`green=` vitest runs below are NOT wrapped.
+`pnpm mutation:guards` (Task 5) and any full-suite run go under `pnpm heavy`. The scoped `red=`/`green=` vitest runs below are NOT wrapped.
 
 ### Meta-test inventory (declared)
 
@@ -56,7 +56,7 @@ Plus a `DESIGN.md` §1.2a paragraph rewrite, **three** new §1.2 contrast rows w
 | `tests/mutation/source/registry.ts` | unchanged rows, **re-scored** | `controlOutlineScan` at `scoreFloor: 1`, `accepted: []` |
 | `tests/docs/_metaInvariant8Closeout.test.ts` | unchanged | this file's marker line grammar |
 | `tests/docs/_metaLedgerInProgress.test.ts` | unchanged | the in-progress marker and its removal |
-| `tests/docs/_metaLedgerMintBar.test.ts` | unchanged | **and it does NOT cover this arc's new row — see step 8.2** |
+| `tests/docs/_metaLedgerMintBar.test.ts` | unchanged | **and it does NOT cover this arc's new row — see step 7.2** |
 
 ### Acceptance criteria (spec traceability)
 
@@ -67,10 +67,10 @@ Every cell names the step that PROVES the AC, not merely one that touches it.
 | AC-1 | §4.3 | 1.2 red (73 failures at 1.6) → 1.12 green | `vitest` exit status on `tests/styles/_metaControlOutlineFill.test.ts` |
 | AC-2 | §3.4, §5.2 | 1.2 applied to the original 21; `app/admin/show/[slug]/ResetPickerEpochButton.tsx:178` red at 1.6, green at 1.12; `components/admin/Mi11GateActions.tsx:69` green at BOTH | per-row `vitest` case names |
 | AC-3 | §3.3 | **1.3** — resolves, CARRIES `border-border`, and is absent from `CENSUS`, three assertions per divider | five named `vitest` cases |
-| AC-4 | §3.5 | **1.13** | printed `grep -c` count `0` and an empty `git diff origin/main...HEAD --stat` |
+| AC-4 | §3.5 | **1.13** | printed `grep -c` count `0` and an empty `git diff origin/main --stat` (two-dot, pre-commit) |
 | AC-5 | §3.2, §5.4 | **1.14** | empty `--stat` for four files; hunk headers read by eye for the fifth |
-| AC-6 | §4.1, §4.2 | 3.1 red → 3.5 green (the §1.2a claim); 4.1–4.2 red → 4.5 green (the rows and the relation) | `vitest` on `tests/docs/capabilityClaimProse.test.ts` and on `tests/styles/secondary-action-contrast.test.ts` |
-| AC-7 | §4.3 | **1.11**, verified by 1.15's count of **33** | printed `grep -c` count |
+| AC-6 | §4.1, §4.2 | 3.1 red → 3.5 green (**all FIVE required contents** of the §1.2a paragraph, not merely the absence of the old sentence); 4.1–4.2 red → 4.5 green (three rows and the relation) | `vitest` on `tests/docs/capabilityClaimProse.test.ts` and on `tests/styles/secondary-action-contrast.test.ts` |
+| AC-7 | §4.3 | **1.11**, verified by **1.15a** | a `-`/`+` pair for `components/layout/ThemeToggle.tsx:41` in `git diff origin/main`. 1.15's count of 33 is a corroborating total and is NOT the proof — it is substitutable |
 | AC-8 | §5.5 | **5.1** | `pnpm mutation:guards` score plus the unaccepted-survivor set |
 | AC-9 | §5.6 | **6.2 + 6.3**, and **6.10** re-runs both halves if a later commit touches a UI surface | the two skill reports, transcribed into §12, plus the marker line checked by `tests/docs/_metaInvariant8Closeout.test.ts` |
 | AC-10 | §6 | **7.2** — a per-field checklist, because `tests/docs/_metaLedgerMintBar.test.ts:58` grandfathers a row filed 2026-08-18 and never examines `Facing` | human tick-list; **explicitly NOT a suite result** |
@@ -92,7 +92,7 @@ Every cell names the step that PROVES the AC, not merely one that touches it.
 | `components/admin/dev/SwitcherControls.tsx` accent occurrences | **4 lexical, 3 in scope** — `components/admin/dev/SwitcherControls.tsx:29`, `components/admin/dev/SwitcherControls.tsx:145` twice; `components/admin/dev/SwitcherControls.tsx:122` belongs to a `<select>` the scanner does not admit (`tests/styles/interactiveScanCore.ts:789`) and is NOT edited |
 | Union-vs-per-path hover misclassifications | **1** — `components/admin/showpage/PublishedReviewModal.tsx:964` |
 | Dividers | 5; each RESOLVES, CARRIES `border-border`, and is absent from `CENSUS` |
-| Ledger ids | branch **349**, `origin/main` **347**; Task 8 makes it **350** |
+| Ledger ids | `origin/main` **347**, branch **350** (three review-economy/tooling rows filed on this branch); step 7.1's ShareHub row makes **351** |
 | `--color-text-subtle` as OUTLINE | 6.47/6.75 `bg`, 6.76/6.35 `surface`, 6.76/5.97 `raised`, 6.09/6.94 `sunken` |
 | `--color-accent-on-bg` as OUTLINE | 5.34/9.39 `bg`, 5.57/8.84 `surface`, 5.57/8.30 `raised`, 5.02/9.65 `sunken` |
 | `disabled:opacity-60` composite, PER GROUND | `bg` 1.90/2.18, `surface` 1.95/2.11, `raised` 1.95/2.03, `sunken` 1.83/2.21. **Do not restate as a band — it was stated as a band twice and was wrong twice** |
@@ -120,7 +120,7 @@ Every cell names the step that PROVES the AC, not merely one that touches it.
       });
       ```
       Use the existing `carries` helper (`tests/styles/_metaControlOutlineFill.test.ts:46`) — it reads `allStrings`, which spans every render alternative, so the existential-negation IS the universal claim. **Do NOT introduce `everyPathCarries` here.**
-- [ ] **1.3** **AC-3 needs TWO assertions per divider, not one.** For each of the five class C identities: it RESOLVES to a live element, it still CARRIES `border-border`, and it is ABSENT from `CENSUS`. *Failure mode caught:* absence alone stays green if a later arc deletes the token from a divider, which violates AC-3 while looking clean. Probed today — all five resolve and carry.
+- [ ] **1.3** **AC-3 needs THREE assertions per divider, not one.** For each of the five class C identities: it RESOLVES to a live element, it still CARRIES `border-border`, and it is ABSENT from `CENSUS`. *Failure mode caught:* absence alone stays green if a later arc deletes the token from a divider, which violates AC-3 while looking clean. Probed today — all five resolve and carry.
 - [ ] **1.4** Update the census-length premise from 21 to **57** and the distinct-identity assertion to 57. If it reads 58, step 1.1 double-added the overlapping row.
 - [ ] **1.5** Three fixtures, each with its own `premise("fixture parsed and produced an element", cover.length, 0)` **inside its own case**, so a fixture that fails to parse cannot pass vacuously:
       - **(a)** `border border-border bg-surface` → found by the scan, FAILS the negation. *Catches:* a negation that never runs.
@@ -146,19 +146,25 @@ Every cell names the step that PROVES the AC, not merely one that touches it.
 - [ ] **1.12** `pnpm exec vitest run tests/styles/_metaControlOutlineFill.test.ts` — all **57** rows green, all three fixtures green, all five divider cases green. **Zero failures**, which is the green half of this task's cycle.
 - [ ] **1.13** **AC-4 — compare against `origin/main`, not the working tree**, because a plain `git diff` would miss anything this task already staged:
       ```sh
-      git diff origin/main...HEAD -- tests/styles/_metaControlOutlineFill.test.ts | grep -c 'max-sm:border-border'
-      git diff origin/main...HEAD --stat -- components/admin/showpage/ShareHub.tsx
+      git diff origin/main -- tests/styles/_metaControlOutlineFill.test.ts | grep -c 'max-sm:border-border'
+      git diff origin/main --stat -- components/admin/showpage/ShareHub.tsx
       ```
+      **Two-dot against origin/main, NOT the three-dot range against HEAD** — these steps run BEFORE this task's single commit at 1.16, so a three-dot range against `HEAD` would see none of the work and pass vacuously (plan review R3 F1). Two-dot against `origin/main` compares the WORKING TREE, which is where the edits are at this moment.
       Expect the printed count `0` and an EMPTY stat. `grep -c` exits **1** when it matches nothing, so that non-zero exit is the SUCCESS shape here — read the printed number, not `$?`.
 - [ ] **1.14** **AC-5 — the switch tracks.**
       ```sh
-      git diff origin/main...HEAD --stat -- components/admin/PublishedToggle.tsx \
+      git diff origin/main --stat -- components/admin/PublishedToggle.tsx \
         components/admin/settings/AutoPublishToggle.tsx components/admin/settings/NotifyToggle.tsx \
         components/admin/settings/DeveloperToggleButton.tsx
-      git diff origin/main...HEAD -- components/admin/telemetry/AutoRefreshControl.tsx
+      git diff origin/main -- components/admin/telemetry/AutoRefreshControl.tsx
       ```
       The first must be EMPTY. The second is NOT — that file is edited at `components/admin/telemetry/AutoRefreshControl.tsx:119`. Read the hunk headers and confirm none reaches `components/admin/telemetry/AutoRefreshControl.tsx:106`, the switch-track path.
-- [ ] **1.15** Confirm the untouched occurrences survive: `git diff origin/main...HEAD -U0 -- '*.tsx' | grep -c '^-.*border-border'` should equal **33** — the 32 control edits plus the one comment line.
+- [ ] **1.15** Confirm the untouched occurrences survive: `git diff origin/main -U0 -- '*.tsx' | grep -c '^-.*border-border'` should equal **33** — the 32 control edits plus the one comment line.
+- [ ] **1.15a** **AC-7 needs its own check; the count of 33 does not prove it** (plan review R3 F8). That total is substitutable — leaving the comment untouched while altering any one of the thirty unrelated occurrences still prints 33. Prove the comment directly:
+      ```sh
+      git diff origin/main -- components/layout/ThemeToggle.tsx | grep '^[-+].*border-border'
+      ```
+      The output must contain BOTH a `-` line and a `+` line for the comment at `components/layout/ThemeToggle.tsx:41`, showing the token name was updated rather than merely that some line moved.
 - [ ] **1.16** Commit ONCE: `fix(styles): move border-border control outlines to the text ramp`
 
 ## Task 2: Repair the hover inversion — 17 edits across 13 files
@@ -174,24 +180,37 @@ Without this task the arc ships 21 controls whose outline reads LIGHTER on hover
       - the **6** §3.6(b) sites carry `hover:border-text-subtle` — `app/me/meShowSections.tsx:174`, `app/me/meShowSections.tsx:213`, `app/me/meShowSections.tsx:258`, `components/agenda/AgendaEmbed.tsx:83`, `components/agenda/AgendaPdfViewer.tsx:198`, `components/admin/showpage/PublishedReviewModal.tsx:964`;
       - the **3** §3.6(c) sites carry `hover:border-accent-on-bg`, AND `components/admin/dev/SwitcherControls.tsx:142` also carries `aria-expanded:border-accent-on-bg`;
       - the **12** §3.6(a) sites carry NO `hover:border-*` token at all.
-- [ ] **2.3** Confirm the expected RED: 21 denylist failures plus the 9 positive-assertion failures from 2.2 that name tokens not yet present. **Do not commit here.**
+- [ ] **2.3** **The complete expected RED is 42 failures, not 30** (plan review R3 F2). An earlier draft counted only the 9 retarget outcomes and forgot that the twelve §3.6(a) sites must ALSO fail their positive case, because each still carries the `hover:border-*` token that 2.2 asserts is absent:
+      - **21** denylist failures (18 `hover:border-border-strong` + 3 `border-accent`);
+      - **12** §3.6(a) positive failures ("carries NO `hover:border-*`" — false until 2.4 deletes them);
+      - **6** §3.6(b) positive failures (`hover:border-text-subtle` not present yet);
+      - **3** §3.6(c) positive failures (`hover:border-accent-on-bg` not present yet).
+      **Do not commit here.**
 
 ### IMPLEMENTATION — 17 physical edits
 
 - [ ] **2.4** DELETE `hover:border-border-strong` at the 12 §3.6(a) sites — **8 physical occurrences** (the four `NeedsAttentionInbox` rows share `components/admin/NeedsAttentionInbox.tsx:31`; the two `PersonRow` rows share `components/crew/primitives/PersonRow.tsx:122`). **Verify PER RENDER PATH, not over the element's union of strings** — that distinction is what put `components/admin/showpage/PublishedReviewModal.tsx:964` in (b). For each path that carried the border-hover, another `hover:` utility must survive ON THAT PATH; a path left with zero means the classification was wrong — stop and re-probe.
 - [ ] **2.5** RAISE to `hover:border-text-subtle` at the 6 §3.6(b) sites — **6 physical occurrences**.
 - [ ] **2.6** RAISE to `border-accent-on-bg` at the 3 §3.6(c) sites — **3 physical occurrences**, at `components/admin/dev/SwitcherControls.tsx:29` once and `components/admin/dev/SwitcherControls.tsx:145` TWICE, because that line carries `hover:border-accent` AND `aria-expanded:border-accent`. Retargeting only the `hover:` twin leaves an expanded-but-not-hovered control at 2.10:1 light.
-- [ ] **2.7** **Do NOT edit `components/admin/dev/SwitcherControls.tsx:122`.** It is a fourth `hover:border-accent` occurrence in the same file, and an earlier draft counted it, giving 18 edits instead of 17 (plan review R2 F2 — the reviewer was right and this plan was wrong). It belongs to the `<select>` opening at `components/admin/dev/SwitcherControls.tsx:119`, and `tests/styles/interactiveScanCore.ts:789` admits only `button`, `a` and `summary` as intrinsic tags, so the scanner never sees it. It is therefore in NEITHER the 37 swap set nor the 21 hover set: editing it would ship a change no assertion in this arc guards. Its disposition is step 8.4.
+- [ ] **2.7** **Do NOT edit `components/admin/dev/SwitcherControls.tsx:122`.** It is a fourth `hover:border-accent` occurrence in the same file, and an earlier draft counted it, giving 18 edits instead of 17 (plan review R2 F2 — the reviewer was right and this plan was wrong). It belongs to the `<select>` opening at `components/admin/dev/SwitcherControls.tsx:119`, and `tests/styles/interactiveScanCore.ts:789` admits only `button`, `a` and `summary` as intrinsic tags, so the scanner never sees it. It is therefore in NEITHER the 37 swap set nor the 21 hover set: editing it would ship a change no assertion in this arc guards. Its disposition is step 7.4a.
 - [ ] **2.8** `pnpm exec vitest run tests/styles/_metaControlOutlineFill.test.ts` — 2.1 and 2.2 both green.
 - [ ] **2.9** Commit ONCE: `fix(styles): keep the hover outline heavier than rest after the text-ramp swap`
 
+<!-- tasks: end -->
+
 ## Task 3: `DESIGN.md` §1.2a predicate rewrite
 
-<!-- task: red=`pnpm exec vitest run tests/docs/capabilityClaimProse.test.ts` red-state=authored red-target=`components/admin/ArchiveShowButton.tsx:333` why=`DESIGN 1.2a still says widening to border-border is a decision this ruling did not make, while 37 shipped controls now contradict it` ac=AC-6 -->
+**OUTSIDE the red-contract region, and this is the honest placement rather than a waiver.** Both this task and Task 4 are caused by `DESIGN.md`, a repo-ROOT file that `red-target=` cannot name (`BL-SPECLINT-RED-TARGET-CANNOT-NAME-A-REPO-ROOT-SURFACE`). An earlier draft kept them inside the region with `red-target=` pointing at unrelated components, which is a false citation and also contradicted this branch's own backlog row (plan review R3 F3). Both tasks still run failing-assertion-first below; what they cannot do is carry a marker that names their real production surface.
 
 **This task has a genuine failing-test-first, and it is not the tautological shape.** An earlier draft claimed no RED was possible here because the task is a prose rewrite (plan review R2 F1). That was wrong: the document makes a CHECKABLE claim, and after Tasks 1 and 2 that claim is false about the shipped tree.
 
-- [ ] **3.1** RED: add a case to the EXISTING `tests/docs/capabilityClaimProse.test.ts` (it already reads `DESIGN.md`, so no new file and no new harness) asserting that `DESIGN.md` §1.2a (a) no longer contains the superseded sentence "Widening to `border-border` is a separate design decision this ruling did not make", and (b) states the divider carve-out. *Failure mode caught:* the swap ships while the design document still tells the next author the opposite rule. Confirm it FAILS against the current `DESIGN.md`.
+- [ ] **3.1** RED: add a case to the EXISTING `tests/docs/capabilityClaimProse.test.ts` (it already reads `DESIGN.md`, so no new file and no new harness). **Assert all FIVE required contents, not two** — an earlier draft checked only the old sentence's absence plus a divider mention, and a one-edit mutant that deletes the paragraph and adds a divider sentence passed while omitting everything else spec §4.1 requires (plan review R3 F4). The case asserts §1.2a:
+      1. no longer contains "Widening to `border-border` is a separate design decision this ruling did not make";
+      2. records the **2026-08-18 ruling** by date;
+      3. records that it was taken against a **rendered mockup including the crew surfaces**;
+      4. states the **text-ramp rule for `border-border` resting outlines**;
+      5. states the **divider carve-out in both directions** and points at the **ShareHub filing**.
+      *Failure mode caught:* the swap ships while the design document still tells the next author the opposite rule, or tells them a partial one. Confirm it FAILS against the current `DESIGN.md`, and confirm each of the five sub-assertions fails independently — a single compound assertion would let four of the five be silently unenforced.
 - [ ] **3.2** Replace `DESIGN.md`'s §1.2a `border-border` paragraph per spec §4.1: record the 2026-08-18 ruling and that it was taken against a rendered mockup including the crew surfaces; state that `border-border` on a control's resting outline is now the text ramp; state the divider carve-out **in both directions**; point at the ShareHub filing rather than restating its numbers.
 - [ ] **3.3** Cite no line numbers for the swept population — the census is the contract, and the stale `className=` anchors in the current text are exactly what drifted.
 - [ ] **3.4** Pre-code mechanical checklist on all prose touched: em-dash ban in user-visible copy, apostrophe literals, no invented tokens.
@@ -200,7 +219,7 @@ Without this task the arc ships 21 controls whose outline reads LIGHTER on hover
 
 ## Task 4: Contrast rows and the relation pin
 
-<!-- task: red=`pnpm exec vitest run tests/styles/secondary-action-contrast.test.ts` red-state=authored red-target=`components/crew/SectionChipLink.tsx:48` why=`text-subtle and accent-on-bg are used as OUTLINES for the first time by Task 2 and neither is pinned` ac=AC-6 -->
+**Outside the region for the same reason as Task 3.**
 
 - [ ] **4.1** RED: add THREE outline assertions to `tests/styles/secondary-action-contrast.test.ts`, in the shape of the existing tinted-plate case at `tests/styles/secondary-action-contrast.test.ts:75` — `--color-border` (the before-state this arc moves away from), `--color-text-subtle`, and `--color-accent-on-bg`, each across all four neutral grounds in both themes. *Failure mode caught:* a future retune of `--color-border` silently reintroducing the weight this arc removed.
 - [ ] **4.2** RED: assert the **RELATION**, not eight constants — `hover > rest` per ground, per theme, computed from the tokens. **Rationale, because it generalises:** eight pinned constants go stale the moment either token is retuned and a reviewer must re-derive whether the pair still reads correctly, whereas a relation pin fails loudly exactly when the retune breaks it and stays silent when it is harmless. Keep the absolute rows in `DESIGN.md` for the record; make the ASSERTION relational.
@@ -208,8 +227,6 @@ Without this task the arc ships 21 controls whose outline reads LIGHTER on hover
 - [ ] **4.4** Add the matching `DESIGN.md` §1.2 rows for all three tokens as outlines.
 - [ ] **4.5** GREEN: `pnpm exec vitest run tests/styles/secondary-action-contrast.test.ts`
 - [ ] **4.6** Commit ONCE: `test(styles): pin the outline ratios and the hover-over-rest relation`
-
-<!-- tasks: end -->
 
 ## Task 5: Mutation score before the round-1 diff dispatch
 
@@ -224,6 +241,7 @@ Without this task the arc ships 21 controls whose outline reads LIGHTER on hover
 - [ ] **6.2** `/impeccable critique` on the diff.
 - [ ] **6.3** `/impeccable audit` on the diff.
 - [ ] **6.4** Fix P0/P1 findings, or defer each with a `DEFERRED.md` entry carrying an un-defer trigger.
+- [ ] **6.4a** **If 6.4 changed anything under `app/**` (non-API), `components/**` or `DESIGN.md`, re-run 6.2 and 6.3 on the repaired diff before recording.** Otherwise §12 records reports about a diff that no longer exists, and step 6.10's baseline — the Task 6 commit — cannot see the difference because the repairs ride inside that same commit (plan review R3 F6). Loop 6.2–6.4a until a run produces no UI-surface repair.
 - [ ] **6.5** **Expect a paired-weight finding and know its disposition in advance.** Moving 37 controls to 3.35:1 leaves non-interactive chrome beside some of them at 1.27:1 — the shape `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT` already owns. A new instance JOINS that entry; it does not open a row and is not repaired here.
 - [ ] **6.6** Record findings and dispositions in §12 below.
 - [ ] **6.7** In the SAME commit write BOTH: (a) the marker line at the top of this file, replacing the explanatory comment, in the §3.3 RAN grammar — `impeccable-gate: critique=RAN audit=RAN p0=<int> p1=<int> dispositions=<recorded|none>`, `dispositions=recorded` iff `p0 + p1 > 0` (the guard cross-checks; `RAN-DEGRADED` on a degraded run); and (b) the verbatim names of both gate halves in §12.
@@ -251,7 +269,7 @@ Without this task the arc ships 21 controls whose outline reads LIGHTER on hover
       comm -12 <(ids BACKLOG.md DEFERRED.md) <(ids BACKLOG-archive.md DEFERRED-archive.md)
       ids BACKLOG.md DEFERRED.md BACKLOG-archive.md DEFERRED-archive.md | wc -l
       ```
-      The first must print NOTHING. The second must print **350**. Measured 2026-08-18: `origin/main` **347**, this branch **349** (two review-economy rows already filed), and 8.1's ShareHub row makes 350. Archiving MOVES a row between files and must not change the union count. If `origin/main` has advanced, recompute its count the same way rather than trusting 347.
+      The first must print NOTHING. The second must print **351**. Re-measured immediately before this plan's R4 dispatch: `origin/main` **347**, this branch **350** — three rows are filed here, not two (`BL-CODEX-GUARD-SPECLINT-PREDISPATCH-GATE`, `BL-SPEC-CLAIM-SWEEP-AFTER-REASONING-FINDING`, `BL-SPECLINT-RED-TARGET-CANNOT-NAME-A-REPO-ROOT-SURFACE`) — and step 7.1's ShareHub row makes **351** (plan review R3 F7 caught the stale figure). Archiving MOVES a row between files and must not change the union count. **Do not trust any of these numbers at implementation time** — the branch may file more rows during review, and `origin/main` advances daily. Recompute all three with the same command and assert the RELATION: post-merge union == `origin/main` union + rows this branch adds.
 - [ ] **7.7** `pnpm exec vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerMintBar.test.ts tests/docs/_metaReviewRoundEconomy.test.ts`
 - [ ] **7.8** Commit: `docs(backlog): file the ShareHub mobile-skin weight and archive the border-token row`
 - [ ] **7.9** **The marker must come off IN the PR's last commit, and Task 7 is not automatically last.** An earlier draft checked only that the marker is absent at `HEAD`, which stays true no matter how many commits ago it was removed — it could not detect the very sequence it claimed to (plan review R2 F3). The check must ask WHEN the removal happened, and `git log -S` answers that by finding commits that changed the string's occurrence count:
@@ -260,7 +278,9 @@ Without this task the arc ships 21 controls whose outline reads LIGHTER on hover
       git log -S'IN PROGRESS · **Branch:** fix/control-outline-border-token' --format=%H -- BACKLOG.md | head -1
       git show HEAD:BACKLOG.md | grep -c 'IN PROGRESS · \*\*Branch:\*\* fix/control-outline-border-token'
       ```
-      The first two must print the SAME sha — the most recent commit that touched the marker string IS `HEAD` — and the third must print `0`. If the shas differ, a later commit landed after the removal: re-do the removal as a fresh final commit, or amend, so that both conditions hold immediately before merge.
+      The third must print `0` — **that is the load-bearing invariant: the marker must not reach `main`.** The first two printing the SAME sha is the stronger claim that the removal happened IN the last commit.
+
+      **If the shas differ, "re-do the removal" does NOT work** and an earlier draft said it did (plan review R3 F9): once the marker is absent, removing it again is a no-op and `git log -S` still points at the earlier commit. The only remedies that change that result are history operations — `git commit --amend` to fold the removal into the final commit, or reordering so the ledger commit is last. Interactive rebase is unavailable in this environment, so **prefer `--amend`**: land the trailing repair, then amend it to also carry the ledger change. If neither is practical, the absent-at-`HEAD` check is the invariant that must hold, and the ordering difference is recorded in the PR body rather than papered over.
 
 ---
 
@@ -272,7 +292,7 @@ Spec §8 enumerates every dimension relationship that could have moved and shows
 
 ## Transition-audit task — EXEMPTION CLAIMED
 
-Spec §9 enumerates every state pair against the MEASURED utilities (23 of 37 carry `transition-colors duration-fast`, 3 carry the transition without the duration, and 11 carry neither and are instant). No swapped site gains or loses a transition utility; where one exists the swap changes only the resting colour it interpolates TO, and the instant sites stay instant. There is no `AnimatePresence`, no new conditional render, and no new state. **The one state pair that DOES change is rest → hover at 21 sites, and it is not exempted — Task 3 repairs it and step 3.2 proves the outcome.**
+Spec §9 enumerates every state pair against the MEASURED utilities (23 of 37 carry `transition-colors duration-fast`, 3 carry the transition without the duration, and 11 carry neither and are instant). No swapped site gains or loses a transition utility; where one exists the swap changes only the resting colour it interpolates TO, and the instant sites stay instant. There is no `AnimatePresence`, no new conditional render, and no new state. **The one state pair that DOES change is rest → hover at 21 sites, and it is not exempted — Task 2 repairs it and step 2.2 proves the outcome.**
 
 ## Pre-push gates (all of them, in order)
 
@@ -308,7 +328,7 @@ _pending_
 | apostrophe literals | _pending_ |
 | 44px tap targets (`min-h-tap-min` and companions) unchanged | _pending_ |
 | canonical type/token classes | _pending_ |
-| **Repurposed colour tokens carry contrast pins.** `--color-text-subtle` and `--color-accent-on-bg` are used as OUTLINES for the first time by Task 3, so BOTH owe a §1.2 row and an assertion (Task 4). **This is not a "no new or repurposed token" arc** | _pending_ |
+| **Repurposed colour tokens carry contrast pins.** `--color-text-subtle` and `--color-accent-on-bg` are used as OUTLINES for the first time by Task 2, so BOTH owe a §1.2 row and an assertion (Task 4). **This is not a "no new or repurposed token" arc** | _pending_ |
 
 ### 12.4 What the gate confirmed rather than found
 
