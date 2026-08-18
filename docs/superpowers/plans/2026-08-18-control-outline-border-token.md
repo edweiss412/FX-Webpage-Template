@@ -4,9 +4,9 @@
 
 <!-- Task 6 replaces this comment with the invariant-8 marker line in the §3.3 RAN grammar. -->
 
-**Goal:** Ship the 2026-08-18 text-ramp ruling. 37 controls whose resting outline is `border-border` on a neutral or absent fill swap to `border-text-faint`; five dividers and ShareHub's ratified mobile skin do not; the census pin is widened to 58 rows and strengthened by a negation assertion that catches the half-swapped element the current pin cannot see.
+**Goal:** Ship the 2026-08-18 text-ramp ruling. 37 controls whose resting outline is `border-border` on a neutral or absent fill swap to `border-text-faint`; five dividers and ShareHub's ratified mobile skin do not; the census pin is widened to 57 rows and strengthened by a negation assertion that catches the half-swapped element the current pin cannot see.
 
-**Architecture:** **32 source-token edits across 37 elements in 26 files, plus 21 hover-override edits at 21 of those same elements (spec §3.6) — 12 deletions and 9 retargets.** The count differs from the element count in both directions — four elements share one file-local constant, three share two recipes, two share one line, and an element carrying the token in both ternary arms needs two edits. Plus a `DESIGN.md` §1.2a paragraph rewrite, one new §1.2 contrast row with its assertion, a census widened from 21 to 58 rows, one new per-row assertion with three fixtures, and the invariant-8 dual gate. No product logic, no new component, no new prop, no new token, no DB surface, no route, no migration. `lib/ui/actionClass.ts` already wears `border-text-faint` and is untouched.
+**Architecture:** **32 source-token edits across 37 elements in 26 files, plus 21 hover-override edits at 21 of those same elements (spec §3.6) — 12 deletions and 9 retargets.** The count differs from the element count in both directions — four elements share one file-local constant, three share two recipes, two share one line, and an element carrying the token in both ternary arms needs two edits. Plus a `DESIGN.md` §1.2a paragraph rewrite, one new §1.2 contrast row with its assertion, a census widened from 21 to 57 rows, one new per-row assertion with three fixtures, and the invariant-8 dual gate. No product logic, no new component, no new prop, no new token, no DB surface, no route, no migration. `lib/ui/actionClass.ts` already wears `border-text-faint` and is untouched.
 
 **Tech Stack:** TypeScript (strict, `noUncheckedIndexedAccess` + `exactOptionalPropertyTypes`), Vitest, the existing static scanner at `tests/styles/interactiveScanCore.ts`.
 
@@ -15,7 +15,7 @@
 
 ## What this plan does NOT build
 
-- **No classifier.** Nothing here decides whether an arbitrary element is a control, a divider, or a switch track. The census is a closed 58-row set this PR defines; the five-row divider non-membership assertion (Task 1) is a fixed exclusion list, not a predicate. `BL-CONTROL-OUTLINE-FORWARD-GUARD` owns the forward question with five closed escapes recorded as its evidence, and spec §6 restates why. **An implementer who finds themselves writing a function that decides whether an arbitrary element is a control has left the plan.**
+- **No classifier.** Nothing here decides whether an arbitrary element is a control, a divider, or a switch track. The census is a closed **57**-row set this PR defines (21 predecessor rows + 36 additions; the 37th swap-set element overlaps); the five-row divider non-membership assertion (Task 1) is a fixed exclusion list, not a predicate. `BL-CONTROL-OUTLINE-FORWARD-GUARD` owns the forward question with five closed escapes recorded as its evidence, and spec §6 restates why. **An implementer who finds themselves writing a function that decides whether an arbitrary element is a control has left the plan.**
 - **No `everyPathCarries` on the census loop.** Spec §5.2 records the probe that refuted it: a universal "every render path carries the outline token" fails `components/admin/Mi11GateActions.tsx:69`, whose accent-filled branch has no outline by ratified design. The strengthening is the NEGATION.
 - **No ShareHub swap.** Spec §3.5. `tests/styles/_metaControlOutlineFill.test.ts:156` stays byte-identical and passing.
 - **No shared-constant extraction.** The recipes are heterogeneous; hoisting is a refactor this ruling did not authorise.
@@ -116,7 +116,7 @@ Reproduced here so the implementer starts from measurement. Full transcripts in 
       - **(c)** two ternary arms, one `border-text-faint`, one with NO border utility → must PASS both. **This is the `Mi11GateActions.tsx:69` shape and pins that an outline-free branch is not collateral.**
 - [ ] **1.6** Confirm RED for the right reason. `red=pnpm exec vitest run tests/styles/_metaControlOutlineFill.test.ts`
       Expect failures on exactly the 37 swap-set elements — 36 additions plus the already-present `app/admin/show/[slug]/ResetPickerEpochButton.tsx:178` = **37 failing "no longer carries border-border" cases, not 38**; the two groups OVERLAP at that one row, which is the arithmetic spec review R4 F1 caught, fixture (a) and (b) passing (they assert the failure), fixture (c) passing, and **`Mi11GateActions.tsx:69` PASSING**. A run where `Mi11GateActions` fails means `everyPathCarries` crept in — revert to `carries`.
-- [ ] **1.7** Commit: `test(styles): widen the control-outline census to 58 and pin the border-border negation`
+- [ ] **1.7** Commit: `test(styles): widen the control-outline census to 57 and pin the border-border negation`
 
 ## Task 2: The swap — 32 source edits (GREEN)
 
@@ -137,7 +137,7 @@ Reproduced here so the implementer starts from measurement. Full transcripts in 
         components/admin/settings/DeveloperToggleButton.tsx
       ```
       The last is NOT empty — `components/admin/telemetry/AutoRefreshControl.tsx` is edited at `components/admin/telemetry/AutoRefreshControl.tsx:119` — so inspect it and confirm the diff does **not** reach `components/admin/telemetry/AutoRefreshControl.tsx:106`, the switch-track path.
-- [ ] **2.8** `green=pnpm exec vitest run tests/styles/_metaControlOutlineFill.test.ts` — all 58 rows green, all three fixtures green.
+- [ ] **2.8** `green=pnpm exec vitest run tests/styles/_metaControlOutlineFill.test.ts` — all **57** rows green, all three fixtures green.
 - [ ] **2.9** Commit: `fix(styles): move border-border control outlines to the text ramp`
 
 
@@ -185,7 +185,7 @@ Without this task the arc ships 21 controls whose outline reads LIGHTER on hover
 ## Task 5: Mutation score before the round-1 diff dispatch
 
 - [ ] **5.1** `pnpm heavy pnpm mutation:guards` — `tests/styles/controlOutlineScan.ts` is enrolled at `scoreFloor: 1` with `accepted: []` (`tests/mutation/source/registry.ts:1909`), and this arc edits it.
-- [ ] **5.2** A census growing 21 → 58 adds 37 integer-literal mutation sites. **If any survives, the survivor IS the finding** — fix the guard, or record an `accepted` row with its reason. Do not lower `scoreFloor`.
+- [ ] **5.2** A census growing 21 → **57** adds **36** integer-literal mutation sites. **If any survives, the survivor IS the finding** — fix the guard, or record an `accepted` row with its reason. Do not lower `scoreFloor`.
 - [ ] **5.3** Record the score and the unaccepted-survivor set; both go in the round-1 `--stage diff` brief's `GUARD SURFACE:` line as `MUTATION SCORE: <killed>/<total>` plus "0 unaccepted survivors". The codex-guard wrapper exits 2 before dispatching without it.
 - [ ] **5.4** Commit only if a registry row changed: `test(styles): re-score the control-outline census guard`
 
