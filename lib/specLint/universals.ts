@@ -22,13 +22,15 @@ import type { Finding, InventoryGroup, InventoryOccurrence } from "./types";
  * cardinal. Exactly the instrument's match
  * (`docs/superpowers/specs/probes/2026-08-17-prose-consistency-probe-v1.ts`, pass 2).
  *
- * ONE match per line, like the instrument: the advisory's unit is the LINE, and a
- * second universal+cardinal claim on the same line is a documented limit rather
- * than a second finding. Contract and instrument therefore cannot disagree about
- * what the layer-2 record measured (spec §3, layer discipline).
+ * GLOBAL, and every candidate on the line is evaluated (whole-diff review R1). The
+ * advisory's unit is still the LINE — at most one fires — but the gates are
+ * candidate-specific, so stopping at the first MATCH let a rejected candidate
+ * suppress a later qualifying one and the line drew silence. Silence is contracted
+ * to mean "no qualifying structure" (spec §1.2), so it may only be reached after
+ * every candidate has been tried.
  */
 const UNIVERSAL_CARDINAL =
-  /\b([Ee]very|[Ee]ach|[Aa]ll)\s+(?:one\s+of\s+the\s+|of\s+the\s+)?(\d{1,3})\b/;
+  /\b([Ee]very|[Ee]ach|[Aa]ll)\s+(?:one\s+of\s+the\s+|of\s+the\s+)?(\d{1,3})\b/g;
 /** Dated historical records are never compared (spec §3.2 gate 1). */
 const ISO_DATE_LINE = /\d{4}-\d{2}-\d{2}/;
 /** A table row: leading optional whitespace then a pipe (spec §3.2 gate 1). */
@@ -176,52 +178,62 @@ export function checkUniversals(
     if (TABLE_ROW.test(line)) continue;
     if (ISO_DATE_LINE.test(line)) continue;
 
-    // Gate 2: the accept-set, plus the value bound, the time-unit exclusion and
-    // the inline-span exclusion.
-    const m = UNIVERSAL_CARDINAL.exec(line);
-    if (!m) continue;
-    const cardinal = m[2]!;
-    if (Number(cardinal) < MIN_CARDINAL_VALUE) continue;
-    const matchStart = m.index;
-    const matchEnd = m.index + m[0].length;
-    if (LITERAL_CONTINUATION.test(line.slice(matchEnd))) continue;
-    if (TIME_UNIT_AFTER.test(line.slice(matchEnd))) continue;
-    const inSpan = (spanRanges.get(docLine) ?? []).some(
-      (r) => matchStart >= r.start && matchEnd <= r.end,
-    );
-    if (inSpan) continue;
-
-    // Gate 3: a dated qualifier phrase excludes the cardinal it binds — its NEAREST
-    // predecessor within reach, the same rule the prose-count arms apply (the
-    // function itself is shared, so the two arms cannot drift apart).
-    const cardinalStart = matchEnd - cardinal.length;
-    if (qualifierBoundStarts(line).has(cardinalStart)) continue;
-
-    // Gate 4: the population the universal quantifies is stated elsewhere — the same
-    // cardinal string on a non-fenced, non-table line of a DIFFERENT section.
+    // Gates 2 to 5, per CANDIDATE. Every accept-set match on the line is tried, and
+    // the FIRST that clears every gate owns the line: the gates below reject a
+    // particular cardinal, not the line, so abandoning the line at the first
+    // rejected candidate would report silence on a line that does carry a
+    // qualifying claim (whole-diff review R1, live proof at
+    // `docs/superpowers/specs/ci/2026-08-16-modal-wait-boundary-helper-adoption-design.md:238`).
     const mySection = sectionOf(model, docLine)?.line ?? 0;
-    const owners = cardinalSections.get(cardinal);
-    let evidenceLine: number | null = null;
-    for (const [owner, first] of owners ?? []) {
-      if (owner !== mySection) {
-        evidenceLine = first;
-        break;
+    const bound = qualifierBoundStarts(line);
+    const spans = spanRanges.get(docLine) ?? [];
+    UNIVERSAL_CARDINAL.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = UNIVERSAL_CARDINAL.exec(line)) !== null) {
+      const cardinal = m[2]!;
+      const matchStart = m.index;
+      const matchEnd = m.index + m[0].length;
+
+      // Gate 2: the value bound, the literal-continuation exclusion, the time-unit
+      // exclusion and the inline-span exclusion.
+      if (Number(cardinal) < MIN_CARDINAL_VALUE) continue;
+      if (LITERAL_CONTINUATION.test(line.slice(matchEnd))) continue;
+      if (TIME_UNIT_AFTER.test(line.slice(matchEnd))) continue;
+      if (spans.some((r) => matchStart >= r.start && matchEnd <= r.end)) continue;
+
+      // Gate 3: a dated qualifier phrase excludes the cardinal it binds — its NEAREST
+      // predecessor within reach, the same rule the prose-count arms apply (the
+      // function itself is shared, so the two arms cannot drift apart).
+      if (bound.has(matchEnd - cardinal.length)) continue;
+
+      // Gate 4: the population the universal quantifies is stated elsewhere — the same
+      // cardinal string on a non-fenced, non-table line of a DIFFERENT section.
+      let evidenceLine: number | null = null;
+      for (const [owner, first] of cardinalSections.get(cardinal) ?? []) {
+        if (owner !== mySection) {
+          evidenceLine = first;
+          break;
+        }
       }
+      if (evidenceLine === null) continue;
+
+      // Gate 5: no probe command in the owning section. Line-scoped, so it is the
+      // same answer for every candidate; it stays inside the loop because reaching
+      // it at all means a candidate cleared everything else.
+      if (sectionHasCommand(docLine)) break;
+
+      findings.push({
+        check: "universals",
+        code: "ENUMERATED_UNIVERSAL_NO_PROBE",
+        severity: "advisory",
+        docLine,
+        column: matchStart + 1,
+        message: `universal claim over ${cardinal} stands away from its enumeration with no probe beside it: "${snippet(line)}". Let one section own the measurement and reference it, or put the enumerating command beside the claim.`,
+        detail: `${cardinal} also appears at line ${evidenceLine}: ${snippet(model.lines[evidenceLine - 1]!)}`,
+      });
+      // ONE advisory per line: the unit both arms measure is the claim line.
+      break;
     }
-    if (evidenceLine === null) continue;
-
-    // Gate 5: no probe command in the owning section.
-    if (sectionHasCommand(docLine)) continue;
-
-    findings.push({
-      check: "universals",
-      code: "ENUMERATED_UNIVERSAL_NO_PROBE",
-      severity: "advisory",
-      docLine,
-      column: matchStart + 1,
-      message: `universal claim over ${cardinal} stands away from its enumeration with no probe beside it: "${snippet(line)}" — let one section own the measurement and reference it, or put the enumerating command beside the claim`,
-      detail: `${cardinal} also appears at line ${evidenceLine}: ${snippet(model.lines[evidenceLine - 1]!)}`,
-    });
   }
 
   return { findings, inventory: inventoryGroups(model, headingLines) };

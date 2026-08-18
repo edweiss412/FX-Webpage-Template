@@ -2,8 +2,8 @@
 
 **Arm:** `ENUMERATED_UNIVERSAL_NO_PROBE` (`lib/specLint/universals.ts`).
 **Record:** `2026-08-17-prose-consistency-arms.survivors.txt` (untruncated, one row per advisory).
-**Population:** every tracked `docs/**/specs/**` markdown file read as `kind: spec` — 453 docs.
-**Total:** 208 rows
+**Population:** every tracked `docs/**/specs/**` markdown file read as `kind: spec` — 454 docs.
+**Total:** 209 rows
 
 This is the bounded pass spec §3.3 mandates: ONE pass over a fixed list, informing advisory
 copy and §7's documented limits only. The gates are frozen — the one gate change this pass
@@ -33,7 +33,7 @@ question §1.2 makes a defect gate:
 
 - **wrong structure class:** 0 rows
 - **historical-record residue:** 19 rows
-- **live-enumerated claim:** 189 rows
+- **live-enumerated claim:** 190 rows
 
 ### The defect this pass found, and repaired
 
@@ -54,6 +54,27 @@ two are frequencies, the class the time-unit gate exists to exclude. Repaired by
 a cardinal followed by a grouping comma or a decimal point is a fragment of a longer literal
 and the arm declines to classify it — and swept by shape, so the decimal form is declined
 with it though it does not occur in the corpus today. Post-repair population: **208**.
+
+### The second defect, found by whole-diff review R1
+
+`UNIVERSAL_CARDINAL.exec` returned only the FIRST accept-set match on a line, so a
+candidate-specific rejection — the value bound, a literal continuation, a time unit, an
+inline span, a dated qualifier, or missing enumeration evidence — SUPPRESSED a later
+qualifying claim on the same line, and the line drew silence. Silence is contracted to
+mean "no qualifying structure", so that is the consequence bound failing, not a
+documented limit.
+
+Live proof, inside the probe domain:
+`docs/superpowers/specs/ci/2026-08-16-modal-wait-boundary-helper-adoption-design.md:238`
+carries `all 11` (which appears in no other section) before `all 5` (which does), and
+emitted nothing; masking `all 11` alone made the `all 5` claim emit. The arm now tries
+every candidate and the FIRST that clears every gate owns the line — the one-advisory-
+per-line bound is unchanged. Population after this repair: **209**, the one added row
+being that live proof. No row stopped emitting.
+
+The corpus also grew by one document, to 454: this classification is itself tracked under
+`docs/**/specs/**` and is now measured. It contributes ZERO rows, because its quoted
+listings are fenced — verified, not assumed.
 
 ### Class definitions
 
@@ -98,9 +119,11 @@ comparing the two lines, without opening the document.
    is a less precise cardinal in the message, and in the enumeration gate a wrong key can
    only produce SILENCE where an emission was due — the conservative direction. Parsing
    arithmetic to fix it is the recognizer growth spec §1.1 rules out.
-2. **One advisory per line.** The arm takes the FIRST accept-set match on a line, matching
-   the instrument, so a second universal+cardinal claim on the same line is not separately
-   reported. The line is quoted in full, so the reader sees both.
+2. **One advisory per line.** The arm evaluates EVERY accept-set candidate on a line and
+   the first that clears every gate owns it, so a second qualifying claim on the same line
+   is not separately reported. The line is quoted in full, so the reader sees both. (This
+   was "the first MATCH" until whole-diff review R1; that version could report silence on a
+   line carrying a qualifying claim, which is a defect rather than a limit.)
 
 ## Full assignment (untruncated)
 
@@ -132,7 +155,7 @@ docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-15-crew-page-redesig
 docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-19-crew-flight-info.md:19  A live gsheets audit of all 6 reachable show sheets found per-crew flight for **6 crew across 4 shows**, but only the **TECH-path source is parseable today**:
 ```
 
-### live-enumerated claim (189 rows)
+### live-enumerated claim (190 rows)
 
 ```text
 docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2316  **Implementation note:** all 12 steps are encapsulated in a single `lib/auth/validateLinkSession(req)` helper that returns a **tri-state outcome** (locked by plan Task 5.2):
@@ -219,6 +242,7 @@ docs/superpowers/specs/ci/2026-08-09-app-e2e-batch1-design.md:75  3. **`help-pag
 docs/superpowers/specs/ci/2026-08-09-libdata-call-boundary-metatest-design.md:130  Registry contents (all 17 sites; the plan enumerates the exact pin regexes, typechecked):
 docs/superpowers/specs/ci/2026-08-09-resurrect-mobile-safari-e2e-design.md:62  test declarations (10 layout + 5 nav; all 15 executed in the §2.2 run — 12 passed, 3 failed;
 docs/superpowers/specs/ci/2026-08-16-modal-wait-boundary-helper-adoption-design.md:192  1. **Expose the wait-plus-recovery core AND a URL-taking entry point; adopt per navigation shape (CHOSEN).** `openShowReviewModal` keeps its exact contract and becomes a thin wrapper. `awaitReviewModalOrRecover` carries the ready-or-boundary wait plus the single recovery for callers that own their navigation (row clicks, legacy redirects); `openShowReviewModalAt` adds goto-with-options for callers that own their URL. Pros: every one of the 51 sites adopts without changing what it navigates or asserts; the parent's ratified contract is untouched; one recovery implementation, zero copies; and because no spec writes the naked navigation any more, the §4.4 guard becomes a flat per-site ban rather than a heuristic. Cons: three exports to keep coherent — mitigated by two of them delegating to the third.
+docs/superpowers/specs/ci/2026-08-16-modal-wait-boundary-helper-adoption-design.md:238  - **Shape G — plain goto (`openShowReviewModal(page, slug)`).** Sites: `admin-lifecycle-layout.spec.ts` (all 11), `admin-lifecycle-transitions.spec.ts` (all 5), `admin-parse-panel.spec.ts:249`, `dev-capture.spec.ts` lines 168, 227, 236, `font-binding.spec.ts:463` (keep `toHaveCount(1)`), `warning-panel-polish.spec.ts` lines 96 and 340, `needs-attention-holds.spec.ts:350` (keep `waitForFormAction` after — the helper ADDS a loaded-modal wait this site never had, which is the hardening), `published-review-modal.crew-actions.spec.ts:48` (keep count + focus poll), `published-review-modal.realtime.spec.ts:321` (pass `{ timeoutMs: MODAL_OPEN_TIMEOUT_MS }`), `published-show-attention.spec.ts:71`, `published-review-modal.interactions.spec.ts:389`. **28 sites over 11 files.**
 docs/superpowers/specs/ci/2026-08-16-timing-scan-binding-resolution-design.md:88  **It is not free, and the earlier draft's safety argument was too strong.** "A covered binding is a root, so nothing legitimate is lost" is false: the PATH to the declaration must also be in the program. A covered constant re-exported through an intermediate module OUTSIDE the universe — a component importing from a `lib/` barrel that re-exports `lib/ui/copyFeedback.ts` — resolves under a full program and yields an unknown symbol with zero declarations under `noResolve`, so the site REPORTS. Today's name filter suppresses it, so that shape is a new residual rather than an unchanged answer. The direction is conservative and the shape is absent from the tree (all 17 live cross-file resolutions import the declaring module directly, §3 P2), so it is accepted with its cost stated in §4 item 1 rather than argued away.
 docs/superpowers/specs/ci/2026-08-17-modal-wait-candidate-contract-design.md:31  - **Behavioral edits to any e2e spec.** All 12 live `awaitReviewModalOrRecover` calls already carry an extractable `label:` property (probe, §2.2), so the expected e2e diff is zero. If implementation-time re-derivation finds a label missing or unextractable, a label-only edit is permitted; nothing else is.
 docs/superpowers/specs/ci/2026-08-17-modal-wait-candidate-contract-design.md:223  2. **Within-scope PLACEMENT is invisible — the registry pins presence and scope, never position.** A wait relocated WITHIN its declared (file, scope) keeps its triple, and that includes the worst placement: one ordinary cut-paste can move a wait BELOW the assertions it exists to protect while every registry assertion still passes (spec-review R1 probe: `published-review-modal.reopen.spec.ts:70` moved below the wrapper's own modal/focus assertions — triples equal, count 1 → 1; every one of the 12 rows admits the same edit). The census claim is deliberately "this scope declares and contains this wait", not "this wait runs before what depends on it": verifying position against the assertions a wait protects means classifying downstream assertions, which is the flow analysis both ledger rows declined (§6 fence). Cost, stated exactly: a mis-placed wait leaves its scope failing the gateway-502 class as the generic downstream timeout, without the annotation or the `show_review_snapshot_failed` hint — degraded but LOUD, never a silent test pass. That is the same outcome class both ledger rows carried as OPEN (severity LOW, "the orphaned site still FAILS; it just fails generically"), now narrowed from "any move anywhere" to "a placement change inside the wait's own declared scope". Re-open trigger: an actual mis-placement surfaced in review or CI.

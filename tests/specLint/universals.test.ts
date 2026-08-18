@@ -359,3 +359,79 @@ describe("checkUniversals — single-gate rejection fixtures (spec §6)", () => 
     expect(advisories("")).toHaveLength(0);
   });
 });
+
+describe("every candidate on a line is evaluated, not just the first (spec §1.2 bound)", () => {
+  // Whole-diff review R1: `UNIVERSAL_CARDINAL.exec` returned only the FIRST match, so a
+  // candidate-specific rejection — the value bound, a literal continuation, a time unit,
+  // an inline span, a dated qualifier, or missing enumeration evidence — SUPPRESSED a
+  // later qualifying claim on the same line. The line then drew silence, and silence is
+  // contracted to mean "no qualifying structure", never "verified consistent".
+  //
+  // Live proof, inside the probe domain:
+  // `docs/superpowers/specs/ci/2026-08-16-modal-wait-boundary-helper-adoption-design.md:238`
+  // carries `all 11` (no evidence elsewhere) before `all 5` (evidence in another section)
+  // and emitted nothing; masking `all 11` alone made the `all 5` claim emit.
+
+  /** The rejected candidate comes FIRST; the qualifying `45` claim comes second. */
+  const twoCandidates = (first: string): string =>
+    [
+      "# Doc",
+      "## A",
+      `${first} and separately all 45 codes carry the copy.`,
+      "## B",
+      "The catalog carries 45 codes and 1 placeholder, over 45,000 words, across 45 days.",
+    ].join("\n");
+
+  it.each([
+    ["value bound", "All 1 code is exempt"],
+    ["literal continuation", "All 45,000 words were reviewed"],
+    ["time unit", "All 45 days of the window are covered"],
+    ["inline span", "The banner reads `all 45 rows` verbatim"],
+    ["dated qualifier", "All 45 at plan time were counted"],
+  ])("a first candidate rejected by the %s does not mask the later claim", (_label, first) => {
+    const findings = advisories(twoCandidates(first));
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("45");
+  });
+
+  it("a first candidate lacking enumeration evidence does not mask a later one", () => {
+    // The live shape above, reduced to a fixture: `11` appears nowhere else, `5` does.
+    const doc = [
+      "# Doc",
+      "## A",
+      "Sites: the layout spec (all 11), the transitions spec (all 5), and the rest.",
+      "## B",
+      "The transitions spec carries 5 sites.",
+    ].join("\n");
+    const findings = advisories(doc);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]!.message).toContain("5");
+  });
+
+  it("the ONE-advisory-per-line bound is retained when several candidates qualify", () => {
+    const doc = [
+      "# Doc",
+      "## A",
+      "Every one of the 21 sites lands there, and all 45 codes carry the copy.",
+      "## B",
+      "The census carries 21 sites and 45 codes.",
+    ].join("\n");
+    const findings = advisories(doc);
+    expect(findings).toHaveLength(1);
+    // The FIRST qualifying candidate owns the line.
+    expect(findings[0]!.message).toContain("21");
+  });
+
+  it("a line whose every candidate is rejected still draws silence", () => {
+    // The scan must not become "emit if any candidate matched the regex" — the gates
+    // still decide, candidate by candidate.
+    const doc = [
+      "# Doc",
+      "## A",
+      "All 1 code is exempt and all 45 days of the window are covered.",
+      "## B",
+      "The catalog carries 45 codes and 1 placeholder.",
+    ].join("\n");
+    expect(advisories(doc)).toHaveLength(0);
+  });
+});

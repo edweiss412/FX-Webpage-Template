@@ -36,7 +36,7 @@
 
 ### Task 1: lib/specLint/universals.ts (new module) — advisory arm `ENUMERATED_UNIVERSAL_NO_PROBE`
 
-<!-- task: red=`pnpm vitest run tests/specLint/universals.test.ts` red-state=authored red-target=`lib/specLint/universals.ts:121` why=`module absent; every case fails on the unresolved production import, and after the Step-2 skeleton lands the fixture cases still fail because the skeleton emits no findings - green arrives only with the Step-3 gate stack` ac=AC-1,AC-3 -->
+<!-- task: red=`pnpm vitest run tests/specLint/universals.test.ts` red-state=authored red-target=`lib/specLint/universals.ts:123` why=`module absent; every case fails on the unresolved production import, and after the Step-2 skeleton lands the fixture cases still fail because the skeleton emits no findings - green arrives only with the Step-3 gate stack` ac=AC-1,AC-3 -->
 
 **Files:**
 
@@ -70,7 +70,7 @@
 
 ### Task 2: inventory groups `universal-claims` + `scope-fences`
 
-<!-- task: red=`pnpm vitest run tests/specLint/universalsInventory.test.ts` red-state=authored red-target=`lib/specLint/universals.ts:239` why=`checkUniversals emits findings only after Task 1; the inventory-group cases fail because the function returns empty inventory for docs whose universal lines and scope regions the fixtures enumerate - green arrives with the group recognizers` ac=AC-2,AC-3 -->
+<!-- task: red=`pnpm vitest run tests/specLint/universalsInventory.test.ts` red-state=authored red-target=`lib/specLint/universals.ts:251` why=`checkUniversals emits findings only after Task 1; the inventory-group cases fail because the function returns empty inventory for docs whose universal lines and scope regions the fixtures enumerate - green arrives with the group recognizers` ac=AC-2,AC-3 -->
 
 **Files:**
 
@@ -103,7 +103,7 @@
 
 ### Task 4: layer-3 corpus record + survivor classification
 
-<!-- task: red=`pnpm vitest run tests/specLint/universalsCorpusRecord.test.ts` red-state=authored red-target=`docs/superpowers/specs/probes/2026-08-17-prose-consistency-arms.survivors.txt` why=`the record file does not exist, so the freshness pin (record parses, carries the shipped-arm header, and its advisory count equals the count the committed classification file claims) fails on the missing artifact; green arrives when the corpus run commits the record + classification` ac=AC-4 -->
+<!-- task: red=`pnpm vitest run tests/specLint/universalsCorpusRecord.test.ts` red-state=authored red-target=`docs/superpowers/specs/probes/2026-08-17-prose-consistency-arms.survivors.txt:6` why=`the record file does not exist, so the freshness pin (record parses, carries the shipped-arm header, and its advisory count equals the count the committed classification file claims) fails on the missing artifact; green arrives when the corpus run commits the record + classification` ac=AC-4 -->
 
 **Files:**
 
