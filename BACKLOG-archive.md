@@ -76,6 +76,164 @@ command could not collect its own `red-target`, because that file lives only in 
 gated behind `VITEST_INCLUDE_MUTATION_HARNESS=1`. Filed under class-sweep exception (c): a lint
 surface of its own, in a tree this arc does not otherwise touch.
 
+## BL-TIMING-SCAN-VALUATION-VS-REASSIGNMENT — DEMOTED TO A DOCUMENTED LIMIT 2026-08-18
+
+Not resolved and not stale: **demoted** by the 2026-08-04 ledger filing bar (AGENTS.md
+"Ledger filing bar (2026-08-04)"; procedure `docs/superpowers/specs/2026-08-04-backlog-convergence-design.md` §2).
+Probe-backed but CONSTRUCTED (P9), with **zero live instances** on the tree at filing by the entry's own
+sweep — the PSQL-GUARD-RECALL-RESIDUAL shape: a demonstrated gap whose worst case on THIS tree is nothing
+at all. The limit is already ratified in the owning spec,
+`docs/superpowers/specs/ci/2026-08-16-timing-scan-binding-resolution-design.md` §4 item 7, which carries the
+full mechanism, the P9 probe pointer, and this id; probe record
+`docs/superpowers/specs/ci/probes/2026-08-16-timing-scan-binding-probes.md` §P9.
+
+**Un-defer path:** a live `let` timing binding reassigned after declaration appearing on the tree promotes
+this back to a row — re-file from the spec's §4 item 7 record, carrying the promotion scope below
+("treat a post-declaration-assigned binding as `unclassified`, or annotate the row as an initial value";
+either way a valuation decision wanting its own probe of live `let` timing bindings).
+
+screen-disposition 2026-08-18 (demotion sweep, `docs/ledger-demotion-sweep`): DEMOTE — constructed probe,
+zero live instances, limit already ratified in the owning spec; the record belongs there, not the open queue.
+
+The original entry follows verbatim, with its in-flight status marker removed on archiving per
+invariant 12 — archives categorically reject in-progress work (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
+
+**BL-TIMING-SCAN-VALUATION-VS-REASSIGNMENT — a reassigned `let` is inventoried at its initializer**
+
+**Filed:** 2026-08-16 (`fix/timing-scan-scope-resolution`, spec authoring, probe P9). **Effort:** S. **Class-sweep exception:** (c) — the valuation axis is a different surface from the resolution step that arc rewrites, and widening into it mid-arc is the recognizer ratchet the round-economy rules forbid. **Reachability: PROBED** (constructed); **zero live instances** on the tree at filing.
+
+`scripts/scan-interaction-timings.ts` values a `named-constant` by its INITIALIZER. A `let RETRY_MS = 100` that `init()` later reassigns from config is therefore a §5.5 row reading 100, and a `setTimeout(fn, RETRY_MS)` resolves to it and suppresses. The resolution is right — it IS that binding — but the number a reader sees is the one the source states at declaration, not the one the timer uses.
+
+This is the one shape where a CORRECT resolution still yields a row someone could act on wrongly; everywhere else the scanner's failure direction is a surfaced `unclassified`. Probe and the zero-instance sweep: `docs/superpowers/specs/ci/probes/2026-08-16-timing-scan-binding-probes.md` §P9. Documented limit: the 2026-08-16 binding-resolution spec §4 item 7.
+
+**Scope if promoted:** treat a binding that is assigned anywhere after its declaration as `unclassified` rather than a valued constant (the checker already knows the write sites), or keep the row and annotate it as an initial value. Either way it is a valuation decision, not a resolution one, and it wants its own probe of how many live `let` timing bindings exist when it is scheduled.
+
+## BL-APP-EVENTS-DEBUG-LEVEL-CHECK-MISMATCH — DEMOTED TO A DOCUMENTED LIMIT 2026-08-18
+
+Not resolved and not stale: **demoted** by the 2026-08-04 ledger filing bar. The `LogLevel` type admits
+`"debug"` (`lib/log/types.ts:2`) while the `app_events` CHECK stores only `info|warn|error`
+(`supabase/migrations/20260629000002_app_events.sql:4`) — real, but **no producer emits a debug-level
+persist**, and the worst case is conservative-plus-surfaced by construction: the CHECK rejection is recorded
+for `/api/health` and written to console by `persistAppEvent`'s invariant-9 contract; the row just never
+lands. A hypothetical whose worst case is conservative behavior plus a surfaced signal is a documented
+limit, not open-queue work.
+
+**The substance moved, it was not deleted.** The limit now lives in the "Documented limit" block in the
+sink's own file, `lib/log/persist.ts` (precedent: the scan.ts limits block from PSQL-GUARD-RECALL-RESIDUAL),
+carrying the which-side-moves product decision and the re-file trigger verbatim: the first `debug`-level
+`log.*` producer landing on the tree re-files this from that block, and the decision (widen the CHECK vs
+narrow `LogLevel`) is made then, by that arc.
+
+screen-disposition 2026-08-18 (demotion sweep, `docs/ledger-demotion-sweep`): DEMOTE — no live producer,
+CHECK rejection surfaced via health fault + console; record moved to the sink's limits block.
+
+The original entry follows verbatim, with its in-flight status marker removed on archiving per
+invariant 12 — archives categorically reject in-progress work (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
+
+**BL-APP-EVENTS-DEBUG-LEVEL-CHECK-MISMATCH — a debug-level log can never persist, and the rejection is silent**
+
+**Severity:** LOW · **Class:** OBSERVABILITY · **Effort:** S · **Filed:** 2026-08-15 (`feat/admin-ui-surfaces`, from the `BL-OPS-LOG-DASHBOARD-BANNER` audit)
+
+`LogLevel` includes `"debug"` (`lib/log/types.ts:2`), but the `app_events` CHECK accepts only three values:
+
+```sql
+level         text not null check (level in ('info','warn','error')),
+```
+
+(`supabase/migrations/20260629000002_app_events.sql:4`.) So a `debug`-level persist is CHECK-rejected by Postgres, and `persistAppEvent` swallows the returned error by contract — it records the fault for `/api/health` and writes to console, never throwing over the caller (`lib/log/persist.ts:12-40`, invariant 9). The row simply never lands.
+
+**Reachability:** the type admits the value at every `log.*` call site, so nothing but convention stops a `debug` emit; no current producer uses one (which is why this is LOW, not MEDIUM).
+
+**The decision this needs, and why it was filed rather than fixed:** which side moves. Widen the CHECK to accept `debug` (and accept that the forensic log gains a chatty tier with a 60-day retention window), or narrow `LogLevel` to the three values the sink actually stores (and give `debug` callers a console-only path that is honest about not persisting). That is a product decision about what the run log is for, not a repair — class-sweep disposition exception (a).
+
+## BL-PREMISESCAN-UNPARSEABLE-MODULE-UNREACHABLE — DEMOTED TO A DOCUMENTED LIMIT 2026-08-18
+
+Not resolved and not stale: **demoted** by the 2026-08-04 ledger filing bar. The
+`unresolved.push("unparseable in-repo module")` branch is dead code, probed three ways, and the repair is
+FORBIDDEN by the owning spec's own ratified scope — recognizer growth over `sf.parseDiagnostics` on an axis
+with zero measured instances is the widening direction
+`docs/superpowers/specs/ci/2026-08-16-premisescan-import-edge-fidelity-design.md` §1.2(e) forbids. A row
+whose only scheduled step is a fix its owning spec prohibits is not schedulable work; it is that spec's
+already-ratified limit, recorded at §3.8 (the three-way probe) and §4 limit 8 (the disposition, AC-8a
+standing at 3 of 4, stated rather than overclaimed).
+
+**Un-defer path unchanged:** a fifth-family proposal over `sf.parseDiagnostics` is a canonical-spec change
+with its own probe (§1.2(e), §4 limit 8) — re-file from there if a live unparseable-module instance ever
+appears.
+
+screen-disposition 2026-08-18 (demotion sweep, `docs/ledger-demotion-sweep`): DEMOTE — dead branch, fix
+forbidden by ratified scope, limit fully recorded in the owning spec's §3.8 and §4 limit 8.
+
+The original entry follows verbatim, with its in-flight status marker removed on archiving per
+invariant 12 — archives categorically reject in-progress work (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
+
+**BL-PREMISESCAN-UNPARSEABLE-MODULE-UNREACHABLE — canonical unclassifiable form 4 is dead code and this arc does not make it live**
+
+**Severity:** LOW · **Class:** guard fidelity · **Filed:** 2026-08-16 (`fix/premisescan-import-edges`, spec §3.8) · **Effort:** S
+
+`premiseScan`'s `unresolved.push("unparseable in-repo module")` site is unreachable. **Probed three ways:** `moduleFacts` returns `null` if and only if `!existsSync(path)`; `resolveSpecifier` returns only candidates for which `existsSync` was already true, so that branch cannot fire through the traversal at all; and `ts.createSourceFile` is error-tolerant, parsing `export function spawnHelper(: string { return` to a `SourceFile` carrying a `FunctionDeclaration` without throwing or returning null. The fixture classifies `environment-free`.
+
+Closing it means a new detection rule over `sf.parseDiagnostics` — recognizer growth on an axis with **zero** measured instances, which the owning spec's §1.2(e) forbids. Deferred under class-sweep exception (c): a new detection rule on a surface the arc does not otherwise touch. Canonical AC-8a therefore stands at 3 of 4 after `BL-PREMISESCAN-IMPORT-EDGE-FIDELITY`, stated rather than overclaimed.
+
+## BL-NEARMISS-EQUAL-SIZE-TOKEN-SUBSET — DEMOTED TO A DOCUMENTED LIMIT 2026-08-18
+
+Not resolved and not stale: **demoted** by the 2026-08-04 ledger filing bar. Probe-backed (the `>` to `>=`
+mutant survives the suite) but **reachability probed as ZERO on the corpus** by the entry's own sweep —
+every live type-(b) match across all 20 fixtures is a STRICT subset — and the worst case is conservative:
+one near-miss hint going unreported, never a wrong autocorrect. The PSQL-GUARD-RECALL-RESIDUAL shape again:
+a demonstrated gap inert on this tree.
+
+**The substance moved, it was not deleted.** The durable record is the `accepted-gap` registry row on the
+`fieldNearMiss` surface (`tests/mutation/source/registry.ts`, siteId `relational-boundary:156:27:>>>=`),
+which carries the full argument and keeps this id as its `ref` — resolvable from this archive exactly as
+`BL-MUTATION-SECTION-ORDER`'s operator rows are (that entry's own precedent). The expected-kinds count
+(`tests/mutation/source/expectedLedgerKinds.ts`, `fieldNearMiss: { "accepted-gap": 1 }`) pins that the row
+stays carried, not silently blessed.
+
+**Un-defer path:** a real reordered-label instance in a future sheet promotes this from a boundary question
+to an ordinary near-miss — re-file from the registry row, carrying the entry's design question (equal-size
+set equality: type-(a) arm keyed on token set vs type-(b) hit) as the first step.
+
+screen-disposition 2026-08-18 (demotion sweep, `docs/ledger-demotion-sweep`): DEMOTE — zero corpus
+reachability, conservative failure direction, registry accepted-gap row is the durable record.
+
+The original entry follows verbatim, with its in-flight status marker removed on archiving per
+invariant 12 — archives categorically reject in-progress work (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
+
+**BL-NEARMISS-EQUAL-SIZE-TOKEN-SUBSET — the detector's type-(b) subset test is undecided at equal size, and no corpus row reaches it**
+
+**Filed:** 2026-08-16 (`feat/mutation-section-order`, from the `fieldNearMiss` source-mutation gate's accepted-gap row) · **Severity:** LOW (a demote, not a corruption: the worst case is one near-miss going unreported, never a wrong autocorrect) · **Class:** parser signal reachability · **Effort:** S
+
+**Probed, not theorized.** `matchVocabulary`'s type-(b) arm skips a vocabulary entry when `candTokens.size > entry.tokens.size` (`lib/parser/fieldNearMiss.ts:156`), admitting subsets of equal or smaller size. Widening that to `>=` — rejecting equal size too — survives the suite, because no case exercises the equal-size boundary. A subset of EQUAL size is set equality, which reaches type (b) only when the two normalized forms differ: a reordered or re-punctuated spelling of the same tokens, which type (a)'s insertion-order equality scan misses.
+
+**Reachability: PROBED as ZERO on the corpus.** Every col0 label in all 20 fixtures under `fixtures/shows/raw` and `fixtures/shows/exporter-xlsx` was matched against the live vocabulary: no label produces a type-(b) hit whose token-set size equals its entry's. Every live type-(b) match is a STRICT subset, so the boundary is undecided by the shipped inputs rather than decided wrongly.
+
+**Why it is a row and not a kill.** The killing input is a label the corpus does not contain, and `tests/parser/fieldNearMiss.test.ts`'s header forbids hand-written rows precisely because one can be tuned until it passes — so the gap is ledgered as `accepted-gap` with this ref rather than closed with a fixture that proves nothing about real sheets. **First scheduled step:** decide whether an equal-size token match SHOULD be a type-(b) hit at all (it is set equality, so arguably it belongs in the type-(a) arm keyed on the token set rather than the normalized string), then pin whichever direction is chosen. A real reordered-label instance appearing in a future sheet promotes this from a boundary question to an ordinary near-miss.
+
+## BL-SHELL-BINDING-MIXED-QUOTED-VALUE — an assignment whose value mixes a quoted segment with a bare one is not read as a binding — CLOSED 2026-08-17 (`fix/shell-binding-mixed-quoted-value`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-17 · **Effort (as shipped):** M · **Filed:** 2026-08-16 (`test/psql-scan-mutation-enrolment`, from the mutation-enrolment disposition of `relational-boundary:2167:54`; corrected the same day after cross-model review r2) · **Reachability:** PROBED at filing (six-row instrument against bash) and again at design time (probe record, instruments 1–2 plus three round supplements).
+
+**Resolution.** The assignment family reads LEXED WORDS. `assignmentBindingLines` (`tests/cross-cutting/psqlStartupFiles/scan.ts`) derives binding line indexes from the words `scanShellIndirection` already computes, and `ASSIGNED_VALUE_QUOTED`, `ASSIGNED_WHOLE_QUOTED`, `ASSIGNED_NAME`, `DECLARE_KEYWORD`, `quotedValue` and `boundCommand` are deleted — not widened. The declaration keywords needed no grammar at all: `export`, `readonly`, `declare -x`, `local` and `typeset` are SEPARATE words, and whole-argument quoting dequotes to the same candidate word, so the alternation the entry was filed against had nothing left to express. `PSQL_VALUE` and `READ_HERE_STRING` stay, because a here-string TARGET is a redirection operand the lexer drops before words exist.
+
+**The repair had to fix the lexer first, and that is the half the entry did not predict.** Words can only carry the shell's reading if the lexer produces it, and the round-1 adversarial pass demonstrated the dangling-EOF backslash was not its only escape infidelity. Four fixes ship as one class, each implementing a documented bash rule: a dangling final backslash is literal; a double-quote backslash-newline pair is removed outright; a double-quote backslash is literal except before `$`, `` ` ``, `"`, `\`; and `$'…'` decodes the ANSI-C table (an unterminated string keeps the old undecoded reading, since a shell syntax error runs nothing). The entry's own trailing-backslash zeros then fall out of shell semantics instead of a pattern accident — which is what makes them a contract rather than a snapshot.
+
+**Both directions closed.** Eighteen single-word recall rows and five multiword rows report where they were silent; three precision rows — `PG=psql\`, `PG=psql\\`, `PG='psql\'` — stop reporting, because a value whose expansion ends in a literal backslash has an empty basename and is never the psql command. The entry's own corrected non-instances (`PG='psql'x`, `PG='psql'\`) stay zero, as does the pinned prose fixture: the multiword flag criterion is deliberately unchanged, since it is the line between a command binding and prose.
+
+**Two behaviours moved under probe during implementation, in opposite directions from the plan.** `alias p'sql'='psql -F'` was planned as a declared miss and REPORTS — an alias definition is an assignment-SHAPED word, so it dequotes to the candidate `psql=psql -F` and the assignment route reads it; the residual limit is narrower than the plan's version and is pinned as such (only an alias whose body binds another program escapes). And a YAML block scalar is DEDENTED before the shell sees it while the walk hands `scanShellIndirection` the raw file, so the retired `spliced` view's leading-whitespace strip was silently carrying the wrapped-path binding inside a `run:` body; that strip is kept, narrowed to YAML extensions where it is the document's own semantics, with a `.sh` continuation keeping the whitespace bash keeps. Both directions pinned.
+
+**A documented limit closed as a by-product.** Fix 3 keeps the literal backslash inside double quotes, so `"C:\pg\bin\psql.exe"` is the real Windows path and `basename` — which has split on backslash since R40 — finds it. The R40-era residual-limits item 3 is retired and its KNOWN-miss pin is now a site pin.
+
+**Filed rather than repaired, each naming its class-sweep exception (c):** `BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE` (routing the here-string value through the lexer requires retaining redirection TARGETS, with ripple into every redirection consumer) and `BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE` (operand-internal quoting requires operand-aware expansion parsing, a redesign of the deliberate keep-`${…}`-verbatim contract). The `aliased`/`functionDef`/interpreter-positional spellings are documented limits rather than ledger rows — inside the threat fence, nobody spells `alias p'sql'=` by accident, and the corpus holds zero instances.
+
+**Whole-diff review found the repair's own class TWICE, and both are recorded because both were REGRESSIONS rather than pre-existing gaps.** Routing bindings through lexed words means a value the LEXER splits is a value the rule stops seeing, and the retired line-text patterns read both of these by accident. Round 1: a COMPOUND ARRAY value (`PG=(psql)`, `PG=([0]=psql)`, `declare -a`/`-A`, `+=`) — probed base-versus-HEAD at 1 → 0 across the vector. `(` is the only member of `OPERATOR_STARTS` that can appear INSIDE an assignment value, so `compoundArrayBinds` walks the element words to the closing paren and hands each back to the same `valueBinds` predicate; an unterminated list is a bash syntax error and binds nothing. Round 2: an assignment inside a `$(…)`/backtick/process-substitution BODY, invisible because the outer lex replaces the body with the opaque `${}` word — and this one's direction was a FALSE CERTIFICATION, not a miss, since a body carrying both the binding and a literal `psql -X` certified on the literal call while bash runs the expanded invocation first. Both sweeps ship as derivations rather than lists: the operator one ranges over `OPERATOR_STARTS` itself, and the nesting one is one consumer by construction, because the line-text rules read raw lines that already carry the body's characters.
+
+**The repair also had to stop throwing.** Round 1's second finding: `String.fromCodePoint` rejects a code point above the Unicode maximum, which bash accepts, so `$'\U00110000'` aborted the whole walk before it could inspect anything after it — strictly worse than any miss. Swept to both sites that hand file-derived hex to it (the ANSI-C escape and the template-literal line map), and both bounds are pinned from BOTH sides: at the maximum they must still decode, above it they keep the raw reading. The template-literal twin needed its own oracle — that guard sits in the per-character LINE MAP, so neither the site count nor the suppression verdict can see it move, and the assertion is the reported line.
+
+**What guards it.** The surface stays enrolled at `scoreFloor: 1` with an empty unaccepted-survivor set, re-measured over the post-repair source three times as the review repairs moved every site: 63 mutants, 39/39 counted, 24 equivalent, no accepted gap. Six of the survivors those re-measures surfaced were REPAID with tests and four are argued equivalences, one of which is a disposition change — `relational-boundary:2511:54`, whose killing test ran through a consumer this arc deleted, argued against the two consumers that remain rather than restored as a gap. The deciding suite gained an accept-set block pinning every recall and precision row, the site-path ripples, and a documented-limits block whose every row carries an executable premise.
+
+**Spec:** `docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md` (spec-APPROVED r3). **Plan:** `docs/superpowers/plans/2026-08-17-shell-binding-mixed-quoted-value.md` (plan-APPROVED r7, after an orchestrator disposition at r6 narrowed the word-split reading's claim to argv[0]-psql command lines and declared the wrapper-prefixed value a limit, fenced in both directions). **Round corpus:** `docs/review-rounds/fix/shell-binding-mixed-quoted-value/`.
+
 ## BL-MODAL-WAIT-LINE-GRANULARITY-ACTIVATION — the modal-wait census classified one PHYSICAL LINE — CLOSED 2026-08-17 (`fix/modal-wait-candidate-contract`, SHIPPED)
 
 **Status:** SHIPPED 2026-08-17 · **Effort (as shipped):** M · **Filed:** 2026-08-16 (`test/modal-wait-helper-adoption`, diff review round 10 plus a sibling probe)
