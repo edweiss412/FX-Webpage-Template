@@ -25,9 +25,10 @@ Every symbol, path, and number this plan names was verified against the live tre
 
 ## 1. Meta-test inventory (mandatory declaration)
 
-- **EXTENDS** `tests/specLint/_metaPureCore.test.ts` — no change to the test, but the new module falls under its tree walk by default, so purity is enforced from the first commit (Task 1 asserts it explicitly rather than assuming the walk covers a new file).
-- **EXTENDS** `tests/mutation/source/registry.ts` — one new row, `id: "fixtureContract"` (Task 8). Registry reconciliation is in §2.
-- **EXTENDS** `tests/specLint/cli.test.ts` — end-to-end adapter cases (Task 6).
+- **EXTENDS** `tests/specLint/_metaPureCore.test.ts` — no change to the test; the new module falls under its recursive tree walk by default, and **Task 8** asserts that explicitly rather than assuming coverage.
+- **EXTENDS** `tests/mutation/source/registry.ts` AND `tests/mutation/source/expectedLedgerKinds.ts` — one new row in EACH, `id: "fixtureContract"` (**Task 7**); `tests/mutation/guardSurfaces.gates.test.ts:21` compares the two key sets, so one without the other reds the corpus gate. Reconciliation is in §2.
+<!-- spec-lint: ignore — a file Task 6 creates; the path is a forward declaration, not a citation of existing code -->
+- **CREATES** `tests/specLint/fixtureCli.test.ts` — end-to-end adapter cases (**Task 6**). It does NOT extend the tracked `tests/specLint/cli.test.ts`, whose subject is the pre-existing CLI surface.
 - **CREATES** no new registry-style meta-test. The two candidate invariants ("every new finding code appears in the docs table", "every enrolled block draws exactly one outcome") are pinned by the classification suite's total-precedence cases (Task 4) rather than by a separate walker; a meta-test whose registry is a copy of one function's switch is a second copy of the same list.
 - **N/A:** advisory-lock topology (no `pg_advisory*` in scope), Supabase call boundary (no Supabase client call), admin-alert catalog, sentinel hiding, email canonicalization.
 
@@ -40,9 +41,9 @@ $ grep -c ': {}' tests/mutation/source/expectedLedgerKinds.ts
 18
 ```
 
-Registry rows at base: **36**. Rows this plan adds: **1** (`fixtureContract`, Task 8). Expected after: **37**, asserted in Task 8's GREEN step against the live file.
+Registry rows at base: **36**. Rows this plan adds: **1** (`fixtureContract`, Task 7). Expected after: **37**, asserted in Task 7's GREEN step against the live file.
 
-**Enrolment is TWO declarations, not one.** `tests/mutation/guardSurfaces.gates.test.ts:21` compares the registry's id set against the independent key set of `EXPECTED_LEDGER_KINDS` (`tests/mutation/source/expectedLedgerKinds.ts`), which is declared separately on purpose — counting a list against itself proves nothing, so a new surface fails by default until it declares its own counts. Task 8 therefore adds a row in BOTH files; a registry row alone leaves `guardSurfaces.gates.test.ts` red.
+**Enrolment is TWO declarations, not one.** `tests/mutation/guardSurfaces.gates.test.ts:21` compares the registry's id set against the independent key set of `EXPECTED_LEDGER_KINDS` (`tests/mutation/source/expectedLedgerKinds.ts`), which is declared separately on purpose — counting a list against itself proves nothing, so a new surface fails by default until it declares its own counts. Task 7 therefore adds a row in BOTH files; a registry row alone leaves `guardSurfaces.gates.test.ts` red.
 
 **Recorded because the correction matters more than the number.** The first version of this section stated 23 rows and a 23→24 transition. That figure was never produced by running the command it was pasted under — it was authored, which is the exact defect `docs/agents/writing-plans.md` names ("Reconciliation/closeout sweeps are authored AND RUN at plan time; authoring the sweep without running it cost the financials plan 6 consecutive rounds"). Plan review round 1 caught it by running the command. Every count in this document has now been produced by the command printed beside it.
 
@@ -64,15 +65,15 @@ The spec's whole subject is that an unexecuted embedded block lies. This plan th
 
 ```
 $ pnpm exec vitest run tests/.planExec --reporter=json
-total 7 passed 1 failed 6
-FILE block1-L113.test.ts | assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' ...
-FILE block2-L191.test.ts | assertions 2
-     - failed | a malformed marker surfaces through runLint with NO exec maps
+total 8 passed 1 failed 7
+FILE block1-L119.test.ts | assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' ...
+FILE block2-L197.test.ts | assertions 2
+     - a malformed marker surfaces through runLint with NO exec maps
        AssertionError: expected [] to deeply equal [ 'FIXTURE_MALFORMED' ]
-FILE block3-L227.test.ts | assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' ...
-FILE block4-L275.test.ts | assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' ...
-FILE block5-L418.test.ts | assertions 5
-     - failed (x5) | TypeError: runFixtureSplice is not a function
+FILE block3-L233.test.ts | assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' ...
+FILE block4-L281.test.ts | assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' ...
+FILE block5-L424.test.ts | assertions 6
+     - failed (x6) | TypeError: runFixtureSplice is not a function
 ```
 
 Read exactly, and note the three DIFFERENT red shapes, none of them a transform error:
@@ -81,7 +82,7 @@ Read exactly, and note the three DIFFERENT red shapes, none of them a transform 
 - **Task 2's block** red at its assertion, `expected [] to deeply equal [ 'FIXTURE_MALFORMED' ]`. It imports only tracked modules, so this proves the five-argument `runLint` call compiles and that the orchestrator genuinely emits nothing today.
 - **Task 5's block** red with `TypeError: runFixtureSplice is not a function`. That shape is the point: the module RESOLVES — it is `scripts/spec-lint.ts`, which exists — and simply lacks the export. Since plan review round 1, this block imports from the ADAPTER rather than from the pure core, because the spec's §5 boundary puts every filesystem, spawn and JSON-parse concern there; the earlier version imported a side-effecting `runFixtureSplice` from the pure core module and could not have satisfied the ratified architecture.
 
-This run is the RE-execution after plan review round 1, which rewrote Tasks 5 through 9 and strengthened the assertions in Tasks 1, 3 and 4; every earlier repair that touched a block was followed by the same re-run, and the line numbers here are the current ones. The record is re-measured on every edit rather than carried forward, which is the discipline the arm itself enforces. Two things the original execution corrected rather than confirmed, which is the argument for running it at all: an earlier draft of this section asserted three module-resolution reds where the measurement shows four, and Task 2's block turns out to carry **one case that passes at base vacuously** — "a clean marker adds no findings" holds today precisely because nothing fires at all. It is kept deliberately as the over-fire guard it becomes once Task 2 lands, and is named here so no reviewer has to discover that it proves nothing before the GREEN step. The splice directory was removed after the run and `git status` is clean.
+This run is the RE-execution after plan review round 2, which added the assertion-channel case to Task 5 and moved the two verification gates out of the enrolled region; every earlier repair that touched a block was followed by the same re-run, and the line numbers here are the current ones. The record is re-measured on every edit rather than carried forward, which is the discipline the arm itself enforces. Two things the original execution corrected rather than confirmed, which is the argument for running it at all: an earlier draft of this section asserted three module-resolution reds where the measurement shows four, and Task 2's block turns out to carry **one case that passes at base vacuously** — "a clean marker adds no findings" holds today precisely because nothing fires at all. It is kept deliberately as the over-fire guard it becomes once Task 2 lands, and is named here so no reviewer has to discover that it proves nothing before the GREEN step. The splice directory was removed after the run and `git status` is clean.
 
 ### 3.1 Dogfood against the landed arms
 
@@ -109,7 +110,7 @@ Every reference that used to carry an ordinal now names the code or the conditio
 <!-- task: red=`pnpm vitest run tests/specLint/fixtureContract.test.ts` red-state=authored red-target=`lib/specLint/fixtureContract.ts` why=`lib/specLint/fixtureContract.ts does not exist at base 7d09a1f0b (git ls-files returns empty), so checkFixtureContract is unimportable and every case in the new suite fails at module resolution. The RED derives from that absent production module, not from anything the test controls: §3(b) records the spliced run naming exactly this specifier. It greens when the module exports checkFixtureContract implementing the spec §3.1 grammar and the spec §3.2 codes` ac=AC-1,AC-2 -->
 
 <!-- spec-lint: ignore — the module this task creates is untracked until this task lands; the path is a forward declaration, not a citation of existing code -->
-Create `lib/specLint/fixtureContract.ts`, pure (no `node:` imports), exporting `checkFixtureContract(model, kind)`. Implement spec §3.1's grammar exactly — `<!-- fixture: why=\`…\` -->`, backtick-delimited, `expect=` admitting only the two literals — and spec §3.2's three codes: `FIXTURE_MALFORMED`, `FIXTURE_WHY_EMPTY`, `FIXTURE_UNATTACHED`. Plan-kind docs only; markers on fenced lines inert. Attachment = the immediately following line opens a fence whose info string is `ts`, `tsx`, or `typescript`.
+Create `lib/specLint/fixtureContract.ts`, pure (no `node:` imports), exporting `checkFixtureContract(model, kind)`. Implement spec §3.1's grammar exactly — `<!-- fixture: why=\`…\` -->`, backtick-delimited, `why=` the ONLY field — and spec §3.2's three codes: `FIXTURE_MALFORMED`, `FIXTURE_WHY_EMPTY`, `FIXTURE_UNATTACHED`. Plan-kind docs only; markers on fenced lines inert. Attachment = the immediately following line opens a fence whose info string is `ts`, `tsx`, or `typescript`.
 
 **What is red and why:** the suite cannot import the module under test because that module does not exist.
 
@@ -227,7 +228,7 @@ Export `spliceFixturePlan(model, kind)` returning `{ line, block: string }[]` �
 
 **What is red and why:** the named export does not exist.
 
-**Failure modes caught:** a plan that silently normalizes block text (which would change what runs versus what the author reads); a statically-flagged marker reaching the splice set (spec §4.1 forbids running a block whose declared outcome is unknown); doc order lost when a doc mixes clean and flagged markers.
+**Failure modes caught:** a plan that silently normalizes block text (which would change what runs versus what the author reads); a statically-flagged marker reaching the splice set (spec §4.1 forbids splicing a block whose declaration the linter has already rejected); doc order lost when a doc mixes clean and flagged markers.
 
 ```ts
 import { describe, it, expect } from "vitest";
@@ -441,7 +442,27 @@ const harness = (opts: { dirExists?: boolean; runOutcome?: "throw" | "timeout" |
         if (opts.runOutcome === "timeout") return { kind: "timeout" as const };
         if (opts.runOutcome === "signal") return { kind: "signal" as const, signal: "SIGKILL" };
         if (opts.runOutcome === "badjson") return { kind: "exit" as const, code: 1, report: "{not json" };
-        return { kind: "exit" as const, code: 1, report: JSON.stringify({ testResults: [] }) };
+        // A report with a REAL assertion carrying a REAL failure message: the
+        // channel this task exists to forward. An earlier version returned
+        // testResults: [] everywhere, so a lifecycle-only implementation that
+        // never read assertionResults or failureMessages passed every case
+        // (plan review r2 probe).
+        return {
+          kind: "exit" as const,
+          code: 1,
+          report: JSON.stringify({
+            testResults: [
+              {
+                name: "/abs/tests/.spec-lint-fixtures-1-1/fixture-3.test.ts",
+                status: "failed",
+                message: "",
+                assertionResults: [
+                  { status: "failed", title: "t0", failureMessages: ["Error: premise not met: the header opens a block. ..."] },
+                ],
+              },
+            ],
+          }),
+        };
       },
     },
   };
@@ -486,6 +507,20 @@ describe("splice lifecycle (spec section 4.2)", () => {
     }
   });
 
+  it("the ASSERTION channel is forwarded: a failure message reaches the core verbatim", () => {
+    // The named production behavior of THIS task. Without a case that supplies
+    // assertionResults and failureMessages, a lifecycle-only implementation
+    // greens here and Task 6 then reds on two missing channels instead of the
+    // one it names.
+    const h = harness();
+    const out = runFixtureSplice([{ line: 3, block: "// b" }], h.deps as never);
+    const forwarded = out.results.files.get(3);
+    expect(forwarded).toBeDefined();
+    expect(forwarded!.failureMessages.join(" ")).toContain("premise not met: the header opens a block");
+    // and the classification the core reaches on it
+    expect(out.findings.map((f) => f.code)).toEqual(["FIXTURE_UNSATISFIABLE"]);
+  });
+
   it("a run that produced no usable report declines, and never certifies", () => {
     for (const runOutcome of ["throw", "timeout", "signal", "badjson"] as const) {
       const h = harness({ runOutcome });
@@ -520,28 +555,29 @@ Then run `pnpm heavy pnpm mutation:guards` in the FOREGROUND and state the score
 
 **Failure modes caught:** enrolling in one declaration and not the other, which leaves the corpus-wide gate red for a reason unrelated to the surface's quality; deciding assertions placed outside the registered `suitePaths`, which buys zero score (the #831 lesson).
 
-## Task 8 — acceptance proofs that no earlier task performs
+<!-- tasks: end -->
 
-<!-- task: red=`pnpm vitest run tests/specLint/fixtureAcceptance.test.ts` red-state=authored red-target=`lib/specLint/fixtureContract.ts` why=`no suite asserts the structural AC-2 property at all: Tasks 1 and 3 sample behavior over enrolled and unenrolled markers but nothing pins that fence CONTENT is never read for an unenrolled block, so an implementation that scans every ts fence for defect-shaped text passes all of them. The new suite reds because the file does not exist and its AC-2 case has no implementation to pin; it greens once the property holds and is asserted structurally` ac=AC-2,AC-6,AC-7 -->
+The two steps below are VERIFICATION GATES, not red-then-green cycles, so they sit outside the enrolled region deliberately (multi-region enrolment, `docs/superpowers/specs/2026-08-09-task-enrollment-multi-region-design.md`). Neither can carry an honest `red-state`: at their sequence position the implementation is complete, so any test they author passes the moment it is written, and a marker claiming otherwise would be the invalid-RED shape plan review round 1 and round 2 both flagged. Declaring them as gates is the accurate description, not an exemption from proof — each names the command that runs it and the output that must be pasted.
 
-<!-- spec-lint: ignore — a file this task creates; the path is a forward declaration, not a citation of existing code -->
-Create `tests/specLint/fixtureAcceptance.test.ts` for the acceptance properties the per-unit tasks do not reach:
+## Gate A — acceptance proofs that no task performs
 
-- **AC-2, structurally:** a plan containing a large UNENROLLED `ts` fence whose body carries marker-shaped lines, `premise not met:` text, and every code name draws exactly zero findings, and contributes zero splice-plan entries. The failure mode: an implementation that inspects fence content rather than enrolment passes every sampled test in Tasks 1 and 3 and fails only this one.
-- **AC-6, corpus regression:** `spec:lint` over every tracked plan (`git ls-files 'docs/superpowers/plans'`, `.md`) emits no `FIXTURE_` code, because zero blocks are enrolled (§2.2 of the spec). Derived from the live corpus by walking it, never from a pinned list.
-- **AC-7, purity and the untouched parser:** the recursive purity meta-test passes for the new module, and `lib/specLint/parse.ts` is byte-identical to base — asserted as `git diff --exit-code 7d09a1f0b -- lib/specLint/parse.ts`, since the spec forbids modifying it (§5) and nothing else in the plan checks that.
+<!-- spec-lint: ignore — a file this gate creates; the path is a forward declaration, not a citation of existing code -->
+Create `tests/specLint/fixtureAcceptance.test.ts` for the acceptance properties the per-unit tasks do not reach. Each is a DERIVED COVER over a set walked from disk, never a sample:
 
-**What is red and why:** the suite file does not exist, and the AC-2 property it pins is asserted nowhere else in the plan.
+- **AC-2 — no shipped code inspects an unenrolled block.** Walk every tracked plan (`git ls-files 'docs/superpowers/plans'`, `.md`) and assert that `checkFixtureContract` returns zero findings and `spliceFixturePlan` zero entries for all of them, because zero blocks carry a marker (spec §2.2). The corpus supplies **216** files containing `from "vitest"`-shaped text, so the cover is the corpus itself rather than a constructed fence. Then, ON TOP of that cover, one generated document whose UNENROLLED `ts` fence contains marker-shaped lines, `premise not met:` text and every code name, asserting the same two zeros — the adversarial-content case the corpus does not happen to contain. The failure mode: an implementation keying on fence CONTENT rather than on enrolment. Note what makes this structural rather than sampled — the file set is derived by walking the repo, so a plan added tomorrow is covered without editing this test.
+- **AC-6 — corpus relints byte-identical.** The same walk asserts no `FIXTURE_` code appears in any tracked plan's report.
+- **AC-7 — purity and the untouched parser.** The recursive purity meta-test passes for the new module, and `git diff --exit-code 7d09a1f0b -- lib/specLint/parse.ts` exits 0, since the spec forbids modifying it (§5) and nothing else in this plan checks it.
 
-## Task 9 — wiring, docs, and ledger closeout
+Command: `pnpm vitest run tests/specLint/fixtureAcceptance.test.ts`, output pasted into the PR body.
 
-<!-- task: red=`git check-ignore -v tests/.spec-lint-fixtures-1-1/probe.test.ts` red-state=live why=`.gitignore carries no entry for the splice directory at base, so git check-ignore finds no matching pattern and exits 1 today (observed at plan time: exit=1). The SAME command exits 0 once this task adds the tests/.spec-lint-fixtures-* entry, which is the red-then-green cycle on one command` ac=AC-8 -->
+## Gate B — wiring, docs, and ledger closeout
+
+**Re-point the four path-only `red-target=` values first.** Tasks 1, 3, 4 and Gate A name the fixture core module as a bare path, which `targetProblem` accepts only while the file is UNTRACKED (`lib/specLint/redContract.ts`, the path-only branch). Task 1 tracks it, so from that moment those four markers draw `RED_TARGET_INVALID` and the `0 hard` promise below is unsatisfiable — plan review round 2 probed exactly this. Update each to cite the defective line in the now-tracked module, which is also the more useful citation. This step runs BEFORE the lint gate below, and `git check-ignore -v tests/.spec-lint-fixtures-1-1/probe.test.ts` (exit 1 at plan time, exit 0 once the ignore entry lands) is the observable red-then-green for the ignore work itself.
 
 `.gitignore` entry for `tests/.spec-lint-fixtures-*/` written with `printf '\n%s\n'` and verified by `git check-ignore -v`; one sentence in `docs/agents/writing-plans.md` under the premise bullet; a `docs/superpowers/specs/README.md` row; archive the ledger row and strip its IN PROGRESS marker in the PR's LAST commit (invariant 12).
 
 Closeout gates, each run and its output pasted into the PR body: `pnpm spec:lint` over BOTH this plan and its spec, each exiting 0 hard (AC-8); and the §3.2 ordinal sweep returning no match outside spec §4.3.
 
-<!-- tasks: end -->
 
 ## 5. Acceptance criteria (spec §10, mapped to the task that PROVES it)
 
@@ -550,13 +586,13 @@ Every row names a task step that executes the proof. A row whose only home was t
 | AC | proved by |
 | --- | --- |
 | AC-1 marker grammar and three static codes, detail included | 1 (grammar suite, incl. the `FIXTURE_UNATTACHED` detail case), 2 (wired through `runLint`) |
-| AC-2 no shipped code inspects an unenrolled block | **8** — the structural case: an unenrolled fence full of marker-shaped and defect-shaped text draws zero findings and contributes zero splice entries |
+| AC-2 no shipped code inspects an unenrolled block | **Gate A** — a DERIVED COVER: the walked tracked-plan corpus (216 files carrying vitest-shaped text) yields zero findings and zero splice entries, plus a generated adversarial-content fence on top of it |
 | AC-3 ladder total; no certificate on any proxy | 4 (every branch, the six retired-proxy `toEqual([])` cases, and the two detail cases) |
 | AC-4 historical pair; §2.5-§2.9 shapes | 4 (pure), 6 (both historical headers end to end through the real CLI) |
 | AC-5 pre-existing dir spawns nothing; dir never survives; filenames map back | 5 (spy asserts zero calls; removal on throw, timeout, signal and unreadable JSON; filename line + suffix), 6 (real filesystem) |
 | AC-6 corpus relints byte-identical | **8** — walks `git ls-files 'docs/superpowers/plans'` and asserts no `FIXTURE_` code, derived from the corpus rather than a pinned list |
-| AC-7 purity, `parse.ts` unmodified, mutation score | **8** (purity meta-test + `git diff --exit-code` on `parse.ts`), **7** (both enrolment declarations, then the score) |
-| AC-8 spec and plan lint clean | **9** — `pnpm spec:lint` commanded over BOTH documents at closeout, output pasted |
+| AC-7 purity, `parse.ts` unmodified, mutation score | **Gate A** (purity meta-test + `git diff --exit-code` on `parse.ts`), **Task 7** (both enrolment declarations, then the score) |
+| AC-8 spec and plan lint clean | **Gate B** — the four path-only `red-target=` values re-pointed at their now-tracked lines FIRST, then `pnpm spec:lint` over BOTH documents, output pasted |
 
 ## 6. Checklist
 
