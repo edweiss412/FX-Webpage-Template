@@ -69,7 +69,7 @@ the root of this directory alongside the dated product specs.
 | [`2026-08-16-control-outline-surface-fills-design.md`](./2026-08-16-control-outline-surface-fills-design.md) | DESIGN §1.2a's control-outline predicate becomes fill-equals-container; 21 controls swap to `border-text-faint`, switch tracks stay out. |
 | [`2026-08-16-orchestrator-pane-compaction-design.md`](./2026-08-16-orchestrator-pane-compaction-design.md) | `pnpm panes:compact` — an orchestrator classifies the panes under its purview by context pressure and arc position, then drives a probe-verified checkpoint-then-compact protocol. |
 | [`2026-08-17-spec-lint-red-verdict-capability.md`](./2026-08-17-spec-lint-red-verdict-capability.md) | A `red=` must be CAPABLE of a verdict: `sh -nc` parse checks on every plan-kind invocation, and `vitest list` collection probes under `--exec-red`. |
-| [`2026-08-18-planlint-fixture-satisfiability.md`](./2026-08-18-planlint-fixture-satisfiability.md) | A plan's embedded test block declares itself with `<!-- fixture: why=`…` -->` and `--exec-red` RUNS it: a stated premise that did not hold is reported, a block the report carries no test case for is surfaced, and nothing is ever certified. |
+| [`2026-08-18-planlint-fixture-satisfiability.md`](./2026-08-18-planlint-fixture-satisfiability.md) | A plan's embedded test block declares itself with ``<!-- fixture: why=`…` -->`` and `--exec-red` RUNS it: a stated premise that did not hold is reported, a block the report carries no test case for is surfaced, and nothing is ever certified. |
 
 ## Conventions
 

@@ -18,6 +18,7 @@ const harness = (
   opts: {
     dirExists?: boolean;
     throwOnWrite?: boolean;
+    throwOnRm?: boolean;
     spawnOutcome?: "throw" | "timeout" | "signal" | "badjson";
     reportFor?: Record<number, string | null>;
   } = {},
@@ -51,8 +52,9 @@ const harness = (
         return body;
       },
       rm: (d: string) => {
-        dirs.delete(d);
         calls.push(`rm:${d}`);
+        if (opts.throwOnRm) throw new Error("EPERM");
+        dirs.delete(d);
       },
       spawn: (command: string, cwd: string, timeoutMs: number, mode: string) => {
         calls.push(`spawn:${mode}:${cwd}:${timeoutMs}:${command}`);
@@ -285,5 +287,28 @@ describe("splice lifecycle — shapes the authored block leaves unpinned", () =>
     );
     expect(reasons.size).toBe(5);
     expect([...reasons].every((r) => r.length > 0)).toBe(true);
+  });
+});
+
+describe("cleanup failure is raised, never swallowed", () => {
+  it("a directory that cannot be removed THROWS, naming the path", () => {
+    // The failure mode: a surviving directory holds `.test.ts` files the repo's
+    // own include glob collects on the next full run, and the splice counter has
+    // ALREADY advanced -- so the next invocation picks a different name and the
+    // collision refusal never sees this one. Nothing downstream can observe the
+    // leak, so swallowing it means the promise "no file is left under tests/"
+    // fails silently. runCli's outer catch turns this into exit 2.
+    const h = harness({ throwOnRm: true });
+    expect(() => runFixtureSplice(plan, h.deps as never)).toThrow(
+      /could not remove the fixture splice directory tests\/\.spec-lint-fixtures-1-\d+/,
+    );
+    expect(h.calls.some((c) => c.startsWith("rm:"))).toBe(true);
+  });
+
+  it("the throw also fires when the run itself already failed", () => {
+    // A cleanup failure on top of a spawn failure must not be lost behind the
+    // advisory the spawn failure would otherwise have produced.
+    const h = harness({ throwOnRm: true, spawnOutcome: "throw" });
+    expect(() => runFixtureSplice(plan, h.deps as never)).toThrow(/could not remove/);
   });
 });

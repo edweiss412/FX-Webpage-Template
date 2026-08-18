@@ -291,10 +291,22 @@ export function runFixtureSplice(
   } finally {
     try {
       deps.rm(dir);
-    } catch {
-      // Best effort: a directory that cannot be removed is reported by the
-      // NEXT invocation's collision refusal rather than swallowing this run's
-      // verdicts.
+    } catch (e) {
+      // NOT best-effort, and the earlier comment here was wrong about why. A
+      // surviving directory holds `.test.ts` files that the repo's own
+      // BASE_INCLUDE collects on the next full run, and the counter has ALREADY
+      // advanced — so the next invocation picks a different name and the §4.2
+      // collision refusal never sees this one. Nothing downstream can observe
+      // the leak, which is why it is raised here rather than recorded: runCli's
+      // outer catch turns it into exit 2, this CLI's infra-fault code, with the
+      // path named so the author can remove it. Spec §4.2 step 4 promises no
+      // file is left under `tests/`; a swallowed failure breaks that promise
+      // silently, which is the one thing this arm may never do.
+      throw new Error(
+        `spec:lint could not remove the fixture splice directory ${dir}: ` +
+          `${e instanceof Error ? e.message : String(e)}. Remove it by hand — it holds test ` +
+          `files the repo's own include glob collects.`,
+      );
     }
   }
 
@@ -534,7 +546,7 @@ export function nodeDeps(root: string, pid: number): CliDeps {
   return {
     cwd: () => process.cwd(),
     repoRoot: () => root,
-    pid: () => process.pid,
+    pid: () => pid,
     exists: (relPath) => lstatSync(inRepo(relPath), { throwIfNoEntry: false }) !== undefined,
     mkdir: (relPath) => void mkdirSync(inRepo(relPath), { recursive: true }),
     write: (relPath, body) => writeFileSync(inRepo(relPath), body),

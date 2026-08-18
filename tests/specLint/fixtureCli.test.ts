@@ -165,6 +165,18 @@ afterEach(() => {
   rmSync(join(REPO, TMP), { recursive: true, force: true });
 });
 
+describe("the shipped deps factory honours its injected pid", () => {
+  it("nodeDeps(root, pid).pid() returns the INJECTED pid, not the process's", () => {
+    // Without this the suite's "fixed PID" control is a fiction: every case
+    // below still passes, because the collision case LEARNS the directory from
+    // a first real run rather than predicting it, so a factory ignoring its own
+    // parameter is invisible to all of them. Found by cross-model review r1 F2.
+    expect(nodeDeps(REPO, 900001).pid()).toBe(900001);
+    expect(nodeDeps(REPO, 900002).pid()).toBe(900002);
+    expect(nodeDeps(REPO, 900001).pid()).not.toBe(process.pid);
+  });
+});
+
 describe("fixture arm end to end, through the real reporter (spec §6)", () => {
   it("a premise failing INSIDE a test draws the verdict, and the directory does not survive", () => {
     const run = lintPlan([PREMISE_IN_TEST], 900001);
