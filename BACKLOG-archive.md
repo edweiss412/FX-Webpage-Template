@@ -96,6 +96,84 @@ That is the same fault class as `BL-CHANGES-FEED-MODAL-BATCH-FLAKE` (spec `docs/
 
 **Spec:** `docs/superpowers/specs/ci/2026-08-17-rowactions-submenu-reveal-scroll-clamp-design.md` §7. **Round corpus:** `docs/review-rounds/fix/rowactions-submenu-reveal-flake/`.
 
+## BL-SPECLINT-RED-COMMAND-SHAPE — a plan's red= command can be incapable of expressing a verdict, and nothing checks the shape — CLOSED 2026-08-18 (`fix/red-contract-shape-execution`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-18 · **Effort (as shipped):** M · **Filed:** 2026-08-16
+
+**Resolution.** Closed by delegating the grammar to the shell instead of modelling it. `spec:lint` derives a parse plan over every well-formed marker's non-empty `red=` AND every gate's non-empty `cmd=`, then spawns `sh -nc <command>` per entry: `RED_UNPARSEABLE` and `GATE_CMD_UNPARSEABLE` (hard) when the check completes non-zero, `RED_PROBE_UNVERIFIED` (advisory) when it does not complete at all. A marker whose parse check did not return exit 0 is excluded from `--exec-red` execution AND from collection probing, because executing a command the shell cannot parse observes nothing.
+
+**Two decisions the entry sketched differently, both settled by probe.**
+
+1. **`sh -nc`, not the entry's `zsh -nc`.** The parse check runs in the SAME shell `--exec-red` executes with (`spawnSync("sh", ["-c", …])`). A parse check in a different shell than the executor is two recognizers that can disagree, and they measurably do: on the originating `<><=` shape, `zsh -nc` exits 1 and `sh -nc` exits 2. The entry's intent — catch the quoting class as a whole rather than the `<`/`>` instance — is preserved exactly, because the shell itself is the grammar and no shell syntax is re-implemented in TypeScript.
+
+2. **The `-t` check ships ADVISORY, not as the entry's rejection.** `RED_TEST_NAME_FILTER` is region-scoped and disposition-only. A hard code would have been waived reflexively: 10 of 390 corpus commands carry the flag and five of them are authored markers in a MERGED, review-approved plan where a new case is added to an existing suite and the name filter is the legitimate red selector. The advisory says what to check, and `--exec-red` settles it mechanically — a no-match filter collects nothing, which the collection arm names.
+
+**The check runs on the DEFAULT invocation, not behind `--exec-red`.** The payoff moment is review-time linting (`codex-guard --lint-doc` never passes the flag), so gating it would have missed every dispatch that needs it. Cost is ~2-5 ms per command.
+
+**Calibration.** `sh -nc` over the whole live tracked plan corpus — 657 plan files, 399 parse-checked commands — draws exactly ONE finding, and it is a true positive: a legacy plan whose `red=` capture is the prose `none (closeout gate task)`, which can express no verdict. Zero false fires on the merged, review-approved population.
+
+**Spec:** `docs/superpowers/specs/2026-08-17-spec-lint-red-verdict-capability.md` (spec-APPROVED r4, zero findings). **Plan:** `docs/superpowers/plans/2026-08-17-red-verdict-capability.md` (plan-APPROVED r4, zero findings). **Round corpus:** `docs/review-rounds/fix/red-contract-shape-execution/`.
+
+**The original filing, preserved.**
+
+**BL-SPECLINT-RED-COMMAND-SHAPE — a plan's red= command can be incapable of expressing a verdict, and nothing checks the shape**
+
+**Filed:** 2026-08-16 (`test/psql-scan-mutation-enrolment`, from the plan stage's own four-round filing). **Severity:** LOW-MEDIUM (plan-authoring defect class; each instance costs a review round, and the failure is silent in the direction that looks like success). **Class:** guard coverage. **Effort:** M. **Class-sweep exception:** (c) — the repair adds a new check family to `spec:lint`'s task-contract pass, a surface the enrolling arc does not otherwise touch. **Reachability:** PROBED — both shapes were live in this arc's own plan and are quoted in `docs/review-rounds/test/psql-scan-mutation-enrolment/119895a7c756.md`.
+
+The red→green task contract requires a task's `red=` command to be OBSERVED failing. Two command shapes cannot do that, and `spec:lint` accepts both today:
+
+1. **`vitest ... -t '<pattern>'` as the red command.** Live vitest treats a no-match `-t` as a skip and exits 0, so a red state that depends on "no test matches yet" reports GREEN from the moment it is written. This arc's plan R2 found it after the shape had already survived R1.
+2. **A red command embedding an unquoted `<` or `>`.** A mutation site id (`relational-boundary:2167:54:<><=`) carries both, and zsh fails on the redirection before the command runs — the command cannot express any verdict, in either direction. This arc's plan R1 found it in every checker invocation the plan wrote.
+
+Both are static properties of the command text, which is what makes them mechanizable: `RED_CONJUNCTION` already rejects `&&` in a red-state command for the same reason.
+
+**What would close it:** extend `spec:lint`'s red-state pass with (a) a rejection of `-t`/`--testNamePattern` in a `red=` command, and (b) a shell-parse dry-run (`zsh -nc`) of every `red-state=live` command, which catches the quoting class as a whole rather than the `<`/`>` instance. Pin both with a fixture plan that currently passes and must stop.
+
+## BL-PLANLINT-RED-CLAIM-EXECUTION — a plan's declared red is executed, not just parsed — CLOSED 2026-08-18 (`fix/red-contract-shape-execution`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-18 · **Effort (as shipped):** M · **Filed:** 2026-08-16
+
+**Resolution.** Closed as the entry prescribed — `vitest list` per `red=`, membership-checked against the declared target — with the population and the failure modes pinned by measurement rather than by argument.
+
+Under `--exec-red`, for markers owned by a `red-contract` region, a derived probe rewrites the command's leading `vitest run` token pair to `vitest list`:
+
+- **live**, after a genuinely non-zero red only: empty collection → hard `RED_COLLECTS_NOTHING`. The observed red was a collection artifact, not the asserted failure.
+- **authored**, red never run: every tracked test-file token of the ORIGINAL command must appear in the collected output → hard `RED_SUITE_UNCOLLECTED` on any absence. This is the entry's sharpest case verbatim — a suite living only in a vitest project gated behind an env flag. An untracked test-file token draws advisory `RED_SUITE_UNVERIFIED` BY NAME even beside collectible siblings, so a one-character typo cannot hide behind them; a selector naming no test file at all is judged by the probe, clean when it collects and advisory when it does not.
+
+**Why a list-only probe does not violate "never run authored red commands".** That fence exists because an authored red's failing case does not exist at plan time, so running the command cannot observe the asserted redness. `vitest list` executes COLLECTION, not tests: it answers "can this command's file selection EVER see the named suite", which is answerable today. The red command itself is still never run for an authored marker, and the spawn set is asserted, not promised.
+
+**The accept-set is small on purpose, and stays small.** A command qualifies only under a declared token grammar ANCHORED at the command start; a `vitest run` appearing mid-command (under a `pnpm heavy` wrapper, say) does not qualify, and probing it would itself be a heavy phase. A command carrying any control or substitution token is DECLINED with a surfaced advisory rather than probed, because the derived probe runs through `sh -c` and would launch the trailing clauses verbatim — for an authored marker, exactly the never-run violation the fence forbids. Quotes are deliberately not parsed there, so a quoted operator over-declines. A declined entry carries no probe text AT ALL, which makes the guarantee structural rather than a promise.
+
+**Calibration.** Over the normative probe population of the merged plan corpus: zero probe errors, zero empty collections, zero tracked file-args missing from their collected set — so the arm's hard codes fire on zero corpus markers today and every §2.3 defect shape is a constructed positive.
+
+**Enforcement.** `lib/specLint/redContract.ts` scored 241/241 with an empty unaccepted-survivor set against its 0.95 floor. The first scoped run failed honestly at 0.9336 with 16 unaccepted survivors; every one was repaid with an assertion and none was blessed. Thirteen sat in the two functions the ADAPTER consults before spawning anything, whose only coverage lived in a suite outside this surface's registered `suitePaths` — tests that ran, passed, and bought nothing.
+
+**Spec:** `docs/superpowers/specs/2026-08-17-spec-lint-red-verdict-capability.md` (spec-APPROVED r4, zero findings). **Plan:** `docs/superpowers/plans/2026-08-17-red-verdict-capability.md` (plan-APPROVED r4, zero findings). **Round corpus:** `docs/review-rounds/fix/red-contract-shape-execution/`.
+
+**The original filing, preserved.**
+
+**BL-PLANLINT-RED-CLAIM-EXECUTION — a plan's declared red is executed, not just parsed**
+
+**Filed:** 2026-08-16, from
+`docs/review-rounds/fix/server-action-origin-sweep/119895a7c756.md` (plan §, Mechanizable arm 2) ·
+**Severity:** medium · **Class:** plan-lint arm (sibling of the resolved
+`BL-SPECLINT-RED-EXECUTABILITY-ARM`, which shipped the DECLARATION and stopped there) ·
+**Effort:** M
+
+The `red-contract` arm parses every task marker and validates the `red-target` citation's grammar;
+what it never does is EXECUTE the claim. An arm that ran `vitest list` on each `red=` command and
+asserted the declared `red-target`'s file appears in the collected set would settle a whole family
+of plan defects mechanically — a `red=` that collects nothing, a declared RED that is a PASS, a RED
+cause that is vacuous over an empty array, a whole-suite green asserted on a branch where a guard is
+red by design.
+
+**Reachability:** PROBED in the originating filing — five findings across four plan rounds of one
+arc, each one a pass/fail state the branch could not produce, and each found by the reviewer running
+the declared command by hand. The collection case (R3 #1) is the sharpest: the declared `red=`
+command could not collect its own `red-target`, because that file lives only in a vitest project
+gated behind `VITEST_INCLUDE_MUTATION_HARNESS=1`. Filed under class-sweep exception (c): a lint
+surface of its own, in a tree this arc does not otherwise touch.
+
 ## BL-MODAL-WAIT-SKELETON-TOLERANT-SITES — two e2e waits the boundary helper cannot harden, because the Suspense skeleton wins the race — CLOSED 2026-08-18 (`fix/modal-wait-skeleton-tolerant`, SHIPPED)
 
 **Status:** SHIPPED 2026-08-18 · **Effort (as shipped):** M · **Filed:** 2026-08-16 (`test/modal-wait-helper-adoption`, from that arc's spec review round 3) · **Reachability:** PROBED at filing (shared-testid mechanism read from source) and again at design time (frame-timing probes, spec §2.2 and §2.3).

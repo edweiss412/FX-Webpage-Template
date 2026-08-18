@@ -24,12 +24,40 @@ import { classifySpan } from "./citations";
 import { parseDoc, type DocModel } from "./parse";
 import { compareFindings, MARKER_ANY, parseMarker, type ParsedMarker } from "./taskContract";
 import { taskTopology } from "./taskContract";
-import type { ExecResults, FileResolver, Finding } from "./types";
+import type {
+  ExecOutcome,
+  ExecResults,
+  FileResolver,
+  Finding,
+  ParseResults,
+  ProbeResults,
+} from "./types";
 
 const GATE_ANY = /^ {0,3}<!-- gate:/;
 const GATE = /^ {0,3}<!-- gate: cmd=`([^`]*)`( probed=`([^`]*)`)? -->[ \t]*$/;
 /** The retired-target shape: an exact tracked-path token moved or removed. */
 const GIT_MOVE = /\bgit\s+(?:mv|rm)\b(.*)$/;
+
+/**
+ * The name-filter token (spec §4). Delimited, never a substring: a path token
+ * ending in `-t.ts` and a longer flag beginning `--testNamePattern` are not
+ * filters.
+ */
+const NAME_FILTER = /(?:^|\s)(?:-t(?=[\s=]|$)|--testNamePattern(?=[\s=]|$))/;
+
+/**
+ * Quoted spans, elided before the token match above — the ONE place this module
+ * reads quotes, and deliberately the opposite posture from probe eligibility
+ * (§5.1), which does not read them.
+ *
+ * The two are conservative about different things. Eligibility must be
+ * conservative about EXECUTION, so an unread quote over-declines a probe and
+ * nothing runs. This advisory must be conservative about NOISE, so a `-t` that
+ * is really part of a quoted pattern stays silent. An unbalanced quote elides
+ * to end of string, which under-fires a disposition-only advisory: the safe
+ * direction for this arm. Nothing here decides parseability or what may spawn.
+ */
+const QUOTED_SPAN = /'[^']*'|"[^"]*"/g;
 
 const fail = (
   code: string,
@@ -65,6 +93,32 @@ const advise = (
 interface MarkerRecord {
   line: number;
   parsed: ParsedMarker;
+}
+
+/**
+ * A gate-shaped line, classified once. Both the gate checks (§4.6) and the
+ * parse plan (verdict-capability spec §3) read gate commands, and two scans of
+ * the same grammar are two chances to disagree about what a gate IS.
+ */
+type GateRecord =
+  | { line: number; malformed: true }
+  | { line: number; malformed: false; command: string; probed: string | undefined };
+
+/** Every gate-shaped line on a NON-fenced line, in doc order. */
+function gateRecords(model: DocModel): GateRecord[] {
+  const out: GateRecord[] = [];
+  for (let i = 0; i < model.lines.length; i++) {
+    if (model.fencedInfo[i] !== undefined) continue;
+    const line = model.lines[i]!;
+    if (!GATE_ANY.test(line)) continue;
+    const m = GATE.exec(line);
+    if (!m) {
+      out.push({ line: i + 1, malformed: true });
+      continue;
+    }
+    out.push({ line: i + 1, malformed: false, command: m[1]!, probed: m[3] });
+  }
+  return out;
 }
 
 /** Every well-formed marker on a NON-fenced line, in doc order. */
@@ -213,6 +267,17 @@ export function checkRedContract(
         ),
       );
     }
+    if (NAME_FILTER.test(parsed.red.replace(QUOTED_SPAN, " "))) {
+      findings.push(
+        advise(
+          "RED_TEST_NAME_FILTER",
+          line,
+          1,
+          "`red=` selects tests by NAME",
+          "a name filter that matches nothing exits 0, so this red can report green from the moment it is written; confirm the pattern matches the failing case at red time, or run `--exec-red`",
+        ),
+      );
+    }
     const retired = retiredInExtent(model, extent, tracked);
     for (const token of parsed.red.split(/\s+/)) {
       if (!retired.has(token)) continue;
@@ -230,22 +295,18 @@ export function checkRedContract(
   }
 
   // Gate markers are legal anywhere in a plan and are owned by no extent (§4.6).
-  for (let i = 0; i < model.lines.length; i++) {
-    if (model.fencedInfo[i] !== undefined) continue;
-    const line = model.lines[i]!;
-    if (!GATE_ANY.test(line)) continue;
-    const n = i + 1;
-    const m = GATE.exec(line);
-    if (!m) {
+  for (const gate of gateRecords(model)) {
+    const n = gate.line;
+    if (gate.malformed) {
       findings.push(
         fail("GATE_MALFORMED", n, 1, "gate line does not match ``cmd=`…` [probed=`…`]`` exactly"),
       );
       continue;
     }
-    if (m[1]!.trim() === "") {
+    if (gate.command.trim() === "") {
       findings.push(fail("GATE_CMD_EMPTY", n, 1, "gate `cmd=` is empty"));
     }
-    if (m[3] === undefined || m[3]!.trim() === "") {
+    if (gate.probed === undefined || gate.probed.trim() === "") {
       findings.push(
         advise(
           "GATE_UNPROBED",
@@ -263,6 +324,50 @@ export function checkRedContract(
 }
 
 /**
+ * The parse-capability plan (verdict-capability spec §3): every command whose
+ * SHAPE this contract checks with `sh -nc`, in doc order.
+ *
+ * Two populations, one plan. `red=` is GLOBAL over well-formed markers of the
+ * doc — v1 and v2, inside a region or not — on the same validity-global
+ * rationale as `RED_TARGET_INVALID`: a command the shell cannot parse expresses
+ * no verdict anywhere, and the defect class predates the v2 grammar. Gate
+ * `cmd=` joins it as the class-sweep peer, one grammar away.
+ *
+ * Blank commands are excluded from BOTH: `sh -nc ''` exits 0, so planning one
+ * would manufacture a clean parse for a line that already carries
+ * `TASK_RED_EMPTY` or `GATE_CMD_EMPTY`.
+ */
+export interface ParseCheckEntry {
+  line: number;
+  command: string;
+  source: "red" | "gate";
+}
+
+export function parseCheckPlan(model: DocModel): ParseCheckEntry[] {
+  const out: ParseCheckEntry[] = [];
+  for (const { line, parsed } of wellFormedMarkers(model)) {
+    if (parsed.red.trim() === "") continue;
+    out.push({ line, command: parsed.red, source: "red" });
+  }
+  for (const gate of gateRecords(model)) {
+    if (gate.malformed || gate.command.trim() === "") continue;
+    out.push({ line: gate.line, command: gate.command, source: "gate" });
+  }
+  // Doc order across BOTH populations: the adapter spawns in this order and an
+  // operator reads the report in it.
+  out.sort((a, b) => a.line - b.line);
+  return out;
+}
+
+/**
+ * `parseDoc` + `parseCheckPlan`, so the adapter derives the parse plan from raw
+ * text without importing the parser itself. Pure.
+ */
+export function parseCheckPlanForText(text: string): ParseCheckEntry[] {
+  return parseCheckPlan(parseDoc(text));
+}
+
+/**
  * The `--exec-red` population (spec §4.4): live-declared markers OWNED by an
  * extent of a `red-contract` region, in doc order. Deliberately narrower than
  * the validity population — an outside-region marker is validated but never
@@ -270,15 +375,28 @@ export function checkRedContract(
  * would manufacture a misleading `RED_ALREADY_GREEN` on a line that already
  * carries `TASK_RED_EMPTY`.
  */
-export function planExecutions(model: DocModel): { line: number; command: string }[] {
+/** Shared empty default, so no call site allocates one per invocation. */
+const EMPTY_LINES: ReadonlySet<number> = new Set<number>();
+
+function ownedContractLines(model: DocModel): ReadonlySet<number> {
   const topology = taskTopology(model);
-  const owned = new Set(
+  return new Set(
     topology.extents.filter((e) => e.redContract).flatMap((e) => topology.owned.get(e.start) ?? []),
   );
+}
+
+export function planExecutions(
+  model: DocModel,
+  excludeLines: ReadonlySet<number> = EMPTY_LINES,
+): { line: number; command: string }[] {
+  const owned = ownedContractLines(model);
   return wellFormedMarkers(model)
     .filter(
       ({ line, parsed }) =>
-        owned.has(line) && parsed.redState === "live" && parsed.red.trim() !== "",
+        owned.has(line) &&
+        !excludeLines.has(line) &&
+        parsed.redState === "live" &&
+        parsed.red.trim() !== "",
     )
     .map(({ line, parsed }) => ({ line, command: parsed.red }));
 }
@@ -287,8 +405,11 @@ export function planExecutions(model: DocModel): { line: number; command: string
  * `parseDoc` + `planExecutions`, so the adapter can derive the execution plan
  * from raw text without importing the parser itself. Pure.
  */
-export function planExecutionsForText(text: string): { line: number; command: string }[] {
-  return planExecutions(parseDoc(text));
+export function planExecutionsForText(
+  text: string,
+  excludeLines: ReadonlySet<number> = EMPTY_LINES,
+): { line: number; command: string }[] {
+  return planExecutions(parseDoc(text), excludeLines);
 }
 
 /**
@@ -365,4 +486,449 @@ export function synthesizeExecFindings(
     );
   }
   return out;
+}
+
+/** The rendered ceiling on a stderr tail (verdict-capability spec §3). */
+const STDERR_TAIL = 200;
+
+/**
+ * Findings from parse outcomes the adapter observed (verdict-capability spec
+ * §3). A null map is an invocation with no parse pass: no findings.
+ *
+ * Only a completed non-zero exit is hard, and WHICH hard code is decided by the
+ * plan entry's source — a gate defect reported as a red defect sends the author
+ * to the wrong line's wrong field. Everything not completed is advisory: a
+ * parse check that timed out, was signalled, or never spawned observed no
+ * capability at all, and reading it as either verdict is the corruption this
+ * arm exists to prevent.
+ *
+ * The tail is trimmed HERE as well as in the adapter. Two trims are not
+ * redundant belt: the adapter's bounds what the core is handed, and this one
+ * bounds what an operator's report line renders, so no future caller can
+ * smuggle an unbounded detail through this function.
+ */
+export function synthesizeParseFindings(
+  plan: readonly ParseCheckEntry[],
+  results: ParseResults | null,
+): Finding[] {
+  if (results === null) return [];
+  const out: Finding[] = [];
+  for (const { line, command, source } of plan) {
+    const outcome = results.outcomes.get(line);
+    if (outcome === undefined) continue;
+    const tail = (results.stderrTails.get(line) ?? "").slice(-STDERR_TAIL);
+    const withTail = (base: string): string => (tail === "" ? base : `${base} · stderr: ${tail}`);
+
+    if (outcome.kind === "exit") {
+      if (outcome.code === 0) continue; // parseable: the only clean result
+      out.push(
+        source === "gate"
+          ? fail(
+              "GATE_CMD_UNPARSEABLE",
+              line,
+              1,
+              "gate `cmd=` is not parseable by the executing shell",
+              withTail(`command: ${command}`),
+            )
+          : fail(
+              "RED_UNPARSEABLE",
+              line,
+              1,
+              "`red=` command is not parseable by the executing shell; it can express no verdict",
+              withTail(`command: ${command}`),
+            ),
+      );
+      continue;
+    }
+    const reason =
+      outcome.kind === "timeout"
+        ? "timeout"
+        : outcome.kind === "signal"
+          ? `terminated by ${outcome.signal}`
+          : `spawn failed: ${outcome.message}`;
+    out.push(
+      advise(
+        "RED_PROBE_UNVERIFIED",
+        line,
+        1,
+        `parse check did not complete (${reason}); command capability unverified`,
+        withTail(`parse probe: ${reason} · command: ${command}`),
+      ),
+    );
+  }
+  return out;
+}
+
+// ---- collection probes (verdict-capability spec §5.1) ----------------------
+
+/**
+ * The vitest shape, ANCHORED at the command start (spec §1.1 item 6): optional
+ * `NAME=value` env assignments, an optional measured runner prefix, then the
+ * token pair `vitest run`. A `vitest run` appearing only mid-command — under a
+ * `pnpm heavy` wrapper, say — is deliberately not this shape: a probe derived
+ * from it would be a heavy phase, and the wrapper's own semantics are unread.
+ *
+ * Separation between tokens is WHITESPACE, because the declared grammar is a
+ * token grammar. Spelling the prefixes with literal single spaces looks like
+ * the same thing and is not: it drops `pnpm  vitest run` — one ordinary typo —
+ * out of the accept-set SILENTLY, with no probe and no advisory, so a red that
+ * exits non-zero purely because it collects nothing reads as red observed.
+ * That is the silent branch §1.1 item 9 forbids, and widening literal spaces to
+ * whitespace does not widen the ACCEPT-SET: it is the declared grammar, finally
+ * spelled as one.
+ */
+const VITEST_SHAPE =
+  /^\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:pnpm\s+exec\s+|pnpm\s+|npx\s+)?vitest\s+(run)(?=\s|$)/;
+
+/**
+ * Tokens whose presence declines the probe. The derived probe runs through
+ * `sh -c`, so ANY trailing clause would execute verbatim — which for an
+ * authored marker is exactly the "never run authored reds" violation the arms
+ * spec §1.2 fences. Quotes are deliberately not parsed: a quoted operator
+ * over-declines, which is the conservative direction.
+ */
+const CONTROL_TOKENS = ["&&", "||", ";", "|", "$(", "`"] as const;
+
+/**
+ * A name-filter token is PRESENT. Broader than the strip grammar on purpose —
+ * presence is what forces a decline when the strip cannot read it — and still
+ * a token match: `-ts.ts` and `--reporter` are not filters.
+ */
+const FILTER_PRESENT = /(?:^|\s)(--testNamePattern|-t(?![A-Za-z0-9]))/;
+
+/** The declared strip grammar (spec §5.1). Never widened in review. */
+const FILTER_STRIP =
+  /(?:^|\s)(?:--testNamePattern|-t)(?:=(?:'[^']*'|"[^"]*"|\S*)|\s+(?:'[^']*'|"[^"]*"|\S+))/;
+
+const TEST_FILE_SUFFIXES = [".test.ts", ".test.tsx"] as const;
+
+export type ProbeDerivation =
+  | { kind: "none" }
+  | { kind: "skipped"; skipped: "compound-command" | "unstrippable-filter"; detail: string }
+  | { kind: "probe"; probe: string };
+
+export type CollectionProbeEntry =
+  | {
+      line: number;
+      state: "live" | "authored";
+      probe: string;
+      trackedTestArgs: string[];
+      untrackedTestArgs: string[];
+    }
+  | {
+      line: number;
+      state: "live" | "authored";
+      skipped: "compound-command" | "unstrippable-filter";
+      detail: string;
+    };
+
+/**
+ * One command's probe, or the reason there is none (spec §5.1).
+ *
+ * A declined derivation carries NO probe text at all — the guarantee is
+ * structural rather than a promise not to spawn: nothing downstream can run
+ * what does not exist.
+ *
+ * Live markers keep their filters (live means observable today); authored
+ * markers have them stripped, because the authored case's named test is future
+ * by declaration and a name filter would mask the file-level question "can this
+ * command ever collect the suite".
+ */
+export function deriveCollectionProbe(
+  command: string,
+  state: "live" | "authored",
+): ProbeDerivation {
+  const m = VITEST_SHAPE.exec(command);
+  if (m === null) return { kind: "none" };
+
+  const control = CONTROL_TOKENS.find((token) => command.includes(token));
+  if (control !== undefined) {
+    return {
+      kind: "skipped",
+      skipped: "compound-command",
+      detail: `command carries the control/substitution token ${control}; probing it would run its other clauses`,
+    };
+  }
+
+  // First token pair only: a later literal `vitest run` inside a pattern is an
+  // argument, not the runner, and must ride through byte-identical.
+  // The `run` token is the pattern's ONLY capturing group, so its index cannot
+  // drift when the prefix alternation is edited — which it silently did once,
+  // turning the slice below into a NaN cut rather than a loud failure.
+  const end = m[0].length;
+  const rewritten = command.slice(0, end - m[1]!.length) + "list" + command.slice(end);
+  if (state === "live") return { kind: "probe", probe: rewritten };
+
+  let stripped = rewritten;
+  while (FILTER_STRIP.test(stripped)) stripped = stripped.replace(FILTER_STRIP, "");
+  const leftover = FILTER_PRESENT.exec(stripped);
+  if (leftover !== null) {
+    return {
+      kind: "skipped",
+      skipped: "unstrippable-filter",
+      detail: `name filter ${leftover[1]} does not match the strip grammar; declining rather than guessing`,
+    };
+  }
+  return { kind: "probe", probe: stripped };
+}
+
+/**
+ * The command's test-file tokens, split by tracked-set membership (spec §5.2).
+ * Keyed on MEMBERSHIP, the same exact-token-against-tracked-set device
+ * `RED_TARGET_RETIRED` uses: tracked ones are membership-checked against the
+ * collected output (hard on absence), untracked ones are surfaced by name
+ * (advisory — a future file and a typo are indistinguishable statically).
+ */
+function partitionTestArgs(
+  command: string,
+  tracked: ReadonlySet<string>,
+): { trackedTestArgs: string[]; untrackedTestArgs: string[] } {
+  const trackedTestArgs: string[] = [];
+  const untrackedTestArgs: string[] = [];
+  for (const token of command.split(/\s+/)) {
+    if (token === "") continue;
+    if (!TEST_FILE_SUFFIXES.some((suffix) => token.endsWith(suffix))) continue;
+    if (tracked.has(token)) trackedTestArgs.push(token);
+    else untrackedTestArgs.push(token);
+  }
+  return { trackedTestArgs, untrackedTestArgs };
+}
+
+/**
+ * The collection-probe plan (spec §5.2): one entry per OWNED, v2, vitest-shaped
+ * marker of a `red-contract` region, in doc order.
+ *
+ * `excludeLines` is the parse-failed set (spec §3): executing a command the
+ * shell cannot parse observes nothing, and executing one whose parseability was
+ * never observed is the same gamble. Ownership binds the declines too — an
+ * unowned marker draws nothing at all, not an unauthorized advisory.
+ */
+export function collectionProbePlan(
+  model: DocModel,
+  tracked: ReadonlySet<string>,
+  excludeLines: ReadonlySet<number>,
+): CollectionProbeEntry[] {
+  const owned = ownedContractLines(model);
+  const out: CollectionProbeEntry[] = [];
+  for (const { line, parsed } of wellFormedMarkers(model)) {
+    if (!owned.has(line)) continue;
+    if (excludeLines.has(line)) continue;
+    const state = parsed.redState;
+    if (state === null) continue; // v1: no declared state to probe against
+    if (parsed.red.trim() === "") continue;
+
+    const derived = deriveCollectionProbe(parsed.red, state);
+    if (derived.kind === "none") continue;
+    if (derived.kind === "skipped") {
+      out.push({ line, state, skipped: derived.skipped, detail: derived.detail });
+      continue;
+    }
+    out.push({ line, state, probe: derived.probe, ...partitionTestArgs(parsed.red, tracked) });
+  }
+  return out;
+}
+
+/**
+ * Findings from collection probes the adapter observed (spec §5.2).
+ *
+ * Three questions, deliberately independent. A LIVE marker's non-zero red is
+ * only an observation of the asserted failure if the command could collect
+ * anything at all — an empty collection means the red was a bad path or a gated
+ * project, not the failure the marker claims. An AUTHORED marker's red is never
+ * run, so the probe answers the only question that is answerable today: can
+ * this command's file selection ever see the suite it names. And a probe that
+ * did not complete answers nothing, which must never read as either verdict.
+ *
+ * The live gate is placed BEFORE any read of the collection maps: a red that
+ * exited 0, was unrunnable, timed out, was signalled, or was never observed
+ * already has its own finding from `synthesizeExecFindings`, and consulting a
+ * probe here would mint a second verdict `--exec-red` never earned.
+ */
+export function synthesizeCollectionFindings(
+  plan: readonly CollectionProbeEntry[],
+  red: ExecResults | null,
+  probes: ProbeResults | null,
+): Finding[] {
+  if (probes === null) return [];
+  const out: Finding[] = [];
+  for (const entry of plan) {
+    const { line, state } = entry;
+
+    if ("skipped" in entry) {
+      out.push(
+        advise(
+          "RED_PROBE_UNVERIFIED",
+          line,
+          1,
+          "collection probe declined; the command's collection capability is unverified",
+          entry.detail,
+        ),
+      );
+      continue;
+    }
+
+    if (state === "live") {
+      // Read the RED outcome first, through the SAME predicate the adapter
+      // spawns by: two copies of this rule would let the report describe a
+      // probe that never ran, or bury one that did.
+      if (!redAuthorizesProbe(red === null ? undefined : red.outcomes.get(line))) continue;
+    }
+
+    const outcome = probes.outcomes.get(line);
+    if (outcome === undefined) continue;
+    if (outcome.kind !== "exit" || outcome.code !== 0) {
+      const reason =
+        outcome.kind === "exit"
+          ? `exit ${outcome.code}`
+          : outcome.kind === "timeout"
+            ? "timeout"
+            : outcome.kind === "signal"
+              ? `terminated by ${outcome.signal}`
+              : `spawn failed: ${outcome.message}`;
+      const tail = (probes.stderrTails.get(line) ?? "").slice(-STDERR_TAIL);
+      out.push(
+        advise(
+          "RED_PROBE_UNVERIFIED",
+          line,
+          1,
+          `collection probe did not complete (${reason}); collection capability unverified`,
+          tail === ""
+            ? `collection probe: ${reason} · probe: ${entry.probe}`
+            : `collection probe: ${reason} · probe: ${entry.probe} · stderr: ${tail}`,
+        ),
+      );
+      continue;
+    }
+
+    const collected = (probes.stdout.get(line) ?? "")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l !== "");
+
+    if (state === "live") {
+      if (collected.length === 0) {
+        out.push(
+          fail(
+            "RED_COLLECTS_NOTHING",
+            line,
+            1,
+            "`red=` collects no tests, so its non-zero exit is a collection artifact rather than the asserted failure",
+            `probe: ${entry.probe}`,
+          ),
+        );
+      }
+      continue;
+    }
+
+    const missing = entry.trackedTestArgs.filter((arg) => !collected.some((l) => l.includes(arg)));
+    if (missing.length > 0) {
+      out.push(
+        fail(
+          "RED_SUITE_UNCOLLECTED",
+          line,
+          1,
+          "`red=` can never collect the suite it names",
+          `not collected: ${missing.join(", ")} · probe: ${entry.probe}`,
+        ),
+      );
+    }
+    if (entry.untrackedTestArgs.length > 0) {
+      out.push(
+        advise(
+          "RED_SUITE_UNVERIFIED",
+          line,
+          1,
+          "`red=` names a test file that does not exist yet: a future file and a typo are indistinguishable here",
+          `untracked: ${entry.untrackedTestArgs.join(", ")} · confirm the path`,
+        ),
+      );
+    }
+    if (
+      entry.trackedTestArgs.length === 0 &&
+      entry.untrackedTestArgs.length === 0 &&
+      collected.length === 0
+    ) {
+      out.push(
+        advise(
+          "RED_SUITE_UNVERIFIED",
+          line,
+          1,
+          "`red=` selector collects nothing today: future location or typo; confirm the path",
+          `probe: ${entry.probe}`,
+        ),
+      );
+    }
+  }
+  return out;
+}
+
+/**
+ * Whether a LIVE marker's red outcome authorizes running its collection probe.
+ *
+ * ONE owner, two callers: `probesToSpawn` (the adapter's spawn set) and
+ * `synthesizeCollectionFindings` (the report). An exit 0 already draws
+ * `RED_ALREADY_GREEN`, 126/127 and every non-completion already draw their own
+ * advisories, and a marker with no recorded outcome was never observed at all —
+ * in none of those cases does a collection verdict mean anything.
+ */
+function redAuthorizesProbe(outcome: ExecOutcome | undefined): boolean {
+  if (outcome === undefined || outcome.kind !== "exit") return false;
+  return outcome.code !== 0 && outcome.code !== 126 && outcome.code !== 127;
+}
+
+/**
+ * The marker lines whose parse check did not return exit 0 (spec §3) — parse
+ * FAILURES and parse NON-OBSERVATIONS alike. Excluded from execution and from
+ * probing: running a command the shell cannot parse observes nothing, and
+ * running one whose parseability was never observed is the same gamble.
+ *
+ * A null map is an invocation with no parse pass, which excludes nothing.
+ */
+export function parseFailedLines(
+  plan: readonly ParseCheckEntry[],
+  results: ParseResults | null,
+): ReadonlySet<number> {
+  if (results === null) return EMPTY_LINES;
+  const out = new Set<number>();
+  for (const { line } of plan) {
+    const outcome = results.outcomes.get(line);
+    if (outcome === undefined) continue;
+    if (outcome.kind === "exit" && outcome.code === 0) continue;
+    out.add(line);
+  }
+  return out;
+}
+
+/**
+ * The probes the adapter is authorized to spawn, in doc order. Skip records
+ * carry no probe text and can never appear here.
+ */
+export function probesToSpawn(
+  plan: readonly CollectionProbeEntry[],
+  red: ExecResults | null,
+): { line: number; probe: string }[] {
+  const out: { line: number; probe: string }[] = [];
+  for (const entry of plan) {
+    if ("skipped" in entry) continue;
+    if (
+      entry.state === "live" &&
+      !redAuthorizesProbe(red === null ? undefined : red.outcomes.get(entry.line))
+    ) {
+      continue;
+    }
+    out.push({ line: entry.line, probe: entry.probe });
+  }
+  return out;
+}
+
+/**
+ * `parseDoc` + `collectionProbePlan`, so the adapter derives the probe plan
+ * from raw text without importing the parser itself. Pure.
+ */
+export function collectionProbePlanForText(
+  text: string,
+  tracked: ReadonlySet<string>,
+  excludeLines: ReadonlySet<number>,
+): CollectionProbeEntry[] {
+  return collectionProbePlan(parseDoc(text), tracked, excludeLines);
 }
