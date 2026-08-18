@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { parseDoc, splitLines } from "../../lib/specLint/parse";
 import {
   checkRedContract,
+  collectionProbePlan,
+  deriveCollectionProbe,
   parseCheckPlan,
   planExecutions,
   redTargetSpans,
@@ -563,5 +565,258 @@ describe("parseCheckPlan", () => {
     expect(parseCheckPlan(parseDoc(lines.join("\n")))).toEqual([
       { line: 1, command: "echo bad", source: "red" },
     ]);
+  });
+});
+
+/**
+ * Collection-probe derivation (verdict-capability spec §5.1). Everything here
+ * is pure: the plan says WHICH probes may run and WHAT text each one is; the
+ * adapter alone spawns. Two guarantees are structural rather than behavioral —
+ * a declined entry carries no probe text at all (so nothing downstream can
+ * spawn it), and an out-of-accept-set command derives no entry whatsoever.
+ */
+
+const TRACKED = new Set([
+  "tests/a.test.ts",
+  "tests/b.test.tsx",
+  "lib/plain.ts",
+  "tests/dir/nested.test.ts",
+]);
+
+const probePlan = (
+  text: string,
+  tracked: ReadonlySet<string> = TRACKED,
+  excludeLines: ReadonlySet<number> = new Set<number>(),
+) => collectionProbePlan(parseDoc(text), tracked, excludeLines);
+
+/** One authored marker in a red-contract region, its `red=` under test. */
+const authored = (red: string) =>
+  inRegion(
+    "<!-- task: red=`" + red + "` red-state=authored red-target=`lib/a.ts` why=`w` ac=AC-1 -->",
+  );
+
+/** One live marker in a red-contract region, its `red=` under test. */
+const live = (red: string) =>
+  inRegion("<!-- task: red=`" + red + "` red-state=live why=`w` ac=AC-1 -->");
+
+const onlyEntry = (text: string, tracked?: ReadonlySet<string>) => {
+  const plan = probePlan(text, tracked);
+  expect(plan).toHaveLength(1);
+  return plan[0]!;
+};
+
+describe("collectionProbePlan — vitest-shape recognition (spec §5.1)", () => {
+  it.each([
+    ["pnpm vitest run tests/a.test.ts", "pnpm vitest list tests/a.test.ts"],
+    ["pnpm exec vitest run tests/a.test.ts", "pnpm exec vitest list tests/a.test.ts"],
+    ["npx vitest run tests/a.test.ts", "npx vitest list tests/a.test.ts"],
+    ["vitest run tests/a.test.ts", "vitest list tests/a.test.ts"],
+  ])("recognizes the measured runner spelling %s", (red, probe) => {
+    expect(onlyEntry(live(red))).toMatchObject({ line: 3, state: "live", probe });
+  });
+
+  it("preserves leading env assignments through the rewrite", () => {
+    // The discriminating case in §2.3: a command carrying its own gating env
+    // var must probe WITH it, and one missing it must probe without.
+    expect(
+      onlyEntry(live("VITEST_INCLUDE_MUTATION_HARNESS=1 A=b pnpm vitest run tests/a.test.ts")),
+    ).toMatchObject({
+      probe: "VITEST_INCLUDE_MUTATION_HARNESS=1 A=b pnpm vitest list tests/a.test.ts",
+    });
+  });
+
+  it("rewrites the FIRST token pair only, leaving a later literal occurrence byte-identical", () => {
+    // Live markers keep their filters intact, so the quoted occurrence rides
+    // through. The operator-bearing spelling of this case is unreachable: the
+    // compound guard declines it before any rewrite (asserted separately).
+    expect(
+      onlyEntry(live("pnpm vitest run tests/a.test.ts -t 'runs vitest run twice'")),
+    ).toMatchObject({ probe: "pnpm vitest list tests/a.test.ts -t 'runs vitest run twice'" });
+  });
+
+  it.each([
+    ["a tsx script", "pnpm tsx scripts/x.ts"],
+    ["an rg probe", "rg -n foo lib/"],
+    ["a package script", "pnpm test:fast"],
+    ["a mid-command vitest run under a wrapper", "pnpm heavy pnpm vitest run tests/a.test.ts"],
+    ["vitest without run", "pnpm vitest tests/a.test.ts"],
+    ["a runner prefix that is not measured", "yarn vitest run tests/a.test.ts"],
+  ])("derives no entry at all for %s", (_label, red) => {
+    expect(probePlan(live(red))).toEqual([]);
+  });
+});
+
+describe("collectionProbePlan — probe eligibility and declines (spec §5.1)", () => {
+  it.each([
+    ["&&", "pnpm vitest run tests/a.test.ts && echo done"],
+    ["||", "pnpm vitest run tests/a.test.ts || echo failed"],
+    [";", "pnpm vitest run tests/a.test.ts ; echo done"],
+    ["|", "pnpm vitest run tests/a.test.ts | tail -1"],
+    ["$(", "pnpm vitest run $(ls tests)"],
+  ])("declines a command carrying %s, with NO probe text", (token, red) => {
+    const entry = onlyEntry(live(red));
+    expect(entry).toMatchObject({ line: 3, state: "live", skipped: "compound-command" });
+    // Structural, not cosmetic: a derived `vitest list` on a compound command
+    // would launch the trailing clauses verbatim.
+    expect(Object.prototype.hasOwnProperty.call(entry, "probe")).toBe(false);
+    expect((entry as { detail: string }).detail).toContain(token);
+  });
+
+  it("over-declines a QUOTED operator deliberately — quotes are not parsed", () => {
+    const entry = onlyEntry(live("pnpm vitest run tests/a.test.ts -t 'a || b'"));
+    expect(entry).toMatchObject({ skipped: "compound-command" });
+    expect(Object.prototype.hasOwnProperty.call(entry, "probe")).toBe(false);
+  });
+
+  it("declines a backquote through the per-command derivation", () => {
+    // Unreachable through the marker grammar (a `red=` capture is delimited by
+    // backticks and cannot contain one), so it is pinned on the function the
+    // plan calls rather than on a marker fixture that cannot exist.
+    expect(deriveCollectionProbe("pnpm vitest run `ls tests`", "live")).toEqual({
+      kind: "skipped",
+      skipped: "compound-command",
+      detail: expect.stringContaining("`"),
+    });
+  });
+});
+
+describe("collectionProbePlan — the authored name-filter strip (spec §5.1)", () => {
+  it.each([
+    ["-t 'a b'", "pnpm vitest run tests/a.test.ts -t 'a b'"],
+    ['-t "a b"', 'pnpm vitest run tests/a.test.ts -t "a b"'],
+    ["-t bare", "pnpm vitest run tests/a.test.ts -t bare"],
+    ["--testNamePattern=x", "pnpm vitest run tests/a.test.ts --testNamePattern=x"],
+    ["--testNamePattern y", "pnpm vitest run tests/a.test.ts --testNamePattern y"],
+    ["-t=x", "pnpm vitest run tests/a.test.ts -t=x"],
+  ])("strips %s for an authored marker, leaving every other byte identical", (_label, red) => {
+    // The authored case's named test is future by declaration, so a name filter
+    // must not mask the file-level question "can this ever collect the suite".
+    expect(onlyEntry(authored(red))).toMatchObject({
+      state: "authored",
+      probe: "pnpm vitest list tests/a.test.ts",
+    });
+  });
+
+  it("strips a filter sitting between other arguments without disturbing them", () => {
+    expect(
+      onlyEntry(
+        authored("pnpm vitest run tests/a.test.ts -t 'a b' --reporter=dot tests/b.test.tsx"),
+      ),
+    ).toMatchObject({ probe: "pnpm vitest list tests/a.test.ts --reporter=dot tests/b.test.tsx" });
+  });
+
+  it.each([
+    ["an attached quoted argument", "pnpm vitest run tests/a.test.ts -t'a b'"],
+    ["a filter with no argument at all", "pnpm vitest run tests/a.test.ts -t"],
+  ])("declines %s rather than guessing, with NO probe text", (_label, red) => {
+    const entry = onlyEntry(authored(red));
+    expect(entry).toMatchObject({ state: "authored", skipped: "unstrippable-filter" });
+    expect(Object.prototype.hasOwnProperty.call(entry, "probe")).toBe(false);
+  });
+
+  it("leaves a LIVE marker's filters intact — live means observable today", () => {
+    expect(onlyEntry(live("pnpm vitest run tests/a.test.ts -t 'a b'"))).toMatchObject({
+      state: "live",
+      probe: "pnpm vitest list tests/a.test.ts -t 'a b'",
+    });
+  });
+
+  it("does not read a hyphenated non-filter token as a filter", () => {
+    expect(onlyEntry(authored("pnpm vitest run tests/a.test.ts --reporter=dot"))).toMatchObject({
+      probe: "pnpm vitest list tests/a.test.ts --reporter=dot",
+    });
+  });
+});
+
+describe("collectionProbePlan — population (spec §5.2)", () => {
+  it.each([
+    [
+      "a marker in a bare region",
+      doc(
+        OPEN,
+        "## A",
+        "<!-- task: red=`pnpm vitest run tests/a.test.ts` red-state=authored red-target=`lib/a.ts` why=`w` ac=AC-1 -->",
+        "AC-1 here.",
+        END,
+      ),
+    ],
+    [
+      "an orphaned marker",
+      doc(
+        OPEN_RC,
+        "## A",
+        "<!-- task: red=`pnpm vitest run tests/dir/nested.test.ts` red-state=live why=`w` ac=AC-1 -->",
+        "AC-1 here.",
+        END,
+        "<!-- task: red=`pnpm vitest run tests/a.test.ts` red-state=authored red-target=`lib/a.ts` why=`w` ac=AC-1 -->",
+      ),
+    ],
+    [
+      "a plan with no region at all",
+      doc(
+        "# Plan",
+        "<!-- task: red=`pnpm vitest run tests/a.test.ts` red-state=authored red-target=`lib/a.ts` why=`w` ac=AC-1 -->",
+      ),
+    ],
+  ])("derives nothing — not a probe, not a decline — for %s", (_label, text) => {
+    expect(probePlan(text).map((e) => (e as { line: number }).line)).not.toContain(6);
+    expect(probePlan(text).filter((e) => (e as { line: number }).line !== 3)).toEqual([]);
+  });
+
+  it("declines are ALSO ownership-scoped: a compound authored red outside a region draws nothing", () => {
+    expect(
+      probePlan(
+        doc(
+          "# Plan",
+          "<!-- task: red=`pnpm vitest run tests/a.test.ts && echo x` red-state=authored red-target=`lib/a.ts` why=`w` ac=AC-1 -->",
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  it("a v1 marker (no red-state) derives no entry", () => {
+    expect(
+      probePlan(inRegion("<!-- task: red=`pnpm vitest run tests/a.test.ts` ac=AC-1 -->")),
+    ).toEqual([]);
+  });
+
+  it("a blank red= derives no entry", () => {
+    expect(probePlan(live(""))).toEqual([]);
+  });
+
+  it("a marker whose line is excluded (parse-failed) derives no entry", () => {
+    const text = live("pnpm vitest run tests/a.test.ts");
+    expect(probePlan(text)).toHaveLength(1);
+    expect(probePlan(text, TRACKED, new Set([3]))).toEqual([]);
+  });
+});
+
+describe("collectionProbePlan — tracked test-file argument extraction (spec §5.2)", () => {
+  it("partitions command tokens by tracked-set membership AND test-file suffix", () => {
+    const entry = onlyEntry(
+      authored(
+        "pnpm vitest run tests/a.test.ts tests/b.test.tsx lib/plain.ts tests/missing.test.ts docs/x.md",
+      ),
+    );
+    // Keyed on MEMBERSHIP, not on spelling: a tracked non-test file and an
+    // untracked test file are excluded from `trackedTestArgs` for different
+    // reasons, and both directions are asserted.
+    expect(entry).toMatchObject({
+      trackedTestArgs: ["tests/a.test.ts", "tests/b.test.tsx"],
+      untrackedTestArgs: ["tests/missing.test.ts"],
+    });
+  });
+
+  it("extracts from the ORIGINAL command, so a stripped filter cannot hide a token", () => {
+    expect(
+      onlyEntry(authored("pnpm vitest run tests/a.test.ts -t 'tests/missing.test.ts'")),
+    ).toMatchObject({ trackedTestArgs: ["tests/a.test.ts"], untrackedTestArgs: [] });
+  });
+
+  it("a directory selector yields zero test-file tokens of either kind", () => {
+    expect(onlyEntry(authored("pnpm vitest run tests/dir"))).toMatchObject({
+      trackedTestArgs: [],
+      untrackedTestArgs: [],
+    });
   });
 });

@@ -336,11 +336,15 @@ export function parseCheckPlanForText(text: string): ParseCheckEntry[] {
  * would manufacture a misleading `RED_ALREADY_GREEN` on a line that already
  * carries `TASK_RED_EMPTY`.
  */
-export function planExecutions(model: DocModel): { line: number; command: string }[] {
+function ownedContractLines(model: DocModel): ReadonlySet<number> {
   const topology = taskTopology(model);
-  const owned = new Set(
+  return new Set(
     topology.extents.filter((e) => e.redContract).flatMap((e) => topology.owned.get(e.start) ?? []),
   );
+}
+
+export function planExecutions(model: DocModel): { line: number; command: string }[] {
+  const owned = ownedContractLines(model);
   return wellFormedMarkers(model)
     .filter(
       ({ line, parsed }) =>
@@ -500,6 +504,163 @@ export function synthesizeParseFindings(
         withTail(`parse probe: ${reason} · command: ${command}`),
       ),
     );
+  }
+  return out;
+}
+
+// ---- collection probes (verdict-capability spec §5.1) ----------------------
+
+/**
+ * The vitest shape, ANCHORED at the command start (spec §1.1 item 6): optional
+ * `NAME=value` env assignments, an optional measured runner prefix, then the
+ * token pair `vitest run`. A `vitest run` appearing only mid-command — under a
+ * `pnpm heavy` wrapper, say — is deliberately not this shape: a probe derived
+ * from it would be a heavy phase, and the wrapper's own semantics are unread.
+ */
+const VITEST_SHAPE =
+  /^((?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*)(pnpm exec |pnpm |npx )?(vitest)(\s+)(run)(?=\s|$)/;
+
+/**
+ * Tokens whose presence declines the probe. The derived probe runs through
+ * `sh -c`, so ANY trailing clause would execute verbatim — which for an
+ * authored marker is exactly the "never run authored reds" violation the arms
+ * spec §1.2 fences. Quotes are deliberately not parsed: a quoted operator
+ * over-declines, which is the conservative direction.
+ */
+const CONTROL_TOKENS = ["&&", "||", ";", "|", "$(", "`"] as const;
+
+/**
+ * A name-filter token is PRESENT. Broader than the strip grammar on purpose —
+ * presence is what forces a decline when the strip cannot read it — and still
+ * a token match: `-ts.ts` and `--reporter` are not filters.
+ */
+const FILTER_PRESENT = /(?:^|\s)(--testNamePattern|-t(?![A-Za-z0-9]))/;
+
+/** The declared strip grammar (spec §5.1). Never widened in review. */
+const FILTER_STRIP =
+  /(?:^|\s)(?:--testNamePattern|-t)(?:=(?:'[^']*'|"[^"]*"|\S*)|\s+(?:'[^']*'|"[^"]*"|\S+))/;
+
+const TEST_FILE_SUFFIXES = [".test.ts", ".test.tsx"] as const;
+
+export type ProbeDerivation =
+  | { kind: "none" }
+  | { kind: "skipped"; skipped: "compound-command" | "unstrippable-filter"; detail: string }
+  | { kind: "probe"; probe: string };
+
+export type CollectionProbeEntry =
+  | {
+      line: number;
+      state: "live" | "authored";
+      probe: string;
+      trackedTestArgs: string[];
+      untrackedTestArgs: string[];
+    }
+  | {
+      line: number;
+      state: "live" | "authored";
+      skipped: "compound-command" | "unstrippable-filter";
+      detail: string;
+    };
+
+/**
+ * One command's probe, or the reason there is none (spec §5.1).
+ *
+ * A declined derivation carries NO probe text at all — the guarantee is
+ * structural rather than a promise not to spawn: nothing downstream can run
+ * what does not exist.
+ *
+ * Live markers keep their filters (live means observable today); authored
+ * markers have them stripped, because the authored case's named test is future
+ * by declaration and a name filter would mask the file-level question "can this
+ * command ever collect the suite".
+ */
+export function deriveCollectionProbe(
+  command: string,
+  state: "live" | "authored",
+): ProbeDerivation {
+  const m = VITEST_SHAPE.exec(command);
+  if (m === null) return { kind: "none" };
+
+  const control = CONTROL_TOKENS.find((token) => command.includes(token));
+  if (control !== undefined) {
+    return {
+      kind: "skipped",
+      skipped: "compound-command",
+      detail: `command carries the control/substitution token ${control}; probing it would run its other clauses`,
+    };
+  }
+
+  // First token pair only: a later literal `vitest run` inside a pattern is an
+  // argument, not the runner, and must ride through byte-identical.
+  const end = m[0].length;
+  const rewritten = command.slice(0, end - m[5]!.length) + "list" + command.slice(end);
+  if (state === "live") return { kind: "probe", probe: rewritten };
+
+  let stripped = rewritten;
+  while (FILTER_STRIP.test(stripped)) stripped = stripped.replace(FILTER_STRIP, "");
+  const leftover = FILTER_PRESENT.exec(stripped);
+  if (leftover !== null) {
+    return {
+      kind: "skipped",
+      skipped: "unstrippable-filter",
+      detail: `name filter ${leftover[1]} does not match the strip grammar; declining rather than guessing`,
+    };
+  }
+  return { kind: "probe", probe: stripped };
+}
+
+/**
+ * The command's test-file tokens, split by tracked-set membership (spec §5.2).
+ * Keyed on MEMBERSHIP, the same exact-token-against-tracked-set device
+ * `RED_TARGET_RETIRED` uses: tracked ones are membership-checked against the
+ * collected output (hard on absence), untracked ones are surfaced by name
+ * (advisory — a future file and a typo are indistinguishable statically).
+ */
+function partitionTestArgs(
+  command: string,
+  tracked: ReadonlySet<string>,
+): { trackedTestArgs: string[]; untrackedTestArgs: string[] } {
+  const trackedTestArgs: string[] = [];
+  const untrackedTestArgs: string[] = [];
+  for (const token of command.split(/\s+/)) {
+    if (token === "") continue;
+    if (!TEST_FILE_SUFFIXES.some((suffix) => token.endsWith(suffix))) continue;
+    if (tracked.has(token)) trackedTestArgs.push(token);
+    else untrackedTestArgs.push(token);
+  }
+  return { trackedTestArgs, untrackedTestArgs };
+}
+
+/**
+ * The collection-probe plan (spec §5.2): one entry per OWNED, v2, vitest-shaped
+ * marker of a `red-contract` region, in doc order.
+ *
+ * `excludeLines` is the parse-failed set (spec §3): executing a command the
+ * shell cannot parse observes nothing, and executing one whose parseability was
+ * never observed is the same gamble. Ownership binds the declines too — an
+ * unowned marker draws nothing at all, not an unauthorized advisory.
+ */
+export function collectionProbePlan(
+  model: DocModel,
+  tracked: ReadonlySet<string>,
+  excludeLines: ReadonlySet<number>,
+): CollectionProbeEntry[] {
+  const owned = ownedContractLines(model);
+  const out: CollectionProbeEntry[] = [];
+  for (const { line, parsed } of wellFormedMarkers(model)) {
+    if (!owned.has(line)) continue;
+    if (excludeLines.has(line)) continue;
+    const state = parsed.redState;
+    if (state === null) continue; // v1: no declared state to probe against
+    if (parsed.red.trim() === "") continue;
+
+    const derived = deriveCollectionProbe(parsed.red, state);
+    if (derived.kind === "none") continue;
+    if (derived.kind === "skipped") {
+      out.push({ line, state, skipped: derived.skipped, detail: derived.detail });
+      continue;
+    }
+    out.push({ line, state, probe: derived.probe, ...partitionTestArgs(parsed.red, tracked) });
   }
   return out;
 }
