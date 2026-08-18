@@ -1145,44 +1145,6 @@ signature of a class that wants a rule.
 under class-sweep exception (c). May share one lint surface with
 `BL-PLANLINT-ACCEPT-SET-CALIBRATION-PROBE`; the implementing arc decides and records it.
 
-## BL-SPECLINT-POSTREPAIR-FORWARD-REF-SWEEP — a repair round stale-ifies forward references the term-grep cannot see
-
-**Status:** IN PROGRESS · **Branch:** fix/speclint-prose-consistency-arms · **Filed:** 2026-08-15, backfill from
-`docs/review-rounds/chore/guard-completeness-wave/04f601134519.md` (spec §, item (a)), per the
-enforcement-pair spec §4 candidate 5 · **Severity:** medium · **Class:** spec-lint arm ·
-**Effort:** M
-
-A spec:lint arm cross-checking out-of-scope bullets and closeout summaries against sections
-mandating the same change. Both escapes in the originating arc were forward references — an
-"out of scope" bullet and a marker-timing summary contradicted by a later repaired section — that
-a term-grep of the repaired text cannot see.
-
-**Reachability:** PROBED in the originating filing (R2-F3/R5, two live escapes each costing a
-round). Filed under class-sweep exception (c).
-
-## BL-SPECLINT-ENUMERATED-UNIVERSAL-PARITY — a spec asserting a universal over an enumerated population owes the command that enumerates it
-
-**Status:** IN PROGRESS · **Branch:** fix/speclint-prose-consistency-arms · **Filed:** 2026-08-16, from
-`docs/review-rounds/fix/control-outline-surface-fills/119895a7c756.md` (spec §, Mechanizable) ·
-**Severity:** medium · **Class:** spec-lint arm · **Effort:** M
-
-A spec:lint arm that flags a quantified claim over a population the same document enumerates,
-when no probe command sits with it. `NUMERIC_NOUN_MISMATCH` does not reach this class because
-the quantified noun is a CLASS TOKEN, not a number — "every one of the 21 lands on a neutral
-ground", "every swapped control carries `transition-colors duration-fast`", "hover changes the
-fill, not the outline". Each was one grep away and each cost a round.
-
-The repair the originating arc found is the arm's likely shape and is worth carrying: re-wording
-the universal never worked, because the failure is a universal in one section contradicting a
-measurement in ANOTHER. Removing the duplicate did work — one section owns the numbers and every
-other section references it. So the arm's useful output may be "this universal restates a
-measurement stated elsewhere" rather than "this universal has no probe".
-
-**Reachability:** PROBED — three live escapes in the originating filing (R1 F3, R1 F4, R3 F3),
-each a false universal in normative spec text, plus R2 F2 one level down. Filed under class-sweep
-exception (c): a spec:lint arm is a redesign of a surface the originating PR does not otherwise
-touch.
-
 ## BL-SPECLINT-BL-DISPOSITION-CLOSEOUT-ARM — a spec dispositioning `BL-` ids owes a closeout naming each id's terminal state
 
 **Status:** OPEN. · **Filed:** 2026-08-15, backfill from

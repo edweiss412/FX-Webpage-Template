@@ -97,6 +97,20 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // fix/speclint-prose-consistency-arms (2026-08-18): the two prose-consistency rows,
+  // graduating together because one spec answered both — a universal-quantifier claim
+  // standing away from its enumeration is the same structure the post-repair sweep keeps
+  // missing, so one recognizer feeds an advisory for the cardinal case and an inventory
+  // for the un-cardinalled one. Each row shipped the mechanism it named, and NEITHER
+  // shipped the shape it guessed at: the parity row proposed a "restates a measurement"
+  // output and got that ANDed with the no-probe condition, because the restatement half
+  // alone measured as a flood; the forward-ref row imagined a per-bullet cross-check and
+  // got INVENTORY, because out-of-scope bullets are three orders too many for a tripwire.
+  // Residues stay as documented limits in the shipped spec §7 rather than as new rows.
+  // BL-SPECLINT-BL-DISPOSITION-CLOSEOUT-ARM deliberately does NOT ride along: the arc was
+  // asked to decide whether it shares this surface and recorded that it does not.
+  { id: "BL-SPECLINT-ENUMERATED-UNIVERSAL-PARITY", provenance: "fix/speclint-prose-consistency-arms" },
+  { id: "BL-SPECLINT-POSTREPAIR-FORWARD-REF-SWEEP", provenance: "fix/speclint-prose-consistency-arms" },
   // fix/modal-wait-skeleton-tolerant (2026-08-18): the two e2e waits the boundary
   // helper could not harden. Graduates as a full repair — a frame-REPORTING core plus a
   // boundary watchdog closed the mechanism the entry named (the skeleton wins a
