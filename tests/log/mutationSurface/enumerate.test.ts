@@ -1049,12 +1049,12 @@ describe("a module binding that can differ at export time is REFUSED, not resolv
     expect(units.map((u) => [u.fn, u.kind])).toEqual([["doIt", "module-action"]]);
   });
 
-  test("NEGATIVE: an unrelated function declaration is not a second declaration of THIS name", () => {
-    // The tally must compare names. Counting every function declaration would
-    // refuse any `var`-bound action in a file that also declares a helper.
+  test("NEGATIVE: an unrelated function declaration does not refuse THIS name", () => {
+    // The rebinding scan must compare names. Treating every function
+    // declaration as a rebind would refuse any action in a file with a helper.
     const units = unitsFor(
       "lib/x/tally.ts",
-      '"use server";\nvar doIt = async () => { await db.from("t").delete(); };\nfunction helper() { return 1; }\nexport { doIt };\n',
+      '"use server";\nexport async function doIt() { await db.from("t").delete(); }\nfunction helper() { return 1; }\nhelper = helper;\n',
     );
     expect(units.map((u) => [u.fn, u.kind])).toEqual([["doIt", "module-action"]]);
   });
@@ -1095,6 +1095,334 @@ const parseSrc = (src: string) => {
   const rel = "lib/x/parsed.ts";
   return parse(join(makeFixture(rel, src), rel));
 };
+
+describe("the stability rule is IMMUTABILITY, not write detection (round 3)", () => {
+  // Round 3 attacked the write detector one write FORM per finding -- member
+  // writes, destructuring assignment, `for..of` targets, `Object.assign`,
+  // `Reflect.set`, `defineProperty`, `splice`. Enumerating write APIs does not
+  // terminate, so the repair goes the other way: a name resolves only when its
+  // binding CANNOT be rebound, and a holder literal resolves only when nothing
+  // else in the file can reach it. Neither question mentions a write form.
+
+  test("a `let` binding is refused even with no write at all", () => {
+    // The documented limit this rule buys: `let` refuses, and the refusal names
+    // the export and says to bind it directly. `const` is the remediation.
+    expect(
+      unitsFor(
+        "lib/x/letnowrite.ts",
+        '"use server";\nlet doIt = async () => { await db.from("t").delete(); };\nexport { doIt };\n',
+      ),
+    ).toEqual([]);
+  });
+
+  test("a `var` binding is refused even with no write at all", () => {
+    expect(
+      unitsFor(
+        "lib/x/varnowrite.ts",
+        '"use server";\nvar doIt = async () => { await db.from("t").delete(); };\nexport { doIt };\n',
+      ),
+    ).toEqual([]);
+  });
+
+  test("NEGATIVE: a property write on the ACTION does not refuse it (`doIt.displayName`)", () => {
+    // `fn.displayName = "..."` is ordinary and leaves the body untouched. The
+    // round-2 member-chain ascent refused it -- a false advisory on correct
+    // code (round 3, finding 2).
+    const units = unitsFor(
+      "lib/x/displayname.ts",
+      '"use server";\nexport const doIt = async () => { await db.from("t").delete(); };\ndoIt.displayName = "doIt";\n',
+    );
+    expect(units.map((u) => [u.fn, u.kind])).toEqual([["doIt", "module-action"]]);
+    expect(scanBody(units[0]!.node, { descend: false }).writeBuilder).toBe(true);
+  });
+
+  test("NEGATIVE: an element write on the ACTION does not refuse it", () => {
+    const units = unitsFor(
+      "lib/x/elemprop.ts",
+      '"use server";\nexport async function doIt() { await db.from("t").delete(); }\ndoIt["tag"] = 1;\n',
+    );
+    expect(units.map((u) => [u.fn, u.kind])).toEqual([["doIt", "module-action"]]);
+  });
+
+  test("a function declaration REBOUND by array destructuring is refused", () => {
+    // A function declaration's binding is mutable, so it still needs the
+    // target check -- but the check is over TARGET POSITIONS, which are closed,
+    // not over write APIs, which are not.
+    expect(
+      unitsFor(
+        "lib/x/fnarraydestr.ts",
+        '"use server";\nexport async function doIt() {}\n[doIt] = [async () => { await db.from("t").delete(); }];\n',
+      ),
+    ).toEqual([]);
+  });
+
+  test("a function declaration REBOUND by object destructuring is refused", () => {
+    expect(
+      unitsFor(
+        "lib/x/fnobjdestr.ts",
+        '"use server";\nexport async function doIt() {}\n({ doIt } = bag);\n',
+      ),
+    ).toEqual([]);
+  });
+
+  test("a function declaration REBOUND by a `for..of` head is refused", () => {
+    expect(
+      unitsFor(
+        "lib/x/fnforof.ts",
+        '"use server";\nexport async function doIt() {}\nfor (doIt of impls) { break; }\n',
+      ),
+    ).toEqual([]);
+  });
+
+  test("a function declaration REBOUND through an `as` wrapper is refused", () => {
+    expect(
+      unitsFor(
+        "lib/x/fnaswrap.ts",
+        '"use server";\nexport async function doIt() {}\n(doIt as never) = other;\n',
+      ),
+    ).toEqual([]);
+  });
+
+  test("a holder the file can still REACH is refused (`Object.assign`)", () => {
+    // No `Object.assign` case exists in the resolver. The holder is refused
+    // because something OTHER than the destructuring mentions it, whatever that
+    // something does.
+    expect(
+      unitsFor(
+        "lib/x/holderassign.ts",
+        '"use server";\nconst bag = { doIt: async () => {} };\nObject.assign(bag, { doIt: async () => { await db.from("t").delete(); } });\nexport const { doIt } = bag;\n',
+      ),
+    ).toEqual([]);
+  });
+
+  test("a holder that is itself EXPORTED is refused", () => {
+    expect(
+      unitsFor(
+        "lib/x/holderexported.ts",
+        '"use server";\nconst bag = { doIt: async () => { await db.from("t").delete(); } };\nexport { bag };\nexport const { doIt } = bag;\n',
+      ),
+    ).toEqual([]);
+  });
+
+  test("NEGATIVE: a holder referenced ONLY by the destructuring still resolves", () => {
+    const units = unitsFor(
+      "lib/x/holderpristine.ts",
+      '"use server";\nconst bag = { doIt: async () => { await db.from("t").delete(); } };\nexport const { doIt } = bag;\n',
+    );
+    expect(units.map((u) => [u.fn, u.kind])).toEqual([["doIt", "module-action"]]);
+    expect(scanBody(units[0]!.node, { descend: false }).writeBuilder).toBe(true);
+  });
+});
+
+describe("the rebinding scan and the holder rule, mutant by mutant (round 3)", () => {
+  const FN = '"use server";\nexport async function doIt() { await db.from("t").delete(); }\n';
+
+  test("a plain `=` rebind of a function declaration is refused", () => {
+    expect(unitsFor("lib/x/fnplain.ts", FN + "doIt = other;\n")).toEqual([]);
+  });
+
+  test("the LAST assignment operator (`^=`) rebinds too", () => {
+    expect(unitsFor("lib/x/fncaret.ts", FN + "doIt ^= 1;\n")).toEqual([]);
+  });
+
+  test("an increment rebinds a function declaration", () => {
+    expect(unitsFor("lib/x/fnincr.ts", FN + "doIt++;\n")).toEqual([]);
+  });
+
+  test("a KEYED object-destructuring target rebinds (`({ k: doIt } = obj)`)", () => {
+    expect(unitsFor("lib/x/fnkeyed.ts", FN + "({ k: doIt } = obj);\n")).toEqual([]);
+  });
+
+  test("a DEFAULTED array-destructuring target rebinds (`[doIt = f] = xs`)", () => {
+    expect(unitsFor("lib/x/fndefault.ts", FN + "[doIt = fallback] = xs;\n")).toEqual([]);
+  });
+
+  test("NEGATIVE: a default VALUE is not a target (`[other = doIt] = xs`)", () => {
+    // The right side of a destructuring default is read, not bound. Descending
+    // into it would refuse an action merely used as a fallback.
+    expect(unitsFor("lib/x/fndefaultval.ts", FN + "[other = doIt] = xs;\n").length).toBe(1);
+  });
+
+  test("NEGATIVE: a property KEY is not a target (`({ doIt: other } = obj)`)", () => {
+    expect(unitsFor("lib/x/fnkeyname.ts", FN + "({ doIt: other } = obj);\n").length).toBe(1);
+  });
+
+  test("a rebind INSIDE a function still refuses (a function is not a shadow)", () => {
+    // `shadowsName` must require a DECLARATION, not merely a function boundary.
+    expect(unitsFor("lib/x/fninside.ts", FN + "function f() { doIt = other; }\n")).toEqual([]);
+  });
+
+  test("NEGATIVE: a DESTRUCTURED parameter shadow is a different binding", () => {
+    expect(
+      unitsFor("lib/x/fnparampat.ts", FN + "function f({ doIt }: { doIt: number }) { doIt = 1; }\n")
+        .length,
+    ).toBe(1);
+  });
+
+  test("a `var` in a NESTED function does not shadow the outer rebind", () => {
+    // `var` hoists to ITS OWN function, so the nested declaration says nothing
+    // about the assignment in the outer one -- which is still a rebind.
+    expect(
+      unitsFor(
+        "lib/x/fnnestedvar.ts",
+        FN + "function f() { function g() { var doIt = 1; return doIt; } doIt = other; }\n",
+      ),
+    ).toEqual([]);
+  });
+
+  test("NEGATIVE: `const` wins even in a file that also declares functions", () => {
+    // The rebind scan runs only for a function-declaration binding. A `const`
+    // is immutable whatever else the file contains.
+    const units = unitsFor(
+      "lib/x/constwins.ts",
+      '"use server";\nexport const doIt = async () => { await db.from("t").delete(); };\nfunction helper() { return 1; }\ndoIt = other;\n',
+    );
+    expect(units.map((u) => [u.fn, u.kind])).toEqual([["doIt", "module-action"]]);
+  });
+
+  test("NEGATIVE: a COMPARISON is not an assignment (`doIt === other`)", () => {
+    expect(unitsFor("lib/x/fncompare.ts", FN + "const same = doIt === other;\n").length).toBe(1);
+  });
+
+  test("NEGATIVE: a non-increment unary is not a rebind (`!doIt`)", () => {
+    expect(unitsFor("lib/x/fnnotunary.ts", FN + "const missing = !doIt;\n").length).toBe(1);
+  });
+
+  test("NEGATIVE: a CLASS MEMBER named like the holder is not a reference to it", () => {
+    // A class member's name labels the member, not the holder binding. Counting
+    // it as a reference refuses a correct holder.
+    const units = unitsFor(
+      "lib/x/holderclassmember.ts",
+      '"use server";\nconst bag = { doIt: async () => { await db.from("t").delete(); } };\nclass C { bag = 1; }\nexport const { doIt } = bag;\n',
+    );
+    expect(units.map((u) => [u.fn, u.kind])).toEqual([["doIt", "module-action"]]);
+  });
+
+  test("NEGATIVE: an object-literal KEY named like the holder is not a reference", () => {
+    const units = unitsFor(
+      "lib/x/holderobjkey.ts",
+      '"use server";\nconst bag = { doIt: async () => { await db.from("t").delete(); } };\nconst other = { bag: 1 };\nexport const { doIt } = bag;\n',
+    );
+    expect(units.map((u) => [u.fn, u.kind])).toEqual([["doIt", "module-action"]]);
+  });
+
+  test("a PARENTHESIZED holder is still checked for reachability", () => {
+    expect(
+      unitsFor(
+        "lib/x/holderparen.ts",
+        '"use server";\nconst bag = { doIt: async () => {} };\nbag.doIt = async () => { await db.from("t").delete(); };\nexport const { doIt } = (bag);\n',
+      ),
+    ).toEqual([]);
+  });
+
+  test("NEGATIVE: a holder whose literal is PARENTHESIZED still resolves", () => {
+    const units = unitsFor(
+      "lib/x/holderparenlit.ts",
+      '"use server";\nconst bag = ({ doIt: async () => { await db.from("t").delete(); } });\nexport const { doIt } = bag;\n',
+    );
+    expect(units.map((u) => [u.fn, u.kind])).toEqual([["doIt", "module-action"]]);
+  });
+
+  test("NEGATIVE: an ARRAY holder resolves", () => {
+    const units = unitsFor(
+      "lib/x/holderarray.ts",
+      '"use server";\nconst bag = [async () => { await db.from("t").delete(); }];\nexport const [doIt] = bag;\n',
+    );
+    expect(units.map((u) => [u.fn, u.kind])).toEqual([["doIt", "module-action"]]);
+  });
+
+  test("a holder with NO module declaration (imported) is refused", () => {
+    expect(
+      unitsFor(
+        "lib/x/holderimported.ts",
+        '"use server";\nimport { bag } from "./b";\nexport const { doIt } = bag;\n',
+      ),
+    ).toEqual([]);
+  });
+
+  test("a holder bound by a PATTERN is refused (the declaration is not a name)", () => {
+    expect(
+      unitsFor(
+        "lib/x/holderpattern.ts",
+        '"use server";\nconst [bag] = pairs;\nexport const { doIt } = bag;\n',
+      ),
+    ).toEqual([]);
+  });
+
+  test("NEGATIVE: the holder's OWN declaration is the one read, not another name's", () => {
+    // The declaration scan must match on the holder's name. Taking any
+    // identifier-named declaration reads a different initializer, and a
+    // non-literal one refuses a correct holder.
+    const units = unitsFor(
+      "lib/x/holderpicks.ts",
+      '"use server";\nconst bag = { doIt: async () => { await db.from("t").delete(); } };\nconst zzz = makeThing();\nexport const { doIt } = bag;\n',
+    );
+    expect(units.map((u) => [u.fn, u.kind])).toEqual([["doIt", "module-action"]]);
+  });
+});
+
+describe("a shadow in ANY enclosing scope is a different binding (round 3, finding 1)", () => {
+  // The shadow test walks every ancestor and reads declaration names
+  // GENERICALLY. A kind list missed setter parameters, loop heads, unbraced
+  // switch cases, hoisted nested `var`, class declarations and namespace
+  // blocks, and each miss was a REFUSAL fired on correct code.
+  const stable = (rel: string, extra: string) =>
+    unitsFor(
+      rel,
+      '"use server";\nexport async function doIt() { await db.from("t").delete(); }\n' + extra,
+    );
+
+  test("a `for..of` loop head shadow does not refuse the export", () => {
+    expect(
+      stable("lib/x/shloop.ts", "function f(xs: number[]) { for (let doIt of xs) { doIt = 1; } }\n")
+        .length,
+    ).toBe(1);
+  });
+
+  test("a classic `for` head shadow does not refuse the export", () => {
+    expect(
+      stable("lib/x/shfor.ts", "function f() { for (let doIt = 0; doIt < 2; doIt++) {} }\n").length,
+    ).toBe(1);
+  });
+
+  test("a SETTER parameter shadow does not refuse the export", () => {
+    expect(
+      stable("lib/x/shsetter.ts", "class C { set v(doIt: number) { doIt = 1; } }\n").length,
+    ).toBe(1);
+  });
+
+  test("a CONSTRUCTOR parameter shadow does not refuse the export", () => {
+    expect(
+      stable("lib/x/shctor.ts", "class C { constructor(doIt: number) { doIt = 1; } }\n").length,
+    ).toBe(1);
+  });
+
+  test("an unbraced switch-case shadow does not refuse the export", () => {
+    expect(
+      stable(
+        "lib/x/shswitch.ts",
+        "function f(k: number) { switch (k) { case 1: let doIt = 1; doIt = 2; } }\n",
+      ).length,
+    ).toBe(1);
+  });
+
+  test("a namespace-block shadow does not refuse the export", () => {
+    expect(stable("lib/x/shns.ts", "namespace N { let doIt = 1; doIt = 2; }\n").length).toBe(1);
+  });
+
+  test("a nested-function `var` shadow does not refuse the export", () => {
+    expect(
+      stable("lib/x/shvar.ts", "function f() { if (true) { var doIt = 1; } doIt = 2; }\n").length,
+    ).toBe(1);
+  });
+
+  test("a catch-clause shadow does not refuse the export", () => {
+    expect(
+      stable("lib/x/shcatch.ts", "function f() { try { g(); } catch (doIt) { doIt = 1; } }\n")
+        .length,
+    ).toBe(1);
+  });
+});
 
 describe("`export { x as default }` is a DEFAULT export (round 2, finding 2)", () => {
   // The ratified contract is: a default-exported action produces NO unit and IS
