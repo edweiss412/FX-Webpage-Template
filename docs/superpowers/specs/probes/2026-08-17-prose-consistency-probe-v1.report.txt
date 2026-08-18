@@ -1,13 +1,13 @@
-docs scanned (all docs/): 1218
+docs scanned (all docs/): 1217
 
 === Pass 1: all docs ===
-U-a raw: 3578  gated: 1822
-U-b raw: 8659  gated: 4684
+U-a raw: 3574  gated: 1819
+U-b raw: 8652  gated: 4677
 out-of-scope: docs 286, bullets 1242, w/§ref 333, w/code 654
 
-=== Pass 2: spec-kind docs only (447 docs) ===
-U-a-narrow (universal+cardinal, non-table, non-dated): 339
-U-a-narrow + cardinal-enumerated-in-other-section + no-probe-cmd-in-section: 215
+=== Pass 2: spec-kind docs only (446 docs) ===
+U-a-narrow (universal+cardinal, non-table, non-dated): 336
+U-a-narrow + cardinal-enumerated-in-other-section + no-probe-cmd-in-section: 212
 
 --- U-a-narrow fully-gated listing (full) ---
 docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2316 **Implementation note:** all 12 steps are encapsulated in a single `lib/auth/validateLinkSession(req)` helper that returns a **tri-state out
@@ -79,7 +79,6 @@ docs/superpowers/specs/admin/2026-07-07-admin-field-overrides.md:606 - `tests/ov
 docs/superpowers/specs/admin/2026-07-07-admin-field-overrides.md:607 - `tests/overrides/matchKeyDurability.test.ts` — the admin loader derives `matchKey` **and** `expectedCurrentValue` from SOURCE not display 
 docs/superpowers/specs/admin/2026-07-10-remove-admin-field-overrides.md:101 - `components/admin/wizard/step3ReviewSections.tsx` — remove `WizardOverrideRow` (`:868`) + all 6 call sites (`:966,1369,1380,1603,2404,2421
 docs/superpowers/specs/admin/2026-07-15-extend-role-scope-vocab.md:188 **Transition inventory (all 10 pairs, reconciled with the mock):** collapsed→idle (expand — mock: 120ms `rr-pop` fade/translate-in, ease-out
-docs/superpowers/specs/admin/2026-07-16-last-checked-at.md:163 must never enter it, or every 5-min check would bust every crew cache. The JSDoc
 docs/superpowers/specs/admin/2026-07-25-destruct-thumb-order-drift-guard.md:230 All 11 declarations listed in §2.2 are replaced by an import. No behavioural change: every site already used `4_000`, so no existing timer t
 docs/superpowers/specs/alerts/2026-07-03-route-sync-problems-to-needs-attention.md:65 Rebased on #283, which formalized a **state-vs-event lifecycle taxonomy** for all 42 codes in `tests/messages/_metaAdminAlertCatalog.test.ts
 docs/superpowers/specs/alerts/2026-07-04-alert-at-a-glance-identity.md:211 Every other identifier is ID-resolvable at render time or already in `context`. This is still the Approach-A payoff: three alert codes get a
@@ -136,10 +135,8 @@ docs/superpowers/specs/observability/2026-06-29-observability-timeline-phase2-de
 docs/superpowers/specs/observability/2026-06-29-observability-timeline-phase2-design.md:308 - `components/admin/nav/navConfig.ts` (EDIT) — **Activity is a desktop-nav destination + a mobile entry from Settings (NOT a 6th mobile bott
 docs/superpowers/specs/observability/2026-06-29-observability-timeline-phase2-design.md:460 - AC5. Cron-health header shows all 9 jobs; each shows its effective status (dot+label) + relative time + counts: `ok`/`partial`/`failed` fr
 docs/superpowers/specs/observability/2026-06-30-observability-console-migration-phase4-design.md:94 - **MANDATORY per-call message enrichment (NOT a mechanical swap):** because `context` is console-only, any operator-relevant detail current
-docs/superpowers/specs/observability/2026-07-02-observability-coverage-carveout-design.md:13 The audit's single sharpest finding was verified live: a genuine `hard_fail:MI-3_NO_VALID_DATES` on Drive file `1Now2iJ_…` pegged every 5-mi
 docs/superpowers/specs/observability/2026-07-02-observability-coverage-completion-design.md:27 - **S7 covers 6 high-value codes**, not all 9 the scout enumerated. Skipped: `DRIVE_WATCH_CREATE_FAILED`/`ACTIVATE_FAILED`/`GC_STOP_FAILED` 
 docs/superpowers/specs/observability/2026-07-02-observability-coverage-completion-design.md:50 - **`clientLog`** (`lib/observe/clientLog.ts:5`): append two OPTIONAL params, keeping `context` 4th so all 15 realtime callers + `RightNowHe
-docs/superpowers/specs/observability/2026-07-02-observability-coverage-followup-design.md:54 - Level is chosen fresh each run from that run's outcome only (`withCronRunSummary.ts:51-53`): `infra→error`, `partial→warn`, `ok→info`. No 
 docs/superpowers/specs/observability/2026-07-03-nullcode-forensic-batch2-design.md:14 **Goal:** add a `code: "<SHOUTY_SNAKE>"` field to the existing fields object of each of the 35 calls, and register all 35 in the `NEW_FORENS
 docs/superpowers/specs/observability/2026-07-03-nullcode-forensic-batch2-design.md:30 Re-verified against the current base (PRs #247/#249 merged): all 35 still exist, still lack a `code:`. 3 are `warn`, 32 are `error`. No new/
 docs/superpowers/specs/observability/2026-07-03-nullcode-forensic-batch2-design.md:128 **(a) Registry membership.** Add all 35 forensic codes to `NEW_FORENSIC_CODES` (meta-test `:134`). **Assertion 4** (`:243-246`) then proves 
@@ -227,7 +224,7 @@ docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-19-crew-flight-info.
 docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-23-parse-data-quality-warnings-design.md:229 - **Class-B corpus regression (R10 F2)**: class-B detection over all 7 `fixtures/shows/exporter-xlsx/*.md` → zero `UNKNOWN_SECTION_HEADER` (
 
 --- inventory sizing over spec docs ---
-universal-lines per doc: median 8, max 81 (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md)
+universal-lines per doc: median 9, max 81 (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md)
 top 10 by universal-line count:
   81  docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md
   59  docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md

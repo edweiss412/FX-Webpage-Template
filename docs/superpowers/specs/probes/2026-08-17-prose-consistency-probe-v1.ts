@@ -12,13 +12,25 @@ import { parseDoc } from "../../../../lib/specLint/parse";
 
 const root = process.argv[2] ?? process.cwd();
 
+// R2-repair (spec review round 2 F4): the arc's OWN artifacts are excluded from the
+// measured population. They are self-referential — the spec quotes the recognizer's
+// accept-set, so each repair round's edits moved the measurement it was calibrated by
+// (measured drift: 1,217 -> 1,218 docs, U-a 3,574 -> 3,581 across two reruns). The
+// instrument measures the PRE-EXISTING corpus the arms will meet.
+const OWN_ARTIFACTS = [
+  "docs/superpowers/specs/2026-08-17-speclint-prose-consistency-arms.md",
+  "docs/superpowers/plans/2026-08-17-speclint-prose-consistency-arms.md",
+  "docs/superpowers/specs/probes/2026-08-17-prose-consistency-probe-v1.ts",
+  "docs/superpowers/specs/probes/2026-08-17-prose-consistency-probe-v1.report.txt",
+];
 const tracked = execFileSync("git", ["ls-files", "-z", "--", "docs/"], {
   cwd: root,
   encoding: "utf8",
   maxBuffer: 64 * 1024 * 1024,
 })
   .split("\0")
-  .filter((p) => p.endsWith(".md"));
+  .filter((p) => p.endsWith(".md"))
+  .filter((p) => !OWN_ARTIFACTS.includes(p));
 
 // Same word list the prose-count arms parse (numerics.ts NUMBER_WORDS keys, restated
 // here as instrument config only; the contract will reference the module's list).
@@ -248,7 +260,10 @@ for (const rel of specDocs) {
     const mA = new RegExp(
       String.raw`\b([Ee]very|[Ee]ach|[Aa]ll)\s+(?:one\s+of\s+the\s+|of\s+the\s+)?(\d{1,3})\b`,
     ).exec(line);
-    const TIME_UNIT_AFTER = /^\s*(ms|s|min|mins|minute|minutes|hour|hours|second|seconds|day|days|week|weeks|month|months)\b/;
+    // R2-repair (spec review round 2 F1): the unit may attach with a hyphen
+    // ("every 5-min check", "every 5-minute run") — same closed unit set, the
+    // separator is whitespace OR a hyphen.
+    const TIME_UNIT_AFTER = /^[-\s]\s*(ms|s|min|mins|minute|minutes|hour|hours|second|seconds|day|days|week|weeks|month|months)\b/;
     if (mA && !ISO_DATE_LINE.test(line)) {
       const value = Number(mA[2]!);
       const afterCardinal = line.slice(mA.index + mA[0].length);
