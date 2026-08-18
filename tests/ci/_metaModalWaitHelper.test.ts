@@ -42,7 +42,7 @@ import {
 const REPO_ROOT = process.cwd();
 
 /**
- * The exemption inventory, pinned. A third entry fails this suite until an
+ * The exemption inventory, pinned. An unpinned entry fails this suite until an
  * author edits the list deliberately — an accepted limit is a claim someone has
  * to re-make, never a hole that widens silently (spec §4.4).
  *
@@ -58,12 +58,6 @@ const PINNED_EXEMPTIONS = [
     // §2.5: the loader redirect()s to bare /admin and the test asserts NO
     // modal, so there is no modal-interior wait to harden.
     reasonMatches: /non-member/,
-  },
-  {
-    file: "tests/e2e/published-review-modal.deeplink.spec.ts",
-    // Limit 3b: MODAL_ANY matches the Suspense skeleton, so a modal-or-boundary
-    // race resolves on the skeleton and would HIDE the fault.
-    reasonMatches: /skeleton-tolerant/,
   },
 ] as const;
 
@@ -249,10 +243,10 @@ describe("modal-wait guard — the live corpus", () => {
     ).toEqual([]);
   });
 
-  test("the exemption inventory is exactly the two pinned entries", () => {
+  test("the exemption inventory is exactly the pinned entries", () => {
     expect(
       exemptions.map((e) => `${e.file}:${e.line} — ${e.reason}`),
-      "a third exemption is an accepted limit nobody re-stated: add it to PINNED_EXEMPTIONS " +
+      "an unpinned exemption is an accepted limit nobody re-stated: add it to PINNED_EXEMPTIONS " +
         "with its class, or adopt the site",
     ).toHaveLength(PINNED_EXEMPTIONS.length);
 
@@ -431,19 +425,28 @@ describe("modal-wait census — total disposition (AC-2b)", () => {
 
   test("the adopted-site counts ARE the §4.2 arithmetic, asserted not retyped", () => {
     // 30 G (this arc's 28 plus the parent arc's 2 in admin-changes-feed-layout),
-    // 9 U, 12 N edit locations = 51 adopted sites discharging 51 member opens.
+    // 9 U, 1 U-frame, 12 N edit locations = 52 adopted sites discharging 52
+    // member opens.
     const byId = new Map(DISPOSITION_RULES.map((r) => [r.id, r.expectedCount]));
     expect(byId.get("f/member-shape-G")).toBe(30);
     expect(byId.get("f/member-shape-U")).toBe(9);
+    expect(byId.get("f/member-shape-U-frame")).toBe(1);
     // DERIVED, never retyped: the N count is `N_WAIT_SITES.length`, so the
     // registry and the arithmetic cannot disagree about how many waits exist.
     expect(byId.get("f/member-shape-N")).toBe(N_WAIT_SITES.length);
     expect(N_WAIT_SITES).toHaveLength(12);
-    const adopted =
-      (byId.get("f/member-shape-G") ?? 0) +
-      (byId.get("f/member-shape-U") ?? 0) +
-      (byId.get("f/member-shape-N") ?? 0);
-    expect(adopted, "49 edit locations in this arc plus the parent arc's 2").toBe(51);
+    // The SUM is derived over every origin-(f) member rule, never a fixed id
+    // list: a future member rule joins it by construction. A fixed three-id sum
+    // reads the same 52 whether or not the frame rule exists, so the naive
+    // literal update would pass while silently excluding it (spec-review R1
+    // finding 1). Origin-(a) member rows are the SAME sites seen through the
+    // route-literal origin and stay deliberately outside this sum.
+    const adopted = DISPOSITION_RULES.filter(
+      (r) => r.origin === "f-helper-call" && r.disposition.kind === "member",
+      // `?? 0` only satisfies the optional type: the sibling rule-shape test
+      // above pins every rule to a numeric count, so a missing one reds there.
+    ).reduce((sum, r) => sum + (r.expectedCount ?? 0), 0);
+    expect(adopted, "50 edit locations in this arc plus the parent arc's 2").toBe(52);
   });
 
   test("a constructed candidate with no disposition FAILS the check", () => {

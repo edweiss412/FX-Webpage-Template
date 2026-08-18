@@ -252,7 +252,9 @@ const isTestTitle = (text: string): boolean => /^(?:test|describe)(?:\.\w+)*\(\s
 
 /** Any call into the modal-wait helper module. */
 const callsHelper = (text: string): boolean =>
-  /\b(?:openShowReviewModal|openShowReviewModalAt|awaitReviewModalOrRecover)\(/.test(text);
+  /\b(?:openShowReviewModal|openShowReviewModalAt|awaitReviewModalOrRecover|openShowReviewFrameAt)\(/.test(
+    text,
+  );
 
 /**
  * Playwright's activation verbs. A (d) candidate whose STATEMENT carries one of
@@ -308,7 +310,7 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason:
         "the caller owns the URL (extra query params, fragments, encodeURIComponent) and routes it through openShowReviewModalAt, so the wait and the single recovery are the helper's",
     },
-    expectedCount: 8,
+    expectedCount: 9,
     // The MATCH line, not the statement: a test() container's text contains its
     // whole body, so a statement-reading form would claim every describe block
     // holding an adopted call as a member too.
@@ -322,7 +324,7 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason:
         "declares an inline modal-wait-exempt reason; the pinned inventory in the meta-test is what keeps that list from widening",
     },
-    expectedCount: 2,
+    expectedCount: 1,
     // Resolved by the scan, not by any text here: the marker is valid on the
     // match line OR the line above, and the candidate's own text is stripped of
     // comments, so it could not carry the marker at all.
@@ -396,6 +398,24 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     },
     expectedCount: 9,
     match: (c) => /\bopenShowReviewModalAt\s*\(/.test(c.matchLineText),
+  },
+  {
+    id: "f/member-shape-U-frame",
+    origin: "f-helper-call",
+    disposition: {
+      kind: "member",
+      shape: "U",
+      reason:
+        "the caller accepts EITHER frame and adopts through the frame-reporting core, so the race covers the Suspense skeleton as well as the loaded modal and a boundary is annotated instead of hidden",
+    },
+    // ONE rule for BOTH frame entry points: the bare core has no corpus caller
+    // yet, and a rule matching nothing reds the every-rule-matches-at-least-one
+    // assertion. A future direct caller lands here and drifts this count loudly
+    // — if it is shape N (the open is owned elsewhere), that drift is the
+    // human's cue to extend the N registry vocabulary, not to widen this rule.
+    expectedCount: 1,
+    match: (c) =>
+      /\b(?:openShowReviewFrameAt|awaitReviewFrameOrRecover)\s*\(/.test(c.matchLineText),
   },
   {
     id: "f/member-shape-N",
