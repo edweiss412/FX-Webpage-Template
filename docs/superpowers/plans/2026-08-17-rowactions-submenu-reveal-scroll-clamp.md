@@ -10,7 +10,7 @@
 
 **e2e harness readiness (writing-plans rule):** (a) server boot: local `pnpm dev -H 127.0.0.1 -p ${E2E_PORT}` / CI `pnpm build && pnpm start` per `playwright.config.ts` webServer entry 1; run local e2e with an `E2E_PORT` other than 3000 so a sibling worktree's dev server is never silently reused (`playwright.config.ts:5-8`). (b) readiness gate: `lastSeededTrigger`'s `toHaveCount(SEEDED_SHOWS)` settle on `shows-find-input` filtering (`tests/e2e/rowactions-geometry.spec.ts:116-132`) — never `networkidle`. (c) detach-safety: every `panel.evaluate` in the strengthened case runs while the submenu is held open by the test's own flow; no sampler outlives its element.
 
-**Test wiring (writing-plans rule):** both new suites match `BASE_INCLUDE` (`vitest.projects.ts:34`, `tests/**/*.test.ts`) and run in the standard unit-suite CI job with no config or workflow edit; the e2e change edits an existing file already named by `admin-layout-e2e.yml` and both playwright project testMatch regexes. No path-filter change anywhere.
+**Test wiring (writing-plans rule):** both new suites match `BASE_INCLUDE` (`vitest.projects.ts:34`, `tests/**/*.test.ts`) and run in the standard unit-suite CI job with no config edit; the e2e change edits an existing file already named by `admin-layout-e2e.yml` and by the desktop-chromium testMatch regex (`playwright.config.ts:97` — desktop-chromium ONLY; the mobile-safari matcher does not list it). ONE path-filter change IS required (plan-R1 F4): lib/popover/naturalSize.ts (new) joins `admin-layout-e2e.yml`'s paths in Task 1, plus the derived sweep over other `lib/popover`-listing workflows.
 
 **Heavy wrapping:** every non-interactive Playwright invocation below runs under `pnpm heavy` (machine-wide slot semaphore), foreground, never backgrounded across a turn boundary.
 
@@ -35,31 +35,9 @@ The three test artifacts below were drafted, spliced into the live tree, and RUN
 
 <!-- tasks: depth=2 red-contract -->
 
-## Task 1 — strengthen the e2e case so it discriminates the revert (RED)
+## Task 1 — withNaturalSize helper, TDD, and its CI wiring
 
-<!-- task: red=`E2E_PORT=3107 pnpm heavy pnpm exec playwright test --project=desktop-chromium tests/e2e/rowactions-geometry.spec.ts -g "CAPPED submenu" --repeat-each=10` red-state=authored red-target=`components/admin/AnchoredPortal.tsx:139` why=`measureAndApply clears panel.style.maxHeight to measure natural size; layout with no cap clamps a scrolled panel's scrollTop to 0 and the restore at AnchoredPortal.tsx:156 does not restore it, so the reveal reverts one rAF after every keypress (spec P2, 5/5); the shipped sampling races that ~8ms window and wins locally (P3, 10/10 green), so the red only appears once this task moves the sample past the revert` ac=AC-2 -->
-
-Edit `tests/e2e/rowactions-geometry.spec.ts` in the CAPPED-submenu case only: between `await page.keyboard.press("End");` (line 357) and the `revealed` sampling `page.evaluate` (line 358), insert the settle from spec §5.1:
-
-```ts
-await page.keyboard.press("End");
-// Settle: the defect class this pins reverts the reveal on the NEXT animation
-// frame (measureAndApply's clamp). Two rAFs put the sample on the far side of
-// any scheduled re-measure, so the assertion reads the DURABLE state (the one
-// the keyboard user is left looking at) instead of racing the revert.
-await page.evaluate(
-  () =>
-    new Promise<void>((resolve) =>
-      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-    ),
-);
-```
-
-Everything else in the case (premise guards, sampling body, assertions) is unchanged. RED step: run the marker command and observe 10/10 failures at the line-368 assertion (`bottom` ≈ 77px past `boxBottom`, per spec P2's `activeBottom 587 / boxBottom 433.375` shape at the local viewport). Record the observed count in the commit message. Commit (`test(admin):`).
-
-## Task 2 — withNaturalSize helper, TDD (unit RED → helper → GREEN)
-
-<!-- task: red=`pnpm vitest run tests/components/naturalSize.test.ts` red-state=authored red-target=`lib/popover/naturalSize.ts` why=`the module does not exist; the suite's import fails to resolve, and once the module lands each contract case (clear-both-caps, restore-on-throw, scroll snapshot restore, conditional write, heightAtWidth probe) fails unless the helper implements exactly the spec §4.2 semantics` ac=AC-1 -->
+<!-- task: red=`pnpm vitest run tests/components/naturalSize.test.ts` red-state=authored red-target=`lib/popover/naturalSize.ts` why=`the module does not exist; the suite's import fails to resolve, and once the module lands each contract case (clear-both-caps, restore-on-throw, scroll snapshot restore, conditional write, runtime thenable rejection, inert probe, heightAtWidth probe) fails unless the helper implements exactly the spec §4.2 semantics` ac=AC-1 -->
 
 1. Create tests/components/naturalSize.test.ts with exactly this content (validated at plan time — RED observed as unresolved import; all cases green against the spec §4.2 helper; typecheck clean):
 
@@ -203,9 +181,43 @@ describe("withNaturalSize", () => {
 
 2. Observe RED (unresolved import). 3. Create lib/popover/naturalSize.ts (new) exactly per spec §4.2. 4. GREEN on the same command. Commit (`fix(admin):` or `feat(admin):` — the helper is new plumbing for an existing surface; use `fix(admin):` since it lands inside the defect repair).
 
-## Task 3 — derived-cover meta-test (RED: four live offenders)
+**CI wiring, same commit (plan-R1 F4):** add the new helper path lib/popover/naturalSize.ts to `.github/workflows/admin-layout-e2e.yml`'s path filter beside the four existing `lib/popover/*` entries (`admin-layout-e2e.yml:68-71`), so a helper-only regression still fires the sole real-browser capped-scroll gate. Then run the derived sweep `grep -rn "lib/popover" .github/workflows/` and add the helper to any other workflow whose guarded components consume it (known second candidate: `published-modal-e2e.yml:51` lists `lib/popover/position.ts`; add the helper path there iff its guarded surfaces reach HoverHelp/ShareHub/AnchoredPortal; record the disposition either way in the commit).
 
-<!-- task: red=`pnpm vitest run tests/components/_metaScrollNeutralMeasurement.test.ts` red-state=authored red-target=`components/admin/AnchoredPortal.tsx:138` why=`the four cap-clearing measurement sites the spec §4.3 table names still assign .style.maxHeight/.maxWidth = "" directly (AnchoredPortal.tsx:138-139, HoverHelp.tsx:220-221, ShareHub.tsx:287-288, useFitWithinClip.ts:83); the scanner walks components/ and lib/ from disk and fails while any of them exists outside the helper` ac=AC-4 -->
+## Task 2 — AnchoredPortal repair: strengthened e2e RED → scroll-neutral measurement + self-origin filter → GREEN
+
+<!-- task: red=`E2E_PORT=3107 pnpm heavy pnpm exec playwright test --project=desktop-chromium tests/e2e/rowactions-geometry.spec.ts -g "CAPPED submenu" --repeat-each=10` red-state=authored red-target=`components/admin/AnchoredPortal.tsx:139` why=`measureAndApply clears panel.style.maxHeight to measure natural size; layout with no cap clamps a scrolled panel's scrollTop to 0 and the restore at AnchoredPortal.tsx:156 does not restore it, so the reveal reverts one rAF after every keypress (spec P2, 5/5); the shipped sampling races that ~8ms window and wins locally (P3, 10/10 green), so the red appears once this task's test edit moves the sample past the revert, and the SAME command goes green when this task's call-site rewrite and §4.5 filter land` ac=AC-2,AC-3,AC-7 -->
+
+**RED half — strengthen the e2e case (spec §5.1):**
+
+Edit `tests/e2e/rowactions-geometry.spec.ts` in the CAPPED-submenu case only: between `await page.keyboard.press("End");` (line 357) and the `revealed` sampling `page.evaluate` (line 358), insert the settle from spec §5.1:
+
+```ts
+await page.keyboard.press("End");
+// Settle: the defect class this pins reverts the reveal on the NEXT animation
+// frame (measureAndApply's clamp). Two rAFs put the sample on the far side of
+// any scheduled re-measure, so the assertion reads the DURABLE state (the one
+// the keyboard user is left looking at) instead of racing the revert.
+await page.evaluate(
+  () =>
+    new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    ),
+);
+```
+
+Everything else in the case (premise guards, sampling body, assertions) is unchanged. RED step: run the marker command and observe 10/10 failures at the line-368 assertion (`bottom` ≈ 77px past `boxBottom`, per spec P2's `activeBottom 587 / boxBottom 433.375` shape at the local viewport). Record the observed count in the merged task's commit message.
+
+Add the family-C second phase in the same edit (spec §5.4): after the settle and the reveal assertion, install a style-attribute MutationObserver on the panel, wait six further animation frames, assert ZERO additional `maxHeight` writes.
+
+**GREEN half — the AnchoredPortal rewrite:**
+
+Rewrite `measureAndApply` (`components/admin/AnchoredPortal.tsx:127-187`) per spec §4.3 row 1: the clear/measure/restore block becomes `withNaturalSize(panel, (probe) => …)`; `wrappedHeightAt: probe.heightAtWidth`; the held-style locals go away; `placeWithinVisibleViewport` inputs and the `commit` logic are unchanged. In the SAME task, add the §4.5 self-origin guard to `onScrollCapture` (`AnchoredPortal.tsx:204-215`): an event whose target is the panel or a descendant returns before the re-place branch; document-scroll dismissal and ancestor re-placement unchanged. Without the guard the restore's own scroll events loop the coalescer at one forced measurement per frame (spec §4.2/§4.5, R5 F1). Extend the strengthened §5.1 e2e case with the family-C second phase (six-frame MutationObserver window, zero further maxHeight writes) and add the jsdom family-C case to `anchoredPortal.test.tsx` (panel-targeted scroll ignored; ancestor-targeted re-places; document-targeted dismisses). GREEN: `E2E_PORT=3107 pnpm heavy pnpm exec playwright test --project=desktop-chromium tests/e2e/rowactions-geometry.spec.ts --repeat-each=2` passes 2/2 (full file, all five cases); the CAPPED-only `--repeat-each=10` form passes 10/10; and `pnpm vitest run tests/components/admin/rowActions/anchoredPortal.test.tsx` (which now holds the family-B and family-C cases this task added) passes. Family-B and family-C mutant validation for this surface happens here (capped measurement; dropped filter — each observed red, reverted, recorded). Commit (`fix(admin):`) — the strengthened e2e case, the call-site rewrite, the filter, and the jsdom cases land together, red-then-green inside this one task.
+
+## Task 3 — derived-cover meta-test RED → peer call sites + pins → GREEN
+
+<!-- task: red=`pnpm vitest run tests/components/_metaScrollNeutralMeasurement.test.ts tests/components/admin/hoverHelpBlurClose.test.tsx` red-state=authored red-target=`components/admin/HoverHelp.tsx:220` why=`after Task 2, the meta-test this task authors names HoverHelp.tsx, ShareHub.tsx and useFitWithinClip.ts as bare-clear offenders; the command is red until all three route their measurement through withNaturalSize, and the HoverHelp jsdom suite in the same command pins that the rewrite preserved the component's behavior` ac=AC-4,AC-7 -->
+
+**RED half — author the meta-test and observe the three-peer red:**
 
 Create tests/components/_metaScrollNeutralMeasurement.test.ts with exactly this content (validated at plan time — observed RED names exactly the four spec sites; both self-test cases green; premise guard on walk coverage included):
 
@@ -282,15 +294,9 @@ describe("scroll-neutral measurement (derived cover)", () => {
 
 Observe RED (the four offenders). This test goes green only at the end of Task 5; Tasks 4-5 each shrink the offender list and record the shrinking list in their commit messages. Commit the test alone (`test(admin):`) with the observed-red transcript in the message.
 
-## Task 4 — AnchoredPortal call site (turns Task 1 GREEN)
+(Plan-time validation observed the four-site red on the pre-repair tree; after Task 2 the observed set is the three peers — the shrink is itself evidence Task 2's rewrite landed.)
 
-<!-- task: red=`E2E_PORT=3107 pnpm heavy pnpm exec playwright test --project=desktop-chromium tests/e2e/rowactions-geometry.spec.ts --repeat-each=2` red-state=live red-target=`components/admin/AnchoredPortal.tsx:139` why=`after Task 1 lands, the strengthened CAPPED-submenu case fails on every run of this command until measureAndApply stops destroying the panel's scroll offset; the command is the GREEN criterion run over the WHOLE file so the other four cases pin no regression` ac=AC-2,AC-3 -->
-
-Rewrite `measureAndApply` (`components/admin/AnchoredPortal.tsx:127-187`) per spec §4.3 row 1: the clear/measure/restore block becomes `withNaturalSize(panel, (probe) => …)`; `wrappedHeightAt: probe.heightAtWidth`; the held-style locals go away; `placeWithinVisibleViewport` inputs and the `commit` logic are unchanged. In the SAME task, add the §4.5 self-origin guard to `onScrollCapture` (`AnchoredPortal.tsx:204-215`): an event whose target is the panel or a descendant returns before the re-place branch; document-scroll dismissal and ancestor re-placement unchanged. Without the guard the restore's own scroll events loop the coalescer at one forced measurement per frame (spec §4.2/§4.5, R5 F1). Extend the strengthened §5.1 e2e case with the family-C second phase (six-frame MutationObserver window, zero further maxHeight writes) and add the jsdom family-C case to `anchoredPortal.test.tsx` (panel-targeted scroll ignored; ancestor-targeted re-places; document-targeted dismisses). NOTE the `red-state=live` marker above is live only AFTER Task 1 merges into the branch (the plan's task order is the contract; at plan-authoring time Task 1 has not landed, so the command was validated in its Task-1-authored form instead — see the plan-time validation section). GREEN: the marker command passes 2/2 (full file, all five cases); then re-run the Task 1 command (`--repeat-each=10`, CAPPED-only) and record 10/10 green. Meta-test now reds on exactly three peers — record that list in the commit. Commit (`fix(admin):`).
-
-## Task 5 — peer call sites (turns Task 3 GREEN)
-
-<!-- task: red=`pnpm vitest run tests/components/_metaScrollNeutralMeasurement.test.ts tests/components/admin/hoverHelpBlurClose.test.tsx` red-state=live red-target=`components/admin/HoverHelp.tsx:220` why=`after Task 4, the meta-test still names HoverHelp.tsx, ShareHub.tsx and useFitWithinClip.ts as offenders; this command is red until all three route their measurement through withNaturalSize, and the HoverHelp jsdom suite in the same command pins that the rewrite preserved the component's behavior` ac=AC-4 -->
+**GREEN half — the three peer rewrites and their pins:**
 
 Per spec §4.3 rows 2-4:
 
@@ -316,24 +322,166 @@ Family B (COORDINATE/SIZE assertions under style-sensitive rect stubs; capped-me
 
 **Mutant validation (AC-7):** per site, EVERY applicable mutant — (A) drop the `removeProperty`/null branch, (B) re-order or skip the withNaturalSize wrap so measurement runs with the stale cap applied, (C) drop the §4.5 self-origin filter (AnchoredPortal in Task 4, HoverHelp here) — each observed red against the site's pins, then reverted; all observations recorded in the commit message. The pins are green on the pre-migration tree by design (regression pins, not REDs).
 
-GREEN: marker command passes (meta-test empty offender list + HoverHelp jsdom suite green), the two extended unit suites pass, and each pin has been shown red under its mutant. Then `pnpm typecheck` and `pnpm exec eslint components/admin/AnchoredPortal.tsx components/admin/HoverHelp.tsx components/admin/showpage/ShareHub.tsx components/admin/useFitWithinClip.ts lib/popover/naturalSize.ts tests/components/naturalSize.test.ts tests/components/_metaScrollNeutralMeasurement.test.ts tests/components/admin/showpage/shareHubVisualViewport.test.tsx tests/components/admin/useFitWithinClip.test.tsx`. Commit (`fix(admin):`).
+GREEN: marker command passes (meta-test empty offender list + HoverHelp jsdom suite green), the two extended unit suites pass, and each pin has been shown red under its mutant. Then `pnpm typecheck` and `pnpm exec eslint components/admin/AnchoredPortal.tsx components/admin/HoverHelp.tsx components/admin/showpage/ShareHub.tsx components/admin/useFitWithinClip.ts lib/popover/naturalSize.ts tests/components/naturalSize.test.ts tests/components/_metaScrollNeutralMeasurement.test.ts tests/components/admin/rowActions/anchoredPortal.test.tsx tests/components/admin/hoverHelpBlurClose.test.tsx tests/components/admin/showpage/shareHubVisualViewport.test.tsx tests/components/admin/useFitWithinClip.test.tsx`. Commit (`fix(admin):`) — the meta-test, the three peer rewrites, and their pins land together, red-then-green inside this one task.
 
 <!-- tasks: end -->
 
-## Task 6 — full local verification (AC-3)
+## Task 4 — full local verification (AC-3) + the AC-1 post-fix timeline probe
 
 Under `pnpm heavy`, foreground: `E2E_PORT=3107 pnpm exec playwright test --project=desktop-chromium tests/e2e/bell-panel-layout.spec.ts tests/e2e/admin-nav-layout-dimensions.spec.ts tests/e2e/nojs-loading-notice.spec.ts tests/e2e/needs-attention-holds.spec.ts tests/e2e/rowactions-geometry.spec.ts` — the exact CI file set from `.github/workflows/admin-layout-e2e.yml:175`. Also under `pnpm heavy`: `pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/hoverhelp-geometry.spec.ts` (the AC-3 HoverHelp transition pin, spec §5.4). All green. Also confirm no stray probe artifacts: `git status --porcelain` shows no `tests/e2e/probe-*` files (the plan-time probe spec was already removed; this is the check, not a deletion step).
 
-## Task 7 — invariant-8 dual gate + marker (before any review dispatch)
+**AC-1 post-fix probe (plan-R1 F3):** materialize Appendix A as tests/e2e/probe-rowactions-geometry.spec.ts (uncommitted), run it under `pnpm heavy` (foreground, `--project=desktop-chromium`, an off-3000 `E2E_PORT`), and require every repetition's timeline to show the reveal's `scrollTop` stable across the 400ms window — exactly one scroll event (the reveal) and `revealed: true`. Record the timelines in the task notes, then DELETE the probe file; the `git status --porcelain` check above then applies.
 
-Run the gate pair named in the routing header on the affected diff with the canonical v3 setup (context load, register reference). Expected finding surface: nil (zero class/markup/token deltas — the diff is measurement plumbing), but the gate RUNS and the marker is never fabricated. Then fill the §12 marker line with the REAL outcome values.
+## Task 5 — invariant-8 dual gate + marker (before any review dispatch)
 
-## Task 8 — acceptance, review, closeout
+Run the gate pair named in the routing header on the affected diff with the canonical v3 setup (context load, register reference). Expected finding surface: nil (zero class/markup/token deltas — the diff is measurement plumbing), but the gate RUNS and the marker is never fabricated. Then fill the §12 marker line with the REAL outcome values. Commit the marker fill (`docs(plan): fill impeccable-gate closeout marker`) — a tracked edit is never left for a later commit to sweep up.
+
+## Task 6 — acceptance, closeout commit, review of the merging diff, merge
+
+Ordering is load-bearing (plan-R1 F2): the whole-diff review must cover the exact diff that merges, and invariant 12 wants the ledger markers' removal in the PR's last commit — so the closeout commit comes FIRST and the review covers it.
 
 1. **CI acceptance instrument (AC-5):** push, then nine fixed-sha dispatches of `admin-layout-e2e` via the distinct-ref method (sibling refs at the identical sha; `cancelled` runs are not samples — spec §6 AC-5, method per PR #822). Required: 0/9 failures of the CAPPED-submenu case, against the 4/9 baseline. Record run ids in the PR body.
-2. **Whole-diff cross-model review** (codex-guard, `--stage diff`), split tight-scope if the diff exceeds a handful of files (it should not: 4 components + 1 lib + 3 test files + docs).
-3. **Ledger closeout (AC-6), in the PR's last commit before merge:** graduate both entries to `BACKLOG-archive.md` per spec §7 (including the filed-hypothesis correction), add the `BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED` successor row per spec §7 (with its `**Reachability:** INFERRED, NOT PROBED` field), and remove both `**Status:** IN PROGRESS · **Branch:** …` markers (invariant 12: the marker never reaches main).
-4. Arm auto-merge only once that closeout commit is pushed (the #838 lesson); real CI green; `gh pr merge --merge`; fast-forward main and verify `git rev-list --left-right --count main...origin/main` = `0  0`.
+2. **Ledger closeout commit (AC-6) — the PR's last commit:** graduate both entries to `BACKLOG-archive.md` per spec §7 (including the filed-hypothesis correction), add the `BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED` successor row per spec §7 (with its `**Reachability:** INFERRED, NOT PROBED` field), and remove both `**Status:** IN PROGRESS · **Branch:** …` markers. Push.
+3. **Whole-diff cross-model review** (codex-guard, `--stage diff`) of the pushed head — the diff under review IS the diff that merges. If the review forces changes: apply them, RE-DO step 2 so the ledger-closeout commit is again last, and re-review the new head.
+4. Arm auto-merge only now — after the closeout commit is pushed and the review APPROVEs (the #838 arming-window lesson); real CI green; `gh pr merge --merge`; fast-forward main and verify `git rev-list --left-right --count main...origin/main` = `0  0`.
+
+## Appendix A — AC-1 post-fix timeline probe (uncommitted; materialized, run, and deleted by Task 4)
+
+The P2 characterization instrument, preserved verbatim. Post-fix expectation per repetition: `scrolls` holds exactly the reveal event (no reset), `finalScrollTop` equals the reveal offset, `revealed: true`.
+
+```ts
+/**
+ * PROBE (NOT COMMITTED). AC-1 post-fix verification for the capped-submenu
+ * reveal (spec §6 AC-1). Instrument BEFORE the keypress; sample 400ms later.
+ */
+import { test, expect, type Locator, type Page } from "@playwright/test";
+import { ADMIN_FIXTURE } from "./helpers/fixtures";
+import { signInAs, signOut } from "./helpers/signInAs";
+import { settleDashboardAdminState } from "./helpers/dashboardState";
+import { deleteSeededShow, seedShowWithCrew } from "./helpers/seedShowWithCrew";
+
+const SEEDED_SHOWS = 16;
+const CREW_PER_SHOW = 14;
+const TITLE_PREFIX = "RowActions RevealProbe";
+const DRIVE_FILE_ID = (i: number) => `rowactions-reveal-probe-e2e:${i}`;
+const VIEWPORT = { width: 1280, height: 720 };
+const SETUP_TIMEOUT_MS = 300_000;
+const CASE_TIMEOUT_MS = 180_000;
+const LAST_SEEDED_INDEX = SEEDED_SHOWS - 1;
+const LAST_SEEDED_SLUG = `rowactions-probe-${LAST_SEEDED_INDEX}`;
+
+async function lastSeededTrigger(page: Page): Promise<Locator> {
+  const find = page.getByTestId("shows-find-input");
+  await find.waitFor({ state: "visible" });
+  await find.fill(TITLE_PREFIX);
+  const triggers = page.locator('[data-testid^="row-actions-trigger-"]');
+  await expect(triggers).toHaveCount(SEEDED_SHOWS);
+  await page.getByTestId("shows-sort-title").click();
+  const target = page.getByTestId(`row-actions-trigger-${LAST_SEEDED_SLUG}`);
+  await expect(target).toHaveCount(1);
+  await expect(triggers.last()).toHaveAttribute(
+    "data-testid",
+    `row-actions-trigger-${LAST_SEEDED_SLUG}`,
+  );
+  return target;
+}
+
+test.describe("PROBE: capped submenu reveal timeline (AC-1)", () => {
+  let restoreDashboardState: (() => Promise<void>) | null = null;
+
+  test.beforeAll(async ({ browser }) => {
+    test.setTimeout(SETUP_TIMEOUT_MS);
+    restoreDashboardState = await settleDashboardAdminState();
+    for (let i = 0; i < SEEDED_SHOWS; i += 1) {
+      await seedShowWithCrew({
+        driveFileId: DRIVE_FILE_ID(i),
+        slug: `rowactions-probe-${i}`,
+        title: `${TITLE_PREFIX} ${String(i).padStart(2, "0")}`,
+        published: true,
+        archived: false,
+        crew: Array.from({ length: CREW_PER_SHOW }, (_u, c) => ({
+          name: `Probe Crew ${i}-${c}`,
+          role: "Tech",
+        })),
+      });
+    }
+    const warm = await browser.newPage();
+    await signInAs(warm, ADMIN_FIXTURE);
+    await warm.goto("/admin", { waitUntil: "load", timeout: 300_000 });
+    await warm.getByTestId("shows-find-input").waitFor({ state: "visible", timeout: 60_000 });
+    await warm.close();
+  });
+
+  test.afterAll(async () => {
+    test.setTimeout(SETUP_TIMEOUT_MS);
+    for (let i = 0; i < SEEDED_SHOWS; i += 1) await deleteSeededShow(DRIVE_FILE_ID(i));
+    if (restoreDashboardState) await restoreDashboardState();
+  });
+
+  test.beforeEach(async ({ page }) => {
+    test.setTimeout(CASE_TIMEOUT_MS);
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+    await page.setViewportSize(VIEWPORT);
+    await page.goto("/admin");
+  });
+
+  for (let rep = 0; rep < 5; rep += 1) {
+    test(`timeline rep ${rep}`, async ({ page }) => {
+      const trigger = await lastSeededTrigger(page);
+      await trigger.scrollIntoViewIfNeeded();
+      await trigger.click();
+      await page.locator('[data-testid^="row-action-preview-"]').first().click();
+      const submenu = page.locator('[data-testid^="row-action-preview-menu-"]');
+      await expect(submenu).toBeVisible();
+
+      const panel = page.locator("[data-portal-scroll]").last();
+      const metrics = await panel.evaluate((el) => ({
+        scrollHeight: el.scrollHeight,
+        clientHeight: el.clientHeight,
+      }));
+      expect(metrics.scrollHeight, "premise: panel capped and scrolling").toBeGreaterThan(
+        metrics.clientHeight,
+      );
+
+      await panel.evaluate((el) => {
+        const w = window as unknown as {
+          __probe?: { scrolls: Array<{ t: number; top: number }> };
+        };
+        w.__probe = { scrolls: [] };
+        el.addEventListener("scroll", () => {
+          w.__probe!.scrolls.push({ t: performance.now(), top: (el as HTMLElement).scrollTop });
+        });
+      });
+
+      await page.keyboard.press("End");
+      await page.waitForTimeout(400);
+
+      const result = await panel.evaluate((el) => {
+        const w = window as unknown as {
+          __probe?: { scrolls: Array<{ t: number; top: number }> };
+        };
+        const active = document.activeElement as HTMLElement | null;
+        const a = active?.getBoundingClientRect();
+        const b = (el as HTMLElement).getBoundingClientRect();
+        return {
+          scrolls: w.__probe?.scrolls ?? [],
+          finalScrollTop: (el as HTMLElement).scrollTop,
+          activeBottom: a?.bottom ?? null,
+          boxBottom: b.bottom,
+          revealed: a && b ? a.bottom <= b.bottom + 0.5 : null,
+        };
+      });
+      console.log(`PROBE-TIMELINE rep=${rep} ${JSON.stringify(result)}`);
+      expect(result.revealed, "AC-1: reveal durable at 400ms").toBe(true);
+      expect(
+        result.scrolls.filter((e) => e.top === 0).length,
+        "AC-1: no clamp-to-zero reset event",
+      ).toBe(0);
+    });
+  }
+});
+```
 
 ## §12 — closeout
 
