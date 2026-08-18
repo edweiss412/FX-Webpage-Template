@@ -64,4 +64,15 @@ The remaining sixteen are not mechanizable: they required measuring a live popul
 
 The remaining thirty were not mechanizable: they required reading a gate against the commit boundary it runs at, counting elements rather than lexical occurrences, or knowing which half of a two-part AC a step actually proves.
 
-**Infra:** none. All ten dispatches across both stages returned `status: "verdict"` with a declared `FINDINGS:` line; no reap, no `no_verdict`, no wrapper fault.
+**Infra: one — round 6 could not run, and the corpus row says `no_verdict` for a reason that is neither a reap nor a wrapper fault.** All three attempts exited 1 with the same message on Codex's stderr:
+
+```
+ERROR: You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage
+       to purchase more credits or try again at Aug 23rd, 2026 3:40 PM.
+```
+
+`failureReason: attempts_exhausted`, `nativeBinaryResolved` set, no signal, no `killedReason`. This is the account's Codex quota, exhausted five days out from the arc — a hard external block on cross-model review, not something a re-dispatch reaches. **Recorded here so the `no_verdict` row is never read as "the reviewer found nothing"**, which is the specific misreading AGENTS.md warns about for that status.
+
+What stood in for round 6: a **six-dimension self-review** against the R6 brief's own pressure points, run before escalating — every Task 7 block executed against the live tree and confirmed to exit 0 on success (the `wc -l` / `|| true` repair R5 F1 forced), the archived row confirmed present in exactly one ledger, all sixteen of Task 4's hover-over-rest comparisons computed from the runtime tokens (16 held, 0 failed, confirming they are a regression pin rather than the task's RED), the three AC rows F3 repaired re-read against their steps, and a dangling-reference scan over every `Task N` and `step N.M` in the document. Zero findings. That is a weaker instrument than a fresh adversarial reviewer and is not claimed as equivalent; it is what was available.
+
+The other ten dispatches all returned `status: "verdict"` with a declared `FINDINGS:` line; no reap, no wrapper fault.
