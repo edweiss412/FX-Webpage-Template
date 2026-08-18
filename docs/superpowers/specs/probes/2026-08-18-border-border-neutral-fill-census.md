@@ -129,6 +129,10 @@ Each carries `border border-border` on all four sides with no fill token at rest
 
 `AutoRefreshControl.tsx:119` is worth naming twice: the same file's `AutoRefreshControl.tsx:106` is one of the five switch-track render paths §1.2a rules OUT, and `AutoRefreshControl.tsx:119` is a different element on the same surface. They must not be conflated.
 
+### A fourth exclusion the token count surfaces: element KIND
+
+`components/admin/dev/SwitcherControls.tsx` carries four `hover:border-accent` occurrences but contributes only three elements to any set here. The fourth, `components/admin/dev/SwitcherControls.tsx:122`, belongs to the `<select>` opening at `components/admin/dev/SwitcherControls.tsx:119` — `border border-border bg-surface … hover:border-accent`. `tests/styles/interactiveScanCore.ts:789` admits only `button`, `a` and `summary` as intrinsic tags (plus `<input>` at `type="checkbox"`/`"radio"`), so a `<select>` is outside the scanner's vocabulary exactly as the text-entry fields of `BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER` family A are. Recorded so a lexical count of that file reconciles against the element count.
+
 ### Class C — five dividers, quoted so the exclusion is evidenced per site
 
 None of these has a resting outline; each paints one side as a rule between stacked content. `DESIGN.md` §1.2a preserves the border tokens for dividers by name, so the ruling's words do not reach any of them, and raising one to 3.35:1 would darken a hairline on a non-control surface rather than make a boundary visible.

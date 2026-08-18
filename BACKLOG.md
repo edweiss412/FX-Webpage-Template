@@ -1500,3 +1500,24 @@ AGENTS.md already says to class-sweep a finding's SHAPE across the code before p
 2. **A stale-predecessor check at the document level:** when a numeric literal or named claim changes in a spec or plan, fail if occurrences of the superseded value survive elsewhere in the same arc's documents. This is the cheaper of the two and generalises past this arc — it is the same defect class the self-consistency sweep in `docs/agents/spec-self-review.md` already targets by hand.
 
 **First scheduled step:** decide which of the two forms to build, then confirm against this arc's own history — replay the R2 and R4 repairs and check that the proposed mechanism flags the claims R4 F3 and R5 F1 later found. A mechanism that does not flag those two is not worth building.
+
+## BL-SPECLINT-RED-TARGET-CANNOT-NAME-A-REPO-ROOT-SURFACE — a plan whose production surface is a root file silently under-covers its own red contract
+
+**Status:** OPEN · **Severity:** LOW-MEDIUM (no shipped defect; it produces silent under-coverage of a TDD gate) · **Class:** spec-lint grammar / review tooling · **Effort:** S · **Filed:** 2026-08-18 (`fix/control-outline-border-token`, plan review R1 F4 fallout) · **Facing:** process · **Class-sweep exception:** (c) — the repair is a grammar change to `lib/specLint/`, a surface this PR does not otherwise touch · **Reachability:** PROBED — both rejected forms reproduce, transcript below.
+
+`red-target=` in a `<!-- task: ... -->` marker cannot name any repo-ROOT file. Probed on the live tree against `DESIGN.md`:
+
+```
+red-target=`DESIGN.md:227`     -> RED_TARGET_INVALID: bare-filename shorthand is not legal in a marker; use the full path
+red-target=`./DESIGN.md:227`   -> RED_TARGET_INVALID: illegal path
+```
+
+The cause is `lib/specLint/citations.ts:55` — `const bare = !prefix.includes("/")` — so "full path" means "contains a directory separator", which a root file can never satisfy, and the dot-slash form that would satisfy it is rejected as illegal.
+
+**Incident.** This arc. Two of its TDD tasks change `DESIGN.md`, so neither could carry an honest marker and both were moved outside the red-contract region. `pnpm spec:lint --exec-red` consequently validates four tasks where the plan describes six as test-first.
+
+**Why the workaround does not close it, and this is the whole reason the row exists.** This arc DISCLOSED the exclusion in two sentences in the plan. That depends on the author noticing. An author who does not notice simply leaves the tasks out of the region and ships a plan whose `--exec-red` validates less than the plan claims — **silent under-coverage, with no signal anywhere**: the lint is green, the region is well-formed, and nothing reports that two tasks opted out.
+
+**It is a recurring class, not a one-off.** Every repo-root file is affected, and plans legitimately target several: `DESIGN.md`, `AGENTS.md`, `BACKLOG.md`, `PRODUCT.md`, `package.json`. Any arc whose production surface is one of them meets this.
+
+**First scheduled step:** widen the grammar to accept a repo-root form — either treat a tracked root-relative filename as non-bare when it resolves, or accept an explicit `./` prefix — and add the marker-level case to the spec-lint suite. A second, cheaper half worth doing either way: emit an advisory when a plan contains a red-contract region AND `##`-level tasks outside it, so an unnoticed opt-out is at least visible.
