@@ -313,6 +313,44 @@ describe("checkUniversals — single-gate rejection fixtures (spec §6)", () => 
     expect(advisories(doc)).toHaveLength(0);
   });
 
+  it.each([
+    [
+      "thousands separator",
+      "The shipped rule applies to all 5,022 eligible data rows without exception.",
+      "5,022",
+    ],
+    [
+      "decimal point",
+      "The loop yields every 2.5 seconds of wall clock, which is not a population.",
+      "2.5",
+    ],
+  ])(
+    "literal continuation, %s: a fragment of a longer number is not the cardinal",
+    (_label, claim, literal) => {
+      // Layer-3 corpus finding: the recognizer read the FIRST DIGIT GROUP of a
+      // comma-grouped number as the whole cardinal — `all 5,022 eligible data rows`
+      // emitted on "all 5". Four live instances, all in the probe domain
+      // (`ci/2026-07-06-mutation-harness-sharding.md:77,78`,
+      // `parser/2026-08-07-parser-mutation-wave-design.md:319,345`). Two of them are
+      // precisely the 4-digit populations the width bound exists to exclude, so this is
+      // an emission OUTSIDE the stated accept-set — a defect by spec §1.2, repaired by
+      // NARROWING, not a taste-based gate tightening against a frozen survivor set.
+      const doc = [
+        "# Doc",
+        "",
+        "## A",
+        "",
+        claim,
+        "",
+        "## B",
+        "",
+        `The other section also carries ${literal} for the reader to compare.`,
+        "",
+      ].join("\n");
+      expect(advisories(doc)).toHaveLength(0);
+    },
+  );
+
   it("spec-kind gate: the same E1 doc read as a plan draws nothing", () => {
     expect(advisories(e1Doc(), "plan")).toHaveLength(0);
   });

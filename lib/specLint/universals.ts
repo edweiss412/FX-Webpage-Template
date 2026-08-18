@@ -44,6 +44,17 @@ const TIME_UNIT_AFTER =
 const CMD_WORDS = /^(rg|grep|pnpm|git|gh|node|npx|tsx|find|ls|comm|wc|cat|sed|awk|jq|psql|curl)\b/;
 /** Every cardinal token a claim's enumeration evidence could be found under (gate 4). */
 const CARDINAL_TOKEN = /\b\d{1,4}\b/g;
+/**
+ * A matched cardinal must be a COMPLETE numeric literal, not the first digit group of a
+ * longer one. `all 5,022 eligible data rows` matched "all 5" because a grouping comma is
+ * a word boundary — and 5,022 is precisely the 4-digit population the width bound below
+ * exists to exclude. Layer-3 corpus finding, four live instances
+ * (`ci/2026-07-06-mutation-harness-sharding.md:77,78`,
+ * `parser/2026-08-07-parser-mutation-wave-design.md:319,345`); the decimal form is the
+ * same shape and is declined with it. This NARROWS the accept-set — the repair direction
+ * ratified for a recognizer (AGENTS.md, "Repair direction under same-axis recurrence").
+ */
+const LITERAL_CONTINUATION = /^(?:,\d{3}|\.\d)/;
 /** Value bound: 4-digit reads were years, 0/1 reads were status text (spec §3.2 gate 2). */
 const MIN_CARDINAL_VALUE = 2;
 
@@ -173,6 +184,7 @@ export function checkUniversals(
     if (Number(cardinal) < MIN_CARDINAL_VALUE) continue;
     const matchStart = m.index;
     const matchEnd = m.index + m[0].length;
+    if (LITERAL_CONTINUATION.test(line.slice(matchEnd))) continue;
     if (TIME_UNIT_AFTER.test(line.slice(matchEnd))) continue;
     const inSpan = (spanRanges.get(docLine) ?? []).some(
       (r) => matchStart >= r.start && matchEnd <= r.end,
