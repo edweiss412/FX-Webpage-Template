@@ -1,10 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
   planExecutionsForText,
+  synthesizeCollectionFindings,
   synthesizeExecFindings,
   synthesizeParseFindings,
 } from "../../lib/specLint/redContract";
-import type { ExecOutcome, ExecResults, ParseResults } from "../../lib/specLint/types";
+import type { CollectionProbeEntry } from "../../lib/specLint/redContract";
+import type {
+  ExecOutcome,
+  ExecResults,
+  ParseResults,
+  ProbeResults,
+} from "../../lib/specLint/types";
 
 /**
  * The pure half of `--exec-red` (spec §4.4): the core plans WHICH commands may
@@ -332,6 +339,300 @@ describe("synthesizeParseFindings — the §3 parse-capability map", () => {
     expect(found.map((f) => [f.code, f.docLine])).toEqual([
       ["RED_UNPARSEABLE", 4],
       ["GATE_CMD_UNPARSEABLE", 9],
+    ]);
+  });
+});
+
+/**
+ * The collection-capability synthesis (verdict-capability spec §5.2). The
+ * matrix is asserted exactly, because every cell is a different claim about
+ * what was OBSERVED: an empty collection behind a non-zero red means the red
+ * was a collection artifact, a missing tracked suite means the command can
+ * never collect what it names, and a failed probe means nothing at all.
+ */
+
+const probes = (
+  outcomes: Record<number, ExecOutcome>,
+  stdout: Record<number, string> = {},
+  stderrTails: Record<number, string> = {},
+): ProbeResults => ({
+  outcomes: new Map(Object.entries(outcomes).map(([k, v]) => [Number(k), v])),
+  stdout: new Map(Object.entries(stdout).map(([k, v]) => [Number(k), v])),
+  stderrTails: new Map(Object.entries(stderrTails).map(([k, v]) => [Number(k), v])),
+});
+
+/** Any property read throws — proof the code never consulted the maps. */
+const poisoned = (): ProbeResults =>
+  new Proxy({} as ProbeResults, {
+    get() {
+      throw new Error("collection maps consulted");
+    },
+  });
+
+const liveEntry = (over: Partial<CollectionProbeEntry> = {}): CollectionProbeEntry =>
+  ({
+    line: 3,
+    state: "live",
+    probe: "pnpm vitest list tests/a.test.ts",
+    trackedTestArgs: ["tests/a.test.ts"],
+    untrackedTestArgs: [],
+    ...over,
+  }) as CollectionProbeEntry;
+
+const authoredEntry = (over: Partial<CollectionProbeEntry> = {}): CollectionProbeEntry =>
+  ({
+    line: 3,
+    state: "authored",
+    probe: "pnpm vitest list tests/a.test.ts",
+    trackedTestArgs: ["tests/a.test.ts"],
+    untrackedTestArgs: [],
+    ...over,
+  }) as CollectionProbeEntry;
+
+const COLLECTED = "tests/a.test.ts > suite > case\n";
+
+describe("synthesizeCollectionFindings — live markers (spec §5.2)", () => {
+  it.each([
+    ["exit 0", { kind: "exit", code: 0 } as ExecOutcome],
+    ["exit 126", { kind: "exit", code: 126 } as ExecOutcome],
+    ["exit 127", { kind: "exit", code: 127 } as ExecOutcome],
+    ["a timeout", { kind: "timeout" } as ExecOutcome],
+    ["a signal", { kind: "signal", signal: "SIGTERM" } as ExecOutcome],
+    ["a spawn error", { kind: "spawn-error", message: "boom" } as ExecOutcome],
+    ["no recorded outcome at all", undefined],
+  ])("never consults the collection maps when the red command gave %s", (_label, outcome) => {
+    // `RED_ALREADY_GREEN` and the shipped advisories stay owned by
+    // synthesizeExecFindings; a probe consulted here would mint findings
+    // `--exec-red` never earned.
+    const red = results(outcome === undefined ? {} : { 3: outcome });
+    expect(synthesizeCollectionFindings([liveEntry()], red, poisoned())).toEqual([]);
+  });
+
+  it("a non-zero red with an EMPTY collection is a hard RED_COLLECTS_NOTHING", () => {
+    const found = synthesizeCollectionFindings(
+      [liveEntry()],
+      results({ 3: { kind: "exit", code: 1 } }),
+      probes({ 3: { kind: "exit", code: 0 } }, { 3: "" }),
+    );
+    expect(found).toEqual([
+      expect.objectContaining({
+        check: "taskContract",
+        code: "RED_COLLECTS_NOTHING",
+        severity: "fail",
+        docLine: 3,
+        column: 1,
+      }),
+    ]);
+  });
+
+  it("whitespace-only collected output counts as empty", () => {
+    const found = synthesizeCollectionFindings(
+      [liveEntry()],
+      results({ 3: { kind: "exit", code: 1 } }),
+      probes({ 3: { kind: "exit", code: 0 } }, { 3: "  \n \n" }),
+    );
+    expect(found.map((f) => f.code)).toEqual(["RED_COLLECTS_NOTHING"]);
+  });
+
+  it("a non-zero red with a NON-empty collection is red genuinely observed — silence", () => {
+    expect(
+      synthesizeCollectionFindings(
+        [liveEntry()],
+        results({ 3: { kind: "exit", code: 1 } }),
+        probes({ 3: { kind: "exit", code: 0 } }, { 3: COLLECTED }),
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("synthesizeCollectionFindings — authored markers (spec §5.2)", () => {
+  const noRed = results({});
+
+  it("a tracked suite file absent from the collection is a hard RED_SUITE_UNCOLLECTED naming it", () => {
+    const found = synthesizeCollectionFindings(
+      [authoredEntry({ trackedTestArgs: ["tests/a.test.ts", "tests/b.test.tsx"] })],
+      noRed,
+      probes({ 3: { kind: "exit", code: 0 } }, { 3: COLLECTED }),
+    );
+    expect(found).toEqual([
+      expect.objectContaining({ code: "RED_SUITE_UNCOLLECTED", severity: "fail", docLine: 3 }),
+    ]);
+    expect(found[0]!.detail).toContain("tests/b.test.tsx");
+    expect(found[0]!.detail).not.toContain("tests/a.test.ts > ");
+  });
+
+  it("all tracked args collected and no untracked token is clean", () => {
+    expect(
+      synthesizeCollectionFindings(
+        [authoredEntry()],
+        noRed,
+        probes({ 3: { kind: "exit", code: 0 } }, { 3: COLLECTED }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("an untracked test-file token is surfaced by name even beside collectible siblings", () => {
+    // A one-character typo in a multi-file command must not hide behind its
+    // collectible siblings.
+    const found = synthesizeCollectionFindings(
+      [authoredEntry({ untrackedTestArgs: ["tests/mising.test.ts"] })],
+      noRed,
+      probes({ 3: { kind: "exit", code: 0 } }, { 3: COLLECTED }),
+    );
+    expect(found).toEqual([
+      expect.objectContaining({ code: "RED_SUITE_UNVERIFIED", severity: "advisory", docLine: 3 }),
+    ]);
+    expect(found[0]!.detail).toContain("tests/mising.test.ts");
+  });
+
+  it("an absent tracked arg AND an untracked token draw BOTH verdicts independently", () => {
+    // An `if (untracked) advisory else membership` implementation fails exactly
+    // this case: the two questions are independent.
+    const found = synthesizeCollectionFindings(
+      [
+        authoredEntry({
+          trackedTestArgs: ["tests/b.test.tsx"],
+          untrackedTestArgs: ["tests/mising.test.ts"],
+        }),
+      ],
+      noRed,
+      probes({ 3: { kind: "exit", code: 0 } }, { 3: COLLECTED }),
+    );
+    expect(found.map((f) => f.code)).toEqual(["RED_SUITE_UNCOLLECTED", "RED_SUITE_UNVERIFIED"]);
+  });
+
+  it("zero test-file tokens with a NON-empty collection is a positive verification — clean", () => {
+    // The live corpus's directory-selector shape (spec §2.4).
+    expect(
+      synthesizeCollectionFindings(
+        [
+          authoredEntry({
+            probe: "pnpm vitest list tests/dir",
+            trackedTestArgs: [],
+            untrackedTestArgs: [],
+          }),
+        ],
+        noRed,
+        probes({ 3: { kind: "exit", code: 0 } }, { 3: COLLECTED }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("an untracked token with an empty collection draws ONE advisory, not two", () => {
+    // The zero-test-file-token rule is for SELECTORS. A command that names a
+    // test file has already been judged by name, so the selector advisory must
+    // not pile a second finding onto the same line.
+    const found = synthesizeCollectionFindings(
+      [authoredEntry({ trackedTestArgs: [], untrackedTestArgs: ["tests/mising.test.ts"] })],
+      noRed,
+      probes({ 3: { kind: "exit", code: 0 } }, { 3: "" }),
+    );
+    expect(found.map((f) => f.code)).toEqual(["RED_SUITE_UNVERIFIED"]);
+  });
+
+  it("a tracked-but-uncollected arg with an empty collection draws the hard code alone", () => {
+    const found = synthesizeCollectionFindings(
+      [authoredEntry()],
+      noRed,
+      probes({ 3: { kind: "exit", code: 0 } }, { 3: "" }),
+    );
+    expect(found.map((f) => f.code)).toEqual(["RED_SUITE_UNCOLLECTED"]);
+  });
+
+  it("zero test-file tokens with an EMPTY collection is an advisory RED_SUITE_UNVERIFIED — never silence", () => {
+    const found = synthesizeCollectionFindings(
+      [
+        authoredEntry({
+          probe: "pnpm vitest list tests/dirr",
+          trackedTestArgs: [],
+          untrackedTestArgs: [],
+        }),
+      ],
+      noRed,
+      probes({ 3: { kind: "exit", code: 0 } }, { 3: "" }),
+    );
+    expect(found).toEqual([
+      expect.objectContaining({ code: "RED_SUITE_UNVERIFIED", severity: "advisory", docLine: 3 }),
+    ]);
+  });
+});
+
+describe("synthesizeCollectionFindings — non-observations and declines (spec §5.2)", () => {
+  const noRed = results({});
+
+  it.each([
+    ["a non-zero probe exit", { kind: "exit", code: 1 } as ExecOutcome, "exit 1"],
+    ["a probe timeout", { kind: "timeout" } as ExecOutcome, "timeout"],
+    ["a signalled probe", { kind: "signal", signal: "SIGKILL" } as ExecOutcome, "SIGKILL"],
+    [
+      "a probe that never spawned",
+      { kind: "spawn-error", message: "spawn sh ENOENT" } as ExecOutcome,
+      "spawn sh ENOENT",
+    ],
+  ])("%s is an advisory RED_PROBE_UNVERIFIED carrying the discriminating fact", (_l, o, needle) => {
+    const found = synthesizeCollectionFindings(
+      [authoredEntry()],
+      noRed,
+      probes({ 3: o }, {}, { 3: "some stderr" }),
+    );
+    expect(found).toEqual([
+      expect.objectContaining({ code: "RED_PROBE_UNVERIFIED", severity: "advisory", docLine: 3 }),
+    ]);
+    expect(found[0]!.detail).toContain(needle);
+    expect(found[0]!.detail).toContain("some stderr");
+  });
+
+  it("renders at most 200 characters of a probe stderr tail", () => {
+    const found = synthesizeCollectionFindings(
+      [authoredEntry()],
+      noRed,
+      probes({ 3: { kind: "timeout" } }, {}, { 3: "x".repeat(500) }),
+    );
+    expect(found[0]!.detail).toContain("x".repeat(200));
+    expect(found[0]!.detail).not.toContain("x".repeat(201));
+  });
+
+  it.each([
+    ["compound-command", "carries the control/substitution token &&"],
+    ["unstrippable-filter", "name filter -t does not match the strip grammar"],
+  ])("a %s skip record is the same advisory, naming the reason", (skipped, detail) => {
+    const found = synthesizeCollectionFindings(
+      [{ line: 3, state: "authored", skipped, detail } as CollectionProbeEntry],
+      noRed,
+      probes({}),
+    );
+    expect(found).toEqual([
+      expect.objectContaining({ code: "RED_PROBE_UNVERIFIED", severity: "advisory", docLine: 3 }),
+    ]);
+    expect(found[0]!.detail).toContain(detail);
+  });
+
+  it("a probe with no recorded outcome is skipped rather than guessed", () => {
+    expect(synthesizeCollectionFindings([authoredEntry()], noRed, probes({}))).toEqual([]);
+  });
+
+  it("null maps (static invocation) synthesize nothing", () => {
+    expect(synthesizeCollectionFindings([authoredEntry()], null, null)).toEqual([]);
+    expect(synthesizeCollectionFindings([authoredEntry()], results({}), null)).toEqual([]);
+  });
+
+  it("findings follow the plan's doc order, not a per-state grouping", () => {
+    // The authored marker comes FIRST in the doc, so an implementation that
+    // ran a live pass and an authored pass would emit them the other way round.
+    const found = synthesizeCollectionFindings(
+      [
+        authoredEntry({ line: 3, untrackedTestArgs: ["tests/mising.test.ts"] }),
+        liveEntry({ line: 9 }),
+      ],
+      results({ 9: { kind: "exit", code: 1 } }),
+      probes(
+        { 3: { kind: "exit", code: 0 }, 9: { kind: "exit", code: 0 } },
+        { 3: COLLECTED, 9: "" },
+      ),
+    );
+    expect(found.map((f) => [f.code, f.docLine])).toEqual([
+      ["RED_SUITE_UNVERIFIED", 3],
+      ["RED_COLLECTS_NOTHING", 9],
     ]);
   });
 });

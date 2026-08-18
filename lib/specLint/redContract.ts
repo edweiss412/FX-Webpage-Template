@@ -24,7 +24,7 @@ import { classifySpan } from "./citations";
 import { parseDoc, type DocModel } from "./parse";
 import { compareFindings, MARKER_ANY, parseMarker, type ParsedMarker } from "./taskContract";
 import { taskTopology } from "./taskContract";
-import type { ExecResults, FileResolver, Finding, ParseResults } from "./types";
+import type { ExecResults, FileResolver, Finding, ParseResults, ProbeResults } from "./types";
 
 const GATE_ANY = /^ {0,3}<!-- gate:/;
 const GATE = /^ {0,3}<!-- gate: cmd=`([^`]*)`( probed=`([^`]*)`)? -->[ \t]*$/;
@@ -661,6 +661,141 @@ export function collectionProbePlan(
       continue;
     }
     out.push({ line, state, probe: derived.probe, ...partitionTestArgs(parsed.red, tracked) });
+  }
+  return out;
+}
+
+/**
+ * Findings from collection probes the adapter observed (spec §5.2).
+ *
+ * Three questions, deliberately independent. A LIVE marker's non-zero red is
+ * only an observation of the asserted failure if the command could collect
+ * anything at all — an empty collection means the red was a bad path or a gated
+ * project, not the failure the marker claims. An AUTHORED marker's red is never
+ * run, so the probe answers the only question that is answerable today: can
+ * this command's file selection ever see the suite it names. And a probe that
+ * did not complete answers nothing, which must never read as either verdict.
+ *
+ * The live gate is placed BEFORE any read of the collection maps: a red that
+ * exited 0, was unrunnable, timed out, was signalled, or was never observed
+ * already has its own finding from `synthesizeExecFindings`, and consulting a
+ * probe here would mint a second verdict `--exec-red` never earned.
+ */
+export function synthesizeCollectionFindings(
+  plan: readonly CollectionProbeEntry[],
+  red: ExecResults | null,
+  probes: ProbeResults | null,
+): Finding[] {
+  if (probes === null) return [];
+  const out: Finding[] = [];
+  for (const entry of plan) {
+    const { line, state } = entry;
+
+    if ("skipped" in entry) {
+      out.push(
+        advise(
+          "RED_PROBE_UNVERIFIED",
+          line,
+          1,
+          "collection probe declined; the command's collection capability is unverified",
+          entry.detail,
+        ),
+      );
+      continue;
+    }
+
+    if (state === "live") {
+      // Read the RED outcome first, and only a genuinely observed non-zero,
+      // non-unrunnable exit authorizes looking at the probe at all.
+      const redOutcome = red === null ? undefined : red.outcomes.get(line);
+      if (redOutcome === undefined || redOutcome.kind !== "exit") continue;
+      if (redOutcome.code === 0 || redOutcome.code === 126 || redOutcome.code === 127) continue;
+    }
+
+    const outcome = probes.outcomes.get(line);
+    if (outcome === undefined) continue;
+    if (outcome.kind !== "exit" || outcome.code !== 0) {
+      const reason =
+        outcome.kind === "exit"
+          ? `exit ${outcome.code}`
+          : outcome.kind === "timeout"
+            ? "timeout"
+            : outcome.kind === "signal"
+              ? `terminated by ${outcome.signal}`
+              : `spawn failed: ${outcome.message}`;
+      const tail = (probes.stderrTails.get(line) ?? "").slice(-STDERR_TAIL);
+      out.push(
+        advise(
+          "RED_PROBE_UNVERIFIED",
+          line,
+          1,
+          `collection probe did not complete (${reason}); collection capability unverified`,
+          tail === ""
+            ? `collection probe: ${reason} · probe: ${entry.probe}`
+            : `collection probe: ${reason} · probe: ${entry.probe} · stderr: ${tail}`,
+        ),
+      );
+      continue;
+    }
+
+    const collected = (probes.stdout.get(line) ?? "")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l !== "");
+
+    if (state === "live") {
+      if (collected.length === 0) {
+        out.push(
+          fail(
+            "RED_COLLECTS_NOTHING",
+            line,
+            1,
+            "`red=` collects no tests, so its non-zero exit is a collection artifact rather than the asserted failure",
+            `probe: ${entry.probe}`,
+          ),
+        );
+      }
+      continue;
+    }
+
+    const missing = entry.trackedTestArgs.filter((arg) => !collected.some((l) => l.includes(arg)));
+    if (missing.length > 0) {
+      out.push(
+        fail(
+          "RED_SUITE_UNCOLLECTED",
+          line,
+          1,
+          "`red=` can never collect the suite it names",
+          `not collected: ${missing.join(", ")} · probe: ${entry.probe}`,
+        ),
+      );
+    }
+    if (entry.untrackedTestArgs.length > 0) {
+      out.push(
+        advise(
+          "RED_SUITE_UNVERIFIED",
+          line,
+          1,
+          "`red=` names a test file that does not exist yet: a future file and a typo are indistinguishable here",
+          `untracked: ${entry.untrackedTestArgs.join(", ")} · confirm the path`,
+        ),
+      );
+    }
+    if (
+      entry.trackedTestArgs.length === 0 &&
+      entry.untrackedTestArgs.length === 0 &&
+      collected.length === 0
+    ) {
+      out.push(
+        advise(
+          "RED_SUITE_UNVERIFIED",
+          line,
+          1,
+          "`red=` selector collects nothing today: future location or typo; confirm the path",
+          `probe: ${entry.probe}`,
+        ),
+      );
+    }
   }
   return out;
 }
