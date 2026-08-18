@@ -22,6 +22,23 @@
  * taskContract's 18/2 against every surface in `describe.each`).
  */
 export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
+  // The invariant-10 discovery engine, enrolled 2026-08-17. The first scored run
+  // reported 64 survivors on `enumerate.ts` (score 0.6168) and 5 on totality.ts
+  // (0.75); the module had one deciding suite and a large pre-existing surface
+  // (`scanBody`, `isLocallyRebound`, `routeMutatingMethods`) that no test
+  // discriminated. All but three were REPAID with cases rather than accepted.
+  // THREE proven equivalences remain and NO accepted gap: a modifier comparison
+  // whose two conjuncts cannot both hold, a body requirement no reachable node
+  // can distinguish, and a disjunct the flip makes dead (per-site arguments on
+  // the registry rows). Two further rows were claimed at first and REFUTED in
+  // diff review round 1 — both rested on a downstream re-check that an
+  // unresolvable member value never reaches — and are now killed by fixtures;
+  // an argument resting on double-guarding is the shape to distrust here.
+  // An `accepted-gap` appearing in this row would be the surface's first and
+  // owes its own filing; a NEW equivalent row is a coverage regression to explain.
+  // totality.ts declares an EMPTY ledger — every mutant of it is killed.
+  mutationSurfaceEnumerate: { equivalent: 3 },
+  mutationSurfaceTotality: {},
   // premiseScan, enrolled 2026-08-16. The gate found 8 survivors on the first
   // run; five were REPAID with cases and three more disappeared with the dead
   // duplicated `unclassifiable` rules the gate exposed. What remains is three
@@ -36,6 +53,13 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // argument is false rather than relocated. The site itself is gone too — one
   // place now decides the unclassifiable verdict.
   premiseScan: { equivalent: 2 },
+  // spawnBounded, enrolled 2026-08-17. EMPTY, and measured rather than asserted:
+  // the scoped run scored 12/12 with no survivor to dispose of and no no-op, so
+  // there is no ledger row of any kind. The surface's `scoreFloor` is 1 to match,
+  // which makes this the strictest declaration in the table — any future row here
+  // arrives together with a floor edit and its own written argument, rather than
+  // slipping under coarse-floor slack.
+  spawnBounded: {},
   // psqlStartupScan: EIGHTEEN equivalence arguments and NO accepted gap from the
   // 2026-08-16 disposition arc (per-site reasons live on the registry rows). Thirteen of
   // the thirty-one first-run survivors were repaid with tests instead. Both counts moved
@@ -50,6 +74,11 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // first, owing its own filing AND a `scoreFloor` edit, and a new equivalent row is a
   // coverage regression to explain.
   psqlStartupScan: { equivalent: 18 },
+  // The pane-compaction classifier, enrolled with an EMPTY ledger: it is a pure
+  // classifier over injected fixtures, so every survivor is repayable by a test
+  // rather than blessable. A row appearing here later is a coverage regression
+  // to explain, not a number to bump.
+  paneCompactionCore: { equivalent: 8 },
   // 18/2 → 22/0 (2026-08-04, BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY). The two
   // `accepted-gap` rows were the comparator's equal-key blind spot, and adding
   // the message as a third key removed the gap rather than re-accepting it. The

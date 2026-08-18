@@ -45,19 +45,18 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, test } from "vitest";
 import ts from "typescript";
 
 import {
   collectSurfaceUnits,
   isLocallyRebound,
-  moduleHasUseServer,
   parse,
   scanBody,
   type SurfaceUnit,
 } from "../log/mutationSurface/enumerate";
-import { walkSourceFiles } from "@/lib/messages/__internal__/walkSourceFiles";
+import { discoveryGaps } from "../log/mutationSurface/totality";
 import { premiseHolds } from "../_shared/premise";
 import { ADMIN_SURFACE_EXEMPTIONS } from "../log/mutationSurface/exemptions";
 import { AUDITABLE_MUTATIONS } from "../log/_auditableMutations";
@@ -484,151 +483,17 @@ function bodyDigest(unit: SurfaceUnit): string {
  */
 
 /**
- * Every function-like node in a file whose body's DIRECTIVE PROLOGUE contains
- * `"use server"`.
+ * The two counters and the reconciliation that used to live here are now the
+ * shared engine's (`discoveryGaps`, tests/log/mutationSurface/totality.ts).
  *
- * Total by CONSTRUCTION rather than by enumeration, in both directions, because
- * diff review round 2 defeated the enumerated version twice:
- *
- * - `ts.isFunctionLike` instead of a four-way kind check, so a getter, a
- *   setter, a static class method, and any function-like TypeScript grows later
- *   are all counted without this file naming them.
- * - the whole leading run of string-literal statements instead of index 0,
- *   because Next reads the full directive prologue — `"use strict"; "use
- *   server";` is a Server Action, and a statement-zero check called it nothing.
+ * They were private to this file while the origin arc owned them, and the
+ * invariant-10 observability walk had no equivalent — so a Server Action in an
+ * unmodeled form failed BY NAME here while being a silently dark mutation
+ * surface there. Two copies of one totality contract would drift; one export
+ * consumed by both walks cannot. The shared version additionally reconciles
+ * PER KIND, repairing a pooled-projection collision this file's copy carried
+ * (spec §3.4, pinned by the AC-7 case below).
  */
-function inlineDirectiveBearingCount(sf: ts.SourceFile): number {
-  let n = 0;
-  const visit = (node: ts.Node): void => {
-    // `isFunctionLike` is the TOTAL predicate — every function-like kind,
-    // named or not, including ones TypeScript grows later — so the count is not
-    // an enumeration this file has to keep current. It also admits call /
-    // construct / index signatures, which carry no body; those read `undefined`
-    // here and are skipped, which is why the cast is safe rather than a widening.
-    const body = ts.isFunctionLike(node)
-      ? ((node as ts.FunctionLikeDeclaration).body ?? undefined)
-      : undefined;
-    if (body && ts.isBlock(body)) {
-      for (const st of body.statements) {
-        // The prologue ends at the first non-string-literal statement.
-        if (!ts.isExpressionStatement(st) || !ts.isStringLiteral(st.expression)) break;
-        if (st.expression.text === "use server") {
-          n += 1;
-          break;
-        }
-      }
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(sf);
-  return n;
-}
-
-/**
- * Every identifier a `BindingName` binds, through both binding-pattern kinds.
- *
- * `export const { doIt } = obj;` and `export const [doIt] = arr;` are ordinary
- * refactors of a live module, and both bind an addressable export name. An
- * identifier-only reader called them nothing — round 2, finding 1.
- */
-function collectBindingNames(name: ts.BindingName, out: string[]): void {
-  if (ts.isIdentifier(name)) {
-    out.push(name.text);
-    return;
-  }
-  for (const el of name.elements) {
-    if (ts.isOmittedExpression(el)) continue;
-    collectBindingNames(el.name, out);
-  }
-}
-
-/**
- * Every VALUE name a module-level `"use server"` file exports.
- *
- * Total over export forms because it reads names, not initializers: a
- * paren-wrapped arrow, a higher-order call, a conditional, and an alias chain
- * all export a name, and the name is what this collects. Type-only exports are
- * excluded — they are not addressable endpoints.
- */
-function exportedValueNames(sf: ts.SourceFile): string[] {
-  const names: string[] = [];
-  for (const st of sf.statements) {
-    if (ts.isTypeAliasDeclaration(st) || ts.isInterfaceDeclaration(st)) continue;
-    if (ts.canHaveModifiers(st)) {
-      const mods = ts.getModifiers(st);
-      if (mods?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)) {
-        if (ts.isFunctionDeclaration(st) && st.name) names.push(st.name.text);
-        if (ts.isVariableStatement(st))
-          for (const d of st.declarationList.declarations) collectBindingNames(d.name, names);
-      }
-    }
-    if (
-      ts.isExportDeclaration(st) &&
-      !st.moduleSpecifier &&
-      st.exportClause &&
-      ts.isNamedExports(st.exportClause)
-    ) {
-      if (st.isTypeOnly) continue;
-      for (const el of st.exportClause.elements) {
-        if (el.isTypeOnly) continue;
-        names.push(el.name.text);
-      }
-    }
-  }
-  return names;
-}
-
-/** Files the engine walked, so the tripwire ranges over exactly the same corpus. */
-function walkedFiles(roots: string[]): string[] {
-  return walkSourceFiles(roots).filter(
-    (f) => !f.includes("/node_modules/") && !f.includes("/.next/") && !f.includes("/.git/"),
-  );
-}
-
-/**
- * Every construct the engine could not turn into a unit. Returns one message per
- * offender; empty means discovery was total over this tree.
- */
-function undiscoverableConstructs(roots: string[], units: readonly SurfaceUnit[]): string[] {
-  const problems: string[] = [];
-  const byFile = new Map<string, SurfaceUnit[]>();
-  for (const u of units) byFile.set(u.file, [...(byFile.get(u.file) ?? []), u]);
-
-  for (const file of walkedFiles(roots)) {
-    if (basename(file) === "route.ts") continue;
-    const sf = parse(file);
-    const found = byFile.get(file) ?? [];
-
-    // BOTH checks run for EVERY file. The module branch used to `continue`,
-    // which meant an inline action nested inside a file-level "use server"
-    // module was reconciled by nobody — discovery returns early for such a file
-    // and never collects inline actions at all, so the count there is ALWAYS
-    // undiscoverable. Round 2, finding 2.
-    if (moduleHasUseServer(sf)) {
-      const exported = exportedValueNames(sf);
-      const discovered = new Set(found.map((u) => u.fn));
-      const missed = exported.filter((n) => !discovered.has(n));
-      if (missed.length > 0) {
-        problems.push(
-          `${file}: "use server" module exports [${missed.join(", ")}] that discovery produced NO unit for — ` +
-            `an addressable endpoint the origin walk cannot see, so it can neither be gated nor exempted`,
-        );
-      }
-    }
-
-    const inlineCount = inlineDirectiveBearingCount(sf);
-    const discoveredInline = found.filter((u) => u.kind === "inline-action").length;
-    if (inlineCount > discoveredInline) {
-      problems.push(
-        `${file}: holds ${inlineCount} function-scoped "use server" bodies but discovery produced ` +
-          `${discoveredInline} unit(s) — the remainder is an inline action the origin walk cannot see ` +
-          `(an unnameable one, or one nested inside a file-level "use server" module, where discovery ` +
-          `returns early and collects no inline action at all)`,
-      );
-    }
-  }
-  return problems;
-}
 
 // ── fixture plumbing ───────────────────────────────────────────────────────
 
@@ -696,7 +561,7 @@ describe("the live tree: every Server Action surface unit is gated or verifiably
     // The round-1 finding, closed by NARROWING. The engine models specific
     // export and action forms; anything it cannot classify is signalled here
     // rather than silently dropping out of both sides of the reconciliation.
-    const problems = undiscoverableConstructs(["app", "lib", "components"], LIVE_UNITS);
+    const problems = discoveryGaps(["app", "lib", "components"], LIVE_UNITS);
     expect(problems, problems.join("\n")).toEqual([]);
   });
 
@@ -1215,31 +1080,23 @@ describe("the discovery tripwire — fixture self-tests (the round-1 and round-2
   const problemsFor = (rel: string, src: string): string[] => {
     const root = makeFixture(rel, src);
     const units = collectSurfaceUnits([root]).filter((u) => u.kind !== "route");
-    return undiscoverableConstructs([root], units);
+    return discoveryGaps([root], units);
   };
 
   /**
-   * Every form a reviewer defeated the walk with, as a permanent regression pin.
+   * The two ANONYMOUS forms — the designed residue. Discovery cannot key them
+   * (spec §1.1.2: a synthesized ordinal name would silently re-key on any edit
+   * that reorders the file, dangling registry rows keyed on `file + fn`), so the
+   * reconciliation refuses them BY NAME instead, and the rewrite it demands is
+   * one ordinary edit. Every other former escape is now a unit; see
+   * `DISCOVERED_FORMS` below.
    *
    * `actions` is how many Server Actions the fixture really contains. It is what
    * makes the premise executable: if discovery ever produces that many units,
-   * the fixture has stopped exercising the tripwire and would pass for the wrong
+   * the fixture has stopped exercising the refusal and would pass for the wrong
    * reason, so the premise reds instead of the assertion silently going vacuous.
    */
   const ESCAPES: ReadonlyArray<{ label: string; rel: string; src: string; actions: number }> = [
-    // ── round 1 ──────────────────────────────────────────────────────────────
-    {
-      label: "R1: module export wrapped in parens",
-      rel: "lib/x/a.ts",
-      src: '"use server";\nexport const wrapped = (async () => { await db.from("t").delete(); });\n',
-      actions: 1,
-    },
-    {
-      label: "R1: module export aliased through an intermediate binding",
-      rel: "lib/x/b.ts",
-      src: '"use server";\nconst impl = async () => { await db.from("t").delete(); };\nconst alias = impl;\nexport { alias as doIt };\n',
-      actions: 1,
-    },
     {
       label: "R1: anonymous inline action passed straight to a JSX action prop",
       rel: "components/x/F.tsx",
@@ -1247,61 +1104,149 @@ describe("the discovery tripwire — fixture self-tests (the round-1 and round-2
       actions: 1,
     },
     {
-      label: "R1: inline action as an object method",
-      rel: "components/x/G.tsx",
-      src: 'export function G() {\n  const a = { async doIt() { "use server"; await db.from("t").delete(); } };\n  return a;\n}\n',
-      actions: 1,
-    },
-    // ── round 2 ──────────────────────────────────────────────────────────────
-    {
-      label: "R2: OBJECT binding-pattern export",
-      rel: "lib/x/c.ts",
-      src: '"use server";\nconst bag = { doIt: async () => { await db.from("t").delete(); } };\nexport const { doIt } = bag;\n',
-      actions: 1,
-    },
-    {
-      label: "R2: ARRAY binding-pattern export",
-      rel: "lib/x/d.ts",
-      src: '"use server";\nconst arr = [async () => { await db.from("t").delete(); }];\nexport const [doIt] = arr;\n',
-      actions: 1,
-    },
-    {
-      label: 'R2: inline action NESTED inside a file-level "use server" module',
-      rel: "lib/x/e.ts",
-      src: '"use server";\nexport async function outer() {\n  const nested = async () => { "use server"; await db.from("t").delete(); };\n  return nested;\n}\n',
-      actions: 2,
-    },
-    {
       label: 'R2: directive PROLOGUE — "use strict" before "use server"',
       rel: "components/x/H.tsx",
       src: 'export function H() {\n  return <form action={async () => { "use strict"; "use server"; await db.from("t").delete(); }} />;\n}\n',
       actions: 1,
     },
+  ];
+
+  /**
+   * Forms that USED to escape and now resolve to keyed units — the other half of
+   * the same matrix (spec §3.6). Each source stays byte-identical to its
+   * `ESCAPES` original so the pin's subject does not drift; the `premiseHolds`
+   * guard is REPLACED by the positive assertion, exactly as its own text
+   * demanded ("if it now discovers all N, this fixture no longer exercises the
+   * tripwire").
+   */
+  const DISCOVERED_FORMS: ReadonlyArray<{
+    label: string;
+    rel: string;
+    src: string;
+    /** `[fn, kind, the write builder is in THIS unit's own action scope]`. */
+    units: ReadonlyArray<readonly [string, SurfaceUnit["kind"], boolean]>;
+  }> = [
+    {
+      label: "R1: module export wrapped in parens",
+      rel: "lib/x/a.ts",
+      src: '"use server";\nexport const wrapped = (async () => { await db.from("t").delete(); });\n',
+      units: [["wrapped", "module-action", true]],
+    },
+    {
+      label: "R1: module export aliased through an intermediate binding",
+      rel: "lib/x/b.ts",
+      src: '"use server";\nconst impl = async () => { await db.from("t").delete(); };\nconst alias = impl;\nexport { alias as doIt };\n',
+      units: [["doIt", "module-action", true]],
+    },
+    {
+      label: "R2: OBJECT binding-pattern export",
+      rel: "lib/x/c.ts",
+      src: '"use server";\nconst bag = { doIt: async () => { await db.from("t").delete(); } };\nexport const { doIt } = bag;\n',
+      units: [["doIt", "module-action", true]],
+    },
+    {
+      label: "R2: ARRAY binding-pattern export",
+      rel: "lib/x/d.ts",
+      src: '"use server";\nconst arr = [async () => { await db.from("t").delete(); }];\nexport const [doIt] = arr;\n',
+      units: [["doIt", "module-action", true]],
+    },
+    {
+      label: "R1: inline action as an object method",
+      rel: "components/x/G.tsx",
+      src: 'export function G() {\n  const a = { async doIt() { "use server"; await db.from("t").delete(); } };\n  return a;\n}\n',
+      units: [["doIt", "inline-action", true]],
+    },
+    {
+      label: 'R2: inline action NESTED inside a file-level "use server" module',
+      rel: "lib/x/e.ts",
+      src: '"use server";\nexport async function outer() {\n  const nested = async () => { "use server"; await db.from("t").delete(); };\n  return nested;\n}\n',
+      // `outer` is false BY DESIGN: the delete lives in `nested`'s scope, and an
+      // action scope does not descend into nested functions. A resolver that
+      // attached `outer`'s key to the nested body would read true here.
+      units: [
+        ["nested", "inline-action", true],
+        ["outer", "module-action", false],
+      ],
+    },
     {
       label: "R2: static class method carrying the directive",
       rel: "components/x/I.tsx",
       src: 'export class I {\n  static async doIt() { "use server"; await db.from("t").delete(); }\n}\n',
-      actions: 1,
+      units: [["doIt", "inline-action", true]],
     },
   ];
 
+  // The same unconditional-membership pin as `ESCAPES` above, for the same
+  // reason: a `.each` over an emptied table registers zero cases and reports
+  // green. Round-1 review emptied this one and 69 other tests still passed.
+  test("all seven discovered-form pins are still present (spec §3.6 rows 1, 2, 4, 5, 6, 7, 9)", () => {
+    expect(DISCOVERED_FORMS.map((d) => d.rel).sort()).toEqual([
+      "components/x/G.tsx",
+      "components/x/I.tsx",
+      "lib/x/a.ts",
+      "lib/x/b.ts",
+      "lib/x/c.ts",
+      "lib/x/d.ts",
+      "lib/x/e.ts",
+    ]);
+  });
+
+  test.each(DISCOVERED_FORMS.map((d) => [d.label, d] as const))(
+    "%s is DISCOVERED as a keyed unit, and the tripwire is quiet",
+    (_label, d) => {
+      const root = makeFixture(d.rel, d.src);
+      const units = collectSurfaceUnits([root]).filter((u) => u.kind !== "route");
+      // Keys AND node liveness in one projection: a correct key attached to the
+      // WRONG node — the unpinned failure mode — moves the third element.
+      expect(
+        units
+          .map((u) => [u.fn, u.kind, scanBody(u.node, { descend: false }).writeBuilder] as const)
+          .sort(),
+        `${d.label}: unit set drifted`,
+      ).toEqual([...d.units].sort());
+      expect(discoveryGaps([root], units)).toEqual([]);
+    },
+  );
+
+  // Executed UNCONDITIONALLY, outside the `.each`: a `.each` over an emptied
+  // case list runs zero callbacks and reports green, so the premise that these
+  // fixtures still exist cannot itself live inside a callback.
+  test("both anonymous-form refusal pins are still present (spec §3.6 rows 3 and 8)", () => {
+    expect(ESCAPES.map((e) => e.rel)).toEqual(["components/x/F.tsx", "components/x/H.tsx"]);
+  });
+
   test.each(ESCAPES.map((e) => [e.label, e] as const))(
-    "%s is SIGNALLED, never silently dropped",
+    "%s is REFUSED by name, never silently dropped",
     (_label, e) => {
       const root = makeFixture(e.rel, e.src);
       const units = collectSurfaceUnits([root]).filter((u) => u.kind !== "route");
       premiseHolds(
-        `the shared engine still fails to discover every action in this fixture; if it now discovers all ${e.actions}, ` +
-          `this fixture no longer exercises the tripwire (${e.rel})`,
+        `the shared engine still cannot key every action in this fixture; if it now discovers all ${e.actions}, ` +
+          `this fixture no longer exercises the refusal (${e.rel})`,
         units.length < e.actions,
       );
-      const problems = undiscoverableConstructs([root], units);
+      const problems = discoveryGaps([root], units);
+      // Naming the FILE is the contract, not merely being non-empty: a refusal
+      // the contributor cannot locate is a refusal they cannot act on.
       expect(
-        problems.length,
-        `${e.label}: escaped BOTH discovery and the tripwire`,
-      ).toBeGreaterThan(0);
+        problems.filter((p) => p.includes(e.rel)),
+        `${e.label}: escaped BOTH sides`,
+      ).toHaveLength(1);
     },
   );
+
+  test("CROSS-DOMAIN COLLISION: an unresolvable export sharing an inline unit's name still REFUSES (AC-7)", () => {
+    // The reconciliation is PER-KIND. A pooled projection over all of a file's
+    // unit names lets the inline `nested` satisfy the module-side `nested`,
+    // and the unresolvable export vanishes from both sides — the spec-review R1
+    // probe, now a permanent pin on THIS side of the shared engine too.
+    const problems = problemsFor(
+      "lib/x/e.ts",
+      '"use server";\nexport const nested = withFoo(async () => {});\n' +
+        'export async function outer() {\n  const nested = async () => { "use server"; await db.from("t").delete(); };\n  return nested;\n}\n',
+    );
+    expect(problems.some((p) => p.includes("`nested`") && p.includes("lib/x/e.ts"))).toBe(true);
+  });
 
   test("a fully discoverable module is QUIET — the tripwire is not a blanket failure", () => {
     // The negative half. Without it a tripwire that fired on everything would
