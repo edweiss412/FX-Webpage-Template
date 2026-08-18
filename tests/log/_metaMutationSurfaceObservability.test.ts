@@ -19,6 +19,7 @@ import {
   scanBody,
   type SurfaceUnit,
 } from "./mutationSurface/enumerate";
+import { discoveryGaps } from "./mutationSurface/totality";
 import { walkSourceFiles } from "@/lib/messages/__internal__/walkSourceFiles";
 import { AUDITABLE_MUTATIONS, type AuditableMutation } from "./_auditableMutations";
 import {
@@ -692,6 +693,29 @@ describe("live discovery — zero unaccounted surfaces", () => {
     expect(
       offenders,
       formatFailures(offenders.map(({ unit, decision }) => ({ unit, reason: decision.reason }))),
+    ).toEqual([]);
+  });
+
+  // The accounting above ranges over units that EXIST. A Server Action written
+  // in a form discovery cannot key produces no unit at all, so that test reports
+  // nothing about it — the dark-mutation-surface hole this closes. The
+  // reconciliation is total over both derived domains, so such a construct fails
+  // HERE, by name, carrying the rewrite that fixes it.
+  test("discovery is TOTAL over the live tree, or this meta-test fails by name (invariant-10 parity)", () => {
+    const roots = ["app", "lib", "components"];
+    const units = collectSurfaceUnits(roots);
+    // A premise, executably: `discoveryGaps` over an EMPTY walk returns `[]` and
+    // this assertion would pass forever while inspecting nothing. An ordinary
+    // roots refactor is one edit away from that, so the walk's own non-emptiness
+    // is asserted rather than assumed (diff review round 1, finding 1).
+    expect(
+      units.length,
+      "the live walk found no surfaces at all — the roots moved",
+    ).toBeGreaterThan(50);
+    const gaps = discoveryGaps(roots, units);
+    expect(
+      gaps,
+      ["surface discovery could not key these constructs:", ...gaps].join("\n  "),
     ).toEqual([]);
   });
 });
