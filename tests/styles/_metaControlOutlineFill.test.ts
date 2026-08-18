@@ -432,18 +432,15 @@ describe("hover repair — no swapped control hovers quieter than it rests (spec
     expect(stillOverridden.sort()).toEqual([...HOVER_SUBTLE, ...HOVER_ACCENT].sort());
   });
 
-  describe.each(ADDITIONS.map((r) => [`${r.file}:${r.line}`] as const))(
-    "denylist %s",
-    (id) => {
-      const el = UNIVERSE.find((e) => `${e.file}:${e.line}` === id) ?? null;
-      it("carries no hover:border-border-strong and no bare border-accent under any prefix", () => {
-        expect(el).not.toBeNull();
-        const toks = allStrings(el as ScanElement).flatMap((s) => s.split(/\s+/));
-        expect(toks.some((t) => t === "hover:border-border-strong")).toBe(false);
-        expect(toks.some((t) => /^(hover|aria-expanded):border-accent$/.test(t))).toBe(false);
-      });
-    },
-  );
+  describe.each(ADDITIONS.map((r) => [`${r.file}:${r.line}`] as const))("denylist %s", (id) => {
+    const el = UNIVERSE.find((e) => `${e.file}:${e.line}` === id) ?? null;
+    it("carries no hover:border-border-strong and no bare border-accent under any prefix", () => {
+      expect(el).not.toBeNull();
+      const toks = allStrings(el as ScanElement).flatMap((s) => s.split(/\s+/));
+      expect(toks.some((t) => t === "hover:border-border-strong")).toBe(false);
+      expect(toks.some((t) => /^(hover|aria-expanded):border-accent$/.test(t))).toBe(false);
+    });
+  });
 
   describe.each(HOVER_DELETE.map((id) => [id] as const))("(a) %s", (id) => {
     it("carries NO hover:border-* token at all", () => {

@@ -184,15 +184,18 @@ describe("outline tokens the 2026-08-18 arc pins (DESIGN §1.2)", () => {
   it.each([
     ["light", lightBlock],
     ["dark", darkBlock],
-  ])("%s: --color-border as an OUTLINE is recorded below the floor on every ground", (_m, block) => {
-    const border = tokenIn(block, "--color-border");
-    for (const ground of NEUTRAL_GROUNDS) {
-      const ratio = contrast(border, tokenIn(block, ground));
-      // Recorded, not required to clear 3:1 — this is the before-state.
-      expect(ratio).toBeLessThan(3.0);
-      expect(ratio).toBeGreaterThan(1.0);
-    }
-  });
+  ])(
+    "%s: --color-border as an OUTLINE is recorded below the floor on every ground",
+    (_m, block) => {
+      const border = tokenIn(block, "--color-border");
+      for (const ground of NEUTRAL_GROUNDS) {
+        const ratio = contrast(border, tokenIn(block, ground));
+        // Recorded, not required to clear 3:1 — this is the before-state.
+        expect(ratio).toBeLessThan(3.0);
+        expect(ratio).toBeGreaterThan(1.0);
+      }
+    },
+  );
 
   it.each([
     ["light", lightBlock],
