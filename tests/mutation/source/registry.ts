@@ -2206,7 +2206,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "refuses identically under both.",
       },
       {
-        siteId: "logical-connector:538:49:||>&&",
+        siteId: "logical-connector:658:49:||>&&",
         kind: "equivalent",
         reason:
           "The SECOND disjunct of `!item || isOmitted(item) || isSpread(item)`. Under the flip it " +

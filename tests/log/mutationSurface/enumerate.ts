@@ -350,86 +350,205 @@ function reduceModuleExpr(
   return resolveModuleName(sf, e.text, seen);
 }
 
+/** True if some enclosing scope of `at` declares `name`. An occurrence there is
+ * a DIFFERENT binding and says nothing about the module one.
+ *
+ * Every ancestor is walked and every declaration name is read GENERICALLY,
+ * including `var` hoisted out of a nested block. The kind list this replaced
+ * missed setter and constructor parameters, loop heads, unbraced switch cases,
+ * hoisted nested `var`, class declarations and namespace blocks, and every miss
+ * fired a REFUSAL on correct code (diff review round 3, finding 1). */
+function shadowsName(at: ts.Node, name: string): boolean {
+  for (let n: ts.Node | undefined = at.parent; n && !ts.isSourceFile(n); n = n.parent) {
+    if (isFnLike(n) && hoistedVarBinds(n, name)) return true;
+    let found = false;
+    ts.forEachChild(n, (ch) => {
+      if (!found && declarationBinds(ch, name)) found = true;
+    });
+    if (found) return true;
+  }
+  return false;
+}
+
+/** Does this node DECLARE `name` in the scope that holds it? Object-literal and
+ * class members are excluded: their names live in the object, not the scope. */
+function declarationBinds(n: ts.Node, name: string): boolean {
+  // Object-literal members, class members and export specifiers carry or export
+  // a value; none of them binds a name in the scope.
+  if (ts.isObjectLiteralElementLike(n) || ts.isClassElement(n) || ts.isExportSpecifier(n))
+    return false;
+  if (ts.isVariableStatement(n))
+    return n.declarationList.declarations.some((d) => bindingBindsName(d.name, name));
+  if (ts.isVariableDeclarationList(n))
+    return n.declarations.some((d) => bindingBindsName(d.name, name));
+  if (ts.isVariableDeclaration(n) || ts.isParameter(n) || ts.isBindingElement(n))
+    return bindingBindsName(n.name, name);
+  const named = n as ts.Node & { name?: ts.Node };
+  return !!named.name && ts.isIdentifier(named.name) && named.name.text === name;
+}
+
+/** `var` is function-scoped, so a declaration inside any nested block belongs to
+ * this function. A nested FUNCTION owns its own, so the walk stops there. */
+function hoistedVarBinds(fn: ts.Node, name: string): boolean {
+  let found = false;
+  const walk = (x: ts.Node): void => {
+    if (found || (x !== fn && isFnLike(x))) return;
+    if (
+      ts.isVariableStatement(x) &&
+      (ts.getCombinedNodeFlags(x.declarationList) & (ts.NodeFlags.Let | ts.NodeFlags.Const)) === 0
+    )
+      for (const d of x.declarationList.declarations)
+        if (bindingBindsName(d.name, name)) found = true;
+    ts.forEachChild(x, walk);
+  };
+  walk(fn);
+  return found;
+}
+
 /**
- * True if a module-scope name can hold a different value at export time than the
- * declaration a static read reaches: it is DECLARED more than once (`var`
- * redeclaration -- the later one wins), or something WRITES it (`x = f`,
- * `x ??= f`, `x.k = f`, `x[k] = f`, `x++`).
+ * True when this identifier LABELS something rather than referring to a binding:
+ * a declaration's own name, an object or class member's name, a property
+ * access's member name, an export's external name.
  *
- * The resolver REFUSES such a name rather than modelling assignment order.
- * That is deliberate direction: tracking writes would make the closed reduction
- * set a dataflow grammar, and a wider recognizer is a bigger target every round.
- * Before this, the unit carried the pre-write node, so `scanBody` read a body
- * that never runs -- and it did so SILENTLY, because a unit existed and the
- * refusal ledger stayed empty (diff review round 2, finding 1).
+ * Read positionally, not as a kind list -- occupying a parent's `name` slot IS
+ * the property, and a list of kinds would have to be kept current against the
+ * language. The single exception is `export { bag }`, whose `name` IS the
+ * reference to the local binding; `export { bag as x }` puts that reference in
+ * `propertyName` and leaves `name` an external label.
+ */
+function labelsNotReferences(id: ts.Identifier): boolean {
+  const p = id.parent as (ts.Node & { name?: ts.Node; propertyName?: ts.Node }) | undefined;
+  if (!p || p.name !== id) return false;
+  if (ts.isExportSpecifier(p)) return p.propertyName !== undefined;
+  return true;
+}
+
+const isAssignmentOperator = (k: ts.SyntaxKind): boolean =>
+  k >= ts.SyntaxKind.FirstAssignment && k <= ts.SyntaxKind.LastAssignment;
+
+/**
+ * True if a module-scope name can hold a value other than the one its
+ * declaration shows -- so the declaration a static read reaches is not
+ * necessarily the body that runs, and the resolver must REFUSE the name rather
+ * than bind a unit to dead code.
  *
- * A write to a LOCALLY REBOUND identifier is a write to a different binding, so
- * it must not refuse the export -- `isLocallyRebound` is the same predicate
- * `scanBody` uses for shadowed imports. Without it this fires on correct code,
- * which is the false advisory the design is most exposed to.
+ * The question asked is IMMUTABILITY, deliberately not "was it written". Diff
+ * review round 3 attacked a write detector one write FORM per finding --
+ * member writes, destructuring assignment, `for..of` targets, `Object.assign`,
+ * `Reflect.set`, `Object.defineProperty`, array `splice` -- and enumerating
+ * write APIs does not terminate, so each round would have bought one more
+ * corner and a bigger target for the next. A `const` binding cannot be rebound
+ * by ANY of them, so the rule needs no write vocabulary at all:
+ *
+ *   - `let` / `var` -> REFUSED outright, written or not. The documented limit
+ *     this buys is real and its remediation is one keyword; the refusal names
+ *     the export and says so.
+ *   - `const` -> stable. A property write on the action (`doIt.displayName`) is
+ *     ordinary and leaves the body untouched, so it must NOT refuse -- round 2's
+ *     member-chain ascent did, a false advisory on correct code (round 3,
+ *     finding 2).
+ *   - a function declaration -> its binding IS mutable, the one case that still
+ *     needs a rebinding check. That check is over TARGET POSITIONS, a closed
+ *     set, never over write APIs.
  */
 function moduleBindingIsUnstable(sf: ts.SourceFile, name: string): boolean {
-  let declared = 0;
+  let mutable = false;
+  let fnDecls = 0;
   for (const st of sf.statements) {
     // A bodyless declaration is an overload SIGNATURE, not a second definition.
-    if (ts.isFunctionDeclaration(st) && st.name?.text === name && st.body) declared++;
-    // Only `var` counts: a duplicate `let`/`const` is a TypeScript error, so a
-    // second block-scoped declaration of one name is not something an ordinary
-    // contributor ships -- and counting it refuses correct fixtures where a
-    // shorthand member and its destructured export share a name.
+    if (ts.isFunctionDeclaration(st) && st.name?.text === name && st.body) fnDecls++;
     if (ts.isVariableStatement(st))
       for (const d of st.declarationList.declarations)
         if (
           bindingBindsName(d.name, name) &&
-          (ts.getCombinedNodeFlags(d) & (ts.NodeFlags.Let | ts.NodeFlags.Const)) === 0
+          (ts.getCombinedNodeFlags(d) & ts.NodeFlags.Const) === 0
         )
-          declared++;
+          mutable = true;
   }
-  if (declared > 1) return true;
+  if (mutable) return true;
+  if (fnDecls === 0) return false;
 
-  // `x`, `x.k`, `x[k]`, and longer chains rooted at `x`, on the left of an
-  // assignment; plus `x++` / `--x`.
-  const isWriteTarget = (id: ts.Node): boolean => {
-    // Ascend to the outermost expression this identifier is the TARGET of:
-    // parens, since `(x) = f` is a legal assignment, and member chains ROOTED
-    // at it, since `x.k = f` replaces a member of the very object a literal
-    // appeared to fix. `registry[x] = 1` is not such a chain -- `x` is the
-    // subscript, not the root -- and must stay resolvable.
-    let t: ts.Node = id;
-    for (let up: ts.Node | undefined = t.parent; up; up = t.parent) {
-      if (ts.isParenthesizedExpression(up)) t = up;
-      else if (
-        (ts.isPropertyAccessExpression(up) || ts.isElementAccessExpression(up)) &&
-        up.expression === t
-      )
-        t = up;
-      else break;
-    }
-    const p: ts.Node | undefined = t.parent;
-    if (!p) return false;
-    if (
-      ts.isBinaryExpression(p) &&
-      p.left === t &&
-      p.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
-      p.operatorToken.kind <= ts.SyntaxKind.LastAssignment
-    )
-      return true;
-    return (
-      (ts.isPostfixUnaryExpression(p) || ts.isPrefixUnaryExpression(p)) &&
-      p.operand === t &&
-      (p.operator === ts.SyntaxKind.PlusPlusToken || p.operator === ts.SyntaxKind.MinusMinusToken)
-    );
+  // Walk DOWN from each assignment CONSTRUCT rather than up from each
+  // identifier: three constructs, and the target's own shape is traversed
+  // generically, so every destructuring form -- nested patterns, spreads,
+  // parens, type wrappers -- is covered without naming one of them. Walking up
+  // needed a list of wrapper kinds, and a list is the enumeration this whole
+  // rewrite exists to stop keeping.
+  //
+  // A member access ENDS the descent: `doIt.k = f` writes a property of the
+  // action, never the binding (diff review round 3, finding 2).
+  const eachRebound = (target: ts.Node, mark: (id: ts.Identifier) => void): void => {
+    if (ts.isIdentifier(target)) return mark(target);
+    if (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) return;
+    // In a target position these three carry the binding on ONE side; the other
+    // side is a default value or a property KEY and binds nothing.
+    if (ts.isPropertyAssignment(target)) return eachRebound(target.initializer, mark);
+    if (ts.isShorthandPropertyAssignment(target)) return mark(target.name);
+    if (ts.isBinaryExpression(target) && target.operatorToken.kind === ts.SyntaxKind.EqualsToken)
+      return eachRebound(target.left, mark);
+    ts.forEachChild(target, (ch) => eachRebound(ch, mark));
   };
 
-  let written = false;
+  let rebound = false;
+  const mark = (id: ts.Identifier): void => {
+    if (id.text === name && !shadowsName(id, name)) rebound = true;
+  };
   const visit = (n: ts.Node): void => {
-    if (written) return;
-    if (ts.isIdentifier(n) && n.text === name && isWriteTarget(n) && !isLocallyRebound(n, name))
-      written = true;
+    if (rebound) return;
+    if (ts.isBinaryExpression(n) && isAssignmentOperator(n.operatorToken.kind))
+      eachRebound(n.left, mark);
+    else if (
+      (ts.isForOfStatement(n) || ts.isForInStatement(n)) &&
+      !ts.isVariableDeclarationList(n.initializer)
+    )
+      eachRebound(n.initializer, mark);
+    else if (
+      (ts.isPostfixUnaryExpression(n) || ts.isPrefixUnaryExpression(n)) &&
+      (n.operator === ts.SyntaxKind.PlusPlusToken || n.operator === ts.SyntaxKind.MinusMinusToken)
+    )
+      eachRebound(n.operand, mark);
     ts.forEachChild(n, visit);
   };
   visit(sf);
-  return written;
+  return rebound;
+}
+
+/**
+ * True if nothing in the file can reach the destructuring SOURCE except the
+ * destructuring itself, so the literal a static read sees is the literal that
+ * is destructured.
+ *
+ * An inline literal is unreachable by construction. A named holder is pristine
+ * only if it has exactly ONE reference and its own initializer is an inline
+ * literal: one hop, no deeper. Anything else that mentions the holder --
+ * `bag.doIt = f`, `Object.assign(bag, ...)`, exporting `bag`, passing it to a
+ * call -- can replace the member the literal appears to fix, and enumerating
+ * the APIs that do so does not terminate (diff review round 3, finding 3).
+ */
+function holderIsPristine(sf: ts.SourceFile, init: ts.Expression): boolean {
+  let e: ts.Expression = init;
+  while (ts.isParenthesizedExpression(e)) e = e.expression;
+  if (!ts.isIdentifier(e)) return true;
+  const name = e.text;
+
+  let own: ts.Expression | undefined;
+  for (const st of sf.statements)
+    if (ts.isVariableStatement(st))
+      for (const d of st.declarationList.declarations)
+        if (ts.isIdentifier(d.name) && d.name.text === name && d.initializer) own = d.initializer;
+  let inner: ts.Expression | undefined = own;
+  while (inner && ts.isParenthesizedExpression(inner)) inner = inner.expression;
+  if (!inner || !(ts.isObjectLiteralExpression(inner) || ts.isArrayLiteralExpression(inner)))
+    return false;
+
+  let refs = 0;
+  const visit = (n: ts.Node): void => {
+    if (ts.isIdentifier(n) && n.text === name && !labelsNotReferences(n) && !shadowsName(n, name))
+      refs++;
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return refs === 1;
 }
 
 /**
@@ -475,6 +594,7 @@ function resolvePatternMember(
   init: ts.Expression,
   seen: Set<string>,
 ): ts.Node | undefined {
+  if (!holderIsPristine(sf, init)) return undefined; // refusal, reconciled in ./totality
   const reduced = reduceModuleExpr(sf, init, seen);
   if (!reduced) return undefined;
   if (ts.isObjectBindingPattern(pattern) && ts.isObjectLiteralExpression(reduced)) {
