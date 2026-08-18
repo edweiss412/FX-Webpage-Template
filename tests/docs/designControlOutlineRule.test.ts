@@ -84,3 +84,36 @@ describe("DESIGN.md §1.2a states the shipped control-outline rule", () => {
     expect(SECTION).toContain("BL-CONTROL-OUTLINE-SHAREHUB-MOBILE-SKIN-WEIGHT");
   });
 });
+
+/**
+ * §1.2's contrast table must carry a row for every token this arc uses as a
+ * control OUTLINE.
+ *
+ * This is Task 4's RED. The sixteen hover-over-rest RELATIONS in
+ * `tests/styles/secondary-action-contrast.test.ts` are NOT — probed, all
+ * sixteen already hold against today's tokens, so they ship green as a
+ * regression pin. Only the missing rows can fail here, and saying otherwise
+ * would mislabel which assertion is load-bearing.
+ */
+describe("DESIGN.md §1.2 carries a row for every outline token this arc ships", () => {
+  const SECTION_ONE_TWO = (() => {
+    const start = DESIGN.indexOf("### 1.2 ");
+    if (start === -1) throw new Error("DESIGN.md has no `### 1.2` heading");
+    const rest = DESIGN.slice(start + 7);
+    const end = rest.indexOf("\n### ");
+    return end === -1 ? rest : rest.slice(0, end);
+  })();
+
+  it("premise: §1.2 was found and is a real table", () => {
+    premise("§1.2 extracted from DESIGN.md", SECTION_ONE_TWO.length, 500);
+  });
+
+  it.each([
+    ["--color-border", "the before-state this arc moves away from"],
+    ["--color-text-subtle", "§3.6(b)'s hover token, repurposed as an outline"],
+    ["--color-accent-on-bg", "§3.6(c)'s hover token, repurposed as an outline"],
+  ])("carries an OUTLINE row for %s (%s)", (token) => {
+    const flat = SECTION_ONE_TWO.replace(/\s+/g, " ");
+    expect(flat).toMatch(new RegExp(`\\\`${token}\\\`[^|]*(?:as )?OUTLINE`, "i"));
+  });
+});

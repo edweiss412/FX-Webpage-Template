@@ -154,3 +154,77 @@ describe("secondary action outline (spec §3, DESIGN §1.2a control-outline rule
     expect(tokens.filter((token) => !classes.has(token))).toEqual([]);
   }, 120_000);
 });
+
+/**
+ * The 2026-08-18 arc's three OUTLINE rows, and the two RELATIONS that are the
+ * actual guard.
+ *
+ * `--color-border` is the before-state this arc moves away from: pinning it
+ * means a future retune cannot quietly reintroduce the weight that was removed.
+ * `--color-text-subtle` and `--color-accent-on-bg` are existing tokens used as
+ * a control OUTLINE for the first time by §3.6's hover repair — new roles for
+ * old tokens, which the pre-code rule treats exactly like new tokens.
+ *
+ * THE RELATIONS ARE NOT THIS ARC'S RED. All sixteen already hold against
+ * today's tokens, so they ship GREEN as a regression pin. Saying otherwise
+ * would mislabel which assertion is load-bearing, and mislabelling a red is how
+ * a tautological one gets shipped (plan review R5 F4, R6 F3).
+ *
+ * Sixteen, not eight: §3.6 introduces TWO hover tokens, so there are two pairs
+ * over four grounds in both themes.
+ */
+const NEUTRAL_GROUNDS = [
+  "--color-bg",
+  "--color-surface",
+  "--color-surface-raised",
+  "--color-surface-sunken",
+] as const;
+
+describe("outline tokens the 2026-08-18 arc pins (DESIGN §1.2)", () => {
+  it.each([
+    ["light", lightBlock],
+    ["dark", darkBlock],
+  ])("%s: --color-border as an OUTLINE is recorded below the floor on every ground", (_m, block) => {
+    const border = tokenIn(block, "--color-border");
+    for (const ground of NEUTRAL_GROUNDS) {
+      const ratio = contrast(border, tokenIn(block, ground));
+      // Recorded, not required to clear 3:1 — this is the before-state.
+      expect(ratio).toBeLessThan(3.0);
+      expect(ratio).toBeGreaterThan(1.0);
+    }
+  });
+
+  it.each([
+    ["light", lightBlock],
+    ["dark", darkBlock],
+  ])("%s: the two hover tokens clear 3:1 as OUTLINES on every ground", (_m, block) => {
+    for (const token of ["--color-text-subtle", "--color-accent-on-bg"] as const) {
+      for (const ground of NEUTRAL_GROUNDS) {
+        expect(contrast(tokenIn(block, token), tokenIn(block, ground))).toBeGreaterThanOrEqual(3.0);
+      }
+    }
+  });
+
+  /**
+   * The guard that generalises: assert the RELATION, computed from the tokens,
+   * rather than sixteen constants.
+   *
+   * Constants go stale the moment any of the three tokens is retuned and force
+   * a reviewer to re-derive whether each pair still reads correctly. A relation
+   * fails loudly at exactly the moment a retune inverts a pair and stays silent
+   * when the retune is harmless. `DESIGN.md` §1.2 keeps the absolute figures for
+   * the record; this is what stops them drifting apart.
+   */
+  it.each([
+    ["light", lightBlock],
+    ["dark", darkBlock],
+  ])("%s: every hover outline is HEAVIER than the resting outline it replaces", (_m, block) => {
+    const rest = tokenIn(block, "--color-text-faint");
+    for (const hover of ["--color-text-subtle", "--color-accent-on-bg"] as const) {
+      for (const ground of NEUTRAL_GROUNDS) {
+        const g = tokenIn(block, ground);
+        expect(contrast(tokenIn(block, hover), g)).toBeGreaterThan(contrast(rest, g));
+      }
+    }
+  });
+});
