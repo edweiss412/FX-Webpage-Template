@@ -13,7 +13,8 @@ Sibling of `docs/superpowers/specs/2026-08-16-control-outline-surface-fills-desi
 - **The design question is RULED (§2).** It was put to the user on 2026-08-18 with a rendered mockup showing three candidate weights on the confirm-row Cancel, on the split button of §3.4, and on the crew surfaces — show tiles, section chips, `PersonRow` call/text buttons — in both themes. The user chose the text ramp. Neither the ruling nor the crew surfaces are open.
 - **The change is one colour token per site.** `border-border` → `border-text-faint`. No new component, no new prop, no new state, no new element, no new token, no geometry change.
 - **THE SWEPT SET IS 37, AND THE USER WAS SHOWN 30.** The delta is +8 unfilled controls (§3.2, a derivation from `DESIGN.md`'s ratified "or left unfilled" clause) −1 divider (§3.3), and it moves the crew-facing count from thirteen to fourteen. Stated at the top because a reader who takes 30 as the scope will mis-review everything below it. If the widening is narrowed on review, §3.2 is the only section that changes.
-- **Three families are OUT by decision, each with its own evidence** (§3.3, §3.5, §6). Dividers, `hover:`-only occurrences, and ShareHub's ratified mobile skin.
+- **Three families are OUT by decision, each with its own evidence** (§3.3, §3.5, §6). Dividers, `hover:`-only occurrences of `border-border-strong`, and ShareHub's ratified mobile skin.
+- **The swap CAUSES a hover-weight inversion at 21 sites, and §3.6 repairs it in-branch.** Found by spec review round 1. Rest moves to 3.35:1 while `hover:border-border-strong` stays at 1.59:1, so hovering would read lighter than resting. 13 sites drop the override, 5 raise it, 3 accent-hue sites are recorded as a documented limit.
 - **The 2026-08-16 arc's rulings are untouched.** The five switch tracks stay exempt; the accent-filled primary action stays exempt; the 21 swapped elements keep `border-text-faint`; §1.2a's scope paragraph on non-interactive chrome is unchanged, and `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT` still owns that question.
 
 ### 1.1 Self-review sections that are N/A here, and why
@@ -22,15 +23,15 @@ Stated rather than omitted, so absence is not read as oversight.
 
 | Section | Why N/A |
 | --- | --- |
-| DB completeness matrix, CHECK/enum migration matrix | No DDL, no RPC, no migration. The diff is `.tsx` class strings, `DESIGN.md`, one test file, one ledger file. |
+| DB completeness matrix, CHECK/enum migration matrix | No DDL, no RPC, no migration. The diff is `.tsx` class strings, `DESIGN.md`, THREE files under `tests/styles/` (`controlOutlineScan.ts`, `_metaControlOutlineFill.test.ts`, `secondary-action-contrast.test.ts`), and `BACKLOG.md`. |
 | Advisory-lock topology (invariant 2) | No code path mutates `shows`, `crew_members`, `crew_member_auth`, `pending_syncs` or `pending_ingestions`. |
 | §12.4 catalog lockstep | No error code is added, edited or removed, so `pnpm gen:spec-codes` and `lib/messages/catalog.ts` are untouched. |
 | Supabase call-boundary discipline (invariant 9) | No Supabase client call is added or moved. |
 | Mutation-surface observability (invariant 10) | No route handler and no `"use server"` action is added or modified. |
 | Flag lifecycle table | No boolean config field or toggle is introduced. |
 | Guard conditions per prop | No component signature changes. Every edited string is a static class literal or a branch of an existing ternary whose condition is untouched. |
-| Transition Inventory | §8. |
-| Dimensional Invariants | §7. |
+| Transition Inventory | §9. |
+| Dimensional Invariants | §8. |
 
 ---
 
@@ -43,7 +44,7 @@ The mockup the ruling was taken against rendered, at all three candidate weights
 ### 2.1 Rejected branches — do not relitigate in either direction
 
 - **"Leave them; document that quiet is deliberate."** Offered, rendered, declined. `border-border` is NOT a ratified third weight for quiet controls, and §1.2a gains no sentence saying so.
-- **"Split: buttons move, tile edges stay."** Offered, rendered, declined. The five tile- and card-shaped links (`app/me/meShowSections.tsx:174`, `:213`, `:258`; `components/admin/NeedsAttentionSummaryCard.tsx:36`; `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:240`) MOVE. They reach the census through `scanInteractiveElements`, so they are controls; the user saw the show tiles rendered at the firm weight and ruled anyway. A reviewer arguing any of them is a card edge rather than a control outline is relitigating a rendered ruling — unless the argument is that the element is not interactive at all, which is §3.3's treatment and requires a per-site probe.
+- **"Split: buttons move, tile edges stay."** Offered, rendered, declined. The five tile- and card-shaped links (`app/me/meShowSections.tsx:174`, `app/me/meShowSections.tsx:213`, `app/me/meShowSections.tsx:258`; `components/admin/NeedsAttentionSummaryCard.tsx:36`; `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:240`) MOVE. They reach the census through `scanInteractiveElements`, so they are controls; the user saw the show tiles rendered at the firm weight and ruled anyway. A reviewer arguing any of them is a card edge rather than a control outline is relitigating a rendered ruling — unless the argument is that the element is not interactive at all, which is §3.3's treatment and requires a per-site probe.
 - **A new intermediate token.** `border-border-strong` measures 1.43-1.75:1 and is under the floor everywhere too; a new token between it and the text ramp would need its own pin and its own ruling. Not proposed, not offered, not in scope.
 
 ---
@@ -95,12 +96,12 @@ The 29 rows are the probe record §2 table minus row 13. Thirteen are crew-facin
 
 **Reachability was traced by render chain, not by directory** — the method the ledger entry's own thirteen were counted with:
 
-- **Row 8 is crew-reachable.** `components/shared/ReportModal.tsx` is imported by `components/layout/Footer.tsx` and by `components/crew/primitives/CardHeaderActions.tsx`, and by `components/shared/ReportButton.tsx` — which is itself class A row 30, crew-reachable through the same Footer. It is the only crew surface class B adds, taking the swap set's crew-facing count from thirteen to **fourteen**.
+- **Row 8 is crew-reachable, through TWO hops rather than one.** `components/layout/Footer.tsx:42` imports `ReportButton`, and `components/crew/primitives/CardHeaderActions.tsx:15` imports `CardReportTrigger`; each of those intermediates imports `ReportModal`. The chains are Footer → `components/shared/ReportButton.tsx:142` → `components/shared/ReportModal.tsx:675`, and CardHeaderActions → `components/shared/CardReportTrigger.tsx` → `components/shared/ReportModal.tsx:675`. `ReportButton` is itself class A row 30. Row 8 is the only crew surface class B adds, taking the swap set's crew-facing count from thirteen to **fourteen**.
 - **Rows 1-7 are admin-only by chain.** `HoverHelp` and `NeedsAttentionInbox` are imported only under `app/admin/**` and `components/admin/**`; `MaterializeCard` only by `app/admin/dev/page.tsx`; `AutoRefreshControl` only by `app/admin/dev/telemetry/page.tsx` and `app/admin/dev/telemetry-dim/page.tsx`.
 
 Two structural notes:
 
-- `components/admin/telemetry/AutoRefreshControl.tsx:119` — the SAME FILE contains `:106`, one of the five switch-track render paths §1.2a rules OUT. They are different elements and must not be conflated. `:106` is untouched by this arc; a reviewer checking the switch-track exemption should confirm the diff does not reach that line.
+- Row 7, `components/admin/telemetry/AutoRefreshControl.tsx:119` — the SAME FILE contains `components/admin/telemetry/AutoRefreshControl.tsx:106`, one of the five switch-track render paths §1.2a rules OUT. They are different elements and must not be conflated. `components/admin/telemetry/AutoRefreshControl.tsx:106` is untouched by this arc; a reviewer checking the switch-track exemption should confirm the diff does not reach that line.
 - Rows 2-5 share ONE source occurrence — the file-local `reviewLinkClass` at `components/admin/NeedsAttentionInbox.tsx:31`. One edit moves four census rows. This is the predecessor spec's shared-constant shape (`RoleMappingRow`'s `outlineBtn`), and it is why element count and edit count differ (§4.3).
 
 ### 3.3 Class C — five dividers, EXCLUDED, evidenced per site
@@ -128,7 +129,7 @@ That is a **limit of the pin, not a defect in it**; its docstring is explicit th
 
 ### 3.5 Class D — ShareHub, FILED under class-sweep exception (b)
 
-`components/admin/showpage/ShareHub.tsx:781` and `:817` carry `max-sm:border-border`, which the cover's whole-token regex does not match. A `max-sm:` prefix is a **resting** outline below 640px — unlike `hover:`, which is a state cue (`components/layout/ThemeToggle.tsx:125` rests at `border-border` and takes `border-border-strong` only on hover; correctly outside every cover, recorded at the 2026-08-16 spec §3.2). So the ruling's words reach ShareHub, and `:781` is the sharpest instance in the repository: both ternary arms **already carry `border-text-faint`** from the 2026-08-16 swap while `max-sm:border-border` wins the cascade, so one button paints 3.35:1 on a desktop viewport and **1.27:1 on a phone**.
+`components/admin/showpage/ShareHub.tsx:781` and `components/admin/showpage/ShareHub.tsx:817` carry `max-sm:border-border`, which the cover's whole-token regex does not match. A `max-sm:` prefix is a **resting** outline below 640px — unlike `hover:`, which is a state cue (`components/layout/ThemeToggle.tsx:125` rests at `border-border` and takes `border-border-strong` only on hover; correctly outside every cover, recorded at the 2026-08-16 spec §3.2). So the ruling's words reach ShareHub, and `components/admin/showpage/ShareHub.tsx:781` is the sharpest instance in the repository: both ternary arms **already carry `border-text-faint`** from the 2026-08-16 swap while `max-sm:border-border` wins the cascade, so one button paints 3.35:1 on a desktop viewport and **1.27:1 on a phone**.
 
 **It is filed rather than repaired, and the reason is not "same defect, different file".** Two independent ratifications fence it:
 
@@ -138,6 +139,22 @@ That is a **limit of the pin, not a defect in it**; its docstring is explicit th
 Swapping ShareHub here means editing that pin to assert the opposite of what it was written to assert — the shape where a guard is rewritten to match the change it exists to catch. **Class-sweep exception (b) applies: a ratified scope decision already fences it.** The filing is §6's ledger row; its first scheduled step is the design question this arc cannot settle — whether §1.2a's control-outline rule supersedes the §3 R3 mobile skin — and the answer is one edit plus one pin update once ruled.
 
 `tests/styles/_metaControlOutlineFill.test.ts:156-164` is therefore **untouched by this arc**, and that is an acceptance criterion (§5.4), not an omission.
+
+### 3.6 The hover inversion this swap CAUSES, and its repair
+
+**Found by spec review round 1, and it is the arc's one genuine design consequence.** It is not a pre-existing condition: the predecessor's 21 contained exactly ONE `hover:border-*` override (`components/admin/ArchiveShowButton.tsx:365`, `hover:border-status-warn` — a semantic escalation, not a weight cue), so the 2026-08-16 arc never met this class.
+
+**Twenty-one of the 37 carry a `hover:border-*` override.** Today rest is `border-border` (1.27:1) and hover is `border-border-strong` (1.59:1) — a step UP. After the swap rest is `border-text-faint` (3.35:1) and hover is unchanged at 1.59:1 — **a step DOWN. Hovering would make the outline weaker than resting.** Shipping the swap without touching these ships 18 inversions.
+
+The repair is derived from one question — *does this control have a hover cue other than its border?* — not from a per-site judgement:
+
+**(a) 13 sites carry another hover cue → DELETE the `hover:border-border-strong`.** The outline stays constant at 3.35:1 and the existing `hover:bg-*` / `hover:text-*` / `hover:underline` carries the affordance. `components/admin/HoverHelp.tsx:562`, `components/admin/NeedsAttentionInbox.tsx:101`/`components/admin/NeedsAttentionInbox.tsx:130`/`components/admin/NeedsAttentionInbox.tsx:198`/`components/admin/NeedsAttentionInbox.tsx:224`, `components/admin/UnarchiveShowButton.tsx:67`, `components/admin/nav/UserMenu.tsx:51`, `components/admin/showpage/PublishedReviewModal.tsx:964`, `components/crew/SectionChipLink.tsx:48`, `components/crew/primitives/PersonRow.tsx:196`/`components/crew/primitives/PersonRow.tsx:213`, `components/layout/ThemeToggle.tsx:91`, `components/shared/ReportButton.tsx:142`.
+
+**(b) 5 sites have NO other hover cue → RAISE to `hover:border-text-subtle`.** Deleting the override at these would remove the hover affordance entirely. `--color-text-subtle` measures 6.47/6.75 on `bg`, 6.76/6.35 on `surface`, 6.76/5.97 on `surface-raised`, 6.09/6.94 on `surface-sunken` — comfortably heavier than the 3.35:1 rest in both themes, so the pair reads as a step UP again. All five are crew surfaces: `app/me/meShowSections.tsx:174`/`app/me/meShowSections.tsx:213`/`app/me/meShowSections.tsx:258`, `components/agenda/AgendaEmbed.tsx:83`, `components/agenda/AgendaPdfViewer.tsx:198`.
+
+**(c) 3 sites carry `hover:border-accent` → UNCHANGED, recorded as a documented limit.** `components/admin/dev/SwitcherControls.tsx:83`/`components/admin/dev/SwitcherControls.tsx:92`/`components/admin/dev/SwitcherControls.tsx:142`. `--color-accent` as an outline measures **2.33 light / 7.69 dark** on `surface`, so in LIGHT mode hover (2.33) is quieter than the new rest (3.35) — an inversion by ratio. It is left alone because the cue here is HUE, not weight: an orange edge is perceptible against a grey one independently of contrast ratio, and replacing it would delete the accent affordance these dev controls use to mark the active target. Recorded in §6 with both figures so it cannot drift into looking like an oversight. These are `app/admin/dev/` surfaces.
+
+**Why this is repaired in-branch rather than filed.** It is not "same defect, different file" — it is a defect this diff CREATES, at 18 sites, and none of the three class-sweep exceptions applies: no design decision is unsettled (the ruling already says a control's resting outline takes the text ramp, and a hover that reads lighter than rest contradicts it), no ratified scope fences it, and the repair is 18 token edits in files this PR already opens.
 
 ---
 
@@ -151,11 +168,11 @@ Swapping ShareHub here means editing that pin to assert the opposite of what it 
 
 It is replaced by a paragraph that (a) records the 2026-08-18 ruling and that it was taken against a rendered mockup including the crew surfaces; (b) states that `border-border` on a control's resting outline is now the text ramp too, so the predicate is satisfied by the token as well as by the fill; (c) states the divider carve-out in both directions, since §1.2a already preserves the border tokens for dividers and this arc makes that preservation load-bearing; (d) points at the ShareHub filing rather than restating its numbers.
 
-The line numbers `:344` and `:266` in the current text are `className=` anchors and are stale against the scanner's element anchors (probe record §1). The replacement paragraph cites no line numbers for the swept population — the census is the contract (§4.3), and a prose line number is exactly what drifted.
+The line numbers `components/admin/ArchiveShowButton.tsx:344` and `app/admin/show/[slug]/ResetPickerEpochButton.tsx:266` in the current text are `className=` anchors and are stale against the scanner's element anchors (probe record §1). The replacement paragraph cites no line numbers for the swept population — the census is the contract (§4.3), and a prose line number is exactly what drifted.
 
 ### 4.2 `DESIGN.md` §1.2 — contrast rows
 
-§1.2 already carries all four `--color-text-faint` OUTLINE rows (`DESIGN.md:141`, `:142`, `:143`, `:145`) with the figures this arc's controls land on, pinned by `tests/styles/secondary-action-contrast.test.ts`. **No new or repurposed colour token is introduced**, so the "pin the ratio for any NEW token" rule is satisfied by rows that already exist and already assert.
+§1.2 already carries all four `--color-text-faint` OUTLINE rows (`DESIGN.md:141`, `DESIGN.md:142`, `DESIGN.md:143`, `DESIGN.md:145`) with the figures this arc's controls land on, pinned by `tests/styles/secondary-action-contrast.test.ts`. **No new or repurposed colour token is introduced**, so the "pin the ratio for any NEW token" rule is satisfied by rows that already exist and already assert.
 
 What §1.2 does NOT carry is a row for `--color-border` as an outline — the token being moved AWAY from. One is added, recording 1.22/1.35, 1.27/1.27, 1.27/1.19, 1.15/1.38 as the measured before-state, in the same shape as the predecessor's worked-example table (`DESIGN.md:238-241`), so that a future retune of `--color-border` cannot quietly reintroduce the weight this arc removed without a failing assertion. §5.3 pins it.
 
@@ -186,7 +203,7 @@ The plan owes the enumerated edit list; the SPEC's contract, and the implementat
 
 ### 5.2 The census pin is WIDENED, and strengthened by NEGATION rather than by universality
 
-`tests/styles/controlOutlineScan.ts`'s `CENSUS` grows from 21 rows to 58 (21 + 37), and `tests/styles/_metaControlOutlineFill.test.ts` gains one assertion per row: **`carries(element, "border-border") === false`** — no render path carries the old token. `carries` reads `allStrings`, which spans every render alternative, so the existential-negation IS the universal claim. It is the exact mirror of the assertion already there for `border-border-strong` (`:121-123`), so no new predicate and no new helper is written.
+`tests/styles/controlOutlineScan.ts`'s `CENSUS` grows from 21 rows to 58 (21 + 37), and `tests/styles/_metaControlOutlineFill.test.ts` gains one assertion per row: **`carries(element, "border-border") === false`** — no render path carries the old token. `carries` reads `allStrings`, which spans every render alternative, so the existential-negation IS the universal claim. It is the exact mirror of the assertion already there for `border-border-strong` (`tests/styles/_metaControlOutlineFill.test.ts:121`), so no new predicate and no new helper is written.
 
 **`everyPathCarries` is deliberately NOT used for this, and the reason is a probe.** An earlier draft of this spec proposed moving the per-row `carries(element, "border-text-faint")` to `everyPathCarries`. Probed against the live census, that formulation fails **two** of the original 21, and only one of them is a defect:
 
@@ -195,12 +212,12 @@ The plan owes the enumerated edit list; the SPEC's contract, and the implementat
 | `app/admin/show/[slug]/ResetPickerEpochButton.tsx:178` | false | the real defect of §3.4 — its non-compact branch is `border-border` |
 | `components/admin/Mi11GateActions.tsx:69` | false | **correct and must stay passing** — its `isApprove` branch is `bg-accent … text-accent-text` with **no border at all**, the accent-filled primary action that §1.2a rules OUT by name |
 
-A universal "every path carries the outline token" is therefore wrong for this population: a control may legitimately have a render path with no outline, and `Mi11GateActions.tsx:69` is that case shipped and ratified. The negation form has neither problem — it catches `:178` (whose second branch carries `border-border`) and passes `Mi11GateActions` (whose second branch carries no border token at all).
+A universal "every path carries the outline token" is therefore wrong for this population: a control may legitimately have a render path with no outline, and `components/admin/Mi11GateActions.tsx:69` is that case shipped and ratified. The negation form has neither problem — it catches `app/admin/show/[slug]/ResetPickerEpochButton.tsx:178` (whose second branch carries `border-border`) and passes `components/admin/Mi11GateActions.tsx:69` (whose second branch carries no border token at all).
 
-- **Both directions per row:** `carries(element, "border-text-faint")` is true, and `carries(element, "border-border")` is false. The second is not redundant — it is the whole strengthening, and it is what makes §3.4's finding a repair rather than a note. `ResetPickerEpochButton.tsx:178` is green today and must go red until its non-compact branch moves.
-- **Applied to the ORIGINAL 21 as well as the new 37.** Probed: exactly one of the 21 fails it today (`:178`), and that failure is the intended repair. No other row regresses.
-- **A negative control.** A constructed temp-dir fixture carrying `border border-border bg-surface` is found by the scan and FAILS the new assertion. A second fixture carries `border-text-faint` in one ternary arm and `border-border` in the other — it PASSES the pre-existing `carries(…, "border-text-faint")` check and FAILS the new one, which is the executable proof that the strengthening is not cosmetic and is precisely the `:178` shape. A third fixture carries `border-text-faint` in one arm and NO border utility in the other — it must PASS, pinning that a legitimately outline-free branch (the `Mi11GateActions` shape) is not collateral. Each fixture case carries its own `premise(...)` — a fixture that fails to parse returns `[]` and makes the case vacuously true.
-- **`everyPathCarries` stays in the file, unused by the census loop and still used at `:163`** for the ShareHub adjacent-token pin, which is untouched (§3.5, §5.4).
+- **Both directions per row:** `carries(element, "border-text-faint")` is true, and `carries(element, "border-border")` is false. The second is not redundant — it is the whole strengthening, and it is what makes §3.4's finding a repair rather than a note. `app/admin/show/[slug]/ResetPickerEpochButton.tsx:178` is green today and must go red until its non-compact branch moves.
+- **Applied to the ORIGINAL 21 as well as the new 37.** Probed: exactly one of the 21 fails it today (`app/admin/show/[slug]/ResetPickerEpochButton.tsx:178`), and that failure is the intended repair. No other row regresses.
+- **A negative control.** A constructed temp-dir fixture carrying `border border-border bg-surface` is found by the scan and FAILS the new assertion. A second fixture carries `border-text-faint` in one ternary arm and `border-border` in the other — it PASSES the pre-existing `carries(…, "border-text-faint")` check and FAILS the new one, which is the executable proof that the strengthening is not cosmetic and is precisely the `app/admin/show/[slug]/ResetPickerEpochButton.tsx:178` shape. A third fixture carries `border-text-faint` in one arm and NO border utility in the other — it must PASS, pinning that a legitimately outline-free branch (the `Mi11GateActions` shape) is not collateral. Each fixture case carries its own `premise(...)` — a fixture that fails to parse returns `[]` and makes the case vacuously true.
+- **`everyPathCarries` stays in the file, unused by the census loop and still used at `tests/styles/_metaControlOutlineFill.test.ts:163`** for the ShareHub adjacent-token pin, which is untouched (§3.5, §5.4).
 - **The divider exclusion is asserted, not merely documented.** The five class C elements are pinned as NOT members of the census, so a later arc cannot quietly add one.
 
 ### 5.3 What the suite must prove about itself
@@ -212,7 +229,7 @@ A universal "every path carries the outline token" is therefore wrong for this p
 
 ### 5.4 Untouched surfaces, asserted
 
-- **The five switch-track paths** keep their recipe, including `components/admin/telemetry/AutoRefreshControl.tsx:106` — whose file this arc DOES edit at `:119` (§3.2).
+- **The five switch-track paths** keep their recipe, including `components/admin/telemetry/AutoRefreshControl.tsx:106` — whose file this arc DOES edit at `components/admin/telemetry/AutoRefreshControl.tsx:119` (§3.2).
 - **`tests/styles/_metaControlOutlineFill.test.ts:156-164`**, the ShareHub `max-sm:border-border` pin, is unchanged and still passes (§3.5).
 
 ### 5.5 Enrolment precedes review (AGENTS.md convergence rule 4)
@@ -231,6 +248,8 @@ Each is a stated position with its number recorded, not an open gap.
 
 - **The five dividers stay at `border-border`** — 1.15-1.38:1 against their neighbouring fills (§3.3). Under the 3:1 non-text floor and there by decision: none is a control boundary, and §1.2a preserves the border tokens for dividers by name. Not filed as a ledger row, because a divider at border-grade contrast is the token doing its documented job.
 - **ShareHub's mobile skin: 1.27:1 below 640px, on a control that measures 3.35:1 above it** (§3.5). Filed as a ledger row under class-sweep exception (b), because two ratifications fence it and one of them is an executable pin. This is the one place this arc knowingly leaves a control the ruling's words reach.
+- **`hover:border-accent` stays quieter than rest in LIGHT mode at three dev controls: 2.33 vs 3.35** (§3.6c). `components/admin/dev/SwitcherControls.tsx:83`, `components/admin/dev/SwitcherControls.tsx:92`, `components/admin/dev/SwitcherControls.tsx:142`. Dark measures 7.69 and is a step up. Left by decision: the cue is HUE, not weight, and these are `app/admin/dev/` surfaces. Not filed as a ledger row — a hue cue whose ratio is recorded is the token doing its job.
+- **Eight of the 37 carry no `focus-visible:` utility** (§9) — pre-existing, untouched by this arc, and not caused by it. Recorded so a reader of §9's table does not read the absence as something this diff introduced.
 - **`disabled:opacity-60` drops any outline back under 3:1** — pre-existing, already recorded in `DESIGN.md` §1.2a; WCAG exempts inactive controls.
 - **Tinted-plate outer edges** — `BL-CONTROL-OUTLINE-ON-TINTED-PLATES` owns this class. `components/admin/showpage/PublishedReviewModal.tsx:964` carries `bg-warning-bg` on its OTHER branch, so swapping its `border-border` branch puts one more element on that entry's surface; the entry is updated with the site and the measured figure, and no new row is opened.
 - **`bg-transparent` controls take whatever ground they are rendered on**, which no static measurement supplies. Class B contains one (`components/admin/HoverHelp.tsx:562`) and class A's `_PickerInterstitial` branch fills vary. The census and its pin cover the enumerated set; a transparent control moved onto an unmeasured ground is outside what the suite can see.
@@ -243,7 +262,7 @@ Each is a stated position with its number recorded, not an open gap.
 
 - **PROBE DOMAIN:** the live repository — `app/**` and `components/**` as walked by `scanInteractiveElements`, plus `app/globals.css` runtime tokens, `DESIGN.md`, `tests/styles/**`, `tests/mutation/source/registry.ts`, and `BACKLOG.md` (§6 requires a ledger change, so the ShareHub fence is only verifiable if the ledger is in domain). An admissible probe is drawn from that set or is one ordinary edit away from a file in it. A constructed fixture outside it files to §6, not to a finding.
 - **THREAT FENCE:** the pin defends against ONE thing — this arc's 37 swaps and the prior arc's 21 being reverted or **half**-reverted on one render path. It does NOT defend against a contributor adding a NEW control at `border-border`; `BL-CONTROL-OUTLINE-FORWARD-GUARD` owns that and §6 records why. Adversarial obfuscation of a className — computed strings, dynamic token construction — is OUT of scope and files to documented limits; `scanInteractiveElements` already reports `unresolved` for what it could not statically read, which is the surfaced-signal half of the bound.
-- **CONSEQUENCE BOUND:** every element in the 58-row census carries `border-text-faint`, carries `border-border` on no render path, and every sub-3:1 boundary surviving this arc is recorded in §6 with its measured ratio — correct or signaled, never silently wrong. This is a claim about this arc's change, not about the population.
+- **CONSEQUENCE BOUND:** every element in the 58-row census carries `border-text-faint`, carries `border-border` on no render path, no swapped control's hover outline is quieter than its rest outline (§3.6), and every sub-3:1 boundary or residual inversion surviving this arc is recorded in §6 with its measured ratio — correct or signaled, never silently wrong. This is a claim about this arc's change, not about the population.
 - **CONVERGENCE CRITERION:** the mutation score on `tests/styles/controlOutlineScan.ts` plus an empty unaccepted-survivor set (§5.5). A "the guard does not pin what it claims" finding is admissible only with the surviving mutant that demonstrates it — an operator and a site, both from the declared set.
 
 ---
@@ -258,7 +277,7 @@ Each is a stated position with its number recorded, not an open gap.
 | Control box size (`getBoundingClientRect`) | unchanged | unchanged | Border-width, padding and font utilities untouched; a colour class contributes nothing to layout |
 | Parent → child height/width in any card, row, modal or popover containing a swapped control | unchanged | unchanged | No swapped control is a fixed-dimension parent, and none gains or loses a box-model property |
 | The five dividers' rule position and thickness | unchanged | unchanged | Class C is excluded from the swap entirely (§3.3) |
-| Switch-track geometry | unchanged | unchanged | All five exempt; `AutoRefreshControl.tsx:106` is a different element from the `:119` this arc edits (§3.2) |
+| Switch-track geometry | unchanged | unchanged | All five exempt; `components/admin/telemetry/AutoRefreshControl.tsx:106` is a different element from the `components/admin/telemetry/AutoRefreshControl.tsx:119` this arc edits (§3.2) |
 
 Because no dimension relationship changes, the plan does **not** owe the real-browser `getBoundingClientRect` task the writing-plans rule mandates for fixed-dimension parents with flex/grid children — there is no such new relationship in the diff. The exemption is claimed explicitly so the plan's omission is a decision on the record. The Tailwind v4 "`.flex` does not default to `align-items: stretch`" trap is not reachable from a colour-token change.
 
@@ -266,29 +285,41 @@ Because no dimension relationship changes, the plan does **not** owe the real-br
 
 ## 9. Transition Inventory
 
-**No state pair changes, and the enumeration is the evidence.** Every swapped site's transition is governed by a `transition-colors duration-fast` utility that is present before and after and is not edited. The swap changes the resting colour that transition interpolates TO, not whether or how it interpolates.
+The draft of this section asserted that every swapped site carries `transition-colors duration-fast` and that no state pair changes. **Spec review round 1 refuted both claims by probe, and the refutation surfaced a real defect (§3.6).** The measured picture:
+
+| Utility | Sites (of 37) |
+| --- | --- |
+| `transition-colors` AND `duration-fast` | 23 |
+| `transition-colors` without `duration-fast` | 3 — `app/me/meShowSections.tsx:174`, `app/me/meShowSections.tsx:213`, `app/me/meShowSections.tsx:258` |
+| NEITHER — the outline change is INSTANT | 11 — `components/admin/NeedsAttentionInbox.tsx:101`/`components/admin/NeedsAttentionInbox.tsx:130`/`components/admin/NeedsAttentionInbox.tsx:198`/`components/admin/NeedsAttentionInbox.tsx:224`, `components/admin/dev/MaterializeCard.tsx:73`, `components/admin/dev/SwitcherControls.tsx:83`/`components/admin/dev/SwitcherControls.tsx:92`/`components/admin/dev/SwitcherControls.tsx:142`, `components/admin/telemetry/AutoRefreshControl.tsx:119`, `components/agenda/AgendaEmbed.tsx:83`, `components/agenda/AgendaPdfViewer.tsx:198` |
+
+An instant outline change is correct and needs no repair — there is no state pair whose animation is missing, only sites that were always instant and stay instant. It is recorded because the draft claimed otherwise.
 
 | State pair | Animation | Changed by this arc? |
 | --- | --- | --- |
-| rest → hover | existing `transition-colors duration-fast` | No. Hover targets (`hover:bg-surface-sunken`, `hover:border-border-strong`) are untouched. |
-| rest → focus-visible | instant ring, by design | No. No `focus-visible:` utility is edited. |
-| rest → disabled | existing `disabled:opacity-60` | No. §6 records that opacity drops the outline back under the floor. |
-| rest → active/open | existing per-site treatment | No. The four branch-conditional elements (§3.1) keep both branches; only the branch carrying `border-border` moves. |
+| rest → hover | `transition-colors` where present (26 of 37); instant at the other 11 | **YES at 21 sites — see §3.6.** The resting endpoint moves to 3.35:1 while the hover endpoint stays at 1.59:1, inverting the pair. §3.6 is the repair. |
+| rest → focus-visible | instant ring, by design | No `focus-visible:` utility is edited. **8 sites have none at all** — `app/me/meShowSections.tsx:174`/`app/me/meShowSections.tsx:213`/`app/me/meShowSections.tsx:258`, `components/admin/review/ShowReviewSurface.tsx:814`/`components/admin/review/ShowReviewSurface.tsx:993`, `components/admin/telemetry/AutoRefreshControl.tsx:119`, `components/crew/primitives/PersonRow.tsx:196`/`components/crew/primitives/PersonRow.tsx:213`. Pre-existing, unchanged by this arc, and recorded in §6 rather than repaired. |
+| rest → disabled | `disabled:opacity-60` where present | No. **29 of 37 do not carry it**, so §6's opacity caveat reaches only the other 8. |
+| rest → active/open | existing per-site treatment | No. The FIVE branch-conditional elements keep every branch; only the branch carrying `border-border` moves. |
 | idle → armed (destructive confirm morph) | existing; the Cancel mounts already-armed | No. The morph is a mount, not a transition of the Cancel's own outline. |
+| no-hover sites | N/A | 3 sites have no hover state at all — `components/admin/dev/MaterializeCard.tsx:73`, `components/admin/review/ShowReviewSurface.tsx:814`, `components/admin/review/ShowReviewSurface.tsx:993`. |
 
-**One compound case, named because it is the only one:** `components/layout/ThemeToggle.tsx:91` changes outline colour while the theme itself changes, so the control's resting outline and its ground both move in the same frame. Both endpoints are pinned by §1.2's four ground rows in both themes, and the interpolation is the existing `transition-colors`; nothing new is introduced.
+**Compound case:** `components/layout/ThemeToggle.tsx:91` changes outline colour while the theme itself changes, so the control's resting outline and its ground both move in the same frame. Both endpoints are pinned by §1.2's four ground rows in both themes, and the interpolation is the existing `transition-colors`.
+
+**Correction to §3.1's Shape column:** FIVE elements carry `border-border` on a CONDITIONAL branch, not four — `app/admin/show/[slug]/ResetPickerEpochButton.tsx:178`, `components/admin/review/ShowReviewSurface.tsx:814`, `components/admin/review/ShowReviewSurface.tsx:993`, `components/admin/showpage/PublishedReviewModal.tsx:964`, `components/shared/ReportButton.tsx:142`. `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:240` was mislabelled: its `border-border` sits in the BASE string and only its FILL is branch-conditional.
 
 ---
 
 ## 10. Acceptance criteria
 
 - **AC-1** — All 37 census additions carry `border-text-faint`, and `border-border` on no render path.
-- **AC-2** — No row of the original 21 carries `border-border` on any render path. `ResetPickerEpochButton.tsx:178`'s non-compact branch has moved; `Mi11GateActions.tsx:69` still passes, its outline-free accent branch untouched (§5.2).
+- **AC-2** — No row of the original 21 carries `border-border` on any render path. `app/admin/show/[slug]/ResetPickerEpochButton.tsx:178`'s non-compact branch has moved; `components/admin/Mi11GateActions.tsx:69` still passes, its outline-free accent branch untouched (§5.2).
 - **AC-3** — The five class C dividers still carry `border-border` and are pinned as non-members of the census.
 - **AC-4** — `tests/styles/_metaControlOutlineFill.test.ts:156-164` is unchanged and passes; ShareHub is unswapped and filed.
-- **AC-5** — The five switch-track paths, including `AutoRefreshControl.tsx:106`, are unchanged.
+- **AC-5** — The five switch-track paths, including `components/admin/telemetry/AutoRefreshControl.tsx:106`, are unchanged.
 - **AC-6** — `DESIGN.md` §1.2a's `border-border` paragraph is replaced per §4.1; §1.2 carries the new `--color-border` outline row; `tests/styles/secondary-action-contrast.test.ts` asserts it.
 - **AC-7** — `components/layout/ThemeToggle.tsx:41`'s comment no longer names a token the control does not wear.
 - **AC-8** — `pnpm mutation:guards` reports a score at or above the registry floor with an empty unaccepted-survivor set, run before the round-1 diff dispatch.
+- **AC-11** — The 13 sites of §3.6(a) no longer carry `hover:border-border-strong`; the 5 of §3.6(b) carry `hover:border-text-subtle`; the 3 of §3.6(c) are unchanged. No swapped control's hover outline is quieter than its rest outline in either theme, except the three §3.6(c) sites in light, which are recorded in §6.
 - **AC-9** — Impeccable critique and audit both pass on the diff; findings and dispositions recorded in the plan's closeout.
 - **AC-10** — The ledger row is archived; the ShareHub row is filed with `Facing:`, an incident or exception per the mint bar, and exception (b) named.
