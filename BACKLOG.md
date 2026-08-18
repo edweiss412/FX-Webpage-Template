@@ -51,16 +51,6 @@ A declared-limit pin is a test that asserts a ZERO which the surface's own docum
 
 The lexer keeps a `${…}` expansion as ONE verbatim word by design (the whole-consumption exists so brace-protected whitespace cannot split argv), so quoting inside the operand is data to the binding predicate and only a bare `psql` in the operand reports. The deciding suite declares the miss (the documented-limits test's quoted-expansion-operand row). **What would close it:** parse the operand after the expansion operator with the lexer's own quote rules (nested expansions included) and decide the reassembled default word; the outer predicate stays unchanged.
 
-## BL-TIMING-SCAN-VALUATION-VS-REASSIGNMENT — a reassigned `let` is inventoried at its initializer
-
-**Filed:** 2026-08-16 (`fix/timing-scan-scope-resolution`, spec authoring, probe P9). **Effort:** S. **Class-sweep exception:** (c) — the valuation axis is a different surface from the resolution step that arc rewrites, and widening into it mid-arc is the recognizer ratchet the round-economy rules forbid. **Reachability: PROBED** (constructed); **zero live instances** on the tree at filing.
-
-`scripts/scan-interaction-timings.ts` values a `named-constant` by its INITIALIZER. A `let RETRY_MS = 100` that `init()` later reassigns from config is therefore a §5.5 row reading 100, and a `setTimeout(fn, RETRY_MS)` resolves to it and suppresses. The resolution is right — it IS that binding — but the number a reader sees is the one the source states at declaration, not the one the timer uses.
-
-This is the one shape where a CORRECT resolution still yields a row someone could act on wrongly; everywhere else the scanner's failure direction is a surfaced `unclassified`. Probe and the zero-instance sweep: `docs/superpowers/specs/ci/probes/2026-08-16-timing-scan-binding-probes.md` §P9. Documented limit: the 2026-08-16 binding-resolution spec §4 item 7.
-
-**Scope if promoted:** treat a binding that is assigned anywhere after its declaration as `unclassified` rather than a valued constant (the checker already knows the write sites), or keep the row and annotate it as an initial value. Either way it is a valuation decision, not a resolution one, and it wants its own probe of how many live `let` timing bindings exist when it is scheduled.
-
 ## BL-DESTRUCTIVE-GUARD-DISCOVERY-BY-CONNECTION — discover destructive-analysis files by connection, not by SQL spelling
 
 **Severity:** MEDIUM · **Class:** structural guard · **Effort:** L · **Filed:** 2026-08-14 (`chore/guard-completeness-wave`, spec `docs/superpowers/specs/ci/2026-08-14-guard-completeness-wave-design.md` §2.5)
@@ -672,22 +662,6 @@ ParsePanel was not alone. Shape swept: **a file under `components/` that no file
 
 **The debt is still not silent**, and it gained a second guard. `tests/components/_metaOrphanedComponents.test.ts` walks `components/**` every run and fails on any zero-production-importer file absent from `ORPHAN_ALLOWLIST`; `tests/docs/retiredIdentifierReferences.test.ts` walks every tracked file for references to what this branch retired, keyed by line content, so a stale citation to a deleted component cannot survive either. Emptying the allowlist is no longer this entry's goal; keeping every row's reason true is.
 
-## BL-APP-EVENTS-DEBUG-LEVEL-CHECK-MISMATCH — a debug-level log can never persist, and the rejection is silent
-
-**Status:** OPEN · **Severity:** LOW · **Class:** OBSERVABILITY · **Effort:** S · **Filed:** 2026-08-15 (`feat/admin-ui-surfaces`, from the `BL-OPS-LOG-DASHBOARD-BANNER` audit)
-
-`LogLevel` includes `"debug"` (`lib/log/types.ts:2`), but the `app_events` CHECK accepts only three values:
-
-```sql
-level         text not null check (level in ('info','warn','error')),
-```
-
-(`supabase/migrations/20260629000002_app_events.sql:4`.) So a `debug`-level persist is CHECK-rejected by Postgres, and `persistAppEvent` swallows the returned error by contract — it records the fault for `/api/health` and writes to console, never throwing over the caller (`lib/log/persist.ts:12-40`, invariant 9). The row simply never lands.
-
-**Reachability:** the type admits the value at every `log.*` call site, so nothing but convention stops a `debug` emit; no current producer uses one (which is why this is LOW, not MEDIUM).
-
-**The decision this needs, and why it was filed rather than fixed:** which side moves. Widen the CHECK to accept `debug` (and accept that the forensic log gains a chatty tier with a 60-day retention window), or narrow `LogLevel` to the three values the sink actually stores (and give `debug` callers a console-only path that is honest about not persisting). That is a product decision about what the run log is for, not a repair — class-sweep disposition exception (a).
-
 ## BL-ADVISORY-E2E-JOBS-FLAKE-ACROSS-IDENTICAL-CODE — screenshots-drift and admin-layout-e2e both flipped across a markdown-only delta
 
 **Status:** OPEN · **Severity:** LOW (advisory jobs; neither is a required context) · **Class:** CI-INFRA / flake · **Effort:** M · **Filed:** 2026-08-16 (`feat/admin-ui-surfaces`, PR #812)
@@ -1075,14 +1049,6 @@ than by role precisely because they are all present. `aria-hidden={!isActive}` i
 change, deferred only because it moves several existing role-based queries and belongs with the
 current-slide announcement decision rather than ahead of it.
 
-### BL-PREMISESCAN-UNPARSEABLE-MODULE-UNREACHABLE — canonical unclassifiable form 4 is dead code and this arc does not make it live
-
-**Status:** OPEN · **Severity:** LOW · **Class:** guard fidelity · **Filed:** 2026-08-16 (`fix/premisescan-import-edges`, spec §3.8) · **Effort:** S
-
-`premiseScan`'s `unresolved.push("unparseable in-repo module")` site is unreachable. **Probed three ways:** `moduleFacts` returns `null` if and only if `!existsSync(path)`; `resolveSpecifier` returns only candidates for which `existsSync` was already true, so that branch cannot fire through the traversal at all; and `ts.createSourceFile` is error-tolerant, parsing `export function spawnHelper(: string { return` to a `SourceFile` carrying a `FunctionDeclaration` without throwing or returning null. The fixture classifies `environment-free`.
-
-Closing it means a new detection rule over `sf.parseDiagnostics` — recognizer growth on an axis with **zero** measured instances, which the owning spec's §1.2(e) forbids. Deferred under class-sweep exception (c): a new detection rule on a surface the arc does not otherwise touch. Canonical AC-8a therefore stands at 3 of 4 after `BL-PREMISESCAN-IMPORT-EDGE-FIDELITY`, stated rather than overclaimed.
-
 ### BL-PREMISESCAN-NESTED-HOOK-SIBLING-LEAK — a hook in one nested describe leaks to its siblings
 
 **Status:** OPEN · **Severity:** MEDIUM (a FALSE POSITIVE, pre-existing) · **Class:** guard fidelity · **Filed:** 2026-08-16 (`fix/premisescan-import-edges`, probe §3.11 row A) · **Effort:** M
@@ -1445,16 +1411,6 @@ So the draft cannot be checked until the freeze lifts and it is copied in, which
 **Probed, not theorized.** `tests/parser/mutation/knownHoles.ts` already carries branch 4's rule — size a shrink by the harness's own `fixedHoles` set, never by an operator's row count — and the `2026-08-08-parser-mutation-wave` plan shipped a hand-authored ten-id deletion list anyway. The measured closure was **86** holes: 24 `section-reorder` (the plan's ten a strict subset), plus 49 `blank-row`, 10 `header-typo` and 3 `merged-cell` that the arc was not aiming at, because position-blindness reaches every operator. The correction cost a full harness cycle and the arc's own review rounds carried the stale counts forward for three rounds.
 
 **Work:** a plan-time step that runs the harness under `COLLECT_MUTATION_ALARMS` and derives the deletion list from `fixedHoles` BEFORE the plan names any id, so the authored list is a rendering of the measured set rather than a claim about it. The rule exists; only its ordering relative to plan authoring is unenforced.
-
-## BL-NEARMISS-EQUAL-SIZE-TOKEN-SUBSET — the detector's type-(b) subset test is undecided at equal size, and no corpus row reaches it
-
-**Status:** OPEN. · **Filed:** 2026-08-16 (`feat/mutation-section-order`, from the `fieldNearMiss` source-mutation gate's accepted-gap row) · **Severity:** LOW (a demote, not a corruption: the worst case is one near-miss going unreported, never a wrong autocorrect) · **Class:** parser signal reachability · **Effort:** S
-
-**Probed, not theorized.** `matchVocabulary`'s type-(b) arm skips a vocabulary entry when `candTokens.size > entry.tokens.size` (`lib/parser/fieldNearMiss.ts:156`), admitting subsets of equal or smaller size. Widening that to `>=` — rejecting equal size too — survives the suite, because no case exercises the equal-size boundary. A subset of EQUAL size is set equality, which reaches type (b) only when the two normalized forms differ: a reordered or re-punctuated spelling of the same tokens, which type (a)'s insertion-order equality scan misses.
-
-**Reachability: PROBED as ZERO on the corpus.** Every col0 label in all 20 fixtures under `fixtures/shows/raw` and `fixtures/shows/exporter-xlsx` was matched against the live vocabulary: no label produces a type-(b) hit whose token-set size equals its entry's. Every live type-(b) match is a STRICT subset, so the boundary is undecided by the shipped inputs rather than decided wrongly.
-
-**Why it is a row and not a kill.** The killing input is a label the corpus does not contain, and `tests/parser/fieldNearMiss.test.ts`'s header forbids hand-written rows precisely because one can be tuned until it passes — so the gap is ledgered as `accepted-gap` with this ref rather than closed with a fixture that proves nothing about real sheets. **First scheduled step:** decide whether an equal-size token match SHOULD be a type-(b) hit at all (it is set equality, so arguably it belongs in the type-(a) arm keyed on the token set rather than the normalized string), then pin whichever direction is chosen. A real reordered-label instance appearing in a future sheet promotes this from a boundary question to an ordinary near-miss.
 
 ### BL-CARVE-GUARD-SCANS-GITIGNORED-PATHS — a guard reds on files git cannot see, so the failure exists only on the author's machine
 
