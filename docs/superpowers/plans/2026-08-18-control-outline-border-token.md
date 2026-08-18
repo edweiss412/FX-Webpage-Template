@@ -250,7 +250,11 @@ Without this task the arc ships 21 controls whose outline reads LIGHTER on hover
 - [ ] **5.1** `pnpm heavy pnpm mutation:guards`. `tests/styles/controlOutlineScan.ts` is enrolled at `scoreFloor: 1` with `accepted: []` (`tests/mutation/source/registry.ts:1909`), and this arc edits it.
 - [ ] **5.2** A census growing 21 → 57 adds **36** integer-literal mutation sites. **If any survives, the survivor IS the finding** — fix the guard, or record an `accepted` row with its reason. Do not lower `scoreFloor`.
 - [ ] **5.3** Record the score and the unaccepted-survivor set; both go in the round-1 `--stage diff` brief's `GUARD SURFACE:` line as `MUTATION SCORE: <killed>/<total>` plus "0 unaccepted survivors". The wrapper exits 2 before dispatch without it.
-- [ ] **5.4** Commit only if a registry row changed: `test(styles): re-score the control-outline census guard`
+- [ ] **5.4** **Two mechanics from the 2026-08-16 batch that silently invalidate this score, both applying here:**
+      - **`-t` does NOT bound the gate.** `runSurface` executes at module scope during collection (`tests/mutation/source/surfaceCases.ts:19`), so a name filter prunes only REPORTING — a "scoped" run still executes every surface. To genuinely scope, filter `GUARD_SURFACES` before `registerSurfaceCases` in a temporary `guardSurfaces.shard*.test.ts`, run, then DELETE that file (`_metaSourceShardIntegrity` pins the shard set).
+      - **Score BEFORE closeout, never while holding a mergeable PR** — a re-merge supersedes the run and the recorded score then describes a tree that no longer exists. If the score cannot be obtained in time, an honestly-declared UNSCORED enrolment in the PR body is the accepted fallback (#829 precedent); a stale score is not.
+      Run in the FOREGROUND under `pnpm heavy`. A backgrounded run crossing a turn boundary gets SIGTERM-killed (measured twice).
+- [ ] **5.5** Commit only if a registry row changed: `test(styles): re-score the control-outline census guard`
 
 ## Task 6: Invariant-8 impeccable dual-gate
 
@@ -325,7 +329,16 @@ Spec §9 enumerates every state pair against the MEASURED utilities (23 of 37 ca
 5. `pnpm spec:lint docs/superpowers/plans/2026-08-18-control-outline-border-token.md --exec-red` — the red-contract region above must validate.
 6. `pnpm heavy pnpm test` — full suite, wrapped.
 7. `pnpm heavy pnpm mutation:guards` — re-run if anything changed after Task 6.
-8. Real CI green — not just local (the local-passes-CI-fails bug class).
+8. **Real CI green — and every signal below is one the 2026-08-16 batch measured LYING.** Not just local (the local-passes-CI-fails bug class).
+   - **`gh pr view --json statusCheckRollup` has NO `isRequired` field.** Filtering on it matches zero rows and reports a false GREEN. Read the required contexts from branch protection and intersect BY NAME.
+   - **Exit codes lie.** `gh pr view` exits 0 on OPEN; `git rev-list --left-right --count` exits 0 on `27 111`. **The COMPARISON is the assertion, never the command** — including the final `0  0`.
+   - **Green can describe a union that no longer exists.** Compare each check's `startedAt` against `main`'s last merge time; conflict-free plus green is not evidence.
+   - **A timed-out shard emits NO annotations** — that is silent, not green, and its recorded seconds are the timeout wall rather than a measurement. Read ANNOTATIONS, not leg numbers, since `shardBudget` reshuffles legs.
+   - **`mutation-harness` and `mutation-browser` are not required checks — but this arc may NOT dismiss a red one.** This diff enrols `tests/styles/controlOutlineScan.ts`, so a failure there is very likely THIS arc's own surface.
+   - If a CI-failure signal arrives with an empty summary and no run id, check `gh api rate_limit` FIRST (REST core hit 0/5000 while GraphQL sat at 4717) and use GraphQL for rollups.
+9. **Conflict oracle: `git merge-tree --write-tree origin/main HEAD`.** Exit 0 means no conflict, so do NOT re-merge. Being behind `main` never blocks a merge; only CONFLICTING does. `gh pr view` reports CONFLICTING for up to a minute after a resolved conflict is pushed — re-poll rather than re-merging.
+10. **Do NOT arm `--auto` until the ledger-closeout commit is pushed** and whole-diff review has approved. Auto-merge armed at push time merged a PR mid-round-3 and shipped an in-progress marker to `main` (#838). GitHub also silently drops auto-merge on force-push and when merging stops being possible, so RE-ARM AFTER EVERY PUSH.
+11. **Re-derive state from `git` and `gh`, never from the worktree ship-state marker.** Four markers lied during the 2026-08-16 batch.
 
 ## 12. Invariant-8 gate findings and dispositions
 
