@@ -243,7 +243,11 @@ for (const rel of specDocs) {
       // R1-repair (spec review round 1 F2, probe-backed): depth >= 2 only. A
       // depth-1 TITLE naming "close-out" owns the whole document (measured max
       // 513 lines), which is a doc identity, not a fence region.
-      if (hd.depth >= 2 && (OOS_HEADING.test(hd.text) || /clos(e-?out|eout)|graduation/i.test(hd.text))) {
+      // R3-repair (spec review round 3 F2): open only when NOT already inside a
+      // region — a MATCHING heading nested in an open region must not re-anchor
+      // the region's depth, or the next sibling nested heading closes the parent
+      // early (probed: 142 lines silently omitted on a one-rename edit).
+      if (!inOos && hd.depth >= 2 && (OOS_HEADING.test(hd.text) || /clos(e-?out|eout)|graduation/i.test(hd.text))) {
         inOos = true;
         oosDepth2 = hd.depth;
       }
