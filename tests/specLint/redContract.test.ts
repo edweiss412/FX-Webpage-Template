@@ -652,6 +652,47 @@ describe("collectionProbePlan — vitest-shape recognition (spec §5.1)", () => 
   });
 
   it.each([
+    [
+      "a doubled space after pnpm",
+      "pnpm  vitest run tests/a.test.ts",
+      "pnpm  vitest list tests/a.test.ts",
+    ],
+    [
+      "a doubled space inside pnpm exec",
+      "pnpm exec  vitest run tests/a.test.ts",
+      "pnpm exec  vitest list tests/a.test.ts",
+    ],
+    [
+      "a doubled space before exec",
+      "pnpm  exec vitest run tests/a.test.ts",
+      "pnpm  exec vitest list tests/a.test.ts",
+    ],
+    [
+      "a doubled space after npx",
+      "npx  vitest run tests/a.test.ts",
+      "npx  vitest list tests/a.test.ts",
+    ],
+    ["leading whitespace", " pnpm vitest run tests/a.test.ts", " pnpm vitest list tests/a.test.ts"],
+    [
+      "a tab between tokens",
+      "pnpm\tvitest run tests/a.test.ts",
+      "pnpm\tvitest list tests/a.test.ts",
+    ],
+    [
+      "a doubled space between vitest and run",
+      "pnpm vitest  run tests/a.test.ts",
+      "pnpm vitest  list tests/a.test.ts",
+    ],
+  ])("recognizes %s — the grammar is TOKENS, not literal single spaces", (_label, red, probe) => {
+    // Separation between tokens is whitespace, per the declared grammar. Hard-coding
+    // one space made an ordinary typo fall out of the accept-set SILENTLY: no probe,
+    // no advisory, and a red exiting non-zero purely because it collects nothing read
+    // as red observed. That is the one thing §1.1 item 9 forbids — every command in
+    // the accept-set is passed, named, or declined, never silently misjudged.
+    expect(onlyEntry(live(red))).toMatchObject({ line: 3, state: "live", probe });
+  });
+
+  it.each([
     ["a tsx script", "pnpm tsx scripts/x.ts"],
     ["an rg probe", "rg -n foo lib/"],
     ["a package script", "pnpm test:fast"],

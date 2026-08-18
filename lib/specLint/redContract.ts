@@ -567,9 +567,18 @@ export function synthesizeParseFindings(
  * token pair `vitest run`. A `vitest run` appearing only mid-command — under a
  * `pnpm heavy` wrapper, say — is deliberately not this shape: a probe derived
  * from it would be a heavy phase, and the wrapper's own semantics are unread.
+ *
+ * Separation between tokens is WHITESPACE, because the declared grammar is a
+ * token grammar. Spelling the prefixes with literal single spaces looks like
+ * the same thing and is not: it drops `pnpm  vitest run` — one ordinary typo —
+ * out of the accept-set SILENTLY, with no probe and no advisory, so a red that
+ * exits non-zero purely because it collects nothing reads as red observed.
+ * That is the silent branch §1.1 item 9 forbids, and widening literal spaces to
+ * whitespace does not widen the ACCEPT-SET: it is the declared grammar, finally
+ * spelled as one.
  */
 const VITEST_SHAPE =
-  /^((?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*)(pnpm exec |pnpm |npx )?(vitest)(\s+)(run)(?=\s|$)/;
+  /^\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:pnpm\s+exec\s+|pnpm\s+|npx\s+)?vitest\s+(run)(?=\s|$)/;
 
 /**
  * Tokens whose presence declines the probe. The derived probe runs through
@@ -643,8 +652,11 @@ export function deriveCollectionProbe(
 
   // First token pair only: a later literal `vitest run` inside a pattern is an
   // argument, not the runner, and must ride through byte-identical.
+  // The `run` token is the pattern's ONLY capturing group, so its index cannot
+  // drift when the prefix alternation is edited — which it silently did once,
+  // turning the slice below into a NaN cut rather than a loud failure.
   const end = m[0].length;
-  const rewritten = command.slice(0, end - m[5]!.length) + "list" + command.slice(end);
+  const rewritten = command.slice(0, end - m[1]!.length) + "list" + command.slice(end);
   if (state === "live") return { kind: "probe", probe: rewritten };
 
   let stripped = rewritten;
