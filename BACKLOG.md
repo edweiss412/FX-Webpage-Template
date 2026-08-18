@@ -176,6 +176,7 @@ The 2026-08-16 ruling swapped the 21 controls a DERIVED cover found: interactive
 
 - `components/admin/BellPanel.tsx:836` and `:847` — `type="number"` fields, `min-h-tap-min w-20 rounded-sm border border-border-strong bg-surface`.
 - `components/admin/wizard/step3ReviewSections.tsx:4200` — a `<textarea>` (spec §3.2 cites `:4171`; the live line moved under the 2026-08-16 sibling merges).
+- `components/admin/dev/SwitcherControls.tsx:119` — a `<select>`, added to this family on 2026-08-18 by the `border-border` arc. It carries `border border-border bg-surface … hover:border-accent`, so it sits inside §1.2a's widened predicate AND inside that arc's own hover-inversion class — and the scanner sees neither, because `tests/styles/interactiveScanCore.ts:789` admits only `button`, `a` and `summary` as intrinsic tags. The arc left it untouched deliberately: editing it would have shipped a change no assertion in that diff guards, which is the hand-extended cover the family exists to prevent. Its lexical neighbours at `components/admin/dev/SwitcherControls.tsx:29` and `:145` DID move, so this file now carries both treatments — a reader counting `hover:border-accent` occurrences there will find one that did not move, and this is why.
 
 **Probe.** The rule is explicit and narrow: `tests/styles/interactiveScanCore.ts:868-870` admits an `<input>` **only** when its `type` is `checkbox` or `radio`. The scanner does see inputs — nine repo-wide, all checkboxes and radios — but a `type="number"` field and a `<textarea>` are outside its vocabulary by that rule. `scanInteractiveElements` over `components/admin/BellPanel.tsx` returns rows tagged `a`, `button` and `div`, and zero inputs.
 
@@ -224,30 +225,6 @@ The 2026-08-16 swap moved 21 CONTROLS. DESIGN.md §1.2a keeps `--color-border-st
 **Not a contrast finding.** Neither element is interactive, so SC 1.4.11 does not reach either, and both carry their state programmatically (`aria-current`, `aria-hidden`). This is hierarchy, not accessibility.
 
 **First scheduled step:** decide whether §1.2a gains a pairing clause (chrome that renders in-frame with a control of the same recipe takes that control's outline weight) or an explicit "chrome follows chrome" statement. Either answer closes both sites; a per-site judgment call closes neither.
-
-## BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL — 30 controls with a neutral fill rest at `border-border`, inside the new predicate's words and outside its swap
-
-**Status:** IN PROGRESS · **Branch:** fix/control-outline-border-token · **Severity:** MEDIUM (1.15-1.38:1 resting boundaries on controls the widened predicate describes; thirteen of the thirty are crew surfaces read in direct sunlight) · **Class:** visual boundary / DESIGN scope · **Effort:** M-L · **Filed:** 2026-08-16 (`fix/control-outline-surface-fills`, invariant-8 impeccable gate — critique P2) · **Class-sweep exception:** (b) a ratified scope decision fences it, (a) moving `border-border` is a design decision the ruling did not make, and (c) 30 sites across admin AND crew surfaces is a redesign of surfaces the filing PR does not otherwise touch · **Reachability:** PROBED — the derived cover below was run on the live tree 2026-08-16 and its 30 rows are reproduced here as a count, not an enumeration. The count is the PUBLISHED query's, run verbatim.
-
-DESIGN.md §1.2a now reads: a control filled with one of the four neutral ground tokens takes the text ramp. The 2026-08-16 swap moved every such control that carried **`border-border-strong`** AND that the element-level cover could see — the enumerated 21. Text-entry fields carrying the same token (`components/admin/BellPanel.tsx:836` and `:847`, `components/admin/wizard/step3ReviewSections.tsx:4200`) are outside that cover and are filed as `BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER` family A, not moved. Controls carrying **`border-border`** — a different token, one rung quieter at **1.27:1** on `bg-surface` — were never in the cover, and the predicate as written describes them. Measured against all four neutral grounds from the runtime tokens 2026-08-16: `bg` **1.22** light / **1.35** dark, `surface` **1.27** / **1.27**, `surface-raised` **1.27** / **1.19**, `surface-sunken` **1.15** / **1.38**. The widest is 1.38:1 and the narrowest 1.15:1, so the token is under the 3:1 non-text floor on every ground and by a wider margin than a single figure suggests.
-
-**Derived cover** (a query, not a list — re-run it rather than trusting a count):
-
-```ts
-scanInteractiveElements(process.cwd()).filter(
-  (e) =>
-    allStrings(e).some((s) => /(^|\s)border-border(\s|$)/.test(s)) &&
-    allStrings(e).some((s) => /(^|\s)bg-(bg|surface|surface-raised|surface-sunken)(\s|$)/.test(s)),
-);
-```
-
-Returned **30** elements on 2026-08-16 against a universe of 362, of which **thirteen** are crew-facing (counted by render chain, not by directory — see the list below). Run the query above rather than a variant: an earlier count of 28 came from testing both tokens against the SAME class string, which misses an element whose outline and fill are contributed by different strings of one `cn()` call.
-
-**The two the gate surfaced by name are the sharpest instances**, because in both the control is the ESCAPE ROUTE from a destructive confirm whose trigger this arc just strengthened to 3.35:1: `components/admin/ArchiveShowButton.tsx:344` and `app/admin/show/[slug]/ResetPickerEpochButton.tsx:266`. The user taps a firmly-outlined control, it morphs in place, and the Cancel beside the filled destructive confirm is the faintest element on screen. The same shape is live at `app/admin/show/[slug]/RotateShareTokenButton.tsx:379`, `app/admin/show/[slug]/PickerResetControl.tsx:255` and `components/admin/ShowRowActions.tsx:821`.
-
-**Why it is filed and not swept.** Spec §2.1 and §6 fence it in both directions and the fence is quoted here so neither side is relitigated: _"Widening the swap to `border-border` is NOT the repair. `border-border` is a different token doing a different job — DESIGN.md §1.2a explicitly preserves the border tokens for tile edges, card edges, dividers and hover chrome — and moving it is a design decision this ruling did not make."_ The cover also reaches THIRTEEN crew surfaces, which the admin-scoped 2026-08-16 mockup never showed the user. Nine sit under a crew path: `app/me/meShowSections.tsx:174`, `:213` and `:258`; `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:233`; `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx:103` and `:121`; `components/crew/SectionChipLink.tsx:48`; `components/crew/primitives/PersonRow.tsx:196` and `:213`. Four more reach a crew surface through a RENDER CHAIN and a path regex misses them, which is how the count was wrong until whole-diff R10: `components/agenda/AgendaEmbed.tsx:83` and `components/agenda/AgendaPdfViewer.tsx:198` via `components/crew/sections/ScheduleSection.tsx`; `components/layout/ThemeToggle.tsx:91` via `components/layout/Header.tsx`, the `/show/[slug]` page chrome; and `components/shared/ReportButton.tsx:142` via `components/layout/Footer.tsx`.
-
-**First scheduled step:** put the narrower question to the user with a rendered mockup — does a control whose ONLY outline is `border-border` on a neutral fill take the text ramp too, or is `border-border` a deliberate third weight for quiet controls? If the answer is "text ramp", the sweep is derived and mechanical; if it is "third weight", §1.2a gains one sentence and this closes as a documented limit. Start with the five confirm-row Cancels, which have the strongest case either way.
 
 ## BL-CHECKBOX-ROW-LABEL-UNDER-FLOOR — three native-input rows are targeted through a label that carries no floor
 
