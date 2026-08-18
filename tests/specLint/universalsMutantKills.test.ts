@@ -346,3 +346,28 @@ describe("inventory boundaries (spec §3.4)", () => {
     expect(group(three, "scope-fences")!.occurrences.map((o) => o.docLine)).toEqual([3]);
   });
 });
+
+describe("the candidate scan does not leak state between lines (spec §3.2)", () => {
+  it("a claim early on a line is found even when the PREVIOUS line emitted late", () => {
+    // `UNIVERSAL_CARDINAL` is global and the scan BREAKS on the first qualifying
+    // candidate, so — unlike an exhausting loop — it leaves `lastIndex` past that
+    // match. Without an explicit reset per line, the next line's scan starts at that
+    // offset and silently skips anything before it. The first claim below sits far
+    // along a long line; the second line is shorter than that offset, so a leaked
+    // `lastIndex` makes it invisible.
+    const first =
+      "The preamble runs on for a while so that the first qualifying claim sits late, all 21 sites.";
+    const second = "All 45 codes carry the copy.";
+    expect(first.indexOf("all 21")).toBeGreaterThan(second.length);
+    const doc = [
+      "# Doc",
+      "## A",
+      first,
+      second,
+      "## B",
+      "The census carries 21 sites and 45 codes.",
+    ].join("\n");
+    const findings = advisories(doc);
+    expect(findings.map((f) => f.docLine)).toEqual([3, 4]);
+  });
+});

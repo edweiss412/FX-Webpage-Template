@@ -1341,7 +1341,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // nothing asks for. The paired NARROWING is not here: {1,3} would drop the 4-digit
       // tokens the record's own rows depend on being absent, which is observable.
       {
-        siteId: "regex-quantifier-bound:46:29:{1,4}>{1,5}",
+        siteId: "regex-quantifier-bound:48:29:{1,4}>{1,5}",
         kind: "equivalent",
         reason:
           "CARDINAL_TOKEN only ever indexes keys that UNIVERSAL_CARDINAL's 1-3 digit capture can look up, so a wider token bound adds unreachable keys",
@@ -1354,7 +1354,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // NOT here: it narrows the span and lets a claim at the span's first character
       // escape the exclusion, which the boundary case in universalsMutantKills kills.
       {
-        siteId: "integer-literal:89:35:1>2",
+        siteId: "integer-literal:91:35:1>2",
         kind: "equivalent",
         reason:
           "shifting a span's start one character left admits only a match beginning on the opening backtick, which the quantifier accept-set makes impossible",
@@ -1366,23 +1366,30 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // throw. The paired `0 > 1` start mutants ARE observable — they skip line 1 — and
       // both are killed by first-line fixtures rather than accepted.
       {
-        siteId: "relational-boundary:152:21:<><=",
+        siteId: "relational-boundary:154:21:<><=",
         kind: "equivalent",
         reason:
           "the extra iteration reads undefined, and every guard in the evidence scan coerces it to a string with no pipe, date, quantifier or digit",
       },
       {
-        siteId: "relational-boundary:169:21:<><=",
+        siteId: "relational-boundary:171:21:<><=",
         kind: "equivalent",
         reason: "same one-past-the-end argument, in the advisory scan",
       },
-      // FAMILY 4 — a redundant lastIndex reset. The `while ((m = RE.exec(line)) !== null)`
-      // loop runs to exhaustion and `exec` sets `lastIndex` back to 0 when it returns
-      // null, so on entry it is ALREADY 0. Same argument as specLintNumerics' family 1.
-      // The paired `0 > 1` mutant is NOT here: starting at index 1 skips a cardinal at
-      // the line start, and the line-start evidence fixture kills it.
+      // FAMILY 4 — a redundant lastIndex reset, and the argument turns on EXHAUSTION
+      // rather than on the assignment looking redundant. The evidence loop runs
+      // `while ((m = CARDINAL_TOKEN.exec(line)) !== null)` with no early exit, and
+      // `exec` sets `lastIndex` back to 0 when it returns null, so on entry it is
+      // ALREADY 0. Its SIBLING is the counter-example that proves the argument is doing
+      // real work: the advisory scan's `UNIVERSAL_CARDINAL.lastIndex = 0` looks
+      // identical and is NOT equivalent, because that loop BREAKS on the first
+      // qualifying candidate and so leaves `lastIndex` mid-line, where it would leak
+      // into the next line and hide any claim before that offset. That mutant is killed
+      // by a case in universalsMutantKills, not accepted. The paired `0 > 1` mutant here
+      // is likewise NOT accepted: starting at index 1 skips a cardinal at the line
+      // start, and the line-start evidence fixture kills it.
       {
-        siteId: "statement-removal:156:5:CARDINAL_TOKEN.lastIndex = 0;>(removed)",
+        siteId: "statement-removal:158:5:CARDINAL_TOKEN.lastIndex = 0;>(removed)",
         kind: "equivalent",
         reason:
           "the evidence loop runs to exhaustion and exec resets lastIndex to 0 on the null result, so the assignment is redundant on entry",
@@ -1392,7 +1399,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // `inRegion = true` assigns `regionDepth` in the same block. So no read of the
       // initial value can reach the comparison.
       {
-        siteId: "integer-literal:244:21:0>1",
+        siteId: "integer-literal:256:21:0>1",
         kind: "equivalent",
         reason:
           "regionDepth is read only under inRegion, which is false until the same block that assigns regionDepth sets it",
