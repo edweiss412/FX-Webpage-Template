@@ -39,3 +39,29 @@ Design content is monotonically decreasing and reached zero at round 4, and roun
 The remaining sixteen are not mechanizable: they required measuring a live population (the transition utilities, the hover overrides, the 20-of-21 predecessor shape, the disabled composite) or reading render paths the way the runtime does.
 
 **Infra:** none. No dispatch was reaped, no `no_verdict` result, no wrapper fault; all four returned `status: "verdict"` with a declared `FINDINGS:` line.
+
+## plan — 5 rounds
+
+**Examined:** five `--stage plan` dispatches, 32 findings (10 / 4 / 9 / 5 / 4), every verdict BLOCKING. Every finding was confirmed by probe; one was refuted in the other direction, where the reviewer's physical-edit count was right and this arc's was wrong. Each round independently reproduced the derived counts (362 / 13 unresolved / 42 carriers / 37 swap / 26 files / 32 edits / 21 hover elements), so the arithmetic was never in dispute — the claims about it were.
+
+**Judgment: this stage was an UNDER-VERIFIED RESTRUCTURE, and that is a different failure from the spec stage's.** The spec stage burned rounds because the artifact asserted facts about a population nobody had measured. The plan stage burned them because **each repair was verified only against the finding that prompted it**, while the restructure it required touched invariants the repair never re-checked. The evidence is that three consecutive rounds found fallout from one earlier repair:
+
+| Round | What was repaired | What that repair broke, found next round |
+| --- | --- | --- |
+| 1 → 2 | the tautological RED (P0) — a region and markers were added | the fix split one TDD cycle across two tasks, so a RED suite was committed and a `red-state=authored` named a task that authored nothing (R2 P0) |
+| 2 → 3 | the tasks were merged and renumbered | six P0s: gates that ran before the commit they measured, an expected-RED count off by twelve, `red-target` values pointing at unrelated files, a mutant-passable doc assertion, a stale ledger figure, and a whole class of stale task references (R3) |
+| 3 → 4 | greps tightened, references swept | two greps that still could not observe their subject, one stale reference the sweep missed, and a spec correction that had not reached the spec's own AC-6 (R4) |
+| 4 → 5 | the ONE systematic audit, on orchestrator instruction | the audit CLOSED the union-vs-per-path class — R5 ran the stated mutant against `pathsCarrying()` and it is killed — but the R4 sequencing fix produced its own cluster (R5 F1, F2) |
+
+**The audit worked, and that is the transferable result.** Rounds 1–4 patched finding-by-finding and each round found more of the same shape. Round 5, after a single pass over every invariant at once — every `red-target`, every `red=` command, every cross-reference, every AC proof channel, every gate observation window, every runnable block executed against the live tree — found **no new instance of the class**, and independently verified the repair. **Patching a restructure's fallout one round at a time is a drip even when every finding is real.**
+
+**A pre-dispatch re-run of already-passing invariant checks caught a defect no finding named** (a backticked `origin/main...HEAD` in prose being read as a file citation). That is now a standing step rather than a one-off.
+
+**Mechanizable:** two of the thirty-two.
+
+- **The union-versus-per-path shape (R5 F1, and its two spec-stage instances) — filed as `BL-SPEC-CLAIM-SWEEP-AFTER-REASONING-FINDING`.** Three instances across two stages. The repair that finally held was a named `pathsCarrying()` helper the assertions are written against, not a third careful hand-check — which is the general lesson: when the same reasoning error recurs, give the correct reasoning a name that is easier to reach for than the wrong one.
+- **`red-target=` cannot name a repo-root production surface — filed as `BL-SPECLINT-RED-TARGET-CANNOT-NAME-A-REPO-ROOT-SURFACE`.** It forced two TDD tasks outside the red-contract region, so `--exec-red` validates less than the plan describes. The row also proposes the cheap half: an advisory when a plan has a red-contract region AND `##`-level tasks outside it, so an unnoticed opt-out is visible.
+
+The remaining thirty were not mechanizable: they required reading a gate against the commit boundary it runs at, counting elements rather than lexical occurrences, or knowing which half of a two-part AC a step actually proves.
+
+**Infra:** none. All ten dispatches across both stages returned `status: "verdict"` with a declared `FINDINGS:` line; no reap, no `no_verdict`, no wrapper fault.
