@@ -196,7 +196,7 @@ Fourteen shipped controls stand on such a plate, across thirteen sites: `compone
 
 ## BL-ROWACTIONS-SUBMENU-REVEAL-E2E-FLAKE — the capped-submenu focus-reveal case fails ~40% of CI runs on identical code
 
-**Status:** OPEN · **Severity:** MEDIUM (a merge-gating leg that reds at random; every arc touching `admin-layout-e2e`'s path filter pays for it) · **Class:** CI reliability / e2e flake · **Effort:** M · **Filed:** 2026-08-16 (`fix/control-outline-surface-fills`, seen while shipping an unrelated colour-token change) · **Class-sweep exception:** (c) — the repair is a redesign of a scroll-reveal path in a component this PR does not otherwise touch · **Reachability:** PROBED — eight runs on one branch, byte-identical product code, both outcomes.
+**Status:** IN PROGRESS · **Branch:** fix/rowactions-submenu-reveal-flake · **Severity:** MEDIUM (a merge-gating leg that reds at random; every arc touching `admin-layout-e2e`'s path filter pays for it) · **Class:** CI reliability / e2e flake · **Effort:** M · **Filed:** 2026-08-16 (`fix/control-outline-surface-fills`, seen while shipping an unrelated colour-token change) · **Class-sweep exception:** (c) — the repair is a redesign of a scroll-reveal path in a component this PR does not otherwise touch · **Reachability:** PROBED — eight runs on one branch, byte-identical product code, both outcomes.
 
 `tests/e2e/rowactions-geometry.spec.ts:327` — _"keyboard focus in a CAPPED submenu is revealed, never left off-screen"_ — is intermittently red on the merge-gating `admin-layout-e2e` leg.
 
@@ -703,7 +703,7 @@ level         text not null check (level in ('info','warn','error')),
 
 ## BL-ADVISORY-E2E-JOBS-FLAKE-ACROSS-IDENTICAL-CODE — screenshots-drift and admin-layout-e2e both flipped across a markdown-only delta
 
-**Status:** OPEN · **Severity:** LOW (advisory jobs; neither is a required context) · **Class:** CI-INFRA / flake · **Effort:** M · **Filed:** 2026-08-16 (`feat/admin-ui-surfaces`, PR #812)
+**Status:** IN PROGRESS · **Branch:** fix/rowactions-submenu-reveal-flake · **Severity:** LOW (advisory jobs; neither is a required context) · **Class:** CI-INFRA / flake · **Effort:** M · **Filed:** 2026-08-16 (`feat/admin-ui-surfaces`, PR #812)
 
 **This entry CORRECTS a wrong filing made minutes earlier on the same PR.** `BL-HELP-SCREENSHOT-DASHBOARD-BASELINE-STALE` claimed the `dashboard-overview-light.webp` drift was a stale baseline that main's component churn had outrun. The next run REFUTED that: the byte comparison passed at a head whose only delta was one markdown file.
 
