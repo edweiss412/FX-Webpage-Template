@@ -323,3 +323,166 @@ describe("switch tracks are untouched (spec §2, §3.1 — AC-2)", () => {
     expect(source).toContain("border-border-strong bg-surface-sunken");
   });
 });
+
+/**
+ * The hover repair (spec §3.6) — the inversion this arc's swap CAUSES.
+ *
+ * Before the swap these 21 rested at `border-border` (1.27:1) and hovered at
+ * `border-border-strong` (1.59:1) or `border-accent` (2.33:1 light): a step UP.
+ * After it they rest at `border-text-faint` (3.35:1) while neither hover token
+ * moves — a step DOWN at all 21. Hovering would make the outline WEAKER than
+ * resting, contradicting the ruling the swap implements.
+ *
+ * Not pre-existing: of the 2026-08-16 census's own 21, exactly one carries a
+ * `hover:border-*`, and it is `hover:border-status-warn` — a semantic
+ * escalation, not a weight cue. This arc creates the class, so it repairs it.
+ *
+ * THE DENYLIST BELOW IS NECESSARY AND NOT SUFFICIENT. It passes if a required
+ * override is deleted outright, or swapped for a third weak token. The positive
+ * per-path assertions are what actually prove AC-11.
+ */
+const ADDITIONS = CENSUS.slice(21);
+
+/** §3.6(a) — another hover cue already lives on the same render path. */
+const HOVER_DELETE = [
+  "components/admin/HoverHelp.tsx:562",
+  "components/admin/NeedsAttentionInbox.tsx:101",
+  "components/admin/NeedsAttentionInbox.tsx:130",
+  "components/admin/NeedsAttentionInbox.tsx:198",
+  "components/admin/NeedsAttentionInbox.tsx:224",
+  "components/admin/UnarchiveShowButton.tsx:67",
+  "components/admin/nav/UserMenu.tsx:51",
+  "components/crew/SectionChipLink.tsx:48",
+  "components/crew/primitives/PersonRow.tsx:196",
+  "components/crew/primitives/PersonRow.tsx:213",
+  "components/layout/ThemeToggle.tsx:91",
+  "components/shared/ReportButton.tsx:142",
+] as const;
+
+/**
+ * §3.6(b) — the border IS the only hover cue on the path that carries it, so
+ * deleting it would remove hover feedback outright. Raising is the only
+ * non-regressive option.
+ *
+ * `PublishedReviewModal.tsx:964` is here because the classification is PER
+ * RENDER PATH: its path 0 is `border-border bg-surface-sunken …
+ * hover:border-border-strong`, its path 1 is `bg-warning-bg …
+ * hover:bg-warning-bg/80`. The other cue belongs only to path 1.
+ */
+const HOVER_SUBTLE = [
+  "app/me/meShowSections.tsx:174",
+  "app/me/meShowSections.tsx:213",
+  "app/me/meShowSections.tsx:258",
+  "components/admin/showpage/PublishedReviewModal.tsx:964",
+  "components/agenda/AgendaEmbed.tsx:83",
+  "components/agenda/AgendaPdfViewer.tsx:198",
+] as const;
+
+/**
+ * §3.6(c) — the cue is an accent HUE, kept, but `--color-accent` measures
+ * 2.33:1 light against `surface`, BELOW the new 3.35:1 rest. `DESIGN.md:119`
+ * already directs load-bearing accent to `--color-accent-on-bg` (5.57 light /
+ * 8.84 dark), so these follow a rule the design system already states.
+ */
+const HOVER_ACCENT = [
+  "components/admin/dev/SwitcherControls.tsx:83",
+  "components/admin/dev/SwitcherControls.tsx:92",
+  "components/admin/dev/SwitcherControls.tsx:142",
+] as const;
+
+describe("hover repair — no swapped control hovers quieter than it rests (spec §3.6)", () => {
+  /**
+   * The three groups are the plan's contract; this pins their SHAPE rather than
+   * a live count that only holds before the repair.
+   *
+   * An earlier revision asserted that 21 elements still carry a
+   * `hover:border-*`. That is true BEFORE the repair and necessarily false
+   * after it — group (a) exists precisely to remove twelve of them — so it
+   * described the red state and could never be green. What survives the repair
+   * and is worth pinning: the groups are disjoint, they total 21, every member
+   * is a census ADDITION rather than one of the predecessor's 21, and exactly
+   * the nine retarget sites still carry an override afterwards.
+   */
+  it("the three groups are disjoint, total 21, and are all census additions", () => {
+    const all = [...HOVER_DELETE, ...HOVER_SUBTLE, ...HOVER_ACCENT];
+    expect(all.length).toBe(21);
+    expect(new Set(all).size).toBe(21);
+    const additionIds = new Set(ADDITIONS.map((r) => `${r.file}:${r.line}`));
+    for (const id of all) expect(additionIds.has(id)).toBe(true);
+  });
+
+  /**
+   * Post-repair, an override survives at exactly the nine RETARGET sites.
+   *
+   * This is the assertion that would catch a twelfth deletion being skipped, or
+   * a tenth site quietly acquiring one. `ArchiveShowButton.tsx:365` is
+   * deliberately not among them: it belongs to the 2026-08-16 census, not to
+   * this arc's additions, and its `hover:border-status-warn` is a SEMANTIC
+   * escalation rather than a weight cue — which is why the scoping below is
+   * over ADDITIONS and not over all 57 rows (see the plan's scoping note).
+   */
+  it("exactly the nine retarget sites still carry a border override", () => {
+    const stillOverridden = ADDITIONS.map((r) => `${r.file}:${r.line}`).filter((id) => {
+      const el = UNIVERSE.find((e) => `${e.file}:${e.line}` === id);
+      if (!el) return false;
+      return allStrings(el)
+        .flatMap((s) => s.split(/\s+/))
+        .some((t) => /^(hover|aria-expanded):border-/.test(t));
+    });
+    expect(stillOverridden.sort()).toEqual([...HOVER_SUBTLE, ...HOVER_ACCENT].sort());
+  });
+
+  describe.each(ADDITIONS.map((r) => [`${r.file}:${r.line}`] as const))(
+    "denylist %s",
+    (id) => {
+      const el = UNIVERSE.find((e) => `${e.file}:${e.line}` === id) ?? null;
+      it("carries no hover:border-border-strong and no bare border-accent under any prefix", () => {
+        expect(el).not.toBeNull();
+        const toks = allStrings(el as ScanElement).flatMap((s) => s.split(/\s+/));
+        expect(toks.some((t) => t === "hover:border-border-strong")).toBe(false);
+        expect(toks.some((t) => /^(hover|aria-expanded):border-accent$/.test(t))).toBe(false);
+      });
+    },
+  );
+
+  describe.each(HOVER_DELETE.map((id) => [id] as const))("(a) %s", (id) => {
+    it("carries NO hover:border-* token at all", () => {
+      const el = UNIVERSE.find((e) => `${e.file}:${e.line}` === id) ?? null;
+      expect(el).not.toBeNull();
+      const toks = allStrings(el as ScanElement).flatMap((s) => s.split(/\s+/));
+      expect(toks.filter((t) => /^hover:border-/.test(t))).toEqual([]);
+    });
+  });
+
+  describe.each(HOVER_SUBTLE.map((id) => [id] as const))("(b) %s", (id) => {
+    it("every path carrying the outline also carries hover:border-text-subtle", () => {
+      const el = UNIVERSE.find((e) => `${e.file}:${e.line}` === id) ?? null;
+      expect(el).not.toBeNull();
+      const outlined = pathsCarrying(el as ScanElement, "border-text-faint");
+      premise("the element has at least one outline-bearing path", outlined.length, 0);
+      for (const path of outlined) {
+        expect(path.some((s) => /(^|\s)hover:border-text-subtle(\s|$)/.test(s))).toBe(true);
+      }
+    });
+  });
+
+  describe.each(HOVER_ACCENT.map((id) => [id] as const))("(c) %s", (id) => {
+    it("carries hover:border-accent-on-bg on every outline-bearing path", () => {
+      const el = UNIVERSE.find((e) => `${e.file}:${e.line}` === id) ?? null;
+      expect(el).not.toBeNull();
+      const outlined = pathsCarrying(el as ScanElement, "border-text-faint");
+      premise("the element has at least one outline-bearing path", outlined.length, 0);
+      for (const path of outlined) {
+        expect(path.some((s) => /(^|\s)hover:border-accent-on-bg(\s|$)/.test(s))).toBe(true);
+      }
+    });
+  });
+
+  it("SwitcherControls' aria-expanded twin moves with its hover twin", () => {
+    const el = UNIVERSE.find(
+      (e) => `${e.file}:${e.line}` === "components/admin/dev/SwitcherControls.tsx:142",
+    ) as ScanElement;
+    const toks = allStrings(el).flatMap((s) => s.split(/\s+/));
+    expect(toks).toContain("aria-expanded:border-accent-on-bg");
+  });
+});

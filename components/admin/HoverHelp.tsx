@@ -562,7 +562,7 @@ export function HoverHelp({
         <button
           {...triggerProps}
           ref={triggerRef}
-          className="relative grid size-5 shrink-0 cursor-help place-items-center rounded-full border border-text-faint bg-transparent text-xs font-bold text-text-faint transition-colors duration-fast before:absolute before:-inset-3 before:content-[''] hover:border-border-strong hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
+          className="relative grid size-5 shrink-0 cursor-help place-items-center rounded-full border border-text-faint bg-transparent text-xs font-bold text-text-faint transition-colors duration-fast before:absolute before:-inset-3 before:content-[''] hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-1"
         >
           <span aria-hidden="true">?</span>
         </button>

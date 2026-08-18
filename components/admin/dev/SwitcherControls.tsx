@@ -26,7 +26,7 @@ import type { ExcludedScenario, ScenarioGroupId } from "@/lib/dev/galleryModalTy
 import { cn } from "@/lib/ui/cn";
 
 const STEP_BTN = cn(
-  "min-h-tap-min min-w-tap-min inline-flex shrink-0 items-center justify-center rounded-md border border-text-faint bg-surface px-3 text-text-strong hover:border-accent active:bg-surface-sunken focus-visible:outline-2 focus-visible:outline-focus-ring",
+  "min-h-tap-min min-w-tap-min inline-flex shrink-0 items-center justify-center rounded-md border border-text-faint bg-surface px-3 text-text-strong hover:border-accent-on-bg active:bg-surface-sunken focus-visible:outline-2 focus-visible:outline-focus-ring",
 );
 
 const EXCLUDED_PANEL_ID = "switcher-excluded-panel";
@@ -142,7 +142,7 @@ export function SwitcherControls({
           <button
             type="button"
             data-testid="attention-switcher-excluded-toggle"
-            className="min-h-tap-min min-w-tap-min inline-flex shrink-0 items-center justify-center rounded-md border border-text-faint bg-surface px-2 text-xs text-text hover:border-accent active:bg-surface-sunken aria-expanded:border-accent aria-expanded:bg-surface-sunken focus-visible:outline-2 focus-visible:outline-focus-ring"
+            className="min-h-tap-min min-w-tap-min inline-flex shrink-0 items-center justify-center rounded-md border border-text-faint bg-surface px-2 text-xs text-text hover:border-accent-on-bg active:bg-surface-sunken aria-expanded:border-accent-on-bg aria-expanded:bg-surface-sunken focus-visible:outline-2 focus-visible:outline-focus-ring"
             aria-expanded={panelOpen}
             {...(panelOpen ? { "aria-controls": EXCLUDED_PANEL_ID } : {})}
             onClick={() => setShowExcluded((v) => !v)}

@@ -202,7 +202,7 @@ export function AgendaPdfViewer({ src }: AgendaPdfViewerProps) {
               setErrorCode(null);
               setNumPages(null);
             }}
-            className="min-h-tap-min rounded-sm border border-text-faint bg-surface px-3 py-2 text-sm font-medium text-text-strong hover:border-border-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+            className="min-h-tap-min rounded-sm border border-text-faint bg-surface px-3 py-2 text-sm font-medium text-text-strong hover:border-text-subtle focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
           >
             Try again
           </button>

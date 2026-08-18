@@ -119,7 +119,7 @@ const ACTION_CLASS = cn(
   "inline-flex size-tap-min min-h-tap-min shrink-0 items-center justify-center",
   "rounded-[11px] border border-text-faint bg-surface text-text",
   "transition-colors duration-fast",
-  "hover:border-border-strong hover:bg-surface-sunken hover:text-accent-on-bg",
+  " hover:bg-surface-sunken hover:text-accent-on-bg",
 );
 
 export function PersonRow({ person }: PersonRowProps) {
