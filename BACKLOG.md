@@ -1370,7 +1370,7 @@ So the draft cannot be checked until the freeze lifts and it is copied in, which
 
 ## BL-PLANLINT-CONSTRUCTED-FIXTURE-SATISFIABILITY — a plan-embedded fixture snippet is asserted against, never executed
 
-**Status:** OPEN. · **Filed:** 2026-08-16, from the review-round filing `docs/review-rounds/feat/mutation-section-order/40a7adfa5f29.md` (plan §, its single candidate) · **Severity:** LOW (review-round cost; no product surface) · **Class:** review-round reduction (tooling) · **Effort:** M
+**Status:** IN PROGRESS · **Branch:** fix/planlint-fixture-satisfiability · **Filed:** 2026-08-16, from the review-round filing `docs/review-rounds/feat/mutation-section-order/40a7adfa5f29.md` (plan §, its single candidate) · **Severity:** LOW (review-round cost; no product surface) · **Class:** review-round reduction (tooling) · **Effort:** M
 
 **Probed, not theorized.** Two rounds on one arc died on the same shape: plan round 4's constructed markdown document had a header shape its named parser does not open a block on, and spec round 6's `FOO BAR` snippet was the same defect one stage earlier. In both the plan asserted what the parser WOULD emit for an embedded snippet, and in both the snippet could not produce it. A three-line `tsx` probe run at plan-authoring time settles either one.
 
