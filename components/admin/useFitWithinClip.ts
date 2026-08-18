@@ -35,6 +35,7 @@ import {
 } from "@/lib/layout/fitWithinClip";
 import { clientLog } from "@/lib/observe/clientLog";
 import { createRafCoalescer } from "@/lib/popover/rafCoalescer";
+import { withNaturalSize } from "@/lib/popover/naturalSize";
 
 /**
  * Nearest ancestor that clips this node, or `null` when nothing does.
@@ -79,19 +80,35 @@ export function useFitWithinClip(reapplyKey?: unknown): RefCallback<HTMLElement>
     const el = nodeRef.current;
     if (el === null) return;
 
-    // Cleared first so the CSS cap is what we measure, not last pass's result.
-    el.style.maxHeight = "";
-    const clip = findClippingAncestor(el);
-    if (clip === null) return; // nothing clips: the CSS cap already governs
+    // withNaturalSize owns the clear and restore (spec §4.2) so the CSS cap is
+    // what we measure, not last pass's result — and it restores the element's
+    // scroll offsets, which an uncapped layout pass would otherwise clamp to 0.
+    // It returns the fitted cap, or null when nothing clips.
+    // The geometry rides back out with the fit: the floor-clamp diagnostic below
+    // must reason about the SAME measurement the cap came from, and re-reading
+    // it after the caps are restored would read a different element.
+    const measured = withNaturalSize(el, () => {
+      const clip = findClippingAncestor(el);
+      if (clip === null) return null; // nothing clips: the CSS cap already governs
 
-    const declaredCap = parseFloat(getComputedStyle(el).maxHeight);
-    const geometry = {
-      elementTop: el.getBoundingClientRect().top,
-      clipBottom: clip.getBoundingClientRect().bottom,
-      // `max-height: none` parses as NaN; Infinity means "only the clip binds".
-      cap: Number.isFinite(declaredCap) ? declaredCap : Number.POSITIVE_INFINITY,
-    };
-    el.style.maxHeight = `${computeFittedMaxHeight(geometry)}px`;
+      const declaredCap = parseFloat(getComputedStyle(el).maxHeight);
+      const geometry = {
+        elementTop: el.getBoundingClientRect().top,
+        clipBottom: clip.getBoundingClientRect().bottom,
+        // `max-height: none` parses as NaN; Infinity means "only the clip binds".
+        cap: Number.isFinite(declaredCap) ? declaredCap : Number.POSITIVE_INFINITY,
+      };
+      return { geometry, fitted: computeFittedMaxHeight(geometry) };
+    });
+    // Both branches are written (spec §4.3, R1 F1). The helper restored the PRIOR
+    // inline fit; on the nothing-clips path this site must end UNCAPPED, so the
+    // stale fit is removed rather than left to survive the early return.
+    if (measured === null) {
+      el.style.removeProperty("max-height");
+      return;
+    }
+    const { geometry } = measured;
+    el.style.maxHeight = `${measured.fitted}px`;
 
     // The floor beating the room means this overlay now OVERHANGS its clip
     // edge — the failure the hook exists to prevent, and the one outcome its

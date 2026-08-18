@@ -175,7 +175,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/HoverHelp.tsx",
-    line: 592,
+    line: 613,
     tag: "a",
     category: "inline-prose-link",
     reason:
@@ -271,14 +271,14 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/showpage/ShareHub.tsx",
-    line: 756,
+    line: 760,
     tag: "button",
     category: "full-bleed",
     reason: "Click-away layer behind the share popover: `fixed inset-0 z-dropdown cursor-default`.",
   },
   {
     file: "components/admin/showpage/ShareHub.tsx",
-    line: 1039,
+    line: 1043,
     tag: "div",
     category: "full-bleed",
     reason:
@@ -428,7 +428,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/HoverHelp.tsx",
-    line: 529,
+    line: 550,
     tag: "button",
     category: "unresolvable-dynamic",
     reason:
@@ -436,7 +436,7 @@ export const TAP_TARGET_CENSUS: readonly TapCensusRow[] = [
   },
   {
     file: "components/admin/HoverHelp.tsx",
-    line: 541,
+    line: 562,
     tag: "button",
     category: "unresolvable-dynamic",
     reason: "Second help-trigger variant in the same component, demoted for the same reason.",

@@ -12,7 +12,7 @@
  * Close-on-window-scroll is deliberately NOT here — it is Task 7's production
  * defect, red-first against the real wired dashboard in Playwright.
  */
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, render } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { useRef } from "react";
@@ -286,5 +286,108 @@ describe("AnchoredPortal — a position-only move re-places the panel", () => {
     stubbed.set('[data-testid="anchor"]', after);
     rerender(<Harness open />);
     expect(panel.style.top).toBe(`${after.top + after.height + GAP}px`);
+  });
+});
+
+/**
+ * Site-transition pins (scroll-clamp spec §5.4).
+ * Family B: placement must derive from the NATURAL size — a migration that
+ * measures while a stale inline cap is applied computes a wrong cap/position.
+ * Family C: the §4.5 self-origin filter — the panel's own scroll events must
+ * not schedule a re-place (they are the fuel of the R5 perpetual-measure loop).
+ */
+describe("AnchoredPortal — natural-size measurement + self-origin filter (scroll-clamp spec §5.4)", () => {
+  test("family B: after a position-only move grows the room, the cap derives from the NATURAL height", () => {
+    const NATURAL_H = 900;
+    // Style-sensitive panel rect: capped height while an inline cap is applied,
+    // natural height when cleared — what a real layout reports, and the
+    // difference a capped measurement cannot see.
+    const prev = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (this: Element): DOMRect {
+      if (this.matches('[data-testid="portal-panel"]')) {
+        const cap = parseFloat((this as HTMLElement).style.maxHeight);
+        const h = Number.isFinite(cap) ? Math.min(NATURAL_H, cap) : NATURAL_H;
+        return asDomRect({ left: 0, top: 0, width: 200, height: h });
+      }
+      for (const [selector, r] of stubbed) {
+        if (this.matches(selector)) return asDomRect(r);
+      }
+      return prev.call(this);
+    };
+    try {
+      const mid: StubRect = { left: 100, top: 400, width: 24, height: 24 };
+      const top: StubRect = { left: 100, top: 8, width: 24, height: 24 };
+      stubbed.set('[data-testid="anchor"]', mid);
+      const { rerender } = render(<Harness open />);
+      const panel = panelNode()!;
+      const cappedBefore = parseFloat(panel.style.maxHeight);
+      // PREMISE (own inputs): the first placement must cap the panel, and the
+      // natural height must exceed the post-move room, or the assertion below
+      // cannot distinguish a natural measurement from a stale one.
+      premiseHolds("first placement caps the panel", Number.isFinite(cappedBefore));
+      premise("natural height exceeds the viewport", NATURAL_H, window.innerHeight);
+      // Position-only move: the anchor jumps to the top; room below grows far
+      // beyond the stale cap but stays below the natural height.
+      premiseHolds(
+        "post-move room exceeds the stale cap",
+        window.innerHeight - (top.top + top.height) > cappedBefore,
+      );
+      stubbed.set('[data-testid="anchor"]', top);
+      rerender(<Harness open />);
+      const cappedAfter = parseFloat(panel.style.maxHeight);
+      expect(
+        Number.isFinite(cappedAfter),
+        "a natural measurement still needs a cap here (natural 900 > any room); " +
+          "a STALE measurement fits under the grown room and drops the cap entirely",
+      ).toBe(true);
+      expect(
+        cappedAfter,
+        "the re-applied cap derives from the grown room (natural measure), not the stale cap",
+      ).toBeGreaterThan(cappedBefore);
+    } finally {
+      Element.prototype.getBoundingClientRect = prev;
+    }
+  });
+
+  test("family C: panel-origin scroll never schedules; ancestor scroll re-places; document scroll dismisses", () => {
+    stubbed.set('[data-testid="anchor"]', { left: 100, top: 200, width: 24, height: 24 });
+    stubbed.set('[data-testid="portal-panel"]', { left: 0, top: 0, width: 200, height: 100 });
+    const onDismiss = vi.fn();
+    function FilterHarness() {
+      const anchorRef = useRef<HTMLButtonElement>(null);
+      return (
+        <div data-testid="scroll-host">
+          <button ref={anchorRef} data-testid="anchor" type="button">
+            Actions
+          </button>
+          <AnchoredPortal
+            open
+            anchorRef={anchorRef}
+            testId="portal-panel"
+            align="left"
+            onDismiss={onDismiss}
+          >
+            <div>content</div>
+          </AnchoredPortal>
+        </div>
+      );
+    }
+    render(<FilterHarness />);
+    const panel = panelNode()!;
+    frames = [];
+    // Panel-origin: MUST NOT schedule a re-place (spec §4.5) — this is the
+    // event the scroll-restore emits on every measurement of a scrolled panel.
+    panel.dispatchEvent(new Event("scroll", { bubbles: false }));
+    expect(frames.length, "panel-origin scroll is ignored (self-origin filter)").toBe(0);
+    // Ancestor-origin: still re-places.
+    document
+      .querySelector('[data-testid="scroll-host"]')!
+      .dispatchEvent(new Event("scroll", { bubbles: false }));
+    expect(frames.length, "ancestor scroll still schedules a re-place").toBeGreaterThan(0);
+    // Document-origin: still dismisses, and does not schedule.
+    frames = [];
+    document.dispatchEvent(new Event("scroll", { bubbles: false }));
+    expect(onDismiss, "document scroll still dismisses").toHaveBeenCalledTimes(1);
+    expect(frames.length, "a dismissal schedules nothing").toBe(0);
   });
 });

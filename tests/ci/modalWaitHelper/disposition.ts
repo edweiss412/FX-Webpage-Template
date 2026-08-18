@@ -185,6 +185,13 @@ export const N_WAIT_SITES: NWaitSite[] = [
     protects: "the dashboard row click that re-opens the modal before the abort drive",
   },
   {
+    file: "tests/e2e/published-review-modal.realtime.spec.ts",
+    scopeTitle: "an ABORTED close clears armed freshness cues (BL-FRESHNESS-ABORTED-CLOSE-E2E)",
+    labelSource: '"reopen:aborted-close"',
+    protects:
+      "the mid-close-transition re-click on the line above it: a noWaitAfter row click issued while the close navigation is still pending, whose post-open wait is the only thing between an aborted-close reopen and a bare downstream timeout. Same scope as the row above and legally so — identity is the (file, scope, LABEL) triple, and the two labels differ",
+  },
+  {
     file: "tests/e2e/published-review-modal.reopen.spec.ts",
     scopeTitle: "published review modal — reopen the same show",
     labelSource: '"click:dashboard-row"',
@@ -252,7 +259,9 @@ const isTestTitle = (text: string): boolean => /^(?:test|describe)(?:\.\w+)*\(\s
 
 /** Any call into the modal-wait helper module. */
 const callsHelper = (text: string): boolean =>
-  /\b(?:openShowReviewModal|openShowReviewModalAt|awaitReviewModalOrRecover)\(/.test(text);
+  /\b(?:openShowReviewModal|openShowReviewModalAt|awaitReviewModalOrRecover|openShowReviewFrameAt)\(/.test(
+    text,
+  );
 
 /**
  * Playwright's activation verbs. A (d) candidate whose STATEMENT carries one of
@@ -308,7 +317,7 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason:
         "the caller owns the URL (extra query params, fragments, encodeURIComponent) and routes it through openShowReviewModalAt, so the wait and the single recovery are the helper's",
     },
-    expectedCount: 8,
+    expectedCount: 9,
     // The MATCH line, not the statement: a test() container's text contains its
     // whole body, so a statement-reading form would claim every describe block
     // holding an adopted call as a member too.
@@ -322,7 +331,7 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason:
         "declares an inline modal-wait-exempt reason; the pinned inventory in the meta-test is what keeps that list from widening",
     },
-    expectedCount: 2,
+    expectedCount: 1,
     // Resolved by the scan, not by any text here: the marker is valid on the
     // match line OR the line above, and the candidate's own text is stripped of
     // comments, so it could not carry the marker at all.
@@ -396,6 +405,24 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     },
     expectedCount: 9,
     match: (c) => /\bopenShowReviewModalAt\s*\(/.test(c.matchLineText),
+  },
+  {
+    id: "f/member-shape-U-frame",
+    origin: "f-helper-call",
+    disposition: {
+      kind: "member",
+      shape: "U",
+      reason:
+        "the caller accepts EITHER frame and adopts through the frame-reporting core, so the race covers the Suspense skeleton as well as the loaded modal and a boundary is annotated instead of hidden",
+    },
+    // ONE rule for BOTH frame entry points: the bare core has no corpus caller
+    // yet, and a rule matching nothing reds the every-rule-matches-at-least-one
+    // assertion. A future direct caller lands here and drifts this count loudly
+    // — if it is shape N (the open is owned elsewhere), that drift is the
+    // human's cue to extend the N registry vocabulary, not to widen this rule.
+    expectedCount: 1,
+    match: (c) =>
+      /\b(?:openShowReviewFrameAt|awaitReviewFrameOrRecover)\s*\(/.test(c.matchLineText),
   },
   {
     id: "f/member-shape-N",
@@ -548,15 +575,18 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason:
         "a row or inbox-link click that client-navigates to the same ?show= route; the click is unchanged and the loaded-modal wait after it routes through awaitReviewModalOrRecover",
     },
-    expectedCount: 8,
+    expectedCount: 9,
     // The MATCH line per contract rule 2. A statement-reading form would claim
     // an evaluate poll whose BODY was edited to `.click()` as an ordinary row
     // activation — silently certifying the exact edit ledger row 2 exists to
     // surface, which the rule below refuses instead.
+    //
+    // No `noWaitAfter` exclusion any more: the one such click in the corpus (the
+    // aborted-close reopen) now routes its post-open wait through the helper
+    // like every other row activation, so d/skeleton-tolerant-click retired and
+    // this count absorbed it (8 -> 9).
     match: (c) =>
-      /\.click\(/.test(c.matchLineText) &&
-      !inFile(c, "published-review-modal.prefetch.spec.ts") &&
-      !/noWaitAfter/.test(c.matchLineText),
+      /\.click\(/.test(c.matchLineText) && !inFile(c, "published-review-modal.prefetch.spec.ts"),
   },
   {
     id: "d/member-split-activation",
@@ -593,17 +623,6 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     },
     expectedCount: 6,
     match: (c) => inFile(c, "published-review-modal.prefetch.spec.ts"),
-  },
-  {
-    id: "d/skeleton-tolerant-click",
-    origin: "d-link-activation",
-    disposition: {
-      kind: "exclusion",
-      reason:
-        "re-opens mid-close-transition and waits on a selector the Suspense skeleton also matches, so a modal-or-boundary race resolves on the skeleton and would HIDE the fault (documented limit 3b, BL-MODAL-WAIT-SKELETON-TOLERANT-SITES)",
-    },
-    expectedCount: 1,
-    match: (c) => /noWaitAfter/.test(c.matchLineText),
   },
   {
     id: "d/reference-not-activation",

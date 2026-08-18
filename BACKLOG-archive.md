@@ -1,3 +1,393 @@
+## BL-PREMISE-CONTRACT-SUITE-AT-THE-TIMEOUT-BOUNDARY — a required unit gate runs 33s against a 30s cap and reds on runner luck — CLOSED 2026-08-18 (`fix/rowactions-submenu-reveal-flake`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-18 · **Effort (as shipped):** S · **Severity (as filed):** MEDIUM (a REQUIRED context on every PR; when it reds, the merge is blocked and the only remedy is a re-run) · **Class:** CI reliability · **Effort:** S · **Filed:** 2026-08-18 (`fix/rowactions-submenu-reveal-flake`, seen while shipping an unrelated measurement change) · **Reachability:** PROBED — measured on BOTH sides, see below.
+
+`tests/mutation/_metaPremiseContract.test.ts` classifies every test in every suite named by the source-mutation registry, and that walk costs about 33 seconds of test time. Vitest's per-test cap on the `parallel` project is 30 seconds. The margin is negative, so whether the job is green is a property of how loaded the runner is, not of the tree.
+
+**The probe is a same-machine differential, and it removes the tempting explanation.** The arc that found this adds three test files, so "the new tests made the walk slower" is the obvious reading. It is wrong — the suite scans the ENROLLED registry (`GUARD_SURFACES.flatMap(s => s.suitePaths)`), which that arc does not touch:
+
+| tree                                                               | test time  |
+| ------------------------------------------------------------------ | ---------- |
+| `origin/main` at `7d09a1f0b`, detached worktree, same node_modules | **33.45s** |
+| `fix/rowactions-submenu-reveal-flake`                              | **33.23s** |
+
+Byte-for-byte the same cost, and the branch is marginally FASTER. Main is over the cap too; it has simply been winning the coin flip.
+
+**Observed failures.** Two consecutive `unit-suite-nodb (3)` reds on PR #845 (jobs `95808345158`-adjacent shard 3 and `95812641758`), each `Test timed out in 30000ms`, the second cascading across four cases in the file. Main's own recent runs are green, which is what makes this read as luck rather than as a regression on either side.
+
+**Why it is filed rather than fixed in the arc that found it:** the file belongs to the mutation-guard surface, not to a popover measurement change, and raising a timeout inside an unrelated PR puts a gate edit outside that PR's reviewed surface — class-sweep disposition exception (c).
+
+**First scheduled step:** decide which side moves, because both are defensible and the choice is not mechanical. Either give the four cases an explicit `testTimeout` above the measured cost with a comment naming the measurement (cheap, honest, and leaves the walk's cost invisible), or make the walk cheaper — it re-reads and re-classifies each suite once per case, so hoisting the classification into a module-level memo would cut it roughly fourfold and put the whole file back under the default cap. The second is the better repair and the first is the safe one; measure before choosing.
+
+**Resolution — and the entry was filed and closed inside the same PR, deliberately.** It was filed under class-sweep exception (c), on the reading that a gate edit does not belong in a popover-measurement PR. That reading did not survive the evidence: the gate then blocked this PR three consecutive times, so the choice was no longer "repair here or elsewhere" but "repair here or re-run the coin flip until it lands". Filing first and closing second is not bookkeeping theatre — the entry carries the differential probe that sent the repair to the right place, and that record is worth keeping whether the fix took an hour or a month.
+
+**The repair is the one the entry named as the better of its two.** The four cases each called `classifyTests(ROOT, suite)` over every enrolled suite, so the walk was paid four times. It is now computed once at module scope into a `Map`, with a `classifiedFor` accessor that THROWS on a missing suite rather than returning `[]` — an empty scan would be a silent green on nothing, the exact failure the file's first describe block exists to prevent.
+
+No verdict changes, and could not: `classifyTests` is a pure function of the suite's source on disk, which the four cases already relied on — if two calls for one suite could disagree, the declared-count case and the offender cases would have been asserting against different scans all along.
+
+**Measured on the same machine, same node_modules:**
+
+|        | test clock (the 30s cap) | wall  |
+| ------ | ------------------------ | ----- |
+| before | 33.45s                   | 33.9s |
+| after  | **2.26s**                | 10.8s |
+
+The remainder moved to import, which no per-test cap measures. The timeout was NOT raised: the signal that the walk is expensive is left intact, and the expense is gone.
+
+## BL-ROWACTIONS-SUBMENU-REVEAL-E2E-FLAKE — the capped-submenu focus-reveal case fails ~40% of CI runs on identical code — CLOSED 2026-08-18 (`fix/rowactions-submenu-reveal-flake`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-18 · **Effort (as shipped):** M · **Severity (as filed):** MEDIUM (a merge-gating leg that reds at random; every arc touching `admin-layout-e2e`'s path filter pays for it) · **Class:** CI reliability / e2e flake · **Effort:** M · **Filed:** 2026-08-16 (`fix/control-outline-surface-fills`, seen while shipping an unrelated colour-token change) · **Class-sweep exception:** (c) — the repair is a redesign of a scroll-reveal path in a component this PR does not otherwise touch · **Reachability:** PROBED — eight runs on one branch, byte-identical product code, both outcomes.
+
+`tests/e2e/rowactions-geometry.spec.ts:327` — _"keyboard focus in a CAPPED submenu is revealed, never left off-screen"_ — is intermittently red on the merge-gating `admin-layout-e2e` leg.
+
+**The probe is the run history, and it is decisive** because the input was held constant. Eight consecutive runs of workflow `316007124` on `fix/control-outline-surface-fills`, every one at a sha whose `app/**` and `components/**` are byte-identical (`git diff --name-only <sha>..HEAD -- 'app/**' 'components/**'` returns zero files for each):
+
+| sha         | outcome     |
+| ----------- | ----------- |
+| `393a4e2aa` | success     |
+| `3e96b7476` | **failure** |
+| `c7f019e11` | success     |
+| `2357eb321` | success     |
+| `3a9d509ac` | success     |
+| `4b92b8ed7` | success     |
+| `20707a204` | **failure** |
+| `a601e838e` | **failure** |
+
+Five green, three red, one program. The commits between them are documentation and test prose only, and `components/admin/ShowRowActions.tsx` — the component under test — is untouched by that branch entirely.
+
+**The failure shape.** Focus lands below the panel's visible box after `End`:
+
+```
+Expected: <= 509.96875
+Received:    587
+```
+
+so roughly 77px past the fold — the scroll-reveal did not run, rather than running and landing slightly off. Every failing run's log also carries a degraded dev server: `Error: The destination stream closed early.` repeated dozens of times, plus `show_review_snapshot_failed` and `[client.realtime] subscription failed: initial JWT mint returned no token`. The likely mechanism is that the reveal is racing something — a scroll handler, a layout settle, or a portal reflow — and loses when the server is slow enough to stretch the gap.
+
+**Why it is filed rather than fixed here.** The arc that found it ships 22 colour-token edits and touches neither the component, the spec, nor the portal-scroll path. Its own diff cannot cause a geometry change: a border COLOUR moves no box, and the run table proves the outcome varies with the input held constant. Fixing a reveal race needs the component's scroll path in hand.
+
+**First scheduled step:** determine whether the reveal is a `scrollIntoView` racing the portal's own layout, and if so await the settle rather than the keypress. The spec already has a premise guard (the panel must overflow its cap), so the case is not vacuous — it is genuinely observing the wrong post-condition some of the time. Until then, a red on this leg alone, with product code unchanged, is a re-run rather than a regression.
+
+**Resolution — and the filed hypothesis was WRONG, in the direction that mattered.** The entry read the symptom as a race: "the reveal is racing something — a scroll handler, a layout settle, or a portal reflow — and loses when the server is slow enough to stretch the gap," and its first scheduled step was to await the settle rather than the keypress. The reveal was not racing anything. It ran correctly, every time, and was then DETERMINISTICALLY reverted one animation frame later by the placement re-measure.
+
+The mechanism: `measureAndApply` cleared the panel's inline `max-height` in order to measure natural size. Laying out a scrolled, CAPPED panel with its cap cleared clamps `scrollTop` to 0 — and the code restored the offset before the cap came back, so the restore had no scroll range to write into and silently did nothing. What looked like a 40% flake was a 100% revert whose visibility depended only on whether the assertion sampled before or after the next frame.
+
+**The repair.** `lib/popover/naturalSize.ts` — `withNaturalSize` owns the cap clear and restore AND snapshots and restores the element's scroll offsets, caps first so the range exists before the offset is written. All four measurement sites migrate to it (`AnchoredPortal.tsx`, `HoverHelp.tsx`, `showpage/ShareHub.tsx`, `useFitWithinClip.ts`), and `tests/components/_metaScrollNeutralMeasurement.test.ts` is a derived cover — it walks `components/` and `lib/` from disk, so a NEW site that clears a cap outside the helper fails by default rather than being silently exempt. Because every measurement of a scrolled capped panel can emit a panel-origin scroll event, the two capture-phase scroll listeners carry a self-origin filter so that event cannot schedule the next measurement.
+
+**"A red on this leg alone is a re-run rather than a regression" is RETIRED.** That policy was the entry's own concession to the flake, and AC-5 removes its premise: nine fixed-sha `admin-layout-e2e` dispatches by the distinct-ref method (one dispatch per sibling ref; no run `cancelled`, so all nine are samples) returned **0/9 failures** against the entry's 4/9 baseline. Run ids: `32152609129`, `32152617127`, `32152624771`, `32152632904`, `32152640191`, `32152647436`, `32152654727`, `32152661440`, `32152668240`. A red on this leg is now a regression.
+
+**Spec:** `docs/superpowers/specs/ci/2026-08-17-rowactions-submenu-reveal-scroll-clamp-design.md` (spec-APPROVED r7). **Plan:** `docs/superpowers/plans/2026-08-17-rowactions-submenu-reveal-scroll-clamp.md` (plan-APPROVED r8). **Round corpus:** `docs/review-rounds/fix/rowactions-submenu-reveal-flake/`.
+
+## BL-ADVISORY-E2E-JOBS-FLAKE-ACROSS-IDENTICAL-CODE — screenshots-drift and admin-layout-e2e both flipped across a markdown-only delta — CLOSED 2026-08-18 (`fix/rowactions-submenu-reveal-flake`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-18 · **Effort (as shipped):** M · **Severity (as filed):** LOW (advisory jobs; neither is a required context) · **Class:** CI-INFRA / flake · **Effort:** M · **Filed:** 2026-08-16 (`feat/admin-ui-surfaces`, PR #812)
+
+**This entry CORRECTS a wrong filing made minutes earlier on the same PR.** `BL-HELP-SCREENSHOT-DASHBOARD-BASELINE-STALE` claimed the `dashboard-overview-light.webp` drift was a stale baseline that main's component churn had outrun. The next run REFUTED that: the byte comparison passed at a head whose only delta was one markdown file.
+
+**Probe evidence — two advisory jobs, two heads, identical product code.**
+
+| job                 | head                   | delta vs the other head       | result                                                                      |
+| ------------------- | ---------------------- | ----------------------------- | --------------------------------------------------------------------------- |
+| `screenshots-drift` | `b5aa6ef7`             | —                             | FAIL (`dashboard-overview-light.webp`, Bin 77670 -> 82600)                  |
+| `screenshots-drift` | `f6c3ac55`             | one commit, `BACKLOG.md` only | PASS                                                                        |
+| `admin-layout-e2e`  | `b5aa6ef7`, `3bc1ad28` | —                             | PASS                                                                        |
+| `admin-layout-e2e`  | `f6c3ac55`             | one commit, `BACKLOG.md` only | FAIL (`rowactions-geometry.spec.ts:368`, submenu scroll-into-view geometry) |
+
+A markdown-only commit cannot change a WebP's bytes or a submenu's scroll geometry, so BOTH results are non-deterministic at a fixed tree. They flip in OPPOSITE directions across the same pair of heads, which also rules out "one bad runner": whatever varies is per-job, not per-head.
+
+**Why it matters even though neither job is required:** an advisory job that flips at a fixed tree teaches operators to ignore it, which is exactly how a real regression in either surface ships unnoticed. The byte-comparison discipline in AGENTS.md pins the Docker image AND the host architecture for this reason; a residual non-determinism inside that pinned environment is the interesting part.
+
+**~~First scheduled step is a probe, not a repair~~ — THE PROBE IS RUN. 2026-08-16, nine dispatches per job at one fixed sha (`119895a7c`, then `main`), and it SPLITS the entry: one job reproduced, the other did not.**
+
+| job                 | fixed-sha runs | fail rate | verdict                         |
+| ------------------- | -------------- | --------- | ------------------------------- |
+| `admin-layout-e2e`  | 9              | **4/9**   | genuine per-run non-determinism |
+| `screenshots-drift` | 9              | **0/9**   | did NOT reproduce               |
+
+Every failure of the four was the SAME assertion the entry names — `rowactions-geometry.spec.ts:368`, `expect(revealed!.bottom).toBeLessThanOrEqual(revealed!.boxBottom + TOL)` in "keyboard focus in a CAPPED submenu is revealed, never left off-screen" — so this is one flaky case, not a flaky job.
+
+**The failing runs carry a mechanism the entry did not suspect, and it is a KNOWN one.** Their server logs hold transient gateway 502s against the admin RPCs, in the Kong wording this repo has already characterised twice:
+
+```
+[admin.show] share-token read failed: ADMIN_SHOW_TOKEN_READ_FAILED
+  admin_read_share_token returned error: An invalid response was received from the upstream server
+Error: show_review_snapshot_failed          # → /admin error boundary, React #441
+```
+
+That is the same fault class as `BL-CHANGES-FEED-MODAL-BATCH-FLAKE` (spec `docs/superpowers/specs/ci/2026-08-15-changes-feed-modal-batch-flake-design.md` §2) and `BL-SNAPSHOT-READ-TRANSIENT-502-POSTURE`. A 502 that throws the loader to the error boundary changes what is mounted underneath the submenu, which is exactly how a scroll-into-view geometry assertion lands off-screen. **This reads as a third instance of that class rather than a new one** — which the repair direction should assume and then falsify, not re-derive from scratch.
+
+**Probe method, recorded because the first attempt was invalid and the failure is instructive.** Eight `workflow_dispatch` calls at the same ref cancelled each other: GitHub's concurrency group is `${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}` (`screenshots-drift.yml:52`, `admin-layout-e2e.yml:108`) and holds only ONE pending run, so six of eight were `cancelled` and only the first and last ever executed. The valid form is one dispatch per DISTINCT ref: seven sibling branches at the identical sha (`probe/advisory-flake-s2`…`s8`) plus the two survivors of the first batch = nine samples per job. Anyone re-running this must not read a `cancelled` run as a sample.
+
+**What the split means for scope.** The `screenshots-drift` half of this entry is now UNSUPPORTED by its own probe — nine green runs at a fixed sha. Its single observed failure remains real but unexplained, and the `feedback_screenshot_capture_runner_bimodality` shape (a rare runner population, not per-run noise) survives as the leading reading precisely because a 0/9 sample cannot rule out a low-rate population effect. Do not open a screenshots repair on this evidence; if it recurs, capture the runner identity (`Runner.Name`, CPU model) on both outcomes before anything else.
+
+**First scheduled step, revised:** treat the `rowactions-geometry` case as a member of the transient-502 class — apply the boundary-recovering posture `BL-MODAL-WAIT-BOUNDARY-HELPER-ADOPTION` is sweeping, or make the case's setup tolerant of a boundary re-render — and re-probe at nine samples to confirm the fail rate collapses. The nine-per-job dispatch above is the acceptance instrument, and the run ids are in this arc's PR.
+
+**Resolution — the reproducing half is CLOSED by the scroll-clamp repair, and its 502 reading was a false lead.** This entry's revised first step said to "treat the `rowactions-geometry` case as a member of the transient-502 class" and named the gateway 502s in the failing runs as the mechanism, marking it "a third instance of that class rather than a new one — which the repair direction should assume and then falsify." It was falsified. The 502s are real and are genuinely present in those logs, but they are noise on a shared local-stack boot, not the cause: the case reverted its reveal on EVERY run, 502 or not, and the only thing the slow server changed was which side of the revert the assertion sampled. The cause was a scroll clamp in the placement re-measure — see `BL-ROWACTIONS-SUBMENU-REVEAL-E2E-FLAKE` above for the mechanism and the repair.
+
+**AC-5 on the repaired code: 0/9 failures** at one fixed sha, distinct-ref method, no cancelled runs, against this entry's own 4/9 measurement. Run ids are recorded in the sibling entry above.
+
+**The screenshots-drift half does NOT graduate with it** — it was never the same fault. It moves to a narrow successor row, `BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED`, which carries the single observed byte drift, the 0/9 non-reproduction, and an explicit `**Reachability:** INFERRED, NOT PROBED` naming the runner-identity capture that would settle it. Splitting rather than closing is the honest disposition: a 0/9 sample cannot rule out the low-rate runner-population effect that remains the leading reading.
+
+**The probe-method note in this entry outlived it and is the reason AC-5 was valid.** One dispatch per DISTINCT ref, because GitHub's concurrency group holds only one pending run per `workflow`+`ref`+`event`; a `cancelled` run is not a sample. This arc's nine dispatches followed exactly that method.
+
+**Spec:** `docs/superpowers/specs/ci/2026-08-17-rowactions-submenu-reveal-scroll-clamp-design.md` §7. **Round corpus:** `docs/review-rounds/fix/rowactions-submenu-reveal-flake/`.
+
+## BL-SPECLINT-RED-COMMAND-SHAPE — a plan's red= command can be incapable of expressing a verdict, and nothing checks the shape — CLOSED 2026-08-18 (`fix/red-contract-shape-execution`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-18 · **Effort (as shipped):** M · **Filed:** 2026-08-16
+
+**Resolution.** Closed by delegating the grammar to the shell instead of modelling it. `spec:lint` derives a parse plan over every well-formed marker's non-empty `red=` AND every gate's non-empty `cmd=`, then spawns `sh -nc <command>` per entry: `RED_UNPARSEABLE` and `GATE_CMD_UNPARSEABLE` (hard) when the check completes non-zero, `RED_PROBE_UNVERIFIED` (advisory) when it does not complete at all. A marker whose parse check did not return exit 0 is excluded from `--exec-red` execution AND from collection probing, because executing a command the shell cannot parse observes nothing.
+
+**Two decisions the entry sketched differently, both settled by probe.**
+
+1. **`sh -nc`, not the entry's `zsh -nc`.** The parse check runs in the SAME shell `--exec-red` executes with (`spawnSync("sh", ["-c", …])`). A parse check in a different shell than the executor is two recognizers that can disagree, and they measurably do: on the originating `<><=` shape, `zsh -nc` exits 1 and `sh -nc` exits 2. The entry's intent — catch the quoting class as a whole rather than the `<`/`>` instance — is preserved exactly, because the shell itself is the grammar and no shell syntax is re-implemented in TypeScript.
+
+2. **The `-t` check ships ADVISORY, not as the entry's rejection.** `RED_TEST_NAME_FILTER` is region-scoped and disposition-only. A hard code would have been waived reflexively: 10 of 390 corpus commands carry the flag and five of them are authored markers in a MERGED, review-approved plan where a new case is added to an existing suite and the name filter is the legitimate red selector. The advisory says what to check, and `--exec-red` settles it mechanically — a no-match filter collects nothing, which the collection arm names.
+
+**The check runs on the DEFAULT invocation, not behind `--exec-red`.** The payoff moment is review-time linting (`codex-guard --lint-doc` never passes the flag), so gating it would have missed every dispatch that needs it. Cost is ~2-5 ms per command.
+
+**Calibration.** `sh -nc` over the whole live tracked plan corpus — 657 plan files, 399 parse-checked commands — draws exactly ONE finding, and it is a true positive: a legacy plan whose `red=` capture is the prose `none (closeout gate task)`, which can express no verdict. Zero false fires on the merged, review-approved population.
+
+**Spec:** `docs/superpowers/specs/2026-08-17-spec-lint-red-verdict-capability.md` (spec-APPROVED r4, zero findings). **Plan:** `docs/superpowers/plans/2026-08-17-red-verdict-capability.md` (plan-APPROVED r4, zero findings). **Round corpus:** `docs/review-rounds/fix/red-contract-shape-execution/`.
+
+**The original filing, preserved.**
+
+**BL-SPECLINT-RED-COMMAND-SHAPE — a plan's red= command can be incapable of expressing a verdict, and nothing checks the shape**
+
+**Filed:** 2026-08-16 (`test/psql-scan-mutation-enrolment`, from the plan stage's own four-round filing). **Severity:** LOW-MEDIUM (plan-authoring defect class; each instance costs a review round, and the failure is silent in the direction that looks like success). **Class:** guard coverage. **Effort:** M. **Class-sweep exception:** (c) — the repair adds a new check family to `spec:lint`'s task-contract pass, a surface the enrolling arc does not otherwise touch. **Reachability:** PROBED — both shapes were live in this arc's own plan and are quoted in `docs/review-rounds/test/psql-scan-mutation-enrolment/119895a7c756.md`.
+
+The red→green task contract requires a task's `red=` command to be OBSERVED failing. Two command shapes cannot do that, and `spec:lint` accepts both today:
+
+1. **`vitest ... -t '<pattern>'` as the red command.** Live vitest treats a no-match `-t` as a skip and exits 0, so a red state that depends on "no test matches yet" reports GREEN from the moment it is written. This arc's plan R2 found it after the shape had already survived R1.
+2. **A red command embedding an unquoted `<` or `>`.** A mutation site id (`relational-boundary:2167:54:<><=`) carries both, and zsh fails on the redirection before the command runs — the command cannot express any verdict, in either direction. This arc's plan R1 found it in every checker invocation the plan wrote.
+
+Both are static properties of the command text, which is what makes them mechanizable: `RED_CONJUNCTION` already rejects `&&` in a red-state command for the same reason.
+
+**What would close it:** extend `spec:lint`'s red-state pass with (a) a rejection of `-t`/`--testNamePattern` in a `red=` command, and (b) a shell-parse dry-run (`zsh -nc`) of every `red-state=live` command, which catches the quoting class as a whole rather than the `<`/`>` instance. Pin both with a fixture plan that currently passes and must stop.
+
+## BL-PLANLINT-RED-CLAIM-EXECUTION — a plan's declared red is executed, not just parsed — CLOSED 2026-08-18 (`fix/red-contract-shape-execution`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-18 · **Effort (as shipped):** M · **Filed:** 2026-08-16
+
+**Resolution.** Closed as the entry prescribed — `vitest list` per `red=`, membership-checked against the declared target — with the population and the failure modes pinned by measurement rather than by argument.
+
+Under `--exec-red`, for markers owned by a `red-contract` region, a derived probe rewrites the command's leading `vitest run` token pair to `vitest list`:
+
+- **live**, after a genuinely non-zero red only: empty collection → hard `RED_COLLECTS_NOTHING`. The observed red was a collection artifact, not the asserted failure.
+- **authored**, red never run: every tracked test-file token of the ORIGINAL command must appear in the collected output → hard `RED_SUITE_UNCOLLECTED` on any absence. This is the entry's sharpest case verbatim — a suite living only in a vitest project gated behind an env flag. An untracked test-file token draws advisory `RED_SUITE_UNVERIFIED` BY NAME even beside collectible siblings, so a one-character typo cannot hide behind them; a selector naming no test file at all is judged by the probe, clean when it collects and advisory when it does not.
+
+**Why a list-only probe does not violate "never run authored red commands".** That fence exists because an authored red's failing case does not exist at plan time, so running the command cannot observe the asserted redness. `vitest list` executes COLLECTION, not tests: it answers "can this command's file selection EVER see the named suite", which is answerable today. The red command itself is still never run for an authored marker, and the spawn set is asserted, not promised.
+
+**The accept-set is small on purpose, and stays small.** A command qualifies only under a declared token grammar ANCHORED at the command start; a `vitest run` appearing mid-command (under a `pnpm heavy` wrapper, say) does not qualify, and probing it would itself be a heavy phase. A command carrying any control or substitution token is DECLINED with a surfaced advisory rather than probed, because the derived probe runs through `sh -c` and would launch the trailing clauses verbatim — for an authored marker, exactly the never-run violation the fence forbids. Quotes are deliberately not parsed there, so a quoted operator over-declines. A declined entry carries no probe text AT ALL, which makes the guarantee structural rather than a promise.
+
+**Calibration.** Over the normative probe population of the merged plan corpus: zero probe errors, zero empty collections, zero tracked file-args missing from their collected set — so the arm's hard codes fire on zero corpus markers today and every §2.3 defect shape is a constructed positive.
+
+**Enforcement.** `lib/specLint/redContract.ts` scored 241/241 with an empty unaccepted-survivor set against its 0.95 floor. The first scoped run failed honestly at 0.9336 with 16 unaccepted survivors; every one was repaid with an assertion and none was blessed. Thirteen sat in the two functions the ADAPTER consults before spawning anything, whose only coverage lived in a suite outside this surface's registered `suitePaths` — tests that ran, passed, and bought nothing.
+
+**Spec:** `docs/superpowers/specs/2026-08-17-spec-lint-red-verdict-capability.md` (spec-APPROVED r4, zero findings). **Plan:** `docs/superpowers/plans/2026-08-17-red-verdict-capability.md` (plan-APPROVED r4, zero findings). **Round corpus:** `docs/review-rounds/fix/red-contract-shape-execution/`.
+
+**The original filing, preserved.**
+
+**BL-PLANLINT-RED-CLAIM-EXECUTION — a plan's declared red is executed, not just parsed**
+
+**Filed:** 2026-08-16, from
+`docs/review-rounds/fix/server-action-origin-sweep/119895a7c756.md` (plan §, Mechanizable arm 2) ·
+**Severity:** medium · **Class:** plan-lint arm (sibling of the resolved
+`BL-SPECLINT-RED-EXECUTABILITY-ARM`, which shipped the DECLARATION and stopped there) ·
+**Effort:** M
+
+The `red-contract` arm parses every task marker and validates the `red-target` citation's grammar;
+what it never does is EXECUTE the claim. An arm that ran `vitest list` on each `red=` command and
+asserted the declared `red-target`'s file appears in the collected set would settle a whole family
+of plan defects mechanically — a `red=` that collects nothing, a declared RED that is a PASS, a RED
+cause that is vacuous over an empty array, a whole-suite green asserted on a branch where a guard is
+red by design.
+
+**Reachability:** PROBED in the originating filing — five findings across four plan rounds of one
+arc, each one a pass/fail state the branch could not produce, and each found by the reviewer running
+the declared command by hand. The collection case (R3 #1) is the sharpest: the declared `red=`
+command could not collect its own `red-target`, because that file lives only in a vitest project
+gated behind `VITEST_INCLUDE_MUTATION_HARNESS=1`. Filed under class-sweep exception (c): a lint
+surface of its own, in a tree this arc does not otherwise touch.
+
+## BL-MODAL-WAIT-SKELETON-TOLERANT-SITES — two e2e waits the boundary helper cannot harden, because the Suspense skeleton wins the race — CLOSED 2026-08-18 (`fix/modal-wait-skeleton-tolerant`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-18 · **Effort (as shipped):** M · **Filed:** 2026-08-16 (`test/modal-wait-helper-adoption`, from that arc's spec review round 3) · **Reachability:** PROBED at filing (shared-testid mechanism read from source) and again at design time (frame-timing probes, spec §2.2 and §2.3).
+
+**Resolution.** The helper gained a frame-REPORTING core rather than the `readySelector` option the parent arc removed. `awaitReviewFrameOrRecover` races `LOADED_REVIEW_MODAL` | `SKELETON_REVIEW_MODAL` | the admin error boundary on one `.or(…).first().waitFor`, checks LOADED before skeleton so the streaming swap cannot report a lie, recovers once from a boundary exactly as the loaded core does, and returns `{ frame, locator }` so the caller never re-derives which frame it got. `openShowReviewFrameAt` is the URL entry over it. Both selectors are module-owned; no caller can substitute one, which is what makes this different from the option §2.5 declined.
+
+**The race alone could not reach the fault, and that is why the watchdog exists.** The measured 502-class failure manifests as the boundary REPLACING the skeleton when the loader's rejection streams — typically AFTER a first-match race has already returned. So a skeleton return arms a fire-and-forget `waitFor` on the boundary that pushes an `infra-recovery` annotation naming the fault and the `show_review_snapshot_failed` grep target. It never recovers (the recovery bound stays ONE by construction — the calling test is mid-action) and never throws: both promise arms are swallowed, so a rejection after page close cannot surface as an unhandled rejection. It reuses the shipped annotation type, so `scripts/lib/infraRecoveryAnnotations.mjs` carries it with zero plumbing.
+
+**Both sites adopted, each keeping what it proves.** The deeplink Esc-during-load case navigates through `openShowReviewFrameAt` and its `modal-wait-exempt` marker is gone; its subject is still "whichever frame is up" and its downstream assertions are byte-unchanged. The realtime aborted-close reopen waits through `awaitReviewModalOrRecover` — the close never commits, so the retained tree carries its title and satisfies the loaded selector in the same paint (probe: `loadedAt == anyAt`, 4/4). A skeleton there means the fresh-mount path, which the case's own `sinceArm` premise now reds by design instead of passing vacuously. That case's stale rationale comment is rewritten: the 3.9s-of-a-1600ms-budget figure belongs to the reopen spec's 2500ms throttle, as its own drive comment records, not to this case's 200ms one.
+
+**The census learned the frame vocabulary in the same commits.** `HELPER_CALL` and `callsHelper` gained the new entry points, `f/member-shape-U-frame` claims the deeplink site, `d/skeleton-tolerant-click` retired with the exclusion it existed for, `d/member-row-activation` dropped its `!/noWaitAfter/` arm and absorbed the re-click (8 → 9), and `N_WAIT_SITES` gained its 13th row. The pinned exemption inventory drops to one entry. The adopted-site arithmetic now DERIVES its sum over every origin-(f) member rule instead of a fixed three-id list — a spec-review finding with a probe behind it: the naive literal update reads 52 whether or not the new rule exists, so the test would have passed while silently excluding it.
+
+**What guards it.** Both census surfaces re-scored in the same commits as their source edits: `modal-wait-helper-scan` 95/97 (0.9794) with survivors exactly its two standing accepted-equivalent rows and both siteIds verified live rather than stale; `modal-wait-disposition` 66/66 (1.0000) with no survivors at all — 68 sites before, 66 after, because retiring a rule removed its two. The new frame core is covered by a sibling unit suite (13 cases) whose watchdog assertions use EXACT selector equality, never containment: the race's own `.or` chain contains the boundary selector as a substring, so an includes-filter passes against a build with no watchdog at all. The loaded-return and both-frames-visible cases carry the converse zero-arm assertion.
+
+**The helper module itself is deliberately NOT enrolled, with the measurement that says why.** Re-probed at branch head after the round-1 classifier rewrite moved the population from 27 sites to 35: 26 of 35 killed (0.7429) against a 0.95 floor. Eight of the nine survivors sit in the recovery and watchdog branches behind the lazy `@playwright/test` dynamic import, which vitest cannot execute at all — six statements plus the two post-recovery comparisons that only run after them — and the ninth is a type position (`Parameters<Page["goto"]>[1]`). Two mutants across the two probes were real gaps and were REPAID rather than blessed: `timeoutMs > 0` mutated to `> 1`, so the normalization case now pins the boundary from the passing side; and the removal of `observed = await classify()` after the bounded re-race, which left the helper starving while the modal was on screen, so the reappearing-frame case pins it. The reachable ceiling is 26/35, so enrolment would mean an untrustworthy floor or nine blessed rows; the disposition is recorded as a dated comment at the registry insertion point instead. Re-open condition: the recovery branches becoming executable under vitest.
+
+**Verified live**, prod-build harness, `--repeat-each=3`: the deeplink case 3 passed, the realtime case 3 passed. The realtime baseline on the same harness BEFORE adoption failed rep 1 on the known cold-start signature (`post-mutation invalidation frame (phase i)`, spec §2.3) and passed reps 2-3, so that flake predates this change and is not its residue.
+
+**Spec:** `docs/superpowers/specs/ci/2026-08-17-modal-wait-skeleton-tolerant-sites-design.md` (spec-APPROVED r2). **Plan:** `docs/superpowers/plans/ci/2026-08-17-modal-wait-skeleton-tolerant-sites.md` (plan-APPROVED r4). **Round corpus:** `docs/review-rounds/fix/modal-wait-skeleton-tolerant/`.
+
+## BL-TIMING-SCAN-VALUATION-VS-REASSIGNMENT — DEMOTED TO A DOCUMENTED LIMIT 2026-08-18
+
+Not resolved and not stale: **demoted** by the 2026-08-04 ledger filing bar (AGENTS.md
+"Ledger filing bar (2026-08-04)"; procedure `docs/superpowers/specs/2026-08-04-backlog-convergence-design.md` §2).
+Probe-backed but CONSTRUCTED (P9), with **zero live instances** on the tree at filing by the entry's own
+sweep — the PSQL-GUARD-RECALL-RESIDUAL shape: a demonstrated gap whose worst case on THIS tree is nothing
+at all. The limit is already ratified in the owning spec,
+`docs/superpowers/specs/ci/2026-08-16-timing-scan-binding-resolution-design.md` §4 item 7, which carries the
+full mechanism, the P9 probe pointer, and this id; probe record
+`docs/superpowers/specs/ci/probes/2026-08-16-timing-scan-binding-probes.md` §P9.
+
+**Un-defer path:** a live `let` timing binding reassigned after declaration appearing on the tree promotes
+this back to a row — re-file from the spec's §4 item 7 record, carrying the promotion scope below
+("treat a post-declaration-assigned binding as `unclassified`, or annotate the row as an initial value";
+either way a valuation decision wanting its own probe of live `let` timing bindings).
+
+screen-disposition 2026-08-18 (demotion sweep, `docs/ledger-demotion-sweep`): DEMOTE — constructed probe,
+zero live instances, limit already ratified in the owning spec; the record belongs there, not the open queue.
+
+The original entry follows verbatim, with its in-flight status marker removed on archiving per
+invariant 12 — archives categorically reject in-progress work (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
+
+**BL-TIMING-SCAN-VALUATION-VS-REASSIGNMENT — a reassigned `let` is inventoried at its initializer**
+
+**Filed:** 2026-08-16 (`fix/timing-scan-scope-resolution`, spec authoring, probe P9). **Effort:** S. **Class-sweep exception:** (c) — the valuation axis is a different surface from the resolution step that arc rewrites, and widening into it mid-arc is the recognizer ratchet the round-economy rules forbid. **Reachability: PROBED** (constructed); **zero live instances** on the tree at filing.
+
+`scripts/scan-interaction-timings.ts` values a `named-constant` by its INITIALIZER. A `let RETRY_MS = 100` that `init()` later reassigns from config is therefore a §5.5 row reading 100, and a `setTimeout(fn, RETRY_MS)` resolves to it and suppresses. The resolution is right — it IS that binding — but the number a reader sees is the one the source states at declaration, not the one the timer uses.
+
+This is the one shape where a CORRECT resolution still yields a row someone could act on wrongly; everywhere else the scanner's failure direction is a surfaced `unclassified`. Probe and the zero-instance sweep: `docs/superpowers/specs/ci/probes/2026-08-16-timing-scan-binding-probes.md` §P9. Documented limit: the 2026-08-16 binding-resolution spec §4 item 7.
+
+**Scope if promoted:** treat a binding that is assigned anywhere after its declaration as `unclassified` rather than a valued constant (the checker already knows the write sites), or keep the row and annotate it as an initial value. Either way it is a valuation decision, not a resolution one, and it wants its own probe of how many live `let` timing bindings exist when it is scheduled.
+
+## BL-APP-EVENTS-DEBUG-LEVEL-CHECK-MISMATCH — DEMOTED TO A DOCUMENTED LIMIT 2026-08-18
+
+Not resolved and not stale: **demoted** by the 2026-08-04 ledger filing bar. The `LogLevel` type admits
+`"debug"` (`lib/log/types.ts:2`) while the `app_events` CHECK stores only `info|warn|error`
+(`supabase/migrations/20260629000002_app_events.sql:4`) — real, but **no producer emits a debug-level
+persist**, and the worst case is conservative-plus-surfaced by construction: the CHECK rejection is recorded
+for `/api/health` and written to console by `persistAppEvent`'s invariant-9 contract; the row just never
+lands. A hypothetical whose worst case is conservative behavior plus a surfaced signal is a documented
+limit, not open-queue work.
+
+**The substance moved, it was not deleted.** The limit now lives in the "Documented limit" block in the
+sink's own file, `lib/log/persist.ts` (precedent: the scan.ts limits block from PSQL-GUARD-RECALL-RESIDUAL),
+carrying the which-side-moves product decision and the re-file trigger verbatim: the first `debug`-level
+`log.*` producer landing on the tree re-files this from that block, and the decision (widen the CHECK vs
+narrow `LogLevel`) is made then, by that arc.
+
+screen-disposition 2026-08-18 (demotion sweep, `docs/ledger-demotion-sweep`): DEMOTE — no live producer,
+CHECK rejection surfaced via health fault + console; record moved to the sink's limits block.
+
+The original entry follows verbatim, with its in-flight status marker removed on archiving per
+invariant 12 — archives categorically reject in-progress work (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
+
+**BL-APP-EVENTS-DEBUG-LEVEL-CHECK-MISMATCH — a debug-level log can never persist, and the rejection is silent**
+
+**Severity:** LOW · **Class:** OBSERVABILITY · **Effort:** S · **Filed:** 2026-08-15 (`feat/admin-ui-surfaces`, from the `BL-OPS-LOG-DASHBOARD-BANNER` audit)
+
+`LogLevel` includes `"debug"` (`lib/log/types.ts:2`), but the `app_events` CHECK accepts only three values:
+
+```sql
+level         text not null check (level in ('info','warn','error')),
+```
+
+(`supabase/migrations/20260629000002_app_events.sql:4`.) So a `debug`-level persist is CHECK-rejected by Postgres, and `persistAppEvent` swallows the returned error by contract — it records the fault for `/api/health` and writes to console, never throwing over the caller (`lib/log/persist.ts:12-40`, invariant 9). The row simply never lands.
+
+**Reachability:** the type admits the value at every `log.*` call site, so nothing but convention stops a `debug` emit; no current producer uses one (which is why this is LOW, not MEDIUM).
+
+**The decision this needs, and why it was filed rather than fixed:** which side moves. Widen the CHECK to accept `debug` (and accept that the forensic log gains a chatty tier with a 60-day retention window), or narrow `LogLevel` to the three values the sink actually stores (and give `debug` callers a console-only path that is honest about not persisting). That is a product decision about what the run log is for, not a repair — class-sweep disposition exception (a).
+
+## BL-PREMISESCAN-UNPARSEABLE-MODULE-UNREACHABLE — DEMOTED TO A DOCUMENTED LIMIT 2026-08-18
+
+Not resolved and not stale: **demoted** by the 2026-08-04 ledger filing bar. The
+`unresolved.push("unparseable in-repo module")` branch is dead code, probed three ways, and the repair is
+FORBIDDEN by the owning spec's own ratified scope — recognizer growth over `sf.parseDiagnostics` on an axis
+with zero measured instances is the widening direction
+`docs/superpowers/specs/ci/2026-08-16-premisescan-import-edge-fidelity-design.md` §1.2(e) forbids. A row
+whose only scheduled step is a fix its owning spec prohibits is not schedulable work; it is that spec's
+already-ratified limit, recorded at §3.8 (the three-way probe) and §4 limit 8 (the disposition, AC-8a
+standing at 3 of 4, stated rather than overclaimed).
+
+**Un-defer path unchanged:** a fifth-family proposal over `sf.parseDiagnostics` is a canonical-spec change
+with its own probe (§1.2(e), §4 limit 8) — re-file from there if a live unparseable-module instance ever
+appears.
+
+screen-disposition 2026-08-18 (demotion sweep, `docs/ledger-demotion-sweep`): DEMOTE — dead branch, fix
+forbidden by ratified scope, limit fully recorded in the owning spec's §3.8 and §4 limit 8.
+
+The original entry follows verbatim, with its in-flight status marker removed on archiving per
+invariant 12 — archives categorically reject in-progress work (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
+
+**BL-PREMISESCAN-UNPARSEABLE-MODULE-UNREACHABLE — canonical unclassifiable form 4 is dead code and this arc does not make it live**
+
+**Severity:** LOW · **Class:** guard fidelity · **Filed:** 2026-08-16 (`fix/premisescan-import-edges`, spec §3.8) · **Effort:** S
+
+`premiseScan`'s `unresolved.push("unparseable in-repo module")` site is unreachable. **Probed three ways:** `moduleFacts` returns `null` if and only if `!existsSync(path)`; `resolveSpecifier` returns only candidates for which `existsSync` was already true, so that branch cannot fire through the traversal at all; and `ts.createSourceFile` is error-tolerant, parsing `export function spawnHelper(: string { return` to a `SourceFile` carrying a `FunctionDeclaration` without throwing or returning null. The fixture classifies `environment-free`.
+
+Closing it means a new detection rule over `sf.parseDiagnostics` — recognizer growth on an axis with **zero** measured instances, which the owning spec's §1.2(e) forbids. Deferred under class-sweep exception (c): a new detection rule on a surface the arc does not otherwise touch. Canonical AC-8a therefore stands at 3 of 4 after `BL-PREMISESCAN-IMPORT-EDGE-FIDELITY`, stated rather than overclaimed.
+
+## BL-NEARMISS-EQUAL-SIZE-TOKEN-SUBSET — DEMOTED TO A DOCUMENTED LIMIT 2026-08-18
+
+Not resolved and not stale: **demoted** by the 2026-08-04 ledger filing bar. Probe-backed (the `>` to `>=`
+mutant survives the suite) but **reachability probed as ZERO on the corpus** by the entry's own sweep —
+every live type-(b) match across all 20 fixtures is a STRICT subset — and the worst case is conservative:
+one near-miss hint going unreported, never a wrong autocorrect. The PSQL-GUARD-RECALL-RESIDUAL shape again:
+a demonstrated gap inert on this tree.
+
+**The substance moved, it was not deleted.** The durable record is the `accepted-gap` registry row on the
+`fieldNearMiss` surface (`tests/mutation/source/registry.ts`, siteId `relational-boundary:156:27:>>>=`),
+which carries the full argument and keeps this id as its `ref` — resolvable from this archive exactly as
+`BL-MUTATION-SECTION-ORDER`'s operator rows are (that entry's own precedent). The expected-kinds count
+(`tests/mutation/source/expectedLedgerKinds.ts`, `fieldNearMiss: { "accepted-gap": 1 }`) pins that the row
+stays carried, not silently blessed.
+
+**Un-defer path:** a real reordered-label instance in a future sheet promotes this from a boundary question
+to an ordinary near-miss — re-file from the registry row, carrying the entry's design question (equal-size
+set equality: type-(a) arm keyed on token set vs type-(b) hit) as the first step.
+
+screen-disposition 2026-08-18 (demotion sweep, `docs/ledger-demotion-sweep`): DEMOTE — zero corpus
+reachability, conservative failure direction, registry accepted-gap row is the durable record.
+
+The original entry follows verbatim, with its in-flight status marker removed on archiving per
+invariant 12 — archives categorically reject in-progress work (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
+
+**BL-NEARMISS-EQUAL-SIZE-TOKEN-SUBSET — the detector's type-(b) subset test is undecided at equal size, and no corpus row reaches it**
+
+**Filed:** 2026-08-16 (`feat/mutation-section-order`, from the `fieldNearMiss` source-mutation gate's accepted-gap row) · **Severity:** LOW (a demote, not a corruption: the worst case is one near-miss going unreported, never a wrong autocorrect) · **Class:** parser signal reachability · **Effort:** S
+
+**Probed, not theorized.** `matchVocabulary`'s type-(b) arm skips a vocabulary entry when `candTokens.size > entry.tokens.size` (`lib/parser/fieldNearMiss.ts:156`), admitting subsets of equal or smaller size. Widening that to `>=` — rejecting equal size too — survives the suite, because no case exercises the equal-size boundary. A subset of EQUAL size is set equality, which reaches type (b) only when the two normalized forms differ: a reordered or re-punctuated spelling of the same tokens, which type (a)'s insertion-order equality scan misses.
+
+**Reachability: PROBED as ZERO on the corpus.** Every col0 label in all 20 fixtures under `fixtures/shows/raw` and `fixtures/shows/exporter-xlsx` was matched against the live vocabulary: no label produces a type-(b) hit whose token-set size equals its entry's. Every live type-(b) match is a STRICT subset, so the boundary is undecided by the shipped inputs rather than decided wrongly.
+
+**Why it is a row and not a kill.** The killing input is a label the corpus does not contain, and `tests/parser/fieldNearMiss.test.ts`'s header forbids hand-written rows precisely because one can be tuned until it passes — so the gap is ledgered as `accepted-gap` with this ref rather than closed with a fixture that proves nothing about real sheets. **First scheduled step:** decide whether an equal-size token match SHOULD be a type-(b) hit at all (it is set equality, so arguably it belongs in the type-(a) arm keyed on the token set rather than the normalized string), then pin whichever direction is chosen. A real reordered-label instance appearing in a future sheet promotes this from a boundary question to an ordinary near-miss.
+
+## BL-SHELL-BINDING-MIXED-QUOTED-VALUE — an assignment whose value mixes a quoted segment with a bare one is not read as a binding — CLOSED 2026-08-17 (`fix/shell-binding-mixed-quoted-value`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-17 · **Effort (as shipped):** M · **Filed:** 2026-08-16 (`test/psql-scan-mutation-enrolment`, from the mutation-enrolment disposition of `relational-boundary:2167:54`; corrected the same day after cross-model review r2) · **Reachability:** PROBED at filing (six-row instrument against bash) and again at design time (probe record, instruments 1–2 plus three round supplements).
+
+**Resolution.** The assignment family reads LEXED WORDS. `assignmentBindingLines` (`tests/cross-cutting/psqlStartupFiles/scan.ts`) derives binding line indexes from the words `scanShellIndirection` already computes, and `ASSIGNED_VALUE_QUOTED`, `ASSIGNED_WHOLE_QUOTED`, `ASSIGNED_NAME`, `DECLARE_KEYWORD`, `quotedValue` and `boundCommand` are deleted — not widened. The declaration keywords needed no grammar at all: `export`, `readonly`, `declare -x`, `local` and `typeset` are SEPARATE words, and whole-argument quoting dequotes to the same candidate word, so the alternation the entry was filed against had nothing left to express. `PSQL_VALUE` and `READ_HERE_STRING` stay, because a here-string TARGET is a redirection operand the lexer drops before words exist.
+
+**The repair had to fix the lexer first, and that is the half the entry did not predict.** Words can only carry the shell's reading if the lexer produces it, and the round-1 adversarial pass demonstrated the dangling-EOF backslash was not its only escape infidelity. Four fixes ship as one class, each implementing a documented bash rule: a dangling final backslash is literal; a double-quote backslash-newline pair is removed outright; a double-quote backslash is literal except before `$`, `` ` ``, `"`, `\`; and `$'…'` decodes the ANSI-C table (an unterminated string keeps the old undecoded reading, since a shell syntax error runs nothing). The entry's own trailing-backslash zeros then fall out of shell semantics instead of a pattern accident — which is what makes them a contract rather than a snapshot.
+
+**Both directions closed.** Eighteen single-word recall rows and five multiword rows report where they were silent; three precision rows — `PG=psql\`, `PG=psql\\`, `PG='psql\'` — stop reporting, because a value whose expansion ends in a literal backslash has an empty basename and is never the psql command. The entry's own corrected non-instances (`PG='psql'x`, `PG='psql'\`) stay zero, as does the pinned prose fixture: the multiword flag criterion is deliberately unchanged, since it is the line between a command binding and prose.
+
+**Two behaviours moved under probe during implementation, in opposite directions from the plan.** `alias p'sql'='psql -F'` was planned as a declared miss and REPORTS — an alias definition is an assignment-SHAPED word, so it dequotes to the candidate `psql=psql -F` and the assignment route reads it; the residual limit is narrower than the plan's version and is pinned as such (only an alias whose body binds another program escapes). And a YAML block scalar is DEDENTED before the shell sees it while the walk hands `scanShellIndirection` the raw file, so the retired `spliced` view's leading-whitespace strip was silently carrying the wrapped-path binding inside a `run:` body; that strip is kept, narrowed to YAML extensions where it is the document's own semantics, with a `.sh` continuation keeping the whitespace bash keeps. Both directions pinned.
+
+**A documented limit closed as a by-product.** Fix 3 keeps the literal backslash inside double quotes, so `"C:\pg\bin\psql.exe"` is the real Windows path and `basename` — which has split on backslash since R40 — finds it. The R40-era residual-limits item 3 is retired and its KNOWN-miss pin is now a site pin.
+
+**Filed rather than repaired, each naming its class-sweep exception (c):** `BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE` (routing the here-string value through the lexer requires retaining redirection TARGETS, with ripple into every redirection consumer) and `BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE` (operand-internal quoting requires operand-aware expansion parsing, a redesign of the deliberate keep-`${…}`-verbatim contract). The `aliased`/`functionDef`/interpreter-positional spellings are documented limits rather than ledger rows — inside the threat fence, nobody spells `alias p'sql'=` by accident, and the corpus holds zero instances.
+
+**Whole-diff review found the repair's own class TWICE, and both are recorded because both were REGRESSIONS rather than pre-existing gaps.** Routing bindings through lexed words means a value the LEXER splits is a value the rule stops seeing, and the retired line-text patterns read both of these by accident. Round 1: a COMPOUND ARRAY value (`PG=(psql)`, `PG=([0]=psql)`, `declare -a`/`-A`, `+=`) — probed base-versus-HEAD at 1 → 0 across the vector. `(` is the only member of `OPERATOR_STARTS` that can appear INSIDE an assignment value, so `compoundArrayBinds` walks the element words to the closing paren and hands each back to the same `valueBinds` predicate; an unterminated list is a bash syntax error and binds nothing. Round 2: an assignment inside a `$(…)`/backtick/process-substitution BODY, invisible because the outer lex replaces the body with the opaque `${}` word — and this one's direction was a FALSE CERTIFICATION, not a miss, since a body carrying both the binding and a literal `psql -X` certified on the literal call while bash runs the expanded invocation first. Both sweeps ship as derivations rather than lists: the operator one ranges over `OPERATOR_STARTS` itself, and the nesting one is one consumer by construction, because the line-text rules read raw lines that already carry the body's characters.
+
+**The repair also had to stop throwing.** Round 1's second finding: `String.fromCodePoint` rejects a code point above the Unicode maximum, which bash accepts, so `$'\U00110000'` aborted the whole walk before it could inspect anything after it — strictly worse than any miss. Swept to both sites that hand file-derived hex to it (the ANSI-C escape and the template-literal line map), and both bounds are pinned from BOTH sides: at the maximum they must still decode, above it they keep the raw reading. The template-literal twin needed its own oracle — that guard sits in the per-character LINE MAP, so neither the site count nor the suppression verdict can see it move, and the assertion is the reported line.
+
+**What guards it.** The surface stays enrolled at `scoreFloor: 1` with an empty unaccepted-survivor set, re-measured over the post-repair source three times as the review repairs moved every site: 63 mutants, 39/39 counted, 24 equivalent, no accepted gap. Six of the survivors those re-measures surfaced were REPAID with tests and four are argued equivalences, one of which is a disposition change — `relational-boundary:2511:54`, whose killing test ran through a consumer this arc deleted, argued against the two consumers that remain rather than restored as a gap. The deciding suite gained an accept-set block pinning every recall and precision row, the site-path ripples, and a documented-limits block whose every row carries an executable premise.
+
+**Spec:** `docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md` (spec-APPROVED r3). **Plan:** `docs/superpowers/plans/2026-08-17-shell-binding-mixed-quoted-value.md` (plan-APPROVED r7, after an orchestrator disposition at r6 narrowed the word-split reading's claim to argv[0]-psql command lines and declared the wrapper-prefixed value a limit, fenced in both directions). **Round corpus:** `docs/review-rounds/fix/shell-binding-mixed-quoted-value/`.
+
 ## BL-MODAL-WAIT-LINE-GRANULARITY-ACTIVATION — the modal-wait census classified one PHYSICAL LINE — CLOSED 2026-08-17 (`fix/modal-wait-candidate-contract`, SHIPPED)
 
 **Status:** SHIPPED 2026-08-17 · **Effort (as shipped):** M · **Filed:** 2026-08-16 (`test/modal-wait-helper-adoption`, diff review round 10 plus a sibling probe)

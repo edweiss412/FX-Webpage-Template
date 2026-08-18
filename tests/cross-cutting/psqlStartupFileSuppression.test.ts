@@ -43,6 +43,7 @@ import { stripCommentsForFile } from "../_shared/stripComments";
 
 import {
   EXEMPTION_MARKER,
+  OPERATOR_STARTS,
   analyzeNaming,
   scanShellIndirection,
   argvSuppressesStartupFiles,
@@ -4168,13 +4169,18 @@ describe("R40 — hypothetical gaps closed cheaply; the rest are documented limi
     expect(sitesIn("C:\\pg\\bin\\psql.exe -qAt mydb\n", "x.sh")).toEqual([]);
   });
 
-  // The QUOTED form is a documented limit, pinned here so the limit is a fact
-  // rather than a claim: inside double quotes bash keeps a backslash that
-  // precedes an ordinary character, so the word really is the Windows path —
-  // but this lexer strips it. Recorded in the scan.ts residual-limits list and
-  // in DEFERRED.md; no such path exists in this tree, which is Linux-only.
-  test("a QUOTED backslash path in shell text is a KNOWN miss", () => {
-    expect(sitesIn('"C:\\pg\\bin\\psql.exe" -qAt mydb\n', "x.sh")).toEqual([]);
+  // The QUOTED form used to be a documented limit: inside double quotes bash
+  // keeps a backslash that precedes an ordinary character, so the word really
+  // is the Windows path — and this lexer stripped it. The 2026-08-17
+  // escape-fidelity fix (spec §3.2 fix 3) keeps the backslash, so the word IS
+  // the Windows path and `basename` — which has split on backslash since
+  // R40 — finds `psql.exe`. The R40-era miss is CLOSED; scan.ts
+  // residual-limits item 3 records the closure. (The old comment pointed at
+  // DEFERRED.md, where the entry no longer lives: it was demoted into the
+  // scan.ts documented-limits block on 2026-08-04, and its archive record is
+  // `PSQL-GUARD-RECALL-RESIDUAL` in DEFERRED-archive.md.)
+  test("a QUOTED backslash path in shell text is read, as of the 2026-08-17 escape-fidelity fix", () => {
+    expect(sitesIn('"C:\\pg\\bin\\psql.exe" -qAt mydb\n', "x.sh")).toHaveLength(1);
   });
 
   // The workflow BINDING tripwire stayed case-sensitive after the R39 pass made
@@ -4243,7 +4249,7 @@ describe("R40 — hypothetical gaps closed cheaply; the rest are documented limi
  * the ORIGINAL behaviour the equivalence argument rests on.
  */
 describe("enrolment survivors - batch A", () => {
-  // Kills relational-boundary:528:47 (`token.length > 1` mutated to `>= 1`).
+  // Kills relational-boundary:598:47 (`token.length > 1` mutated to `>= 1`).
   // A bare `-` is not a flag cluster. getopt(3) and psql alike read it as a
   // NON-OPTION argument, so it is the DBNAME positional and option parsing
   // stops there — the `-X` after it is never reached. Under the mutant `-`
@@ -4255,7 +4261,7 @@ describe("enrolment survivors - batch A", () => {
     expect(argvSuppressesStartupFiles(["-X", "-"])).toBe(true);
   });
 
-  // Kills relational-boundary:586:35 (`l < to.line` mutated to `l <= to.line`).
+  // Kills relational-boundary:656:35 (`l < to.line` mutated to `l <= to.line`).
   // The closing line of a block comment is comment-qualified only up to the
   // `*/`; everything after it is ordinary code. A marker sitting in STRING DATA
   // after the terminator is not in a comment and grants nothing. The mutant
@@ -4278,7 +4284,7 @@ describe("enrolment survivors - batch A", () => {
     expect(sites[0]!.exemptReason).toBeNull();
   });
 
-  // Kills relational-boundary:695:69 (`at >= from` mutated to `at > from`).
+  // Kills relational-boundary:765:69 (`at >= from` mutated to `at > from`).
   // A middle line of a multi-line comment is comment-qualified from column 0,
   // so a marker written flush-left on that line IS inside the comment. The
   // mutant excludes exactly the column-0 case and loses the exemption.
@@ -4306,7 +4312,7 @@ describe("enrolment survivors - batch A", () => {
    */
   const CR = String.fromCharCode(13);
 
-  // Kills relational-boundary:586:50 (`l < out.length` mutated to `<=`).
+  // Kills relational-boundary:656:50 (`l < out.length` mutated to `<=`).
   // to.line is 2 and the per-line array holds 1 entry, so the mutant's extra
   // iteration writes past the end and the scan throws instead of reporting.
   test("a CR-delimited block comment spanning past the line array still reports its site", () => {
@@ -4317,7 +4323,7 @@ describe("enrolment survivors - batch A", () => {
     expect(sites[0]!.exemptReason).toBeNull();
   });
 
-  // Kills relational-boundary:587:17 (`to.line < out.length` mutated to `<=`).
+  // Kills relational-boundary:657:17 (`to.line < out.length` mutated to `<=`).
   // Same shape one line shorter: to.line is 1 and the array holds 1 entry, so
   // the closing-line write is the one that goes out of bounds.
   test("a CR-delimited block comment closing past the line array still reports its site", () => {
@@ -4328,7 +4334,7 @@ describe("enrolment survivors - batch A", () => {
     expect(sites[0]!.exemptReason).toBeNull();
   });
 
-  // Boundary pin for the relational-boundary:695:83 equivalence row
+  // Boundary pin for the relational-boundary:765:83 equivalence row
   // (`at < to` mutated to `at <= to`). The marker starts at exactly the column
   // the comment ends at, which is the only column the widened bound admits.
   // The original reports no exemption because the marker is not contained; the
@@ -4346,7 +4352,7 @@ describe("enrolment survivors - batch A", () => {
     expect(sites[0]!.exemptReason).toBeNull();
   });
 
-  // Boundary pin for the relational-boundary:635:23 equivalence row
+  // Boundary pin for the relational-boundary:705:23 equivalence row
   // (`i < line.length` mutated to `<=`). The argument is that the extra
   // iteration reads `undefined` and changes nothing; its premise is that the
   // loop already covers index `line.length - 1`. Here the closing quote IS the
@@ -4365,7 +4371,7 @@ describe("enrolment survivors - batch A", () => {
     expect(sites[0]!.exemptReason).toBe("throwaway container, no HOME");
   });
 
-  // Boundary pin for the relational-boundary:761:25 equivalence row
+  // Boundary pin for the relational-boundary:831:25 equivalence row
   // (`i < text.length` mutated to `<=`). Same shape: the extra iteration reads
   // `undefined` and matches no branch. Its premise is that an UNCLOSED
   // substitution consumes the text to its final character — the fallback
@@ -4385,7 +4391,7 @@ describe("enrolment survivors - batch A", () => {
  * boundary pins their arguments rest on.
  */
 describe("enrolment survivors - batch B", () => {
-  // Kills relational-boundary:1214:26 (`command.length > 0` mutated to `>= 0`
+  // Kills relational-boundary:1402:26 (`command.length > 0` mutated to `>= 0`
   // in the pipeline splitter). A newline after `|` continues the pipeline —
   // POSIX shell grammar allows linebreaks after `|`, so this is one pipeline
   // whose second stage is a bare `bash`, and the printf argument IS the script
@@ -4400,7 +4406,7 @@ describe("enrolment survivors - batch B", () => {
     expect(sites[0]!.suppressesStartupFiles).toBe(false);
   });
 
-  // Boundary pin for the relational-boundary:1223:22 equivalence row
+  // Boundary pin for the relational-boundary:1411:22 equivalence row
   // (`command.length > 0` mutated to `>= 0` in the trailing flush). The mutant
   // can only APPEND an empty command, never insert one, so the pin is that a
   // text ending in an operator still reports the command before it.
@@ -4410,7 +4416,7 @@ describe("enrolment survivors - batch B", () => {
     expect(sites[0]!.suppressesStartupFiles).toBe(false);
   });
 
-  // Boundary pin for the relational-boundary:1304:30 equivalence row
+  // Boundary pin for the relational-boundary:1492:30 equivalence row
   // (`remaining.length > 0` mutated to `>= 0`). `ssh host` with no remote
   // command leaves the joined-argument list empty — the reachable input the
   // guard exists for. Nothing is scanned and no site is reported.
@@ -4422,7 +4428,7 @@ describe("enrolment survivors - batch B", () => {
     expect(sitesIn("ssh database psql -qAt mydb\n", "x.sh")).toHaveLength(1);
   });
 
-  // Boundary pin for the relational-boundary:1314:19 equivalence row
+  // Boundary pin for the relational-boundary:1502:19 equivalence row
   // (`k > 0` mutated to `k >= 0` in the joined-string builder). The mutant
   // prepends one separator to the joined string AND one entry to each parallel
   // offset/line array, so every index shifts by exactly one and the mapping is
@@ -4436,7 +4442,7 @@ describe("enrolment survivors - batch B", () => {
     expect(sites[0]!.suppressesStartupFiles).toBe(false);
   });
 
-  // Boundary pin for the relational-boundary:1394:46 equivalence row
+  // Boundary pin for the relational-boundary:1582:46 equivalence row
   // (`candidate.text.length > 2` mutated to `>= 2`). The conjunct that follows
   // it, /^-[a-zA-Z]*S[\s\S]/, already requires a character AFTER the `S`, so a
   // two-character `-S` is rejected either way. Both spellings are pinned: `-S`
@@ -4451,7 +4457,7 @@ describe("enrolment survivors - batch B", () => {
     expect(attached[0]!.suppressesStartupFiles).toBe(false);
   });
 
-  // Boundary pin for the relational-boundary:1568:22 and 1569:26 equivalence
+  // Boundary pin for the relational-boundary:1756:22 and 1757:26 equivalence
   // rows (the opening/closing delimiter bounds in `mapRawToLines`). Both
   // mutants only widen a bound into a raw slice too short to hold a body, where
   // the walk emits nothing either way. The pin is the mapping the bounds serve:
@@ -4472,7 +4478,7 @@ describe("enrolment survivors - batch B", () => {
  * asks `looksLikePsqlCommandLine` whether a JS string literal is a command.
  */
 describe("enrolment survivors - batch C", () => {
-  // Kills regex-quantifier-bound:1797:45 (`-{1,2}` widened to `-{1,3}` in the
+  // Kills regex-quantifier-bound:1991:45 (`-{1,2}` widened to `-{1,3}` in the
   // backtick head check). A backtick span is a markdown code span in prose and
   // a command substitution in code; what separates them is the outer string
   // starting with a bare program name that then takes a FLAG. POSIX and GNU
@@ -4486,7 +4492,7 @@ describe("enrolment survivors - batch C", () => {
     expect(scanBinaryIndirection(real, "x.mjs").length).toBeGreaterThan(0);
   });
 
-  // Kills relational-boundary:1825:26 (`site.tokens.length <= 3` mutated to
+  // Kills relational-boundary:2019:26 (`site.tokens.length <= 3` mutated to
   // `< 3`). `psql -- mydb postgres` is a real, flagless invocation: `--` ends
   // option parsing, so `mydb` is DBNAME and `postgres` is USERNAME, and no
   // startup file is suppressed. It carries exactly three argv tokens, the
@@ -4496,7 +4502,7 @@ describe("enrolment survivors - batch C", () => {
     expect(scanBinaryIndirection(source, "x.mjs").length).toBeGreaterThan(0);
   });
 
-  // Kills relational-boundary:1827:49 (`words <= 8` mutated to `< 8`). With no
+  // Kills relational-boundary:2021:49 (`words <= 8` mutated to `< 8`). With no
   // preceding words the heuristic admits a terse command inside a string of at
   // most eight words. This one is exactly eight, so it must read as a command;
   // the nine-word control must not.
@@ -4508,8 +4514,8 @@ describe("enrolment survivors - batch C", () => {
   });
 
   // Boundary pin for the four index-guard equivalence rows
-  // (relational-boundary:1754:12 and 1755:12 in `isStrongPrefixWord`, and their
-  // twins 1771:16 and 1772:16 in `prefixIsCommandish`). Each widened guard
+  // (relational-boundary:1948:12 and 1949:12 in `isStrongPrefixWord`, and their
+  // twins 1965:16 and 1966:16 in `prefixIsCommandish`). Each widened guard
   // reaches a lookback that is out of range, where `?? ""` yields the empty
   // string, the local `basename("")` yields `""`, and the anchored WRAPPERS
   // alternation matches nothing — the same `false` the short-circuit produced.
@@ -4530,7 +4536,7 @@ describe("enrolment survivors - batch C", () => {
  * the pins below carry the arguments the blessed rows rest on.
  */
 describe("enrolment survivors - batch D", () => {
-  // Kills regex-quantifier-bound:2210:40 (`-{1,2}` widened to `-{1,3}` in the
+  // Kills regex-quantifier-bound:2372:38 (`-{1,2}` widened to `-{1,3}` in the
   // bound-command flag test). A quoted binding is reported only when its value
   // lexes to a psql invocation carrying a FLAG, which is what keeps
   // `MSG="psql failed to connect"` out. POSIX and GNU flags take one or two
@@ -4542,7 +4548,7 @@ describe("enrolment survivors - batch D", () => {
     expect(scanShellIndirection("CMD='psql -x mydb'\n", "x.sh").length).toBeGreaterThan(0);
   });
 
-  // Kills relational-boundary:2788:48 (`scanShellText(...).length > 0` mutated
+  // Kills relational-boundary:3109:48 (`scanShellText(...).length > 0` mutated
   // to `>= 0`, making the test unconditional). A binding key whose value merely
   // CONTAINS the word psql is not a binding: `psql-tuning` is a hyphenated
   // English compound, and the shell reader finds no psql command word in it.
@@ -4563,7 +4569,7 @@ describe("enrolment survivors - batch D", () => {
     expect(scanWorkflowIndirection(bound, "w.yml").length).toBeGreaterThan(0);
   });
 
-  // Boundary pin for the regex-quantifier-bound:2107:21 equivalence row. The
+  // Boundary pin for the regex-quantifier-bound:2423:21 equivalence row. The
   // dash run is followed by `[A-Za-z-]*`, a class that already contains a dash,
   // so `-{1,2}` and `-{1,3}` accept the same language — any leading dash plus
   // any run of letters and dashes. The pin is that consequence: an extra dash
@@ -4576,10 +4582,10 @@ describe("enrolment survivors - batch D", () => {
     expect(scanShellIndirection(three, "x.sh").length).toBeGreaterThan(0);
   });
 
-  // Boundary pin for the relational-boundary:2155:54 equivalence row (the
+  // Boundary pin for the relational-boundary:2499:54 equivalence row (the
   // `logical` continuation join). The widened bound can only add a final
   // iteration that replaces a dangling trailing backslash with a space and
-  // appends nothing, and neither consumer of `logical` can tell those apart.
+  // appends nothing, and the one consumer of `logical` cannot tell those apart.
   // The pin is the join the loop exists for: a quoted binding split across two
   // physical lines by a backslash continuation is ONE assignment.
   test("a quoted binding split by a backslash continuation is one assignment", () => {
@@ -4587,23 +4593,25 @@ describe("enrolment survivors - batch D", () => {
     expect(scanShellIndirection(source, "x.sh").length).toBeGreaterThan(0);
   });
 
-  // Kills relational-boundary:2167:54 (`k + 1 < lines.length` widened to `<=` in
-  // the `spliced` continuation join). Found by cross-model review r2, which
-  // refuted the accepted-gap row this arc first wrote for the site: the arc
-  // argued that every separating input also exercises the assignment patterns'
-  // wholly-quoted-or-wholly-bare limitation, so a case that reds the mutant
-  // would pin THAT gap instead. It does not, because the expected value here is
-  // derived from the shell rather than from what the patterns happen to read.
+  // The shell contract behind the trailing-backslash zeros — ratified in BOTH
+  // directions, so neither side is relitigable.
+  //
+  // This test used to KILL the `spliced` continuation join's widened bound
+  // (relational-boundary:2167:54 then, 2511:54 now), because the assignment
+  // family read `spliced`. It reads LEXED WORDS as of this arc, and the lexer
+  // performs its own splice, so the mutant is no longer observable from here:
+  // the site is dispositioned `equivalent` against the two consumers `spliced`
+  // still has, with the argument on the registry row. The zeros below did not
+  // move — the lexer keeps a dangling final backslash literal for the same shell
+  // reason the join did (spec §3.2 fix 1), which is why the contract survives
+  // the consumer swap intact.
   //
   // A backslash escapes the character that follows it, and at end of input there
   // IS no following character — so it stays literal. `PG='psql'\` with no
   // trailing newline assigns the value `psql\`, which is not the psql command:
-  // nothing is bound and no site is correct. The widened bound takes one more
-  // iteration at `k + 1 === lines.length`, appends the empty string and DELETES
-  // that trailing backslash, leaving `PG='psql'` — so the mutant reports a
-  // binding the shell never makes. A future repair of the quoting limitation has
-  // to keep these zeros for the same reason, which is what makes them a contract
-  // and not a snapshot.
+  // nothing is bound and no site is correct. Any future reader of these lines
+  // has to keep these zeros for the same reason, which is what makes them a
+  // contract and not a snapshot.
   test("a trailing backslash at end of input is literal, so it binds nothing", () => {
     expect(scanShellIndirection("PG='psql'\\", "x.sh")).toHaveLength(0);
     expect(scanShellIndirection("export 'PG=psql'\\", "x.sh")).toHaveLength(0);
@@ -4613,7 +4621,161 @@ describe("enrolment survivors - batch D", () => {
     expect(scanShellIndirection("PG='psql'\n", "x.sh").length).toBeGreaterThan(0);
   });
 
-  // Boundary pin for the relational-boundary:2455:31, 2587:35 and 2697:32
+  // Spec §3.2: the lexer's escape infidelities, repaired as one class. Bash is
+  // the oracle for every row (probe record, round-1 supplement).
+  describe("lexer escape fidelity (spec 3.2)", () => {
+    test("a psql command word glued to a dangling final backslash is not psql", () => {
+      // The zero below is attributable to the backslash, not to a fixture that
+      // never reaches the scanner (tests/_shared/premise.ts contract).
+      premise("the same command WITH a newline is a site", sitesIn("psql\n", "x.sh").length, 0);
+      expect(sitesIn("psql\\", "x.sh")).toHaveLength(0);
+    });
+
+    test("a certified flag glued to a dangling final backslash loses certification", () => {
+      // Bash passes the argument `--no-psqlrc\` (supplement g7), which psql's
+      // exact long-option recognition does not accept. Certifying it was a
+      // false SAFE; the site stays, unsuppressed.
+      const sites = sitesIn("psql --no-psqlrc\\", "x.sh");
+      expect(sites).toHaveLength(1);
+      expect(sites[0]!.suppressesStartupFiles).toBe(false);
+    });
+
+    test('a double-quoted "p\\sql" command word is not psql', () => {
+      // Inside double quotes a backslash is LITERAL except before $ ` " \
+      // (supplement g5: `PG="p\sql"` binds p-backslash-sql).
+      premise(
+        "the plainly double-quoted command word is a site",
+        sitesIn('"psql" -X -qAt mydb\n', "x.sh").length,
+        0,
+      );
+      expect(sitesIn('"p\\sql" -X -qAt mydb\n', "x.sh")).toHaveLength(0);
+    });
+
+    test("a double-quoted backslash-newline pair is removed, keeping the word whole", () => {
+      // The R34 wrapped-path fixture reads through the word route once the
+      // spliced consumer is gone (Task 2); this pins the LEXER half: the glued
+      // path word is one site, on the opening line.
+      const source = '"/opt/pg/\\\npsql" -X -qAt mydb\n';
+      const sites = sitesIn(source, "x.sh");
+      expect(sites).toHaveLength(1);
+    });
+
+    test("a QUOTED Windows path is now read - the R40-era known miss closes", () => {
+      // The existing suite test "a QUOTED backslash path in shell text is a
+      // KNOWN miss" pins today's zero; fix 3 makes the lexer keep the literal
+      // backslashes, the word becomes the real Windows path, and basename()
+      // already splits on backslash - so the site appears. Step 3b updates the
+      // old pin, the scan.ts residual-limits item 3, and their DEFERRED pointer.
+      const sites = sitesIn('"C:\\pg\\bin\\psql.exe" -qAt mydb\n', "x.sh");
+      expect(sites).toHaveLength(1);
+    });
+
+    test("ANSI-C escapes decode, so an escaped spelling of psql is still psql", () => {
+      // $'p\163ql' and $'\x70sql' both expand to psql (supplement g1/g2). As
+      // COMMAND words they must be sites; before the decode they lexed as their
+      // raw escape text and were silently nothing.
+      expect(sitesIn("$'p\\163ql' -X -qAt mydb\n", "x.sh").length).toBeGreaterThan(0);
+      expect(sitesIn("$'\\x70sql' -X -qAt mydb\n", "x.sh").length).toBeGreaterThan(0);
+      // An unknown escape keeps BOTH characters, as bash does: $'p\zsql' is
+      // p\zsql, never psql.
+      expect(sitesIn("$'p\\zsql' -X -qAt mydb\n", "x.sh")).toHaveLength(0);
+    });
+
+    // The two rows below pin the octal escape's digit range at BOTH ends. The
+    // range is what makes the decode a decode: outside it the escape keeps its
+    // backslash, and a backslash is a separator to basename(), so the value the
+    // guard reads becomes a different command name entirely.
+    test("the octal range starts at 0, so $'\\057' decodes to the path separator", () => {
+      // \057 is '/'. Read as octal the value is /psql, whose basename is psql.
+      // Left undecoded it is the literal \057psql, where basename splits on the
+      // backslash and yields 057psql - not psql, and no site.
+      premise(
+        "the same value with the separator spelled literally binds psql",
+        scanShellIndirection("PG=/psql\n", "x.sh").length,
+        0,
+      );
+      expect(scanShellIndirection("PG=$'\\057psql'\n", "x.sh").length).toBeGreaterThan(0);
+    });
+
+    // Diff review r1 finding 2, swept as a CLASS: an input that makes the guard
+    // THROW is worse than any miss, because one such line aborts the walk before
+    // it can inspect anything after it. Both sites that can throw take a code
+    // point out of file text and hand it to String.fromCodePoint, which rejects
+    // anything above the Unicode maximum - where bash and the JS spec differ
+    // from each other, and neither of them crashes. Out of range keeps the
+    // undecoded reading, which cannot be psql: a documented limit, never a
+    // crash. The two rows below are the two sites.
+    test("a \\U escape above the Unicode maximum keeps its undecoded reading", () => {
+      const source = "NOTE=$'\\U00110000'\npsql -X -qAt mydb\n";
+      expect(() => sitesIn(source, "x.sh")).not.toThrow();
+      // The point of not throwing: the psql call AFTER the offending line is
+      // still inspected. `psql -X` is a real site, so a zero here would mean the
+      // walk died rather than that the escape was read conservatively.
+      expect(sitesIn(source, "x.sh").length).toBeGreaterThan(0);
+    });
+
+    test("a template literal's \\u{...} above the Unicode maximum keeps its raw reading", () => {
+      const source = ["const note = `\\u{110000}`;", "execSync(`psql -X -qAt mydb`);", ""].join(
+        "\n",
+      );
+      expect(() => scanSource(source, "x.ts")).not.toThrow();
+      expect(scanSource(source, "x.ts").length).toBeGreaterThan(0);
+      // An uncookable literal is reported CONSERVATIVELY - the site stands and
+      // is NOT certified, because the guard cannot read the argv it would have
+      // to certify. That direction is the whole reason this is a limit rather
+      // than a defect, so it is pinned rather than left to the count.
+      const uncookable = "execSync(`psql -X -qAt \\u{110000}mydb`);\n";
+      const sites = scanSource(uncookable, "x.ts");
+      expect(sites).toHaveLength(1);
+      expect(sites[0]!.suppressesStartupFiles).toBe(false);
+    });
+
+    // The two rows below pin the SAME bound from the other side. A limit that
+    // declines everything is not a limit, it is a hole, so each of the two
+    // guards is pinned at the last code point it must still accept.
+    test("a \\U escape AT the Unicode maximum still decodes", () => {
+      // U+10FFFF decoded is a non-word character, so `psql` keeps its leading
+      // word boundary and the value binds. Left undecoded the value is
+      // `\\U0010FFFFpsql`, where basename splits on the backslash and the `F`
+      // before `psql` destroys the boundary - the guard would see no psql at
+      // all, which is the paired zero asserted here.
+      expect(scanShellIndirection("PG=$'\\U0010FFFFpsql'\n", "x.sh").length).toBeGreaterThan(0);
+      expect(scanShellIndirection("PG=$'\\U00110000psql'\n", "x.sh")).toHaveLength(0);
+    });
+
+    test("a template literal's \\u{...} AT the Unicode maximum still maps its lines", () => {
+      // The guard sits in the per-character LINE MAP, whose null return costs
+      // the exact physical line rather than the site: the fallback attributes
+      // the hit to the literal's OPENING line. So the assertion is the line, not
+      // the count or the verdict - both of which are identical either way, and
+      // neither of which would notice the bound moving one code point.
+      const mapped = [
+        "const q = `\\u{10FFFF}",
+        "header`;",
+        "execSync(`\\u{10FFFF}",
+        "psql -X -qAt mydb`);",
+        "",
+      ].join("\n");
+      const sites = scanSource(mapped, "x.ts");
+      expect(sites).toHaveLength(1);
+      expect(sites[0]!.line).toBe(4);
+    });
+
+    test("the octal range ends at 7, so $'\\73' decodes to the semicolon it spells", () => {
+      // Read as octal the value is `psql;`, which is not the psql command - bash
+      // looks for a file of that name - so the zero is correct. Left undecoded
+      // the value is `psql\73`, which carries a bare psql word and no
+      // metacharacter, and the guard would report a binding bash does not make.
+      premise(
+        "the same assignment without the escape binds psql",
+        scanShellIndirection("PG=$'psql'\n", "x.sh").length,
+        0,
+      );
+      expect(scanShellIndirection("PG=$'psql\\73'\n", "x.sh")).toHaveLength(0);
+    });
+  });
+
+  // Boundary pin for the relational-boundary:2776:31, 2908:35 and 3018:32
   // equivalence rows (the alias-resolution depth guards and the alias anchor
   // comparison). The yaml parser refuses to register an anchor on an alias
   // node, so an alias always resolves to a non-alias in one step and the depth
@@ -4635,7 +4797,7 @@ describe("enrolment survivors - batch D", () => {
     expect(sites[0]!.suppressesStartupFiles).toBe(false);
   });
 
-  // Kills regex-quantifier-bound:2684:32 (`[0-9+-]{0,2}` widened to `{0,3}`).
+  // Kills regex-quantifier-bound:3005:32 (`[0-9+-]{0,2}` widened to `{0,3}`).
   // Found by cross-model review r1, which refuted the equivalence row this arc
   // first wrote for the site. YAML permits at most TWO block-scalar indicators —
   // one indentation digit and one chomping character — so `|2-+` is not a
@@ -4677,5 +4839,387 @@ describe("enrolment survivors - batch D", () => {
     const sites = sitesIn(source, "w.yml");
     expect(sites).toHaveLength(1);
     expect(sites[0]!.line).toBe(5);
+  });
+});
+
+describe("assignment bindings inside a nested body (diff review r2)", () => {
+  // The SAME class as the compound-array regression, one level down, and this
+  // one reaches a FALSE CERTIFICATION rather than a missed report. The outer
+  // lexer replaces a `$(…)` body with the opaque `${}` word, so the assignment
+  // family cannot see inside it; `visitBody` already lexes those bodies for the
+  // indirection rules but never asked them for bindings. When such a body ALSO
+  // contains a literal psql call, `visitBody` returns early (that call is
+  // already a site), the site is certified on its own `-X`, and the expanded
+  // invocation bash runs FIRST — without `-X` — is nowhere in the output.
+  //
+  // Probed base-versus-HEAD: every recognized nesting shape went 1 -> 0.
+  test.each([
+    ["command substitution", 'X=$(PG=psql; "$PG" -qAt mydb; psql -X -qAt mydb)\n'],
+    ["quoted command substitution", 'X="$(PG=psql; "$PG" -qAt mydb; psql -X -qAt mydb)"\n'],
+    ["process substitution", 'cat <(PG=psql; "$PG" -qAt mydb; psql -X -qAt mydb)\n'],
+    ["output process substitution", 'tee >(PG=psql; "$PG" -qAt mydb; psql -X -qAt mydb)\n'],
+    ["backticks", 'X=`PG=psql; "$PG" -qAt mydb; psql -X -qAt mydb`\n'],
+    ["nested twice", 'X=$(Y=$(PG=psql; "$PG" -qAt mydb); psql -X -qAt mydb)\n'],
+  ])("%s: the binding inside the body is still read", (_label, source) => {
+    expect(scanShellIndirection(source, "x.sh").length).toBeGreaterThan(0);
+  });
+
+  test("a body whose binding is invisible cannot leave the file silently certified", () => {
+    // The direction that makes this class BLOCKING rather than a recall gap: the
+    // literal call carries -X and is certified, so without the indirection the
+    // whole file reads as safe while bash runs an unsuppressed psql first.
+    const source = 'X=$(PG=psql; "$PG" -qAt mydb; psql -X -qAt mydb)\n';
+    premiseHolds(
+      "the literal call in the same body IS certified, so a zero here would read as safe",
+      sitesIn(source, "x.sh").some((site) => site.suppressesStartupFiles),
+    );
+    expect(scanShellIndirection(source, "x.sh").length).toBeGreaterThan(0);
+  });
+
+  test("a nested body binding another program reports nothing", () => {
+    premise(
+      "the same body with a psql binding IS reported",
+      scanShellIndirection('X=$(PG=psql; "$PG" -qAt mydb)\n', "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection('X=$(PG=pgcli; "$PG" -qAt mydb)\n', "x.sh")).toHaveLength(0);
+  });
+
+  test("a backtick span in JS/TS text stays markdown, bindings included", () => {
+    // The existing carve-out: in a .ts file a backtick span is a documentation
+    // code span, not a substitution. The binding rule inherits that judgement
+    // rather than re-deciding it, so prose cannot mint a binding.
+    premiseHolds(
+      "the same text in a .sh file IS a substitution and reports",
+      scanShellIndirection('X=`PG=psql; "$PG" -qAt mydb`\n', "x.sh").length > 0,
+    );
+    expect(scanShellIndirection('// wrap with `PG=psql; "$PG" -qAt mydb`\n', "x.ts")).toHaveLength(
+      0,
+    );
+  });
+});
+
+describe("compound-array assignment values (diff review r1 finding 1)", () => {
+  // A REGRESSION this arc introduced and review caught: the retired line-text
+  // patterns read `PG=([0]=psql)` because they never saw the shell's words, and
+  // the lexed-word route lost it because `(` and `)` are OPERATORS that split
+  // the value into its own words. Probed base-versus-new on the whole vector,
+  // every row 1 -> 0.
+  //
+  // The repair is the shell's own grammar rather than a second one: `(` is the
+  // ONLY member of OPERATOR_STARTS that can appear INSIDE an assignment value -
+  // `;`, `&` and `|` each terminate the assignment word, which is why the lexer
+  // is right to split on them - so the compound case is read by handing each
+  // element word to the SAME value predicate the single-word case uses.
+  test.each([
+    ["bare element", "PG=(psql)\n"],
+    ["keyed element", "PG=([0]=psql)\n"],
+    ["append form", "PG+=(psql)\n"],
+    ["declare -a", "declare -a PG=([0]=psql)\n"],
+    ["associative", "declare -A PG=([x]=psql)\n"],
+    ["mixed-quoted element", "PG=([0]=p'sql')\n"],
+    ["quoted path element", "PG=('/usr/bin/'psql)\n"],
+    ["later element", "PG=(pgcli psql)\n"],
+    ["multi-line compound", "PG=(\n  psql\n)\n"],
+  ])("%s binds the psql command and is reported", (_label, source) => {
+    expect(scanShellIndirection(source, "x.sh").length).toBeGreaterThan(0);
+  });
+
+  test("a compound array of other programs binds nothing", () => {
+    premise(
+      "the same shape with a psql element IS reported",
+      scanShellIndirection("PG=([0]=psql)\n", "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection("PG=([0]=pgcli)\n", "x.sh")).toHaveLength(0);
+  });
+
+  test("an element after the closing paren is not part of the value", () => {
+    // `)` ends the compound value, so the word after it is a separate command
+    // word rather than an element. `pgcli` there leaves the assignment binding
+    // nothing, and the zero is attributable to the paren rather than to a
+    // fixture the rule never sees.
+    premise(
+      "the same word INSIDE the parens is an element and is reported",
+      scanShellIndirection("PG=(psql)\n", "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection("PG=(x) pgcli\n", "x.sh")).toHaveLength(0);
+  });
+
+  test("every operator the lexer knows is either inside a value or ends it", () => {
+    // The SWEEP, derived rather than enumerated: the class this finding belongs
+    // to is "an assignment value the lexer splits across an operator", so the
+    // cover has to range over the lexer's own operator set. Adding a member to
+    // OPERATOR_STARTS later forces this test to account for it instead of
+    // silently inheriting a list written today.
+    //
+    // `(` opens a compound value and `)` closes it; a newline inside one is
+    // ordinary whitespace. Every OTHER operator TERMINATES the assignment word,
+    // so what follows is a separate command rather than part of the value -
+    // which is exactly why the lexer splitting on it is right and no second
+    // grammar is owed.
+    const insideAValue = new Set(["(", ")", "\n"]);
+    premiseHolds(
+      "the operator set still carries members outside the compound delimiters",
+      [...OPERATOR_STARTS].some((operator) => !insideAValue.has(operator)),
+    );
+    premiseHolds(
+      "the compound delimiters are still members of the operator set",
+      [...insideAValue].every((operator) => OPERATOR_STARTS.has(operator)),
+    );
+    for (const operator of OPERATOR_STARTS) {
+      if (insideAValue.has(operator)) continue;
+      expect(scanShellIndirection(`PG=${operator}psql\n`, "x.sh")).toHaveLength(0);
+    }
+    // And the delimiters do their two jobs, so the zeros above are attributable
+    // to the operator rather than to a rule that reports nothing at all.
+    expect(scanShellIndirection("PG=(psql)\n", "x.sh").length).toBeGreaterThan(0);
+    expect(scanShellIndirection("PG=\npsql\n", "x.sh")).toHaveLength(0);
+  });
+
+  test("an UNTERMINATED compound assignment binds nothing", () => {
+    // `PG=(` with no closing paren is a bash syntax error: the file runs
+    // nothing, so no binding is correct. Pinned because the alternative -
+    // scanning to end of input - would let one stray paren report every psql
+    // word in the rest of the file against this one line.
+    premiseHolds(
+      "the same source WITH the closing paren is reported",
+      scanShellIndirection("PG=(\n  psql\n)\n", "x.sh").length > 0,
+    );
+    expect(scanShellIndirection("PG=(\n  psql\n", "x.sh")).toHaveLength(0);
+  });
+});
+
+describe("mixed-quoted assignment values (BL-SHELL-BINDING-MIXED-QUOTED-VALUE)", () => {
+  // The shell reads an assignment value as a CONCATENATION of quoted, escaped
+  // and bare segments; the retired regex pair read one delimiter form. Oracle
+  // per row: the probe record (instrument 2) - every value below reassembles
+  // to psql or a psql path.
+  test.each([
+    ["quoted then bare", "PG=p'sql'\n"],
+    ["bare then quoted", "PG='p'sql\n"],
+    ["double-quoted split", 'PG="ps"ql\n'],
+    ["quoted path prefix", "PG='/usr/bin/'psql\n"],
+    ["escaped spelling", "PG=p\\sql\n"],
+    ["ANSI-C quoted", "PG=$'psql'\n"],
+    ["ANSI-C octal escape", "PG=$'p\\163ql'\n"],
+    ["ANSI-C hex escape", "PG=$'\\x70sql'\n"],
+    ["locale quoted", 'PG=$"psql"\n'],
+    ["mixed inside declare", "declare -x PG=p'sql'\n"],
+    ["mixed whole-argument quoting", "export 'PG=p'sql\n"],
+    // Word-splitting trims an unquoted expansion (spec §3.1 trim; supplement
+    // g3/g6): both of these run psql at their use sites.
+    ["quoted leading space", "PG=' psql'\n"],
+    ["ANSI-C trailing newline", "PG=$'psql\\n'\n"],
+    // Separator characters in DIRECTORY components (round-4 finding 1): the
+    // basename is psql, so the value binds the command; probed against bash.
+    ["apostrophe directory", 'PG="/tmp/O\'Reilly/psql"\n'],
+    ["double-quote directory", "PG='/tmp/x\"y/psql'\n"],
+    ["semicolon directory", "PG='/tmp/x;y/psql'\n"],
+    ["pipe directory", "PG='/tmp/x|y/psql'\n"],
+    ["ampersand directory", "PG='/tmp/x&y/psql'\n"],
+  ])("%s binds the psql command and is reported", (_label, source) => {
+    expect(scanShellIndirection(source, "x.sh").length).toBeGreaterThan(0);
+  });
+
+  // The same shell fact as the ratified trailing-backslash contract, applied
+  // uniformly: a value whose expansion ends in a literal backslash has an
+  // empty basename and is never the psql command. All three REPORTED before
+  // this repair (probe record, instrument 1) - shell-false hits.
+  test.each([
+    ["bare value, dangling final backslash", "PG=psql\\"],
+    ["bare value, escaped backslash at end of input", "PG=psql\\\\"],
+    ["single-quoted literal trailing backslash", "PG='psql\\'\n"],
+  ])("%s binds a trailing-backslash value and is NOT reported", (_label, source) => {
+    expect(scanShellIndirection(source, "x.sh")).toHaveLength(0);
+  });
+
+  // Precision survivors: values whose dequoted text is NOT the psql command.
+  // `PG='psql'x` and the EOF-backslash pair are already pinned by the ledger
+  // entry's corrected non-instances and the ratified contract test; these two
+  // are the NEW spellings this block must hold at zero.
+  test.each([
+    ["quoted semicolon value", "PG='psql;x'\n"], // binds `psql;x`
+    ["whole-argument quoting with a literal quote", "export 'PG=p'\\''sql'\n"], // binds `p'sql`
+    ["double-quoted literal backslash", 'PG="p\\sql"\n'], // binds `p\sql` (supplement g5)
+    ["ANSI-C unknown escape", "PG=$'p\\zsql'\n"], // binds `p\zsql` (bash keeps both chars)
+    // Digit-boundary pins, doubling as PREEMPTIVE mutant kills for the
+    // decodeAnsiCEscape quantifier sites (Task 6 / Global Constraints): a
+    // widened octal {1,4} would decode \0160 as 0x70 (`psql`) where bash's
+    // three-digit read yields control-14 + `0sql`; a widened hex {1,3} would
+    // decode \x070 as 0x70 where bash's two-digit read yields bell + `0sql`.
+    ["ANSI-C octal digit bound", "PG=$'\\0160sql'\n"], // binds SO + `0sql`, never psql
+    ["ANSI-C hex digit bound", "PG=$'\\x070sql'\n"], // binds BEL + `0sql`, never psql
+    // Unterminated ANSI-C is a shell syntax error that runs nothing; the
+    // lexer keeps the old undecoded reading (spec 6.4, round-3 finding 2).
+    ["unterminated ANSI-C string", "PG=$'p\\163ql"],
+  ])("%s does not bind psql and stays unreported", (_label, source) => {
+    expect(scanShellIndirection(source, "x.sh")).toHaveLength(0);
+  });
+
+  // The R34 wrapped-path binding must survive the spliced consumer's deletion:
+  // the double-quote continuation fix (Task 1) glues the word, the word route
+  // reads it. Premise-style duplicate of the committed R34 fixture, kept here
+  // because THIS block is the one that owns the regex deletion.
+  test("a double-quoted backslash-newline wrapped path still binds", () => {
+    expect(
+      scanShellIndirection('PSQL="/opt/postgresql/17/bin/\\\npsql"\n"$PSQL" -qAt mydb\n', "x.sh")
+        .length,
+    ).toBeGreaterThan(0);
+  });
+
+  // The word route lexes the RAW file, and a YAML block scalar is DEDENTED
+  // before the shell sees it - so a continuation inside a `run:` body glues
+  // without the block's indentation. The retired `spliced` view stripped that
+  // whitespace for every file type; the replacement strips it only where it is
+  // the document's own semantics, which is why the two spellings below differ.
+  // The `.sh` zero is the whitespace-in-a-directory-component limit (spec §6
+  // item 5) reached through a continuation: bash really does bind
+  // `/opt/pg/   psql` there.
+  test("a wrapped path is dedented in YAML and kept literal in shell", () => {
+    const yaml = [
+      "jobs:",
+      "  x:",
+      "    steps:",
+      "      - run: |",
+      '          PSQL="/opt/pg/\\',
+      '          psql"',
+      '          "$PSQL" -qAt mydb',
+      "",
+    ].join("\n");
+    expect(scanShellIndirection(yaml, ".github/workflows/x.yml").length).toBeGreaterThan(0);
+    // Premise: the same shell text WITHOUT the indentation binds, so the zero
+    // below is attributable to the whitespace the shell keeps.
+    premise(
+      "an unindented continuation binds in a .sh file",
+      scanShellIndirection('PSQL="/opt/pg/\\\npsql"\n"$PSQL" -qAt mydb\n', "x.sh").length,
+      0,
+    );
+    expect(
+      scanShellIndirection('PSQL="/opt/pg/\\\n          psql"\n"$PSQL" -qAt mydb\n', "x.sh"),
+    ).toHaveLength(0);
+  });
+
+  // Conservative widening, spec §4: the expansion-prefixed psql suffix is the
+  // same trailing-path shape isPsqlCommandWord treats as psql-capable.
+  test("an expansion-prefixed psql suffix is reported", () => {
+    expect(scanShellIndirection("PG=$(x)psql\n", "x.sh").length).toBeGreaterThan(0);
+  });
+
+  // Structural handoff, spec §3.1: a substitution VALUE is the discovery
+  // walk's jurisdiction, not the binding rule's - the opaque `${}` word
+  // carries no psql text, and visitBody still reports the body.
+  test("a binding inside a substitution body is still reported by discovery", () => {
+    expect(scanShellIndirection('X=$(PG=psql; "$PG" -qAt mydb)\n', "x.sh").length).toBeGreaterThan(
+      0,
+    );
+  });
+
+  // Spec 3.1 reporting parity (round-2 finding 2): every assignment-shaped
+  // word is examined independently - a non-qualifying one neither reports nor
+  // shadows a later binding on the same line.
+  test("a non-qualifying assignment does not shadow a later binding on the line", () => {
+    expect(scanShellIndirection("A=no PG=psql\n", "x.sh").length).toBeGreaterThan(0);
+  });
+
+  // A MULTIWORD command binding read as the lexer's dequoted concatenation:
+  // the retired quotedValue regex required the whole value inside ONE quote
+  // pair, so a segment split anywhere lost it.
+  test.each([
+    ["a segment-split command binding", 'CMD=\'psq\'"l -qAt mydb"\neval "$CMD"\n'],
+    ["an inner-quoted spelling in the value", 'CMD=\'p"s"ql -X mydb\'\neval "$CMD"\n'],
+    // An internal newline is IFS whitespace to an unquoted expansion: bash
+    // word-splits $'psql\n-X mydb' into one flagged argv (round-3 finding 3).
+    // The literal-newline single-quoted spelling reaches the same branch,
+    // because the branch decides the lexed value CONTENT, not the spelling.
+    ["a newline-separated command binding", "PG=$'psql\\n-X mydb'\n"],
+    // Literal quote characters in a directory component are DATA to the
+    // word-split consumer (round-5 finding 1): bash argv is the full path
+    // plus -X mydb for both rows.
+    ["an apostrophe-directory command binding", 'CMD="/tmp/O\'Reilly/psql -X mydb"\n'],
+    ["a double-quote-directory command binding", "CMD='/tmp/x\"y/psql -X mydb'\n"],
+  ])("multiword binding value: %s is reported", (_label, source) => {
+    expect(scanShellIndirection(source, "x.sh").length).toBeGreaterThan(0);
+  });
+
+  // Documented limit, spec §6 item 2 (round-1 finding 1): a quoted YAML `run:`
+  // scalar lexes to ONE assignment word whose multiword value's psql command
+  // carries no flag token - the -qAt below belongs to the $PG command - and
+  // the flag criterion (deliberately unchanged) is the line between a command
+  // binding and prose. Plain and mixed spellings alike are declared misses.
+  test.each([
+    ["the plain spelling", '- run: "PG=psql; $PG -qAt mydb"\n'],
+    ["the mixed spelling", "- run: \"PG=p'sql'; $PG -qAt mydb\"\n"],
+  ])("multiword binding value: a quoted run: scalar (%s) stays a limit", (_label, source) => {
+    expect(scanShellIndirection(source, ".github/workflows/x.yml")).toHaveLength(0);
+  });
+});
+
+describe("documented limits - quote-concatenated spellings outside the assignment family", () => {
+  // Spec §6: these families still read their KEYWORD or operand through a
+  // per-line pattern, so a quote-concatenated spelling of it is missed. The
+  // failure direction is a missed report, never a false certification. Each
+  // zero is DECLARED here so it cannot drift silently. Premises use
+  // tests/_shared/premise.ts and run in ONE test over a literal array - never
+  // inside a .each callback, per the executable-premise rule (plan round-1
+  // finding 5).
+  test("each quote-concatenated keyword/operand spelling is a declared miss", () => {
+    const rows: Array<[label: string, missed: string, plain: string]> = [
+      // ledger: BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE - the here-string
+      // target is a redirection operand the lexer drops before words exist.
+      ["a mixed-quoted here-string", "read -r PG <<< p'sql'\n", "read -r PG <<< psql\n"],
+      // The alias row's BODY deliberately binds something OTHER than psql. An
+      // alias definition is an assignment-SHAPED word, so `alias p'sql'='psql
+      // -F'` dequotes to the candidate `psql=psql -F` and the assignment route
+      // reports it incidentally - a real recall closure, since that line does
+      // rewrite psql's argv. What the `aliased` rule still cannot see is the
+      // quote-concatenated NAME itself, and that is only observable when the
+      // body binds another program: `alias p'sql'='pgcli -F'` redirects psql
+      // and stays a declared miss.
+      ["a mixed-quoted alias name", "alias p'sql'='pgcli -F'\n", "alias psql='pgcli -F'\n"],
+      [
+        "a mixed-quoted interpreter positional",
+        "bash -c '$0 -qAt mydb' p'sql'\n",
+        "bash -c '$0 -qAt mydb' psql\n",
+      ],
+      // A wrapper-prefixed quoted-directory value is declined by BOTH
+      // readings (spec 6 item 6; round-6 disposition, bl-orch option b): the
+      // split reading requires psql at argv[0], the eval reading reads the
+      // pathname quote as syntax. The premise shows wrapper-invoked psql with
+      // an unquoted path reporting via the eval reading.
+      [
+        "a wrapper-prefixed quoted-directory value",
+        'CMD="sudo /tmp/O\'Reilly/psql -X mydb"\n',
+        "CMD='sudo psql -X mydb'\n",
+      ],
+      // IFS whitespace in a quoted DIRECTORY component sends the value to the
+      // multiword branch, where a flagless path is declined - spec 6 item 5
+      // (round-4 fallout, pinned so the zero is declared).
+      ["a whitespace directory component", "PG='/tmp/x y/psql'\n", "PG='/tmp/xy/psql'\n"],
+      // ledger: BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE - the ${...} word is
+      // kept verbatim by design, so operand-INTERNAL quoting is data (plan
+      // round-2 finding 1; bash binds psql for every quoted-operand sibling).
+      ["a quoted expansion operand", "PG=${U:-'psql'}\n", "PG=${U:-psql}\n"],
+    ];
+    for (const [label, missed, plain] of rows) {
+      premiseHolds(
+        `${label}: the plain spelling reaches the rule`,
+        scanShellIndirection(plain, "x.sh").length > 0,
+      );
+      expect(scanShellIndirection(missed, "x.sh"), label).toHaveLength(0);
+    }
+  });
+
+  // The other half of the alias row above, pinned so the incidental closure is
+  // a declared behavior rather than an accident: an alias definition is an
+  // assignment-SHAPED word, so a quote-concatenated alias name whose BODY
+  // binds psql reaches the assignment route and reports. Both spellings of the
+  // name, since the point is that the name's quoting is irrelevant here.
+  test.each([
+    ["a mixed-quoted alias name", "alias p'sql'='psql -F'\n"],
+    ["a plain alias name", "alias psql='psql -F'\n"],
+  ])("%s whose body binds psql is reported", (_label, source) => {
+    expect(scanShellIndirection(source, "x.sh").length).toBeGreaterThan(0);
   });
 });

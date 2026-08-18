@@ -313,6 +313,37 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
 
 const suites = [...new Set(GUARD_SURFACES.flatMap((s) => s.suitePaths))].sort();
 
+/**
+ * ONE classification pass per suite, shared by every case below.
+ *
+ * `classifyTests` is a pure function of the suite's source on disk, and the
+ * four cases already depend on that: if two calls for one suite could disagree,
+ * the declared-count case and the offender cases would be asserting against
+ * different scans, and the file would be unsound as written. Computing it once
+ * therefore changes no verdict — it only stops paying for the same walk four
+ * times.
+ *
+ * It stops paying for it in the one place that was over a cliff. Four calls per
+ * suite cost roughly 33 seconds of TEST time against the parallel project's
+ * 30-second per-test cap, so this file reddened on runner load rather than on
+ * the tree. Measured identically on both sides, same machine and node_modules:
+ * origin/main 33.45s, the branch that repaired it 33.23s
+ * (BL-PREMISE-CONTRACT-SUITE-AT-THE-TIMEOUT-BOUNDARY). Hoisting is the repair
+ * that entry names as the better of its two, over raising the timeout, because
+ * it removes the cost rather than the signal that the cost is there — and what
+ * remains leaves any single case's clock, since module scope is charged to
+ * import.
+ */
+const classified = new Map(suites.map((s) => [s, classifyTests(ROOT, s)]));
+const classifiedFor = (suite: string) => {
+  const rows = classified.get(suite);
+  // A suite missing from the memo is a programming error in this file, not an
+  // empty scan — returning [] would report a silent green on nothing, the exact
+  // failure the first describe block exists to prevent.
+  if (rows === undefined) throw new Error(`no classification computed for suite ${suite}`);
+  return rows;
+};
+
 describe("premise contract — the checker cannot report green on nothing", () => {
   it("has enrolled suites to scan", () => {
     expect(suites.length, "premise: the registry enrols at least one suite").toBeGreaterThan(0);
@@ -326,15 +357,13 @@ describe("premise contract — the checker cannot report green on nothing", () =
   });
 
   it("examined tests at all", () => {
-    const all = suites.flatMap((s) => classifyTests(ROOT, s));
+    const all = suites.flatMap((s) => classifiedFor(s));
     expect(all.length, "premise: the scanner found tests to classify").toBeGreaterThan(0);
   });
 
   it("classifies the declared number of environment-touching tests per suite", () => {
     for (const suite of suites) {
-      const touching = classifyTests(ROOT, suite).filter(
-        (t) => t.verdict === "environment-touching",
-      );
+      const touching = classifiedFor(suite).filter((t) => t.verdict === "environment-touching");
       expect(touching.length, `${suite}`).toBe(EXPECTED_ENV_TOUCHING[suite]);
     }
   });
@@ -343,7 +372,7 @@ describe("premise contract — the checker cannot report green on nothing", () =
 describe("premise contract — the rule", () => {
   it("every environment-touching test carries a premise or a reasoned exemption", () => {
     const offenders = suites.flatMap((s) =>
-      classifyTests(ROOT, s)
+      classifiedFor(s)
         .filter((t) => t.verdict === "environment-touching" && !t.hasPremise && !t.exemption)
         .map((t) => `${s}:${t.line} ${t.testName}`),
     );
@@ -355,7 +384,7 @@ describe("premise contract — the rule", () => {
     // checker RECOGNIZES and cannot resolve, so it knows enough to know it does
     // not know, and says so.
     const unresolved = suites.flatMap((s) =>
-      classifyTests(ROOT, s)
+      classifiedFor(s)
         .filter((t) => t.verdict === "unclassifiable" && !t.exemption)
         .map((t) => `${s}:${t.line} ${t.testName} — ${t.detail}`),
     );

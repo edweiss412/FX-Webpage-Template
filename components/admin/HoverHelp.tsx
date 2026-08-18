@@ -60,6 +60,7 @@ import {
 import { createPortal } from "react-dom";
 import { type Rect } from "@/lib/popover/position";
 import { placeWithinVisibleViewport } from "@/lib/popover/place";
+import { withNaturalSize } from "@/lib/popover/naturalSize";
 import { createRafCoalescer } from "@/lib/popover/rafCoalescer";
 import { isVisualViewportEngine } from "@/lib/popover/viewport";
 import type { ReactNode } from "react";
@@ -216,28 +217,28 @@ export function HoverHelp({
     const body = bodyRef.current;
     if (!trigger || !body) return;
     const host = hostRef?.current ?? document.body;
-    // (a) clear previous inline constraints so measurement is natural
-    body.style.maxHeight = "";
-    body.style.maxWidth = "";
+    // (a) measure at NATURAL size. withNaturalSize owns the clear and restore of
+    // the previous placement's inline caps (spec §4.2) — and, critically, of the
+    // body's scroll offsets, since laying the body out with its cap cleared
+    // clamps scrollTop to 0 and would silently discard whatever the user (or a
+    // focus reveal) had scrolled to.
     // Body-host bounds degenerate to the viewport: the body element's own
     // CONTENT box is irrelevant to where a viewport-anchored popover may go (an
     // all-absolute page gives document.body a zero-height rect, which would
     // wrongly collapse the bounds). `null` says exactly that; the bounds
     // composition and the never-newly-hidden guarantee live in lib/popover/place.ts.
     const hostRectOrNull = host === document.body ? null : toRect(host.getBoundingClientRect());
-    const naturalRect = body.getBoundingClientRect();
-    const placement = placeWithinVisibleViewport(window, {
-      hostRect: hostRectOrNull,
-      trigger: toRect(trigger.getBoundingClientRect()),
-      naturalSize: { width: naturalRect.width, height: naturalRect.height },
-      wrappedHeightAt: (w) => {
-        body.style.maxWidth = `${w}px`;
-        const h = body.getBoundingClientRect().height; // border-box, caps active
-        body.style.maxWidth = "";
-        return h;
-      },
-      preferredSide: placementProp,
-      align,
+    const triggerRect = toRect(trigger.getBoundingClientRect());
+    const placement = withNaturalSize(body, (probe) => {
+      const naturalRect = body.getBoundingClientRect();
+      return placeWithinVisibleViewport(window, {
+        hostRect: hostRectOrNull,
+        trigger: triggerRect,
+        naturalSize: { width: naturalRect.width, height: naturalRect.height },
+        wrappedHeightAt: probe.heightAtWidth,
+        preferredSide: placementProp,
+        align,
+      });
     });
     if (placement.kind === "hidden") {
       // Never strand keyboard focus on an invisible node (WCAG 2.4.7): if the
@@ -287,8 +288,14 @@ export function HoverHelp({
     const bodyOffsets = toHostOffsets(placement.viewport);
     body.style.left = `${bodyOffsets.left}px`;
     body.style.top = `${bodyOffsets.top}px`;
+    // Both branches are written (spec §4.3, R1 F1). The helper restored the
+    // PRIOR caps, but this site ends in the PLACEMENT's cap state — so an
+    // uncapped placement must actively remove the cap, or a capped-to-uncapped
+    // transition would keep the stale cap the helper just put back.
     if (placement.maxHeight !== null) body.style.maxHeight = `${placement.maxHeight}px`;
+    else body.style.removeProperty("max-height");
     if (placement.maxWidth !== null) body.style.maxWidth = `${placement.maxWidth}px`;
+    else body.style.removeProperty("max-width");
     // Caret (spec 2026-07-22-hoverhelp-caret-blur-close §3.4): sibling node,
     // same coordinate space; suppressed alone when the core returns null.
     const caret = caretRef.current;
@@ -325,7 +332,21 @@ export function HoverHelp({
     const trigger = triggerRef.current;
     const body = bodyRef.current;
     const caretEl = caretRef.current;
-    window.addEventListener("scroll", schedule, { capture: true, passive: true }); // (b)
+    // (b) Self-origin filter (spec §4.5): a scroll INSIDE the body cannot move
+    // the trigger, so re-placing on it was always semantically void — and after
+    // (a) it is the fuel of a per-frame measure loop, because every measurement
+    // of a scrolled body restores its offset and so emits a body-origin scroll
+    // event. Ancestor and document scrolls still re-place, so this needs its own
+    // handler rather than the shared `schedule` (which resize and the visual
+    // viewport keep using, neither carrying a self-origin notion).
+    const onScrollCapture = (e: Event) => {
+      if (!open) return;
+      const bodyEl = bodyRef.current;
+      const t = e.target;
+      if (bodyEl && t instanceof Node && bodyEl.contains(t)) return;
+      coalescer.schedule();
+    };
+    window.addEventListener("scroll", onScrollCapture, { capture: true, passive: true }); // (b)
     window.addEventListener("resize", schedule); // (c)
     // (b2) Pinch-zoom pan does NOT fire window scroll (measured), so the visual
     // viewport is its own event source. Gated on the ENGINE, never on current
@@ -339,7 +360,7 @@ export function HoverHelp({
     if (body) ro.observe(body);
     ro.observe(host);
     return () => {
-      window.removeEventListener("scroll", schedule, { capture: true });
+      window.removeEventListener("scroll", onScrollCapture, { capture: true });
       window.removeEventListener("resize", schedule);
       vv?.removeEventListener("scroll", schedule);
       vv?.removeEventListener("resize", schedule);
