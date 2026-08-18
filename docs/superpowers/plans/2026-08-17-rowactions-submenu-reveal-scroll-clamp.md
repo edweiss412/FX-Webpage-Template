@@ -6,12 +6,14 @@
 
 **Arc-F fence:** arc F later touches `components/admin/ShowRowActions.tsx`. This plan touches that file not at all; implementation still serializes before arc F per the orchestrator brief.
 
-**Meta-test inventory (writing-plans rule):** CREATES tests/components/_metaScrollNeutralMeasurement.test.ts and tests/components/naturalSize.test.ts (both new). EXTENDS none. Advisory-lock topology: N/A — no `pg_advisory*` path touched. Mutation-surface observability (invariant 10): N/A — no mutating route or server action touched. Source-mutation registry enrolment: N/A — the shipped surface is a React measurement helper, not a guard/proof module with a Vitest-importable defect class of "reports OK while the output moved"; the guard being shipped (the meta-test) is itself a test, which the registry does not enroll.
+**Meta-test inventory (writing-plans rule):** CREATES tests/components/_metaScrollNeutralMeasurement.test.ts, tests/components/naturalSize.test.ts, and tests/components/admin/hoverHelpPlacement.test.tsx (all three new). EXTENDS none. Advisory-lock topology: N/A — no `pg_advisory*` path touched. Mutation-surface observability (invariant 10): N/A — no mutating route or server action touched. Source-mutation registry enrolment: N/A — the shipped surface is a React measurement helper, not a guard/proof module with a Vitest-importable defect class of "reports OK while the output moved"; the guard being shipped (the meta-test) is itself a test, which the registry does not enroll.
 
 **e2e harness readiness (writing-plans rule):** (a) server boot: local `pnpm dev -H 127.0.0.1 -p ${E2E_PORT}` / CI `pnpm build && pnpm start` per `playwright.config.ts` webServer entry 1; run local e2e with an `E2E_PORT` other than 3000 so a sibling worktree's dev server is never silently reused (`playwright.config.ts:5-8`). (b) readiness gate: `lastSeededTrigger`'s `toHaveCount(SEEDED_SHOWS)` settle on `shows-find-input` filtering (`tests/e2e/rowactions-geometry.spec.ts:116-132`) — never `networkidle`. (c) detach-safety: every `panel.evaluate` in the strengthened case runs while the submenu is held open by the test's own flow; no sampler outlives its element.
 
-**Test wiring (writing-plans rule):** both new suites match `BASE_INCLUDE` (`vitest.projects.ts:34`, `tests/**/*.test.ts`) and run in the standard unit-suite CI job with no config edit; the e2e change edits an existing file already named by `admin-layout-e2e.yml` and by the desktop-chromium testMatch regex (`playwright.config.ts:97` — desktop-chromium ONLY; the mobile-safari matcher does not list it). ONE path-filter change IS required (plan-R1 F4): lib/popover/naturalSize.ts (new) joins `admin-layout-e2e.yml`'s paths in Task 1, plus the derived sweep over other `lib/popover`-listing workflows.
+**Test wiring (writing-plans rule):** all three new suites match `BASE_INCLUDE` (`vitest.projects.ts:34` — `["tests/**/*.test.ts", "tests/**/*.test.tsx"]`, so the `.tsx` HoverHelp suite is covered by the second pattern) and run in the standard unit-suite CI job with no config edit; the e2e change edits an existing file already named by `admin-layout-e2e.yml` and by the desktop-chromium testMatch regex (`playwright.config.ts:97` — desktop-chromium ONLY; the mobile-safari matcher does not list it). ONE path-filter change IS required (plan-R1 F4): lib/popover/naturalSize.ts (new) joins `admin-layout-e2e.yml`'s paths in Task 1, plus the derived sweep over other `lib/popover`-listing workflows.
 
+
+**Known branch reds (docs gates), each with the task that clears it (plan-R3 repair sweep):** running `pnpm vitest run tests/docs/` on this branch reds exactly THREE files, and every one is accounted for here — no docs gate on this branch is unexplained. (1) `tests/docs/_metaInvariant8Closeout.test.ts` — the §12 closeout marker is deliberately unfilled until Task 5 (see §12). (2) `tests/docs/_metaLedgerReferentialIntegrity.test.ts` — `BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED` is cited by the spec (§7) and by Task 6 before its BACKLOG.md row exists; Task 6 step 2 files the row and clears it. (3) `tests/docs/specsReadmeIndexParity.test.ts` — the spec's `docs/superpowers/specs/ci/README.md` index row was missing; that is NOT timed and was landed directly in the plan-R3 repair commit, so this gate is green as of that commit and only reds 1-2 remain. Task 6 step 4 re-runs `pnpm vitest run tests/docs/` and requires ZERO reds before merge.
 **Heavy wrapping:** every non-interactive Playwright invocation below runs under `pnpm heavy` (machine-wide slot semaphore), foreground, never backgrounded across a turn boundary.
 
 ## Acceptance criteria (from spec §6; the `ac=` markers below bind to these)
@@ -214,7 +216,7 @@ await page.evaluate(
 
 Everything else in the case (premise guards, sampling body, assertions) is unchanged. RED step: run the marker command and observe 10/10 failures at the line-368 assertion (`bottom` ≈ 77px past `boxBottom`, per spec P2's `activeBottom 587 / boxBottom 433.375` shape at the local viewport). Record the observed count in the merged task's commit message.
 
-Add the family-C second phase in the same edit — the exact body is in Appendix B block 1 (validated: typecheck clean; red pre-fix by design as part of this task's RED half).
+Add the family-C second phase in the same edit — the exact body is in Appendix B, the `tests/e2e/rowactions-geometry.spec.ts` block (validated: typecheck clean; red pre-fix by design as part of this task's RED half).
 
 **GREEN half — the AnchoredPortal rewrite:**
 
@@ -247,6 +249,7 @@ Create tests/components/_metaScrollNeutralMeasurement.test.ts with exactly this 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, sep } from "node:path";
 import { describe, expect, it } from "vitest";
+import { premise } from "../_shared/premise";
 
 const REPO_ROOT = join(__dirname, "..", "..");
 const ROOTS = ["components", "lib"] as const;
@@ -269,7 +272,7 @@ describe("scroll-neutral measurement (derived cover)", () => {
     const files: string[] = [];
     for (const root of ROOTS) walk(join(REPO_ROOT, root), files);
     // PREMISE: the walk actually covered the tree the invariant ranges over.
-    expect(files.length).toBeGreaterThan(50);
+    premise("the walk covered the tree the invariant ranges over", files.length, 50);
     const offenders = files.filter(
       (f) => !f.endsWith(sep + HELPER_SUFFIX) && CLEAR_RE.test(readFileSync(f, "utf8")),
     );
@@ -322,14 +325,14 @@ Family A (cap-STATE assertions; drop-branch mutant):
 
 Family B and C case bodies are in Appendix B, all validated executably at plan time (family A/B green on the live tree — current code measures naturally and applies both branches; family C red at exactly the missing-filter assertion, this task's and Task 3's authored red):
 
-- AnchoredPortal: Appendix B block 2 (family B + family C describes appended to `tests/components/admin/rowActions/anchoredPortal.test.tsx`; the suite's `test` import gains `vi`).
-- HoverHelp: Appendix B block 3 — a NEW sibling file tests/components/admin/hoverHelpPlacement.test.tsx (the blur suite has no placement harness).
-- ShareHub: Appendix B block 4 (family A + family B describes appended to `shareHubVisualViewport.test.tsx`).
-- useFitWithinClip: Appendix B block 5 (family A fitted→unclipped + family B clipped→clipped expansion appended to `useFitWithinClip.test.tsx`, which gains a `premiseHolds` import; the family-B case installs a style-SENSITIVE `getComputedStyle` mock so a stale inline fit is observable, exactly as live).
+- AnchoredPortal: Appendix B, the `tests/components/admin/rowActions/anchoredPortal.test.tsx` block (family B + family C describes appended; the suite's `test` import gains `vi`).
+- HoverHelp: Appendix B, the `tests/components/admin/hoverHelpPlacement.test.tsx` block — a NEW sibling file (the blur suite has no placement harness), shown in full and importing `premise` + `premiseHolds`.
+- ShareHub: Appendix B, the `tests/components/admin/showpage/shareHubVisualViewport.test.tsx` block (family A + family B describes appended; the suite gains a `premiseHolds` import).
+- useFitWithinClip: Appendix B, the `tests/components/admin/useFitWithinClip.test.tsx` block (family A fitted→unclipped + family B clipped→clipped expansion appended; the suite gains a `premiseHolds` import; the family-B case installs a style-SENSITIVE `getComputedStyle` mock so a stale inline fit is observable, exactly as live).
 
 **Mutant validation (AC-7):** per site, EVERY applicable mutant — (A) drop the `removeProperty`/null branch, (B) re-order or skip the withNaturalSize wrap so measurement runs with the stale cap applied, (C) drop the §4.5 self-origin filter (AnchoredPortal in Task 2, HoverHelp here) — each observed red against the site's pins, then reverted; all observations recorded in the commit message. The pins are green on the pre-migration tree by design (regression pins, not REDs).
 
-GREEN: `pnpm vitest run tests/components/_metaScrollNeutralMeasurement.test.ts tests/components/admin/hoverHelpBlurClose.test.tsx tests/components/admin/hoverHelpPlacement.test.tsx tests/components/admin/showpage/shareHubVisualViewport.test.tsx tests/components/admin/useFitWithinClip.test.tsx` passes in full, and each pin has been shown red under its mutant. Then `pnpm typecheck` and `pnpm exec eslint components/admin/AnchoredPortal.tsx components/admin/HoverHelp.tsx components/admin/showpage/ShareHub.tsx components/admin/useFitWithinClip.ts lib/popover/naturalSize.ts tests/components/naturalSize.test.ts tests/components/_metaScrollNeutralMeasurement.test.ts tests/components/admin/rowActions/anchoredPortal.test.tsx tests/components/admin/hoverHelpBlurClose.test.tsx tests/components/admin/showpage/shareHubVisualViewport.test.tsx tests/components/admin/useFitWithinClip.test.tsx`. Commit (`fix(admin):`) — the meta-test, the three peer rewrites, and their pins land together, red-then-green inside this one task.
+GREEN: `pnpm vitest run tests/components/_metaScrollNeutralMeasurement.test.ts tests/components/admin/hoverHelpBlurClose.test.tsx tests/components/admin/hoverHelpPlacement.test.tsx tests/components/admin/showpage/shareHubVisualViewport.test.tsx tests/components/admin/useFitWithinClip.test.tsx` passes in full, and each pin has been shown red under its mutant. Then `pnpm typecheck` and `pnpm exec eslint components/admin/AnchoredPortal.tsx components/admin/HoverHelp.tsx components/admin/showpage/ShareHub.tsx components/admin/useFitWithinClip.ts lib/popover/naturalSize.ts tests/components/naturalSize.test.ts tests/components/_metaScrollNeutralMeasurement.test.ts tests/components/admin/rowActions/anchoredPortal.test.tsx tests/components/admin/hoverHelpBlurClose.test.tsx tests/components/admin/hoverHelpPlacement.test.tsx tests/components/admin/showpage/shareHubVisualViewport.test.tsx tests/components/admin/useFitWithinClip.test.tsx`. Commit (`fix(admin):`) — the meta-test, the three peer rewrites, and their pins land together, red-then-green inside this one task.
 
 <!-- tasks: end -->
 
@@ -350,7 +353,7 @@ Ordering is load-bearing (plan-R1 F2): the whole-diff review must cover the exac
 1. **CI acceptance instrument (AC-5):** push, then nine fixed-sha dispatches of `admin-layout-e2e` via the distinct-ref method (sibling refs at the identical sha; `cancelled` runs are not samples — spec §6 AC-5, method per PR #822). Required: 0/9 failures of the CAPPED-submenu case, against the 4/9 baseline. Record run ids in the PR body.
 2. **Ledger closeout commit (AC-6) — the PR's last commit:** graduate both entries to `BACKLOG-archive.md` per spec §7 (including the filed-hypothesis correction), add the `BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED` successor row per spec §7 (with its `**Reachability:** INFERRED, NOT PROBED` field), and remove both `**Status:** IN PROGRESS · **Branch:** …` markers. Push.
 3. **Whole-diff cross-model review** (codex-guard, `--stage diff`) of the pushed head — the diff under review IS the diff that merges. If the review forces changes: apply them; if any changed file is a UI surface (invariant 8's definition), RE-RUN Task 5's dual gate on the new diff and re-fill the marker; RE-RUN step 1's nine-dispatch AC-5 probe at the new production sha (the acceptance evidence must belong to the sha that merges — a docs-only forced change may keep step 1's evidence, stated explicitly in the PR body since `app/**`+`components/**`+`lib/**` are byte-identical); then RE-DO step 2 so the ledger-closeout commit is again last, and re-review the new head.
-4. Arm auto-merge only now — after the closeout commit is pushed and the review APPROVEs (the #838 arming-window lesson); real CI green; `gh pr merge --merge`; fast-forward main and verify `git rev-list --left-right --count main...origin/main` = `0  0`.
+4. Arm auto-merge only now — after the closeout commit is pushed and the review APPROVEs (the #838 arming-window lesson). Before arming, run `pnpm vitest run tests/docs/` and require ZERO reds: Task 5 has by now filled the §12 closeout marker and step 2 above has filed the `BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED` row, so both known branch reds are cleared, so a surviving red is a real defect, not the declared temporary state. Then real CI green; `gh pr merge --merge`; fast-forward main and verify `git rev-list --left-right --count main...origin/main` = `0  0`.
 
 ## Appendix A — AC-1 post-fix timeline probe (uncommitted; materialized, run, and deleted by Task 4)
 
@@ -366,6 +369,7 @@ import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { settleDashboardAdminState } from "./helpers/dashboardState";
 import { deleteSeededShow, seedShowWithCrew } from "./helpers/seedShowWithCrew";
+import { premise } from "../_shared/premise";
 
 const SEEDED_SHOWS = 16;
 const CREW_PER_SHOW = 14;
@@ -447,9 +451,7 @@ test.describe("PROBE: capped submenu reveal timeline (AC-1)", () => {
         scrollHeight: el.scrollHeight,
         clientHeight: el.clientHeight,
       }));
-      expect(metrics.scrollHeight, "premise: panel capped and scrolling").toBeGreaterThan(
-        metrics.clientHeight,
-      );
+      premise("the panel is capped and scrolling", metrics.scrollHeight, metrics.clientHeight);
 
       await panel.evaluate((el) => {
         const w = window as unknown as {
@@ -496,9 +498,146 @@ test.describe("PROBE: capped submenu reveal timeline (AC-1)", () => {
 
 ## Appendix B — validated pin bodies (plan-R2 F5)
 
-Every block below was applied to the live tree at plan time, typechecked under the strict tsconfig (`pnpm typecheck` exit 0), eslint-clean, and RUN. Observed results: family A/B pins GREEN on the live tree (current code measures naturally and applies both branches); the three family-C assertions RED at exactly the missing-filter line (`AssertionError: panel-origin scroll is ignored (self-origin filter): expected 1 to be +0` and the HoverHelp analog) — the authored red of Tasks 2-3; useFitWithinClip mutant B (natural-measure clear removed) killed BOTH of that suite's pins. The edits were then reverted so the implementation lands them through the tasks. The unified diff of the four edited files (the HoverHelp file is new and shown in full inside the diff) is the authoritative content:
+Every block below was applied to the live tree at plan time, typechecked under the strict tsconfig (`pnpm typecheck` exit 0), eslint-clean, prettier-formatted, and RUN. Observed results (re-observed in full at the plan-R3 repair, 2026-08-18): family A/B pins GREEN on the live tree (current code measures naturally and applies both branches); the family-C assertions RED at exactly the missing-filter line — `AssertionError: panel-origin scroll is ignored (self-origin filter): expected 1 to be +0` (AnchoredPortal) and `AssertionError: body-origin scroll is ignored (self-origin filter): expected 1 to be +0` (HoverHelp) — the authored red of Tasks 2-3; useFitWithinClip mutant B (natural-measure clear removed) killed BOTH of that suite's pins. The edits were then reverted so the implementation lands them through the tasks. The unified diff of the FIVE files below is the authoritative content — four edited suites plus `tests/components/admin/hoverHelpPlacement.test.tsx`, which is new and therefore shown in full. Every reference to a block in this plan names its PATH, never an ordinal (plan-R3 F1: an ordinal silently mis-points the moment a block is added or the diff re-orders).
 
 ```diff
+diff --git a/tests/components/admin/hoverHelpPlacement.test.tsx b/tests/components/admin/hoverHelpPlacement.test.tsx
+new file mode 100644
+index 000000000..46a5b8b20
+--- /dev/null
++++ b/tests/components/admin/hoverHelpPlacement.test.tsx
+@@ -0,0 +1,131 @@
++// @vitest-environment jsdom
++/**
++ * HoverHelp placement pins (scroll-clamp spec §5.4).
++ * Family B: placement derives from the body's NATURAL size (a capped
++ * measurement computes a wrong cap/position — the R3 live-core probe showed
++ * stale vs natural placements at different coordinates).
++ * Family C: the §4.5 self-origin filter — the body's own scroll events must
++ * not schedule a re-place (the R5 perpetual-measure loop's fuel).
++ *
++ * jsdom computes no layout; rects are stubbed on the prototype, style-SENSITIVE
++ * for the body so a measurement taken with a stale inline cap is observable.
++ */
++import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
++import { cleanup, fireEvent, render, screen } from "@testing-library/react";
++import { HoverHelp } from "@/components/admin/HoverHelp";
++import { premise, premiseHolds } from "../../_shared/premise";
++
++const NATURAL_H = 900;
++type StubRect = { left: number; top: number; width: number; height: number };
++let triggerRect: StubRect;
++const originalRect = Element.prototype.getBoundingClientRect;
++
++function asDomRect(r: StubRect): DOMRect {
++  return {
++    x: r.left,
++    y: r.top,
++    left: r.left,
++    top: r.top,
++    width: r.width,
++    height: r.height,
++    right: r.left + r.width,
++    bottom: r.top + r.height,
++    toJSON: () => ({}),
++  } as DOMRect;
++}
++
++type FrameCb = FrameRequestCallback;
++let frames: FrameCb[] = [];
++const flushFrames = () => {
++  const queued = frames;
++  frames = [];
++  for (const cb of queued) cb(0);
++};
++
++beforeEach(() => {
++  frames = [];
++  triggerRect = { left: 100, top: 400, width: 24, height: 24 };
++  Element.prototype.getBoundingClientRect = function (this: Element): DOMRect {
++    const id = (this as HTMLElement).dataset?.["testid"];
++    if (id === "ph-trigger") return asDomRect(triggerRect);
++    if (id === "ph-body") {
++      const cap = parseFloat((this as HTMLElement).style.maxHeight);
++      const h = Number.isFinite(cap) ? Math.min(NATURAL_H, cap) : NATURAL_H;
++      return asDomRect({ left: 0, top: 0, width: 288, height: h });
++    }
++    return originalRect.call(this);
++  };
++  vi.stubGlobal("requestAnimationFrame", ((cb: FrameCb) => {
++    frames.push(cb);
++    return frames.length;
++  }) as typeof globalThis.requestAnimationFrame);
++  vi.stubGlobal("cancelAnimationFrame", (() => {}) as typeof globalThis.cancelAnimationFrame);
++  vi.stubGlobal(
++    "ResizeObserver",
++    class {
++      observe() {}
++      unobserve() {}
++      disconnect() {}
++    },
++  );
++});
++
++afterEach(() => {
++  cleanup();
++  Element.prototype.getBoundingClientRect = originalRect;
++  vi.unstubAllGlobals();
++});
++
++function openHelp(): { trigger: HTMLElement; body: HTMLElement } {
++  render(
++    <HoverHelp label="Help: placement" testId="ph">
++      <p>body</p>
++    </HoverHelp>,
++  );
++  const trigger = screen.getByTestId("ph-trigger");
++  fireEvent.click(trigger);
++  expect(trigger.getAttribute("aria-expanded")).toBe("true");
++  return { trigger, body: screen.getByTestId("ph-body") };
++}
++
++describe("HoverHelp — natural-size measurement + self-origin filter (scroll-clamp spec §5.4)", () => {
++  test("family B: after the trigger moves and room grows, the cap derives from the NATURAL height", () => {
++    const { body } = openHelp();
++    const cappedBefore = parseFloat(body.style.maxHeight);
++    // PREMISE (own inputs): the open placement must cap the body, and the
++    // natural height must exceed the viewport, or a stale measurement is
++    // indistinguishable from a natural one below.
++    premiseHolds("open placement caps the body", Number.isFinite(cappedBefore));
++    premise("natural height exceeds the viewport", NATURAL_H, window.innerHeight);
++    triggerRect = { left: 100, top: 8, width: 24, height: 24 };
++    premiseHolds(
++      "post-move room exceeds the stale cap",
++      window.innerHeight - (triggerRect.top + triggerRect.height) > cappedBefore,
++    );
++    // A document-origin scroll re-places (HoverHelp has no scroll dismissal).
++    document.dispatchEvent(new Event("scroll", { bubbles: false }));
++    flushFrames();
++    const cappedAfter = parseFloat(body.style.maxHeight);
++    expect(
++      Number.isFinite(cappedAfter),
++      "a natural measurement still needs a cap (natural 900 > any room); a STALE " +
++        "measurement fits under the grown room and drops the cap entirely",
++    ).toBe(true);
++    expect(
++      cappedAfter,
++      "the re-applied cap derives from the grown room (natural measure), not the stale cap",
++    ).toBeGreaterThan(cappedBefore);
++  });
++
++  test("family C: body-origin scroll never schedules; document scroll still re-places", () => {
++    const { body } = openHelp();
++    frames = [];
++    // Body-origin: MUST NOT schedule (spec §4.5) — the event the helper's
++    // scroll-restore emits on every measurement of a scrolled body.
++    body.dispatchEvent(new Event("scroll", { bubbles: false }));
++    expect(frames.length, "body-origin scroll is ignored (self-origin filter)").toBe(0);
++    // Document-origin: still schedules a re-place.
++    document.dispatchEvent(new Event("scroll", { bubbles: false }));
++    expect(frames.length, "document scroll still schedules a re-place").toBeGreaterThan(0);
++  });
++});
 diff --git a/tests/components/admin/rowActions/anchoredPortal.test.tsx b/tests/components/admin/rowActions/anchoredPortal.test.tsx
 index cdd892002..59aae07a8 100644
 --- a/tests/components/admin/rowActions/anchoredPortal.test.tsx
@@ -618,10 +757,18 @@ index cdd892002..59aae07a8 100644
 +  });
 +});
 diff --git a/tests/components/admin/showpage/shareHubVisualViewport.test.tsx b/tests/components/admin/showpage/shareHubVisualViewport.test.tsx
-index e819a2e03..a9b40f06a 100644
+index e819a2e03..ed7eea05f 100644
 --- a/tests/components/admin/showpage/shareHubVisualViewport.test.tsx
 +++ b/tests/components/admin/showpage/shareHubVisualViewport.test.tsx
-@@ -426,3 +426,74 @@ describe("T-S4: ShareHub panel host, non-zero border and scroll", () => {
+@@ -22,6 +22,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+ import { ShareHub } from "@/components/admin/showpage/ShareHub";
+ import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
+ import { PopoverHostContext } from "@/components/admin/HoverHelp";
++import { premiseHolds } from "../../../_shared/premise";
+ 
+ const SHOW_ID = "11111111-2222-4333-8444-555555555555";
+ const SLUG = "aurora-fall-tour";
+@@ -426,3 +427,77 @@ describe("T-S4: ShareHub panel host, non-zero border and scroll", () => {
      expect(pop.style.visibility).not.toBe("hidden");
    });
  });
@@ -640,7 +787,7 @@ index e819a2e03..a9b40f06a 100644
 +    const pop = screen.getByTestId("share-hub-popover");
 +    // PREMISE (own inputs): the narrow slice must actually cap the popover, or
 +    // "absent afterwards" is vacuous.
-+    expect(pop.style.maxHeight, "premise: the narrow slice caps maxHeight").not.toBe("");
++    premiseHolds("the narrow slice caps maxHeight", pop.style.maxHeight !== "");
 +    // Widen the slice far past every natural dimension.
 +    vv.width = 1000;
 +    vv.height = 800;
@@ -683,7 +830,10 @@ index e819a2e03..a9b40f06a 100644
 +    // PREMISE (own inputs): the narrow slice must cap the WIDTH below 308, or
 +    // a stale measurement is indistinguishable from a natural one.
 +    const staleW = parseFloat(pop.style.maxWidth);
-+    expect(Number.isFinite(staleW) && staleW < 308, "premise: narrow slice caps width").toBe(true);
++    premiseHolds(
++      "the narrow slice caps width below the natural 308",
++      Number.isFinite(staleW) && staleW < 308,
++    );
 +    // Widen: bounds now fit the natural width with room to spare, no clamping.
 +    vv.width = 1000;
 +    vv.height = 800;
