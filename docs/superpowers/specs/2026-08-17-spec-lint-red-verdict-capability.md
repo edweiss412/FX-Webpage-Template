@@ -75,7 +75,7 @@ New hard codes, `check: "taskContract"`, plan-kind docs only (like every red-con
 
 Population and mechanism: a pure core function derives the parse plan — `{line, command}` for every well-formed marker's non-empty `red=` and every well-formed gate marker's non-empty `cmd=` — the adapter spawns `sh -nc` per entry (repo-root cwd, same per-command ceiling and `SPEC_LINT_EXEC_TIMEOUT_SECS` seam as `--exec-red`; parse checks are ms-scale so the ceiling is a formality), and a pure synthesis function maps outcomes to findings. Runs on EVERY plan-kind invocation, `--exec-red` or not (§1.1 item 2).
 
-Interaction with execution: a marker whose parse check failed is EXCLUDED from the `--exec-red` run population and from §5 collection probes — executing a command the shell cannot parse observes nothing, and the hard finding already stands. (The shipped exec population rule in `planExecutions`, `lib/specLint/redContract.ts:273`, gains this one exclusion.)
+Interaction with execution: a marker whose parse check did not return exit 0 — a parse FAILURE (non-zero, the hard finding stands) or a parse NON-OBSERVATION (timeout, signal, spawn error — the advisory stands) — is EXCLUDED from the `--exec-red` run population and from §5 collection probes: executing a command the shell cannot parse observes nothing, and executing one whose parseability was never observed is the same gamble; conservative exclusion plus the surfaced finding is the §1.1 item 9 posture, and a parse check is ms-scale so the non-observation branch is theoretical on real trees. (The shipped exec population rule in `planExecutions`, `lib/specLint/redContract.ts:273`, gains this one exclusion.)
 
 ## 4. Static arm — name-filter shape
 
