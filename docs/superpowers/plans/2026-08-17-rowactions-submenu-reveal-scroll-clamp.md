@@ -181,7 +181,14 @@ describe("withNaturalSize", () => {
 
 2. Observe RED (unresolved import). 3. Create lib/popover/naturalSize.ts (new) exactly per spec §4.2. 4. GREEN on the same command. Commit (`fix(admin):` or `feat(admin):` — the helper is new plumbing for an existing surface; use `fix(admin):` since it lands inside the defect repair).
 
-**CI wiring, same commit (plan-R1 F4):** add the new helper path lib/popover/naturalSize.ts to `.github/workflows/admin-layout-e2e.yml`'s path filter beside the four existing `lib/popover/*` entries (`admin-layout-e2e.yml:68-71`), so a helper-only regression still fires the sole real-browser capped-scroll gate. Then run the derived sweep `grep -rn "lib/popover" .github/workflows/` and add the helper to any other workflow whose guarded components consume it (known second candidate: `published-modal-e2e.yml:51` lists `lib/popover/position.ts`; add the helper path there iff its guarded surfaces reach HoverHelp/ShareHub/AnchoredPortal; record the disposition either way in the commit).
+**CI wiring, same commit (plan-R1 F4; sweep authored AND RUN at plan time per plan-R2 F4):** `grep -rn "lib/popover" .github/workflows/` returns exactly two workflows:
+
+```
+.github/workflows/admin-layout-e2e.yml:68-71   place.ts / position.ts / viewport.ts / rafCoalescer.ts
+.github/workflows/published-modal-e2e.yml:51   position.ts
+```
+
+Disposition, decided at plan time: add the new helper path lib/popover/naturalSize.ts to BOTH. `admin-layout-e2e.yml` guards `AnchoredPortal.tsx` directly (`admin-layout-e2e.yml:63`); `published-modal-e2e.yml` guards `components/admin/showpage/**` (ShareHub via StatusStrip, `components/admin/showpage/StatusStrip.tsx:68`) and `components/admin/HoverHelp.tsx` (`published-modal-e2e.yml:38` and `published-modal-e2e.yml:48`) — both consumers of the helper.
 
 ## Task 2 — AnchoredPortal repair: strengthened e2e RED → scroll-neutral measurement + self-origin filter → GREEN
 
@@ -207,7 +214,7 @@ await page.evaluate(
 
 Everything else in the case (premise guards, sampling body, assertions) is unchanged. RED step: run the marker command and observe 10/10 failures at the line-368 assertion (`bottom` ≈ 77px past `boxBottom`, per spec P2's `activeBottom 587 / boxBottom 433.375` shape at the local viewport). Record the observed count in the merged task's commit message.
 
-Add the family-C second phase in the same edit (spec §5.4): after the settle and the reveal assertion, install a style-attribute MutationObserver on the panel, wait six further animation frames, assert ZERO additional `maxHeight` writes.
+Add the family-C second phase in the same edit — the exact body is in Appendix B block 1 (validated: typecheck clean; red pre-fix by design as part of this task's RED half).
 
 **GREEN half — the AnchoredPortal rewrite:**
 
@@ -292,7 +299,7 @@ describe("scroll-neutral measurement (derived cover)", () => {
 });
 ```
 
-Observe RED (the four offenders). This test goes green only at the end of Task 5; Tasks 4-5 each shrink the offender list and record the shrinking list in their commit messages. Commit the test alone (`test(admin):`) with the observed-red transcript in the message.
+Observe RED — after Task 2 the offender list is exactly the three peers (plan-time validation observed all four on the pre-repair tree; Task 2 removes AnchoredPortal). Do NOT commit here: this task commits ONCE, after its GREEN half, with the observed red-to-green transcript in the message.
 
 (Plan-time validation observed the four-site red on the pre-repair tree; after Task 2 the observed set is the three peers — the shrink is itself evidence Task 2's rewrite landed.)
 
@@ -308,21 +315,21 @@ Per spec §4.3 rows 2-4:
 
 Family A (cap-STATE assertions; drop-branch mutant):
 
-- HoverHelp: no new test — the shipped standalone case "maxWidth engages inside a NARROW pane host and is CLEARED when the host widens" (`tests/e2e/hoverhelp-geometry.spec.ts:409`) is the pin; it runs in Task 6.
+- HoverHelp: no new test — the shipped standalone case "maxWidth engages inside a NARROW pane host and is CLEARED when the host widens" (`tests/e2e/hoverhelp-geometry.spec.ts:409`) is the pin; it runs in Task 4.
 - ShareHub: extend `tests/components/admin/showpage/shareHubVisualViewport.test.tsx` with an uncapped-placement case — placement returns null caps, assert both inline properties ABSENT after apply.
 - useFitWithinClip: extend `tests/components/admin/useFitWithinClip.test.tsx` with a fitted→unclipped transition — apply under a clipping ancestor (cap written), re-apply with the clip gone, assert the stale fitted cap is removed. (Family A ONLY — the unclipped branch returns before any measurement, so this case cannot discriminate family B; spec §5.4, R4 F1.)
 - AnchoredPortal: N/A — React owns the style prop; no hand-written application branch exists to drop (spec §5.4).
 
-Family B (COORDINATE/SIZE assertions under style-sensitive rect stubs; capped-measurement mutant — spec §5.4 carries the review probe's discriminating numbers):
+Family B and C case bodies are in Appendix B, all validated executably at plan time (family A/B green on the live tree — current code measures naturally and applies both branches; family C red at exactly the missing-filter assertion, this task's and Task 3's authored red):
 
-- AnchoredPortal: extend `tests/components/admin/rowActions/anchoredPortal.test.tsx` — make the panel's stub rect style-sensitive (capped dims while an inline cap is applied, natural dims when cleared), place once so a cap is written, grow available room via a position-only anchor move, flush frames, assert the re-applied cap/position derives from the NATURAL height, with a `premise` pinning natural > stale so the case cannot pass vacuously.
-- HoverHelp: one analogous jsdom placement case (in `tests/components/admin/hoverHelpBlurClose.test.tsx` or a sibling file) asserting applied top/left derives from natural size.
-- ShareHub: one analogous case in `shareHubVisualViewport.test.tsx` (its `stubRect` becomes style-sensitive for the body) asserting applied x derives from the natural 308px width, not a stale capped width.
-- useFitWithinClip: a clipped→clipped EXPANSION case (spec §5.4, R4 F1) — apply under a clipping ancestor (cap written), GROW the clip's available room, re-apply, assert the cap equals the new larger fitted value; a capped measurement retains the stale fit and fails.
+- AnchoredPortal: Appendix B block 2 (family B + family C describes appended to `tests/components/admin/rowActions/anchoredPortal.test.tsx`; the suite's `test` import gains `vi`).
+- HoverHelp: Appendix B block 3 — a NEW sibling file tests/components/admin/hoverHelpPlacement.test.tsx (the blur suite has no placement harness).
+- ShareHub: Appendix B block 4 (family A + family B describes appended to `shareHubVisualViewport.test.tsx`).
+- useFitWithinClip: Appendix B block 5 (family A fitted→unclipped + family B clipped→clipped expansion appended to `useFitWithinClip.test.tsx`, which gains a `premiseHolds` import; the family-B case installs a style-SENSITIVE `getComputedStyle` mock so a stale inline fit is observable, exactly as live).
 
-**Mutant validation (AC-7):** per site, EVERY applicable mutant — (A) drop the `removeProperty`/null branch, (B) re-order or skip the withNaturalSize wrap so measurement runs with the stale cap applied, (C) drop the §4.5 self-origin filter (AnchoredPortal in Task 4, HoverHelp here) — each observed red against the site's pins, then reverted; all observations recorded in the commit message. The pins are green on the pre-migration tree by design (regression pins, not REDs).
+**Mutant validation (AC-7):** per site, EVERY applicable mutant — (A) drop the `removeProperty`/null branch, (B) re-order or skip the withNaturalSize wrap so measurement runs with the stale cap applied, (C) drop the §4.5 self-origin filter (AnchoredPortal in Task 2, HoverHelp here) — each observed red against the site's pins, then reverted; all observations recorded in the commit message. The pins are green on the pre-migration tree by design (regression pins, not REDs).
 
-GREEN: marker command passes (meta-test empty offender list + HoverHelp jsdom suite green), the two extended unit suites pass, and each pin has been shown red under its mutant. Then `pnpm typecheck` and `pnpm exec eslint components/admin/AnchoredPortal.tsx components/admin/HoverHelp.tsx components/admin/showpage/ShareHub.tsx components/admin/useFitWithinClip.ts lib/popover/naturalSize.ts tests/components/naturalSize.test.ts tests/components/_metaScrollNeutralMeasurement.test.ts tests/components/admin/rowActions/anchoredPortal.test.tsx tests/components/admin/hoverHelpBlurClose.test.tsx tests/components/admin/showpage/shareHubVisualViewport.test.tsx tests/components/admin/useFitWithinClip.test.tsx`. Commit (`fix(admin):`) — the meta-test, the three peer rewrites, and their pins land together, red-then-green inside this one task.
+GREEN: `pnpm vitest run tests/components/_metaScrollNeutralMeasurement.test.ts tests/components/admin/hoverHelpBlurClose.test.tsx tests/components/admin/hoverHelpPlacement.test.tsx tests/components/admin/showpage/shareHubVisualViewport.test.tsx tests/components/admin/useFitWithinClip.test.tsx` passes in full, and each pin has been shown red under its mutant. Then `pnpm typecheck` and `pnpm exec eslint components/admin/AnchoredPortal.tsx components/admin/HoverHelp.tsx components/admin/showpage/ShareHub.tsx components/admin/useFitWithinClip.ts lib/popover/naturalSize.ts tests/components/naturalSize.test.ts tests/components/_metaScrollNeutralMeasurement.test.ts tests/components/admin/rowActions/anchoredPortal.test.tsx tests/components/admin/hoverHelpBlurClose.test.tsx tests/components/admin/showpage/shareHubVisualViewport.test.tsx tests/components/admin/useFitWithinClip.test.tsx`. Commit (`fix(admin):`) — the meta-test, the three peer rewrites, and their pins land together, red-then-green inside this one task.
 
 <!-- tasks: end -->
 
@@ -342,7 +349,7 @@ Ordering is load-bearing (plan-R1 F2): the whole-diff review must cover the exac
 
 1. **CI acceptance instrument (AC-5):** push, then nine fixed-sha dispatches of `admin-layout-e2e` via the distinct-ref method (sibling refs at the identical sha; `cancelled` runs are not samples — spec §6 AC-5, method per PR #822). Required: 0/9 failures of the CAPPED-submenu case, against the 4/9 baseline. Record run ids in the PR body.
 2. **Ledger closeout commit (AC-6) — the PR's last commit:** graduate both entries to `BACKLOG-archive.md` per spec §7 (including the filed-hypothesis correction), add the `BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED` successor row per spec §7 (with its `**Reachability:** INFERRED, NOT PROBED` field), and remove both `**Status:** IN PROGRESS · **Branch:** …` markers. Push.
-3. **Whole-diff cross-model review** (codex-guard, `--stage diff`) of the pushed head — the diff under review IS the diff that merges. If the review forces changes: apply them, RE-DO step 2 so the ledger-closeout commit is again last, and re-review the new head.
+3. **Whole-diff cross-model review** (codex-guard, `--stage diff`) of the pushed head — the diff under review IS the diff that merges. If the review forces changes: apply them; if any changed file is a UI surface (invariant 8's definition), RE-RUN Task 5's dual gate on the new diff and re-fill the marker; RE-RUN step 1's nine-dispatch AC-5 probe at the new production sha (the acceptance evidence must belong to the sha that merges — a docs-only forced change may keep step 1's evidence, stated explicitly in the PR body since `app/**`+`components/**`+`lib/**` are byte-identical); then RE-DO step 2 so the ledger-closeout commit is again last, and re-review the new head.
 4. Arm auto-merge only now — after the closeout commit is pushed and the review APPROVEs (the #838 arming-window lesson); real CI green; `gh pr merge --merge`; fast-forward main and verify `git rev-list --left-right --count main...origin/main` = `0  0`.
 
 ## Appendix A — AC-1 post-fix timeline probe (uncommitted; materialized, run, and deleted by Task 4)
@@ -474,17 +481,339 @@ test.describe("PROBE: capped submenu reveal timeline (AC-1)", () => {
       });
       console.log(`PROBE-TIMELINE rep=${rep} ${JSON.stringify(result)}`);
       expect(result.revealed, "AC-1: reveal durable at 400ms").toBe(true);
+      // Stability, not merely non-zero (plan-R2 F2): exactly ONE scroll event
+      // (the reveal itself), and the 400ms offset IS that event's offset; any
+      // later event or drifted final offset fails, silent partial drift included.
+      expect(result.scrolls.length, "AC-1: exactly one scroll event (the reveal)").toBe(1);
       expect(
-        result.scrolls.filter((e) => e.top === 0).length,
-        "AC-1: no clamp-to-zero reset event",
-      ).toBe(0);
+        result.finalScrollTop,
+        "AC-1: the 400ms offset equals the reveal offset (no drift)",
+      ).toBe(result.scrolls[0]!.top);
     });
   }
 });
 ```
 
+## Appendix B — validated pin bodies (plan-R2 F5)
+
+Every block below was applied to the live tree at plan time, typechecked under the strict tsconfig (`pnpm typecheck` exit 0), eslint-clean, and RUN. Observed results: family A/B pins GREEN on the live tree (current code measures naturally and applies both branches); the three family-C assertions RED at exactly the missing-filter line (`AssertionError: panel-origin scroll is ignored (self-origin filter): expected 1 to be +0` and the HoverHelp analog) — the authored red of Tasks 2-3; useFitWithinClip mutant B (natural-measure clear removed) killed BOTH of that suite's pins. The edits were then reverted so the implementation lands them through the tasks. The unified diff of the four edited files (the HoverHelp file is new and shown in full inside the diff) is the authoritative content:
+
+```diff
+diff --git a/tests/components/admin/rowActions/anchoredPortal.test.tsx b/tests/components/admin/rowActions/anchoredPortal.test.tsx
+index cdd892002..59aae07a8 100644
+--- a/tests/components/admin/rowActions/anchoredPortal.test.tsx
++++ b/tests/components/admin/rowActions/anchoredPortal.test.tsx
+@@ -12,7 +12,7 @@
+  * Close-on-window-scroll is deliberately NOT here — it is Task 7's production
+  * defect, red-first against the real wired dashboard in Playwright.
+  */
+-import { afterEach, beforeEach, describe, expect, test } from "vitest";
++import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+ import { act, cleanup, render } from "@testing-library/react";
+ import "@testing-library/jest-dom/vitest";
+ import { useRef } from "react";
+@@ -288,3 +288,104 @@ describe("AnchoredPortal — a position-only move re-places the panel", () => {
+     expect(panel.style.top).toBe(`${after.top + after.height + GAP}px`);
+   });
+ });
++
++/**
++ * Site-transition pins (scroll-clamp spec §5.4).
++ * Family B: placement must derive from the NATURAL size — a migration that
++ * measures while a stale inline cap is applied computes a wrong cap/position.
++ * Family C: the §4.5 self-origin filter — the panel's own scroll events must
++ * not schedule a re-place (they are the fuel of the R5 perpetual-measure loop).
++ */
++describe("AnchoredPortal — natural-size measurement + self-origin filter (scroll-clamp spec §5.4)", () => {
++  test("family B: after a position-only move grows the room, the cap derives from the NATURAL height", () => {
++    const NATURAL_H = 900;
++    // Style-sensitive panel rect: capped height while an inline cap is applied,
++    // natural height when cleared — what a real layout reports, and the
++    // difference a capped measurement cannot see.
++    const prev = Element.prototype.getBoundingClientRect;
++    Element.prototype.getBoundingClientRect = function (this: Element): DOMRect {
++      if (this.matches('[data-testid="portal-panel"]')) {
++        const cap = parseFloat((this as HTMLElement).style.maxHeight);
++        const h = Number.isFinite(cap) ? Math.min(NATURAL_H, cap) : NATURAL_H;
++        return asDomRect({ left: 0, top: 0, width: 200, height: h });
++      }
++      for (const [selector, r] of stubbed) {
++        if (this.matches(selector)) return asDomRect(r);
++      }
++      return prev.call(this);
++    };
++    try {
++      const mid: StubRect = { left: 100, top: 400, width: 24, height: 24 };
++      const top: StubRect = { left: 100, top: 8, width: 24, height: 24 };
++      stubbed.set('[data-testid="anchor"]', mid);
++      const { rerender } = render(<Harness open />);
++      const panel = panelNode()!;
++      const cappedBefore = parseFloat(panel.style.maxHeight);
++      // PREMISE (own inputs): the first placement must cap the panel, and the
++      // natural height must exceed the post-move room, or the assertion below
++      // cannot distinguish a natural measurement from a stale one.
++      premiseHolds("first placement caps the panel", Number.isFinite(cappedBefore));
++      premise("natural height exceeds the viewport", NATURAL_H, window.innerHeight);
++      // Position-only move: the anchor jumps to the top; room below grows far
++      // beyond the stale cap but stays below the natural height.
++      premiseHolds(
++        "post-move room exceeds the stale cap",
++        window.innerHeight - (top.top + top.height) > cappedBefore,
++      );
++      stubbed.set('[data-testid="anchor"]', top);
++      rerender(<Harness open />);
++      const cappedAfter = parseFloat(panel.style.maxHeight);
++      expect(
++        Number.isFinite(cappedAfter),
++        "a natural measurement still needs a cap here (natural 900 > any room); " +
++          "a STALE measurement fits under the grown room and drops the cap entirely",
++      ).toBe(true);
++      expect(
++        cappedAfter,
++        "the re-applied cap derives from the grown room (natural measure), not the stale cap",
++      ).toBeGreaterThan(cappedBefore);
++    } finally {
++      Element.prototype.getBoundingClientRect = prev;
++    }
++  });
++
++  test("family C: panel-origin scroll never schedules; ancestor scroll re-places; document scroll dismisses", () => {
++    stubbed.set('[data-testid="anchor"]', { left: 100, top: 200, width: 24, height: 24 });
++    stubbed.set('[data-testid="portal-panel"]', { left: 0, top: 0, width: 200, height: 100 });
++    const onDismiss = vi.fn();
++    function FilterHarness() {
++      const anchorRef = useRef<HTMLButtonElement>(null);
++      return (
++        <div data-testid="scroll-host">
++          <button ref={anchorRef} data-testid="anchor" type="button">
++            Actions
++          </button>
++          <AnchoredPortal
++            open
++            anchorRef={anchorRef}
++            testId="portal-panel"
++            align="left"
++            onDismiss={onDismiss}
++          >
++            <div>content</div>
++          </AnchoredPortal>
++        </div>
++      );
++    }
++    render(<FilterHarness />);
++    const panel = panelNode()!;
++    frames = [];
++    // Panel-origin: MUST NOT schedule a re-place (spec §4.5) — this is the
++    // event the scroll-restore emits on every measurement of a scrolled panel.
++    panel.dispatchEvent(new Event("scroll", { bubbles: false }));
++    expect(frames.length, "panel-origin scroll is ignored (self-origin filter)").toBe(0);
++    // Ancestor-origin: still re-places.
++    document.querySelector('[data-testid="scroll-host"]')!.dispatchEvent(new Event("scroll", { bubbles: false }));
++    expect(frames.length, "ancestor scroll still schedules a re-place").toBeGreaterThan(0);
++    // Document-origin: still dismisses, and does not schedule.
++    frames = [];
++    document.dispatchEvent(new Event("scroll", { bubbles: false }));
++    expect(onDismiss, "document scroll still dismisses").toHaveBeenCalledTimes(1);
++    expect(frames.length, "a dismissal schedules nothing").toBe(0);
++  });
++});
+diff --git a/tests/components/admin/showpage/shareHubVisualViewport.test.tsx b/tests/components/admin/showpage/shareHubVisualViewport.test.tsx
+index e819a2e03..a9b40f06a 100644
+--- a/tests/components/admin/showpage/shareHubVisualViewport.test.tsx
++++ b/tests/components/admin/showpage/shareHubVisualViewport.test.tsx
+@@ -426,3 +426,74 @@ describe("T-S4: ShareHub panel host, non-zero border and scroll", () => {
+     expect(pop.style.visibility).not.toBe("hidden");
+   });
+ });
++
++/**
++ * Site-transition pins (scroll-clamp spec §5.4). Regression pins for the
++ * withNaturalSize migration: green pre-migration by design; red under the
++ * plan's mutants (A: dropped null-branch application; B: capped measurement).
++ */
++describe("ShareHub — cap-application transition pins (scroll-clamp spec §5.4)", () => {
++  test("family A: a capped→uncapped placement ends with BOTH inline caps absent", () => {
++    const vv = new VisualViewportStub(VV.width, VV.height, VV.offsetLeft, VV.offsetTop);
++    vi.stubGlobal("visualViewport", vv);
++    openHub();
++    replace(vv);
++    const pop = screen.getByTestId("share-hub-popover");
++    // PREMISE (own inputs): the narrow slice must actually cap the popover, or
++    // "absent afterwards" is vacuous.
++    expect(pop.style.maxHeight, "premise: the narrow slice caps maxHeight").not.toBe("");
++    // Widen the slice far past every natural dimension.
++    vv.width = 1000;
++    vv.height = 800;
++    vv.offsetLeft = 0;
++    vv.offsetTop = 0;
++    replace(vv);
++    expect(pop.style.maxHeight, "ample room: no stale maxHeight survives").toBe("");
++    expect(pop.style.maxWidth, "ample room: no stale maxWidth survives").toBe("");
++  });
++
++  test("family B: after the slice widens, x derives from the NATURAL 308px width", () => {
++    const vv = new VisualViewportStub(VV.width, VV.height, VV.offsetLeft, VV.offsetTop);
++    vi.stubGlobal("visualViewport", vv);
++    const kebab = openHub();
++    void kebab;
++    const pop = screen.getByTestId("share-hub-popover");
++    // Style-sensitive body rect: capped width while an inline cap is applied,
++    // natural 308 when cleared — what a real layout reports.
++    Object.defineProperty(pop, "getBoundingClientRect", {
++      configurable: true,
++      value: () => {
++        const capW = parseFloat(pop.style.maxWidth);
++        const w = Number.isFinite(capW) ? Math.min(308, capW) : 308;
++        const capH = parseFloat(pop.style.maxHeight);
++        const h = Number.isFinite(capH) ? Math.min(120, capH) : 120;
++        return {
++          left: 0,
++          top: 0,
++          width: w,
++          height: h,
++          right: w,
++          bottom: h,
++          x: 0,
++          y: 0,
++          toJSON: () => "",
++        } as DOMRect;
++      },
++    });
++    replace(vv);
++    // PREMISE (own inputs): the narrow slice must cap the WIDTH below 308, or
++    // a stale measurement is indistinguishable from a natural one.
++    const staleW = parseFloat(pop.style.maxWidth);
++    expect(Number.isFinite(staleW) && staleW < 308, "premise: narrow slice caps width").toBe(true);
++    // Widen: bounds now fit the natural width with room to spare, no clamping.
++    vv.width = 1000;
++    vv.height = 800;
++    vv.offsetLeft = 0;
++    vv.offsetTop = 0;
++    replace(vv);
++    // align="right": x = trigger.right − NATURAL width. A capped measurement
++    // computes trigger.right − staleW instead (the R3 live-core probe's
++    // x=166-vs-x=142 discriminator).
++    expect(pop.style.left).toBe(`${TRIGGER.left + TRIGGER.width - 308}px`);
++  });
++});
+diff --git a/tests/components/admin/useFitWithinClip.test.tsx b/tests/components/admin/useFitWithinClip.test.tsx
+index 7d5e3d597..951df094d 100644
+--- a/tests/components/admin/useFitWithinClip.test.tsx
++++ b/tests/components/admin/useFitWithinClip.test.tsx
+@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+ 
+ import { useFitWithinClip } from "@/components/admin/useFitWithinClip";
++import { premiseHolds } from "../../_shared/premise";
+ import { computeFittedMaxHeight } from "@/lib/layout/fitWithinClip";
+ 
+ /** Declared CSS cap on the fitted element (a real `max-h-96` is 384px). */
+@@ -357,3 +358,56 @@ describe("useFitWithinClip", () => {
+     expect(fitted.style.maxHeight).toBe(expectedPx());
+   });
+ });
++
++/**
++ * Site-transition pins (scroll-clamp spec §5.4). Regression pins for the
++ * withNaturalSize migration: green on the pre-migration tree by design; their
++ * red condition is a defective migration (mutants A/B in the plan).
++ */
++describe("useFitWithinClip — cap-application transition pins (scroll-clamp spec §5.4)", () => {
++  test("family A: fitted→unclipped removes the stale fit instead of retaining it", () => {
++    const { fitted, view } = mount({ clips: true, reapplyKey: 1 });
++    expect(fitted.style.maxHeight).toBe(expectedPx());
++    // PREMISE (own inputs): a fit was actually written, or removal is vacuous.
++    premiseHolds("a fitted cap exists before the transition", fitted.style.maxHeight !== "");
++    view.rerender(<Harness reapplyKey={2} clips={false} />);
++    expect(
++      fitted.style.maxHeight,
++      "no clipping ancestor: the stale fit must be gone, not retained",
++    ).toBe("");
++  });
++
++  test("family B: clipped→clipped expansion relaxes the cap from the DECLARED cap, not the stale fit", () => {
++    // Style-sensitive computed style: the stock beforeEach mock always returns
++    // the declared cap, which would hide a skipped natural-measure. Reading the
++    // element's own inline value first makes the stale fit OBSERVABLE, which is
++    // exactly what the live getComputedStyle does.
++    vi.spyOn(window, "getComputedStyle").mockImplementation((el: Element) => {
++      const inline = (el as HTMLElement).style.maxHeight;
++      const declared =
++        (el as HTMLElement).dataset?.["testid"] === "fitted" ? `${DECLARED_CAP}px` : "none";
++      return {
++        overflowX: (el as HTMLElement).dataset?.["clips"] === "true" ? "clip" : "visible",
++        overflowY: (el as HTMLElement).dataset?.["clips"] === "true" ? "clip" : "visible",
++        maxHeight: inline !== "" ? inline : declared,
++      } as unknown as CSSStyleDeclaration;
++    });
++    const { fitted, view } = mount({ clips: true, reapplyKey: 1 });
++    const staleFit = parseFloat(fitted.style.maxHeight);
++    // PREMISE (own inputs): the first fit must be TIGHTER than the declared
++    // cap, or a stale re-read is indistinguishable from a natural one.
++    premiseHolds("the first fit is tighter than the declared cap", staleFit < DECLARED_CAP);
++    geometry = { fittedTop: FITTED_TOP, clipBottom: 700 };
++    // PREMISE: after growth the room exceeds the declared cap, so the correct
++    // answer is the declared cap and the stale answer stays at the old fit.
++    premiseHolds(
++      "grown room exceeds the declared cap",
++      700 - FITTED_TOP > DECLARED_CAP && staleFit < DECLARED_CAP,
++    );
++    view.rerender(<Harness reapplyKey={2} clips />);
++    expect(
++      fitted.style.maxHeight,
++      "the re-fit must derive from the DECLARED cap (natural measure), not the stale inline fit",
++    ).toBe(expectedPx({ fittedTop: FITTED_TOP, clipBottom: 700 }));
++  });
++});
+diff --git a/tests/e2e/rowactions-geometry.spec.ts b/tests/e2e/rowactions-geometry.spec.ts
+index 684332797..ae1a4a5d1 100644
+--- a/tests/e2e/rowactions-geometry.spec.ts
++++ b/tests/e2e/rowactions-geometry.spec.ts
+@@ -355,6 +355,16 @@ test.describe("dashboard row actions — real-browser geometry (§3.1, AC-7)", (
+ 
+     // Arrow to the LAST item, which starts below the fold.
+     await page.keyboard.press("End");
++    // Settle: the defect class this pins reverts the reveal on the NEXT animation
++    // frame (measureAndApply's clamp). Two rAFs put the sample on the far side of
++    // any scheduled re-measure, so the assertion reads the DURABLE state (the one
++    // the keyboard user is left looking at) instead of racing the revert.
++    await page.evaluate(
++      () =>
++        new Promise<void>((resolve) =>
++          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
++        ),
++    );
+     const revealed = await page.evaluate(() => {
+       const active = document.activeElement as HTMLElement | null;
+       const box = active?.closest<HTMLElement>("[data-portal-scroll]");
+@@ -366,6 +376,23 @@ test.describe("dashboard row actions — real-browser geometry (§3.1, AC-7)", (
+     expect(revealed, "focus must be on an item inside the scrolling panel").not.toBeNull();
+     expect(revealed!.top).toBeGreaterThanOrEqual(revealed!.boxTop - TOL);
+     expect(revealed!.bottom).toBeLessThanOrEqual(revealed!.boxBottom + TOL);
++
++    // Family C (spec §5.4): the re-measure cadence is bounded, not per-frame. A
++    // dropped self-origin filter turns the scroll-restore's own events into
++    // continuous measuring; six frames of silence prove the loop is absent.
++    const laterWrites = await panel.evaluate(async (el) => {
++      let writes = 0;
++      const mo = new MutationObserver((recs) => {
++        for (const r of recs) if (r.attributeName === "style") writes += 1;
++      });
++      mo.observe(el, { attributes: true, attributeFilter: ["style"] });
++      for (let i = 0; i < 6; i += 1) {
++        await new Promise<void>((res) => requestAnimationFrame(() => res()));
++      }
++      mo.disconnect();
++      return writes;
++    });
++    expect(laterWrites, "no continuing re-measure after settle (spec §5.4 family C)").toBe(0);
+   });
+ 
+   test("compound: the row unmounting while the menu is open leaves no orphaned portal", async ({
+```
+
 ## §12 — closeout
 
-Filled by the implementation session at Task 7 (never fabricated in the spec+plan arc; `tests/docs/_metaInvariant8Closeout.test.ts` reds on this unmerged branch by design until then). The line to add here, with real values:
+Filled by the implementation session at Task 5 (never fabricated in the spec+plan arc; `tests/docs/_metaInvariant8Closeout.test.ts` reds on this unmerged branch by design until then). The line to add here, with real values:
 
 `impeccable-gate: critique=RAN audit=RAN p0=<int> p1=<int> dispositions=<recorded|none>`
