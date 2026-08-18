@@ -90,6 +90,9 @@ const CITATION = /BL-[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?/g;
 const NOT_CITATIONS = new Set([
   "tests/docs/_metaLedgerReferentialIntegrity.test.ts",
   "tests/docs/_ledgerMdast.walker.test.ts",
+  // Same reason: its `BL-FIXTURE-ROW` entries are synthetic ledgers run through
+  // the real walker to prove the mint-bar reject branches fire (premise cases).
+  "tests/docs/_metaLedgerMintBar.test.ts",
   // Same reason: its `BL-MENTIONED` / `BL-TYPOO` / `BL-REAL` and friends are
   // planted markdown proving condition 4 separates a definition from a mention.
   // The entry that drove it (BL-LEDGER-BODY-DEFINED-ID-OVERMINT) predicted this
