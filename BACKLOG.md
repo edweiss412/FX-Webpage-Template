@@ -1276,14 +1276,6 @@ The asymmetry is what makes it worth scheduling: a stale bound cannot be refuted
 
 **Work:** make the brief's bound part of the repair commit rather than a later tidy-up. The cheap mechanical form is a diff-time check: a commit touching a spec's ratified bound section (the `§1.1` consequence-bound item) must also touch the bound bullet of any brief under `_briefs/` that targets that spec, or carry an explicit note saying why not. `_briefs/` is untracked per-machine scratch today, so the check either moves briefs into the repo or keys off the dispatch record in `docs/review-rounds/<branch>/<baseSha12>.jsonl`, which does track every dispatch and its stage — deciding which is the implementing arc's call.
 
-## BL-PLANLINT-CONSTRUCTED-FIXTURE-SATISFIABILITY — a plan-embedded fixture snippet is asserted against, never executed
-
-**Status:** IN PROGRESS · **Branch:** fix/planlint-fixture-satisfiability · **Filed:** 2026-08-16, from the review-round filing `docs/review-rounds/feat/mutation-section-order/40a7adfa5f29.md` (plan §, its single candidate) · **Severity:** LOW (review-round cost; no product surface) · **Class:** review-round reduction (tooling) · **Effort:** M
-
-**Probed, not theorized.** Two rounds on one arc died on the same shape: plan round 4's constructed markdown document had a header shape its named parser does not open a block on, and spec round 6's `FOO BAR` snippet was the same defect one stage earlier. In both the plan asserted what the parser WOULD emit for an embedded snippet, and in both the snippet could not produce it. A three-line `tsx` probe run at plan-authoring time settles either one.
-
-**Work:** at plan self-review, execute every embedded markdown snippet through the parser the plan names for it and pin the actual emission in the plan body. Mechanizing it means deciding how a snippet declares its parser — a fenced-block info string (` ```md parser=parseVenue `) is the obvious candidate and the implementing arc owns that call. Distinct from `BL-SPEC-PROBE-RUNNABILITY`: that one runs committed probe FILES, this one runs snippets embedded in prose.
-
 ## BL-SHRINK-SIZED-BY-HARNESS-CLOSURE — a hole-shrink list authored by hand is sized before the harness has been asked
 
 **Status:** OPEN. · **Filed:** 2026-08-16, from the review-round filing `docs/review-rounds/feat/mutation-section-order/40a7adfa5f29.md` (diff §, candidate b) · **Severity:** MEDIUM (the wrong number reached a merged plan and was only corrected by a 2-hour harness cycle) · **Class:** mutation-harness process · **Effort:** S
