@@ -34,6 +34,7 @@ const CHECK_ORDER: Record<Check, number> = {
   copy: 3,
   sections: 4,
   taskContract: 5,
+  universals: 6,
 };
 
 // WAIVER_MISSING_REASON is unsuppressible (spec §3 — an empty waiver must not launder itself).

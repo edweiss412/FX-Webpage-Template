@@ -1,5 +1,12 @@
 export type Severity = "fail" | "advisory";
-export type Check = "document" | "citations" | "numerics" | "copy" | "sections" | "taskContract";
+export type Check =
+  | "document"
+  | "citations"
+  | "numerics"
+  | "copy"
+  | "sections"
+  | "taskContract"
+  | "universals";
 export interface Finding {
   check: Check;
   code: string;
