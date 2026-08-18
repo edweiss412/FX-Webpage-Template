@@ -701,17 +701,24 @@ Five of the nine specced members were RED when first run — the spec had verifi
 
 **Related, filed separately:** `BL-E2E-LAYOUT-FIXED-WAIT-RESIDUE` (three fixed waits the 2026-08-03 class sweep found in the layout spec).
 
-## BL-MODAL-WAIT-SKELETON-TOLERANT-SITES — two e2e waits the boundary helper cannot harden, because the Suspense skeleton wins the race
+## BL-MODAL-WAIT-LOADED-CORE-CLASSIFY-TOTALITY — the loaded-only wait treats "not loaded" as "must be the boundary"
 
-**Status:** OPEN · **Severity:** LOW (two sites keep the exposure they have today; nothing regresses) · **Class:** e2e flake hardening · **Effort:** M · **Filed:** 2026-08-16 (`test/modal-wait-helper-adoption`, from that arc's spec review round 3) · **Class-sweep exception:** (c) — the repair is a redesign of what these two tests wait on, which changes their assertions; the filing arc does not otherwise touch them. · **Reachability:** PROBED — the shared-testid mechanism below is read from source, not inferred.
+**Status:** OPEN · **Severity:** LOW (the affected window is the streaming overlap, and the cost is a worse ERROR MESSAGE on a path that already fails) · **Class:** e2e diagnostics · **Effort:** S · **Filed:** 2026-08-18 (`fix/modal-wait-skeleton-tolerant`, from that arc's diff review round 1, which found the same shape in the NEW frame core) · **Class-sweep exception:** (b) — a ratified scope fence: that arc's plan lists "the loaded-only core's contract" under NOT edited, and its 30-plus adopted sites all run through it. · **Reachability:** PROBED — command and output below.
 
-`published-review-modal.deeplink.spec.ts:344` and `published-review-modal.realtime.spec.ts:913` both wait on `MODAL_ANY` — the modal testid WITHOUT the `:has(…-title)` loaded qualifier — deliberately, because each is testing a state where either frame is legitimate (`:344` proves Esc closes whichever frame is up during a load; `:913` re-opens mid-close-transition). The Suspense skeleton renders through the same shell with the same `testIdBase` (`components/admin/showpage/ShowReviewModalSkeleton.tsx:51` → `components/admin/review/ReviewModalShell.tsx:584`), so `MODAL_ANY` matches it.
+`awaitReviewModalOrRecover` samples one locator after its race and infers the rest: `if (await ready.isVisible()) return modal;` and everything else falls into the boundary-recovery branch (`tests/e2e/helpers/openShowReviewModal.ts`). Nothing verifies a boundary is actually present. Each `isVisible()` is a live DOM query, so a frame that is up when the race resolves and gone one sample later — the documented streaming overlap — routes into a recovery that clicks a `RETRY_SELECTOR` no page is showing.
 
-That makes the boundary helper actively wrong at these two sites rather than merely unhelpful. The skeleton mounts immediately while the loader is still pending, so it WINS a modal-or-boundary race: `awaitReviewModalOrRecover` would return on the skeleton, emit no `infra-recovery` annotation, and let the test proceed as though nothing happened — converting a loud starve into a silent pass. The adoption arc therefore removed the `readySelector` option it had drafted for exactly these two callers and excluded both sites (spec `docs/superpowers/specs/ci/2026-08-16-modal-wait-boundary-helper-adoption-design.md` §2.5, limit 3b); `:344` is one of the structural guard's two pinned exemptions.
+**Probe** (throwaway vitest case against a fake Page whose `isVisible` is always false, mirroring the frame core's own regression case):
 
-**Cost of leaving it:** a transient boundary at either site still fails the test, but as the bare downstream timeout it produces today — the deeplink case at its focus poll, the realtime case at its freshness evaluate — with no annotation and no `show_review_snapshot_failed` hint in the message.
+```
+PEER-PROBE-MESSAGE: test.info() can only be called while test is running
+AssertionError: expected 'test.info() can only be called while …' to contain 'peer:probe'
+```
 
-**What a repair needs:** a way to distinguish "skeleton, loader still pending" from "skeleton, loader already failed" — e.g. racing the boundary for the REMAINDER of the timeout after the skeleton is observed, rather than returning on first match. That is a contract change to the helper plus an assertion change in both specs, and it wants its own spec. **Re-open trigger:** either spec actually flaking on this signature in CI.
+The thrown message names neither the caller's label, nor the selectors, nor `show_review_snapshot_failed` — exactly the diagnostic loss the parent arc's `starveError` exists to prevent. Under playwright the same path produces a generic click timeout instead.
+
+**Cost of leaving it:** confined to error QUALITY. Every affected run already fails; it just fails without the grep target. Nothing silently passes.
+
+**What a repair needs:** the totality the frame core now has — classify loaded, then boundary, and treat "neither" as one bounded re-race followed by the named starve error, never as an assumed boundary (`awaitReviewFrameOrRecover`'s `classify`/`raceOnce` pair is the shipped model). The reason it is not done here: the loaded core is on the hot path of every adopted site in the corpus, so it wants its own diff and its own review rather than riding along in an arc whose plan explicitly fenced it. **Re-open trigger:** any adopted site reporting a bare Playwright click timeout where a starve was expected.
 
 ## BL-PLANLINT-RECONCILIATION-AND-MARKER-CITATIONS — two already-mandated plan checks that only a human currently runs
 
