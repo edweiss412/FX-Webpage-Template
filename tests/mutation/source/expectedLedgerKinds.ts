@@ -252,6 +252,11 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // survivors were repaid with cases rather than blessed, so a THIRD row is a
   // gap to repay rather than a number to bump.
   "modal-wait-helper-scan": { equivalent: 2 },
+  // The census's AUTHORED half, enrolled 2026-08-17 with the candidate-contract
+  // v2 rewrite. Empty, and honestly so: every survivor of its first run was
+  // repaid with a deciding case rather than blessed, so a row appearing here
+  // later is this surface's first accepted gap and needs its own argument.
+  "modal-wait-disposition": {},
   // Fresh enrolment: every survivor is repaid or argued in the registry row's
   // accepted list; a nonzero count appearing here later is a regression to
   // repair rather than a number to bump. First run scored 63/65; both survivors
