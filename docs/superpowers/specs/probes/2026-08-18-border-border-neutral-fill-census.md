@@ -2,6 +2,8 @@
 
 Branch: `fix/control-outline-border-token`. Ledger row: `BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL` (`BACKLOG.md`).
 
+**On `pnpm spec:lint` for this file:** it reports three `SECTION_MISSING_*` failures (`Resolved scope`, `Dimensional Invariants`, `Transition Inventory`). Those are a classifier artifact, not a defect — the linter treats anything under `docs/superpowers/specs/**` as a spec, and every probe record in `docs/superpowers/specs/probes/` fails the same three (the sibling `2026-08-11-speclint-arm-survivor-classification.md` fails `SECTION_MISSING_RESOLVED_SCOPE` among 18 hard). A probe record is not a spec and owes none of those sections. **Every CITATION failure has been repaired**; that class is real and this file reports zero of them.
+
 Every figure and every row below was read off the live tree on 2026-08-18 and holds independently of how the arc's design question was ruled. The spec cites this record rather than restating it, so the two documents cannot drift.
 
 **Ruling, for context only:** the user chose the text ramp on 2026-08-18 against a rendered mockup that showed the confirm-row Cancels, the split button of §6, and the crew surfaces of §2 at all three candidate weights in both themes.
@@ -26,11 +28,11 @@ scanInteractiveElements(process.cwd()).filter(
 
 | Entry cites                                               | Live element line | Cause                          |
 | --------------------------------------------------------- | ----------------- | ------------------------------ |
-| `components/admin/ArchiveShowButton.tsx:344`               | `:333`            | `className=` line vs tag line  |
-| `app/admin/show/[slug]/ResetPickerEpochButton.tsx:266`     | `:260`            | `className=` line vs tag line  |
-| `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:233` | `:240`            | intervening edits since filing |
-| `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx:103`   | `:109`            | intervening edits since filing |
-| `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx:121`   | `:127`            | intervening edits since filing |
+| `components/admin/ArchiveShowButton.tsx:344`               | `components/admin/ArchiveShowButton.tsx:333`            | `className=` line vs tag line  |
+| `app/admin/show/[slug]/ResetPickerEpochButton.tsx:266`     | `app/admin/show/[slug]/ResetPickerEpochButton.tsx:260`            | `className=` line vs tag line  |
+| `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:233` | `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:240`            | intervening edits since filing |
+| `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx:103`   | `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx:109`            | intervening edits since filing |
+| `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx:121`   | `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx:127`            | intervening edits since filing |
 
 ## 2. The census — 30 rows, as the scanner reports them
 
@@ -71,7 +73,7 @@ Crew-facing marked `C` (thirteen, by render chain; the four marked `C*` are reac
 
 ## 3. Contrast, re-measured from the runtime tokens
 
-Extracted from `app/globals.css` with the block-anchored reader `tests/styles/secondary-action-contrast.test.ts:23-40` uses (light from `:root`, dark from `[data-theme="dark"]`, `-runtime` suffix). Format is light / dark.
+Extracted from `app/globals.css` with the block-anchored reader `tests/styles/secondary-action-contrast.test.ts:23` uses (light from the bare root block, dark from the `data-theme="dark"` block, `-runtime` suffix). Format is light / dark.
 
 | Outline token          | Hex (light / dark)    | `bg`        | `surface`   | `surface-raised` | `surface-sunken` |
 | ---------------------- | --------------------- | ----------- | ----------- | ---------------- | ---------------- |
@@ -125,7 +127,7 @@ Each carries `border border-border` on all four sides with no fill token at rest
 | `components/admin/telemetry/AutoRefreshControl.tsx:119` | none       | `hover:bg-surface-sunken` only                  |
 | `components/shared/ReportModal.tsx:675`           | none            | `hover:bg-surface-sunken` only                  |
 
-`AutoRefreshControl.tsx:119` is worth naming twice: the same file's `:106` is one of the five switch-track render paths §1.2a rules OUT, and `:119` is a different element on the same surface. They must not be conflated.
+`AutoRefreshControl.tsx:119` is worth naming twice: the same file's `AutoRefreshControl.tsx:106` is one of the five switch-track render paths §1.2a rules OUT, and `AutoRefreshControl.tsx:119` is a different element on the same surface. They must not be conflated.
 
 ### Class C — five dividers, quoted so the exclusion is evidenced per site
 
@@ -155,7 +157,7 @@ The cover matches the whole token unprefixed. That is **correct** for a state pr
 
 `ShareHub.tsx:781` is the sharpest instance in the repository: both of its arms **already carry `border-text-faint`** from the 2026-08-16 swap, and `max-sm:border-border` wins the cascade below 640px. The same button therefore paints **3.35:1 on a desktop viewport and 1.27:1 on a phone**.
 
-**Ratification collision, stated rather than resolved silently.** The mobile skin is ratified: the in-file comment at `components/admin/showpage/ShareHub.tsx:798-800` cites `spec 2026-07-24-strip-mobile-stacked-band §3 R3` — "border color drops to `border-border` below sm (the §3 R3 skin; width stays 1px)". Any repair here overrides a prior ratified decision. The override is narrow — colour only; `flex-1`, `justify-center`, `rounded-sm`, `whitespace-nowrap`, `min-w-0`, `overflow-hidden` and the 1px width are all untouched — but it is an override and the spec must say so rather than let a reviewer discover it.
+**Ratification collision, stated rather than resolved silently.** The mobile skin is ratified: the in-file comment at `components/admin/showpage/ShareHub.tsx:798` cites `spec 2026-07-24-strip-mobile-stacked-band §3 R3` — "border color drops to `border-border` below sm (the §3 R3 skin; width stays 1px)". Any repair here overrides a prior ratified decision. The override is narrow — colour only; `flex-1`, `justify-center`, `rounded-sm`, `whitespace-nowrap`, `min-w-0`, `overflow-hidden` and the 1px width are all untouched — but it is an override and the spec must say so rather than let a reviewer discover it.
 
 ## 5. The five confirm-row Cancels, read out of the live tree
 
@@ -163,7 +165,7 @@ Each is the escape route from a destructive confirm whose trigger the 2026-08-16
 
 | Cancel                                                | Paired destructive confirm                                    |
 | ----------------------------------------------------- | ------------------------------------------------------------- |
-| `components/admin/ArchiveShowButton.tsx:333`           | `:436` `bg-warning-text`, "Confirm archive"                    |
+| `components/admin/ArchiveShowButton.tsx:333`           | `components/admin/ArchiveShowButton.tsx:436` `bg-warning-text`, "Confirm archive"                    |
 | `app/admin/show/[slug]/ResetPickerEpochButton.tsx:260` | `bg-warning-text`, "Confirm reset"                             |
 | `app/admin/show/[slug]/RotateShareTokenButton.tsx:379` | `bg-warning-text`, "Confirm rotate"                            |
 | `app/admin/show/[slug]/PickerResetControl.tsx:255`     | `bg-warning-text`, "Confirm reset"                             |
@@ -171,20 +173,20 @@ Each is the escape route from a destructive confirm whose trigger the 2026-08-16
 
 ## 6. The regression pin is green on a control that renders at 1.27:1 — and that was known
 
-`app/admin/show/[slug]/ResetPickerEpochButton.tsx:178` is census row 2 of the cover **and** a row of the 2026-08-16 census (`tests/styles/controlOutlineScan.ts:46`). It is one `<button>` with a two-branch `className` (`:185-189`):
+`app/admin/show/[slug]/ResetPickerEpochButton.tsx:178` is census row 2 of the cover **and** a row of the 2026-08-16 census (`tests/styles/controlOutlineScan.ts:46`). It is one `<button>` with a two-branch `className` (`app/admin/show/[slug]/ResetPickerEpochButton.tsx:185`):
 
 - `compact` branch: `border border-text-faint bg-surface` — **3.35:1**, moved by the 2026-08-16 swap.
 - non-`compact` branch: `border border-border bg-surface` — **1.27:1**, untouched.
 
-**Not novel, and the correction matters.** An earlier revision of this record claimed this was unnamed. It is not: the 2026-08-16 spec records it twice — at its §2.1 R3 bullet and as a §6 documented limit, together with `ShareHub.tsx:777` (live: `:781`), both at "1.27:1 in both themes". What this record adds is the *guard* consequence below, and the class decomposition of §4.
+**Not novel, and the correction matters.** An earlier revision of this record claimed this was unnamed. It is not: the 2026-08-16 spec records it twice — at its §2.1 R3 bullet and as a §6 documented limit, together with `ShareHub.tsx:777` (live: `ShareHub.tsx:781`), both at "1.27:1 in both themes". What this record adds is the *guard* consequence below, and the class decomposition of §4.
 
-**The consequence the prior arc did not draw.** `tests/styles/_metaControlOutlineFill.test.ts:112-123` asserts, per census row, `carries(element, "border-text-faint") === true` and `carries(element, "border-border-strong") === false`. Both hold here — the compact branch supplies the first, and no branch ever carried `border-border-strong`. **The pin is green on an element that renders at 1.27:1 in one of its two states**, and it would stay green if a future edit moved the compact branch back, so long as some branch kept the token.
+**The consequence the prior arc did not draw.** `tests/styles/_metaControlOutlineFill.test.ts:112` asserts, per census row, `carries(element, "border-text-faint") === true` and `carries(element, "border-border-strong") === false`. Both hold here — the compact branch supplies the first, and no branch ever carried `border-border-strong`. **The pin is green on an element that renders at 1.27:1 in one of its two states**, and it would stay green if a future edit moved the compact branch back, so long as some branch kept the token.
 
 This is a **limit of the pin, not a defect in it**: its docstring is explicit that it answers "did the 21 elements this PR changed stay changed" over a closed set. The mechanism that closes it already exists in the same file — `everyPathCarries`, used at `tests/styles/_metaControlOutlineFill.test.ts:163` for the `max-sm:border-border` case — so the repair is adopting an existing helper, not writing a new predicate.
 
 ## 7. Enrollability, checked before round 1
 
-`tests/styles/controlOutlineScan.ts` is **enrolled** in `tests/mutation/source/registry.ts:1909-1924` at `scoreFloor: 1` with `accepted: []`, alongside `interactiveScanCore` (`:1783`) and `tapTargetScan` (`:1887`). `subtleInteractiveScan` is recorded NOT ENROLLED at `:1874-1886` with a structural reason (zero mutants — a filter over the core with no site the declared operator set reaches).
+`tests/styles/controlOutlineScan.ts` is **enrolled** in `tests/mutation/source/registry.ts:1909` at `scoreFloor: 1` with `accepted: []`, alongside `interactiveScanCore` (`tests/mutation/source/registry.ts:1783`) and `tapTargetScan` (`tests/mutation/source/registry.ts:1887`). `subtleInteractiveScan` is recorded NOT ENROLLED at `tests/mutation/source/registry.ts:1874` with a structural reason (zero mutants — a filter over the core with no site the declared operator set reaches).
 
 Consequence: **any change to `controlOutlineScan.ts` re-triggers score-before-closeout.** Extending the census or strengthening the pin means running `pnpm mutation:guards` and stating the score plus an empty unaccepted-survivor set in the round-1 diff brief.
 
