@@ -101,3 +101,5 @@ sdd/
 
 # Cross-model review artifacts (transcripts, briefs, verdicts) - never committed
 .review/
+
+tests/.spec-lint-fixtures-*/
