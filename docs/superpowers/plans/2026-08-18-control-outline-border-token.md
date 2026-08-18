@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-<!-- Task 7 replaces this comment with the invariant-8 marker line in the §3.3 RAN grammar. -->
+<!-- Task 6 replaces this comment with the invariant-8 marker line in the §3.3 RAN grammar. -->
 
 **Goal:** Ship the 2026-08-18 text-ramp ruling. 37 controls whose resting outline is `border-border` on a neutral or absent fill swap to `border-text-faint`; the hover inversion that swap causes at 21 of them is repaired in the same branch; five dividers and ShareHub's ratified mobile skin do not move; the census pin grows to 57 rows and gains a negation assertion that catches the half-swapped element the current pin cannot see.
 
@@ -40,7 +40,7 @@ Plus a `DESIGN.md` §1.2a paragraph rewrite, **three** new §1.2 contrast rows w
 - Invariant 8: **APPLIES** — the diff touches `app/**` (non-API), `components/**` and `DESIGN.md`. Task 6 runs both halves and writes the marker in that same commit.
 - Invariant 9: N/A. Invariant 10: N/A — no mutating route, no `"use server"` action.
 - Invariant 11: all work in this worktree, never the main checkout.
-- Invariant 12: the `BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL` in-progress marker comes off in Task 7, and **step 7.9 verifies at merge time that Task 7 is still the PR's last commit** rather than assuming it.
+- Invariant 12: the `BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL` in-progress marker comes off in **step 7.9, which is sequenced to run after CI is green as its own final commit**, so lastness is a property of the ordering rather than something verified after the fact.
 
 ### Heavy-phase discipline
 
@@ -144,13 +144,14 @@ Every cell names the step that PROVES the AC, not merely one that touches it.
 ### GREEN and the untouched-surface proofs
 
 - [ ] **1.12** `pnpm exec vitest run tests/styles/_metaControlOutlineFill.test.ts` — all **57** rows green, all three fixtures green, all five divider cases green. **Zero failures**, which is the green half of this task's cycle.
-- [ ] **1.13** **AC-4 — compare against `origin/main`, not the working tree**, because a plain `git diff` would miss anything this task already staged:
+- [ ] **1.13** **AC-4 — the ShareHub pin must be BYTE-IDENTICAL, and a token grep does not prove that** (plan review R4 F2). A one-edit mutant inside the pin — changing its `premise` threshold at `tests/styles/_metaControlOutlineFill.test.ts:162` — leaves the suite green and still prints `0` for any `max-sm:border-border` grep, while the range is no longer byte-identical. Hash the block instead, extracted by CONTENT so it survives the line shift Task 1 causes:
       ```sh
-      git diff origin/main -- tests/styles/_metaControlOutlineFill.test.ts | grep -c 'max-sm:border-border'
+      block() { awk '/describe\("adjacent tokens survive the swap"/,/^\}\);$/' "$1"; }
+      git show origin/main:tests/styles/_metaControlOutlineFill.test.ts > /tmp/arcF-sharehub-base.ts
+      diff <(block /tmp/arcF-sharehub-base.ts) <(block tests/styles/_metaControlOutlineFill.test.ts) && echo IDENTICAL
       git diff origin/main --stat -- components/admin/showpage/ShareHub.tsx
       ```
-      **Two-dot against origin/main, NOT the three-dot range against HEAD** — these steps run BEFORE this task's single commit at 1.16, so a three-dot range against `HEAD` would see none of the work and pass vacuously (plan review R3 F1). Two-dot against `origin/main` compares the WORKING TREE, which is where the edits are at this moment.
-      Expect the printed count `0` and an EMPTY stat. `grep -c` exits **1** when it matches nothing, so that non-zero exit is the SUCCESS shape here — read the printed number, not `$?`.
+      **Two-dot against `origin/main`, NOT the three-dot range against HEAD** — these steps run BEFORE this task's single commit at 1.16, so a three-dot range would see none of the work and pass vacuously (plan review R3 F1). `diff` must print nothing and echo `IDENTICAL`; the `--stat` must be empty.
 - [ ] **1.14** **AC-5 — the switch tracks.**
       ```sh
       git diff origin/main --stat -- components/admin/PublishedToggle.tsx \
@@ -160,11 +161,12 @@ Every cell names the step that PROVES the AC, not merely one that touches it.
       ```
       The first must be EMPTY. The second is NOT — that file is edited at `components/admin/telemetry/AutoRefreshControl.tsx:119`. Read the hunk headers and confirm none reaches `components/admin/telemetry/AutoRefreshControl.tsx:106`, the switch-track path.
 - [ ] **1.15** Confirm the untouched occurrences survive: `git diff origin/main -U0 -- '*.tsx' | grep -c '^-.*border-border'` should equal **33** — the 32 control edits plus the one comment line.
-- [ ] **1.15a** **AC-7 needs its own check; the count of 33 does not prove it** (plan review R3 F8). That total is substitutable — leaving the comment untouched while altering any one of the thirty unrelated occurrences still prints 33. Prove the comment directly:
+- [ ] **1.15a** **AC-7 needs its own check, and it cannot be a diff grep** (plan review R3 F8, corrected at R4 F2). The count of 33 is substitutable. A `-`/`+` grep on `border-border` does not work either: a CORRECT replacement comment no longer contains that token, so no `+` line can carry it, while the file's unrelated `hover:border-border-strong` class line supplies a false `+`. Assert the END STATE of the comment block directly:
       ```sh
-      git diff origin/main -- components/layout/ThemeToggle.tsx | grep '^[-+].*border-border'
+      sed -n '36,45p' components/layout/ThemeToggle.tsx | grep -c 'border-border'          # expect 0
+      sed -n '36,45p' components/layout/ThemeToggle.tsx | grep -c 'border-text-faint'      # expect 1
       ```
-      The output must contain BOTH a `-` line and a `+` line for the comment at `components/layout/ThemeToggle.tsx:41`, showing the token name was updated rather than merely that some line moved.
+      The comment block must no longer name the old token and must name the new one. Confirm the line range still covers the comment before trusting it — `components/layout/ThemeToggle.tsx:41` is its 2026-08-18 anchor and the block may move.
 - [ ] **1.16** Commit ONCE: `fix(styles): move border-border control outlines to the text ramp`
 
 ## Task 2: Repair the hover inversion — 17 edits across 13 files
@@ -176,10 +178,21 @@ Without this task the arc ships 21 controls whose outline reads LIGHTER on hover
 ### RED
 
 - [ ] **2.1** The denylist. Per census row among the 36 additions: no row carries `hover:border-border-strong`, and none carries bare `border-accent` **under any state prefix** (match the TOKEN, not one prefix — `hover:` and `aria-expanded:` both occur). Expect **21** failures.
-- [ ] **2.2** **The positive assertions, without which AC-11 is unproven.** *Failure mode caught by 2.2 that 2.1 misses: deleting the required override, or replacing it with a third weak token, passes the denylist.* Assert per named site:
-      - the **6** §3.6(b) sites carry `hover:border-text-subtle` — `app/me/meShowSections.tsx:174`, `app/me/meShowSections.tsx:213`, `app/me/meShowSections.tsx:258`, `components/agenda/AgendaEmbed.tsx:83`, `components/agenda/AgendaPdfViewer.tsx:198`, `components/admin/showpage/PublishedReviewModal.tsx:964`;
-      - the **3** §3.6(c) sites carry `hover:border-accent-on-bg`, AND `components/admin/dev/SwitcherControls.tsx:142` also carries `aria-expanded:border-accent-on-bg`;
-      - the **12** §3.6(a) sites carry NO `hover:border-*` token at all.
+- [ ] **2.2** **The positive assertions, and they must be PER RENDER PATH — a per-ELEMENT `carries` check is not sufficient and the mutant is known.** Plan review R4 F1 supplied it: relocate the new token to the other ternary arm of `components/admin/showpage/PublishedReviewModal.tsx:964` — remove `hover:border-border-strong` from path 0 and add `hover:border-text-subtle` to path 1 — and a per-element check reports `carries(text-subtle)=true` and `carries(border-border-strong)=false`, both green, while **the path that actually draws the outline has lost its hover cue entirely.**
+
+      **This is the third time the union-versus-per-path shape has bitten this arc** (spec R2 F1 in the hover classification, spec R4 F3 in the tinted-plate claim, and now here), so the repair is a HELPER the assertions are written against rather than a third careful hand-check. Add to `tests/styles/_metaControlOutlineFill.test.ts`:
+      ```ts
+      /** The render alternatives that carry `token` — the unit every per-path claim is made in. */
+      function pathsCarrying(element: ScanElement, token: string): string[][] {
+        const whole = new RegExp(`(^|\\s)${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\s|$)`);
+        return element.paths.filter((path) => path.some((s) => whole.test(s)));
+      }
+      ```
+      Then assert, per named site: **every path that carries `border-text-faint` also carries the site's required hover token**, and `pathsCarrying(element, "border-text-faint").length > 0` so the claim is never vacuous.
+      - the **6** §3.6(b) sites require `hover:border-text-subtle` — `app/me/meShowSections.tsx:174`, `app/me/meShowSections.tsx:213`, `app/me/meShowSections.tsx:258`, `components/agenda/AgendaEmbed.tsx:83`, `components/agenda/AgendaPdfViewer.tsx:198`, `components/admin/showpage/PublishedReviewModal.tsx:964`;
+      - the **3** §3.6(c) sites require `hover:border-accent-on-bg`, and `components/admin/dev/SwitcherControls.tsx:142` additionally requires `aria-expanded:border-accent-on-bg`;
+      - the **12** §3.6(a) sites require that NO path carries any `hover:border-*` token.
+      *Failure mode caught:* the relocation mutant above, and the simpler one where a required override is deleted or replaced with a third weak token — neither of which the 2.1 denylist can see.
 - [ ] **2.3** **The complete expected RED is 42 failures, not 30** (plan review R3 F2). An earlier draft counted only the 9 retarget outcomes and forgot that the twelve §3.6(a) sites must ALSO fail their positive case, because each still carries the `hover:border-*` token that 2.2 asserts is absent:
       - **21** denylist failures (18 `hover:border-border-strong` + 3 `border-accent`);
       - **12** §3.6(a) positive failures ("carries NO `hover:border-*`" — false until 2.4 deletes them);
@@ -262,7 +275,7 @@ Without this task the arc ships 21 controls whose outline reads LIGHTER on hover
 - [ ] **7.3** **Do NOT touch `BL-CONTROL-OUTLINE-ON-TINTED-PLATES`.** An earlier draft added `components/admin/showpage/PublishedReviewModal.tsx:964` to it; that was a cross-path union error (spec §6). Scanner path 0 is `border-border` + `bg-surface-sunken`, scanner path 1 is `bg-warning-bg` with no outline token, so no render path carries both.
 - [ ] **7.4** Add any new paired-chrome instance from Task 6 to `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT`.
 - [ ] **7.4a** Record `components/admin/dev/SwitcherControls.tsx:119` on `BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER`, family A. It is a `<select>` carrying `border border-border bg-surface … hover:border-accent`, so it is inside §1.2a's words and outside the scanner's vocabulary in BOTH directions — the census will never flag it and never exempt it, which is exactly what that entry exists to hold. Add the site with its class string; do NOT open a new row and do NOT edit the file.
-- [ ] **7.5** Archive `BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL`, **removing its `**Status:** IN PROGRESS · **Branch:**` marker in the same commit** — archives categorically reject in-progress entries.
+- [ ] **7.5** Archive `BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL`'s CONTENT into `BACKLOG-archive.md`. **The `**Status:** IN PROGRESS · **Branch:**` line comes off in step 7.9, not here** (plan review R4 F4) — and because archives categorically reject in-progress entries, the archived copy carries the final status while the marker line remains only on the open-ledger stub until 7.9 removes it and the stub with it. If the meta-tests cannot express that split state, do the whole archive in 7.9 instead; the sequencing requirement wins.
 - [ ] **7.6** **Ledger-seam conflict is expected** — several arcs edit these files concurrently, and four PRs in a row conflicted on `BACKLOG.md` on 2026-08-18. Resolve with set arithmetic, and the expected numbers are stated so a wrong merge is visible:
       ```sh
       ids() { grep -ohE '^## (BL|DEF)-[A-Z0-9-]+' "$@" | sed 's/^## //' | sort -u; }
@@ -272,15 +285,20 @@ Without this task the arc ships 21 controls whose outline reads LIGHTER on hover
       The first must print NOTHING. The second must print **351**. Re-measured immediately before this plan's R4 dispatch: `origin/main` **347**, this branch **350** — three rows are filed here, not two (`BL-CODEX-GUARD-SPECLINT-PREDISPATCH-GATE`, `BL-SPEC-CLAIM-SWEEP-AFTER-REASONING-FINDING`, `BL-SPECLINT-RED-TARGET-CANNOT-NAME-A-REPO-ROOT-SURFACE`) — and step 7.1's ShareHub row makes **351** (plan review R3 F7 caught the stale figure). Archiving MOVES a row between files and must not change the union count. **Do not trust any of these numbers at implementation time** — the branch may file more rows during review, and `origin/main` advances daily. Recompute all three with the same command and assert the RELATION: post-merge union == `origin/main` union + rows this branch adds.
 - [ ] **7.7** `pnpm exec vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerMintBar.test.ts tests/docs/_metaReviewRoundEconomy.test.ts`
 - [ ] **7.8** Commit: `docs(backlog): file the ShareHub mobile-skin weight and archive the border-token row`
-- [ ] **7.9** **The marker must come off IN the PR's last commit, and Task 7 is not automatically last.** An earlier draft checked only that the marker is absent at `HEAD`, which stays true no matter how many commits ago it was removed — it could not detect the very sequence it claimed to (plan review R2 F3). The check must ask WHEN the removal happened, and `git log -S` answers that by finding commits that changed the string's occurrence count:
+- [ ] **7.9** **The marker removal is SEQUENCED to be last, not checked for lastness afterwards** (plan review R4 F4). An earlier draft removed the marker in Task 7 and then tried to verify at merge time that Task 7 was still final, with `--amend` as the remedy. That does not work: once a repair commit lands after the removal, the `-S` occurrence-change sits in `HEAD`'s parent and amending `HEAD` cannot move it. The fallback of recording the mismatch in the PR body straightforwardly violates invariant 12.
+
+      So **do not remove the marker in step 7.5.** Step 7.5 archives the entry's CONTENT; the `**Status:** IN PROGRESS · **Branch:**` line stays until here, and this step runs **after whole-diff review and after CI is green**, immediately before `gh pr merge`:
       ```sh
+      # 1. everything else is already merged-ready and CI is green
+      # 2. remove the marker line, commit it alone, push
+      git commit -m 'docs(backlog): clear the in-progress marker' -- BACKLOG.md
+      git push
+      # 3. verify — both conditions, and now they hold by construction
       git rev-parse HEAD
       git log -S'IN PROGRESS · **Branch:** fix/control-outline-border-token' --format=%H -- BACKLOG.md | head -1
       git show HEAD:BACKLOG.md | grep -c 'IN PROGRESS · \*\*Branch:\*\* fix/control-outline-border-token'
       ```
-      The third must print `0` — **that is the load-bearing invariant: the marker must not reach `main`.** The first two printing the SAME sha is the stronger claim that the removal happened IN the last commit.
-
-      **If the shas differ, "re-do the removal" does NOT work** and an earlier draft said it did (plan review R3 F9): once the marker is absent, removing it again is a no-op and `git log -S` still points at the earlier commit. The only remedies that change that result are history operations — `git commit --amend` to fold the removal into the final commit, or reordering so the ledger commit is last. Interactive rebase is unavailable in this environment, so **prefer `--amend`**: land the trailing repair, then amend it to also carry the ledger change. If neither is practical, the absent-at-`HEAD` check is the invariant that must hold, and the ordering difference is recorded in the PR body rather than papered over.
+      The first two print the SAME sha and the third prints `0`. **Being last is now a property of the ordering rather than a hope**, and the only way to break it is to push another commit after this one — which is exactly the merge-blocking condition it should be. If CI must re-run on this commit, that is expected and the merge waits for it; a re-run that forces a repair means repeating this step afterwards.
 
 ---
 
