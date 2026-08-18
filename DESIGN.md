@@ -224,13 +224,43 @@ the scope paragraph below — recorded here rather than implied away, because th
 had already moved, and that reason now points the other way. Whether chrome that visually
 pairs with a control should follow it is `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT`.
 
-Separately: a control with a neutral fill but a `border-border` outline — the
-confirm-row Cancels at `components/admin/ArchiveShowButton.tsx:344` and
-`app/admin/show/[slug]/ResetPickerEpochButton.tsx:266`, both **1.27:1** — falls
-inside this predicate's words and outside the 2026-08-16 swap, which moved only
-`border-border-strong`. Widening to `border-border` is a separate design decision
-this ruling did not make, filed as
-`BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL`.
+**`border-border` on a control's resting outline takes the text ramp too
+(ruled 2026-08-18).** The 2026-08-16 swap moved only `border-border-strong`, and
+this paragraph previously recorded the remaining question as open. It is now
+closed: a control whose resting outline is `border-border`, standing on one of
+the four neutral ground tokens **or unfilled**, carries `border-text-faint` like
+its `border-border-strong` siblings. `border-border` measured **1.22-1.38:1**
+against those grounds — below `border-border-strong`, and under the 3:1 non-text
+floor by a wider margin than a single figure suggests.
+
+The ruling was taken against a RENDERED MOCKUP showing three candidate weights
+in both themes, and — unlike the 2026-08-16 mockup, which was admin-only — it
+showed the CREW half: the `/me` show tiles, the section chips, and the call and
+text buttons on a person's row. Those crew surfaces are therefore ratified
+rather than inferred, which is the difference that let the sweep reach them.
+
+**Hover must stay heavier than rest, and this ruling is what makes that a
+rule.** Raising a resting outline to 3.35:1 while leaving a `hover:` override at
+1.59:1 inverts the pair — the control would read FAINTER on hover than at rest.
+So a hover override either goes away, where another hover cue already carries
+the affordance on the same render path, or rises above the resting weight:
+`--color-text-subtle` (5.97-6.94:1) where the border is the only cue, and
+`--color-accent-on-bg` (5.02-9.65:1) where the cue is an accent hue —
+`--color-accent` itself is decorative-only in light (§1.2) and cannot carry it.
+
+**Dividers are OUT, in both directions.** A `border-t`, `border-b` or `border-l`
+rule between stacked content has no resting outline to raise, and §1.2a's
+preservation of the border tokens for dividers is what this carve-out rests on.
+Nobody should sweep one because a token census found it, and nobody should widen
+the carve-out into a claim about which elements are "really" controls — it is a
+statement about which SIDE the token paints, nothing more.
+
+One population is knowingly left behind, with its numbers recorded rather than
+implied: `components/admin/showpage/ShareHub.tsx`'s two `max-sm:border-border`
+elements, which paint **1.27:1** below 640px on a control measuring 3.35:1 above
+it. A prior ratified decision and a shipped executable pin both fence them, so
+they are filed as `BL-CONTROL-OUTLINE-SHAREHUB-MOBILE-SKIN-WEIGHT` rather than
+moved here.
 
 Worked example — the one secondary action treatment (`lib/ui/actionClass.ts`,
 `SECONDARY_ACTION_CLASS`, 8 call sites):

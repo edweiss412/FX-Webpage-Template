@@ -1483,3 +1483,37 @@ The cause is `lib/specLint/citations.ts:55` — `const bare = !prefix.includes("
 **It is a recurring class, not a one-off.** Every repo-root file is affected, and plans legitimately target several: `DESIGN.md`, `AGENTS.md`, `BACKLOG.md`, `PRODUCT.md`, `package.json`. Any arc whose production surface is one of them meets this.
 
 **First scheduled step:** widen the grammar to accept a repo-root form — either treat a tracked root-relative filename as non-bare when it resolves, or accept an explicit `./` prefix — and add the marker-level case to the spec-lint suite. A second, cheaper half worth doing either way: emit an advisory when a plan contains a red-contract region AND `##`-level tasks outside it, so an unnoticed opt-out is at least visible.
+
+## BL-CONTROL-OUTLINE-SHAREHUB-MOBILE-SKIN-WEIGHT — one control paints 3.35:1 on desktop and 1.27:1 on a phone
+
+**Status:** OPEN · **Severity:** LOW-MEDIUM (a resting boundary at 1.27:1 below 640px, on a control that measures 3.35:1 above it) · **Class:** visual boundary / DESIGN scope · **Effort:** S · **Filed:** 2026-08-18 (`fix/control-outline-border-token`, spec §3.5) · **Facing:** product · **Class-sweep exception:** (b) — a ratified scope decision fences it, and there are TWO of them, one executable · **Reachability:** PROBED — both figures measured from the runtime tokens, and the cascade behaviour read out of the live class strings.
+
+`components/admin/showpage/ShareHub.tsx:781` and `components/admin/showpage/ShareHub.tsx:817` carry `max-sm:border-border`. A `max-sm:` prefix is a RESTING outline below 640px — unlike a `hover:` prefix, which is a state cue and is correctly outside every control-outline cover.
+
+`:781` is the sharpest instance in the repository. Both of its ternary arms ALREADY carry `border-text-faint` from the 2026-08-16 swap, and `max-sm:border-border` wins the cascade below 640px, so **the same button paints 3.35:1 on a desktop viewport and 1.27:1 on a phone**. `:817` is a four-path element with different figures: its two open paths are `bg-surface-sunken` at **1.15:1 light / 1.38:1 dark**, and its two closed paths are `bg-transparent`, so both edges of the outline are whatever ground the kebab is rendered on and no static figure applies.
+
+**Why it is filed rather than swept, and the reason is not "same defect, different file".** Two independent ratifications fence it:
+
+1. **A design ratification.** The in-file comment at `components/admin/showpage/ShareHub.tsx:798` cites `spec 2026-07-24-strip-mobile-stacked-band §3 R3` — "border color drops to `border-border` below sm (the §3 R3 skin; width stays 1px)".
+2. **An executable ratification, which is the load-bearing one.** The case NAMED `keeps max-sm:border-border on BOTH ShareHub ternary arms` in `tests/styles/_metaControlOutlineFill.test.ts` is a shipped pin whose stated purpose is that this exact token survives; its docstring records that a plan review probed corrupting both tokens and found the rest of the suite stays green while the responsive treatment is silently gone. (Cited by NAME, not by line: the 2026-08-18 arc's own Task 1 shifted it from `:156` to `:286`.)
+
+Swapping here would mean editing that pin to assert the opposite of what it was written to catch — the shape where a guard is rewritten to match the change it exists to detect.
+
+**First scheduled step:** decide whether `DESIGN.md` §1.2a's control-outline rule supersedes the §3 R3 mobile skin. If yes, the repair is two token edits plus a matching update to the pin, landing together.
+
+## BL-VERIFICATION-BLOCK-FAILS-OPEN-ON-UNREADABLE-INPUT — a plan's verification commands report PASS when they could not look
+
+**Status:** OPEN · **Severity:** MEDIUM (a verification block that cannot distinguish success from blindness certifies nothing, and the plans that carry them are the ones gating merges) · **Class:** plan authoring / verification hygiene · **Effort:** S · **Filed:** 2026-08-18 (`fix/control-outline-border-token`, plan review R6 F2) · **Facing:** process · **Class-sweep exception:** (c) — the repair is a lint arm over plan prose, a surface this PR does not otherwise touch · **Reachability:** PROBED — both failure modes reproduced by the reviewer against the shipped block, transcripts below.
+
+A plan step that verifies something with a shell pipeline usually prints a count and compares it by eye. Probed against this arc's own Task 7 block, **that shape cannot tell success from inability to look**:
+
+- a MISSING ledger file makes `grep` error to stderr while `wc -l` still prints `0`, and the pipeline exits **0**;
+- an INVALID git object prints `fatal: invalid object name`, then `0`, and also exits **0**.
+
+In both cases the expected-success output (`0`) and the could-not-look output (`0`) are byte-identical, so the check certifies nothing while reading as green.
+
+**Incident.** This arc shipped three such blocks in its plan and they survived five review rounds before R6 probed them. They were repaired to emit an explicit PASS/FAIL, exit 1 on failure, and validate their reads BEFORE taking any count — and the repair was verified in both directions, with a constructed duplicate id making the check print FAIL and exit 1.
+
+**Shape of the repair.** A `spec:lint` arm over plan prose: a fenced `sh` block inside a step whose text claims verification should either emit an explicit verdict token (`PASS`/`FAIL`) or set `-e`/`-o pipefail` and be reachable by a non-zero exit. Advisory first, since the corpus will have many pre-existing blocks.
+
+**First scheduled step:** measure how many existing plan steps carry a bare-count verification block, from `docs/superpowers/plans/**`, before choosing advisory versus hard — the count decides whether this can ever be a hard arm.
