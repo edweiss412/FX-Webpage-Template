@@ -99,6 +99,7 @@ import { createPortal } from "react-dom";
 
 import { type Rect } from "@/lib/popover/position";
 import { placeWithinVisibleViewport } from "@/lib/popover/place";
+import { withNaturalSize } from "@/lib/popover/naturalSize";
 import { createRafCoalescer } from "@/lib/popover/rafCoalescer";
 import { isVisualViewportEngine } from "@/lib/popover/viewport";
 import { PopoverHostContext } from "@/components/admin/HoverHelp";
@@ -282,36 +283,34 @@ export function ShareHub({
     // `null` says exactly that; lib/popover/place.ts owns the composition.
     const hostRectOrNull = host === document.body ? null : toRect(host.getBoundingClientRect());
 
-    // Natural size = class caps active, NO inline constraints. Cleared first so
-    // we measure the CSS cap rather than the previous pass's result.
-    body.style.maxHeight = "";
-    body.style.maxWidth = "";
-    const naturalRect = body.getBoundingClientRect();
-
-    // NO LAYOUT ENGINE (SSR, jsdom): every rect is zero-area, which the
-    // placement core correctly classifies as degenerate and would have us hide.
-    // Hiding is right for a real browser that measured a genuinely unplaceable
-    // anchor; it is wrong here, where nothing was measured at all — it would
-    // make the dialog invisible to assistive tech and to every unit test. Leave
-    // the popover unpositioned and visible instead, the same posture the
-    // superseded caret measurement took for this case.
-    const triggerRect = trigger.getBoundingClientRect();
-    if (triggerRect.width === 0 || naturalRect.width === 0) return;
+    // Natural size = class caps active, NO inline constraints. withNaturalSize
+    // owns the clear and restore (spec §4.2) so we measure the CSS cap rather
+    // than the previous pass's result — and it restores the body's scroll
+    // offsets, which an uncapped layout pass would otherwise clamp to 0.
     // ONE trigger snapshot serves both the bounds decision and the placement,
     // so the two can never disagree at the visible-slice boundary.
-    const placement = placeWithinVisibleViewport(window, {
-      hostRect: hostRectOrNull,
-      trigger: toRect(triggerRect),
-      naturalSize: { width: naturalRect.width, height: naturalRect.height },
-      wrappedHeightAt: (w) => {
-        body.style.maxWidth = `${w}px`;
-        const h = body.getBoundingClientRect().height;
-        body.style.maxWidth = "";
-        return h;
-      },
-      preferredSide: "bottom",
-      align: "right",
+    const triggerRect = trigger.getBoundingClientRect();
+    const placement = withNaturalSize(body, (probe) => {
+      const naturalRect = body.getBoundingClientRect();
+      // NO LAYOUT ENGINE (SSR, jsdom): every rect is zero-area, which the
+      // placement core correctly classifies as degenerate and would have us hide.
+      // Hiding is right for a real browser that measured a genuinely unplaceable
+      // anchor; it is wrong here, where nothing was measured at all — it would
+      // make the dialog invisible to assistive tech and to every unit test. Leave
+      // the popover unpositioned and visible instead, the same posture the
+      // superseded caret measurement took for this case. Signalled as null so the
+      // caps and scroll offsets are still restored on the way out.
+      if (triggerRect.width === 0 || naturalRect.width === 0) return null;
+      return placeWithinVisibleViewport(window, {
+        hostRect: hostRectOrNull,
+        trigger: toRect(triggerRect),
+        naturalSize: { width: naturalRect.width, height: naturalRect.height },
+        wrappedHeightAt: probe.heightAtWidth,
+        preferredSide: "bottom",
+        align: "right",
+      });
     });
+    if (placement === null) return;
 
     const caret = caretRef.current;
     if (placement.kind === "hidden") {
@@ -349,8 +348,13 @@ export function ShareHub({
     const bodyOffsets = toHostOffsets(placement.viewport);
     body.style.left = `${bodyOffsets.left}px`;
     body.style.top = `${bodyOffsets.top}px`;
+    // Both branches are written (spec §4.3, R1 F1): the helper restored the PRIOR
+    // caps, but this site ends in the PLACEMENT's cap state, so an uncapped
+    // placement must actively remove the cap the helper just put back.
     if (placement.maxHeight !== null) body.style.maxHeight = `${placement.maxHeight}px`;
+    else body.style.removeProperty("max-height");
     if (placement.maxWidth !== null) body.style.maxWidth = `${placement.maxWidth}px`;
+    else body.style.removeProperty("max-width");
 
     // Caret keeps the hub's own 10px rotated-square visual and its
     // opener-centre horizontal math — the ratified §1.1 carve-out.

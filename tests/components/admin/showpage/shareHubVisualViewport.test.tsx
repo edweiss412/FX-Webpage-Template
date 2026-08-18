@@ -22,6 +22,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 import { ShareHub } from "@/components/admin/showpage/ShareHub";
 import { ShareTokenProvider } from "@/app/admin/show/[slug]/ShareTokenContext";
 import { PopoverHostContext } from "@/components/admin/HoverHelp";
+import { premiseHolds } from "../../../_shared/premise";
 
 const SHOW_ID = "11111111-2222-4333-8444-555555555555";
 const SLUG = "aurora-fall-tour";
@@ -424,5 +425,79 @@ describe("T-S4: ShareHub panel host, non-zero border and scroll", () => {
     const expectedTop = viewportY - HOST.top - 5 + 23;
     expect(pop.style.top).toBe(`${expectedTop}px`);
     expect(pop.style.visibility).not.toBe("hidden");
+  });
+});
+
+/**
+ * Site-transition pins (scroll-clamp spec §5.4). Regression pins for the
+ * withNaturalSize migration: green pre-migration by design; red under the
+ * plan's mutants (A: dropped null-branch application; B: capped measurement).
+ */
+describe("ShareHub — cap-application transition pins (scroll-clamp spec §5.4)", () => {
+  test("family A: a capped→uncapped placement ends with BOTH inline caps absent", () => {
+    const vv = new VisualViewportStub(VV.width, VV.height, VV.offsetLeft, VV.offsetTop);
+    vi.stubGlobal("visualViewport", vv);
+    openHub();
+    replace(vv);
+    const pop = screen.getByTestId("share-hub-popover");
+    // PREMISE (own inputs): the narrow slice must actually cap the popover, or
+    // "absent afterwards" is vacuous.
+    premiseHolds("the narrow slice caps maxHeight", pop.style.maxHeight !== "");
+    // Widen the slice far past every natural dimension.
+    vv.width = 1000;
+    vv.height = 800;
+    vv.offsetLeft = 0;
+    vv.offsetTop = 0;
+    replace(vv);
+    expect(pop.style.maxHeight, "ample room: no stale maxHeight survives").toBe("");
+    expect(pop.style.maxWidth, "ample room: no stale maxWidth survives").toBe("");
+  });
+
+  test("family B: after the slice widens, x derives from the NATURAL 308px width", () => {
+    const vv = new VisualViewportStub(VV.width, VV.height, VV.offsetLeft, VV.offsetTop);
+    vi.stubGlobal("visualViewport", vv);
+    const kebab = openHub();
+    void kebab;
+    const pop = screen.getByTestId("share-hub-popover");
+    // Style-sensitive body rect: capped width while an inline cap is applied,
+    // natural 308 when cleared — what a real layout reports.
+    Object.defineProperty(pop, "getBoundingClientRect", {
+      configurable: true,
+      value: () => {
+        const capW = parseFloat(pop.style.maxWidth);
+        const w = Number.isFinite(capW) ? Math.min(308, capW) : 308;
+        const capH = parseFloat(pop.style.maxHeight);
+        const h = Number.isFinite(capH) ? Math.min(120, capH) : 120;
+        return {
+          left: 0,
+          top: 0,
+          width: w,
+          height: h,
+          right: w,
+          bottom: h,
+          x: 0,
+          y: 0,
+          toJSON: () => "",
+        } as DOMRect;
+      },
+    });
+    replace(vv);
+    // PREMISE (own inputs): the narrow slice must cap the WIDTH below 308, or
+    // a stale measurement is indistinguishable from a natural one.
+    const staleW = parseFloat(pop.style.maxWidth);
+    premiseHolds(
+      "the narrow slice caps width below the natural 308",
+      Number.isFinite(staleW) && staleW < 308,
+    );
+    // Widen: bounds now fit the natural width with room to spare, no clamping.
+    vv.width = 1000;
+    vv.height = 800;
+    vv.offsetLeft = 0;
+    vv.offsetTop = 0;
+    replace(vv);
+    // align="right": x = trigger.right − NATURAL width. A capped measurement
+    // computes trigger.right − staleW instead (the R3 live-core probe's
+    // x=166-vs-x=142 discriminator).
+    expect(pop.style.left).toBe(`${TRIGGER.left + TRIGGER.width - 308}px`);
   });
 });

@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import { useFitWithinClip } from "@/components/admin/useFitWithinClip";
+import { premiseHolds } from "../../_shared/premise";
 import { computeFittedMaxHeight } from "@/lib/layout/fitWithinClip";
 
 /** Declared CSS cap on the fitted element (a real `max-h-96` is 384px). */
@@ -355,5 +356,58 @@ describe("useFitWithinClip", () => {
     fireEvent(inner, transitionEnd("transform"));
     flushFrames();
     expect(fitted.style.maxHeight).toBe(expectedPx());
+  });
+});
+
+/**
+ * Site-transition pins (scroll-clamp spec §5.4). Regression pins for the
+ * withNaturalSize migration: green on the pre-migration tree by design; their
+ * red condition is a defective migration (mutants A/B in the plan).
+ */
+describe("useFitWithinClip — cap-application transition pins (scroll-clamp spec §5.4)", () => {
+  test("family A: fitted→unclipped removes the stale fit instead of retaining it", () => {
+    const { fitted, view } = mount({ clips: true, reapplyKey: 1 });
+    expect(fitted.style.maxHeight).toBe(expectedPx());
+    // PREMISE (own inputs): a fit was actually written, or removal is vacuous.
+    premiseHolds("a fitted cap exists before the transition", fitted.style.maxHeight !== "");
+    view.rerender(<Harness reapplyKey={2} clips={false} />);
+    expect(
+      fitted.style.maxHeight,
+      "no clipping ancestor: the stale fit must be gone, not retained",
+    ).toBe("");
+  });
+
+  test("family B: clipped→clipped expansion relaxes the cap from the DECLARED cap, not the stale fit", () => {
+    // Style-sensitive computed style: the stock beforeEach mock always returns
+    // the declared cap, which would hide a skipped natural-measure. Reading the
+    // element's own inline value first makes the stale fit OBSERVABLE, which is
+    // exactly what the live getComputedStyle does.
+    vi.spyOn(window, "getComputedStyle").mockImplementation((el: Element) => {
+      const inline = (el as HTMLElement).style.maxHeight;
+      const declared =
+        (el as HTMLElement).dataset?.["testid"] === "fitted" ? `${DECLARED_CAP}px` : "none";
+      return {
+        overflowX: (el as HTMLElement).dataset?.["clips"] === "true" ? "clip" : "visible",
+        overflowY: (el as HTMLElement).dataset?.["clips"] === "true" ? "clip" : "visible",
+        maxHeight: inline !== "" ? inline : declared,
+      } as unknown as CSSStyleDeclaration;
+    });
+    const { fitted, view } = mount({ clips: true, reapplyKey: 1 });
+    const staleFit = parseFloat(fitted.style.maxHeight);
+    // PREMISE (own inputs): the first fit must be TIGHTER than the declared
+    // cap, or a stale re-read is indistinguishable from a natural one.
+    premiseHolds("the first fit is tighter than the declared cap", staleFit < DECLARED_CAP);
+    geometry = { fittedTop: FITTED_TOP, clipBottom: 700 };
+    // PREMISE: after growth the room exceeds the declared cap, so the correct
+    // answer is the declared cap and the stale answer stays at the old fit.
+    premiseHolds(
+      "grown room exceeds the declared cap",
+      700 - FITTED_TOP > DECLARED_CAP && staleFit < DECLARED_CAP,
+    );
+    view.rerender(<Harness reapplyKey={2} clips />);
+    expect(
+      fitted.style.maxHeight,
+      "the re-fit must derive from the DECLARED cap (natural measure), not the stale inline fit",
+    ).toBe(expectedPx({ fittedTop: FITTED_TOP, clipBottom: 700 }));
   });
 });
