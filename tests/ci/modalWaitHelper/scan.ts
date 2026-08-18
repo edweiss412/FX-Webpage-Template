@@ -133,7 +133,7 @@ const OPEN_HREF_CALL = /\bopenHref\(/;
  * Import lines are excluded: an import is not an open site.
  */
 const HELPER_CALL =
-  /\b(?:openShowReviewModalAt|openShowReviewModal|awaitReviewModalOrRecover)\s*\(/;
+  /\b(?:openShowReviewModalAt|openShowReviewModal|awaitReviewModalOrRecover|openShowReviewFrameAt|awaitReviewFrameOrRecover)\s*\(/;
 
 /** How far from an href site to look for the enclosing element's testid. */
 const TESTID_WINDOW = 12;

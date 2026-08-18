@@ -52,10 +52,15 @@ import {
 
 const BASE = "published-show-review";
 // The SHELL. `MODAL` below additionally requires the title, i.e. a LOADED
-// modal — which on the aborted-close drive means waiting out a deliberately
-// throttled RSC fetch (measured 3.9s of a 1600ms budget). The abort's
-// self-heal is a client-side un-hide and lands in ~15ms, so that case watches
-// the shell and never the payload.
+// modal. The aborted-close reopen (BL-FRESHNESS-ABORTED-CLOSE-E2E) waits on the
+// LOADED frame through the helper: that close never commits, so the RETAINED
+// tree still carries its title and satisfies the loaded selector in the same
+// paint the shell does (probe: loadedAt == anyAt, 4/4, 359-864ms). A SKELETON
+// there would mean the fresh-mount path, whose freshness state is empty by
+// construction — the `sinceArm` premise reds on it by design instead of passing
+// vacuously. The 3.9s-of-a-1600ms-budget figure belongs to the reopen spec's
+// 2500ms throttle, as the drive comment below itself records, not to this
+// case's 200ms one.
 const MODAL_ANY = `[data-testid="${BASE}-modal"]`;
 const MODAL = `${MODAL_ANY}:has([data-testid="${BASE}-title"])`;
 const MENU = `[data-testid="${BASE}-attention-menu"]`;
@@ -914,7 +919,10 @@ test.describe("published review modal — realtime broadcast refresh (realtime-r
       expect(midTransition.search, "close nav still pending (url)").toBe(`?show=${seeded.slug}`);
 
       await page.click(`[data-testid="shows-table-row-${seeded.slug}"]`, { noWaitAfter: true });
-      await expect(page.locator(MODAL_ANY)).toBeVisible({ timeout: MODAL_OPEN_TIMEOUT_MS });
+      await awaitReviewModalOrRecover(page, {
+        timeoutMs: MODAL_OPEN_TIMEOUT_MS,
+        label: "reopen:aborted-close",
+      });
 
       // ONE evaluate, so the elapsed reading and the DOM reading cannot drift
       // apart across a round trip.

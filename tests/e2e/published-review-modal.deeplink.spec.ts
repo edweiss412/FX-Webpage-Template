@@ -41,7 +41,11 @@ import { ADMIN_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { seedShowWithCrew, deleteSeededShow, type SeededShow } from "./helpers/seedShowWithCrew";
 import { settleDashboardAdminState } from "./helpers/dashboardState";
-import { awaitReviewModalOrRecover, openShowReviewModalAt } from "./helpers/openShowReviewModal";
+import {
+  awaitReviewModalOrRecover,
+  openShowReviewFrameAt,
+  openShowReviewModalAt,
+} from "./helpers/openShowReviewModal";
 
 const TOL = 0.5;
 
@@ -348,10 +352,15 @@ test.describe("published review modal — deep links (spec §3, D7/D8/D10)", () 
   // (spec §5). Reduced motion → the close is synchronous once dispatched.
   test("Esc during load closes whichever frame is up and strips ?show", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
-    // modal-wait-exempt: skeleton-tolerant wait (MODAL_ANY matches the Suspense skeleton), so a modal-or-boundary race would return on the skeleton and HIDE the fault — spec limit 3b, BL-MODAL-WAIT-SKELETON-TOLERANT-SITES
-    await page.goto(`/admin?show=${show.slug}`);
-    // ANY frame — skeleton or loaded, whichever the stream timing yields.
-    await expect(page.locator(MODAL_ANY).first()).toBeVisible({ timeout: 30_000 });
+    // ANY frame — skeleton or loaded, whichever the stream timing yields. The
+    // frame core owns the race over both module selectors plus the boundary, so
+    // a boundary here is annotated and recovered once instead of starving as a
+    // bare downstream timeout; on a skeleton return it arms the watchdog. The
+    // returned `frame` is deliberately unused: this test's subject is whichever
+    // frame is up.
+    await openShowReviewFrameAt(page, `/admin?show=${show.slug}`, {
+      label: "deeplink-esc:any-frame",
+    });
     // Effect-flush proof before the synthetic gesture (memory-#485 class): both
     // frames apply initial focus to their X, and the Esc listener flushes in
     // the same effect pass. Poll BEFORE pressing — a keypress in the gap is
