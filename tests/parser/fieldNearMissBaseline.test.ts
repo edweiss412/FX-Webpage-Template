@@ -115,12 +115,24 @@ const countBy = (rows: BaselineRow[], pick: (r: BaselineRow) => string): Map<str
 
 describe("field near-miss corpus baseline (AC-N1)", () => {
   it("covers the whole harness corpus", () => {
+    // no-premise: `toBe(17)` already reds on a renamed corpus directory or a
+    // moved path constant, so a premise stating that discovery found something
+    // is DOMINATED by it — on the empty-corpus degeneration both are false
+    // together and only one of them is doing any work (whole-diff R1 #8). The
+    // assertion IS the reachability proof here; a premise would be ritual.
     expect(FIXTURES.length).toBe(17);
     expect(perFixture.map((f) => f.path).sort()).toEqual(FIXTURES.map((f) => f.path).sort());
   });
 
   it("pairs every UNKNOWN_FIELD with exactly one raw_unrecognized entry", () => {
     // The pairing is what makes the `block` column of this baseline trustworthy.
+    // The loop is a no-op over fixtures that emitted nothing, so the premise is
+    // that at least one did.
+    premise(
+      "fixtures that emitted at least one near-miss row",
+      perFixture.filter((f) => f.rows.length > 0).length,
+      0,
+    );
     for (const f of perFixture) {
       expect(f.ruCount, `${f.path}: raw_unrecognized count`).toBe(f.ufCount);
       expect(
@@ -131,6 +143,9 @@ describe("field near-miss corpus baseline (AC-N1)", () => {
   });
 
   it("emits exactly the committed baseline, row for row", () => {
+    // Two empty sides are equal. The committed baseline carrying rows is what
+    // makes this comparison discriminating.
+    premise("rows in the committed baseline", (readBaseline().rows ?? []).length, 0);
     expect(
       existsSync(BASELINE),
       `${BASELINE} is missing — regenerate with UPDATE_NEAR_MISS_BASELINE=1`,
@@ -143,10 +158,17 @@ describe("field near-miss corpus baseline (AC-N1)", () => {
   });
 
   it("emits exactly 65 rows (spec §3.2, followup probe Part D)", () => {
+    // no-premise: the assertion IS a nonzero count, so it dominates any premise
+    // that rows were produced at all — an empty corpus reds on `toBe(65)`
+    // itself (whole-diff R1 #8).
     expect(actual.length).toBe(EXPECTED_TOTAL);
   });
 
   it("composition partitions into the §3.2 groups with nothing left over", () => {
+    // no-premise: a partition of nothing does partition perfectly, but the five
+    // fixed group counts below are each nonzero, so an empty corpus reds on
+    // them before the partition identity is reached. A premise saying rows
+    // exist is dominated by every one of them (whole-diff R1 #8).
     const byKey = countBy(actual, (r) => r.key);
     const n = (k: string): number => byKey.get(k) ?? 0;
 
@@ -181,15 +203,23 @@ describe("field near-miss corpus baseline (AC-N1)", () => {
     // §3.2's load-bearing claim: every DETAILS-family `Room Diagram` is consumption-excluded,
     // so the 15 that survive are the Google-Forms echo rows only. A ledger regression would
     // re-admit a DETAILS one and this fails while the raw count could still read 15.
+    //
+    // no-premise: `toEqual(["timestamp"])` is unsatisfiable by an empty set, so
+    // it already reds when there are no Room Diagram rows to make a claim
+    // about. A premise counting those rows is dominated by it (whole-diff
+    // R1 #8).
     const kinds = new Set(actual.filter((r) => r.key === "Room Diagram").map((r) => r.kind));
     expect([...kinds]).toEqual(["timestamp"]);
   });
 
   it("carries block === kind on every row (§2.2 uses one namespace for both)", () => {
+    // An empty row set has no row that violates the rule.
+    premise("rows produced from the corpus", actual.length, 0);
     expect(actual.filter((r) => r.block !== r.kind)).toEqual([]);
   });
 
   it("names a non-empty candidate on every row — the detector never emits an unsourced near-miss", () => {
+    premise("rows produced from the corpus", actual.length, 0);
     expect(actual.filter((r) => r.candidate === "")).toEqual([]);
   });
 });
@@ -216,6 +246,8 @@ describe("TYPO_NORMALIZED after the venue-block-membership re-gate (AC-N8)", () 
   });
 
   it("census is 0 across the unreordered corpus", () => {
+    // A census over no fixtures is 0 for the wrong reason.
+    premise("corpus fixtures read for the census", FIXTURES.length, 0);
     for (const f of FIXTURES) {
       expect(typoCensus(readFileSync(f.path, "utf8"), f.path), f.path).toBe(0);
     }

@@ -47,7 +47,12 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // tie) plus ONE honest accepted-gap: the `@/` specifier slice, which is not
   // equivalent and has no killing fixture in today's corpus
   // (BL-PREMISESCAN-ALIAS-SLICE-UNCOVERED).
-  premiseScan: { equivalent: 3, "accepted-gap": 1 },
+  // 3 -> 2 equivalences on 2026-08-17. The `unresolved` row is RETIRED, not
+  // re-keyed: it argued that `unresolved` is provably always empty, and the
+  // import-edge repair populates it with every §2.3 and §2.4b reason, so the
+  // argument is false rather than relocated. The site itself is gone too — one
+  // place now decides the unclassifiable verdict.
+  premiseScan: { equivalent: 2 },
   // spawnBounded, enrolled 2026-08-17. EMPTY, and measured rather than asserted:
   // the scoped run scored 12/12 with no survivor to dispose of and no no-op, so
   // there is no ledger row of any kind. The surface's `scoreFloor` is 1 to match,
@@ -176,7 +181,12 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // W-NEARMISS (2026-08-15). Both rows enrolled with an EMPTY ledger and both are
   // expected to STAY empty: a row appearing here later is a coverage regression to
   // explain, not a number to update.
-  fieldNearMiss: {},
+  // Two rows, both added by 6d6760019 when CI found six survivors on this
+  // surface; the declaration here was never moved with them, so the AC-13
+  // equality has been red on main since. Counted from the registry, which is
+  // the side carrying the arguments: one loop-exit equivalence and one honest
+  // accepted-gap (BL-NEARMISS-EQUAL-SIZE-TOKEN-SUBSET).
+  fieldNearMiss: { equivalent: 1, "accepted-gap": 1 },
   rowScanOpener: {},
   // Counted from the surface: 42 reachability / control-flow arguments and NO accepted
   // gap. The triage ran 84 -> 54 -> 45 -> 44 -> 43 -> 42 survivors, repaying 42 of them

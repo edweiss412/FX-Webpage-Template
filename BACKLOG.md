@@ -1088,6 +1088,65 @@ than by role precisely because they are all present. `aria-hidden={!isActive}` i
 change, deferred only because it moves several existing role-based queries and belongs with the
 current-slide announcement decision rather than ahead of it.
 
+### BL-PREMISESCAN-UNPARSEABLE-MODULE-UNREACHABLE — canonical unclassifiable form 4 is dead code and this arc does not make it live
+
+**Status:** OPEN · **Severity:** LOW · **Class:** guard fidelity · **Filed:** 2026-08-16 (`fix/premisescan-import-edges`, spec §3.8) · **Effort:** S
+
+`premiseScan`'s `unresolved.push("unparseable in-repo module")` site is unreachable. **Probed three ways:** `moduleFacts` returns `null` if and only if `!existsSync(path)`; `resolveSpecifier` returns only candidates for which `existsSync` was already true, so that branch cannot fire through the traversal at all; and `ts.createSourceFile` is error-tolerant, parsing `export function spawnHelper(: string { return` to a `SourceFile` carrying a `FunctionDeclaration` without throwing or returning null. The fixture classifies `environment-free`.
+
+Closing it means a new detection rule over `sf.parseDiagnostics` — recognizer growth on an axis with **zero** measured instances, which the owning spec's §1.2(e) forbids. Deferred under class-sweep exception (c): a new detection rule on a surface the arc does not otherwise touch. Canonical AC-8a therefore stands at 3 of 4 after `BL-PREMISESCAN-IMPORT-EDGE-FIDELITY`, stated rather than overclaimed.
+
+### BL-PREMISESCAN-NESTED-HOOK-SIBLING-LEAK — a hook in one nested describe leaks to its siblings
+
+**Status:** OPEN · **Severity:** MEDIUM (a FALSE POSITIVE, pre-existing) · **Class:** guard fidelity · **Filed:** 2026-08-16 (`fix/premisescan-import-edges`, probe §3.11 row A) · **Effort:** M
+
+`hookBodies` collects recursively (`ts.forEachChild`), so under a shared outer `describe` a spawning hook in branch A is attached to tests in sibling branch B. Probed:
+
+```
+A: sibling nested describes, hook only in A  ->  inA=touching, inB=TOUCHING   <- false positive
+B: top-level sibling describes, hook in A    ->  inA=touching, inB=free       [correct]
+```
+
+The leak needs a shared outer `describe`; without one the branches do not share a collection point.
+
+**Why `BL-PREMISESCAN-IMPORT-EDGE-FIDELITY` does not fix it**, under class-sweep exception (c): repairing the recursion moves live verdicts, and that arc's headline constraint is verdict-neutrality against `_metaPremiseContract`'s exact counts. The two cannot ship together by construction. That arc's own top-level hook seed is deliberately NON-recursive so it does not widen this leak, and its AC-12b asserts the leaked value as-is so a later change cannot deepen it silently.
+
+### BL-PLANLINT-ASSERTIONLESS-EXPECT — an `expect(` with no matcher asserts nothing, and is mechanically detectable
+
+**Status:** OPEN · **Severity:** MEDIUM · **Class:** review economy · **Filed:** 2026-08-16 (`fix/premisescan-import-edges`, plan round-4 finding 1) · **Effort:** S
+
+A scripted conversion left 13 planned call sites as `expect(actual, { … })` with no matcher; Vitest returns an assertion object and nothing is asserted, so 16 executions passed regardless of verdict or detail. **Probe evidence:** the round-4 reviewer enumerated all 13 with line numbers, and a brace-balanced scan over fenced `ts` blocks reproduced exactly that set. Proposal: run that scan over `docs/superpowers/plans/**` in `spec-lint`, since the plan's test blocks are the artifact an implementer copies.
+
+### BL-DOCEDIT-POSTCHECK — scripted edits to specs and plans need a post-edit invariant check
+
+**Status:** OPEN · **Severity:** MEDIUM · **Class:** review economy · **Filed:** 2026-08-16 (`fix/premisescan-import-edges`, spec round-5 finding 2 and plan round-4 finding 1) · **Effort:** S
+
+Two silent deletions in one arc, both from a multi-line non-greedy regex whose terminating phrase recurred later in the document: one removed §4 limits 6-14 from a spec, the other mangled reporting assertions in a plan. Neither was visible in the diff summary. **Probe evidence:** both were caught by cross-model review rather than by the author, and both were confirmed by counting structural elements before and after. Proposal: a `pnpm doc:postcheck` that compares section-number continuity, `it(` counts and fenced-block balance across an edit, to be run after any scripted change to these documents.
+
+### BL-PROBE-RECORD-COVERAGE-TABLE — a probe record's universal claim should be checkable against its harness source
+
+**Status:** OPEN · **Severity:** MEDIUM · **Class:** review economy · **Filed:** 2026-08-16 (`fix/premisescan-import-edges`, spec round-economy filing at `docs/review-rounds/fix/premisescan-import-edges/daa53759a953.md`) · **Effort:** S
+
+Three consecutive spec rounds on one arc raised the same defect: a probe record asserting "every live edge resolves", then "every VALUE edge", then dynamic-import coverage — each time over a harness that walked strictly less than the prose claimed, and each time inside the repair of the previous instance. **Probe evidence:** rounds R2 F2, R3 F1 and R4 F2 of that arc, each reproduced against the target tree; the round-4 disposition (a per-edge-class YES/NO table checked against the harness source, with the uncovered populations counted) is the form that terminated it.
+
+Proposal: require any probe record whose conclusion quantifies universally to carry that coverage table, as a `docs/agents/spec-self-review.md` rule. The table is cheap and it converts an unfalsifiable summary into a claim a reviewer can check in one pass.
+
+### BL-CODEX-GUARD-CITATION-GATE — CITATION_MALFORMED should block the dispatch, not become a review finding
+
+**Status:** OPEN · **Severity:** MEDIUM · **Class:** review economy · **Filed:** 2026-08-16 (`fix/premisescan-import-edges`, same filing) · **Effort:** S
+
+The codex-guard `--lint-doc` arm already detects pathless `:NN` citations and attaches the report to the brief. On that arc it detected all three instances of round-4 finding 6, and they still cost a round, because nothing consumed the signal before dispatch. **Probe evidence:** the round-4 reviewer quotes the lint report as independently reporting all three as `CITATION_MALFORMED`.
+
+Proposal: make `CITATION_MALFORMED` a dispatch-blocking condition in `scripts/codex-guard.mjs`, the way `~/.claude/hooks/review-convergence-gate.sh` blocks a brief with no consequence bound — a detected-but-unconsumed signal is the same defect shape the convergence gate exists to close.
+
+### BL-SPEC-PIN-VS-BRANCH-HEAD — a spec pinning an unmerged commit should be checked against that branch's head at dispatch time
+
+**Status:** OPEN · **Severity:** LOW · **Class:** review economy · **Filed:** 2026-08-16 (`fix/premisescan-import-edges`, same filing) · **Effort:** S
+
+A spec designed against an unmerged PR pinned `ac9a40cd8`; the branch advanced five commits mid-review, and the document ended up citing two different trees at once — one limit describing a parser behaviour the target no longer had, and one limit citing a comment only the newer commits contained. **Probe evidence:** round-3 finding 5, plus `git log ac9a40cd8..origin/fix/scanner-scope-totality` showing the five commits and `premiseScan.ts:61` showing the changed parse-kind selection.
+
+Proposal: when a `--lint-doc` document names both a branch and a commit sha, compare the sha to that branch's current head and surface the drift at dispatch time. Cheap, and it catches the class before a reviewer spends a round on it.
+
 ### BL-PREMISESCAN-IMPORT-EDGE-FIDELITY — ordinary import forms and helper-body unclassifiable constructs silently lose environment reach
 
 **Status:** OPEN · **Severity:** MEDIUM (both halves are false NEGATIVES — the direction that does not announce itself) · **Class:** guard fidelity · **Filed:** 2026-08-15 (`docs/scanner-scope-totality-spec`, spec review R1 findings 2 and 3 — reviewer-probed, transcripts below) · **Effort:** M
@@ -1409,6 +1468,57 @@ So the draft cannot be checked until the freeze lifts and it is copied in, which
 **Reachability: PROBED as ZERO on the corpus.** Every col0 label in all 20 fixtures under `fixtures/shows/raw` and `fixtures/shows/exporter-xlsx` was matched against the live vocabulary: no label produces a type-(b) hit whose token-set size equals its entry's. Every live type-(b) match is a STRICT subset, so the boundary is undecided by the shipped inputs rather than decided wrongly.
 
 **Why it is a row and not a kill.** The killing input is a label the corpus does not contain, and `tests/parser/fieldNearMiss.test.ts`'s header forbids hand-written rows precisely because one can be tuned until it passes — so the gap is ledgered as `accepted-gap` with this ref rather than closed with a fixture that proves nothing about real sheets. **First scheduled step:** decide whether an equal-size token match SHOULD be a type-(b) hit at all (it is set equality, so arguably it belongs in the type-(a) arm keyed on the token set rather than the normalized string), then pin whichever direction is chosen. A real reordered-label instance appearing in a future sheet promotes this from a boundary question to an ordinary near-miss.
+
+### BL-CARVE-GUARD-SCANS-GITIGNORED-PATHS — a guard reds on files git cannot see, so the failure exists only on the author's machine
+
+**Severity:** LOW (a FALSE POSITIVE that is local-only — CI never sees these paths, so it costs investigation time rather than correctness) · **Class:** guard premise / discovery scope · **Filed:** 2026-08-17 (`fix/premisescan-import-edges`, found while triaging a full-suite run during whole-diff round-1 repair) · **Effort:** S
+
+**Probed, not theorized.** The `sheet-link phrase containment` guard walks the repo for non-exempt files importing from `tests/`. Its discovery does not consult gitignore, so an arc's own scratch under `.claude/` — a directory `.gitignore:55` excludes wholesale — is scanned like source:
+
+```
+$ pnpm vitest run tests/components/admin/sheetIconLinkContainment.test.ts
+  AssertionError: expected [ …(4) ] to deeply equal []
+  + ".claude/probe/mutateSurface.ts: non-exempt file imports from tests/ (carve laundering channel): …"
+  + ".claude/probe/premiseScan827.ts: non-exempt file imports from tests/ (carve laundering channel): …"
+
+$ mv .claude/probe /tmp/aside && pnpm vitest run tests/components/admin/sheetIconLinkContainment.test.ts
+  Tests  7 passed (7)
+$ mv /tmp/aside .claude/probe
+```
+
+`git check-ignore -v .claude/probe/mutateSurface.ts` -> `.gitignore:55:.claude/`. A fresh checkout has no such file, so the guard is green in CI and red for whoever is actually working on the surface — the inversion that makes it worth fixing rather than tolerating. The same discovery shape is likely shared by the other repo-walking containment guards; the repair is to filter discovery through `git ls-files` (or `check-ignore`) rather than a raw filesystem walk, which also makes the walked set the same set CI reviews.
+
+**Not fixed in `fix/premisescan-import-edges`** under class-sweep exception (c): the repair is to a discovery helper that arc does not otherwise touch, and the sweep for peer guards sharing the walk is its own scope.
+
+### BL-EXPORTRESOLUTION-SPREAD-NOT-RELITERAL — a caller rebuilds a union value by hand and drops a field, three times in three rounds
+
+**Severity:** MEDIUM (each instance is a SILENT free — the dropped field is `reasons`, so the loss shows up as a missing explanation rather than a wrong verdict) · **Class:** guard fidelity / mechanizable review class · **Filed:** 2026-08-17 (`fix/premisescan-import-edges`, diff rounds 1 and 3) · **Effort:** S
+
+**Measured, not theorized.** One defect, found THREE times across three review rounds at three different returns in `tests/mutation/source/premiseScan.ts`: diff R1 #2 caught the star loop's two returns, diff R3 #1 caught the E2 extent merge. Each repair fixed the instance in front of it; none derived the cover. `followForward` merges a hop's module reports into whatever it returns, so any caller that rebuilds an `ExportResolution` by hand — `{ kind: "extent", nodes: [...] }` instead of `{ ...via, nodes: [...] }` — silently drops `reasons`.
+
+The derived enumeration exists now and took one grep:
+
+```
+$ grep -n 'kind: "extent"\|kind: "data"\|kind: "noSuchExport"\|kind: "unresolvable"' tests/mutation/source/premiseScan.ts
+11 sites; exactly one had a `via`/`res` of the same type in scope
+```
+
+**The mechanical form:** a lint rule or structural test asserting that a site constructing a discriminated-union value, with a value of that same union in scope, SPREADS it rather than re-literalling. That enumeration is what should have existed at round 1, and it is a grep rather than a judgement — which is what makes this mechanizable rather than a review habit.
+
+### BL-MUTATION-SITEID-LINE-KEYED-CHURN — every diff that moves lines invalidates the accepted-mutant ledger
+
+**Severity:** LOW (pure bookkeeping — it never produces a wrong verdict, it consumes wall clock and reviewer attention) · **Class:** mutation harness ergonomics · **Effort:** S-M
+
+**Measured.** `accepted` siteIds are `operator:LINE:COL:from>to`. On `fix/premisescan-import-edges` the two `premiseScan` equivalences were re-keyed FOUR times in one day — `601 -> 721 -> 604 -> 603` and `1752 -> 2061 -> 1864 -> 1872` — each discovery costing a ~8-minute gate cycle and each verification another. The expressions and their 1-based columns were byte-identical at every key; only the line moved.
+
+The information to fix it is already in the failing run, and the two sets are complementary:
+
+```
+FAIL unaccepted-survivor: 2 survivor(s) with no ledger row: relational-boundary:604:29:>>>=, relational-boundary:1864:28:<><=
+FAIL stale-ledger-row: 2 ledger row(s) whose site no longer survives: relational-boundary:721:29:>>>=, relational-boundary:2061:28:<><=
+```
+
+**The mechanical form:** key on the mutated EXPRESSION plus a disambiguator instead of the line, or have the gate emit a `--rekey` patch when the stale set and the unaccepted set are the same size and the expressions match. A third shape belongs here too, measured on the same arc: **removing dead code widened the mutation surface** — deleting an orphaned union variant forced a rewrite of its enclosing condition, and the natural rewrite turned a truthy numeric check into `carried.length > 0`, an operator where there had been none, producing a brand-new survivor. Nothing warned; the gate noticed one cycle later.
 
 ## BL-SEND-AUTH-SINGLE-READ-LINT — a send-authorization path may read each surface at most once per pass
 

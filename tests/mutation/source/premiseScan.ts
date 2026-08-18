@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, extname, join, resolve } from "node:path";
 
 import ts from "typescript";
 
@@ -62,6 +62,9 @@ const parse = (path: string, text: string): ts.SourceFile =>
   );
 
 /** `it`, `test.each`, `describe.skip.each` … → the root identifier, else null. */
+/** The four hook registrars, in the one place both readers of them look. */
+const HOOK_REGISTRARS = /^(beforeEach|beforeAll|afterEach|afterAll)$/;
+
 function registrarRoot(callee: ts.Expression): string | null {
   let node: ts.Expression = callee;
   // A registration call may itself be the RESULT of a call: test.each(rows)(...)
@@ -415,10 +418,63 @@ function isVarDeclaration(decl: ts.VariableDeclaration): boolean {
   return (list.flags & blockScoped) === 0;
 }
 
+/** What an EXPORTED name denotes in its own module. */
+type ExportTarget = { kind: "local"; name: string } | { kind: "node"; node: ts.Node };
+
+/**
+ * The answer to "what does this module export under this name" (spec §2.2).
+ *
+ * `reasons` is the return channel for modules the CALLER never sees: a forward
+ * hop loads a module inside `resolveExport`, so anything that module reports
+ * about itself has no other way out. Task-ordered: `forward` is an internal
+ * step, never returned to `reaches`.
+ */
+/**
+ * A node in an export's extent, WITH the module it belongs to.
+ *
+ * The owner is not decoration: a forwarded node is declared in the module at
+ * the END of the chain, so resolving its references against the barrel that
+ * re-exported it finds none of its imports and reads a spawning helper as
+ * pure. The plan's type sketch wrote a bare `ts.Node[]`, which cannot express
+ * that; probed on `export { spawnHelper } from "./h"`, which stayed
+ * `environment-free` until the owner travelled with the node.
+ */
+type ExtentNode = { node: ts.Node; facts: ModuleFacts; path: string };
+
+type ExportResolution =
+  | { kind: "extent"; nodes: ExtentNode[]; reasons?: string[] }
+  | { kind: "data"; reasons?: string[] }
+  | { kind: "noSuchExport"; reasons?: string[] }
+  | { kind: "unresolvable"; reason: string; reasons?: string[] };
+
+/** A traversal answer and everything it could not resolve on the way. */
+type Reach = { verdict: Verdict; reasons: string[] };
+
+/**
+ * §2.4's three answers, decided by EXTENSION before any read.
+ *
+ * `.jsx` is a language extension because it is analyzed today; omitting it
+ * would make this repair introduce a silent free. `.json` is the only data
+ * extension: this repo EXECUTES MDX (`next.config.ts` pageExtensions,
+ * `@mdx-js/rollup`), so purifying `.mdx` would be a silent free, and it falls
+ * to the third answer with every other shape a directory included.
+ */
+const LANGUAGE_EXTENSIONS: readonly string[] = [
+  ".ts",
+  ".tsx",
+  ".mts",
+  ".cts",
+  ".js",
+  ".mjs",
+  ".cjs",
+  ".jsx",
+];
+const DATA_EXTENSIONS: readonly string[] = [".json"];
+
 type ModuleFacts = {
   sf: ts.SourceFile;
   /** local name → the module it came from, and the name it has THERE. */
-  imports: Map<string, { spec: string; imported: string }>;
+  imports: Map<string, { spec: string; imported: string; namespace?: boolean }>;
   /**
    * scope → (local name → the nodes forming its extent).
    *
@@ -448,7 +504,43 @@ type ModuleFacts = {
    * dynamic provenance, and a pure dynamic binding inherited an unrelated
    * static import's edge (whole-diff R2 #1).
    */
-  scopedImports: Map<Scope, Map<string, { spec: string; imported: string }>>;
+  scopedImports: Map<Scope, Map<string, { spec: string; imported: string; namespace?: boolean }>>;
+  /**
+   * EXPORTED name → what it names here: a module-local binding, or the node the
+   * declaration itself contributes (`export default <expr>`, `export default
+   * function`, `export default class`).
+   *
+   * The lookup a cross-module reference needs is "what does this module EXPORT
+   * under this name", and `extents` answers a different question — "what is
+   * declared here under this name". They coincide only when the two names
+   * coincide, which is why every rename and every default resolved to nothing
+   * before this map existed (spec §2.1).
+   */
+  exports: Map<string, ExportTarget>;
+  /** EXPORTED name → the module it is forwarded from, and the name it has THERE. */
+  forwards: Map<string, { spec: string; sourceName: string }>;
+  /** `export * from` specifiers, in SOURCE ORDER — a fan-out, not a name. */
+  starExports: string[];
+  /**
+   * EXPORTED name → why this module's export of it cannot be followed.
+   *
+   * The recognized-unresolvable EXPORT forms (spec §2.3). Each carries an
+   * `export` modifier or clause, so a predicate keyed on the modifier alone
+   * resolves them to an EMPTY extent and passes them as pure.
+   */
+  declinedExports: Map<string, string>;
+  /**
+   * Reasons this module reports about ITSELF, at module-load position.
+   *
+   * The walk starts at the `it` call, its hooks and its producers, so nothing
+   * in a TOP-LEVEL STATEMENT is ever visited: a clause-less `import "./side"`,
+   * a bare `await import(specifier)` statement, an assignment-position
+   * `import()`. Each runs at load and sits inside no extent, so it needs a
+   * SEED rather than a traversal rule. Merged at both places a module enters a
+   * classification - the test file's own by `classifyTests`, and every module
+   * the traversal LOADS by `reaches` and `followForward`.
+   */
+  moduleReports: string[];
   /** Memo for `resolveBinding`, keyed (scope, name) — see there for why that is the identity. */
   resolved: Map<Scope, Map<string, Binding>>;
   /** Memo for `extentIsProvenance`, per node of THIS file. */
@@ -470,7 +562,14 @@ type Binding =
   /** `extent` carries any WRITES to the imported name — `let m = await
    *  import("p"); m = spawnSync(...)` binds once and is assigned twice, so the
    *  module edge is not the whole story. */
-  | { kind: "import"; scope: Scope; spec: string; imported: string; extent: ts.Node[] }
+  | {
+      kind: "import";
+      scope: Scope;
+      spec: string;
+      imported: string;
+      namespace?: boolean;
+      extent: ts.Node[];
+    }
   | { kind: "unbound" };
 
 function resolveBinding(facts: ModuleFacts, name: string, from: ts.Node): Binding {
@@ -521,25 +620,319 @@ function resolveUncached(facts: ModuleFacts, name: string, start: Scope): Bindin
 }
 
 /** Identity of the binding a reference resolves to — the dedup key. */
-function bindingKey(name: string, binding: Binding): string | null {
+/**
+ * The export a namespace reference names, or `null` when it names none.
+ *
+ * `ns.member` and `ns["member"]` select statically; every other position —
+ * `Object.entries(ns)`, `vi.spyOn(ns, name)`, passing `ns` itself — selects
+ * nothing this scanner can resolve, and §2.4b reports rather than guesses.
+ */
+function namespaceMember(reference: ts.Identifier): string | null {
+  const p = reference.parent;
+  if (p && ts.isPropertyAccessExpression(p) && p.expression === reference) return p.name.text;
+  if (
+    p &&
+    ts.isElementAccessExpression(p) &&
+    p.expression === reference &&
+    ts.isStringLiteralLike(p.argumentExpression)
+  )
+    return p.argumentExpression.text;
+  return null;
+}
+
+function bindingKey(name: string, binding: Binding, member?: string | null): string | null {
   if (binding.kind === "unbound") return null;
   // The scope is part of the identity for imports too: two dynamic imports of
-  // one name in different scopes are two different edges to follow.
-  return `${name}@${binding.kind}@${binding.scope.kind}:${binding.scope.pos}`;
+  // one name in different scopes are two different edges to follow. For a
+  // NAMESPACE the identity also carries the resolved MEMBER: one binding
+  // stands for many exports, and a member-blind key lets the first member
+  // visited mark the binding seen and skips every other — a silent free whose
+  // direction depends on source order (spec §2.3).
+  const suffix = member === undefined ? "" : `#${member ?? "<no-member>"}`;
+  return `${name}@${binding.kind}@${binding.scope.kind}:${binding.scope.pos}${suffix}`;
 }
 
 /** A module's EXPORTED binding, looked up by the name it carries there. */
-function moduleScopeExtent(facts: ModuleFacts, name: string): ts.Node[] {
-  return facts.extents.get(facts.sf)?.get(name) ?? [];
+/**
+ * What `facts` exports under `exportName` (spec §2.2).
+ *
+ * Consults `exports` FIRST and never `extents` on its own: `extents` answers
+ * "what is declared here", and reaching it directly is what let a local
+ * declaration stand in for an export of the same name. A name in neither map
+ * is `noSuchExport`, which is PURE on a direct request and adds no reason - an
+ * import of something a module does not export is a broken program, not an
+ * unanalyzable one (spec §2.1).
+ *
+ * `root`, `active` and `done` are threaded from the outset so the topology is
+ * stated once: Task 2 follows forwards INSIDE this function, and a signature
+ * widened later would leave the star fan-out without its continuation.
+ */
+/**
+ * `moduleFacts`, memoized per absolute path.
+ *
+ * Lifted to module scope because `resolveExport` follows forwards INTERNALLY
+ * and must load each hop's facts itself; a cache local to `classifyTests` is
+ * unreachable from there. Cleared at the start of every `classifyTests` call,
+ * so a suite written to a path a previous call also used is re-read.
+ */
+/**
+ * Is this specifier one the repository owns?
+ *
+ * The split §2.4b rests on: a BARE specifier is node_modules and stays pure
+ * under the ratified L-2 whatever position it sits in, while a `./`, `../` or
+ * `@/` specifier that does not resolve is a repo edge the scanner cannot
+ * follow, and is REPORTED rather than passed as pure.
+ */
+function isInRepoSpecifier(spec: string): boolean {
+  return spec.startsWith("./") || spec.startsWith("../") || spec.startsWith("@/");
+}
+
+/**
+ * The ONE modelled `import()` shape: a direct local variable-declaration
+ * initializer, which `bindPattern` registers as a module edge.
+ *
+ * Everything else - assignment position, embedded in a larger expression, a
+ * bare statement - binds nothing this scanner can follow member-precisely, and
+ * §2.4b reports it rather than enumerating accepted spellings. Returns the
+ * declaration when the shape IS modelled, so the caller can ask the second
+ * question: does the binding stay module-local?
+ */
+function isAtModuleLoad(node: ts.Node): boolean {
+  // POSITION, not occurrence: a construct inside a function body is reachable
+  // only by a CALL, so seeding on mere occurrence would mark a file for a
+  // helper nothing calls and break AC-1 on the enrolled domain.
+  for (let p: ts.Node | undefined = node.parent; p; p = p.parent) {
+    if (isFunctionLike(p)) return false;
+    if (ts.isSourceFile(p)) return true;
+  }
+  return false;
+}
+
+/**
+ * Can `bindPattern` represent this whole pattern member-precisely?
+ *
+ * The ONE question both sides of "is this shape modelled" ask. They used to
+ * answer it separately: `modelledDynamicDeclaration` declared every direct
+ * variable initializer modelled — which suppresses §2.4b's report — while
+ * `bindPattern` skipped everything outside two shapes, so in the gap a binding
+ * registered under the WRONG name or registered nothing and the lookup missed
+ * silently (whole-diff R1 #4). Answering it once is the derived cover: a
+ * pattern form added to one side cannot drift from the other.
+ *
+ * A form that is NOT modelled is not a limit filed as pure — §2.4b inverts the
+ * accept-set, so it is REPORTED.
+ */
+function bindPatternIsModelled(name: ts.BindingName): boolean {
+  // `const ns = await import(...)` — the namespace binding.
+  if (ts.isIdentifier(name)) return true;
+  if (!ts.isObjectBindingPattern(name)) return false; // array patterns bind nothing here
+  // An EMPTY pattern binds no name, so there is no edge to follow at all while
+  // the import still executes.
+  if (name.elements.length === 0) return false;
+  return name.elements.every(
+    (el) =>
+      // `const { ...rest } = …` binds an OBJECT, not the export called `rest`.
+      el.dotDotDotToken === undefined &&
+      ts.isIdentifier(el.name) &&
+      // A string-literal or computed key names an export this scanner cannot
+      // read off the syntax; the local name is not it.
+      (el.propertyName === undefined || ts.isIdentifier(el.propertyName)),
+  );
+}
+
+function modelledDynamicDeclaration(call: ts.CallExpression): ts.VariableDeclaration | null {
+  let p: ts.Node = call;
+  while (p.parent && (ts.isAwaitExpression(p.parent) || ts.isParenthesizedExpression(p.parent)))
+    p = p.parent;
+  const parent = p.parent;
+  if (parent && ts.isVariableDeclaration(parent) && parent.initializer === p)
+    return bindPatternIsModelled(parent.name) ? parent : null;
+  return null;
+}
+
+const factsCache = new Map<string, ModuleFacts | null>();
+function factsFor(p: string): ModuleFacts | null {
+  if (!factsCache.has(p)) factsCache.set(p, moduleFacts(p));
+  return factsCache.get(p) ?? null;
+}
+
+/**
+ * Follow ONE forward hop, then keep resolving in the target.
+ *
+ * `active` holds the `(module, exportName)` pairs on the CURRENT path, pushed
+ * on entry and popped on completion: re-entering one is a back edge and IS the
+ * cycle. The popping is the whole mechanism — by the time a diamond's second
+ * arm reaches the shared pair, the first arm has completed and removed it, so
+ * a properly popped set handles an ordinary diamond on its own, and a set that
+ * is never popped reports one as a cycle. `done` is MEMOIZATION only (§2.5).
+ */
+function followForward(
+  root: string,
+  facts: ModuleFacts,
+  spec: string,
+  exportName: string,
+  active: Set<string>,
+  done: Map<string, ExportResolution>,
+): ExportResolution {
+  const target = resolveSpecifier(root, facts.sf.fileName, spec);
+  // A BARE specifier is node_modules and stays pure under L-2, through a
+  // forward exactly as through a direct import. An IN-REPO specifier that does
+  // not resolve is an edge this scanner cannot follow, and L-2 does not cover
+  // it: L-2 is about node_modules, where there is genuinely nothing in-repo to
+  // analyze (spec §2.4b, last row).
+  //
+  // The question is asked HERE, at the one place a forward hop is taken, rather
+  // than at each caller. It sat on the E3 caller alone and E2's three spellings
+  // and E6's star fan-out reached the miss branch and read it as a bare-package
+  // miss, which is pure (whole-diff R1 #1). A caller added later inherits this.
+  if (target === null) {
+    if (isInRepoSpecifier(spec))
+      return {
+        kind: "unresolvable",
+        reason: `unfollowable re-export of ${exportName} from ${spec} in ${facts.sf.fileName}`,
+      };
+    return { kind: "noSuchExport" };
+  }
+  const shape = classifyTarget(target, spec);
+  if (shape !== "analyze") return shape === "data" ? { kind: "data" } : shape;
+  const key = `${target}#${exportName}`;
+  if (active.has(key)) return { kind: "unresolvable", reason: `re-export cycle at ${key}` };
+  const memo = done.get(key);
+  if (memo !== undefined) return memo;
+  const tf = factsFor(target);
+  if (tf === null) return { kind: "unresolvable", reason: `unparseable in-repo module ${spec}` };
+  active.add(key);
+  const carried = [...tf.moduleReports];
+  const res = resolveExport(root, tf, exportName, active, done);
+  active.delete(key);
+  // Anything the HOP's own module reports about itself has no other way out:
+  // the caller never sees this module (round-13 finding 1).
+  // `carried.length` truthy, NOT `> 0`: the relational spelling creates a
+  // mutation site whose `>=` variant is equivalent (an empty `reasons: []`
+  // reads the same as `undefined` at every consumer), and a site that needs an
+  // equivalence argument is worse than a site that does not exist. The guard
+  // this replaced was `carried.length && res.kind !== "forward"`, so the truthy
+  // form is what was here before the orphaned variant came out.
+  const merged: ExportResolution = carried.length
+    ? { ...res, reasons: [...(res.reasons ?? []), ...carried] }
+    : res;
+  done.set(key, merged);
+  return merged;
+}
+
+function resolveExport(
+  root: string,
+  facts: ModuleFacts,
+  exportName: string,
+  active: Set<string>,
+  done: Map<string, ExportResolution>,
+): ExportResolution {
+  const target = facts.exports.get(exportName);
+  if (target !== undefined) {
+    const here = (node: ts.Node): ExtentNode => ({ node, facts, path: facts.sf.fileName });
+    if (target.kind === "node") return { kind: "extent", nodes: [here(target.node)] };
+    const nodes = (facts.extents.get(facts.sf)?.get(target.name) ?? []).map(here);
+    // E2: `import { x } from "./h"; export { x }` exports a name this module
+    // only IMPORTS, so the local map answers with an empty extent unless the
+    // edge is followed. Any WRITE to the same binding stays in the answer.
+    const imported = facts.imports.get(target.name);
+    if (imported !== undefined && imported.namespace === true)
+      // 2b: `import * as ns from "./h"; export { ns }` exports the namespace
+      // OBJECT, not a target export. Forwarding it asks the target for `ns`,
+      // which answers noSuchExport and goes silently pure (probe H1).
+      return {
+        kind: "unresolvable",
+        reason: `local re-export of a namespace binding (${target.name}) in ${facts.sf.fileName}`,
+      };
+    if (imported !== undefined) {
+      const via = followForward(root, facts, imported.spec, imported.imported, active, done);
+      // The extent is rebuilt here to append this module's own writes, and
+      // rebuilding it BY HAND is how `reasons` got dropped: `followForward`
+      // merges the hop's module reports into whatever it returns, extents
+      // included, because the caller never sees that module. Round 1 found this
+      // shape at the star loop's two returns; this is the same class at a third
+      // (whole-diff R3 #1), so the merge SPREADS rather than re-literalling.
+      if (via.kind === "extent") return { ...via, nodes: [...via.nodes, ...nodes] };
+      // A miss through the forward IS the answer here. Falling through to the
+      // local extent was a distinction without a difference — an imported name
+      // has no local extent to fall back to — and it left a mutation site whose
+      // branches are indistinguishable downstream, since `noSuchExport` and an
+      // empty extent are both pure.
+      return via;
+    }
+    return { kind: "extent", nodes };
+  }
+  const declined = facts.declinedExports.get(exportName);
+  if (declined !== undefined) return { kind: "unresolvable", reason: declined };
+  const forwarded = facts.forwards.get(exportName);
+  if (forwarded !== undefined) {
+    // The in-repo-unresolvable question lives in `followForward` now, so this
+    // caller states nothing about it — a second copy here is the enumeration
+    // the derived cover replaces, and it would drift the moment the reason text
+    // moved.
+    return followForward(root, facts, forwarded.spec, forwarded.sourceName, active, done);
+  }
+  // E6: a star fan-out carries every name EXCEPT `default`. Candidates are
+  // tried in SOURCE ORDER and a miss on one branch is benign; the first answer
+  // that is not `noSuchExport` wins, because "stop at the first provenance" is
+  // not decidable here — this returns an extent and cannot know what the
+  // traversal will make of it (spec §2.2).
+  //
+  // A miss is benign for PROVENANCE and not for REASONS: `followForward` merges
+  // the hop's own module reports into whatever it returns, `noSuchExport`
+  // included, and those reports have no other way out — the caller never sees
+  // that module. Dropping the missed branch wholesale lost them in both
+  // directions, whether a later branch supplied the name or none did
+  // (whole-diff R1 #2). They are carried onto whichever answer this returns.
+  const carried: string[] = [];
+  const withCarried = (res: ExportResolution): ExportResolution =>
+    carried.length === 0 ? res : { ...res, reasons: [...(res.reasons ?? []), ...carried] };
+  if (exportName !== "default") {
+    for (const spec of facts.starExports) {
+      const via = followForward(root, facts, spec, exportName, active, done);
+      if (via.kind !== "noSuchExport") return withCarried(via);
+      if (via.reasons) carried.push(...via.reasons);
+    }
+  }
+  return withCarried({ kind: "noSuchExport" });
+}
+
+/**
+ * §2.4's three answers for a resolved specifier, decided BEFORE any read.
+ *
+ * A directory reaches `readFileSync` otherwise and throws `EISDIR`; an `.mdx`
+ * target parses as TypeScript and yields a garbage tree that reads as pure.
+ * Both are reported instead.
+ */
+function classifyTarget(
+  target: string,
+  spec: string,
+): "analyze" | "data" | { kind: "unresolvable"; reason: string } {
+  const ext = extname(target).toLowerCase();
+  if (LANGUAGE_EXTENSIONS.includes(ext)) return "analyze";
+  if (DATA_EXTENSIONS.includes(ext)) return "data";
+  return { kind: "unresolvable", reason: `unsupported module shape for ${spec}` };
 }
 
 function moduleFacts(path: string): ModuleFacts | null {
   if (!existsSync(path)) return null;
   const sf = parse(path, readFileSync(path, "utf8"));
-  const imports = new Map<string, { spec: string; imported: string }>();
+  const imports = new Map<string, { spec: string; imported: string; namespace?: boolean }>();
   const extents = new Map<Scope, Map<string, ts.Node[]>>();
   const shadows = new Map<Scope, Set<string>>();
-  const scopedImports = new Map<Scope, Map<string, { spec: string; imported: string }>>();
+  const scopedImports = new Map<
+    Scope,
+    Map<string, { spec: string; imported: string; namespace?: boolean }>
+  >();
+  const exports = new Map<string, ExportTarget>();
+  const forwards = new Map<string, { spec: string; sourceName: string }>();
+  const starExports: string[] = [];
+  const declinedExports = new Map<string, string>();
+  const moduleReports: string[] = [];
+  /** Dynamic imports in a MODELLED position, decided after the walk: the shape
+   * is modelled only while the binding stays module-local. */
+  /** Modelled dynamic declarations at MODULE-LOAD position — the exported-binding question. */
+  const modelledDynamic: Array<{ spec: string; names: string[] }> = [];
   /** Writes, resolved in a SECOND pass: a write's target binding cannot be
    * known until every declaration in the file has been registered. */
   const writes: Array<{ name: string; at: ts.Node; value: ts.Node }> = [];
@@ -564,8 +957,15 @@ function moduleFacts(path: string): ModuleFacts | null {
 
   /** Bind a dynamic import's names IN THE SCOPE THAT DECLARES THEM. */
   const bindPattern = (name: ts.BindingName, spec: string, scope: Scope): void => {
-    const here = scopedImports.get(scope) ?? new Map<string, { spec: string; imported: string }>();
-    if (ts.isIdentifier(name)) here.set(name.text, { spec, imported: name.text });
+    // The same predicate `modelledDynamicDeclaration` asks. Registering a
+    // partial answer for a pattern only partly representable is what produced
+    // bindings under the wrong name; an unmodelled pattern binds NOTHING here
+    // and is reported instead (whole-diff R1 #4).
+    if (!bindPatternIsModelled(name)) return;
+    const here =
+      scopedImports.get(scope) ??
+      new Map<string, { spec: string; imported: string; namespace?: boolean }>();
+    if (ts.isIdentifier(name)) here.set(name.text, { spec, imported: name.text, namespace: true });
     else if (ts.isObjectBindingPattern(name)) {
       for (const el of name.elements) {
         if (!ts.isIdentifier(el.name)) continue;
@@ -580,13 +980,141 @@ function moduleFacts(path: string): ModuleFacts | null {
   };
 
   const walk = (node: ts.Node): void => {
+    // EXPORTS: what this module offers under each name (spec §2.2, forms E1-E4).
+    // Registered here rather than derived later because the declaration is the
+    // only place both names are visible at once - the EXPORTED one and the
+    // local one - and every rename loses one of them the moment the walk moves
+    // on. Type-only forms are skipped entirely, which is also what makes VALUE
+    // beat type under declaration merging: a type never enters the map, so a
+    // same-named value is the only thing there to find.
+    if (
+      ts.isExportDeclaration(node) &&
+      !node.moduleSpecifier &&
+      !node.isTypeOnly &&
+      node.exportClause &&
+      ts.isNamedExports(node.exportClause)
+    ) {
+      // E2: `export { x }` and `export { x as y }` - the exported name is
+      // `name`, the local one is `propertyName ?? name`, which is the mirror of
+      // an import specifier and the easiest thing here to get backwards.
+      for (const e of node.exportClause.elements) {
+        if (e.isTypeOnly) continue;
+        exports.set(e.name.text, { kind: "local", name: (e.propertyName ?? e.name).text });
+      }
+    }
+    if (
+      ts.isCallExpression(node) &&
+      node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+      isAtModuleLoad(node)
+    ) {
+      // §2.4b, stated as ONE rule over what the resolver cannot bind rather
+      // than as a list of accepted spellings, and seeded only at MODULE-LOAD
+      // position, where the walk never arrives on its own.
+      const arg = node.arguments[0];
+      const spec = arg && ts.isStringLiteral(arg) ? arg.text : null;
+      if (spec === null) {
+        moduleReports.push(`dynamic import() with a non-literal specifier in ${path}`);
+      } else if (isInRepoSpecifier(spec)) {
+        // A BARE specifier stays pure under L-2 whatever position it sits in.
+        const decl = modelledDynamicDeclaration(node);
+        if (decl === null) moduleReports.push(`unbindable dynamic import of ${spec} in ${path}`);
+        else
+          modelledDynamic.push({ spec, names: bindingIdentifiers(decl.name).map((i) => i.text) });
+      }
+    }
+    if (
+      ts.isExportDeclaration(node) &&
+      node.moduleSpecifier &&
+      ts.isStringLiteral(node.moduleSpecifier) &&
+      !node.isTypeOnly
+    ) {
+      // E5/E6: a re-export names another module. Recorded as an EDGE rather
+      // than resolved here, because following it needs the resolver's root and
+      // its cycle structures, which only exist during a traversal.
+      const spec = node.moduleSpecifier.text;
+      if (node.exportClause && ts.isNamedExports(node.exportClause)) {
+        for (const e of node.exportClause.elements) {
+          if (e.isTypeOnly) continue;
+          forwards.set(e.name.text, { spec, sourceName: (e.propertyName ?? e.name).text });
+        }
+      } else if (node.exportClause && ts.isNamespaceExport(node.exportClause)) {
+        // `export * as ns from "./h"` binds a NAMESPACE OBJECT, which is not an
+        // extent and cannot be followed member-precisely from here.
+        declinedExports.set(
+          node.exportClause.name.text,
+          `unsupported export form: export * as ${node.exportClause.name.text} from ${spec} in ${path}`,
+        );
+      } else if (!node.exportClause) {
+        starExports.push(spec);
+      }
+    }
+    if (ts.isExportAssignment(node) && node.isExportEquals) {
+      // `export = x` is a CommonJS export assignment, not an ES export, and
+      // what an importer binds through it is not decidable here.
+      declinedExports.set("default", `unsupported export form: export = in ${path}`);
+    }
+    if (
+      ts.isModuleDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      ts.getModifiers(node)?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
+    ) {
+      // `export namespace NS {}` carries the modifier but registers no extent,
+      // so an E1 predicate keyed on the modifier reads it as pure (probe B9).
+      declinedExports.set(
+        node.name.text,
+        `unsupported export form: export namespace ${node.name.text} in ${path}`,
+      );
+    }
+    if (ts.isExportAssignment(node) && !node.isExportEquals) {
+      // E3: `export default <expr>` exports the EXPRESSION under `default`.
+      exports.set("default", { kind: "node", node: node.expression });
+    }
+    if (ts.canHaveModifiers(node)) {
+      const mods = ts.getModifiers(node);
+      const exported = mods?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
+      const isDefault = mods?.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword) ?? false;
+      if (exported && isDefault) {
+        // E4: a declaration carrying BOTH modifiers exports `default` and ONLY
+        // `default` - function or class, named or anonymous - because the
+        // declaration's own name is module-local under ES.
+        exports.set("default", { kind: "node", node });
+      } else if (exported && ts.isVariableStatement(node)) {
+        // E1, read from the STATEMENT: the modifier lives there, not on the
+        // declaration, and every declarator and every identifier a binding
+        // pattern introduces is exported.
+        for (const d of node.declarationList.declarations)
+          for (const id of bindingIdentifiers(d.name))
+            exports.set(id.text, { kind: "local", name: id.text });
+      } else if (
+        exported &&
+        (ts.isFunctionDeclaration(node) ||
+          ts.isClassDeclaration(node) ||
+          ts.isEnumDeclaration(node)) &&
+        node.name
+      ) {
+        exports.set(node.name.text, { kind: "local", name: node.name.text });
+      }
+    }
+
     // static imports, including aliases and namespaces
     if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
       const spec = node.moduleSpecifier.text;
       const clause = node.importClause;
-      if (clause?.name) imports.set(clause.name.text, { spec, imported: clause.name.text });
+      if (!clause && isInRepoSpecifier(spec)) {
+        // `import "./side"` has no importClause at all, so every clause-driven
+        // branch skips it and the module's own work is never seen. It runs at
+        // load, inside no extent - hence the seed (spec §2.4b).
+        moduleReports.push(`side-effect import of ${spec} in ${path}`);
+      }
+      // A default import binds a LOCAL name for the target's `default` export.
+      // Recording the local name here is what made every renamed default ask
+      // the target for a name it does not export (spec §2.1, half 2).
+      if (clause?.name) imports.set(clause.name.text, { spec, imported: "default" });
       const b = clause?.namedBindings;
-      if (b && ts.isNamespaceImport(b)) imports.set(b.name.text, { spec, imported: b.name.text });
+      // A namespace binding is ONE binding for MANY exports; the member is
+      // what selects the export, so the flag travels with the binding.
+      if (b && ts.isNamespaceImport(b))
+        imports.set(b.name.text, { spec, imported: b.name.text, namespace: true });
       if (b && ts.isNamedImports(b)) {
         for (const e of b.elements) {
           // `import { helper as h }` binds `h` locally but names `helper` in the
@@ -752,12 +1280,39 @@ function moduleFacts(path: string): ModuleFacts | null {
     extents.set(scope, byName);
   }
 
+  // A dynamic import in a modelled position is still unbindable ACROSS the
+  // module boundary: what an importer binds through `export const ns = await
+  // import(...)`, or through a later `export { ns }`, is a promise this
+  // scanner cannot follow member-precisely (spec §2.2).
+  //
+  // Asked by the LOCAL name, which is what `modelledDynamic` records. Asking
+  // `exports.has(nm)` compared a local name against a map keyed by the name a
+  // module exports UNDER; the two coincide only for `export { ns }`, so every
+  // renaming spelling evaded the report, and `export { other as ns }` produced
+  // it for a binding it does not export (whole-diff R1 #6). `forwards` names
+  // another module's export and can never expose a local binding, so it is not
+  // consulted at all.
+  const exportedLocals = new Set<string>();
+  for (const target of exports.values()) {
+    if (target.kind === "local") exportedLocals.add(target.name);
+    // `export default ns` registers the EXPRESSION, not a local name.
+    else if (ts.isIdentifier(target.node)) exportedLocals.add(target.node.text);
+  }
+  for (const { spec, names } of modelledDynamic)
+    if (names.some((nm) => exportedLocals.has(nm)))
+      moduleReports.push(`unbindable dynamic import of ${spec} in ${path}`);
+
   return {
     sf,
     imports,
     extents,
     shadows,
     scopedImports,
+    exports,
+    forwards,
+    starExports,
+    declinedExports,
+    moduleReports,
     resolved: new Map<Scope, Map<string, Binding>>(),
     provenance: new WeakMap<ts.Node, boolean>(),
   };
@@ -956,26 +1511,49 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
   const abs = resolve(root, suitePath);
   const facts = moduleFacts(abs);
   if (!facts) return [];
-  const cache = new Map<string, ModuleFacts | null>([[abs, facts]]);
-  const factsFor = (p: string): ModuleFacts | null => {
-    if (!cache.has(p)) cache.set(p, moduleFacts(p));
-    return cache.get(p) ?? null;
-  };
+  factsCache.clear();
+  factsCache.set(abs, facts);
 
   const out: TestClassification[] = [];
 
-  const reaches = (start: ts.Node, home: ModuleFacts, homePath: string): Verdict => {
+  /**
+   * Name the module a reason was FOUND in (spec §2.6 item 2), once.
+   *
+   * The two shipped rules produce a bare construct name, and the §2.4b rules
+   * produce one that already carries its module. Both must end up spelled the
+   * SAME way, or the test's own construct is reported twice — once by the
+   * own-extent call and once by the traversal — and the de-duplication that
+   * `a reason is reported once` pins cannot see they are the same reason.
+   */
+  const withModule = (reason: string, path: string): string =>
+    reason.includes(" in ") ? reason : `${reason} in ${path}`;
+
+  const reaches = (start: ts.Node, home: ModuleFacts, homePath: string): Reach => {
     const seen = new Set<string>();
     const unresolved: string[] = [];
     const visit = (node: ts.Node, f: ModuleFacts, path: string): boolean => {
+      // Provenance stays the FIRST question: a construct reached only through a
+      // helper loses to a provable environment reach, which is what AC-12's
+      // helper branch pins. Moving this would invert that.
       if (extentIsProvenance(node, f)) return true;
+      // The two recognized-unresolvable rules run at EVERY node the traversal
+      // visits, in the facts of the module that node belongs to — a construct
+      // in a helper, a hook body or a producer was never seen before, because
+      // they were evaluated on the test's own call expression alone.
+      for (const reason of unclassifiableWithin(node, f)) unresolved.push(withModule(reason, path));
       for (const reference of referencedIdentifiers(node)) {
         const name = reference.text;
         // Dedup by the BINDING, not the name: two same-named bindings in
         // different scopes are two different things to visit, and collapsing
         // them made the verdict depend on which occurrence came first.
         const binding = resolveBinding(f, name, reference);
-        const bk = bindingKey(name, binding);
+        // A namespace reference selects its export through the MEMBER at the
+        // use site, so the member is read before the dedup key is formed.
+        const member =
+          binding.kind === "import" && binding.namespace === true
+            ? namespaceMember(reference)
+            : undefined;
+        const bk = bindingKey(name, binding, member);
         if (bk === null) continue; // unbound: nothing to visit
         const key = `${path}#${bk}`;
         if (seen.has(key)) continue;
@@ -983,10 +1561,48 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
 
         if (binding.kind === "import") {
           const imported = binding;
+          // Provenance FIRST, before any member inspection: the shipped
+          // ordering says a namespace of `node:child_process` is touching
+          // whatever the member, and inspecting first would demote it.
           if (isProvenanceModule(imported.spec)) return true;
+          // L-2 FIRST: a BARE specifier is node_modules and stays pure whatever
+          // the member precision, so the memberless question is only ever asked
+          // about an IN-REPO namespace. Asking it unconditionally reported
+          // `import * as ts from "typescript"` — 70 tests across 6 near-domain
+          // files, every one for that reason alone (whole-diff R5 #1), against
+          // ratified L-2 and §4 limit 3's own words.
+          if (imported.namespace === true && member === null && isInRepoSpecifier(imported.spec)) {
+            // A namespace used where no member is statically known resolves to
+            // nothing member-precise. Named for the module the USE was written
+            // in, and for the namespace's origin, because a reader needs both.
+            unresolved.push(nonMemberNamespaceReason(name, imported.spec, path));
+            for (const ext of binding.extent) {
+              if (visit(ext, f, path)) return true;
+            }
+            continue;
+          }
           const target = resolveSpecifier(root, path, imported.spec);
           if (target === null) {
+            // An IN-REPO specifier that does not resolve is NOT a bare one:
+            // L-2 covers node_modules, where there is nothing in-repo to
+            // analyze. `resolveSpecifier`'s candidates are deliberately not
+            // widened; the miss is reported instead (spec §2.4b).
+            if (isInRepoSpecifier(imported.spec))
+              unresolved.push(`unresolved in-repo specifier ${imported.spec} in ${path}`);
             // node_modules, pure by L-2 — but a WRITE to the same binding is not.
+            for (const ext of binding.extent) {
+              if (visit(ext, f, path)) return true;
+            }
+            continue;
+          }
+          // Classify the target BEFORE any read (spec §2.4): a directory would
+          // throw EISDIR inside `factsFor`, and a non-language, non-data shape
+          // must be reported rather than parsed as TypeScript.
+          const shape = classifyTarget(target, imported.spec);
+          if (shape !== "analyze") {
+            if (shape !== "data") unresolved.push(shape.reason);
+            // `data` is pure exactly as a bare specifier is; both still visit
+            // any WRITE to the same local binding below.
             for (const ext of binding.extent) {
               if (visit(ext, f, path)) return true;
             }
@@ -997,9 +1613,28 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
             unresolved.push(`unparseable in-repo module ${imported.spec}`);
             continue;
           }
-          // By the name it carries THERE, not the local alias.
-          for (const ext of moduleScopeExtent(tf, imported.imported)) {
-            if (visit(ext, tf, target)) return true;
+          // Every module the traversal LOADS contributes what it reports about
+          // itself, named for the module it was found in (spec §2.6 item 2).
+          unresolved.push(...tf.moduleReports);
+          // By the name the target EXPORTS, not the local alias and not a local
+          // declaration that merely shares the name.
+          const res = resolveExport(
+            root,
+            tf,
+            imported.namespace === true && member !== null && member !== undefined
+              ? member
+              : imported.imported,
+            new Set<string>(),
+            new Map<string, ExportResolution>(),
+          );
+          if (res.kind === "unresolvable") unresolved.push(res.reason);
+          if (res.reasons) unresolved.push(...res.reasons);
+          if (res.kind === "extent") {
+            // Each node travels with the module it was DECLARED in, which is
+            // not `tf` once a forward has been followed.
+            for (const ext of res.nodes) {
+              if (visit(ext.node, ext.facts, ext.path)) return true;
+            }
           }
           // …and anything later ASSIGNED to the same local binding.
           for (const ext of binding.extent) {
@@ -1015,9 +1650,19 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
       }
       return false;
     };
-    if (visit(start, home, homePath)) return "environment-touching";
-    return unresolved.length > 0 ? "unclassifiable" : "environment-free";
+    // The verdict here is only ever "did the traversal reach the environment".
+    // Whether the REASONS make a test unclassifiable is a precedence question,
+    // and `classifyTests` is the one place that answers it — deciding it twice
+    // left a mutation site the outer decision made unobservable.
+    return {
+      verdict: visit(start, home, homePath) ? "environment-touching" : "environment-free",
+      reasons: unresolved,
+    };
   };
+
+  // The TEST FILE's own module-load reports apply to every test in it, exactly
+  // as a top-level hook does.
+  const fileReports = [...facts.moduleReports];
 
   const suiteText = facts.sf.getFullText();
 
@@ -1040,22 +1685,45 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
 
         // the test's extent is the WHOLE call expression, so a .each producer
         // is inside it by construction
-        let verdict = reaches(node, facts, abs);
-        if (verdict !== "environment-touching") {
-          for (const h of hooks) {
-            if (reaches(h, facts, abs) === "environment-touching") {
-              verdict = "environment-touching";
-              break;
-            }
-          }
+        const own = reaches(node, facts, abs);
+        let verdict = own.verdict;
+        const reachReasons = [...own.reasons];
+        for (const h of hooks) {
+          // Every caller merges reasons (spec §2.6 item 3). The verdict
+          // comparison is unchanged; what was missing is the channel — a
+          // construct inside a hook body or a producer reached no verdict at
+          // all before this loop kept the whole `Reach`.
+          const hookReach = reaches(h, facts, abs);
+          reachReasons.push(...hookReach.reasons);
+          if (verdict !== "environment-touching" && hookReach.verdict === "environment-touching")
+            verdict = "environment-touching";
         }
         // Unclassifiable is scoped to THIS test's extent and outranks
         // environment-touching: "I found something I cannot resolve" is a
         // different instruction to the reader than "this reaches the
         // environment", and collapsing them is what made §3.3.3 and §4
         // disagree at spec R7.
-        const ownUnresolved = unclassifiableWithin(node, facts);
+        const ownUnresolved = [
+          ...unclassifiableWithin(node, facts).map((r) => withModule(r, abs)),
+          // The traversal runs the memberless-namespace rule itself at every
+          // node it visits — but it asks the provenance question FIRST and
+          // returns at the very first node, so exactly when the test's own
+          // extent is provenance the rule never ran and §2.7's own-body
+          // precedence was decided without it (whole-diff R1 #7). Asked here
+          // only in that case: everywhere else the traversal has already
+          // answered it, and asking twice would promote a namespace whose own
+          // extent the traversal can follow to provenance.
+          ...(extentIsProvenance(node, facts) ? nonMemberNamespacesWithin(node, facts, abs) : []),
+        ];
+        const reasons = [...new Set([...ownUnresolved, ...reachReasons, ...fileReports])];
+        // PRECEDENCE (spec §2.7), and the two directions are not symmetric: a
+        // construct in the test's OWN body outranks a provable environment
+        // reach, while one reached only THROUGH a helper, a hook or a module's
+        // load-time work loses to it. Reporting both as unclassifiable would
+        // demote every test that provably touches the environment and happens
+        // to pass a construct on the way.
         if (ownUnresolved.length > 0) verdict = "unclassifiable";
+        else if (verdict === "environment-free" && reasons.length > 0) verdict = "unclassifiable";
 
         const text = node.getText(facts.sf);
         const hasPremise = /\bpremise(Holds)?\s*\(/.test(text) || premiseIsAssociated(node, facts);
@@ -1067,7 +1735,7 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
           testName,
           line,
           verdict,
-          detail: ownUnresolved.join("; "),
+          detail: reasons.join("; "),
           hasPremise,
           exemption,
         });
@@ -1076,7 +1744,54 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
     }
     ts.forEachChild(node, (c) => walk(c, hooks));
   };
-  walk(facts.sf, []);
+  // Vitest applies a TOP-LEVEL hook to every test in the file, and the walk
+  // only ever gathers hooks when it meets a `describe` — so a top-level
+  // `beforeEach` was attached to nothing. Direct statements of the SourceFile
+  // only: a nested hook belongs to its own describe subtree, and seeding it
+  // here would leak it to every sibling.
+  const topLevelHooks: ts.Node[] = [];
+  for (const st of facts.sf.statements) {
+    if (!ts.isExpressionStatement(st)) continue;
+    const call = st.expression;
+    if (!ts.isCallExpression(call)) continue;
+    const callee = call.expression;
+    if (ts.isIdentifier(callee) && HOOK_REGISTRARS.test(callee.text) && call.arguments[0])
+      topLevelHooks.push(call.arguments[0]);
+  }
+  walk(facts.sf, topLevelHooks);
+  return out;
+}
+
+/** The one wording for a namespace used where no member is statically known. */
+function nonMemberNamespaceReason(name: string, spec: string, path: string): string {
+  return `namespace ${name} (imported from ${spec}) used in a position with no statically known member, in ${path}`;
+}
+
+/**
+ * Memberless-namespace reasons produced by this node's OWN extent.
+ *
+ * The traversal emits the same reason as it resolves bindings, but it asks the
+ * provenance question FIRST and returns at the very first node, so a test body
+ * that both reaches provenance and uses a memberless namespace never got here
+ * (whole-diff R1 #7). Own-body precedence (spec §2.7) was decided from
+ * `unclassifiableWithin`'s two rules alone and could not see this one.
+ *
+ * Both callers share the wording above so the two sites cannot drift, and both
+ * keep the shipped ordering: a namespace OF a provenance module is touching
+ * whatever the member, so it is not demoted here either.
+ */
+function nonMemberNamespacesWithin(node: ts.Node, facts: ModuleFacts, path: string): string[] {
+  const out: string[] = [];
+  for (const reference of referencedIdentifiers(node)) {
+    const binding = resolveBinding(facts, reference.text, reference);
+    if (binding.kind !== "import" || binding.namespace !== true) continue;
+    if (isProvenanceModule(binding.spec)) continue;
+    // The same L-2 order as the traversal's branch, and it carried the same
+    // omission because it mirrors it (whole-diff R5 #1).
+    if (!isInRepoSpecifier(binding.spec)) continue;
+    if (namespaceMember(reference) !== null) continue;
+    out.push(nonMemberNamespaceReason(reference.text, binding.spec, path));
+  }
   return out;
 }
 
@@ -1088,6 +1803,12 @@ function unclassifiableWithin(node: ts.Node, facts: ModuleFacts): string[] {
       const arg = n.arguments[0];
       if (!arg || !ts.isStringLiteral(arg))
         out.push("dynamic import() with a non-literal specifier");
+      // §2.4b: a LITERAL in-repo specifier in a position the resolver cannot
+      // bind - assignment, embedded in a larger expression, a bare statement -
+      // is reported rather than passed as pure. A BARE specifier stays pure
+      // under L-2, and the one MODELLED position stays modelled.
+      else if (isInRepoSpecifier(arg.text) && modelledDynamicDeclaration(n) === null)
+        out.push(`unbindable dynamic import of ${arg.text} in ${facts.sf.fileName}`);
     }
     if (ts.isElementAccessExpression(n)) {
       const obj = unwrap(n.expression);
