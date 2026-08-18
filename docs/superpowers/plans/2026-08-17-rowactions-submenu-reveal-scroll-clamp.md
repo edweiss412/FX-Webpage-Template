@@ -986,6 +986,41 @@ Deliberately NOT repaired here: cleaning that database would delete seed rows ot
 
 ## §12 — closeout
 
-Filled by the implementation session at Task 5 (never fabricated in the spec+plan arc; `tests/docs/_metaInvariant8Closeout.test.ts` reds on this unmerged branch by design until then). The line to add here, with real values:
+Filled by the implementation session at Task 5, with the values the gate actually returned.
 
-`impeccable-gate: critique=RAN audit=RAN p0=<int> p1=<int> dispositions=<recorded|none>`
+impeccable-gate: critique=RAN audit=RAN p0=0 p1=1 dispositions=recorded
+
+Both halves ran under the canonical v3 setup (`context.mjs` context load of PRODUCT.md + DESIGN.md, then the **product** register reference, this being admin tool UI). `critique` ran dual-agent as its hard invariant requires — Assessment A (design review) and Assessment B (detector + evidence) as two isolated sub-agents that never saw each other's output — so the run is NOT degraded and carries no degraded banner. `audit` ran as its own isolated agent.
+
+**Scores.** critique 37/40 (Excellent). audit 18/20 (Excellent); anti-patterns PASS, zero AI-slop tells on both halves. Assessment B's deterministic scan (`detect.mjs --json` over the three `.tsx` files) exited 0 with `[]` — zero findings. Browser visualization was deliberately skipped on both halves: this diff owns no route, and a live server would contend with the other worktrees running e2e on this machine. Recorded as a skipped step with that reason rather than silently omitted.
+
+**Markup/token delta: none.** No className, JSX element, ARIA attribute, or design token changed; the branch touches no `globals.css`, no `tailwind.config.*`, no `.css`, and no `DESIGN.md`. Every `.style` write in the diff is `maxWidth` / `maxHeight` / `removeProperty` of those two / `scrollTop` / `scrollLeft`. The em-dashes in the diff are all inside `//` comments (exempt); no user-visible copy, no hard-coded color, no new interactive element, no arbitrary z-index, no new animation, no raw error code reaching UI.
+
+### P0 — none.
+
+### P1 — one raised, REFUTED BY PROBE, filed as a documented limit.
+
+**Peer-origin re-measure loop between sibling `AnchoredPortal`s.** Assessment A reasoned from code and listener topology (explicitly stating it had run no browser) that because the §4.5 filter is SELF-scoped, the row-actions menu and its Preview-as submenu — siblings under `document.body`, both able to be open at once (`components/admin/ShowRowActions.tsx:658`, `:958`) — would each schedule a re-measure on the other's scroll-restore event, giving "mutual per-frame measuring" and, for Doug mid-show, "continuous rAF — battery and thermals".
+
+The claim is admissible in shape and was probed rather than argued. An uncommitted Playwright probe (materialized from the shipped `rowactions-geometry` harness, run at `--project=desktop-chromium`, `E2E_PORT=3117`, then deleted) constructed the strongest reachable form of the condition: viewport shortened to 1280x400 so BOTH panels cap, both opened, both forced to a nonzero scroll offset, then every `[data-portal-scroll]` panel watched for `style`-attribute writes across three consecutive windows of silence.
+
+```
+PROBE panels=2 [{"scrollHeight":199,"clientHeight":164,"capped":true,"maxHeight":"164.469px"},
+                {"scrollHeight":586,"clientHeight":283,"capped":true,"maxHeight":"283px"}]
+PROBE scrollTops=[20,20]
+PROBE windows={"w1":[2,8],"w2":[0,0],"w3":[0,0]}      // frames: w1=30, w2=30, w3=60
+PROBE finalScrollTops=[20,20]
+```
+
+Both panels are genuinely capped and scrolled — the premise is met, not assumed. What follows an external scroll is a BOUNDED SETTLE of 2 and 8 style writes inside the first 30 frames, and then 90 consecutive frames of complete silence. The system goes idle, and both offsets survive at their set value. There is no self-sustaining loop and no corruption: a measurement's clamp and its restore land in the same frame, so the net scroll offset is unchanged and no scroll event is dispatched to fuel the next round.
+
+Disposition: the finding as stated (unbounded per-frame measuring, a battery cost on Doug's phone) is refuted. What is real is a bounded extra settle after a peer scroll — conservative behavior, correct geometry, no user-visible cost — which is a DOCUMENTED LIMIT by the project's own admissibility bar, not a repair. No code change; spec §8 already fences the loop class at its live boundary. Recorded here so a later reviewer does not re-derive it.
+
+### P2 / P3 — recorded, no repair in this PR.
+
+- **[P2, audit] `components/admin/useFitWithinClip.ts:90` — apply() goes 1 to 3 forced synchronous layouts per call**, and runs per frame during drag-resize / ResizeObserver churn. The third comes from the `el.scrollTop` comparison in the helper's `finally` (`lib/popover/naturalSize.ts:70`), read after the cap restore. Real and reachable; bounded, and strictly the cost of the correctness this PR buys. Repairing it means editing the shared helper's restore contract, which is exactly the surface the arc's spec and plan ratified across fifteen review rounds — out of scope for a fix whose whole claim is that it changes no behavior but the scroll restore.
+- **[P2, critique] The family-C e2e pin observes one panel.** `tests/e2e/rowactions-geometry.spec.ts:381-394` watches the submenu with the parent open. The probe above covers the two-panel case and found nothing to pin, so widening the shipped pin would assert a condition that does not occur.
+- **[P2/P3, both halves] `components/admin/showpage/ShareHub.tsx:313` — a degenerate pass after a hidden pass leaves `visibility:hidden`.** PRE-EXISTING; both halves independently marked it as not introduced by this diff. The diff's new comment on that path is narrower than the behavior only on a first pass. Not repaired here: it is a defect of the superseded caret-measurement posture, not of the migration.
+- **[P3, audit] `components/admin/useFitWithinClip.ts:146`** carries a now-stale "(write, read, read, read, write)" comment. **[P3]** `lib/popover/naturalSize.ts:63` throws on a thenable without settling it. **[P3]** `naturalSize.ts:50` restores the probe width to `""` rather than the held value — correct only because the outer clear guarantees `""`, and unstated. **[P3, critique]** `useFitWithinClip.ts:103-107` restores the cap and immediately removes it; no paint between, so no flicker, just a redundant write pair.
+
+None of these is a P0 or a P1, so none gates this PR under invariant 8; they are recorded rather than deferred because each is either pre-existing, refuted, or a cosmetic note on a line the arc deliberately settled.
