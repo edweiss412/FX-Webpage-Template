@@ -12,12 +12,15 @@ const problems = [];
 // --- derived facts ---------------------------------------------------------
 const units = []; // { kind: "Task"|"Gate", id, line }
 const markers = []; // { line, redState, target }
+const sections = new Set(); // every heading number this document defines
 let inFence = false;
 lines.forEach((l, i) => {
   if (/^```/.test(l)) inFence = !inFence;
   if (inFence) return;
   const h = /^## (Task|Gate) ([0-9A-Z]+)/.exec(l);
   if (h) units.push({ kind: h[1], id: h[2], line: i + 1 });
+  const sec = /^#{2,4} (\d+(?:\.\d+)*)\.? /.exec(l);
+  if (sec) sections.add(sec[1]);
   if (/^ {0,3}<!-- task: red=/.test(l)) {
     markers.push({
       line: i + 1,
@@ -44,6 +47,16 @@ lines.forEach((l, i) => {
       problems.push(
         `${n}: names "Gate ${m[1]}", which does not exist (gates: ${[...gateIds].join(",")})`,
       );
+  }
+  // A section reference this document does not define. Own sections only:
+  // spec-owned refs are written as "spec section N" and are not this file's to check.
+  for (const m of l.matchAll(/(?<!spec )(?:§|section )(\d+(?:\.\d+)*)/g)) {
+    const ref = m[1];
+    if (!sections.has(ref) && !/^\d+$/.test(ref)) {
+      problems.push(
+        `${n}: references section ${ref}, which this document does not define (defined: ${[...sections].join(",")})`,
+      );
+    }
   }
   const four = /\b(four|4) path-only/.exec(l);
   if (four && barePathTargets.length !== 4) {

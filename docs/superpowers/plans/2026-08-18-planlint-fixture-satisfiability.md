@@ -51,7 +51,7 @@ Registry rows at base: **36**. Rows this plan adds: **1** (`fixtureContract`, Ta
 
 The spec's whole subject is that an unexecuted embedded block lies. This plan therefore does not ship a block it has not run. Two classes:
 
-**(a) Calibration blocks — executed to their asserted outcome against the live tree.** The §2.4 historical pair in the spec was run as spliced files at base `7d09a1f0b`:
+**(a) Calibration blocks — executed to their asserted outcome against the live tree.** The spec §2.4 historical pair in the spec was run as spliced files at base `7d09a1f0b`:
 
 ```
 - passed | three-column v2 header IS opened by the live matcher
@@ -65,12 +65,12 @@ The spec's whole subject is that an unexecuted embedded block lies. This plan th
 
 ```
 $ pnpm exec vitest run tests/.planExec --reporter=json
-total 9 passed 1 failed 8
-FILE block1-L135.test.ts | assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' ...
-FILE block2-L213.test.ts | assertions 2 | (assertion failure: expected [] to equal [ 'FIXTURE_MALFORMED' ])
-FILE block3-L249.test.ts | assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' ...
-FILE block4-L310.test.ts | assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' ...
-FILE block5-L453.test.ts | assertions 7 | (7 x TypeError: runFixtureSplice is not a function)
+total 10 passed 1 failed 9
+FILE block1-L145.test.ts | assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' ...
+FILE block2-L223.test.ts | assertions 2 | (assertion failure: expected [] to equal [ 'FIXTURE_MALFORMED' ])
+FILE block3-L259.test.ts | assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' ...
+FILE block4-L320.test.ts | assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' ...
+FILE block5-L463.test.ts | assertions 8 | (8 failures: runFixtureSplice / runCli absent from the adapter)
 ```
 
 Read exactly, and note the three DIFFERENT red shapes, none of them a transform error:
@@ -79,7 +79,7 @@ Read exactly, and note the three DIFFERENT red shapes, none of them a transform 
 - **Task 2's block** red at its assertion, `expected [] to deeply equal [ 'FIXTURE_MALFORMED' ]`. It imports only tracked modules, so this proves the five-argument `runLint` call compiles and that the orchestrator genuinely emits nothing today.
 - **Task 5's block** red with `TypeError: runFixtureSplice is not a function`. That shape is the point: the module RESOLVES — it is `scripts/spec-lint.ts`, which exists — and simply lacks the export. Since plan review round 1, this block imports from the ADAPTER rather than from the pure core, because the spec's §5 boundary puts every filesystem, spawn and JSON-parse concern there; the earlier version imported a side-effecting `runFixtureSplice` from the pure core module and could not have satisfied the ratified architecture.
 
-This run is the RE-execution after plan review round 3, which fixed Task 7's collection-artifact red command, added the three-fence-kind and multi-block-mapping cases, and made cleanup survive a write failure; every earlier repair that touched a block was followed by the same re-run, and the line numbers here are the current ones. The record is re-measured on every edit rather than carried forward, which is the discipline the arm itself enforces. Two things the original execution corrected rather than confirmed, which is the argument for running it at all: an earlier draft of this section asserted three module-resolution reds where the measurement shows four, and Task 2's block turns out to carry **one case that passes at base vacuously** — "a clean marker adds no findings" holds today precisely because nothing fires at all. It is kept deliberately as the over-fire guard it becomes once Task 2 lands, and is named here so no reviewer has to discover that it proves nothing before the GREEN step. The splice directory was removed after the run and `git status` is clean.
+This run is the RE-execution after plan review round 4, which rebuilt Task 5's harness on the LANDED `spawn(command, cwd, timeoutMs, mode)` seam, keyed its fake reports by marker line, and added the `runCli --exec-red` wiring case; every earlier repair that touched a block was followed by the same re-run, and the line numbers here are the current ones. The record is re-measured on every edit rather than carried forward, which is the discipline the arm itself enforces. Two things the original execution corrected rather than confirmed, which is the argument for running it at all: an earlier draft of this section asserted three module-resolution reds where the measurement shows four, and Task 2's block turns out to carry **one case that passes at base vacuously** — "a clean marker adds no findings" holds today precisely because nothing fires at all. It is kept deliberately as the over-fire guard it becomes once Task 2 lands, and is named here so no reviewer has to discover that it proves nothing before the GREEN step. The splice directory was removed after the run and `git status` is clean.
 
 ### 3.1 Dogfood against the landed arms
 
@@ -113,6 +113,19 @@ CONSISTENT: no prose claim contradicts the derived structure
 ```
 
 On its first run it reproduced five of the round-3 findings mechanically, including two the round-2 repair had introduced. Gate B re-runs it; a non-zero exit is a defect, not a style note.
+
+### 3.3 Ordinal sweep (authored AND run)
+
+Per spec §4.4, the ladder's positions appear in spec §4.3 and nowhere else, because a second copy of the order went stale twice in consecutive spec review rounds. The check is mechanical, and this is its run:
+
+```
+$ rg -n 'branch [0-9]|branches [0-9]|condition [0-9]' \
+    docs/superpowers/specs/2026-08-18-planlint-fixture-satisfiability.md \
+    docs/superpowers/plans/2026-08-18-planlint-fixture-satisfiability.md
+(no matches outside spec section 4.3)
+```
+
+This section was deleted outright by the round-3 rewrite of §3 and restored in round 4, when the reviewer found Gate B and the spec both citing a §3.3 that no longer existed. `scripts/plan-self-consistency.mjs` now checks section references too, so a dangling one fails mechanically rather than surviving to a review round.
 
 ## 4. Tasks
 
@@ -298,11 +311,11 @@ describe("splice plan (spec §4.1)", () => {
 
 <!-- task: red=`pnpm vitest run tests/specLint/fixtureClassify.test.ts` red-state=authored red-target=`lib/specLint/fixtureContract.ts` why=`synthesizeFixtureFindings is not added by Task 1 or Task 3, so when this task begins it is a MISSING NAMED EXPORT of an existing module: spec 2.4 measured that it resolves to undefined and the first call throws TypeError rather than failing at import. It greens when the module implements spec §4.3's ladder IN ORDER, emitting exactly one outcome per enrolled block; the cases below are red against any implementation that certifies a block on a proxy — a passing entry, an absent failure, a non-failed file — or that reads a non-sentinel failure as a satisfiability signal` ac=AC-3,AC-4 -->
 
-Export `synthesizeFixtureFindings(plan, results)` implementing spec §4.3's three branches IN ORDER: the hard verdict when the sentinel appears in EITHER channel (assertion failures or the file-level message), then the advisory when no sentinel appears and the report carries NO TEST CASE for the block, then NO finding. The input carries file status, per-assertion status and failure messages so that an implementation reading any of them as a certificate is catchable — spec §§2.5-2.8 measured each one unsound as evidence. `results === null` (static invocation) yields zero findings. Exactly one outcome per enrolled block.
+Export `synthesizeFixtureFindings(plan, results)` implementing spec §4.3's three branches IN ORDER: the hard verdict when the sentinel appears in EITHER channel (assertion failures or the file-level message), then the advisory when no sentinel appears and the report carries NO TEST CASE for the block, then NO finding. The input carries file status, per-assertion status and failure messages so that an implementation reading any of them as a certificate is catchable — spec §spec §2.5-2.8 measured each one unsound as evidence. `results === null` (static invocation) yields zero findings. Exactly one outcome per enrolled block.
 
 **What is red and why:** the named export does not exist.
 
-**Failure modes caught.** An implementation that tests the empty entry list before the sentinel reports a module-scope premise failure as a block that produced no test case, and suppresses the verdict (spec §2.9, one live corpus instance), and one that reads only assertion `failureMessages` never sees that sentinel at all. Beyond that, every case in the third test is a proxy that some earlier draft of this ladder treated as evidence, and each was measured unsound in a review round: a passing entry (spec §2.8 — an empty test body passes), an absent failure over skipped entries (§2.5 — the run exits 0), a non-failed file (§2.6 — `afterAll` fails the file while every assertion passes), and a failed assertion read as a real one (§2.7 — a `beforeEach` explosion arrives identically). The suite asserts `toEqual([])` for each, so reintroducing any certificate reds immediately rather than in a sixth review round.
+**Failure modes caught.** An implementation that tests the empty entry list before the sentinel reports a module-scope premise failure as a block that produced no test case, and suppresses the verdict (spec §2.9, one live corpus instance), and one that reads only assertion `failureMessages` never sees that sentinel at all. Beyond that, every case in the third test is a proxy that some earlier draft of this ladder treated as evidence, and each was measured unsound in a review round: a passing entry (spec §2.8 — an empty test body passes), an absent failure over skipped entries (spec §2.5 — the run exits 0), a non-failed file (spec §2.6 — `afterAll` fails the file while every assertion passes), and a failed assertion read as a real one (spec §2.7 — a `beforeEach` explosion arrives identically). The suite asserts `toEqual([])` for each, so reintroducing any certificate reds immediately rather than in a sixth review round.
 
 ```ts
 import { describe, it, expect } from "vitest";
@@ -370,14 +383,14 @@ describe("classification ladder (spec section 4.3)", () => {
   it("NO shape without the sentinel is ever certified, and none draws a hard code", () => {
     // Each of these was, in some review round, a branch that claimed more than
     // the report supports. Every one now draws NOTHING: the arm has no claim.
-    // section 2.8 - an empty test body passes, so a passing entry proves nothing
+    // spec section 2.8 - an empty test body passes, so a passing entry proves nothing
     expect(only(results(file({ statuses: ["passed", "passed"] })))).toEqual([]);
-    // section 2.5 - a skipped entry is present and unexecuted; the run exits 0
+    // spec section 2.5 - a skipped entry is present and unexecuted; the run exits 0
     expect(only(results(file({ statuses: ["skipped", "skipped"] })))).toEqual([]);
     expect(only(results(file({ statuses: ["passed", "skipped"] })))).toEqual([]);
-    // section 2.6 - afterAll fails the FILE while every assertion passes
+    // spec section 2.6 - afterAll fails the FILE while every assertion passes
     expect(only(results(file({ fileStatus: "failed", statuses: ["passed"] })))).toEqual([]);
-    // section 2.7 - a per-test hook failure arrives as an ordinary failure
+    // spec section 2.7 - a per-test hook failure arrives as an ordinary failure
     expect(only(results(file({ fileStatus: "failed", statuses: ["failed"], failures: [HOOK] })))).toEqual([]);
     // an ordinary assertion failure is equally not a satisfiability signal
     expect(only(results(file({ fileStatus: "failed", statuses: ["failed"], failures: [ASSERT] })))).toEqual([]);
@@ -449,79 +462,108 @@ This task forwards the ASSERTION channel only. The file-level message channel is
 
 ```ts
 import { describe, it, expect } from "vitest";
-import { runFixtureSplice } from "@/scripts/spec-lint";
+import { runCli, runFixtureSplice } from "@/scripts/spec-lint";
 
 const PREMISE_MSG = "Error: premise not met: the header opens a block. ...";
 
+/**
+ * The LANDED seam, not a parallel one: `spawn(command, cwd, timeoutMs, mode)`
+ * (scripts/spec-lint.ts:53) plus the filesystem calls, and the report is READ
+ * FROM A FILE the way the real adapter reads it. A harness inventing its own
+ * `run(cmd)` that returns JSON directly can be greened by a helper that never
+ * touches the real seam, leaving the CLI unwired (plan review r4).
+ *
+ * `reportFor` is keyed BY MARKER LINE and the fake runner writes one report
+ * entry per spliced file it actually saw, so a mapper that assigns every entry
+ * to the first block cannot produce the per-line expectations below.
+ */
 const harness = (
   opts: {
     dirExists?: boolean;
     throwOnWrite?: boolean;
-    runOutcome?: "throw" | "timeout" | "signal" | "badjson";
-    perFileReports?: Record<number, string | null>;
+    spawnOutcome?: "throw" | "timeout" | "signal" | "badjson";
+    reportFor?: Record<number, string | null>;
   } = {},
 ) => {
   const calls: string[] = [];
-  const dirs = new Set<string>(opts.dirExists ? ["PRESET"] : []);
+  const files = new Map<string, string>();
+  const dirs = new Set<string>(opts.dirExists ? ["tests/.spec-lint-fixtures-1-1"] : []);
   return {
     calls,
     dirs,
     deps: {
-      exists: (d: string) => dirs.has(d) || dirs.has("PRESET"),
+      repoRoot: () => "/repo",
+      exists: (d: string) => dirs.has(d),
       mkdir: (d: string) => { dirs.add(d); calls.push(`mkdir:${d}`); },
-      write: (path: string) => {
+      write: (path: string, body: string) => {
         calls.push(`write:${path}`);
-        // Cleanup wrapped around only the RUNNER leaks the directory here, and
-        // every previously modeled failure was a run failure (r3 probe).
         if (opts.throwOnWrite) throw new Error("ENOSPC");
+        files.set(path, body);
+      },
+      readFile: (path: string) => {
+        const body = files.get(path);
+        if (body === undefined) throw new Error(`ENOENT ${path}`);
+        return body;
       },
       rm: (d: string) => { dirs.delete(d); calls.push(`rm:${d}`); },
-      run: (cmd: string) => {
-        calls.push(`run:${cmd}`);
-        if (opts.runOutcome === "throw") throw new Error("boom");
-        if (opts.runOutcome === "timeout") return { kind: "timeout" as const };
-        if (opts.runOutcome === "signal") return { kind: "signal" as const, signal: "SIGKILL" };
-        if (opts.runOutcome === "badjson") return { kind: "exit" as const, code: 1, report: "{not json" };
-        // A report with a REAL assertion carrying a REAL failure message: the
-        // channel this task exists to forward. An earlier version returned
-        // testResults: [] everywhere, so a lifecycle-only implementation that
-        // never read assertionResults or failureMessages passed every case
-        // (plan review r2 probe).
-        return {
-          kind: "exit" as const,
-          code: 1,
-          report: JSON.stringify({
-            testResults: [
-              {
-                name: "/abs/tests/.spec-lint-fixtures-1-1/fixture-3.test.ts",
-                status: "failed",
-                message: "",
-                assertionResults: [
-                  { status: "failed", title: "t0", failureMessages: ["Error: premise not met: the header opens a block. ..."] },
-                ],
-              },
+      spawn: (command: string, cwd: string, timeoutMs: number, mode: string) => {
+        calls.push(`spawn:${mode}:${cwd}:${timeoutMs}:${command}`);
+        if (opts.spawnOutcome === "throw") throw new Error("boom");
+        if (opts.spawnOutcome === "timeout") return { kind: "timeout" as const };
+        if (opts.spawnOutcome === "signal") return { kind: "signal" as const, signal: "SIGKILL" };
+        // One report entry per file the adapter actually wrote, named by that
+        // file, so the mapping under test is filename -> marker line.
+        const testResults = [...files.keys()].map((path) => {
+          const line = Number(/(\d+)/.exec(path.split("/").pop() ?? "")?.[1] ?? -1);
+          const msg = opts.reportFor?.[line] ?? null;
+          return {
+            name: path,
+            status: msg === null ? "passed" : "failed",
+            message: "",
+            assertionResults: [
+              { status: msg === null ? "passed" : "failed", title: "t0", failureMessages: msg === null ? [] : [msg] },
             ],
-          }),
-        };
+          };
+        });
+        const body = opts.spawnOutcome === "badjson" ? "{not json" : JSON.stringify({ testResults });
+        files.set(`${[...dirs][0]}/report.json`, body);
+        return { kind: "exit" as const, code: msgAny(opts.reportFor) ? 1 : 0 };
       },
     },
   };
 };
+const msgAny = (r?: Record<number, string | null>) => Object.values(r ?? {}).some((v) => v !== null);
 const plan = [{ line: 3, block: "// b" }];
 
 describe("splice lifecycle (spec section 4.2)", () => {
-  it("a pre-existing directory spawns NOTHING and declines every block", () => {
+  it("a pre-existing directory spawns NOTHING, writes NOTHING, and REMOVES nothing", () => {
     const h = harness({ dirExists: true });
     const out = runFixtureSplice(plan, h.deps as never);
-    expect(h.calls.filter((c) => c.startsWith("run:"))).toEqual([]);
+    expect(h.calls.filter((c) => c.startsWith("spawn:"))).toEqual([]);
     expect(h.calls.filter((c) => c.startsWith("write:"))).toEqual([]);
+    // A broad finally that deletes the directory would destroy ANOTHER live
+    // invocation's splice -- the collision is a refusal, not a takeover.
+    expect(h.calls.filter((c) => c.startsWith("rm:"))).toEqual([]);
+    expect([...h.dirs]).toEqual(["tests/.spec-lint-fixtures-1-1"]);
     expect(out.findings.map((f) => f.code)).toEqual(["FIXTURE_PROBE_UNVERIFIED"]);
   });
 
-  it("exactly ONE vitest invocation per doc, whatever the block count", () => {
+  it("uses the LANDED spawn seam: repo root, the ceiling, and exec mode", () => {
+    const h = harness();
+    runFixtureSplice(plan, h.deps as never);
+    const spawns = h.calls.filter((c) => c.startsWith("spawn:"));
+    expect(spawns).toHaveLength(1);
+    const [, mode, cwd, timeoutMs, ...rest] = spawns[0]!.split(":");
+    expect(mode).toBe("exec");
+    expect(cwd).toBe("/repo");
+    expect(Number(timeoutMs)).toBeGreaterThan(0);
+    expect(rest.join(":")).toContain("--reporter=json");
+  });
+
+  it("exactly ONE spawn per doc, whatever the block count", () => {
     const h = harness();
     runFixtureSplice([1, 2, 3].map((line) => ({ line, block: "// b" })), h.deps as never);
-    expect(h.calls.filter((c) => c.startsWith("run:"))).toHaveLength(1);
+    expect(h.calls.filter((c) => c.startsWith("spawn:"))).toHaveLength(1);
     expect(h.calls.filter((c) => c.startsWith("write:"))).toHaveLength(3);
   });
 
@@ -529,65 +571,54 @@ describe("splice lifecycle (spec section 4.2)", () => {
     const h = harness();
     runFixtureSplice([7, 42].map((line) => ({ line, block: "// b" })), h.deps as never);
     const written = h.calls.filter((c) => c.startsWith("write:")).map((c) => c.slice("write:".length));
-    // The per-file mapping back to marker lines is the whole arm's spine
-    // (spec section 2.3 measured per-file keying as exact), and the repo's
-    // include glob is tests/**/*.test.ts (vitest.projects.ts:34) -- a name
-    // missing either property silently unmaps or silently uncollects.
     expect(written).toHaveLength(2);
     expect(written[0]).toMatch(/(^|\D)7\D[^/]*\.test\.ts$/);
     expect(written[1]).toMatch(/(^|\D)42\D[^/]*\.test\.ts$/);
   });
 
-  it("the directory is removed on EVERY failure path, including a WRITE failure", () => {
-    for (const runOutcome of ["throw", "timeout", "signal", "badjson"] as const) {
-      const h = harness({ runOutcome });
-      runFixtureSplice(plan, h.deps as never);
-      expect(h.calls.some((c) => c.startsWith("rm:")), `run outcome ${runOutcome}`).toBe(true);
-      expect([...h.dirs]).toEqual([]);
-    }
-    // The failure that happens BEFORE the runner: cleanup scoped to the run
-    // alone leaks the directory here, and it is an ordinary disk error.
-    const w = harness({ throwOnWrite: true });
-    runFixtureSplice(plan, w.deps as never);
-    expect(w.calls.some((c) => c.startsWith("rm:"))).toBe(true);
-    expect([...w.dirs]).toEqual([]);
-    expect(w.calls.filter((c) => c.startsWith("run:"))).toEqual([]);
-  });
-
   it("report entries map back to the RIGHT marker line, proved with two blocks", () => {
-    // A mapper that assigns every report entry to the first block passes any
-    // single-block case. Two blocks with distinguishable reports is the
-    // smallest shape that can catch it (plan review r3 probe).
-    const h = harness({ perFileReports: { 7: PREMISE_MSG, 42: null } });
+    // The report carries a sentinel for line 42 ONLY. A mapper that assigns the
+    // first entry to the first block puts the verdict on 7 and fails here.
+    const h = harness({ reportFor: { 7: null, 42: PREMISE_MSG } });
     const out = runFixtureSplice([7, 42].map((line) => ({ line, block: "// b" })), h.deps as never);
-    expect([...out.results.files.keys()].sort((a, b) => a - b)).toEqual([7, 42]);
-    expect(out.results.files.get(7)!.failureMessages.join(" ")).toContain("premise not met");
-    expect(out.results.files.get(42)!.failureMessages).toEqual([]);
-    // and the finding lands on 7, never on 42
-    expect(out.findings.map((f) => `${f.docLine}:${f.code}`)).toEqual(["7:FIXTURE_UNSATISFIABLE"]);
+    expect(out.findings.map((f) => `${f.docLine}:${f.code}`)).toEqual(["42:FIXTURE_UNSATISFIABLE"]);
   });
 
   it("the ASSERTION channel is forwarded: a failure message reaches the core verbatim", () => {
-    // The named production behavior of THIS task. Without a case that supplies
-    // assertionResults and failureMessages, a lifecycle-only implementation
-    // greens here and Task 6 then reds on two missing channels instead of the
-    // one it names.
-    const h = harness();
-    const out = runFixtureSplice([{ line: 3, block: "// b" }], h.deps as never);
-    const forwarded = out.results.files.get(3);
-    expect(forwarded).toBeDefined();
-    expect(forwarded!.failureMessages.join(" ")).toContain("premise not met: the header opens a block");
-    // and the classification the core reaches on it
+    const h = harness({ reportFor: { 3: PREMISE_MSG } });
+    const out = runFixtureSplice(plan, h.deps as never);
+    expect(out.results.files.get(3)!.failureMessages.join(" ")).toContain("premise not met: the header opens a block");
     expect(out.findings.map((f) => f.code)).toEqual(["FIXTURE_UNSATISFIABLE"]);
   });
 
-  it("a run that produced no usable report declines, and never certifies", () => {
-    for (const runOutcome of ["throw", "timeout", "signal", "badjson"] as const) {
-      const h = harness({ runOutcome });
+  it("the directory is removed on EVERY failure path, and each still DECLINES", () => {
+    for (const spawnOutcome of ["throw", "timeout", "signal", "badjson"] as const) {
+      const h = harness({ spawnOutcome });
       const out = runFixtureSplice(plan, h.deps as never);
-      expect(out.findings.map((f) => f.code)).toEqual(["FIXTURE_PROBE_UNVERIFIED"]);
-      expect(out.findings[0]!.severity).toBe("advisory");
+      expect(h.calls.some((c) => c.startsWith("rm:")), `spawn outcome ${spawnOutcome}`).toBe(true);
+      expect([...h.dirs]).toEqual([]);
+      expect(out.findings.map((f) => f.code), `spawn outcome ${spawnOutcome}`).toEqual(["FIXTURE_PROBE_UNVERIFIED"]);
     }
+    // The failure BEFORE the runner. Cleanup scoped to the spawn alone leaks the
+    // directory, and swallowing the error returns no finding at all -- both are
+    // ordinary implementations, and the closed claim set forbids the second.
+    const w = harness({ throwOnWrite: true });
+    const out = runFixtureSplice(plan, w.deps as never);
+    expect(w.calls.some((c) => c.startsWith("rm:"))).toBe(true);
+    expect([...w.dirs]).toEqual([]);
+    expect(w.calls.filter((c) => c.startsWith("spawn:"))).toEqual([]);
+    expect(out.findings.map((f) => f.code)).toEqual(["FIXTURE_PROBE_UNVERIFIED"]);
+  });
+
+  it("runCli --exec-red actually INVOKES the splice and passes its results on", () => {
+    // Without this, a correct helper can sit beside a CLI that never calls it:
+    // every case above would pass and the shipped tool would do nothing.
+    const h = harness({ reportFor: { 3: PREMISE_MSG } });
+    const doc = ["# P", "<!-- fixture: why=`w` -->", "```ts", "// b", "```"].join("\n");
+    const res = runCli(["--exec-red", "docs/superpowers/plans/x.md"], { ...h.deps, readDoc: () => doc } as never);
+    expect(h.calls.filter((c) => c.startsWith("spawn:"))).toHaveLength(1);
+    expect(res.stdout).toContain("FIXTURE_UNSATISFIABLE");
+    expect(res.exitCode).toBe(1);
   });
 });
 ```
@@ -599,7 +630,7 @@ describe("splice lifecycle (spec section 4.2)", () => {
 <!-- spec-lint: ignore — a file this task creates; the path is a forward declaration, not a citation of existing code -->
 Create `tests/specLint/fixtureCli.test.ts` (a NEW file — this task does not extend the tracked `tests/specLint/cli.test.ts`, whose subject is the pre-existing CLI surface). Real subprocesses over trivial blocks only, no heavy phases. Extend the adapter to forward the report's FILE-level message alongside each assertion's failures.
 
-Cases: a block whose premise fails inside a test → exit 1 with `FIXTURE_UNSATISFIABLE`; **a block whose premise fails at MODULE scope, before any test registers → exit 1 with `FIXTURE_UNSATISFIABLE` and NOT the advisory** (the red for this task); the §2.4 historical pair, the r4 two-column header drawing the verdict and the merged three-column header drawing no code at all; an unresolvable-import block → the advisory; a block whose `describe` is skipped → exit 0 with no `FIXTURE_` code; a pre-existing splice directory → the advisory with a spy asserting ZERO vitest spawns; and, after every case, an assertion that no `tests/.spec-lint-fixtures-*` directory survives.
+Cases: a block whose premise fails inside a test → exit 1 with `FIXTURE_UNSATISFIABLE`; **a block whose premise fails at MODULE scope, before any test registers → exit 1 with `FIXTURE_UNSATISFIABLE` and NOT the advisory** (the red for this task); the spec §2.4 historical pair, the r4 two-column header drawing the verdict and the merged three-column header drawing no code at all; an unresolvable-import block → the advisory; a block whose `describe` is skipped → exit 0 with no `FIXTURE_` code; a pre-existing splice directory → the advisory with a spy asserting ZERO vitest spawns; and, after every case, an assertion that no `tests/.spec-lint-fixtures-*` directory survives.
 
 **What is red and why:** the adapter built in Task 5 carries only the assertion channel, so the module-scope case cannot reach `FIXTURE_UNSATISFIABLE` no matter how correct the pure ladder is.
 
@@ -624,7 +655,7 @@ The two steps below are VERIFICATION GATES, not red-then-green cycles, so they s
 <!-- spec-lint: ignore — a file this gate creates; the path is a forward declaration, not a citation of existing code -->
 Create `tests/specLint/fixtureAcceptance.test.ts` for the acceptance properties the per-unit tasks do not reach. Each is a DERIVED COVER over a set walked from disk, never a sample:
 
-- **AC-2 — no shipped code inspects an unenrolled block.** Walk every tracked plan (`git ls-files 'docs/superpowers/plans'`, `.md`) and assert that `checkFixtureContract` returns zero findings and `spliceFixturePlan` zero entries for all of them, because zero blocks carry a marker (spec §2.2). **Paired with a POSITIVE CONTROL in the same test:** one generated document that DOES carry a marker must produce exactly one splice entry. Without it the corpus assertion is absence used as proof of carriage — an arm that never fires at all, or one wired to nothing, satisfies every zero in the walk. The control is what makes the zeros mean "silent on unenrolled blocks" rather than "silent". The corpus supplies **216** files containing `from "vitest"`-shaped text, so the cover is the corpus itself rather than a constructed fence. Then, ON TOP of that cover, one generated document whose UNENROLLED `ts` fence contains marker-shaped lines, `premise not met:` text and every code name, asserting the same two zeros — the adversarial-content case the corpus does not happen to contain. The failure mode: an implementation keying on fence CONTENT rather than on enrolment. Note what makes this structural rather than sampled — the file set is derived by walking the repo, so a plan added tomorrow is covered without editing this test.
+- **AC-2 — no shipped code inspects an unenrolled block.** Walk every tracked plan (`git ls-files 'docs/superpowers/plans'`, `.md`) and assert that `checkFixtureContract` returns zero findings and `spliceFixturePlan` zero entries for all of them, because zero blocks carry a marker (spec §2.2). **Paired with a POSITIVE CONTROL in the same test:** one generated document that DOES carry a marker must produce exactly one splice entry. Without it the corpus assertion is absence used as proof of carriage — an arm that never fires at all, or one wired to nothing, satisfies every zero in the walk. The control is what makes the zeros mean "silent on unenrolled blocks" rather than "silent". The cover is the corpus itself rather than a constructed fence. Do NOT encode a file count as a reconciliation: Gate A derives the set at run time from `git ls-files`, and the at-authoring figure is **212** files carrying a double-quoted `from "vitest"` at base `7d09a1f0b` (214 counting single-quoted imports, 215 on this branch, which includes this plan). Round 4 measured all three after an earlier draft asserted 216, which no spelling reproduces — a count pinned in prose would have failed Gate A the first time the corpus grew. Then, ON TOP of that cover, one generated document whose UNENROLLED `ts` fence contains marker-shaped lines, `premise not met:` text and every code name, asserting the same two zeros — the adversarial-content case the corpus does not happen to contain. The failure mode: an implementation keying on fence CONTENT rather than on enrolment. Note what makes this structural rather than sampled — the file set is derived by walking the repo, so a plan added tomorrow is covered without editing this test.
 - **AC-6 — corpus relints byte-identical.** The same walk asserts no `FIXTURE_` code appears in any tracked plan's report, and rests on the same positive control: the zeros are only evidence because the control proves the arm fires when a marker is present.
 - **AC-7 — purity and the untouched parser.** The recursive purity meta-test passes for the new module, and `git diff --exit-code 7d09a1f0b -- lib/specLint/parse.ts` exits 0. It is diffed against the BASE SHA rather than the index or `HEAD~`, so it still catches a modification the implementing task has already committed — a plain working-tree diff would pass the moment the change is committed. The spec forbids modifying that file (§5) and nothing else in this plan checks it.
 
@@ -648,11 +679,11 @@ Every row names a task step that executes the proof. A row whose only home was t
 | AC | proved by |
 | --- | --- |
 | AC-1 marker grammar and three static codes, detail included | 1 (grammar suite, incl. the `FIXTURE_UNATTACHED` detail case), 2 (wired through `runLint`) |
-| AC-2 no shipped code inspects an unenrolled block | **Gate A** — a DERIVED COVER: the walked tracked-plan corpus (216 files carrying vitest-shaped text) yields zero findings and zero splice entries, plus a generated adversarial-content fence, plus a POSITIVE CONTROL proving the arm fires on an enrolled marker (without it the zeros prove only that the arm is silent) |
+| AC-2 no shipped code inspects an unenrolled block | **Gate A** — a DERIVED COVER: the tracked-plan corpus walked at run time yields zero findings and zero splice entries, plus a generated adversarial-content fence, plus a POSITIVE CONTROL proving the arm fires on an enrolled marker (without it the zeros prove only that the arm is silent) |
 | AC-3 ladder total; no certificate on any proxy | 4 (every branch, the six retired-proxy `toEqual([])` cases, and the two detail cases) |
-| AC-4 historical pair; §2.5-§2.9 shapes | 4 (pure), 6 (both historical headers end to end through the real CLI) |
+| AC-4 historical pair; spec §2.5-spec §2.9 shapes | 4 (pure), 6 (both historical headers end to end through the real CLI) |
 | AC-5 pre-existing dir spawns nothing; dir never survives; filenames map back | 5 (spy asserts zero calls; removal on throw, timeout, signal and unreadable JSON; filename line + suffix), 6 (real filesystem) |
-| AC-6 corpus relints byte-identical | **8** — walks `git ls-files 'docs/superpowers/plans'` and asserts no `FIXTURE_` code, derived from the corpus rather than a pinned list |
+| AC-6 corpus relints byte-identical | **Gate A** — the same derived walk asserts no `FIXTURE_` code, and rests on the same positive control |
 | AC-7 purity, `parse.ts` unmodified, mutation score | **Gate A** (purity meta-test + `git diff --exit-code` on `parse.ts`), **Task 7** (both enrolment declarations, then the score) |
 | AC-8 spec and plan lint clean | **Gate B** — expired forward-declaration waivers deleted and the three path-only `red-target=` values re-pointed at their now-tracked lines FIRST, then `pnpm spec:lint` over BOTH documents, output pasted |
 
