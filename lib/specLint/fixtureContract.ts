@@ -21,7 +21,7 @@
  */
 
 import type { DocModel } from "./parse";
-import type { Finding } from "./types";
+import type { Finding, FixtureResults } from "./types";
 
 /** Marker-SHAPED, so a mangled marker is a finding rather than silence. */
 const FIXTURE_ANY = /^ {0,3}<!-- fixture:/;
@@ -200,6 +200,139 @@ export function spliceFixturePlan(model: DocModel, kind: "spec" | "plan"): Fixtu
       body.push(model.lines[j]!);
     }
     out.push({ line: marker.line, block: body.join("\n") });
+  }
+  return out;
+}
+
+/**
+ * The premise sentinel (`tests/_shared/premise.ts:29`, `:38`). Its own header
+ * states the contract this arm mechanizes: "a premise failure and an ordinary
+ * assertion failure call for opposite responses". Vitest's JSON reporter
+ * carries the message verbatim, so no new helper and no parsing of test bodies
+ * is needed.
+ */
+const SENTINEL = "premise not met: ";
+
+const advise = (code: string, docLine: number, message: string, detail: string): Finding => ({
+  check: "taskContract",
+  code,
+  severity: "advisory",
+  docLine,
+  column: 1,
+  message,
+  detail,
+});
+
+/**
+ * Every premise description in one failure message, in order.
+ *
+ * The helper's shape is `premise not met: <description>. <boilerplate>`, so the
+ * description ends at the first sentence boundary. A description spanning two
+ * sentences is truncated at the first — a documented cosmetic limit of the
+ * DETAIL only: the sentinel decides the verdict, and truncation cannot change
+ * which verdict fires.
+ */
+function premiseDescriptions(message: string): string[] {
+  const out: string[] = [];
+  let from = 0;
+  for (;;) {
+    const at = message.indexOf(SENTINEL, from);
+    if (at === -1) return out;
+    const rest = message.slice(at + SENTINEL.length);
+    const end = rest.search(/\.(\s|$)/);
+    out.push((end === -1 ? rest : rest.slice(0, end)).trim());
+    from = at + SENTINEL.length;
+  }
+}
+
+/**
+ * The classification ladder (spec §4.3), in precedence order, drawing from a
+ * closed claim set of exactly three statements. Each enrolled block gets
+ * EXACTLY ONE outcome.
+ *
+ * There is deliberately NO clean-observation branch. Four versions of one
+ * existed and each was measured unsound: absence of failures does not mean
+ * anything executed (§2.3, §2.5), a non-failed file does not mean the file
+ * succeeded (§2.6), a failed assertion does not mean an assertion failed
+ * (§2.7), and a passing test does not mean anything was asserted (§2.8).
+ * Nothing the JSON report carries establishes that a premise was EVALUATED,
+ * because `premiseHolds` throws on failure and is silent on success. Silence
+ * from this arm means "no premise failure observed", never "this block is
+ * good".
+ */
+export function synthesizeFixtureFindings(
+  plan: readonly FixtureSpliceEntry[],
+  results: FixtureResults | null,
+): Finding[] {
+  // A static invocation ran nothing, so there is nothing to classify.
+  if (results === null || results === undefined) return [];
+  const out: Finding[] = [];
+  for (const entry of plan) {
+    const outcome = results.files.get(entry.line);
+
+    // 1. A premise failed. Tested FIRST and over BOTH channels, because a
+    //    module-scope premise fails during collection and surfaces with zero
+    //    test cases and a file-level message (spec §2.9). Any other order
+    //    reports that block as never having run and suppresses the one verdict
+    //    this arm exists to emit — the live corpus instance included.
+    if (outcome !== undefined) {
+      const descriptions = [...outcome.failureMessages, outcome.fileMessage].flatMap(
+        premiseDescriptions,
+      );
+      if (descriptions.length > 0) {
+        out.push({
+          check: "taskContract",
+          code: "FIXTURE_UNSATISFIABLE",
+          severity: "fail",
+          docLine: entry.line,
+          column: 1,
+          message: "a stated premise of this fixture did not hold against the live tree",
+          detail: "premise not met: " + [...new Set(descriptions)].join("; "),
+        });
+        continue;
+      }
+    }
+
+    // 2. The report carries no test case for this block. Never an
+    //    interpretation of an entry — the report's own statement that none
+    //    existed.
+    if (results.unavailable !== undefined) {
+      out.push(
+        advise(
+          "FIXTURE_PROBE_UNVERIFIED",
+          entry.line,
+          "this fixture block was not observed",
+          results.unavailable,
+        ),
+      );
+      continue;
+    }
+    if (outcome === undefined) {
+      out.push(
+        advise(
+          "FIXTURE_PROBE_UNVERIFIED",
+          entry.line,
+          "this fixture block was not observed",
+          "the report carries no file for this block",
+        ),
+      );
+      continue;
+    }
+    if (outcome.assertions.length === 0) {
+      out.push(
+        advise(
+          "FIXTURE_PROBE_UNVERIFIED",
+          entry.line,
+          "this fixture block was not observed",
+          "the report carries a file for this block with no test case in it" +
+            (outcome.fileMessage === "" ? "" : ": " + outcome.fileMessage),
+        ),
+      );
+      continue;
+    }
+
+    // 3. Otherwise nothing. The report carries at least one test case and no
+    //    premise failure in either channel. This does NOT say the bodies ran.
   }
   return out;
 }
