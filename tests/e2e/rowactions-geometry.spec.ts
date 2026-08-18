@@ -355,6 +355,16 @@ test.describe("dashboard row actions — real-browser geometry (§3.1, AC-7)", (
 
     // Arrow to the LAST item, which starts below the fold.
     await page.keyboard.press("End");
+    // Settle: the defect class this pins reverts the reveal on the NEXT animation
+    // frame (measureAndApply's clamp). Two rAFs put the sample on the far side of
+    // any scheduled re-measure, so the assertion reads the DURABLE state (the one
+    // the keyboard user is left looking at) instead of racing the revert.
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
     const revealed = await page.evaluate(() => {
       const active = document.activeElement as HTMLElement | null;
       const box = active?.closest<HTMLElement>("[data-portal-scroll]");
@@ -366,6 +376,23 @@ test.describe("dashboard row actions — real-browser geometry (§3.1, AC-7)", (
     expect(revealed, "focus must be on an item inside the scrolling panel").not.toBeNull();
     expect(revealed!.top).toBeGreaterThanOrEqual(revealed!.boxTop - TOL);
     expect(revealed!.bottom).toBeLessThanOrEqual(revealed!.boxBottom + TOL);
+
+    // Family C (spec §5.4): the re-measure cadence is bounded, not per-frame. A
+    // dropped self-origin filter turns the scroll-restore's own events into
+    // continuous measuring; six frames of silence prove the loop is absent.
+    const laterWrites = await panel.evaluate(async (el) => {
+      let writes = 0;
+      const mo = new MutationObserver((recs) => {
+        for (const r of recs) if (r.attributeName === "style") writes += 1;
+      });
+      mo.observe(el, { attributes: true, attributeFilter: ["style"] });
+      for (let i = 0; i < 6; i += 1) {
+        await new Promise<void>((res) => requestAnimationFrame(() => res()));
+      }
+      mo.disconnect();
+      return writes;
+    });
+    expect(laterWrites, "no continuing re-measure after settle (spec §5.4 family C)").toBe(0);
   });
 
   test("compound: the row unmounting while the menu is open leaves no orphaned portal", async ({
