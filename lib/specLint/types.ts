@@ -54,3 +54,13 @@ export interface ExecResults {
   /** key = marker line; already trimmed to 200 characters by the adapter. */
   stderrTails: ReadonlyMap<number, string>;
 }
+
+/**
+ * Parse-capability outcomes (verdict-capability spec §3), keyed by the marker
+ * or gate line the command came from. Identical shape to `ExecResults` and
+ * deliberately the same union: an `sh -nc` spawn can fail in exactly the ways
+ * an `sh -c` spawn can, and a second copy of the union is a second chance for
+ * the two classifications to disagree. Keying by line is unambiguous because a
+ * marker and a gate can never share one.
+ */
+export type ParseResults = ExecResults;

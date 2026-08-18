@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { planExecutionsForText, synthesizeExecFindings } from "../../lib/specLint/redContract";
-import type { ExecOutcome, ExecResults } from "../../lib/specLint/types";
+import {
+  planExecutionsForText,
+  synthesizeExecFindings,
+  synthesizeParseFindings,
+} from "../../lib/specLint/redContract";
+import type { ExecOutcome, ExecResults, ParseResults } from "../../lib/specLint/types";
 
 /**
  * The pure half of `--exec-red` (spec §4.4): the core plans WHICH commands may
@@ -200,5 +204,134 @@ describe("planExecutionsForText — the adapter's pure entry to the §4.4 popula
 
   it("a plan with zero live markers plans nothing", () => {
     expect(planExecutionsForText(doc("# Plan", "prose only"))).toEqual([]);
+  });
+});
+
+/**
+ * The parse-capability synthesis (verdict-capability spec §3). Outcomes are
+ * HANDED to the core exactly as `--exec-red`'s are; the adapter alone spawns
+ * `sh -nc`. Two sources share one plan and one outcome map — a `red=` defect
+ * and a gate `cmd=` defect are one grammar apart and must not report as each
+ * other.
+ */
+
+const parseResults = (
+  outcomes: Record<number, ExecOutcome>,
+  stderrTails: Record<number, string> = {},
+): ParseResults => ({
+  outcomes: new Map(Object.entries(outcomes).map(([k, v]) => [Number(k), v])),
+  stderrTails: new Map(Object.entries(stderrTails).map(([k, v]) => [Number(k), v])),
+});
+
+const RED_ENTRY = { line: 4, command: "pnpm tsx check.ts a:1:2:<><=", source: "red" as const };
+const GATE_ENTRY = { line: 9, command: "pnpm heavy pnpm gate >", source: "gate" as const };
+
+describe("synthesizeParseFindings — the §3 parse-capability map", () => {
+  it("a non-zero parse exit on a red= is a HARD RED_UNPARSEABLE carrying the stderr tail", () => {
+    const found = synthesizeParseFindings(
+      [RED_ENTRY],
+      parseResults({ 4: { kind: "exit", code: 2 } }, { 4: "sh: -c: line 1: syntax error" }),
+    );
+    expect(found).toEqual([
+      expect.objectContaining({
+        check: "taskContract",
+        code: "RED_UNPARSEABLE",
+        severity: "fail",
+        docLine: 4,
+        column: 1,
+      }),
+    ]);
+    expect(found[0]!.detail).toContain("sh: -c: line 1: syntax error");
+  });
+
+  it("a non-zero parse exit on a gate cmd= is a HARD GATE_CMD_UNPARSEABLE — never the red code", () => {
+    const found = synthesizeParseFindings(
+      [GATE_ENTRY],
+      parseResults({ 9: { kind: "exit", code: 2 } }),
+    );
+    expect(found).toEqual([
+      expect.objectContaining({
+        code: "GATE_CMD_UNPARSEABLE",
+        severity: "fail",
+        docLine: 9,
+        column: 1,
+      }),
+    ]);
+  });
+
+  it("renders at most 200 characters of the tail, whatever length it is handed", () => {
+    // Probed live: a 500-character invalid token yields a 581-byte `sh -nc`
+    // diagnostic, so the bound discriminates on real input rather than only on
+    // a constructed one. The adapter trims too; this pins the RENDERED length,
+    // so a defective adapter cannot smuggle an unbounded detail line through.
+    const found = synthesizeParseFindings(
+      [RED_ENTRY],
+      parseResults({ 4: { kind: "exit", code: 2 } }, { 4: "x".repeat(500) }),
+    );
+    expect(found[0]!.detail).toContain("x".repeat(200));
+    expect(found[0]!.detail).not.toContain("x".repeat(201));
+  });
+
+  it("exit 0 is a parseable command — silence", () => {
+    expect(
+      synthesizeParseFindings(
+        [RED_ENTRY, GATE_ENTRY],
+        parseResults({ 4: { kind: "exit", code: 0 }, 9: { kind: "exit", code: 0 } }),
+      ),
+    ).toEqual([]);
+  });
+
+  it.each([
+    ["timeout", { kind: "timeout" } as ExecOutcome, "timeout"],
+    ["signal", { kind: "signal", signal: "SIGKILL" } as ExecOutcome, "SIGKILL"],
+    [
+      "spawn-error",
+      { kind: "spawn-error", message: "spawn sh ENOENT" } as ExecOutcome,
+      "spawn sh ENOENT",
+    ],
+  ])(
+    "a parse %s is an advisory RED_PROBE_UNVERIFIED naming the probe and the reason",
+    (_label, outcome, needle) => {
+      const found = synthesizeParseFindings([RED_ENTRY], parseResults({ 4: outcome }));
+      expect(found).toEqual([
+        expect.objectContaining({
+          code: "RED_PROBE_UNVERIFIED",
+          severity: "advisory",
+          docLine: 4,
+          column: 1,
+        }),
+      ]);
+      // Capability UNVERIFIED must never read as either verdict, and the
+      // operator must be able to tell WHICH probe and WHY from the detail.
+      expect(found[0]!.detail).toContain("parse");
+      expect(found[0]!.detail).toContain(needle);
+    },
+  );
+
+  it("a non-observed parse never reports the hard codes, on either source", () => {
+    const found = synthesizeParseFindings(
+      [RED_ENTRY, GATE_ENTRY],
+      parseResults({ 4: { kind: "timeout" }, 9: { kind: "spawn-error", message: "boom" } }),
+    );
+    expect(found.map((f) => f.code)).toEqual(["RED_PROBE_UNVERIFIED", "RED_PROBE_UNVERIFIED"]);
+  });
+
+  it("a null outcome map (static invocation without the parse pass) synthesizes nothing", () => {
+    expect(synthesizeParseFindings([RED_ENTRY, GATE_ENTRY], null)).toEqual([]);
+  });
+
+  it("a planned command with no recorded outcome is skipped rather than guessed", () => {
+    expect(synthesizeParseFindings([RED_ENTRY], parseResults({}))).toEqual([]);
+  });
+
+  it("findings follow the plan's doc order", () => {
+    const found = synthesizeParseFindings(
+      [RED_ENTRY, GATE_ENTRY],
+      parseResults({ 9: { kind: "exit", code: 2 }, 4: { kind: "exit", code: 2 } }),
+    );
+    expect(found.map((f) => [f.code, f.docLine])).toEqual([
+      ["RED_UNPARSEABLE", 4],
+      ["GATE_CMD_UNPARSEABLE", 9],
+    ]);
   });
 });

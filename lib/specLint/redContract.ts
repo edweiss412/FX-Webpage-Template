@@ -24,7 +24,7 @@ import { classifySpan } from "./citations";
 import { parseDoc, type DocModel } from "./parse";
 import { compareFindings, MARKER_ANY, parseMarker, type ParsedMarker } from "./taskContract";
 import { taskTopology } from "./taskContract";
-import type { ExecResults, FileResolver, Finding } from "./types";
+import type { ExecResults, FileResolver, Finding, ParseResults } from "./types";
 
 const GATE_ANY = /^ {0,3}<!-- gate:/;
 const GATE = /^ {0,3}<!-- gate: cmd=`([^`]*)`( probed=`([^`]*)`)? -->[ \t]*$/;
@@ -427,6 +427,77 @@ export function synthesizeExecFindings(
         1,
         `\`red=\` command did not run to completion (${reason})`,
         withTail(`${reason} · command: ${command}`),
+      ),
+    );
+  }
+  return out;
+}
+
+/** The rendered ceiling on a stderr tail (verdict-capability spec §3). */
+const STDERR_TAIL = 200;
+
+/**
+ * Findings from parse outcomes the adapter observed (verdict-capability spec
+ * §3). A null map is an invocation with no parse pass: no findings.
+ *
+ * Only a completed non-zero exit is hard, and WHICH hard code is decided by the
+ * plan entry's source — a gate defect reported as a red defect sends the author
+ * to the wrong line's wrong field. Everything not completed is advisory: a
+ * parse check that timed out, was signalled, or never spawned observed no
+ * capability at all, and reading it as either verdict is the corruption this
+ * arm exists to prevent.
+ *
+ * The tail is trimmed HERE as well as in the adapter. Two trims are not
+ * redundant belt: the adapter's bounds what the core is handed, and this one
+ * bounds what an operator's report line renders, so no future caller can
+ * smuggle an unbounded detail through this function.
+ */
+export function synthesizeParseFindings(
+  plan: readonly ParseCheckEntry[],
+  results: ParseResults | null,
+): Finding[] {
+  if (results === null) return [];
+  const out: Finding[] = [];
+  for (const { line, command, source } of plan) {
+    const outcome = results.outcomes.get(line);
+    if (outcome === undefined) continue;
+    const tail = (results.stderrTails.get(line) ?? "").slice(-STDERR_TAIL);
+    const withTail = (base: string): string => (tail === "" ? base : `${base} · stderr: ${tail}`);
+
+    if (outcome.kind === "exit") {
+      if (outcome.code === 0) continue; // parseable: the only clean result
+      out.push(
+        source === "gate"
+          ? fail(
+              "GATE_CMD_UNPARSEABLE",
+              line,
+              1,
+              "gate `cmd=` is not parseable by the executing shell",
+              withTail(`command: ${command}`),
+            )
+          : fail(
+              "RED_UNPARSEABLE",
+              line,
+              1,
+              "`red=` command is not parseable by the executing shell; it can express no verdict",
+              withTail(`command: ${command}`),
+            ),
+      );
+      continue;
+    }
+    const reason =
+      outcome.kind === "timeout"
+        ? "timeout"
+        : outcome.kind === "signal"
+          ? `terminated by ${outcome.signal}`
+          : `spawn failed: ${outcome.message}`;
+    out.push(
+      advise(
+        "RED_PROBE_UNVERIFIED",
+        line,
+        1,
+        `parse check did not complete (${reason}); command capability unverified`,
+        withTail(`parse probe: ${reason} · command: ${command}`),
       ),
     );
   }
