@@ -1,3 +1,174 @@
+## BL-SPECLINT-ENUMERATED-UNIVERSAL-PARITY — a spec asserting a universal over an enumerated population owes the command that enumerates it — CLOSED 2026-08-18 (`fix/speclint-prose-consistency-arms`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-18 · **Effort (as shipped):** M · **Severity (as filed):** medium · **Class:** spec-lint arm · **Filed:** 2026-08-16, from `docs/review-rounds/fix/control-outline-surface-fills/119895a7c756.md` (spec §, Mechanizable) · **Reachability:** PROBED at filing — three live escapes in the originating filing (R1 F3, R1 F4, R3 F3), plus R2 F2 one level down.
+
+A spec:lint arm that flags a quantified claim over a population the same document enumerates, when no probe command sits with it. `NUMERIC_NOUN_MISMATCH` does not reach this class because the quantified noun is a CLASS TOKEN, not a number.
+
+**Shipped as the advisory `ENUMERATED_UNIVERSAL_NO_PROBE`** in a new pure module `lib/specLint/universals.ts`, with the gate stack ratified in `docs/superpowers/specs/2026-08-17-speclint-prose-consistency-arms.md` §3.2. It fires on E1 at its defective revision (`cc7942d4e:181`) and stays silent on the corrected current-main form.
+
+**The entry's own suggestion was tested and NOT adopted whole.** The row proposed that the useful output "may be `this universal restates a measurement stated elsewhere` rather than `this universal has no probe`". Both conditions ship, ANDed: the cardinal must appear in another section AND the claim's section must carry no probe command. The restatement half alone was measured at draft time and is the flood the spec's §1.1 rejects — the universal+class-token form without a cardinal hit 8,652 raw / 4,677 gated, about ten per document.
+
+**Truth is never evaluated,** and that is the ratified scope rather than a shortfall (spec §1.1, §7). The arm detects the STRUCTURE the escapes shared and hands judgment to the mandated human sweep; chasing claim semantics is what the prose-count-parity arc measured the cost of.
+
+**Two defects found by the arc's own layer-3 corpus pass and by cross-model review, both repaired by NARROWING:**
+
+1. A grouping comma is a word boundary, so `all 5,022 eligible data rows` matched `all 5` and cleared the value bound as a two-digit population — four live corpus instances, two of them the very four-digit populations the width bound exists to exclude. A cardinal followed by a grouping comma or a decimal point is now a fragment of a longer literal and draws silence.
+2. Only the FIRST accept-set match on a line was evaluated, so a candidate-specific rejection suppressed a later qualifying claim and the line drew silence — which spec §1.2 contracts to mean "no qualifying structure". Live proof: `docs/superpowers/specs/ci/2026-08-16-modal-wait-boundary-helper-adoption-design.md:238`. Every candidate is now tried and the first that clears every gate owns the line.
+
+**Committed record:** `docs/superpowers/specs/probes/2026-08-17-prose-consistency-arms.survivors.txt` (209 rows, untruncated) and its classification alongside — zero wrong-structure-class emissions remain, 19 historical-record residue, 190 live-enumerated claims. Enrolled in the source-mutation registry at 108/114 with zero unaccepted survivors.
+
+**Residues stay as documented limits, not as new rows** (spec §7): word-form cardinals, populations outside 2-999, a cardinal inside an arithmetic expression read as its first factor, and one advisory per line.
+
+## BL-SPECLINT-POSTREPAIR-FORWARD-REF-SWEEP — a repair round stale-ifies forward references the term-grep cannot see — CLOSED 2026-08-18 (`fix/speclint-prose-consistency-arms`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-18 · **Effort (as shipped):** M · **Severity (as filed):** medium · **Class:** spec-lint arm · **Filed:** 2026-08-15, backfill from `docs/review-rounds/chore/guard-completeness-wave/04f601134519.md` (spec §, item (a)), per the enforcement-pair spec §4 candidate 5 · **Reachability:** PROBED at filing — two live escapes (R2-F3/R5), each costing a round.
+
+A spec:lint arm cross-checking out-of-scope bullets and closeout summaries against sections mandating the same change. Both originating escapes were forward references that a term-grep of the repaired text cannot see.
+
+**Shipped as INVENTORY, not as a per-bullet advisory, and the choice is probe-backed.** Out-of-scope regions appear in 286 documents carrying 1,242 bullets — three orders of magnitude too large for a tripwire. The arc ships two inventory groups instead, `universal-claims` and `scope-fences` (spec §3.4): never findings, never exit-code-affecting, rendered through the existing `INVENTORY` block and present in `--json`.
+
+**The mechanism the entry named is what the groups repair.** The manual post-repair self-consistency sweep is already mandated, and both escapes happened because that sweep's cover was scoped by the REPAIRED text's terms — a forward reference phrased differently never greps. The groups derive the sweep's cover from CLAIM SHAPE instead, which is independent of any repair's vocabulary. `docs/agents/spec-self-review.md` now names them as that cover, so the consumption side is wired rather than implied.
+
+Both E4 (`a045c53d1:235`) and E5 (`65641604f:235`) land in BOTH groups, asserted verbatim from the defective revisions.
+
+**Semantic contradiction is still not decided mechanically** (spec §7). The inventory surfaces the line; the sweep decides. That is the design, not a gap in it — and it is why this shipped as inventory rather than as the cross-check the row imagined.
+
+**`BL-SPECLINT-BL-DISPOSITION-CLOSEOUT-ARM` does NOT ride along.** That row asked the implementing arc to decide whether it shares a surface with this one; the decision is recorded in spec §1.1 — it stays a separate row. The `scope-fences` group gives it a natural future home, but no id-accounting logic ships here.
+
+## BL-PREMISE-CONTRACT-SUITE-AT-THE-TIMEOUT-BOUNDARY — a required unit gate runs 33s against a 30s cap and reds on runner luck — CLOSED 2026-08-18 (`fix/rowactions-submenu-reveal-flake`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-18 · **Effort (as shipped):** S · **Severity (as filed):** MEDIUM (a REQUIRED context on every PR; when it reds, the merge is blocked and the only remedy is a re-run) · **Class:** CI reliability · **Effort:** S · **Filed:** 2026-08-18 (`fix/rowactions-submenu-reveal-flake`, seen while shipping an unrelated measurement change) · **Reachability:** PROBED — measured on BOTH sides, see below.
+
+`tests/mutation/_metaPremiseContract.test.ts` classifies every test in every suite named by the source-mutation registry, and that walk costs about 33 seconds of test time. Vitest's per-test cap on the `parallel` project is 30 seconds. The margin is negative, so whether the job is green is a property of how loaded the runner is, not of the tree.
+
+**The probe is a same-machine differential, and it removes the tempting explanation.** The arc that found this adds three test files, so "the new tests made the walk slower" is the obvious reading. It is wrong — the suite scans the ENROLLED registry (`GUARD_SURFACES.flatMap(s => s.suitePaths)`), which that arc does not touch:
+
+| tree                                                               | test time  |
+| ------------------------------------------------------------------ | ---------- |
+| `origin/main` at `7d09a1f0b`, detached worktree, same node_modules | **33.45s** |
+| `fix/rowactions-submenu-reveal-flake`                              | **33.23s** |
+
+Byte-for-byte the same cost, and the branch is marginally FASTER. Main is over the cap too; it has simply been winning the coin flip.
+
+**Observed failures.** Two consecutive `unit-suite-nodb (3)` reds on PR #845 (jobs `95808345158`-adjacent shard 3 and `95812641758`), each `Test timed out in 30000ms`, the second cascading across four cases in the file. Main's own recent runs are green, which is what makes this read as luck rather than as a regression on either side.
+
+**Why it is filed rather than fixed in the arc that found it:** the file belongs to the mutation-guard surface, not to a popover measurement change, and raising a timeout inside an unrelated PR puts a gate edit outside that PR's reviewed surface — class-sweep disposition exception (c).
+
+**First scheduled step:** decide which side moves, because both are defensible and the choice is not mechanical. Either give the four cases an explicit `testTimeout` above the measured cost with a comment naming the measurement (cheap, honest, and leaves the walk's cost invisible), or make the walk cheaper — it re-reads and re-classifies each suite once per case, so hoisting the classification into a module-level memo would cut it roughly fourfold and put the whole file back under the default cap. The second is the better repair and the first is the safe one; measure before choosing.
+
+**Resolution — and the entry was filed and closed inside the same PR, deliberately.** It was filed under class-sweep exception (c), on the reading that a gate edit does not belong in a popover-measurement PR. That reading did not survive the evidence: the gate then blocked this PR three consecutive times, so the choice was no longer "repair here or elsewhere" but "repair here or re-run the coin flip until it lands". Filing first and closing second is not bookkeeping theatre — the entry carries the differential probe that sent the repair to the right place, and that record is worth keeping whether the fix took an hour or a month.
+
+**The repair is the one the entry named as the better of its two.** The four cases each called `classifyTests(ROOT, suite)` over every enrolled suite, so the walk was paid four times. It is now computed once at module scope into a `Map`, with a `classifiedFor` accessor that THROWS on a missing suite rather than returning `[]` — an empty scan would be a silent green on nothing, the exact failure the file's first describe block exists to prevent.
+
+No verdict changes, and could not: `classifyTests` is a pure function of the suite's source on disk, which the four cases already relied on — if two calls for one suite could disagree, the declared-count case and the offender cases would have been asserting against different scans all along.
+
+**Measured on the same machine, same node_modules:**
+
+|        | test clock (the 30s cap) | wall  |
+| ------ | ------------------------ | ----- |
+| before | 33.45s                   | 33.9s |
+| after  | **2.26s**                | 10.8s |
+
+The remainder moved to import, which no per-test cap measures. The timeout was NOT raised: the signal that the walk is expensive is left intact, and the expense is gone.
+
+## BL-ROWACTIONS-SUBMENU-REVEAL-E2E-FLAKE — the capped-submenu focus-reveal case fails ~40% of CI runs on identical code — CLOSED 2026-08-18 (`fix/rowactions-submenu-reveal-flake`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-18 · **Effort (as shipped):** M · **Severity (as filed):** MEDIUM (a merge-gating leg that reds at random; every arc touching `admin-layout-e2e`'s path filter pays for it) · **Class:** CI reliability / e2e flake · **Effort:** M · **Filed:** 2026-08-16 (`fix/control-outline-surface-fills`, seen while shipping an unrelated colour-token change) · **Class-sweep exception:** (c) — the repair is a redesign of a scroll-reveal path in a component this PR does not otherwise touch · **Reachability:** PROBED — eight runs on one branch, byte-identical product code, both outcomes.
+
+`tests/e2e/rowactions-geometry.spec.ts:327` — _"keyboard focus in a CAPPED submenu is revealed, never left off-screen"_ — is intermittently red on the merge-gating `admin-layout-e2e` leg.
+
+**The probe is the run history, and it is decisive** because the input was held constant. Eight consecutive runs of workflow `316007124` on `fix/control-outline-surface-fills`, every one at a sha whose `app/**` and `components/**` are byte-identical (`git diff --name-only <sha>..HEAD -- 'app/**' 'components/**'` returns zero files for each):
+
+| sha         | outcome     |
+| ----------- | ----------- |
+| `393a4e2aa` | success     |
+| `3e96b7476` | **failure** |
+| `c7f019e11` | success     |
+| `2357eb321` | success     |
+| `3a9d509ac` | success     |
+| `4b92b8ed7` | success     |
+| `20707a204` | **failure** |
+| `a601e838e` | **failure** |
+
+Five green, three red, one program. The commits between them are documentation and test prose only, and `components/admin/ShowRowActions.tsx` — the component under test — is untouched by that branch entirely.
+
+**The failure shape.** Focus lands below the panel's visible box after `End`:
+
+```
+Expected: <= 509.96875
+Received:    587
+```
+
+so roughly 77px past the fold — the scroll-reveal did not run, rather than running and landing slightly off. Every failing run's log also carries a degraded dev server: `Error: The destination stream closed early.` repeated dozens of times, plus `show_review_snapshot_failed` and `[client.realtime] subscription failed: initial JWT mint returned no token`. The likely mechanism is that the reveal is racing something — a scroll handler, a layout settle, or a portal reflow — and loses when the server is slow enough to stretch the gap.
+
+**Why it is filed rather than fixed here.** The arc that found it ships 22 colour-token edits and touches neither the component, the spec, nor the portal-scroll path. Its own diff cannot cause a geometry change: a border COLOUR moves no box, and the run table proves the outcome varies with the input held constant. Fixing a reveal race needs the component's scroll path in hand.
+
+**First scheduled step:** determine whether the reveal is a `scrollIntoView` racing the portal's own layout, and if so await the settle rather than the keypress. The spec already has a premise guard (the panel must overflow its cap), so the case is not vacuous — it is genuinely observing the wrong post-condition some of the time. Until then, a red on this leg alone, with product code unchanged, is a re-run rather than a regression.
+
+**Resolution — and the filed hypothesis was WRONG, in the direction that mattered.** The entry read the symptom as a race: "the reveal is racing something — a scroll handler, a layout settle, or a portal reflow — and loses when the server is slow enough to stretch the gap," and its first scheduled step was to await the settle rather than the keypress. The reveal was not racing anything. It ran correctly, every time, and was then DETERMINISTICALLY reverted one animation frame later by the placement re-measure.
+
+The mechanism: `measureAndApply` cleared the panel's inline `max-height` in order to measure natural size. Laying out a scrolled, CAPPED panel with its cap cleared clamps `scrollTop` to 0 — and the code restored the offset before the cap came back, so the restore had no scroll range to write into and silently did nothing. What looked like a 40% flake was a 100% revert whose visibility depended only on whether the assertion sampled before or after the next frame.
+
+**The repair.** `lib/popover/naturalSize.ts` — `withNaturalSize` owns the cap clear and restore AND snapshots and restores the element's scroll offsets, caps first so the range exists before the offset is written. All four measurement sites migrate to it (`AnchoredPortal.tsx`, `HoverHelp.tsx`, `showpage/ShareHub.tsx`, `useFitWithinClip.ts`), and `tests/components/_metaScrollNeutralMeasurement.test.ts` is a derived cover — it walks `components/` and `lib/` from disk, so a NEW site that clears a cap outside the helper fails by default rather than being silently exempt. Because every measurement of a scrolled capped panel can emit a panel-origin scroll event, the two capture-phase scroll listeners carry a self-origin filter so that event cannot schedule the next measurement.
+
+**"A red on this leg alone is a re-run rather than a regression" is RETIRED.** That policy was the entry's own concession to the flake, and AC-5 removes its premise: nine fixed-sha `admin-layout-e2e` dispatches by the distinct-ref method (one dispatch per sibling ref; no run `cancelled`, so all nine are samples) returned **0/9 failures** against the entry's 4/9 baseline. Run ids: `32152609129`, `32152617127`, `32152624771`, `32152632904`, `32152640191`, `32152647436`, `32152654727`, `32152661440`, `32152668240`. A red on this leg is now a regression.
+
+**Spec:** `docs/superpowers/specs/ci/2026-08-17-rowactions-submenu-reveal-scroll-clamp-design.md` (spec-APPROVED r7). **Plan:** `docs/superpowers/plans/2026-08-17-rowactions-submenu-reveal-scroll-clamp.md` (plan-APPROVED r8). **Round corpus:** `docs/review-rounds/fix/rowactions-submenu-reveal-flake/`.
+
+## BL-ADVISORY-E2E-JOBS-FLAKE-ACROSS-IDENTICAL-CODE — screenshots-drift and admin-layout-e2e both flipped across a markdown-only delta — CLOSED 2026-08-18 (`fix/rowactions-submenu-reveal-flake`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-18 · **Effort (as shipped):** M · **Severity (as filed):** LOW (advisory jobs; neither is a required context) · **Class:** CI-INFRA / flake · **Effort:** M · **Filed:** 2026-08-16 (`feat/admin-ui-surfaces`, PR #812)
+
+**This entry CORRECTS a wrong filing made minutes earlier on the same PR.** `BL-HELP-SCREENSHOT-DASHBOARD-BASELINE-STALE` claimed the `dashboard-overview-light.webp` drift was a stale baseline that main's component churn had outrun. The next run REFUTED that: the byte comparison passed at a head whose only delta was one markdown file.
+
+**Probe evidence — two advisory jobs, two heads, identical product code.**
+
+| job                 | head                   | delta vs the other head       | result                                                                      |
+| ------------------- | ---------------------- | ----------------------------- | --------------------------------------------------------------------------- |
+| `screenshots-drift` | `b5aa6ef7`             | —                             | FAIL (`dashboard-overview-light.webp`, Bin 77670 -> 82600)                  |
+| `screenshots-drift` | `f6c3ac55`             | one commit, `BACKLOG.md` only | PASS                                                                        |
+| `admin-layout-e2e`  | `b5aa6ef7`, `3bc1ad28` | —                             | PASS                                                                        |
+| `admin-layout-e2e`  | `f6c3ac55`             | one commit, `BACKLOG.md` only | FAIL (`rowactions-geometry.spec.ts:368`, submenu scroll-into-view geometry) |
+
+A markdown-only commit cannot change a WebP's bytes or a submenu's scroll geometry, so BOTH results are non-deterministic at a fixed tree. They flip in OPPOSITE directions across the same pair of heads, which also rules out "one bad runner": whatever varies is per-job, not per-head.
+
+**Why it matters even though neither job is required:** an advisory job that flips at a fixed tree teaches operators to ignore it, which is exactly how a real regression in either surface ships unnoticed. The byte-comparison discipline in AGENTS.md pins the Docker image AND the host architecture for this reason; a residual non-determinism inside that pinned environment is the interesting part.
+
+**~~First scheduled step is a probe, not a repair~~ — THE PROBE IS RUN. 2026-08-16, nine dispatches per job at one fixed sha (`119895a7c`, then `main`), and it SPLITS the entry: one job reproduced, the other did not.**
+
+| job                 | fixed-sha runs | fail rate | verdict                         |
+| ------------------- | -------------- | --------- | ------------------------------- |
+| `admin-layout-e2e`  | 9              | **4/9**   | genuine per-run non-determinism |
+| `screenshots-drift` | 9              | **0/9**   | did NOT reproduce               |
+
+Every failure of the four was the SAME assertion the entry names — `rowactions-geometry.spec.ts:368`, `expect(revealed!.bottom).toBeLessThanOrEqual(revealed!.boxBottom + TOL)` in "keyboard focus in a CAPPED submenu is revealed, never left off-screen" — so this is one flaky case, not a flaky job.
+
+**The failing runs carry a mechanism the entry did not suspect, and it is a KNOWN one.** Their server logs hold transient gateway 502s against the admin RPCs, in the Kong wording this repo has already characterised twice:
+
+```
+[admin.show] share-token read failed: ADMIN_SHOW_TOKEN_READ_FAILED
+  admin_read_share_token returned error: An invalid response was received from the upstream server
+Error: show_review_snapshot_failed          # → /admin error boundary, React #441
+```
+
+That is the same fault class as `BL-CHANGES-FEED-MODAL-BATCH-FLAKE` (spec `docs/superpowers/specs/ci/2026-08-15-changes-feed-modal-batch-flake-design.md` §2) and `BL-SNAPSHOT-READ-TRANSIENT-502-POSTURE`. A 502 that throws the loader to the error boundary changes what is mounted underneath the submenu, which is exactly how a scroll-into-view geometry assertion lands off-screen. **This reads as a third instance of that class rather than a new one** — which the repair direction should assume and then falsify, not re-derive from scratch.
+
+**Probe method, recorded because the first attempt was invalid and the failure is instructive.** Eight `workflow_dispatch` calls at the same ref cancelled each other: GitHub's concurrency group is `${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}` (`screenshots-drift.yml:52`, `admin-layout-e2e.yml:108`) and holds only ONE pending run, so six of eight were `cancelled` and only the first and last ever executed. The valid form is one dispatch per DISTINCT ref: seven sibling branches at the identical sha (`probe/advisory-flake-s2`…`s8`) plus the two survivors of the first batch = nine samples per job. Anyone re-running this must not read a `cancelled` run as a sample.
+
+**What the split means for scope.** The `screenshots-drift` half of this entry is now UNSUPPORTED by its own probe — nine green runs at a fixed sha. Its single observed failure remains real but unexplained, and the `feedback_screenshot_capture_runner_bimodality` shape (a rare runner population, not per-run noise) survives as the leading reading precisely because a 0/9 sample cannot rule out a low-rate population effect. Do not open a screenshots repair on this evidence; if it recurs, capture the runner identity (`Runner.Name`, CPU model) on both outcomes before anything else.
+
+**First scheduled step, revised:** treat the `rowactions-geometry` case as a member of the transient-502 class — apply the boundary-recovering posture `BL-MODAL-WAIT-BOUNDARY-HELPER-ADOPTION` is sweeping, or make the case's setup tolerant of a boundary re-render — and re-probe at nine samples to confirm the fail rate collapses. The nine-per-job dispatch above is the acceptance instrument, and the run ids are in this arc's PR.
+
+**Resolution — the reproducing half is CLOSED by the scroll-clamp repair, and its 502 reading was a false lead.** This entry's revised first step said to "treat the `rowactions-geometry` case as a member of the transient-502 class" and named the gateway 502s in the failing runs as the mechanism, marking it "a third instance of that class rather than a new one — which the repair direction should assume and then falsify." It was falsified. The 502s are real and are genuinely present in those logs, but they are noise on a shared local-stack boot, not the cause: the case reverted its reveal on EVERY run, 502 or not, and the only thing the slow server changed was which side of the revert the assertion sampled. The cause was a scroll clamp in the placement re-measure — see `BL-ROWACTIONS-SUBMENU-REVEAL-E2E-FLAKE` above for the mechanism and the repair.
+
+**AC-5 on the repaired code: 0/9 failures** at one fixed sha, distinct-ref method, no cancelled runs, against this entry's own 4/9 measurement. Run ids are recorded in the sibling entry above.
+
+**The screenshots-drift half does NOT graduate with it** — it was never the same fault. It moves to a narrow successor row, `BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED`, which carries the single observed byte drift, the 0/9 non-reproduction, and an explicit `**Reachability:** INFERRED, NOT PROBED` naming the runner-identity capture that would settle it. Splitting rather than closing is the honest disposition: a 0/9 sample cannot rule out the low-rate runner-population effect that remains the leading reading.
+
+**The probe-method note in this entry outlived it and is the reason AC-5 was valid.** One dispatch per DISTINCT ref, because GitHub's concurrency group holds only one pending run per `workflow`+`ref`+`event`; a `cancelled` run is not a sample. This arc's nine dispatches followed exactly that method.
+
+**Spec:** `docs/superpowers/specs/ci/2026-08-17-rowactions-submenu-reveal-scroll-clamp-design.md` §7. **Round corpus:** `docs/review-rounds/fix/rowactions-submenu-reveal-flake/`.
+
 ## BL-SPECLINT-RED-COMMAND-SHAPE — a plan's red= command can be incapable of expressing a verdict, and nothing checks the shape — CLOSED 2026-08-18 (`fix/red-contract-shape-execution`, SHIPPED)
 
 **Status:** SHIPPED 2026-08-18 · **Effort (as shipped):** M · **Filed:** 2026-08-16

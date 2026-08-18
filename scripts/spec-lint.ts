@@ -107,7 +107,15 @@ function renderText(result: LintResult): string {
   out.push(`spec:lint ${result.doc}`);
   out.push(`kind: ${result.kind} (${result.kindSource})`);
   out.push("");
-  const checks = ["document", "citations", "numerics", "copy", "sections", "taskContract"] as const;
+  const checks = [
+    "document",
+    "citations",
+    "numerics",
+    "copy",
+    "sections",
+    "taskContract",
+    "universals",
+  ] as const;
   for (const check of checks) {
     const fs = result.findings.filter((f) => f.check === check);
     if (fs.length === 0) continue;

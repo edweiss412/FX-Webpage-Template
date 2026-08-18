@@ -15,6 +15,7 @@ import {
 } from "./redContract";
 import { fenceCoverage, waiverTarget } from "./waiverCoverage";
 import { checkTaskContract } from "./taskContract";
+import { checkUniversals } from "./universals";
 import { checkSections } from "./sections";
 import type {
   Check,
@@ -34,6 +35,7 @@ const CHECK_ORDER: Record<Check, number> = {
   copy: 3,
   sections: 4,
   taskContract: 5,
+  universals: 6,
 };
 
 // WAIVER_MISSING_REASON is unsuppressible (spec §3 — an empty waiver must not launder itself).
@@ -97,6 +99,7 @@ export function runLint(
   const copy = checkCopy(model);
   const sections = checkSections(model, doc.kind, citations.resolvedPaths);
   const taskContract = checkTaskContract(model, doc.kind);
+  const universals = checkUniversals(model, doc.kind);
   const redContract = checkRedContract(model, doc.kind, resolver);
   // Parse-capability findings (verdict spec §3). Unlike execution, this pass
   // runs on EVERY plan-kind invocation — the payoff moment is review-time
@@ -133,6 +136,7 @@ export function runLint(
     ...copy,
     ...sections,
     ...taskContract,
+    ...universals.findings,
     ...redContract,
     ...parseFindings,
     ...execFindings,
@@ -202,7 +206,7 @@ export function runLint(
     kind: doc.kind,
     kindSource: doc.kindSource,
     findings,
-    inventory: numerics.inventory,
+    inventory: [...numerics.inventory, ...universals.inventory],
   };
 }
 

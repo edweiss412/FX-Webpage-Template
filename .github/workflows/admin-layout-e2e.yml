@@ -69,6 +69,9 @@ on:
       - "lib/popover/position.ts"
       - "lib/popover/viewport.ts"
       - "lib/popover/rafCoalescer.ts"
+      # Scroll-neutral measurement: every capped panel this gate exercises is
+      # measured through this helper, so a change to it can revert a reveal.
+      - "lib/popover/naturalSize.ts"
       # The geometry spec measures the Archive confirm and the held decision,
       # and BOTH panels are sized by their copy. A copy-only edit can therefore
       # break containment, so the modules that spell those sentences trigger the
