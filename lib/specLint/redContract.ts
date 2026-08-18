@@ -31,6 +31,27 @@ const GATE = /^ {0,3}<!-- gate: cmd=`([^`]*)`( probed=`([^`]*)`)? -->[ \t]*$/;
 /** The retired-target shape: an exact tracked-path token moved or removed. */
 const GIT_MOVE = /\bgit\s+(?:mv|rm)\b(.*)$/;
 
+/**
+ * The name-filter token (spec §4). Delimited, never a substring: a path token
+ * ending in `-t.ts` and a longer flag beginning `--testNamePattern` are not
+ * filters.
+ */
+const NAME_FILTER = /(?:^|\s)(?:-t(?=[\s=]|$)|--testNamePattern(?=[\s=]|$))/;
+
+/**
+ * Quoted spans, elided before the token match above — the ONE place this module
+ * reads quotes, and deliberately the opposite posture from probe eligibility
+ * (§5.1), which does not read them.
+ *
+ * The two are conservative about different things. Eligibility must be
+ * conservative about EXECUTION, so an unread quote over-declines a probe and
+ * nothing runs. This advisory must be conservative about NOISE, so a `-t` that
+ * is really part of a quoted pattern stays silent. An unbalanced quote elides
+ * to end of string, which under-fires a disposition-only advisory: the safe
+ * direction for this arm. Nothing here decides parseability or what may spawn.
+ */
+const QUOTED_SPAN = /'[^']*'|"[^"]*"/g;
+
 const fail = (
   code: string,
   docLine: number,
@@ -239,6 +260,17 @@ export function checkRedContract(
         ),
       );
     }
+    if (NAME_FILTER.test(parsed.red.replace(QUOTED_SPAN, " "))) {
+      findings.push(
+        advise(
+          "RED_TEST_NAME_FILTER",
+          line,
+          1,
+          "`red=` selects tests by NAME",
+          "a name filter that matches nothing exits 0, so this red can report green from the moment it is written; confirm the pattern matches the failing case at red time, or run `--exec-red`",
+        ),
+      );
+    }
     const retired = retiredInExtent(model, extent, tracked);
     for (const token of parsed.red.split(/\s+/)) {
       if (!retired.has(token)) continue;
@@ -336,6 +368,9 @@ export function parseCheckPlanForText(text: string): ParseCheckEntry[] {
  * would manufacture a misleading `RED_ALREADY_GREEN` on a line that already
  * carries `TASK_RED_EMPTY`.
  */
+/** Shared empty default, so no call site allocates one per invocation. */
+const EMPTY_LINES: ReadonlySet<number> = new Set<number>();
+
 function ownedContractLines(model: DocModel): ReadonlySet<number> {
   const topology = taskTopology(model);
   return new Set(
@@ -343,12 +378,18 @@ function ownedContractLines(model: DocModel): ReadonlySet<number> {
   );
 }
 
-export function planExecutions(model: DocModel): { line: number; command: string }[] {
+export function planExecutions(
+  model: DocModel,
+  excludeLines: ReadonlySet<number> = EMPTY_LINES,
+): { line: number; command: string }[] {
   const owned = ownedContractLines(model);
   return wellFormedMarkers(model)
     .filter(
       ({ line, parsed }) =>
-        owned.has(line) && parsed.redState === "live" && parsed.red.trim() !== "",
+        owned.has(line) &&
+        !excludeLines.has(line) &&
+        parsed.redState === "live" &&
+        parsed.red.trim() !== "",
     )
     .map(({ line, parsed }) => ({ line, command: parsed.red }));
 }
@@ -357,8 +398,11 @@ export function planExecutions(model: DocModel): { line: number; command: string
  * `parseDoc` + `planExecutions`, so the adapter can derive the execution plan
  * from raw text without importing the parser itself. Pure.
  */
-export function planExecutionsForText(text: string): { line: number; command: string }[] {
-  return planExecutions(parseDoc(text));
+export function planExecutionsForText(
+  text: string,
+  excludeLines: ReadonlySet<number> = EMPTY_LINES,
+): { line: number; command: string }[] {
+  return planExecutions(parseDoc(text), excludeLines);
 }
 
 /**

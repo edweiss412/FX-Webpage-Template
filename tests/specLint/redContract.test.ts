@@ -820,3 +820,90 @@ describe("collectionProbePlan — tracked test-file argument extraction (spec §
     });
   });
 });
+
+/**
+ * The name-filter advisory (verdict-capability spec §4). A no-match `-t`
+ * pattern exits 0, so a red carrying one can report green from the moment it is
+ * written. Advisory and region-scoped exactly like `RED_CONJUNCTION`: measured
+ * legitimate uses exist, so the finding says what to check and the author
+ * dispositions it.
+ */
+describe("RED_TEST_NAME_FILTER (spec §4)", () => {
+  it.each([
+    ["-t with a quoted pattern", "pnpm vitest run tests/a.test.ts -t 'a b'"],
+    ["-t with a bare pattern", "pnpm vitest run tests/a.test.ts -t bare"],
+    ["-t=value", "pnpm vitest run tests/a.test.ts -t=bare"],
+    ["--testNamePattern with a space", "pnpm vitest run tests/a.test.ts --testNamePattern 'a b'"],
+    ["--testNamePattern=value", "pnpm vitest run tests/a.test.ts --testNamePattern=x"],
+  ])("fires as an advisory on %s", (_label, red) => {
+    const found = check(live(red));
+    expect(found).toEqual([
+      expect.objectContaining({
+        check: "taskContract",
+        code: "RED_TEST_NAME_FILTER",
+        severity: "advisory",
+        docLine: 3,
+        column: 1,
+      }),
+    ]);
+  });
+
+  it.each([
+    // Quoted spans are elided before the token match: this is the one place
+    // quotes ARE read, because an advisory must be conservative about NOISE
+    // while probe eligibility (§5.1) must be conservative about EXECUTION.
+    ["a -t inside a quoted pattern", "sh -c \"grep -n 'x -t y' lib/a.ts\""],
+    ["a path token that merely ends in -t.ts", "pnpm vitest run tests/foo-t.ts"],
+    ["a bare -t.ts argument", "pnpm vitest run -t.ts"],
+    ["a longer flag that starts with --testNamePattern", "pnpm vitest run --testNamePatternish x"],
+    ["no filter at all", "pnpm vitest run tests/a.test.ts"],
+  ])("does not fire on %s", (_label, red) => {
+    expect(codes(live(red))).toEqual([]);
+  });
+
+  it.each([
+    ["a bare region", OPEN],
+    ["no region at all", null],
+  ])("does not fire outside a red-contract region (%s)", (_label, open) => {
+    const marker =
+      "<!-- task: red=`pnpm vitest run tests/a.test.ts -t 'a b'` red-state=live why=`w` ac=AC-1 -->";
+    const text =
+      open === null ? doc("# Plan", "## A", marker, "AC-1 here.") : inRegion(marker, open);
+    expect(codes(text)).not.toContain("RED_TEST_NAME_FILTER");
+  });
+
+  it("does not fire on a gate command", () => {
+    expect(
+      codes(
+        doc("# Plan", "<!-- gate: cmd=`pnpm vitest run tests/a.test.ts -t 'a b'` probed=`p` -->"),
+      ),
+    ).not.toContain("RED_TEST_NAME_FILTER");
+  });
+
+  it("rides alongside RED_CONJUNCTION rather than replacing it", () => {
+    expect(codes(live("pnpm vitest run tests/a.test.ts -t 'a b' && echo done"))).toEqual([
+      "RED_CONJUNCTION",
+      "RED_TEST_NAME_FILTER",
+    ]);
+  });
+});
+
+describe("planExecutions — the parse-failure exclusion (spec §3)", () => {
+  const text = live("pnpm vitest run tests/a.test.ts");
+
+  it("enumerates the live marker when nothing is excluded", () => {
+    expect(planExecutions(parseDoc(text))).toEqual([
+      { line: 3, command: "pnpm vitest run tests/a.test.ts" },
+    ]);
+  });
+
+  it("drops a marker whose line the adapter excluded", () => {
+    // Executing a command the shell cannot parse observes nothing; executing
+    // one whose parseability was never observed is the same gamble.
+    expect(planExecutions(parseDoc(text), new Set([3]))).toEqual([]);
+  });
+
+  it("excludes only the named line", () => {
+    expect(planExecutions(parseDoc(text), new Set([4]))).toHaveLength(1);
+  });
+});
