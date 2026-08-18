@@ -480,7 +480,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
   //     `@playwright/test` dynamic import, which is exactly why this module has no top-level
   //     value import from it: the unit suites run under vitest and cannot execute those
   //     branches at all. Killing them needs a real 502, not a test. Parent-#830 limit 2
-  //     recorded this; this arc's spec §7 limits 2 and 4 inherit it.
+  //     recorded this; this arc's spec §7 limit 2 inherits it.
   //   - ONE (`integer-literal:78:57`) is inside `Parameters<Page["goto"]>[1]`, a TYPE
   //     position with no runtime behaviour to observe.
   //

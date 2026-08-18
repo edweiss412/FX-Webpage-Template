@@ -17,7 +17,7 @@
  * strings (plan review R1 finding 4).
  *
  * The watchdog's FIRE path and the boundary recovery stay outside unit reach
- * (dynamic @playwright/test import — spec §7 limit 4). Its ARM is observable:
+ * (dynamic @playwright/test import — spec §7 limit 2). Its ARM is observable:
  * a recorded waitFor whose selector EQUALS the bare boundary selector.
  */
 import { describe, expect, test } from "vitest";
