@@ -1,3 +1,137 @@
+## BL-TIMING-SCAN-VALUATION-VS-REASSIGNMENT — DEMOTED TO A DOCUMENTED LIMIT 2026-08-18
+
+Not resolved and not stale: **demoted** by the 2026-08-04 ledger filing bar (AGENTS.md
+"Ledger filing bar (2026-08-04)"; procedure `docs/superpowers/specs/2026-08-04-backlog-convergence-design.md` §2).
+Probe-backed but CONSTRUCTED (P9), with **zero live instances** on the tree at filing by the entry's own
+sweep — the PSQL-GUARD-RECALL-RESIDUAL shape: a demonstrated gap whose worst case on THIS tree is nothing
+at all. The limit is already ratified in the owning spec,
+`docs/superpowers/specs/ci/2026-08-16-timing-scan-binding-resolution-design.md` §4 item 7, which carries the
+full mechanism, the P9 probe pointer, and this id; probe record
+`docs/superpowers/specs/ci/probes/2026-08-16-timing-scan-binding-probes.md` §P9.
+
+**Un-defer path:** a live `let` timing binding reassigned after declaration appearing on the tree promotes
+this back to a row — re-file from the spec's §4 item 7 record, carrying the promotion scope below
+("treat a post-declaration-assigned binding as `unclassified`, or annotate the row as an initial value";
+either way a valuation decision wanting its own probe of live `let` timing bindings).
+
+screen-disposition 2026-08-18 (demotion sweep, `docs/ledger-demotion-sweep`): DEMOTE — constructed probe,
+zero live instances, limit already ratified in the owning spec; the record belongs there, not the open queue.
+
+The original entry follows verbatim, with its in-flight status marker removed on archiving per
+invariant 12 — archives categorically reject in-progress work (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
+
+**BL-TIMING-SCAN-VALUATION-VS-REASSIGNMENT — a reassigned `let` is inventoried at its initializer**
+
+**Filed:** 2026-08-16 (`fix/timing-scan-scope-resolution`, spec authoring, probe P9). **Effort:** S. **Class-sweep exception:** (c) — the valuation axis is a different surface from the resolution step that arc rewrites, and widening into it mid-arc is the recognizer ratchet the round-economy rules forbid. **Reachability: PROBED** (constructed); **zero live instances** on the tree at filing.
+
+`scripts/scan-interaction-timings.ts` values a `named-constant` by its INITIALIZER. A `let RETRY_MS = 100` that `init()` later reassigns from config is therefore a §5.5 row reading 100, and a `setTimeout(fn, RETRY_MS)` resolves to it and suppresses. The resolution is right — it IS that binding — but the number a reader sees is the one the source states at declaration, not the one the timer uses.
+
+This is the one shape where a CORRECT resolution still yields a row someone could act on wrongly; everywhere else the scanner's failure direction is a surfaced `unclassified`. Probe and the zero-instance sweep: `docs/superpowers/specs/ci/probes/2026-08-16-timing-scan-binding-probes.md` §P9. Documented limit: the 2026-08-16 binding-resolution spec §4 item 7.
+
+**Scope if promoted:** treat a binding that is assigned anywhere after its declaration as `unclassified` rather than a valued constant (the checker already knows the write sites), or keep the row and annotate it as an initial value. Either way it is a valuation decision, not a resolution one, and it wants its own probe of how many live `let` timing bindings exist when it is scheduled.
+
+## BL-APP-EVENTS-DEBUG-LEVEL-CHECK-MISMATCH — DEMOTED TO A DOCUMENTED LIMIT 2026-08-18
+
+Not resolved and not stale: **demoted** by the 2026-08-04 ledger filing bar. The `LogLevel` type admits
+`"debug"` (`lib/log/types.ts:2`) while the `app_events` CHECK stores only `info|warn|error`
+(`supabase/migrations/20260629000002_app_events.sql:4`) — real, but **no producer emits a debug-level
+persist**, and the worst case is conservative-plus-surfaced by construction: the CHECK rejection is recorded
+for `/api/health` and written to console by `persistAppEvent`'s invariant-9 contract; the row just never
+lands. A hypothetical whose worst case is conservative behavior plus a surfaced signal is a documented
+limit, not open-queue work.
+
+**The substance moved, it was not deleted.** The limit now lives in the "Documented limit" block in the
+sink's own file, `lib/log/persist.ts` (precedent: the scan.ts limits block from PSQL-GUARD-RECALL-RESIDUAL),
+carrying the which-side-moves product decision and the re-file trigger verbatim: the first `debug`-level
+`log.*` producer landing on the tree re-files this from that block, and the decision (widen the CHECK vs
+narrow `LogLevel`) is made then, by that arc.
+
+screen-disposition 2026-08-18 (demotion sweep, `docs/ledger-demotion-sweep`): DEMOTE — no live producer,
+CHECK rejection surfaced via health fault + console; record moved to the sink's limits block.
+
+The original entry follows verbatim, with its in-flight status marker removed on archiving per
+invariant 12 — archives categorically reject in-progress work (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
+
+**BL-APP-EVENTS-DEBUG-LEVEL-CHECK-MISMATCH — a debug-level log can never persist, and the rejection is silent**
+
+**Severity:** LOW · **Class:** OBSERVABILITY · **Effort:** S · **Filed:** 2026-08-15 (`feat/admin-ui-surfaces`, from the `BL-OPS-LOG-DASHBOARD-BANNER` audit)
+
+`LogLevel` includes `"debug"` (`lib/log/types.ts:2`), but the `app_events` CHECK accepts only three values:
+
+```sql
+level         text not null check (level in ('info','warn','error')),
+```
+
+(`supabase/migrations/20260629000002_app_events.sql:4`.) So a `debug`-level persist is CHECK-rejected by Postgres, and `persistAppEvent` swallows the returned error by contract — it records the fault for `/api/health` and writes to console, never throwing over the caller (`lib/log/persist.ts:12-40`, invariant 9). The row simply never lands.
+
+**Reachability:** the type admits the value at every `log.*` call site, so nothing but convention stops a `debug` emit; no current producer uses one (which is why this is LOW, not MEDIUM).
+
+**The decision this needs, and why it was filed rather than fixed:** which side moves. Widen the CHECK to accept `debug` (and accept that the forensic log gains a chatty tier with a 60-day retention window), or narrow `LogLevel` to the three values the sink actually stores (and give `debug` callers a console-only path that is honest about not persisting). That is a product decision about what the run log is for, not a repair — class-sweep disposition exception (a).
+
+## BL-PREMISESCAN-UNPARSEABLE-MODULE-UNREACHABLE — DEMOTED TO A DOCUMENTED LIMIT 2026-08-18
+
+Not resolved and not stale: **demoted** by the 2026-08-04 ledger filing bar. The
+`unresolved.push("unparseable in-repo module")` branch is dead code, probed three ways, and the repair is
+FORBIDDEN by the owning spec's own ratified scope — recognizer growth over `sf.parseDiagnostics` on an axis
+with zero measured instances is the widening direction
+`docs/superpowers/specs/ci/2026-08-16-premisescan-import-edge-fidelity-design.md` §1.2(e) forbids. A row
+whose only scheduled step is a fix its owning spec prohibits is not schedulable work; it is that spec's
+already-ratified limit, recorded at §3.8 (the three-way probe) and §4 limit 8 (the disposition, AC-8a
+standing at 3 of 4, stated rather than overclaimed).
+
+**Un-defer path unchanged:** a fifth-family proposal over `sf.parseDiagnostics` is a canonical-spec change
+with its own probe (§1.2(e), §4 limit 8) — re-file from there if a live unparseable-module instance ever
+appears.
+
+screen-disposition 2026-08-18 (demotion sweep, `docs/ledger-demotion-sweep`): DEMOTE — dead branch, fix
+forbidden by ratified scope, limit fully recorded in the owning spec's §3.8 and §4 limit 8.
+
+The original entry follows verbatim, with its in-flight status marker removed on archiving per
+invariant 12 — archives categorically reject in-progress work (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
+
+**BL-PREMISESCAN-UNPARSEABLE-MODULE-UNREACHABLE — canonical unclassifiable form 4 is dead code and this arc does not make it live**
+
+**Severity:** LOW · **Class:** guard fidelity · **Filed:** 2026-08-16 (`fix/premisescan-import-edges`, spec §3.8) · **Effort:** S
+
+`premiseScan`'s `unresolved.push("unparseable in-repo module")` site is unreachable. **Probed three ways:** `moduleFacts` returns `null` if and only if `!existsSync(path)`; `resolveSpecifier` returns only candidates for which `existsSync` was already true, so that branch cannot fire through the traversal at all; and `ts.createSourceFile` is error-tolerant, parsing `export function spawnHelper(: string { return` to a `SourceFile` carrying a `FunctionDeclaration` without throwing or returning null. The fixture classifies `environment-free`.
+
+Closing it means a new detection rule over `sf.parseDiagnostics` — recognizer growth on an axis with **zero** measured instances, which the owning spec's §1.2(e) forbids. Deferred under class-sweep exception (c): a new detection rule on a surface the arc does not otherwise touch. Canonical AC-8a therefore stands at 3 of 4 after `BL-PREMISESCAN-IMPORT-EDGE-FIDELITY`, stated rather than overclaimed.
+
+## BL-NEARMISS-EQUAL-SIZE-TOKEN-SUBSET — DEMOTED TO A DOCUMENTED LIMIT 2026-08-18
+
+Not resolved and not stale: **demoted** by the 2026-08-04 ledger filing bar. Probe-backed (the `>` to `>=`
+mutant survives the suite) but **reachability probed as ZERO on the corpus** by the entry's own sweep —
+every live type-(b) match across all 20 fixtures is a STRICT subset — and the worst case is conservative:
+one near-miss hint going unreported, never a wrong autocorrect. The PSQL-GUARD-RECALL-RESIDUAL shape again:
+a demonstrated gap inert on this tree.
+
+**The substance moved, it was not deleted.** The durable record is the `accepted-gap` registry row on the
+`fieldNearMiss` surface (`tests/mutation/source/registry.ts`, siteId `relational-boundary:156:27:>>>=`),
+which carries the full argument and keeps this id as its `ref` — resolvable from this archive exactly as
+`BL-MUTATION-SECTION-ORDER`'s operator rows are (that entry's own precedent). The expected-kinds count
+(`tests/mutation/source/expectedLedgerKinds.ts`, `fieldNearMiss: { "accepted-gap": 1 }`) pins that the row
+stays carried, not silently blessed.
+
+**Un-defer path:** a real reordered-label instance in a future sheet promotes this from a boundary question
+to an ordinary near-miss — re-file from the registry row, carrying the entry's design question (equal-size
+set equality: type-(a) arm keyed on token set vs type-(b) hit) as the first step.
+
+screen-disposition 2026-08-18 (demotion sweep, `docs/ledger-demotion-sweep`): DEMOTE — zero corpus
+reachability, conservative failure direction, registry accepted-gap row is the durable record.
+
+The original entry follows verbatim, with its in-flight status marker removed on archiving per
+invariant 12 — archives categorically reject in-progress work (heading demoted to a bold line; see BL-ARCHIVE-DUPLICATE-ENTRY-IDS).
+
+**BL-NEARMISS-EQUAL-SIZE-TOKEN-SUBSET — the detector's type-(b) subset test is undecided at equal size, and no corpus row reaches it**
+
+**Filed:** 2026-08-16 (`feat/mutation-section-order`, from the `fieldNearMiss` source-mutation gate's accepted-gap row) · **Severity:** LOW (a demote, not a corruption: the worst case is one near-miss going unreported, never a wrong autocorrect) · **Class:** parser signal reachability · **Effort:** S
+
+**Probed, not theorized.** `matchVocabulary`'s type-(b) arm skips a vocabulary entry when `candTokens.size > entry.tokens.size` (`lib/parser/fieldNearMiss.ts:156`), admitting subsets of equal or smaller size. Widening that to `>=` — rejecting equal size too — survives the suite, because no case exercises the equal-size boundary. A subset of EQUAL size is set equality, which reaches type (b) only when the two normalized forms differ: a reordered or re-punctuated spelling of the same tokens, which type (a)'s insertion-order equality scan misses.
+
+**Reachability: PROBED as ZERO on the corpus.** Every col0 label in all 20 fixtures under `fixtures/shows/raw` and `fixtures/shows/exporter-xlsx` was matched against the live vocabulary: no label produces a type-(b) hit whose token-set size equals its entry's. Every live type-(b) match is a STRICT subset, so the boundary is undecided by the shipped inputs rather than decided wrongly.
+
+**Why it is a row and not a kill.** The killing input is a label the corpus does not contain, and `tests/parser/fieldNearMiss.test.ts`'s header forbids hand-written rows precisely because one can be tuned until it passes — so the gap is ledgered as `accepted-gap` with this ref rather than closed with a fixture that proves nothing about real sheets. **First scheduled step:** decide whether an equal-size token match SHOULD be a type-(b) hit at all (it is set equality, so arguably it belongs in the type-(a) arm keyed on the token set rather than the normalized string), then pin whichever direction is chosen. A real reordered-label instance appearing in a future sheet promotes this from a boundary question to an ordinary near-miss.
+
 ## BL-SHELL-BINDING-MIXED-QUOTED-VALUE — an assignment whose value mixes a quoted segment with a bare one is not read as a binding — CLOSED 2026-08-17 (`fix/shell-binding-mixed-quoted-value`, SHIPPED)
 
 **Status:** SHIPPED 2026-08-17 · **Effort (as shipped):** M · **Filed:** 2026-08-16 (`test/psql-scan-mutation-enrolment`, from the mutation-enrolment disposition of `relational-boundary:2167:54`; corrected the same day after cross-model review r2) · **Reachability:** PROBED at filing (six-row instrument against bash) and again at design time (probe record, instruments 1–2 plus three round supplements).

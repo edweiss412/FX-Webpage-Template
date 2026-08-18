@@ -6,6 +6,16 @@ import { recordPersistFailure, recordPersistSuccess } from "./persistHealth";
 import { getRequestContext } from "./requestContext";
 import type { LogRecord } from "./types";
 
+// Documented limit (BL-APP-EVENTS-DEBUG-LEVEL-CHECK-MISMATCH, demoted 2026-08-18 —
+// full record in BACKLOG-archive.md): `LogLevel` admits "debug" (lib/log/types.ts:2)
+// but the app_events CHECK stores only info|warn|error
+// (supabase/migrations/20260629000002_app_events.sql:4), so a debug-level persist is
+// CHECK-rejected — recorded for /api/health and consoled by this sink's contract,
+// never landed. No producer emits one today. Re-file trigger: the first debug-level
+// log.* producer landing on the tree re-files this and decides which side moves —
+// widen the CHECK (forensic log gains a chatty 60-day tier) or narrow LogLevel to
+// the three stored values with an honest console-only debug path.
+//
 // not-subject-to-meta: best-effort log sink — swallows + degrades to console,
 // surfaces no typed infra_error result (a typed result would defeat "never throw
 // over the caller's error", invariant 9). Pinned by tests/log/_metaAppEventsWriter.test.ts.
