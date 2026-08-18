@@ -170,7 +170,7 @@ Every site moves `border-border` → `border-text-faint` in place, matching the 
 - **A text sweep over the affected files is catastrophically wrong.** `border-border` occurs **63 times** across those 26 files, and **exactly 32** of those occurrences belong to a swapped control. A file-scoped find-and-replace would therefore corrupt **31** non-control surfaces: card edges, panel outlines, popover shells, a dashed empty-state, a rotated tooltip caret (`components/admin/showpage/ShareHub.tsx:1148`, whose `border-border` pairs with `data-[popover-side=*]:border-t/-l/-r/-b`), dividers, and — at `components/layout/ThemeToggle.tsx:41` — a **comment** naming the token.
 - **Element count and edit count differ in both directions**, exactly as in the predecessor, which is why 37 elements resolve to 32 lines. Four elements share one occurrence at `components/admin/NeedsAttentionInbox.tsx:31`; three share the `components/admin/dev/SwitcherControls.tsx` recipes; two share `components/crew/primitives/PersonRow.tsx:120`; two share `components/admin/review/ShowReviewSurface.tsx`'s pair of recipes. Conversely, an element carrying the token in both arms of a ternary needs two edits, and editing one arm ships a control whose outline changes with a prop.
 
-The plan owes the enumerated edit list; the SPEC's contract, and the implementation's own acceptance check, is §5.2: **every census row carries `border-text-faint` on EVERY render path, and no census row carries `border-border` on any path.** That check catches the missed branch and the over-swept file alike, and it is derived rather than enumerated.
+The plan owes the enumerated edit list; the SPEC's contract, and the implementation's own acceptance check, is §5.2: **every census row carries `border-text-faint`, and no census row carries `border-border` on any render path.** That check catches the missed branch and the over-swept file alike, and it is derived rather than enumerated.
 
 **Comment fidelity.** `components/layout/ThemeToggle.tsx:41` documents the component's tokens as "`border-border`, `bg-surface`". After the swap that names a token the control no longer wears. It is updated in the same commit — the predecessor hit the identical trap at its §4.3 and an implementer who leaves it has shipped a false citation.
 
@@ -184,13 +184,23 @@ The plan owes the enumerated edit list; the SPEC's contract, and the implementat
 
 `tests/styles/secondary-action-contrast.test.ts` already asserts `text-faint` clears 3:1 on all four neutral grounds in both themes. This arc adds the `--color-border` before-state row of §4.2 to the same suite, so `DESIGN.md`'s new table and the stylesheet move together.
 
-### 5.2 The census pin is WIDENED and STRENGTHENED — and strengthening is the point
+### 5.2 The census pin is WIDENED, and strengthened by NEGATION rather than by universality
 
-`tests/styles/controlOutlineScan.ts`'s `CENSUS` grows from 21 rows to 58 (21 + 37), and `tests/styles/_metaControlOutlineFill.test.ts` changes its per-row assertion from `carries` to `everyPathCarries` — a helper that **already exists** at `tests/styles/_metaControlOutlineFill.test.ts:52-55` and is already used at `:163`. No new predicate is written.
+`tests/styles/controlOutlineScan.ts`'s `CENSUS` grows from 21 rows to 58 (21 + 37), and `tests/styles/_metaControlOutlineFill.test.ts` gains one assertion per row: **`carries(element, "border-border") === false`** — no render path carries the old token. `carries` reads `allStrings`, which spans every render alternative, so the existential-negation IS the universal claim. It is the exact mirror of the assertion already there for `border-border-strong` (`:121-123`), so no new predicate and no new helper is written.
 
-- **Both directions per row:** `everyPathCarries(element, "border-text-faint")` is true, and `carries(element, "border-border")` is false. The second is not redundant: an element with the token in only one ternary arm satisfies the first assertion's existential ancestor and fails only the universal form.
-- **`everyPathCarries` on the ORIGINAL 21 too**, not only the new 37. That is what makes §3.4's finding a repair rather than a note — `ResetPickerEpochButton.tsx:178` is currently green under `carries` and must go red under `everyPathCarries` until its non-compact branch moves.
-- **A negative control.** A constructed temp-dir fixture carrying `border border-border bg-surface` is found by the scan and FAILS the "does not carry" assertion; a second fixture carrying the token in one ternary arm only FAILS `everyPathCarries` while PASSING `carries`. The second fixture is the executable proof that the strengthening is not cosmetic. Each fixture case carries its own `premise(...)` — a fixture that fails to parse returns `[]` and makes the case vacuously true.
+**`everyPathCarries` is deliberately NOT used for this, and the reason is a probe.** An earlier draft of this spec proposed moving the per-row `carries(element, "border-text-faint")` to `everyPathCarries`. Probed against the live census, that formulation fails **two** of the original 21, and only one of them is a defect:
+
+| Row | `everyPathCarries` | Why |
+| --- | --- | --- |
+| `app/admin/show/[slug]/ResetPickerEpochButton.tsx:178` | false | the real defect of §3.4 — its non-compact branch is `border-border` |
+| `components/admin/Mi11GateActions.tsx:69` | false | **correct and must stay passing** — its `isApprove` branch is `bg-accent … text-accent-text` with **no border at all**, the accent-filled primary action that §1.2a rules OUT by name |
+
+A universal "every path carries the outline token" is therefore wrong for this population: a control may legitimately have a render path with no outline, and `Mi11GateActions.tsx:69` is that case shipped and ratified. The negation form has neither problem — it catches `:178` (whose second branch carries `border-border`) and passes `Mi11GateActions` (whose second branch carries no border token at all).
+
+- **Both directions per row:** `carries(element, "border-text-faint")` is true, and `carries(element, "border-border")` is false. The second is not redundant — it is the whole strengthening, and it is what makes §3.4's finding a repair rather than a note. `ResetPickerEpochButton.tsx:178` is green today and must go red until its non-compact branch moves.
+- **Applied to the ORIGINAL 21 as well as the new 37.** Probed: exactly one of the 21 fails it today (`:178`), and that failure is the intended repair. No other row regresses.
+- **A negative control.** A constructed temp-dir fixture carrying `border border-border bg-surface` is found by the scan and FAILS the new assertion. A second fixture carries `border-text-faint` in one ternary arm and `border-border` in the other — it PASSES the pre-existing `carries(…, "border-text-faint")` check and FAILS the new one, which is the executable proof that the strengthening is not cosmetic and is precisely the `:178` shape. A third fixture carries `border-text-faint` in one arm and NO border utility in the other — it must PASS, pinning that a legitimately outline-free branch (the `Mi11GateActions` shape) is not collateral. Each fixture case carries its own `premise(...)` — a fixture that fails to parse returns `[]` and makes the case vacuously true.
+- **`everyPathCarries` stays in the file, unused by the census loop and still used at `:163`** for the ShareHub adjacent-token pin, which is untouched (§3.5, §5.4).
 - **The divider exclusion is asserted, not merely documented.** The five class C elements are pinned as NOT members of the census, so a later arc cannot quietly add one.
 
 ### 5.3 What the suite must prove about itself
@@ -233,7 +243,7 @@ Each is a stated position with its number recorded, not an open gap.
 
 - **PROBE DOMAIN:** the live repository — `app/**` and `components/**` as walked by `scanInteractiveElements`, plus `app/globals.css` runtime tokens, `DESIGN.md`, `tests/styles/**`, `tests/mutation/source/registry.ts`, and `BACKLOG.md` (§6 requires a ledger change, so the ShareHub fence is only verifiable if the ledger is in domain). An admissible probe is drawn from that set or is one ordinary edit away from a file in it. A constructed fixture outside it files to §6, not to a finding.
 - **THREAT FENCE:** the pin defends against ONE thing — this arc's 37 swaps and the prior arc's 21 being reverted or **half**-reverted on one render path. It does NOT defend against a contributor adding a NEW control at `border-border`; `BL-CONTROL-OUTLINE-FORWARD-GUARD` owns that and §6 records why. Adversarial obfuscation of a className — computed strings, dynamic token construction — is OUT of scope and files to documented limits; `scanInteractiveElements` already reports `unresolved` for what it could not statically read, which is the surfaced-signal half of the bound.
-- **CONSEQUENCE BOUND:** every element in the 58-row census carries `border-text-faint` on every render path and `border-border` on none, and every sub-3:1 boundary surviving this arc is recorded in §6 with its measured ratio. Never silently between the two. This is a claim about this arc's change, not about the population.
+- **CONSEQUENCE BOUND:** every element in the 58-row census carries `border-text-faint`, carries `border-border` on no render path, and every sub-3:1 boundary surviving this arc is recorded in §6 with its measured ratio — correct or signaled, never silently wrong. This is a claim about this arc's change, not about the population.
 - **CONVERGENCE CRITERION:** the mutation score on `tests/styles/controlOutlineScan.ts` plus an empty unaccepted-survivor set (§5.5). A "the guard does not pin what it claims" finding is admissible only with the surviving mutant that demonstrates it — an operator and a site, both from the declared set.
 
 ---
@@ -272,8 +282,8 @@ Because no dimension relationship changes, the plan does **not** owe the real-br
 
 ## 10. Acceptance criteria
 
-- **AC-1** — All 37 census additions carry `border-text-faint` on every render path and `border-border` on none.
-- **AC-2** — The original 21 rows carry `border-text-faint` on every render path. `ResetPickerEpochButton.tsx:178`'s non-compact branch has moved.
+- **AC-1** — All 37 census additions carry `border-text-faint`, and `border-border` on no render path.
+- **AC-2** — No row of the original 21 carries `border-border` on any render path. `ResetPickerEpochButton.tsx:178`'s non-compact branch has moved; `Mi11GateActions.tsx:69` still passes, its outline-free accent branch untouched (§5.2).
 - **AC-3** — The five class C dividers still carry `border-border` and are pinned as non-members of the census.
 - **AC-4** — `tests/styles/_metaControlOutlineFill.test.ts:156-164` is unchanged and passes; ShareHub is unswapped and filed.
 - **AC-5** — The five switch-track paths, including `AutoRefreshControl.tsx:106`, are unchanged.
