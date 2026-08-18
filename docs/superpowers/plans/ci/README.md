@@ -15,3 +15,4 @@ Post-deployment (v1.X+) plans grouped by subsystem. See [`../README.md`](../READ
 | [`2026-08-15-changes-feed-modal-batch-flake.md`](./2026-08-15-changes-feed-modal-batch-flake.md) | 2026-08-15 |
 | [`2026-08-16-heavy-orphan-worker-lifetime.md`](./2026-08-16-heavy-orphan-worker-lifetime.md) | 2026-08-16 |
 | [`2026-08-16-modal-wait-boundary-helper-adoption.md`](./2026-08-16-modal-wait-boundary-helper-adoption.md) | 2026-08-16 |
+| [`2026-08-17-modal-wait-candidate-contract.md`](./2026-08-17-modal-wait-candidate-contract.md) | 2026-08-17 |

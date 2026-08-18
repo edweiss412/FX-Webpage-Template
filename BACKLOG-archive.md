@@ -1,3 +1,74 @@
+## BL-MODAL-WAIT-LINE-GRANULARITY-ACTIVATION — the modal-wait census classified one PHYSICAL LINE — CLOSED 2026-08-17 (`fix/modal-wait-candidate-contract`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-17 · **Effort (as shipped):** M · **Filed:** 2026-08-16 (`test/modal-wait-helper-adoption`, diff review round 10 plus a sibling probe)
+
+**Resolution.** Closed exactly as the entry prescribed: by changing the analysis UNIT, not by adding a grammar corner. `enumerateCandidates` now parses each population file with `ts.createSourceFile` and attributes every origin match to its nearest enclosing statement, so a candidate carries the WHOLE statement's text — nested callback bodies included — and `disposition.ts`'s activation-verb refusal sees the verb wherever formatting put it. Both probed members are closed by that one property: the split chain (`await page` / `.getByTestId(...)` / `.press("Enter")`) is one statement, and the hydration poll's `page.evaluate` body sits in the same candidate text as the testid on its argument line.
+
+**Shipped together with `BL-MODAL-WAIT-SITE-ASSOCIATED-COUNTS`, because they were one contract.** The site-association repair is unbuildable on the line unit — 4 of the 12 live Shape-N calls carry their `label:` on a different physical line than the call — so row 1 structurally required row 2.
+
+**Two things the entry could not have known, recorded rather than left implicit.**
+
+1. **The premise "trivia has no enclosing statement" is FALSE, and a raw-text statement census would have been a regression.** Spec review R2 refuted it by probe: a comment position sits INSIDE the enclosing statement's span, and `getText()` includes interior comments, so commenting out a live activation would have left the site silently certified at all nine current-corpus instances of the class. The shipped mechanism is strip-before-match — origin regexes run over comment-blanked bytes, which preserve length and offsets — so a comment can produce no candidate whatever statement spans it. The five per-origin prose rules the line unit needed are retired as a consequence, not as a convenience.
+
+2. **The unit change made the recognizer SMALLER, which is why it holds.** `d/reference-not-activation`'s one wide arm (`dataOnly`: a line that calls nothing on the page at all) is GONE — it existed to catch chain continuations, evaluate arguments and tuple elements, all of which are now interior lines of a statement that an enumerated arm claims as a whole. That arm was where this row's limit lived. The producer's own attribution rules were narrowed the same way under mutation-gate pressure: the module-block, switch-clause and unbraced-control-flow arms of `isStatementLike` were dead on the corpus and were deleted, and their absence is conservative — a match in one of those positions attributes to a LARGER statement, so every refusal gate sees strictly more.
+
+**What ships as the guard.** Ten premise proofs in a new sibling suite (`tests/ci/_metaModalWaitCandidateV2.test.ts`), each pinning one probed defect on a constructed two-tree fixture: the split chain and the evaluate body are `undisposed`, the un-mutated poll is still claimed (so the refusal discriminates rather than blanket-failing), a comment-out drops the candidate and REDS the member count, and the container/call discrimination holds with `ambiguous === []`. Both surfaces are enrolled in the source-mutation registry — `modal-wait-helper-scan` at 95/97 with two accepted-equivalent rows, `modal-wait-disposition` newly enrolled at 67/67 with an empty ledger.
+
+**What deliberately did NOT ship, each with its cost stated.** Cross-STATEMENT split activation (a binding plus a later `trigger.click()`) still needs its declared per-site member rule — no unit change makes the second statement visible from the first. Cross-FUNCTION activation through a project helper is out of fence. Both fall to `undisposed` rather than to silent certification.
+
+**Spec:** `docs/superpowers/specs/ci/2026-08-17-modal-wait-candidate-contract-design.md` (spec-APPROVED R3, zero findings). **Plan:** `docs/superpowers/plans/ci/2026-08-17-modal-wait-candidate-contract.md` (plan-APPROVED R4). **Round corpus:** `docs/review-rounds/fix/modal-wait-candidate-contract/`.
+
+**The original filing, preserved.**
+
+**BL-MODAL-WAIT-LINE-GRANULARITY-ACTIVATION — the modal-wait census classifies one PHYSICAL LINE, so an activation whose verb lands on another line is silently excluded**
+
+**Severity:** LOW (a misclassified site is left unadopted, and it still FAILS under the fault it would have named) · **Class:** e2e guard precision · **Effort:** M · **Filed:** 2026-08-16 (`test/modal-wait-helper-adoption`, from that arc's diff review round 10 plus a sibling probe run in the same session) · **Class-sweep exception:** (c) — the repair is a change of the analysis UNIT (classify the statement, not the line), a redesign of the candidate producer rather than a fix to the filing arc's surface. · **Reachability:** PROBED — both members demonstrated against the shipped guard, neither inferred.
+
+`tests/ci/modalWaitHelper/scan.ts` gives each candidate the ONE line its testid appears on, so `disposition.ts`'s origin-(d) rules can only ever answer "does THIS LINE activate". Any activation whose verb lands on a different line than the testid is invisible. Two members, both probed against the shipped guard:
+
+- **Chained call split by ordinary formatting.** Rewrite `admin-layout-dimensions.spec.ts:260` in the multiline style the corpus already uses eleven lines later at `:300` — `await page` / `.getByTestId(...)` / `.press("Enter")` — and the candidate line is the middle one. Shipped output: `matchedRules: ["d/reference-not-activation"], undisposed: 0, ambiguous: 0, ruleCountDrift: []`. The exact activation the round-9 narrowing was built to reject is certified by reformatting alone.
+- **In-page activation inside a `page.evaluate` body.** The corpus holds four hydration polls whose testid sits on the evaluate's ARGUMENT line (`}, \`shows-table-row-${slug}\`),`). Replace such a body's read with `(el as HTMLElement).click()`— probed at`published-review-modal.realtime.spec.ts:96-103` — and the suite stays 24/24 green while the line activates the row link.
+
+**Cost of leaving it:** the misclassified site is simply not adopted, so under the gateway-502 class it fails as a generic locator timeout rather than naming the boundary and the `show_review_snapshot_failed` signature — outcome (c) of the consequence bound degrading from "fails loudly" to "fails". Identical in kind to `BL-MODAL-WAIT-SITE-ASSOCIATED-COUNTS`. No silent pass, and no effect on shipped product code: this guard governs test-infra adoption only.
+
+**Why it was declined at filing time rather than repaired:** looking past the candidate's own line is multi-line analysis. The filing arc had already spent counted rounds 3-5 adding one grammar corner per round on precisely this axis, and AGENTS.md's repair-direction rule says a recognizer in that state is repaired by narrowing or a documented limit, never by growth — each widening being a bigger target for the next round. A "check the next line too" arm is the third corner, and it would fall to the fourth spelling. The finding also carried no surviving mutant from the surface's declared operator set, which is this surface's stated convergence criterion.
+
+**What a repair needs:** change the UNIT rather than add a corner — build candidates from TypeScript statements (the parser is already a dependency, `tests/mutation/source/operators.ts` uses it) so `enumerateCandidates` hands the disposition a whole statement and the existing activation-verb refusal covers both members at once, the way counted round 5's stripped-line repair subsumed every comment spelling. That changes the candidate contract, every count in `disposition.ts`, and the mutation ledger, so it wants its own spec. **Re-open trigger:** a member site actually misclassified in review or in CI, or any further work on this guard's candidate producer.
+
+---
+
+## BL-MODAL-WAIT-SITE-ASSOCIATED-COUNTS — the modal-wait guard counted adopted waits in aggregate — CLOSED 2026-08-17 (`fix/modal-wait-candidate-contract`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-17 · **Effort (as shipped):** M · **Filed:** 2026-08-16 (`test/modal-wait-helper-adoption`, diff review round 8)
+
+**Resolution.** Closed by a DECLARED association, which is what the entry proposed, plus one thing it did not: the scope key. `disposition.ts` now exports `N_WAIT_SITES`, a table of every `awaitReviewModalOrRecover` call as a `(file, scopeTitle, labelSource)` triple with prose naming the open site it protects, and `reconcileNWaitSites` matches the corpus against it as a MULTISET. `f/member-shape-N`'s `expectedCount` is `N_WAIT_SITES.length`, derived rather than retyped, so the registry and the §4.2 arithmetic cannot disagree.
+
+**The label SET alone would not have closed it, and the entry's own probe is why.** A verbatim cut-paste move carries its label with it, so the set — like the count — is invariant under exactly the defect filed. The enclosing test/describe title is the property a wait CANNOT carry when it is cut from one test and pasted into another. Cut the wait from the Enter-open's test and paste it beside the already-protected click, and the census now reds naming BOTH ends (the declared triple missing, the observed triple unexpected) with the count still reading 12.
+
+**It cost zero corpus renames.** `"click:dashboard-row"` recurs in three FILES and never twice within one scope, so scope-local uniqueness was already true of the tree; all 12 calls already carried an extractable label; and the shipped diff edits no e2e spec at all.
+
+**What the registry IS, stated so a later reader does not mistake it for verification.** A claim an author wrote down, checked for consistency — the invariant-12 posture. The census verifies that the labels and scopes the corpus HOLDS are the ones declared; it never infers which open a wait really protects, because following a wait back through wrappers, loops and `release()` gates is the control-flow analysis this entry declined at filing. A row that LIES passes. What the registry buys is reviewability: the label sits in the diff beside the site it claims.
+
+**Documented limits shipped with it, both narrower than the gap that was open.** Within-scope PLACEMENT is invisible — a wait moved BELOW the assertions it protects, inside its own declared scope, keeps its triple (spec-review R1 probe). Verifying position means classifying downstream assertions, the same declined analysis; the cost is the entry's own original cost, now narrowed from "any move anywhere" to "a placement change inside the wait's own declared scope", and it is degraded-but-LOUD, never a silent pass. Wrapper-mediated association (reopen's one wait for four clicks) is declared in `protects` prose and not machine-checked.
+
+**Spec:** `docs/superpowers/specs/ci/2026-08-17-modal-wait-candidate-contract-design.md` (spec-APPROVED R3). **Plan:** `docs/superpowers/plans/ci/2026-08-17-modal-wait-candidate-contract.md` (plan-APPROVED R4). **Round corpus:** `docs/review-rounds/fix/modal-wait-candidate-contract/`.
+
+**The original filing, preserved.**
+
+**BL-MODAL-WAIT-SITE-ASSOCIATED-COUNTS — the modal-wait guard counts adopted waits in aggregate, so MOVING one orphans a site silently**
+
+**Severity:** LOW (one ordinary edit away, and the orphaned site still FAILS — it just fails generically) · **Class:** e2e guard precision · **Effort:** M · **Filed:** 2026-08-16 (`test/modal-wait-helper-adoption`, from that arc's diff review round 8) · **Class-sweep exception:** (c) — the repair is control-flow analysis over the spec corpus, a redesign of the guard's model rather than a fix to the filing arc's surface. · **Reachability:** PROBED — demonstrated on live corpus lines, not inferred.
+
+`tests/ci/modalWaitHelper/scan.ts` origin (f) counts helper calls per §4.2 shape (30 G / 9 U / 12 N) and `tests/ci/modalWaitHelper/disposition.ts` pins those counts, which is what catches a DELETED wait. It does not know WHICH open site each wait protects, so a MOVED wait is invisible: cut the wait after the Enter-open at `published-review-modal.interactions.spec.ts:244-268` and paste it beside the already-protected click at `:355-362`, and the count still reads 12 with `undisposed=0 ambiguous=0 drift=[]` while one member is orphaned.
+
+**Cost of leaving it:** the orphaned site still fails under the gateway-502 class — it just fails as a generic locator timeout on the following `MODAL_ANY` count, without the `infra-recovery` annotation, the boundary, or the `show_review_snapshot_failed` hint. So the consequence bound's outcome (c) degrades from "fails loudly, naming the signature" to "fails". No silent pass.
+
+**Why it was declined at filing time rather than repaired:** associating a wait with the site it protects means deciding which open a given `await` follows — across a local wrapper, a loop, or a gate's `release()`. That is control-flow analysis, and the filing arc had already spent rounds 3-5 adding one comment-or-activation grammar corner per round on this same axis. AGENTS.md's repair-direction rule is explicit that a recognizer under same-axis recurrence is repaired by narrowing or a documented limit, never by growth. The finding also carried no surviving mutant from the surface's declared operator set, which was the stated convergence criterion, and was graded NEEDS-ATTENTION rather than BLOCKING.
+
+**What a repair needs:** a model of "this wait belongs to that open", most plausibly by requiring each Shape-N member site to carry an explicit `label` naming its site and asserting the label set rather than the count — cheaper than control-flow analysis and self-evidencing, but it changes every Shape-N call site and wants its own spec. **Re-open trigger:** a member site actually orphaned in review or in CI, or any further guard work on this surface.
+
+---
+
 ## BL-SURFACE-DISCOVERY-UNNAMEABLE-ACTION-FORMS — the invariant-10 engine misses Server Action forms Next registers — CLOSED 2026-08-17 (`fix/surface-discovery-unnameable-forms`, SHIPPED)
 
 **Status:** SHIPPED 2026-08-17 · **Effort (as shipped):** M · **Filed:** 2026-08-16 (`fix/server-action-origin-sweep`, diff review round-1 finding) · **Reachability:** PROBED at filing (four forms reproduced against the committed engine), and every repaired form is pinned by a fixture on both sides.
@@ -15,6 +86,8 @@
 **A siteId is a line number, and this arc learned it the expensive way.** A green gate report taken before an edit is not evidence after one: the round-1 repair shifted a site by one line and the ledger kept citing 433 while the enumerator generated 434. The gate says so in both directions at once (`unaccepted-survivor` for the real site, `stale-ledger-row` for the citation), and every siteId is now re-derived from a run against the current source.
 
 **Spec:** `docs/superpowers/specs/2026-08-17-surface-discovery-unnameable-forms-design.md`. **Plan:** `docs/superpowers/plans/2026-08-17-surface-discovery-unnameable-forms.md`. **Round corpus:** `docs/review-rounds/fix/surface-discovery-unnameable-forms/`.
+
+---
 
 ## BL-MUTATION-CHILD-LIFETIME-PARENT-DEATH — the mutation harness bounds a child only while its parent lives — CLOSED 2026-08-17 (`fix/mutation-child-lifetime`, SHIPPED)
 

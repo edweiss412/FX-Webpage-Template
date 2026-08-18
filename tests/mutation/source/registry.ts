@@ -360,7 +360,14 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // start, so enrolment is a registry row rather than a restructuring.
     id: "modal-wait-helper-scan",
     sourcePath: "tests/ci/modalWaitHelper/scan.ts",
-    suitePaths: ["tests/ci/_metaModalWaitHelper.test.ts"],
+    // TWO deciding suites since the candidate-contract v2 arc (2026-08-17): the
+    // corpus suite, and the premise proofs, whose constructed fixtures are the
+    // only place the statement unit's discrimination is exercised on input the
+    // live tree does not happen to hold.
+    suitePaths: [
+      "tests/ci/_metaModalWaitHelper.test.ts",
+      "tests/ci/_metaModalWaitCandidateV2.test.ts",
+    ],
     // All six declared families. A narrowed subset is a CLAIM about which
     // mutations cannot escape, and this surface has no evidence for one. That
     // is emphatically NOT a claim all six are exercised here: the gate checks
@@ -386,8 +393,22 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // Making the scan comment-aware then grew the surface to 61 sites; every
       // one of the four new sites is killed, so the score is 59/61 = 0.9672 with
       // these same two rows, and it has stayed those two through every later
-      // revision: 59/61, 60/62, and 58/60 at HEAD. A THIRD row here is a gap to
-      // repay, not a number to bump.
+      // revision: 59/61, 60/62, 58/60, and 121/123 after the candidate-contract
+      // v2 rewrite (2026-08-17). A THIRD row here is a gap to repay, not a
+      // number to bump.
+      //
+      // v2 held that line the hard way. The statement machinery's first run
+      // reported 28 unaccepted survivors at 95/123 = 0.7724, and every one was
+      // repaid rather than blessed: twelve by NARROWING the surface (the
+      // module-block, switch-clause and unbraced-control-flow arms of
+      // `isStatementLike`, the redundant SourceFile guard in the climb, and an
+      // import-declaration check the origin pattern's own call paren already
+      // made unreachable), five by deleting hand-rolled arithmetic in favour of
+      // the TypeScript APIs that define it (`getPositionOfLineAndCharacter`,
+      // `textSpanContainsPosition`, one prefix alternation instead of a
+      // min-of-indexes), and the rest by cases in the v2 premise suite pinning
+      // the column-0 and statement-start attribution edges, the scope-callee
+      // discrimination, and the quoted-label-key limit.
       //
       // NOTE FOR THE NEXT EDITOR OF scan.ts: a siteId is
       // `operator:LINE:column:from>to`, so ANY edit to that file relocates these
@@ -396,18 +417,51 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // update both ids in the SAME commit as the source change — the ledger is
       // a measurement of one revision, not a standing claim.
       {
-        siteId: "statement-removal:189:9:continue;>(removed)",
+        siteId: "statement-removal:250:9:continue;>(removed)",
         kind: "equivalent",
         reason:
           "Drops the `continue` after `visit(child)` in walkSourceFiles, so a DIRECTORY falls through to the `child.endsWith('.ts') || child.endsWith('.tsx')` test below it. No directory in app/ or components/ ends in .ts or .tsx, so the extra test is always false and the walk's output is identical. Observable only for a directory literally named `*.ts`, which the tree does not contain.",
       },
       {
-        siteId: "integer-literal:384:83:0>1",
+        siteId: "integer-literal:640:83:0>1",
         kind: "equivalent",
         reason:
           "Changes the `?? 0` fallback in classifyCandidates' count increment to `?? 1`. The branch is unreachable: countsByRule is pre-seeded with a 0 entry for EVERY rule at construction (`new Map(rules.map((rule) => [rule.id, 0]))`), so `countsByRule.get(hit.id)` never returns undefined and the nullish fallback never evaluates.",
       },
     ],
+  },
+  {
+    // The modal-wait census's AUTHORED half (2026-08-17 candidate-contract v2
+    // §4.5). Enrolled once the v2 rewrite made it more than a literal table: it
+    // now carries the statement-level refusal gates, the match-line
+    // discriminations, and `reconcileNWaitSites`, all of which are logic a
+    // survivor can hide in. Registry-expressible shape by construction — an
+    // importable module whose two referring suites already exist.
+    id: "modal-wait-disposition",
+    sourcePath: "tests/ci/modalWaitHelper/disposition.ts",
+    suitePaths: [
+      "tests/ci/_metaModalWaitHelper.test.ts",
+      "tests/ci/_metaModalWaitCandidateV2.test.ts",
+    ],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.95,
+    // Drops the NEGATION from the in-page-evaluate refusal, so the rule claims
+    // exactly the activating bodies it exists to refuse and releases the reads it
+    // exists to claim. Both deciding suites notice: the corpus's ten evaluate
+    // reads fall through to `d/reference-not-activation` and drift both counts,
+    // and the premise suite's paired poll case loses its claim.
+    //
+    // The FIRST control tried here was narrowing `isTestTitle` from
+    // `(?:test|describe)` to `(?:test)`, and the gate REFUTED it: the corpus
+    // spells every block `test.describe(`, which `(?:\.\w+)*` still matches, so
+    // the "control" was itself an equivalent mutant and the AC-3 case failed
+    // exactly as designed. Recorded because a control that cannot fail is the
+    // one defect that case exists to catch.
+    control: {
+      from: "/\\.evaluate\\(/.test(candidate.text) && !ACTIVATION_VERB.test(candidate.text)",
+      to: "/\\.evaluate\\(/.test(candidate.text) && ACTIVATION_VERB.test(candidate.text)",
+    },
+    accepted: [],
   },
   {
     // The citation-intent classifier (2026-08-15 arms spec §3, §7). Its three

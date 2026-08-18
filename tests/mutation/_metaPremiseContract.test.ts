@@ -276,6 +276,11 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // `process.cwd()` is not `process.env`, and node:fs is deliberately not
   // provenance.
   "tests/ci/_metaModalWaitHelper.test.ts": 0,
+  // The candidate-contract v2 premise proofs (2026-08-17), the scan surface's
+  // SECOND deciding suite. Same reading and the same 0: every fixture is a
+  // two-tree repo built under mkdtempSync in the test body and driven through
+  // the imported producer and rules.
+  "tests/ci/_metaModalWaitCandidateV2.test.ts": 0,
   // The serializeError contract suite, enrolled 2026-08-16
   // (fix/serialize-error-structure). 0, and honestly so: every case builds its
   // fixture in the test body and drives it through the imported helper, so the

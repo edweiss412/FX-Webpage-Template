@@ -28,11 +28,16 @@ import {
   MODAL_ROUTE_PATTERN,
   classifyCandidates,
   enumerateCandidates,
+  observedNWaitSites,
   productOpenSurfaces,
   scanForViolations,
   type Candidate,
 } from "./modalWaitHelper/scan";
-import { DISPOSITION_RULES } from "./modalWaitHelper/disposition";
+import {
+  DISPOSITION_RULES,
+  N_WAIT_SITES,
+  reconcileNWaitSites,
+} from "./modalWaitHelper/disposition";
 
 const REPO_ROOT = process.cwd();
 
@@ -346,9 +351,13 @@ describe("modal-wait guard — the live corpus", () => {
       origin: "a-route-literal",
       file: "tests/e2e/two-rules.spec.ts",
       line: 1,
+      endLine: 1,
       text: "await page.goto(`/admin?show=${slug}`);",
+      matchLine: 1,
+      matchLineText: "await page.goto(`/admin?show=${slug}`);",
+      scopeTitle: null,
       exemptReason: null,
-      isComment: false,
+      nWaitCalls: [],
     };
     const always = { origin: "a-route-literal" as const, expectedCount: 1, match: () => true };
     const result = classifyCandidates(
@@ -426,7 +435,10 @@ describe("modal-wait census — total disposition (AC-2b)", () => {
     const byId = new Map(DISPOSITION_RULES.map((r) => [r.id, r.expectedCount]));
     expect(byId.get("f/member-shape-G")).toBe(30);
     expect(byId.get("f/member-shape-U")).toBe(9);
-    expect(byId.get("f/member-shape-N")).toBe(12);
+    // DERIVED, never retyped: the N count is `N_WAIT_SITES.length`, so the
+    // registry and the arithmetic cannot disagree about how many waits exist.
+    expect(byId.get("f/member-shape-N")).toBe(N_WAIT_SITES.length);
+    expect(N_WAIT_SITES).toHaveLength(12);
     const adopted =
       (byId.get("f/member-shape-G") ?? 0) +
       (byId.get("f/member-shape-U") ?? 0) +
@@ -440,12 +452,69 @@ describe("modal-wait census — total disposition (AC-2b)", () => {
       origin: "a-route-literal",
       file: "tests/e2e/nobody-decided.spec.ts",
       line: 1,
+      endLine: 1,
       text: "await somethingNew(page, `/admin?show=${slug}`);",
+      matchLine: 1,
+      matchLineText: "await somethingNew(page, `/admin?show=${slug}`);",
+      scopeTitle: null,
       exemptReason: null,
-      isComment: false,
+      nWaitCalls: [],
     };
     const result = classifyCandidates([orphan], DISPOSITION_RULES);
     expect(result.undisposed).toHaveLength(1);
+  });
+
+  test("every N-wait the corpus holds is the one N_WAIT_SITES declares, at its declared scope", () => {
+    // Replaces the bare `f/member-shape-N` count. The count is invariant under
+    // the defect BL-MODAL-WAIT-SITE-ASSOCIATED-COUNTS filed — cut a wait out of
+    // the test whose open it protects and paste it beside an already-protected
+    // click, and 12 is still 12. Keying on the enclosing scope is what sees it,
+    // and it fails naming BOTH ends rather than reporting `12 ≠ 11`.
+    const observed = observedNWaitSites(candidates);
+    premise("the corpus produced N-wait calls to reconcile", observed.length, 1);
+    const result = reconcileNWaitSites(observed, N_WAIT_SITES);
+
+    expect(
+      result.unextractable,
+      "an awaitReviewModalOrRecover call with no resolvable `label:` — the census refuses to " +
+        "certify a wait it cannot identify; add a label to the call",
+    ).toEqual([]);
+    expect(
+      result.missing,
+      "declared in N_WAIT_SITES and NOT found at that (file, scope): the wait was deleted, or " +
+        "moved out of the scope whose open it protects",
+    ).toEqual([]);
+    expect(
+      result.unexpected,
+      "found in the corpus and declared by nobody: add its row to N_WAIT_SITES naming the open " +
+        "site it protects, or move the wait back",
+    ).toEqual([]);
+    expect(
+      result.duplicateInScope,
+      "one label used twice inside a single (file, scope), so the two waits are not " +
+        "distinguishable; cross-FILE and cross-SCOPE repetition stays legal",
+    ).toEqual([]);
+  });
+
+  test("the registry's own shape holds: labels are scope-unique and every row says what it protects", () => {
+    // The declaration half of the invariant-12 posture — a row that declares
+    // nothing useful is not a declaration. Scope-local uniqueness is asserted
+    // over the DECLARED rows too, so a duplicate cannot be introduced here and
+    // then matched by two identical observations.
+    const keys = N_WAIT_SITES.map((site) => `${site.file} :: ${site.scopeTitle ?? "(module)"}`);
+    const perScope = new Map<string, string[]>();
+    keys.forEach((key, index) => {
+      perScope.set(key, [...(perScope.get(key) ?? []), N_WAIT_SITES[index]?.labelSource ?? ""]);
+    });
+    for (const [key, labels] of perScope) {
+      expect(new Set(labels).size, `${key}: labels must be unique within one scope`).toBe(
+        labels.length,
+      );
+    }
+    for (const site of N_WAIT_SITES) {
+      expect(site.labelSource.length, `${site.file}: labelSource`).toBeGreaterThan(2);
+      expect(site.protects.length, `${site.file}: protects`).toBeGreaterThan(20);
+    }
   });
 
   test("a subset assertion would be vacuous here, which is why totality is the contract", () => {
