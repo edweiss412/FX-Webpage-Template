@@ -272,10 +272,13 @@ export function runFixtureSplice(
               failureMessages: rows.flatMap((a) =>
                 Array.isArray(a.failureMessages) ? a.failureMessages.map(String) : [],
               ),
-              // Task 6 forwards the file-level channel; Task 5 carries the
-              // assertion channel alone, which is exactly the gap fixture spec
-              // §2.9 measured.
-              fileMessage: "",
+              // BOTH channels. A premise at module scope throws during
+              // collection, so the file registers no test case and its message
+              // arrives here and nowhere else (fixture spec §2.9). Forwarding
+              // only the assertion channel loses the live corpus instance at
+              // docs/superpowers/plans/2026-08-04-guard-premise-reachability.md:1174
+              // while every pure test in Task 4 still passes.
+              fileMessage: String(tr.message ?? ""),
             });
           }
         } catch {
@@ -520,13 +523,15 @@ const isEntry = (() => {
   }
 })();
 
-if (isEntry) {
-  const root = execFileSync("git", ["rev-parse", "--show-toplevel"], {
-    cwd: process.cwd(),
-    encoding: "utf8",
-  }).trim();
+/**
+ * The SHIPPED deps, factored out of the entry block so a suite exercising the
+ * real filesystem and a real vitest child drives this object rather than a
+ * copy of it. `pid` is the only parameter a test varies, and it is a parameter
+ * precisely so the §4.2 collision refusal is reachable at all.
+ */
+export function nodeDeps(root: string, pid: number): CliDeps {
   const inRepo = (relPath: string) => join(root, relPath);
-  const deps: CliDeps = {
+  return {
     cwd: () => process.cwd(),
     repoRoot: () => root,
     pid: () => process.pid,
@@ -573,7 +578,14 @@ if (isEntry) {
       };
     },
   };
-  const r = runCli(process.argv.slice(2), deps);
+}
+
+if (isEntry) {
+  const root = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  }).trim();
+  const r = runCli(process.argv.slice(2), nodeDeps(root, process.pid));
   if (r.stdout) process.stdout.write(r.stdout);
   if (r.stderr) process.stderr.write(r.stderr + "\n");
   // NOT process.exit(): stdout.write is ASYNC on a pipe, so exiting on the next
