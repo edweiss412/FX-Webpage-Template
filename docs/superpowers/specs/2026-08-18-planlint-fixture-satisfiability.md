@@ -23,7 +23,7 @@ Extends `pnpm spec:lint` (`scripts/spec-lint.ts`, core under `lib/specLint/`; go
 7. **Execution rides `--exec-red`; no new flag.** The arms spec §1.1 item 4 ratified "execution mode is opt-in per invocation" and the verdict spec §1.1 item 4 extended that flag to derived collection probes on the same reasoning. Renaming it is a separate change and is out of scope.
 8. **This arm executes first-party TypeScript that a plan author wrote, unsandboxed, deliberately.** `spec:lint` is a local pre-dispatch tool; the corpus is tracked, review-gated, first-party plan text; the author running `--exec-red` is the author of the block. `--exec-red` already runs arbitrary shell through `sh -c` (arms spec §1.1 item 5), which is strictly more. Sandboxing is out of scope and files to documented limits (§8).
 9. **Static arm checks the MARKER only.** Marker well-formedness, attachment to an opening fence, and a non-empty `why=` are checked on the default invocation. Whether the block imports vitest, declares tests, compiles, or resolves its imports is settled by EXECUTION or not at all: a static "does this look like a vitest file" check is a body recognizer that grows one grammar corner per round, and execution answers the same question with an observation.
-10. **Decline-to-classify beats grammar growth.** Every case the arm cannot settle — a non-sentinel failure, an empty collection, a skipped assertion, a failed file, a missing report — draws ONE advisory, `FIXTURE_PROBE_UNVERIFIED`, naming the reason. Per-shape hard codes are what rounds 1 through 4 kept relitigating (item 1).
+10. **Decline-to-classify beats grammar growth, and declining now mostly means SAYING NOTHING.** The arm never invents a per-shape hard code for a shape it cannot classify; that is what rounds 1 through 4 kept relitigating (item 1). Since round 5 the decline is silence for everything except one case: `FIXTURE_PROBE_UNVERIFIED` is reserved for a block that demonstrably did not run and carries no sentinel. A non-sentinel failure, a skipped assertion, a failed file, and a no-op body all draw NOTHING — they are limits (§8), not declines to be reported.
 11. **Threat model: accidental authoring mistakes by an ordinary contributor.** A block engineered to emit the premise sentinel from an ordinary assertion, a block with deliberate side effects, a block whose behavior depends on invocation order — adversarial obfuscation, out of scope, filing to documented limits (§8).
 12. **Probe domain (finite, enumerable).** The live tracked plan corpus: `git ls-files 'docs/superpowers/plans'`, `.md` only — **659** files (§2.1). An admissible probe input is drawn from that corpus or is one ordinary edit away from an input in it.
 13. **Consequence bound (convergence criterion).** Every ENROLLED block draws exactly one outcome from §4.3's closed claim set, and every claim the arm makes is true: an observed premise failure is reported, a block that did not run is surfaced, and no block is ever certified. Handled correctly OR signaled, never silently wrong — where "wrong" means an assertion the arm makes that the report does not support, since the arm asserting nothing about a block cannot be wrong about it. A surfaced advisory, or silence where the arm has no claim, is a DOCUMENTED LIMIT (§8), not a finding. Mechanical convergence for the changed module is the mutation score plus an empty unaccepted-survivor set (§7).
@@ -65,7 +65,7 @@ The 627 is the population this contract is available to, not one it fires on. No
 | CLI `--include` against the repo config, with and without `--project serial` | no report written, exit 1 — does not work with this repo's `projects` config | — |
 | three spliced files in ONE run, per-file results keyed by filename | 5 tests, exit 1 | 0.94 s |
 
-The first row is why an empty collection can never read as clean: a file the runner never collects exits **0**. It is the same shape the verdict spec closed for `red=` commands (its §2.3), one layer up.
+The first row is why an empty collection can never read as clean: a file the runner never collects exits **0**. It is the same shape the verdict spec closed for `red=` commands (its §2.3), one layer up. It is equally not proof of the opposite — §2.9 measures an empty collection that DID run — so emptiness alone settles nothing in either direction.
 
 ### 2.4 The discrimination, re-enacted against the live tree
 
@@ -82,7 +82,7 @@ The historical defect, both shapes, run as spliced blocks (fixture text from `do
 
 The merged three-column header satisfies the premise; the r4 header fails it with the sentinel; an ordinary wrong-value assertion fails without it.
 
-**Non-observation shapes, one signature.** An unresolvable import, a transform (syntax) error, and a file declaring no tests each report `status: "failed"` with an **empty `assertionResults`** array and a file-level `message`:
+**Three non-observation shapes, one signature — which §2.9 later shows is NOT sufficient on its own.** An unresolvable import, a transform (syntax) error, and a file declaring no tests each report `status: "failed"` with an **empty `assertionResults`** array and a file-level `message`:
 
 ```
 FILE (unresolvable import) status failed assertions 0 | msg: Cannot find package '@/lib/does/not/exist' ...
@@ -91,6 +91,8 @@ FILE (no tests declared)   status failed assertions 0 | msg: No test suite found
 ```
 
 **Transpile-only, confirmed:** importing a nonexistent NAMED export from a real module is not an error — it resolves to `undefined` and surfaces as an ordinary assertion failure. Hence §1.2's typecheck bullet.
+
+**The signature is shared, so it does not decide anything by itself.** §2.9 measures a FOURTH shape with the same fingerprint — empty `assertionResults`, `failed` file status, a file-level message — that is a genuine observation rather than a non-observation: a premise that failed during collection. The three shapes above and that one are told apart by the message CONTENT, not by the empty array, which is why §4.3 reads the sentinel first and over both channels. Any reasoning that treats an empty entry list as proof of non-execution is stale by exactly this measurement.
 
 ### 2.5 A reported assertion is not an executed one
 

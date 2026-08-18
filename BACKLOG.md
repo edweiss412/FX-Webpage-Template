@@ -1368,6 +1368,16 @@ So the draft cannot be checked until the freeze lifts and it is copied in, which
 
 **Work:** a CI or pre-dispatch step that executes every `docs/superpowers/specs/**/probes/*.ts` entrypoint and fails on a non-zero exit. Cheap because the set is small and the probes are self-contained by construction. Open question the implementing arc settles: whether a probe that needs a live DB or a network fixture declares itself skippable in a header line, or is moved out of the executed set.
 
+## BL-REVIEW-BRIEF-BOUND-DRIFT — a repair narrows the artifact and the brief keeps scoring the old claim
+
+**Status:** OPEN. · **Filed:** 2026-08-18, from the arc-D spec review train (`docs/review-rounds/fix/planlint-fixture-satisfiability/7d09a1f0ba41.md`, spec §) · **Severity:** MEDIUM (buys review rounds against a claim the artifact no longer makes; the findings are real against the brief and absent from the spec, so they cannot be refuted, only re-derived) · **Class:** review-round reduction (process) · **Effort:** S
+
+**Probed, not theorized.** Arc D's spec narrowed twice under the repair-direction rule — round 4 deleted the `expect=` field, round 5 deleted the clean-observation branch — while bullet 1 of its review brief still read "Every ENROLLED block is passed clean … or declined with a surfaced `FIXTURE_PROBE_UNVERIFIED`", the pre-narrowing bound. A reviewer scores each round against the brief, so rounds 5 and 6 were judged against a WIDER claim the spec had stopped making. Both returned real findings against that wider claim; the orchestrator's ruling records the drift as the arc's one mechanizable cause and the reason "six rounds on one axis" understates how much of the count was self-inflicted.
+
+The asymmetry is what makes it worth scheduling: a stale bound cannot be refuted by reading the spec, because the finding IS correct about the text the reviewer was handed. Only the brief's author can see the gap, and only if they think to look.
+
+**Work:** make the brief's bound part of the repair commit rather than a later tidy-up. The cheap mechanical form is a diff-time check: a commit touching a spec's ratified bound section (the `§1.1` consequence-bound item) must also touch the bound bullet of any brief under `_briefs/` that targets that spec, or carry an explicit note saying why not. `_briefs/` is untracked per-machine scratch today, so the check either moves briefs into the repo or keys off the dispatch record in `docs/review-rounds/<branch>/<baseSha12>.jsonl`, which does track every dispatch and its stage — deciding which is the implementing arc's call.
+
 ## BL-PLANLINT-CONSTRUCTED-FIXTURE-SATISFIABILITY — a plan-embedded fixture snippet is asserted against, never executed
 
 **Status:** IN PROGRESS · **Branch:** fix/planlint-fixture-satisfiability · **Filed:** 2026-08-16, from the review-round filing `docs/review-rounds/feat/mutation-section-order/40a7adfa5f29.md` (plan §, its single candidate) · **Severity:** LOW (review-round cost; no product surface) · **Class:** review-round reduction (tooling) · **Effort:** M
