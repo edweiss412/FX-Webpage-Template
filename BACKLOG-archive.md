@@ -1,3 +1,40 @@
+## BL-SPECLINT-ENUMERATED-UNIVERSAL-PARITY — a spec asserting a universal over an enumerated population owes the command that enumerates it — CLOSED 2026-08-18 (`fix/speclint-prose-consistency-arms`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-18 · **Effort (as shipped):** M · **Severity (as filed):** medium · **Class:** spec-lint arm · **Filed:** 2026-08-16, from `docs/review-rounds/fix/control-outline-surface-fills/119895a7c756.md` (spec §, Mechanizable) · **Reachability:** PROBED at filing — three live escapes in the originating filing (R1 F3, R1 F4, R3 F3), plus R2 F2 one level down.
+
+A spec:lint arm that flags a quantified claim over a population the same document enumerates, when no probe command sits with it. `NUMERIC_NOUN_MISMATCH` does not reach this class because the quantified noun is a CLASS TOKEN, not a number.
+
+**Shipped as the advisory `ENUMERATED_UNIVERSAL_NO_PROBE`** in a new pure module `lib/specLint/universals.ts`, with the gate stack ratified in `docs/superpowers/specs/2026-08-17-speclint-prose-consistency-arms.md` §3.2. It fires on E1 at its defective revision (`cc7942d4e:181`) and stays silent on the corrected current-main form.
+
+**The entry's own suggestion was tested and NOT adopted whole.** The row proposed that the useful output "may be `this universal restates a measurement stated elsewhere` rather than `this universal has no probe`". Both conditions ship, ANDed: the cardinal must appear in another section AND the claim's section must carry no probe command. The restatement half alone was measured at draft time and is the flood the spec's §1.1 rejects — the universal+class-token form without a cardinal hit 8,652 raw / 4,677 gated, about ten per document.
+
+**Truth is never evaluated,** and that is the ratified scope rather than a shortfall (spec §1.1, §7). The arm detects the STRUCTURE the escapes shared and hands judgment to the mandated human sweep; chasing claim semantics is what the prose-count-parity arc measured the cost of.
+
+**Two defects found by the arc's own layer-3 corpus pass and by cross-model review, both repaired by NARROWING:**
+
+1. A grouping comma is a word boundary, so `all 5,022 eligible data rows` matched `all 5` and cleared the value bound as a two-digit population — four live corpus instances, two of them the very four-digit populations the width bound exists to exclude. A cardinal followed by a grouping comma or a decimal point is now a fragment of a longer literal and draws silence.
+2. Only the FIRST accept-set match on a line was evaluated, so a candidate-specific rejection suppressed a later qualifying claim and the line drew silence — which spec §1.2 contracts to mean "no qualifying structure". Live proof: `docs/superpowers/specs/ci/2026-08-16-modal-wait-boundary-helper-adoption-design.md:238`. Every candidate is now tried and the first that clears every gate owns the line.
+
+**Committed record:** `docs/superpowers/specs/probes/2026-08-17-prose-consistency-arms.survivors.txt` (209 rows, untruncated) and its classification alongside — zero wrong-structure-class emissions remain, 19 historical-record residue, 190 live-enumerated claims. Enrolled in the source-mutation registry at 108/114 with zero unaccepted survivors.
+
+**Residues stay as documented limits, not as new rows** (spec §7): word-form cardinals, populations outside 2-999, a cardinal inside an arithmetic expression read as its first factor, and one advisory per line.
+
+## BL-SPECLINT-POSTREPAIR-FORWARD-REF-SWEEP — a repair round stale-ifies forward references the term-grep cannot see — CLOSED 2026-08-18 (`fix/speclint-prose-consistency-arms`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-18 · **Effort (as shipped):** M · **Severity (as filed):** medium · **Class:** spec-lint arm · **Filed:** 2026-08-15, backfill from `docs/review-rounds/chore/guard-completeness-wave/04f601134519.md` (spec §, item (a)), per the enforcement-pair spec §4 candidate 5 · **Reachability:** PROBED at filing — two live escapes (R2-F3/R5), each costing a round.
+
+A spec:lint arm cross-checking out-of-scope bullets and closeout summaries against sections mandating the same change. Both originating escapes were forward references that a term-grep of the repaired text cannot see.
+
+**Shipped as INVENTORY, not as a per-bullet advisory, and the choice is probe-backed.** Out-of-scope regions appear in 286 documents carrying 1,242 bullets — three orders of magnitude too large for a tripwire. The arc ships two inventory groups instead, `universal-claims` and `scope-fences` (spec §3.4): never findings, never exit-code-affecting, rendered through the existing `INVENTORY` block and present in `--json`.
+
+**The mechanism the entry named is what the groups repair.** The manual post-repair self-consistency sweep is already mandated, and both escapes happened because that sweep's cover was scoped by the REPAIRED text's terms — a forward reference phrased differently never greps. The groups derive the sweep's cover from CLAIM SHAPE instead, which is independent of any repair's vocabulary. `docs/agents/spec-self-review.md` now names them as that cover, so the consumption side is wired rather than implied.
+
+Both E4 (`a045c53d1:235`) and E5 (`65641604f:235`) land in BOTH groups, asserted verbatim from the defective revisions.
+
+**Semantic contradiction is still not decided mechanically** (spec §7). The inventory surfaces the line; the sweep decides. That is the design, not a gap in it — and it is why this shipped as inventory rather than as the cross-check the row imagined.
+
+**`BL-SPECLINT-BL-DISPOSITION-CLOSEOUT-ARM` does NOT ride along.** That row asked the implementing arc to decide whether it shares a surface with this one; the decision is recorded in spec §1.1 — it stays a separate row. The `scope-fences` group gives it a natural future home, but no id-accounting logic ships here.
+
 ## BL-PREMISE-CONTRACT-SUITE-AT-THE-TIMEOUT-BOUNDARY — a required unit gate runs 33s against a 30s cap and reds on runner luck — CLOSED 2026-08-18 (`fix/rowactions-submenu-reveal-flake`, SHIPPED)
 
 **Status:** SHIPPED 2026-08-18 · **Effort (as shipped):** S · **Severity (as filed):** MEDIUM (a REQUIRED context on every PR; when it reds, the merge is blocked and the only remedy is a re-run) · **Class:** CI reliability · **Effort:** S · **Filed:** 2026-08-18 (`fix/rowactions-submenu-reveal-flake`, seen while shipping an unrelated measurement change) · **Reachability:** PROBED — measured on BOTH sides, see below.

@@ -199,6 +199,14 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // member of ENVIRONMENT_SOURCES -- no child process, no ledger-git, no
   // process.env, and no filesystem read at all.
   "tests/specLint/numerics.test.ts": 0,
+  // Enrolled by specLintUniversals (2026-08-17). Same argument as its sibling
+  // above: both suites drive `checkUniversals` over literal doc strings through
+  // `parseDoc`, so neither imports anything in ENVIRONMENT_SOURCES.modules. The
+  // module performs no I/O by construction (spec §4), which is what makes the
+  // honest declaration 0 rather than an accident of how the fixtures are built.
+  "tests/specLint/universals.test.ts": 0,
+  "tests/specLint/universalsInventory.test.ts": 0,
+  "tests/specLint/universalsMutantKills.test.ts": 0,
   // Enrolled by feat/diagram-viewing-polish (2026-08-11) alongside the
   // phantom-gap executed-count oracle. 3: the three shipped-CLI cases spawn the
   // checker through node:child_process, because an exit code is the one thing
