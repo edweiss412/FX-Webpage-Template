@@ -283,30 +283,26 @@ Without this task the arc ships 21 controls whose outline reads LIGHTER on hover
 - [ ] **7.3** **Do NOT touch `BL-CONTROL-OUTLINE-ON-TINTED-PLATES`.** An earlier draft added `components/admin/showpage/PublishedReviewModal.tsx:964` to it; that was a cross-path union error (spec §6). Scanner path 0 is `border-border` + `bg-surface-sunken`, scanner path 1 is `bg-warning-bg` with no outline token, so no render path carries both.
 - [ ] **7.4** Add any new paired-chrome instance from Task 6 to `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT`.
 - [ ] **7.4a** Record `components/admin/dev/SwitcherControls.tsx:119` on `BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER`, family A. It is a `<select>` carrying `border border-border bg-surface … hover:border-accent`, so it is inside §1.2a's words and outside the scanner's vocabulary in BOTH directions — the census will never flag it and never exempt it, which is exactly what that entry exists to hold. Add the site with its class string; do NOT open a new row and do NOT edit the file.
-- [ ] **7.5** Archive `BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL`'s CONTENT into `BACKLOG-archive.md`. **The `**Status:** IN PROGRESS · **Branch:**` line comes off in step 7.9, not here** (plan review R4 F4) — and because archives categorically reject in-progress entries, the archived copy carries the final status while the marker line remains only on the open-ledger stub until 7.9 removes it and the stub with it. If the meta-tests cannot express that split state, do the whole archive in 7.9 instead; the sequencing requirement wins.
-- [ ] **7.6** **Ledger-seam conflict is expected** — several arcs edit these files concurrently, and four PRs in a row conflicted on `BACKLOG.md` on 2026-08-18. Resolve with set arithmetic, and the expected numbers are stated so a wrong merge is visible:
+- [ ] **7.5** Archive `BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL` COMPLETELY — move the entry into `BACKLOG-archive.md` **and remove its `**Status:** IN PROGRESS · **Branch:**` line in this same commit**, leaving no stub. Archives categorically reject in-progress entries (`tests/docs/_metaLedgerInProgress.test.ts:77`), and the split-stub arrangement an earlier draft proposed would have put the id in BOTH ledgers at once, breaking 7.6's empty-intersection check (plan review R5 F1).
+- [ ] **7.6** **Ledger-seam conflict is expected** — several arcs edit these files concurrently, and four PRs in a row conflicted on `BACKLOG.md` on 2026-08-18. Resolve with set arithmetic:
       ```sh
       ids() { grep -ohE '^## (BL|DEF)-[A-Z0-9-]+' "$@" | sed 's/^## //' | sort -u; }
-      comm -12 <(ids BACKLOG.md DEFERRED.md) <(ids BACKLOG-archive.md DEFERRED-archive.md)
+      comm -12 <(ids BACKLOG.md DEFERRED.md) <(ids BACKLOG-archive.md DEFERRED-archive.md) | wc -l
       ids BACKLOG.md DEFERRED.md BACKLOG-archive.md DEFERRED-archive.md | wc -l
       ```
-      The first must print NOTHING. The second must print **351**. Re-measured immediately before this plan's R4 dispatch: `origin/main` **347**, this branch **350** — three rows are filed here, not two (`BL-CODEX-GUARD-SPECLINT-PREDISPATCH-GATE`, `BL-SPEC-CLAIM-SWEEP-AFTER-REASONING-FINDING`, `BL-SPECLINT-RED-TARGET-CANNOT-NAME-A-REPO-ROOT-SURFACE`) — and step 7.1's ShareHub row makes **351** (plan review R3 F7 caught the stale figure). Archiving MOVES a row between files and must not change the union count. **Do not trust any of these numbers at implementation time** — the branch may file more rows during review, and `origin/main` advances daily. Recompute all three with the same command and assert the RELATION: post-merge union == `origin/main` union + rows this branch adds.
-- [ ] **7.7** `pnpm exec vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerMintBar.test.ts tests/docs/_metaReviewRoundEconomy.test.ts`
-- [ ] **7.8** Commit: `docs(backlog): file the ShareHub mobile-skin weight and archive the border-token row`
-- [ ] **7.9** **The marker removal is SEQUENCED to be last, not checked for lastness afterwards** (plan review R4 F4). An earlier draft removed the marker in Task 7 and then tried to verify at merge time that Task 7 was still final, with `--amend` as the remedy. That does not work: once a repair commit lands after the removal, the `-S` occurrence-change sits in `HEAD`'s parent and amending `HEAD` cannot move it. The fallback of recording the mismatch in the PR body straightforwardly violates invariant 12.
+      The first must print `0`, the second `351`. **Both end in `wc -l` so a SUCCESS prints a number and exits 0** — an earlier draft used bare `grep -c`, which exits 1 when it matches nothing, so a passing check returned failure (plan review R5 F1). Re-measured 2026-08-18: `origin/main` 347, this branch 350, plus 7.1's ShareHub row makes 351. **Recompute all three and assert the RELATION** — post-merge union == `origin/main` union + rows this branch adds — rather than trusting a literal, since `origin/main` advances and this branch may file more rows during review.
+      Three seam traps from the 2026-08-16 batch, none of which a row count can see: an entry-for-entry-correct union can still be wrong AT THE SEAM (final line flush against the next heading, no blank line); a correct resolution DROPS text from each side, because the archive clause is bidirectional; and a `registry.ts` conflict can split a row MID-BODY with both sides sharing the trailing `}, accepted: [], },` (TS1136). **Typecheck even after a clean `git` auto-merge.**
+- [ ] **7.7** `pnpm exec vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerMintBar.test.ts tests/docs/_metaReviewRoundEconomy.test.ts` and `pnpm typecheck`.
+- [ ] **7.8** Commit ONCE: `docs(backlog): file the ShareHub mobile-skin weight and archive the border-token row`
+- [ ] **7.9** **The marker is now absent, and the whole ledger change sits INSIDE the reviewed diff.** This task runs BEFORE whole-diff review, so review and CI cover exactly what merges — the rule an after-review commit would break (`docs/agents/writing-plans.md`, final-diff ordering, caught independently in two arcs of the arc-A/B/C batch). Ruled 2026-08-18 after plan review R5 F1/F2 surfaced the conflict between this rule and invariant 12.
 
-      So **do not remove the marker in step 7.5.** Step 7.5 archives the entry's CONTENT; the `**Status:** IN PROGRESS · **Branch:**` line stays until here, and this step runs **after whole-diff review and after CI is green**, immediately before `gh pr merge`:
+      **Why this satisfies invariant 12 rather than waiving it.** Its wording is "the marker comes off in the PRs last commit, before the merge, **so it never reaches main**" — the `so` clause names absence-at-merge as the PURPOSE and last-commit as the MECHANISM. Verify the purpose directly, immediately before merge:
       ```sh
-      # 1. everything else is already merged-ready and CI is green
-      # 2. remove the marker line, commit it alone, push
-      git commit -m 'docs(backlog): clear the in-progress marker' -- BACKLOG.md
-      git push
-      # 3. verify — both conditions, and now they hold by construction
-      git rev-parse HEAD
-      git log -S'IN PROGRESS · **Branch:** fix/control-outline-border-token' --format=%H -- BACKLOG.md | head -1
-      git show HEAD:BACKLOG.md | grep -c 'IN PROGRESS · \*\*Branch:\*\* fix/control-outline-border-token'
+      git show HEAD:BACKLOG.md | grep -c 'IN PROGRESS · \*\*Branch:\*\* fix/control-outline-border-token' || true
       ```
-      The first two print the SAME sha and the third prints `0`. **Being last is now a property of the ordering rather than a hope**, and the only way to break it is to push another commit after this one — which is exactly the merge-blocking condition it should be. If CI must re-run on this commit, that is expected and the merge waits for it; a re-run that forces a repair means repeating this step afterwards.
+      It must print `0`. **Do NOT attempt to restore last-commit position by re-removing the marker** — it is already gone, so the edit is a no-op and `git log -S` still points at 7.8 (plan review R4 F4, R5 F1).
+
+      **The displacement risk is handled by the ARMING WINDOW, not by sequencing.** Do not arm `gh pr merge --auto` until this commit is pushed AND whole-diff review has approved — PR #838 armed at push time, auto-merged mid-round-3, and shipped an in-progress marker to `main`. GitHub silently drops auto-merge on force-push and when merging stops being possible, so **re-arm after every push**. If a review or CI repair lands after 7.8, the marker is still absent and the purpose still holds; record the ordering in the PR body rather than papering over it.
 
 ---
 
