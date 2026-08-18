@@ -62,22 +62,35 @@ The spec's whole subject is that an unexecuted embedded block lies. This plan th
 ```
 $ pnpm exec vitest run tests/.planExec --reporter=json
 total 2 passed 1 failed 1
-FILE block1-L97.test.ts  status failed assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' imported from ...
-FILE block2-L166.test.ts status failed assertions 2
+FILE block1-L110.test.ts  status failed assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' imported from ...
+FILE block2-L179.test.ts status failed assertions 2
     - failed | a malformed marker surfaces through runLint with NO exec maps
       AssertionError: expected [] to deeply equal [ 'FIXTURE_MALFORMED' ]
-FILE block3-L202.test.ts status failed assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' imported from ...
-FILE block4-L243.test.ts status failed assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' imported from ...
-FILE block5-L399.test.ts status failed assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' imported from ...
+FILE block3-L215.test.ts status failed assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' imported from ...
+FILE block4-L256.test.ts status failed assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' imported from ...
+FILE block5-L415.test.ts status failed assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' imported from ...
 ```
 
 Read exactly: **four** blocks red at module resolution naming the absent module, and **one** — Task 2's, which imports only tracked modules — red at its assertion, `expected [] to deeply equal [ 'FIXTURE_MALFORMED' ]`, which is the stronger evidence of the two (it proves the five-argument `runLint` call compiles and that the orchestrator genuinely emits nothing today). No block failed at transform.
 
-This run is the RE-execution after the spec round 2 repair, which added the file-status channel to Task 4's fake outcome; every earlier repair that touched a block was followed by the same re-run, and the line numbers here are the current ones. The record is re-measured on every edit rather than carried forward, which is the discipline the arm itself enforces. Two things the original execution corrected rather than confirmed, which is the argument for running it at all: an earlier draft of this section asserted three module-resolution reds where the measurement shows four, and Task 2's block turns out to carry **one case that passes at base vacuously** — "a clean marker adds no findings" holds today precisely because nothing fires at all. It is kept deliberately as the over-fire guard it becomes once Task 2 lands, and is named here so no reviewer has to discover that it proves nothing before the GREEN step. The splice directory was removed after the run and `git status` is clean.
+This run is the RE-execution after the spec round 3 repair, which scoped the clean predicate to assertion failures and retitled Task 4's cases by code; every earlier repair that touched a block was followed by the same re-run, and the line numbers here are the current ones. The record is re-measured on every edit rather than carried forward, which is the discipline the arm itself enforces. Two things the original execution corrected rather than confirmed, which is the argument for running it at all: an earlier draft of this section asserted three module-resolution reds where the measurement shows four, and Task 2's block turns out to carry **one case that passes at base vacuously** — "a clean marker adds no findings" holds today precisely because nothing fires at all. It is kept deliberately as the over-fire guard it becomes once Task 2 lands, and is named here so no reviewer has to discover that it proves nothing before the GREEN step. The splice directory was removed after the run and `git status` is clean.
 
 ### 3.1 Dogfood against the landed arms
 
 `pnpm spec:lint --exec-red` on this plan at base `7d09a1f0b` reports `0 hard`, and arc B's shipped collection arm draws exactly seven advisories — one `RED_SUITE_UNVERIFIED` per authored marker naming a test file this plan creates (lines 84, 154, 190, 231, 316, 380, 390). That is the correct verdict for a future file (verdict spec §5.2: a future file and a typo are statically indistinguishable, so the token is surfaced by name and nothing hard fires), and it is also the evidence that this plan's markers compose with the arm it extends rather than contradicting it. Task 9's `red-state=live` command was OBSERVED failing at plan time (`git check-ignore -v … ; exit=1`), as the live branch of the red-contract rule requires.
+
+### 3.2 Ordinal sweep (authored AND run)
+
+Spec §4.4 states that the ladder's positions appear in §4.3 and nowhere else, because a second copy of the order went stale twice in consecutive review rounds. The check is mechanical, and this is its run at plan time:
+
+```
+$ rg -n 'branch [0-9]|branches [0-9]|condition [0-9]' \
+    docs/superpowers/specs/2026-08-18-planlint-fixture-satisfiability.md \
+    docs/superpowers/plans/2026-08-18-planlint-fixture-satisfiability.md
+(no matches outside spec section 4.3)
+```
+
+Every reference that used to carry an ordinal now names the code or the condition, including the seven test titles in Task 4's block. Task 9 re-runs this sweep at closeout; a match outside §4.3 is a defect, not a style note.
 
 ## 4. Tasks
 
@@ -232,7 +245,7 @@ describe("splice plan (spec §4.1)", () => {
 
 ## Task 4 — classification, total over the precedence ladder (pure)
 
-<!-- task: red=`pnpm vitest run tests/specLint/fixtureClassify.test.ts` red-state=authored red-target=`lib/specLint/fixtureContract.ts` why=`synthesizeFixtureFindings does not exist at base and is not added by Tasks 1 or 3, so the import fails to resolve. It greens when the module implements spec §4.3's eight branches IN ORDER, emitting exactly one outcome per enrolled block; every precedence-contest case below is red against an implementation that evaluates the expect= branches before the sentinel, the skipped-status, or the file-status branch` ac=AC-3,AC-4 -->
+<!-- task: red=`pnpm vitest run tests/specLint/fixtureClassify.test.ts` red-state=authored red-target=`lib/specLint/fixtureContract.ts` why=`synthesizeFixtureFindings does not exist at base and is not added by Tasks 1 or 3, so the import fails to resolve. It greens when the module implements spec §4.3's ladder IN ORDER, emitting exactly one outcome per enrolled block; every precedence-contest case below is red against an implementation that evaluates the expect= branches before the sentinel, the skipped-status, or the file-status branch` ac=AC-3,AC-4 -->
 
 Export `synthesizeFixtureFindings(plan, results)` implementing spec §4.3's ordered ladder. The per-assertion STATUS is part of the input, never a count: vitest reports a skipped test as a present entry with status `skipped` and no failure (spec §2.5). `results === null` (static invocation) yields zero findings. Exactly one outcome per enrolled block.
 
@@ -267,13 +280,13 @@ const codesOf = (plan: ReturnType<typeof entry>[], r: unknown) =>
   synthesizeFixtureFindings(plan, r as never).map((f) => f.code);
 
 describe("classification ladder (spec section 4.3)", () => {
-  it("branch 1: a block absent from the report declines, and never draws a hard code", () => {
+  it("PROBE_UNVERIFIED: a block absent from the report declines, and never draws a hard code", () => {
     const out = synthesizeFixtureFindings([entry(5, "red")], { files: new Map() } as never);
     expect(out.map((f) => f.code)).toEqual(["FIXTURE_PROBE_UNVERIFIED"]);
     expect(out[0]!.severity).toBe("advisory");
   });
 
-  it("branch 2: no assertion entries at all is hard, and outranks the expect= branches", () => {
+  it("UNCOLLECTABLE: no assertion entries at all is hard, and outranks the expect= readings", () => {
     for (const exp of ["green", "red"] as const) {
       expect(codesOf([entry(5, exp)], results(5, file({ fileStatus: "failed", statuses: [], message: "No test suite found" })))).toEqual([
         "FIXTURE_UNCOLLECTABLE",
@@ -281,7 +294,7 @@ describe("classification ladder (spec section 4.3)", () => {
     }
   });
 
-  it("branch 3: the premise sentinel outranks BOTH expect= branches", () => {
+  it("UNSATISFIABLE: the premise sentinel outranks BOTH expect= readings", () => {
     expect(codesOf([entry(5, "red")], results(5, file({ fileStatus: "failed", statuses: ["failed"], failures: [PREMISE] })))).toEqual([
       "FIXTURE_UNSATISFIABLE",
     ]);
@@ -290,7 +303,7 @@ describe("classification ladder (spec section 4.3)", () => {
     ]);
   });
 
-  it("branch 3 fires on a sentinel among several failures, and outranks a skipped sibling", () => {
+  it("UNSATISFIABLE fires on a sentinel among several failures, and outranks a skipped sibling", () => {
     expect(
       codesOf([entry(5, "red")], results(5, file({ fileStatus: "failed", statuses: ["failed", "failed"], failures: [ASSERT, PREMISE] }))),
     ).toEqual(["FIXTURE_UNSATISFIABLE"]);
@@ -299,7 +312,7 @@ describe("classification ladder (spec section 4.3)", () => {
     ).toEqual(["FIXTURE_UNSATISFIABLE"]);
   });
 
-  it("branch 4: the all-skipped shape must NEVER read clean, in either expect= direction", () => {
+  it("ASSERTIONS_SKIPPED: the all-skipped shape must NEVER read clean, in either expect= direction", () => {
     // Measured (spec section 2.5): two skipped bodies that would fail if run
     // report zero failures, file status passed, and the run exits 0.
     for (const exp of ["green", "red"] as const) {
@@ -309,7 +322,7 @@ describe("classification ladder (spec section 4.3)", () => {
     }
   });
 
-  it("branch 4: one skipped assertion beside an executed one still fires", () => {
+  it("ASSERTIONS_SKIPPED: one skipped assertion beside an executed one still fires", () => {
     expect(codesOf([entry(5, "green")], results(5, file({ statuses: ["passed", "skipped"] })))).toEqual([
       "FIXTURE_ASSERTIONS_SKIPPED",
     ]);
@@ -340,12 +353,15 @@ describe("classification ladder (spec section 4.3)", () => {
     ).toEqual(["FIXTURE_UNSATISFIABLE"]);
   });
 
-  it("branches 6-8: the ordinary outcomes, every assertion executed", () => {
+  it("NOT_GREEN, ALREADY_GREEN, and clean: the ordinary outcomes, every assertion executed", () => {
     expect(codesOf([entry(5, "green")], results(5, file({ fileStatus: "failed", statuses: ["failed"], failures: [ASSERT] })))).toEqual([
       "FIXTURE_NOT_GREEN",
     ]);
     expect(codesOf([entry(5, "red")], results(5, file({ statuses: ["passed"] })))).toEqual(["FIXTURE_ALREADY_GREEN"]);
     expect(codesOf([entry(5, "green")], results(5, file({ statuses: ["passed"] })))).toEqual([]);
+    // A real assertion failure ALWAYS makes vitest mark the file failed, so
+    // "clean" must not require a non-failed file: this case is the one an
+    // earlier draft's belt-and-braces conjunct made unsatisfiable.
     expect(codesOf([entry(5, "red")], results(5, file({ fileStatus: "failed", statuses: ["failed"], failures: [ASSERT] })))).toEqual([]);
   });
 
@@ -480,7 +496,7 @@ Add the `fixtureContract` row (shape copied from the `redContract` row at `tests
 
 <!-- task: red=`git check-ignore -v tests/.spec-lint-fixtures-1-1/probe.test.ts` red-state=live why=`.gitignore carries no entry for the splice directory at base, so git check-ignore finds no matching pattern and exits 1 today (observed at plan time: exit=1). The SAME command exits 0 once this task adds the tests/.spec-lint-fixtures-* entry, which is the red-then-green cycle on one command. This replaced an earlier draft whose red was pnpm spec:lint on this plan: waiving the forward-declaration citation so the plan could lint clean for dispatch made that command exit 0, and a red that is already green asserts nothing` ac=AC-8 -->
 
-`.gitignore` entry for `tests/.spec-lint-fixtures-*/` written with `printf '\n%s\n'` and verified by `git check-ignore -v`; one sentence in `docs/agents/writing-plans.md` under the premise bullet; a `docs/superpowers/specs/README.md` row; archive the ledger row and strip its IN PROGRESS marker in the PR's LAST commit (invariant 12).
+Re-run the §3.2 ordinal sweep and confirm no match outside spec §4.3. `.gitignore` entry for `tests/.spec-lint-fixtures-*/` written with `printf '\n%s\n'` and verified by `git check-ignore -v`; one sentence in `docs/agents/writing-plans.md` under the premise bullet; a `docs/superpowers/specs/README.md` row; archive the ledger row and strip its IN PROGRESS marker in the PR's LAST commit (invariant 12).
 
 <!-- tasks: end -->
 
