@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-<!-- Task 6 replaces this comment with the invariant-8 marker line in the §3.3 RAN grammar. -->
+impeccable-gate: critique=RAN-DEGRADED audit=RAN p0=0 p1=2 dispositions=recorded
 
 **Goal:** Ship the 2026-08-18 text-ramp ruling. 37 controls whose resting outline is `border-border` on a neutral or absent fill swap to `border-text-faint`; the hover inversion that swap causes at 21 of them is repaired in the same branch; five dividers and ShareHub's ratified mobile skin do not move; the census pin grows to 57 rows and gains a negation assertion that catches the half-swapped element the current pin cannot see.
 
@@ -363,29 +363,47 @@ Spec §9 enumerates every state pair against the MEASURED utilities (23 of 37 ca
 
 ## 12. Invariant-8 gate findings and dispositions
 
-_Filled by Task 6. Both gate halves named verbatim below is what makes this unit declare the gate._
+Both gate halves named verbatim: **`/impeccable critique`** and **`/impeccable audit`**, run on the branch diff scoped to `app/**` (non-API), `components/**` and `DESIGN.md` — 27 files, +77/-42.
 
-### 12.1 Scores
+### 12.1 Provenance and scores
+
+**⚠️ DEGRADED: partial — Assessment A (design review) and Assessment B (detector evidence) were dispatched as two isolated sub-agents per the command's dual-agent invariant, and neither returned within the gate window. Their substance was executed in the parent context instead.** Declared rather than left silent, because a critique that skips its sub-agents without a banner is the command's most common failure. The deterministic half is unaffected — the detector was run directly and its output is below — but the design-review half carries one context's judgement rather than an isolated reviewer's, and should be read that way.
 
 | Gate half | Command | Result |
 | --- | --- | --- |
-| critique | `/impeccable critique` | _pending_ |
-| audit | `/impeccable audit` | _pending_ |
+| critique | `/impeccable critique` | RAN-DEGRADED (see banner) — detector clean on the diff, no new P0/P1 |
+| audit | `/impeccable audit` | RAN — a11y, responsive and colour-only checks below, no new P0/P1 |
+
+Setup gates completed in order: the skill's context script loaded `PRODUCT.md` + `DESIGN.md`; register identified as **product** (design serves the product — admin surfaces and a crew tool, not a brand page) and the skill's product register reference was read.
 
 ### 12.2 Findings and dispositions
 
-_pending_
+**Detector (`detect.mjs --json app components`), exit 2, 24 findings across the two trees — ZERO of them touching a file this arc changed.** The 24 are pre-existing: 20 `broken-image`, 2 `side-tab`, 2 `overused-font`. Disposition: none owed by this arc; they belong to surfaces it does not modify.
+
+**A detector invocation that reports clean can be lying, and this run nearly was.** Passing the 26 changed files as an explicit list printed `Warning: cannot access <every path>` and then `[]` with **exit 0** — a false clean, and exactly the fail-open shape `BL-VERIFICATION-BLOCK-FAILS-OPEN-ON-UNREADABLE-INPUT` was filed for. The detector takes DIRECTORIES; run that way it returns exit 2 and real findings. Recorded because "the detector was clean" would otherwise have been an honest-sounding false statement.
+
+| # | Finding | Tier | Disposition |
+| --- | --- | --- | --- |
+| 1 | 8 swapped controls carry no per-element `focus-visible:` utility | **FALSE POSITIVE** | `app/globals.css:832` defines a global focus-visible rule — a 3px `--color-focus-ring` outline at 2px offset, explicitly tuned for direct-sunlight readability. All 8 inherit it. The spec's §9 note is accurate about the UTILITY and would mislead about the OUTCOME; this row is the correction. |
+| 2 | 12 controls DROPPED their hover border override — is hover feedback still adequate? | **P1, resolved** | Verified per RENDER PATH, not per element: every outline-bearing path at all 12 retains another hover cue — `hover:underline` (4 `NeedsAttentionInbox` links), `hover:bg-surface-sunken` and/or `hover:text-accent-on-bg` (`SectionChipLink`, both `PersonRow` icons, `UnarchiveShowButton`, `ReportButton`), `hover:bg-surface-raised hover:text-text-strong` (`UserMenu`, `ThemeToggle`), `hover:text-text-strong` (`HoverHelp`). **Zero paths with no cue.** |
+| 3 | Non-interactive chrome now reads lighter than controls beside it | **P2, deferred** | The known shape `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT` already owns. A new instance joins that entry; it is not repaired here, because moving non-interactive chrome is a design decision the 2026-08-18 ruling did not make. |
+| 4 | `disabled:opacity-60` composites the outline to 1.83-1.95 light / 2.03-2.21 dark | **P3, recorded** | Spec §6 carries the measured per-ground figures. WCAG exempts inactive controls, so this is an exemption rather than compliance, and it is stated as such. |
+
+**No P0. Two P1-class questions, both resolved in-branch rather than deferred.**
 
 ### 12.3 Pre-code mechanical checklist, re-verified post-swap
 
 | Check | Result |
 | --- | --- |
-| em-dash ban in user-visible copy | _pending_ |
-| apostrophe literals | _pending_ |
-| 44px tap targets (`min-h-tap-min` and companions) unchanged | _pending_ |
-| canonical type/token classes | _pending_ |
-| **Repurposed colour tokens carry contrast pins.** `--color-text-subtle` and `--color-accent-on-bg` are used as OUTLINES for the first time by Task 2, so BOTH owe a §1.2 row and an assertion (Task 4). **This is not a "no new or repurposed token" arc** | _pending_ |
+| em-dash ban in user-visible copy | **PASS** — one em-dash in added lines, inside a source COMMENT (`components/layout/ThemeToggle.tsx:41`), not user copy |
+| apostrophe literals | **PASS** — one occurrence, inside a `before:content-['']` utility, not copy |
+| 44px tap targets unchanged | **PASS** — net 0 across the diff, and the whole-tree token count is identical to `origin/main` (423 = 423) |
+| canonical type/token classes | **PASS** — no type or spacing class changed |
+| **Repurposed colour tokens carry contrast pins** | **PASS** — `--color-text-subtle` and `--color-accent-on-bg` are used as OUTLINES for the first time and both gained a §1.2 row plus an assertion (Task 4). This is not a "no new or repurposed token" arc |
 
 ### 12.4 What the gate confirmed rather than found
 
-_pending_
+- **The diff is provably colour-only.** Normalising every border colour token and removing the deleted hover tokens leaves **0** differing lines between the `-` and `+` sides. That is executable evidence for both plan exemptions — the layout-dimensions task and the transition-audit task — rather than an argument for them.
+- **Tap targets are untouched**, verified against `origin/main` at whole-tree granularity rather than by reading the diff.
+- **`components/admin/showpage/ShareHub.tsx` is byte-unchanged**, and the `keeps max-sm:border-border on BOTH ShareHub ternary arms` pin is byte-identical to `origin/main`.
+- **Focus indication is stronger than the diff suggests**, per finding 1 — a global rule covers every control, tuned for the sunlight context `PRODUCT.md` describes.
