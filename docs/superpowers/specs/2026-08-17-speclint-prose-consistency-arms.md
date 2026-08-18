@@ -75,6 +75,8 @@ Message carries the claim line, the cardinal, and one other-section line where t
 
 The 212-row survivor population (the shipped recognizer's own re-run, layer 3) gets one bounded hand-classification pass — informing advisory copy and §7's documented limits ONLY; the gates above are frozen at ship time. One pass over a fixed list, not an open enumeration (the shape-(b) precedent, prose-count-parity spec §3.2).
 
+**Layer-3 reconciliation (implementation).** The shipped arm's own run reproduced the 212 above, and the bounded pass found FOUR of them wrong structure class — a grouping comma is a word boundary, so `all 5,022 eligible data rows` matched "all 5" and cleared the value bound as a two-digit population. That is the §1.2 defect class, not a survivor to classify, and it was repaired by narrowing (a cardinal followed by a grouping comma or a decimal point is a fragment of a longer literal and draws silence). The committed layer-3 population is therefore **208**. Record: `docs/superpowers/specs/probes/2026-08-17-prose-consistency-arms.survivors.txt`; classification: `docs/superpowers/specs/probes/2026-08-17-prose-consistency-arms.classification.md`.
+
 ### 3.4 Arm B — inventory groups `universal-claims` and `scope-fences`
 
 Appended to `LintResult.inventory` (`lib/specLint/types.ts`, `InventoryGroup`) when non-empty; rendered by the existing generic `INVENTORY` block (`scripts/spec-lint.ts`, `renderText`) and present in `--json`. Never a finding; never affects the exit code.
@@ -113,6 +115,8 @@ One new pure module, lib/specLint/universals.ts (plain text: created by this arc
 - **Populations of 0, 1, or ≥1000 are outside arm A's value bound** (2–999). A real four-digit enumerated population would be silent; every measured 4-digit read in the corpus was a year, and the corpus's enumerated populations are two- to three-digit.
 - **Semantic contradiction between a closeout/scope line and another section (E4/E5's substance) is not decided mechanically.** The inventory surfaces the line; the sweep decides. This is the whole design, not a gap in it.
 - **Within-doc only.** A universal contradicting another DOCUMENT (an AGENTS.md invariant, a sibling spec) is out of scope.
+- **A cardinal inside an arithmetic expression is read as its first factor.** `all 9 × 10 = 90 possible pairs` and `all 3×2/2 = 3 pairs` emit with the cardinal `9` and `3` (layer-3 pass, two live instances). Both lines ARE universal claims over enumerated populations, so the advisory is correct and its message quotes the whole line — the only cost is a less precise cardinal, and in the enumeration gate a wrong key can only produce SILENCE where an emission was due, which is the conservative direction. Parsing arithmetic to fix it is the recognizer growth §1.1 rules out.
+- **One advisory per line.** The arm takes the FIRST accept-set match on a line, exactly as the instrument does, so a second universal+cardinal claim on the same line is not separately reported. The line is quoted in full, so the sweep sees both.
 - **The bound is the live corpus, not English grammar.** A constructed sentence exercising a quantifier or clause shape no tracked doc uses is a documented limit, not a defect (the prose-count-parity fence, `docs/superpowers/specs/2026-08-10-speclint-prose-count-parity.md:69`).
 
 ## 8. Acceptance criteria
