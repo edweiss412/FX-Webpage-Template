@@ -581,6 +581,32 @@ export const GUARD_SURFACES: GuardSurface[] = [
     ],
   },
   {
+    // The fixture-satisfiability arm (2026-08-18 fixture spec §7). Its defect
+    // class is exactly "reports OK while the output moved": every branch of the
+    // §4.3 ladder either emits a code or DELIBERATELY says nothing, so a mutant
+    // that turns a verdict into silence — or the reverse — is invisible to any
+    // green suite. Enrolment precedes review (AGENTS.md convergence-criterion
+    // bullet 4), and the module ships as an importable core with referring
+    // suites from the start rather than as a terminal script.
+    //
+    // The CLI suite is deliberately NOT a suitePath: it spawns a real vitest
+    // child per case, and the four pure suites above already hold every
+    // deciding assertion. If a survivor turns out to need it, it belongs here —
+    // placement outside suitePaths buys zero score (the #831 lesson).
+    id: "fixtureContract",
+    sourcePath: "lib/specLint/fixtureContract.ts",
+    suitePaths: [
+      "tests/specLint/fixtureContract.test.ts",
+      "tests/specLint/fixtureSplicePlan.test.ts",
+      "tests/specLint/fixtureClassify.test.ts",
+      "tests/specLint/fixtureWiring.test.ts",
+    ],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.95,
+    control: { from: 'kind !== "plan"', to: 'kind === "plan"' },
+    accepted: [],
+  },
+  {
     id: "taskContract",
     sourcePath: "lib/specLint/taskContract.ts",
     // BOTH suites, and the second one is load-bearing: `compareFindings` is

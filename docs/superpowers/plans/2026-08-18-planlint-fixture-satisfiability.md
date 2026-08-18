@@ -41,7 +41,20 @@ $ grep -c ': {}' tests/mutation/source/expectedLedgerKinds.ts
 18
 ```
 
-Registry rows at base: **36**. Rows this plan adds: **1** (`fixtureContract`, Task 7). Expected after: **37**, asserted in Task 7's GREEN step against the live file.
+Registry rows at the plan's base `7d09a1f0b`: **36**. Rows this plan adds: **1** (`fixtureContract`, Task 7).
+
+**Re-measured at implementation time, because the base moved.** Stage 0 merged `origin/main` into this branch, and main had grown one registry row in the meantime, so the transition this PR actually performs is **37 → 38** — not the 36 → 37 that was true when this section was written. Both declarations are counted through the module rather than by grep, because two entries carry shapes a line-anchored pattern misses:
+
+```
+$ git show 7d09a1f0b:tests/mutation/source/registry.ts | grep -c '^    id: "'
+36
+$ git show origin/main:tests/mutation/source/registry.ts | grep -c '^    id: "'
+37
+$ pnpm exec tsx -e 'import { EXPECTED_LEDGER_KINDS } from "./tests/mutation/source/expectedLedgerKinds"; import { GUARD_SURFACES } from "./tests/mutation/source/registry"; console.log(Object.keys(EXPECTED_LEDGER_KINDS).length, GUARD_SURFACES.length)'
+38 38
+```
+
+The number is recorded twice rather than overwritten because the correction is the point: a count is true of a revision, and re-pasting a stale one under a fresh command prompt is the same defect this section already records below.
 
 **Enrolment is TWO declarations, not one.** `tests/mutation/guardSurfaces.gates.test.ts:21` compares the registry's id set against the independent key set of `EXPECTED_LEDGER_KINDS` (`tests/mutation/source/expectedLedgerKinds.ts`), which is declared separately on purpose — counting a list against itself proves nothing, so a new surface fails by default until it declares its own counts. Task 7 therefore adds a row in BOTH files; a registry row alone leaves `guardSurfaces.gates.test.ts` red.
 
@@ -640,7 +653,7 @@ Cases: a block whose premise fails inside a test → exit 1 with `FIXTURE_UNSATI
 
 <!-- task: red=`VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm vitest run --project mutation tests/mutation/guardSurfaces.gates.test.ts` red-state=authored red-target=`tests/mutation/source/expectedLedgerKinds.ts:24` why=`tests/mutation/source/expectedLedgerKinds.ts:24 is the EXPECTED_LEDGER_KINDS declaration, which declares the ledger-kind expectations keyed by surface id, and guardSurfaces.gates.test.ts:21 asserts that key set equals the registry id set. This task RED step adds the fixtureContract registry row alone, which makes those two sets differ and reds the gate on a real key-set mismatch. The env var and --project mutation are load-bearing: guardSurfaces.gates.test.ts lives in MUTATION_TEST_GLOBS (vitest.projects.ts:91), so a bare vitest run collects ZERO tests and exits non-zero for a collection reason. Arc B's shipped collection arm drew RED_SUITE_UNCOLLECTED on the bare form when this plan was dogfooded under --exec-red, which is how the defect was found. It greens when the matching expectedLedgerKinds row lands. Both declarations are deliberate (section 2): counting a list against itself proves nothing` ac=AC-7 -->
 
-RED step: add the `fixtureContract` row to `tests/mutation/source/registry.ts` (shape copied from the `redContract` row at `tests/mutation/source/registry.ts:525`) and observe `guardSurfaces.gates.test.ts` red on the key-set mismatch. GREEN step: add the matching `fixtureContract` row to `tests/mutation/source/expectedLedgerKinds.ts` and observe the SAME command pass. Assert the registry row count moved 36 → 37 against the live file (§2).
+RED step: add the `fixtureContract` row to `tests/mutation/source/registry.ts` (shape copied from the `redContract` row at `tests/mutation/source/registry.ts:525`) and observe `guardSurfaces.gates.test.ts` red on the key-set mismatch. GREEN step: add the matching `fixtureContract` row to `tests/mutation/source/expectedLedgerKinds.ts` and observe the SAME command pass. Assert the registry row count moved against the live file — re-measured at the merged base as **37 → 38**, with both declarations counted through the module (§2).
 
 Then run `pnpm heavy pnpm mutation:guards` in the FOREGROUND and state the score plus an empty unaccepted-survivor set in the round-1 diff brief. That run is a gate, not this task's red: an absent registry row means no `fixtureContract` case exists to fail, so `mutation:guards` cannot express this task's red — which is why the red is the key-set gate above.
 
