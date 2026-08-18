@@ -161,7 +161,8 @@
  * fails by default. Adversarial review rounds R28-R40 hardened the guard's
  * RECALL well past that — roughly 120 defects fixed, including several real
  * false safes — and closed every gap that touches a surface this repo uses.
- * Three demonstrated gaps remain, all on surfaces this repo does not use:
+ * Three demonstrated gaps were recorded here, all on surfaces this repo does
+ * not use; item 3 has since been CLOSED (2026-08-17), leaving two live:
  *
  * 1. A cardinality-changing GLOB in the COMMAND WORD.
  *    `/opt/homebrew/Cellar/postgresql@*` + `/` + `*` + `/bin/psql -X mydb`
@@ -177,25 +178,94 @@
  *    PowerShell splatting removes the empty `@args`, so `-F` consumes `-X`.
  *    PROBE 2026-08-04: one site, tokens `["-F", "@args", "-X", "mydb"]`,
  *    `suppressesStartupFiles: true` — certified under the POSIX reading.
- * 3. A QUOTED Windows path in SHELL text. `"C:\pg\bin\psql.exe"` — inside
- *    double quotes bash keeps a backslash that precedes an ordinary character,
- *    and this lexer strips it. The JS spawn form of the same path IS read, as
- *    of R40.
- *    PROBE 2026-08-04: zero sites — invisible, not merely uncertified. Pinned
- *    by "a QUOTED backslash path in shell text is a KNOWN miss" in
- *    `tests/cross-cutting/psqlStartupFileSuppression.test.ts`.
+ * 3. A QUOTED Windows path in SHELL text — CLOSED 2026-08-17. `"C:\pg\bin\
+ *    psql.exe"`: inside double quotes bash keeps a backslash that precedes an
+ *    ordinary character, and this lexer used to strip it (PROBE 2026-08-04:
+ *    zero sites — invisible, not merely uncertified). The mixed-quoted-value
+ *    repair's lexer-fidelity fix (`BL-SHELL-BINDING-MIXED-QUOTED-VALUE`, spec
+ *    §3.2 fix 3) keeps the literal backslash, `basename` already splits on it,
+ *    and the site now reports. Pinned by "a QUOTED backslash path in shell
+ *    text is read, as of the 2026-08-17 escape-fidelity fix" in
+ *    `tests/cross-cutting/psqlStartupFileSuppression.test.ts`. The JS spawn
+ *    form of the same path has been read since R40.
  *
  * Why recorded rather than fixed: none is a miss on any call site in this
  * tree. The census stayed 75 sites / 0 unprotected through all thirteen
  * rounds, and each of these needs a structural change (command-word glob
  * analysis, reading the spawn options object the guard deliberately does not
- * read, and a lexer change to double-quote backslash handling) whose
- * regression risk exceeds the risk it removes for a Linux-only, no-container,
- * no-Windows repository.
+ * read, and — for item 3, since carried out — a lexer change to double-quote
+ * backslash handling) whose regression risk exceeded the risk it removes for a
+ * Linux-only, no-container, no-Windows repository. Item 3's change arrived as
+ * a by-product of the mixed-quoted-value repair, which needed bash-faithful
+ * escape semantics for the assignment-binding route regardless.
  *
  * UN-DEFER TRIGGER (verbatim from the entry): this repo adding a Windows
  * runner, a container action, a non-POSIX workflow step, or any psql
  * invocation built through a glob or a `shell:` spawn option.
+ *
+ * ── Documented limits (mixed-quoted values, 2026-08-17) ────────────────────
+ *
+ * Assignment VALUES are lexer-read and immune to quote concatenation, but the
+ * rule families that still read a per-line pattern are not. Each of the
+ * following is a missed report, never a false certification, and each is
+ * DECLARED in the deciding suite's "documented limits — quote-concatenated
+ * spellings outside the assignment family" block so it cannot drift silently.
+ * Design:
+ * docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md.
+ *
+ *  - Quote-concatenated spellings of a rule KEYWORD or non-assignment operand:
+ *    a mixed-quoted here-string target (`read PG <<< p'sql'` — ledger
+ *    BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE, since the lexer drops a
+ *    redirection operand before words exist), a mixed-quoted interpreter
+ *    positional (`bash -c '$0 …' p'sql'`), and a mixed-quoted `alias`/
+ *    `function` NAME. The alias case is narrower than it looks: an alias
+ *    definition is an assignment-SHAPED word, so `alias p'sql'='psql -F'` IS
+ *    reported through the assignment route; only an alias whose body binds
+ *    another program (`alias p'sql'='pgcli -F'`) escapes.
+ *  - A multiword assignment value whose psql command carries no flag-shaped
+ *    token, which is the deliberate line between a command binding and prose
+ *    (`MSG="psql failed to connect"`). This covers a quoted YAML `run:` scalar
+ *    read as one word — a binding there is one indirection deeper than the
+ *    shell layer reads — and a quoted DIRECTORY component carrying IFS
+ *    whitespace (`PG='/tmp/x y/psql'`).
+ *  - A WRAPPER-prefixed multiword value whose psql path itself needs the
+ *    word-split reading (`CMD="sudo /tmp/O'Reilly/psql -X mydb"`): the split
+ *    reading requires psql at ARGV[0] and the eval reading takes the pathname
+ *    quote as syntax, so both decline. Wrapper-aware splitting is out of scope
+ *    in both directions.
+ *  - Quoting or escapes INSIDE a `${…}` expansion operand (`PG=${U:-'psql'}`),
+ *    which is data to a word the lexer keeps verbatim by design — ledger
+ *    BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE. A bare `PG=${U:-psql}` reports.
+ *  - `PG=$(x)psql`-shaped values over-report conservatively, matching the
+ *    trailing-path reading of `isPsqlCommandWord`.
+ *  - An ANSI-C `\U` escape ABOVE the Unicode maximum keeps its raw `\U` text
+ *    rather than the byte sequence bash emits for it. The alternative is not a
+ *    better reading, it is a THROW: `String.fromCodePoint` rejects the code
+ *    point, and one such line would abort the walk before it inspected anything
+ *    after it (diff review r1 finding 2). The same guard covers a template
+ *    literal's `\u{…}` — a literal the JS engine would itself reject is simply
+ *    not cookable. Neither raw reading can be psql, so both are missed reports.
+ *
+ * The lexed-word route has exactly ONE blind spot by construction, and it is
+ * closed: the outer lex replaces a `$(…)`/backtick/process-substitution body
+ * with the opaque `${}` word, so an assignment INSIDE such a body is invisible
+ * to the outer words. `scanShellIndirection` therefore asks each nested body for
+ * its own bindings and offsets them back to their physical line. The line-text
+ * rules (`READ_HERE_STRING`, `githubEnvWrite`, `INTERPRETER_POSITIONAL_BINDING`,
+ * `aliased`, `functionDef`) were never blind here, because the raw line carries
+ * the body's characters — which is why this is a one-consumer sweep rather than
+ * a family. Left open it was a FALSE CERTIFICATION, not a miss: a body holding
+ * both the binding and a literal `psql -X` certified on the literal call while
+ * bash ran the expanded one first (diff review r2).
+ *
+ * A NON-limit worth naming, because it looked like one: a COMPOUND ARRAY value
+ * (`PG=(psql)`, `PG=([0]=psql)`, `declare -a PG=(…)`) is read. `(` is the only
+ * member of `OPERATOR_STARTS` that can appear INSIDE an assignment value, so the
+ * lexer splits such a value into its own words, and `compoundArrayBinds` hands
+ * each element back to the SAME predicate. That the retired line-text patterns
+ * read these by accident — and the first cut of the lexed-word route did not —
+ * is why the deciding suite pins the whole vector plus a derived cover over the
+ * operator set (diff review r1 finding 1).
  *
  * ── Exemptions ─────────────────────────────────────────────────────────────
  *
@@ -747,7 +817,7 @@ type ShellWord = {
   operator: boolean;
 };
 
-const OPERATOR_STARTS = new Set([";", "&", "|", "(", ")", "\n"]);
+export const OPERATOR_STARTS = new Set([";", "&", "|", "(", ")", "\n"]);
 
 /** A file descriptor sitting in front of a redirection operator: a plain number
  * (`2>err`) or bash's dynamic form (`{fd}>err`, which assigns the fd to `fd`).
@@ -785,6 +855,62 @@ function matchBrace(text: string, start: number, open: string, close: string): n
 }
 
 type NestedShell = { text: string; line: number; offset: number; backtick: boolean };
+
+/**
+ * Decode one ANSI-C escape at `text[at] === "\\"` inside `$'…'`, per bash:
+ * the simple table, octal \nnn (1-3 digits), hex \xHH (1-2), \uHHHH (1-4),
+ * \UHHHHHHHH (1-8), control \cX. An UNKNOWN escape keeps both characters,
+ * exactly as bash does.
+ */
+function decodeAnsiCEscape(text: string, at: number): { decoded: string; consumed: number } {
+  const next = text[at + 1];
+  if (next === undefined) return { decoded: "\\", consumed: 1 };
+  const simple: Record<string, string> = {
+    a: "\x07",
+    b: "\b",
+    e: "\x1b",
+    E: "\x1b",
+    f: "\f",
+    n: "\n",
+    r: "\r",
+    t: "\t",
+    v: "\v",
+    "\\": "\\",
+    "'": "'",
+    '"': '"',
+    "?": "?",
+  };
+  const mapped = simple[next];
+  if (mapped !== undefined) return { decoded: mapped, consumed: 2 };
+  if (next >= "0" && next <= "7") {
+    const octal = /^[0-7]{1,3}/.exec(text.slice(at + 1))![0];
+    return { decoded: String.fromCharCode(parseInt(octal, 8) & 0xff), consumed: 1 + octal.length };
+  }
+  if (next === "x") {
+    const hex = /^[0-9A-Fa-f]{1,2}/.exec(text.slice(at + 2));
+    if (hex)
+      return { decoded: String.fromCharCode(parseInt(hex[0], 16)), consumed: 2 + hex[0].length };
+  }
+  if (next === "u" || next === "U") {
+    const width = next === "u" ? 4 : 8;
+    const hex = new RegExp(`^[0-9A-Fa-f]{1,${width}}`).exec(text.slice(at + 2));
+    // Only \U can exceed the Unicode maximum (\u tops out at FFFF). Bash accepts
+    // such an escape and emits its own byte encoding; String.fromCodePoint
+    // THROWS on it, which would abort the whole walk on one line and take every
+    // later psql call in the file with it. Out of range falls through to the
+    // unknown-escape return below, keeping the raw \U text - which cannot be
+    // psql, so the direction is a documented limit rather than a crash.
+    if (hex && parseInt(hex[0], 16) <= 0x10ffff)
+      return { decoded: String.fromCodePoint(parseInt(hex[0], 16)), consumed: 2 + hex[0].length };
+  }
+  const control = text[at + 2];
+  if (next === "c" && control !== undefined)
+    return {
+      decoded: String.fromCharCode(control.toUpperCase().charCodeAt(0) & 0x1f),
+      consumed: 3,
+    };
+  return { decoded: `\\${next}`, consumed: 2 };
+}
 
 function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
   const words: ShellWord[] = [];
@@ -875,6 +1001,12 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
         i++;
         continue;
       }
+      // A dangling backslash at end of input escapes NOTHING, so bash keeps it
+      // as a literal character of the word (`PG='psql'\` at EOF binds `psql\`).
+      // Dropping it lexed the word as bare `psql` - a site for a command that is
+      // not psql, and (post word-route) a binding the shell never makes.
+      begin(i);
+      append("\\", i, true);
       continue;
     }
 
@@ -933,8 +1065,49 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
       continue;
     }
 
-    // ANSI-C (`$'…'`) and locale (`$"…"`) quoting are ordinary quoted words.
-    if (character === "$" && (text[i + 1] === "'" || text[i + 1] === '"')) {
+    // ANSI-C quoting `$'…'` DECODES its escapes (\n, \163, \x70, …) and `\'`
+    // does NOT close the string; feeding it through the plain single-quote
+    // branch read the raw escape text, so $'p\163ql' was never psql. Locale
+    // quoting `$"…"` keeps double-quote semantics: skip the `$`, let the
+    // double-quote branch run.
+    if (character === "$" && text[i + 1] === "'") {
+      // Find the closing quote FIRST, honoring \' escapes. An UNTERMINATED
+      // ANSI-C string is a shell syntax error that runs nothing (spec 6.4), so
+      // it keeps the old undecoded reading instead of decoding a fragment.
+      let close = -1;
+      for (let k = i + 2; k < text.length; k++) {
+        if (text[k] === "\\") {
+          k++;
+          continue;
+        }
+        if (text[k] === "'") {
+          close = k;
+          break;
+        }
+      }
+      begin(i);
+      if (close === -1) {
+        appendRun(text.slice(i + 2), i + 2, true);
+        i = text.length;
+        continue;
+      }
+      let k = i + 2;
+      while (k < close) {
+        if (text[k] === "\\") {
+          const { decoded, consumed } = decodeAnsiCEscape(text, k);
+          // append, NOT appendRun: a DECODED "\n" is data, not a physical line -
+          // appendRun's per-character line counting is for source text only.
+          append(decoded, k, true);
+          k += consumed;
+          continue;
+        }
+        appendRun(text[k]!, k, true); // physical chars (incl. a literal newline) count lines
+        k++;
+      }
+      i = close;
+      continue;
+    }
+    if (character === "$" && text[i + 1] === '"') {
       continue; // the quote itself is handled on the next iteration
     }
 
@@ -952,9 +1125,24 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
       i++;
       for (; i < text.length && text[i] !== '"'; i++) {
         if (text[i] === "\\" && text[i + 1] !== undefined) {
-          i++;
-          if (text[i] === "\n") line++; // a continuation still eats a line
-          append(text[i]!, i, true);
+          const escaped = text[i + 1]!;
+          if (escaped === "\n") {
+            // Bash REMOVES a backslash-newline pair inside double quotes
+            // outright (line continuation), so `"/opt/pg/\` + newline + `psql"`
+            // is the single word /opt/pg/psql. Appending the newline split the
+            // value the shell glues together.
+            line++;
+            i++;
+            continue;
+          }
+          if (escaped === "$" || escaped === "`" || escaped === '"' || escaped === "\\") {
+            append(escaped, i + 1, true); // the backslash removes its meaning
+            i++;
+            continue;
+          }
+          // Before any other character the backslash is LITERAL and both
+          // survive: "p\sql" is p-backslash-sql, never psql.
+          append("\\", i, true);
           continue;
         }
         // `"$(psql …)"` and "`psql …`" still EXECUTE inside double quotes.
@@ -1609,6 +1797,12 @@ function mapRawToLines(raw: string, cooked: string, startLine: number): number[]
           if (close === -1) return null;
           const hex = raw.slice(i + 3, close);
           if (!/^[0-9a-fA-F]+$/.test(hex)) return null;
+          // Same class as the ANSI-C \U guard above: an unbounded run of hex
+          // digits can exceed the Unicode maximum (or parse to Infinity), where
+          // String.fromCodePoint throws and would abort the walk. A literal the
+          // JS engine itself would reject is not cookable, which is exactly what
+          // this function's null return means.
+          if (parseInt(hex, 16) > 0x10ffff) return null;
           emit(String.fromCodePoint(parseInt(hex, 16)));
           i = close + 1;
           continue;
@@ -2051,33 +2245,155 @@ export function scanJsSource(source: string, file: string): PsqlSite[] {
  * either, so both are reported rather than silently mis-read.
  */
 /**
- * ONE declaration grammar, not one spelling of it. Review demonstrated NINE
- * ordinary bash bindings walking past the previous single pattern, each of
- * which makes the later expanded command word psql: whole-ARGUMENT quoting
- * (`export 'PG=psql'`, `readonly "PG=psql"`), a flagless `declare`, `local`
- * inside a function, `typeset`, an indexed element (`PG[0]=psql`), an append
- * (`PG+=psql`), and `read -r PG <<< psql`, which is not an assignment at all.
- *
  * COMPILED ONCE, at module scope. Building these per line inside the scan
  * turned the ~2950-file walk from ~10s into ~75s — past the guard's own 60s
  * test timeout, which is a CI failure rather than a slow test.
  */
-const DECLARE_KEYWORD = "(?:(?:export|readonly|declare|local|typeset)\\s+(?:-\\w+\\s+)*)?";
-const ASSIGNED_NAME = "[A-Za-z_]\\w*(?:\\[[^\\]]*\\])?\\+?=";
 const PSQL_VALUE = "[^\\s\"';|&]*\\bpsql\\b[^\\s\"';|&]*";
-/** The VALUE may be quoted: `PG="psql"`. */
-const ASSIGNED_VALUE_QUOTED = new RegExp(
-  `(?:^|[\\s;&|(])${DECLARE_KEYWORD}${ASSIGNED_NAME}(["']?)(?!\\$\\(|\`)${PSQL_VALUE}\\1(?:[\\s;|&)]|$)`,
-);
-/** …or the whole `NAME=value` ARGUMENT may be, which is the form that carried
- * `export "PG=psql"` past a pattern anchored on whitespace before the name. */
-const ASSIGNED_WHOLE_QUOTED = new RegExp(
-  `(?:^|[\\s;&|(])${DECLARE_KEYWORD}(["'])${ASSIGNED_NAME}${PSQL_VALUE}\\1(?:[\\s;|&)]|$)`,
-);
 /** `read -r PG <<< psql` binds the name from a here-string. */
 const READ_HERE_STRING = new RegExp(
   `(?:^|[\\s;&|(])read\\s+(?:-\\w+\\s+)*[A-Za-z_]\\w*\\b[^\\n]*<<<\\s*["']?${PSQL_VALUE}`,
 );
+
+/**
+ * Assignment bindings are read from LEXED WORDS, not from raw line text. The
+ * lexer already performs the quote removal, escape processing and word
+ * assembly the shell does, so `PG=psql`, `export "PG=psql"`, `PG=p'sql'`,
+ * `PG=p\sql` and `PG=$'psql'` are all the same word once lexed - the regex
+ * family this replaces admitted exactly one delimiter form per pattern and
+ * needed a new spelling per review round (BL-SHELL-BINDING-MIXED-QUOTED-VALUE;
+ * design: docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md).
+ */
+const ASSIGNMENT_WORD = /^[A-Za-z_]\w*(?:\[[^\]]*\])?\+?=([\s\S]*)$/;
+
+/**
+ * Opening line indexes (0-based) of words that BIND the psql command name.
+ * Position-independent on purpose: `env PG=psql cmd` binds at argument
+ * position, and the retired patterns fired anywhere after a separator too.
+ * A `$(…)`/backtick value lexes to the opaque `${}` and stays the discovery
+ * walk's jurisdiction; a `${…}` expansion is kept verbatim, so the
+ * parameter-default forms still report here.
+ *
+ * The declaration keywords need no grammar: `export`, `readonly`, `declare -x`,
+ * `local`, `typeset` and their flags are SEPARATE words, and whole-argument
+ * quoting (`export "PG=psql"`, `export 'PG=p'sql`) dequotes to the same
+ * candidate word — which is why the `DECLARE_KEYWORD` alternation disappeared
+ * rather than being ported.
+ */
+function assignmentBindingLines(words: ShellWord[], file: string): Set<number> {
+  const found = new Set<number>();
+  for (let index = 0; index < words.length; index++) {
+    const word = words[index]!;
+    if (word.operator) continue;
+    const match = ASSIGNMENT_WORD.exec(word.text);
+    if (!match) continue;
+    // Trim default-IFS edges (space, tab, newline): an unquoted expansion
+    // word-splits, so `PG=' psql'` and `PG=$'psql\n'` both run psql at their
+    // use sites (spec 3.1; probe supplement g3/g6).
+    const value = match[1]!.replace(/^[ \t\n]+|[ \t\n]+$/g, "");
+    // A COMPOUND ARRAY value (`PG=(psql)`, `PG=([0]=psql)`, `declare -a PG=(…)`)
+    // is not one word: `(` is the ONLY member of OPERATOR_STARTS that can appear
+    // INSIDE an assignment value, so the lexer splits the value into its own
+    // words exactly where bash's grammar does. Each element is read through the
+    // SAME predicate as a single-word value rather than through a second grammar
+    // (diff review r1 finding 1 — a REGRESSION against the retired line-text
+    // patterns, which saw the raw text and never had to know this).
+    if (value.length === 0 && words[index + 1]?.operator && words[index + 1]!.text === "(") {
+      if (compoundArrayBinds(words, index + 2, file)) found.add(word.line);
+      continue;
+    }
+    if (value.length === 0) continue;
+    if (valueBinds(value, file)) found.add(word.line);
+  }
+  return found;
+}
+
+/**
+ * Does a compound-array assignment's ELEMENT list bind the psql command name?
+ * `from` is the index of the word after the opening `(`.
+ *
+ * An UNTERMINATED list is a bash syntax error, so the file runs nothing and
+ * nothing is bound - which is also what keeps one stray paren from reporting
+ * every psql word in the rest of the file against the assignment's line.
+ */
+function compoundArrayBinds(words: ShellWord[], from: number, file: string): boolean {
+  let close = -1;
+  for (let k = from; k < words.length; k++) {
+    const word = words[k]!;
+    if (!word.operator) continue;
+    // A NEWLINE is ordinary whitespace inside a compound value, so a multi-line
+    // array is one assignment. Every other operator is a syntax error there.
+    if (word.text === "\n") continue;
+    if (word.text === ")") close = k;
+    break;
+  }
+  if (close === -1) return false;
+  for (let k = from; k < close; k++) {
+    const word = words[k]!;
+    if (word.operator) continue;
+    // An element is either a bare value or `[key]=value` / `[key]+=value`.
+    const keyed = /^\[[^\]]*\]\+?=([\s\S]*)$/.exec(word.text);
+    const value = (keyed ? keyed[1]! : word.text).replace(/^[ \t\n]+|[ \t\n]+$/g, "");
+    if (value.length > 0 && valueBinds(value, file)) return true;
+  }
+  return false;
+}
+
+/**
+ * Does one DEQUOTED assignment value bind the psql command name? Shared by the
+ * single-word case and by every element of a compound array, so the two cannot
+ * drift into two different readings of the same string.
+ */
+function valueBinds(value: string, file: string): boolean {
+  if (/\s/.test(value)) {
+    // A MULTIWORD value binds a command LINE (`CMD='psql -qAt mydb'; eval
+    // "$CMD"`): re-lex the dequoted value and require a psql site carrying a
+    // flag-shaped token - the same criterion the retired quotedValue path
+    // used, which keeps prose (`MSG="psql failed to connect"`) out. The
+    // cheap skip below is NOT the forbidden R4 prefilter: it runs on the
+    // already-DEQUOTED value, and any spelling of psql the literal test
+    // misses must still carry a quote or backslash character, which the
+    // second alternative admits.
+    if (!/\bpsql\b/.test(value) && !/["'\\]/.test(value)) return false;
+    // TWO consumer grammars decide a multiword value, each read by ITS OWN
+    // rules (plan round-3 finding 3; round-5 finding 1):
+    //  - `eval "$CMD"`: the value is shell SOURCE - quotes are syntax,
+    //    newlines separate commands. Read with scanShellText, as before.
+    //  - unquoted `$CMD`: the value is DATA word-split on IFS whitespace -
+    //    quotes are literal pathname characters and newlines are ordinary
+    //    separators, so re-lexing it as shell turned `/tmp/O'Reilly/psql -X`
+    //    into the wrong words. Read with a plain split: psql-shaped argv[0]
+    //    plus a flag-shaped later token, the same flag criterion. The split
+    //    reading decides psql at ARGV[0] and nothing deeper - a wrapper-
+    //    prefixed value whose psql path needs it (`CMD="sudo
+    //    /tmp/O'Reilly/psql -X mydb"`) is a declared limit, spec §6 item 6.
+    // Report if EITHER reading yields a flagged psql invocation.
+    const evalBound = scanShellText(value, file, 0).some((site) =>
+      site.tokens.some((token) => /^-{1,2}[A-Za-z0-9]/.test(token)),
+    );
+    const parts = value.split(/[ \t\n]+/).filter((part) => part.length > 0);
+    const splitBound =
+      parts.length > 1 &&
+      isPsqlCommandWord(parts[0]!) &&
+      parts.slice(1).some((token) => /^-{1,2}[A-Za-z0-9]/.test(token));
+    return evalBound || splitBound;
+  }
+  // The PSQL_VALUE core, decided on the DEQUOTED value: psql with word
+  // boundaries, no surviving quote or separator DATA characters (a quoted
+  // `;` binds `psql;x`, which is not the psql command), and no trailing
+  // literal backslash - the expanded word's basename would be empty, the
+  // same shell fact the ratified trailing-backslash contract test pins.
+  // A separator character in a DIRECTORY component changes nothing about
+  // what runs: `/tmp/O'Reilly/psql` has basename psql (plan round-4
+  // finding 1). The basename alternative reuses the module's own word
+  // semantics (basename + isPsqlName), so it is exact, not a widening:
+  // `psql;x`, `psqlx` and a trailing-backslash value all fail it.
+  if (isPsqlName(basename(value))) return true;
+  if (!/\bpsql\b/.test(value)) return false;
+  if (/["';|&]/.test(value)) return false;
+  if (value.endsWith("\\")) return false;
+  return true;
+}
 
 /**
  * An interpreter's trailing POSITIONALS become `$0`, `$1`, … of the script it
@@ -2122,20 +2438,46 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
   // as the command word, and inside a quoted workflow `run:` scalar. An
   // earlier line-regex cut matched only the unquoted single-line assignment.
   const nested: NestedShell[] = [];
-  lexShellWords(source, nested);
+  // A YAML block scalar is DEDENTED before the shell ever sees it, so a
+  // backslash-newline continuation inside a `run:` body glues WITHOUT the
+  // block's indentation: `PSQL="/opt/pg/\` + newline + ten spaces + `psql"` is
+  // the single word `/opt/pg/psql`. The lexer is bash-faithful and keeps
+  // whatever follows the continuation, which is right for a `.sh` file and
+  // wrong for the raw YAML this function is handed — the walk feeds it the
+  // FILE, not the resolved `run:` body. The retired `spliced` view stripped
+  // that leading whitespace for EVERY file type; this keeps the strip only
+  // where it is the document's own semantics. Newlines are preserved, so every
+  // word's `line` still names its physical line.
+  const lexedSource = YAML_EXTENSIONS.includes(extensionOf(file))
+    ? source.replace(/\\\n[ \t]+/g, "\\\n")
+    : source;
+  const words = lexShellWords(lexedSource, nested);
   const seenBodies = new Set<string>();
   // In a JS string literal a BACKTICK span is markdown, not shell: prose like
   // "wrap with `command -v psql >/dev/null || (...)`" is documentation. Same
   // reasoning as `nestedInBacktick` on the site side. In a .sh or .yml file a
   // backtick IS a substitution, so it still counts there.
   const backticksAreMarkdown = JS_EXTENSIONS.includes(extensionOf(file));
+  const bindingLines = assignmentBindingLines(words, file);
   const visitBody = (body: NestedShell): void => {
     if (body.backtick && backticksAreMarkdown) return;
+    const inner: NestedShell[] = [];
+    const innerWords = lexShellWords(body.text, inner);
+    // A NESTED body's assignments are invisible to the outer lex, which replaced
+    // the whole substitution with the opaque `${}` word — so they are read from
+    // the body's OWN words, offset back to their physical line. Without this the
+    // guard silently CERTIFIES `X=$(PG=psql; "$PG" -qAt mydb; psql -X -qAt mydb)`
+    // on the literal call's own -X, while bash runs the expanded one first
+    // without it (diff review r2). The collection sits ahead of the dedupe and
+    // the psql-text test below, both of which exist for the HIT this function
+    // pushes: a body that already produces a site returns early, and that is
+    // exactly the shape the false certification hid behind.
+    for (const bound of assignmentBindingLines(innerWords, file)) {
+      bindingLines.add(body.line + bound);
+    }
+    for (const deeper of inner) visitBody({ ...deeper, line: body.line + deeper.line });
     if (seenBodies.has(body.text)) return;
     seenBodies.add(body.text);
-    const inner: NestedShell[] = [];
-    lexShellWords(body.text, inner);
-    for (const deeper of inner) visitBody({ ...deeper, line: body.line + deeper.line });
     if (!/\bpsql\b/.test(body.text)) return;
     // A substitution that DOES produce a site is already handled as one.
     if (scanShellText(body.text, file, 0).length > 0) return;
@@ -2147,8 +2489,10 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
     // A backslash-newline CONTINUATION makes one logical line: the quoted
     // multiline binding `CMD='psql -qAt mydb \\` + newline + `-c "select 1"'`
     // is one assignment, and a per-line view saw only its first half. Joined
-    // ONLY for the binding rule below — the other rules stay line-local, since
-    // joining them wholesale produced five false positives on this tree.
+    // ONLY for `INTERPRETER_POSITIONAL_BINDING` below — the other line-local
+    // rules stay line-local, since joining them wholesale produced five false
+    // positives on this tree. (The assignment family no longer reads either
+    // joined view: it reads the LEXED words, which the lexer joins itself.)
     const rawCode = comment === undefined ? line : line.slice(0, comment);
     const code = rawCode;
     let logical = rawCode;
@@ -2160,57 +2504,35 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
     // `/opt/postgresql/17/bin/psql`. `logical` joins with a SPACE, which is
     // right for separating WORDS but splits the very word the shell is gluing
     // together, so every binding rule read two halves and neither contained a
-    // psql-shaped value. `spliced` is the shell's own reading; the binding
-    // rules use it, while the rules that care about word boundaries keep
-    // `logical`.
+    // psql-shaped value. `spliced` is the shell's own reading. Its remaining
+    // consumers are `READ_HERE_STRING` and `githubEnvWrite` — the assignment
+    // family reads lexed words now, where the lexer performs the same splice.
     let spliced = rawCode;
     for (let k = index; /\\$/.test(spliced) && k + 1 < lines.length; k++) {
       spliced = `${spliced.replace(/\\$/, "")}${(lines[k + 1] ?? "").replace(/^\s+/, "")}`;
     }
-    // `PG=psql`, `PSQL="/usr/bin/psql"`, `readonly PG=psql`, `export PG=psql`
-    // Any assignment whose VALUE is a single word mentioning psql binds the
-    // command name: `PG=psql`, `PSQL="/usr/bin/psql"`, and the parameter-default
-    // forms `PSQL="${PSQL:-psql}"` (and `-` `:=` `=` `:+` `+`), where the lexer
+    // Any assignment whose VALUE binds the psql command name: `PG=psql`,
+    // `PSQL="/usr/bin/psql"`, `PG=p'sql'`, and the parameter-default forms
+    // `PSQL="${PSQL:-psql}"` (and `-` `:=` `=` `:+` `+`), where the lexer
     // replaces the whole expansion with an opaque word and the command name
-    // only exists at runtime. Requiring the value to be ONE word keeps prose
-    // like `MSG="psql failed"` out; `\bpsql\b` keeps `notpsql` out.
-    // One declaration grammar, not one spelling of it. Review demonstrated
-    // NINE ordinary bash bindings walking past the previous pattern, each of
-    // which makes the later expanded command word psql: whole-ARGUMENT quoting
-    // (`export 'PG=psql'`, `readonly "PG=psql"`), a flagless `declare`, `local`
-    // inside a function, `typeset`, an indexed element (`PG[0]=psql`), and an
-    // append (`PG+=psql`). The pattern now covers the declaration keywords with
-    // optional flags, both quoting positions, a subscript, and `+=`.
-    // No literal prefilter here, deliberately, even though all three patterns
+    // only exists at runtime. Decided by `assignmentBindingLines` over the
+    // LEXED words above — see its comment for why the declaration-keyword and
+    // quoting-position alternations are gone. `READ_HERE_STRING` still reads
+    // the spliced line: a here-string TARGET is a redirection operand the
+    // lexer drops before words exist (ledger
+    // BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE).
+    // No literal prefilter here, deliberately, even though both readers
     // require a `psql` inside the text they match. A per-line substring guard
     // would be equivalent TODAY and is worth ~6s on the walk, but it is the
     // exact shape the R4 meta-test forbids module-wide — that prefilter shipped
     // once and silently disabled every decoding fix — and a guard is not worth
     // weakening for six seconds. The patterns are compiled once at module
     // scope, which is where the real cost was.
-    const assigned =
-      ASSIGNED_VALUE_QUOTED.exec(spliced) ??
-      ASSIGNED_WHOLE_QUOTED.exec(spliced) ??
-      READ_HERE_STRING.exec(spliced);
+    const assigned = bindingLines.has(index) ? ["", ""] : READ_HERE_STRING.exec(spliced);
     // `alias psql=…`, including the whole-argument quotings `alias 'psql=…'`
     // and `alias "psql=…"`, plus a shell FUNCTION named psql.
     const aliased = /(?:^|\s)alias\s+(?:-\w+\s+)*["']?psql=/.exec(code);
     const functionDef = /(?:^|\s)(?:function\s+psql\b|psql\s*\(\s*\)\s*\{)/.exec(code);
-    // A MULTIWORD command binding: `CMD='psql -qAt mydb'; eval "$CMD"`. The
-    // literal survives but the command word only exists after expansion, so no
-    // site is produced. Requiring the quoted value to lex to a psql invocation
-    // WITH a flag keeps prose out — `MSG="psql failed to connect"` carries none.
-    const quotedValue =
-      /(?:^|\s)(?:export\s+|readonly\s+|declare\s+-\w+\s+|local\s+)?[A-Za-z_]\w*=(?:'([^']*\bpsql\b[^']*)'|"([^"]*\bpsql\b[^"]*)")/.exec(
-        logical,
-      );
-    const boundCommand =
-      quotedValue !== null &&
-      scanShellText(quotedValue[1] ?? quotedValue[2] ?? "", file, 0).some((site) =>
-        site.tokens.some((token) => /^-{1,2}[A-Za-z0-9]/.test(token)),
-      )
-        ? quotedValue
-        : null;
     // `$GITHUB_ENV` and `$GITHUB_OUTPUT` are THE documented way one step hands
     // a value to a later one, so `echo "PSQL=psql" >> "$GITHUB_ENV"` binds a
     // command name exactly as `PSQL=psql` does — and was invisible, because the
@@ -2233,8 +2555,7 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
     // positional on different lines, where the rule could not see either. Same
     // `logical` join the bound-command rule uses, for the same reason.
     const positionalBinding = INTERPRETER_POSITIONAL_BINDING.test(logical) ? ["", ""] : null;
-    const hit =
-      assigned ?? boundCommand ?? aliased ?? functionDef ?? githubEnvWrite ?? positionalBinding;
+    const hit = assigned ?? aliased ?? functionDef ?? githubEnvWrite ?? positionalBinding;
     if (hit) hits.push({ file, line: index + 1, text: code.trim() });
   }
   return hits;
