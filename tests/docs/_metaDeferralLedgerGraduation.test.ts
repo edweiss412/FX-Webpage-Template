@@ -97,6 +97,14 @@ const GRADUATED = [
  * that recorded the finding.
  */
 const BACKLOG_GRADUATED = [
+  // fix/modal-wait-skeleton-tolerant (2026-08-18): the two e2e waits the boundary
+  // helper could not harden. Graduates as a full repair — a frame-REPORTING core plus a
+  // boundary watchdog closed the mechanism the entry named (the skeleton wins a
+  // modal-or-boundary race and converts a starve into a silent pass), and both sites
+  // adopted. The entry's own residues stay as documented limits in the shipped spec §7,
+  // not as new rows: the watchdog's FIRE path has no deterministic test, and the
+  // deeplink skeleton-Esc path stays opportunistic exactly as it is today.
+  { id: "BL-MODAL-WAIT-SKELETON-TOLERANT-SITES", provenance: "fix/modal-wait-skeleton-tolerant" },
   // chore/heavy-orphan-reaper (2026-08-16): the heavy semaphore bounds admission and
   // nothing bounded a worker's LIFETIME once its harness died. Graduates as a REPAIR that
   // shipped shape (a) of the entry's own three candidates, narrowed to an invoked reaper.
