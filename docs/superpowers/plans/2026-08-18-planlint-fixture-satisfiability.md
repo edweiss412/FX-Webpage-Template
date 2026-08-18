@@ -68,12 +68,12 @@ FILE block2-L179.test.ts status failed assertions 2
       AssertionError: expected [] to deeply equal [ 'FIXTURE_MALFORMED' ]
 FILE block3-L215.test.ts status failed assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' imported from ...
 FILE block4-L255.test.ts status failed assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' imported from ...
-FILE block5-L373.test.ts status failed assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' imported from ...
+FILE block5-L346.test.ts status failed assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' imported from ...
 ```
 
 Read exactly: **four** blocks red at module resolution naming the absent module, and **one** — Task 2's, which imports only tracked modules — red at its assertion, `expected [] to deeply equal [ 'FIXTURE_MALFORMED' ]`, which is the stronger evidence of the two (it proves the five-argument `runLint` call compiles and that the orchestrator genuinely emits nothing today). No block failed at transform.
 
-This run is the RE-execution after the spec round 4 repair, which removed the `expect=` field entirely and rewrote Task 4's block around the narrowed ladder; every earlier repair that touched a block was followed by the same re-run, and the line numbers here are the current ones. The record is re-measured on every edit rather than carried forward, which is the discipline the arm itself enforces. Two things the original execution corrected rather than confirmed, which is the argument for running it at all: an earlier draft of this section asserted three module-resolution reds where the measurement shows four, and Task 2's block turns out to carry **one case that passes at base vacuously** — "a clean marker adds no findings" holds today precisely because nothing fires at all. It is kept deliberately as the over-fire guard it becomes once Task 2 lands, and is named here so no reviewer has to discover that it proves nothing before the GREEN step. The splice directory was removed after the run and `git status` is clean.
+This run is the RE-execution after the spec round 5 repair, which removed the clean-observation branch and rewrote Task 4's block around the three-branch ladder; every earlier repair that touched a block was followed by the same re-run, and the line numbers here are the current ones. The record is re-measured on every edit rather than carried forward, which is the discipline the arm itself enforces. Two things the original execution corrected rather than confirmed, which is the argument for running it at all: an earlier draft of this section asserted three module-resolution reds where the measurement shows four, and Task 2's block turns out to carry **one case that passes at base vacuously** — "a clean marker adds no findings" holds today precisely because nothing fires at all. It is kept deliberately as the over-fire guard it becomes once Task 2 lands, and is named here so no reviewer has to discover that it proves nothing before the GREEN step. The splice directory was removed after the run and `git status` is clean.
 
 ### 3.1 Dogfood against the landed arms
 
@@ -244,13 +244,13 @@ describe("splice plan (spec §4.1)", () => {
 
 ## Task 4 — classification, total over the precedence ladder (pure)
 
-<!-- task: red=`pnpm vitest run tests/specLint/fixtureClassify.test.ts` red-state=authored red-target=`lib/specLint/fixtureContract.ts` why=`synthesizeFixtureFindings does not exist at base and is not added by Tasks 1 or 3, so the import fails to resolve. It greens when the module implements spec §4.3's ladder IN ORDER, emitting exactly one outcome per enrolled block; the cases below are red against any implementation that reads absence-of-failure as a clean observation, or that interprets a non-sentinel failure instead of declining on it` ac=AC-3,AC-4 -->
+<!-- task: red=`pnpm vitest run tests/specLint/fixtureClassify.test.ts` red-state=authored red-target=`lib/specLint/fixtureContract.ts` why=`synthesizeFixtureFindings does not exist at base and is not added by Tasks 1 or 3, so the import fails to resolve. It greens when the module implements spec §4.3's ladder IN ORDER, emitting exactly one outcome per enrolled block; the cases below are red against any implementation that certifies a block on a proxy — a passing entry, an absent failure, a non-failed file — or that reads a non-sentinel failure as a satisfiability signal` ac=AC-3,AC-4 -->
 
-Export `synthesizeFixtureFindings(plan, results)` implementing spec §4.3's ordered ladder: one hard verdict (`FIXTURE_UNSATISFIABLE`, on the premise sentinel), one clean reading that requires positive evidence, and one advisory decline carrying its reason. The input carries three channels — file status, per-assertion status, failure messages — because spec §§2.5-2.7 each measured one carrying what the others do not. `results === null` (static invocation) yields zero findings. Exactly one outcome per enrolled block.
+Export `synthesizeFixtureFindings(plan, results)` implementing spec §4.3's three branches: the advisory when the block did not run, the hard verdict when a failure carries the premise sentinel, and NO finding otherwise. The input carries file status, per-assertion status and failure messages so that an implementation reading any of them as a certificate is catchable — spec §§2.5-2.8 measured each one unsound as evidence. `results === null` (static invocation) yields zero findings. Exactly one outcome per enrolled block.
 
 **What is red and why:** the named export does not exist.
 
-**Failure modes caught.** An implementation that reads "no failures" as a clean observation reports an all-skipped, environment-gated block as clean while nothing ran (spec §2.5: two bodies that would fail report `status: "skipped"` and the run exits 0), and reports the outside-the-globs trap the same way (spec §2.3 row 1, which exits 0 having collected nothing). An implementation that interprets a non-sentinel failure reports a `beforeEach` explosion — where the body never executed — as though an assertion had genuinely failed (spec §2.7). Each of those was a BLOCKING finding in spec rounds 1, 2 and 4 respectively, and the narrowed ladder is what closed the class rather than the instances.
+**Failure modes caught.** Every case in the third test is a proxy that some earlier draft of this ladder treated as evidence, and each was measured unsound in a review round: a passing entry (spec §2.8 — an empty test body passes), an absent failure over skipped entries (§2.5 — the run exits 0), a non-failed file (§2.6 — `afterAll` fails the file while every assertion passes), and a failed assertion read as a real one (§2.7 — a `beforeEach` explosion arrives identically). The suite asserts `toEqual([])` for each, so reintroducing any certificate reds immediately rather than in a sixth review round.
 
 ```ts
 import { describe, it, expect } from "vitest";
@@ -261,96 +261,69 @@ const ASSERT = "AssertionError: expected false to be true";
 const HOOK = "Error: BEFORE_EACH_EXPLODED";
 
 const entry = (line: number) => ({ line, block: "// b" });
-// Three channels, because spec sections 2.5, 2.6 and 2.7 each measured one
-// carrying information the other two do not: a skipped entry is present and
-// unexecuted, a hook can fail the FILE with every assertion passing, and a
-// per-test hook failure lands ON the assertion looking ordinary.
 const file = (o: { statuses?: string[]; failures?: string[]; fileStatus?: string }) => ({
   fileStatus: o.fileStatus ?? "passed",
   assertions: (o.statuses ?? ["passed"]).map((status, i) => ({ status, title: `t${i}` })),
   failureMessages: o.failures ?? [],
 });
-const results = (line: number, r: unknown) => ({ files: new Map([[line, r]]) }) as never;
-const codesOf = (plan: ReturnType<typeof entry>[], r: unknown) =>
-  synthesizeFixtureFindings(plan, r as never).map((f) => f.code);
-const only = (r: unknown) => codesOf([entry(5)], r);
+const only = (r: unknown) =>
+  synthesizeFixtureFindings([entry(5)], r as never).map((f) => f.code);
+const results = (r: unknown) => ({ files: new Map([[5, r]]) });
 
 describe("classification ladder (spec section 4.3)", () => {
-  it("UNSATISFIABLE is the one hard verdict: a failure carrying the premise sentinel", () => {
-    expect(only(results(5, file({ fileStatus: "failed", statuses: ["failed"], failures: [PREMISE] })))).toEqual([
+  it("UNSATISFIABLE is the one hard verdict, and it needs the sentinel", () => {
+    expect(only(results(file({ fileStatus: "failed", statuses: ["failed"], failures: [PREMISE] })))).toEqual([
       "FIXTURE_UNSATISFIABLE",
     ]);
-  });
-
-  it("the sentinel outranks a skipped sibling and a non-sentinel failure", () => {
     expect(
-      only(results(5, file({ fileStatus: "failed", statuses: ["failed", "skipped"], failures: [PREMISE] }))),
+      only(results(file({ fileStatus: "failed", statuses: ["failed", "failed"], failures: [ASSERT, PREMISE] }))),
     ).toEqual(["FIXTURE_UNSATISFIABLE"]);
     expect(
-      only(results(5, file({ fileStatus: "failed", statuses: ["failed", "failed"], failures: [ASSERT, PREMISE] }))),
+      only(results(file({ fileStatus: "failed", statuses: ["failed", "skipped"], failures: [PREMISE] }))),
     ).toEqual(["FIXTURE_UNSATISFIABLE"]);
   });
 
-  it("a clean observation requires POSITIVE evidence, not merely the absence of failures", () => {
-    expect(only(results(5, file({ statuses: ["passed"] })))).toEqual([]);
-    expect(only(results(5, file({ statuses: ["passed", "passed"] })))).toEqual([]);
-    // Entries present, nothing failed, nothing executed: spec section 2.5
-    // measured this exiting 0 with file status passed. It must NOT read clean.
-    expect(only(results(5, file({ statuses: ["skipped", "skipped"] })))).toEqual(["FIXTURE_PROBE_UNVERIFIED"]);
-    // One skipped beside an executed sibling is still not a whole observation.
-    expect(only(results(5, file({ statuses: ["passed", "skipped"] })))).toEqual(["FIXTURE_PROBE_UNVERIFIED"]);
-    for (const status of ["pending", "todo"]) {
-      expect(only(results(5, file({ statuses: ["passed", status] })))).toEqual(["FIXTURE_PROBE_UNVERIFIED"]);
-    }
+  it("the advisory means the block DID NOT RUN, and nothing else", () => {
+    // empty entry list: the report's own statement that no test case existed
+    // (unresolvable import, transform error, no suite, outside-the-globs trap)
+    expect(only(results(file({ fileStatus: "failed", statuses: [] })))).toEqual(["FIXTURE_PROBE_UNVERIFIED"]);
+    // absent from the report entirely
+    const absent = synthesizeFixtureFindings([entry(5)], { files: new Map() } as never);
+    expect(absent.map((f) => f.code)).toEqual(["FIXTURE_PROBE_UNVERIFIED"]);
+    expect(absent[0]!.severity).toBe("advisory");
   });
 
-  it("every shape the report cannot disambiguate DECLINES, and none draws a hard code", () => {
-    // no entries at all (unresolvable import / transform error / no suite / the
-    // outside-the-globs trap, spec sections 2.3 and 2.4)
-    expect(only(results(5, file({ fileStatus: "failed", statuses: [] })))).toEqual(["FIXTURE_PROBE_UNVERIFIED"]);
-    // afterAll: file failed, every assertion passed (section 2.6)
-    expect(only(results(5, file({ fileStatus: "failed", statuses: ["passed"] })))).toEqual([
-      "FIXTURE_PROBE_UNVERIFIED",
-    ]);
-    // beforeEach/afterEach: the failure lands on the assertion and looks
-    // ordinary (section 2.7). The body may never have run; the report does not
-    // say, so interpreting it either way is the corruption this arm avoids.
-    expect(only(results(5, file({ fileStatus: "failed", statuses: ["failed"], failures: [HOOK] })))).toEqual([
-      "FIXTURE_PROBE_UNVERIFIED",
-    ]);
-    // an ordinary assertion failure is equally unreadable as satisfiability
-    expect(only(results(5, file({ fileStatus: "failed", statuses: ["failed"], failures: [ASSERT] })))).toEqual([
-      "FIXTURE_PROBE_UNVERIFIED",
-    ]);
-    // a file with entries but none passed
-    expect(only(results(5, file({ statuses: ["skipped"] })))).toEqual(["FIXTURE_PROBE_UNVERIFIED"]);
+  it("NO shape without the sentinel is ever certified, and none draws a hard code", () => {
+    // Each of these was, in some review round, a branch that claimed more than
+    // the report supports. Every one now draws NOTHING: the arm has no claim.
+    // section 2.8 - an empty test body passes, so a passing entry proves nothing
+    expect(only(results(file({ statuses: ["passed", "passed"] })))).toEqual([]);
+    // section 2.5 - a skipped entry is present and unexecuted; the run exits 0
+    expect(only(results(file({ statuses: ["skipped", "skipped"] })))).toEqual([]);
+    expect(only(results(file({ statuses: ["passed", "skipped"] })))).toEqual([]);
+    // section 2.6 - afterAll fails the FILE while every assertion passes
+    expect(only(results(file({ fileStatus: "failed", statuses: ["passed"] })))).toEqual([]);
+    // section 2.7 - a per-test hook failure arrives as an ordinary failure
+    expect(only(results(file({ fileStatus: "failed", statuses: ["failed"], failures: [HOOK] })))).toEqual([]);
+    // an ordinary assertion failure is equally not a satisfiability signal
+    expect(only(results(file({ fileStatus: "failed", statuses: ["failed"], failures: [ASSERT] })))).toEqual([]);
   });
 
-  it("a block absent from the report declines, and never draws a hard code", () => {
-    const out = synthesizeFixtureFindings([entry(5)], { files: new Map() } as never);
-    expect(out.map((f) => f.code)).toEqual(["FIXTURE_PROBE_UNVERIFIED"]);
-    expect(out[0]!.severity).toBe("advisory");
-  });
-
-  it("every enrolled block draws exactly one outcome, over the whole ladder", () => {
-    const plan = [1, 2, 3, 4, 5, 6].map(entry);
+  it("every enrolled block draws at most one outcome, over the whole ladder", () => {
+    const plan = [1, 2, 3, 4].map(entry);
     const map = new Map<number, unknown>([
       [1, file({ fileStatus: "failed", statuses: ["failed"], failures: [PREMISE] })],
       [2, file({ fileStatus: "failed", statuses: [] })],
       [3, file({ statuses: ["passed"] })],
-      [4, file({ statuses: ["skipped"] })],
-      [6, file({ fileStatus: "failed", statuses: ["passed"] })],
-      // line 5 deliberately absent
+      // line 4 deliberately absent from the report
     ]);
     const out = synthesizeFixtureFindings(plan, { files: map } as never);
     expect(out.map((f) => `${f.docLine}:${f.code}`)).toEqual([
       "1:FIXTURE_UNSATISFIABLE",
       "2:FIXTURE_PROBE_UNVERIFIED",
       "4:FIXTURE_PROBE_UNVERIFIED",
-      "5:FIXTURE_PROBE_UNVERIFIED",
-      "6:FIXTURE_PROBE_UNVERIFIED",
     ]);
-    // line 3 is the clean one: it draws nothing, which is why it is absent above
+    // line 3 ran without a premise failure, so the arm says nothing about it
     expect(out.some((f) => f.docLine === 3)).toBe(false);
   });
 
@@ -428,7 +401,7 @@ describe("splice lifecycle (spec §4.2)", () => {
 
 <!-- task: red=`pnpm vitest run tests/specLint/fixtureCli.test.ts` red-state=authored red-target=`scripts/spec-lint.ts:290` why=`the adapter at scripts/spec-lint.ts:290 runs no fixture blocks at base, so a real spec:lint --exec-red invocation over a fixture plan whose block fails a premise exits 0 with no FIXTURE_ code in its report. It greens once Tasks 1-5 land end to end; this suite is the only one that observes the real subprocess, real JSON reporter, and real filesystem together` ac=AC-4,AC-5 -->
 
-Extend the CLI suite with real subprocess cases over trivial blocks (no heavy phases): a premise-failing block → exit 1 with `FIXTURE_UNSATISFIABLE`; the repaired block → exit 0 clean; an unresolvable-import block → the advisory; a block whose `describe` is skipped → the advisory through the REAL reporter (spec §2.5's shape exits 0, so only a real run proves the adapter surfaces per-assertion statuses at all); a pre-existing splice directory → the advisory with a spy asserting ZERO vitest spawns; and an assertion, after every case, that no `tests/.spec-lint-fixtures-*` directory survives.
+Extend the CLI suite with real subprocess cases over trivial blocks (no heavy phases): a premise-failing block → exit 1 with `FIXTURE_UNSATISFIABLE`; the repaired block → exit 0 with no `FIXTURE_` code at all; an unresolvable-import block → the advisory; a block whose `describe` is skipped → exit 0 with no code, observed through the REAL reporter (spec §2.5's shape exits 0, so only a real run proves the adapter surfaces the statuses at all and that the arm still refuses to rule on them); a pre-existing splice directory → the advisory with a spy asserting ZERO vitest spawns; and an assertion, after every case, that no `tests/.spec-lint-fixtures-*` directory survives.
 
 **What is red and why:** no fixture code path exists in the shipped CLI.
 
