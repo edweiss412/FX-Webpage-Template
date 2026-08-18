@@ -178,6 +178,56 @@ describe("awaitReviewFrameOrRecover (spec §4.1)", () => {
     expect(watchdogArms(waitForCalls)).toHaveLength(0);
   });
 
+  test("a loaded frame arriving DURING the overlap wins, not the skeleton that was up first", async () => {
+    // The time-of-check/time-of-use case (diff review R1 finding 1). Each
+    // isVisible() is a live DOM query, so the streaming swap can land BETWEEN
+    // two samples. Here the skeleton is up throughout and the loaded frame
+    // becomes visible after the first sample: sampling loaded FIRST reports
+    // "skeleton" and arms a watchdog for a modal that is already loaded, which
+    // is precisely the tie-break AC-1 forbids.
+    let samples = 0;
+    const { page, waitForCalls } = makeFakePage({
+      visible: (selector) => {
+        samples += 1;
+        if (selector === SKELETON_REVIEW_MODAL) return true;
+        if (selector === LOADED_REVIEW_MODAL) return samples > 1;
+        return false;
+      },
+    });
+
+    const result = await awaitReviewFrameOrRecover(page, { label: "case:overlap-late-loaded" });
+
+    expect(result.frame).toBe("loaded");
+    expect((result.locator as unknown as FakeLocator).selector).toBe(LOADED_REVIEW_MODAL);
+    expect(watchdogArms(waitForCalls)).toHaveLength(0);
+  });
+
+  test("a frame that vanishes between the race and the samples re-races, then NAMES the starve", async () => {
+    // The second half of the same finding: with nothing visible, a classifier
+    // that treats "not loaded, not skeleton" as "must be the boundary" clicks a
+    // Retry that is not on the page and dies on a generic Playwright error
+    // naming neither selector nor the server signature. Totality is the fix —
+    // and the retry click is the assertion that proves the path was not taken.
+    const { page, clicks, waitForCalls } = makeFakePage({ visible: () => false });
+
+    const message = await awaitReviewFrameOrRecover(page, { label: "case:vanished" }).then(
+      () => "RESOLVED — nothing was visible, so this must not resolve",
+      (err: unknown) => (err instanceof Error ? err.message : String(err)),
+    );
+
+    expect(message).toContain("case:vanished");
+    expect(message).toContain(LOADED_REVIEW_MODAL);
+    expect(message).toContain(SKELETON_REVIEW_MODAL);
+    expect(message).toContain(BOUNDARY_SELECTOR);
+    expect(message).toContain("show_review_snapshot_failed");
+    expect(message).toContain("recovery not attempted");
+    // No Retry click, and no watchdog: neither path was ever entered.
+    expect(clicks).toEqual([]);
+    expect(watchdogArms(waitForCalls)).toHaveLength(0);
+    // The re-race happened: TWO composed waits, not one.
+    expect(waitForCalls).toHaveLength(2);
+  });
+
   test("starve names all three selectors and the server signature, VERBATIM", async () => {
     // Verbatim, not containment: an appended-suffix mutant survives substring
     // assertions (the loaded suite probed exactly that).

@@ -109,6 +109,14 @@ function frameStarveError(label: string, recoveryAttempted: boolean): Error {
   );
 }
 
+function boundaryPersistedError(label: string): Error {
+  return new Error(
+    `openShowReviewFrame: error boundary persisted after one retry (${label}). ` +
+      `Waited on ${LOADED_REVIEW_MODAL}, ${SKELETON_REVIEW_MODAL} and ${BOUNDARY_SELECTOR}. ` +
+      `Grep the server log for ${SERVER_SIGNATURE}.`,
+  );
+}
+
 /**
  * Fire-and-forget: the boundary can still replace the skeleton AFTER the frame
  * wait returned, and the caller is already downstream by then. This never
@@ -211,21 +219,53 @@ export async function awaitReviewFrameOrRecover(
   const skeletonReady = skeleton.first();
   const boundary = page.locator(BOUNDARY_SELECTOR);
 
-  try {
-    await loadedReady
-      .or(skeletonReady)
-      .or(boundary)
-      .first()
-      .waitFor({ state: "visible", timeout: timeoutMs });
-  } catch {
+  const raceOnce = async (arms: Locator[]): Promise<boolean> => {
+    const chain = arms.slice(1).reduce((acc, arm) => acc.or(arm), arms[0]!);
+    try {
+      await chain.first().waitFor({ state: "visible", timeout: timeoutMs });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const classify = async (): Promise<ReviewFrame | "boundary" | null> => {
+    // SKELETON is sampled first and LOADED second, so the later sample decides:
+    // any overlap in which the loaded frame is up at its own sample point
+    // resolves "loaded", which is the tie-break this contract promises. Each
+    // call is a live DOM query and the streaming swap is milliseconds wide, so
+    // the ORDER is the only part of the race we own (diff review R1 finding 1).
+    const skeletonVisible = await skeletonReady.isVisible();
+    if (await loadedReady.isVisible()) return "loaded";
+    if (skeletonVisible) return "skeleton";
+    if (await boundary.isVisible()) return "boundary";
+    // Nothing is up any more: the state moved between the race and these
+    // samples. The caller gets a named error or a re-race, NEVER a silent fall
+    // into the recovery path with no boundary present.
+    return null;
+  };
+
+  const settle = (frame: ReviewFrame): AwaitFrameResult => {
+    if (frame === "skeleton") armBoundaryWatchdog(page, label, timeoutMs);
+    return { frame, locator: frame === "loaded" ? loaded : skeleton };
+  };
+
+  if (!(await raceOnce([loadedReady, skeletonReady, boundary]))) {
     throw frameStarveError(label, false);
   }
 
-  if (await loadedReady.isVisible()) return { frame: "loaded", locator: loaded };
-  if (await skeletonReady.isVisible()) {
-    armBoundaryWatchdog(page, label, timeoutMs);
-    return { frame: "skeleton", locator: skeleton };
+  let observed = await classify();
+  if (observed === null) {
+    // ONE bounded re-race, then classify again. A frame that vanished under the
+    // first sample is the documented overlap, not a fault; a frame that never
+    // comes back is a starve and is named as one.
+    if (!(await raceOnce([loadedReady, skeletonReady, boundary]))) {
+      throw frameStarveError(label, false);
+    }
+    observed = await classify();
   }
+  if (observed === null) throw frameStarveError(label, false);
+  if (observed !== "boundary") return settle(observed);
 
   // Error boundary path: recover once via the product's own Retry.
   const { test } = await import("@playwright/test");
@@ -234,22 +274,18 @@ export async function awaitReviewFrameOrRecover(
     description: `${label}: admin error boundary on first frame wait; clicking retry`,
   });
   await page.locator(RETRY_SELECTOR).click();
-  try {
-    await loadedReady.or(skeletonReady).first().waitFor({ state: "visible", timeout: timeoutMs });
-  } catch {
-    if (await boundary.isVisible()) {
-      throw new Error(
-        `openShowReviewFrame: error boundary persisted after one retry (${label}). ` +
-          `Waited on ${LOADED_REVIEW_MODAL}, ${SKELETON_REVIEW_MODAL} and ${BOUNDARY_SELECTOR}. ` +
-          `Grep the server log for ${SERVER_SIGNATURE}.`,
-      );
-    }
+  if (!(await raceOnce([loadedReady, skeletonReady]))) {
+    if (await boundary.isVisible()) throw boundaryPersistedError(label);
     throw frameStarveError(label, true);
   }
 
-  if (await loadedReady.isVisible()) return { frame: "loaded", locator: loaded };
-  armBoundaryWatchdog(page, label, timeoutMs);
-  return { frame: "skeleton", locator: skeleton };
+  // Post-recovery classification is TOTAL for the same reason: reporting
+  // "skeleton" because "loaded" was absent would report a frame nobody
+  // observed, and a SECOND boundary would be returned as a stale skeleton.
+  const after = await classify();
+  if (after === "boundary") throw boundaryPersistedError(label);
+  if (after === null) throw frameStarveError(label, true);
+  return settle(after);
 }
 
 /**
