@@ -960,6 +960,30 @@ index 684332797..ae1a4a5d1 100644
    test("compound: the row unmounting while the menu is open leaves no orphaned portal", async ({
 ```
 
+## Task 4 results — full local verification (AC-3) + the AC-1 probe
+
+Recorded here rather than in a commit message because Task 4 ships no code; these are the observations Task 6 cites.
+
+**AC-1 post-fix timeline probe.** Appendix A materialized as `tests/e2e/probe-rowactions-geometry.spec.ts`, run under `pnpm heavy` at `--project=desktop-chromium`, `E2E_PORT=3107`, then DELETED (`git status --porcelain` shows no `tests/e2e/probe-*` and no stray artifacts). All five repetitions:
+
+```
+rep=0 {"scrolls":[{"t":963.4,"top":154}],"finalScrollTop":154,"activeBottom":433,"boxBottom":433.375,"revealed":true}
+rep=1 {"scrolls":[{"t":930.1,"top":154}],"finalScrollTop":154,"activeBottom":433,"boxBottom":433.375,"revealed":true}
+rep=2 {"scrolls":[{"t":931.3,"top":154}],"finalScrollTop":154,"activeBottom":433,"boxBottom":433.375,"revealed":true}
+rep=3 {"scrolls":[{"t":909.1,"top":154}],"finalScrollTop":154,"activeBottom":433,"boxBottom":433.375,"revealed":true}
+rep=4 {"scrolls":[{"t":986.2,"top":154}],"finalScrollTop":154,"activeBottom":433,"boxBottom":433.375,"revealed":true}
+```
+
+Exactly ONE scroll event per repetition — the reveal — and `finalScrollTop` equals its offset in every one, so there is no reset and no drift across the 400ms window. Against spec §2's P2 baseline (`activeBottom 587 / boxBottom 433.375`, reveal reverted to `scrollTop 0`), the active item now ends at 433 inside a box bottom of 433.375.
+
+**HoverHelp transition pin (AC-3, spec §5.4 family A).** `pnpm heavy pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/hoverhelp-geometry.spec.ts` → 30 passed, including the shipped standalone case that engages `maxWidth` in a narrow pane host and requires it CLEARED when the host widens. That case is HoverHelp's family-A pin and this is where it runs.
+
+**CI e2e file set (AC-3).** `pnpm heavy pnpm exec playwright test --project=desktop-chromium` over the exact set from `.github/workflows/admin-layout-e2e.yml:175` — bell-panel-layout, admin-nav-layout-dimensions, nojs-loading-notice, needs-attention-holds, rowactions-geometry — returns **41 passed, 3 failed**. All five `rowactions-geometry` cases pass, at `--repeat-each=2` as well (10/10, five cases twice).
+
+The three failures are ENVIRONMENTAL and pre-existing, not regressions of this diff, and the evidence is a differential run rather than an argument: `components/admin/AnchoredPortal.tsx`, `HoverHelp.tsx`, `showpage/ShareHub.tsx` and `useFitWithinClip.ts` were checked out from `origin/main` and the two failing spec files re-run against the same database — the SAME three cases failed identically. They are `admin-nav-layout-dimensions.spec.ts:586` and `needs-attention-holds.spec.ts:286`/`:343`, and two of them fail inside their own premise guard: `Error: badge is capped ("9+") - baseline too high to test a delta`. The shared local Supabase holds 53 shows left by other worktrees' concurrent e2e runs, which caps the attention badge and makes a delta assertion unreachable. That is exactly the environment-versus-code distinction `tests/_shared/premise.ts` exists to keep legible.
+
+Deliberately NOT repaired here: cleaning that database would delete seed rows other arcs are actively running against, which is the two-writers hazard invariant 11 exists to prevent. CI runs each job against a fresh database, so Task 6's real-CI-green gate is the authority for these three; if they fail THERE, that is a real defect and this note does not cover it.
+
 ## §12 — closeout
 
 Filled by the implementation session at Task 5 (never fabricated in the spec+plan arc; `tests/docs/_metaInvariant8Closeout.test.ts` reds on this unmerged branch by design until then). The line to add here, with real values:
