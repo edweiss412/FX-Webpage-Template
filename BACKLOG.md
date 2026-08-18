@@ -8,27 +8,6 @@ Last reconciled: 2026-08-17 — `fix/shell-binding-mixed-quoted-value` graduated
 
 ---
 
-## BL-PREMISE-CONTRACT-SUITE-AT-THE-TIMEOUT-BOUNDARY — a required unit gate runs 33s against a 30s cap and reds on runner luck
-
-**Severity:** MEDIUM (a REQUIRED context on every PR; when it reds, the merge is blocked and the only remedy is a re-run) · **Class:** CI reliability · **Effort:** S · **Filed:** 2026-08-18 (`fix/rowactions-submenu-reveal-flake`, seen while shipping an unrelated measurement change) · **Reachability:** PROBED — measured on BOTH sides, see below.
-
-`tests/mutation/_metaPremiseContract.test.ts` classifies every test in every suite named by the source-mutation registry, and that walk costs about 33 seconds of test time. Vitest's per-test cap on the `parallel` project is 30 seconds. The margin is negative, so whether the job is green is a property of how loaded the runner is, not of the tree.
-
-**The probe is a same-machine differential, and it removes the tempting explanation.** The arc that found this adds three test files, so "the new tests made the walk slower" is the obvious reading. It is wrong — the suite scans the ENROLLED registry (`GUARD_SURFACES.flatMap(s => s.suitePaths)`), which that arc does not touch:
-
-| tree                                                               | test time  |
-| ------------------------------------------------------------------ | ---------- |
-| `origin/main` at `7d09a1f0b`, detached worktree, same node_modules | **33.45s** |
-| `fix/rowactions-submenu-reveal-flake`                              | **33.23s** |
-
-Byte-for-byte the same cost, and the branch is marginally FASTER. Main is over the cap too; it has simply been winning the coin flip.
-
-**Observed failures.** Two consecutive `unit-suite-nodb (3)` reds on PR #845 (jobs `95808345158`-adjacent shard 3 and `95812641758`), each `Test timed out in 30000ms`, the second cascading across four cases in the file. Main's own recent runs are green, which is what makes this read as luck rather than as a regression on either side.
-
-**Why it is filed rather than fixed in the arc that found it:** the file belongs to the mutation-guard surface, not to a popover measurement change, and raising a timeout inside an unrelated PR puts a gate edit outside that PR's reviewed surface — class-sweep disposition exception (c).
-
-**First scheduled step:** decide which side moves, because both are defensible and the choice is not mechanical. Either give the four cases an explicit `testTimeout` above the measured cost with a comment naming the measurement (cheap, honest, and leaves the walk's cost invisible), or make the walk cheaper — it re-reads and re-classifies each suite once per case, so hoisting the classification into a module-level memo would cut it roughly fourfold and put the whole file back under the default cap. The second is the better repair and the first is the safe one; measure before choosing.
-
 ## BL-PREMISESCAN-ALIAS-SLICE-UNCOVERED — the `@/` specifier slice has no killing test
 
 **Status:** OPEN · **Filed:** 2026-08-16 (`fix/scanner-scope-totality`, from the premiseScan mutation-gate enrolment) · **Class:** guard coverage · **Effort:** S · **Class-sweep exception:** (c) — closing it needs a corpus module this PR does not otherwise touch. · **Reachability:** PROBED — a declared mutant that survives the shipped suite.

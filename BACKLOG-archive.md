@@ -1,3 +1,39 @@
+## BL-PREMISE-CONTRACT-SUITE-AT-THE-TIMEOUT-BOUNDARY — a required unit gate runs 33s against a 30s cap and reds on runner luck — CLOSED 2026-08-18 (`fix/rowactions-submenu-reveal-flake`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-18 · **Effort (as shipped):** S · **Severity (as filed):** MEDIUM (a REQUIRED context on every PR; when it reds, the merge is blocked and the only remedy is a re-run) · **Class:** CI reliability · **Effort:** S · **Filed:** 2026-08-18 (`fix/rowactions-submenu-reveal-flake`, seen while shipping an unrelated measurement change) · **Reachability:** PROBED — measured on BOTH sides, see below.
+
+`tests/mutation/_metaPremiseContract.test.ts` classifies every test in every suite named by the source-mutation registry, and that walk costs about 33 seconds of test time. Vitest's per-test cap on the `parallel` project is 30 seconds. The margin is negative, so whether the job is green is a property of how loaded the runner is, not of the tree.
+
+**The probe is a same-machine differential, and it removes the tempting explanation.** The arc that found this adds three test files, so "the new tests made the walk slower" is the obvious reading. It is wrong — the suite scans the ENROLLED registry (`GUARD_SURFACES.flatMap(s => s.suitePaths)`), which that arc does not touch:
+
+| tree                                                               | test time  |
+| ------------------------------------------------------------------ | ---------- |
+| `origin/main` at `7d09a1f0b`, detached worktree, same node_modules | **33.45s** |
+| `fix/rowactions-submenu-reveal-flake`                              | **33.23s** |
+
+Byte-for-byte the same cost, and the branch is marginally FASTER. Main is over the cap too; it has simply been winning the coin flip.
+
+**Observed failures.** Two consecutive `unit-suite-nodb (3)` reds on PR #845 (jobs `95808345158`-adjacent shard 3 and `95812641758`), each `Test timed out in 30000ms`, the second cascading across four cases in the file. Main's own recent runs are green, which is what makes this read as luck rather than as a regression on either side.
+
+**Why it is filed rather than fixed in the arc that found it:** the file belongs to the mutation-guard surface, not to a popover measurement change, and raising a timeout inside an unrelated PR puts a gate edit outside that PR's reviewed surface — class-sweep disposition exception (c).
+
+**First scheduled step:** decide which side moves, because both are defensible and the choice is not mechanical. Either give the four cases an explicit `testTimeout` above the measured cost with a comment naming the measurement (cheap, honest, and leaves the walk's cost invisible), or make the walk cheaper — it re-reads and re-classifies each suite once per case, so hoisting the classification into a module-level memo would cut it roughly fourfold and put the whole file back under the default cap. The second is the better repair and the first is the safe one; measure before choosing.
+
+**Resolution — and the entry was filed and closed inside the same PR, deliberately.** It was filed under class-sweep exception (c), on the reading that a gate edit does not belong in a popover-measurement PR. That reading did not survive the evidence: the gate then blocked this PR three consecutive times, so the choice was no longer "repair here or elsewhere" but "repair here or re-run the coin flip until it lands". Filing first and closing second is not bookkeeping theatre — the entry carries the differential probe that sent the repair to the right place, and that record is worth keeping whether the fix took an hour or a month.
+
+**The repair is the one the entry named as the better of its two.** The four cases each called `classifyTests(ROOT, suite)` over every enrolled suite, so the walk was paid four times. It is now computed once at module scope into a `Map`, with a `classifiedFor` accessor that THROWS on a missing suite rather than returning `[]` — an empty scan would be a silent green on nothing, the exact failure the file's first describe block exists to prevent.
+
+No verdict changes, and could not: `classifyTests` is a pure function of the suite's source on disk, which the four cases already relied on — if two calls for one suite could disagree, the declared-count case and the offender cases would have been asserting against different scans all along.
+
+**Measured on the same machine, same node_modules:**
+
+|        | test clock (the 30s cap) | wall  |
+| ------ | ------------------------ | ----- |
+| before | 33.45s                   | 33.9s |
+| after  | **2.26s**                | 10.8s |
+
+The remainder moved to import, which no per-test cap measures. The timeout was NOT raised: the signal that the walk is expensive is left intact, and the expense is gone.
+
 ## BL-ROWACTIONS-SUBMENU-REVEAL-E2E-FLAKE — the capped-submenu focus-reveal case fails ~40% of CI runs on identical code — CLOSED 2026-08-18 (`fix/rowactions-submenu-reveal-flake`, SHIPPED)
 
 **Status:** SHIPPED 2026-08-18 · **Effort (as shipped):** M · **Severity (as filed):** MEDIUM (a merge-gating leg that reds at random; every arc touching `admin-layout-e2e`'s path filter pays for it) · **Class:** CI reliability / e2e flake · **Effort:** M · **Filed:** 2026-08-16 (`fix/control-outline-surface-fills`, seen while shipping an unrelated colour-token change) · **Class-sweep exception:** (c) — the repair is a redesign of a scroll-reveal path in a component this PR does not otherwise touch · **Reachability:** PROBED — eight runs on one branch, byte-identical product code, both outcomes.
