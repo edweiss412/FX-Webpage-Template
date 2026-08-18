@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { premise } from "../_shared/premise";
-import { CENSUS, resolveCensus } from "./controlOutlineScan";
+import { CENSUS, DIVIDERS, resolveCensus } from "./controlOutlineScan";
 import { allStrings, scanInteractiveElements, type ScanElement } from "./interactiveScanCore";
 
 /**
@@ -48,6 +48,21 @@ function carries(element: ScanElement, token: string): boolean {
   return allStrings(element).some((s) => whole.test(s));
 }
 
+/**
+ * The render alternatives that carry `token` — the unit every PER-PATH claim is
+ * made in.
+ *
+ * Reasoning over `allStrings` (the UNION of every alternative) when the question
+ * is about a single path is the error this arc hit THREE times: in the hover
+ * classification, in a tinted-plate claim, and in the first draft of the hover
+ * assertions below. The repair is a named helper that is easier to reach for
+ * than the wrong one, rather than a fourth careful hand-check.
+ */
+function pathsCarrying(element: ScanElement, token: string): readonly (readonly string[])[] {
+  const whole = new RegExp(`(^|\\s)${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\s|$)`);
+  return element.paths.filter((path) => path.some((s) => whole.test(s)));
+}
+
 /** Every render alternative carries the token — not merely one of them. */
 function everyPathCarries(element: ScanElement, token: string): boolean {
   const whole = new RegExp(`(^|\\s)${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\s|$)`);
@@ -76,13 +91,13 @@ describe("control-outline census (spec §4.2)", () => {
    * failure and it is the single most important case in the file.
    */
   it("holds exactly 21 rows", () => {
-    expect(CENSUS.length).toBe(21);
+    expect(CENSUS.length).toBe(57);
   });
 
   /** A duplicated row must not stand in for a deleted one and keep the count. */
   it("has 21 distinct row identities", () => {
     const identities = new Set(CENSUS.map((r) => `${r.file}:${r.line}`));
-    expect(identities.size).toBe(21);
+    expect(identities.size).toBe(57);
   });
 
   /**
@@ -122,6 +137,50 @@ describe.each(RESOLVED.map((r, i) => [i + 1, r] as const))(
       expect(resolvedRow.element).not.toBeNull();
       expect(carries(resolvedRow.element as ScanElement, "border-border-strong")).toBe(false);
     });
+
+    /**
+     * The 2026-08-18 arc's strengthening, and it is a NEGATION rather than a
+     * universal on purpose.
+     *
+     * `carries` reads `allStrings`, which spans every render alternative, so
+     * "no path carries it" IS the universal claim. The tempting edit —
+     * `everyPathCarries(el, "border-text-faint")` — is WRONG for this
+     * population and the counterexample is shipped: `Mi11GateActions.tsx:69`
+     * has an `isApprove` branch that is `bg-accent … text-accent-text` with no
+     * border at all, the accent-filled primary action DESIGN §1.2a rules OUT by
+     * name. A control may legitimately have an outline-free path.
+     */
+    it(`no longer carries border-border (${label})`, () => {
+      expect(resolvedRow.element).not.toBeNull();
+      expect(carries(resolvedRow.element as ScanElement, "border-border")).toBe(false);
+    });
+  },
+);
+
+/**
+ * The five dividers are OUT, and the exclusion is asserted rather than assumed.
+ *
+ * THREE assertions each. Absence from CENSUS alone stays green if a later arc
+ * deletes the token from a divider — that would violate the exclusion while
+ * looking clean (plan review R1 F2).
+ */
+describe.each(DIVIDERS.map((d) => [`${d.file}:${d.line}`, d] as const))(
+  "divider %s is excluded, not swept",
+  (label, row) => {
+    const element = UNIVERSE.find((e) => e.file === row.file && e.line === row.line) ?? null;
+
+    it(`resolves through the scanner (${label})`, () => {
+      expect(element).not.toBeNull();
+    });
+
+    it(`still carries border-border (${label})`, () => {
+      expect(element).not.toBeNull();
+      expect(carries(element as ScanElement, "border-border")).toBe(true);
+    });
+
+    it(`is NOT a census row (${label})`, () => {
+      expect(CENSUS.some((r) => r.file === row.file && r.line === row.line)).toBe(false);
+    });
   },
 );
 
@@ -142,6 +201,77 @@ describe("negative control — the assertion can fail", () => {
     const button = found[0] as ScanElement;
     expect(carries(button, "border-border-strong")).toBe(true);
     expect(carries(button, "border-text-faint")).toBe(false);
+  });
+
+  /**
+   * Fixture (a): the border-border negation can fail at all.
+   */
+  it("finds a constructed border-border button and rejects it", () => {
+    const found = scanFixture(`export function Fx() {
+  return <button className="border border-border bg-surface">x</button>;
+}
+`);
+    premise("fixture parsed and produced an element", found.length, 0);
+    expect(carries(found[0] as ScanElement, "border-border")).toBe(true);
+  });
+
+  /**
+   * Fixture (b): the strengthening is NOT cosmetic.
+   *
+   * One arm carries the new token, the other still carries the old one. It
+   * PASSES the pre-existing `carries(…, "border-text-faint")` check and FAILS
+   * the negation — which is exactly the `ResetPickerEpochButton.tsx:178` shape
+   * the 2026-08-16 pin could not see.
+   */
+  it("passes the faint check and fails the negation on a half-swapped ternary", () => {
+    const found = scanFixture(`export function Fx({ compact }: { compact: boolean }) {
+  return (
+    <button
+      className={
+        compact
+          ? "border border-text-faint bg-surface"
+          : "border border-border bg-surface"
+      }
+    >
+      x
+    </button>
+  );
+}
+`);
+    premise("fixture parsed and produced an element", found.length, 0);
+    const el = found[0] as ScanElement;
+    expect(carries(el, "border-text-faint")).toBe(true);
+    expect(carries(el, "border-border")).toBe(true);
+  });
+
+  /**
+   * Fixture (c): a legitimately outline-free branch is NOT collateral.
+   *
+   * The `Mi11GateActions.tsx:69` shape — one arm is an accent-filled primary
+   * with no border at all. It must satisfy both shipped assertions, which is
+   * why the negation form was chosen over `everyPathCarries` (spec §5.2).
+   */
+  it("leaves an outline-free branch alone", () => {
+    const found = scanFixture(`export function Fx({ primary }: { primary: boolean }) {
+  return (
+    <button
+      className={
+        primary
+          ? "bg-accent px-4 text-accent-text"
+          : "border border-text-faint bg-surface"
+      }
+    >
+      x
+    </button>
+  );
+}
+`);
+    premise("fixture parsed and produced an element", found.length, 0);
+    const el = found[0] as ScanElement;
+    expect(carries(el, "border-text-faint")).toBe(true);
+    expect(carries(el, "border-border")).toBe(false);
+    expect(everyPathCarries(el, "border-text-faint")).toBe(false);
+    expect(pathsCarrying(el, "border-text-faint").length).toBe(1);
   });
 });
 

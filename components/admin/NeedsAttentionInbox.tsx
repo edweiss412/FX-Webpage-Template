@@ -28,7 +28,7 @@ type NeedsAttentionInboxProps = {
 };
 
 const reviewLinkClass = cn(
-  "inline-flex min-h-tap-min items-center rounded-md border border-border px-3 text-sm font-semibold text-accent-on-bg underline-offset-2 hover:border-border-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
+  "inline-flex min-h-tap-min items-center rounded-md border border-text-faint px-3 text-sm font-semibold text-accent-on-bg underline-offset-2 hover:border-border-strong hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
 );
 
 // Top row of every card: the status eyebrow on the left, a relative activity

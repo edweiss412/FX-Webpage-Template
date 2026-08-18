@@ -36,7 +36,7 @@ export function NeedsAttentionSummaryCard({
     <Link
       href="/admin/needs-attention"
       data-testid="needs-attention-summary-card"
-      className={`flex min-h-tap-min items-center justify-between gap-3 rounded-md border border-border bg-surface-sunken p-tile-pad transition-colors duration-fast hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring ${className ?? ""}`}
+      className={`flex min-h-tap-min items-center justify-between gap-3 rounded-md border border-text-faint bg-surface-sunken p-tile-pad transition-colors duration-fast hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring ${className ?? ""}`}
     >
       <span className="flex min-w-0 flex-col gap-1">
         {zero ? (

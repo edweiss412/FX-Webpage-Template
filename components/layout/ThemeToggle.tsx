@@ -38,7 +38,7 @@
  *   • Tap target ≥44×44px via `min-h-tap-min min-w-tap-min`
  *     (DESIGN.md §3 spacing-tap-min token,
  *     globals.css line 75).
- *   • All colors via tokens — `border-border`, `bg-surface`,
+ *   • All colors via tokens — `border-text-faint`, `bg-surface`,
  *     `text-text`, `hover:bg-surface-raised`, `hover:text-text-strong`.
  *     No hex literals.
  *   • Focus ring via `--color-focus-ring` token.
@@ -122,7 +122,7 @@ export function ThemeToggle() {
         aria-label="Dark mode"
         {...(mounted ? { "aria-pressed": isDark } : {})}
         onClick={flip}
-        className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border bg-surface text-text transition-colors duration-fast hover:border-border-strong hover:bg-surface-raised hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+        className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-text-faint bg-surface text-text transition-colors duration-fast hover:border-border-strong hover:bg-surface-raised hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
       >
         {/*
           Show the icon for the OTHER theme — affordance is "this is

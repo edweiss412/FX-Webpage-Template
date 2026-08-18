@@ -52,7 +52,7 @@ export function SectionChipLink({ section, icon, children }: SectionChipLinkProp
       data-section={section}
       className={cn(
         "inline-flex min-h-tap-min shrink-0 items-center gap-2 rounded-pill",
-        "border border-border bg-surface px-3.5 text-xs font-semibold text-text",
+        "border border-text-faint bg-surface px-3.5 text-xs font-semibold text-text",
         "transition-colors duration-fast hover:border-border-strong",
         "hover:bg-surface-sunken hover:text-accent-on-bg",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring",

@@ -827,7 +827,7 @@ export function ShowRowActions({ row }: { row: ActiveShowRow }) {
                     restoreArchiveFocusRef.current = true;
                     setConfirmingArchive(false);
                   }}
-                  className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border bg-surface px-3.5 text-[13px] font-medium text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-text-faint bg-surface px-3.5 text-[13px] font-medium text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Cancel
                 </button>

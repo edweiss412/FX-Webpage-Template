@@ -180,7 +180,7 @@ export function PickerInterstitial({
               const isLead = c.role_flags.includes("LEAD") && !isClaimed;
 
               const rowClasses = cn(
-                "w-full min-h-tap-min flex items-center justify-between gap-3 rounded-md border border-border px-4",
+                "w-full min-h-tap-min flex items-center justify-between gap-3 rounded-md border border-text-faint px-4",
                 "transition-colors duration-fast",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg",
                 isClaimed

@@ -8,11 +8,13 @@ Plan adversarial round 6 could not run. Codex reported the account's usage limit
 
 Five plan rounds completed (32 findings, all repaired). Round 5 confirmed the R4 systematic audit closed the recurring defect class and independently killed the target mutant. Round 6 was a confirmation round. A six-dimension self-review stood in and found zero findings — **it is not an approval and is not claimed as one.**
 
-**bl-orch chooses:** accept at 5 rounds · re-review after 2026-08-23 · reassign to another reviewer. **Do not implement until settled.**
+**RULED by the orchestrator (2026-08-18): none of the above — RETRY.** The credits block is being lifted by purchase, so R6 is deferred on a **credits outage, not skipped by choice**. Retry the dispatch periodically; if it is still refused after several attempts, implement against the repaired-but-unconfirmed plan and take the confirmation round at the DIFF stage, where a reviewer reads real code rather than a description of it. The six-dimension self-review stays in the round-economy filing as a **documented limit, not a substitute for the round**.
 
-## The ruling this arc implements
+## Who decided what — the boundary matters
 
-User chose the **text ramp** (2026-08-18), against a published mockup rendering three candidate weights in both themes including the crew surfaces the 2026-08-16 arc never showed. Crew half is ratified, not inferred.
+**The USER personally ruled exactly one thing on this arc: the text ramp** (2026-08-18), against a published mockup rendering three candidate weights in both themes, including the crew surfaces the 2026-08-16 arc never showed. Crew half is ratified, not inferred. That ruling is the one a future reader should treat as settled by the product owner.
+
+**Everything else was the ORCHESTRATOR's**, including two decisions an earlier revision of this document wrongly credited to the user: the Option A marker-removal sequencing, and the choice to hand over explicitly unapproved. Both were made by `bl-orch` driving this session's prompt, which an implementer session cannot distinguish from user input — which is precisely why the attribution is corrected here rather than left to inference. A reader who believes the user personally ratified the sequencing would treat it as unreviewable; it is an orchestrator call and is open to revision.
 
 ## Scope, and why it is not the ledger's 30
 
@@ -34,7 +36,7 @@ The published cover is one quadrant of the class. `DESIGN.md` §1.2a's ratified 
 ## Two things a reviewer should not re-derive
 
 - **The spec moved after acceptance.** §4.2, §5.1 and AC-6 were stale against the spec's own ratified §3.6 and were corrected; §3.6 itself is unchanged. Verify the correction matches §3.6; do not re-open §3.6.
-- **Marker-removal sequencing was ruled Option A** (2026-08-18): ledger work lands as one commit *before* whole-diff review. Invariant 12's "so it never reaches main" names absence-at-merge as the purpose; the displacement risk is handled by the arming window (do not arm `--auto` until the ledger-closeout commit is pushed — PR #838).
+- **Marker-removal sequencing was ruled Option A by the ORCHESTRATOR** (2026-08-18 17:28), not by the user. Invariant 12's "so it never reaches main" names absence-at-merge as the purpose; the displacement risk is handled by the arming window (do not arm `--auto` until the ledger-closeout commit is pushed — PR #838).
 
 ## Artifacts
 

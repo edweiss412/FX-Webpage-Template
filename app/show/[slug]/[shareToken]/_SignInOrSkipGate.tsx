@@ -109,7 +109,7 @@ export function SignInOrSkipGate({ slug, shareToken, showId, reason, s }: SignIn
                 <button
                   type="submit"
                   data-testid="sign-in-or-skip-gate-continue-as-guest-cta"
-                  className="inline-flex min-h-tap-min w-full items-center justify-center rounded-sm border border-border bg-surface px-4 text-base font-semibold text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+                  className="inline-flex min-h-tap-min w-full items-center justify-center rounded-sm border border-text-faint bg-surface px-4 text-base font-semibold text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
                 >
                   Continue as guest
                 </button>
@@ -127,7 +127,7 @@ export function SignInOrSkipGate({ slug, shareToken, showId, reason, s }: SignIn
               <a
                 data-testid="sign-in-or-skip-gate-sign-in-cta"
                 href={`/auth/sign-in?next=${encodedNext}`}
-                className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border bg-surface px-4 text-base font-semibold text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+                className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-text-faint bg-surface px-4 text-base font-semibold text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
               >
                 Sign in with Google
               </a>
