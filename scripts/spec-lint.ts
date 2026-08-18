@@ -5,15 +5,30 @@ import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { splitLines } from "../lib/specLint/parse";
-import { planExecutionsForText } from "../lib/specLint/redContract";
+import {
+  collectionProbePlanForText,
+  parseCheckPlanForText,
+  parseFailedLines,
+  planExecutionsForText,
+  probesToSpawn,
+} from "../lib/specLint/redContract";
 import { exitCodeForResult, runLint } from "../lib/specLint/run";
-import type { ExecOutcome, ExecResults, FileResolver, LintResult } from "../lib/specLint/types";
+import type {
+  ExecOutcome,
+  ExecResults,
+  FileResolver,
+  LintResult,
+  ParseResults,
+  ProbeResults,
+} from "../lib/specLint/types";
 
 export interface SpawnResult {
   status: number | null;
   signal: NodeJS.Signals | string | null;
   error?: { code?: string; message?: string };
   stderr: string;
+  /** Captured for collection probes only; a red command's is discarded. */
+  stdout?: string;
 }
 
 export interface CliDeps {
@@ -24,11 +39,18 @@ export interface CliDeps {
   readFileBytes(p: string): Buffer;
   realpath(p: string): string;
   /**
-   * Runs one `red=` command (arms spec §4.4). Takes the cwd EXPLICITLY because
-   * the contract is "repo root", which `runCli` discovers as a local — never
-   * the caller's cwd.
+   * Runs one command (arms spec §4.4). Takes the cwd EXPLICITLY because the
+   * contract is "repo root", which `runCli` discovers as a local — never the
+   * caller's cwd.
+   *
+   * `mode` selects the shell invocation: `"parse"` is `sh -nc` (syntax check
+   * only, nothing executes) and `"exec"` is `sh -c`. It is a PARAMETER rather
+   * than two methods because the two are otherwise spawn-indistinguishable at
+   * this seam — `sh -nc 'printf EXECUTED'` writes 0 bytes and `sh -c` writes 8 —
+   * so a defective default path running the wrong one would look identical to
+   * any test that only recorded the command.
    */
-  spawn(command: string, cwd: string, timeoutMs: number): SpawnResult;
+  spawn(command: string, cwd: string, timeoutMs: number, mode: "parse" | "exec"): SpawnResult;
 }
 
 /** Env seam for the per-command ceiling; a 600-second case is untestable. */
@@ -237,24 +259,70 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
       },
     };
 
+    // Trailing whitespace off first: a command's final newline would otherwise
+    // be the last character of every tail and break the one-line detail
+    // rendering.
+    const tailOf = (r: SpawnResult): string => (r.stderr ?? "").trimEnd().slice(-STDERR_TAIL);
+
+    // Parse capability (verdict spec §3): EVERY plan-kind invocation, flag or
+    // not. `sh -nc` executes nothing, so this is safe on authored reds and on
+    // gate commands alike.
+    const parsePlan = docKind === "plan" ? parseCheckPlanForText(text) : [];
+    let parseResults: ParseResults | null = null;
+    if (docKind === "plan") {
+      const outcomes = new Map<number, ExecOutcome>();
+      const stderrTails = new Map<number, string>();
+      for (const { line, command } of parsePlan) {
+        const r = deps.spawn(command, root, timeoutMs, "parse");
+        outcomes.set(line, classifySpawnResult(r));
+        stderrTails.set(line, tailOf(r));
+      }
+      parseResults = { outcomes, stderrTails };
+    }
+    // The exclusion is derived by the CORE, from the outcomes just recorded, so
+    // the spawn set and the report can never disagree about which markers the
+    // parse pass disqualified.
+    const excluded = parseFailedLines(parsePlan, parseResults);
+
     // Execution: sequential, doc order, repo-root cwd, stdout discarded and
     // the stderr tail trimmed here so the core never sees raw output.
     let execResults: ExecResults | null = null;
+    let probeResults: ProbeResults | null = null;
     if (execRed) {
       const outcomes = new Map<number, ExecOutcome>();
       const stderrTails = new Map<number, string>();
-      for (const { line, command } of planExecutionsForText(text)) {
-        const r = deps.spawn(command, root, timeoutMs);
+      for (const { line, command } of planExecutionsForText(text, excluded)) {
+        const r = deps.spawn(command, root, timeoutMs, "exec");
         outcomes.set(line, classifySpawnResult(r));
-        // Trailing whitespace off first: a command's final newline would
-        // otherwise be the last character of every tail and break the
-        // one-line detail rendering.
-        stderrTails.set(line, (r.stderr ?? "").trimEnd().slice(-STDERR_TAIL));
+        stderrTails.set(line, tailOf(r));
       }
       execResults = { outcomes, stderrTails };
+
+      // Collection probes run AFTER every red execution, in doc order.
+      // Collection executes module scope, so an interleaved probe would run a
+      // suite's imports between two red observations.
+      const probeOutcomes = new Map<number, ExecOutcome>();
+      const probeStdout = new Map<number, string>();
+      const probeTails = new Map<number, string>();
+      const probePlan = collectionProbePlanForText(text, new Set(tracked), excluded);
+      for (const { line, probe } of probesToSpawn(probePlan, execResults)) {
+        const r = deps.spawn(probe, root, timeoutMs, "exec");
+        probeOutcomes.set(line, classifySpawnResult(r));
+        // The list output IS the observation, which is why probe stdout is
+        // captured while a red command's stays discarded.
+        probeStdout.set(line, r.stdout ?? "");
+        probeTails.set(line, tailOf(r));
+      }
+      probeResults = { outcomes: probeOutcomes, stdout: probeStdout, stderrTails: probeTails };
     }
 
-    const result = runLint({ text, repoRelPath, kind: docKind, kindSource }, resolver, execResults);
+    const result = runLint(
+      { text, repoRelPath, kind: docKind, kindSource },
+      resolver,
+      execResults,
+      parseResults,
+      probeResults,
+    );
     return {
       stdout: json ? JSON.stringify(result) + "\n" : renderText(result),
       stderr: "",
@@ -307,8 +375,14 @@ if (isEntry) {
     },
     readFileBytes: (p) => readFileSync(p),
     realpath: (p) => realpathSync(p),
-    spawn: (command, cwd, timeoutMs) => {
-      const r = spawnSync("sh", ["-c", command], { cwd, timeout: timeoutMs, encoding: "utf8" });
+    spawn: (command, cwd, timeoutMs, mode) => {
+      // `-nc` is the parse check: sh reads the whole command for syntax and
+      // executes none of it. `-c` is the ordinary run.
+      const r = spawnSync("sh", [mode === "parse" ? "-nc" : "-c", command], {
+        cwd,
+        timeout: timeoutMs,
+        encoding: "utf8",
+      });
       const e = r.error as (Error & { code?: string }) | undefined;
       return {
         status: r.status,
@@ -317,6 +391,7 @@ if (isEntry) {
           ? { error: { ...(e.code === undefined ? {} : { code: e.code }), message: e.message } }
           : {}),
         stderr: r.stderr ?? "",
+        stdout: r.stdout ?? "",
       };
     },
   };

@@ -20,19 +20,6 @@ It survives the suite, and is carried as an `accepted-gap` row on the `premiseSc
 
 **First scheduled step:** add a committed two-file fixture under the recognizer's own fixture directory — a module reached via `@/` whose exported helper spawns — and assert `environment-touching`. That kills the mutant and lets the row graduate from `accepted-gap` to killed.
 
-## BL-SPECLINT-RED-COMMAND-SHAPE — a plan's red= command can be incapable of expressing a verdict, and nothing checks the shape
-
-**Status:** OPEN · **Filed:** 2026-08-16 (`test/psql-scan-mutation-enrolment`, from the plan stage's own four-round filing). **Severity:** LOW-MEDIUM (plan-authoring defect class; each instance costs a review round, and the failure is silent in the direction that looks like success). **Class:** guard coverage. **Effort:** M. **Class-sweep exception:** (c) — the repair adds a new check family to `spec:lint`'s task-contract pass, a surface the enrolling arc does not otherwise touch. **Reachability:** PROBED — both shapes were live in this arc's own plan and are quoted in `docs/review-rounds/test/psql-scan-mutation-enrolment/119895a7c756.md`.
-
-The red→green task contract requires a task's `red=` command to be OBSERVED failing. Two command shapes cannot do that, and `spec:lint` accepts both today:
-
-1. **`vitest ... -t '<pattern>'` as the red command.** Live vitest treats a no-match `-t` as a skip and exits 0, so a red state that depends on "no test matches yet" reports GREEN from the moment it is written. This arc's plan R2 found it after the shape had already survived R1.
-2. **A red command embedding an unquoted `<` or `>`.** A mutation site id (`relational-boundary:2167:54:<><=`) carries both, and zsh fails on the redirection before the command runs — the command cannot express any verdict, in either direction. This arc's plan R1 found it in every checker invocation the plan wrote.
-
-Both are static properties of the command text, which is what makes them mechanizable: `RED_CONJUNCTION` already rejects `&&` in a red-state command for the same reason.
-
-**What would close it:** extend `spec:lint`'s red-state pass with (a) a rejection of `-t`/`--testNamePattern` in a `red=` command, and (b) a shell-parse dry-run (`zsh -nc`) of every `red-state=live` command, which catches the quoting class as a whole rather than the `<`/`>` instance. Pin both with a fixture plan that currently passes and must stop.
-
 ## BL-PLANLINT-DECLARED-LIMIT-PIN-COLLISION — a plan that changes recognizer behavior can silently invalidate a committed declared-limit pin
 
 **Status:** OPEN · **Filed:** 2026-08-17 (`fix/shell-binding-mixed-quoted-value`, plan adversarial round 3, filed from the round-economy filing's Mechanizable field). **Severity:** LOW (review economy; the collision is caught, but a round later than it needs to be). **Class:** plan tooling. **Effort:** M. **Reachability:** PROBED — plan round-3 finding 1 on this arc: the spec's §3.2 fix 3 (double-quote backslash is literal) inverted the verdict of the committed pin "a QUOTED backslash path in shell text is a KNOWN miss" (`tests/cross-cutting/psqlStartupFileSuppression.test.ts`), and neither the spec nor the plan named it until a reviewer did. The plan then had to grow a Step 3b to retire the pin, its scan.ts residual-limits item, and their DEFERRED pointer.
@@ -1221,28 +1208,6 @@ signature of a class that wants a rule.
 **Reachability:** PROBED in the originating filing (three rounds, three live instances). Filed
 under class-sweep exception (c). May share one lint surface with
 `BL-PLANLINT-ACCEPT-SET-CALIBRATION-PROBE`; the implementing arc decides and records it.
-
-## BL-PLANLINT-RED-CLAIM-EXECUTION — a plan's declared red is executed, not just parsed
-
-**Status:** OPEN. · **Filed:** 2026-08-16, from
-`docs/review-rounds/fix/server-action-origin-sweep/119895a7c756.md` (plan §, Mechanizable arm 2) ·
-**Severity:** medium · **Class:** plan-lint arm (sibling of the resolved
-`BL-SPECLINT-RED-EXECUTABILITY-ARM`, which shipped the DECLARATION and stopped there) ·
-**Effort:** M
-
-The `red-contract` arm parses every task marker and validates the `red-target` citation's grammar;
-what it never does is EXECUTE the claim. An arm that ran `vitest list` on each `red=` command and
-asserted the declared `red-target`'s file appears in the collected set would settle a whole family
-of plan defects mechanically — a `red=` that collects nothing, a declared RED that is a PASS, a RED
-cause that is vacuous over an empty array, a whole-suite green asserted on a branch where a guard is
-red by design.
-
-**Reachability:** PROBED in the originating filing — five findings across four plan rounds of one
-arc, each one a pass/fail state the branch could not produce, and each found by the reviewer running
-the declared command by hand. The collection case (R3 #1) is the sharpest: the declared `red=`
-command could not collect its own `red-target`, because that file lives only in a vitest project
-gated behind `VITEST_INCLUDE_MUTATION_HARNESS=1`. Filed under class-sweep exception (c): a lint
-surface of its own, in a tree this arc does not otherwise touch.
 
 ## BL-SPECLINT-POSTREPAIR-FORWARD-REF-SWEEP — a repair round stale-ifies forward references the term-grep cannot see
 

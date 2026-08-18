@@ -539,44 +539,44 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // repaid by a test rather than blessed (fourteen of them), which is why
       // these seven are argued individually instead of as a family.
       {
-        siteId: "regex-quantifier-bound:30:17:{0,3}>{0,4}",
+        siteId: "regex-quantifier-bound:37:17:{0,3}>{0,4}",
         kind: "equivalent",
         reason:
-          "GATE only ever runs on lines already admitted by GATE_ANY (redContract.ts:29, itself {0,3}), so every candidate has <=3 leading spaces and widening this bound admits nothing — the same reachability argument the taskContract MARKER rows carry",
+          "GATE only ever runs on lines already admitted by GATE_ANY (redContract.ts:36, itself {0,3}), so every candidate has <=3 leading spaces and widening this bound admits nothing — the same reachability argument the taskContract MARKER rows carry",
       },
       {
-        siteId: "relational-boundary:73:21:<><=",
+        siteId: "relational-boundary:110:21:<><=",
         kind: "equivalent",
         reason:
           "the marker scan reads one index past the end; model.fencedInfo[len] is undefined, so the loop's own fence guard skips the iteration before model.lines[i] is read",
       },
       {
-        siteId: "integer-literal:136:58:1>2",
+        siteId: "integer-literal:190:58:1>2",
         kind: "equivalent",
         reason:
           'Math.min(extent.end, lines.length + 1) -> + 2 extends the fenced scan one line past the end, where fencedInfo is undefined and the `typeof !== "string"` guard skips it — fence CONTENT can never sit past the last line',
       },
       {
-        siteId: "relational-boundary:137:32:<><=",
+        siteId: "relational-boundary:191:32:<><=",
         kind: "equivalent",
         reason: "same one-past-the-end argument as the clamp above; the fence guard skips it",
       },
       {
-        siteId: "relational-boundary:203:53:>>>=",
+        siteId: "relational-boundary:257:53:>>>=",
         kind: "equivalent",
         reason:
           "`line > e.start` at equality means a marker ON the task heading line, and a heading cannot match MARKER_ANY, so the case is unreachable",
       },
       {
-        siteId: "relational-boundary:203:71:<><=",
+        siteId: "relational-boundary:257:71:<><=",
         kind: "equivalent",
         reason:
           "`line < e.end` at equality means a marker ON the extent's terminating line — the next heading or the region close — and neither is marker-shaped",
       },
       {
-        siteId: "relational-boundary:233:21:<><=",
+        siteId: "relational-boundary:127:21:<><=",
         kind: "equivalent",
-        reason: "gate scan one-past-the-end, same argument as the marker scan at :73",
+        reason: "gate scan one-past-the-end, same argument as the marker scan at :110",
       },
     ],
   },
