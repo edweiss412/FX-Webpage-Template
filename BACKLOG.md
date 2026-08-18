@@ -1286,7 +1286,7 @@ surface of its own, in a tree this arc does not otherwise touch.
 
 ## BL-SPECLINT-POSTREPAIR-FORWARD-REF-SWEEP — a repair round stale-ifies forward references the term-grep cannot see
 
-**Status:** OPEN. · **Filed:** 2026-08-15, backfill from
+**Status:** IN PROGRESS · **Branch:** fix/speclint-prose-consistency-arms · **Filed:** 2026-08-15, backfill from
 `docs/review-rounds/chore/guard-completeness-wave/04f601134519.md` (spec §, item (a)), per the
 enforcement-pair spec §4 candidate 5 · **Severity:** medium · **Class:** spec-lint arm ·
 **Effort:** M
@@ -1301,7 +1301,7 @@ round). Filed under class-sweep exception (c).
 
 ## BL-SPECLINT-ENUMERATED-UNIVERSAL-PARITY — a spec asserting a universal over an enumerated population owes the command that enumerates it
 
-**Status:** OPEN. · **Filed:** 2026-08-16, from
+**Status:** IN PROGRESS · **Branch:** fix/speclint-prose-consistency-arms · **Filed:** 2026-08-16, from
 `docs/review-rounds/fix/control-outline-surface-fills/119895a7c756.md` (spec §, Mechanizable) ·
 **Severity:** medium · **Class:** spec-lint arm · **Effort:** M
 
