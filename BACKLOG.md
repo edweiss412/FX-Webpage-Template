@@ -22,7 +22,7 @@ It survives the suite, and is carried as an `accepted-gap` row on the `premiseSc
 
 ## BL-SPECLINT-RED-COMMAND-SHAPE — a plan's red= command can be incapable of expressing a verdict, and nothing checks the shape
 
-**Status:** OPEN · **Filed:** 2026-08-16 (`test/psql-scan-mutation-enrolment`, from the plan stage's own four-round filing). **Severity:** LOW-MEDIUM (plan-authoring defect class; each instance costs a review round, and the failure is silent in the direction that looks like success). **Class:** guard coverage. **Effort:** M. **Class-sweep exception:** (c) — the repair adds a new check family to `spec:lint`'s task-contract pass, a surface the enrolling arc does not otherwise touch. **Reachability:** PROBED — both shapes were live in this arc's own plan and are quoted in `docs/review-rounds/test/psql-scan-mutation-enrolment/119895a7c756.md`.
+**Status:** IN PROGRESS · **Branch:** fix/red-contract-shape-execution · **Filed:** 2026-08-16 (`test/psql-scan-mutation-enrolment`, from the plan stage's own four-round filing). **Severity:** LOW-MEDIUM (plan-authoring defect class; each instance costs a review round, and the failure is silent in the direction that looks like success). **Class:** guard coverage. **Effort:** M. **Class-sweep exception:** (c) — the repair adds a new check family to `spec:lint`'s task-contract pass, a surface the enrolling arc does not otherwise touch. **Reachability:** PROBED — both shapes were live in this arc's own plan and are quoted in `docs/review-rounds/test/psql-scan-mutation-enrolment/119895a7c756.md`.
 
 The red→green task contract requires a task's `red=` command to be OBSERVED failing. Two command shapes cannot do that, and `spec:lint` accepts both today:
 
@@ -1264,7 +1264,7 @@ under class-sweep exception (c). May share one lint surface with
 
 ## BL-PLANLINT-RED-CLAIM-EXECUTION — a plan's declared red is executed, not just parsed
 
-**Status:** OPEN. · **Filed:** 2026-08-16, from
+**Status:** IN PROGRESS · **Branch:** fix/red-contract-shape-execution · **Filed:** 2026-08-16, from
 `docs/review-rounds/fix/server-action-origin-sweep/119895a7c756.md` (plan §, Mechanizable arm 2) ·
 **Severity:** medium · **Class:** plan-lint arm (sibling of the resolved
 `BL-SPECLINT-RED-EXECUTABILITY-ARM`, which shipped the DECLARATION and stopped there) ·
