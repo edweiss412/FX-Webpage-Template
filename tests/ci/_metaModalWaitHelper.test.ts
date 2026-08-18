@@ -425,7 +425,7 @@ describe("modal-wait census — total disposition (AC-2b)", () => {
 
   test("the adopted-site counts ARE the §4.2 arithmetic, asserted not retyped", () => {
     // 30 G (this arc's 28 plus the parent arc's 2 in admin-changes-feed-layout),
-    // 9 U, 1 U-frame, 12 N edit locations = 52 adopted sites discharging 52
+    // 9 U, 1 U-frame, 13 N edit locations = 53 adopted sites discharging 53
     // member opens.
     const byId = new Map(DISPOSITION_RULES.map((r) => [r.id, r.expectedCount]));
     expect(byId.get("f/member-shape-G")).toBe(30);
@@ -434,7 +434,7 @@ describe("modal-wait census — total disposition (AC-2b)", () => {
     // DERIVED, never retyped: the N count is `N_WAIT_SITES.length`, so the
     // registry and the arithmetic cannot disagree about how many waits exist.
     expect(byId.get("f/member-shape-N")).toBe(N_WAIT_SITES.length);
-    expect(N_WAIT_SITES).toHaveLength(12);
+    expect(N_WAIT_SITES).toHaveLength(13);
     // The SUM is derived over every origin-(f) member rule, never a fixed id
     // list: a future member rule joins it by construction. A fixed three-id sum
     // reads the same 52 whether or not the frame rule exists, so the naive
@@ -446,7 +446,7 @@ describe("modal-wait census — total disposition (AC-2b)", () => {
       // `?? 0` only satisfies the optional type: the sibling rule-shape test
       // above pins every rule to a numeric count, so a missing one reds there.
     ).reduce((sum, r) => sum + (r.expectedCount ?? 0), 0);
-    expect(adopted, "50 edit locations in this arc plus the parent arc's 2").toBe(52);
+    expect(adopted, "51 edit locations in this arc plus the parent arc's 2").toBe(53);
   });
 
   test("a constructed candidate with no disposition FAILS the check", () => {

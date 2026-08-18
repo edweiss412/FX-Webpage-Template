@@ -185,6 +185,13 @@ export const N_WAIT_SITES: NWaitSite[] = [
     protects: "the dashboard row click that re-opens the modal before the abort drive",
   },
   {
+    file: "tests/e2e/published-review-modal.realtime.spec.ts",
+    scopeTitle: "an ABORTED close clears armed freshness cues (BL-FRESHNESS-ABORTED-CLOSE-E2E)",
+    labelSource: '"reopen:aborted-close"',
+    protects:
+      "the mid-close-transition re-click on the line above it: a noWaitAfter row click issued while the close navigation is still pending, whose post-open wait is the only thing between an aborted-close reopen and a bare downstream timeout. Same scope as the row above and legally so — identity is the (file, scope, LABEL) triple, and the two labels differ",
+  },
+  {
     file: "tests/e2e/published-review-modal.reopen.spec.ts",
     scopeTitle: "published review modal — reopen the same show",
     labelSource: '"click:dashboard-row"',
@@ -568,15 +575,18 @@ export const DISPOSITION_RULES: DispositionRule[] = [
       reason:
         "a row or inbox-link click that client-navigates to the same ?show= route; the click is unchanged and the loaded-modal wait after it routes through awaitReviewModalOrRecover",
     },
-    expectedCount: 8,
+    expectedCount: 9,
     // The MATCH line per contract rule 2. A statement-reading form would claim
     // an evaluate poll whose BODY was edited to `.click()` as an ordinary row
     // activation — silently certifying the exact edit ledger row 2 exists to
     // surface, which the rule below refuses instead.
+    //
+    // No `noWaitAfter` exclusion any more: the one such click in the corpus (the
+    // aborted-close reopen) now routes its post-open wait through the helper
+    // like every other row activation, so d/skeleton-tolerant-click retired and
+    // this count absorbed it (8 -> 9).
     match: (c) =>
-      /\.click\(/.test(c.matchLineText) &&
-      !inFile(c, "published-review-modal.prefetch.spec.ts") &&
-      !/noWaitAfter/.test(c.matchLineText),
+      /\.click\(/.test(c.matchLineText) && !inFile(c, "published-review-modal.prefetch.spec.ts"),
   },
   {
     id: "d/member-split-activation",
@@ -613,17 +623,6 @@ export const DISPOSITION_RULES: DispositionRule[] = [
     },
     expectedCount: 6,
     match: (c) => inFile(c, "published-review-modal.prefetch.spec.ts"),
-  },
-  {
-    id: "d/skeleton-tolerant-click",
-    origin: "d-link-activation",
-    disposition: {
-      kind: "exclusion",
-      reason:
-        "re-opens mid-close-transition and waits on a selector the Suspense skeleton also matches, so a modal-or-boundary race resolves on the skeleton and would HIDE the fault (documented limit 3b, BL-MODAL-WAIT-SKELETON-TOLERANT-SITES)",
-    },
-    expectedCount: 1,
-    match: (c) => /noWaitAfter/.test(c.matchLineText),
   },
   {
     id: "d/reference-not-activation",
