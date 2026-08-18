@@ -35,7 +35,9 @@ An uncommitted probe spec (tests/e2e/probe-rowactions-geometry.spec.ts, this bra
 
 ```
 scrolls: [{t≈973, top:154}, {t≈982, top:0}]     ← reveal, then reset ~8ms later (next rAF)
-styleMut: maxHeight writes bracketing both       ← measureAndApply's clear/restore
+styleMut: two style-attribute mutation batches,  ← measureAndApply ran at both moments
+  timestamps adjacent to the two scroll events     (values are callback-time reads; the
+                                                    clear/restore itself is proven by P1)
 finalScrollTop: 0
 activeBottom: 587, boxBottom: 433.375, revealed: false   ← every rep
 ```
@@ -44,7 +46,7 @@ The reveal ALWAYS reverts within one frame. This is a product bug for every keyb
 
 ### 2.4 P3 — shipped test, local (10/10 green on the same defective tree)
 
-`playwright test --project=desktop-chromium tests/e2e/rowactions-geometry.spec.ts -g "CAPPED submenu" --repeat-each=10` (under `pnpm heavy`, dev server, port 3107): **10/10 passed**, ~1.2s each. The shipped test samples via two CDP `evaluate` round-trips immediately after the keypress; on a fast local machine the sample lands inside the ~8ms window before the reset, so the test goes green against a tree where the user-visible behavior is broken. CI's 2-core runner under prod-build load samples late more often — the measured 4/9. The "flake" is entirely the sampling race; the product defect underneath is deterministic.
+`playwright test --project=desktop-chromium tests/e2e/rowactions-geometry.spec.ts -g "CAPPED submenu" --repeat-each=10` (under `pnpm heavy`, dev server, port 3107): **10/10 passed**, ~1.2s each. The shipped test's post-keypress sample is a single CDP `evaluate` round-trip (`tests/e2e/rowactions-geometry.spec.ts:358`; the metrics `evaluate` at line 346 runs before the keypress); on a fast local machine that sample lands inside the ~8ms window before the reset, so the test goes green against a tree where the user-visible behavior is broken. CI's 2-core runner under prod-build load samples late more often — the measured 4/9. The "flake" is entirely the sampling race; the product defect underneath is deterministic.
 
 ## 3. Root cause
 
@@ -71,23 +73,36 @@ export type NaturalSizeProbe = {
   heightAtWidth: (width: number) => number;
 };
 
-export function withNaturalSize<T>(el: HTMLElement, measure: (probe: NaturalSizeProbe) => T): T {
+/** Rejects promise-returning callbacks at the type level: the caps are restored
+ * synchronously in `finally`, so an async measurement would silently run
+ * against restored caps after its first await. */
+type SyncOnly<T> = T extends Promise<unknown> ? never : unknown;
+
+export function withNaturalSize<T>(
+  el: HTMLElement,
+  measure: (probe: NaturalSizeProbe) => T & SyncOnly<T>,
+): T {
   const heldScrollTop = el.scrollTop;
   const heldScrollLeft = el.scrollLeft;
   const heldMaxWidth = el.style.maxWidth;
   const heldMaxHeight = el.style.maxHeight;
   el.style.maxWidth = "";
   el.style.maxHeight = "";
+  let live = true;
   try {
     return measure({
       heightAtWidth: (width) => {
+        if (!live) throw new Error("heightAtWidth escaped its withNaturalSize call");
         el.style.maxWidth = `${width}px`;
-        const h = el.getBoundingClientRect().height;
-        el.style.maxWidth = "";
-        return h;
+        try {
+          return el.getBoundingClientRect().height;
+        } finally {
+          el.style.maxWidth = "";
+        }
       },
     });
   } finally {
+    live = false;
     el.style.maxWidth = heldMaxWidth;
     el.style.maxHeight = heldMaxHeight;
     if (el.scrollTop !== heldScrollTop) el.scrollTop = heldScrollTop;
@@ -98,28 +113,32 @@ export function withNaturalSize<T>(el: HTMLElement, measure: (probe: NaturalSize
 
 Design points:
 
+Design points:
+
 - The helper OWNS the clearing. Call sites contain no bare cap-clearing writes, which is what makes the meta-test in §4.4 a derived cover rather than an enumerated list.
 - Scroll restore happens **after** cap restore (the range must exist again before the offset can be written back) and is conditional, so a measurement that never clamped writes nothing and fires no scroll event.
 - Convergence: if the restore write does fire a scroll event, the next scheduled `measureAndApply` preserves the offset and writes nothing, so the cycle terminates after one extra measure. There is no oscillation because a write only happens when the browser clamped, and post-fix the browser's clamp is always undone to the same held value.
 - If the panel legitimately shrank between measurements (viewport resize), the restore write is clamped by the browser to the new valid range — correct behavior, not a defect.
-- `heightAtWidth` reproduces the three existing `wrappedHeightAt` bodies byte-for-semantics (`AnchoredPortal.tsx:146-151`, `HoverHelp.tsx:233-237`, `ShareHub.tsx:306-310`).
+- `heightAtWidth` reproduces the three existing `wrappedHeightAt` bodies byte-for-semantics (`AnchoredPortal.tsx:146-151`, `HoverHelp.tsx:233-237`, `ShareHub.tsx:306-310`), with its own `finally` so a throwing measurement cannot leave the probe width applied.
+- **Lifetime is bounded (adversarial-review R1 F2):** the callback is synchronous by type (`SyncOnly` rejects promise returns at compile time), and the probe is inert after return — `heightAtWidth` throws once the `finally` has run, so an escaped probe cannot mutate restored caps later.
+- **The helper restores the PRIOR inline caps; sites that end in a different cap state apply it explicitly after the helper returns (R1 F1).** Two of the four sites do not want the prior caps back: HoverHelp/ShareHub end with the PLACEMENT's caps (absent when the placement returns null), and useFitWithinClip's no-clipping-ancestor branch ends uncapped. Those sites follow the helper with a both-branch application — `style.maxHeight = `${v}px`` when the new cap exists, `style.removeProperty("max-height")` when it does not (same for max-width) — which reproduces today's observable end states exactly (today's clear leaves the property absent and the conditional set only writes non-null values). `removeProperty` in a null branch is placement APPLICATION, not measurement, and today's corresponding state is reachable only when the placement decided no cap is needed, i.e. the content fits and there is no scroll state to lose. AnchoredPortal needs no such application: React owns its style prop and writes/removes `maxHeight` per render from `applied`.
 
 ### 4.3 Call sites (class sweep — all four repaired in this PR)
 
 | Site | Change |
 | --- | --- |
 | `components/admin/AnchoredPortal.tsx` `measureAndApply` (`AnchoredPortal.tsx:127-187`) | Clear/measure/restore block (`AnchoredPortal.tsx:136-156`) becomes a `withNaturalSize(panel, (probe) => …)` call; `wrappedHeightAt: probe.heightAtWidth`. The held-style locals go away. |
-| `components/admin/HoverHelp.tsx` `measureAndApply` (`HoverHelp.tsx:214`) | Same mechanical rewrite of `HoverHelp.tsx:220-236`. |
-| `components/admin/showpage/ShareHub.tsx` measurement (`ShareHub.tsx:287-309`) | Same mechanical rewrite. The post-placement cap SETS at `ShareHub.tsx:352-353` stay outside the helper — they are writes of a new cap, not measurement clears. |
+| `components/admin/HoverHelp.tsx` `measureAndApply` (`HoverHelp.tsx:214`) | Measurement (`HoverHelp.tsx:220-236`) moves inside `withNaturalSize(body, (probe) => …)`. The conditional cap SETS at `HoverHelp.tsx:290-291` become both-branch applications (px value or `removeProperty`) so a capped→uncapped placement still ends uncapped (R1 F1). |
+| `components/admin/showpage/ShareHub.tsx` measurement (`ShareHub.tsx:287-309`) | Same rewrite as HoverHelp; the post-placement cap SETS at `ShareHub.tsx:352-353` become the same both-branch application, outside the helper. |
 | `components/admin/useFitWithinClip.ts` `apply` (`useFitWithinClip.ts:78-95`) | The clear at `useFitWithinClip.ts:83` and the reads through the computed-cap derivation move inside `withNaturalSize`; the final fitted `maxHeight` SET stays outside, after the helper returns. Scroll offset is preserved across the clear; the subsequent fitted SET can only clamp to a still-valid range. |
 
 No site is deferred: the repair is the same one-shape mechanical rewrite at every peer, so no class-sweep exception applies.
 
 ### 4.4 Structural defense — derived cover, not a list
 
-New meta-test tests/components/_metaScrollNeutralMeasurement.test.ts (new): filesystem-walk every `.ts`/`.tsx` under `components/` and `lib/` (excluding the naturalSize helper module itself and test files) and fail on any match of a cap-clearing assignment (`.style.maxHeight = ""` / `.style.maxWidth = ""`, string or template-literal empty). A NEW measurement site that bypasses the helper fails by default. The scanner walks the tree from disk — no enumerated file list to rot.
+New meta-test tests/components/_metaScrollNeutralMeasurement.test.ts (new): filesystem-walk every `.ts`/`.tsx` under `components/` and `lib/` (excluding the naturalSize helper module itself and test files) and fail on any match of a cap-clearing assignment (`.style.maxHeight = ""` / `.style.maxWidth = ""`, string or template-literal empty). A NEW measurement site that bypasses the helper fails by default. The scanner walks the tree from disk — no enumerated file list to rot. Negative self-tests pin what it deliberately does NOT flag: cap SETS (`= `${w}px``), `removeProperty` placement applications (§4.2), and the `= "none"` clone-capture spelling (§8).
 
-**Threat-model fence:** the scanner defends against accidental reintroduction by an ordinary contributor using the repo's established idiom (direct `style.maxHeight = ""` assignment — the only cap-clearing form that has ever appeared in this codebase; the class sweep in §3 found all four instances in exactly that spelling). Alternative spellings (`setProperty("max-height", "")`, an aliased style object) are adversarial-obfuscation shapes outside the fence and file to §8's documented limits, not to review rounds. **Consequence bound:** a site the scanner misses degrades to the pre-fix behavior on that one surface — a visible snap-to-top, recoverable by re-scrolling, never data loss or silent corruption. **Probe domain:** the live `components/` + `lib/` tree; an admissible false-negative probe is a cap-clearing write in that tree the scanner passes, one ordinary edit from the current idiom.
+**Threat-model fence:** the scanner defends against accidental reintroduction by an ordinary contributor using the repo's established idiom (direct `style.maxHeight = ""` assignment — the only cap-clearing form on live MEASUREMENT paths; the class sweep in §3 found all four measurement sites in exactly that spelling. The `= "none"` spelling does exist in-tree, at `lib/devcapture/captureElement.ts:35` and `lib/devcapture/captureElement.ts:55`, but on DETACHED clones a capture utility styles and never measures for scroll — outside the invariant's reach, recorded in §8). Alternative spellings (`setProperty("max-height", "")`, an aliased style object) are adversarial-obfuscation shapes outside the fence and file to §8's documented limits, not to review rounds. **Consequence bound:** a site the scanner misses degrades to the pre-fix behavior on that one surface — a visible snap-to-top, recoverable by re-scrolling, never data loss or silent corruption. **Probe domain:** the live `components/` + `lib/` tree; an admissible false-negative probe is a cap-clearing write in that tree the scanner passes, one ordinary edit from the current idiom.
 
 ## 5. Test design
 
@@ -145,7 +164,7 @@ const revealed = await page.evaluate(() => { /* unchanged sampling body */ });
 
 ### 5.2 Helper unit tests (jsdom)
 
-tests/components/naturalSize.test.ts (new): restore-on-return and restore-on-throw (the `finally`), conditional scroll write (no write when unchanged — asserted with a spy on the setter via `Object.defineProperty`), `heightAtWidth` sets-then-clears `maxWidth`. jsdom computes no layout, so the *clamp* behavior is real-browser-only and is covered by §5.1; these tests pin the helper's contract, not the browser's.
+tests/components/naturalSize.test.ts (new): restore-on-return and restore-on-throw (the `finally`), conditional scroll write (no write when unchanged — asserted with a spy on the setter via `Object.defineProperty`), `heightAtWidth` sets-then-clears `maxWidth` including on throw, the escaped-probe guard (`heightAtWidth` throws after return), and a `@ts-expect-error` case pinning the compile-time rejection of async callbacks. jsdom computes no layout, so the *clamp* behavior is real-browser-only and is covered by §5.1; these tests pin the helper's contract, not the browser's.
 
 ### 5.3 What is NOT directly asserted
 
@@ -155,7 +174,7 @@ HoverHelp / ShareHub / useFitWithinClip scroll preservation gets no dedicated re
 
 - **AC-1 (mechanism closed):** with the fix applied, the P2 probe timeline shows the reveal's `scrollTop` stable across ≥2 rAF + 400ms — no reset event. (Verified during implementation with the probe spec before it is deleted; the durable form of this check is AC-2.)
 - **AC-2 (red→green):** the strengthened §5.1 case fails on the pre-fix tree and passes post-fix, `--repeat-each=10` locally, 10/10 both ways (10/10 red pre-fix, 10/10 green post-fix).
-- **AC-3 (no regression):** the full `rowactions-geometry.spec.ts` file and the other three `admin-layout-e2e` spec files pass locally under the same invocation shape as CI (`--project=desktop-chromium`).
+- **AC-3 (no regression):** the full `rowactions-geometry.spec.ts` file and the other four `admin-layout-e2e` spec files (bell-panel-layout, admin-nav-layout-dimensions, nojs-loading-notice, needs-attention-holds; `.github/workflows/admin-layout-e2e.yml:175`) pass locally under the same invocation shape as CI (`--project=desktop-chromium`).
 - **AC-4 (class closed):** `_metaScrollNeutralMeasurement` passes, and a deliberate reintroduction of a bare cap-clear (temporary mutant, not committed) fails it.
 - **AC-5 (CI acceptance instrument, from the ledger entry):** nine fixed-sha dispatches of `admin-layout-e2e` on the implementation branch using PR #822's distinct-ref method (one dispatch per sibling ref; `cancelled` runs are not samples): 0/9 failures of the capped-submenu case, against the 4/9 baseline.
 - **AC-6 (ledger):** dispositions of §7 land in the implementation PR.
@@ -179,6 +198,7 @@ N/A — no visual state is added, removed, or retimed. The only behavioral delta
 - **Peer sites have no direct real-browser assertion** (§5.3). Worst case if the helper regresses at a peer: a scrolled tooltip/popover body snaps to top on a re-measure — visible, recoverable by re-scrolling, and the regression requires editing the helper or bypassing it, which the meta-test flags. Conservative posture + surfaced signal → documented limit, not a test gap to close now.
 - **The low-rate screenshots-drift population effect is out of scope** by probe verdict (§1, §7).
 - **`AnchoredPortal` still re-measures on panel-origin scroll events.** Post-fix this is a wasted-but-harmless measurement per user scroll frame inside a capped panel (the coalescer already bounds it to one per frame). Accepted; see the rejected alternative in §1.
+- **The `= "none"` cap-clearing spelling is not scanned for.** It is live in-tree only in the clone-capture utility (`lib/devcapture/captureElement.ts:35`, `lib/devcapture/captureElement.ts:55`), which styles detached clones it never scroll-measures. A contributor copying that spelling into a live measurement path would evade the scanner (one-ordinary-edit probe, in-domain); the consequence bound holds — a visible, recoverable snap-to-top on that one surface — so this files here rather than widening the recognizer.
 - **The §4.4 scanner recognizes the direct-assignment idiom only.** A cap-clear written as `setProperty("max-height", "")` or through an aliased style reference passes the scanner (fence in §4.4). Worst case is the consequence bound: one surface regresses to a visible, recoverable snap-to-top. Accepted as a documented limit; widening the recognizer per obfuscation shape is the round-multiplier pattern AGENTS.md's repair-direction rule forbids.
 - **CI's 2-core timing cannot be reproduced exactly locally.** AC-2's determinism claim rests on P2's mechanism timing (revert at next rAF, inside any two-frame settle), not on matching CI's scheduler; AC-5 is the CI-side proof.
 
