@@ -467,30 +467,35 @@ export const GUARD_SURFACES: GuardSurface[] = [
   // fix/modal-wait-skeleton-tolerant and dispositioned honestly rather than symbolically
   // (spec §4.6-7; the step3 precedent, AGENTS.md convergence criterion 4).
   //
-  // The row was authored, the gate red as designed on the missing EXPECTED_LEDGER_KINDS
-  // key, and the scoring run measured 17/27 killed (0.6296) against a 0.95 floor. The ten
-  // survivors are not a coverage gap this arc can repay:
+  // The row was authored, the gate red as designed on the missing EXPECTED_LEDGER_KINDS key,
+  // and the scoring run measured the surface. RE-MEASURED at branch head after the diff
+  // review round-1 repair rewrote the classifier (diff review R2 finding 1: the first probe
+  // described source that no longer existed — 27 sites then, 35 now). Head numbers, declared
+  // operator set: 26 of 35 killed, 0.7429, against a 0.95 floor. The nine survivors:
   //
-  //   - EIGHT sit in the boundary-recovery and watchdog branches (the two
-  //     `test.info().annotations.push` calls, both `RETRY_SELECTOR` clicks, both
-  //     post-recovery re-waits, and the `armBoundaryWatchdog` call). Every one is behind
-  //     the lazy `@playwright/test` dynamic import, which is exactly why the module has no
-  //     top-level value import from it: the unit suites run under vitest and cannot
-  //     execute those branches at all. Killing them needs a real 502, not a test.
-  //     Parent-#830 limit 2 recorded this; this arc's spec §7 limits 2 and 4 inherit it.
-  //   - ONE (`integer-literal:78:57:1>1+1`) is inside `Parameters<Page["goto"]>[1]`, a
-  //     TYPE position with no runtime behaviour to observe.
-  //   - ONE was a real gap and was REPAID rather than blessed: `timeoutMs > 0` mutated to
-  //     `> 1` survived, so the frame suite's normalization case now pins the boundary from
-  //     the passing side (timeoutMs 1 reaches the wait unchanged) and kills it. Verified by
-  //     hand-applying that mutant: 1 failed, 9 passed; reverted.
+  //   - SIX are the boundary-recovery and watchdog statements (both
+  //     `test.info().annotations.push` calls, both `RETRY_SELECTOR` clicks, the loaded core's
+  //     post-recovery re-wait) and TWO are the post-recovery `=== "boundary"` / `=== null`
+  //     comparisons that only run after them. All eight sit behind the lazy
+  //     `@playwright/test` dynamic import, which is exactly why this module has no top-level
+  //     value import from it: the unit suites run under vitest and cannot execute those
+  //     branches at all. Killing them needs a real 502, not a test. Parent-#830 limit 2
+  //     recorded this; this arc's spec §7 limits 2 and 4 inherit it.
+  //   - ONE (`integer-literal:78:57`) is inside `Parameters<Page["goto"]>[1]`, a TYPE
+  //     position with no runtime behaviour to observe.
   //
-  // So the reachable ceiling is 18/27 = 0.67, and enrolling would mean either a floor no
-  // guard can be trusted at or nine blessed rows for one repaid mutant. Neither is a
-  // guard; both are a number that looks like one. Re-open when the recovery branches
-  // become executable under vitest (an injectable annotation sink would do it) — that is a
-  // helper redesign, not this arc's scope, and it stays a documented limit rather than a
-  // ledger row because its worst case is exactly today's behaviour.
+  // TWO were real gaps across the two probes and BOTH were repaid rather than blessed:
+  // `timeoutMs > 0` mutated to `> 1` (the normalization case now pins the boundary from the
+  // passing side), and `observed = await classify()` removed after the bounded re-race, which
+  // left the helper starving while the modal was on screen (the reappearing-frame case pins
+  // it). Each kill was verified by hand-applying its own mutant.
+  //
+  // So the reachable ceiling is the recovery shadow plus one type position — 26/35 — and
+  // enrolling would mean either a floor no guard can be trusted at or nine blessed rows.
+  // Neither is a guard; both are a number that looks like one. Re-open when the recovery
+  // branches become executable under vitest (an injectable annotation sink would do it) —
+  // a helper redesign, not this arc's scope, and a documented limit rather than a ledger row
+  // because its worst case is exactly today's behaviour.
   {
     // The citation-intent classifier (2026-08-15 arms spec §3, §7). Its three
     // suites split the surface deliberately: the unit suite pins the matching

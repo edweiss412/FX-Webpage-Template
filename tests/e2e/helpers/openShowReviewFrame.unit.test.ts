@@ -228,6 +228,29 @@ describe("awaitReviewFrameOrRecover (spec §4.1)", () => {
     expect(waitForCalls).toHaveLength(2);
   });
 
+  test("a frame that REAPPEARS on the re-race is returned, not starved", async () => {
+    // The other half of totality: "nothing visible right now" must cost one
+    // bounded re-race, not the whole wait. Without the re-classify after that
+    // race the helper throws a starve while the modal is on screen — a mutant
+    // the enrolment probe surfaced at `statement-removal: observed = await
+    // classify()`, which the vanished-frame case above cannot catch because it
+    // expects a starve either way.
+    let samples = 0;
+    const { page, waitForCalls } = makeFakePage({
+      visible: (selector) => {
+        samples += 1;
+        // The first classify pass samples skeleton, loaded, boundary and finds
+        // nothing; the frame paints before the second pass.
+        return samples > 3 && selector === LOADED_REVIEW_MODAL;
+      },
+    });
+
+    const result = await awaitReviewFrameOrRecover(page, { label: "case:reappears" });
+
+    expect(result.frame).toBe("loaded");
+    expect(waitForCalls).toHaveLength(2);
+  });
+
   test("starve names all three selectors and the server signature, VERBATIM", async () => {
     // Verbatim, not containment: an appended-suffix mutant survives substring
     // assertions (the loaded suite probed exactly that).
