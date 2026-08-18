@@ -108,6 +108,18 @@ FILE (partly-skipped block) | file status: passed | assertionResults: 2
 
 Both bodies in the all-skipped block would FAIL if executed; the run reports zero failures, a `passed` file status, and **exit 0**. So "present, non-empty, and no failures" is not evidence that anything was observed, and a classification resting on it would report a block that ran nothing as clean — silent corruption of exactly the kind §1.1 item 12 forbids. This is one ordinary edit from the corpus: `docs/superpowers/plans/2026-07-23-published-archived-tab-include.md:39` is a self-contained block that selects `describe.skip` at `docs/superpowers/plans/2026-07-23-published-archived-tab-include.md:48` when no loopback database is available. Hence §4.3 branch 4.
 
+**The class, swept rather than the instance patched.** The shape is "a reported entry that was never executed", and `describe.skip` is not its only spelling. `.only` produces it too — a focused test passes while its sibling, whose body would fail, reports `status: "skipped"`, and the run exits 0:
+
+```
+$ pnpm exec vitest run tests/.arcDonly --reporter=json
+EXIT=0   total 3 passed 2 failed 0 pending 1
+FILE (only-gated block)  | file: passed
+    status=passed  | the focused one passes
+    status=skipped | this one would FAIL if it ran
+```
+
+Branch 4 keys on the STATUS, not on the spelling that produced it, so `.skip`, `.only`, `.todo`, and a runtime-conditional `describe` are one rule and no enumeration of skip syntaxes ships. That is the narrowing form of the repair: the clean predicate got stricter, the recognizer did not get wider.
+
 ## 3. Static arm — the marker (default invocation)
 
 ### 3.1 Grammar
@@ -220,7 +232,8 @@ All under `tests/specLint/`, TDD per task, anti-tautology rules of `docs/agents/
 6. **No sandboxing** (§1.1 item 7). An enrolled block may do anything the invoking user can do. Adversarially constructed blocks — including one that emits the premise sentinel string from an ordinary assertion, which would be misreported as `FIXTURE_UNSATISFIABLE` — are out of the threat fence (§1.1 item 10).
 7. **Concurrent invocations in one worktree.** Two `--exec-red` runs against the same worktree get distinct splice directories (pid + counter), but a full-suite run started concurrently in that worktree can observe a live splice directory during its ~1 s window. Bounded and accepted; the `finally` removal and the gitignore entry keep the window short and the tree clean.
 8. **An environment-gated block cannot be a satisfiability witness.** A block that selects `describe.skip` on an absent database, missing env var, or platform draws `FIXTURE_ASSERTIONS_SKIPPED` wherever it is enrolled, and no `expect=` value makes it clean. That is deliberate rather than a gap: whether such a block ran is a property of the machine, so its outcome cannot support a claim about the live tree. The author's repair is to construct the environment or to split the ungated assertions into their own enrolled block — the same posture `docs/agents/writing-plans.md` already takes on premises ("where the environment CAN be constructed, construct it").
-9. **Only vitest.** A block in another runner's dialect is not executed; the accepted info strings are the measured three (§3.1). A new runner is an accept-set change with its own corpus numbers, not a review round.
+9. **An expected-failure construct inverts the verdict this arm reads.** Measured: `it.fails()` with a failing body reports `status: "passed"` and zero failures. An `expect=red` block built that way therefore draws `FIXTURE_ALREADY_GREEN` — hard and surfaced, so the bound holds, but the code names the wrong cause. The arm reads vitest's verdict and does not model constructs that inverting it; a block mixing `it.fails()` with a declared `expect=` is a documented limit, not a finding.
+10. **Only vitest.** A block in another runner's dialect is not executed; the accepted info strings are the measured three (§3.1). A new runner is an accept-set change with its own corpus numbers, not a review round.
 
 ## 9. Wiring & docs (same PR)
 
