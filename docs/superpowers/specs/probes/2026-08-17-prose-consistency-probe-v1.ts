@@ -253,7 +253,13 @@ for (const rel of specDocs) {
       }
       continue;
     }
-    if (inOos && line.trim() !== "") oosLinesInDoc++;
+    // R4-repair (spec review round 4): structural Markdown lines carry no claim —
+    // thematic breaks and table DELIMITER rows are excluded (table CONTENT rows
+    // stay: a fence claim can live in a table cell).
+    const THEMATIC_BREAK = /^ {0,3}([-_*])( *\1){2,} *$/;
+    const TABLE_DELIMITER = /^\s*\|[\s\-:|]+\|?\s*$/;
+    if (inOos && line.trim() !== "" && !THEMATIC_BREAK.test(line) && !TABLE_DELIMITER.test(line))
+      oosLinesInDoc++;
     if (/^\s*\|/.test(line)) continue;
     if (UNIVERSAL_LINE.test(line)) universalsInDoc++;
     // U-a-narrow: universal + cardinal, non-table, non-dated line.

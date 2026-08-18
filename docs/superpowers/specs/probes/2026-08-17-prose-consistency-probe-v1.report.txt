@@ -236,4 +236,4 @@ top 10 by universal-line count:
   28  docs/superpowers/specs/step3-onboarding/2026-07-17-autoapplied-field-structured-diff.md
   26  docs/superpowers/specs/alerts/2026-07-04-alert-audience-split.md
   26  docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-17-crew-page-redesign-phase2-agenda.md
-scope-fences (oos+closeout, depth>=2) lines per doc: median 4, max 174 (docs/superpowers/specs/2026-08-03-inter-numeral-disambiguation-design.md)
+scope-fences (oos+closeout, depth>=2) lines per doc: median 4, max 160 (docs/superpowers/specs/2026-08-03-inter-numeral-disambiguation-design.md)
