@@ -463,6 +463,34 @@ export const GUARD_SURFACES: GuardSurface[] = [
     },
     accepted: [],
   },
+  // NOT ENROLLED — tests/e2e/helpers/openShowReviewModal.ts, probed 2026-08-18 on
+  // fix/modal-wait-skeleton-tolerant and dispositioned honestly rather than symbolically
+  // (spec §4.6-7; the step3 precedent, AGENTS.md convergence criterion 4).
+  //
+  // The row was authored, the gate red as designed on the missing EXPECTED_LEDGER_KINDS
+  // key, and the scoring run measured 17/27 killed (0.6296) against a 0.95 floor. The ten
+  // survivors are not a coverage gap this arc can repay:
+  //
+  //   - EIGHT sit in the boundary-recovery and watchdog branches (the two
+  //     `test.info().annotations.push` calls, both `RETRY_SELECTOR` clicks, both
+  //     post-recovery re-waits, and the `armBoundaryWatchdog` call). Every one is behind
+  //     the lazy `@playwright/test` dynamic import, which is exactly why the module has no
+  //     top-level value import from it: the unit suites run under vitest and cannot
+  //     execute those branches at all. Killing them needs a real 502, not a test.
+  //     Parent-#830 limit 2 recorded this; this arc's spec §7 limits 2 and 4 inherit it.
+  //   - ONE (`integer-literal:78:57:1>1+1`) is inside `Parameters<Page["goto"]>[1]`, a
+  //     TYPE position with no runtime behaviour to observe.
+  //   - ONE was a real gap and was REPAID rather than blessed: `timeoutMs > 0` mutated to
+  //     `> 1` survived, so the frame suite's normalization case now pins the boundary from
+  //     the passing side (timeoutMs 1 reaches the wait unchanged) and kills it. Verified by
+  //     hand-applying that mutant: 1 failed, 9 passed; reverted.
+  //
+  // So the reachable ceiling is 18/27 = 0.67, and enrolling would mean either a floor no
+  // guard can be trusted at or nine blessed rows for one repaid mutant. Neither is a
+  // guard; both are a number that looks like one. Re-open when the recovery branches
+  // become executable under vitest (an injectable annotation sink would do it) — that is a
+  // helper redesign, not this arc's scope, and it stays a documented limit rather than a
+  // ledger row because its worst case is exactly today's behaviour.
   {
     // The citation-intent classifier (2026-08-15 arms spec §3, §7). Its three
     // suites split the surface deliberately: the unit suite pins the matching

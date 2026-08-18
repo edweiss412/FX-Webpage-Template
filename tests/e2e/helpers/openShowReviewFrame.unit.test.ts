@@ -119,6 +119,19 @@ describe("awaitReviewFrameOrRecover (spec §4.1)", () => {
     const nonPositive = makeFakePage({});
     await awaitReviewFrameOrRecover(nonPositive.page, { timeoutMs: 0 });
     expect(nonPositive.waitForCalls[0]?.opts).toEqual({ state: "visible", timeout: 30_000 });
+
+    // The BOUNDARY of "non-positive", from the passing side: 1 is a legal
+    // timeout and must reach the wait unchanged. Without this the guard could
+    // be `> 1` (or any small bound) and every other case here still passes —
+    // a live mutant the enrolment probe surfaced at
+    // `integer-literal:89:79:0>1` and this case repays.
+    const smallest = makeFakePage({});
+    await awaitReviewFrameOrRecover(smallest.page, { timeoutMs: 1 });
+    expect(smallest.waitForCalls[0]?.opts).toEqual({ state: "visible", timeout: 1 });
+
+    const negative = makeFakePage({});
+    await awaitReviewFrameOrRecover(negative.page, { timeoutMs: -5 });
+    expect(negative.waitForCalls[0]?.opts).toEqual({ state: "visible", timeout: 30_000 });
   });
 
   test("loaded visible returns the loaded frame on an UNSCOPED locator, watchdog NOT armed", async () => {
