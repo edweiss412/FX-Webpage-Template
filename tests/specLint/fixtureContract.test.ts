@@ -137,3 +137,26 @@ describe("fixture marker grammar — shapes the authored block leaves unpinned",
     expect(f!.severity).toBe("fail");
   });
 });
+
+describe("fixture marker grammar — sites a green suite would otherwise leave free", () => {
+  it("a marker on the document's FIRST line is scanned", () => {
+    // A scan starting at index 1 skips line 1 entirely, and every other case in
+    // this file puts a heading above the marker.
+    expect(codes(["<!-- fixture: why=x -->", "```ts", "// b", "```"].join("\n"))).toEqual([
+      "FIXTURE_MALFORMED@1",
+    ]);
+  });
+
+  it("a marker as the LAST line says so, rather than describing a line that is not there", () => {
+    // The end-of-document guard and the not-a-fence guard both emit
+    // FIXTURE_UNATTACHED, so a code-only assertion cannot tell them apart: an
+    // off-by-one there reads `lines[len]` and renders "next line is: undefined".
+    const last = checkFixtureContract(
+      parseDoc(["# P", "<!-- fixture: why=`w` -->"].join("\n")),
+      "plan",
+    );
+    expect(last.map((f) => f.code)).toEqual(["FIXTURE_UNATTACHED"]);
+    expect(last[0]!.detail).toContain("(end of document)");
+    expect(last[0]!.detail).not.toContain("undefined");
+  });
+});

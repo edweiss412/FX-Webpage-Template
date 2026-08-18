@@ -254,3 +254,46 @@ describe("classification — pinned against the live premise helper", () => {
     expect(out[0]!.detail).toContain("Cannot find package '@/x'");
   });
 });
+
+describe("classification — anchors and sentinel scanning", () => {
+  const outcomeAt = (o: Parameters<typeof file>[0]) =>
+    synthesizeFixtureFindings([entry(5)], { files: new Map([[5, file(o)]]) } as never);
+
+  it("both the verdict and the advisory anchor at column 1", () => {
+    // Every other case projects findings to codes, which leaves the anchor free
+    // to drift to any column while the suite stays green — and the anchor is
+    // what an editor jumps to.
+    const verdict = outcomeAt({ fileStatus: "failed", statuses: ["failed"], failures: [PREMISE] });
+    const advisory = outcomeAt({ fileStatus: "failed", statuses: [] });
+    expect(verdict[0]!.column).toBe(1);
+    expect(verdict[0]!.docLine).toBe(5);
+    expect(advisory[0]!.column).toBe(1);
+    expect(advisory[0]!.docLine).toBe(5);
+  });
+
+  it("a message that BEGINS with the sentinel is detected", () => {
+    // The scan must start at index 0. Vitest prefixes an assertion's message
+    // with "Error: ", but a file-level message carries the raw throw text, so
+    // the sentinel really can sit at index 0 -- and a scan starting one
+    // character in would silently stop reporting exactly the module-scope
+    // failures the file-level channel exists to carry.
+    const bare = "premise not met: the sentinel sits at index zero. and more text";
+    expect(
+      outcomeAt({ fileStatus: "failed", statuses: [], fileMessage: bare }).map((f) => f.code),
+    ).toEqual(["FIXTURE_UNSATISFIABLE"]);
+    expect(
+      outcomeAt({ fileStatus: "failed", statuses: ["failed"], failures: [bare] })[0]!.detail,
+    ).toContain("the sentinel sits at index zero");
+  });
+
+  it("a description with no sentence boundary is carried WHOLE, not one character short", () => {
+    const noStop = "premise not met: no trailing period here";
+    const detail = outcomeAt({ fileStatus: "failed", statuses: ["failed"], failures: [noStop] })[0]!
+      .detail;
+    expect(detail).toContain("no trailing period here");
+    // The off-by-one this catches truncates the last character and is invisible
+    // to any assertion that only checks the code.
+    expect(detail).not.toContain("no trailing period her;");
+    expect(detail!.endsWith("here")).toBe(true);
+  });
+});

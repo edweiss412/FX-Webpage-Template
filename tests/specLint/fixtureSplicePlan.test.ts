@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { parseDoc } from "@/lib/specLint/parse";
-import { spliceFixturePlan } from "@/lib/specLint/fixtureContract";
+import { checkFixtureContract, spliceFixturePlan } from "@/lib/specLint/fixtureContract";
 
 describe("splice plan (spec §4.1)", () => {
   it("carries block text byte-identically, including blank and trailing-space lines", () => {
@@ -99,6 +99,25 @@ describe("splice plan — shapes the authored block leaves unpinned", () => {
   it("a marker inside a fence contributes no entry", () => {
     expect(
       planOf(["# P", "```md", "<!-- fixture: why=`w` -->", "```ts", "// b", "```", "```"]),
+    ).toEqual([]);
+  });
+});
+
+describe("splice plan — the exclusion is total over the static codes", () => {
+  it("an UNATTACHED marker contributes nothing, and does not splice the wrong fence", () => {
+    // The unattached branch must stop scanning that marker. Falling through
+    // enrols it anyway with the following fence as its block, so a `bash`
+    // snippet the linter already rejected gets written into tests/ and run.
+    const md = ["# P", "<!-- fixture: why=`w` -->", "```bash", "rm -rf /", "```"].join("\n");
+    expect(checkFixtureContract(parseDoc(md), "plan").map((f) => f.code)).toEqual([
+      "FIXTURE_UNATTACHED",
+    ]);
+    expect(spliceFixturePlan(parseDoc(md), "plan")).toEqual([]);
+  });
+
+  it("a marker with no next line at all contributes nothing", () => {
+    expect(
+      spliceFixturePlan(parseDoc(["# P", "<!-- fixture: why=`w` -->"].join("\n")), "plan"),
     ).toEqual([]);
   });
 });

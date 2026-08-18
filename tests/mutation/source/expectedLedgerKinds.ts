@@ -114,13 +114,17 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // extent-containment equalities a marker line can never occupy. No
   // accepted-gap: every other survivor of the first run was repaid by a test.
   redContract: { equivalent: 7 },
-  // fixtureContract: an EMPTY ledger is the claim, not a placeholder — every
-  // mutant of the fixture arm is killed. Declared before the first scored run,
-  // per the enrolment-precedes-review rule, so the run either confirms it or
-  // reds the shard. A row appearing here later is a coverage regression to
-  // explain, and an `accepted-gap` would be this surface's first and owes its
-  // own filing.
-  fixtureContract: {},
+  // fixtureContract: TWO reachability arguments, both the one-past-the-end scan
+  // bound redContract already carries three of. The empty ledger was DECLARED
+  // before the first scored run per the enrolment-precedes-review rule, and the
+  // run refuted it: 13 survivors at 0.8194. Eleven were repaid — eight by cases
+  // and three by deleting the duplication that made them unreachable (a second
+  // copy of the indent bound, a second copy of parseDoc's, and a pair of
+  // nullable fields where a union makes the invalid state unrepresentable) —
+  // which is the direction the repair rule prescribes: delete or derive, never
+  // bless. No accepted-gap; one appearing here would be this surface's first
+  // and owes its own filing.
+  fixtureContract: { equivalent: 2 },
   // Counted from the surface, not read back off its ledger: `scripts/lib/
   // ledger-claims-core.ts` has exactly THREE `?? 0` fallbacks whose key is
   // always present -- two in the tip comparator, one in the age loop -- and

@@ -604,7 +604,27 @@ export const GUARD_SURFACES: GuardSurface[] = [
     operators: [...OPERATOR_NAMES],
     scoreFloor: 0.95,
     control: { from: 'kind !== "plan"', to: 'kind === "plan"' },
-    accepted: [],
+    accepted: [
+      // ---- equivalent: cannot change observable behavior --------------------
+      //
+      // TWO rows, ONE argument, and it is the same one-past-the-end reachability
+      // the redContract rows above carry. Every OTHER survivor of the first
+      // scored run was repaid by a test or removed by deleting the duplicated
+      // rule that made it unreachable — eleven of them — which is why these two
+      // are argued rather than blessed as a family.
+      {
+        siteId: "relational-boundary:99:21:<><=",
+        kind: "equivalent",
+        reason:
+          "the marker scan reads one index past the end; model.fencedInfo[len] is undefined, so the loop's own fence guard (`!== undefined`) continues before model.lines[i] is used, and the extra iteration emits nothing",
+      },
+      {
+        siteId: "relational-boundary:204:43:<><=",
+        kind: "equivalent",
+        reason:
+          'the fence-body scan reads one index past the end; model.fencedInfo[len] is undefined, so the `typeof !== "string"` guard breaks on that iteration before model.lines[j] is pushed — fence CONTENT can never sit past the last line',
+      },
+    ],
   },
   {
     id: "taskContract",

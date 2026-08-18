@@ -23,11 +23,18 @@
 import { parseDoc, type DocModel } from "./parse";
 import type { Finding, FixtureResults } from "./types";
 
-/** Marker-SHAPED, so a mangled marker is a finding rather than silence. */
+/**
+ * Marker-SHAPED, so a mangled marker is a finding rather than silence. The
+ * leading-indent allowance lives HERE and nowhere else: four spaces is an
+ * indented code block in CommonMark and therefore prose, and `FIXTURE` below is
+ * only ever matched against a line this has already admitted. A second copy of
+ * the bound would be a second chance for the two to disagree about what a
+ * marker line IS.
+ */
 const FIXTURE_ANY = /^ {0,3}<!-- fixture:/;
 /** The exact grammar (spec §3.1), in the shape of the shipped gate marker
  * (`lib/specLint/redContract.ts:37`): backtick-delimited, `why=` the only field. */
-const FIXTURE = /^ {0,3}<!-- fixture: why=`([^`]*)` -->[ \t]*$/;
+const FIXTURE = /^ *<!-- fixture: why=`([^`]*)` -->[ \t]*$/;
 
 /**
  * The measured accepted set (spec §2.1, §3.1): those three info strings carry
@@ -54,18 +61,26 @@ const fail = (code: string, docLine: number, message: string, detail?: string): 
  * settled by execution (spec §4.3), not by pretending it opened no fence.
  */
 function infoOfDelimiter(line: string): string {
-  const m = /^ {0,3}(?:`{3,}|~{3,})(.*)$/.exec(line);
+  // `trimStart` rather than a second copy of parseDoc's indent bound: the line
+  // is already known to be a delimiter, so all this needs is to skip whatever
+  // indent that decision accepted.
+  const m = /^(?:`{3,}|~{3,})(.*)$/.exec(line.trimStart());
   if (m === null) return "";
   return (m[1]!.trim().toLowerCase().split(/\s+/)[0] ?? "").trim();
 }
 
-/** One scanned marker. `fenceIndex` is the 0-based opening-delimiter index when attached. */
-interface ScannedMarker {
-  /** 1-based marker line. */
-  line: number;
-  finding: Finding | null;
-  fenceIndex: number | null;
-}
+/**
+ * One scanned marker, in exactly one of two states. A union rather than two
+ * nullable fields because "a flagged marker has no fence index" is then
+ * STRUCTURAL: the inconsistent third state — a finding AND a fence index — is
+ * unrepresentable, so the splice exclusion in spec §4.1 cannot be got wrong by
+ * a later edit rather than merely being got right by this one.
+ */
+type ScannedMarker =
+  /** Drew a static finding (§3.2), and is therefore never spliced. */
+  | { line: number; finding: Finding }
+  /** Well-formed and attached; `fenceIndex` is the 0-based opening delimiter. */
+  | { line: number; fenceIndex: number };
 
 /**
  * The ONE enrolment derivation, shared by the static arm and the splice plan so
@@ -98,7 +113,6 @@ function scanMarkers(model: DocModel, kind: "spec" | "plan"): ScannedMarker[] {
           "fixture marker does not match the declared grammar",
           "expected exactly `<!-- fixture: why=`…` -->`; got: " + text.trim(),
         ),
-        fenceIndex: null,
       });
       continue;
     }
@@ -112,7 +126,6 @@ function scanMarkers(model: DocModel, kind: "spec" | "plan"): ScannedMarker[] {
           "fixture marker has an empty why=",
           "why= states the premise this block demonstrates; an empty one declares nothing",
         ),
-        fenceIndex: null,
       });
       continue;
     }
@@ -130,7 +143,6 @@ function scanMarkers(model: DocModel, kind: "spec" | "plan"): ScannedMarker[] {
           "fixture marker is not attached to a block",
           "next line is: (end of document)",
         ),
-        fenceIndex: null,
       });
       continue;
     }
@@ -145,12 +157,11 @@ function scanMarkers(model: DocModel, kind: "spec" | "plan"): ScannedMarker[] {
           "fixture marker is not attached to a block",
           "next line is: " + next,
         ),
-        fenceIndex: null,
       });
       continue;
     }
 
-    out.push({ line: docLine, finding: null, fenceIndex: k });
+    out.push({ line: docLine, fenceIndex: k });
   }
   return out;
 }
@@ -162,9 +173,7 @@ function scanMarkers(model: DocModel, kind: "spec" | "plan"): ScannedMarker[] {
  * --lint-doc` inherits them without passing `--exec-red`.
  */
 export function checkFixtureContract(model: DocModel, kind: "spec" | "plan"): Finding[] {
-  return scanMarkers(model, kind)
-    .map((s) => s.finding)
-    .filter((f): f is Finding => f !== null);
+  return scanMarkers(model, kind).flatMap((m) => ("finding" in m ? [m.finding] : []));
 }
 
 /** One block the adapter will splice and run. `line` is its marker's 1-based line. */
@@ -190,7 +199,7 @@ export interface FixtureSpliceEntry {
 export function spliceFixturePlan(model: DocModel, kind: "spec" | "plan"): FixtureSpliceEntry[] {
   const out: FixtureSpliceEntry[] = [];
   for (const marker of scanMarkers(model, kind)) {
-    if (marker.finding !== null || marker.fenceIndex === null) continue;
+    if (!("fenceIndex" in marker)) continue;
     const body: string[] = [];
     for (let j = marker.fenceIndex + 1; j < model.lines.length; j++) {
       // A string is an inside line; `null` closes the fence. An unclosed fence
@@ -328,8 +337,9 @@ export function synthesizeFixtureFindings(
             (outcome.fileMessage === "" ? "" : ": " + outcome.fileMessage),
         ),
       );
-      continue;
     }
+    // Branch 3 is the fall-through, so the branch above needs no `continue` of
+    // its own; one here would be unreachable-by-effect and unfalsifiable.
 
     // 3. Otherwise nothing. The report carries at least one test case and no
     //    premise failure in either channel. This does NOT say the bodies ran.
