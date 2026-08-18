@@ -21,11 +21,11 @@ Every symbol, path, and number this plan names was verified against the live tre
 | `redContract` registry row to copy | `sed -n '525p' tests/mutation/source/registry.ts` | `id: "redContract",` ✓ |
 | corpus size | `git ls-files 'docs/superpowers/plans' \| grep -c '\.md$'` | `659` ✓ |
 | enrolled fixture markers today | `git ls-files 'docs/superpowers/plans' \| grep '\.md$' \| xargs grep -l '<!-- fixture:' \| wc -l` | `0` ✓ |
-| the module this plan creates is absent | `git ls-files lib/specLint/fixtureContract.ts` | empty — the module every task's `red-target=` names ✓ |
+| the module this plan creates is absent | `git ls-files lib/specLint/fixtureContract.ts` | empty — the module three markers name as a bare-path `red-target=` ✓ |
 
 ## 1. Meta-test inventory (mandatory declaration)
 
-- **EXTENDS** `tests/specLint/_metaPureCore.test.ts` — no change to the test; the new module falls under its recursive tree walk by default, and **Task 8** asserts that explicitly rather than assuming coverage.
+- **EXTENDS** `tests/specLint/_metaPureCore.test.ts` — no change to the test; the new module falls under its recursive tree walk by default, and **Gate A** asserts that explicitly rather than assuming coverage.
 - **EXTENDS** `tests/mutation/source/registry.ts` AND `tests/mutation/source/expectedLedgerKinds.ts` — one new row in EACH, `id: "fixtureContract"` (**Task 7**); `tests/mutation/guardSurfaces.gates.test.ts:21` compares the two key sets, so one without the other reds the corpus gate. Reconciliation is in §2.
 <!-- spec-lint: ignore — a file Task 6 creates; the path is a forward declaration, not a citation of existing code -->
 - **CREATES** `tests/specLint/fixtureCli.test.ts` — end-to-end adapter cases (**Task 6**). It does NOT extend the tracked `tests/specLint/cli.test.ts`, whose subject is the pre-existing CLI surface.
@@ -65,15 +65,12 @@ The spec's whole subject is that an unexecuted embedded block lies. This plan th
 
 ```
 $ pnpm exec vitest run tests/.planExec --reporter=json
-total 8 passed 1 failed 7
-FILE block1-L119.test.ts | assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' ...
-FILE block2-L197.test.ts | assertions 2
-     - a malformed marker surfaces through runLint with NO exec maps
-       AssertionError: expected [] to deeply equal [ 'FIXTURE_MALFORMED' ]
-FILE block3-L233.test.ts | assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' ...
-FILE block4-L281.test.ts | assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' ...
-FILE block5-L424.test.ts | assertions 6
-     - failed (x6) | TypeError: runFixtureSplice is not a function
+total 9 passed 1 failed 8
+FILE block1-L135.test.ts | assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' ...
+FILE block2-L213.test.ts | assertions 2 | (assertion failure: expected [] to equal [ 'FIXTURE_MALFORMED' ])
+FILE block3-L249.test.ts | assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' ...
+FILE block4-L310.test.ts | assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' ...
+FILE block5-L453.test.ts | assertions 7 | (7 x TypeError: runFixtureSplice is not a function)
 ```
 
 Read exactly, and note the three DIFFERENT red shapes, none of them a transform error:
@@ -82,24 +79,40 @@ Read exactly, and note the three DIFFERENT red shapes, none of them a transform 
 - **Task 2's block** red at its assertion, `expected [] to deeply equal [ 'FIXTURE_MALFORMED' ]`. It imports only tracked modules, so this proves the five-argument `runLint` call compiles and that the orchestrator genuinely emits nothing today.
 - **Task 5's block** red with `TypeError: runFixtureSplice is not a function`. That shape is the point: the module RESOLVES — it is `scripts/spec-lint.ts`, which exists — and simply lacks the export. Since plan review round 1, this block imports from the ADAPTER rather than from the pure core, because the spec's §5 boundary puts every filesystem, spawn and JSON-parse concern there; the earlier version imported a side-effecting `runFixtureSplice` from the pure core module and could not have satisfied the ratified architecture.
 
-This run is the RE-execution after plan review round 2, which added the assertion-channel case to Task 5 and moved the two verification gates out of the enrolled region; every earlier repair that touched a block was followed by the same re-run, and the line numbers here are the current ones. The record is re-measured on every edit rather than carried forward, which is the discipline the arm itself enforces. Two things the original execution corrected rather than confirmed, which is the argument for running it at all: an earlier draft of this section asserted three module-resolution reds where the measurement shows four, and Task 2's block turns out to carry **one case that passes at base vacuously** — "a clean marker adds no findings" holds today precisely because nothing fires at all. It is kept deliberately as the over-fire guard it becomes once Task 2 lands, and is named here so no reviewer has to discover that it proves nothing before the GREEN step. The splice directory was removed after the run and `git status` is clean.
+This run is the RE-execution after plan review round 3, which fixed Task 7's collection-artifact red command, added the three-fence-kind and multi-block-mapping cases, and made cleanup survive a write failure; every earlier repair that touched a block was followed by the same re-run, and the line numbers here are the current ones. The record is re-measured on every edit rather than carried forward, which is the discipline the arm itself enforces. Two things the original execution corrected rather than confirmed, which is the argument for running it at all: an earlier draft of this section asserted three module-resolution reds where the measurement shows four, and Task 2's block turns out to carry **one case that passes at base vacuously** — "a clean marker adds no findings" holds today precisely because nothing fires at all. It is kept deliberately as the over-fire guard it becomes once Task 2 lands, and is named here so no reviewer has to discover that it proves nothing before the GREEN step. The splice directory was removed after the run and `git status` is clean.
 
 ### 3.1 Dogfood against the landed arms
 
-`pnpm spec:lint --exec-red` on this plan at base `7d09a1f0b` reports `0 hard`, and arc B's shipped collection arm draws exactly seven advisories — one `RED_SUITE_UNVERIFIED` per authored marker naming a test file this plan creates (lines 84, 154, 190, 231, 316, 380, 390). That is the correct verdict for a future file (verdict spec §5.2: a future file and a typo are statically indistinguishable, so the token is surfaced by name and nothing hard fires), and it is also the evidence that this plan's markers compose with the arm it extends rather than contradicting it. Task 9's `red-state=live` command was OBSERVED failing at plan time (`git check-ignore -v … ; exit=1`), as the live branch of the red-contract rule requires.
+`pnpm spec:lint --exec-red` on this plan, re-run after every restructure. The current run reports **11 advisories** — six `RED_SUITE_UNVERIFIED`, one per authored marker naming a test file this plan creates (lines 110, 189, 225, 273, 414, 537), which is the correct verdict for a future file (verdict spec §5.2: a future file and a typo are statically indistinguishable, so the token is surfaced and nothing hard fires).
 
-### 3.2 Ordinal sweep (authored AND run)
-
-Spec §4.4 states that the ladder's positions appear in §4.3 and nowhere else, because a second copy of the order went stale twice in consecutive review rounds. The check is mechanical, and this is its run at plan time:
+**It also reported one HARD finding, and that is the most useful result this plan has produced.** Arc B's collection arm drew `RED_SUITE_UNCOLLECTED` on Task 7's red command: `tests/mutation/guardSurfaces.gates.test.ts` lives in `MUTATION_TEST_GLOBS` (`vitest.projects.ts:91`), an env-gated vitest project, so the bare `pnpm vitest run <file>` form collects **zero** tests and exits non-zero for a collection reason rather than for the key-set mismatch the marker claims. Probed both ways:
 
 ```
-$ rg -n 'branch [0-9]|branches [0-9]|condition [0-9]' \
-    docs/superpowers/specs/2026-08-18-planlint-fixture-satisfiability.md \
-    docs/superpowers/plans/2026-08-18-planlint-fixture-satisfiability.md
-(no matches outside spec section 4.3)
+$ VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest list --project mutation tests/mutation/guardSurfaces.gates.test.ts
+[mutation] tests/mutation/guardSurfaces.gates.test.ts > guard-surface registry — ledger-kind expectations > ...
+(4 tests listed, exit 0)
+
+$ pnpm exec vitest list tests/mutation/guardSurfaces.gates.test.ts
+(no output — collects nothing)
 ```
 
-Every reference that used to carry an ordinal now names the code or the condition, including the seven test titles in Task 4's block. Task 9 re-runs this sweep at closeout; a match outside §4.3 is a defect, not a style note.
+The command now carries the env var and `--project mutation`. This is the arm arc B shipped catching, in this plan, exactly the class it was built for — a red that would have read as observed while never running the suite it names.
+
+**There is no `red-state=live` marker.** The seven enrolled markers are all `authored`; the one live marker this plan used to carry belonged to the closeout task, which is now Gate B and sits outside the enrolled region. `git check-ignore -v tests/.spec-lint-fixtures-1-1/probe.test.ts` still exits 1 today and exits 0 once Gate B lands the ignore entry, and Gate B names it as its own observable check.
+
+### 3.2 Self-consistency, derived rather than audited
+
+Three consecutive plan-review rounds returned findings of one shape: a restructure moved a task and the prose referring to it went stale. The repair is a derivation, not a fourth hand-audit. `scripts/plan-self-consistency.mjs` reads this document's own headings and markers, then reports every prose claim that contradicts them — a task or gate id that no heading defines, a stated count of path-only `red-target=` values that the markers do not carry, a claimed live-marker count that is wrong:
+
+```
+$ node scripts/plan-self-consistency.mjs docs/superpowers/plans/2026-08-18-planlint-fixture-satisfiability.md
+units: T1 T2 T3 T4 T5 T6 T7 GA GB
+markers: 7 (live 0, authored 7)
+bare-path red-targets: 3 at lines 110,225,273
+CONSISTENT: no prose claim contradicts the derived structure
+```
+
+On its first run it reproduced five of the round-3 findings mechanically, including two the round-2 repair had introduced. Gate B re-runs it; a non-zero exit is a defect, not a style note.
 
 ## 4. Tasks
 
@@ -222,7 +235,7 @@ describe("fixture static arm is wired into runLint (spec §3)", () => {
 
 ## Task 3 — splice-plan derivation (pure)
 
-<!-- task: red=`pnpm vitest run tests/specLint/fixtureSplicePlan.test.ts` red-state=authored red-target=`lib/specLint/fixtureContract.ts` why=`spliceFixturePlan does not exist — lib/specLint/fixtureContract.ts is untracked at base and Task 1 adds only checkFixtureContract, so the import fails to resolve and every case reds. It greens when the module exports spliceFixturePlan returning one entry per attached well-formed marker, verbatim block text, in doc order, with statically-flagged markers excluded per spec §4.1` ac=AC-3,AC-6 -->
+<!-- task: red=`pnpm vitest run tests/specLint/fixtureSplicePlan.test.ts` red-state=authored red-target=`lib/specLint/fixtureContract.ts` why=`Task 1 has already created lib/specLint/fixtureContract.ts when this task begins, and it exports only checkFixtureContract, so spliceFixturePlan is a MISSING NAMED EXPORT. Spec 2.4 measured that shape: it resolves to undefined rather than erroring at import, and the first call throws TypeError. That is the red, and it derives from the absent production export, not from anything the test controls. It greens when the module exports spliceFixturePlan returning one entry per attached well-formed marker, verbatim block text, in doc order, with statically-flagged markers excluded per spec §4.1` ac=AC-3,AC-6 -->
 
 Export `spliceFixturePlan(model, kind)` returning `{ line, block: string }[]` — one entry per attached, well-formed marker, block text VERBATIM (blank lines and trailing whitespace preserved byte for byte), doc order, excluding any marker that drew a static finding (spec §4.1).
 
@@ -261,6 +274,19 @@ describe("splice plan (spec §4.1)", () => {
     expect(plan.map((e) => e.line)).toEqual([...plan.map((e) => e.line)].sort((a, b) => a - b));
   });
 
+  it("splices ALL THREE accepted fence kinds, not just ts", () => {
+    // checkFixtureContract's attachment test (Task 1) covers the three kinds,
+    // but this is a DIFFERENT export: an implementation that attaches all three
+    // and then splices only `ts` passes every Task 1 case while dropping two
+    // canonical population members.
+    for (const info of ["ts", "tsx", "typescript"]) {
+      const md = ["# P", "<!-- fixture: why=`w` -->", "```" + info, "// body", "```"].join("\n");
+      const plan = spliceFixturePlan(parseDoc(md), "plan");
+      expect(plan, `fence kind ${info}`).toHaveLength(1);
+      expect(plan[0]!.block).toBe("// body");
+    }
+  });
+
   it("a spec-kind doc yields an empty plan", () => {
     const md = ["# S", "<!-- fixture: why=`w` -->", "```ts", "x", "```"].join("\n");
     expect(spliceFixturePlan(parseDoc(md), "spec")).toEqual([]);
@@ -270,7 +296,7 @@ describe("splice plan (spec §4.1)", () => {
 
 ## Task 4 — classification, total over the precedence ladder (pure)
 
-<!-- task: red=`pnpm vitest run tests/specLint/fixtureClassify.test.ts` red-state=authored red-target=`lib/specLint/fixtureContract.ts` why=`synthesizeFixtureFindings does not exist at base and is not added by Tasks 1 or 3, so the import fails to resolve. It greens when the module implements spec §4.3's ladder IN ORDER, emitting exactly one outcome per enrolled block; the cases below are red against any implementation that certifies a block on a proxy — a passing entry, an absent failure, a non-failed file — or that reads a non-sentinel failure as a satisfiability signal` ac=AC-3,AC-4 -->
+<!-- task: red=`pnpm vitest run tests/specLint/fixtureClassify.test.ts` red-state=authored red-target=`lib/specLint/fixtureContract.ts` why=`synthesizeFixtureFindings is not added by Task 1 or Task 3, so when this task begins it is a MISSING NAMED EXPORT of an existing module: spec 2.4 measured that it resolves to undefined and the first call throws TypeError rather than failing at import. It greens when the module implements spec §4.3's ladder IN ORDER, emitting exactly one outcome per enrolled block; the cases below are red against any implementation that certifies a block on a proxy — a passing entry, an absent failure, a non-failed file — or that reads a non-sentinel failure as a satisfiability signal` ac=AC-3,AC-4 -->
 
 Export `synthesizeFixtureFindings(plan, results)` implementing spec §4.3's three branches IN ORDER: the hard verdict when the sentinel appears in EITHER channel (assertion failures or the file-level message), then the advisory when no sentinel appears and the report carries NO TEST CASE for the block, then NO finding. The input carries file status, per-assertion status and failure messages so that an implementation reading any of them as a certificate is catchable — spec §§2.5-2.8 measured each one unsound as evidence. `results === null` (static invocation) yields zero findings. Exactly one outcome per enrolled block.
 
@@ -425,7 +451,16 @@ This task forwards the ASSERTION channel only. The file-level message channel is
 import { describe, it, expect } from "vitest";
 import { runFixtureSplice } from "@/scripts/spec-lint";
 
-const harness = (opts: { dirExists?: boolean; runOutcome?: "throw" | "timeout" | "signal" | "badjson" } = {}) => {
+const PREMISE_MSG = "Error: premise not met: the header opens a block. ...";
+
+const harness = (
+  opts: {
+    dirExists?: boolean;
+    throwOnWrite?: boolean;
+    runOutcome?: "throw" | "timeout" | "signal" | "badjson";
+    perFileReports?: Record<number, string | null>;
+  } = {},
+) => {
   const calls: string[] = [];
   const dirs = new Set<string>(opts.dirExists ? ["PRESET"] : []);
   return {
@@ -434,7 +469,12 @@ const harness = (opts: { dirExists?: boolean; runOutcome?: "throw" | "timeout" |
     deps: {
       exists: (d: string) => dirs.has(d) || dirs.has("PRESET"),
       mkdir: (d: string) => { dirs.add(d); calls.push(`mkdir:${d}`); },
-      write: (path: string) => calls.push(`write:${path}`),
+      write: (path: string) => {
+        calls.push(`write:${path}`);
+        // Cleanup wrapped around only the RUNNER leaks the directory here, and
+        // every previously modeled failure was a run failure (r3 probe).
+        if (opts.throwOnWrite) throw new Error("ENOSPC");
+      },
       rm: (d: string) => { dirs.delete(d); calls.push(`rm:${d}`); },
       run: (cmd: string) => {
         calls.push(`run:${cmd}`);
@@ -498,13 +538,33 @@ describe("splice lifecycle (spec section 4.2)", () => {
     expect(written[1]).toMatch(/(^|\D)42\D[^/]*\.test\.ts$/);
   });
 
-  it("the directory is removed on EVERY failure path, not just a thrown call", () => {
+  it("the directory is removed on EVERY failure path, including a WRITE failure", () => {
     for (const runOutcome of ["throw", "timeout", "signal", "badjson"] as const) {
       const h = harness({ runOutcome });
       runFixtureSplice(plan, h.deps as never);
-      expect(h.calls.some((c) => c.startsWith("rm:"))).toBe(true);
+      expect(h.calls.some((c) => c.startsWith("rm:")), `run outcome ${runOutcome}`).toBe(true);
       expect([...h.dirs]).toEqual([]);
     }
+    // The failure that happens BEFORE the runner: cleanup scoped to the run
+    // alone leaks the directory here, and it is an ordinary disk error.
+    const w = harness({ throwOnWrite: true });
+    runFixtureSplice(plan, w.deps as never);
+    expect(w.calls.some((c) => c.startsWith("rm:"))).toBe(true);
+    expect([...w.dirs]).toEqual([]);
+    expect(w.calls.filter((c) => c.startsWith("run:"))).toEqual([]);
+  });
+
+  it("report entries map back to the RIGHT marker line, proved with two blocks", () => {
+    // A mapper that assigns every report entry to the first block passes any
+    // single-block case. Two blocks with distinguishable reports is the
+    // smallest shape that can catch it (plan review r3 probe).
+    const h = harness({ perFileReports: { 7: PREMISE_MSG, 42: null } });
+    const out = runFixtureSplice([7, 42].map((line) => ({ line, block: "// b" })), h.deps as never);
+    expect([...out.results.files.keys()].sort((a, b) => a - b)).toEqual([7, 42]);
+    expect(out.results.files.get(7)!.failureMessages.join(" ")).toContain("premise not met");
+    expect(out.results.files.get(42)!.failureMessages).toEqual([]);
+    // and the finding lands on 7, never on 42
+    expect(out.findings.map((f) => `${f.docLine}:${f.code}`)).toEqual(["7:FIXTURE_UNSATISFIABLE"]);
   });
 
   it("the ASSERTION channel is forwarded: a failure message reaches the core verbatim", () => {
@@ -547,7 +607,7 @@ Cases: a block whose premise fails inside a test → exit 1 with `FIXTURE_UNSATI
 
 ## Task 7 — mutation enrolment, in both declarations, and the score
 
-<!-- task: red=`pnpm vitest run tests/mutation/guardSurfaces.gates.test.ts` red-state=authored red-target=`tests/mutation/source/expectedLedgerKinds.ts:24` why=`tests/mutation/source/expectedLedgerKinds.ts:24 is the EXPECTED_LEDGER_KINDS declaration, which declares the ledger-kind expectations keyed by surface id, and guardSurfaces.gates.test.ts:21 asserts that key set equals the registry id set. This task RED step adds the fixtureContract registry row alone, which makes those two sets differ and reds the gate on a real key-set mismatch. It greens when the matching expectedLedgerKinds row lands. Both declarations are deliberate (section 2): counting a list against itself proves nothing` ac=AC-7 -->
+<!-- task: red=`VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm vitest run --project mutation tests/mutation/guardSurfaces.gates.test.ts` red-state=authored red-target=`tests/mutation/source/expectedLedgerKinds.ts:24` why=`tests/mutation/source/expectedLedgerKinds.ts:24 is the EXPECTED_LEDGER_KINDS declaration, which declares the ledger-kind expectations keyed by surface id, and guardSurfaces.gates.test.ts:21 asserts that key set equals the registry id set. This task RED step adds the fixtureContract registry row alone, which makes those two sets differ and reds the gate on a real key-set mismatch. The env var and --project mutation are load-bearing: guardSurfaces.gates.test.ts lives in MUTATION_TEST_GLOBS (vitest.projects.ts:91), so a bare vitest run collects ZERO tests and exits non-zero for a collection reason. Arc B's shipped collection arm drew RED_SUITE_UNCOLLECTED on the bare form when this plan was dogfooded under --exec-red, which is how the defect was found. It greens when the matching expectedLedgerKinds row lands. Both declarations are deliberate (section 2): counting a list against itself proves nothing` ac=AC-7 -->
 
 RED step: add the `fixtureContract` row to `tests/mutation/source/registry.ts` (shape copied from the `redContract` row at `tests/mutation/source/registry.ts:525`) and observe `guardSurfaces.gates.test.ts` red on the key-set mismatch. GREEN step: add the matching `fixtureContract` row to `tests/mutation/source/expectedLedgerKinds.ts` and observe the SAME command pass. Assert the registry row count moved 36 → 37 against the live file (§2).
 
@@ -574,11 +634,11 @@ Command: `pnpm vitest run tests/specLint/fixtureAcceptance.test.ts`, output past
 
 **Remove the forward-declaration waivers whose reason has expired.** This document carries `<!-- spec-lint: ignore -->` waivers on the paths it CREATES, valid only while those files are untracked. Once Task 1, Task 6 and Gate A track them, each waiver stops suppressing a forward declaration and starts masking any real citation defect at that line — the denylist-that-outlives-its-override shape. Delete each waiver as its file lands, and confirm the lint still exits 0 hard WITHOUT it, which is the only proof the waiver was load-bearing for nothing.
 
-**Re-point the four path-only `red-target=` values.** Tasks 1, 3, 4 and Gate A name the fixture core module as a bare path, which `targetProblem` accepts only while the file is UNTRACKED (`lib/specLint/redContract.ts`, the path-only branch). Task 1 tracks it, so from that moment those four markers draw `RED_TARGET_INVALID` and the `0 hard` promise below is unsatisfiable — plan review round 2 probed exactly this. Update each to cite the defective line in the now-tracked module, which is also the more useful citation. This step runs BEFORE the lint gate below, and `git check-ignore -v tests/.spec-lint-fixtures-1-1/probe.test.ts` (exit 1 at plan time, exit 0 once the ignore entry lands) is the observable red-then-green for the ignore work itself.
+**Re-point the three path-only `red-target=` values.** Tasks 1, 3 and 4 name the fixture core module as a bare path, which `targetProblem` accepts only while the file is UNTRACKED (`lib/specLint/redContract.ts`, the path-only branch). Task 1 tracks it, so from that moment those three markers draw `RED_TARGET_INVALID` and the `0 hard` promise below is unsatisfiable — plan review round 2 probed exactly this. Update each to cite the defective line in the now-tracked module, which is also the more useful citation. This step runs BEFORE the lint gate below, and `git check-ignore -v tests/.spec-lint-fixtures-1-1/probe.test.ts` (exit 1 at plan time, exit 0 once the ignore entry lands) is the observable red-then-green for the ignore work itself.
 
 `.gitignore` entry for `tests/.spec-lint-fixtures-*/` written with `printf '\n%s\n'` and verified by `git check-ignore -v`; one sentence in `docs/agents/writing-plans.md` under the premise bullet; a `docs/superpowers/specs/README.md` row; archive the ledger row and strip its IN PROGRESS marker in the PR's LAST commit (invariant 12).
 
-Closeout gates, each run and its output pasted into the PR body: `pnpm spec:lint` over BOTH this plan and its spec, each exiting 0 hard (AC-8); and the §3.2 ordinal sweep returning no match outside spec §4.3.
+Closeout gates, each run and its output pasted into the PR body: `pnpm spec:lint` over BOTH this plan and its spec, each exiting 0 hard (AC-8); and the §3.3 ordinal sweep returning no match outside spec §4.3.
 
 
 ## 5. Acceptance criteria (spec §10, mapped to the task that PROVES it)
@@ -594,11 +654,13 @@ Every row names a task step that executes the proof. A row whose only home was t
 | AC-5 pre-existing dir spawns nothing; dir never survives; filenames map back | 5 (spy asserts zero calls; removal on throw, timeout, signal and unreadable JSON; filename line + suffix), 6 (real filesystem) |
 | AC-6 corpus relints byte-identical | **8** — walks `git ls-files 'docs/superpowers/plans'` and asserts no `FIXTURE_` code, derived from the corpus rather than a pinned list |
 | AC-7 purity, `parse.ts` unmodified, mutation score | **Gate A** (purity meta-test + `git diff --exit-code` on `parse.ts`), **Task 7** (both enrolment declarations, then the score) |
-| AC-8 spec and plan lint clean | **Gate B** — expired forward-declaration waivers deleted and the four path-only `red-target=` values re-pointed at their now-tracked lines FIRST, then `pnpm spec:lint` over BOTH documents, output pasted |
+| AC-8 spec and plan lint clean | **Gate B** — expired forward-declaration waivers deleted and the three path-only `red-target=` values re-pointed at their now-tracked lines FIRST, then `pnpm spec:lint` over BOTH documents, output pasted |
 
 ## 6. Checklist
 
-- [ ] Task 1-9 in order, TDD per task, one commit each
+- [ ] Tasks 1-7 in order, TDD per task, one commit each; then Gates A and B
 - [ ] Self-review (this document, against `docs/agents/writing-plans.md`)
 - [ ] Adversarial review (cross-model) to APPROVE
 - [ ] Execution handoff
+
+**A note on WHERE these reds come from, at plan time versus at task time.** The transcript above is measured at base `7d09a1f0b`, where the fixture core module does not exist, so Tasks 3 and 4's blocks fail at module RESOLUTION. At their actual sequence positions Task 1 has already created that module, and their imports name exports it does not yet have — which spec §2.4 measured as resolving to `undefined` and throwing on first use, not failing at import. Both are genuine reds deriving from an absent production export; the markers state the task-time cause, and this transcript states the plan-time one. Plan review round 3 caught the markers claiming the plan-time shape for the task-time position.
