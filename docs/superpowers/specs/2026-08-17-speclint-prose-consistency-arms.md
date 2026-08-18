@@ -18,7 +18,7 @@
 - **THREAT FENCE:** ordinary authoring mistakes by an ordinary contributor drafting or repairing a spec. Adversarial obfuscation files to documented limits.
 - **PROBE DOMAIN:** the live tracked `docs/**` corpus (446 spec-kind docs at draft time). A probe input must come from the corpus or be one ordinary edit away from an input in it; a constructed fixture outside that files to documented limits, not to a finding.
 - **CONSEQUENCE BOUND:** every output is an advisory (one glance) or an inventory line (zero-cost until read). Nothing rewrites, nothing blocks, nothing is silently wrong; a claim the recognizers cannot classify draws silence, and silence means "no qualifying structure", never "verified consistent".
-- **CONVERGENCE CRITERION:** the new module's mutation score plus an EMPTY unaccepted-survivor set (enrolment precedes review, §6), and zero false advisories among the corpus survivor classification (§3.3). Enumerating further hypothetical grammar corners does not terminate and is not the criterion.
+- **CONVERGENCE CRITERION:** the new module's mutation score plus an EMPTY unaccepted-survivor set (enrolment precedes review, §6), and the committed §3.3 survivor classification. The survivor set MIXES genuine drift candidates with benign restatements — that is the advisory tripwire contract (the shape-(b) precedent), and a benign-but-accept-set-qualifying survivor is NOT a defect. What IS a defect, probe-settled: an emission on a line OUTSIDE the stated accept-set (wrong structure class — R1's four classes, now gated, §3.2). Enumerating further hypothetical grammar corners does not terminate and is not the criterion.
 
 ## 2. What the originating escapes were — and which mechanism catches each
 
@@ -40,7 +40,7 @@ Why the inventory is the right mechanism for E2/E4/E5: the manual post-repair se
 
 **Layer 1 — the CONTRACT (normative).** The shipped arms implement the accept-sets and gates AS STATED HERE. The spec is the authority; the instrument informs it.
 
-**Layer 2 — the INSTRUMENT (measurement record).** The committed probe (`docs/superpowers/specs/probes/2026-08-17-prose-consistency-probe-v1.ts`, path-parameterized, importing the live `parseDoc` so instrument and arm can never disagree about fencing) and its record (`docs/superpowers/specs/probes/2026-08-17-prose-consistency-probe-v1.report.txt`). The record holds: the pass-1 all-docs rates, the second pass's spec-kind gate ladder with the full 234-row survivor listing, and the inventory sizing. Nothing else is claimed for it.
+**Layer 2 — the INSTRUMENT (measurement record).** The committed probe (`docs/superpowers/specs/probes/2026-08-17-prose-consistency-probe-v1.ts`, path-parameterized, importing the live `parseDoc` so instrument and arm can never disagree about fencing) and its record (`docs/superpowers/specs/probes/2026-08-17-prose-consistency-probe-v1.report.txt`). The record holds: the pass-1 all-docs rates, the second pass's spec-kind gate ladder with the full 215-row survivor listing, and the inventory sizing. Nothing else is claimed for it.
 
 **Layer 3 — the arc's OWN record.** The implementing arc runs the CONTRACT's recognizer over the corpus, commits its survivor listing, and hand-classifies it (§3.3).
 
@@ -50,10 +50,10 @@ Why the inventory is the right mechanism for E2/E4/E5: the manual post-repair se
 | --- | --- | --- |
 | universal+cardinal, all 1,217 `docs/**` files | 3,574 | 1,819 |
 | universal+class-token+inline-code, all docs (REJECTED form) | 8,652 | 4,677 |
-| universal+digit-cardinal, 446 spec-kind docs, non-table non-dated | 360 | — |
-| + cardinal enumerated in another section + no probe command in owning section | — | **234** (~0.5/doc) |
-| `universal-claims` inventory lines per spec doc | median 9 | max 81 |
-| `scope-fences` (out-of-scope) lines per spec doc | median 4 | max 35 |
+| universal+digit-cardinal, 446 spec-kind docs, non-table non-dated, value 2–999, no time-unit, not inside an inline span | 339 | — |
+| + cardinal enumerated in another section + no probe command in owning section | — | **215** (~0.5/doc) |
+| `universal-claims` inventory lines per spec doc | median 8 | max 81 |
+| `scope-fences` lines per spec doc (BOTH heading families, depth ≥ 2) | median 4 | max 174 |
 
 Out-of-scope regions appear in 286 docs (1,242 bullets, 333 with a § reference) — which is why a per-bullet advisory was rejected for the forward-ref row: the population is three orders too large for a tripwire. Closeout-family headings appear in 34 spec docs (sparse; inventory-viable).
 
@@ -62,7 +62,9 @@ Out-of-scope regions appear in 286 docs (1,242 bullets, 333 with a § reference)
 A spec-kind doc line draws the advisory when ALL hold:
 
 1. The line is non-fenced, is not a table row (leading optional whitespace then `|`), and does not contain an ISO date (`\d{4}-\d{2}-\d{2}` — dated historical records are never compared; the prose-count-parity exclusion family, adopted whole).
-2. It matches the accept-set: a universal quantifier token (`every`/`each`/`all`, initial letter upper or lower case — exactly the instrument's match) followed by optional `one of the `/`of the ` then a digit cardinal of 1–4 digits. Number-words are OUTSIDE the accept-set (digit-only; the motivating escape is digit-form, and word-forms widen the population unmeasured — documented limit).
+2. It matches the accept-set: a universal quantifier token (`every`/`each`/`all`, initial letter upper or lower case — exactly the instrument's match) followed by optional `one of the `/`of the ` then a digit cardinal of 1–3 digits with value ≥ 2. Number-words are OUTSIDE the accept-set (digit-only; the motivating escape is digit-form, and word-forms widen the population unmeasured — documented limit). The value bound is an R1 repair, probe-backed: 4-digit reads were year mentions and value 0/1 reads were status text ("all 0", "Ignore all 1"), all four wrong-class emissions.
+   - The cardinal is not immediately followed by a time-unit noun from the closed set `ms|s|min(s)|minute(s)|hour(s)|second(s)|day(s)|week(s)|month(s)` — "every 5 min" quantifies a FREQUENCY, not a population (R1 repair, probe-backed: 8 live wrong-class emissions).
+   - The match does not sit inside an inline code span — a backticked "`Ignore all 1`" is literal/example text, not a claim (R1 repair, probe-backed: 4 live wrong-class emissions).
 3. The cardinal is excluded if a dated qualifier phrase ("at plan time", "at authoring time" — the closed stage-noun set already shipped in `lib/specLint/numerics.ts`, `QUALIFIER_STAGES`) follows it within 40 characters as its nearest predecessor (same nearest-binding rule as the prose-count arms).
 4. **Enumeration evidence:** the same cardinal string appears on at least one other non-fenced, non-table line in a DIFFERENT section (section = nearest preceding heading of any depth; the population the universal quantifies is stated elsewhere in the doc).
 5. **No probe beside the claim:** the owning section (heading to next heading of ≤ its depth) contains no probe command — no inline code span and no `sh`/`bash`/info-less fenced line whose first token is in the closed command set `{rg, grep, pnpm, git, gh, node, npx, tsx, find, ls, comm, wc, cat, sed, awk, jq, psql, curl}`.
@@ -71,14 +73,14 @@ Message carries the claim line, the cardinal, and one other-section line where t
 
 ### 3.3 Survivor classification (bounded, gates frozen)
 
-The 234-row survivor population (the shipped recognizer's own re-run, layer 3) gets one bounded hand-classification pass — informing advisory copy and §7's documented limits ONLY; the gates above are frozen at ship time. One pass over a fixed list, not an open enumeration (the shape-(b) precedent, prose-count-parity spec §3.2).
+The 215-row survivor population (the shipped recognizer's own re-run, layer 3) gets one bounded hand-classification pass — informing advisory copy and §7's documented limits ONLY; the gates above are frozen at ship time. One pass over a fixed list, not an open enumeration (the shape-(b) precedent, prose-count-parity spec §3.2).
 
 ### 3.4 Arm B — inventory groups `universal-claims` and `scope-fences`
 
 Appended to `LintResult.inventory` (`lib/specLint/types.ts`, `InventoryGroup`) when non-empty; rendered by the existing generic `INVENTORY` block (`scripts/spec-lint.ts`, `renderText`) and present in `--json`. Never a finding; never affects the exit code.
 
 - **`universal-claims`:** every non-fenced, non-table line whose clause start matches the closed quantifier set — line start, or after a period, semicolon, or colon followed by a space; then an optional list-marker/bold prefix; then `Every|Each|All|Any|No|Never|Nothing` as a word. Exactly the instrument's measured recognizer; synonyms outside the set (e.g. "entire", "none of", "always") are a documented limit.
-- **`scope-fences`:** every non-blank line of a region owned by a heading matching `/out of scope|non-goals?/i` or `/clos(e-?out|eout)|graduation/i` (region = heading to next heading of ≤ its depth).
+- **`scope-fences`:** every non-blank line of a region owned by a heading of depth ≥ 2 matching `/out of scope|non-goals?/i` or `/clos(e-?out|eout)|graduation/i` (region = heading to next heading of ≤ its depth). The depth bound is an R1 repair, probe-backed: a depth-1 TITLE containing "close-out" owns its whole document (measured: 513 lines of one doc would have entered the group), and a title is a doc identity, not a fence region. Re-measured with both families at depth ≥ 2: median 4, max 174 lines per doc (§3.1).
 
 Consumption contract: `docs/agents/spec-self-review.md`'s self-consistency-sweep bullet gains one sentence naming these groups as the sweep's derived cover — the post-repair sweep walks the inventory lines instead of grepping for the repair's own terms. (One-line docs edit, this arc.)
 
@@ -96,7 +98,7 @@ One new pure module, lib/specLint/universals.ts (plain text: created by this arc
 
 ## 6. Verification
 
-- **Unit (red first), per arm.** Fixtures derived from the measured corpus instances, each stating its expected finding count and code; gate-rejection fixtures each name the single gate they exercise so a gate deletion fails exactly its fixture. Arm A: the E1 line shape (FLAGS); same line with `rg` inline in its section (no flag — gate 5); cardinal appearing only in the claim's own section (no flag — gate 4); table-row form (no flag — gate 1); ISO-dated line (no flag — gate 1); fenced (no flag); word-form cardinal "all twenty-one sites" (no flag — accept-set, documented limit pinned); `all 37 sites (36 at plan time)`-style qualifier line (the 37 claim still qualifies; the 36, the qualifier's nearest predecessor, is excluded and is not a second claim — gate 3); plan-kind doc (no flag). Arm B: a doc with universals + an out-of-scope region + a closeout region asserts BOTH groups' exact line sets, including E4/E5-shaped fixtures (quoted from the defective revisions) landing in both groups; empty doc and plan-kind doc assert no groups.
+- **Unit (red first), per arm.** Fixtures derived from the measured corpus instances, each stating its expected finding count and code; gate-rejection fixtures each name the single gate they exercise so a gate deletion fails exactly its fixture. Arm A: the E1 line shape (FLAGS); same line with `rg` inline in its section (no flag — gate 5); cardinal appearing only in the claim's own section (no flag — gate 4); table-row form (no flag — gate 1); ISO-dated line (no flag — gate 1); fenced (no flag); word-form cardinal "all twenty-one sites" (no flag — accept-set, documented limit pinned); `all 37 sites (36 at plan time)`-style qualifier line (the 37 claim still qualifies; the 36, the qualifier's nearest predecessor, is excluded and is not a second claim — gate 3); "every 5 min" (no flag — time-unit exclusion); a backticked "`Ignore all 1`" literal (no flag — inline-span exclusion); "all 0" and "all 2025" (no flag each — value bound); plan-kind doc (no flag). Arm B: a doc with universals + an out-of-scope region + a closeout region asserts BOTH groups' exact line sets, including E4/E5-shaped fixtures (quoted from the defective revisions) landing in both groups; a depth-1 "close-out" TITLE fixture asserts NO `scope-fences` region (the R1 F2 depth bound); empty doc and plan-kind doc assert no groups.
 - **Retro-probe regression:** a fixture carrying the E1 defective text verbatim (from `cc7942d4e:181`) draws exactly one `ENUMERATED_UNIVERSAL_NO_PROBE`; the corrected current-main form of that section (which cites the census) is a committed no-flag fixture.
 - **Corpus regression:** the extended `spec:lint` over the live corpus emits no new HARD findings anywhere; the arc commits its layer-3 survivor listing and the §3.3 classification.
 - **Self-application:** `pnpm spec:lint docs/superpowers/specs/2026-08-17-speclint-prose-consistency-arms.md` stays 0 hard.
@@ -108,6 +110,7 @@ One new pure module, lib/specLint/universals.ts (plain text: created by this arc
 - **Unquantified universals (E3) are invisible** to both arms: no quantifier token, nothing lexical to anchor on. Covered by the human sweep and review; filed here, not repairable by widening (§1.1 narrowing rationale).
 - **The closed quantifier set is the accept-set.** "entire", "none of", "always", "no … ever", and any synonym outside `Every|Each|All|Any|No|Never|Nothing` draw silence. A universal phrased to evade the set is outside the threat fence (§1.2).
 - **Word-form cardinals are outside arm A.** "all twenty-one sites" is inventoried (clause-initial `All`), not advisory-flagged.
+- **Populations of 0, 1, or ≥1000 are outside arm A's value bound** (2–999). A real four-digit enumerated population would be silent; every measured 4-digit read in the corpus was a year, and the corpus's enumerated populations are two- to three-digit.
 - **Semantic contradiction between a closeout/scope line and another section (E4/E5's substance) is not decided mechanically.** The inventory surfaces the line; the sweep decides. This is the whole design, not a gap in it.
 - **Within-doc only.** A universal contradicting another DOCUMENT (an AGENTS.md invariant, a sibling spec) is out of scope.
 - **The bound is the live corpus, not English grammar.** A constructed sentence exercising a quantifier or clause shape no tracked doc uses is a documented limit, not a defect (the prose-count-parity fence, `docs/superpowers/specs/2026-08-10-speclint-prose-count-parity.md:69`).

@@ -1,17 +1,15 @@
-docs scanned (all docs/): 1217
+docs scanned (all docs/): 1218
 
 === Pass 1: all docs ===
-U-a raw: 3574  gated: 1819
-U-b raw: 8652  gated: 4677
+U-a raw: 3578  gated: 1822
+U-b raw: 8659  gated: 4684
 out-of-scope: docs 286, bullets 1242, w/§ref 333, w/code 654
 
-=== Pass 2: spec-kind docs only (446 docs) ===
-U-a-narrow (universal+cardinal, non-table, non-dated): 360
-U-a-narrow + cardinal-enumerated-in-other-section + no-probe-cmd-in-section: 234
+=== Pass 2: spec-kind docs only (447 docs) ===
+U-a-narrow (universal+cardinal, non-table, non-dated): 339
+U-a-narrow + cardinal-enumerated-in-other-section + no-probe-cmd-in-section: 215
 
 --- U-a-narrow fully-gated listing (full) ---
-docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:122 - Vercel Cron runs the sync function every 5 min in `mode: "cron"`.
-docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:1369 The cron at §5.1 still runs every 5 minutes regardless of push activity. Its job in the push world is to:
 docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2316 **Implementation note:** all 12 steps are encapsulated in a single `lib/auth/validateLinkSession(req)` helper that returns a **tri-state out
 docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2596 **Per-row Phase B transactions.** Wrapping the entire 100-row Phase B loop in one `withShowSyncTransaction`, holding `pg_advisory_xact_lock(
 docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:3809 - AC-2.5 RLS: **the FULL §4.3 admin-only table list is denied to non-admin sessions across all four verbs (SELECT/INSERT/UPDATE/DELETE)**, i
@@ -30,10 +28,6 @@ docs/superpowers/specs/2026-07-20-warning-card-copy-restore.md:65 All 47 verifie
 docs/superpowers/specs/2026-07-20-warning-surface-trim-design.md:62 All 40 `WARNING_CARD_COPY_CODES` already carry per-code inline guidance naming the concrete correction (verified by dumping `helpfulContext`
 docs/superpowers/specs/2026-07-20-warning-surface-trim-design.md:167 Every warning card already renders a `?` trigger whose body is the code's `triggerContext` (`components/admin/PerShowActionableWarnings.tsx:
 docs/superpowers/specs/2026-07-21-attention-needs-attention-split.md:203 Four pill states: **A** = composite (`to confirm`/`to review`, interactive), **B** = monitoring-only (non-interactive), **C** = degraded ("A
-docs/superpowers/specs/2026-07-21-attention-needs-attention-split.md:264 - degraded (all 0, `alertsDegraded`) → "Alerts unavailable".
-docs/superpowers/specs/2026-07-21-warning-card-identity-placement.md:295 - `N=1`, under a row → NOT emitted; the single card's own Ignore is the control (no `Ignore all 1`).
-docs/superpowers/specs/2026-07-21-warning-card-identity-placement.md:299 The eyebrow label is the code's existing group label (`model.activeGroups[].label`), unchanged. There is no per-code custom chip text; findi
-docs/superpowers/specs/2026-07-21-warning-card-identity-placement.md:399 5d. **N=1 under-row emits no group (component).** A single active crew-scoped warning matched to a row renders no section group header and n
 docs/superpowers/specs/2026-07-22-modal-state-coverage-design.md:191 - `schedule: "overflow"` → `run_of_show` (`RunOfShow` = `Record<ISO, ScheduleDay>`, `lib/parser/types.ts:445-451`) with 16 ros-only ISO days
 docs/superpowers/specs/2026-07-22-modal-state-coverage-design.md:360 - F5 (BLOCKING, sync labels uncovered): roster expanded to all 8 reachable `syncStatusBucket` labels + the suppressed-element posture (9 sce
 docs/superpowers/specs/2026-07-23-gallery-action-outcomes-design.md:225 - **Production-default regression:** for each of the 3 channel-3 components, a test asserting the real imported action is called when no pro
@@ -69,7 +63,6 @@ docs/superpowers/specs/2026-08-07-classname-array-join-cn.md:378 is added to eac
 docs/superpowers/specs/2026-08-09-m-wave-2-decisions-brief.md:13 1. **Pool composition for M-wave 2?** → **"Full pool (Recommended)"** — all 5 units, ~15 work items + 2 ride-along demotes, mirroring M-wave
 docs/superpowers/specs/2026-08-09-m-wave-2-design.md:127 1. Pool: **full — all 5 implementation units + 2 ride-along demotes.**
 docs/superpowers/specs/2026-08-10-help-tour-hydration-fix.md:62 - **Green:** same command passes; run the full spec file (all 14 routes + the NAV-parity guard) to confirm no sibling route regressed. Cover
-docs/superpowers/specs/2026-08-10-speclint-prose-count-parity.md:10 - **Exclusion boundaries are normative, not tunable, and operationally LINE-BASED (R2 F4 — DocModel has no paragraph model, so the rule name
 docs/superpowers/specs/2026-08-14-ui-interactive-token-policy-design.md:181 `disabled:opacity-60`, focus ring — all unchanged. All 8 call sites (§2.2) inherit with zero
 docs/superpowers/specs/2026-08-15-archive-duplicate-ids-design.md:18 2. A pairwise body diff of all 35 pairs → **zero verbatim or near-verbatim pairs**
 docs/superpowers/specs/2026-08-15-spec-lint-intent-red-arms.md:47 That rule yields **19 wrong instances** (9 sites-list rows plus a do-not-touch row and a sole-emission row that belong to `lib/sync/runOnboa
@@ -86,9 +79,7 @@ docs/superpowers/specs/admin/2026-07-07-admin-field-overrides.md:606 - `tests/ov
 docs/superpowers/specs/admin/2026-07-07-admin-field-overrides.md:607 - `tests/overrides/matchKeyDurability.test.ts` — the admin loader derives `matchKey` **and** `expectedCurrentValue` from SOURCE not display 
 docs/superpowers/specs/admin/2026-07-10-remove-admin-field-overrides.md:101 - `components/admin/wizard/step3ReviewSections.tsx` — remove `WizardOverrideRow` (`:868`) + all 6 call sites (`:966,1369,1380,1603,2404,2421
 docs/superpowers/specs/admin/2026-07-15-extend-role-scope-vocab.md:188 **Transition inventory (all 10 pairs, reconciled with the mock):** collapsed→idle (expand — mock: 120ms `rr-pop` fade/translate-in, ease-out
-docs/superpowers/specs/admin/2026-07-16-last-checked-at.md:17 healthy cron **watermark-skip** (Drive polled every 5 min, nothing changed) and a
 docs/superpowers/specs/admin/2026-07-16-last-checked-at.md:163 must never enter it, or every 5-min check would bust every crew cache. The JSDoc
-docs/superpowers/specs/admin/2026-07-16-last-checked-at.md:303 in the token would bust crew caches every 5 min. Cite
 docs/superpowers/specs/admin/2026-07-25-destruct-thumb-order-drift-guard.md:230 All 11 declarations listed in §2.2 are replaced by an import. No behavioural change: every site already used `4_000`, so no existing timer t
 docs/superpowers/specs/alerts/2026-07-03-route-sync-problems-to-needs-attention.md:65 Rebased on #283, which formalized a **state-vs-event lifecycle taxonomy** for all 42 codes in `tests/messages/_metaAdminAlertCatalog.test.ts
 docs/superpowers/specs/alerts/2026-07-04-alert-at-a-glance-identity.md:211 Every other identifier is ID-resolvable at render time or already in `context`. This is still the Approach-A payoff: three alert codes get a
@@ -113,7 +104,6 @@ docs/superpowers/specs/ci/2026-07-26-ci-dark-coverage-design.md:157 3. Green: im
 docs/superpowers/specs/ci/2026-08-09-app-e2e-batch1-design.md:75 3. **`help-pages.spec.ts` — un-tautologize the route-coverage guard.** `app/help/_nav.ts` now carries 14 entries; the spec's "covers all 13"
 docs/superpowers/specs/ci/2026-08-09-libdata-call-boundary-metatest-design.md:130 Registry contents (all 17 sites; the plan enumerates the exact pin regexes, typechecked):
 docs/superpowers/specs/ci/2026-08-09-resurrect-mobile-safari-e2e-design.md:62 test declarations (10 layout + 5 nav; all 15 executed in the §2.2 run — 12 passed, 3 failed;
-docs/superpowers/specs/ci/2026-08-16-heavy-orphan-worker-lifetime-design.md:73 CPU-bound test body, sampled every 6 s after its parent vitest process was SIGKILLed:
 docs/superpowers/specs/ci/2026-08-16-modal-wait-boundary-helper-adoption-design.md:192 1. **Expose the wait-plus-recovery core AND a URL-taking entry point; adopt per navigation shape (CHOSEN).** `openShowReviewModal` keeps its
 docs/superpowers/specs/ci/2026-08-16-timing-scan-binding-resolution-design.md:88 **It is not free, and the earlier draft's safety argument was too strong.** "A covered binding is a root, so nothing legitimate is lost" is 
 docs/superpowers/specs/ci/2026-08-17-modal-wait-candidate-contract-design.md:31 - **Behavioral edits to any e2e spec.** All 12 live `awaitReviewModalOrRecover` calls already carry an extractable `label:` property (probe,
@@ -149,8 +139,6 @@ docs/superpowers/specs/observability/2026-06-30-observability-console-migration-
 docs/superpowers/specs/observability/2026-07-02-observability-coverage-carveout-design.md:13 The audit's single sharpest finding was verified live: a genuine `hard_fail:MI-3_NO_VALID_DATES` on Drive file `1Now2iJ_…` pegged every 5-mi
 docs/superpowers/specs/observability/2026-07-02-observability-coverage-completion-design.md:27 - **S7 covers 6 high-value codes**, not all 9 the scout enumerated. Skipped: `DRIVE_WATCH_CREATE_FAILED`/`ACTIVATE_FAILED`/`GC_STOP_FAILED` 
 docs/superpowers/specs/observability/2026-07-02-observability-coverage-completion-design.md:50 - **`clientLog`** (`lib/observe/clientLog.ts:5`): append two OPTIONAL params, keeping `context` 4th so all 15 realtime callers + `RightNowHe
-docs/superpowers/specs/observability/2026-07-02-observability-coverage-completion-design.md:103 - **Name-collision guard (verified):** `catalog.ts` already defines `SHOW_UNPUBLISHED` (`:962`), `SHOW_ARCHIVED_BY_ADMIN` (`:1565`), `SHOW_U
-docs/superpowers/specs/observability/2026-07-02-observability-coverage-completion-design.md:176 - **6** surfaces; **18** new codes total (S2/S4: 3; **S3: 0 — reuses the existing `infraError` codes**; S5: 4; S6: 4; S7: 6; S8: 1), all 0-h
 docs/superpowers/specs/observability/2026-07-02-observability-coverage-followup-design.md:54 - Level is chosen fresh each run from that run's outcome only (`withCronRunSummary.ts:51-53`): `infra→error`, `partial→warn`, `ok→info`. No 
 docs/superpowers/specs/observability/2026-07-03-nullcode-forensic-batch2-design.md:14 **Goal:** add a `code: "<SHOUTY_SNAKE>"` field to the existing fields object of each of the 35 calls, and register all 35 in the `NEW_FORENS
 docs/superpowers/specs/observability/2026-07-03-nullcode-forensic-batch2-design.md:30 Re-verified against the current base (PRs #247/#249 merged): all 35 still exist, still lack a `code:`. 3 are `warn`, 32 are `error`. No new/
@@ -178,15 +166,11 @@ docs/superpowers/specs/parser/2026-06-27-deeplink-parser-fidelity-batch-design.m
 docs/superpowers/specs/parser/2026-06-27-schedule-strike-loadout-inference-design.md:59 All 7 distinct live shows in `fxav-test-shows` were surveyed via the gsheets MCP. **0/7 have an explicit STRIKE or LOAD OUT *row label* in t
 docs/superpowers/specs/parser/2026-06-27-schedule-strike-loadout-inference-design.md:381 **Consequence:** a strike/load-out on a date that is **not** travelIn/set/showDays/travelOut is visible on admin but **not** on the crew sch
 docs/superpowers/specs/parser/2026-06-27-set-cell-derived-labels-design.md:20 Surveyed **both** the committed fixtures (10 deduplicated shows under `fixtures/shows/raw/` + `fixtures/shows/exporter-xlsx/`) **and** the 6
-docs/superpowers/specs/parser/2026-06-28-gear-parser-fidelity-design.md:16 Modern shows (the v4 "GEAR-tab" schema family — RPAS Central 2026, Fixed Income Trading Summit 2025, all 2025-10/2026 shows) put **all** per
 docs/superpowers/specs/parser/2026-06-28-gear-parser-fidelity-design.md:21 **Effect:** for the entire modern show family the Gear section is blank or near-blank. End-to-end render proof: the committed admin-preview 
 docs/superpowers/specs/parser/2026-07-02-diagrams-embedded-images.md:36 Confirmed by a live probe of all 7 real test shows (Drive folder `fxav-test-shows` = `1iU80Y2mqYmkCuBQYer0TEF1fta6fDp1C`): every show has a 
 docs/superpowers/specs/parser/2026-07-05-parser-anchor-deliteralization.md:225 - `FULL_STAGE_ONLY_PATTERN` (`:53-54`) — `Load In / Set / Strike / Load Out ONLY` → all 4 physical stages.
 docs/superpowers/specs/parser/2026-07-07-ambiguity-warnings-v1-design.md:183 Section status (clean / judgment / flagged) is computed per parse snapshot; it changes only on re-parse (page data refresh), never live with
-docs/superpowers/specs/parser/2026-08-02-parser-determinism-pair.md:113 All 8453 neighbors, per alias, anchor chosen to avoid the canonical under test:
-docs/superpowers/specs/parser/2026-08-02-parser-determinism-pair.md:382 run it: **RED**, all 8453 cases. Capture the output. This is invariant 1's failing state, and it
 docs/superpowers/specs/parser/2026-08-02-parser-determinism-pair.md:419 round 3: **1444 corrupted outputs, 0 assertion failures, and all 56 current venue tests green.**
-docs/superpowers/specs/parser/2026-08-02-parser-determinism-pair.md:505 sampling over aliases `parseVenue` never assigns (§2.2); exhaustive enumeration of all 8453
 docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md:73 `unicodeInject` (`operators.ts:85`) inserts a ZWNJ (U+200C) mid-scalar into DATA-ROW cells only (`eachDataCell`, `operators.ts:50` — header 
 docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md:86 The branch's first task applies the strip and runs the unicode shard slice, expecting all 827 rows to surface as `fixedHoles` and be deleted
 docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md:109 Detection is `contains`, not equality: the corpus itself carries composite cells (`\#REF\!/NAME`, `\#REF\!/ARRIVAL` — a `#REF!` prefix fused
@@ -198,7 +182,6 @@ docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md:319 **0 
 docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md:345 All five classes reconcile EXACTLY against the backlog rows (ref-sub 3314 = 3094/220, merged-cell 2404 = 2271/133, unicode 827 = 827/0, colu
 docs/superpowers/specs/parser/2026-08-07-parser-mutation-wave-design.md:349 The 24 `signal_loss` rows split **14 pure signal-array reorders / 10 real losses** — established by running the LIVE parser over all 24 swap
 docs/superpowers/specs/parser/2026-08-09-warning-shape-mutation-stability.md:49 Modelling the oracle exactly (`equal` = deep-equal of the warning objects; `stronger` = code count strictly up), replayed against all 7:
-docs/superpowers/specs/parser/probes/2026-08-07-mutation-wave-ledger-probe.md:45 The `note` field is template-generated at regen time (`<operator> <kind> @ <slug>`): **122 distinct strings across all 7842 rows**, carrying
 docs/superpowers/specs/parser/probes/2026-08-07-mutation-wave-ledger-probe.md:70 The 24 `signal_loss` rows are **not** one phenomenon. Running the actual parser over all 24 swaps (§2.3) splits them, using the three-way cl
 docs/superpowers/specs/parser/probes/2026-08-07-mutation-wave-ledger-probe.md:79 Also worth pinning: **all 24 `signal_loss` rows are in RAW fixtures** (4 of the 10), and **53 of the 58 `wrong` rows are in xlsx fixtures**.
 docs/superpowers/specs/parser/probes/2026-08-07-mutation-wave-ledger-probe.md:186 Every one of the 24 `signal_loss` swaps has at least one side that is either an unrecognized block or a VENUE block — consistent with §2.2. 
@@ -218,7 +201,6 @@ docs/superpowers/specs/probes/2026-08-11-speclint-arm-survivor-classification.md
 docs/superpowers/specs/schedule/2026-06-22-per-day-schedule-keytimes-design.md:12 On the crew page for "AVIII / Consultants Roundtable" (and every other v4 show), useful schedule data that exists in the Google Sheet never 
 docs/superpowers/specs/schedule/2026-06-29-unified-show-day-timeline-design.md:203 The card is **server-rendered**; no client-side animation. The four states (`crew-only`, `agenda-only`, `merged`, `not-rendered`) are purely
 docs/superpowers/specs/schedule/2026-07-03-stage-filtered-schedule.md:143 Fix: give `resolveKeyTimes` an OPTIONAL `stageRestriction` param (default `{ kind: "none" }` → fully backward-compatible; existing date-only
-docs/superpowers/specs/schedule/2026-07-03-stage-filtered-schedule.md:256 1. **Chokepoint over per-site.** Narrowing once in `getShowForViewer.readCrewMembers` covers the day-card list, show anchors, runOfShow gate
 docs/superpowers/specs/schedule/2026-07-05-issue-307-schedule-transport-fidelity.md:148 **Corpus evidence says there are none.** Audit of all 19 transport-bearing fixtures (both renderer
 docs/superpowers/specs/step3-onboarding/2026-06-23-onboarding-scan-progress-stream.md:123 - **Backward compatibility:** the 2 production call sites — the import (`runOnboardingScan.ts:3`) and the single call (`:924`) — plus all 8 
 docs/superpowers/specs/step3-onboarding/2026-06-23-onboarding-scan-progress-stream.md:303 - **`main` requires 12 CI checks** ([[feedback_ci_pin_and_branch_protection]]) — real CI green on all 12 before merge, not just local.
@@ -232,7 +214,6 @@ docs/superpowers/specs/step3-onboarding/2026-08-15-step3-crew-preview-and-opslog
 docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md:470 This sampling rule covers each role variant (9) at least once AND each of the 10 restriction combos (R1–R6 + R7a + R7b + R8a + R8b) at least
 docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md:472 It does NOT cover all 9 × 10 = 90 possible pairs — the cross-coverage gaps are accepted with the rationale that: (a) role and restriction ar
 docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:527 - `lib/auth/picker/resolvePickerSelection.ts` (new) — **the COOKIE-ONLY cookie-read + DB-validation helper.** Returns a discriminated union 
-docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:574 **Consequence for sliding TTL.** The cookie's `Max-Age` advances only on Server Action invocation. A crew member who picks once and then onl
 docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:1103 **API-consumer behavior on `session_mismatch`**: all 6 §6 API consumers receiving `identity_invalidated` return HTTP 410 (per the existing 4
 docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:1410 **R41 P-R26 amendment — email-posture matrix across all 6 R41 admin_alerts producers.** The earlier wording "hashed form is mandatory across
 docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md:1537 - **`resolveShowPageAccess` is a pure resolver (R41-R3 HIGH regression)** — static analysis test. Assert: `lib/auth/picker/resolveShowPageAc
@@ -246,7 +227,7 @@ docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-19-crew-flight-info.
 docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-23-parse-data-quality-warnings-design.md:229 - **Class-B corpus regression (R10 F2)**: class-B detection over all 7 `fixtures/shows/exporter-xlsx/*.md` → zero `UNKNOWN_SECTION_HEADER` (
 
 --- inventory sizing over spec docs ---
-universal-lines per doc: median 9, max 81 (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md)
+universal-lines per doc: median 8, max 81 (docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md)
 top 10 by universal-line count:
   81  docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md
   59  docs/superpowers/specs/v1-pre-deployment-amendments/2026-05-23-crew-auth-pivot-show-link-picker.md
@@ -258,4 +239,4 @@ top 10 by universal-line count:
   28  docs/superpowers/specs/step3-onboarding/2026-07-17-autoapplied-field-structured-diff.md
   26  docs/superpowers/specs/alerts/2026-07-04-alert-audience-split.md
   26  docs/superpowers/specs/v1-pre-deployment-amendments/2026-06-17-crew-page-redesign-phase2-agenda.md
-out-of-scope lines per doc: median 4, max 35 (docs/superpowers/specs/2026-08-07-step3-a11y-cluster.md)
+scope-fences (oos+closeout, depth>=2) lines per doc: median 4, max 174 (docs/superpowers/specs/2026-08-03-inter-numeral-disambiguation-design.md)

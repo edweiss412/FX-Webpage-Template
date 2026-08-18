@@ -228,7 +228,10 @@ for (const rel of specDocs) {
     const hd = model.headings.find((h) => h.line === lineNo);
     if (hd) {
       if (inOos && hd.depth <= oosDepth2) inOos = false;
-      if (OOS_HEADING.test(hd.text)) {
+      // R1-repair (spec review round 1 F2, probe-backed): depth >= 2 only. A
+      // depth-1 TITLE naming "close-out" owns the whole document (measured max
+      // 513 lines), which is a doc identity, not a fence region.
+      if (hd.depth >= 2 && (OOS_HEADING.test(hd.text) || /clos(e-?out|eout)|graduation/i.test(hd.text))) {
         inOos = true;
         oosDepth2 = hd.depth;
       }
@@ -237,18 +240,33 @@ for (const rel of specDocs) {
     if (inOos && line.trim() !== "") oosLinesInDoc++;
     if (/^\s*\|/.test(line)) continue;
     if (UNIVERSAL_LINE.test(line)) universalsInDoc++;
-    // U-a-narrow: universal + cardinal, non-table, non-dated line
+    // U-a-narrow: universal + cardinal, non-table, non-dated line.
+    // R1-repair gates (spec review round 1, both probe-backed): value bound 2-999
+    // (kills zero-status and 4-digit-year reads), a time-unit exclusion (a cardinal
+    // quantifying a TIME UNIT is a frequency, not a population), and an inline-span
+    // exclusion (a match inside an inline code span is literal/example text).
     const mA = new RegExp(
-      String.raw`\b([Ee]very|[Ee]ach|[Aa]ll)\s+(?:one\s+of\s+the\s+|of\s+the\s+)?(\d{1,4})\b`,
+      String.raw`\b([Ee]very|[Ee]ach|[Aa]ll)\s+(?:one\s+of\s+the\s+|of\s+the\s+)?(\d{1,3})\b`,
     ).exec(line);
+    const TIME_UNIT_AFTER = /^\s*(ms|s|min|mins|minute|minutes|hour|hours|second|seconds|day|days|week|weeks|month|months)\b/;
     if (mA && !ISO_DATE_LINE.test(line)) {
-      const h: Hit2 = { doc: rel, line: lineNo, snippet: line.trim().slice(0, 140) };
-      uaNarrow.push(h);
-      // gate: the cardinal also appears in a DIFFERENT section (enumerated elsewhere)
-      const owners = cardinalSections.get(mA[2]!) ?? new Set<number>();
-      const mySection = sectionOf(lineNo)?.line ?? 0;
-      const dupElsewhere = [...owners].some((s) => s !== mySection);
-      if (dupElsewhere && !sectionHasCommand(lineNo)) uaNarrowNoDup.push(h);
+      const value = Number(mA[2]!);
+      const afterCardinal = line.slice(mA.index + mA[0].length);
+      const matchStart = mA.index;
+      const matchEnd = mA.index + mA[0].length;
+      const inInlineSpan = (spansByLine.get(lineNo) ?? []).some((c) => {
+        const at = line.indexOf("`" + c + "`");
+        return at !== -1 && matchStart > at && matchEnd < at + c.length + 2;
+      });
+      if (value >= 2 && !TIME_UNIT_AFTER.test(afterCardinal) && !inInlineSpan) {
+        const h: Hit2 = { doc: rel, line: lineNo, snippet: line.trim().slice(0, 140) };
+        uaNarrow.push(h);
+        // gate: the cardinal also appears in a DIFFERENT section (enumerated elsewhere)
+        const owners = cardinalSections.get(mA[2]!) ?? new Set<number>();
+        const mySection = sectionOf(lineNo)?.line ?? 0;
+        const dupElsewhere = [...owners].some((s) => s !== mySection);
+        if (dupElsewhere && !sectionHasCommand(lineNo)) uaNarrowNoDup.push(h);
+      }
     }
   }
   invSizes.push({ doc: rel, universals: universalsInDoc, oosLines: oosLinesInDoc });
@@ -271,4 +289,4 @@ console.log(`universal-lines per doc: median ${med(invSizes.map((s) => s.univers
 console.log(`top 10 by universal-line count:`);
 for (const s of sorted.slice(0, 10)) console.log(`  ${s.universals}  ${s.doc}`);
 const sortedOos = [...invSizes].sort((a, b) => b.oosLines - a.oosLines);
-console.log(`out-of-scope lines per doc: median ${med(invSizes.map((s) => s.oosLines))}, max ${sortedOos[0]?.oosLines} (${sortedOos[0]?.doc})`);
+console.log(`scope-fences (oos+closeout, depth>=2) lines per doc: median ${med(invSizes.map((s) => s.oosLines))}, max ${sortedOos[0]?.oosLines} (${sortedOos[0]?.doc})`);
