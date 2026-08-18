@@ -1469,3 +1469,17 @@ a window", and four incremental repairs narrowed that window without closing it.
 `docs/review-rounds/feat/orchestrator-pane-compaction/7d332074ec97.md` carries the full round-by-round
 account. The adapter-level tests for the send path were removed when the fence landed and are
 recoverable from git history on this branch; restore them with the arc rather than rewriting them.
+
+## BL-CODEX-GUARD-SPECLINT-PREDISPATCH-GATE — a dispatch spends reviewer attention on lint the wrapper could have refused
+
+**Status:** OPEN · **Severity:** LOW (no shipped defect; this is review-economy waste) · **Class:** review tooling / dispatch hygiene · **Effort:** S · **Filed:** 2026-08-18 (`fix/control-outline-border-token`, spec review R1 F2 + R2 F5) · **Facing:** process · **Class-sweep exception:** (c) — the repair is a change to `scripts/codex-guard.mjs`, a surface this arc does not otherwise touch · **Reachability:** PROBED — both incidents are committed corpus rows, and the failing lint reproduces on the pre-repair blobs.
+
+`node scripts/codex-guard.mjs review` already refuses a round-1 `--stage diff` brief whose `GUARD SURFACE:` line carries no mutation score, exiting 2 before any dispatch. It makes no equivalent check on the ARTIFACT under review. So a spec or plan carrying hard `pnpm spec:lint` failures dispatches normally, and the reviewer spends a finding — and the arc spends a round — on a class the repo already detects mechanically in under a minute.
+
+**Incident.** This arc, twice. Spec review R1 F2 reported **18 hard citation failures** (all the empty-path `` `:213` `` form) against `docs/superpowers/specs/2026-08-18-control-outline-border-token-design.md`; R2 F5 reported **13 more** in the sibling probe record. Both were `CITATION_MALFORMED`, both are what `pnpm spec:lint` prints, and neither needed a reviewer to find. Corpus rows: `docs/review-rounds/fix/control-outline-border-token/2ddbf038bdf4.jsonl`, rounds 1 and 2. Two findings out of sixteen across four rounds — roughly an eighth of the arc's total reviewer attention — spent on a mechanical class.
+
+**Shape of the repair.** In `review`, when `--stage` is `spec` or `plan`, resolve the artifact path(s) the brief cites, run the existing lint, and exit 2 naming the failing file and count if any HARD failure is present. Advisory failures do not block — the probe-record artifacts show advisory noise is normal and blocking on it would be its own waste. The escape hatch matches the existing ones in that script (an explicit flag), because a brief may legitimately review an artifact that is mid-repair.
+
+**Why the wrapper and not a habit.** The habit is already written down and was not followed on this arc by the session that wrote this entry. `codex-guard` is the single choke point every dispatch passes through, which is exactly why the mutation-score check lives there rather than in a checklist.
+
+**First scheduled step:** confirm the lint's exit contract is stable enough to gate on (it currently exits 1 on hard failures and prints a `summary: N hard, M advisory` line), then add the check beside the existing `GUARD SURFACE:` refusal so both live in one place.
