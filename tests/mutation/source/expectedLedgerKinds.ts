@@ -213,6 +213,17 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // shapes those probes used. So a 43rd row is a coverage regression to argue rather than
   // a number to bump, and an `accepted-gap` appearing here at all would be this surface's
   // first, needing its own backlog entry.
+  // The prose-consistency arms, enrolled 2026-08-17. The first scored run reported
+  // 41 survivors at 0.6306: the module had a large boundary surface (section
+  // arithmetic, the probe scan's extent, span edges, index origins, the message's
+  // own coordinates) that the gate-shaped fixtures never reached. THIRTY-FIVE were
+  // REPAID with cases in a third deciding suite rather than accepted, taking the
+  // score to 0.9459. The SIX that remain are proven equivalences in five families
+  // and there is NO accepted gap: an unreachable index width, a span-start shift no
+  // match can occupy, two one-past-the-end loop bounds, a redundant lastIndex reset,
+  // and an initial value read only after it is overwritten. Each family's paired
+  // mutant in the OBSERVABLE direction is killed, not accepted.
+  specLintUniversals: { equivalent: 6 },
   specLintNumerics: { equivalent: 50 },
   // chore/heavy-orphan-reaper (2026-08-16): the heavy-orphan reaper's decision function,
   // enrolled before this arc's first diff-stage review dispatch. An EMPTY declaration,

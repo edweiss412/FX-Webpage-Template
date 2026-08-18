@@ -163,7 +163,7 @@ function quantityRanges(text: string): Range[] {
  * predecessor ends within QUALIFIER_REACH characters (spec §1.1 (ii), R6 F1 —
  * without nearest-binding, `all 37 sites (36 at plan time)` would exclude both).
  */
-function qualifierBoundStarts(text: string): Set<number> {
+export function qualifierBoundStarts(text: string): Set<number> {
   const out = new Set<number>();
   const nums = quantityRanges(text);
   DATED_QUALIFIER_RE.lastIndex = 0;
