@@ -67,6 +67,32 @@ interface MarkerRecord {
   parsed: ParsedMarker;
 }
 
+/**
+ * A gate-shaped line, classified once. Both the gate checks (§4.6) and the
+ * parse plan (verdict-capability spec §3) read gate commands, and two scans of
+ * the same grammar are two chances to disagree about what a gate IS.
+ */
+type GateRecord =
+  | { line: number; malformed: true }
+  | { line: number; malformed: false; command: string; probed: string | undefined };
+
+/** Every gate-shaped line on a NON-fenced line, in doc order. */
+function gateRecords(model: DocModel): GateRecord[] {
+  const out: GateRecord[] = [];
+  for (let i = 0; i < model.lines.length; i++) {
+    if (model.fencedInfo[i] !== undefined) continue;
+    const line = model.lines[i]!;
+    if (!GATE_ANY.test(line)) continue;
+    const m = GATE.exec(line);
+    if (!m) {
+      out.push({ line: i + 1, malformed: true });
+      continue;
+    }
+    out.push({ line: i + 1, malformed: false, command: m[1]!, probed: m[3] });
+  }
+  return out;
+}
+
 /** Every well-formed marker on a NON-fenced line, in doc order. */
 function wellFormedMarkers(model: DocModel): MarkerRecord[] {
   const out: MarkerRecord[] = [];
@@ -230,22 +256,18 @@ export function checkRedContract(
   }
 
   // Gate markers are legal anywhere in a plan and are owned by no extent (§4.6).
-  for (let i = 0; i < model.lines.length; i++) {
-    if (model.fencedInfo[i] !== undefined) continue;
-    const line = model.lines[i]!;
-    if (!GATE_ANY.test(line)) continue;
-    const n = i + 1;
-    const m = GATE.exec(line);
-    if (!m) {
+  for (const gate of gateRecords(model)) {
+    const n = gate.line;
+    if (gate.malformed) {
       findings.push(
         fail("GATE_MALFORMED", n, 1, "gate line does not match ``cmd=`…` [probed=`…`]`` exactly"),
       );
       continue;
     }
-    if (m[1]!.trim() === "") {
+    if (gate.command.trim() === "") {
       findings.push(fail("GATE_CMD_EMPTY", n, 1, "gate `cmd=` is empty"));
     }
-    if (m[3] === undefined || m[3]!.trim() === "") {
+    if (gate.probed === undefined || gate.probed.trim() === "") {
       findings.push(
         advise(
           "GATE_UNPROBED",
@@ -260,6 +282,50 @@ export function checkRedContract(
 
   findings.sort(compareFindings);
   return findings;
+}
+
+/**
+ * The parse-capability plan (verdict-capability spec §3): every command whose
+ * SHAPE this contract checks with `sh -nc`, in doc order.
+ *
+ * Two populations, one plan. `red=` is GLOBAL over well-formed markers of the
+ * doc — v1 and v2, inside a region or not — on the same validity-global
+ * rationale as `RED_TARGET_INVALID`: a command the shell cannot parse expresses
+ * no verdict anywhere, and the defect class predates the v2 grammar. Gate
+ * `cmd=` joins it as the class-sweep peer, one grammar away.
+ *
+ * Blank commands are excluded from BOTH: `sh -nc ''` exits 0, so planning one
+ * would manufacture a clean parse for a line that already carries
+ * `TASK_RED_EMPTY` or `GATE_CMD_EMPTY`.
+ */
+export interface ParseCheckEntry {
+  line: number;
+  command: string;
+  source: "red" | "gate";
+}
+
+export function parseCheckPlan(model: DocModel): ParseCheckEntry[] {
+  const out: ParseCheckEntry[] = [];
+  for (const { line, parsed } of wellFormedMarkers(model)) {
+    if (parsed.red.trim() === "") continue;
+    out.push({ line, command: parsed.red, source: "red" });
+  }
+  for (const gate of gateRecords(model)) {
+    if (gate.malformed || gate.command.trim() === "") continue;
+    out.push({ line: gate.line, command: gate.command, source: "gate" });
+  }
+  // Doc order across BOTH populations: the adapter spawns in this order and an
+  // operator reads the report in it.
+  out.sort((a, b) => a.line - b.line);
+  return out;
+}
+
+/**
+ * `parseDoc` + `parseCheckPlan`, so the adapter derives the parse plan from raw
+ * text without importing the parser itself. Pure.
+ */
+export function parseCheckPlanForText(text: string): ParseCheckEntry[] {
+  return parseCheckPlan(parseDoc(text));
 }
 
 /**

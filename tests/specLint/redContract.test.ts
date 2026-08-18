@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { parseDoc, splitLines } from "../../lib/specLint/parse";
-import { checkRedContract, planExecutions, redTargetSpans } from "../../lib/specLint/redContract";
+import {
+  checkRedContract,
+  parseCheckPlan,
+  planExecutions,
+  redTargetSpans,
+} from "../../lib/specLint/redContract";
 import type { FileResolver, Finding } from "../../lib/specLint/types";
 
 /**
@@ -511,5 +516,52 @@ describe("planExecutions — the §4.4 execution population", () => {
 
   it("a plan with zero live markers plans nothing", () => {
     expect(planExecutions(parseDoc(doc("# Plan", "prose only")))).toEqual([]);
+  });
+});
+
+/**
+ * The parse-capability plan (verdict-capability spec §3). Population is GLOBAL
+ * over well-formed markers of a plan-kind doc — v1 and v2, region or not,
+ * because a command a shell cannot parse expresses no verdict anywhere — plus
+ * every well-formed gate marker's non-empty `cmd=`.
+ */
+describe("parseCheckPlan", () => {
+  it("enumerates non-empty red= (v1 and v2) and gate cmd=, and nothing else", () => {
+    const lines = [
+      "<!-- tasks: depth=2 red-contract -->",
+      "## Task A",
+      "<!-- task: red=`echo one` ac=AC-1 -->",
+      "AC-1 appears here.",
+      "<!-- tasks: end -->",
+      "<!-- task: red=`echo two` red-state=live why=`x` ac=AC-1 -->", // outside region: still in plan
+      "<!-- task: red=`` ac=AC-1 -->", // empty: excluded
+      "<!-- gate: cmd=`echo gate` probed=`yes` -->",
+      "```",
+      "<!-- task: red=`echo fenced` ac=AC-1 -->", // fenced: inert
+      "```",
+    ];
+    const plan = parseCheckPlan(parseDoc(lines.join("\n")));
+    expect(plan).toEqual([
+      { line: 3, command: "echo one", source: "red" },
+      { line: 6, command: "echo two", source: "red" },
+      { line: 8, command: "echo gate", source: "gate" },
+    ]);
+  });
+
+  it("excludes malformed markers, malformed gate lines, and blank gate commands", () => {
+    // Every excluded line is marker- or gate-SHAPED, so an implementation that
+    // planned on the shape rather than on a successful parse would enumerate
+    // them. The one legal line pins that the fixture is not vacuously empty.
+    const lines = [
+      "<!-- task: red=`echo bad` ac= -->", // ac= empty: still well-formed (ac-absent form)
+      "<!-- task: red=`echo malformed` extra=`x` ac=AC-1 -->", // malformed marker
+      "<!-- gate: cmd=echo unquoted -->", // malformed gate: cmd= is not backticked
+      "<!-- gate: cmd=`` probed=`p` -->", // blank gate command: excluded
+      "<!-- gate: cmd=`   ` probed=`p` -->", // whitespace-only gate command: excluded
+      "<!-- task: red=`   ` ac=AC-1 -->", // whitespace-only red: excluded
+    ];
+    expect(parseCheckPlan(parseDoc(lines.join("\n")))).toEqual([
+      { line: 1, command: "echo bad", source: "red" },
+    ]);
   });
 });
