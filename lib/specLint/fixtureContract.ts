@@ -166,3 +166,40 @@ export function checkFixtureContract(model: DocModel, kind: "spec" | "plan"): Fi
     .map((s) => s.finding)
     .filter((f): f is Finding => f !== null);
 }
+
+/** One block the adapter will splice and run. `line` is its marker's 1-based line. */
+export interface FixtureSpliceEntry {
+  line: number;
+  block: string;
+}
+
+/**
+ * The splice plan (spec §4.1): one entry per attached, well-formed marker, in
+ * doc order, block text VERBATIM — blank lines and trailing whitespace
+ * preserved byte for byte, because what runs must be what the author reads.
+ *
+ * Markers that drew a static finding are excluded: splicing a block whose
+ * declaration the linter has already rejected runs code for no verdict.
+ * Exclusion is by "the marker has a finding", not by code, so an empty `why=`
+ * excludes exactly as a mangled delimiter does.
+ *
+ * The body is read from the model's own fence classification — the lines
+ * between the opening delimiter and the next delimiter — so this module never
+ * decides where a block ends (spec §5).
+ */
+export function spliceFixturePlan(model: DocModel, kind: "spec" | "plan"): FixtureSpliceEntry[] {
+  const out: FixtureSpliceEntry[] = [];
+  for (const marker of scanMarkers(model, kind)) {
+    if (marker.finding !== null || marker.fenceIndex === null) continue;
+    const body: string[] = [];
+    for (let j = marker.fenceIndex + 1; j < model.lines.length; j++) {
+      // A string is an inside line; `null` closes the fence. An unclosed fence
+      // runs to end of document, which is what the author wrote and so what
+      // runs.
+      if (typeof model.fencedInfo[j] !== "string") break;
+      body.push(model.lines[j]!);
+    }
+    out.push({ line: marker.line, block: body.join("\n") });
+  }
+  return out;
+}
