@@ -10,6 +10,8 @@
 
 **e2e harness readiness (writing-plans rule):** (a) server boot: local `pnpm dev -H 127.0.0.1 -p ${E2E_PORT}` / CI `pnpm build && pnpm start` per `playwright.config.ts` webServer entry 1; run local e2e with an `E2E_PORT` other than 3000 so a sibling worktree's dev server is never silently reused (`playwright.config.ts:5-8`). (b) readiness gate: `lastSeededTrigger`'s `toHaveCount(SEEDED_SHOWS)` settle on `shows-find-input` filtering (`tests/e2e/rowactions-geometry.spec.ts:116-132`) — never `networkidle`. (c) detach-safety: every `panel.evaluate` in the strengthened case runs while the submenu is held open by the test's own flow; no sampler outlives its element.
 
+**Test wiring (writing-plans rule):** both new suites match `BASE_INCLUDE` (`vitest.projects.ts:34`, `tests/**/*.test.ts`) and run in the standard unit-suite CI job with no config or workflow edit; the e2e change edits an existing file already named by `admin-layout-e2e.yml` and both playwright project testMatch regexes. No path-filter change anywhere.
+
 **Heavy wrapping:** every non-interactive Playwright invocation below runs under `pnpm heavy` (machine-wide slot semaphore), foreground, never backgrounded across a turn boundary.
 
 ## Acceptance criteria (from spec §6; the `ac=` markers below bind to these)
