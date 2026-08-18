@@ -6,7 +6,7 @@
 
 **Goal:** Ship the 2026-08-18 text-ramp ruling. 37 controls whose resting outline is `border-border` on a neutral or absent fill swap to `border-text-faint`; five dividers and ShareHub's ratified mobile skin do not; the census pin is widened to 58 rows and strengthened by a negation assertion that catches the half-swapped element the current pin cannot see.
 
-**Architecture:** **32 source-token edits across 37 elements in 26 files, plus 18 hover-override edits at 18 of those same elements (spec §3.6).** The count differs from the element count in both directions — four elements share one file-local constant, three share two recipes, two share one line, and an element carrying the token in both ternary arms needs two edits. Plus a `DESIGN.md` §1.2a paragraph rewrite, one new §1.2 contrast row with its assertion, a census widened from 21 to 58 rows, one new per-row assertion with three fixtures, and the invariant-8 dual gate. No product logic, no new component, no new prop, no new token, no DB surface, no route, no migration. `lib/ui/actionClass.ts` already wears `border-text-faint` and is untouched.
+**Architecture:** **32 source-token edits across 37 elements in 26 files, plus 21 hover-override edits at 21 of those same elements (spec §3.6).** The count differs from the element count in both directions — four elements share one file-local constant, three share two recipes, two share one line, and an element carrying the token in both ternary arms needs two edits. Plus a `DESIGN.md` §1.2a paragraph rewrite, one new §1.2 contrast row with its assertion, a census widened from 21 to 58 rows, one new per-row assertion with three fixtures, and the invariant-8 dual gate. No product logic, no new component, no new prop, no new token, no DB surface, no route, no migration. `lib/ui/actionClass.ts` already wears `border-text-faint` and is untouched.
 
 **Tech Stack:** TypeScript (strict, `noUncheckedIndexedAccess` + `exactOptionalPropertyTypes`), Vitest, the existing static scanner at `tests/styles/interactiveScanCore.ts`.
 
@@ -81,10 +81,12 @@ Reproduced here so the implementer starts from measurement. Full transcripts in 
 | `border-border` occurrences in those 26 files | **63** — so 31 must NOT be touched |
 | Original 21 failing the NEW negation assertion today | **1** (`ResetPickerEpochButton.tsx:178`) |
 | Original 21 failing a hypothetical `everyPathCarries` | **2** — the second (`components/admin/Mi11GateActions.tsx:69`) is a ratified exemption, which is why that form was rejected |
-| Swap-set elements with a `hover:border-*` override | **21** — 13 with another hover cue, 5 with none, 3 on `hover:border-accent` |
+| Swap-set elements with a `hover:border-*` override | **21** — 13 delete, 5 raise to `text-subtle`, 3 raise to `accent-on-bg` |
 | Original 21 with a `hover:border-*` override | **1** (`components/admin/ArchiveShowButton.tsx:365`, `hover:border-status-warn` — a semantic escalation, not a weight cue) |
 | `--color-text-subtle` as OUTLINE | 6.47/6.75 `bg`, 6.76/6.35 `surface`, 6.76/5.97 `surface-raised`, 6.09/6.94 `surface-sunken` |
-| `--color-accent` as OUTLINE | 2.23/8.16 `bg`, 2.33/7.69 `surface` — light is BELOW the 3.35 rest, the §3.6(c) documented limit |
+| `--color-accent` as OUTLINE | 2.23/8.16 `bg`, 2.33/7.69 `surface` — light is BELOW the 3.35 rest, which is why §3.6(c) raises rather than keeps it |
+| `--color-accent-on-bg` as OUTLINE | 5.34/9.39 `bg`, 5.57/8.84 `surface`, 5.57/8.30 `surface-raised`, 5.02/9.65 `surface-sunken` |
+| `SwitcherControls` importers | 1 — `components/admin/dev/AttentionModalSwitcher.tsx`; NOT crew-reachable |
 
 ---
 
@@ -138,13 +140,18 @@ Reproduced here so the implementer starts from measurement. Full transcripts in 
 
 **Files:** 21 of the 26 already open in Task 2.
 
-Without this task the arc ships 18 controls whose outline reads LIGHTER on hover than at rest. It is a defect this diff creates, not a pre-existing one — the predecessor's 21 contained exactly one `hover:border-*` override and it was a semantic escalation.
+Without this task the arc ships 21 controls whose outline reads LIGHTER on hover than at rest (18 at `hover:border-border-strong` 1.59:1, 3 at `hover:border-accent` 2.33:1 light). It is a defect this diff creates, not a pre-existing one — the predecessor's 21 contained exactly one `hover:border-*` override and it was a semantic escalation.
 
-- [ ] **2b.1** RED first: extend `tests/styles/_metaControlOutlineFill.test.ts` with a per-census-row assertion that **no row carries `hover:border-border-strong`**, scoped to the 37 new rows (the original 21 are unaffected — probed: only `components/admin/ArchiveShowButton.tsx:365` has a `hover:border-*` and it is `hover:border-status-warn`). Confirm 18 failures.
+- [ ] **2b.1** RED first: extend `tests/styles/_metaControlOutlineFill.test.ts` with a per-census-row assertion that **no row carries `hover:border-border-strong` and none carries bare `hover:border-accent`**, scoped to the 37 new rows (the original 21 are unaffected — probed: only `components/admin/ArchiveShowButton.tsx:365` has a `hover:border-*` and it is `hover:border-status-warn`). Confirm 21 failures (18 `hover:border-border-strong` + 3 `hover:border-accent`).
 - [ ] **2b.2** DELETE `hover:border-border-strong` at the 13 sites of spec §3.6(a). Each retains another hover cue — verify per site that at least one `hover:` utility survives the edit; a site left with zero hover utilities means the classification was wrong for that site, so stop and re-probe rather than proceeding.
 - [ ] **2b.3** RAISE to `hover:border-text-subtle` at the 5 sites of spec §3.6(b). These have no other hover cue, so deletion would remove the affordance. All five are crew surfaces.
-- [ ] **2b.4** Do NOT touch the 3 `hover:border-accent` sites of spec §3.6(c). They are recorded as a documented limit.
-- [ ] **2b.5** Add the `--color-text-subtle` as-OUTLINE contrast row to `DESIGN.md` §1.2 and its assertion to `tests/styles/secondary-action-contrast.test.ts` — `hover:border-text-subtle` is a NEWLY REPURPOSED use of that token (it exists as a body-text token with §1.2 rows, but not as an outline), so the pre-code rule requiring a contrast pin for any new or repurposed token APPLIES here even though it did not for `border-text-faint`. Figures: `bg` 6.47/6.75, `surface` 6.76/6.35, `surface-raised` 6.76/5.97, `surface-sunken` 6.09/6.94.
+- [ ] **2b.4** RAISE to `hover:border-accent-on-bg` at the 3 sites of spec §3.6(c) — `components/admin/dev/SwitcherControls.tsx:83`, `components/admin/dev/SwitcherControls.tsx:92`, `components/admin/dev/SwitcherControls.tsx:142`. This preserves the accent HUE while clearing the 3.35:1 rest in both themes (5.57 light / 8.84 dark on `surface`), and follows the rule `DESIGN.md:119` already states: plain `--color-accent` is decorative-only in light, and `--color-accent-on-bg` is the token for load-bearing accent.
+- [ ] **2b.5** Add TWO newly-repurposed-as-OUTLINE tokens to `DESIGN.md` §1.2 and assert both in `tests/styles/secondary-action-contrast.test.ts`. Both exist as §1.2 rows for other roles but neither is pinned AS AN OUTLINE, so the pre-code rule requiring a contrast pin for any new or repurposed token APPLIES to both. **All four neutral grounds, BOTH themes, eight cells each — not one figure:**
+      | Token as OUTLINE | `bg` | `surface` | `surface-raised` | `surface-sunken` |
+      | --- | --- | --- | --- | --- |
+      | `--color-text-subtle` | 6.47 / 6.75 | 6.76 / 6.35 | 6.76 / 5.97 | 6.09 / 6.94 |
+      | `--color-accent-on-bg` | 5.34 / 9.39 | 5.57 / 8.84 | 5.57 / 8.30 | 5.02 / 9.65 |
+      Every cell must exceed the 3.35 / 3.76 rest figure for `border-text-faint` on the same ground, which is what makes the hover a step UP rather than an inversion. Assert that relation directly — `hover > rest` per ground per theme — not just the absolute numbers, so a future retune of either token cannot silently re-invert the pair.
 - [ ] **2b.6** `green=pnpm exec vitest run tests/styles/_metaControlOutlineFill.test.ts tests/styles/secondary-action-contrast.test.ts`
 - [ ] **2b.7** Commit: `fix(styles): keep the hover outline heavier than rest after the text-ramp swap`
 
