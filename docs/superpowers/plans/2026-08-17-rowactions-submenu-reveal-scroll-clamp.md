@@ -20,6 +20,7 @@
 - **AC-2** (spec §6 AC-2): strengthened case red 10/10 pre-fix, green 10/10 post-fix, locally.
 - **AC-3** (spec §6 AC-3): full CI file set green locally, no regression.
 - **AC-4** (spec §6 AC-4): derived-cover meta-test green, and red under a deliberate bare-clear reintroduction (verified at plan time: the pre-repair tree IS that reintroduction, red on exactly the four sites).
+- **AC-7** (spec §6 AC-7): §5.4 transition pins per the family matrix (family A at three sites; family B at all four), each shown red against both applicable migration mutants.
 - **AC-5** (spec §6 AC-5): nine-dispatch CI probe, 0/9 failures against the 4/9 baseline.
 - **AC-6** (spec §6 AC-6): ledger dispositions land in the PR's last commit.
 
@@ -297,12 +298,22 @@ Per spec §4.3 rows 2-4:
 - `components/admin/showpage/ShareHub.tsx` (`ShareHub.tsx:287-309`): same rewrite; the post-placement SETS at `ShareHub.tsx:352-353` become the same both-branch application.
 - `components/admin/useFitWithinClip.ts` `apply` (`useFitWithinClip.ts:78-95` region): the clear and the computed-cap derivation move inside `withNaturalSize`, which returns the fitted cap or null (no clipping ancestor, `useFitWithinClip.ts:85`); the site then applies both branches — fitted px, or `removeProperty("max-height")` so the stale previous fit does not survive the early-return path (spec §4.3, R1 F1).
 
-**Site-transition pins (spec §5.4, AC-7), in the same task:**
+**Site-transition pins (spec §5.4, AC-7), in the same task — TWO mutant families per the spec's closure matrix:**
+
+Family A (cap-STATE assertions; drop-branch mutant):
 
 - HoverHelp: no new test — the shipped standalone case "maxWidth engages inside a NARROW pane host and is CLEARED when the host widens" (`tests/e2e/hoverhelp-geometry.spec.ts:409`) is the pin; it runs in Task 6.
-- ShareHub: extend `tests/components/admin/showpage/shareHubVisualViewport.test.tsx` with an uncapped-placement case — placement returns null caps, assert both inline properties are ABSENT after apply.
-- useFitWithinClip: extend `tests/components/admin/useFitWithinClip.test.tsx` with a fitted→unclipped transition — apply under a clipping ancestor (cap written), re-apply with the clip gone, assert the stale fitted cap is removed. This also pins the natural-measure premise (a migration reading the previous fit through `getComputedStyle` retains the stale cap and fails it).
-- **Mutant validation (AC-7):** for each extended pin, apply a deliberate temporary mutant to the migrated site (drop the `removeProperty` null branch; skip the natural-measure step) and observe the pin red; revert the mutant; record both observations in the commit message. The pins are green on the pre-migration tree by design (regression pins, not REDs).
+- ShareHub: extend `tests/components/admin/showpage/shareHubVisualViewport.test.tsx` with an uncapped-placement case — placement returns null caps, assert both inline properties ABSENT after apply.
+- useFitWithinClip: extend `tests/components/admin/useFitWithinClip.test.tsx` with a fitted→unclipped transition — apply under a clipping ancestor (cap written), re-apply with the clip gone, assert the stale fitted cap is removed. (Also the site's family-B pin: a migration reading the previous fit through `getComputedStyle` retains the stale cap and fails it.)
+- AnchoredPortal: N/A — React owns the style prop; no hand-written application branch exists to drop (spec §5.4).
+
+Family B (COORDINATE/SIZE assertions under style-sensitive rect stubs; capped-measurement mutant — spec §5.4 carries the review probe's discriminating numbers):
+
+- AnchoredPortal: extend `tests/components/admin/rowActions/anchoredPortal.test.tsx` — make the panel's stub rect style-sensitive (capped dims while an inline cap is applied, natural dims when cleared), place once so a cap is written, grow available room via a position-only anchor move, flush frames, assert the re-applied cap/position derives from the NATURAL height, with a `premise` pinning natural > stale so the case cannot pass vacuously.
+- HoverHelp: one analogous jsdom placement case (in `tests/components/admin/hoverHelpBlurClose.test.tsx` or a sibling file) asserting applied top/left derives from natural size.
+- ShareHub: one analogous case in `shareHubVisualViewport.test.tsx` (its `stubRect` becomes style-sensitive for the body) asserting applied x derives from the natural 308px width, not a stale capped width.
+
+**Mutant validation (AC-7):** per site, BOTH applicable mutants — (A) drop the `removeProperty`/null branch, (B) re-order or skip the withNaturalSize wrap so measurement runs with the stale cap applied — each observed red against the site's pins, then reverted; all observations recorded in the commit message. The pins are green on the pre-migration tree by design (regression pins, not REDs).
 
 GREEN: marker command passes (meta-test empty offender list + HoverHelp jsdom suite green), the two extended unit suites pass, and each pin has been shown red under its mutant. Then `pnpm typecheck` and `pnpm exec eslint components/admin/AnchoredPortal.tsx components/admin/HoverHelp.tsx components/admin/showpage/ShareHub.tsx components/admin/useFitWithinClip.ts lib/popover/naturalSize.ts tests/components/naturalSize.test.ts tests/components/_metaScrollNeutralMeasurement.test.ts tests/components/admin/showpage/shareHubVisualViewport.test.tsx tests/components/admin/useFitWithinClip.test.tsx`. Commit (`fix(admin):`).
 
