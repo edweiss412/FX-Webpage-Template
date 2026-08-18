@@ -1,6 +1,6 @@
 import { qualifierBoundStarts } from "./numerics";
 import type { DocModel, Heading } from "./parse";
-import type { Finding, InventoryGroup } from "./types";
+import type { Finding, InventoryGroup, InventoryOccurrence } from "./types";
 
 // ===========================================================================
 // Prose-consistency arms (spec docs/superpowers/specs/2026-08-17-speclint-
@@ -46,6 +46,26 @@ const CMD_WORDS = /^(rg|grep|pnpm|git|gh|node|npx|tsx|find|ls|comm|wc|cat|sed|aw
 const CARDINAL_TOKEN = /\b\d{1,4}\b/g;
 /** Value bound: 4-digit reads were years, 0/1 reads were status text (spec §3.2 gate 2). */
 const MIN_CARDINAL_VALUE = 2;
+
+/**
+ * Arm B's `universal-claims` recognizer (spec §3.4): a CLAUSE START — line start, or
+ * after a period, semicolon or colon followed by a space — then an optional
+ * list-marker/bold prefix, then one of the closed quantifier set as a word. Exactly the
+ * instrument's measured recognizer, capital-initial and case-SENSITIVE: a lowercase
+ * `every` mid-sentence is not a clause-initial claim. Synonyms outside the set
+ * ("entire", "none of", "always") are a documented limit (spec §7).
+ */
+const UNIVERSAL_CLAUSE = /(?:^|[.;:] )\s*(?:[-*] )?\*{0,2}(Every|Each|All|Any|No|Never|Nothing)\b/;
+/** Arm B's two heading families, both at depth >= 2 (spec §3.4). */
+const SCOPE_FENCE_HEADING = /out of scope|non-goals?/i;
+const CLOSEOUT_HEADING = /clos(e-?out|eout)|graduation/i;
+/** The shallowest heading depth that can OPEN a region: a depth-1 title is a doc
+ * identity, not a fence region (R1 F2 repair, probe-backed at 513 lines). */
+const MIN_FENCE_DEPTH = 2;
+/** Structural Markdown lines carry no claim (R4 repair). A table CONTENT row is not
+ * structural — a fence claim can live in a table cell. */
+const THEMATIC_BREAK = /^ {0,3}([-_*])( *\1){2,} *$/;
+const TABLE_DELIMITER = /^\s*\|[\s\-:|]+\|?\s*$/;
 
 const SNIPPET_MAX = 140;
 const snippet = (line: string): string => line.trim().slice(0, SNIPPET_MAX);
@@ -192,5 +212,67 @@ export function checkUniversals(
     });
   }
 
-  return { findings, inventory: [] };
+  return { findings, inventory: inventoryGroups(model, headingLines) };
+}
+
+/**
+ * The two inventory groups (spec §3.4). Never a finding, never an exit code — the
+ * post-repair self-consistency sweep walks these lines instead of grepping for the
+ * repair's own vocabulary, which is what let E4 and E5 through (spec §2).
+ *
+ * ONE occurrence per line, like the instrument and like arm A: the unit both groups
+ * measure is the claim LINE, so a second clause-initial quantifier on the same line is
+ * a documented limit rather than a second row.
+ */
+function inventoryGroups(model: DocModel, headingLines: Set<number>): InventoryGroup[] {
+  const universals: InventoryOccurrence[] = [];
+  const fences: InventoryOccurrence[] = [];
+
+  let inRegion = false;
+  let regionDepth = 0;
+
+  for (let i = 0; i < model.lines.length; i++) {
+    const docLine = i + 1;
+    if (model.fencedInfo[i] !== undefined) continue;
+    const line = model.lines[i]!;
+
+    if (headingLines.has(docLine)) {
+      const heading = model.headings.find((h) => h.line === docLine)!;
+      // An equal-or-shallower heading terminates the region it sits under.
+      if (inRegion && heading.depth <= regionDepth) inRegion = false;
+      // A MATCHING heading nested inside an OPEN region does not re-anchor it: doing so
+      // would let the next nested sibling close the parent early (R3 F2, probed at 142
+      // silently dropped lines). A heading line is itself excluded from both groups.
+      if (
+        !inRegion &&
+        heading.depth >= MIN_FENCE_DEPTH &&
+        (SCOPE_FENCE_HEADING.test(heading.text) || CLOSEOUT_HEADING.test(heading.text))
+      ) {
+        inRegion = true;
+        regionDepth = heading.depth;
+      }
+      continue;
+    }
+
+    if (
+      inRegion &&
+      line.trim() !== "" &&
+      !THEMATIC_BREAK.test(line) &&
+      !TABLE_DELIMITER.test(line)
+    ) {
+      fences.push({ docLine, column: 1, snippet: snippet(line) });
+    }
+
+    if (TABLE_ROW.test(line)) continue;
+    const m = UNIVERSAL_CLAUSE.exec(line);
+    if (m) {
+      const quantifierAt = m.index + m[0].lastIndexOf(m[1]!);
+      universals.push({ docLine, column: quantifierAt + 1, snippet: snippet(line) });
+    }
+  }
+
+  const out: InventoryGroup[] = [];
+  if (universals.length > 0) out.push({ raw: "universal-claims", occurrences: universals });
+  if (fences.length > 0) out.push({ raw: "scope-fences", occurrences: fences });
+  return out;
 }

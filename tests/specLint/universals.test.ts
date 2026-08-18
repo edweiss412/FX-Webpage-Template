@@ -186,14 +186,15 @@ describe("checkUniversals — single-gate rejection fixtures (spec §6)", () => 
   });
 
   it("accept-set: a word-form cardinal draws nothing (documented limit)", () => {
-    // "all twenty-one sites" is inventoried, not advisory-flagged (spec §7). Its
-    // `universal-claims` membership is asserted in universalsInventory.test.ts.
+    // Spec §7: "all twenty-one sites" is inventoried (clause-initial `All`), not
+    // advisory-flagged. The SAME line's `universal-claims` membership is asserted in
+    // universalsInventory.test.ts — the two halves of one fixture (ownership split).
     const doc = [
       "# Doc",
       "",
       "## A",
       "",
-      "The ruling covers all twenty-one sites without exception.",
+      "All twenty-one sites carry the swap.",
       "",
       "## B",
       "",
