@@ -50,18 +50,22 @@
 
 **Steps:**
 
-- [ ] **Step 1 (RED):** Write tests/specLint/universals.test.ts (new file, plain text) — fixtures per spec §6, each a literal doc string driven through `parseDoc` then `checkUniversals(model, "spec")`, each asserting exact finding count + code + docLine:
-  - E1 retro-fixture: a doc with the verbatim `cc7942d4e:181` line in one section, the cardinal `21` on a non-table line of another section, no command span in the claim's section → exactly one `ENUMERATED_UNIVERSAL_NO_PROBE` on the claim line.
-  - Corrected-form fixture: same doc with `rg` inline code added to the claim's section → 0 findings (gate 5).
-  - Cardinal-only-in-own-section fixture → 0 (gate 4).
-  - Table-row form → 0 (gate 1); ISO-dated line → 0 (gate 1); fenced → 0 (gate 1).
-  - Word-form cardinal ("all twenty-one sites") → 0 findings but present in `universal-claims` inventory (accept-set limit pinned).
-  - Qualifier line `all 37 sites (36 at plan time)` with enumeration+no-probe held → exactly one finding anchored on the 37 claim (gate 3 nearest-binding).
-  - R1-gate rejection fixtures, one per gate: "every 5 min" (time-unit exclusion), a backticked "`Ignore all 1`" literal (inline-span exclusion), "all 0" and "all 2025" (value bound 2–999) → 0 findings each.
-  - `kind: "plan"` with the E1 doc → 0 findings, 0 groups (spec-kind gate).
+- [ ] **Step 1 (RED):** Write tests/specLint/universals.test.ts (new file, plain text) — the ADVISORY half of spec §6's fixture contract, each fixture a literal doc string driven through `parseDoc` then `checkUniversals(model, "spec")`, asserting exact FINDING count + code + docLine. **This task's suite asserts findings only — every inventory-membership assertion (including the word-form and heading fixtures' `universal-claims` rows) lives in Task 2's suite, so Task 1's command greens on the advisory implementation alone and Task 2's red reason stays intact (plan review R1 F1).** The fixture list mirrors spec §6 verbatim (plan review R1 F2 — all four omissions repaired):
+  - E1 retro-fixture: the verbatim `cc7942d4e:181` line in one section, cardinal `21` on a non-table line of another section, no command span in the claim's section → exactly one `ENUMERATED_UNIVERSAL_NO_PROBE`.
+  - Corrected-current-main regression fixture: the live repaired form — a "Twenty of the 21 land …" partition sentence replacing the universal, per `docs/superpowers/specs/2026-08-16-control-outline-surface-fills-design.md:225`-region — → 0 findings (no universal+cardinal match survives; pins the repair direction the originating arc validated).
+  - Same E1 doc with `rg` inline code added to the claim's section → 0 (gate 5, synthetic single-gate case).
+  - Cardinal-only-in-own-section → 0 (gate 4).
+  - Table-row form → 0; ISO-dated line → 0; fenced → 0; HEADING line carrying a universal + cardinal → 0 (all gate 1, one fixture each).
+  - Word-form cardinal ("all twenty-one sites") → 0 findings (accept-set limit; its inventory presence is Task 2's assertion).
+  - Compound nearest-binding case `all 37 sites (36 at plan time)` with enumeration+no-probe held → exactly one finding on the 37 claim (NOT a single-gate discriminator).
+  - Gate-3 discriminator `all 36 sites at plan time` → 0 findings (the qualifier's nearest predecessor IS the claim cardinal; deleting gate 3 yields one finding — fails exactly this fixture).
+  - Time-unit exclusion, both separators: "every 5 min" AND "every 5-min check" → 0 each.
+  - Inline-span discriminator: backticked "`applies to all 21 rows`" with 21 enumerated elsewhere → 0 (the inline-span gate is the ONLY rejecting gate; spec §6 replaced the value-gate-shadowed `Ignore all 1` form).
+  - Value bound, one fixture per half: "all 0" (the ≥ 2 check) and "all 2025" (the 3-digit width) → 0 each.
+  - `kind: "plan"` with the E1 doc → 0 findings (spec-kind gate).
   Run the command; observe red (unresolved import).
 - [ ] **Step 2:** Create the module skeleton exporting `checkUniversals` returning `{ findings: [], inventory: [] }`. Re-run; observe the cases now fail on ASSERTIONS (finding expected, none emitted) — the red the marker names.
-- [ ] **Step 3 (GREEN):** Implement the §3.2 gate stack exactly: non-fenced/non-table/non-ISO line; `every|each|all` (initial letter either case) + optional `one of the `/`of the ` + 1–3-digit cardinal of value ≥ 2; the closed time-unit exclusion; the inline-span exclusion; nearest-predecessor dated-qualifier exclusion within 40 chars reusing the closed stage-noun set (import the existing constant from `lib/specLint/numerics.ts` if exported, else lift per spec §3.2 note 3 citing `QUALIFIER_STAGES`); enumeration evidence = same cardinal string on a non-fenced non-table line of a different section; probe-command gate over the owning section (closed command set, inline spans + `sh`/`bash`/info-less fence first tokens). Message per spec §3.2. Re-run → green.
+- [ ] **Step 3 (GREEN):** Implement the §3.2 gate stack exactly: non-fenced/non-table/non-heading/non-ISO line; `every|each|all` (initial letter either case) + optional `one of the `/`of the ` + 1–3-digit cardinal of value ≥ 2; the closed time-unit exclusion; the inline-span exclusion; nearest-predecessor dated-qualifier exclusion within 40 chars reusing the closed stage-noun set (import the existing constant from `lib/specLint/numerics.ts` if exported, else lift per spec §3.2 note 3 citing `QUALIFIER_STAGES`); enumeration evidence = same cardinal string on a non-fenced non-table line of a different section; probe-command gate over the owning section (closed command set, inline spans + `sh`/`bash`/info-less fence first tokens). Message per spec §3.2. Re-run → green.
 - [ ] **Step 4:** `pnpm typecheck`; commit `feat(spec-lint): ENUMERATED_UNIVERSAL_NO_PROBE advisory arm`; push.
 
 ### Task 2: inventory groups `universal-claims` + `scope-fences`
@@ -75,7 +79,7 @@
 
 **Steps:**
 
-- [ ] **Step 1 (RED):** Fixtures per spec §3.4/§6: a doc with clause-initial universals (line start; after period/semicolon/colon+space; behind list-marker and bold prefixes), an "Out of scope" region, a "Ledger closeout" region; asserts BOTH groups' exact line sets. E4 fixture (verbatim `a045c53d1:235` bullet under an `## Out of scope` heading) lands in BOTH groups; E5 fixture (verbatim `65641604f:235` line under a `### Ledger closeout` heading) lands in BOTH groups. Region-boundary fixture: a deeper heading inside the region does not close it; an equal-depth heading does. Depth-bound fixture: a depth-1 "close-out" TITLE opens NO region (spec §3.4 R1 repair). No-re-anchor fixture: a MATCHING heading nested inside an open region does not re-anchor it — the parent region runs to its own terminator (spec §3.4 R3 rule). Structural-line fixture: a thematic break and a table delimiter row inside a region are excluded while a table CONTENT row stays (spec §3.4 R4 rule). Heading-exclusion fixture: a heading line carrying a universal draws no `universal-claims` row and no advisory (spec §3.2 gate 1 / §3.4 R3 rule). Negative fixtures: fenced universal, table-row universal, quantifier mid-clause ("closes every gap") → excluded from `universal-claims`; blank lines excluded from `scope-fences`; empty doc and plan-kind doc → no groups. Observe red.
+- [ ] **Step 1 (RED):** Fixtures per spec §3.4/§6 — ALL inventory-membership assertions live here, including the Task-1 word-form and heading fixtures' group-side halves (word-form line PRESENT in `universal-claims`; heading line ABSENT — plan review R1 F1 ownership split): a doc with clause-initial universals (line start; after period/semicolon/colon+space; behind list-marker and bold prefixes), an "Out of scope" region, a "Ledger closeout" region; asserts BOTH groups' exact line sets. E4 fixture (verbatim `a045c53d1:235` bullet under an `## Out of scope` heading) lands in BOTH groups; E5 fixture (verbatim `65641604f:235` line under a `### Ledger closeout` heading) lands in BOTH groups. Region-boundary fixture: a deeper heading inside the region does not close it; an equal-depth heading does. Depth-bound fixture: a depth-1 "close-out" TITLE opens NO region (spec §3.4 R1 repair). No-re-anchor fixture: a MATCHING heading nested inside an open region does not re-anchor it — the parent region runs to its own terminator (spec §3.4 R3 rule). Structural-line fixture: a thematic break and a table delimiter row inside a region are excluded while a table CONTENT row stays (spec §3.4 R4 rule). Heading-exclusion fixture: a heading line carrying a universal draws no `universal-claims` row and no advisory (spec §3.2 gate 1 / §3.4 R3 rule). Negative fixtures: fenced universal, table-row universal, quantifier mid-clause ("closes every gap") → excluded from `universal-claims`; blank lines excluded from `scope-fences`; empty doc and plan-kind doc → no groups. Observe red.
 - [ ] **Step 2 (GREEN):** Implement the two group recognizers per §3.4 (closed quantifier set `Every|Each|All|Any|No|Never|Nothing`; heading accept-sets `/out of scope|non-goals?/i`, `/clos(e-?out|eout)|graduation/i`; region = heading to next heading of ≤ its depth). Groups appended only when non-empty. Green.
 - [ ] **Step 3:** `pnpm typecheck`; commit `feat(spec-lint): universal-claims + scope-fences inventory groups`; push.
 
@@ -129,7 +133,15 @@
 - [ ] **Step 1 (RED):** Add the registry row alone; run the marker command; observe the premise-contract red.
 - [ ] **Step 2:** Add the ledger-kind + premise declarations.
 - [ ] **Step 3 (GREEN):** Marker command greens.
-- [ ] **Step 4 (score, FOREGROUND):** Scoped run per the lessons recipe — temporary shard-filter file tests/mutation/guardSurfaces.shardX.test.ts (plain text; never committed) filtering `GUARD_SURFACES` to `specLintUniversals` before `registerSurfaceCases`, run `pnpm heavy` wrapped, then DELETE the temp file (`_metaSourceShardIntegrity` pins shard files byte-for-byte). Disposition survivors: kill with new cases in the deciding suites, or ledger `equivalent` rows with reachability arguments (never "hard to test"). Update `scoreFloor` + `EXPECTED_LEDGER_KINDS` to the measured end state.
+- [ ] **Step 4 (score, FOREGROUND):** Scoped run — write a temporary shard-filter file tests/mutation/guardSurfaces.shardX.test.ts (plain text; never committed) with exactly this body (plan review R1 F3 — the invocation is spelled out because the mutation project exists only under the env gate):
+
+```ts
+import { GUARD_SURFACES } from "./source/registry";
+import { registerSurfaceCases } from "./source/surfaceCases";
+registerSurfaceCases(GUARD_SURFACES.filter((s) => s.id === "specLintUniversals"));
+```
+
+  Run it FOREGROUND as `VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy pnpm vitest run --project mutation tests/mutation/guardSurfaces.shardX.test.ts` (the env gate is load-bearing — without it vitest exits 1 with `No projects matched the filter "mutation"`; probed at plan review R1). Then DELETE the temp file (`_metaSourceShardIntegrity` pins shard files byte-for-byte). Disposition survivors: kill with new cases in the deciding suites, or ledger `equivalent` rows with reachability arguments (never "hard to test"). Update `scoreFloor` + `EXPECTED_LEDGER_KINDS` to the measured end state.
 - [ ] **Step 5 (acceptance):** `pnpm heavy pnpm mutation:guards` — full gate, foreground; unaccepted-survivor set EMPTY. Record score + survivor ledger in the commit message; the round-1 diff-review brief states both (AGENTS.md enrolment-precedes-review).
 - [ ] **Step 6:** Commit `test(spec-lint): enrol specLintUniversals in the source-mutation gate`; push.
 
