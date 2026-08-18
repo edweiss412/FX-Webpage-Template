@@ -40,7 +40,6 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-17-surface-discovery-unnameable-forms-design.md`. **Plan:** `docs/superpowers/plans/2026-08-17-surface-discovery-unnameable-forms.md`. **Round corpus:** `docs/review-rounds/fix/surface-discovery-unnameable-forms/`.
 
-
 ## BL-MUTATION-CHILD-LIFETIME-PARENT-DEATH — the mutation harness bounds a child only while its parent lives — CLOSED 2026-08-17 (`fix/mutation-child-lifetime`, SHIPPED)
 
 **Status:** SHIPPED 2026-08-17 · **Effort (as shipped):** M · **Filed:** 2026-08-16 (`chore/heavy-orphan-reaper`, class-sweep of the heavy-orphan spec) · **Reachability:** PROBED at filing, and the repair was probed again at design time (P-T1, P-A1, P-W1a/b/c, P-W2, P-C1).
