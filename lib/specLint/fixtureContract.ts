@@ -20,7 +20,7 @@
  * the adapter hands back.
  */
 
-import type { DocModel } from "./parse";
+import { parseDoc, type DocModel } from "./parse";
 import type { Finding, FixtureResults } from "./types";
 
 /** Marker-SHAPED, so a mangled marker is a finding rather than silence. */
@@ -335,4 +335,14 @@ export function synthesizeFixtureFindings(
     //    premise failure in either channel. This does NOT say the bodies ran.
   }
   return out;
+}
+
+/**
+ * Text-shaped entry point for the ADAPTER, mirroring
+ * `planExecutionsForText` in `redContract.ts`: the adapter holds text, not a
+ * model, and re-parsing here keeps `parseDoc` the single owner of what a fence
+ * is. Plan-kind by construction — `--exec-red` already refuses a spec.
+ */
+export function spliceFixturePlanForText(text: string): FixtureSpliceEntry[] {
+  return spliceFixturePlan(parseDoc(text), "plan");
 }

@@ -1,9 +1,14 @@
 // spec:lint CLI adapter (spec docs/superpowers/specs/2026-07-19-spec-lint.md §2/§7).
 // All I/O lives here; the core under lib/specLint/** is pure and injected.
 import { execFileSync, spawnSync } from "node:child_process";
-import { lstatSync, readFileSync, realpathSync } from "node:fs";
+import { lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
+import {
+  spliceFixturePlanForText,
+  synthesizeFixtureFindings,
+  type FixtureSpliceEntry,
+} from "../lib/specLint/fixtureContract";
 import { splitLines } from "../lib/specLint/parse";
 import {
   collectionProbePlanForText,
@@ -17,6 +22,9 @@ import type {
   ExecOutcome,
   ExecResults,
   FileResolver,
+  Finding,
+  FixtureOutcome,
+  FixtureResults,
   LintResult,
   ParseResults,
   ProbeResults,
@@ -51,6 +59,24 @@ export interface CliDeps {
    * any test that only recorded the command.
    */
   spawn(command: string, cwd: string, timeoutMs: number, mode: "parse" | "exec"): SpawnResult;
+
+  /**
+   * The fixture splice seam (fixture spec §4.2). Every path below is
+   * REPO-RELATIVE — the directory name is part of the contract
+   * (`tests/.spec-lint-fixtures-<pid>-<counter>/`, gitignored, collected by
+   * `BASE_INCLUDE`), and resolving it here rather than at the call site keeps
+   * one definition of where a splice lands.
+   *
+   * `pid` is injected rather than read from `process` so the collision refusal
+   * in §4.2 step 1 is reachable by a test at all: with the real pid the
+   * directory name is different on every run and no test could ever seed one.
+   */
+  pid(): number;
+  exists(relPath: string): boolean;
+  mkdir(relPath: string): void;
+  write(relPath: string, body: string): void;
+  readFile(relPath: string): string;
+  rm(relPath: string): void;
 }
 
 /** Env seam for the per-command ceiling; a 600-second case is untestable. */
@@ -139,6 +165,137 @@ function renderText(result: LintResult): string {
   const advisory = result.findings.length - hard;
   out.push(`summary: ${hard} hard, ${advisory} advisory`);
   return out.join("\n") + "\n";
+}
+
+/** Repo-relative, gitignored (fixture spec §9), and collected by `BASE_INCLUDE`. */
+const SPLICE_DIR_PREFIX = "tests/.spec-lint-fixtures-";
+/** Per-process, so two docs in one invocation never share a directory. */
+let spliceCounter = 0;
+
+/**
+ * The splice lifecycle (fixture spec §4.2), the whole of it in the adapter per
+ * the §5 boundary: the directory, the ONE vitest run per doc, the JSON read.
+ * The core derives the plan and classifies the outcomes and does nothing else.
+ *
+ * Every exit path removes the directory in a `finally` — a thrown write, a
+ * spawn that threw, a timeout, a signal, unreadable JSON — so no failure can
+ * leave a file under `tests/`. The one path that removes NOTHING is the
+ * collision refusal, and that is deliberate: a directory this invocation did
+ * not create belongs to another live invocation, and a broad cleanup would
+ * destroy its splice mid-run.
+ *
+ * Returns the results map for the core to classify. `findings` is returned
+ * alongside as the adapter-local view of the same pure derivation; `runLint`
+ * computes the authoritative set from its own model.
+ */
+export function runFixtureSplice(
+  plan: readonly FixtureSpliceEntry[],
+  deps: CliDeps,
+  timeoutMs: number = DEFAULT_TIMEOUT_SECS * 1000,
+): { findings: Finding[]; results: FixtureResults } {
+  const done = (results: FixtureResults) => ({
+    findings: synthesizeFixtureFindings(plan, results),
+    results,
+  });
+  if (plan.length === 0) return done({ files: new Map() });
+
+  const dir = `${SPLICE_DIR_PREFIX}${deps.pid()}-${++spliceCounter}`;
+  if (deps.exists(dir)) {
+    // A stale directory is a LOUD non-observation, never a silent overwrite of
+    // another session's live splice. Stated before anything is observed, and
+    // before anything is spawned.
+    return done({
+      files: new Map(),
+      unavailable: `the splice directory ${dir} already exists, so no block was run`,
+    });
+  }
+
+  const files = new Map<number, FixtureOutcome>();
+  let unavailable: string | undefined;
+  try {
+    deps.mkdir(dir);
+    for (const entry of plan) {
+      // The marker line is the FIRST digit run of the basename, and `.test.ts`
+      // is what `BASE_INCLUDE` collects. Both halves are load-bearing: the
+      // suffix decides whether anything runs, the line decides which block a
+      // result belongs to.
+      deps.write(`${dir}/line-${entry.line}.fixture.test.ts`, entry.block);
+    }
+    const report = `${dir}/report.json`;
+    const command = `pnpm exec vitest run ${dir} --reporter=json --outputFile=${report}`;
+    const outcome = classifySpawnResult(deps.spawn(command, deps.repoRoot(), timeoutMs, "exec"));
+    if (outcome.kind !== "exit") {
+      // NOT a verdict about any block: the runner never finished, so nothing
+      // was observed. The exit CODE is deliberately not read either way — the
+      // report is the observation, and a non-zero exit is the ordinary shape
+      // of a fixture whose premise failed.
+      unavailable =
+        outcome.kind === "timeout"
+          ? "the fixture run exceeded the SPEC_LINT_EXEC_TIMEOUT_SECS ceiling"
+          : outcome.kind === "signal"
+            ? `the fixture run was killed by ${outcome.signal}`
+            : `the fixture run could not be spawned: ${outcome.message}`;
+    } else {
+      let raw: string;
+      try {
+        raw = deps.readFile(report);
+      } catch {
+        unavailable = `no report was written to ${report}`;
+        raw = "";
+      }
+      if (unavailable === undefined) {
+        try {
+          const parsed = JSON.parse(raw) as { testResults?: unknown[] };
+          for (const entry of parsed.testResults ?? []) {
+            const tr = entry as {
+              name?: unknown;
+              status?: unknown;
+              message?: unknown;
+              assertionResults?: unknown[];
+            };
+            const base =
+              String(tr.name ?? "")
+                .split("/")
+                .pop() ?? "";
+            const m = /^line-(\d+)\./.exec(base);
+            if (m === null) continue;
+            const asserts = Array.isArray(tr.assertionResults) ? tr.assertionResults : [];
+            const rows = asserts.map(
+              (a) => a as { status?: unknown; title?: unknown; failureMessages?: unknown[] },
+            );
+            files.set(Number(m[1]), {
+              fileStatus: String(tr.status ?? ""),
+              assertions: rows.map((a) => ({
+                status: String(a.status ?? ""),
+                title: String(a.title ?? ""),
+              })),
+              failureMessages: rows.flatMap((a) =>
+                Array.isArray(a.failureMessages) ? a.failureMessages.map(String) : [],
+              ),
+              // Task 6 forwards the file-level channel; Task 5 carries the
+              // assertion channel alone, which is exactly the gap fixture spec
+              // §2.9 measured.
+              fileMessage: "",
+            });
+          }
+        } catch {
+          unavailable = `the report at ${report} was not readable JSON`;
+        }
+      }
+    }
+  } catch (e) {
+    unavailable = `the fixture run could not be prepared: ${e instanceof Error ? e.message : String(e)}`;
+  } finally {
+    try {
+      deps.rm(dir);
+    } catch {
+      // Best effort: a directory that cannot be removed is reported by the
+      // NEXT invocation's collision refusal rather than swallowing this run's
+      // verdicts.
+    }
+  }
+
+  return done(unavailable === undefined ? { files } : { files, unavailable });
 }
 
 export function runCli(argv: string[], deps: CliDeps): CliOutput {
@@ -296,6 +453,7 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
     // the stderr tail trimmed here so the core never sees raw output.
     let execResults: ExecResults | null = null;
     let probeResults: ProbeResults | null = null;
+    let fixtureResults: FixtureResults | null = null;
     if (execRed) {
       const outcomes = new Map<number, ExecOutcome>();
       const stderrTails = new Map<number, string>();
@@ -322,6 +480,10 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
         probeTails.set(line, tailOf(r));
       }
       probeResults = { outcomes: probeOutcomes, stdout: probeStdout, stderrTails: probeTails };
+
+      // Fixture blocks run LAST: they are whole vitest boots, and a boot
+      // between two red observations would run another suite's module scope.
+      fixtureResults = runFixtureSplice(spliceFixturePlanForText(text), deps, timeoutMs).results;
     }
 
     const result = runLint(
@@ -330,6 +492,7 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
       execResults,
       parseResults,
       probeResults,
+      fixtureResults,
     );
     return {
       stdout: json ? JSON.stringify(result) + "\n" : renderText(result),
@@ -358,13 +521,20 @@ const isEntry = (() => {
 })();
 
 if (isEntry) {
+  const root = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  }).trim();
+  const inRepo = (relPath: string) => join(root, relPath);
   const deps: CliDeps = {
     cwd: () => process.cwd(),
-    repoRoot: () =>
-      execFileSync("git", ["rev-parse", "--show-toplevel"], {
-        cwd: process.cwd(),
-        encoding: "utf8",
-      }).trim(),
+    repoRoot: () => root,
+    pid: () => process.pid,
+    exists: (relPath) => lstatSync(inRepo(relPath), { throwIfNoEntry: false }) !== undefined,
+    mkdir: (relPath) => void mkdirSync(inRepo(relPath), { recursive: true }),
+    write: (relPath, body) => writeFileSync(inRepo(relPath), body),
+    readFile: (relPath) => readFileSync(inRepo(relPath), "utf8"),
+    rm: (relPath) => rmSync(inRepo(relPath), { recursive: true, force: true }),
     listTrackedFiles: () =>
       // ":/" pathspec = whole repo regardless of the cwd subdir
       execFileSync("git", ["ls-files", "-z", "--full-name", "--", ":/"], {
