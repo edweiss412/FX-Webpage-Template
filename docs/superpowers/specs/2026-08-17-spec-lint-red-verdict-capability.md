@@ -112,7 +112,7 @@ All `check: "taskContract"`, anchored at the marker line, column 1:
 | `RED_TEST_NAME_FILTER` | advisory | §4, static, red-contract regions |
 | `RED_COLLECTS_NOTHING` | fail | §5.2, exec, live marker: non-zero red + empty collection |
 | `RED_SUITE_UNCOLLECTED` | fail | §5.2, exec, authored marker: tracked suite file absent from collection |
-| `RED_SUITE_UNVERIFIED` | advisory | §5.2, exec, authored marker: untracked test-file tokens (future file or typo), surfaced by name |
+| `RED_SUITE_UNVERIFIED` | advisory | §5.2, exec, authored marker: untracked test-file tokens surfaced by name, OR zero test-file tokens with an empty collection (future file/location or typo) |
 | `RED_PROBE_UNVERIFIED` | advisory | §3/§5.1/§5.2, any probe declined (compound command, unstrippable filter) or not completed |
 
 ## 6. Architecture & purity
