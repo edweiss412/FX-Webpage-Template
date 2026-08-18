@@ -23,7 +23,7 @@
 
 - Every named symbol/line verified against this branch at draft time: `parseMarker`/`taskTopology` exports (`lib/specLint/taskContract.ts:83` and `lib/specLint/taskContract.ts:309`), `planExecutions` population rule (`lib/specLint/redContract.ts:273`), non-zero-is-red classification (`lib/specLint/redContract.ts:339`), gate grammar (`lib/specLint/redContract.ts:29-30`), tracked-token device (`lib/specLint/redContract.ts:217`), adapter spawn (`scripts/spec-lint.ts:311`), timeout seam (`scripts/spec-lint.ts:35-36`), `ExecOutcome`/`ExecResults` (`lib/specLint/types.ts:45-56`), `CHECK_ORDER` (`lib/specLint/run.ts:16`).
 - The spec's §2 calibration numbers were measured on this branch's tree (probe harness `probe-collection.pl`, arc scratchpad); the fixture distillations in the tasks below reproduce those shapes at small line numbers rather than relinting live plans (governing-spec §8 posture).
-- Executable fenced blocks in Tasks 1-5 were spliced into the live suites and executed before this plan's review dispatch; the observed red set is recorded in §11.
+- The plan's one executable fenced block (Task 1) was spliced into a live suite and executed before this plan's review dispatch; the observed red, and the grep-verified missing-surface causes for Tasks 2-5's prose-described REDs, are recorded in §11.
 
 ## 4. Acceptance criteria (ids resolve the task markers below)
 
