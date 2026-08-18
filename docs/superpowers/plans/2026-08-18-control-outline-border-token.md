@@ -42,7 +42,7 @@
 
 | Test | Status | What it pins |
 | --- | --- | --- |
-| `tests/styles/_metaControlOutlineFill.test.ts` | **EDITED** | census rows carry `border-text-faint`; **new:** no row carries `border-border` on any path; **new:** no NEW row carries `hover:border-border-strong` (§3.6); **new:** five dividers are non-members |
+| `tests/styles/_metaControlOutlineFill.test.ts` | **EDITED** | census rows carry `border-text-faint`; **new:** no row carries `border-border` on any path; **new:** no row among the 36 additions carries `hover:border-border-strong` (§3.6); **new:** five dividers are non-members |
 | `tests/styles/controlOutlineScan.ts` | **EDITED** | `CENSUS` 21 → **57** rows (36 additions; the 37th swap-set element overlaps) |
 | `tests/styles/secondary-action-contrast.test.ts` | **EDITED** | **new:** `--color-border` as OUTLINE (before-state) and `--color-text-subtle` as OUTLINE (the §3.6b hover token), four grounds, both themes |
 | `tests/mutation/source/registry.ts` | unchanged rows, **re-scored** | `controlOutlineScan` at `scoreFloor: 1`, `accepted: []` |
@@ -54,7 +54,7 @@
 
 | AC | Spec § | Verified by |
 | --- | --- | --- |
-| AC-1 | §4.3 | Task 1 red → Task 2 green: 37 additions carry `border-text-faint`, `border-border` on no path |
+| AC-1 | §4.3 | Task 1 red → Task 2 green: all 37 swap-set elements carry `border-text-faint`, `border-border` on no path; 36 of them are census additions |
 | AC-2 | §3.4, §5.2 | Task 1 red on `ResetPickerEpochButton.tsx:178`; `Mi11GateActions.tsx:69` stays green throughout |
 | AC-3 | §3.3 | Task 1 divider non-membership assertion |
 | AC-4 | §3.5 | Task 2 step 2.7: `_metaControlOutlineFill.test.ts:156` byte-identical, passing |
@@ -80,7 +80,7 @@ Reproduced here so the implementer starts from measurement. Full transcripts in 
 | Files touched | **26** |
 | Distinct source-edit lines | **32** |
 | `border-border` occurrences in those 26 files | **63** — so 31 must NOT be touched |
-| `disabled:opacity-60` sites among the 37 | **8** — composite measures 1.94-1.96 light / 2.09-2.19 dark, a WCAG-exempt inactive state recorded in spec §6 |
+| `disabled:opacity-60` sites among the 37 | **8**; 20 across the 57-row union. Composite PER GROUND (light / dark): `bg` 1.90 / 2.18, `surface` 1.95 / 2.11, `surface-raised` 1.95 / 2.03, `surface-sunken` 1.83 / 2.21 — a WCAG-exempt inactive state recorded in spec §6. Do not restate this as a single band; it was stated as a band twice and was wrong twice |
 | Original 21 failing the NEW negation assertion today | **1** (`ResetPickerEpochButton.tsx:178`) |
 | Original 21 failing a hypothetical `everyPathCarries` | **2** — the second (`components/admin/Mi11GateActions.tsx:69`) is a ratified exemption, which is why that form was rejected |
 | Swap-set elements with a `hover:border-*` override | **21** — 12 delete, 6 raise to `text-subtle`, 3 raise to `accent-on-bg` |
@@ -147,7 +147,7 @@ Reproduced here so the implementer starts from measurement. Full transcripts in 
 
 Without this task the arc ships 21 controls whose outline reads LIGHTER on hover than at rest (18 at `hover:border-border-strong` 1.59:1, 3 at `hover:border-accent` 2.33:1 light). It is a defect this diff creates, not a pre-existing one — the predecessor's 21 contained exactly one `hover:border-*` override and it was a semantic escalation.
 
-- [ ] **2b.1** RED first: extend `tests/styles/_metaControlOutlineFill.test.ts` with a per-census-row assertion that **no row carries `hover:border-border-strong`, and none carries bare `border-accent` under ANY state prefix** (`hover:`, `aria-expanded:`, or otherwise — match the token, not one prefix), scoped to the 37 new rows (the original 21 are unaffected — probed: only `components/admin/ArchiveShowButton.tsx:365` has a `hover:border-*` and it is `hover:border-status-warn`). Confirm 21 failures (18 `hover:border-border-strong` + 3 carrying `border-accent` under a state prefix). The assertion is per element; the 12/6 split inside the border-strong group is an implementation detail of 2b.2/2b.3, not a separate assertion.
+- [ ] **2b.1** RED first: extend `tests/styles/_metaControlOutlineFill.test.ts` with a per-census-row assertion that **no row carries `hover:border-border-strong`, and none carries bare `border-accent` under ANY state prefix** (`hover:`, `aria-expanded:`, or otherwise — match the token, not one prefix), scoped to the 37 swap-set elements (the original 21 are unaffected — probed: only `components/admin/ArchiveShowButton.tsx:365` has a `hover:border-*` and it is `hover:border-status-warn`). Confirm 21 failures (18 `hover:border-border-strong` + 3 carrying `border-accent` under a state prefix). The assertion is per element; the 12/6 split inside the border-strong group is an implementation detail of 2b.2/2b.3, not a separate assertion.
 - [ ] **2b.2** DELETE `hover:border-border-strong` at the 12 sites of spec §3.6(a). **Verify PER RENDER PATH, not over the element's union of strings** — that distinction is what put `components/admin/showpage/PublishedReviewModal.tsx:964` in (b) rather than (a) (spec review R2 F1). For each path that carried the border-hover, at least one other `hover:` utility must survive the edit ON THAT PATH; a path left with zero hover utilities means the classification was wrong for that site, so stop and re-probe rather than proceeding.
 - [ ] **2b.3** RAISE to `hover:border-text-subtle` at the 6 sites of spec §3.6(b). The path carrying the border-hover has no other hover cue, so deletion would remove hover feedback outright — a regression, which is why raising is the only non-regressive option. Five are crew surfaces; the sixth is `components/admin/showpage/PublishedReviewModal.tsx:964`, whose path-1 fill is `bg-surface-sunken` (6.09 light / 6.94 dark against a 3.02 / 4.11 rest).
 - [ ] **2b.4** RAISE to `border-accent-on-bg` at the 3 sites of spec §3.6(c) — `components/admin/dev/SwitcherControls.tsx:83`, `components/admin/dev/SwitcherControls.tsx:92`, `components/admin/dev/SwitcherControls.tsx:142` — on **BOTH** their `hover:` and `aria-expanded:` occurrences. `components/admin/dev/SwitcherControls.tsx:145` carries `aria-expanded:border-accent` alongside `aria-expanded:bg-surface-sunken`; retargeting only the `hover:` twin leaves an expanded-but-not-hovered control at 2.10:1 light (spec review R3 F2). This preserves the accent HUE while clearing the 3.35:1 rest in both themes (5.57 light / 8.84 dark on `surface`), and follows the rule `DESIGN.md:119` already states: plain `--color-accent` is decorative-only in light, and `--color-accent-on-bg` is the token for load-bearing accent.
@@ -211,7 +211,7 @@ Without this task the arc ships 21 controls whose outline reads LIGHTER on hover
       - `**Reachability:** PROBED` — the 1.27:1 mobile figure and the 3.35:1 desktop figure on the SAME control.
       - **Mint bar:** `Facing: product` needs no `**Incident:**` field (that requirement is process-facing rows only). Confirm against `tests/docs/_metaLedgerMintBar.test.ts` rather than assuming.
       - First scheduled step: decide whether §1.2a's control-outline rule supersedes the §3 R3 mobile skin.
-- [ ] **7.2** **Do NOT touch `BL-CONTROL-OUTLINE-ON-TINTED-PLATES`.** An earlier draft had this task adding `components/admin/showpage/PublishedReviewModal.tsx:964` to it. That was a cross-path union error and is withdrawn (spec review R4 F3): path 0 is `border-border` + `bg-surface-sunken`, path 1 is `bg-warning-bg` with no outline token, so no render path carries the swapped outline on a tinted fill and this arc creates no tinted-plate boundary. The entry is unchanged by this PR.
+- [ ] **7.2** **Do NOT touch `BL-CONTROL-OUTLINE-ON-TINTED-PLATES`.** An earlier draft had this task adding `components/admin/showpage/PublishedReviewModal.tsx:964` to it. That was a cross-path union error and is withdrawn (spec review R4 F3): scanner path 0 is `border-border` + `bg-surface-sunken`, scanner path 1 is `bg-warning-bg` with no outline token (indices, matching spec §3.6), so no render path carries the swapped outline on a tinted fill and this arc creates no tinted-plate boundary. The entry is unchanged by this PR.
 - [ ] **7.3** Add any new paired-chrome instance from Task 6 to `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT`.
 - [ ] **7.4** Archive `BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL`, **removing its `**Status:** IN PROGRESS · **Branch:**` marker in the same commit** — archives categorically reject in-progress entries, so the marker cannot ride along.
 - [ ] **7.5** **Ledger-seam conflict is expected** — several arcs edit `BACKLOG.md` concurrently, and four PRs in a row conflicted on it on 2026-08-18. Resolve with set arithmetic, not by eyeballing the hunk. The four ledger files are `BACKLOG.md`, `DEFERRED.md`, `BACKLOG-archive.md`, `DEFERRED-archive.md` (walked from disk by `scripts/lib/ledger-fields.ts`'s `ledgerFiles`, so do not hardcode the list in any new check):
