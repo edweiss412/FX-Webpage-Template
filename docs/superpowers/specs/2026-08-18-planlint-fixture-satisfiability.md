@@ -4,7 +4,7 @@
 
 A plan embeds a test block, constructs a fixture inside it, names a live production function, and asserts what that function emits for that fixture. Nothing executes the block, so the assertion is a claim about the parser rather than an observation of it — and twice on one arc the claim was false in the same direction: the constructed input never reached the assertion at all. Plan round 4's constructed markdown document had a header shape the named parser does not open a block on; spec round 6's `FOO BAR` snippet was the same defect one stage earlier (`docs/review-rounds/feat/mutation-section-order/40a7adfa5f29.md`, plan § and spec §).
 
-This contract makes such a block **declare** itself and then **runs** it against the live tree at plan-authoring time, with one discrimination that is the whole point: a block that fails because its constructed fixture could not reach the assertion is reported differently from a block that fails because the feature is not implemented yet. The second is the ordinary planned red. The first is this defect.
+This contract makes such a block **declare** itself and then **runs** it against the live tree at plan-authoring time. It answers exactly one question — did a stated premise fail? — and says so honestly when it cannot answer.
 
 Extends `pnpm spec:lint` (`scripts/spec-lint.ts`, core under `lib/specLint/`; governing spec `docs/superpowers/specs/2026-07-19-spec-lint.md`; red-contract arm `docs/superpowers/specs/2026-08-15-spec-lint-intent-red-arms.md`, hereafter "the arms spec"; verdict-capability arm `docs/superpowers/specs/2026-08-17-spec-lint-red-verdict-capability.md`, hereafter "the verdict spec", whose landed code this arm reuses seam-for-seam).
 
@@ -12,46 +12,46 @@ Extends `pnpm spec:lint` (`scripts/spec-lint.ts`, core under `lib/specLint/`; go
 
 ### 1.1 Explicitly resolved scope decisions (do not relitigate)
 
-1. **The ledger row's sketched mechanism is deliberately NOT what ships, and the substitution is probe-backed.** The row proposed that a snippet declare its parser in a fenced-block info string (` ```md parser=parseVenue `) so the linter could feed the snippet to that parser. Measured against the originating defect, that shape does not fit it: the r4 fixture is not a standalone markdown block, it is a string constructed **inside a `ts` test block** that already imports the live parser and already calls it (`docs/superpowers/plans/2026-08-15-field-near-miss-detector.md:119` constructs `v2md`, `docs/superpowers/plans/2026-08-15-field-near-miss-detector.md:121` calls `parseTransportation`, and `docs/superpowers/plans/2026-08-15-field-near-miss-detector.md:122` asserts on the result). The block is a complete, self-contained vitest file; it was never executed. Executing the block IS the satisfiability check, and it needs no parser-naming grammar because the block names its own parser in its own imports. The row itself assigns this call to the implementing arc ("the implementing arc owns that call"), so this is the row's own delegation exercised, not a silent scope change. The info-string grammar is additionally unavailable without a parser change: `parseDoc` keeps only the FIRST whitespace-delimited info-string token, lowercased (`lib/specLint/parse.ts:107`), and the corpus carries **zero** multi-token info strings (§2.1) — so that route costs a change to the shared fence parser and buys a grammar nothing uses.
-2. **Declared, never inferred — no recognizer over block bodies ships, at any severity.** A block is enrolled by an adjacent `<!-- fixture: -->` marker and by nothing else. There is no heuristic for "this block looks like it constructs a fixture", no scan for string literals fed to imported functions, no inference from `describe`/`it` text. This is the same posture, for the same reason, as the declared task-marker grain (`docs/agents/spec-self-review.md:36`: "The grain is **declared**, never inferred from heading text"). The consequence is stated plainly rather than hidden: an unenrolled block is checked by nothing, and today that is every block in the corpus (§2.2). An opt-in contract that costs nothing until it is used, and is self-enforcing once it is, beats a recognizer over 627 blocks of authored prose-adjacent TypeScript.
-3. **The premise sentinel is the discriminator, and it already exists.** `tests/_shared/premise.ts` throws `premise not met: <description>. <NOT_ABOUT_THE_CODE>` (`tests/_shared/premise.ts:29` and `tests/_shared/premise.ts:38`) and its own header states the contract this arm mechanizes: "a premise failure and an ordinary assertion failure call for opposite responses". Vitest's JSON reporter carries that message verbatim in `failureMessages` (§2.4). So a failing block is classified by whether its failure is a premise failure — no new helper, no new assertion vocabulary, no parsing of test bodies. A plan author makes a constructed fixture checkable by stating its premise executably, which `docs/agents/writing-plans.md` already requires of every guard.
-4. **Blocks run under the REPO's vitest configuration, spliced into `tests/`, not under a synthesized config.** Both seams were measured (§2.3): a synthesized config is 0.56 s and writes nothing into `tests/`, but it inherits none of the repo's setup files, environment matchers, or project partition, so a block can pass under it and fail in the suite it is destined for. Fidelity is the entire purpose of executing, so the spliced file lands under a path the repo's own `BASE_INCLUDE` collects (`vitest.projects.ts:34`, `tests/**/*.test.ts`) and the run costs 0.94 s for a whole doc. The write-into-`tests/` hazard is answered by the lifecycle in §4.2 (unique per-invocation directory, refuse-if-present, removal in a `finally`), not by wishing it away.
-5. **One vitest boot per DOC, not per block.** Measured: three spliced files, five tests, 0.94 s in a single run, with per-file results keyed by filename so the mapping back to marker lines is exact (§2.3). Per-block invocation would multiply a fixed ~0.9 s boot by the block count for no gain.
-6. **Execution rides `--exec-red`; no new flag.** The arms spec §1.1 item 4 ratified "execution mode is opt-in per invocation" and the verdict spec §1.1 item 4 extended that flag to derived collection probes on the same reasoning. Fixture execution is execution with the same opt-in rationale. The flag's name is now narrower than its meaning; renaming it (to `--exec` with an alias) is a separate change and is **out of scope** — do not propose it as a finding here.
-7. **This arm executes first-party TypeScript that a plan author wrote, and that is a deliberate, bounded posture.** `spec:lint` is a local pre-dispatch tool; the corpus is tracked, review-gated, first-party plan text; the author running `--exec-red` is the author of the block. This is the same trust boundary `--exec-red` already crosses by running `red=` commands through `sh -c` (arms spec §1.1 item 5) — a `red=` is arbitrary shell, which is strictly more than arbitrary in-repo TypeScript. Sandboxing, capability restriction, or static analysis of block bodies before execution are out of scope and file to documented limits (§8 item 6).
-8. **Static arm checks the MARKER only; nothing about a block's content is decided statically.** Marker well-formedness, attachment to an opening fence, and a non-empty `why=` are checked on the default invocation. Whether the block imports vitest, declares tests, compiles, or resolves its imports is settled by EXECUTION or not at all. This is the repair-direction rule (AGENTS.md: narrowing under recurrence) applied at design time rather than after the round that would have forced it: a static "does this look like a vitest file" check is a body recognizer that grows one grammar corner per review round, and the executable arm already answers the same question with an observation instead of a guess.
-9. **Decline-to-classify beats grammar growth.** Wherever the arm cannot observe an outcome — the runner did not complete, the JSON report is unreadable, an enrolled block's spliced file is absent from the results — it surfaces `FIXTURE_PROBE_UNVERIFIED` (advisory) naming the reason, and never reads a non-observation as either verdict. Repair direction under any same-axis review recurrence is NARROWING (a smaller accept-set plus a surfaced signal), never a wider recognizer.
-10. **Threat model: accidental authoring mistakes by an ordinary contributor.** A block engineered to emit the premise sentinel from an ordinary assertion, a block with deliberate side effects, a block whose behavior depends on invocation order — all adversarial obfuscation, out of scope, filing to documented limits (§8). Every admissibility clause in review briefs cites this fence and the probe domain in item 11.
-11. **Probe domain (finite, enumerable).** The live tracked plan corpus: `git ls-files 'docs/superpowers/plans'`, `.md` only — **659** files today (§2.1). A probe input is drawn from that corpus or is one ordinary edit away from an input in it. A constructed fixture outside that domain files to documented limits, not to a round.
-12. **Consequence bound (convergence criterion).** Every ENROLLED block is either (a) passed clean, (b) named by exactly one specific finding, or (c) declined with a surfaced `FIXTURE_PROBE_UNVERIFIED` — handled correctly OR signaled, never silently wrong. The per-block outcome is decided by the ordered precedence in §4.3, so two codes can never contest one block. A conservative decline plus a surfaced advisory is a DOCUMENTED LIMIT, not a finding. Mechanical convergence for the changed module is the mutation score plus an empty unaccepted-survivor set (§7).
-13. **The zero-false-fire calibration arc B carried does NOT exist here, and is not claimed.** The verdict spec could measure its arm against 70 live markers (its §2.4). This grammar is new, so the corpus contains **zero** enrolled blocks (§2.2) and a whole-corpus run of this arm is vacuously clean — that is not evidence and is not offered as any. Behavior is calibrated instead by (i) the historical defect re-enacted end to end against the live tree, both the defective and the repaired header shape (§2.4), and (ii) constructed fixture distillations per branch (§6). Do not read §2's numbers as a false-fire rate.
-14. **No CI gate, no legacy relint** (governing spec §1.1 items 2, 10, unchanged). Point-in-time pre-dispatch tool. Legacy impact is exactly zero by construction: no existing block carries a marker, so no existing plan changes its lint result.
+1. **One question, one hard verdict — and this is a NARROWING taken at the round cap, not an omission.** The arm reports `FIXTURE_UNSATISFIABLE` when a block's failure carries the premise sentinel, and otherwise either passes it clean on positive evidence or DECLINES with a surfaced advisory. It makes no claim about whether a block "passed", is "already green", or matches an author-declared outcome. Four consecutive spec review rounds landed on one axis — the verdict semantics of an earlier `expect=green|red` field — and each repair was a bigger target for the next: skipped assertions read as observed (§2.5), a file failing while every assertion passed (§2.6), a belt-and-braces conjunct that made the clean predicate unsatisfiable, and per-test hook failures that land on the assertion looking exactly like ordinary ones (§2.7). All four were defects in a general-purpose "did this block do what its author claimed" verifier, which is a far larger surface than the ledger row asks for. The row asks that an embedded snippet be executed through the parser the plan names and the actual emission pinned. The sentinel answers that; `expect=` answered a different, unbounded question. This is the AGENTS.md repair-direction rule — prefer deleting or deriving the mechanism over widening it, the `2d9d0ba11`-style kill — applied at the cap. **Re-proposing `expect=`, a pass/fail verdict, or a per-shape hard code for hook failures, empty collections, or skipped tests is out of scope.**
+2. **The ledger row's sketched mechanism is deliberately NOT what ships, and the substitution is probe-backed.** The row proposed that a snippet declare its parser in a fenced-block info string. Measured against the originating defect, that shape does not fit it: the r4 fixture is a string constructed **inside a `ts` test block** that already imports the live parser and already calls it (`docs/superpowers/plans/2026-08-15-field-near-miss-detector.md:119` constructs `v2md`, `docs/superpowers/plans/2026-08-15-field-near-miss-detector.md:121` calls `parseTransportation`, and `docs/superpowers/plans/2026-08-15-field-near-miss-detector.md:122` asserts on the result). The block is a complete, self-contained vitest file; it was never executed. Executing it IS the satisfiability check, and it needs no parser-naming grammar because the block names its own parser in its own imports. The row assigns this call to the implementing arc. The info-string route is additionally unavailable without a parser change: `parseDoc` keeps only the FIRST whitespace-delimited info-string token, lowercased (`lib/specLint/parse.ts:107`), and the corpus carries **zero** multi-token info strings (§2.1).
+3. **Declared, never inferred — no recognizer over block bodies ships, at any severity.** A block is enrolled by an adjacent `<!-- fixture: -->` marker and by nothing else. No heuristic for "this looks like a constructed fixture", no scan for string literals fed to imported functions, no inference from `describe`/`it` text. Same posture, same reason, as the declared task-marker grain (`docs/agents/spec-self-review.md:36`). The consequence is stated rather than hidden: an unenrolled block is checked by nothing, and today that is every block in the corpus (§2.2).
+4. **The premise sentinel is the discriminator, and it already exists.** `tests/_shared/premise.ts` throws `premise not met: <description>. <NOT_ABOUT_THE_CODE>` (`tests/_shared/premise.ts:29` and `tests/_shared/premise.ts:38`), and its own header states the contract this arm mechanizes: "a premise failure and an ordinary assertion failure call for opposite responses". Vitest's JSON reporter carries that message verbatim in `failureMessages` (§2.4). No new helper, no new assertion vocabulary, no parsing of test bodies.
+5. **Blocks run under the REPO's vitest configuration, spliced into `tests/`, not under a synthesized config.** Both seams were measured (§2.3): a synthesized config is faster and writes nothing into `tests/`, but inherits none of the repo's setup files, environment matchers, or project partition, so a block can pass under it and fail in the suite it is destined for. Fidelity is the purpose of executing, so the spliced file lands where the repo's own `BASE_INCLUDE` collects it (`vitest.projects.ts:34`). The write hazard is answered by the lifecycle in §4.2.
+6. **One vitest boot per DOC, not per block** (§2.3, measured: three files, five tests, 0.94 s, per-file results keyed by filename).
+7. **Execution rides `--exec-red`; no new flag.** The arms spec §1.1 item 4 ratified "execution mode is opt-in per invocation" and the verdict spec §1.1 item 4 extended that flag to derived collection probes on the same reasoning. Renaming it is a separate change and is out of scope.
+8. **This arm executes first-party TypeScript that a plan author wrote, unsandboxed, deliberately.** `spec:lint` is a local pre-dispatch tool; the corpus is tracked, review-gated, first-party plan text; the author running `--exec-red` is the author of the block. `--exec-red` already runs arbitrary shell through `sh -c` (arms spec §1.1 item 5), which is strictly more. Sandboxing is out of scope and files to documented limits (§8).
+9. **Static arm checks the MARKER only.** Marker well-formedness, attachment to an opening fence, and a non-empty `why=` are checked on the default invocation. Whether the block imports vitest, declares tests, compiles, or resolves its imports is settled by EXECUTION or not at all: a static "does this look like a vitest file" check is a body recognizer that grows one grammar corner per round, and execution answers the same question with an observation.
+10. **Decline-to-classify beats grammar growth.** Every case the arm cannot settle — a non-sentinel failure, an empty collection, a skipped assertion, a failed file, a missing report — draws ONE advisory, `FIXTURE_PROBE_UNVERIFIED`, naming the reason. Per-shape hard codes are what rounds 1 through 4 kept relitigating (item 1).
+11. **Threat model: accidental authoring mistakes by an ordinary contributor.** A block engineered to emit the premise sentinel from an ordinary assertion, a block with deliberate side effects, a block whose behavior depends on invocation order — adversarial obfuscation, out of scope, filing to documented limits (§8).
+12. **Probe domain (finite, enumerable).** The live tracked plan corpus: `git ls-files 'docs/superpowers/plans'`, `.md` only — **659** files (§2.1). An admissible probe input is drawn from that corpus or is one ordinary edit away from an input in it.
+13. **Consequence bound (convergence criterion).** Every ENROLLED block is passed clean, named by `FIXTURE_UNSATISFIABLE`, or declined with a surfaced `FIXTURE_PROBE_UNVERIFIED` — handled correctly OR signaled, never silently wrong. Exactly one outcome per block, by the ordered ladder in §4.3. A conservative decline plus a surfaced advisory is a DOCUMENTED LIMIT, not a finding. Mechanical convergence for the changed module is the mutation score plus an empty unaccepted-survivor set (§7).
+14. **No whole-corpus false-fire rate is claimed, because none can exist yet.** The grammar is new, so the corpus contains **zero** enrolled blocks (§2.2) and a whole-corpus run is vacuously clean. Behavior is calibrated instead by the historical defect re-enacted end to end against the live tree (§2.4) and by per-branch fixtures (§6).
+15. **No CI gate, no legacy relint** (governing spec §1.1 items 2, 10). Point-in-time pre-dispatch tool. Legacy impact is exactly zero: no existing block carries a marker.
 
 ### 1.2 Out of scope
 
-- Typechecking a block. Spliced blocks are transpiled, not typechecked — measured: a nonexistent named import resolves to `undefined` at runtime rather than failing (§2.4). The separate, already-mandated pre-dispatch typecheck pass (`docs/agents/writing-plans.md:25`) is neither replaced nor subsumed.
-- Any inference about unenrolled blocks (§1.1 item 2).
-- Executing snippets in non-vitest languages (`bash`, `sql`, `md`) — the fence's info string must be one of the accepted set (§3.1) and everything else draws `FIXTURE_UNATTACHED`.
-- Running committed probe FILES — that is `BL-SPEC-PROBE-RUNNABILITY`, a sibling row with a different subject (files on disk, not snippets embedded in prose).
-- Sandboxing or restricting what an enrolled block may do (§1.1 item 7).
-- Renaming `--exec-red` (§1.1 item 6).
-- Auto-fixing; CI wiring; relinting the legacy corpus.
+- Any author-declared expected outcome, and any verdict about whether a block passed (§1.1 item 1).
+- Typechecking a block. Spliced blocks are transpiled, not typechecked (§2.4). The separate, already-mandated pre-dispatch typecheck pass (`docs/agents/writing-plans.md:25`) is neither replaced nor subsumed.
+- Any inference about unenrolled blocks (§1.1 item 3).
+- Snippets in non-vitest languages — the fence's info string must be one of the accepted set (§3.1).
+- Running committed probe FILES — that is `BL-SPEC-PROBE-RUNNABILITY`, a sibling row whose subject is files on disk.
+- Sandboxing (§1.1 item 8); renaming `--exec-red` (item 7); auto-fixing; CI wiring; relinting the legacy corpus.
 
 ## 2. Measured calibration (probes are the design inputs)
 
-All numbers measured 2026-08-18 on this branch's worktree at base `7d09a1f0b` (arc B's merge commit), vitest 4.1.5. Probe transcripts are reproduced inline below rather than referenced, since each is short.
+All numbers measured 2026-08-18 on this branch's worktree at base `7d09a1f0b` (arc B's merge, PR #847), vitest 4.1.5.
 
 ### 2.1 Corpus shape
 
-`git ls-files 'docs/superpowers/plans'` `.md` files: **659**, of which **449** contain at least one fenced block; **5918** fenced blocks total across **19** distinct info strings. Info-string census (top): `ts` 2777, `bash` 1590, `tsx` 858, empty 268, `typescript` 136, `sql` 116, `js` 42, `markdown` 34, `yaml` 31, `json` 23, `text` 16, `sh` 7, `css` 7, `mdx` 6, `md` 3.
+`git ls-files 'docs/superpowers/plans'` `.md` files: **659**, of which **449** contain at least one fenced block; **5918** fenced blocks across **19** distinct info strings. Census (top): `ts` 2777, `bash` 1590, `tsx` 858, empty 268, `typescript` 136, `sql` 116, `js` 42, `markdown` 34, `yaml` 31, `json` 23, `text` 16, `sh` 7, `css` 7, `mdx` 6, `md` 3.
 
-**Multi-token info strings: 0.** No corpus block carries an attribute-bearing info string today, which is what makes §1.1 item 1's route both a parser change and a grammar with no users.
+**Multi-token info strings: 0**, which is what makes §1.1 item 2's route both a parser change and a grammar with no users.
 
 ### 2.2 Candidate population
 
-Of the 3771 `ts` / `tsx` / `typescript` blocks in that corpus, **627** are self-contained vitest files (they import from `"vitest"`), and **17** of those 627 use the premise helper. Enrolled blocks under this spec's grammar today: **0** (the grammar is new — §1.1 item 13).
+Of the 3771 `ts` / `tsx` / `typescript` blocks, **627** are self-contained vitest files (they import from `"vitest"`), and **17** of those use the premise helper. Enrolled blocks under this grammar today: **0**.
 
-The 627 is the population this contract is *available* to, not a population it fires on. A crude structural scan suggested on the order of 38 of them construct a fixture inline; that number is indicative only and is deliberately not load-bearing anywhere in this design, because no shipped code infers anything from block bodies (§1.1 item 2).
+The 627 is the population this contract is available to, not one it fires on. No shipped code infers anything from block bodies (§1.1 item 3), so no structural estimate of how many construct fixtures inline is load-bearing anywhere in this design.
 
 ### 2.3 Execution seam
 
@@ -63,9 +63,9 @@ The 627 is the population this contract is *available* to, not a population it f
 | CLI `--include` against the repo config, with and without `--project serial` | no report written, exit 1 — does not work with this repo's `projects` config | — |
 | three spliced files in ONE run, per-file results keyed by filename | 5 tests, exit 1 | 0.94 s |
 
-The first row is the trap that dictates §4.3's `FIXTURE_UNCOLLECTABLE` branch: a file the runner never collects exits **0**, so an unguarded arm would read "no failures" as "clean". It is the same shape the verdict spec closed for `red=` commands (its §2.3), reappearing one layer up.
+The first row is why an empty collection can never read as clean: a file the runner never collects exits **0**. It is the same shape the verdict spec closed for `red=` commands (its §2.3), one layer up.
 
-### 2.4 Discrimination, re-enacted against the live tree
+### 2.4 The discrimination, re-enacted against the live tree
 
 The historical defect, both shapes, run as spliced blocks (fixture text from `docs/superpowers/plans/2026-08-15-field-near-miss-detector.md:119`, parser `parseTransportation` from `lib/parser/blocks/transport.ts`):
 
@@ -78,27 +78,26 @@ The historical defect, both shapes, run as spliced blocks (fixture text from `do
      AssertionError: expected 1 to be 2 // Object.is equality
 ```
 
-The repaired header (three columns, as merged) satisfies the premise; the r4 header (two columns) fails it with the sentinel; an ordinary wrong-value assertion fails without it. That is the discrimination this arm rests on, observed rather than argued.
+The merged three-column header satisfies the premise; the r4 header fails it with the sentinel; an ordinary wrong-value assertion fails without it.
 
-**Non-observation shapes, all one signature.** An unresolvable import, a transform (syntax) error, and a file declaring no tests each report `status: "failed"` with an **empty `assertionResults` array** and a file-level `message`:
-
-```
-FILE d.test.ts status failed assertions 0 | msg: Cannot find package '@/lib/does/not/exist' imported from ...
-FILE e.test.ts status failed assertions 0 | msg: Transform failed with 1 error: ...
-FILE f.test.ts status failed assertions 0 | msg: No test suite found in file ...
-```
-
-**Transpile-only, confirmed:** importing a nonexistent NAMED export from a real module is not an error — it resolves to `undefined` and surfaces as an ordinary assertion failure. Hence §1.2's first bullet.
-
-### 2.5 Skipped assertions are present, unexecuted, and not failures
-
-A skipped test is REPORTED — it occupies an `assertionResults` entry with `status: "skipped"` — while its body never runs. Two spliced blocks, measured:
+**Non-observation shapes, one signature.** An unresolvable import, a transform (syntax) error, and a file declaring no tests each report `status: "failed"` with an **empty `assertionResults`** array and a file-level `message`:
 
 ```
-$ pnpm exec vitest run tests/.arcDskip --reporter=json
+FILE (unresolvable import) status failed assertions 0 | msg: Cannot find package '@/lib/does/not/exist' ...
+FILE (syntax error)        status failed assertions 0 | msg: Transform failed with 1 error: ...
+FILE (no tests declared)   status failed assertions 0 | msg: No test suite found in file ...
+```
+
+**Transpile-only, confirmed:** importing a nonexistent NAMED export from a real module is not an error — it resolves to `undefined` and surfaces as an ordinary assertion failure. Hence §1.2's typecheck bullet.
+
+### 2.5 A reported assertion is not an executed one
+
+A skipped test occupies an `assertionResults` entry with `status: "skipped"` while its body never runs:
+
+```
 vitest EXIT=0
 numTotal 4 passed 1 failed 0 pending 3
-FILE (all-skipped block) | file status: passed | assertionResults: 2
+FILE (all-skipped block)    | file status: passed | assertionResults: 2
     status=skipped | would assert something real     <- body is expect(1).toBe(2)
     status=skipped | and another                     <- body is expect(true).toBe(false)
 FILE (partly-skipped block) | file status: passed | assertionResults: 2
@@ -106,35 +105,36 @@ FILE (partly-skipped block) | file status: passed | assertionResults: 2
     status=skipped | never runs
 ```
 
-Both bodies in the all-skipped block would FAIL if executed; the run reports zero failures, a `passed` file status, and **exit 0**. So "present, non-empty, and no failures" is not evidence that anything was observed, and a classification resting on it would report a block that ran nothing as clean — silent corruption of exactly the kind §1.1 item 12 forbids. This is one ordinary edit from the corpus: `docs/superpowers/plans/2026-07-23-published-archived-tab-include.md:39` is a self-contained block that selects `describe.skip` at `docs/superpowers/plans/2026-07-23-published-archived-tab-include.md:48` when no loopback database is available. Hence the skipped-status branch of §4.3.
+Both bodies in the all-skipped block would FAIL if executed; the run reports zero failures, a `passed` file status, and **exit 0**. So "entries present, no failures" is not evidence that anything was observed.
 
-**The class, swept rather than the instance patched.** The shape is "a reported entry that was never executed", and `describe.skip` is not its only spelling. `.only` produces it too — a focused test passes while its sibling, whose body would fail, reports `status: "skipped"`, and the run exits 0:
-
-```
-$ pnpm exec vitest run tests/.arcDonly --reporter=json
-EXIT=0   total 3 passed 2 failed 0 pending 1
-FILE (only-gated block)  | file: passed
-    status=passed  | the focused one passes
-    status=skipped | this one would FAIL if it ran
-```
-
-That branch keys on the STATUS, not on the spelling that produced it, so `.skip`, `.only`, `.todo`, and a runtime-conditional `describe` are one rule and no enumeration of skip syntaxes ships. That is the narrowing form of the repair: the clean predicate got stricter, the recognizer did not get wider.
+`.only` produces the same shape — the non-focused sibling reports `status: "skipped"` while the run exits 0 — so the ladder keys on the STATUS, never on the spelling that produced it, and no enumeration of skip syntaxes ships.
 
 ### 2.6 A file can fail while every assertion passes
 
-A failing lifecycle hook fails the FILE without failing any test. Measured through the real CLI reporter:
+A throwing `afterAll` fails the FILE without failing any test:
 
 ```
-$ pnpm exec vitest run tests/.arcDhook --reporter=json
 vitest EXIT=1
 numTotal 1 passed 1 failed 0
 FILE status: failed | assertions: 1 | file message: ""
     status=passed | failures: 0 | the assertion itself passes
 ```
 
-The block's assertion passed, no assertion carries a failure, and the file is `failed`. An implementation that counts only assertion failures would read this as clean for `expect=green` and as `FIXTURE_ALREADY_GREEN` for `expect=red` — both wrong, and the first silently so. The corpus makes this ordinary rather than exotic: **27** `ts`/`tsx`/`typescript` vitest blocks across the 659-file plan corpus contain `afterAll`, so an accidentally throwing cleanup is one enrolment edit away.
+Note the file-level `message` is **empty** for this shape, though it carries text for the §2.4 collection failures. The corpus makes this ordinary: **27** `ts`/`tsx`/`typescript` vitest blocks across the 659-file plan corpus contain `afterAll`.
 
-Note the file-level `message` is **empty** here. It carries text for the collection failures in §2.4 and not for this shape, so `FIXTURE_FILE_FAILED`'s detail states the file status and treats the message as optional; a detail that assumed a message would render an empty explanation exactly where the operator needs one.
+### 2.7 A per-test hook failure is indistinguishable from an assertion failure
+
+`beforeEach` and `afterEach` failures are recorded on the TEST result, so the reporter emits a failed assertion with an ordinary-looking message:
+
+```
+vitest EXIT=1   total 2 passed 0 failed 2
+FILE (afterEach throws)  | file: failed
+    status=failed | failures: [ 'Error: AFTER_EACH_EXPLODED' ]
+FILE (beforeEach throws) | file: failed
+    status=failed | failures: [ 'Error: BEFORE_EACH_EXPLODED' ]
+```
+
+In the `beforeEach` case the body never executed at all, and nothing in the report distinguishes that from a genuine assertion failure. This measurement is why §4.3 declines on any non-sentinel failure instead of interpreting it: the channel does not carry what an interpretation would need, and four review rounds were spent discovering that one shape at a time.
 
 ## 3. Static arm — the marker (default invocation)
 
@@ -143,21 +143,19 @@ Note the file-level `message` is **empty** here. It carries text for the collect
 A fixture marker is a line matching, exactly:
 
 ```
-<!-- fixture: expect=`green|red` why=`<one line>` -->
+<!-- fixture: why=`<one line>` -->
 ```
 
-Backtick-delimited values, in the shape of the shipped gate marker (`lib/specLint/redContract.ts:37`). `expect=` admits exactly `green` and `red`; any other value fails the match and is therefore malformed, so no separate value-validation code exists.
+Backtick-delimited value, in the shape of the shipped gate marker (`lib/specLint/redContract.ts:37`). A marker is **attached** when the immediately following line opens a fence whose info string is `ts`, `tsx`, or `typescript` — the measured accepted set (§2.1 shows those three carry every self-contained vitest block).
 
-A marker is **attached** when the immediately following line opens a fence whose info string is `ts`, `tsx`, or `typescript` (the measured accepted set — §2.1 shows those three carry every self-contained vitest block). The enrolled block is that fence's content.
-
-Fixture markers are legal anywhere in a plan-kind doc and are owned by no task extent — the same posture as gate markers (arms spec §4.6), because a fixture block demonstrates a property of the live tree rather than participating in a task's red-then-green cycle. Marker-shaped lines inside a fence are inert, and marker-shaped lines in a spec-kind doc are prose (arms spec §8 items 12-13).
+Fixture markers are legal anywhere in a plan-kind doc and are owned by no task extent, the same posture as gate markers (arms spec §4.6): a fixture block demonstrates a property of the live tree rather than participating in a task's red-then-green cycle. Marker-shaped lines inside a fence are inert; in a spec-kind doc they are prose (arms spec §8 items 12-13).
 
 ### 3.2 Static codes
 
 All `check: "taskContract"`, anchored at the marker line, column 1, plan-kind docs only:
 
-- **`FIXTURE_MALFORMED`** (fail) — a `<!-- fixture:`-shaped line that does not match the grammar exactly. Covers a bad `expect=` value, a missing field, and a mangled delimiter, deliberately as one code: the author's repair is the same in every case, which is to write the declared shape.
-- **`FIXTURE_WHY_EMPTY`** (fail) — the `why=` capture is empty or whitespace. A block that runs and whose purpose is unstated is a verdict nobody can act on; same rationale as `RED_WHY_MISSING` (arms spec §4.2).
+- **`FIXTURE_MALFORMED`** (fail) — a `<!-- fixture:`-shaped line that does not match the grammar exactly. One code for a missing field, a mangled delimiter, or trailing text: the author's repair is the same in every case.
+- **`FIXTURE_WHY_EMPTY`** (fail) — the `why=` capture is empty or whitespace. Same rationale as `RED_WHY_MISSING` (arms spec §4.2).
 - **`FIXTURE_UNATTACHED`** (fail) — a well-formed marker whose next line does not open a `ts` / `tsx` / `typescript` fence. Detail names what the next line was.
 
 Cost is zero spawns: all three are pure text checks on the parsed model.
@@ -166,14 +164,14 @@ Cost is zero spawns: all three are pure text checks on the parsed model.
 
 ### 4.1 Population
 
-Every attached, well-formed fixture marker's block, in doc order, in a plan-kind doc, under `--exec-red` and only then (§1.1 item 6). Blocks whose marker drew a static finding are excluded: splicing a block whose declaration is malformed would run code whose expected outcome is unknown.
+Every attached, well-formed fixture marker's block, in doc order, in a plan-kind doc, under `--exec-red` and only then. Blocks whose marker drew a static finding are excluded: splicing a block whose declaration is malformed runs code for no verdict.
 
 ### 4.2 Splice lifecycle
 
 The adapter, once per doc:
 
-1. Chooses `tests/.spec-lint-fixtures-<pid>-<counter>/` under the repo root. If that directory already exists, the arm runs NO blocks and every enrolled block draws `FIXTURE_PROBE_UNVERIFIED` naming the collision — a stale directory is a loud non-observation, never a silent overwrite of somebody else's live splice.
-2. Writes each enrolled block into that directory verbatim, one vitest test file per block, each filename carrying its marker line and the suffix the include glob requires. That is how per-file results map back (§2.3 measured that per-file keying is exact).
+1. Chooses `tests/.spec-lint-fixtures-<pid>-<counter>/` under the repo root. If that directory already exists, the arm runs NO blocks and every enrolled block draws `FIXTURE_PROBE_UNVERIFIED` naming the collision — a stale directory is a loud non-observation, never a silent overwrite of another session's live splice.
+2. Writes each enrolled block into that directory verbatim, one vitest test file per block, each filename carrying its marker line and the suffix the include glob requires. That is how per-file results map back (§2.3 measured per-file keying as exact).
 3. Runs ONE `vitest run <dir> --reporter=json --outputFile=<dir>/report.json` through the existing spawn seam (`deps.spawn`, repo-root cwd, the same `SPEC_LINT_EXEC_TIMEOUT_SECS` ceiling as red commands), reads the report, and hands the core a pure outcome map.
 4. Removes the directory in a `finally`, so an exception, a timeout, or a signal cannot leave a file under `tests/`.
 
@@ -181,20 +179,16 @@ The directory is gitignored (§9) so a crash between steps 2 and 4 cannot dirty 
 
 ### 4.3 Classification, in precedence order
 
-For each enrolled block, the core evaluates these in order and emits **exactly one** outcome (§1.1 item 12):
+For each enrolled block, the core evaluates these in order and emits **exactly one** outcome:
 
-1. The block's file is absent from the report, or no report was produced (runner did not complete, timed out, was signalled, or wrote unreadable JSON) → **`FIXTURE_PROBE_UNVERIFIED`** (advisory), detail naming the reason.
-2. The file is present with an **empty `assertionResults`** array → **`FIXTURE_UNCOLLECTABLE`** (fail), detail carrying the file-level `message` head. This is the unresolvable-import / syntax-error / no-test-suite family (§2.4) and the outside-the-globs trap (§2.3). It is HARD, not advisory, because the run completed and reported a deterministic, author-fixable property of the block — an observation, unlike the non-observations in the branch above.
-3. The file's reported status is `failed` while ZERO assertion entries have a failed status → **`FIXTURE_FILE_FAILED`** (fail), detail naming the file status and the file-level message when it is non-empty (§2.6 measures it empty for this shape). The file failed for a reason outside its assertions — a throwing `afterAll`/`beforeAll`, an unhandled rejection — so neither `expect=` value has been observed. The predicate cannot collide with the sentinel branch below: a failed premise IS a failed assertion, so where one exists this branch does not fire and the sharper diagnosis wins.
-4. Any failure message on the file carries the premise sentinel `premise not met:` → **`FIXTURE_UNSATISFIABLE`** (fail), detail naming each such premise description. **This branch outranks both `expect=` branches below**, in both directions: a block declared `red` whose redness comes from an unsatisfiable premise has observed nothing, which is precisely the defect this spec exists to catch, and a block declared `green` gets the more specific diagnosis rather than the generic one.
-5. Any assertion entry carries a NON-EXECUTED status (`skipped`, `pending`, or `todo`) → **`FIXTURE_ASSERTIONS_SKIPPED`** (fail), detail naming each such test title. One rule covers both shapes §2.5 measured — every assertion skipped, and some skipped beside executed siblings — because a declared outcome is a claim about the WHOLE block, and a skipped assertion was not observed in either direction. It is placed after the sentinel branch (a premise failure is the sharper diagnosis and the block demonstrably ran) and before both `expect=` branches, which is the minimal placement that closes the silent-clean hole: reading "no failures" as green over an unexecuted body is the corruption, and the environment-gated block is its ordinary, non-adversarial instance.
-6. `expect=green` and at least one ASSERTION entry failed → **`FIXTURE_NOT_GREEN`** (fail), detail naming the first failing test title and message head. "Assertion" is load-bearing here rather than "the file reports any failure": a file-level failure with no failed assertion is the §2.6 shape and was consumed above, and leaving the looser wording is what let an implementation counting only assertion failures satisfy every listed test while misreading it.
-7. `expect=red` and NO assertion entry failed → **`FIXTURE_ALREADY_GREEN`** (fail), detail naming the block's test count. Mirrors `RED_ALREADY_GREEN` (`lib/specLint/redContract.ts:439`): a block asserted to demonstrate an absent behavior, which the live tree already has, demonstrates nothing.
-8. Otherwise → clean. That is every assertion executed, and either `expect=green` with no assertion failure or `expect=red` with at least one ordinary (non-premise) assertion failure.
+1. The block's file is absent from the report, or no report was produced (runner did not complete, timed out, was signalled, or wrote unreadable JSON), or the splice directory collided (§4.2 step 1) → **`FIXTURE_PROBE_UNVERIFIED`** (advisory), detail naming the reason.
+2. Any failure message on the file carries the premise sentinel `premise not met:` → **`FIXTURE_UNSATISFIABLE`** (fail), detail naming each such premise description. This is the arm's only hard verdict and the defect it exists to catch: a stated premise about the constructed fixture did not hold against the live tree.
+3. **Positive evidence of a clean observation:** every assertion entry has an EXECUTED status, at least one passed, none failed, and the file's reported status is not `failed` → clean.
+4. Otherwise → **`FIXTURE_PROBE_UNVERIFIED`** (advisory), detail naming which condition of the branch above did not hold: no assertion entries at all (§2.3, §2.4), a non-executed assertion status (§2.5), a non-sentinel assertion failure (§2.7), or a failed file with every assertion passing (§2.6).
 
-**The file status is consulted in exactly one place, and that is deliberate.** Vitest marks a file `failed` whenever any test fails, so after the file-status branch above has consumed the one case the channel uniquely reports — a file that failed while nothing asserted failed — the status carries no information the assertion channel does not already carry. Every branch below it is therefore scoped to ASSERTION failures alone. An earlier draft added `status is not failed` to this clean predicate as belt-and-braces; it was neither, because an ordinary `expect=red` block with a genuine assertion failure has a `failed` file, so the conjunct made the predicate unsatisfiable and left that case matching no branch at all.
+**Why the last branch declines rather than diagnoses.** Every shape it catches was, at some point in this spec's review, a hard code of its own with its own verdict semantics, and each one was wrong in a way the next round found (§1.1 item 1). The measurements say why: a non-sentinel failure may be a real assertion failure or a `beforeEach` that prevented the body from running, and the report does not distinguish them (§2.7). Declining is the only honest reading, and the bound is satisfied because the decline is surfaced with its reason.
 
-**Positions are named in §4.3 and nowhere else.** The ladder's order is one fact; a second copy of it — "branch 4" in a table, an AC, a test title, a task body — is a copy that goes stale the next time a branch is inserted, and it did, twice, in consecutive review rounds. So every reference outside §4.3 names the CODE or the CONDITION, never an ordinal, and §4.3 is the only place an ordinal appears. The check is mechanical rather than remembered: `rg -n 'branch [0-9]|condition [0-9]' docs/superpowers/specs/2026-08-18-planlint-fixture-satisfiability.md docs/superpowers/plans/2026-08-18-planlint-fixture-satisfiability.md` must return only lines inside §4.3, and the plan runs it as a closeout sweep (plan §3.2).
+The clean branch requires POSITIVE evidence — something executed and passed — rather than the absence of failures, because §2.3 and §2.5 both measured absence-of-failure on a block where nothing ran.
 
 ### 4.4 Finding shapes
 
@@ -203,64 +197,63 @@ For each enrolled block, the core evaluates these in order and emits **exactly o
 | `FIXTURE_MALFORMED` | fail | §3.2, static |
 | `FIXTURE_WHY_EMPTY` | fail | §3.2, static |
 | `FIXTURE_UNATTACHED` | fail | §3.2, static |
-| `FIXTURE_UNSATISFIABLE` | fail | §4.3 — a failure carries the premise sentinel: the constructed fixture cannot reach the assertion |
-| `FIXTURE_UNCOLLECTABLE` | fail | §4.3 — no assertion entries at all: the block collected no tests |
-| `FIXTURE_ASSERTIONS_SKIPPED` | fail | §4.3 — an assertion was reported but never executed (§2.5) |
-| `FIXTURE_FILE_FAILED` | fail | §4.3 — the FILE status is `failed` while no assertion failed (§2.6) |
-| `FIXTURE_NOT_GREEN` | fail | §4.3 — `expect=green` and at least one ASSERTION failed |
-| `FIXTURE_ALREADY_GREEN` | fail | §4.3 — `expect=red` and NO assertion failed |
-| `FIXTURE_PROBE_UNVERIFIED` | advisory | §4.2 step 1 collision; §4.3 — the block is absent from the report |
+| `FIXTURE_UNSATISFIABLE` | fail | §4.3 — a failure carries the premise sentinel |
+| `FIXTURE_PROBE_UNVERIFIED` | advisory | §4.3 — the arm could not observe a clean run, with the reason named |
+
+Five codes, one of them the verdict. **Positions are named in §4.3 and nowhere else:** the ladder's order is one fact, and a second copy of it in a table, an AC, or a test title goes stale the next time a branch moves — which it did, twice, in consecutive review rounds. Every reference outside §4.3 names the CODE or the CONDITION. The check is mechanical: `rg -n 'branch [0-9]|condition [0-9]'` over this spec and its plan must return only lines inside §4.3, and the plan runs it as a closeout sweep (plan §3.2).
 
 ## 5. Architecture & purity
 
 ```
-scripts/spec-lint.ts           # adapter: splice dir lifecycle, one vitest run, JSON read, outcome injection
+scripts/spec-lint.ts            # adapter: splice dir lifecycle, one vitest run, JSON read, outcome injection
 lib/specLint/fixtureContract.ts # NEW, pure: marker grammar, attachment, splice plan, classification
-lib/specLint/run.ts            # carries the new outcome map core-ward, same pattern as ExecResults/ProbeResults
-lib/specLint/types.ts          # FixtureOutcome / FixtureResults (no runner or fs type crosses the boundary)
+lib/specLint/run.ts             # carries the new outcome map core-ward, same pattern as ExecResults/ProbeResults
+lib/specLint/types.ts           # FixtureOutcome / FixtureResults (no runner or fs type crosses the boundary)
 ```
 
-- **Purity holds** (`tests/specLint/_metaPureCore.test.ts` covers the tree by default): every new core function is a pure map from `(model, outcome map)` to plans or findings. The adapter alone writes files, spawns, and reads JSON. Outcome injection mirrors `ExecResults` and `ProbeResults` exactly.
-- **No new fence parsing.** Enrolment reads `model.lines` and `model.fencedInfo` from the existing `parseDoc` (`lib/specLint/parse.ts`). `parse.ts` is NOT modified — §1.1 item 1's rejected route was the only thing that needed it, and a second fence recognizer would be two chances to disagree about what a block IS.
-- **New module, not an extension of `redContract.ts`.** The subjects are disjoint (that module owns `red=` field semantics; this one owns embedded blocks), and `redContract.ts` is already 934 lines carrying three arms.
+- **Purity holds** (`tests/specLint/_metaPureCore.test.ts` walks the core tree recursively, so a new file is covered by default): every new core function is a pure map from `(model, outcome map)` to plans or findings. The adapter alone writes files, spawns, and reads JSON. Outcome injection mirrors `ExecResults` and `ProbeResults`.
+- **No new fence parsing.** Enrolment reads `model.lines` and `model.fencedInfo` from the existing `parseDoc`. `parse.ts` is NOT modified — §1.1 item 2's rejected route was the only thing that needed it, and a second fence recognizer would be two chances to disagree about what a block IS.
+- **New module, not an extension of `redContract.ts`.** The subjects are disjoint, and that module is already 934 lines carrying three arms.
 - **Finding plumbing:** all findings report `check: "taskContract"`; `CHECK_ORDER` (`lib/specLint/run.ts:30`) unchanged.
 
 ## 6. Testing
 
-All under `tests/specLint/`, TDD per task, anti-tautology rules of `docs/agents/writing-plans.md` in force (fixtures plant specific defects; assertions name the exact code and a line derived from fixture construction; premises via `tests/_shared/premise.ts` where an assertion rests on a fixture property).
+All under `tests/specLint/`, TDD per task, anti-tautology rules of `docs/agents/writing-plans.md` in force.
 
-- **Marker grammar suite (pure):** the exact shape parses; each malformation draws `FIXTURE_MALFORMED` (bad `expect=` value, missing `why=`, missing delimiter, trailing text); empty and whitespace `why=` draw `FIXTURE_WHY_EMPTY`; attachment holds for `ts` / `tsx` / `typescript` and fails for `bash` / `md` / a blank line / prose / EOF, each drawing `FIXTURE_UNATTACHED`; a marker inside a fence is inert; a marker in a spec-kind doc draws nothing.
-- **Splice-plan suite (pure):** plan entries carry line, block text verbatim (byte-identical, including blank lines and trailing whitespace), and declared `expect`; statically-flagged markers are excluded from the plan (asserted directly, the same exclusion shape as `planExecutions`); doc order preserved.
-- **Classification suite (pure, fake outcome maps):** every §4.3 branch in order — the fake outcome carries the reporter's FILE status and each assertion's own status, not counts, since §2.5 and §2.6 are both invisible to a count — plus every precedence contest stated as its own case — premise sentinel beats `expect=green`, premise sentinel beats `expect=red`, empty `assertionResults` beats everything below it, the sentinel beats a skipped assertion, and a skipped assertion beats both `expect=` branches; the all-skipped `expect=green` shape measured in §2.5 (assertions present, zero failures, file status `passed`) draws `FIXTURE_ASSERTIONS_SKIPPED` and never clean; a partially-skipped block draws it too, even though a sibling executed and passed; a failed file with every assertion passed draws `FIXTURE_FILE_FAILED` in both `expect=` directions, and does NOT fire when an assertion also failed (the sentinel or the ordinary branches own that case); a block absent from the report draws the advisory and never a hard code; a null map (static invocation) draws zero §4 findings.
-- **CLI adapter suite** (extends `tests/specLint/cli.test.ts`; real subprocesses, trivial blocks only — no heavy phases): a fixture plan whose enrolled block fails a premise → exit 1 with `FIXTURE_UNSATISFIABLE`; the same plan with the repaired fixture → exit 0; an `expect=red` block that passes → `FIXTURE_ALREADY_GREEN`; an unresolvable-import block → `FIXTURE_UNCOLLECTABLE`; a pre-existing splice directory → `FIXTURE_PROBE_UNVERIFIED` and **no vitest spawn at all** (asserted with a spy recording zero calls — a fence proved before any observation, per the #831 lesson); the splice directory is absent after every run including the failing ones (asserted by existence check in a `finally`-covering case). Plus, through the REAL reporter: an `expect=green` block whose `describe` is skipped draws `FIXTURE_ASSERTIONS_SKIPPED` — §2.5's shape exits 0, so only a real run proves the adapter surfaces the per-assertion statuses the core needs.
+- **Marker grammar suite (pure):** the exact shape parses; each malformation draws `FIXTURE_MALFORMED` (missing `why=`, mangled delimiter, trailing text); empty and whitespace `why=` draw `FIXTURE_WHY_EMPTY`; attachment holds for `ts` / `tsx` / `typescript` and fails for `bash` / `md` / a blank line / prose / EOF; a marker inside a fence is inert; a marker in a spec-kind doc draws nothing.
+- **Splice-plan suite (pure):** one entry per attached well-formed marker, block text byte-identical (blank lines and trailing whitespace preserved), doc order, statically-flagged markers excluded (asserted directly, the same exclusion shape as `planExecutions`).
+- **Classification suite (pure, fake outcome maps):** the fake outcome carries the reporter's FILE status, each assertion's own status, and the failure messages, because §2.5, §2.6 and §2.7 each measured one of those three carrying information the other two do not. Every §4.3 branch in order, plus: the sentinel beats a skipped assertion and beats a non-sentinel failure; the all-skipped shape (§2.5) declines and never reads clean; the `afterAll` shape (§2.6) declines; the `beforeEach`/`afterEach` shape (§2.7) declines rather than reading as an ordinary failure; an empty entry list declines; a block absent from the report declines; a clean observation requires at least one PASSED assertion, so a file with entries but none passed never reads clean; a null map (static invocation) draws zero §4 findings.
+- **CLI adapter suite** (extends `tests/specLint/cli.test.ts`; real subprocesses, trivial blocks only — no heavy phases): a fixture plan whose enrolled block fails a premise → exit 1 with `FIXTURE_UNSATISFIABLE`; the same plan with the repaired fixture → exit 0; an unresolvable-import block → the advisory; a block whose `describe` is skipped → the advisory, through the REAL reporter, since §2.5's shape exits 0 and only a real run proves the adapter surfaces per-assertion statuses; a pre-existing splice directory → the advisory with **no vitest spawn at all** (asserted with a spy recording zero calls — a fence proved before any observation); the splice directory absent after every case including the failing ones.
 - **Historical re-enactment (the calibration case, executable):** the §2.4 pair shipped as two fixture plans — the r4 two-column header drawing `FIXTURE_UNSATISFIABLE`, the merged three-column header clean — so the defect this spec exists to catch is pinned by the defect itself rather than by a synthetic analogue.
-- **Corpus regression:** the tracked plan corpus relints byte-identical (zero enrolled blocks today, §2.2), asserted rather than assumed.
+- **Corpus regression:** the tracked plan corpus relints byte-identical (zero enrolled blocks, §2.2), asserted rather than assumed.
 - **Dogfood:** this spec and its plan exit 0 hard under `pnpm spec:lint`, attached to every review dispatch (`docs/agents/spec-self-review.md:25`).
 
 ## 7. Mutation enrolment (before the first review dispatch)
 
 <!-- spec-lint: ignore — the module this spec creates is untracked until the implementing PR lands; the path is a forward declaration, not a citation of existing code -->
-`lib/specLint/fixtureContract.ts` is a guard surface whose defect class is exactly "reports OK while the output moved", so enrolment precedes review (AGENTS.md convergence-criterion bullet 4). It ships as an importable module with referring suites from the start — never a terminal CLI script — and gets a `tests/mutation/source/registry.ts` row (`id: "fixtureContract"`, `sourcePath`, `suitePaths` naming the suites in §6 whose assertions decide it, `operators: [...OPERATOR_NAMES]`, `scoreFloor: 0.95`, a `control` mutant, `accepted: []`), following the `redContract` row (`tests/mutation/source/registry.ts:525`) verbatim in shape.
 
-`pnpm mutation:guards` runs BEFORE the round-1 diff dispatch, and that brief states the score plus an empty unaccepted-survivor set. Deciding assertions live inside the surface's registered `suitePaths` — test placement outside them buys zero score (the #831 lesson).
+`lib/specLint/fixtureContract.ts` is a guard surface whose defect class is exactly "reports OK while the output moved", so enrolment precedes review (AGENTS.md convergence-criterion bullet 4). It ships as an importable module with referring suites from the start — never a terminal CLI script — and gets a `tests/mutation/source/registry.ts` row (`id: "fixtureContract"`, `sourcePath`, `suitePaths` naming the §6 suites whose assertions decide it, `operators: [...OPERATOR_NAMES]`, `scoreFloor: 0.95`, a `control` mutant, `accepted: []`), following the `redContract` row (`tests/mutation/source/registry.ts:525`) verbatim in shape.
+
+`pnpm mutation:guards` runs BEFORE the round-1 diff dispatch, and that brief states the score plus an empty unaccepted-survivor set. Deciding assertions live inside the surface's registered `suitePaths` — placement outside them buys zero score (the #831 lesson).
 
 ## 8. Documented limits (round 0)
 
-1. **An unenrolled block is checked by nothing** (§1.1 item 2), and today that is all 627 self-contained blocks. The contract is opt-in by construction; adoption is an authoring decision, not a lint outcome.
-2. **A block is transpiled, not typechecked** (§2.4): a nonexistent named import resolves to `undefined` rather than erroring. The separate pre-dispatch typecheck pass still applies (§1.2).
-3. **A premise-free constructed fixture is invisible to this arm.** The discrimination rests on the author having stated the premise executably; a block that constructs an unsatisfiable fixture and asserts on it without a premise fails as an ordinary assertion and reads as a legitimate `expect=red`. This arm mechanizes the CHECK, not the authoring discipline that `docs/agents/writing-plans.md` already mandates.
-4. **Ambient environment is trusted.** A block runs with whatever env vars, gated vitest projects, and local DB state the invoking shell carries — the same ambient-trust posture as `--exec-red` itself (arms spec §1.1 item 5). A block that passes locally may not pass in CI.
-5. **Cost is the block's.** A block that boots a heavy phase makes the lint a heavy phase; the flag is opt-in precisely so the cost is chosen. The heavy-phase discipline (AGENTS.md) stays the caller's, exactly as ratified for `--exec-red`.
-6. **No sandboxing** (§1.1 item 7). An enrolled block may do anything the invoking user can do. Adversarially constructed blocks — including one that emits the premise sentinel string from an ordinary assertion, which would be misreported as `FIXTURE_UNSATISFIABLE` — are out of the threat fence (§1.1 item 10).
-7. **Concurrent invocations in one worktree.** Two `--exec-red` runs against the same worktree get distinct splice directories (pid + counter), but a full-suite run started concurrently in that worktree can observe a live splice directory during its ~1 s window. Bounded and accepted; the `finally` removal and the gitignore entry keep the window short and the tree clean.
-8. **An environment-gated block cannot be a satisfiability witness.** A block that selects `describe.skip` on an absent database, missing env var, or platform draws `FIXTURE_ASSERTIONS_SKIPPED` wherever it is enrolled, and no `expect=` value makes it clean. That is deliberate rather than a gap: whether such a block ran is a property of the machine, so its outcome cannot support a claim about the live tree. The author's repair is to construct the environment or to split the ungated assertions into their own enrolled block — the same posture `docs/agents/writing-plans.md` already takes on premises ("where the environment CAN be constructed, construct it").
-9. **An expected-failure construct inverts the verdict this arm reads.** Measured: `it.fails()` with a failing body reports `status: "passed"` and zero failures. An `expect=red` block built that way therefore draws `FIXTURE_ALREADY_GREEN` — hard and surfaced, so the bound holds, but the code names the wrong cause. The arm reads vitest's verdict and does not model constructs that inverting it; a block mixing `it.fails()` with a declared `expect=` is a documented limit, not a finding.
-10. **Only vitest.** A block in another runner's dialect is not executed; the accepted info strings are the measured three (§3.1). A new runner is an accept-set change with its own corpus numbers, not a review round.
+1. **An unenrolled block is checked by nothing** (§1.1 item 3), and today that is all 627 self-contained blocks. Adoption is an authoring decision, not a lint outcome.
+2. **A block is transpiled, not typechecked** (§2.4). The separate pre-dispatch typecheck pass still applies.
+3. **A premise-free constructed fixture is invisible to this arm.** The discrimination rests on the author having stated the premise executably; a block that constructs an unsatisfiable fixture and asserts on it without a premise draws the decline, not the verdict. This arm mechanizes the CHECK, not the authoring discipline `docs/agents/writing-plans.md` already mandates.
+4. **The arm makes no claim about whether a block passed** (§1.1 item 1). A block whose feature assertions legitimately fail draws the decline; the author's repair, if they want a clean observation, is to split the premise witness into its own enrolled block. A declined block is a documented limit by construction, never a finding.
+5. **An environment-gated block cannot be a satisfiability witness.** A block selecting `describe.skip` on an absent database or missing env var draws the decline wherever it is enrolled, because whether it ran is a property of the machine. The repair is to construct the environment or split the ungated assertions out — the posture `docs/agents/writing-plans.md` already takes on premises.
+6. **Hook failures decline rather than diagnose** (§2.6, §2.7). A throwing `afterAll` and a throwing `beforeEach` are both surfaced as unobserved; the report does not carry what telling them apart from an assertion failure would need.
+7. **Ambient environment is trusted.** A block runs with whatever env vars, gated projects, and local DB state the invoking shell carries — the same posture as `--exec-red` itself (arms spec §1.1 item 5).
+8. **Cost is the block's.** A block that boots a heavy phase makes the lint a heavy phase; the flag is opt-in precisely so the cost is chosen.
+9. **No sandboxing** (§1.1 item 8). An adversarially constructed block — including one emitting the sentinel string from an ordinary assertion — is outside the threat fence (§1.1 item 11).
+10. **Concurrent invocations in one worktree.** Two `--exec-red` runs get distinct splice directories (pid plus counter), but a full-suite run started concurrently in that worktree can observe a live splice directory during its roughly one-second window. Bounded and accepted.
+11. **Only vitest.** A block in another runner's dialect is not executed; the accepted info strings are the measured three (§3.1). A new runner is an accept-set change with its own corpus numbers, not a review round.
 
 ## 9. Wiring & docs (same PR)
 
 - `package.json`: no new script (everything rides `spec:lint` and its existing flag).
-- `.gitignore`: one entry for `tests/.spec-lint-fixtures-*/`, added with `printf '\n%s\n'` and verified with `git check-ignore -v` (the `echo >>` discipline in `docs/agents/writing-plans.md:31`).
+- `.gitignore`: one entry for `tests/.spec-lint-fixtures-*/`, added with `printf` and verified with `git check-ignore -v` (the append discipline in `docs/agents/writing-plans.md:31`).
 - `docs/agents/writing-plans.md`: one sentence on the fixture marker, under the anti-tautology rule's premise bullet where the authoring discipline it mechanizes already lives.
 - `BACKLOG.md`: the row archived per house convention (marker off in the PR's last commit, invariant 12).
 - `docs/superpowers/specs/README.md`: one row for this spec.
@@ -270,10 +263,9 @@ All under `tests/specLint/`, TDD per task, anti-tautology rules of `docs/agents/
 
 - AC-1: the marker grammar parses the exact declared shape; every malformation draws `FIXTURE_MALFORMED`; an empty `why=` draws `FIXTURE_WHY_EMPTY`; a marker not followed by a `ts` / `tsx` / `typescript` fence opener draws `FIXTURE_UNATTACHED`; markers inside fences and in spec-kind docs draw nothing.
 - AC-2: no shipped code inspects an unenrolled block's content, at any severity (asserted structurally, not by sampling).
-- AC-3: under `--exec-red`, the §4.3 ladder holds condition by condition, including every precedence contest: premise sentinel over `expect=green`, premise sentinel over `expect=red`, no-assertion-entries over both, sentinel over a skipped assertion, skipped assertion over both `expect=` branches, and a failed FILE with no failed assertion over both (§2.6 — that shape exits 1 with `numFailedTests: 0`). The all-skipped `expect=green` block, which exits 0 with zero failures, must never read clean (§2.5).
-- AC-3b: the file status is read by exactly one branch; every other branch is scoped to assertion failures, so an ordinary `expect=red` block with a real assertion failure (whose FILE is `failed`) classifies clean. No ordinal appears outside §4.3 in either document, proved by the sweep in plan §3.2.
-- AC-4: the §2.4 historical pair reproduces — the r4 two-column header draws `FIXTURE_UNSATISFIABLE`, the merged three-column header is clean.
-- AC-5: a pre-existing splice directory spawns nothing (spy asserts zero calls) and draws `FIXTURE_PROBE_UNVERIFIED`; the splice directory is absent after every run, including runs whose vitest invocation fails or times out.
+- AC-3: under `--exec-red`, §4.3 assigns exactly one outcome to every combination of (report present or absent, entries none or some, per-assertion statuses, failure messages sentinel or non-sentinel, file status), and the clean reading requires positive evidence — at least one PASSED assertion, every assertion executed, no failure, file status not `failed`.
+- AC-4: the §2.4 historical pair reproduces — the r4 two-column header draws `FIXTURE_UNSATISFIABLE`, the merged three-column header is clean. The §2.5, §2.6 and §2.7 shapes each draw the advisory with their own reason named, and none draws a hard code.
+- AC-5: a pre-existing splice directory spawns nothing (spy asserts zero calls) and draws the advisory; the splice directory is absent after every run, including runs whose vitest invocation fails or times out.
 - AC-6: statically-flagged markers are excluded from the splice plan; a static invocation draws zero §4 findings; the tracked plan corpus relints byte-identical.
-- AC-7: purity meta-test passes; `parse.ts` is unmodified; `fixtureContract` scores ≥ 0.95 with an empty unaccepted-survivor set, stated in the round-1 brief.
+- AC-7: purity meta-test passes; `parse.ts` is unmodified; `fixtureContract` scores at or above 0.95 with an empty unaccepted-survivor set; no ordinal appears outside §4.3 in either document, proved by the sweep in plan §3.2.
 - AC-8: this spec and the implementation plan lint clean (`0 hard`) through the shipped `spec:lint` at dispatch time.

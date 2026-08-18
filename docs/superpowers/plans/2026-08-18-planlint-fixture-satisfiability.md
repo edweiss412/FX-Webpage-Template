@@ -67,13 +67,13 @@ FILE block2-L179.test.ts status failed assertions 2
     - failed | a malformed marker surfaces through runLint with NO exec maps
       AssertionError: expected [] to deeply equal [ 'FIXTURE_MALFORMED' ]
 FILE block3-L215.test.ts status failed assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' imported from ...
-FILE block4-L256.test.ts status failed assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' imported from ...
-FILE block5-L415.test.ts status failed assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' imported from ...
+FILE block4-L255.test.ts status failed assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' imported from ...
+FILE block5-L373.test.ts status failed assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' imported from ...
 ```
 
 Read exactly: **four** blocks red at module resolution naming the absent module, and **one** — Task 2's, which imports only tracked modules — red at its assertion, `expected [] to deeply equal [ 'FIXTURE_MALFORMED' ]`, which is the stronger evidence of the two (it proves the five-argument `runLint` call compiles and that the orchestrator genuinely emits nothing today). No block failed at transform.
 
-This run is the RE-execution after the spec round 3 repair, which scoped the clean predicate to assertion failures and retitled Task 4's cases by code; every earlier repair that touched a block was followed by the same re-run, and the line numbers here are the current ones. The record is re-measured on every edit rather than carried forward, which is the discipline the arm itself enforces. Two things the original execution corrected rather than confirmed, which is the argument for running it at all: an earlier draft of this section asserted three module-resolution reds where the measurement shows four, and Task 2's block turns out to carry **one case that passes at base vacuously** — "a clean marker adds no findings" holds today precisely because nothing fires at all. It is kept deliberately as the over-fire guard it becomes once Task 2 lands, and is named here so no reviewer has to discover that it proves nothing before the GREEN step. The splice directory was removed after the run and `git status` is clean.
+This run is the RE-execution after the spec round 4 repair, which removed the `expect=` field entirely and rewrote Task 4's block around the narrowed ladder; every earlier repair that touched a block was followed by the same re-run, and the line numbers here are the current ones. The record is re-measured on every edit rather than carried forward, which is the discipline the arm itself enforces. Two things the original execution corrected rather than confirmed, which is the argument for running it at all: an earlier draft of this section asserted three module-resolution reds where the measurement shows four, and Task 2's block turns out to carry **one case that passes at base vacuously** — "a clean marker adds no findings" holds today precisely because nothing fires at all. It is kept deliberately as the over-fire guard it becomes once Task 2 lands, and is named here so no reviewer has to discover that it proves nothing before the GREEN step. The splice directory was removed after the run and `git status` is clean.
 
 ### 3.1 Dogfood against the landed arms
 
@@ -101,11 +101,11 @@ Every reference that used to carry an ordinal now names the code or the conditio
 <!-- task: red=`pnpm vitest run tests/specLint/fixtureContract.test.ts` red-state=authored red-target=`lib/specLint/fixtureContract.ts` why=`lib/specLint/fixtureContract.ts does not exist at base 7d09a1f0b (git ls-files returns empty), so checkFixtureContract is unimportable and every case in the new suite fails at module resolution. The RED derives from that absent production module, not from anything the test controls: §3(b) records the spliced run naming exactly this specifier. It greens when the module exports checkFixtureContract implementing the spec §3.1 grammar and the spec §3.2 codes` ac=AC-1,AC-2 -->
 
 <!-- spec-lint: ignore — the module this task creates is untracked until this task lands; the path is a forward declaration, not a citation of existing code -->
-Create `lib/specLint/fixtureContract.ts`, pure (no `node:` imports), exporting `checkFixtureContract(model, kind)`. Implement spec §3.1's grammar exactly — `<!-- fixture: expect=\`green|red\` why=\`…\` -->`, backtick-delimited, `expect=` admitting only the two literals — and spec §3.2's three codes: `FIXTURE_MALFORMED`, `FIXTURE_WHY_EMPTY`, `FIXTURE_UNATTACHED`. Plan-kind docs only; markers on fenced lines inert. Attachment = the immediately following line opens a fence whose info string is `ts`, `tsx`, or `typescript`.
+Create `lib/specLint/fixtureContract.ts`, pure (no `node:` imports), exporting `checkFixtureContract(model, kind)`. Implement spec §3.1's grammar exactly — `<!-- fixture: why=\`…\` -->`, backtick-delimited, `expect=` admitting only the two literals — and spec §3.2's three codes: `FIXTURE_MALFORMED`, `FIXTURE_WHY_EMPTY`, `FIXTURE_UNATTACHED`. Plan-kind docs only; markers on fenced lines inert. Attachment = the immediately following line opens a fence whose info string is `ts`, `tsx`, or `typescript`.
 
 **What is red and why:** the suite cannot import the module under test because that module does not exist.
 
-**Failure modes the tests catch:** a grammar that accepts `expect=maybe` (the accept-set is the two literals, so any other value must fall to `FIXTURE_MALFORMED`, not be silently tolerated); attachment that accepts a `bash` fence or a blank line between marker and fence; a marker inside a fence firing at all; a spec-kind doc drawing findings.
+**Failure modes the tests catch:** a grammar that tolerates an extra field (the retired `expect=` is the concrete case: it must fall to `FIXTURE_MALFORMED`, never be accepted and ignored); attachment that accepts a `bash` fence or a blank line between marker and fence; a marker inside a fence firing at all; a spec-kind doc drawing findings.
 
 ```ts
 import { describe, it, expect } from "vitest";
@@ -119,17 +119,17 @@ describe("fixture marker grammar (spec §3.1, §3.2)", () => {
   const block = "```ts\nimport { it } from \"vitest\";\n```";
 
   it("the declared shape parses clean", () => {
-    const md = ["# P", "<!-- fixture: expect=`green` why=`the live matcher opens here` -->", block].join("\n");
+    const md = ["# P", "<!-- fixture: why=`the live matcher opens here` -->", block].join("\n");
     expect(codes(md)).toEqual([]);
   });
 
-  it("every malformation draws FIXTURE_MALFORMED, including a value outside the accept-set", () => {
+  it("every malformation draws FIXTURE_MALFORMED, including the retired expect= field", () => {
     for (const bad of [
-      "<!-- fixture: expect=`maybe` why=`x` -->",
-      "<!-- fixture: expect=`green` -->",
-      "<!-- fixture: why=`x` expect=`green` -->",
-      "<!-- fixture: expect=green why=`x` -->",
-      "<!-- fixture: expect=`green` why=`x` --> trailing",
+      "<!-- fixture: -->",
+      "<!-- fixture: why=x -->",
+      "<!-- fixture: why=`x` extra=`y` -->",
+      "<!-- fixture: why=`x` --> trailing",
+      "<!-- fixture: expect=`green` why=`x` -->",
     ]) {
       expect(codes(["# P", bad, block].join("\n"))).toEqual([`FIXTURE_MALFORMED@2`]);
     }
@@ -137,30 +137,30 @@ describe("fixture marker grammar (spec §3.1, §3.2)", () => {
 
   it("an empty or whitespace why= draws FIXTURE_WHY_EMPTY, not MALFORMED", () => {
     for (const why of ["``", "`   `"]) {
-      const md = ["# P", `<!-- fixture: expect=\`red\` why=${why} -->`, block].join("\n");
+      const md = ["# P", `<!-- fixture: why=${why} -->`, block].join("\n");
       expect(codes(md)).toEqual([`FIXTURE_WHY_EMPTY@2`]);
     }
   });
 
   it("attachment holds for the three accepted info strings and fails for everything else", () => {
     for (const info of ["ts", "tsx", "typescript"]) {
-      const md = ["# P", "<!-- fixture: expect=`green` why=`w` -->", "```" + info, "x", "```"].join("\n");
+      const md = ["# P", "<!-- fixture: why=`w` -->", "```" + info, "x", "```"].join("\n");
       expect(codes(md)).toEqual([]);
     }
     for (const next of ["```bash", "```md", "", "ordinary prose"]) {
-      const md = ["# P", "<!-- fixture: expect=`green` why=`w` -->", next].join("\n");
+      const md = ["# P", "<!-- fixture: why=`w` -->", next].join("\n");
       expect(codes(md)).toEqual([`FIXTURE_UNATTACHED@2`]);
     }
     // marker as the final line: no next line at all
-    expect(codes(["# P", "<!-- fixture: expect=`green` why=`w` -->"].join("\n"))).toEqual([
+    expect(codes(["# P", "<!-- fixture: why=`w` -->"].join("\n"))).toEqual([
       "FIXTURE_UNATTACHED@2",
     ]);
   });
 
   it("a marker inside a fence is inert, and a spec-kind doc draws nothing", () => {
-    const fenced = ["# P", "```md", "<!-- fixture: expect=`nope` why=`` -->", "```"].join("\n");
+    const fenced = ["# P", "```md", "<!-- fixture: why=`` -->", "```"].join("\n");
     expect(codes(fenced)).toEqual([]);
-    const inSpec = ["# S", "<!-- fixture: expect=`nope` why=`` -->", "prose"].join("\n");
+    const inSpec = ["# S", "<!-- fixture: why=`` -->", "prose"].join("\n");
     expect(codes(inSpec, "spec")).toEqual([]);
   });
 });
@@ -186,7 +186,7 @@ describe("fixture static arm is wired into runLint (spec §3)", () => {
   const doc = (text: string) => ({ text, repoRelPath: "docs/superpowers/plans/x.md", kind: "plan" as const, kindSource: "explicit" as const });
 
   it("a malformed marker surfaces through runLint with NO exec maps", () => {
-    const text = ["# P", "<!-- fixture: expect=`maybe` why=`x` -->", "```ts", "x", "```"].join("\n");
+    const text = ["# P", "<!-- fixture: why=x -->", "```ts", "x", "```"].join("\n");
     const res = runLint(doc(text), resolver, null, null, null);
     const f = res.findings.filter((x) => x.code.startsWith("FIXTURE_"));
     expect(f.map((x) => x.code)).toEqual(["FIXTURE_MALFORMED"]);
@@ -195,7 +195,7 @@ describe("fixture static arm is wired into runLint (spec §3)", () => {
   });
 
   it("a clean marker adds no findings", () => {
-    const text = ["# P", "<!-- fixture: expect=`green` why=`w` -->", "```ts", "x", "```"].join("\n");
+    const text = ["# P", "<!-- fixture: why=`w` -->", "```ts", "x", "```"].join("\n");
     const res = runLint(doc(text), resolver, null, null, null);
     expect(res.findings.filter((x) => x.code.startsWith("FIXTURE_"))).toEqual([]);
   });
@@ -206,7 +206,7 @@ describe("fixture static arm is wired into runLint (spec §3)", () => {
 
 <!-- task: red=`pnpm vitest run tests/specLint/fixtureSplicePlan.test.ts` red-state=authored red-target=`lib/specLint/fixtureContract.ts` why=`spliceFixturePlan does not exist — lib/specLint/fixtureContract.ts is untracked at base and Task 1 adds only checkFixtureContract, so the import fails to resolve and every case reds. It greens when the module exports spliceFixturePlan returning one entry per attached well-formed marker, verbatim block text, in doc order, with statically-flagged markers excluded per spec §4.1` ac=AC-3,AC-6 -->
 
-Export `spliceFixturePlan(model, kind)` returning `{ line, expect: "green" | "red", block: string }[]` — one entry per attached, well-formed marker, block text VERBATIM (blank lines and trailing whitespace preserved byte for byte), doc order, excluding any marker that drew a static finding (spec §4.1).
+Export `spliceFixturePlan(model, kind)` returning `{ line, block: string }[]` — one entry per attached, well-formed marker, block text VERBATIM (blank lines and trailing whitespace preserved byte for byte), doc order, excluding any marker that drew a static finding (spec §4.1).
 
 **What is red and why:** the named export does not exist.
 
@@ -220,24 +220,23 @@ import { spliceFixturePlan } from "@/lib/specLint/fixtureContract";
 describe("splice plan (spec §4.1)", () => {
   it("carries block text byte-identically, including blank and trailing-space lines", () => {
     const body = ["import { it } from \"vitest\";", "", "// trailing space next line", "const x = 1;  "];
-    const md = ["# P", "<!-- fixture: expect=`red` why=`w` -->", "```ts", ...body, "```"].join("\n");
+    const md = ["# P", "<!-- fixture: why=`w` -->", "```ts", ...body, "```"].join("\n");
     const plan = spliceFixturePlan(parseDoc(md), "plan");
     expect(plan).toHaveLength(1);
     expect(plan[0]!.block).toBe(body.join("\n"));
-    expect(plan[0]!.expect).toBe("red");
     expect(plan[0]!.line).toBe(2);
   });
 
   it("excludes statically-flagged markers and preserves doc order among the rest", () => {
-    const ok = (n: string) => ["<!-- fixture: expect=`green` why=`" + n + "` -->", "```ts", "// " + n, "```"];
-    const md = ["# P", ...ok("first"), "<!-- fixture: expect=`maybe` why=`x` -->", "```ts", "// flagged", "```", ...ok("last")].join("\n");
+    const ok = (n: string) => ["<!-- fixture: why=`" + n + "` -->", "```ts", "// " + n, "```"];
+    const md = ["# P", ...ok("first"), "<!-- fixture: why=x -->", "```ts", "// flagged", "```", ...ok("last")].join("\n");
     const plan = spliceFixturePlan(parseDoc(md), "plan");
     expect(plan.map((e) => e.block)).toEqual(["// first", "// last"]);
     expect(plan.map((e) => e.line)).toEqual([...plan.map((e) => e.line)].sort((a, b) => a - b));
   });
 
   it("a spec-kind doc yields an empty plan", () => {
-    const md = ["# S", "<!-- fixture: expect=`green` why=`w` -->", "```ts", "x", "```"].join("\n");
+    const md = ["# S", "<!-- fixture: why=`w` -->", "```ts", "x", "```"].join("\n");
     expect(spliceFixturePlan(parseDoc(md), "spec")).toEqual([]);
   });
 });
@@ -245,13 +244,13 @@ describe("splice plan (spec §4.1)", () => {
 
 ## Task 4 — classification, total over the precedence ladder (pure)
 
-<!-- task: red=`pnpm vitest run tests/specLint/fixtureClassify.test.ts` red-state=authored red-target=`lib/specLint/fixtureContract.ts` why=`synthesizeFixtureFindings does not exist at base and is not added by Tasks 1 or 3, so the import fails to resolve. It greens when the module implements spec §4.3's ladder IN ORDER, emitting exactly one outcome per enrolled block; every precedence-contest case below is red against an implementation that evaluates the expect= branches before the sentinel, the skipped-status, or the file-status branch` ac=AC-3,AC-4 -->
+<!-- task: red=`pnpm vitest run tests/specLint/fixtureClassify.test.ts` red-state=authored red-target=`lib/specLint/fixtureContract.ts` why=`synthesizeFixtureFindings does not exist at base and is not added by Tasks 1 or 3, so the import fails to resolve. It greens when the module implements spec §4.3's ladder IN ORDER, emitting exactly one outcome per enrolled block; the cases below are red against any implementation that reads absence-of-failure as a clean observation, or that interprets a non-sentinel failure instead of declining on it` ac=AC-3,AC-4 -->
 
-Export `synthesizeFixtureFindings(plan, results)` implementing spec §4.3's ordered ladder. The per-assertion STATUS is part of the input, never a count: vitest reports a skipped test as a present entry with status `skipped` and no failure (spec §2.5). `results === null` (static invocation) yields zero findings. Exactly one outcome per enrolled block.
+Export `synthesizeFixtureFindings(plan, results)` implementing spec §4.3's ordered ladder: one hard verdict (`FIXTURE_UNSATISFIABLE`, on the premise sentinel), one clean reading that requires positive evidence, and one advisory decline carrying its reason. The input carries three channels — file status, per-assertion status, failure messages — because spec §§2.5-2.7 each measured one carrying what the others do not. `results === null` (static invocation) yields zero findings. Exactly one outcome per enrolled block.
 
 **What is red and why:** the named export does not exist.
 
-**Failure modes caught — the precedence contests are the point.** An implementation that checks `expect=` first reports a premise-failed `expect=red` block as CLEAN, which is precisely the defect this whole spec exists to catch; one that checks `expect=green` first reports it as the generic `FIXTURE_NOT_GREEN` and sends the author to the wrong diagnosis. An implementation that reads assertion counts before checking for an empty `assertionResults` array reports the outside-the-globs trap (spec §2.3 row 1) as clean. And an implementation that reads "zero failures" as green reports an all-skipped, environment-gated block as clean while nothing ran at all — the spec-round-1 BLOCKING finding, measured in spec §2.5, where two bodies that would fail report `status: "skipped"` and the run exits 0.
+**Failure modes caught.** An implementation that reads "no failures" as a clean observation reports an all-skipped, environment-gated block as clean while nothing ran (spec §2.5: two bodies that would fail report `status: "skipped"` and the run exits 0), and reports the outside-the-globs trap the same way (spec §2.3 row 1, which exits 0 having collected nothing). An implementation that interprets a non-sentinel failure reports a `beforeEach` explosion — where the body never executed — as though an assertion had genuinely failed (spec §2.7). Each of those was a BLOCKING finding in spec rounds 1, 2 and 4 respectively, and the narrowed ladder is what closed the class rather than the instances.
 
 ```ts
 import { describe, it, expect } from "vitest";
@@ -259,145 +258,104 @@ import { synthesizeFixtureFindings } from "@/lib/specLint/fixtureContract";
 
 const PREMISE = "Error: premise not met: the live matcher opened a block. The assertion below this line proves nothing";
 const ASSERT = "AssertionError: expected false to be true";
+const HOOK = "Error: BEFORE_EACH_EXPLODED";
 
-const entry = (line: number, exp: "green" | "red") => ({ line, expect: exp, block: "// b" });
-// The per-assertion STATUS is part of the core's input, not a count: vitest
-// reports a skipped test as a present entry with status "skipped" and no
-// failure (spec section 2.5), so a shape carrying only a count cannot express
-// the difference between observed and merely reported.
-const file = (o: { statuses?: string[]; failures?: string[]; message?: string; fileStatus?: string }) => ({
-  // Three channels, because no two of them are derivable from each other:
-  // fileStatus (a hook can fail the FILE with every assertion passing, spec
-  // section 2.6), each assertion's own status (a skipped test is present and
-  // unexecuted, section 2.5), and the failure messages (the premise sentinel).
+const entry = (line: number) => ({ line, block: "// b" });
+// Three channels, because spec sections 2.5, 2.6 and 2.7 each measured one
+// carrying information the other two do not: a skipped entry is present and
+// unexecuted, a hook can fail the FILE with every assertion passing, and a
+// per-test hook failure lands ON the assertion looking ordinary.
+const file = (o: { statuses?: string[]; failures?: string[]; fileStatus?: string }) => ({
   fileStatus: o.fileStatus ?? "passed",
   assertions: (o.statuses ?? ["passed"]).map((status, i) => ({ status, title: `t${i}` })),
   failureMessages: o.failures ?? [],
-  fileMessage: o.message ?? "",
 });
 const results = (line: number, r: unknown) => ({ files: new Map([[line, r]]) }) as never;
 const codesOf = (plan: ReturnType<typeof entry>[], r: unknown) =>
   synthesizeFixtureFindings(plan, r as never).map((f) => f.code);
+const only = (r: unknown) => codesOf([entry(5)], r);
 
 describe("classification ladder (spec section 4.3)", () => {
-  it("PROBE_UNVERIFIED: a block absent from the report declines, and never draws a hard code", () => {
-    const out = synthesizeFixtureFindings([entry(5, "red")], { files: new Map() } as never);
+  it("UNSATISFIABLE is the one hard verdict: a failure carrying the premise sentinel", () => {
+    expect(only(results(5, file({ fileStatus: "failed", statuses: ["failed"], failures: [PREMISE] })))).toEqual([
+      "FIXTURE_UNSATISFIABLE",
+    ]);
+  });
+
+  it("the sentinel outranks a skipped sibling and a non-sentinel failure", () => {
+    expect(
+      only(results(5, file({ fileStatus: "failed", statuses: ["failed", "skipped"], failures: [PREMISE] }))),
+    ).toEqual(["FIXTURE_UNSATISFIABLE"]);
+    expect(
+      only(results(5, file({ fileStatus: "failed", statuses: ["failed", "failed"], failures: [ASSERT, PREMISE] }))),
+    ).toEqual(["FIXTURE_UNSATISFIABLE"]);
+  });
+
+  it("a clean observation requires POSITIVE evidence, not merely the absence of failures", () => {
+    expect(only(results(5, file({ statuses: ["passed"] })))).toEqual([]);
+    expect(only(results(5, file({ statuses: ["passed", "passed"] })))).toEqual([]);
+    // Entries present, nothing failed, nothing executed: spec section 2.5
+    // measured this exiting 0 with file status passed. It must NOT read clean.
+    expect(only(results(5, file({ statuses: ["skipped", "skipped"] })))).toEqual(["FIXTURE_PROBE_UNVERIFIED"]);
+    // One skipped beside an executed sibling is still not a whole observation.
+    expect(only(results(5, file({ statuses: ["passed", "skipped"] })))).toEqual(["FIXTURE_PROBE_UNVERIFIED"]);
+    for (const status of ["pending", "todo"]) {
+      expect(only(results(5, file({ statuses: ["passed", status] })))).toEqual(["FIXTURE_PROBE_UNVERIFIED"]);
+    }
+  });
+
+  it("every shape the report cannot disambiguate DECLINES, and none draws a hard code", () => {
+    // no entries at all (unresolvable import / transform error / no suite / the
+    // outside-the-globs trap, spec sections 2.3 and 2.4)
+    expect(only(results(5, file({ fileStatus: "failed", statuses: [] })))).toEqual(["FIXTURE_PROBE_UNVERIFIED"]);
+    // afterAll: file failed, every assertion passed (section 2.6)
+    expect(only(results(5, file({ fileStatus: "failed", statuses: ["passed"] })))).toEqual([
+      "FIXTURE_PROBE_UNVERIFIED",
+    ]);
+    // beforeEach/afterEach: the failure lands on the assertion and looks
+    // ordinary (section 2.7). The body may never have run; the report does not
+    // say, so interpreting it either way is the corruption this arm avoids.
+    expect(only(results(5, file({ fileStatus: "failed", statuses: ["failed"], failures: [HOOK] })))).toEqual([
+      "FIXTURE_PROBE_UNVERIFIED",
+    ]);
+    // an ordinary assertion failure is equally unreadable as satisfiability
+    expect(only(results(5, file({ fileStatus: "failed", statuses: ["failed"], failures: [ASSERT] })))).toEqual([
+      "FIXTURE_PROBE_UNVERIFIED",
+    ]);
+    // a file with entries but none passed
+    expect(only(results(5, file({ statuses: ["skipped"] })))).toEqual(["FIXTURE_PROBE_UNVERIFIED"]);
+  });
+
+  it("a block absent from the report declines, and never draws a hard code", () => {
+    const out = synthesizeFixtureFindings([entry(5)], { files: new Map() } as never);
     expect(out.map((f) => f.code)).toEqual(["FIXTURE_PROBE_UNVERIFIED"]);
     expect(out[0]!.severity).toBe("advisory");
   });
 
-  it("UNCOLLECTABLE: no assertion entries at all is hard, and outranks the expect= readings", () => {
-    for (const exp of ["green", "red"] as const) {
-      expect(codesOf([entry(5, exp)], results(5, file({ fileStatus: "failed", statuses: [], message: "No test suite found" })))).toEqual([
-        "FIXTURE_UNCOLLECTABLE",
-      ]);
-    }
-  });
-
-  it("UNSATISFIABLE: the premise sentinel outranks BOTH expect= readings", () => {
-    expect(codesOf([entry(5, "red")], results(5, file({ fileStatus: "failed", statuses: ["failed"], failures: [PREMISE] })))).toEqual([
-      "FIXTURE_UNSATISFIABLE",
-    ]);
-    expect(codesOf([entry(5, "green")], results(5, file({ fileStatus: "failed", statuses: ["failed"], failures: [PREMISE] })))).toEqual([
-      "FIXTURE_UNSATISFIABLE",
-    ]);
-  });
-
-  it("UNSATISFIABLE fires on a sentinel among several failures, and outranks a skipped sibling", () => {
-    expect(
-      codesOf([entry(5, "red")], results(5, file({ fileStatus: "failed", statuses: ["failed", "failed"], failures: [ASSERT, PREMISE] }))),
-    ).toEqual(["FIXTURE_UNSATISFIABLE"]);
-    expect(
-      codesOf([entry(5, "red")], results(5, file({ fileStatus: "failed", statuses: ["failed", "skipped"], failures: [PREMISE] }))),
-    ).toEqual(["FIXTURE_UNSATISFIABLE"]);
-  });
-
-  it("ASSERTIONS_SKIPPED: the all-skipped shape must NEVER read clean, in either expect= direction", () => {
-    // Measured (spec section 2.5): two skipped bodies that would fail if run
-    // report zero failures, file status passed, and the run exits 0.
-    for (const exp of ["green", "red"] as const) {
-      expect(codesOf([entry(5, exp)], results(5, file({ statuses: ["skipped", "skipped"] })))).toEqual([
-        "FIXTURE_ASSERTIONS_SKIPPED",
-      ]);
-    }
-  });
-
-  it("ASSERTIONS_SKIPPED: one skipped assertion beside an executed one still fires", () => {
-    expect(codesOf([entry(5, "green")], results(5, file({ statuses: ["passed", "skipped"] })))).toEqual([
-      "FIXTURE_ASSERTIONS_SKIPPED",
-    ]);
-    for (const status of ["pending", "todo"]) {
-      expect(codesOf([entry(5, "green")], results(5, file({ statuses: ["passed", status] })))).toEqual([
-        "FIXTURE_ASSERTIONS_SKIPPED",
-      ]);
-    }
-  });
-
-  it("a file that FAILED while no assertion did fires in both expect= directions", () => {
-    // Measured (spec section 2.6): a throwing afterAll fails the file, the
-    // assertion passes, numFailedTests is 0, and the run exits 1. Counting only
-    // assertion failures reads this clean for green and ALREADY_GREEN for red.
-    for (const exp of ["green", "red"] as const) {
-      expect(codesOf([entry(5, exp)], results(5, file({ fileStatus: "failed", statuses: ["passed"] })))).toEqual([
-        "FIXTURE_FILE_FAILED",
-      ]);
-    }
-  });
-
-  it("the file-failed branch does NOT fire when an assertion also failed", () => {
-    expect(
-      codesOf([entry(5, "green")], results(5, file({ fileStatus: "failed", statuses: ["failed"], failures: [ASSERT] }))),
-    ).toEqual(["FIXTURE_NOT_GREEN"]);
-    expect(
-      codesOf([entry(5, "red")], results(5, file({ fileStatus: "failed", statuses: ["failed"], failures: [PREMISE] }))),
-    ).toEqual(["FIXTURE_UNSATISFIABLE"]);
-  });
-
-  it("NOT_GREEN, ALREADY_GREEN, and clean: the ordinary outcomes, every assertion executed", () => {
-    expect(codesOf([entry(5, "green")], results(5, file({ fileStatus: "failed", statuses: ["failed"], failures: [ASSERT] })))).toEqual([
-      "FIXTURE_NOT_GREEN",
-    ]);
-    expect(codesOf([entry(5, "red")], results(5, file({ statuses: ["passed"] })))).toEqual(["FIXTURE_ALREADY_GREEN"]);
-    expect(codesOf([entry(5, "green")], results(5, file({ statuses: ["passed"] })))).toEqual([]);
-    // A real assertion failure ALWAYS makes vitest mark the file failed, so
-    // "clean" must not require a non-failed file: this case is the one an
-    // earlier draft's belt-and-braces conjunct made unsatisfiable.
-    expect(codesOf([entry(5, "red")], results(5, file({ fileStatus: "failed", statuses: ["failed"], failures: [ASSERT] })))).toEqual([]);
-  });
-
   it("every enrolled block draws exactly one outcome, over the whole ladder", () => {
-    const plan = [
-      entry(1, "red"),
-      entry(2, "green"),
-      entry(3, "red"),
-      entry(4, "green"),
-      entry(5, "red"),
-      entry(6, "green"),
-      entry(7, "green"),
-    ];
+    const plan = [1, 2, 3, 4, 5, 6].map(entry);
     const map = new Map<number, unknown>([
       [1, file({ fileStatus: "failed", statuses: ["failed"], failures: [PREMISE] })],
-      [2, file({ fileStatus: "failed", statuses: [], message: "Transform failed" })],
+      [2, file({ fileStatus: "failed", statuses: [] })],
       [3, file({ statuses: ["passed"] })],
-      [4, file({ fileStatus: "failed", statuses: ["failed"], failures: [ASSERT] })],
-      [6, file({ statuses: ["skipped"] })],
-      [7, file({ fileStatus: "failed", statuses: ["passed"] })],
+      [4, file({ statuses: ["skipped"] })],
+      [6, file({ fileStatus: "failed", statuses: ["passed"] })],
       // line 5 deliberately absent
     ]);
     const out = synthesizeFixtureFindings(plan, { files: map } as never);
     expect(out.map((f) => `${f.docLine}:${f.code}`)).toEqual([
       "1:FIXTURE_UNSATISFIABLE",
-      "2:FIXTURE_UNCOLLECTABLE",
-      "3:FIXTURE_ALREADY_GREEN",
-      "4:FIXTURE_NOT_GREEN",
+      "2:FIXTURE_PROBE_UNVERIFIED",
+      "4:FIXTURE_PROBE_UNVERIFIED",
       "5:FIXTURE_PROBE_UNVERIFIED",
-      "6:FIXTURE_ASSERTIONS_SKIPPED",
-      "7:FIXTURE_FILE_FAILED",
+      "6:FIXTURE_PROBE_UNVERIFIED",
     ]);
+    // line 3 is the clean one: it draws nothing, which is why it is absent above
+    expect(out.some((f) => f.docLine === 3)).toBe(false);
   });
 
   it("a null results map (static invocation) draws nothing", () => {
-    expect(synthesizeFixtureFindings([entry(5, "red")], null)).toEqual([]);
+    expect(synthesizeFixtureFindings([entry(5)], null)).toEqual([]);
   });
 });
 ```
@@ -470,7 +428,7 @@ describe("splice lifecycle (spec §4.2)", () => {
 
 <!-- task: red=`pnpm vitest run tests/specLint/fixtureCli.test.ts` red-state=authored red-target=`scripts/spec-lint.ts:290` why=`the adapter at scripts/spec-lint.ts:290 runs no fixture blocks at base, so a real spec:lint --exec-red invocation over a fixture plan whose block fails a premise exits 0 with no FIXTURE_ code in its report. It greens once Tasks 1-5 land end to end; this suite is the only one that observes the real subprocess, real JSON reporter, and real filesystem together` ac=AC-4,AC-5 -->
 
-Extend the CLI suite with real subprocess cases over trivial blocks (no heavy phases): a premise-failing block → exit 1 with `FIXTURE_UNSATISFIABLE`; the repaired block → exit 0; an `expect=red` block that passes → `FIXTURE_ALREADY_GREEN`; an unresolvable-import block → `FIXTURE_UNCOLLECTABLE`; an `expect=green` block whose `describe` is skipped → `FIXTURE_ASSERTIONS_SKIPPED` through the REAL reporter (spec §2.5's shape exits 0, so only a real run proves the adapter surfaces per-assertion statuses at all); and an assertion, after every case, that no `tests/.spec-lint-fixtures-*` directory survives.
+Extend the CLI suite with real subprocess cases over trivial blocks (no heavy phases): a premise-failing block → exit 1 with `FIXTURE_UNSATISFIABLE`; the repaired block → exit 0 clean; an unresolvable-import block → the advisory; a block whose `describe` is skipped → the advisory through the REAL reporter (spec §2.5's shape exits 0, so only a real run proves the adapter surfaces per-assertion statuses at all); a pre-existing splice directory → the advisory with a spy asserting ZERO vitest spawns; and an assertion, after every case, that no `tests/.spec-lint-fixtures-*` directory survives.
 
 **What is red and why:** no fixture code path exists in the shipped CLI.
 
