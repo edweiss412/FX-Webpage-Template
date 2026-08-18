@@ -198,7 +198,12 @@ The line numbers `components/admin/ArchiveShowButton.tsx:344` and `app/admin/sho
 | `--color-text-subtle` | §3.6(b)'s hover token, repurposed as an outline | 6.47 / 6.75 | 6.76 / 6.35 | 6.76 / 5.97 | 6.09 / 6.94 |
 | `--color-accent-on-bg` | §3.6(c)'s hover token, repurposed as an outline | 5.34 / 9.39 | 5.57 / 8.84 | 5.57 / 8.30 | 5.02 / 9.65 |
 
-**And one RELATION, which is the assertion that actually matters.** `hover > rest` per ground, per theme, computed from the tokens rather than pinned as constants: eight constants go stale the moment either token is retuned and force a reviewer to re-derive whether the pair still reads correctly, whereas a relation fails loudly exactly when a retune breaks it and stays silent when it is harmless. The absolute rows above are the record; the relation is the guard.
+**And TWO RELATIONS — sixteen comparisons, not one relation over eight** (plan review R6 F4 caught this section still carrying the one-pair arithmetic after §3.6 was ratified with two hover tokens). `hover > rest` per ground, per theme, computed from the tokens rather than pinned as constants:
+
+- `border-text-subtle` > `border-text-faint` — 4 grounds × 2 themes = 8;
+- `border-accent-on-bg` > `border-text-faint` — 4 grounds × 2 themes = 8.
+
+Sixteen constants would go stale the moment any of the three tokens is retuned and force a reviewer to re-derive whether each pair still reads correctly, whereas a relation fails loudly exactly when a retune breaks it and stays silent when it is harmless. The absolute rows above are the record; the relations are the guard. **All sixteen hold against today's tokens**, so they ship as a REGRESSION pin rather than as a red.
 
 ### 4.3 The swap — 37 elements, one token each
 

@@ -27,7 +27,7 @@ Plus a `DESIGN.md` §1.2a paragraph rewrite, **three** new §1.2 contrast rows w
 
 - **No classifier.** Nothing here decides whether an arbitrary element is a control, a divider, or a switch track. The census is a closed **57**-row set this PR defines (21 predecessor rows + 36 additions; the 37th swap-set element overlaps), and the divider assertions name five fixed identities. `BL-CONTROL-OUTLINE-FORWARD-GUARD` owns the forward question with five closed escapes as its evidence. **An implementer who finds themselves writing a function that decides whether an arbitrary element is a control has left the plan.**
 - **No `everyPathCarries` on the census loop.** Spec §5.2 records the probe that refuted it: a universal fails `components/admin/Mi11GateActions.tsx:69`, whose accent-filled branch has no outline by ratified design. The strengthening is the NEGATION.
-- **No ShareHub swap.** Spec §3.5. `tests/styles/_metaControlOutlineFill.test.ts:156` stays byte-identical and passing.
+- **No ShareHub swap.** Spec §3.5. the `keeps max-sm:border-border on BOTH ShareHub ternary arms` case stays byte-identical and passing (cite by NAME — Task 1 shifts its line).
 - **No shared-constant extraction.** The recipes are heterogeneous; hoisting is a refactor this ruling did not authorise.
 
 ## Global Constraints
@@ -40,7 +40,7 @@ Plus a `DESIGN.md` §1.2a paragraph rewrite, **three** new §1.2 contrast rows w
 - Invariant 8: **APPLIES** — the diff touches `app/**` (non-API), `components/**` and `DESIGN.md`. Task 6 runs both halves and writes the marker in that same commit.
 - Invariant 9: N/A. Invariant 10: N/A — no mutating route, no `"use server"` action.
 - Invariant 11: all work in this worktree, never the main checkout.
-- Invariant 12: the `BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL` in-progress marker comes off in **step 7.9, which is sequenced to run after CI is green as its own final commit**, so lastness is a property of the ordering rather than something verified after the fact.
+- Invariant 12: the `BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL` in-progress marker comes off **inside step 7.5, committed at 7.8, BEFORE whole-diff review** (Option A, ruled by the orchestrator 2026-08-18). Step 7.9 only VERIFIES it. An earlier revision said 7.9 removes it after CI as its own final commit; that is the REJECTED sequencing and following it would ship an unreviewed commit.
 
 ### Heavy-phase discipline
 
@@ -69,11 +69,11 @@ Every cell names the step that PROVES the AC, not merely one that touches it.
 | AC-3 | §3.3 | **1.3** — resolves, CARRIES `border-border`, and is absent from `CENSUS`, three assertions per divider | five named `vitest` cases |
 | AC-4 | §3.5 | **1.13** (the pin and the source are unchanged) **AND 7.1** (the ShareHub row is FILED) — §3.5 is a two-part claim and 1.13 proves only the first | `diff` printing `IDENTICAL` plus an empty `--stat`; and the row present in `BACKLOG.md` with the 7.2 field checklist ticked |
 | AC-5 | §3.2, §5.4 | **1.14** | empty `--stat` for four files; hunk headers read by eye for the fifth |
-| AC-6 | §4.1, §4.2 | 3.1 red → 3.5 green (**all FIVE required contents** of the §1.2a paragraph, not merely the absence of the old sentence); 4.1–4.2 red → 4.5 green (three rows and the relation) | `vitest` on `tests/docs/capabilityClaimProse.test.ts` and on `tests/styles/secondary-action-contrast.test.ts` |
+| AC-6 | §4.1, §4.2 | 3.1 red → 3.5 green (**all FIVE required contents** of the §1.2a paragraph); **4.1 red** → 4.5 green. **Only 4.1 is red** — the three missing `DESIGN.md` rows. 4.2's sixteen relations are GREEN the moment they are written (probed: all 16 hold today), so they are a REGRESSION pin, not a red | `vitest` on `tests/docs/capabilityClaimProse.test.ts` and on `tests/styles/secondary-action-contrast.test.ts` |
 | AC-7 | §4.3 | **1.11**, verified by **1.15a** | a `-`/`+` pair for `components/layout/ThemeToggle.tsx:41` in `git diff origin/main`. 1.15's count of 33 is a corroborating total and is NOT the proof — it is substitutable |
 | AC-8 | §5.5 | **5.1** | `pnpm mutation:guards` score plus the unaccepted-survivor set |
 | AC-9 | §5.6 | **6.2 + 6.3**, and **6.10** re-runs both halves if a later commit touches a UI surface | the two skill reports, transcribed into §12, plus the marker line checked by `tests/docs/_metaInvariant8Closeout.test.ts` |
-| AC-10 | §6 | **7.2** (the new row's fields) **AND 7.5** (the old row is ARCHIVED) **AND 7.9** (its in-progress marker is gone) — three separate obligations, and an earlier draft named only the first | human tick-list for 7.2, **explicitly NOT a suite result**; `tests/docs/_metaLedgerInProgress.test.ts` for 7.5 and 7.9 |
+| AC-10 | §6 | **7.2** (the new row's fields) **AND 7.5** (the old row is ARCHIVED) **AND 7.9** (its marker is gone at the COMMITTED head) — three separate obligations | human tick-list for 7.2, **explicitly NOT a suite result**; `tests/docs/_metaLedgerInProgress.test.ts` for 7.5 — which runs at 7.7, BEFORE the 7.8 commit, so it cannot speak for 7.9; 7.9's channel is its own `git show HEAD:BACKLOG.md` count against the committed tree |
 | AC-11 | §3.6 | **2.2** (the right token on every outline-bearing path) **AND 4.2** (that token is numerically heavier than rest on every ground in both themes) — the class assertion and the ratio claim are different halves and 2.2 proves only the first | `vitest` case per named site, plus the relation cases in `tests/styles/secondary-action-contrast.test.ts` |
 
 **Every row above names a step and a channel because an AC whose proof channel is unnamed is decoration.** Four rows of an earlier draft named a step that would not in fact have proved the claim — AC-3 (absence is not presence), AC-4 (a working-tree diff cannot see a committed change), AC-10 (a grandfathered test proves nothing about the row), AC-11 (a denylist does not prove an outcome). AC-10's channel is a human checklist and says so, rather than borrowing a green suite's authority.
@@ -91,6 +91,7 @@ Every cell names the step that PROVES the AC, not merely one that touches it.
 | Hover repair | **21** elements, **13** files, **17** physical edits (8 delete + 6 `text-subtle` + 3 `accent-on-bg`) |
 | `components/admin/dev/SwitcherControls.tsx` accent occurrences | **4 lexical, 3 in scope** — `components/admin/dev/SwitcherControls.tsx:29`, `components/admin/dev/SwitcherControls.tsx:145` twice; `components/admin/dev/SwitcherControls.tsx:122` belongs to a `<select>` the scanner does not admit (`tests/styles/interactiveScanCore.ts:789`) and is NOT edited |
 | Union-vs-per-path hover misclassifications | **1** — `components/admin/showpage/PublishedReviewModal.tsx:964` |
+| **Hover-derivation SCOPE — read this before filing a miss** | The 12/6/3 partition is derived over the **36 ADDITIONS**, not over all 57 census rows. Computed the other way it returns **22**, and the extra is `components/admin/ArchiveShowButton.tsx:365` carrying `hover:border-status-warn` — a row of the 2026-08-16 census whose override is a SEMANTIC escalation, not a weight cue, and correctly out of this arc's scope. A reviewer who scopes to 57 and files the difference as a missed site is computing a different set, not finding a gap. |
 | Dividers | 5; each RESOLVES, CARRIES `border-border`, and is absent from `CENSUS` |
 | Ledger ids | `origin/main` **347**, branch **350** (three review-economy/tooling rows filed on this branch); step 7.1's ShareHub row makes **351** |
 | `--color-text-subtle` as OUTLINE | 6.47/6.75 `bg`, 6.76/6.35 `surface`, 6.76/5.97 `raised`, 6.09/6.94 `sunken` |
@@ -235,12 +236,12 @@ Without this task the arc ships 21 controls whose outline reads LIGHTER on hover
 **Outside the region for the same reason as Task 3.**
 
 - [ ] **4.1** RED: add THREE outline assertions to `tests/styles/secondary-action-contrast.test.ts`, in the shape of the existing tinted-plate case at `tests/styles/secondary-action-contrast.test.ts:75` — `--color-border` (the before-state this arc moves away from), `--color-text-subtle`, and `--color-accent-on-bg`, each across all four neutral grounds in both themes. *Failure mode caught:* a future retune of `--color-border` silently reintroducing the weight this arc removed.
-- [ ] **4.2** RED: assert the **RELATIONS** — plural, and **sixteen comparisons, not eight** (plan review R5 F4). §3.6 introduces TWO hover tokens, so there are two pairs, each over four grounds in both themes:
+- [ ] **4.2** REGRESSION PIN (**not** red — see 4.3): assert the **RELATIONS** — plural, and **sixteen comparisons, not eight** (plan review R5 F4). §3.6 introduces TWO hover tokens, so there are two pairs, each over four grounds in both themes:
       - `border-text-subtle` > `border-text-faint` — 4 grounds × 2 themes = 8;
       - `border-accent-on-bg` > `border-text-faint` — 4 grounds × 2 themes = 8.
       Compute both sides from the runtime tokens rather than pinning constants. **Rationale, because it generalises:** pinned constants go stale the moment either token is retuned and force a reviewer to re-derive whether the pair still reads correctly, whereas a relation fails loudly exactly when a retune breaks it and stays silent when it is harmless.
       **These sixteen are GREEN the moment they are written** — probed, all sixteen already hold against today's tokens — so they are a REGRESSION pin, not this task's RED, and the plan says so rather than mislabelling them. Task 4's actual RED is 4.1's three missing `DESIGN.md` rows.
-- [ ] **4.3** **Confirm the RED is not tautological.** The new cases must fail because `DESIGN.md` lacks the rows and the relation is unasserted — NOT because an expected number is wrong. Test it: correcting an expected NUMBER must not turn the case green. If it can, the assertion is measuring the test rather than the stylesheet, and it must be rewritten to compare `DESIGN.md`'s published rows against the runtime tokens.
+- [ ] **4.3** **Confirm the RED is not tautological.** The 4.1 cases must fail because `DESIGN.md` lacks the three rows — NOT because an expected number is wrong, and NOT because the relation was previously unasserted (the sixteen relations hold against today's tokens, so they can never be this task's red). Test it: correcting an expected NUMBER must not turn the case green. If it can, the assertion is measuring the test rather than the stylesheet, and it must be rewritten to compare `DESIGN.md`'s published rows against the runtime tokens.
 - [ ] **4.4** Add the matching `DESIGN.md` §1.2 rows for all three tokens as outlines.
 - [ ] **4.5** GREEN: `pnpm exec vitest run tests/styles/secondary-action-contrast.test.ts`
 - [ ] **4.6** Commit ONCE: `test(styles): pin the outline ratios and the hover-over-rest relation`
@@ -274,32 +275,54 @@ Without this task the arc ships 21 controls whose outline reads LIGHTER on hover
       ```
       If that prints ANYTHING, both halves re-run on the updated diff and §12 plus the marker line are rewritten in a new commit. Invariant 8 is a claim about the diff that MERGES, not about a diff that existed midway.
 
-## Task 7: Ledger — file ShareHub, archive the row, marker off LAST
+## Task 7: Ledger — file ShareHub, archive the row, marker off BEFORE review (Option A)
 
 **Files:** `BACKLOG.md` **and `BACKLOG-archive.md`** — archiving necessarily edits both.
 
-- [ ] **7.1** File `BL-CONTROL-OUTLINE-SHAREHUB-MOBILE-SKIN-WEIGHT` (spec §3.5) with `**Facing:** product`, `**Class-sweep exception:** (b)` naming BOTH ratifications (`spec 2026-07-24-strip-mobile-stacked-band §3 R3` and the executable pin `tests/styles/_metaControlOutlineFill.test.ts:156`), `**Reachability:** PROBED` with the 1.27:1 mobile and 3.35:1 desktop figures on the SAME control, and a first scheduled step.
+- [ ] **7.1** File `BL-CONTROL-OUTLINE-SHAREHUB-MOBILE-SKIN-WEIGHT` (spec §3.5) with `**Facing:** product`, `**Class-sweep exception:** (b)` naming BOTH ratifications (`spec 2026-07-24-strip-mobile-stacked-band §3 R3` and the executable pin — the case NAMED `keeps max-sm:border-border on BOTH ShareHub ternary arms` in `tests/styles/_metaControlOutlineFill.test.ts` (cite it BY NAME, never by line: Task 1 adds assertions to that file and shifted this case from :156 to :286, so a line citation filed at Task 7 would already be stale — plan review R6 F6)), `**Reachability:** PROBED` with the 1.27:1 mobile and 3.35:1 desktop figures on the SAME control, and a first scheduled step.
 - [ ] **7.2** **AC-10 is proved by THIS CHECKLIST, not by the meta-test.** `tests/docs/_metaLedgerMintBar.test.ts:58` gates its field checks on `MINT_BAR_CUTOFF = "2026-08-19"`; a row filed **2026-08-18** is grandfathered and the test never examines `Facing`. It also does not validate `Reachability`, `Class-sweep exception`, or the first scheduled step. Tick each field by hand and do not read a green suite as proof: `Status` ☐ · `Severity` ☐ · `Class` ☐ · `Effort` ☐ · `Filed` ☐ · `Facing` ☐ · `Class-sweep exception` ☐ · `Reachability` ☐ · first scheduled step ☐.
 - [ ] **7.3** **Do NOT touch `BL-CONTROL-OUTLINE-ON-TINTED-PLATES`.** An earlier draft added `components/admin/showpage/PublishedReviewModal.tsx:964` to it; that was a cross-path union error (spec §6). Scanner path 0 is `border-border` + `bg-surface-sunken`, scanner path 1 is `bg-warning-bg` with no outline token, so no render path carries both.
 - [ ] **7.4** Add any new paired-chrome instance from Task 6 to `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT`.
 - [ ] **7.4a** Record `components/admin/dev/SwitcherControls.tsx:119` on `BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER`, family A. It is a `<select>` carrying `border border-border bg-surface … hover:border-accent`, so it is inside §1.2a's words and outside the scanner's vocabulary in BOTH directions — the census will never flag it and never exempt it, which is exactly what that entry exists to hold. Add the site with its class string; do NOT open a new row and do NOT edit the file.
 - [ ] **7.5** Archive `BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL` COMPLETELY — move the entry into `BACKLOG-archive.md` **and remove its `**Status:** IN PROGRESS · **Branch:**` line in this same commit**, leaving no stub. Archives categorically reject in-progress entries (`tests/docs/_metaLedgerInProgress.test.ts:77`), and the split-stub arrangement an earlier draft proposed would have put the id in BOTH ledgers at once, breaking 7.6's empty-intersection check (plan review R5 F1).
-- [ ] **7.6** **Ledger-seam conflict is expected** — several arcs edit these files concurrently, and four PRs in a row conflicted on `BACKLOG.md` on 2026-08-18. Resolve with set arithmetic:
+- [ ] **7.6** **Ledger-seam conflict is expected** — several arcs edit these files concurrently, and four PRs in a row conflicted on `BACKLOG.md` on 2026-08-18. Resolve with set arithmetic, and **every check below emits an explicit PASS/FAIL verdict rather than a bare number, because a bare pipeline FAILS OPEN**: probed, a missing ledger file makes `grep` error and `wc -l` still print `0` with exit status 0, so "prints 0" and "could not look" are indistinguishable (plan review R6 F2).
       ```sh
+      set -o pipefail
       ids() { grep -ohE '^## (BL|DEF)-[A-Z0-9-]+' "$@" | sed 's/^## //' | sort -u; }
-      comm -12 <(ids BACKLOG.md DEFERRED.md) <(ids BACKLOG-archive.md DEFERRED-archive.md) | wc -l
-      ids BACKLOG.md DEFERRED.md BACKLOG-archive.md DEFERRED-archive.md | wc -l
+      LEDGERS="BACKLOG.md DEFERRED.md BACKLOG-archive.md DEFERRED-archive.md"
+      for f in $LEDGERS; do [ -r "$f" ] || { echo "FAIL: $f unreadable"; exit 1; }; done
+
+      # (i) no id may be both open and archived
+      OVERLAP=$(comm -12 <(ids BACKLOG.md DEFERRED.md) <(ids BACKLOG-archive.md DEFERRED-archive.md) | wc -l | tr -d ' ')
+      [ "$OVERLAP" = 0 ] && echo "PASS: no open/archive overlap" || { echo "FAIL: $OVERLAP id(s) in both"; exit 1; }
+
+      # (ii) the RELATION, computed rather than asserted as a literal
+      git show origin/main:BACKLOG.md > /tmp/m1 && git show origin/main:DEFERRED.md > /tmp/m2 \
+        && git show origin/main:BACKLOG-archive.md > /tmp/m3 && git show origin/main:DEFERRED-archive.md > /tmp/m4 \
+        || { echo "FAIL: could not read origin/main ledgers"; exit 1; }
+      MAIN=$(ids /tmp/m1 /tmp/m2 /tmp/m3 /tmp/m4 | wc -l | tr -d ' ')
+      HERE=$(ids $LEDGERS | wc -l | tr -d ' ')
+      ADDS=$(git diff origin/main -- BACKLOG.md DEFERRED.md | grep -cE '^\+## (BL|DEF)-' || true)
+      [ "$HERE" = "$((MAIN + ADDS))" ] \
+        && echo "PASS: union relation holds ($HERE = $MAIN + $ADDS)" \
+        || { echo "FAIL: union $HERE != main $MAIN + adds $ADDS"; exit 1; }
       ```
-      The first must print `0`, the second `351`. **Both end in `wc -l` so a SUCCESS prints a number and exits 0** — an earlier draft used bare `grep -c`, which exits 1 when it matches nothing, so a passing check returned failure (plan review R5 F1). Re-measured 2026-08-18: `origin/main` 347, this branch 350, plus 7.1's ShareHub row makes 351. **Recompute all three and assert the RELATION** — post-merge union == `origin/main` union + rows this branch adds — rather than trusting a literal, since `origin/main` advances and this branch may file more rows during review.
-      Three seam traps from the 2026-08-16 batch, none of which a row count can see: an entry-for-entry-correct union can still be wrong AT THE SEAM (final line flush against the next heading, no blank line); a correct resolution DROPS text from each side, because the archive clause is bidirectional; and a `registry.ts` conflict can split a row MID-BODY with both sides sharing the trailing `}, accepted: [], },` (TS1136). **Typecheck even after a clean `git` auto-merge.**
+      **Verify the checks themselves before trusting them** — run (i) once against a deliberately duplicated id and confirm it prints `FAIL` and exits 1. A check that cannot fail is not a check.
+      Three seam traps a row count cannot see: an entry-for-entry-correct union can still be wrong AT THE SEAM (final line flush against the next heading, no blank line); a correct resolution DROPS text from each side, because the archive clause is bidirectional; and a `registry.ts` conflict can split a row MID-BODY with both sides sharing the trailing `}, accepted: [], },` (TS1136). **Typecheck even after a clean `git` auto-merge.**
 - [ ] **7.7** `pnpm exec vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerMintBar.test.ts tests/docs/_metaReviewRoundEconomy.test.ts` and `pnpm typecheck`.
 - [ ] **7.8** Commit ONCE: `docs(backlog): file the ShareHub mobile-skin weight and archive the border-token row`
 - [ ] **7.9** **The marker is now absent, and the whole ledger change sits INSIDE the reviewed diff.** This task runs BEFORE whole-diff review, so review and CI cover exactly what merges — the rule an after-review commit would break (`docs/agents/writing-plans.md`, final-diff ordering, caught independently in two arcs of the arc-A/B/C batch). Ruled 2026-08-18 after plan review R5 F1/F2 surfaced the conflict between this rule and invariant 12.
 
       **Why this satisfies invariant 12 rather than waiving it.** Its wording is "the marker comes off in the PRs last commit, before the merge, **so it never reaches main**" — the `so` clause names absence-at-merge as the PURPOSE and last-commit as the MECHANISM. Verify the purpose directly, immediately before merge:
       ```sh
-      git show HEAD:BACKLOG.md | grep -c 'IN PROGRESS · \*\*Branch:\*\* fix/control-outline-border-token' || true
+      set -o pipefail
+      MARKER='IN PROGRESS · \*\*Branch:\*\* fix/control-outline-border-token'
+      git rev-parse --verify HEAD >/dev/null || { echo "FAIL: no HEAD"; exit 1; }
+      BODY=$(git show HEAD:BACKLOG.md) || { echo "FAIL: cannot read BACKLOG.md at HEAD"; exit 1; }
+      N=$(printf '%s' "$BODY" | grep -c "$MARKER" || true)
+      [ "$N" = 0 ] && echo "PASS: marker absent at HEAD" || { echo "FAIL: marker present $N time(s)"; exit 1; }
       ```
+      **`|| true` on the `grep -c` is deliberate and is NOT what makes this fail open** — `grep -c` exits 1 on zero matches, which is the SUCCESS case here. What makes it safe is that the read is checked separately: an unreadable `BACKLOG.md` or a bad `HEAD` exits 1 with `FAIL` before the count is taken. An earlier revision ran the pipeline bare, and probing it with an invalid git object printed `fatal: invalid object name` followed by `0` and exited 0 — indistinguishable from a pass (plan review R6 F2).
       It must print `0`. **Do NOT attempt to restore last-commit position by re-removing the marker** — it is already gone, so the edit is a no-op and `git log -S` still points at 7.8 (plan review R4 F4, R5 F1).
 
       **The displacement risk is handled by the ARMING WINDOW, not by sequencing.** Do not arm `gh pr merge --auto` until this commit is pushed AND whole-diff review has approved — PR #838 armed at push time, auto-merged mid-round-3, and shipped an in-progress marker to `main`. GitHub silently drops auto-merge on force-push and when merging stops being possible, so **re-arm after every push**. If a review or CI repair lands after 7.8, the marker is still absent and the purpose still holds; record the ordering in the PR body rather than papering over it.
