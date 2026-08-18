@@ -106,7 +106,7 @@ FILE (partly-skipped block) | file status: passed | assertionResults: 2
     status=skipped | never runs
 ```
 
-Both bodies in the all-skipped block would FAIL if executed; the run reports zero failures, a `passed` file status, and **exit 0**. So "present, non-empty, and no failures" is not evidence that anything was observed, and a classification resting on it would report a block that ran nothing as clean — silent corruption of exactly the kind §1.1 item 12 forbids. This is one ordinary edit from the corpus: `docs/superpowers/plans/2026-07-23-published-archived-tab-include.md:39` is a self-contained block that selects `describe.skip` at `docs/superpowers/plans/2026-07-23-published-archived-tab-include.md:48` when no loopback database is available. Hence §4.3 branch 4.
+Both bodies in the all-skipped block would FAIL if executed; the run reports zero failures, a `passed` file status, and **exit 0**. So "present, non-empty, and no failures" is not evidence that anything was observed, and a classification resting on it would report a block that ran nothing as clean — silent corruption of exactly the kind §1.1 item 12 forbids. This is one ordinary edit from the corpus: `docs/superpowers/plans/2026-07-23-published-archived-tab-include.md:39` is a self-contained block that selects `describe.skip` at `docs/superpowers/plans/2026-07-23-published-archived-tab-include.md:48` when no loopback database is available. Hence the skipped-status branch of §4.3.
 
 **The class, swept rather than the instance patched.** The shape is "a reported entry that was never executed", and `describe.skip` is not its only spelling. `.only` produces it too — a focused test passes while its sibling, whose body would fail, reports `status: "skipped"`, and the run exits 0:
 
@@ -118,7 +118,23 @@ FILE (only-gated block)  | file: passed
     status=skipped | this one would FAIL if it ran
 ```
 
-Branch 4 keys on the STATUS, not on the spelling that produced it, so `.skip`, `.only`, `.todo`, and a runtime-conditional `describe` are one rule and no enumeration of skip syntaxes ships. That is the narrowing form of the repair: the clean predicate got stricter, the recognizer did not get wider.
+That branch keys on the STATUS, not on the spelling that produced it, so `.skip`, `.only`, `.todo`, and a runtime-conditional `describe` are one rule and no enumeration of skip syntaxes ships. That is the narrowing form of the repair: the clean predicate got stricter, the recognizer did not get wider.
+
+### 2.6 A file can fail while every assertion passes
+
+A failing lifecycle hook fails the FILE without failing any test. Measured through the real CLI reporter:
+
+```
+$ pnpm exec vitest run tests/.arcDhook --reporter=json
+vitest EXIT=1
+numTotal 1 passed 1 failed 0
+FILE status: failed | assertions: 1 | file message: ""
+    status=passed | failures: 0 | the assertion itself passes
+```
+
+The block's assertion passed, no assertion carries a failure, and the file is `failed`. An implementation that counts only assertion failures would read this as clean for `expect=green` and as `FIXTURE_ALREADY_GREEN` for `expect=red` — both wrong, and the first silently so. The corpus makes this ordinary rather than exotic: **27** `ts`/`tsx`/`typescript` vitest blocks across the 659-file plan corpus contain `afterAll`, so an accidentally throwing cleanup is one enrolment edit away.
+
+Note the file-level `message` is **empty** here. It carries text for the collection failures in §2.4 and not for this shape, so `FIXTURE_FILE_FAILED`'s detail states the file status and treats the message as optional; a detail that assumed a message would render an empty explanation exactly where the operator needs one.
 
 ## 3. Static arm — the marker (default invocation)
 
@@ -168,12 +184,13 @@ The directory is gitignored (§9) so a crash between steps 2 and 4 cannot dirty 
 For each enrolled block, the core evaluates these in order and emits **exactly one** outcome (§1.1 item 12):
 
 1. The block's file is absent from the report, or no report was produced (runner did not complete, timed out, was signalled, or wrote unreadable JSON) → **`FIXTURE_PROBE_UNVERIFIED`** (advisory), detail naming the reason.
-2. The file is present with an **empty `assertionResults`** array → **`FIXTURE_UNCOLLECTABLE`** (fail), detail carrying the file-level `message` head. This is the unresolvable-import / syntax-error / no-test-suite family (§2.4) and the outside-the-globs trap (§2.3). It is HARD, not advisory, because the run completed and reported a deterministic, author-fixable property of the block — an observation, unlike the non-observations in branch 1.
-3. Any failure message on the file carries the premise sentinel `premise not met:` → **`FIXTURE_UNSATISFIABLE`** (fail), detail naming each such premise description. **This branch outranks both `expect=` branches below**, in both directions: a block declared `red` whose redness comes from an unsatisfiable premise has observed nothing, which is precisely the defect this spec exists to catch, and a block declared `green` gets the more specific diagnosis rather than the generic one.
-4. Any assertion entry carries a NON-EXECUTED status (`skipped`, `pending`, or `todo`) → **`FIXTURE_ASSERTIONS_SKIPPED`** (fail), detail naming each such test title. One rule covers both shapes §2.5 measured — every assertion skipped, and some skipped beside executed siblings — because a declared outcome is a claim about the WHOLE block, and a skipped assertion was not observed in either direction. It is placed after the sentinel branch (a premise failure is the sharper diagnosis and the block demonstrably ran) and before both `expect=` branches, which is the minimal placement that closes the silent-clean hole: reading "no failures" as green over an unexecuted body is the corruption, and the environment-gated block is its ordinary, non-adversarial instance.
-5. `expect=green` and the file reports any failure → **`FIXTURE_NOT_GREEN`** (fail), detail naming the first failing test title and message head.
-6. `expect=red` and the file reports zero failures → **`FIXTURE_ALREADY_GREEN`** (fail), detail naming the block's test count. Mirrors `RED_ALREADY_GREEN` (`lib/specLint/redContract.ts:439`): a block asserted to demonstrate an absent behavior, which the live tree already has, demonstrates nothing.
-7. Otherwise → clean. That is `expect=green` with every assertion executed and zero failures, or `expect=red` with every assertion executed and at least one ordinary (non-premise) failure.
+2. The file is present with an **empty `assertionResults`** array → **`FIXTURE_UNCOLLECTABLE`** (fail), detail carrying the file-level `message` head. This is the unresolvable-import / syntax-error / no-test-suite family (§2.4) and the outside-the-globs trap (§2.3). It is HARD, not advisory, because the run completed and reported a deterministic, author-fixable property of the block — an observation, unlike the non-observations in the branch above.
+3. The file's reported status is `failed` while ZERO assertion entries have a failed status → **`FIXTURE_FILE_FAILED`** (fail), detail naming the file status and the file-level message when it is non-empty (§2.6 measures it empty for this shape). The file failed for a reason outside its assertions — a throwing `afterAll`/`beforeAll`, an unhandled rejection — so neither `expect=` value has been observed. The predicate cannot collide with the sentinel branch below: a failed premise IS a failed assertion, so where one exists this branch does not fire and the sharper diagnosis wins.
+4. Any failure message on the file carries the premise sentinel `premise not met:` → **`FIXTURE_UNSATISFIABLE`** (fail), detail naming each such premise description. **This branch outranks both `expect=` branches below**, in both directions: a block declared `red` whose redness comes from an unsatisfiable premise has observed nothing, which is precisely the defect this spec exists to catch, and a block declared `green` gets the more specific diagnosis rather than the generic one.
+5. Any assertion entry carries a NON-EXECUTED status (`skipped`, `pending`, or `todo`) → **`FIXTURE_ASSERTIONS_SKIPPED`** (fail), detail naming each such test title. One rule covers both shapes §2.5 measured — every assertion skipped, and some skipped beside executed siblings — because a declared outcome is a claim about the WHOLE block, and a skipped assertion was not observed in either direction. It is placed after the sentinel branch (a premise failure is the sharper diagnosis and the block demonstrably ran) and before both `expect=` branches, which is the minimal placement that closes the silent-clean hole: reading "no failures" as green over an unexecuted body is the corruption, and the environment-gated block is its ordinary, non-adversarial instance.
+6. `expect=green` and at least one ASSERTION entry failed → **`FIXTURE_NOT_GREEN`** (fail), detail naming the first failing test title and message head. "Assertion" is load-bearing here rather than "the file reports any failure": a file-level failure with no failed assertion is the §2.6 shape and was consumed above, and leaving the looser wording is what let an implementation counting only assertion failures satisfy every listed test while misreading it.
+7. `expect=red` and NO assertion entry failed → **`FIXTURE_ALREADY_GREEN`** (fail), detail naming the block's test count. Mirrors `RED_ALREADY_GREEN` (`lib/specLint/redContract.ts:439`): a block asserted to demonstrate an absent behavior, which the live tree already has, demonstrates nothing.
+8. Otherwise → clean. That is a file whose reported status is not `failed`, with every assertion executed, and either `expect=green` with no assertion failure or `expect=red` with at least one ordinary (non-premise) assertion failure.
 
 ### 4.4 Finding shapes
 
@@ -182,12 +199,13 @@ For each enrolled block, the core evaluates these in order and emits **exactly o
 | `FIXTURE_MALFORMED` | fail | §3.2, static |
 | `FIXTURE_WHY_EMPTY` | fail | §3.2, static |
 | `FIXTURE_UNATTACHED` | fail | §3.2, static |
-| `FIXTURE_UNSATISFIABLE` | fail | §4.3 branch 3 — the constructed fixture cannot reach the assertion |
-| `FIXTURE_UNCOLLECTABLE` | fail | §4.3 branch 2 — the block collected no tests |
-| `FIXTURE_ASSERTIONS_SKIPPED` | fail | §4.3 branch 4 — an assertion was reported but never executed (§2.5) |
-| `FIXTURE_NOT_GREEN` | fail | §4.3 branch 4 |
-| `FIXTURE_ALREADY_GREEN` | fail | §4.3 branch 5 |
-| `FIXTURE_PROBE_UNVERIFIED` | advisory | §4.2 step 1 collision, §4.3 branch 1 |
+| `FIXTURE_UNSATISFIABLE` | fail | §4.3 — a failure carries the premise sentinel: the constructed fixture cannot reach the assertion |
+| `FIXTURE_UNCOLLECTABLE` | fail | §4.3 — no assertion entries at all: the block collected no tests |
+| `FIXTURE_ASSERTIONS_SKIPPED` | fail | §4.3 — an assertion was reported but never executed (§2.5) |
+| `FIXTURE_FILE_FAILED` | fail | §4.3 — the file failed while no assertion did (§2.6) |
+| `FIXTURE_NOT_GREEN` | fail | §4.3 — `expect=green` with a failure |
+| `FIXTURE_ALREADY_GREEN` | fail | §4.3 — `expect=red` with no failure |
+| `FIXTURE_PROBE_UNVERIFIED` | advisory | §4.2 step 1 collision; §4.3 — the block is absent from the report |
 
 ## 5. Architecture & purity
 
@@ -209,7 +227,7 @@ All under `tests/specLint/`, TDD per task, anti-tautology rules of `docs/agents/
 
 - **Marker grammar suite (pure):** the exact shape parses; each malformation draws `FIXTURE_MALFORMED` (bad `expect=` value, missing `why=`, missing delimiter, trailing text); empty and whitespace `why=` draw `FIXTURE_WHY_EMPTY`; attachment holds for `ts` / `tsx` / `typescript` and fails for `bash` / `md` / a blank line / prose / EOF, each drawing `FIXTURE_UNATTACHED`; a marker inside a fence is inert; a marker in a spec-kind doc draws nothing.
 - **Splice-plan suite (pure):** plan entries carry line, block text verbatim (byte-identical, including blank lines and trailing whitespace), and declared `expect`; statically-flagged markers are excluded from the plan (asserted directly, the same exclusion shape as `planExecutions`); doc order preserved.
-- **Classification suite (pure, fake outcome maps):** every §4.3 branch in order, plus every precedence contest stated as its own case — premise sentinel beats `expect=green`, premise sentinel beats `expect=red`, empty `assertionResults` beats everything below it, the sentinel beats a skipped assertion, and a skipped assertion beats both `expect=` branches; the all-skipped `expect=green` shape measured in §2.5 (assertions present, zero failures, file status `passed`) draws `FIXTURE_ASSERTIONS_SKIPPED` and never clean; a partially-skipped block draws it too, even though a sibling executed and passed; a block absent from the report draws the advisory and never a hard code; a null map (static invocation) draws zero §4 findings.
+- **Classification suite (pure, fake outcome maps):** every §4.3 branch in order — the fake outcome carries the reporter's FILE status and each assertion's own status, not counts, since §2.5 and §2.6 are both invisible to a count — plus every precedence contest stated as its own case — premise sentinel beats `expect=green`, premise sentinel beats `expect=red`, empty `assertionResults` beats everything below it, the sentinel beats a skipped assertion, and a skipped assertion beats both `expect=` branches; the all-skipped `expect=green` shape measured in §2.5 (assertions present, zero failures, file status `passed`) draws `FIXTURE_ASSERTIONS_SKIPPED` and never clean; a partially-skipped block draws it too, even though a sibling executed and passed; a failed file with every assertion passed draws `FIXTURE_FILE_FAILED` in both `expect=` directions, and does NOT fire when an assertion also failed (the sentinel or the ordinary branches own that case); a block absent from the report draws the advisory and never a hard code; a null map (static invocation) draws zero §4 findings.
 - **CLI adapter suite** (extends `tests/specLint/cli.test.ts`; real subprocesses, trivial blocks only — no heavy phases): a fixture plan whose enrolled block fails a premise → exit 1 with `FIXTURE_UNSATISFIABLE`; the same plan with the repaired fixture → exit 0; an `expect=red` block that passes → `FIXTURE_ALREADY_GREEN`; an unresolvable-import block → `FIXTURE_UNCOLLECTABLE`; a pre-existing splice directory → `FIXTURE_PROBE_UNVERIFIED` and **no vitest spawn at all** (asserted with a spy recording zero calls — a fence proved before any observation, per the #831 lesson); the splice directory is absent after every run including the failing ones (asserted by existence check in a `finally`-covering case). Plus, through the REAL reporter: an `expect=green` block whose `describe` is skipped draws `FIXTURE_ASSERTIONS_SKIPPED` — §2.5's shape exits 0, so only a real run proves the adapter surfaces the per-assertion statuses the core needs.
 - **Historical re-enactment (the calibration case, executable):** the §2.4 pair shipped as two fixture plans — the r4 two-column header drawing `FIXTURE_UNSATISFIABLE`, the merged three-column header clean — so the defect this spec exists to catch is pinned by the defect itself rather than by a synthetic analogue.
 - **Corpus regression:** the tracked plan corpus relints byte-identical (zero enrolled blocks today, §2.2), asserted rather than assumed.
@@ -248,7 +266,7 @@ All under `tests/specLint/`, TDD per task, anti-tautology rules of `docs/agents/
 
 - AC-1: the marker grammar parses the exact declared shape; every malformation draws `FIXTURE_MALFORMED`; an empty `why=` draws `FIXTURE_WHY_EMPTY`; a marker not followed by a `ts` / `tsx` / `typescript` fence opener draws `FIXTURE_UNATTACHED`; markers inside fences and in spec-kind docs draw nothing.
 - AC-2: no shipped code inspects an unenrolled block's content, at any severity (asserted structurally, not by sampling).
-- AC-3: under `--exec-red`, the §4.3 precedence holds branch by branch, including all five contests: premise sentinel over `expect=green`, premise sentinel over `expect=red`, empty `assertionResults` over both, the sentinel over a skipped assertion, and a skipped assertion over both `expect=` branches (an all-skipped `expect=green` block, which exits 0 with zero failures, must never read clean — §2.5).
+- AC-3: under `--exec-red`, the §4.3 ladder holds condition by condition, including every precedence contest: premise sentinel over `expect=green`, premise sentinel over `expect=red`, no-assertion-entries over both, sentinel over a skipped assertion, skipped assertion over both `expect=` branches, and a failed FILE with no failed assertion over both (§2.6 — that shape exits 1 with `numFailedTests: 0`). The all-skipped `expect=green` block, which exits 0 with zero failures, must never read clean (§2.5).
 - AC-4: the §2.4 historical pair reproduces — the r4 two-column header draws `FIXTURE_UNSATISFIABLE`, the merged three-column header is clean.
 - AC-5: a pre-existing splice directory spawns nothing (spy asserts zero calls) and draws `FIXTURE_PROBE_UNVERIFIED`; the splice directory is absent after every run, including runs whose vitest invocation fails or times out.
 - AC-6: statically-flagged markers are excluded from the splice plan; a static invocation draws zero §4 findings; the tracked plan corpus relints byte-identical.

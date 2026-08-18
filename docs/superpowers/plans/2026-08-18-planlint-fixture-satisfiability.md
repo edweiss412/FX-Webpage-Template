@@ -68,12 +68,12 @@ FILE block2-L166.test.ts status failed assertions 2
       AssertionError: expected [] to deeply equal [ 'FIXTURE_MALFORMED' ]
 FILE block3-L202.test.ts status failed assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' imported from ...
 FILE block4-L243.test.ts status failed assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' imported from ...
-FILE block5-L371.test.ts status failed assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' imported from ...
+FILE block5-L399.test.ts status failed assertions 0 | Cannot find package '@/lib/specLint/fixtureContract' imported from ...
 ```
 
 Read exactly: **four** blocks red at module resolution naming the absent module, and **one** — Task 2's, which imports only tracked modules — red at its assertion, `expected [] to deeply equal [ 'FIXTURE_MALFORMED' ]`, which is the stronger evidence of the two (it proves the five-argument `runLint` call compiles and that the orchestrator genuinely emits nothing today). No block failed at transform.
 
-This run is the RE-execution after spec round 1's BLOCKING repair rewrote Task 4's block; the line numbers are the post-repair ones and the record was re-measured rather than carried forward, which is the same discipline the arm itself enforces. Two things the original execution corrected rather than confirmed, which is the argument for running it at all: an earlier draft of this section asserted three module-resolution reds where the measurement shows four, and Task 2's block turns out to carry **one case that passes at base vacuously** — "a clean marker adds no findings" holds today precisely because nothing fires at all. It is kept deliberately as the over-fire guard it becomes once Task 2 lands, and is named here so no reviewer has to discover that it proves nothing before the GREEN step. The splice directory was removed after the run and `git status` is clean.
+This run is the RE-execution after the spec round 2 repair, which added the file-status channel to Task 4's fake outcome; every earlier repair that touched a block was followed by the same re-run, and the line numbers here are the current ones. The record is re-measured on every edit rather than carried forward, which is the discipline the arm itself enforces. Two things the original execution corrected rather than confirmed, which is the argument for running it at all: an earlier draft of this section asserted three module-resolution reds where the measurement shows four, and Task 2's block turns out to carry **one case that passes at base vacuously** — "a clean marker adds no findings" holds today precisely because nothing fires at all. It is kept deliberately as the over-fire guard it becomes once Task 2 lands, and is named here so no reviewer has to discover that it proves nothing before the GREEN step. The splice directory was removed after the run and `git status` is clean.
 
 ### 3.1 Dogfood against the landed arms
 
@@ -232,7 +232,7 @@ describe("splice plan (spec §4.1)", () => {
 
 ## Task 4 — classification, total over the precedence ladder (pure)
 
-<!-- task: red=`pnpm vitest run tests/specLint/fixtureClassify.test.ts` red-state=authored red-target=`lib/specLint/fixtureContract.ts` why=`synthesizeFixtureFindings does not exist at base and is not added by Tasks 1 or 3, so the import fails to resolve. It greens when the module implements spec §4.3's seven branches IN ORDER, emitting exactly one outcome per enrolled block; the three precedence-contest cases below are red against any implementation that evaluates the expect= branches before the premise-sentinel branch` ac=AC-3,AC-4 -->
+<!-- task: red=`pnpm vitest run tests/specLint/fixtureClassify.test.ts` red-state=authored red-target=`lib/specLint/fixtureContract.ts` why=`synthesizeFixtureFindings does not exist at base and is not added by Tasks 1 or 3, so the import fails to resolve. It greens when the module implements spec §4.3's eight branches IN ORDER, emitting exactly one outcome per enrolled block; every precedence-contest case below is red against an implementation that evaluates the expect= branches before the sentinel, the skipped-status, or the file-status branch` ac=AC-3,AC-4 -->
 
 Export `synthesizeFixtureFindings(plan, results)` implementing spec §4.3's ordered ladder. The per-assertion STATUS is part of the input, never a count: vitest reports a skipped test as a present entry with status `skipped` and no failure (spec §2.5). `results === null` (static invocation) yields zero findings. Exactly one outcome per enrolled block.
 
@@ -252,7 +252,12 @@ const entry = (line: number, exp: "green" | "red") => ({ line, expect: exp, bloc
 // reports a skipped test as a present entry with status "skipped" and no
 // failure (spec section 2.5), so a shape carrying only a count cannot express
 // the difference between observed and merely reported.
-const file = (o: { statuses?: string[]; failures?: string[]; message?: string }) => ({
+const file = (o: { statuses?: string[]; failures?: string[]; message?: string; fileStatus?: string }) => ({
+  // Three channels, because no two of them are derivable from each other:
+  // fileStatus (a hook can fail the FILE with every assertion passing, spec
+  // section 2.6), each assertion's own status (a skipped test is present and
+  // unexecuted, section 2.5), and the failure messages (the premise sentinel).
+  fileStatus: o.fileStatus ?? "passed",
   assertions: (o.statuses ?? ["passed"]).map((status, i) => ({ status, title: `t${i}` })),
   failureMessages: o.failures ?? [],
   fileMessage: o.message ?? "",
@@ -270,27 +275,27 @@ describe("classification ladder (spec section 4.3)", () => {
 
   it("branch 2: no assertion entries at all is hard, and outranks the expect= branches", () => {
     for (const exp of ["green", "red"] as const) {
-      expect(codesOf([entry(5, exp)], results(5, file({ statuses: [], message: "No test suite found" })))).toEqual([
+      expect(codesOf([entry(5, exp)], results(5, file({ fileStatus: "failed", statuses: [], message: "No test suite found" })))).toEqual([
         "FIXTURE_UNCOLLECTABLE",
       ]);
     }
   });
 
   it("branch 3: the premise sentinel outranks BOTH expect= branches", () => {
-    expect(codesOf([entry(5, "red")], results(5, file({ statuses: ["failed"], failures: [PREMISE] })))).toEqual([
+    expect(codesOf([entry(5, "red")], results(5, file({ fileStatus: "failed", statuses: ["failed"], failures: [PREMISE] })))).toEqual([
       "FIXTURE_UNSATISFIABLE",
     ]);
-    expect(codesOf([entry(5, "green")], results(5, file({ statuses: ["failed"], failures: [PREMISE] })))).toEqual([
+    expect(codesOf([entry(5, "green")], results(5, file({ fileStatus: "failed", statuses: ["failed"], failures: [PREMISE] })))).toEqual([
       "FIXTURE_UNSATISFIABLE",
     ]);
   });
 
   it("branch 3 fires on a sentinel among several failures, and outranks a skipped sibling", () => {
     expect(
-      codesOf([entry(5, "red")], results(5, file({ statuses: ["failed", "failed"], failures: [ASSERT, PREMISE] }))),
+      codesOf([entry(5, "red")], results(5, file({ fileStatus: "failed", statuses: ["failed", "failed"], failures: [ASSERT, PREMISE] }))),
     ).toEqual(["FIXTURE_UNSATISFIABLE"]);
     expect(
-      codesOf([entry(5, "red")], results(5, file({ statuses: ["failed", "skipped"], failures: [PREMISE] }))),
+      codesOf([entry(5, "red")], results(5, file({ fileStatus: "failed", statuses: ["failed", "skipped"], failures: [PREMISE] }))),
     ).toEqual(["FIXTURE_UNSATISFIABLE"]);
   });
 
@@ -315,13 +320,33 @@ describe("classification ladder (spec section 4.3)", () => {
     }
   });
 
-  it("branches 5-7: the ordinary outcomes, every assertion executed", () => {
-    expect(codesOf([entry(5, "green")], results(5, file({ statuses: ["failed"], failures: [ASSERT] })))).toEqual([
+  it("a file that FAILED while no assertion did fires in both expect= directions", () => {
+    // Measured (spec section 2.6): a throwing afterAll fails the file, the
+    // assertion passes, numFailedTests is 0, and the run exits 1. Counting only
+    // assertion failures reads this clean for green and ALREADY_GREEN for red.
+    for (const exp of ["green", "red"] as const) {
+      expect(codesOf([entry(5, exp)], results(5, file({ fileStatus: "failed", statuses: ["passed"] })))).toEqual([
+        "FIXTURE_FILE_FAILED",
+      ]);
+    }
+  });
+
+  it("the file-failed branch does NOT fire when an assertion also failed", () => {
+    expect(
+      codesOf([entry(5, "green")], results(5, file({ fileStatus: "failed", statuses: ["failed"], failures: [ASSERT] }))),
+    ).toEqual(["FIXTURE_NOT_GREEN"]);
+    expect(
+      codesOf([entry(5, "red")], results(5, file({ fileStatus: "failed", statuses: ["failed"], failures: [PREMISE] }))),
+    ).toEqual(["FIXTURE_UNSATISFIABLE"]);
+  });
+
+  it("branches 6-8: the ordinary outcomes, every assertion executed", () => {
+    expect(codesOf([entry(5, "green")], results(5, file({ fileStatus: "failed", statuses: ["failed"], failures: [ASSERT] })))).toEqual([
       "FIXTURE_NOT_GREEN",
     ]);
     expect(codesOf([entry(5, "red")], results(5, file({ statuses: ["passed"] })))).toEqual(["FIXTURE_ALREADY_GREEN"]);
     expect(codesOf([entry(5, "green")], results(5, file({ statuses: ["passed"] })))).toEqual([]);
-    expect(codesOf([entry(5, "red")], results(5, file({ statuses: ["failed"], failures: [ASSERT] })))).toEqual([]);
+    expect(codesOf([entry(5, "red")], results(5, file({ fileStatus: "failed", statuses: ["failed"], failures: [ASSERT] })))).toEqual([]);
   });
 
   it("every enrolled block draws exactly one outcome, over the whole ladder", () => {
@@ -332,13 +357,15 @@ describe("classification ladder (spec section 4.3)", () => {
       entry(4, "green"),
       entry(5, "red"),
       entry(6, "green"),
+      entry(7, "green"),
     ];
     const map = new Map<number, unknown>([
-      [1, file({ statuses: ["failed"], failures: [PREMISE] })],
-      [2, file({ statuses: [], message: "Transform failed" })],
+      [1, file({ fileStatus: "failed", statuses: ["failed"], failures: [PREMISE] })],
+      [2, file({ fileStatus: "failed", statuses: [], message: "Transform failed" })],
       [3, file({ statuses: ["passed"] })],
-      [4, file({ statuses: ["failed"], failures: [ASSERT] })],
+      [4, file({ fileStatus: "failed", statuses: ["failed"], failures: [ASSERT] })],
       [6, file({ statuses: ["skipped"] })],
+      [7, file({ fileStatus: "failed", statuses: ["passed"] })],
       // line 5 deliberately absent
     ]);
     const out = synthesizeFixtureFindings(plan, { files: map } as never);
@@ -349,6 +376,7 @@ describe("classification ladder (spec section 4.3)", () => {
       "4:FIXTURE_NOT_GREEN",
       "5:FIXTURE_PROBE_UNVERIFIED",
       "6:FIXTURE_ASSERTIONS_SKIPPED",
+      "7:FIXTURE_FILE_FAILED",
     ]);
   });
 
@@ -462,7 +490,7 @@ Add the `fixtureContract` row (shape copied from the `redContract` row at `tests
 | --- | --- |
 | AC-1 marker grammar and three static codes | 1, 2 |
 | AC-2 no shipped code inspects an unenrolled block | 1 |
-| AC-3 §4.3 precedence total, all three contests | 3, 4 |
+| AC-3 §4.3 precedence total, every contest | 3, 4 |
 | AC-4 historical pair reproduces | 4, 6, 7 |
 | AC-5 pre-existing dir spawns nothing; dir never survives | 5, 6 |
 | AC-6 static-flag exclusion; static invocation silent; corpus byte-identical | 2, 3 |
