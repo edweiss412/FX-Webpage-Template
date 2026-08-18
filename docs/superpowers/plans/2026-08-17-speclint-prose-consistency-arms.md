@@ -115,8 +115,8 @@
 
 - [ ] **Step 1 (RED):** The record test pins record↔classification consistency: the survivors file exists, each row is `path:line <snippet>`, and the classification file's per-class counts sum to the record's row count (premise: record non-empty — assert with `premise` from `tests/_shared/premise.ts`, since a zero-row record would make the sum vacuous). Observe red (missing artifact).
 - [ ] **Step 2:** Run the SHIPPED recognizer over the corpus — extend the committed instrument's runner or a 20-line tsx driver calling `runLint` per tracked spec-kind doc, filtering `check === "universals"` findings — writing every advisory row to the survivors file, untruncated ("a sweep that truncates its output has not been run").
-- [ ] **Step 3:** Hand-classify the survivor rows in one bounded pass (classes: genuine drift candidate / benign restatement / historical record residue — copy informing ONLY advisory copy + spec §7 documented limits; gates frozen per §3.3). Commit both files; test green.
-- [ ] **Step 4:** Corpus regression: `pnpm spec:lint` on this spec and this plan → 0 hard each. Commit `docs(spec-lint): layer-3 corpus record + survivor classification`; push.
+- [ ] **Step 3:** Hand-classify the survivor rows in one bounded pass (classes: genuine drift candidate / benign restatement / historical record residue — copy informing ONLY advisory copy + spec §7 documented limits; gates frozen per §3.3). Observe the record test green (plan review R2 F3: green precedes the commit; this task has exactly ONE commit, at Step 4).
+- [ ] **Step 4:** Corpus regression: `pnpm spec:lint` on this spec and this plan → 0 hard each. Single commit `docs(spec-lint): layer-3 corpus record + survivor classification`; push.
 
 ### Task 5: mutation enrolment — registry row + ledger-kind + premise declarations, scored run
 
@@ -145,26 +145,32 @@ registerSurfaceCases(GUARD_SURFACES.filter((s) => s.id === "specLintUniversals")
 - [ ] **Step 5 (acceptance):** `pnpm heavy pnpm mutation:guards` — full gate, foreground; unaccepted-survivor set EMPTY. Record score + survivor ledger in the commit message; the round-1 diff-review brief states both (AGENTS.md enrolment-precedes-review).
 - [ ] **Step 6:** Commit `test(spec-lint): enrol specLintUniversals in the source-mutation gate`; push.
 
-### Task 6: ledger graduation + docs consumption edit (the PR's LAST commit)
+### Task 6: ledger graduation (the PR's LAST commit)
 
-<!-- task: red=`pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaDeferralLedgerGraduation.test.ts` red-state=authored red-target=`tests/docs/_metaDeferralLedgerGraduation.test.ts:99` why=`the archive categorically rejects in-flight entries and BACKLOG_GRADUATED walks fail-by-default: moving both entries to BACKLOG-archive.md with their IN PROGRESS markers still on (Step 1) reds the in-progress meta; adding the archive sections without their BACKLOG_GRADUATED rows reds the graduation walk; the SAME command greens when markers strip + rows land in the same edit session (Step 2)` ac=AC-6,AC-7 -->
+<!-- task: red=`pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaDeferralLedgerGraduation.test.ts` red-state=authored red-target=`tests/docs/_metaDeferralLedgerGraduation.test.ts:660` why=`the archive-only walk iterates BACKLOG_GRADUATED rows: adding the two rows FIRST, before the archive moves, reds "every graduated id is archive-only" at :664 (id missing from BACKLOG-archive.md) - a real fail-by-default on the named rows, probed at plan review R2 F1 (the earlier claim that absent rows red the walk was backwards and is repaired); the SAME command greens when the archive sections land with markers stripped in the same edit session (in-progress meta at :1289 additionally rejects a surviving marker)` ac=AC-7 -->
 
 **Files:**
 
+- Modify: tests/docs/_metaDeferralLedgerGraduation.test.ts (two `BACKLOG_GRADUATED` rows — added FIRST, the red)
 - Modify: BACKLOG.md (remove both entries), BACKLOG-archive.md (add both, `— CLOSED` headings, provenance `fix/speclint-prose-consistency-arms`; marker stripped in the SAME commit — the graduating-entry rule, invariant 12)
-- Modify: tests/docs/_metaDeferralLedgerGraduation.test.ts (two `BACKLOG_GRADUATED` rows)
-- Modify: docs/agents/spec-self-review.md (the self-consistency-sweep bullet, drafting locator :18, gains one sentence naming `universal-claims`/`scope-fences` as the post-repair sweep's derived cover — AC-6)
 
 **Steps:**
 
-- [ ] **Step 1 (RED):** Stage the archive moves with markers still on; observe both metas red.
-- [ ] **Step 2 (GREEN):** Strip markers, add `BACKLOG_GRADUATED` rows, add the sweep sentence; same command greens.
+- [ ] **Step 1 (RED):** Add both `BACKLOG_GRADUATED` rows (id + provenance `fix/speclint-prose-consistency-arms`) with NO archive edit; run the marker command; observe `every graduated id is archive-only` red on both ids.
+- [ ] **Step 2 (GREEN):** Move both entries to BACKLOG-archive.md with `— CLOSED` headings naming the branch, strip the IN PROGRESS markers in the same edit session; same command greens (archive-only walk, provenance walk, and the no-IN-PROGRESS meta all pass).
 - [ ] **Step 3:** Full gate sweep before the last push: `pnpm typecheck && pnpm heavy pnpm test:fast`; `pnpm spec:lint` on spec + plan → 0 hard. Commit `docs(plan): graduate both prose-consistency ledger rows`; push. This is the intended LAST commit — auto-merge arms only after it (lessons file, #838 incident).
 
 <!-- tasks: end -->
 
+### Task 7 (docs consumption edit, outside the checked task region — AC-6)
+
+No meta-test reads `docs/agents/spec-self-review.md`, so this edit sits outside the red-contract region rather than wearing a marker whose command cannot observe it (plan review R2 F2).
+
+- [ ] Edit docs/agents/spec-self-review.md, the self-consistency-sweep bullet (drafting locator :18): add one sentence naming the `universal-claims` and `scope-fences` inventory groups as the post-repair sweep's derived cover.
+- [ ] Verify mechanically and paste the output into the commit message: `rg -n "universal-claims" docs/agents/spec-self-review.md` returns exactly one line, inside the self-consistency-sweep bullet. Commit `docs(agents): name the inventory groups as the post-repair sweep's derived cover`; push. Ordering: lands BEFORE Task 6 (Task 6 stays the PR's last commit).
+
 ## Verification (whole-arc)
 
 - All §6 spec fixtures live in Tasks 1–3 suites; red observed per marker; green on the SAME command.
-- AC-1..AC-7 all covered: AC-1/AC-3 (Task 1), AC-2 (Tasks 2–3), AC-4 (Task 4), AC-5 (Task 5), AC-6/AC-7 (Task 6).
+- AC-1..AC-7 all covered: AC-1/AC-3 (Task 1), AC-2 (Tasks 2–3), AC-4 (Task 4), AC-5 (Task 5), AC-6 (Task 7, outside the region, grep-verified), AC-7 (Task 6).
 - Cross-model diff review runs even though parts are docs-only (lessons file: 10 real defects on a docs diff that had passed 621 meta-tests); round-1 diff brief carries the mutation score + empty unaccepted-survivor set + GUARD SURFACE line per the codex-guard dispatch contract.
