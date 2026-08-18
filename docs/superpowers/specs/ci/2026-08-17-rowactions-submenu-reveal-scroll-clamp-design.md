@@ -90,7 +90,7 @@ export function withNaturalSize<T>(
   el.style.maxHeight = "";
   let live = true;
   try {
-    return measure({
+    const out = measure({
       heightAtWidth: (width) => {
         if (!live) throw new Error("heightAtWidth escaped its withNaturalSize call");
         el.style.maxWidth = `${width}px`;
@@ -101,6 +101,18 @@ export function withNaturalSize<T>(
         }
       },
     });
+    // SyncOnly is best-effort (a union or `any` return distributes past the
+    // conditional, R2 F1), so the sync contract is ALSO enforced at runtime:
+    // a thenable return means the measurement continues after the caps are
+    // restored, which is a silently wrong measurement, the exact defect class.
+    if (
+      out !== null &&
+      (typeof out === "object" || typeof out === "function") &&
+      "then" in (out as object)
+    ) {
+      throw new Error("withNaturalSize measure callback must be synchronous");
+    }
+    return out;
   } finally {
     live = false;
     el.style.maxWidth = heldMaxWidth;
@@ -120,8 +132,8 @@ Design points:
 - Convergence: if the restore write does fire a scroll event, the next scheduled `measureAndApply` preserves the offset and writes nothing, so the cycle terminates after one extra measure. There is no oscillation because a write only happens when the browser clamped, and post-fix the browser's clamp is always undone to the same held value.
 - If the panel legitimately shrank between measurements (viewport resize), the restore write is clamped by the browser to the new valid range — correct behavior, not a defect.
 - `heightAtWidth` reproduces the three existing `wrappedHeightAt` bodies byte-for-semantics (`AnchoredPortal.tsx:146-151`, `HoverHelp.tsx:233-237`, `ShareHub.tsx:306-310`), with its own `finally` so a throwing measurement cannot leave the probe width applied.
-- **Lifetime is bounded (adversarial-review R1 F2):** the callback is synchronous by type (`SyncOnly` rejects promise returns at compile time), and the probe is inert after return — `heightAtWidth` throws once the `finally` has run, so an escaped probe cannot mutate restored caps later.
-- **The helper restores the PRIOR inline caps; sites that end in a different cap state apply it explicitly after the helper returns (R1 F1).** Two of the four sites do not want the prior caps back: HoverHelp/ShareHub end with the PLACEMENT's caps (absent when the placement returns null), and useFitWithinClip's no-clipping-ancestor branch ends uncapped. Those sites follow the helper with a both-branch application — `style.maxHeight = `${v}px`` when the new cap exists, `style.removeProperty("max-height")` when it does not (same for max-width) — which reproduces today's observable end states exactly (today's clear leaves the property absent and the conditional set only writes non-null values). `removeProperty` in a null branch is placement APPLICATION, not measurement, and today's corresponding state is reachable only when the placement decided no cap is needed, i.e. the content fits and there is no scroll state to lose. AnchoredPortal needs no such application: React owns its style prop and writes/removes `maxHeight` per render from `applied`.
+- **Lifetime is bounded (R1 F2, tightened R2 F1):** the callback is synchronous by type (`SyncOnly` rejects a direct async callback at compile time) AND by runtime check — `SyncOnly` distributes over unions, so `number | Promise<number>`, `unknown` and `any` returns pass the type gate, and the thenable check above closes them at runtime before the caller can await a measurement that would run against restored caps. The probe is inert after return — `heightAtWidth` throws once the `finally` has run, so an escaped probe cannot mutate restored caps later.
+- **The helper restores the PRIOR inline caps; sites that end in a different cap state apply it explicitly after the helper returns (R1 F1).** Three of the four sites do not want the prior caps back: HoverHelp/ShareHub end with the PLACEMENT's caps (absent when the placement returns null), and useFitWithinClip's no-clipping-ancestor branch ends uncapped. Those sites follow the helper with a both-branch application — `style.maxHeight = `${v}px`` when the new cap exists, `style.removeProperty("max-height")` when it does not (same for max-width) — which reproduces today's observable end states exactly (today's clear leaves the property absent and the conditional set only writes non-null values). `removeProperty` in a null branch is placement APPLICATION, not measurement, and today's corresponding state is reachable only when the placement decided no cap is needed, i.e. the content fits and there is no scroll state to lose. AnchoredPortal needs no such application: React owns its style prop and writes/removes `maxHeight` per render from `applied`.
 
 ### 4.3 Call sites (class sweep — all four repaired in this PR)
 
@@ -138,7 +150,9 @@ No site is deferred: the repair is the same one-shape mechanical rewrite at ever
 
 New meta-test tests/components/_metaScrollNeutralMeasurement.test.ts (new): filesystem-walk every `.ts`/`.tsx` under `components/` and `lib/` (excluding the naturalSize helper module itself and test files) and fail on any match of a cap-clearing assignment (`.style.maxHeight = ""` / `.style.maxWidth = ""`, string or template-literal empty). A NEW measurement site that bypasses the helper fails by default. The scanner walks the tree from disk — no enumerated file list to rot. Negative self-tests pin what it deliberately does NOT flag: cap SETS (`= `${w}px``), `removeProperty` placement applications (§4.2), and the `= "none"` clone-capture spelling (§8).
 
-**Threat-model fence:** the scanner defends against accidental reintroduction by an ordinary contributor using the repo's established idiom (direct `style.maxHeight = ""` assignment — the only cap-clearing form on live MEASUREMENT paths; the class sweep in §3 found all four measurement sites in exactly that spelling. The `= "none"` spelling does exist in-tree, at `lib/devcapture/captureElement.ts:35` and `lib/devcapture/captureElement.ts:55`, but on DETACHED clones a capture utility styles and never measures for scroll — outside the invariant's reach, recorded in §8). Alternative spellings (`setProperty("max-height", "")`, an aliased style object) are adversarial-obfuscation shapes outside the fence and file to §8's documented limits, not to review rounds. **Consequence bound:** a site the scanner misses degrades to the pre-fix behavior on that one surface — a visible snap-to-top, recoverable by re-scrolling, never data loss or silent corruption. **Probe domain:** the live `components/` + `lib/` tree; an admissible false-negative probe is a cap-clearing write in that tree the scanner passes, one ordinary edit from the current idiom.
+**What the cover proves, stated precisely (R2 F2):** the scanner proves the ABSENCE of unsafe clears; it structurally cannot prove the PRESENCE of correct measurement, because an absent line matches nothing — deleting the natural-measure clear inside a helper callback (e.g. the `useFitWithinClip` derivation reading a stale fitted cap through `getComputedStyle`) produces zero scanner hits and SILENT wrong placement, outside the visible-snap consequence the fence names. Presence is therefore pinned behaviorally, per site, by the §5.4 transition pins — the scanner and the pins are two halves of one cover and neither substitutes for the other.
+
+**Threat-model fence:** the scanner defends against accidental reintroduction by an ordinary contributor using the repo's established idiom (direct `style.maxHeight = ""` assignment — the only cap-clearing form on live MEASUREMENT paths; the class sweep in §3 found all four measurement sites in exactly that spelling. The `= "none"` spelling does exist in-tree, at `lib/devcapture/captureElement.ts:35` and `lib/devcapture/captureElement.ts:55`, but on DETACHED clones a capture utility styles and never measures for scroll — outside the invariant's reach, recorded in §8). Alternative spellings (`setProperty("max-height", "")`, an aliased style object) are adversarial-obfuscation shapes outside the fence and file to §8's documented limits, not to review rounds. **Consequence bound (present-clear shape):** an unsafe CLEAR the scanner misses degrades to the pre-fix behavior on that one surface — a visible snap-to-top, recoverable by re-scrolling, never data loss or silent corruption. (An ABSENT measurement step is a different shape with a silent consequence; it is closed by the §5.4 behavioral pins, not by this scanner — see the precise-scope statement below.) **Probe domain:** the live `components/` + `lib/` tree; an admissible false-negative probe is a cap-clearing write in that tree the scanner passes, one ordinary edit from the current idiom.
 
 ## 5. Test design
 
@@ -170,14 +184,25 @@ tests/components/naturalSize.test.ts (new): restore-on-return and restore-on-thr
 
 HoverHelp / ShareHub / useFitWithinClip scroll preservation gets no dedicated real-browser case. Coverage is: the shared helper's contract (§5.2) + the derived cover proving every site routes through it (§4.4) + the one real-browser integration proof on the acutest path (§5.1). Documented as a limit in §8.
 
+### 5.4 Site-transition regression pins (R2 F2)
+
+Each cap-application site gets a behavioral pin exercising the capped→uncapped transition — the branch a botched migration drops (stale cap retained silently):
+
+- **HoverHelp:** already pinned by the shipped standalone e2e case "maxWidth engages inside a NARROW pane host and is CLEARED when the host widens" (`tests/e2e/hoverhelp-geometry.spec.ts:409`), merge-gating via `standalone-e2e.yml` on every PR. No new test; AC-3 runs the file locally.
+- **ShareHub:** extend `tests/components/admin/showpage/shareHubVisualViewport.test.tsx` (whose existing cases assert only the capped branch, e.g. the `expectedMaxHeight` assertion) with an uncapped-placement case: placement returns null caps → both inline properties ABSENT after apply.
+- **useFitWithinClip:** extend `tests/components/admin/useFitWithinClip.test.tsx` with a fitted→unclipped transition: apply once under a clipping ancestor (cap written), then re-apply with the clip gone → the stale fitted cap is removed, not retained. This case also pins the natural-measure premise: a migration that reads the previous fit through `getComputedStyle` retains the stale cap and fails it.
+
+**Mutant validation at implementation:** each new/extended pin is validated against a deliberate mutant of the migrated site (drop the null/`removeProperty` branch; skip the natural-measure clear) and must go red; results recorded in the task's commit message. The pins are regression pins, not REDs — the pre-migration tree passes them by design (current behavior is correct); their red condition is a defective migration.
+
 ## 6. Acceptance criteria
 
 - **AC-1 (mechanism closed):** with the fix applied, the P2 probe timeline shows the reveal's `scrollTop` stable across ≥2 rAF + 400ms — no reset event. (Verified during implementation with the probe spec before it is deleted; the durable form of this check is AC-2.)
 - **AC-2 (red→green):** the strengthened §5.1 case fails on the pre-fix tree and passes post-fix, `--repeat-each=10` locally, 10/10 both ways (10/10 red pre-fix, 10/10 green post-fix).
-- **AC-3 (no regression):** the full `rowactions-geometry.spec.ts` file and the other four `admin-layout-e2e` spec files (bell-panel-layout, admin-nav-layout-dimensions, nojs-loading-notice, needs-attention-holds; `.github/workflows/admin-layout-e2e.yml:175`) pass locally under the same invocation shape as CI (`--project=desktop-chromium`).
+- **AC-3 (no regression):** the full `rowactions-geometry.spec.ts` file and the other four `admin-layout-e2e` spec files (bell-panel-layout, admin-nav-layout-dimensions, nojs-loading-notice, needs-attention-holds; `.github/workflows/admin-layout-e2e.yml:175`) pass locally under the same invocation shape as CI (`--project=desktop-chromium`); `tests/e2e/hoverhelp-geometry.spec.ts` passes locally under its standalone config; the extended ShareHub and useFitWithinClip unit suites pass.
 - **AC-4 (class closed):** `_metaScrollNeutralMeasurement` passes, and a deliberate reintroduction of a bare cap-clear (temporary mutant, not committed) fails it.
 - **AC-5 (CI acceptance instrument, from the ledger entry):** nine fixed-sha dispatches of `admin-layout-e2e` on the implementation branch using PR #822's distinct-ref method (one dispatch per sibling ref; `cancelled` runs are not samples): 0/9 failures of the capped-submenu case, against the 4/9 baseline.
 - **AC-6 (ledger):** dispositions of §7 land in the implementation PR.
+- **AC-7 (transition pins, R2 F2):** the §5.4 pins exist at all three cap-application sites and each has been shown red against its site's deliberate migration mutant, recorded in the implementing commit.
 
 ## 7. Ledger dispositions
 
@@ -195,10 +220,11 @@ N/A — no visual state is added, removed, or retimed. The only behavioral delta
 
 ## 8. Documented limits
 
-- **Peer sites have no direct real-browser assertion** (§5.3). Worst case if the helper regresses at a peer: a scrolled tooltip/popover body snaps to top on a re-measure — visible, recoverable by re-scrolling, and the regression requires editing the helper or bypassing it, which the meta-test flags. Conservative posture + surfaced signal → documented limit, not a test gap to close now.
+- **Peer sites have no direct real-browser SCROLL-preservation assertion** (§5.3). Their cap-APPLICATION behavior is pinned by §5.4; what stays unasserted in a real browser is only the scroll-offset restore at HoverHelp/ShareHub bodies. Worst case if the helper regresses there: a scrolled tooltip/popover body snaps to top on a re-measure — visible, recoverable by re-scrolling, and the regression requires editing the shared helper, which the naturalSize unit suite pins. Conservative posture + surfaced signal → documented limit, not a test gap to close now.
 - **The low-rate screenshots-drift population effect is out of scope** by probe verdict (§1, §7).
 - **`AnchoredPortal` still re-measures on panel-origin scroll events.** Post-fix this is a wasted-but-harmless measurement per user scroll frame inside a capped panel (the coalescer already bounds it to one per frame). Accepted; see the rejected alternative in §1.
 - **The `= "none"` cap-clearing spelling is not scanned for.** It is live in-tree only in the clone-capture utility (`lib/devcapture/captureElement.ts:35`, `lib/devcapture/captureElement.ts:55`), which styles detached clones it never scroll-measures. A contributor copying that spelling into a live measurement path would evade the scanner (one-ordinary-edit probe, in-domain); the consequence bound holds — a visible, recoverable snap-to-top on that one surface — so this files here rather than widening the recognizer.
+- **A REMOVED measurement step is invisible to the scanner and its consequence is silent, not visible (R2 F2).** The scanner sees only present unsafe clears; §5.4's per-site transition pins are the closing half for the absent-clear shape, so the residual limit is only a hypothetical NEW site that is authored against the helper, never gains a transition pin, AND regresses — bounded by review of any new measurement surface, and its worst case is stale-cap placement on that one new surface.
 - **The §4.4 scanner recognizes the direct-assignment idiom only.** A cap-clear written as `setProperty("max-height", "")` or through an aliased style reference passes the scanner (fence in §4.4). Worst case is the consequence bound: one surface regresses to a visible, recoverable snap-to-top. Accepted as a documented limit; widening the recognizer per obfuscation shape is the round-multiplier pattern AGENTS.md's repair-direction rule forbids.
 - **CI's 2-core timing cannot be reproduced exactly locally.** AC-2's determinism claim rests on P2's mechanism timing (revert at next rAF, inside any two-frame settle), not on matching CI's scheduler; AC-5 is the CI-side proof.
 

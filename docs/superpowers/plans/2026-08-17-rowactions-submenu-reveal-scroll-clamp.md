@@ -29,7 +29,7 @@ The three test artifacts below were drafted, spliced into the live tree, and RUN
 
 - Meta-test observed RED set (exactly the spec §4.3 table, nothing else):
   `components/admin/AnchoredPortal.tsx`, `components/admin/HoverHelp.tsx`, `components/admin/showpage/ShareHub.tsx`, `components/admin/useFitWithinClip.ts`; scanner self-tests green.
-- Unit suite observed RED: `Failed to resolve import "@/lib/popover/naturalSize"`. With the spec §4.2 helper (post-R1 hardened form: SyncOnly type, inert probe, heightAtWidth finally) materialized verbatim: 8/8 green, typecheck clean.
+- Unit suite observed RED: `Failed to resolve import "@/lib/popover/naturalSize"`. With the spec §4.2 helper (post-R1 hardened form: SyncOnly type, inert probe, heightAtWidth finally) materialized verbatim: green (all cases), typecheck clean. (Counts per run are in the transcripts; the suite grew across review rounds, so no fixed number is restated here.)
 - Baseline behavior: spec §2 probes (P2: reveal reverts to `scrollTop 0` ~8ms after `End`, 5/5; P3: shipped test 10/10 green on the same defective tree).
 
 <!-- tasks: depth=2 red-contract -->
@@ -60,7 +60,7 @@ Everything else in the case (premise guards, sampling body, assertions) is uncha
 
 <!-- task: red=`pnpm vitest run tests/components/naturalSize.test.ts` red-state=authored red-target=`lib/popover/naturalSize.ts` why=`the module does not exist; the suite's import fails to resolve, and once the module lands each contract case (clear-both-caps, restore-on-throw, scroll snapshot restore, conditional write, heightAtWidth probe) fails unless the helper implements exactly the spec §4.2 semantics` ac=AC-1 -->
 
-1. Create tests/components/naturalSize.test.ts with exactly this content (validated at plan time — RED observed as unresolved import; 8/8 green against the spec §4.2 helper; typecheck clean):
+1. Create tests/components/naturalSize.test.ts with exactly this content (validated at plan time — RED observed as unresolved import; all cases green against the spec §4.2 helper; typecheck clean):
 
 ```ts
 /**
@@ -182,6 +182,15 @@ describe("withNaturalSize", () => {
     spy.mockRestore();
   });
 
+  it("throws synchronously on a thenable return (R2 F1: SyncOnly union escape)", () => {
+    const el = box();
+    expect(() =>
+      withNaturalSize(el, () => Promise.resolve(1) as unknown as number),
+    ).toThrow("must be synchronous");
+    expect(el.style.maxHeight).toBe("200px");
+    expect(el.style.maxWidth).toBe("300px");
+  });
+
   it("rejects async callbacks at the type level (R1 F2)", () => {
     const el = box();
     // @ts-expect-error promise-returning callbacks are rejected (SyncOnly)
@@ -288,13 +297,20 @@ Per spec §4.3 rows 2-4:
 - `components/admin/showpage/ShareHub.tsx` (`ShareHub.tsx:287-309`): same rewrite; the post-placement SETS at `ShareHub.tsx:352-353` become the same both-branch application.
 - `components/admin/useFitWithinClip.ts` `apply` (`useFitWithinClip.ts:78-95` region): the clear and the computed-cap derivation move inside `withNaturalSize`, which returns the fitted cap or null (no clipping ancestor, `useFitWithinClip.ts:85`); the site then applies both branches — fitted px, or `removeProperty("max-height")` so the stale previous fit does not survive the early-return path (spec §4.3, R1 F1).
 
-GREEN: marker command passes (meta-test empty offender list + HoverHelp suite green). Then `pnpm typecheck` and `pnpm exec eslint components/admin/AnchoredPortal.tsx components/admin/HoverHelp.tsx components/admin/showpage/ShareHub.tsx components/admin/useFitWithinClip.ts lib/popover/naturalSize.ts tests/components/naturalSize.test.ts tests/components/_metaScrollNeutralMeasurement.test.ts`. Commit (`fix(admin):`).
+**Site-transition pins (spec §5.4, AC-7), in the same task:**
+
+- HoverHelp: no new test — the shipped standalone case "maxWidth engages inside a NARROW pane host and is CLEARED when the host widens" (`tests/e2e/hoverhelp-geometry.spec.ts:409`) is the pin; it runs in Task 6.
+- ShareHub: extend `tests/components/admin/showpage/shareHubVisualViewport.test.tsx` with an uncapped-placement case — placement returns null caps, assert both inline properties are ABSENT after apply.
+- useFitWithinClip: extend `tests/components/admin/useFitWithinClip.test.tsx` with a fitted→unclipped transition — apply under a clipping ancestor (cap written), re-apply with the clip gone, assert the stale fitted cap is removed. This also pins the natural-measure premise (a migration reading the previous fit through `getComputedStyle` retains the stale cap and fails it).
+- **Mutant validation (AC-7):** for each extended pin, apply a deliberate temporary mutant to the migrated site (drop the `removeProperty` null branch; skip the natural-measure step) and observe the pin red; revert the mutant; record both observations in the commit message. The pins are green on the pre-migration tree by design (regression pins, not REDs).
+
+GREEN: marker command passes (meta-test empty offender list + HoverHelp jsdom suite green), the two extended unit suites pass, and each pin has been shown red under its mutant. Then `pnpm typecheck` and `pnpm exec eslint components/admin/AnchoredPortal.tsx components/admin/HoverHelp.tsx components/admin/showpage/ShareHub.tsx components/admin/useFitWithinClip.ts lib/popover/naturalSize.ts tests/components/naturalSize.test.ts tests/components/_metaScrollNeutralMeasurement.test.ts tests/components/admin/showpage/shareHubVisualViewport.test.tsx tests/components/admin/useFitWithinClip.test.tsx`. Commit (`fix(admin):`).
 
 <!-- tasks: end -->
 
 ## Task 6 — full local verification (AC-3)
 
-Under `pnpm heavy`, foreground: `E2E_PORT=3107 pnpm exec playwright test --project=desktop-chromium tests/e2e/bell-panel-layout.spec.ts tests/e2e/admin-nav-layout-dimensions.spec.ts tests/e2e/nojs-loading-notice.spec.ts tests/e2e/needs-attention-holds.spec.ts tests/e2e/rowactions-geometry.spec.ts` — the exact CI file set from `.github/workflows/admin-layout-e2e.yml:175`. All green. Also confirm no stray probe artifacts: `git status --porcelain` shows no `tests/e2e/probe-*` files (the plan-time probe spec was already removed; this is the check, not a deletion step).
+Under `pnpm heavy`, foreground: `E2E_PORT=3107 pnpm exec playwright test --project=desktop-chromium tests/e2e/bell-panel-layout.spec.ts tests/e2e/admin-nav-layout-dimensions.spec.ts tests/e2e/nojs-loading-notice.spec.ts tests/e2e/needs-attention-holds.spec.ts tests/e2e/rowactions-geometry.spec.ts` — the exact CI file set from `.github/workflows/admin-layout-e2e.yml:175`. Also under `pnpm heavy`: `pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/hoverhelp-geometry.spec.ts` (the AC-3 HoverHelp transition pin, spec §5.4). All green. Also confirm no stray probe artifacts: `git status --porcelain` shows no `tests/e2e/probe-*` files (the plan-time probe spec was already removed; this is the check, not a deletion step).
 
 ## Task 7 — invariant-8 dual gate + marker (before any review dispatch)
 
