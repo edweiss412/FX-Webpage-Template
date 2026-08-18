@@ -246,6 +246,18 @@
  *    literal's `\u{…}` — a literal the JS engine would itself reject is simply
  *    not cookable. Neither raw reading can be psql, so both are missed reports.
  *
+ * The lexed-word route has exactly ONE blind spot by construction, and it is
+ * closed: the outer lex replaces a `$(…)`/backtick/process-substitution body
+ * with the opaque `${}` word, so an assignment INSIDE such a body is invisible
+ * to the outer words. `scanShellIndirection` therefore asks each nested body for
+ * its own bindings and offsets them back to their physical line. The line-text
+ * rules (`READ_HERE_STRING`, `githubEnvWrite`, `INTERPRETER_POSITIONAL_BINDING`,
+ * `aliased`, `functionDef`) were never blind here, because the raw line carries
+ * the body's characters — which is why this is a one-consumer sweep rather than
+ * a family. Left open it was a FALSE CERTIFICATION, not a miss: a body holding
+ * both the binding and a literal `psql -X` certified on the literal call while
+ * bash ran the expanded one first (diff review r2).
+ *
  * A NON-limit worth naming, because it looked like one: a COMPOUND ARRAY value
  * (`PG=(psql)`, `PG=([0]=psql)`, `declare -a PG=(…)`) is read. `(` is the only
  * member of `OPERATOR_STARTS` that can appear INSIDE an assignment value, so the
@@ -2446,20 +2458,32 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
   // reasoning as `nestedInBacktick` on the site side. In a .sh or .yml file a
   // backtick IS a substitution, so it still counts there.
   const backticksAreMarkdown = JS_EXTENSIONS.includes(extensionOf(file));
+  const bindingLines = assignmentBindingLines(words, file);
   const visitBody = (body: NestedShell): void => {
     if (body.backtick && backticksAreMarkdown) return;
+    const inner: NestedShell[] = [];
+    const innerWords = lexShellWords(body.text, inner);
+    // A NESTED body's assignments are invisible to the outer lex, which replaced
+    // the whole substitution with the opaque `${}` word — so they are read from
+    // the body's OWN words, offset back to their physical line. Without this the
+    // guard silently CERTIFIES `X=$(PG=psql; "$PG" -qAt mydb; psql -X -qAt mydb)`
+    // on the literal call's own -X, while bash runs the expanded one first
+    // without it (diff review r2). The collection sits ahead of the dedupe and
+    // the psql-text test below, both of which exist for the HIT this function
+    // pushes: a body that already produces a site returns early, and that is
+    // exactly the shape the false certification hid behind.
+    for (const bound of assignmentBindingLines(innerWords, file)) {
+      bindingLines.add(body.line + bound);
+    }
+    for (const deeper of inner) visitBody({ ...deeper, line: body.line + deeper.line });
     if (seenBodies.has(body.text)) return;
     seenBodies.add(body.text);
-    const inner: NestedShell[] = [];
-    lexShellWords(body.text, inner);
-    for (const deeper of inner) visitBody({ ...deeper, line: body.line + deeper.line });
     if (!/\bpsql\b/.test(body.text)) return;
     // A substitution that DOES produce a site is already handled as one.
     if (scanShellText(body.text, file, 0).length > 0) return;
     hits.push({ file, line: body.line + 1, text: body.text.trim() });
   };
   for (const body of nested) visitBody(body);
-  const bindingLines = assignmentBindingLines(words, file);
   for (const [index, line] of lines.entries()) {
     const comment = commentAt[index]?.[0]?.[0];
     // A backslash-newline CONTINUATION makes one logical line: the quoted

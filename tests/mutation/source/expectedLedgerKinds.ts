@@ -44,7 +44,7 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // repaid with tests pinning the octal escape's digit range at both ends, three are new
   // code whose mutants no consumer can distinguish (an ANSI-C close scan read one past
   // the end, and the word-split reading's two count guards, each redundant with a
-  // conjunct beside it), and the sixth is `relational-boundary:2487:54` — whose killing
+  // conjunct beside it), and the sixth is `relational-boundary:2511:54` — whose killing
   // test ran through a consumer the repair DELETED. Its registry row argues equivalence
   // against the two consumers that remain rather than restoring the accepted gap it used
   // to be, so the surface still declares no counted survivor.
@@ -60,7 +60,7 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // during cross-model review, and in the same direction — each round refuted a written
   // argument with a probe the argument had not been checked against, and each refutation
   // became a test rather than a re-argued row. Equivalents went 19 -> 18
-  // (`regex-quantifier-bound:2981:32` IS distinguishable by a malformed three-indicator
+  // (`regex-quantifier-bound:3005:32` IS distinguishable by a malformed three-indicator
   // block-scalar header), and the surface's only accepted gap went 1 -> 0
   // (`relational-boundary:2167:54` IS distinguishable by a trailing backslash at end of
   // input, which the shell leaves literal). So the surface now declares a ledger with no

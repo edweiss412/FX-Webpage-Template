@@ -366,7 +366,17 @@ concatenation." Swept across every rule family in `scanShellIndirection`:
    psql, so both are missed reports. Added by diff review r1 finding 2, swept as a class across
    both sites that hand a file-derived code point to `String.fromCodePoint`.
 
-Not a limit, and recorded here because the first cut made it one: a COMPOUND ARRAY value
+Also not a limit, and the one blind spot the lexed-word route has by construction: an assignment
+INSIDE a `$(…)`/backtick/process-substitution body is invisible to the OUTER words, because the lexer
+replaced the whole substitution with the opaque `${}` word. `scanShellIndirection` asks each nested
+body for its own bindings and offsets them back to their physical line. Diff review r2 caught this as
+a REGRESSION whose direction was a FALSE CERTIFICATION rather than a miss — a body holding both the
+binding and a literal `psql -X` was certified on the literal call, while bash runs the expanded
+invocation first, without `-X`. The sweep is one consumer, derivably: the line-text rules
+(`READ_HERE_STRING`, `githubEnvWrite`, `INTERPRETER_POSITIONAL_BINDING`, `aliased`, `functionDef`)
+read the raw line, which carries the body's characters, so only the word-reading route could be blind.
+
+Not a limit either, and recorded here because the first cut made it one: a COMPOUND ARRAY value
 (`PG=(psql)`, `PG=([0]=psql)`, `declare -a`/`-A`, `+=`) IS read. `(` is the only member of
 `OPERATOR_STARTS` that can appear inside an assignment value — `;`, `&` and `|` each terminate the
 assignment word, which is why the lexer is right to split on them — so the compound case hands each
