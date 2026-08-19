@@ -142,7 +142,7 @@ export const CENSUS: readonly CensusRow[] = [
   { file: "components/crew/SectionChipLink.tsx", line: 48 },
   { file: "components/crew/primitives/PersonRow.tsx", line: 196 },
   { file: "components/crew/primitives/PersonRow.tsx", line: 213 },
-  { file: "components/layout/ThemeToggle.tsx", line: 91 },
+  { file: "components/layout/ThemeToggle.tsx", line: 92 },
   { file: "components/shared/ReportButton.tsx", line: 142 },
   { file: "components/shared/ReportModal.tsx", line: 675 },
 ];

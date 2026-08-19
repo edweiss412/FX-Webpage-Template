@@ -55,7 +55,7 @@ export function UserMenu({ email }: { email: string }) {
         aria-expanded={open}
         aria-label="Account menu"
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-pill border border-text-faint bg-surface text-sm font-semibold text-text transition-colors duration-fast hover:bg-surface-raised hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+        className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-pill border border-text-faint bg-surface text-sm font-semibold text-text transition-colors duration-fast hover:border-text-subtle hover:bg-surface-raised hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
       >
         <span aria-hidden="true">{initials}</span>
       </button>

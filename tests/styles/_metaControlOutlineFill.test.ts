@@ -343,19 +343,32 @@ describe("switch tracks are untouched (spec §2, §3.1 — AC-2)", () => {
  */
 const ADDITIONS = CENSUS.slice(21);
 
-/** §3.6(a) — another hover cue already lives on the same render path. */
+/**
+ * §3.6(a) — another hover cue already lives on the same render path AND that
+ * cue actually DELIVERS something.
+ *
+ * ADEQUACY, not mere presence. Three sites were in this group until the
+ * invariant-8 design review probed what each surviving cue is worth:
+ * `ThemeToggle` and `UserMenu` both relied on `hover:bg-surface-raised`, and in
+ * LIGHT mode `--color-surface` and `--color-surface-raised` are BOTH `#ffffff`
+ * — ratio 1.000, a literal no-op — while their companion
+ * `hover:text-text-strong` is 1.11:1 and imperceptible on a glyph or initials.
+ * Deleting `hover:border-border-strong` there removed the ONLY light-mode hover
+ * those controls had. `UnarchiveShowButton` was a fill wash alone at 1.11:1.
+ * All three moved to (b).
+ *
+ * The lesson is in the test rather than only in a filing: "the path still has a
+ * hover cue" is a presence check, and presence is not adequacy.
+ */
 const HOVER_DELETE = [
   "components/admin/HoverHelp.tsx:562",
   "components/admin/NeedsAttentionInbox.tsx:101",
   "components/admin/NeedsAttentionInbox.tsx:130",
   "components/admin/NeedsAttentionInbox.tsx:198",
   "components/admin/NeedsAttentionInbox.tsx:224",
-  "components/admin/UnarchiveShowButton.tsx:67",
-  "components/admin/nav/UserMenu.tsx:51",
   "components/crew/SectionChipLink.tsx:48",
   "components/crew/primitives/PersonRow.tsx:196",
   "components/crew/primitives/PersonRow.tsx:213",
-  "components/layout/ThemeToggle.tsx:91",
   "components/shared/ReportButton.tsx:142",
 ] as const;
 
@@ -373,9 +386,12 @@ const HOVER_SUBTLE = [
   "app/me/meShowSections.tsx:174",
   "app/me/meShowSections.tsx:213",
   "app/me/meShowSections.tsx:258",
+  "components/admin/UnarchiveShowButton.tsx:67",
+  "components/admin/nav/UserMenu.tsx:51",
   "components/admin/showpage/PublishedReviewModal.tsx:964",
   "components/agenda/AgendaEmbed.tsx:83",
   "components/agenda/AgendaPdfViewer.tsx:198",
+  "components/layout/ThemeToggle.tsx:92",
 ] as const;
 
 /**
@@ -407,6 +423,11 @@ describe("hover repair — no swapped control hovers quieter than it rests (spec
     const all = [...HOVER_DELETE, ...HOVER_SUBTLE, ...HOVER_ACCENT];
     expect(all.length).toBe(21);
     expect(new Set(all).size).toBe(21);
+    // 9 delete / 9 raise / 3 accent, after the design review moved three sites
+    // from (a) to (b) on adequacy grounds.
+    expect(HOVER_DELETE.length).toBe(9);
+    expect(HOVER_SUBTLE.length).toBe(9);
+    expect(HOVER_ACCENT.length).toBe(3);
     const additionIds = new Set(ADDITIONS.map((r) => `${r.file}:${r.line}`));
     for (const id of all) expect(additionIds.has(id)).toBe(true);
   });
