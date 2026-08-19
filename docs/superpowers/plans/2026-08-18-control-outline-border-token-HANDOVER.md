@@ -29,9 +29,11 @@ The published cover is one quadrant of the class. `DESIGN.md` §1.2a's ratified 
 
 **37 swapped** (36 census additions; one overlaps the predecessor census), 26 files, 32 source edits.
 
+**FINAL partition: 8 delete / 10 raise to `border-text-subtle` / 3 raise to `border-accent-on-bg`.** It was drafted 13/5, ruled 12/6 at spec review, and reached 8/10 only at whole-diff review, when four sites moved from delete to raise because their surviving cue measured ~1.1:1 and delivered nothing. Any 12/6/3 or 9/9/3 you meet in an earlier round's prose is superseded by this line.
+
 ## The finding the brief did not anticipate
 
-**The swap causes a hover inversion at 21 controls.** Rest moves to 3.35:1 while `hover:border-border-strong` stays at 1.59:1 — hovering would read *fainter*, contradicting the ruling being implemented. Not pre-existing: the predecessor's 21 contained exactly one `hover:border-*` and it was a semantic escalation. Repaired in-branch: 12 delete, 6 → `border-text-subtle`, 3 → `border-accent-on-bg` (both `hover:` and `aria-expanded:`). 17 physical edits, 13 files.
+**The swap causes a hover inversion at 21 controls.** Rest moves to 3.35:1 while `hover:border-border-strong` stays at 1.59:1 — hovering would read *fainter*, contradicting the ruling being implemented. Not pre-existing: the predecessor's 21 contained exactly one `hover:border-*` and it was a semantic escalation. Repaired in-branch: 8 delete, 10 → `border-text-subtle`, 3 → `border-accent-on-bg` (both `hover:` and `aria-expanded:`). 17 physical edits, 13 files.
 
 ## Two things a reviewer should not re-derive
 

@@ -4,15 +4,19 @@
 
 The full history is in the two sibling filings — `2ddbf038bdf4.md` (5 spec rounds, 5 plan rounds) and `39f57661c873.md` (1 plan round, 1 diff round). Read those first; this file records only what happened after the second merge.
 
-## diff — 1 round
+## diff — 2 rounds
 
-**This base has seen ONE diff round; it is the arc's SECOND.** The `--round` value the wrapper records is the caller's label, and it was passed as 2 — correct for the arc, wrong for this base identity, under which it is round 1. Corrected, with the arc-level count in prose where it cannot be mistaken for a measurement.
+**This base has seen TWO diff rounds; they are the arc's SECOND and THIRD.** The `--round` value the wrapper records is the caller's label, and it was passed as 2 — correct for the arc, wrong for this base identity, under which it is round 1. Corrected, with the arc-level count in prose where it cannot be mistaken for a measurement.
 
-**Examined:** one `--stage diff` dispatch, `NEEDS-ATTENTION`, **2 findings, both P2, no P0 and no P1.**
+**Examined:** two `--stage diff` dispatches, both `NEEDS-ATTENTION` — **2 findings then 1, no P0 and no P1 in either.**
+
+Round 3 was a bounded confirmation round and its finding was a single P2: stale count prose surviving the round-2 repair. Its probes returned `nonColorHunks=0`, census 57 distinct with no bad rows, all five dividers resolving and outside the census, exactly 13 surviving overrides matching 10 subtle plus 3 accent, minimum ratios faint 3.023 / subtle 5.969 / accent-on-bg 5.025, and the ledger at 354 = 348 + 6 with arc D intact and the marker absent. **No behavioural defect in either round.**
 
 **Judgment: the round that mattered was the previous one, and this round's value is what it did NOT find.** Diff round 1 returned BLOCKING with a P0 — `components/shared/ReportButton.tsx`'s icon variant was a THIRD instance of presence-vs-adequacy, its surviving hover cues measuring 1.109 and 1.114. Round 2 was asked to look specifically for a fourth, and computed every delete-group cue per render path to say there is none. That negative is the round's product: `HoverHelp` moves faint→strong at 5.717/4.289; the four inbox links gain a geometric underline in an existing 5.57/8.84 accent; `SectionChipLink` and both `PersonRow` actions pair a 1.109 fill wash with an accent text change at **ΔE76 72.9 / 65.2**, against the rejected `ReportButton` change's **ΔE76 5.6 / 4.6**. That ΔE contrast is the sharpest statement of the criterion anyone on this arc produced: the fill wash is identical in all of them, and what separates adequate from inadequate is the hue change beside it.
 
 Both remaining findings were **documentation drift introduced by the round-1 repair** — the guard's prose still describing a 12/9 partition its own executable assertions had moved to 8/10/3, and a ledger literal stale against the post-merge base. Neither touched behaviour.
+
+**The count prose drifted THREE rounds running**, which is what finally made the fix structural: the artifacts now carry ONE reconciliation line naming the final 8/10/3 partition and explicitly superseding the 13/5, 12/6/3 and 9/9/3 states earlier rounds recorded, rather than each round re-syncing scattered prose. A number that changes three times needs a single authority, not three sweeps.
 
 **Mechanizable:** one, and it is a repeat — `declined: already filed as BL-SPEC-CLAIM-SWEEP-AFTER-REASONING-FINDING`. Both P2s are the same shape that row exists for: a repair updated the executable assertion and left the prose describing the prior state. This arc has now produced that shape at least four times across three artifacts, which is the argument for the filed row rather than for a fifth hand-sweep.
 

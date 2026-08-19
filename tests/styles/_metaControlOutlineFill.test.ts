@@ -411,7 +411,7 @@ describe("hover repair — no swapped control hovers quieter than it rests (spec
    * The three groups are the plan's contract; this pins their SHAPE rather than
    * a live count that only holds before the repair.
    *
-   * An earlier revision asserted that 21 elements still carry a
+   * An earlier revision asserted that all 21 override sites still carry a
    * `hover:border-*`. That is true BEFORE the repair and necessarily false
    * after it — group (a) exists precisely to remove twelve of them — so it
    * described the red state and could never be green. What survives the repair
