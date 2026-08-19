@@ -44,46 +44,6 @@ disagree while this sits open.
 follows chrome" statement. Either answer closes both sites; per-site judgment closes neither.
 Queue row: `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT`.
 
----
-
-### CONTROLOUTLINE-BORDER-TOKEN-NEUTRAL-FILL-1 — impeccable P2: 30 controls with a neutral fill rest at `border-border`, inside the new predicate's words and outside its swap (2026-08-16)
-
-**Effort:** M-L
-
-Surfaced by the invariant-8 dual gate on branch `fix/control-outline-surface-fills` (critique P2).
-Findings and dispositions are in §12 of
-`docs/superpowers/plans/2026-08-16-control-outline-surface-fills.md` (F3).
-
-**The finding.** DESIGN.md §1.2a now reads: a control filled with one of the four neutral ground
-tokens takes the text ramp. The swap moved every such control carrying `border-border-strong` that the element-level cover could see — the enumerated 21; text-entry fields with the same token are outside that cover and filed separately.
-Controls carrying `border-border` — a different token, one rung quieter at **1.27:1** on
-`bg-surface`, and spanning **1.15-1.38:1** across the four neutral grounds — were never in the cover, and the predicate as written describes them. The sharpest
-instances are the confirm-row Cancels at `components/admin/ArchiveShowButton.tsx:344` and
-`app/admin/show/[slug]/ResetPickerEpochButton.tsx:266`: the user taps a control this arc took to
-3.35:1, it morphs in place, and the escape route beside the filled destructive confirm is the
-faintest element on screen.
-
-**Probed 2026-08-16** with the derived cover in the queue row (a query, not a list): **30**
-elements against a universe of 362, **thirteen of them crew-facing** when counted by render chain
-rather than by directory. The site list lives in the queue row
-(`BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL`) and is deliberately NOT copied here: a count
-beside a partial copy of its own list is how this arc produced four consecutive review findings,
-and the fix for that is one list, not a better copy.
-
-**Why deferred rather than swept — reason (b), plus (a) and (c).** Spec §2.1 and §6 fence it in
-both directions, verbatim: _"Widening the swap to `border-border` is NOT the repair. `border-border`
-is a different token doing a different job — DESIGN.md §1.2a explicitly preserves the border tokens
-for tile edges, card edges, dividers and hover chrome — and moving it is a design decision this
-ruling did not make."_ The cover also reaches crew surfaces the admin-scoped 2026-08-16 mockup
-never showed the user, which is (a) a second time.
-
-**Un-defer trigger:** the narrower question put to the user with a rendered mockup — does a control
-whose only outline is `border-border` on a neutral fill take the text ramp too, or is
-`border-border` a deliberate third weight for quiet controls? Start with the five confirm-row
-Cancels. Queue row: `BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL`.
-
----
-
 ### THEMENOTE-BUBBLE-DISMISS-1 — impeccable P1: the persist-failure bubble has no dismiss, so a permanently blocked device keeps it up all visit (2026-08-16)
 
 **Effort:** S

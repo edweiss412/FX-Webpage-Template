@@ -196,10 +196,10 @@ Without this task the arc ships 21 controls whose outline reads LIGHTER on hover
       - the **3** §3.6(c) sites require `hover:border-accent-on-bg`, and `components/admin/dev/SwitcherControls.tsx:142` additionally requires `aria-expanded:border-accent-on-bg`;
       - the **8** §3.6(a) sites require that NO path carries any `hover:border-*` token.
       *Failure mode caught:* the relocation mutant above, and the simpler one where a required override is deleted or replaced with a third weak token — neither of which the 2.1 denylist can see.
-- [ ] **2.3** **The complete expected RED is 42 failures, not 30** (plan review R3 F2). An earlier draft counted only the 9 retarget outcomes and forgot that the twelve §3.6(a) sites must ALSO fail their positive case, because each still carries the `hover:border-*` token that 2.2 asserts is absent:
+- [ ] **2.3** **The complete expected RED is 42 failures, not 30** (plan review R3 F2). An earlier draft counted only the 13 retarget outcomes and forgot that the twelve §3.6(a) sites must ALSO fail their positive case, because each still carries the `hover:border-*` token that 2.2 asserts is absent:
       - **21** denylist failures (18 `hover:border-border-strong` + 3 `border-accent`);
-      - **12** §3.6(a) positive failures ("carries NO `hover:border-*`" — false until 2.4 deletes them);
-      - **6** §3.6(b) positive failures (`hover:border-text-subtle` not present yet);
+      - **8** §3.6(a) positive failures ("carries NO `hover:border-*`" — false until 2.4 deletes them);
+      - **10** §3.6(b) positive failures (`hover:border-text-subtle` not present yet);
       - **3** §3.6(c) positive failures (`hover:border-accent-on-bg` not present yet).
       **Do not commit here.**
 

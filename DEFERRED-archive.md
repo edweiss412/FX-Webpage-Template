@@ -2020,3 +2020,51 @@ premise.
 **Accepted, not fixed.** Behavior is unchanged from before this branch — the conditional wrapper rendered the same empty card. What the branch changes is the promise: an always-mounted live region reads as a commitment to speak. Fixing it properly means resolving the code before deciding to render, which touches the message layer rather than these three components, and every code reachable from these call sites has a catalog row today (`lib/messages/catalog.ts:902`, `:939`, `:952`, `:3275`).
 
 **Un-defer trigger:** any new code reachable from a feed action, or the next `lib/messages` pass.
+
+### CONTROLOUTLINE-BORDER-TOKEN-NEUTRAL-FILL-1 — RESOLVED 2026-08-18 — impeccable P2: 30 controls with a neutral fill rest at `border-border`, inside the new predicate's words and outside its swap (2026-08-16)
+
+**Effort:** M-L
+
+Surfaced by the invariant-8 dual gate on branch `fix/control-outline-surface-fills` (critique P2).
+Findings and dispositions are in §12 of
+`docs/superpowers/plans/2026-08-16-control-outline-surface-fills.md` (F3).
+
+**The finding.** DESIGN.md §1.2a now reads: a control filled with one of the four neutral ground
+tokens takes the text ramp. The swap moved every such control carrying `border-border-strong` that the element-level cover could see — the enumerated 21; text-entry fields with the same token are outside that cover and filed separately.
+Controls carrying `border-border` — a different token, one rung quieter at **1.27:1** on
+`bg-surface`, and spanning **1.15-1.38:1** across the four neutral grounds — were never in the cover, and the predicate as written describes them. The sharpest
+instances are the confirm-row Cancels at `components/admin/ArchiveShowButton.tsx:344` and
+`app/admin/show/[slug]/ResetPickerEpochButton.tsx:266`: the user taps a control this arc took to
+3.35:1, it morphs in place, and the escape route beside the filled destructive confirm is the
+faintest element on screen.
+
+**Probed 2026-08-16** with the derived cover in the queue row (a query, not a list): **30**
+elements against a universe of 362, **thirteen of them crew-facing** when counted by render chain
+rather than by directory. The site list lives in the queue row
+(`BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL`) and is deliberately NOT copied here: a count
+beside a partial copy of its own list is how this arc produced four consecutive review findings,
+and the fix for that is one list, not a better copy.
+
+**Why deferred rather than swept — reason (b), plus (a) and (c).** Spec §2.1 and §6 fence it in
+both directions, verbatim: _"Widening the swap to `border-border` is NOT the repair. `border-border`
+is a different token doing a different job — DESIGN.md §1.2a explicitly preserves the border tokens
+for tile edges, card edges, dividers and hover chrome — and moving it is a design decision this
+ruling did not make."_ The cover also reaches crew surfaces the admin-scoped 2026-08-16 mockup
+never showed the user, which is (a) a second time.
+
+**Un-defer trigger:** the narrower question put to the user with a rendered mockup — does a control
+whose only outline is `border-border` on a neutral fill take the text ramp too, or is
+`border-border` a deliberate third weight for quiet controls? Start with the five confirm-row
+Cancels. Queue row: `BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL`.
+
+---
+
+**RESOLUTION (2026-08-18, `fix/control-outline-border-token`).** The un-defer trigger fired exactly as written: the narrower question was put to the product owner with a rendered mockup showing three candidate weights in both themes, and the ruling was **the text ramp**. The five confirm-row Cancels were where the mockup led, as this entry asked.
+
+What shipped is wider than the 30 this entry counted. `DESIGN.md` §1.2a's ratified predicate reads "filled with one of the four neutral ground tokens **or left unfilled**", and the published cover implemented only the first disjunct — so the swept set is **37**, with five dividers excluded (no resting outline to raise) and ShareHub's two `max-sm:` elements filed under class-sweep exception (b).
+
+The swap also CAUSED a hover inversion at 21 controls, which this entry could not have anticipated: raising rest to 3.35:1 while a `hover:` override stayed at 1.59:1 would have made hovering read fainter than resting. Repaired in the same branch — 8 dropped the override, 10 raised to `border-text-subtle`, 3 to `border-accent-on-bg`.
+
+Queue row `BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL` is archived RESOLVED in `BACKLOG-archive.md`.
+
+**Why this sat stale until whole-diff review round 4.** The arc archived the BACKLOG row and never checked DEFERRED, and the set-arithmetic verify could not see the gap: it reconciles `BL-`/`DEF-` headings, and this entry's id is neither. **A ledger check that keys on an id format cannot see an entry that does not use it** — the same fail-open shape this arc filed twice elsewhere, now in its own reconciliation step.
