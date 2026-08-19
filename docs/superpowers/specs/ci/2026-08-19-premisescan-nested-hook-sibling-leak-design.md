@@ -70,34 +70,32 @@ non-regression is AC-4, and it is the assertion that stops the repair from over-
 
 ### §2.1 The implementation surface, stated whole
 
-Round 1's derived-cover repair moved this past a one-line change, so it is enumerated rather than
-described by a line count:
+Two production edits, and no more:
 
 1. **The stop** in `hookBodies` (`tests/mutation/source/premiseScan.ts:1834`) — three lines, above.
-2. **`hookBodies` stops carrying its own copy of the registrar set.** `HOOK_REGISTRARS` already
-   exists as a regex at `tests/mutation/source/premiseScan.ts:66` and is consumed by the top-level
-   hook seed at `tests/mutation/source/premiseScan.ts:1758`; `hookBodies` at
-   `tests/mutation/source/premiseScan.ts:1840` carries a SECOND, textually identical regex literal.
-   AC-6's derivation is only meaningful if both matchers are one, so `hookBodies` is changed to use
-   the existing constant and the duplicate is deleted. **Introducing a NEW exported symbol under
-   that name would collide with the live one**, which is why the repair is a dedup rather than an
-   addition.
-3. **Two exported name lists**, so fixtures are generated from the matcher rather than typed beside
-   it: the registrar names `HOOK_REGISTRARS` is built from, and `MODIFIERS`
-   (`tests/mutation/source/premiseScan.ts:48`), today module-local.
+2. **The dedup.** `HOOK_REGISTRARS` already exists as a regex at
+   `tests/mutation/source/premiseScan.ts:66` and is consumed by the top-level hook seed at
+   `tests/mutation/source/premiseScan.ts:1758`; `hookBodies` at
+   `tests/mutation/source/premiseScan.ts:1840` carries a SECOND, textually identical literal.
+   `hookBodies` is changed to use the existing constant and the duplicate is deleted. **Introducing
+   a new exported symbol under that name would collide with the live one**, which is why this is a
+   dedup rather than an addition.
 
-Items 2 and 3 are production edits to an enrolled guard surface, so AC-7's gate run is not a
-formality — the mutant population moves. That cost is accepted and stated, not hidden behind the
-stop's line count.
+**Nothing is exported for a test's benefit, and that is a repair rather than an omission.** Three
+consecutive spec rounds (4, 5, 6) found a production edit ordered ahead of the red that justifies
+it, and round 6 named the rule closing the class: a red whose failure comes from an unresolved
+import is invalid by construction, because it goes green when the TEST file changes rather than when
+the implementation lands (`docs/agents/writing-plans.md:15`). Exporting `MODIFIERS` and a registrar
+list so fixtures could import them produced exactly that shape twice. **The repair is NARROWING, per
+the same-axis recurrence rule in AGENTS.md — each earlier attempt added surface, and the answer to a
+class that survives its own repair is less surface, not more.** The derived covers now read the
+scanner's SOURCE through the TypeScript AST — the modifier set at
+`tests/mutation/source/premiseScan.ts:48`, the registrar names inside `HOOK_REGISTRARS` — which is
+the same technique the structural identity assertion uses. The cover stays derived, the production
+surface stays at two edits, and every red in the plan fails because of scanner behaviour.
 
-**Every one of these lands AFTER a test that reds without it**, which is invariant 1 and not a
-stylistic preference: an export authored before the fixtures that consume it can only ever be
-observed green. The plan sequences each accordingly — every test in a task is authored before that
-task's first production edit, and the edit is then the minimal change that answers the reds already
-observed. **That includes the dedup**, whose only exercising test is structural: a behavioural red
-cannot prove it, because the four registrars are already covered by enumerated cases, so the
-structural assertion is authored alongside the behavioural family and BEFORE the duplicate is
-deleted — not after it, as a discrimination check on work already done.
+Both edits are on an enrolled guard surface, so AC-7's gate run is not a formality — the mutant
+population moves.
 
 ## §3 Probes (run 2026-08-19 against `origin/main` at the branch base)
 
@@ -174,10 +172,10 @@ props, no conditional render change.
      inversion (AC-2), `inA` retained as the foil.
   2. AC-4's outer-hook non-regression case and its moved-hook foil.
   3. AC-5's DERIVED modifier family: one case per member of `MODIFIERS`
-     (`tests/mutation/source/premiseScan.ts:48`) — `each`, `for`, `skip`, `only`, `concurrent`,
-     `sequential`, `todo` — plus the plain `describe` and one compound chain
-     (`describe.concurrent.each`). Nine cases, generated rather than typed.
-  4. AC-6's DERIVED hook-registrar family: one case per member of the exported registrar list.
+     (`tests/mutation/source/premiseScan.ts:48`), read from the source through the AST — `each`,
+     `for`, `skip`, `only`, `concurrent`, `sequential`, `todo` — plus the plain `describe` and one
+     compound chain (`describe.concurrent.each`). Nine cases, generated rather than typed.
+  4. AC-6's DERIVED hook-registrar family: one case per name read out of `HOOK_REGISTRARS`.
      These add no coverage the enumerated cases at
      `tests/mutation/source/premiseScan.test.ts:2929` and
      `tests/mutation/source/premiseScan.test.ts:2955` lack; their value is that they are derived, so
@@ -187,10 +185,9 @@ props, no conditional render change.
   `tests/mutation/source/premiseScan.test.ts:3011` are unchanged and must stay green.
 - **CREATES** one new suite, `premiseScanMatcherIdentity`, under `tests/mutation/source/` — a
   STRUCTURAL assertion that exactly one registrar-name literal survives in the scanner. AC-6's
-  behavioural cases cannot express this, because the four registrars are already covered, so a red
-  produced by editing the list would be carried by the pre-existing enumerated cases rather than by
-  anything this arc authors. It is authored BEFORE the duplicate is deleted, so the deletion has an
-  exercising red rather than a retrospective check.
+  behavioural cases cannot express this, because the four registrars are already covered. It is
+  authored BEFORE the duplicate is deleted, so the deletion has an exercising red rather than a
+  retrospective check, and its red is a property of the scanner source rather than of the test.
 - **UNCHANGED** `tests/mutation/_metaPremiseContract.test.ts` — no declared count moves (§3.2). That
   it is unchanged is the arc's headline, so it is asserted rather than assumed.
 - **UNCHANGED** `tests/mutation/source/registry.ts` — same surface, same floor; the score is re-run
@@ -223,7 +220,8 @@ Every positive fixture has a foil, so no assertion can pass by the classifier be
   Stating which mutant discriminates is what stops this criterion from reading stronger than it is.
 - **AC-5 — the stop fires on every `describe` spelling the caller recognizes, and the fixture set is
   DERIVED rather than enumerated.** The cases are generated from `MODIFIERS`
-  (`tests/mutation/source/premiseScan.ts:48`) itself — exported for this purpose — one per member,
+  (`tests/mutation/source/premiseScan.ts:48`) itself, read out of the scanner source through the
+  TypeScript AST rather than imported — nothing is exported for a test's benefit (§2.1) — one per member,
   each as the NESTED registrar with a spawning hook and a pure sibling, PLUS at least one compound
   chain (`describe.concurrent.each`), which `registrarRoot`'s loop
   (`tests/mutation/source/premiseScan.ts:73`) accepts and a single-modifier fixture set does not
@@ -237,10 +235,13 @@ Every positive fixture has a foil, so no assertion can pass by the classifier be
   plus one compound chain leak on the unrepaired tree and are closed by the repair, with `inA`
   holding as the foil in every row. A four-row fixture list would have passed an implementation that
   still leaked the rest.
-- **AC-6 — every hook registrar, DERIVED from the matcher.** The four names live in a regex literal
-  inside `hookBodies` (`tests/mutation/source/premiseScan.ts:1834`); they are lifted to an exported
-  list the regex is BUILT FROM, and the fixtures are generated from that list, one per member as the
-  nested spawner. Same derivation rule as AC-5, and for the same reason — this is one class, swept
+- **AC-6 — every hook registrar, DERIVED from the matcher, and exactly ONE matcher exists.** The
+  registrar names are read out of `HOOK_REGISTRARS` (`tests/mutation/source/premiseScan.ts:66`) by
+  the same AST route, and the fixtures are generated from them, one per member as the nested spawner.
+  The criterion's discriminating half is structural rather than behavioural — the four registrars are
+  already covered by enumerated cases at `tests/mutation/source/premiseScan.test.ts:2929` and
+  `tests/mutation/source/premiseScan.test.ts:2955`, so only an assertion that ONE registrar-name
+  literal survives can prove the dedup. Same derivation rule as AC-5, and for the same reason — this is one class, swept
   in one round rather than one member per round. *Catches:* a fixture pair covering only the
   `before*` forms, which reads as complete and leaves half the defect live (the same defect shape
   #843's §3.11 row D found).
