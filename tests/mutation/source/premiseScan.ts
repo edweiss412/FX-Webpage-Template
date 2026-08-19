@@ -1834,10 +1834,13 @@ function unclassifiableWithin(node: ts.Node, facts: ModuleFacts): string[] {
 function hookBodies(describeCall: ts.CallExpression): ts.Node[] {
   const out: ts.Node[] = [];
   const walk = (n: ts.Node): void => {
+    // HOOK_REGISTRARS, not a second copy of it: the top-level seed already
+    // consults that constant, and two matchers where the design assumes one can
+    // drift apart silently.
     if (
       ts.isCallExpression(n) &&
       ts.isIdentifier(n.expression) &&
-      /^(beforeEach|beforeAll|afterEach|afterAll)$/.test(n.expression.text)
+      HOOK_REGISTRARS.test(n.expression.text)
     ) {
       out.push(n);
     }

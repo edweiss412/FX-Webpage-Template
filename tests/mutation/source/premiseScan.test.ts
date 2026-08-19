@@ -3970,3 +3970,56 @@ describe("AC-4 — an outer describe's OWN hooks still reach every descendant", 
     expect(all.find((t) => t.testName === "inB")?.verdict).toBe("environment-free");
   });
 });
+
+/**
+ * AC-6, behavioural half — every hook registrar, DERIVED from the matcher.
+ *
+ * These add no coverage the enumerated cases at :2929 and :2955 lack, and they
+ * are not this task's red; the structural assertion in
+ * premiseScanMatcherIdentity is. Their value is that the population is READ
+ * from HOOK_REGISTRARS rather than typed beside it, so a fifth registrar is
+ * covered by default instead of silently exempt.
+ */
+function scannerRegistrars(): string[] {
+  const src = readFileSync(join(__dirname, "premiseScan.ts"), "utf8");
+  const sf = ts.createSourceFile("premiseScan.ts", src, ts.ScriptTarget.Latest, true);
+  let names: string[] | null = null;
+  const walk = (node: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === "HOOK_REGISTRARS" &&
+      node.initializer &&
+      ts.isRegularExpressionLiteral(node.initializer)
+    ) {
+      const alternation = /^\/\^\(([^)]+)\)\$\/$/.exec(node.initializer.text);
+      const group = alternation?.[1];
+      if (group !== undefined) names = group.split("|");
+    }
+    ts.forEachChild(node, walk);
+  };
+  walk(sf);
+  if (names === null)
+    throw new Error("HOOK_REGISTRARS not found in premiseScan.ts — the derivation broke");
+  return names;
+}
+
+describe("AC-6 — every hook registrar, derived from the matcher", () => {
+  const registrars = scannerRegistrars();
+  premise("the scanner's registrar set was extracted", registrars.length, 0);
+
+  for (const registrar of registrars) {
+    it(`a ${registrar} in nested A does not reach sibling B`, () => {
+      const all = classificationsWithModules(
+        OUTER_HOOK_HELPER,
+        `import { spawnHelper } from "__MODULE_helper__";
+         describe("outer", () => {
+           describe("A", () => { ${registrar}(() => { spawnHelper(); }); it("inA", () => {}); });
+           describe("B", () => { it("inB", () => {}); });
+         });`,
+      );
+      expect(all.find((t) => t.testName === "inA")?.verdict).toBe("environment-touching");
+      expect(all.find((t) => t.testName === "inB")?.verdict).toBe("environment-free");
+    });
+  }
+});
