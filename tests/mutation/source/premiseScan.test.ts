@@ -3925,3 +3925,48 @@ describe("AC-5 — every describe spelling stops the nested-hook walk", () => {
     });
   }
 });
+
+const OUTER_HOOK_HELPER = {
+  helper: `import { spawnSync } from "node:child_process";
+    export function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }`,
+};
+
+describe("AC-4 — an outer describe's OWN hooks still reach every descendant", () => {
+  // The one way Task 2's narrowing can be wrong is OVER-narrowing, and no
+  // pre-existing fixture covers that direction: :2976 and :3011 both put the
+  // spawner in a nested describe, and the shared-outer case asserts the
+  // sibling. Both halves below are required -- the positive alone passes under
+  // a hookBodies that never stops, and the foil alone passes under one that
+  // always stops.
+  //
+  // The falsifying mutant is NAMED, because only one of two plausible
+  // over-narrowings reds this: a stop placed BEFORE the isHook push drops the
+  // outer describe's own hooks and reds it; the same stop placed AFTER the push
+  // is EQUIVALENT here and passes, since collection has already happened.
+  it("an outer hook reaches tests in BOTH nested branches", () => {
+    const all = classificationsWithModules(
+      OUTER_HOOK_HELPER,
+      `import { spawnHelper } from "__MODULE_helper__";
+       describe("outer", () => {
+         beforeEach(() => { spawnHelper(); });
+         describe("A", () => { it("inA", () => {}); });
+         describe("B", () => { it("inB", () => {}); });
+       });`,
+    );
+    expect(all.find((t) => t.testName === "inA")?.verdict).toBe("environment-touching");
+    expect(all.find((t) => t.testName === "inB")?.verdict).toBe("environment-touching");
+  });
+
+  it("FOIL: the same hook nested in A reaches only A", () => {
+    const all = classificationsWithModules(
+      OUTER_HOOK_HELPER,
+      `import { spawnHelper } from "__MODULE_helper__";
+       describe("outer", () => {
+         describe("A", () => { beforeEach(() => { spawnHelper(); }); it("inA", () => {}); });
+         describe("B", () => { it("inB", () => {}); });
+       });`,
+    );
+    expect(all.find((t) => t.testName === "inA")?.verdict).toBe("environment-touching");
+    expect(all.find((t) => t.testName === "inB")?.verdict).toBe("environment-free");
+  });
+});
