@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-impeccable-gate: critique=RAN-DEGRADED audit=RAN p0=0 p1=2 dispositions=recorded
+impeccable-gate: critique=RAN audit=RAN p0=1 p1=1 dispositions=recorded
 
 **Goal:** Ship the 2026-08-18 text-ramp ruling. 37 controls whose resting outline is `border-border` on a neutral or absent fill swap to `border-text-faint`; the hover inversion that swap causes at 21 of them is repaired in the same branch; five dividers and ShareHub's ratified mobile skin do not move; the census pin grows to 57 rows and gains a negation assertion that catches the half-swapped element the current pin cannot see.
 
@@ -367,7 +367,11 @@ Both gate halves named verbatim: **`/impeccable critique`** and **`/impeccable a
 
 ### 12.1 Provenance and scores
 
-**⚠️ DEGRADED: partial — Assessment A (design review) and Assessment B (detector evidence) were dispatched as two isolated sub-agents per the command's dual-agent invariant, and neither returned within the gate window. Their substance was executed in the parent context instead.** Declared rather than left silent, because a critique that skips its sub-agents without a banner is the command's most common failure. The deterministic half is unaffected — the detector was run directly and its output is below — but the design-review half carries one context's judgement rather than an isolated reviewer's, and should be read that way.
+**Assessment A RETURNED, so the critique is NOT degraded, and the retry is why.** Both assessments were dispatched as isolated sub-agents per the dual-agent invariant. Neither had returned when §12 was first written, and it was recorded `RAN-DEGRADED` with a banner rather than silently. The orchestrator required one retry with a longer window before the diff review; Assessment A came back inside it, **with a P0 the parent context had missed**, and the marker is upgraded to `critique=RAN` on that basis.
+
+Assessment B did not return. Its half is DETERMINISTIC and was run directly in the parent — the detector command, its exit code and its findings are below and are reproducible by anyone. What isolation protects is judgement independence, and that is exactly the half Assessment A restored.
+
+**The retry earned its keep, and the finding is the argument for never skipping it.** The parent had verified that all 12 controls which dropped their hover override still carried a hover cue on every outline-bearing render path, and reported zero uncovered. True, and insufficient: at two of them the surviving cue is `hover:bg-surface-raised`, and in LIGHT mode `--color-surface` and `--color-surface-raised` are both `#ffffff` — **ratio 1.000, a literal no-op**. Presence is not adequacy, and a census-shaped check cannot tell the difference.
 
 | Gate half | Command | Result |
 | --- | --- | --- |
@@ -384,12 +388,18 @@ Setup gates completed in order: the skill's context script loaded `PRODUCT.md` +
 
 | # | Finding | Tier | Disposition |
 | --- | --- | --- | --- |
-| 1 | 8 swapped controls carry no per-element `focus-visible:` utility | **FALSE POSITIVE** | `app/globals.css:832` defines a global focus-visible rule — a 3px `--color-focus-ring` outline at 2px offset, explicitly tuned for direct-sunlight readability. All 8 inherit it. The spec's §9 note is accurate about the UTILITY and would mislead about the OUTCOME; this row is the correction. |
-| 2 | 12 controls DROPPED their hover border override — is hover feedback still adequate? | **P1, resolved** | Verified per RENDER PATH, not per element: every outline-bearing path at all 12 retains another hover cue — `hover:underline` (4 `NeedsAttentionInbox` links), `hover:bg-surface-sunken` and/or `hover:text-accent-on-bg` (`SectionChipLink`, both `PersonRow` icons, `UnarchiveShowButton`, `ReportButton`), `hover:bg-surface-raised hover:text-text-strong` (`UserMenu`, `ThemeToggle`), `hover:text-text-strong` (`HoverHelp`). **Zero paths with no cue.** |
-| 3 | Non-interactive chrome now reads lighter than controls beside it | **P2, deferred** | The known shape `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT` already owns. A new instance joins that entry; it is not repaired here, because moving non-interactive chrome is a design decision the 2026-08-18 ruling did not make. |
-| 4 | `disabled:opacity-60` composites the outline to 1.83-1.95 light / 2.03-2.21 dark | **P3, recorded** | Spec §6 carries the measured per-ground figures. WCAG exempts inactive controls, so this is an exemption rather than compliance, and it is stated as such. |
+| 1 | `components/layout/ThemeToggle.tsx` and `components/admin/nav/UserMenu.tsx` lost their ONLY light-mode hover: the surviving `hover:bg-surface-raised` is 1.000:1 in light and the companion `hover:text-text-strong` is 1.11:1 | **P0, FIXED** | Both now carry `hover:border-text-subtle`. The 12/6/3 partition becomes **9/9/3**, and the reason is recorded in the test itself, because "the path still has a hover cue" is the exact reasoning that produced the defect. |
+| 2 | The sweep moved buttons and links but not the text-entry fields §1.2a's own predicate also covers — `components/shared/ReportModal.tsx:715` is 1.22:1 in the same modal whose button this arc raised to 3.35:1 | **P1, deferred with the prose narrowed** | `BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER` family A already owns text-entry fields: `tests/styles/interactiveScanCore.ts:789` admits only `button`, `a` and `summary`, so the census cannot see them in either direction. The finding is right that the PROSE overpromised, and §1.2a is narrowed to say the sweep covers scanner-visible controls. Moving inputs is a design decision the 2026-08-18 ruling did not make. |
+| 3 | `components/admin/UnarchiveShowButton.tsx` hover was a 1.11:1 fill wash and nothing else | **P2, FIXED** | `hover:border-text-subtle` added; moved into group (b). |
+| 4 | `components/crew/primitives/PersonRow.tsx` carried a leading space where the deleted token had been | **P3, FIXED** | A find-and-replace fingerprint; removed. |
+| 5 | 8 swapped controls carry no per-element `focus-visible:` utility | **FALSE POSITIVE** | `app/globals.css:832` defines a global focus-visible rule — a 3px `--color-focus-ring` outline at 2px offset, tuned for the direct-sunlight context `PRODUCT.md` describes. All 8 inherit it. |
+| 6 | `components/admin/review/ShowReviewSurface.tsx` inactive chips have no hover state at all | **P2, recorded not fixed** | Pre-existing, and adding a hover state those chips never had is behaviour this ruling did not authorise. Recorded here so it is visible rather than invented into the diff. |
+| 7 | Non-interactive chrome now reads lighter than controls beside it | **P2, deferred** | `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT` already owns the shape; a new instance joins it. |
+| 8 | `disabled:opacity-60` composites the outline to 1.83-1.95 light / 2.03-2.21 dark | **P3, recorded** | Spec §6 carries the per-ground figures. WCAG exempts inactive controls, so this is an exemption rather than compliance. |
 
-**No P0. Two P1-class questions, both resolved in-branch rather than deferred.**
+Assessment A scored the surface **32/40** on Nielsen's heuristics and returned a verdict of **not AI-generated** — "it was ruled against a rendered mockup, the hover-inversion problem was *noticed* (a census never notices), and the carve-outs are argued rather than listed". It independently recomputed every contrast figure in the diff from the runtime tokens and all verified exactly.
+
+**One P0, found by the retried design review and FIXED in branch. One P1, deferred to the ledger row that already owns its class with the overpromising prose narrowed. Two P2s fixed, one P2 and two P3s recorded.**
 
 ### 12.3 Pre-code mechanical checklist, re-verified post-swap
 

@@ -1494,3 +1494,32 @@ In both cases the expected-success output (`0`) and the could-not-look output (`
 **Shape of the repair.** A `spec:lint` arm over plan prose: a fenced `sh` block inside a step whose text claims verification should either emit an explicit verdict token (`PASS`/`FAIL`) or set `-e`/`-o pipefail` and be reachable by a non-zero exit. Advisory first, since the corpus will have many pre-existing blocks.
 
 **First scheduled step:** measure how many existing plan steps carry a bare-count verification block, from `docs/superpowers/plans/**`, before choosing advisory versus hard — the count decides whether this can ever be a hard arm.
+
+## BL-IMPECCABLE-DETECTOR-FALSE-CLEAN-ON-FILE-LIST — the UI quality gate's detector reports clean when it could not read the files
+
+**Status:** OPEN · **Severity:** MEDIUM (a shipped quality gate whose false-clean is byte-identical to a real clean, used by every UI arc in this repo) · **Class:** review tooling / gate fidelity · **Effort:** S upstream, S for a local wrapper · **Filed:** 2026-08-18 (`fix/control-outline-border-token`, invariant-8 gate) · **Facing:** process · **Class-sweep exception:** (c) — the repair is to a vendored plugin script this PR does not otherwise touch · **Reachability:** PROBED — transcript below, reproduced twice.
+
+`scripts/detect.mjs` is the deterministic half of `/impeccable critique`, and invariant 8 makes that gate mandatory for every UI surface. **Passed an explicit list of files it prints a warning to stderr and then reports clean on stdout, exiting 0.**
+
+```
+$ node …/skills/impeccable/scripts/detect.mjs --json <26 changed .tsx paths>
+Warning: cannot access <every one of the 26 paths>
+[]
+exit=0
+
+$ node …/skills/impeccable/scripts/detect.mjs --json app components
+[ …24 findings… ]
+exit=2
+```
+
+Both runs were from the repo root with the paths valid and readable; relative and absolute forms behave identically. The tool takes DIRECTORIES. Passed anything else it does not error — it returns the same `[]` and the same exit 0 that a genuinely clean scan returns.
+
+**Incident.** This arc's invariant-8 gate ran the file-list form first and would have recorded "detector clean on the diff" — an honest-sounding, false statement in a tracked gate record that a later reviewer would have had no way to distinguish from a real result. It was caught only because the run was repeated with directories, which is not a step the skill's reference prescribes.
+
+**Not a deferred defect of this arc.** The 24 findings the correct invocation returns are all pre-existing on surfaces this branch does not modify (20 `broken-image`, 2 `side-tab`, 2 `overused-font`), and **zero** touch a file it changed. The row is about the TOOL's failure mode, not about work being deferred.
+
+**Third instance of one shape on this arc**, which is why it is filed rather than noted: `BL-VERIFICATION-BLOCK-FAILS-OPEN-ON-UNREADABLE-INPUT` covers plan verification blocks, and an earlier bare `grep -c` in this arc's own plan had the inverse defect (a SUCCESSFUL check exiting 1). Same carelessness, both directions, now in a shipped tool.
+
+**Shape of the repair.** Upstream: exit non-zero when a requested path could not be read, so inability-to-look is never spelled the same as nothing-found. Locally, cheaper and available now: a wrapper that refuses a non-directory argument, or an invariant-8 checklist line requiring the directory form and a non-zero exit before "detector clean" may be recorded.
+
+**First scheduled step:** confirm the behaviour against the current upstream release, then decide wrapper-versus-report — a local wrapper is worth it either way, since this repo's gate cannot wait on an upstream fix.

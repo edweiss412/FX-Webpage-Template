@@ -253,6 +253,19 @@ the affordance on the same render path, or rises above the resting weight:
 `--color-accent-on-bg` (5.02-9.65:1) where the cue is an accent hue —
 `--color-accent` itself is decorative-only in light (§1.2) and cannot carry it.
 
+**What the 2026-08-18 sweep actually reached, stated because the rule above is
+wider than the sweep.** It moved the controls the element-level census can SEE —
+`scanInteractiveElements` admits `button`, `a` and `summary`, plus `<input>` at
+`type="checkbox"` or `"radio"`. Text-entry fields and `<select>`s are outside
+that vocabulary in BOTH directions: the census will never flag one and never
+exempt one, so several still rest at `border-border` — a `<textarea>` at
+`components/shared/ReportModal.tsx:715` among them, in the same modal whose
+button the sweep raised. They are tracked on
+`BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER`, family A. **The rule states the
+predicate; the sweep states its reach. Do not read the first as a claim about
+the second** — an earlier revision of this paragraph did, and the invariant-8
+review was right to call it a promise the diff had not kept.
+
 **Dividers are OUT, in both directions.** A `border-t`, `border-b` or `border-l`
 rule between stacked content has no resting outline to raise, and §1.2a's
 preservation of the border tokens for dividers is what this carve-out rests on.
