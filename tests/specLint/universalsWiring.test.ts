@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { runCli, type CliDeps } from "../../scripts/spec-lint";
+import { memSpliceSeam } from "./_memSpliceSeam";
 import type { LintResult } from "../../lib/specLint/types";
 
 /**
@@ -57,6 +58,7 @@ function memDeps(files: Record<string, string>): CliDeps {
     },
     realpath: (p) => p,
     spawn: () => ({ status: 0, signal: null, stdout: "", stderr: "" }),
+    ...memSpliceSeam(),
   };
 }
 

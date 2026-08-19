@@ -1,9 +1,14 @@
 // spec:lint CLI adapter (spec docs/superpowers/specs/2026-07-19-spec-lint.md §2/§7).
 // All I/O lives here; the core under lib/specLint/** is pure and injected.
 import { execFileSync, spawnSync } from "node:child_process";
-import { lstatSync, readFileSync, realpathSync } from "node:fs";
+import { lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
+import {
+  spliceFixturePlanForText,
+  synthesizeFixtureFindings,
+  type FixtureSpliceEntry,
+} from "../lib/specLint/fixtureContract";
 import { splitLines } from "../lib/specLint/parse";
 import {
   collectionProbePlanForText,
@@ -17,6 +22,9 @@ import type {
   ExecOutcome,
   ExecResults,
   FileResolver,
+  Finding,
+  FixtureOutcome,
+  FixtureResults,
   LintResult,
   ParseResults,
   ProbeResults,
@@ -51,6 +59,30 @@ export interface CliDeps {
    * any test that only recorded the command.
    */
   spawn(command: string, cwd: string, timeoutMs: number, mode: "parse" | "exec"): SpawnResult;
+
+  /**
+   * The fixture splice seam (fixture spec §4.2). Every path below is
+   * REPO-RELATIVE — the directory name is part of the contract
+   * (`tests/.spec-lint-fixtures/`, gitignored, collected by `BASE_INCLUDE`),
+   * and resolving it here rather than at the call site keeps one definition of
+   * where a splice lands.
+   */
+  /**
+   * Creates the directory and reports whether IT created it: `true` = created
+   * by this call, `false` = it was already there.
+   *
+   * One atomic call, not an `exists` probe followed by a `mkdir`. POSIX mkdir
+   * is atomic and fails EEXIST, so exactly one of two concurrent invocations
+   * can win; a test-then-create has a window in which both observe the
+   * directory absent, both succeed through a recursive mkdir, and both then
+   * write and spawn into the same directory (whole-diff review round 3). The
+   * refusal in fixture spec §4.2 step 1 and the concurrency claim in §8 limit
+   * 11 are only true of the atomic form.
+   */
+  mkdirExclusive(relPath: string): boolean;
+  write(relPath: string, body: string): void;
+  readFile(relPath: string): string;
+  rm(relPath: string): void;
 }
 
 /** Env seam for the per-command ceiling; a 600-second case is untestable. */
@@ -139,6 +171,168 @@ function renderText(result: LintResult): string {
   const advisory = result.findings.length - hard;
   out.push(`summary: ${hard} hard, ${advisory} advisory`);
   return out.join("\n") + "\n";
+}
+
+/**
+ * Repo-relative, gitignored (fixture spec §9), collected by `BASE_INCLUDE`, and
+ * deliberately a FIXED name.
+ *
+ * It carried a pid and a per-process counter until whole-diff review round 2.
+ * Both were deleted rather than defended, because together they made spec
+ * §4.2's own central claim FALSE: a directory keyed by the process that created
+ * it is invisible to every later process, so a crash between steps 2 and 4 left
+ * a survivor that step 1 could never see — while that survivor holds test files
+ * `BASE_INCLUDE` collects on the next full run. The counter was dead mechanism
+ * besides: `runCli` accepts exactly one document per invocation
+ * (scripts/spec-lint.ts:349), so this runs at most once per process.
+ *
+ * With a fixed name, ANY survivor collides on the very next invocation and is
+ * loud, which is what step 1 always promised. The cost is stated in spec §8
+ * limit 11 rather than hidden: two concurrent `--exec-red` runs in ONE worktree
+ * no longer proceed independently — the second refuses loudly and runs nothing,
+ * which is strictly safer than two splices racing in one directory tree.
+ */
+const SPLICE_DIR = "tests/.spec-lint-fixtures";
+
+/**
+ * The splice lifecycle (fixture spec §4.2), the whole of it in the adapter per
+ * the §5 boundary: the directory, the ONE vitest run per doc, the JSON read.
+ * The core derives the plan and classifies the outcomes and does nothing else.
+ *
+ * Every exit path removes the directory in a `finally` — a thrown write, a
+ * spawn that threw, a timeout, a signal, unreadable JSON — so no failure can
+ * leave a file under `tests/`. The one path that removes NOTHING is the
+ * collision refusal, and that is deliberate: a directory this invocation did
+ * not create belongs to another live invocation, and a broad cleanup would
+ * destroy its splice mid-run.
+ *
+ * Returns the results map for the core to classify. `findings` is returned
+ * alongside as the adapter-local view of the same pure derivation; `runLint`
+ * computes the authoritative set from its own model.
+ */
+export function runFixtureSplice(
+  plan: readonly FixtureSpliceEntry[],
+  deps: CliDeps,
+  timeoutMs: number = DEFAULT_TIMEOUT_SECS * 1000,
+): { findings: Finding[]; results: FixtureResults } {
+  const done = (results: FixtureResults) => ({
+    findings: synthesizeFixtureFindings(plan, results),
+    results,
+  });
+  if (plan.length === 0) return done({ files: new Map() });
+
+  const dir = SPLICE_DIR;
+  // The fence, stated and settled BEFORE anything is observed and before
+  // anything is spawned — and settled by ONE atomic call, so a second
+  // invocation racing this one loses the create rather than joining it.
+  if (!deps.mkdirExclusive(dir)) {
+    // A stale directory is a LOUD non-observation, never a silent overwrite of
+    // another session's live splice.
+    return done({
+      files: new Map(),
+      unavailable: `the splice directory ${dir} already exists, so no block was run`,
+    });
+  }
+
+  const files = new Map<number, FixtureOutcome>();
+  let unavailable: string | undefined;
+  try {
+    for (const entry of plan) {
+      // The marker line is the FIRST digit run of the basename, and `.test.ts`
+      // is what `BASE_INCLUDE` collects. Both halves are load-bearing: the
+      // suffix decides whether anything runs, the line decides which block a
+      // result belongs to.
+      deps.write(`${dir}/line-${entry.line}.fixture.test.ts`, entry.block);
+    }
+    const report = `${dir}/report.json`;
+    const command = `pnpm exec vitest run ${dir} --reporter=json --outputFile=${report}`;
+    const outcome = classifySpawnResult(deps.spawn(command, deps.repoRoot(), timeoutMs, "exec"));
+    if (outcome.kind !== "exit") {
+      // NOT a verdict about any block: the runner never finished, so nothing
+      // was observed. The exit CODE is deliberately not read either way — the
+      // report is the observation, and a non-zero exit is the ordinary shape
+      // of a fixture whose premise failed.
+      unavailable =
+        outcome.kind === "timeout"
+          ? "the fixture run exceeded the SPEC_LINT_EXEC_TIMEOUT_SECS ceiling"
+          : outcome.kind === "signal"
+            ? `the fixture run was killed by ${outcome.signal}`
+            : `the fixture run could not be spawned: ${outcome.message}`;
+    } else {
+      let raw: string;
+      try {
+        raw = deps.readFile(report);
+      } catch {
+        unavailable = `no report was written to ${report}`;
+        raw = "";
+      }
+      if (unavailable === undefined) {
+        try {
+          const parsed = JSON.parse(raw) as { testResults?: unknown[] };
+          for (const entry of parsed.testResults ?? []) {
+            const tr = entry as {
+              name?: unknown;
+              status?: unknown;
+              message?: unknown;
+              assertionResults?: unknown[];
+            };
+            const base =
+              String(tr.name ?? "")
+                .split("/")
+                .pop() ?? "";
+            const m = /^line-(\d+)\./.exec(base);
+            if (m === null) continue;
+            const asserts = Array.isArray(tr.assertionResults) ? tr.assertionResults : [];
+            const rows = asserts.map(
+              (a) => a as { status?: unknown; title?: unknown; failureMessages?: unknown[] },
+            );
+            files.set(Number(m[1]), {
+              fileStatus: String(tr.status ?? ""),
+              assertions: rows.map((a) => ({
+                status: String(a.status ?? ""),
+                title: String(a.title ?? ""),
+              })),
+              failureMessages: rows.flatMap((a) =>
+                Array.isArray(a.failureMessages) ? a.failureMessages.map(String) : [],
+              ),
+              // BOTH channels. A premise at module scope throws during
+              // collection, so the file registers no test case and its message
+              // arrives here and nowhere else (fixture spec §2.9). Forwarding
+              // only the assertion channel loses the live corpus instance at
+              // docs/superpowers/plans/2026-08-04-guard-premise-reachability.md:1174
+              // while every pure test in Task 4 still passes.
+              fileMessage: String(tr.message ?? ""),
+            });
+          }
+        } catch {
+          unavailable = `the report at ${report} was not readable JSON`;
+        }
+      }
+    }
+  } catch (e) {
+    unavailable = `the fixture run could not be prepared: ${e instanceof Error ? e.message : String(e)}`;
+  } finally {
+    try {
+      deps.rm(dir);
+    } catch (e) {
+      // NOT best-effort. A surviving directory holds test files the repo's own
+      // BASE_INCLUDE collects on the next full run. Since round 2 the name is
+      // fixed, so the NEXT invocation would at least refuse loudly on it — but
+      // that is the next invocation's signal, not this one's, and this run is
+      // the only place that knows the removal failed. Spec §4.2 step 4 promises
+      // no file is left under `tests/`; swallowing the failure breaks that
+      // promise silently in the run that broke it, which is the one thing this
+      // arm may never do. Raised instead: runCli's outer catch turns it into
+      // exit 2, this CLI's infra-fault code, with the path named.
+      throw new Error(
+        `spec:lint could not remove the fixture splice directory ${dir}: ` +
+          `${e instanceof Error ? e.message : String(e)}. Remove it by hand — it holds test ` +
+          `files the repo's own include glob collects.`,
+      );
+    }
+  }
+
+  return done(unavailable === undefined ? { files } : { files, unavailable });
 }
 
 export function runCli(argv: string[], deps: CliDeps): CliOutput {
@@ -296,6 +490,7 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
     // the stderr tail trimmed here so the core never sees raw output.
     let execResults: ExecResults | null = null;
     let probeResults: ProbeResults | null = null;
+    let fixtureResults: FixtureResults | null = null;
     if (execRed) {
       const outcomes = new Map<number, ExecOutcome>();
       const stderrTails = new Map<number, string>();
@@ -322,6 +517,10 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
         probeTails.set(line, tailOf(r));
       }
       probeResults = { outcomes: probeOutcomes, stdout: probeStdout, stderrTails: probeTails };
+
+      // Fixture blocks run LAST: they are whole vitest boots, and a boot
+      // between two red observations would run another suite's module scope.
+      fixtureResults = runFixtureSplice(spliceFixturePlanForText(text), deps, timeoutMs).results;
     }
 
     const result = runLint(
@@ -330,6 +529,7 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
       execResults,
       parseResults,
       probeResults,
+      fixtureResults,
     );
     return {
       stdout: json ? JSON.stringify(result) + "\n" : renderText(result),
@@ -357,14 +557,32 @@ const isEntry = (() => {
   }
 })();
 
-if (isEntry) {
-  const deps: CliDeps = {
+/**
+ * The SHIPPED deps, factored out of the entry block so a suite exercising the
+ * real filesystem and a real vitest child drives this object rather than a
+ * copy of it. Since review round 2 deleted the pid from the splice directory's
+ * name, the directory is predictable and nothing has to be varied for the §4.2
+ * collision refusal to be reachable by a test.
+ */
+export function nodeDeps(root: string): CliDeps {
+  const inRepo = (relPath: string) => join(root, relPath);
+  return {
     cwd: () => process.cwd(),
-    repoRoot: () =>
-      execFileSync("git", ["rev-parse", "--show-toplevel"], {
-        cwd: process.cwd(),
-        encoding: "utf8",
-      }).trim(),
+    repoRoot: () => root,
+    mkdirExclusive: (relPath) => {
+      try {
+        // NON-recursive deliberately: `recursive: true` succeeds on an existing
+        // directory, which is exactly the silent join this fence exists to stop.
+        mkdirSync(inRepo(relPath));
+        return true;
+      } catch (e) {
+        if ((e as { code?: string }).code === "EEXIST") return false;
+        throw e;
+      }
+    },
+    write: (relPath, body) => writeFileSync(inRepo(relPath), body),
+    readFile: (relPath) => readFileSync(inRepo(relPath), "utf8"),
+    rm: (relPath) => rmSync(inRepo(relPath), { recursive: true, force: true }),
     listTrackedFiles: () =>
       // ":/" pathspec = whole repo regardless of the cwd subdir
       execFileSync("git", ["ls-files", "-z", "--full-name", "--", ":/"], {
@@ -403,7 +621,14 @@ if (isEntry) {
       };
     },
   };
-  const r = runCli(process.argv.slice(2), deps);
+}
+
+if (isEntry) {
+  const root = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+  }).trim();
+  const r = runCli(process.argv.slice(2), nodeDeps(root));
   if (r.stdout) process.stdout.write(r.stdout);
   if (r.stderr) process.stderr.write(r.stderr + "\n");
   // NOT process.exit(): stdout.write is ASYNC on a pipe, so exiting on the next
