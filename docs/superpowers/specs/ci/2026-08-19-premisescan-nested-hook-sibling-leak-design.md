@@ -90,6 +90,11 @@ Items 2 and 3 are production edits to an enrolled guard surface, so AC-7's gate 
 formality — the mutant population moves. That cost is accepted and stated, not hidden behind the
 stop's line count.
 
+**Every one of these lands AFTER a test that reds without it**, which is invariant 1 and not a
+stylistic preference: an export authored before the fixtures that consume it can only ever be
+observed green. The plan sequences each accordingly — the derived families are authored first, red
+on the missing export, then red behaviourally, and only then is the scanner changed.
+
 ## §3 Probes (run 2026-08-19 against `origin/main` at the branch base)
 
 ### §3.1 The leak SHAPE has zero occurrences in the ENROLLED SUITES' OWN describes

@@ -1411,6 +1411,26 @@ AGENTS.md already says to class-sweep a finding's SHAPE across the code before p
 
 **First scheduled step:** decide which of the two forms to build, then confirm against this arc's own history — replay the R2 and R4 repairs and check that the proposed mechanism flags the claims R4 F3 and R5 F1 later found. A mechanism that does not flag those two is not worth building.
 
+## BL-SPECLINT-ORPHANED-TASK-MARKERS — a plan whose markers sit outside a region lints as `0 hard` while checking nothing
+
+**Status:** OPEN · **Severity:** MEDIUM (no shipped defect; the gate reports a pass over an empty set, which is the failure mode `spec:lint` exists to prevent) · **Class:** spec-lint grammar / review tooling · **Effort:** S · **Filed:** 2026-08-19 (`fix/premisescan-nested-hook-sibling-leak`, spec review R2 F1) · **Facing:** process · **Class-sweep exception:** (c) — the repair is an arm inside `lib/specLint/`, a surface this arc does not otherwise touch · **Reachability:** PROBED — the reviewer's own probe reproduces, and both figures come from data the linter already computes.
+
+`taskTopology` (`lib/specLint/taskContract.ts`) enrols a `<!-- task: … -->` marker only when it is owned by a `<!-- tasks: depth=N red-contract -->` region (`lib/specLint/taskContract.ts:28`). A plan carrying markers and no region therefore enrols ZERO of them, every red-contract check is skipped, and `pnpm spec:lint` prints `summary: 0 hard` — indistinguishable from a plan whose contract genuinely passes. Nothing compares the two counts, though the linter has both.
+
+**Incident:** This arc, spec round 2 finding 1. The plan at `docs/superpowers/plans/2026-08-19-premisescan-nested-hook-sibling-leak.md` carried seven markers and no region; the author read `0 hard` as a pass and dispatched. The reviewer's probe:
+
+```text
+taskRegionLines=0 taskMarkers=7
+line 30 parsed=null
+line 152 parsed=null
+```
+
+Two of those markers additionally carried `red-state=pre-existing-green`, which the grammar does not accept (`lib/specLint/taskContract.ts:49` allows only `live|authored`) — and the malformed-state check never ran either, for the same reason. One full spec round on this arc is attributable to the shape. Corpus row: `docs/review-rounds/fix/premisescan-nested-hook-sibling-leak/a85ccd453103.jsonl`, round 2; filing: the sibling `.md`.
+
+**Shape of the repair.** An advisory — `TASK_MARKERS_UNENROLLED` — emitted when a plan's marker count is positive and its red-contract region extent is zero, naming the marker lines that parsed to nothing. Advisory rather than hard, because a document may legitimately quote a marker as an example; the existing use-versus-mention handling in the citations arm is the precedent. It is a comparison of two numbers the topology pass already returns, not new parsing.
+
+**First scheduled step:** confirm `taskTopology` exposes both figures on the same call (it returns `extents` and the marker list), then site the advisory beside the existing region checks so a reader finds all of them together.
+
 ## BL-SPECLINT-RED-TARGET-CANNOT-NAME-A-REPO-ROOT-SURFACE — a plan whose production surface is a root file silently under-covers its own red contract
 
 **Status:** OPEN · **Severity:** LOW-MEDIUM (no shipped defect; it produces silent under-coverage of a TDD gate) · **Class:** spec-lint grammar / review tooling · **Effort:** S · **Filed:** 2026-08-18 (`fix/control-outline-border-token`, plan review R1 F4 fallout) · **Facing:** process · **Class-sweep exception:** (c) — the repair is a grammar change to `lib/specLint/`, a surface this PR does not otherwise touch · **Reachability:** PROBED — both rejected forms reproduce, transcript below.
