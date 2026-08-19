@@ -31,10 +31,17 @@ announces itself as work: a pure test told to carry a premise it does not need.
 
 - **Consequence bound.** Every hook attaches to exactly the tests Vitest would run it for, or the
   verdict is signalled. A conservative report is a DOCUMENTED LIMIT, not a finding.
-- **PROBE DOMAIN.** The enrolled suites named by `GUARD_SURFACES.suitePaths`
-  (`GUARD_SURFACES`, `tests/mutation/source/registry.ts`), which as of 2026-08-19 enumerates 62
-  entries carrying 405 `describe` sites, plus the fixtures in `tests/mutation/source/premiseScan.test.ts`. A probe outside that domain, or
-  more than one ordinary edit from an input in it, files to documented limits.
+- **PROBE DOMAIN — DERIVED, and deliberately carrying no `describe` count.** The enrolled suites
+  named by `GUARD_SURFACES.suitePaths` (`GUARD_SURFACES`, `tests/mutation/source/registry.ts`), plus
+  the fixtures in `tests/mutation/source/premiseScan.test.ts`. A probe outside that domain, or more
+  than one ordinary edit from an input in it, files to documented limits.
+
+  **The population is read from the registry, never quoted here.** A draft stated "62 entries
+  carrying 405 `describe` sites"; diff round 1 measured 408 on the current tree, because this arc's
+  own fixtures add three `describe` wrappers. A convergence bound that moves whenever anyone adds a
+  test is not a bound — and this is the third time in this arc that a restated measurement went
+  stale (§7's lint count, then its enumerated class list, now this). The census figures belong to
+  the probe record, where they are DATED observations at base `a85ccd453` and are never corrected.
 - **Threat fence.** Ordinary Vitest suite authoring. Deliberately obfuscated registrar spellings —
   a `describe` reached through an alias, a computed member, or an indirection — are out of scope
   and file to documented limits.

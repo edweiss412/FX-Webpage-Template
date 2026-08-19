@@ -2,6 +2,11 @@
 
 Subject: `hookBodies` (`tests/mutation/source/premiseScan.ts:1834`) and its caller
 (`tests/mutation/source/premiseScan.ts:1676`). Base: `origin/main` at `a85ccd453`.
+
+**Every census below is a DATED observation at that base and is never corrected.** Diff round 1
+measured 408 `describe` sites on the implemented tree against the 405 recorded here; the
+difference is this arc's own three fixture wrappers, not drift in the corpus. The spec's
+convergence criterion therefore names the registry rather than a number (design §1.2).
 Every figure below is a dated observation; per `docs/agents/spec-self-review.md` a probe
 transcript is never corrected and never compared against later prose.
 
