@@ -3862,7 +3862,17 @@ function scannerModifiers(): string[] {
     ) {
       const arg = node.initializer.arguments?.[0];
       if (arg && ts.isArrayLiteralExpression(arg)) {
-        names = arg.elements.filter(ts.isStringLiteralLike).map((e) => e.text);
+        // Filtering to string literals would DROP a computed or spread element
+        // silently, and the count assertion below cannot see that: it compares
+        // the generated cases against this same truncated list, so both sides
+        // move together and the cover under-generates while still passing.
+        const literals = arg.elements.filter(ts.isStringLiteralLike);
+        if (literals.length !== arg.elements.length)
+          throw new Error(
+            `MODIFIERS holds ${arg.elements.length - literals.length} non-literal element(s); ` +
+              "the derived cover would silently under-generate",
+          );
+        names = literals.map((e) => e.text);
       }
     }
     ts.forEachChild(node, walk);
