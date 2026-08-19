@@ -1290,7 +1290,7 @@ The filed severity is LOW on the grounds that this is bookkeeping that never pro
 
 ## BL-SEND-AUTH-SINGLE-READ-LINT — a send-authorization path may read each surface at most once per pass
 
-**Status:** OPEN. · **Effort:** M — a structural lint plus a boundary decision about which surface
+**Status:** IN PROGRESS · **Branch:** feat/send-auth-single-read-lint · **Effort:** M — a structural lint plus a boundary decision about which surface
 methods it ranges over, and one existing passing instance to pin it against.
 
 One class of defect produced a P0 in four consecutive review rounds of
