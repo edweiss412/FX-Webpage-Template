@@ -1,14 +1,26 @@
 # Arc F handover — `fix/control-outline-border-token`
 
-**STATUS: spec ACCEPTED · plan NOT APPROVED · nothing implemented.**
+**STATUS: IMPLEMENTED AND READY TO MERGE.** Spec accepted (5 rounds), plan accepted (6 rounds), all seven tasks shipped, whole-diff review run to 5 rounds.
 
-## The decision owed
+This document described an unapproved, unimplemented arc for most of its life and was rewritten at closeout. If you are reading a sentence that says nothing shipped, it is gone now — everything below reflects the merged state.
 
-Plan adversarial round 6 could not run. Codex reported the account's usage limit exhausted until **2026-08-23 15:40**; all three attempts exited 1 with that message, `failureReason: attempts_exhausted`, no signal, native binary resolved. That is a hard external block, not a reap and not a wrapper fault.
+## What shipped
 
-Five plan rounds completed (32 findings, all repaired). Round 5 confirmed the R4 systematic audit closed the recurring defect class and independently killed the target mutant. Round 6 was a confirmation round. A six-dimension self-review stood in and found zero findings — **it is not an approval and is not claimed as one.**
+| | |
+| --- | --- |
+| Controls swapped | **37** — `border-border` → `border-text-faint`, 26 files, 32 lines |
+| Hover repair | **21 sites** — 8 delete, 10 raise to `border-text-subtle`, 3 raise to `border-accent-on-bg` |
+| Census | 21 → **57** rows, with a per-row negation assertion and three fixtures |
+| Excluded | 5 dividers, ShareHub's 2 `max-sm:` elements, one `<select>` outside the scanner's tag vocabulary |
+| Mutation score | **65/65**, 0 unaccepted survivors |
+| Invariant-8 gate | `impeccable-gate: critique=RAN audit=RAN p0=1 p1=1 dispositions=recorded` |
+| Ledger | 1 row archived, **6** filed; relation `354 = 348 + 6` |
 
-**RULED by the orchestrator (2026-08-18): none of the above — RETRY.** The credits block is being lifted by purchase, so R6 is deferred on a **credits outage, not skipped by choice**. Retry the dispatch periodically; if it is still refused after several attempts, implement against the repaired-but-unconfirmed plan and take the confirmation round at the DIFF stage, where a reviewer reads real code rather than a description of it. The six-dimension self-review stays in the round-economy filing as a **documented limit, not a substitute for the round**.
+## Review history
+
+Spec BLOCKING/NA ×5 → accepted. Plan BLOCKING ×5 + 1 → accepted. Diff: BLOCKING(4), NA(2), NA(1), NA(2), NA(3) — **no behavioural defect after round 1.**
+
+**The defect worth knowing about.** Raising 37 resting outlines to 3.35:1 left four controls whose surviving hover cue was worth nothing — `hover:bg-surface-raised` where `--color-surface` and `--color-surface-raised` are both `#ffffff`, a literal 1.000 ratio. A per-path check confirmed a cue was PRESENT at every one and reported zero uncovered; that was true and insufficient. **Presence is not adequacy.** The operational test that separates them is whether a perceptible CHANNEL changes: the fill wash is identical at ~1.109:1 on both sides of the line, and what distinguishes adequate from not is a hue change at ΔE76 72.9/65.2 versus 5.6/4.6.
 
 ## Who decided what — the boundary matters
 

@@ -4,10 +4,11 @@
  * Spec: docs/superpowers/specs/2026-08-16-control-outline-surface-fills-design.md
  * Plan: docs/superpowers/plans/2026-08-16-control-outline-surface-fills.md
  *
- * THREAT FENCE (spec §7): this suite defends against ONE thing — this arc's own
- * 21 swaps being reverted or half-reverted (the two-arm ternary case). It does
- * NOT defend against a contributor adding a NEW control at
- * `border-border-strong`; spec §5.2 records the five review rounds that
+ * THREAT FENCE: this suite defends against ONE thing — the swaps of TWO arcs
+ * being reverted or half-reverted (the two-arm ternary case): the 21 that moved
+ * off `border-border-strong` on 2026-08-16, and the 36 additions that moved off
+ * `border-border` on 2026-08-18, 57 census rows in total. It does NOT defend
+ * against a contributor adding a NEW control at either token; spec §5.2 records the five review rounds that
  * established why that forward guard was CUT rather than shipped.
  */
 
@@ -84,7 +85,7 @@ function scanFixture(source: string): ScanElement[] {
 
 describe("control-outline census (spec §4.2)", () => {
   /**
-   * Asserted against the LITERAL 21, never against anything derived from
+   * Asserted against the LITERAL 57, never against anything derived from
    * `CENSUS`. Without this, deleting a row deletes its test case and the suite
    * still passes: the premise still sees 362, the unresolved pin still sees 13,
    * and every surviving row still resolves. This is the vacuous-iteration
@@ -413,18 +414,20 @@ describe("hover repair — no swapped control hovers quieter than it rests (spec
    *
    * An earlier revision asserted that all 21 override sites still carry a
    * `hover:border-*`. That is true BEFORE the repair and necessarily false
-   * after it — group (a) exists precisely to remove twelve of them — so it
+   * after it — group (a) exists precisely to remove eight of them — so it
    * described the red state and could never be green. What survives the repair
    * and is worth pinning: the groups are disjoint, they total 21, every member
    * is a census ADDITION rather than one of the predecessor's 21, and exactly
    * the thirteen retarget sites still carry an override afterwards.
    */
-  it("the three groups are disjoint, total 57, and are all census additions", () => {
+  it("the three hover groups are disjoint, total 21, and are all census additions", () => {
     const all = [...HOVER_DELETE, ...HOVER_SUBTLE, ...HOVER_ACCENT];
     expect(all.length).toBe(21);
     expect(new Set(all).size).toBe(21);
-    // 8 delete / 10 raise / 3 accent, after the design review moved three sites
-    // from (a) to (b) on adequacy grounds.
+    // 8 delete / 10 raise / 3 accent. FOUR sites moved from (a) to (b) on
+    // adequacy grounds: ThemeToggle, UserMenu and UnarchiveShowButton at the
+    // invariant-8 design review, and ReportButton's icon variant at whole-diff
+    // review round 1. The 21 here is the HOVER population; the census is 57.
     expect(HOVER_DELETE.length).toBe(8);
     expect(HOVER_SUBTLE.length).toBe(10);
     expect(HOVER_ACCENT.length).toBe(3);
@@ -435,8 +438,8 @@ describe("hover repair — no swapped control hovers quieter than it rests (spec
   /**
    * Post-repair, an override survives at exactly the thirteen RETARGET sites.
    *
-   * This is the assertion that would catch a twelfth deletion being skipped, or
-   * a tenth site quietly acquiring one. `ArchiveShowButton.tsx:365` is
+   * This is the assertion that would catch a ninth deletion being skipped, or
+   * a fourteenth site quietly acquiring an override. `ArchiveShowButton.tsx:365` is
    * deliberately not among them: it belongs to the 2026-08-16 census, not to
    * this arc's additions, and its `hover:border-status-warn` is a SEMANTIC
    * escalation rather than a weight cue — which is why the scoping below is

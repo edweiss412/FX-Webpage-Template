@@ -4,11 +4,13 @@
 
 The full history is in the two sibling filings — `2ddbf038bdf4.md` (5 spec rounds, 5 plan rounds) and `39f57661c873.md` (1 plan round, 1 diff round). Read those first; this file records only what happened after the second merge.
 
-## diff — 3 rounds
+## diff — 4 rounds
 
-**This base has seen THREE diff rounds; they are the arc's SECOND, THIRD and FOURTH.** The `--round` value the wrapper records is the caller's label, and it was passed as 2 — correct for the arc, wrong for this base identity, under which it is round 1. Corrected, with the arc-level count in prose where it cannot be mistaken for a measurement.
+**This base has seen FOUR diff rounds; they are the arc's SECOND through FIFTH.** The `--round` value the wrapper records is the caller's label, and it was passed as 2 — correct for the arc, wrong for this base identity, under which it is round 1. Corrected, with the arc-level count in prose where it cannot be mistaken for a measurement.
 
-**Examined:** three `--stage diff` dispatches, all `NEEDS-ATTENTION` — **2 findings, then 1, then 2. No P0 and no P1 in any of them.**
+**Examined:** four `--stage diff` dispatches, all `NEEDS-ATTENTION` — **2 findings, then 1, then 2, then 3. No P0 and no P1 in any of them.**
+
+Round 5 confirmed no behavioural defect for the fourth consecutive round and returned three P2s, one of which was a repair of this arc's own making: a blanket regex over the partition numbers had flattened a before/after sentence into "the 8/10/3 partition becomes 8/10/3". **A find-and-replace across prose is the same instrument that produced the drift it was cleaning up.**
 
 Round 3 was a bounded confirmation round and its finding was a single P2: stale count prose surviving the round-2 repair. Its probes returned `nonColorHunks=0`, census 57 distinct with no bad rows, all five dividers resolving and outside the census, exactly 13 surviving overrides matching 10 subtle plus 3 accent, minimum ratios faint 3.023 / subtle 5.969 / accent-on-bg 5.025, and the ledger at 354 = 348 + 6 with arc D intact and the marker absent. **No behavioural defect in either round.**
 
@@ -19,6 +21,10 @@ Both remaining findings were **documentation drift introduced by the round-1 rep
 **Round 4 found the one thing four rounds of ledger arithmetic could not.** `DEFERRED.md` still carried `CONTROLOUTLINE-BORDER-TOKEN-NEUTRAL-FILL-1`, whose un-defer trigger is verbatim the rendered decision this arc obtained, while its linked backlog row sat archived as RESOLVED — a contradiction of `DEFERRED.md`'s own rule that resolved entries move to the archive. **The set-arithmetic verify could never have seen it**: that check reconciles `BL-`/`DEF-` headings, and this entry's id is neither. A ledger check that keys on an id FORMAT is blind to an entry that does not use that format — the same fail-open shape this arc filed twice elsewhere, appearing a third time inside its own reconciliation step. Archived with its resolution recorded.
 
 **The count prose drifted THREE rounds running**, which is what finally made the fix structural: the artifacts now carry ONE reconciliation line naming the final 8/10/3 partition and explicitly superseding the 13/5, 12/6/3 and 9/9/3 states earlier rounds recorded, rather than each round re-syncing scattered prose. A number that changes three times needs a single authority, not three sweeps.
+
+**The count-prose class is now closed BY DERIVATION, which is what four rounds of sweeping could not do.** `tests/docs/controlOutlinePartitionParity.test.ts` reads the guard's own `HOVER_DELETE` / `HOVER_SUBTLE` / `HOVER_ACCENT` arrays as the source of truth and asserts that no CURRENT statement in the spec, plan, handover, probe record or guard contradicts them — never against a literal typed into the test, which would merely relocate the drift. Historical review filings and explicitly-superseded lines are exempt by design, since rewriting them would destroy the provenance they exist to hold.
+
+Its own first run produced FALSE POSITIVES — a bare `N raise` matcher flagged "3 raise to `border-accent-on-bg`" against the subtle group, because the accent group raises too. Tightened to require the destination token, then proved it can still fail: a constructed `9/9/3` and `12 sites delete` in the handover made it report both shapes and exit non-zero. **A check that cries wolf is worse than no check, and a check that cannot fail is not a check.**
 
 **Mechanizable:** one, and it is a repeat — `declined: already filed as BL-SPEC-CLAIM-SWEEP-AFTER-REASONING-FINDING`. Both P2s are the same shape that row exists for: a repair updated the executable assertion and left the prose describing the prior state. This arc has now produced that shape at least four times across three artifacts, which is the argument for the filed row rather than for a fifth hand-sweep.
 
