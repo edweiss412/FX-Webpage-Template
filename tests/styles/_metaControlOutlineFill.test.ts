@@ -417,13 +417,13 @@ describe("hover repair — no swapped control hovers quieter than it rests (spec
    * described the red state and could never be green. What survives the repair
    * and is worth pinning: the groups are disjoint, they total 21, every member
    * is a census ADDITION rather than one of the predecessor's 21, and exactly
-   * the nine retarget sites still carry an override afterwards.
+   * the thirteen retarget sites still carry an override afterwards.
    */
   it("the three groups are disjoint, total 57, and are all census additions", () => {
     const all = [...HOVER_DELETE, ...HOVER_SUBTLE, ...HOVER_ACCENT];
     expect(all.length).toBe(21);
     expect(new Set(all).size).toBe(21);
-    // 9 delete / 9 raise / 3 accent, after the design review moved three sites
+    // 8 delete / 10 raise / 3 accent, after the design review moved three sites
     // from (a) to (b) on adequacy grounds.
     expect(HOVER_DELETE.length).toBe(8);
     expect(HOVER_SUBTLE.length).toBe(10);
@@ -433,7 +433,7 @@ describe("hover repair — no swapped control hovers quieter than it rests (spec
   });
 
   /**
-   * Post-repair, an override survives at exactly the nine RETARGET sites.
+   * Post-repair, an override survives at exactly the thirteen RETARGET sites.
    *
    * This is the assertion that would catch a twelfth deletion being skipped, or
    * a tenth site quietly acquiring one. `ArchiveShowButton.tsx:365` is
@@ -442,7 +442,7 @@ describe("hover repair — no swapped control hovers quieter than it rests (spec
    * escalation rather than a weight cue — which is why the scoping below is
    * over ADDITIONS and not over all 57 rows (see the plan's scoping note).
    */
-  it("exactly the nine retarget sites still carry a border override", () => {
+  it("exactly the thirteen retarget sites still carry a border override", () => {
     const stillOverridden = ADDITIONS.map((r) => `${r.file}:${r.line}`).filter((id) => {
       const el = UNIVERSE.find((e) => `${e.file}:${e.line}` === id);
       if (!el) return false;

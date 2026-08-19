@@ -2059,7 +2059,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     operators: [...OPERATOR_NAMES],
     scoreFloor: 1,
     // Detaches the resolver from its census row: every row resolves to the same
-    // first scanned element. The pin still LOOKS like it read 21 elements, and
+    // first scanned element. The pin still LOOKS like it read every census row, and
     // that is exactly the failure a census reader can have — resolving
     // something, just not the thing the row names.
     control: {

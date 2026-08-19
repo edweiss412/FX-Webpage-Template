@@ -93,7 +93,7 @@ Every cell names the step that PROVES the AC, not merely one that touches it.
 | Union-vs-per-path hover misclassifications | **1** — `components/admin/showpage/PublishedReviewModal.tsx:964` |
 | **Hover-derivation SCOPE — read this before filing a miss** | The 12/6/3 partition is derived over the **36 ADDITIONS**, not over all 57 census rows. Computed the other way it returns **22**, and the extra is `components/admin/ArchiveShowButton.tsx:365` carrying `hover:border-status-warn` — a row of the 2026-08-16 census whose override is a SEMANTIC escalation, not a weight cue, and correctly out of this arc's scope. A reviewer who scopes to 57 and files the difference as a missed site is computing a different set, not finding a gap. |
 | Dividers | 5; each RESOLVES, CARRIES `border-border`, and is absent from `CENSUS` |
-| Ledger ids | `origin/main` **347**, branch **353** — SIX rows filed here. Recompute; this literal has been stale twice |
+| Ledger ids | Re-measured after merging `origin/main` (arc D, #850): **`origin/main` 348, branch 354, six rows filed here.** This literal has been stale THREE times — four, then five, then a stale base. **Recompute; the RELATION is the assertion, never the number.** |
 | `--color-text-subtle` as OUTLINE | 6.47/6.75 `bg`, 6.76/6.35 `surface`, 6.76/5.97 `raised`, 6.09/6.94 `sunken` |
 | `--color-accent-on-bg` as OUTLINE | 5.34/9.39 `bg`, 5.57/8.84 `surface`, 5.57/8.30 `raised`, 5.02/9.65 `sunken` |
 | `disabled:opacity-60` composite, PER GROUND | `bg` 1.90/2.18, `surface` 1.95/2.11, `raised` 1.95/2.03, `sunken` 1.83/2.21. **Do not restate as a band — it was stated as a band twice and was wrong twice** |
