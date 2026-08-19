@@ -93,7 +93,7 @@ Every cell names the step that PROVES the AC, not merely one that touches it.
 | Union-vs-per-path hover misclassifications | **1** — `components/admin/showpage/PublishedReviewModal.tsx:964` |
 | **Hover-derivation SCOPE — read this before filing a miss** | The 12/6/3 partition is derived over the **36 ADDITIONS**, not over all 57 census rows. Computed the other way it returns **22**, and the extra is `components/admin/ArchiveShowButton.tsx:365` carrying `hover:border-status-warn` — a row of the 2026-08-16 census whose override is a SEMANTIC escalation, not a weight cue, and correctly out of this arc's scope. A reviewer who scopes to 57 and files the difference as a missed site is computing a different set, not finding a gap. |
 | Dividers | 5; each RESOLVES, CARRIES `border-border`, and is absent from `CENSUS` |
-| Ledger ids | `origin/main` **347**, branch **350** (three review-economy/tooling rows filed on this branch); step 7.1's ShareHub row makes **351** |
+| Ledger ids | `origin/main` **347**, branch **353** — SIX rows filed here. Recompute; this literal has been stale twice |
 | `--color-text-subtle` as OUTLINE | 6.47/6.75 `bg`, 6.76/6.35 `surface`, 6.76/5.97 `raised`, 6.09/6.94 `sunken` |
 | `--color-accent-on-bg` as OUTLINE | 5.34/9.39 `bg`, 5.57/8.84 `surface`, 5.57/8.30 `raised`, 5.02/9.65 `sunken` |
 | `disabled:opacity-60` composite, PER GROUND | `bg` 1.90/2.18, `surface` 1.95/2.11, `raised` 1.95/2.03, `sunken` 1.83/2.21. **Do not restate as a band — it was stated as a band twice and was wrong twice** |
@@ -375,8 +375,8 @@ Assessment B did not return. Its half is DETERMINISTIC and was run directly in t
 
 | Gate half | Command | Result |
 | --- | --- | --- |
-| critique | `/impeccable critique` | RAN-DEGRADED (see banner) — detector clean on the diff, no new P0/P1 |
-| audit | `/impeccable audit` | RAN — a11y, responsive and colour-only checks below, no new P0/P1 |
+| critique | `/impeccable critique` | **RAN** — Assessment A returned on the required retry with a P0 the parent had missed; Assessment B's deterministic half was run in-parent |
+| audit | `/impeccable audit` | **RAN** — a11y, responsive and colour-only checks below; the colour-only proof is executable |
 
 Setup gates completed in order: the skill's context script loaded `PRODUCT.md` + `DESIGN.md`; register identified as **product** (design serves the product — admin surfaces and a crew tool, not a brand page) and the skill's product register reference was read.
 

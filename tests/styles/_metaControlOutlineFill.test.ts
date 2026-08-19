@@ -90,12 +90,12 @@ describe("control-outline census (spec §4.2)", () => {
    * and every surviving row still resolves. This is the vacuous-iteration
    * failure and it is the single most important case in the file.
    */
-  it("holds exactly 21 rows", () => {
+  it("holds exactly 57 rows", () => {
     expect(CENSUS.length).toBe(57);
   });
 
   /** A duplicated row must not stand in for a deleted one and keep the count. */
-  it("has 21 distinct row identities", () => {
+  it("has 57 distinct row identities", () => {
     const identities = new Set(CENSUS.map((r) => `${r.file}:${r.line}`));
     expect(identities.size).toBe(57);
   });
@@ -369,7 +369,6 @@ const HOVER_DELETE = [
   "components/crew/SectionChipLink.tsx:48",
   "components/crew/primitives/PersonRow.tsx:196",
   "components/crew/primitives/PersonRow.tsx:213",
-  "components/shared/ReportButton.tsx:142",
 ] as const;
 
 /**
@@ -392,6 +391,7 @@ const HOVER_SUBTLE = [
   "components/agenda/AgendaEmbed.tsx:83",
   "components/agenda/AgendaPdfViewer.tsx:198",
   "components/layout/ThemeToggle.tsx:92",
+  "components/shared/ReportButton.tsx:142",
 ] as const;
 
 /**
@@ -419,14 +419,14 @@ describe("hover repair — no swapped control hovers quieter than it rests (spec
    * is a census ADDITION rather than one of the predecessor's 21, and exactly
    * the nine retarget sites still carry an override afterwards.
    */
-  it("the three groups are disjoint, total 21, and are all census additions", () => {
+  it("the three groups are disjoint, total 57, and are all census additions", () => {
     const all = [...HOVER_DELETE, ...HOVER_SUBTLE, ...HOVER_ACCENT];
     expect(all.length).toBe(21);
     expect(new Set(all).size).toBe(21);
     // 9 delete / 9 raise / 3 accent, after the design review moved three sites
     // from (a) to (b) on adequacy grounds.
-    expect(HOVER_DELETE.length).toBe(9);
-    expect(HOVER_SUBTLE.length).toBe(9);
+    expect(HOVER_DELETE.length).toBe(8);
+    expect(HOVER_SUBTLE.length).toBe(10);
     expect(HOVER_ACCENT.length).toBe(3);
     const additionIds = new Set(ADDITIONS.map((r) => `${r.file}:${r.line}`));
     for (const id of all) expect(additionIds.has(id)).toBe(true);

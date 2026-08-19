@@ -134,7 +134,7 @@ export function ReportButton(props: ReportButtonProps) {
     effectiveVariant === "accent"
       ? `inline-flex min-h-tap-min items-center rounded-sm bg-accent px-4 py-2 text-sm font-medium text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 ${offsetClass}`
       : effectiveVariant === "icon"
-        ? `inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center rounded-sm border border-text-faint bg-surface text-text transition-colors duration-fast hover:bg-surface-sunken hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 ${offsetClass}`
+        ? `inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center rounded-sm border border-text-faint bg-surface text-text transition-colors duration-fast hover:border-text-subtle hover:bg-surface-sunken hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 ${offsetClass}`
         : `inline-flex min-h-tap-min items-center rounded-sm px-3 py-2 text-sm font-medium text-text underline underline-offset-2 transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:no-underline focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 ${offsetClass}`;
 
   return (

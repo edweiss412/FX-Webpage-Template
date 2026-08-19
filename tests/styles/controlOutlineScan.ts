@@ -1,10 +1,12 @@
 /**
- * The control-outline census — the enumerated set of elements this arc swapped
- * from `border-border-strong` to `border-text-faint`, and a resolver that reads
+ * The control-outline census — the enumerated set of elements TWO arcs swapped
+ * onto `border-text-faint` — 21 from `border-border-strong` on 2026-08-16, and
+ * 36 more from `border-border` on 2026-08-18 (57 rows; the swap sets overlap at
+ * one element), and a resolver that reads
  * each one back through the interactive-element scanner.
  *
  * This is a REGRESSION PIN, not a cover and not a classifier. It answers exactly
- * one question — "did the 21 elements this PR changed stay changed" — about a
+ * one question — "did the elements these PRs changed stay changed" — about a
  * closed set the PR itself defines. It therefore needs no notion of what a
  * switch track is, no cascade reasoning, and no structural inference.
  *
