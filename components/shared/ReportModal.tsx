@@ -675,7 +675,7 @@ export function ReportModal(props: ReportModalProps) {
             <button
               type="button"
               onClick={handleClose}
-              className="mt-4 inline-flex min-h-tap-min items-center rounded-sm border border-border px-3 py-2 text-sm font-medium text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+              className="mt-4 inline-flex min-h-tap-min items-center rounded-sm border border-text-faint px-3 py-2 text-sm font-medium text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
             >
               Close
             </button>

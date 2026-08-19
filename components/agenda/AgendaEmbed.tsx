@@ -84,7 +84,7 @@ export function AgendaEmbed({ showId, agendaLinks }: AgendaEmbedProps) {
             key={fileId}
             type="button"
             onClick={() => setOpenFileId(fileId)}
-            className="inline-flex min-h-tap-min items-center gap-2 self-start rounded-sm border border-border bg-surface-raised px-3 py-2 text-sm font-medium text-text-strong shadow-tile hover:border-border-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+            className="inline-flex min-h-tap-min items-center gap-2 self-start rounded-sm border border-text-faint bg-surface-raised px-3 py-2 text-sm font-medium text-text-strong shadow-tile hover:border-text-subtle focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
           >
             <FileText aria-hidden="true" className="size-4 text-accent-on-bg" />
             View agenda

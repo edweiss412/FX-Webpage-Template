@@ -176,6 +176,7 @@ The 2026-08-16 ruling swapped the 21 controls a DERIVED cover found: interactive
 
 - `components/admin/BellPanel.tsx:836` and `:847` — `type="number"` fields, `min-h-tap-min w-20 rounded-sm border border-border-strong bg-surface`.
 - `components/admin/wizard/step3ReviewSections.tsx:4200` — a `<textarea>` (spec §3.2 cites `:4171`; the live line moved under the 2026-08-16 sibling merges).
+- `components/admin/dev/SwitcherControls.tsx:119` — a `<select>`, added to this family on 2026-08-18 by the `border-border` arc. It carries `border border-border bg-surface … hover:border-accent`, so it sits inside §1.2a's widened predicate AND inside that arc's own hover-inversion class — and the scanner sees neither, because `tests/styles/interactiveScanCore.ts:789` admits only `button`, `a` and `summary` as intrinsic tags. The arc left it untouched deliberately: editing it would have shipped a change no assertion in that diff guards, which is the hand-extended cover the family exists to prevent. Its lexical neighbours at `components/admin/dev/SwitcherControls.tsx:29` and `:145` DID move, so this file now carries both treatments — a reader counting `hover:border-accent` occurrences there will find one that did not move, and this is why.
 
 **Probe.** The rule is explicit and narrow: `tests/styles/interactiveScanCore.ts:868-870` admits an `<input>` **only** when its `type` is `checkbox` or `radio`. The scanner does see inputs — nine repo-wide, all checkboxes and radios — but a `type="number"` field and a `<textarea>` are outside its vocabulary by that rule. `scanInteractiveElements` over `components/admin/BellPanel.tsx` returns rows tagged `a`, `button` and `div`, and zero inputs.
 
@@ -224,30 +225,6 @@ The 2026-08-16 swap moved 21 CONTROLS. DESIGN.md §1.2a keeps `--color-border-st
 **Not a contrast finding.** Neither element is interactive, so SC 1.4.11 does not reach either, and both carry their state programmatically (`aria-current`, `aria-hidden`). This is hierarchy, not accessibility.
 
 **First scheduled step:** decide whether §1.2a gains a pairing clause (chrome that renders in-frame with a control of the same recipe takes that control's outline weight) or an explicit "chrome follows chrome" statement. Either answer closes both sites; a per-site judgment call closes neither.
-
-## BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL — 30 controls with a neutral fill rest at `border-border`, inside the new predicate's words and outside its swap
-
-**Status:** OPEN · **Severity:** MEDIUM (1.15-1.38:1 resting boundaries on controls the widened predicate describes; thirteen of the thirty are crew surfaces read in direct sunlight) · **Class:** visual boundary / DESIGN scope · **Effort:** M-L · **Filed:** 2026-08-16 (`fix/control-outline-surface-fills`, invariant-8 impeccable gate — critique P2) · **Class-sweep exception:** (b) a ratified scope decision fences it, (a) moving `border-border` is a design decision the ruling did not make, and (c) 30 sites across admin AND crew surfaces is a redesign of surfaces the filing PR does not otherwise touch · **Reachability:** PROBED — the derived cover below was run on the live tree 2026-08-16 and its 30 rows are reproduced here as a count, not an enumeration. The count is the PUBLISHED query's, run verbatim.
-
-DESIGN.md §1.2a now reads: a control filled with one of the four neutral ground tokens takes the text ramp. The 2026-08-16 swap moved every such control that carried **`border-border-strong`** AND that the element-level cover could see — the enumerated 21. Text-entry fields carrying the same token (`components/admin/BellPanel.tsx:836` and `:847`, `components/admin/wizard/step3ReviewSections.tsx:4200`) are outside that cover and are filed as `BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER` family A, not moved. Controls carrying **`border-border`** — a different token, one rung quieter at **1.27:1** on `bg-surface` — were never in the cover, and the predicate as written describes them. Measured against all four neutral grounds from the runtime tokens 2026-08-16: `bg` **1.22** light / **1.35** dark, `surface` **1.27** / **1.27**, `surface-raised` **1.27** / **1.19**, `surface-sunken` **1.15** / **1.38**. The widest is 1.38:1 and the narrowest 1.15:1, so the token is under the 3:1 non-text floor on every ground and by a wider margin than a single figure suggests.
-
-**Derived cover** (a query, not a list — re-run it rather than trusting a count):
-
-```ts
-scanInteractiveElements(process.cwd()).filter(
-  (e) =>
-    allStrings(e).some((s) => /(^|\s)border-border(\s|$)/.test(s)) &&
-    allStrings(e).some((s) => /(^|\s)bg-(bg|surface|surface-raised|surface-sunken)(\s|$)/.test(s)),
-);
-```
-
-Returned **30** elements on 2026-08-16 against a universe of 362, of which **thirteen** are crew-facing (counted by render chain, not by directory — see the list below). Run the query above rather than a variant: an earlier count of 28 came from testing both tokens against the SAME class string, which misses an element whose outline and fill are contributed by different strings of one `cn()` call.
-
-**The two the gate surfaced by name are the sharpest instances**, because in both the control is the ESCAPE ROUTE from a destructive confirm whose trigger this arc just strengthened to 3.35:1: `components/admin/ArchiveShowButton.tsx:344` and `app/admin/show/[slug]/ResetPickerEpochButton.tsx:266`. The user taps a firmly-outlined control, it morphs in place, and the Cancel beside the filled destructive confirm is the faintest element on screen. The same shape is live at `app/admin/show/[slug]/RotateShareTokenButton.tsx:379`, `app/admin/show/[slug]/PickerResetControl.tsx:255` and `components/admin/ShowRowActions.tsx:821`.
-
-**Why it is filed and not swept.** Spec §2.1 and §6 fence it in both directions and the fence is quoted here so neither side is relitigated: _"Widening the swap to `border-border` is NOT the repair. `border-border` is a different token doing a different job — DESIGN.md §1.2a explicitly preserves the border tokens for tile edges, card edges, dividers and hover chrome — and moving it is a design decision this ruling did not make."_ The cover also reaches THIRTEEN crew surfaces, which the admin-scoped 2026-08-16 mockup never showed the user. Nine sit under a crew path: `app/me/meShowSections.tsx:174`, `:213` and `:258`; `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:233`; `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx:103` and `:121`; `components/crew/SectionChipLink.tsx:48`; `components/crew/primitives/PersonRow.tsx:196` and `:213`. Four more reach a crew surface through a RENDER CHAIN and a path regex misses them, which is how the count was wrong until whole-diff R10: `components/agenda/AgendaEmbed.tsx:83` and `components/agenda/AgendaPdfViewer.tsx:198` via `components/crew/sections/ScheduleSection.tsx`; `components/layout/ThemeToggle.tsx:91` via `components/layout/Header.tsx`, the `/show/[slug]` page chrome; and `components/shared/ReportButton.tsx:142` via `components/layout/Footer.tsx`.
-
-**First scheduled step:** put the narrower question to the user with a rendered mockup — does a control whose ONLY outline is `border-border` on a neutral fill take the text ramp too, or is `border-border` a deliberate third weight for quiet controls? If the answer is "text ramp", the sweep is derived and mechanical; if it is "third weight", §1.2a gains one sentence and this closes as a documented limit. Start with the five confirm-row Cancels, which have the strongest case either way.
 
 ## BL-CHECKBOX-ROW-LABEL-UNDER-FLOOR — three native-input rows are targeted through a label that carries no floor
 
@@ -1433,3 +1410,118 @@ a window", and four incremental repairs narrowed that window without closing it.
 `docs/review-rounds/feat/orchestrator-pane-compaction/7d332074ec97.md` carries the full round-by-round
 account. The adapter-level tests for the send path were removed when the fence landed and are
 recoverable from git history on this branch; restore them with the arc rather than rewriting them.
+
+## BL-CODEX-GUARD-SPECLINT-PREDISPATCH-GATE — a dispatch spends reviewer attention on lint the wrapper could have refused
+
+**Status:** OPEN · **Severity:** LOW (no shipped defect; this is review-economy waste) · **Class:** review tooling / dispatch hygiene · **Effort:** S · **Filed:** 2026-08-18 (`fix/control-outline-border-token`, spec review R1 F2 + R2 F5) · **Facing:** process · **Class-sweep exception:** (c) — the repair is a change to `scripts/codex-guard.mjs`, a surface this arc does not otherwise touch · **Reachability:** PROBED — both incidents are committed corpus rows, and the failing lint reproduces on the pre-repair blobs.
+
+`node scripts/codex-guard.mjs review` already refuses a round-1 `--stage diff` brief whose `GUARD SURFACE:` line carries no mutation score, exiting 2 before any dispatch. It makes no equivalent check on the ARTIFACT under review. So a spec or plan carrying hard `pnpm spec:lint` failures dispatches normally, and the reviewer spends a finding — and the arc spends a round — on a class the repo already detects mechanically in under a minute.
+
+**Incident.** This arc, twice. Spec review R1 F2 reported **18 hard citation failures** (all the empty-path `` `:213` `` form) against `docs/superpowers/specs/2026-08-18-control-outline-border-token-design.md`; R2 F5 reported **13 more** in the sibling probe record. Both were `CITATION_MALFORMED`, both are what `pnpm spec:lint` prints, and neither needed a reviewer to find. Corpus rows: `docs/review-rounds/fix/control-outline-border-token/2ddbf038bdf4.jsonl`, rounds 1 and 2. Two findings out of sixteen across four rounds — roughly an eighth of the arc's total reviewer attention — spent on a mechanical class.
+
+**Shape of the repair.** In `review`, when `--stage` is `spec` or `plan`, resolve the artifact path(s) the brief cites, run the existing lint, and exit 2 naming the failing file and count if any HARD failure is present. Advisory failures do not block — the probe-record artifacts show advisory noise is normal and blocking on it would be its own waste. The escape hatch matches the existing ones in that script (an explicit flag), because a brief may legitimately review an artifact that is mid-repair.
+
+**Why the wrapper and not a habit.** The habit is already written down and was not followed on this arc by the session that wrote this entry. `codex-guard` is the single choke point every dispatch passes through, which is exactly why the mutation-score check lives there rather than in a checklist.
+
+**First scheduled step:** confirm the lint's exit contract is stable enough to gate on (it currently exits 1 on hard failures and prints a `summary: N hard, M advisory` line), then add the check beside the existing `GUARD SURFACE:` refusal so both live in one place.
+
+## BL-SPEC-CLAIM-SWEEP-AFTER-REASONING-FINDING — a repair fixes the site the finding named and leaves the document unswept
+
+**Status:** OPEN · **Severity:** LOW-MEDIUM (no shipped defect; it buys review rounds) · **Class:** review economy / authoring tooling · **Effort:** M · **Filed:** 2026-08-18 (`fix/control-outline-border-token`, spec review R2 F1 + R4 F3, then R4 F1 + R5 F1) · **Facing:** process · **Class-sweep exception:** (c) — the repair is a new lint arm or derived helper, a surface this arc does not otherwise touch · **Reachability:** PROBED — all four findings are committed corpus rows and the unswept claims reproduce on the pre-repair blobs.
+
+AGENTS.md already says to class-sweep a finding's SHAPE across the code before patching the named instance. It does not say the same about the DOCUMENT, and that gap is measurable.
+
+**Incident, twice on one arc.** Spec review R2 F1 found the hover classification reasoning over `allStrings(element)` — the union of every render alternative — where the question is per render path. The repair fixed that section and swept the hover sites. **Two rounds later R4 F3 found the identical reasoning still standing in the §6 tinted-plate claim**, where it produced a false statement that a swapped control joins `BL-CONTROL-OUTLINE-ON-TINTED-PLATES`. Separately, R4 F1 corrected a census count from 58 to 57; the repair fixed the cited claims and **R5 F1 found four more built on the old number**, with five further occurrences caught only because the next brief's bound was diffed against the spec. Corpus: `docs/review-rounds/fix/control-outline-border-token/2ddbf038bdf4.jsonl`, rounds 2, 4 and 5. Two of that arc's five spec rounds are attributable to this shape.
+
+**Why scrutiny does not close it.** Both instances survived a careful author and a probing reviewer. The union-versus-per-path error is invisible at the sentence level — each sentence is locally plausible, and only the relationship between a claim and the scanner's data model is wrong. The arithmetic version is worse, because a corrected number reads as settled.
+
+**Two mechanical forms, either of which would have caught an instance.**
+
+1. **A derived per-path helper**, so a spec or test author answering "does this element carry X" cannot reach for the union when the question is per-path. `element.paths` already exists; what is missing is an obvious, named way to ask the per-path question, which is why `allStrings` gets used by default.
+2. **A stale-predecessor check at the document level:** when a numeric literal or named claim changes in a spec or plan, fail if occurrences of the superseded value survive elsewhere in the same arc's documents. This is the cheaper of the two and generalises past this arc — it is the same defect class the self-consistency sweep in `docs/agents/spec-self-review.md` already targets by hand.
+
+**First scheduled step:** decide which of the two forms to build, then confirm against this arc's own history — replay the R2 and R4 repairs and check that the proposed mechanism flags the claims R4 F3 and R5 F1 later found. A mechanism that does not flag those two is not worth building.
+
+## BL-SPECLINT-RED-TARGET-CANNOT-NAME-A-REPO-ROOT-SURFACE — a plan whose production surface is a root file silently under-covers its own red contract
+
+**Status:** OPEN · **Severity:** LOW-MEDIUM (no shipped defect; it produces silent under-coverage of a TDD gate) · **Class:** spec-lint grammar / review tooling · **Effort:** S · **Filed:** 2026-08-18 (`fix/control-outline-border-token`, plan review R1 F4 fallout) · **Facing:** process · **Class-sweep exception:** (c) — the repair is a grammar change to `lib/specLint/`, a surface this PR does not otherwise touch · **Reachability:** PROBED — both rejected forms reproduce, transcript below.
+
+`red-target=` in a `<!-- task: ... -->` marker cannot name any repo-ROOT file. Probed on the live tree against `DESIGN.md`:
+
+```
+red-target=`DESIGN.md:227`     -> RED_TARGET_INVALID: bare-filename shorthand is not legal in a marker; use the full path
+red-target=`./DESIGN.md:227`   -> RED_TARGET_INVALID: illegal path
+```
+
+The cause is `lib/specLint/citations.ts:55` — `const bare = !prefix.includes("/")` — so "full path" means "contains a directory separator", which a root file can never satisfy, and the dot-slash form that would satisfy it is rejected as illegal.
+
+**Incident.** This arc. Two of its TDD tasks change `DESIGN.md`, so neither could carry an honest marker and both were moved outside the red-contract region. `pnpm spec:lint --exec-red` consequently validates four tasks where the plan describes six as test-first.
+
+**Why the workaround does not close it, and this is the whole reason the row exists.** This arc DISCLOSED the exclusion in two sentences in the plan. That depends on the author noticing. An author who does not notice simply leaves the tasks out of the region and ships a plan whose `--exec-red` validates less than the plan claims — **silent under-coverage, with no signal anywhere**: the lint is green, the region is well-formed, and nothing reports that two tasks opted out.
+
+**It is a recurring class, not a one-off.** Every repo-root file is affected, and plans legitimately target several: `DESIGN.md`, `AGENTS.md`, `BACKLOG.md`, `PRODUCT.md`, `package.json`. Any arc whose production surface is one of them meets this.
+
+**First scheduled step:** widen the grammar to accept a repo-root form — either treat a tracked root-relative filename as non-bare when it resolves, or accept an explicit `./` prefix — and add the marker-level case to the spec-lint suite. A second, cheaper half worth doing either way: emit an advisory when a plan contains a red-contract region AND `##`-level tasks outside it, so an unnoticed opt-out is at least visible.
+
+## BL-CONTROL-OUTLINE-SHAREHUB-MOBILE-SKIN-WEIGHT — one control paints 3.35:1 on desktop and 1.27:1 on a phone
+
+**Status:** OPEN · **Severity:** LOW-MEDIUM (a resting boundary at 1.27:1 below 640px, on a control that measures 3.35:1 above it) · **Class:** visual boundary / DESIGN scope · **Effort:** S · **Filed:** 2026-08-18 (`fix/control-outline-border-token`, spec §3.5) · **Facing:** product · **Class-sweep exception:** (b) — a ratified scope decision fences it, and there are TWO of them, one executable · **Reachability:** PROBED — both figures measured from the runtime tokens, and the cascade behaviour read out of the live class strings.
+
+`components/admin/showpage/ShareHub.tsx:781` and `components/admin/showpage/ShareHub.tsx:817` carry `max-sm:border-border`. A `max-sm:` prefix is a RESTING outline below 640px — unlike a `hover:` prefix, which is a state cue and is correctly outside every control-outline cover.
+
+`:781` is the sharpest instance in the repository. Both of its ternary arms ALREADY carry `border-text-faint` from the 2026-08-16 swap, and `max-sm:border-border` wins the cascade below 640px, so **the same button paints 3.35:1 on a desktop viewport and 1.27:1 on a phone**. `:817` is a four-path element with different figures: its two open paths are `bg-surface-sunken` at **1.15:1 light / 1.38:1 dark**, and its two closed paths are `bg-transparent`, so both edges of the outline are whatever ground the kebab is rendered on and no static figure applies.
+
+**Why it is filed rather than swept, and the reason is not "same defect, different file".** Two independent ratifications fence it:
+
+1. **A design ratification.** The in-file comment at `components/admin/showpage/ShareHub.tsx:798` cites `spec 2026-07-24-strip-mobile-stacked-band §3 R3` — "border color drops to `border-border` below sm (the §3 R3 skin; width stays 1px)".
+2. **An executable ratification, which is the load-bearing one.** The case NAMED `keeps max-sm:border-border on BOTH ShareHub ternary arms` in `tests/styles/_metaControlOutlineFill.test.ts` is a shipped pin whose stated purpose is that this exact token survives; its docstring records that a plan review probed corrupting both tokens and found the rest of the suite stays green while the responsive treatment is silently gone. (Cited by NAME, not by line: the 2026-08-18 arc's own Task 1 shifted it from `:156` to `:286`.)
+
+Swapping here would mean editing that pin to assert the opposite of what it was written to catch — the shape where a guard is rewritten to match the change it exists to detect.
+
+**First scheduled step:** decide whether `DESIGN.md` §1.2a's control-outline rule supersedes the §3 R3 mobile skin. If yes, the repair is two token edits plus a matching update to the pin, landing together.
+
+## BL-VERIFICATION-BLOCK-FAILS-OPEN-ON-UNREADABLE-INPUT — a plan's verification commands report PASS when they could not look
+
+**Status:** OPEN · **Severity:** MEDIUM (a verification block that cannot distinguish success from blindness certifies nothing, and the plans that carry them are the ones gating merges) · **Class:** plan authoring / verification hygiene · **Effort:** S · **Filed:** 2026-08-18 (`fix/control-outline-border-token`, plan review R6 F2) · **Facing:** process · **Class-sweep exception:** (c) — the repair is a lint arm over plan prose, a surface this PR does not otherwise touch · **Reachability:** PROBED — both failure modes reproduced by the reviewer against the shipped block, transcripts below.
+
+A plan step that verifies something with a shell pipeline usually prints a count and compares it by eye. Probed against this arc's own Task 7 block, **that shape cannot tell success from inability to look**:
+
+- a MISSING ledger file makes `grep` error to stderr while `wc -l` still prints `0`, and the pipeline exits **0**;
+- an INVALID git object prints `fatal: invalid object name`, then `0`, and also exits **0**.
+
+In both cases the expected-success output (`0`) and the could-not-look output (`0`) are byte-identical, so the check certifies nothing while reading as green.
+
+**Incident.** This arc shipped three such blocks in its plan and they survived five review rounds before R6 probed them. They were repaired to emit an explicit PASS/FAIL, exit 1 on failure, and validate their reads BEFORE taking any count — and the repair was verified in both directions, with a constructed duplicate id making the check print FAIL and exit 1.
+
+**Shape of the repair.** A `spec:lint` arm over plan prose: a fenced `sh` block inside a step whose text claims verification should either emit an explicit verdict token (`PASS`/`FAIL`) or set `-e`/`-o pipefail` and be reachable by a non-zero exit. Advisory first, since the corpus will have many pre-existing blocks.
+
+**First scheduled step:** measure how many existing plan steps carry a bare-count verification block, from `docs/superpowers/plans/**`, before choosing advisory versus hard — the count decides whether this can ever be a hard arm.
+
+## BL-IMPECCABLE-DETECTOR-FALSE-CLEAN-ON-FILE-LIST — the UI quality gate's detector reports clean when it could not read the files
+
+**Status:** OPEN · **Severity:** MEDIUM (a shipped quality gate whose false-clean is byte-identical to a real clean, used by every UI arc in this repo) · **Class:** review tooling / gate fidelity · **Effort:** S upstream, S for a local wrapper · **Filed:** 2026-08-18 (`fix/control-outline-border-token`, invariant-8 gate) · **Facing:** process · **Class-sweep exception:** (c) — the repair is to a vendored plugin script this PR does not otherwise touch · **Reachability:** PROBED — transcript below, reproduced twice.
+
+`scripts/detect.mjs` is the deterministic half of `/impeccable critique`, and invariant 8 makes that gate mandatory for every UI surface. **Passed an explicit list of files it prints a warning to stderr and then reports clean on stdout, exiting 0.**
+
+```
+$ node …/skills/impeccable/scripts/detect.mjs --json <26 changed .tsx paths>
+Warning: cannot access <every one of the 26 paths>
+[]
+exit=0
+
+$ node …/skills/impeccable/scripts/detect.mjs --json app components
+[ …24 findings… ]
+exit=2
+```
+
+Both runs were from the repo root with the paths valid and readable; relative and absolute forms behave identically. The tool takes DIRECTORIES. Passed anything else it does not error — it returns the same `[]` and the same exit 0 that a genuinely clean scan returns.
+
+**Incident.** This arc's invariant-8 gate ran the file-list form first and would have recorded "detector clean on the diff" — an honest-sounding, false statement in a tracked gate record that a later reviewer would have had no way to distinguish from a real result. It was caught only because the run was repeated with directories, which is not a step the skill's reference prescribes.
+
+**Not a deferred defect of this arc.** The 24 findings the correct invocation returns are all pre-existing on surfaces this branch does not modify (20 `broken-image`, 2 `side-tab`, 2 `overused-font`), and **zero** touch a file it changed. The row is about the TOOL's failure mode, not about work being deferred.
+
+**Third instance of one shape on this arc**, which is why it is filed rather than noted: `BL-VERIFICATION-BLOCK-FAILS-OPEN-ON-UNREADABLE-INPUT` covers plan verification blocks, and an earlier bare `grep -c` in this arc's own plan had the inverse defect (a SUCCESSFUL check exiting 1). Same carelessness, both directions, now in a shipped tool.
+
+**Shape of the repair.** Upstream: exit non-zero when a requested path could not be read, so inability-to-look is never spelled the same as nothing-found. Locally, cheaper and available now: a wrapper that refuses a non-directory argument, or an invariant-8 checklist line requiring the directory form and a non-zero exit before "detector clean" may be recorded.
+
+**First scheduled step:** confirm the behaviour against the current upstream release, then decide wrapper-versus-report — a local wrapper is worth it either way, since this repo's gate cannot wait on an upstream fix.

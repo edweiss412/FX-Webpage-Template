@@ -1,10 +1,12 @@
 /**
- * The control-outline census — the enumerated set of elements this arc swapped
- * from `border-border-strong` to `border-text-faint`, and a resolver that reads
+ * The control-outline census — the enumerated set of elements TWO arcs swapped
+ * onto `border-text-faint` — 21 from `border-border-strong` on 2026-08-16, and
+ * 36 more from `border-border` on 2026-08-18 (57 rows; the swap sets overlap at
+ * one element), and a resolver that reads
  * each one back through the interactive-element scanner.
  *
  * This is a REGRESSION PIN, not a cover and not a classifier. It answers exactly
- * one question — "did the 21 elements this PR changed stay changed" — about a
+ * one question — "did the elements these PRs changed stay changed" — about a
  * closed set the PR itself defines. It therefore needs no notion of what a
  * switch track is, no cascade reasoning, and no structural inference.
  *
@@ -87,6 +89,85 @@ export const CENSUS: readonly CensusRow[] = [
   { file: "components/diagrams/GalleryLightbox.tsx", line: 693 },
   // spec §4.2 row 21
   { file: "components/shared/ReportModal.tsx", line: 622 },
+
+  // ---------------------------------------------------------------------------
+  // 2026-08-18 arc — the `border-border` half of the same §1.2a predicate.
+  //
+  // Spec: docs/superpowers/specs/2026-08-18-control-outline-border-token-design.md
+  // 36 ADDITIONS, not 37: the swap set is 37 elements but
+  // `ResetPickerEpochButton.tsx:178` is ALREADY row 2 of the 2026-08-16 census
+  // above — it is the half-swapped control whose compact branch moved then and
+  // whose non-compact branch moves now. Adding it twice breaks the
+  // identity-distinct assertion. 21 + 36 = 57.
+  //
+  // Class A (29) — a full resting outline on one of the four neutral ground
+  // tokens. Class B (8) — a full resting outline with NO fill, which §1.2a
+  // reaches through its ratified "or left unfilled" clause and the element-level
+  // cover never could, because that cover requires a `bg-` token.
+  //
+  // NOT here, and each absence is a decision: five DIVIDERS (`border-t`/`-b`/
+  // `-l`, no resting outline to raise — pinned as non-members below), and
+  // ShareHub's two `max-sm:` elements (filed under class-sweep exception (b);
+  // the `adjacent tokens survive the swap` case in the suite is a shipped pin
+  // whose whole purpose is that their token does NOT move).
+  // ---------------------------------------------------------------------------
+  { file: "app/admin/show/[slug]/PickerResetControl.tsx", line: 255 },
+  { file: "app/admin/show/[slug]/ResetPickerEpochButton.tsx", line: 260 },
+  { file: "app/admin/show/[slug]/RotateShareTokenButton.tsx", line: 379 },
+  { file: "app/me/meShowSections.tsx", line: 174 },
+  { file: "app/me/meShowSections.tsx", line: 213 },
+  { file: "app/me/meShowSections.tsx", line: 258 },
+  { file: "app/show/[slug]/[shareToken]/_PickerInterstitial.tsx", line: 240 },
+  { file: "app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx", line: 109 },
+  { file: "app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx", line: 127 },
+  { file: "components/admin/ArchiveShowButton.tsx", line: 333 },
+  { file: "components/admin/HoverHelp.tsx", line: 562 },
+  { file: "components/admin/NeedsAttentionInbox.tsx", line: 101 },
+  { file: "components/admin/NeedsAttentionInbox.tsx", line: 130 },
+  { file: "components/admin/NeedsAttentionInbox.tsx", line: 198 },
+  { file: "components/admin/NeedsAttentionInbox.tsx", line: 224 },
+  { file: "components/admin/NeedsAttentionSummaryCard.tsx", line: 36 },
+  { file: "components/admin/ShowRowActions.tsx", line: 821 },
+  { file: "components/admin/UnarchiveShowButton.tsx", line: 67 },
+  { file: "components/admin/dev/MaterializeCard.tsx", line: 73 },
+  { file: "components/admin/dev/SwitcherControls.tsx", line: 83 },
+  { file: "components/admin/dev/SwitcherControls.tsx", line: 92 },
+  { file: "components/admin/dev/SwitcherControls.tsx", line: 142 },
+  { file: "components/admin/nav/UserMenu.tsx", line: 51 },
+  { file: "components/admin/review/ShowReviewSurface.tsx", line: 814 },
+  { file: "components/admin/review/ShowReviewSurface.tsx", line: 993 },
+  { file: "components/admin/showpage/PublishedReviewModal.tsx", line: 964 },
+  { file: "components/admin/telemetry/AutoRefreshControl.tsx", line: 119 },
+  { file: "components/admin/wizard/CrewRowActions.tsx", line: 339 },
+  { file: "components/agenda/AgendaEmbed.tsx", line: 83 },
+  { file: "components/agenda/AgendaPdfViewer.tsx", line: 198 },
+  { file: "components/crew/SectionChipLink.tsx", line: 48 },
+  { file: "components/crew/primitives/PersonRow.tsx", line: 196 },
+  { file: "components/crew/primitives/PersonRow.tsx", line: 213 },
+  { file: "components/layout/ThemeToggle.tsx", line: 92 },
+  { file: "components/shared/ReportButton.tsx", line: 142 },
+  { file: "components/shared/ReportModal.tsx", line: 675 },
+];
+
+/**
+ * The five DIVIDERS, pinned as NON-members of the census (spec §3.3).
+ *
+ * Each paints ONE side as a rule between stacked content, so none has a resting
+ * outline to raise and the 2026-08-18 ruling's words do not reach any of them —
+ * §1.2a preserves the border tokens for dividers by name. Only the first sits
+ * inside the published derived cover; the other four were never in it, because
+ * they carry no neutral fill token.
+ *
+ * The suite asserts THREE things per row, not one. Absence from CENSUS alone
+ * would stay green if a later arc deleted the token from a divider, which would
+ * violate the exclusion while looking clean (plan review R1 F2).
+ */
+export const DIVIDERS: readonly CensusRow[] = [
+  { file: "components/admin/BellPanel.tsx", line: 1213 },
+  { file: "components/admin/RecentAutoAppliedStrip.tsx", line: 447 },
+  { file: "components/admin/showpage/AttentionMenu.tsx", line: 189 },
+  { file: "components/admin/telemetry/EventFilters.tsx", line: 85 },
+  { file: "components/crew/primitives/KeyTimesStrip.tsx", line: 191 },
 ];
 
 export type ResolvedCensusRow = {

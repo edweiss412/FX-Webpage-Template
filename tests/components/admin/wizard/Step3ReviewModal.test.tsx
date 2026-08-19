@@ -1265,14 +1265,18 @@ describe("Step3ReviewModal — chip rail (spec §6.3)", () => {
     }
   });
 
-  test("active chip: bg-surface-sunken + border-transparent; inactive: border-border bg-surface", () => {
+  test("active chip: bg-surface-sunken + border-transparent; inactive: border-text-faint bg-surface", () => {
     const { q, d } = renderModal();
     const defs = step3Sections(d);
     const activeChip = q.getByTestId(tid(`chip-item-${defs[0]!.id}`));
     expect(activeChip.className).toMatch(/\bbg-surface-sunken\b/);
     expect(activeChip.className).toMatch(/\bborder-transparent\b/);
     const idle = q.getByTestId(tid(`chip-item-${defs[1]!.id}`));
-    expect(idle.className).toMatch(/\bborder-border\b/);
+    // 2026-08-18 control-outline arc: the inactive chip is a census row and its
+    // resting outline moved border-border -> border-text-faint. The ACTIVE chip
+    // is border-transparent and is untouched, so the pair still reads as
+    // selected-vs-not by fill rather than by outline weight.
+    expect(idle.className).toMatch(/\bborder-text-faint\b/);
     expect(idle.className).toMatch(/\bbg-surface\b/);
   });
 });

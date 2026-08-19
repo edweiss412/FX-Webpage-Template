@@ -40,7 +40,7 @@ const CONTROL = cn(
   "min-h-tap-min rounded-md border border-border bg-surface px-3 text-xs text-text-strong focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:outline-none",
 );
 const BUTTON = cn(
-  "min-h-tap-min rounded-md border border-border px-4 text-xs font-medium text-text-strong disabled:opacity-60 focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:outline-none",
+  "min-h-tap-min rounded-md border border-text-faint px-4 text-xs font-medium text-text-strong disabled:opacity-60 focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:outline-none",
 );
 
 /**

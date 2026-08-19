@@ -820,7 +820,7 @@ export function ShowReviewSurface({
         className={`inline-flex min-h-tap-min shrink-0 items-center gap-1.5 rounded-pill border px-3 text-sm font-medium whitespace-nowrap transition-colors duration-fast ${
           isActive
             ? "border-transparent bg-surface-sunken text-text-strong"
-            : "border-border bg-surface text-text"
+            : "border-text-faint bg-surface text-text"
         }`}
       >
         <extra.Icon aria-hidden="true" className="size-4 shrink-0 text-text-subtle" />
@@ -999,7 +999,7 @@ export function ShowReviewSurface({
                   className={`relative inline-flex min-h-tap-min shrink-0 items-center gap-1.5 rounded-pill border px-3 text-sm font-medium whitespace-nowrap transition-colors duration-fast ${
                     isActive
                       ? "border-transparent bg-surface-sunken text-text-strong"
-                      : "border-border bg-surface text-text"
+                      : "border-text-faint bg-surface text-text"
                   }`}
                 >
                   <s.Icon aria-hidden="true" className="size-4 shrink-0 text-text-subtle" />

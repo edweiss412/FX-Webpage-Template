@@ -169,8 +169,13 @@ describe("monitoring-only quiet interactive pill (monitoring-badge-expand §3.1)
     for (const cls of [
       "bg-surface-sunken",
       "border",
-      "border-border",
-      "hover:border-border-strong",
+      // 2026-08-18 control-outline arc: this pill is a census row. Its resting
+      // outline moved border-border -> border-text-faint (1.27:1 -> 3.35:1),
+      // and its hover moved border-border-strong -> border-text-subtle, which
+      // is what keeps hover HEAVIER than rest after the raise rather than
+      // inverting it.
+      "border-text-faint",
+      "hover:border-text-subtle",
       // NOTE: `text-text-subtle` was in this list until 2026-08-14. The pill is
       // a <button>, and DESIGN §1.1a retired subtle as a resting colour for
       // action targets outside three carve-out families; the pill claims none.

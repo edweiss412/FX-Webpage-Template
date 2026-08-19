@@ -143,6 +143,11 @@ affordance is a fill or a border keep it as-is.
 | `--color-text-faint` as OUTLINE vs `--color-bg`       | 3.21:1 | 4.00:1 | ≥3:1 non-text — same button on the page ground |
 | `--color-text-subtle` on `--color-surface-raised`  | 6.76:1 | 5.97:1 | AA body (≥4.5:1) — the theme persist-failure note bubble (spec 2026-08-15-theme-persistence-note §2.2) and any other raised-surface caption; pinned in `tests/styles/status-token-contrast.test.ts` |
 | `--color-text-faint` as OUTLINE vs `--color-surface-raised` | 3.35:1 | 3.53:1 | ≥3:1 non-text — popover and modal surfaces, pinned so a raised-surface control is not an unmeasured fourth ground |
+| `--color-border` as OUTLINE vs the four neutral grounds | 1.22-1.27:1 | 1.19-1.38:1 | **BELOW the 3:1 non-text floor, and recorded rather than required** — this is the before-state the 2026-08-18 ruling moved 37 controls away from. Pinned so a future retune of `--color-border` cannot quietly reintroduce the weight that was removed; `tests/styles/secondary-action-contrast.test.ts` asserts it stays under the floor |
+| `--color-text-subtle` as OUTLINE vs the four neutral grounds | 6.09-6.76:1 | 5.97-6.94:1 | ≥3:1 non-text — the hover outline for a control whose border is its ONLY hover cue (§1.2a). A body-text token in a new role, so it takes a pin like any new one |
+| `--color-accent-on-bg` as OUTLINE vs the four neutral grounds | 5.02-5.57:1 | 8.30-9.65:1 | ≥3:1 non-text — the hover outline where the cue is an accent HUE. `--color-accent` itself measures 2.10-2.33:1 here and is decorative-only in light, which is why the load-bearing accent token carries this role |
+
+**The hover-over-rest RELATION, which is what the suite actually guards.** The three rows above are the record; the guard is that `--color-text-subtle` and `--color-accent-on-bg` each measure HEAVIER than `--color-text-faint` on every one of the four grounds in both themes — sixteen comparisons, computed from the tokens rather than pinned as constants. Sixteen constants would go stale the moment any of the three is retuned and force a reader to re-derive whether each pair still reads correctly; a relation fails loudly at exactly the moment a retune inverts a pair, and stays silent when it is harmless. All sixteen hold today, so the assertion ships as a regression pin rather than as a repair.
 
 **Method note (D6):** ratios use the standard WCAG 2.x relative-luminance formula. The two `--color-text-subtle` rows above were recomputed against that formula (the previous light-on-bg `7.8:1` was a mistranscription — the same-method recompute of the neighbouring `--color-text`/`--color-text-strong` rows reproduces their published figures to within 0.1). The dark-mode figures elsewhere in this table carry a small historical calc offset (~0.3–0.4 more conservative than a fresh standard-formula recompute); a full-table recompute is tracked separately and is not load-bearing (every row already clears its stated floor with margin).
 
@@ -224,13 +229,56 @@ the scope paragraph below — recorded here rather than implied away, because th
 had already moved, and that reason now points the other way. Whether chrome that visually
 pairs with a control should follow it is `BL-CONTROL-OUTLINE-PAIRED-CHROME-WEIGHT`.
 
-Separately: a control with a neutral fill but a `border-border` outline — the
-confirm-row Cancels at `components/admin/ArchiveShowButton.tsx:344` and
-`app/admin/show/[slug]/ResetPickerEpochButton.tsx:266`, both **1.27:1** — falls
-inside this predicate's words and outside the 2026-08-16 swap, which moved only
-`border-border-strong`. Widening to `border-border` is a separate design decision
-this ruling did not make, filed as
-`BL-CONTROL-OUTLINE-BORDER-TOKEN-ON-NEUTRAL-FILL`.
+**`border-border` on a control's resting outline takes the text ramp too
+(ruled 2026-08-18).** The 2026-08-16 swap moved only `border-border-strong`, and
+this paragraph previously recorded the remaining question as open. It is now
+closed: a control whose resting outline is `border-border`, standing on one of
+the four neutral ground tokens **or unfilled**, carries `border-text-faint` like
+its `border-border-strong` siblings. `border-border` measured **1.22-1.38:1**
+against those grounds — below `border-border-strong`, and under the 3:1 non-text
+floor by a wider margin than a single figure suggests.
+
+The ruling was taken against a RENDERED MOCKUP showing three candidate weights
+in both themes, and — unlike the 2026-08-16 mockup, which was admin-only — it
+showed the CREW half: the `/me` show tiles, the section chips, and the call and
+text buttons on a person's row. Those crew surfaces are therefore ratified
+rather than inferred, which is the difference that let the sweep reach them.
+
+**Hover must stay heavier than rest, and this ruling is what makes that a
+rule.** Raising a resting outline to 3.35:1 while leaving a `hover:` override at
+1.59:1 inverts the pair — the control would read FAINTER on hover than at rest.
+So a hover override either goes away, where another hover cue already carries
+the affordance on the same render path, or rises above the resting weight:
+`--color-text-subtle` (5.97-6.94:1) where the border is the only cue, and
+`--color-accent-on-bg` (5.02-9.65:1) where the cue is an accent hue —
+`--color-accent` itself is decorative-only in light (§1.2) and cannot carry it.
+
+**What the 2026-08-18 sweep actually reached, stated because the rule above is
+wider than the sweep.** It moved the controls the element-level census can SEE —
+`scanInteractiveElements` admits `button`, `a` and `summary`, plus `<input>` at
+`type="checkbox"` or `"radio"`. Text-entry fields and `<select>`s are outside
+that vocabulary in BOTH directions: the census will never flag one and never
+exempt one, so several still rest at `border-border` — a `<textarea>` at
+`components/shared/ReportModal.tsx:715` among them, in the same modal whose
+button the sweep raised. They are tracked on
+`BL-CONTROL-OUTLINE-BEYOND-ELEMENT-COVER`, family A. **The rule states the
+predicate; the sweep states its reach. Do not read the first as a claim about
+the second** — an earlier revision of this paragraph did, and the invariant-8
+review was right to call it a promise the diff had not kept.
+
+**Dividers are OUT, in both directions.** A `border-t`, `border-b` or `border-l`
+rule between stacked content has no resting outline to raise, and §1.2a's
+preservation of the border tokens for dividers is what this carve-out rests on.
+Nobody should sweep one because a token census found it, and nobody should widen
+the carve-out into a claim about which elements are "really" controls — it is a
+statement about which SIDE the token paints, nothing more.
+
+One population is knowingly left behind, with its numbers recorded rather than
+implied: `components/admin/showpage/ShareHub.tsx`'s two `max-sm:border-border`
+elements, which paint **1.27:1** below 640px on a control measuring 3.35:1 above
+it. A prior ratified decision and a shipped executable pin both fence them, so
+they are filed as `BL-CONTROL-OUTLINE-SHAREHUB-MOBILE-SKIN-WEIGHT` rather than
+moved here.
 
 Worked example — the one secondary action treatment (`lib/ui/actionClass.ts`,
 `SECONDARY_ACTION_CLASS`, 8 call sites):

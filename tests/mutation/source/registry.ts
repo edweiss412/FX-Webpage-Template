@@ -2046,9 +2046,12 @@ export const GUARD_SURFACES: GuardSurface[] = [
   // same directory — and an earlier draft of this arc's plan predicted the same
   // no-mutants outcome from it. Plan review R2 refuted that by running the live
   // enumerator: the shapes differ where it counts, because this module carries
-  // 21 numeric `line` literals plus a `file === … && line === …` comparison,
+  // numeric `line` literals plus a `file === … && line === …` comparison,
   // which is an integer-literal site per census row plus an equality-flip and a
-  // logical-connector site in the resolver.
+  // logical-connector site in the resolver. The count was 21 when this was
+  // written; the 2026-08-18 arc widened the census to 57 rows and added a
+  // five-row DIVIDERS list, so the surface is now 62 line literals plus the
+  // resolver operators. Re-scored at 65/65 with zero unaccepted survivors.
   {
     id: "controlOutlineScan",
     sourcePath: "tests/styles/controlOutlineScan.ts",
@@ -2056,7 +2059,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     operators: [...OPERATOR_NAMES],
     scoreFloor: 1,
     // Detaches the resolver from its census row: every row resolves to the same
-    // first scanned element. The pin still LOOKS like it read 21 elements, and
+    // first scanned element. The pin still LOOKS like it read every census row, and
     // that is exactly the failure a census reader can have — resolving
     // something, just not the thing the row names.
     control: {

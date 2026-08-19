@@ -174,7 +174,7 @@ function UndatedShowRow({ show }: { show: CrewShowSummary }) {
       <Link
         data-testid={`me-show-card-${show.slug}`}
         href={`/show/${show.slug}/${show.shareToken}`}
-        className="flex min-h-tap-min items-center gap-3 rounded-md border border-border bg-surface px-tile-pad py-3 transition-colors hover:border-border-strong"
+        className="flex min-h-tap-min items-center gap-3 rounded-md border border-text-faint bg-surface px-tile-pad py-3 transition-colors hover:border-text-subtle"
       >
         <div className="min-w-0 flex-1">
           <div className="truncate text-base font-medium text-text-strong">{show.title}</div>
@@ -213,7 +213,7 @@ function NextUpCard({ entry, now }: { entry: PartitionedMeShow; now: Date }) {
     <Link
       data-testid={`me-show-card-${show.slug}`}
       href={`/show/${show.slug}/${show.shareToken}`}
-      className="block rounded-md border border-border bg-surface p-tile-pad py-6 shadow-tile transition-colors hover:border-border-strong sm:py-8"
+      className="block rounded-md border border-text-faint bg-surface p-tile-pad py-6 shadow-tile transition-colors hover:border-text-subtle sm:py-8"
     >
       {chip && (
         <span
@@ -258,7 +258,7 @@ function ShowListRow({ entry, now }: { entry: PartitionedMeShow; now: Date }) {
       <Link
         data-testid={`me-show-card-${show.slug}`}
         href={`/show/${show.slug}/${show.shareToken}`}
-        className="flex min-h-tap-min items-center justify-between gap-3 rounded-md border border-border bg-surface px-tile-pad py-3 transition-colors hover:border-border-strong"
+        className="flex min-h-tap-min items-center justify-between gap-3 rounded-md border border-text-faint bg-surface px-tile-pad py-3 transition-colors hover:border-text-subtle"
       >
         <div className="min-w-0 flex-1">
           <div className="truncate text-base font-medium text-text-strong">{show.title}</div>
