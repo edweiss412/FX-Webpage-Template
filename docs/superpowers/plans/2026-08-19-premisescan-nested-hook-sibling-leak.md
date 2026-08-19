@@ -15,10 +15,10 @@ without moving any live verdict and without widening the recognizer.
 Each id is defined in the spec's §6 and is named here so it resolves outside the task markers that
 cite it.
 
-- **AC-1** — no declared count in `tests/mutation/_metaPremiseContract.test.ts` moves. Task 2 Step 8.
+- **AC-1** — no declared count in `tests/mutation/_metaPremiseContract.test.ts` moves. Task 2 Step 5.
 - **AC-2** — the shared-outer sibling classifies `environment-free` while branch A stays touching.
   Task 2.
-- **AC-3** — the two existing AC-12b foils stay green, byte-unchanged. Task 2 Step 6.
+- **AC-3** — the two existing AC-12b foils stay green, byte-unchanged. Task 2 Step 4.
 - **AC-4** — the OUTER describe's own hooks still reach every descendant. Task 3.
 - **AC-5** — the stop fires on every `describe` spelling, from a DERIVED fixture set. Task 2.
 - **AC-6** — every hook registrar, derived from the matcher rather than typed beside it. Task 4.
@@ -104,8 +104,9 @@ import it produced exactly that shape. So the derivation reads the scanner's SOU
 literal at `tests/mutation/source/premiseScan.ts:48`. The cover is still derived, no production line
 moves for the sake of a test, and every red below fails because of scanner behaviour.
 
-- [ ] **Step 1: author the tests. No production edit, in this step or anywhere in this task except
-      Step 3.**
+- [ ] **Step 1: author the tests. Step 3 is the only production change this task LANDS**, and the
+      tree at the task's end is exactly what Step 3 left; Step 6 installs a mutant and reverts it
+      within that step, as a check on the tests rather than a change to the scanner.
       (a) Rewrite the fixture at `tests/mutation/source/premiseScan.test.ts:3033`: `inA` keeps
       `environment-touching` — it is the FOIL, and a repair that stopped collecting hooks altogether
       would pass a one-sided assertion — while `inB` becomes `environment-free`.
