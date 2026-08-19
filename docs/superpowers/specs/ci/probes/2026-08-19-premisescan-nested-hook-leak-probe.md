@@ -9,7 +9,8 @@ transcript is never corrected and never compared against later prose.
 
 | claim | population walked | how it is enumerated | covered? |
 | --- | --- | --- | --- |
-| the leak shape has zero occurrences | every `describe` in every enrolled suite | `GUARD_SURFACES.flatMap(s => s.suitePaths)`, de-duplicated | YES — 62 entries, 405 `describe` sites |
+| the leak shape has zero occurrences in the enrolled suites' OWN describes | every executable `describe` node in every enrolled suite | `GUARD_SURFACES.flatMap(s => s.suitePaths)`, de-duplicated | YES — 62 entries, 405 `describe` sites |
+| classifier inputs embedded as template literals in the deciding suite | 15 describe-bearing literals in `tests/mutation/source/premiseScan.test.ts` | probed directly; Instrument 1 does NOT parse these | YES, separately — 1 of 15 carries the shape, at `tests/mutation/source/premiseScan.test.ts:3044`, and it is the AC-12b fixture this arc rewrites |
 | the repair moves no verdict | every enrolled suite's declared count | `tests/mutation/_metaPremiseContract.test.ts` walks the registry itself | YES |
 | the repair moves no fixture but the pin | every case in the deciding suite | `tests/mutation/source/premiseScan.test.ts`, 300 cases | YES |
 | every describe spelling leaks, and the repair closes every one | plain + all seven `MODIFIERS` members + one compound chain | generated from `MODIFIERS` (`tests/mutation/source/premiseScan.ts:48`) | YES — 9 forms, before and after |
@@ -21,6 +22,11 @@ transcript is never corrected and never compared against later prose.
 Counts (describe, hook) attachments an ancestor `describe` collects and does not own: the set
 difference between a recursive collect and one that stops at a nested `describe`. It re-implements
 the collection rule rather than calling it, which is why instrument 2 is the decisive one.
+
+**Its denominator is executable `describe` nodes, NOT the whole declared probe domain.** Classifier
+inputs written as template literals inside the deciding suite are not parsed here; they are counted
+in the coverage table above as their own row, and the single hit is the fixture this arc rewrites on
+purpose. A reading of `leaked_attachments=0` as "zero anywhere in the probe domain" overstates it.
 
 ```ts
 const collect = (d: ts.CallExpression, stopAtNested: boolean): ts.CallExpression[] => {
@@ -110,7 +116,8 @@ the two-modifier case exercises the same code path.
 ## Conclusions, each bounded to what was walked
 
 1. Exact-count equality in `_metaPremiseContract` holds under the repair. The criterion amended
-   AC-1 installed is unmoved.
+   AC-1 installed is unmoved. No ENROLLED SUITE carries the leak shape in its own `describe` nodes;
+   the one embedded fixture that does is the AC-12b pin whose verdict this arc changes deliberately.
 2. Exactly one fixture changes verdict, and it is the pin that exists to record the leak.
 3. Every `describe` spelling the caller recognizes leaks today and is closed by the repair, with
    branch A holding as the foil in all nine rows. AC-5's claim is measured rather than asserted.

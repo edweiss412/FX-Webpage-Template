@@ -40,6 +40,10 @@ described as "three lines":
    beside it: the registrar names that `HOOK_REGISTRARS` is BUILT FROM, and `MODIFIERS`
    (`tests/mutation/source/premiseScan.ts:48`), today module-local.
 
+4. **A structural identity test** — a new suite, `premiseScanMatcherIdentity`, beside the deciding
+   one — pinning that exactly one registrar-name literal survives. It is what makes item 2 assertable: the
+   behavioural cases cannot express it, because the four registrars are already covered.
+
 Items 2 and 3 are production edits to an enrolled guard surface. Task 6 re-runs the mutation gate
 over them; that is the accepted cost of the derivation, not a hidden one.
 
@@ -159,21 +163,36 @@ if (n !== describeCall && ts.isCallExpression(n) && registrarRoot(n.expression) 
 
 ## Task 5: one registrar set, not two
 
-<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:1840` why=`hookBodies carries a second regex literal textually identical to HOOK_REGISTRARS at :66, so the fixture set and the matcher can drift apart silently - which is exactly the disagreement AC-6 claims to eliminate. Step 3 installs the drift (a registrar removed from the exported list while :1840's duplicate literal still matches it) and the derived cases red; Step 4 deletes the duplicate, points hookBodies at the shared constant, and re-runs the same command green` ac=AC-6 -->
+<!-- task: red=`npx vitest run tests/mutation/source/premiseScanMatcherIdentity.test.ts` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:1840` why=`hookBodies carries a SECOND registrar regex textually identical to HOOK_REGISTRARS at :66, so the fixture set and the matcher can drift apart silently - the disagreement AC-6 claims to eliminate. The red is a STRUCTURAL assertion in a new file: the module holds exactly one registrar-name literal. It reds against the duplicate at :1840 named here, and NO existing test can carry it - a behavioural red cannot, because the four registrars are already covered by enumerated cases at premiseScan.test.ts:2929 and :2955, so removing a name from the list would red those instead and the authored claim would be false. Step 3 deletes the duplicate and re-runs the same command green` ac=AC-6 -->
 
-**Files:** `tests/mutation/source/premiseScan.ts`, `tests/mutation/source/premiseScan.test.ts`.
+**Files:** a new `premiseScanMatcherIdentity` suite under `tests/mutation/source/`,
+plus `tests/mutation/source/premiseScan.ts` and `tests/mutation/source/premiseScan.test.ts`.
 
-- [ ] **Step 1: lift the names.** Export the four registrar names as a list and BUILD
-      `HOOK_REGISTRARS` (`tests/mutation/source/premiseScan.ts:66`) from it. The existing consumer
-      at `tests/mutation/source/premiseScan.ts:1758` is untouched — it tests the same regex object.
-- [ ] **Step 2: delete the duplicate.** `hookBodies` (`tests/mutation/source/premiseScan.ts:1840`)
-      uses `HOOK_REGISTRARS` instead of its own copy. **This is the change that makes AC-6 mean
-      anything:** with two matchers, a fixture set derived from one proves nothing about the other.
-- [ ] **Step 3: generate the cases and prove drift is caught.** One case per member of the exported
-      list, spawner nested in `A`, pure test in sibling `B`, `B` free. Then remove a registrar from
-      the exported list while leaving
-      `tests/mutation/source/premiseScan.ts:1840` matching it, and observe the red.
-- [ ] **Step 4: restore and re-run the SAME command green.**
+**Why the red is structural and not behavioural.** The four registrars are ALREADY covered by
+enumerated cases at `tests/mutation/source/premiseScan.test.ts:2929` and
+`tests/mutation/source/premiseScan.test.ts:2955`. So a red produced
+by removing a name from the exported list would be carried by those pre-existing tests, not by the
+cases this task authors, and `red-state=authored` would be a false claim. The defect here is not
+missing coverage — it is that TWO matchers exist where the design assumes one, and that is a
+structural property, so it gets a structural assertion.
+
+- [ ] **Step 1: author the identity test and observe the red.** A new file asserting that
+      `tests/mutation/source/premiseScan.ts` contains exactly ONE registrar-name literal. It reds on
+      the current tree, where `tests/mutation/source/premiseScan.ts:66` and
+      `tests/mutation/source/premiseScan.ts:1840` both carry one. State the premise executably —
+      `premise("the module was read", source.length, 0)` from `tests/_shared/premise.ts` — so an
+      unreadable path cannot pass as zero occurrences.
+- [ ] **Step 2: lift the names and delete the duplicate.** Export the four registrar names as a list,
+      BUILD `HOOK_REGISTRARS` (`tests/mutation/source/premiseScan.ts:66`) from it, and change
+      `hookBodies` at `tests/mutation/source/premiseScan.ts:1840` to use that constant. The existing
+      consumer at `tests/mutation/source/premiseScan.ts:1758` is untouched — it tests the same regex
+      object.
+- [ ] **Step 3: re-run the SAME command green.**
+- [ ] **Step 4: generate the AC-6 fixtures from the exported list**, one case per member: spawner
+      nested in `A`, pure test in sibling `B`, `B` free. These add no coverage the enumerated cases
+      lack — their value is that they are DERIVED, so a fifth registrar is covered by default. Assert
+      the generated count against the exported list's length in the same expression, and run
+      `npx vitest run tests/mutation/source/premiseScan.test.ts` green.
 - [ ] **Step 5: commit.** `refactor(mutation): hookBodies and the top-level seed share one registrar set`
 
 <!-- tasks: end -->
@@ -204,7 +223,7 @@ belong in a red-contract region.
 
 ## Task 7: whole-suite green, then graduation
 
-<!-- task: red=`npx vitest run tests/docs/_metaLedgerInProgress.test.ts` red-state=authored red-target=`tests/docs/_metaLedgerInProgress.test.ts:51` why=`the state that creates and removes this failure is the ledger row in BACKLOG.md, which the marker grammar cannot name - a root-level file is bare-filename shorthand and RED_TARGET_INVALID rejects it (lib/specLint/redContract.ts:164) - so the target names the predicate the row is judged by: :51 is the isArchive test (:50 is its doc comment), and an archive may not hold an entry whose status is IN PROGRESS. Step 3 moves the row into BACKLOG-archive.md with its marker still attached and the command reds; Step 4 strips the marker in the SAME edit session and re-runs the same command green, which is what proves the marker came off before the merge` ac=AC-1 -->
+<!-- task: red=`npx vitest run tests/docs/_metaLedgerInProgress.test.ts` red-state=authored red-target=`tests/docs/_metaLedgerInProgress.test.ts:52` why=`the state that creates and removes this failure is the ledger row in BACKLOG.md, which the marker grammar cannot name - a root-level file is bare-filename shorthand and RED_TARGET_INVALID rejects it (lib/specLint/redContract.ts:164) - so the target names the predicate the row is judged by: :52 is the isArchive test (:51 is its doc comment), and an archive may not hold an entry whose status is IN PROGRESS. Step 3 moves the row into BACKLOG-archive.md with its marker still attached and the command reds; Step 4 strips the marker in the SAME edit session and re-runs the same command green, which is what proves the marker came off before the merge` ac=AC-1 -->
 
 **Files:** `BACKLOG.md`, `BACKLOG-archive.md`,
 `docs/review-rounds/fix/premisescan-nested-hook-sibling-leak/`.

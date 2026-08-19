@@ -92,12 +92,25 @@ stop's line count.
 
 ## §3 Probes (run 2026-08-19 against `origin/main` at the branch base)
 
-### §3.1 The leak SHAPE has ZERO occurrences in the probe domain
+### §3.1 The leak SHAPE has zero occurrences in the ENROLLED SUITES' OWN describes
 
 The harness at `docs/superpowers/specs/ci/probes/2026-08-19-premisescan-nested-hook-leak-probe.md`
 counts (describe, hook) attachments an ancestor collects and does not own:
 
     describes=405 leaked_attachments=0 suites_with_shape=0/62
+
+**That denominator is the enrolled suites' own executable `describe` nodes, and NOT the whole
+declared probe domain** — a distinction spec round 3 was right to force. The probe domain also
+includes the classifier inputs embedded as template literals inside
+`tests/mutation/source/premiseScan.test.ts`, which this harness does not parse; probed directly,
+**15 embedded describe-bearing literals, 1 with the shape**, and that one is
+`tests/mutation/source/premiseScan.test.ts:3044` — the AC-12b fixture this arc rewrites. So the
+correct reading is narrower than "zero in the probe domain" and is stated as such: no ENROLLED
+SUITE carries the shape, and the only fixture that does is the one whose verdict this arc changes
+on purpose.
+
+§3.2 is unaffected and remains the decisive measurement: it runs the shipped classifier over the
+registry itself rather than re-implementing anything.
 
 ### §3.2 The repair is verdict-neutral against the SHIPPED classifier
 
@@ -146,14 +159,32 @@ props, no conditional render change.
 
 ## §5 Meta-test / registry inventory
 
-- **EXTENDS** `tests/mutation/source/premiseScan.test.ts` — the `tests/mutation/source/premiseScan.test.ts:3033` pin is RETIRED and replaced
-  by its inversion; AC-4's outer-hook non-regression fixture and AC-5's `describe.each` spelling are
-  added. The two foils at `tests/mutation/source/premiseScan.test.ts:2976` and `tests/mutation/source/premiseScan.test.ts:3011` are unchanged and must stay green.
+- **EXTENDS** `tests/mutation/source/premiseScan.test.ts`, in four separate fixture classes — the
+  inventory is swept against §6 rather than listing whichever addition was drafted first:
+  1. The `tests/mutation/source/premiseScan.test.ts:3033` pin is RETIRED and replaced by its
+     inversion (AC-2), `inA` retained as the foil.
+  2. AC-4's outer-hook non-regression case and its moved-hook foil.
+  3. AC-5's DERIVED modifier family: one case per member of `MODIFIERS`
+     (`tests/mutation/source/premiseScan.ts:48`) — `each`, `for`, `skip`, `only`, `concurrent`,
+     `sequential`, `todo` — plus the plain `describe` and one compound chain
+     (`describe.concurrent.each`). Nine cases, generated rather than typed.
+  4. AC-6's DERIVED hook-registrar family: one case per member of the exported registrar list.
+     These add no coverage the enumerated cases at
+     `tests/mutation/source/premiseScan.test.ts:2929` and
+     `tests/mutation/source/premiseScan.test.ts:2955` lack; their value is that they are derived, so
+     a fifth registrar is covered by default.
+
+  The two foils at `tests/mutation/source/premiseScan.test.ts:2976` and
+  `tests/mutation/source/premiseScan.test.ts:3011` are unchanged and must stay green.
+- **CREATES** one new suite, `premiseScanMatcherIdentity`, under `tests/mutation/source/` — a
+  STRUCTURAL assertion that exactly one registrar-name literal survives in the scanner. AC-6's
+  behavioural cases cannot express this, because the four registrars are already covered, so a red
+  produced by editing the list would be carried by the pre-existing enumerated cases rather than by
+  anything this arc authors.
 - **UNCHANGED** `tests/mutation/_metaPremiseContract.test.ts` — no declared count moves (§3.2). That
   it is unchanged is the arc's headline, so it is asserted rather than assumed.
 - **UNCHANGED** `tests/mutation/source/registry.ts` — same surface, same floor; the score is re-run
   and re-stated, and any `siteId` re-key is derived from the failing run's own output.
-- **CREATES** no new meta-test.
 - No Supabase call site, no invariant-10 mutation surface, no advisory lock, no §12.4 catalog row,
   no migration, no UI surface.
 
@@ -208,8 +239,16 @@ Every positive fixture has a foil, so no assertion can pass by the classifier be
 
 ## §7 Lint disposition
 
-`pnpm spec:lint` on this document: **0 hard, 1 advisory.** The advisory is
-`NUMERIC_NOUN_MISMATCH` on `10 passed` versus `299 passed`, both of which are lines of the §3.2
-probe transcript. A dated probe transcript is never corrected and never compared
-(`docs/agents/spec-self-review.md`), so the advisory is a known false positive on this document and
-is declared here rather than silenced.
+`pnpm spec:lint` reports **0 hard** on this document and on the plan. The advisories are declared by
+CLASS rather than by a count, because a count is restated at every round and goes stale the moment
+one repair lands — which is exactly what spec round 3 caught here.
+
+- `NUMERIC_NOUN_MISMATCH` over the §3.2 probe transcript (`10 passed` against `299 passed`). A dated
+  probe transcript is never corrected and never compared (`docs/agents/spec-self-review.md`), so
+  this is a known false positive.
+- `NUMERIC_NOUN_MISMATCH` on the bare word "and" carrying two section numbers. Not a quantity claim.
+- `CITATION_SYMBOL_UNMATCHED` on `tests/mutation/source/premiseScan.ts:1758`, whose cited line is a
+  `HOOK_REGISTRARS.test(...)` call inside a larger function. The citation is to the CONSUMER of that
+  constant, which is the claim being made, so the unmatched enclosing symbol is expected.
+
+Every hard finding is repaired rather than declared; nothing in this list is a suppression.
