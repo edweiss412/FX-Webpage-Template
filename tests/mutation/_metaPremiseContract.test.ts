@@ -37,6 +37,18 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // itself may reach child_process, since the scanner classifies suites, not
   // targets. A later suite importing a real surface must declare a non-zero
   // count, the way ledgerGitSpawnSeam declares 16.
+  // The fixture-satisfiability suites, enrolled 2026-08-18. All four declare 0
+  // honestly and structurally: they are pure-core suites over `parseDoc` output
+  // and hand-built outcome maps, and import neither of ENVIRONMENT_SOURCES.modules.
+  // The arm's environment-touching cases live in fixtureAdapter/fixtureCli, which
+  // are deliberately NOT suitePaths of the surface (the CLI suite spawns a real
+  // vitest child per case and the four below hold every deciding assertion), so a
+  // non-zero count appearing here later means a pure suite grew a real dependency
+  // and is a change to explain rather than a number to update.
+  "tests/specLint/fixtureContract.test.ts": 0,
+  "tests/specLint/fixtureSplicePlan.test.ts": 0,
+  "tests/specLint/fixtureClassify.test.ts": 0,
+  "tests/specLint/fixtureWiring.test.ts": 0,
   "tests/paneCompaction/bands.test.ts": 0,
   "tests/paneCompaction/precedence.test.ts": 0,
   "tests/paneCompaction/acceptSet.test.ts": 0,

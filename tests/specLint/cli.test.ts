@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { classifySpawnResult, runCli, type CliDeps } from "../../scripts/spec-lint";
+import { memSpliceSeam } from "./_memSpliceSeam";
 
 const ROOT = process.cwd();
 const TSX = join(ROOT, "node_modules/tsx/dist/cli.mjs"); // .bin/tsx is a shell wrapper — not node-executable
@@ -649,6 +650,7 @@ function memDeps(opts: MemOpts = {}) {
         ...(r.error ? { error: r.error } : {}),
       };
     },
+    ...memSpliceSeam(),
   };
   return { deps, calls };
 }

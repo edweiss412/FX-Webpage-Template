@@ -13,6 +13,11 @@ import {
   synthesizeExecFindings,
   synthesizeParseFindings,
 } from "./redContract";
+import {
+  checkFixtureContract,
+  spliceFixturePlan,
+  synthesizeFixtureFindings,
+} from "./fixtureContract";
 import { fenceCoverage, waiverTarget } from "./waiverCoverage";
 import { checkTaskContract } from "./taskContract";
 import { checkUniversals } from "./universals";
@@ -22,6 +27,7 @@ import type {
   ExecResults,
   FileResolver,
   Finding,
+  FixtureResults,
   LintDoc,
   LintResult,
   ParseResults,
@@ -87,6 +93,7 @@ export function runLint(
   exec?: ExecResults | null,
   parse?: ParseResults | null,
   probes?: ProbeResults | null,
+  fixtures?: FixtureResults | null,
 ): LintResult {
   const model = parseDoc(doc.text);
   // Span-exact exclusion (arms spec §5): a `red-target=` capture IS a citation,
@@ -101,6 +108,11 @@ export function runLint(
   const taskContract = checkTaskContract(model, doc.kind);
   const universals = checkUniversals(model, doc.kind);
   const redContract = checkRedContract(model, doc.kind, resolver);
+  // The fixture arm's STATIC half (fixture spec §3) runs on EVERY invocation —
+  // it is pure text over the parsed model, costs zero spawns, and the payoff
+  // moment is review-time linting, which never passes `--exec-red`. Gating it
+  // behind the flag would hide malformed markers from `codex-guard --lint-doc`.
+  const fixtureContract = checkFixtureContract(model, doc.kind);
   // Parse-capability findings (verdict spec §3). Unlike execution, this pass
   // runs on EVERY plan-kind invocation — the payoff moment is review-time
   // linting, which never passes `--exec-red`.
@@ -129,6 +141,14 @@ export function runLint(
         )
       : [];
 
+  // Fixture-execution findings (fixture spec §4.3), outcome-injected like the
+  // three above. Absent map = a static invocation, which ran nothing and so
+  // classifies nothing.
+  const fixtureFindings =
+    doc.kind === "plan" && fixtures !== undefined && fixtures !== null
+      ? synthesizeFixtureFindings(spliceFixturePlan(model, doc.kind), fixtures)
+      : [];
+
   let findings: Finding[] = [
     ...model.documentFindings,
     ...citations.findings,
@@ -138,9 +158,11 @@ export function runLint(
     ...taskContract,
     ...universals.findings,
     ...redContract,
+    ...fixtureContract,
     ...parseFindings,
     ...execFindings,
     ...collectionFindings,
+    ...fixtureFindings,
   ];
 
   // ---- ignore-waiver application (spec §3) ----
