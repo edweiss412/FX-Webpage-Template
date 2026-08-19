@@ -28,7 +28,7 @@ cite it.
 
 Two production edits, and no more:
 
-1. **The stop** in `hookBodies` (`tests/mutation/source/premiseScan.ts:1834`) — three lines.
+1. **The body-only stop** in `hookBodies` (`tests/mutation/source/premiseScan.ts:1834`).
 2. **The dedup.** `HOOK_REGISTRARS` already exists as a regex at
    `tests/mutation/source/premiseScan.ts:66` and is consumed by the top-level hook seed at
    `tests/mutation/source/premiseScan.ts:1758`; `hookBodies` at
@@ -130,8 +130,16 @@ moves for the sake of a test, and every red below fails because of scanner behav
 ```ts
 // A nested describe owns its own hooks and the caller already carries ours
 // down to it, so walking into it attaches its hooks to its SIBLINGS.
-if (n !== describeCall && ts.isCallExpression(n) && registrarRoot(n.expression) === "describe")
+if (n !== describeCall && ts.isCallExpression(n) && registrarRoot(n.expression) === "describe") {
+  // Only the BODY is pruned. The curried `.each`/`.for` producer and the
+  // eager name/options arguments are evaluated while THIS describe is still
+  // current, so a hook written there registers on US and runs for our
+  // other tests.
+  if (ts.isCallExpression(n.expression)) for (const a of n.expression.arguments) walk(a);
+  for (const a of n.arguments)
+    if (!ts.isArrowFunction(a) && !ts.isFunctionExpression(a)) walk(a);
   return;
+}
 ```
 
 - [ ] **Step 4: re-run the SAME command and observe green** — no skips. AC-3 is discharged here

@@ -33,6 +33,13 @@ inputs written as template literals inside the deciding suite are not parsed her
 in the coverage table above as their own row, and the single hit is the fixture this arc rewrites on
 purpose. A reading of `leaked_attachments=0` as "zero anywhere in the probe domain" overstates it.
 
+**The instrument models the ORIGINAL whole-call prune, and that is now a superseded design.** Diff
+round 2 probed a hook in a nested registration's EAGER positions — a `describe.each` producer, a
+name argument — and showed the whole-call prune turning a touching sibling free. The shipped stop
+prunes only the BODY. This instrument's population figure is unaffected (no corpus suite writes a
+hook in those positions), and it is left as the DATED measurement it was, but a reader must not take
+the snippet below for the shipped rule; that is spec §2.
+
 ```ts
 const collect = (d: ts.CallExpression, stopAtNested: boolean): ts.CallExpression[] => {
   const out: ts.CallExpression[] = [];

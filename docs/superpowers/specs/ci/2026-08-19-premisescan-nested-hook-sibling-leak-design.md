@@ -63,13 +63,25 @@ hooks DOWNWARD —
 which is correct, and once by every ancestor, which is the leak. The ancestor's copy attaches it to
 every test in every SIBLING branch.
 
-The repair stops the walk at a nested `describe`, using the SAME predicate the caller uses to
-recognize one (`registrarRoot`, `tests/mutation/source/premiseScan.ts:68`):
+The repair stops the walk at a nested `describe`'s BODY, using the SAME predicate the caller uses to
+recognize one (`registrarRoot`, `tests/mutation/source/premiseScan.ts:68`). **Only the body — a
+whole-call prune is WRONG, and diff round 2 probed why:** the curried `.each`/`.for` producer and the
+eager name/options arguments are evaluated while the parent suite is still current, so a hook written
+there registers on the PARENT and runs for its siblings. Pruning them turns a touching sibling free,
+which is a silent free rather than a conservative report.
 
-    if (n !== describeCall && ts.isCallExpression(n) && registrarRoot(n.expression) === "describe")
+    if (n !== describeCall && ts.isCallExpression(n) && registrarRoot(n.expression) === "describe") {
+      // Only the BODY is pruned. The curried `.each`/`.for` producer and the
+      // eager name/options arguments are evaluated while THIS describe is still
+      // current, so a hook written there registers on US and runs for our
+      // other tests.
+      if (ts.isCallExpression(n.expression)) for (const a of n.expression.arguments) walk(a);
+      for (const a of n.arguments)
+        if (!ts.isArrowFunction(a) && !ts.isFunctionExpression(a)) walk(a);
       return;
+    }
 
-Three lines, and one more edit beyond them: the dedup AC-6 needs. §2.1 enumerates both, so no reader
+Two edits in all: this stop and the dedup AC-6 needs. §2.1 enumerates both, so no reader
 takes the stop for the whole diff — and it enumerates ONLY those two, because the exports an earlier
 draft added for AC-5 and AC-6 are deleted from the design (§2.1). The outer describe's OWN hooks are
 unaffected: they are direct children of the outer
@@ -80,7 +92,7 @@ non-regression is AC-4, and it is the assertion that stops the repair from over-
 
 Two production edits, and no more:
 
-1. **The stop** in `hookBodies` (`tests/mutation/source/premiseScan.ts:1834`) — three lines, above.
+1. **The body-only stop** in `hookBodies` (`tests/mutation/source/premiseScan.ts:1834`), above.
 2. **The dedup.** `HOOK_REGISTRARS` already exists as a regex at
    `tests/mutation/source/premiseScan.ts:66` and is consumed by the top-level hook seed at
    `tests/mutation/source/premiseScan.ts:1758`; `hookBodies` at
@@ -186,6 +198,9 @@ props, no conditional render change.
      `for`, `skip`, `only`, `concurrent`, `sequential`, `todo` — plus the plain `describe` and one
      compound chain (`describe.concurrent.each`). Nine cases, generated rather than typed.
   4. AC-6's DERIVED hook-registrar family: one case per name read out of `HOOK_REGISTRARS`.
+  5. AC-8's three eager-position cases: a hook in a `describe.each` producer, a hook in a nested
+     describe's NAME argument, and the BODY foil. Added at diff round 2, after a probe showed the
+     whole-call prune turning a touching sibling free.
      These add no coverage the enumerated cases at
      `tests/mutation/source/premiseScan.test.ts:2932` and
      `tests/mutation/source/premiseScan.test.ts:2958` lack; their value is that they are derived, so
@@ -255,6 +270,13 @@ Every positive fixture has a foil, so no assertion can pass by the classifier be
   in one round rather than one member per round. *Catches:* a fixture pair covering only the
   `before*` forms, which reads as complete and leaves half the defect live (the same defect shape
   #843's §3.11 row D found).
+- **AC-8 — a hook in a nested registration's EAGER positions belongs to the PARENT.** A spawning
+  hook inside a `describe.each` producer array, and one inside a nested `describe`'s NAME argument,
+  each leave the parent's sibling test `environment-touching`. *Foil:* the same hook in the nested
+  BODY, which leaves the sibling `environment-free` — without it a repair that simply stopped
+  pruning would pass. *Catches:* the whole-call prune diff round 2 probed, which read those hooks as
+  the nested branch's and turned a touching sibling free. Stated as its own criterion rather than
+  folded into AC-5, because its absence is what let a silent free ship.
 - **AC-7 — the guard still pins what it claims.** `pnpm mutation:guards` on `premiseScan` at or
   above its floor with an empty unaccepted-survivor set, re-run after the repair.
 
