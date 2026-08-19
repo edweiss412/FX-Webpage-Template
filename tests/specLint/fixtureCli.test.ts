@@ -48,9 +48,13 @@ function spyDeps(): { deps: CliDeps; spawns: string[]; mkdirs: string[] } {
   const deps: CliDeps = {
     ...base,
     listTrackedFiles: () => [],
-    mkdir: (relPath: string) => {
-      mkdirs.push(relPath);
-      base.mkdir(relPath);
+    mkdirExclusive: (relPath: string) => {
+      const created = base.mkdirExclusive(relPath);
+      // Recorded only when this call CREATED it, so `mkdirs` still means "this
+      // run made a splice directory" and the collision case's `toEqual([])`
+      // keeps discriminating now that the fence itself goes through mkdir.
+      if (created) mkdirs.push(relPath);
+      return created;
     },
     spawn: (
       command: string,
@@ -168,6 +172,30 @@ const HISTORICAL_MERGED = historical("| TRANSPORTATION | TRANSPORTATION | PHONE 
 
 afterEach(() => {
   rmSync(join(REPO, TMP), { recursive: true, force: true });
+});
+
+describe("the collision fence is ONE atomic call, on the real filesystem", () => {
+  it("mkdirExclusive returns true exactly once for a given directory", () => {
+    // The failure mode: a test-then-create leaves a window in which two
+    // invocations both observe the directory absent, both succeed through a
+    // RECURSIVE mkdir, and both write and spawn into the same directory — the
+    // silent join spec §4.2 step 1 and §8 limit 11 both promise cannot happen
+    // (whole-diff review round 3). `recursive: true` succeeds on an existing
+    // directory, so only the non-recursive form can discriminate, and only the
+    // real filesystem can prove it does.
+    const dir = `${TMP}/atomic-probe`;
+    mkdirSync(join(REPO, TMP), { recursive: true });
+    try {
+      const a = nodeDeps(REPO);
+      const b = nodeDeps(REPO);
+      expect(a.mkdirExclusive(dir)).toBe(true);
+      expect(b.mkdirExclusive(dir)).toBe(false);
+      expect(a.mkdirExclusive(dir)).toBe(false);
+      expect(existsSync(join(REPO, dir))).toBe(true);
+    } finally {
+      rmSync(join(REPO, dir), { recursive: true, force: true });
+    }
+  });
 });
 
 describe("fixture arm end to end, through the real reporter (spec §6)", () => {

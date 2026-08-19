@@ -31,10 +31,11 @@ const harness = (
     dirs,
     deps: {
       repoRoot: () => "/repo",
-      exists: (d: string) => dirs.has(d),
-      mkdir: (d: string) => {
-        dirs.add(d);
+      mkdirExclusive: (d: string) => {
         calls.push(`mkdir:${d}`);
+        if (dirs.has(d)) return false;
+        dirs.add(d);
+        return true;
       },
       write: (path: string, body: string) => {
         calls.push(`write:${path}`);
@@ -287,12 +288,13 @@ describe("splice lifecycle — shapes the authored block leaves unpinned", () =>
 
 describe("cleanup failure is raised, never swallowed", () => {
   it("a directory that cannot be removed THROWS, naming the path", () => {
-    // The failure mode: a surviving directory holds `.test.ts` files the repo's
-    // own include glob collects on the next full run, and the splice counter has
-    // ALREADY advanced -- so the next invocation picks a different name and the
-    // collision refusal never sees this one. Nothing downstream can observe the
-    // leak, so swallowing it means the promise "no file is left under tests/"
-    // fails silently. runCli's outer catch turns this into exit 2.
+    // The failure mode: a surviving directory holds test files the repo's own
+    // include glob collects on the next full run. The next invocation WOULD
+    // refuse loudly on it -- the name is fixed since review round 2 -- but that
+    // is the next run's signal, and the run whose removal failed is the only
+    // place that knows it failed. Swallowing it therefore breaks "no file is
+    // left under tests/" silently in the run that broke it. runCli's outer
+    // catch turns this into exit 2.
     const h = harness({ throwOnRm: true });
     expect(() => runFixtureSplice(plan, h.deps as never)).toThrow(
       /could not remove the fixture splice directory tests\/\.spec-lint-fixtures/,

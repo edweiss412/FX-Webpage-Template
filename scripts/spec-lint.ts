@@ -67,8 +67,19 @@ export interface CliDeps {
    * and resolving it here rather than at the call site keeps one definition of
    * where a splice lands.
    */
-  exists(relPath: string): boolean;
-  mkdir(relPath: string): void;
+  /**
+   * Creates the directory and reports whether IT created it: `true` = created
+   * by this call, `false` = it was already there.
+   *
+   * One atomic call, not an `exists` probe followed by a `mkdir`. POSIX mkdir
+   * is atomic and fails EEXIST, so exactly one of two concurrent invocations
+   * can win; a test-then-create has a window in which both observe the
+   * directory absent, both succeed through a recursive mkdir, and both then
+   * write and spawn into the same directory (whole-diff review round 3). The
+   * refusal in fixture spec §4.2 step 1 and the concurrency claim in §8 limit
+   * 11 are only true of the atomic form.
+   */
+  mkdirExclusive(relPath: string): boolean;
   write(relPath: string, body: string): void;
   readFile(relPath: string): string;
   rm(relPath: string): void;
@@ -211,10 +222,12 @@ export function runFixtureSplice(
   if (plan.length === 0) return done({ files: new Map() });
 
   const dir = SPLICE_DIR;
-  if (deps.exists(dir)) {
+  // The fence, stated and settled BEFORE anything is observed and before
+  // anything is spawned — and settled by ONE atomic call, so a second
+  // invocation racing this one loses the create rather than joining it.
+  if (!deps.mkdirExclusive(dir)) {
     // A stale directory is a LOUD non-observation, never a silent overwrite of
-    // another session's live splice. Stated before anything is observed, and
-    // before anything is spawned.
+    // another session's live splice.
     return done({
       files: new Map(),
       unavailable: `the splice directory ${dir} already exists, so no block was run`,
@@ -224,7 +237,6 @@ export function runFixtureSplice(
   const files = new Map<number, FixtureOutcome>();
   let unavailable: string | undefined;
   try {
-    deps.mkdir(dir);
     for (const entry of plan) {
       // The marker line is the FIRST digit run of the basename, and `.test.ts`
       // is what `BASE_INCLUDE` collects. Both halves are load-bearing: the
@@ -303,16 +315,15 @@ export function runFixtureSplice(
     try {
       deps.rm(dir);
     } catch (e) {
-      // NOT best-effort, and the earlier comment here was wrong about why. A
-      // surviving directory holds `.test.ts` files that the repo's own
-      // BASE_INCLUDE collects on the next full run, and the counter has ALREADY
-      // advanced — so the next invocation picks a different name and the §4.2
-      // collision refusal never sees this one. Nothing downstream can observe
-      // the leak, which is why it is raised here rather than recorded: runCli's
-      // outer catch turns it into exit 2, this CLI's infra-fault code, with the
-      // path named so the author can remove it. Spec §4.2 step 4 promises no
-      // file is left under `tests/`; a swallowed failure breaks that promise
-      // silently, which is the one thing this arm may never do.
+      // NOT best-effort. A surviving directory holds test files the repo's own
+      // BASE_INCLUDE collects on the next full run. Since round 2 the name is
+      // fixed, so the NEXT invocation would at least refuse loudly on it — but
+      // that is the next invocation's signal, not this one's, and this run is
+      // the only place that knows the removal failed. Spec §4.2 step 4 promises
+      // no file is left under `tests/`; swallowing the failure breaks that
+      // promise silently in the run that broke it, which is the one thing this
+      // arm may never do. Raised instead: runCli's outer catch turns it into
+      // exit 2, this CLI's infra-fault code, with the path named.
       throw new Error(
         `spec:lint could not remove the fixture splice directory ${dir}: ` +
           `${e instanceof Error ? e.message : String(e)}. Remove it by hand — it holds test ` +
@@ -558,8 +569,17 @@ export function nodeDeps(root: string): CliDeps {
   return {
     cwd: () => process.cwd(),
     repoRoot: () => root,
-    exists: (relPath) => lstatSync(inRepo(relPath), { throwIfNoEntry: false }) !== undefined,
-    mkdir: (relPath) => void mkdirSync(inRepo(relPath), { recursive: true }),
+    mkdirExclusive: (relPath) => {
+      try {
+        // NON-recursive deliberately: `recursive: true` succeeds on an existing
+        // directory, which is exactly the silent join this fence exists to stop.
+        mkdirSync(inRepo(relPath));
+        return true;
+      } catch (e) {
+        if ((e as { code?: string }).code === "EEXIST") return false;
+        throw e;
+      }
+    },
     write: (relPath, body) => writeFileSync(inRepo(relPath), body),
     readFile: (relPath) => readFileSync(inRepo(relPath), "utf8"),
     rm: (relPath) => rmSync(inRepo(relPath), { recursive: true, force: true }),

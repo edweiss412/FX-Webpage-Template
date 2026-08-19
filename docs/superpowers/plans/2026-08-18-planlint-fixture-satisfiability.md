@@ -478,6 +478,8 @@ This task forwards the ASSERTION channel only. The file-level message channel is
 
 **Failure modes caught:** a directory surviving a thrown exception, a timeout, or a signal; more than one vitest invocation per doc (spec §1.1 item 6); a spawn happening despite a pre-existing directory — proved by a spy recording ZERO calls, a fence stated before any observation; spliced filenames that do not carry the marker line or the collectable suffix, which would silently break the per-file mapping the whole arm rests on; and an unreadable report read as an empty one.
 
+**This block is the record of what was AUTHORED and RUN at this task's own sequence position, and it is no longer runnable against the landed adapter.** Whole-diff review rounds 2 and 3 changed two seams underneath it: the splice directory lost its pid and counter for a fixed name (`tests/.spec-lint-fixtures/`, spec §4.2 step 1), and the non-atomic `exists` + `mkdir` pair became a single atomic `mkdirExclusive`. The block below still seeds `tests/.spec-lint-fixtures-1-1/` and drives the old pair, so executing it now would spawn vitest instead of proving zero spawns. It is kept verbatim because rewriting it would falsify the red this task actually observed; the LANDED suite, which review moved with the seams, is `tests/specLint/fixtureAdapter.test.ts`. Recorded here rather than left for a reader to discover, because this arc's whole subject is that an embedded block which is never executed lies.
+
 ```ts
 import { describe, it, expect } from "vitest";
 import { runCli, runFixtureSplice } from "@/scripts/spec-lint";
@@ -647,7 +649,7 @@ describe("splice lifecycle (spec section 4.2)", () => {
 
 Create `tests/specLint/fixtureCli.test.ts` (a NEW file — this task does not extend the tracked `tests/specLint/cli.test.ts`, whose subject is the pre-existing CLI surface). Real subprocesses over trivial blocks only, no heavy phases. Extend the adapter to forward the report's FILE-level message alongside each assertion's failures.
 
-Cases: a block whose premise fails inside a test → exit 1 with `FIXTURE_UNSATISFIABLE`; **a block whose premise fails at MODULE scope, before any test registers → exit 1 with `FIXTURE_UNSATISFIABLE` and NOT the advisory** (the red for this task); the spec §2.4 historical pair, the r4 two-column header drawing the verdict and the merged three-column header drawing no code at all; an unresolvable-import block → the advisory; a block whose `describe` is skipped → exit 0 with no `FIXTURE_` code; a pre-existing splice directory → the advisory with a spy asserting ZERO vitest spawns; and, after every case, an assertion that no `tests/.spec-lint-fixtures-*` directory survives.
+Cases: a block whose premise fails inside a test → exit 1 with `FIXTURE_UNSATISFIABLE`; **a block whose premise fails at MODULE scope, before any test registers → exit 1 with `FIXTURE_UNSATISFIABLE` and NOT the advisory** (the red for this task); the spec §2.4 historical pair, the r4 two-column header drawing the verdict and the merged three-column header drawing no code at all; an unresolvable-import block → the advisory; a block whose `describe` is skipped → exit 0 with no `FIXTURE_` code; a pre-existing splice directory → the advisory with a spy asserting ZERO vitest spawns; and, after every case, an assertion that no `tests/.spec-lint-fixtures/` directory survives.
 
 **What is red and why:** the adapter built in Task 5 carries only the assertion channel, so the module-scope case cannot reach `FIXTURE_UNSATISFIABLE` no matter how correct the pure ladder is.
 
