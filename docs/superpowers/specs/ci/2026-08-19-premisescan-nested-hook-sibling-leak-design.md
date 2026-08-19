@@ -111,7 +111,9 @@ counts (describe, hook) attachments an ancestor collects and does not own:
 declared probe domain** — a distinction spec round 3 was right to force. The probe domain also
 includes the classifier inputs embedded as template literals inside
 `tests/mutation/source/premiseScan.test.ts`, which this harness does not parse; probed directly,
-**15 embedded describe-bearing literals, 1 with the shape**, and that one is
+**11 embedded literals carrying 16 `describe` sites, 1 literal with the shape** — literals and sites
+are counted separately because they are different units and an earlier draft conflated them — and
+that one is
 `tests/mutation/source/premiseScan.test.ts:3044` — the AC-12b fixture this arc rewrites. So the
 correct reading is narrower than "zero in the probe domain" and is stated as such: no ENROLLED
 SUITE carries the shape, and the only fixture that does is the one whose verdict this arc changes
@@ -251,16 +253,18 @@ Every positive fixture has a foil, so no assertion can pass by the classifier be
 
 ## §7 Lint disposition
 
-`pnpm spec:lint` reports **0 hard** on this document and on the plan. The advisories are declared by
-CLASS rather than by a count, because a count is restated at every round and goes stale the moment
-one repair lands — which is exactly what spec round 3 caught here.
+`pnpm spec:lint` reports **0 hard** on this document and on the plan, and that is the only figure
+stated here. Two earlier drafts quoted the advisory set — first as a count, then as an enumerated
+list of classes — and BOTH went stale at the next repair, costing a finding each time (rounds 3
+and 9). The enumeration was the same defect as the count wearing a longer form, so it is replaced by
+the invariant rather than by a third list.
 
-- `NUMERIC_NOUN_MISMATCH` over the §3.2 probe transcript (`10 passed` against `299 passed`). A dated
-  probe transcript is never corrected and never compared (`docs/agents/spec-self-review.md`), so
-  this is a known false positive.
-- `NUMERIC_NOUN_MISMATCH` on the bare word "and" carrying two section numbers. Not a quantity claim.
-- `CITATION_SYMBOL_UNMATCHED` on `tests/mutation/source/premiseScan.ts:1758`, whose cited line is a
-  `HOOK_REGISTRARS.test(...)` call inside a larger function. The citation is to the CONSUMER of that
-  constant, which is the claim being made, so the unmatched enclosing symbol is expected.
+**The invariant: no advisory is suppressed, and every dispatch carries the current report.**
+`codex-guard --lint-doc` runs the lint at dispatch time and attaches its output to the brief,
+recording a `lintArm` field in the dispatch result, so each reviewer reads the live advisory set rather than this
+document's account of it. Anything hard is repaired before dispatch, never declared.
 
-Every hard finding is repaired rather than declared; nothing in this list is a suppression.
+One advisory class is a standing known false positive and is named because it will not go away:
+`NUMERIC_NOUN_MISMATCH` over the §3.2 probe transcript, where `10 passed` and `299 passed` are two
+lines of one dated record. A dated probe transcript is never corrected and never compared
+(`docs/agents/spec-self-review.md`).

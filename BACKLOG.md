@@ -1279,6 +1279,19 @@ FAIL unaccepted-survivor: 2 survivor(s) with no ledger row: relational-boundary:
 FAIL stale-ledger-row: 2 ledger row(s) whose site no longer survives: relational-boundary:721:29:>>>=, relational-boundary:2061:28:<><=
 ```
 
+**Second incident, 2026-08-19, and it changes the severity argument** (`fix/premisescan-nested-hook-sibling-leak`, baseline gate run before any code edit). The same shape on a DIFFERENT surface, `destructiveFileAnalysis`, and this time **on `origin/main` itself** rather than under an in-flight diff — eight survivors and eight complementary stale rows, every pair one or two lines apart:
+
+```
+unaccepted-survivor: logical-connector:371:61:&&>||, logical-connector:388:32:&&>||, integer-literal:392:19:0>1,
+  relational-boundary:392:27:<><=, integer-literal:392:47:1>2, relational-boundary:397:24:>>>=,
+  logical-connector:503:73:&&>||, relational-boundary:626:29:>>>=
+stale-ledger-row:    logical-connector:370:61:&&>||, logical-connector:387:32:&&>||, integer-literal:391:19:0>1,
+  relational-boundary:391:27:<><=, integer-literal:391:47:1>2, relational-boundary:396:24:>>>=,
+  logical-connector:502:73:&&>||, relational-boundary:602:29:>>>=
+```
+
+The filed severity is LOW on the grounds that this is bookkeeping that never produces a wrong verdict. That still holds per-run, but a red on MAIN is different in kind from a red under a diff: every arc that runs `pnpm mutation:guards` now inherits a failure it did not cause, must bracket it against main to prove that, and either scopes around it or repairs another arc's surface. The run that measured this took **4,489s**. Reachability is therefore no longer hypothetical for the cost claim — it is charged to every concurrent arc until main is green.
+
 **The mechanical form:** key on the mutated EXPRESSION plus a disambiguator instead of the line, or have the gate emit a `--rekey` patch when the stale set and the unaccepted set are the same size and the expressions match. A third shape belongs here too, measured on the same arc: **removing dead code widened the mutation surface** — deleting an orphaned union variant forced a rewrite of its enclosing condition, and the natural rewrite turned a truthy numeric check into `carried.length > 0`, an operator where there had been none, producing a brand-new survivor. Nothing warned; the gate noticed one cycle later.
 
 ## BL-SEND-AUTH-SINGLE-READ-LINT — a send-authorization path may read each surface at most once per pass

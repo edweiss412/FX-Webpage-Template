@@ -10,7 +10,7 @@ transcript is never corrected and never compared against later prose.
 | claim | population walked | how it is enumerated | covered? |
 | --- | --- | --- | --- |
 | the leak shape has zero occurrences in the enrolled suites' OWN describes | every executable `describe` node in every enrolled suite | `GUARD_SURFACES.flatMap(s => s.suitePaths)`, de-duplicated | YES — 62 entries, 405 `describe` sites |
-| classifier inputs embedded as template literals in the deciding suite | 15 describe-bearing literals in `tests/mutation/source/premiseScan.test.ts` | probed directly; Instrument 1 does NOT parse these | YES, separately — 1 of 15 carries the shape, at `tests/mutation/source/premiseScan.test.ts:3044`, and it is the AC-12b fixture this arc rewrites |
+| classifier inputs embedded as template literals in the deciding suite | 11 literals carrying 16 `describe` sites in `tests/mutation/source/premiseScan.test.ts` | probed directly; Instrument 1 does NOT parse these | YES, separately — 1 of the 11 literals carries the shape, at `tests/mutation/source/premiseScan.test.ts:3044`, and it is the AC-12b fixture this arc rewrites |
 | the repair moves no verdict | every enrolled suite's declared count | `tests/mutation/_metaPremiseContract.test.ts` walks the registry itself | YES |
 | the repair moves no fixture but the pin | every case in the deciding suite | `tests/mutation/source/premiseScan.test.ts`, 300 cases | YES |
 | every describe spelling leaks, and the repair closes every one | plain + all seven `MODIFIERS` members + one compound chain | generated from `MODIFIERS` (`tests/mutation/source/premiseScan.ts:48`) | YES — 9 forms, before and after |

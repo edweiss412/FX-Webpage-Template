@@ -212,10 +212,24 @@ so the assertion reads the source. Nothing is exported for it, for the reason Ta
 authored red: this task's command must be GREEN, and a task whose contract is "stay green" does not
 belong in a red-contract region.
 
+**`origin/main` is RED on this gate, and it is not this arc's red.** A baseline run at `a85ccd453`,
+before any code edit on this branch, failed on `destructiveFileAnalysis` with eight unaccepted
+survivors and eight complementary stale ledger rows, every pair one or two lines apart — the
+line-keyed `siteId` churn already filed as `BL-MUTATION-SITEID-LINE-KEYED-CHURN`, to which that run
+is now attached as a second incident. This branch's diff against main touches only `docs/` and
+`BACKLOG.md` at that point, so the failure is categorically pre-existing. Repairing another surface's
+ledger here is class-sweep exception (c) — a surface this arc does not otherwise touch — so the gate
+is read SCOPED to `premiseScan`, and the pre-existing red is recorded rather than silently ratified.
+The run cost 4,489s, so budget it as a long pole rather than a quick check.
+
 - [ ] **Step 1: run the gate.** `pnpm heavy pnpm mutation:guards`. Tasks 2 and 4 changed control
       flow in `hookBodies` and deleted a duplicated literal on an enrolled surface, so the mutant
       population moves and this run is not a formality. No symbol was exported, so no new surface
       enters the registry.
+- [ ] **Step 1a: bracket before blaming the diff.** If any surface OTHER than `premiseScan` fails,
+      re-run that surface against `origin/main` (or cite the baseline recorded above) before touching
+      it. A failure reproducing on main is not this arc's to fix; record it against the owning ledger
+      row and move on.
 - [ ] **Step 2: dispose of every survivor.** A survivor is repaid with a test or argued
       `equivalent` in the registry with its reasoning. Any `siteId` re-key is DERIVED from the
       failing run's own output, never hand-edited by line number.
