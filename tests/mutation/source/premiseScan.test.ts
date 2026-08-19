@@ -1,8 +1,11 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+import ts from "typescript";
 import { afterAll, describe, expect, it } from "vitest";
+
+import { premise } from "../../_shared/premise";
 
 import { classifyTests, type TestClassification } from "./premiseScan";
 
@@ -3030,12 +3033,16 @@ describe("unclassifiable propagation: a construct anywhere reachable reaches the
     expect(all.find((t) => t.testName === "inB")?.verdict).toBe("environment-free");
   });
 
-  it("AC-12b: the SHARED-OUTER leak is pinned at its CURRENT value", () => {
-    // Spec §4 limit 14 and AC-12b: under a shared outer describe, hookBodies'
-    // recursion ALREADY leaks branch A's hook to sibling B, and this arc does
-    // not fix it (repairing it moves live verdicts and breaks AC-1). Asserting
-    // the leaked value pins "this arc did not WIDEN it", without this case a
-    // seed change could deepen the leak with nothing going red.
+  it("AC-12b: the SHARED-OUTER leak is CLOSED", () => {
+    // Was: the leak asserted at its current value, pinning "the import-edge arc
+    // did not WIDEN it" while that spec's §4 limit 14 deferred the repair on
+    // the stated grounds that fixing it would move a seventeenth verdict.
+    // Measured, it moves none (design §3.2), so the limit is superseded and
+    // the sibling is free. This case now pins the CLOSURE.
+    //
+    // inA is the FOIL and must not move: a repair that stopped collecting
+    // hooks altogether would satisfy a one-sided assertion on inB alone.
+    // Spec: docs/superpowers/specs/ci/2026-08-19-premisescan-nested-hook-sibling-leak-design.md
     const all = classificationsWithModules(
       {
         helper: `import { spawnSync } from "node:child_process";
@@ -3051,8 +3058,8 @@ describe("unclassifiable propagation: a construct anywhere reachable reaches the
        });`,
     );
     expect(all.find((t) => t.testName === "inA")?.verdict).toBe("environment-touching");
-    // The documented pre-existing FALSE POSITIVE, asserted as-is (probe §3.11 row A).
-    expect(all.find((t) => t.testName === "inB")?.verdict).toBe("environment-touching");
+    // The false positive is gone: branch A's hook no longer reaches sibling B.
+    expect(all.find((t) => t.testName === "inB")?.verdict).toBe("environment-free");
   });
 
   it("a hook reaching PROVENANCE still classifies touching (C6 foil)", () => {
@@ -3830,4 +3837,91 @@ describe("whole-diff R5 #1 — a memberless namespace of a BARE specifier stays 
         it("x", () => { String(cp); });`),
     ).toBe("environment-touching");
   });
+});
+
+/**
+ * AC-5 — the nested-describe stop fires on EVERY spelling the caller recognizes.
+ *
+ * The population is DERIVED, not typed: the modifier names are read out of
+ * `MODIFIERS` in the scanner's own source. Nothing is exported for this — an
+ * export authored so a fixture could import it makes the fixture's red an
+ * unresolved import, which goes green when the TEST changes rather than when
+ * the implementation lands (docs/agents/writing-plans.md:15).
+ */
+function scannerModifiers(): string[] {
+  const src = readFileSync(join(__dirname, "premiseScan.ts"), "utf8");
+  const sf = ts.createSourceFile("premiseScan.ts", src, ts.ScriptTarget.Latest, true);
+  let names: string[] | null = null;
+  const walk = (node: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === "MODIFIERS" &&
+      node.initializer &&
+      ts.isNewExpression(node.initializer)
+    ) {
+      const arg = node.initializer.arguments?.[0];
+      if (arg && ts.isArrayLiteralExpression(arg)) {
+        names = arg.elements.filter(ts.isStringLiteralLike).map((e) => e.text);
+      }
+    }
+    ts.forEachChild(node, walk);
+  };
+  walk(sf);
+  if (names === null)
+    throw new Error("MODIFIERS not found in premiseScan.ts — the derivation broke");
+  return names;
+}
+
+/** Branch A, registered under one `describe` spelling, with a spawning hook. */
+function branchA(spelling: string): string {
+  const body = `() => { beforeEach(() => { spawnHelper(); }); it("inA", () => {}); }`;
+  if (spelling === "describe") return `describe("A", ${body});`;
+  if (spelling === "describe.each" || spelling === "describe.for")
+    return `${spelling}([1])("A%s", ${body});`;
+  if (spelling === "describe.concurrent.each") return `${spelling}([1])("A%s", ${body});`;
+  return `${spelling}("A", ${body});`;
+}
+
+describe("AC-5 — every describe spelling stops the nested-hook walk", () => {
+  const modifiers = scannerModifiers();
+  // The premise: a mis-read source yields an empty loop, and an empty loop
+  // passes by asserting nothing. This reds loudly instead.
+  premise("the scanner's modifier set was extracted", modifiers.length, 0);
+
+  const spellings = [
+    "describe",
+    ...modifiers.map((m) => `describe.${m}`),
+    // The compound chain. `registrarRoot` walks a CHAIN of modifiers
+    // (premiseScan.ts:73), and a set generated from single members never
+    // reaches that path.
+    "describe.concurrent.each",
+  ];
+
+  // Derived cover, asserted as such: one case per modifier, plus the plain
+  // spelling and the compound chain. A modifier added to the scanner later is
+  // covered by default, and this equality reds if the derivation drifts.
+  it("the generated population equals the scanner's own", () => {
+    expect(spellings.length).toBe(modifiers.length + 2);
+  });
+
+  for (const spelling of spellings) {
+    it(`a hook in ${spelling} A does not reach sibling B`, () => {
+      const all = classificationsWithModules(
+        {
+          helper: `import { spawnSync } from "node:child_process";
+            export function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }`,
+        },
+        `import { spawnHelper } from "__MODULE_helper__";
+         describe("outer", () => {
+           ${branchA(spelling)}
+           describe("B", () => { it("inB", () => {}); });
+         });`,
+      );
+      // inA is the foil: it must STAY touching, or a scanner that collected no
+      // hooks at all would satisfy the inB assertion on its own.
+      expect(all.find((t) => t.testName === "inA")?.verdict).toBe("environment-touching");
+      expect(all.find((t) => t.testName === "inB")?.verdict).toBe("environment-free");
+    });
+  }
 });

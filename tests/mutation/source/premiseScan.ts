@@ -1841,6 +1841,13 @@ function hookBodies(describeCall: ts.CallExpression): ts.Node[] {
     ) {
       out.push(n);
     }
+    // A nested describe OWNS its own hooks, and the caller already carries ours
+    // down to it, so walking into it attaches its hooks to its SIBLINGS -- a
+    // pure test told to carry a premise it does not need. Recognised by the
+    // SAME predicate the caller uses, so the two cannot disagree about what a
+    // describe is.
+    if (n !== describeCall && ts.isCallExpression(n) && registrarRoot(n.expression) === "describe")
+      return;
     ts.forEachChild(n, walk);
   };
   walk(describeCall);
