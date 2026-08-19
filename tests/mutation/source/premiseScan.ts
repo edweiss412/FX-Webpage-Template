@@ -1844,13 +1844,28 @@ function hookBodies(describeCall: ts.CallExpression): ts.Node[] {
     ) {
       out.push(n);
     }
-    // A nested describe OWNS its own hooks, and the caller already carries ours
-    // down to it, so walking into it attaches its hooks to its SIBLINGS -- a
-    // pure test told to carry a premise it does not need. Recognised by the
-    // SAME predicate the caller uses, so the two cannot disagree about what a
-    // describe is.
-    if (n !== describeCall && ts.isCallExpression(n) && registrarRoot(n.expression) === "describe")
+    // A nested describe OWNS the hooks in its BODY, and the caller already carries
+    // ours down to it, so descending into that body would attach its hooks to its
+    // SIBLINGS -- a pure test told to carry a premise it does not need.
+    // Recognised by the SAME predicate the caller uses, so the two cannot
+    // disagree about what a describe is.
+    //
+    // Only the BODY is pruned. A nested registration's other positions are
+    // evaluated while THIS describe is still current -- the curried
+    // `.each`/`.for` producer, and the eager name and options arguments -- so a
+    // hook written there registers on US and runs for our other tests. Pruning
+    // the call whole read those as the nested branch's and turned a touching
+    // sibling free, which is a silent free rather than a conservative report.
+    if (
+      n !== describeCall &&
+      ts.isCallExpression(n) &&
+      registrarRoot(n.expression) === "describe"
+    ) {
+      if (ts.isCallExpression(n.expression)) for (const a of n.expression.arguments) walk(a);
+      for (const a of n.arguments)
+        if (!ts.isArrowFunction(a) && !ts.isFunctionExpression(a)) walk(a);
       return;
+    }
     ts.forEachChild(n, walk);
   };
   walk(describeCall);

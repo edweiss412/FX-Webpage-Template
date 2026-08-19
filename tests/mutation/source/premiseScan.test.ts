@@ -4033,3 +4033,57 @@ describe("AC-6 — every hook registrar, derived from the matcher", () => {
     });
   }
 });
+
+describe("a hook in a nested registration's EAGER arguments belongs to the parent", () => {
+  // Diff review r2, BLOCKING. The stop added by this arc prunes the nested
+  // describe call whole -- but only its BODY belongs to it. The curried
+  // `.each`/`.for` producer and the name/options arguments are evaluated while
+  // the PARENT suite is current, so Vitest registers a hook written there on the
+  // parent, and it runs for the parent's other tests. Pruning them turned a
+  // touching sibling free: a SILENT FREE, the direction spec §0 forbids.
+
+  it("a hook inside a describe.each producer reaches the sibling", () => {
+    const all = classificationsWithModules(
+      OUTER_HOOK_HELPER,
+      `import { spawnHelper } from "__MODULE_helper__";
+       describe("outer", () => {
+         describe.each([beforeEach(() => { spawnHelper(); }), 1])("A%s", () => {
+           it("inA", () => {});
+         });
+         describe("B", () => { it("inB", () => {}); });
+       });`,
+    );
+    expect(all.find((t) => t.testName === "inA")?.verdict).toBe("environment-touching");
+    expect(all.find((t) => t.testName === "inB")?.verdict).toBe("environment-touching");
+  });
+
+  it("a hook inside a nested describe's NAME argument reaches the sibling", () => {
+    const all = classificationsWithModules(
+      OUTER_HOOK_HELPER,
+      `import { spawnHelper } from "__MODULE_helper__";
+       describe("outer", () => {
+         describe(String(beforeEach(() => { spawnHelper(); })), () => {
+           it("inA", () => {});
+         });
+         describe("B", () => { it("inB", () => {}); });
+       });`,
+    );
+    expect(all.find((t) => t.testName === "inB")?.verdict).toBe("environment-touching");
+  });
+
+  it("FOIL: the same hook in the nested BODY stays with that branch", () => {
+    const all = classificationsWithModules(
+      OUTER_HOOK_HELPER,
+      `import { spawnHelper } from "__MODULE_helper__";
+       describe("outer", () => {
+         describe.each([1])("A%s", () => {
+           beforeEach(() => { spawnHelper(); });
+           it("inA", () => {});
+         });
+         describe("B", () => { it("inB", () => {}); });
+       });`,
+    );
+    expect(all.find((t) => t.testName === "inA")?.verdict).toBe("environment-touching");
+    expect(all.find((t) => t.testName === "inB")?.verdict).toBe("environment-free");
+  });
+});
