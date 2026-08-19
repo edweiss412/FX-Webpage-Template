@@ -151,14 +151,33 @@ Every positive fixture has a foil, so no assertion can pass by the classifier be
   declared directly in `describe("outer")` with pure tests in nested `A` and `B`: BOTH classify
   `environment-touching`. *Foil:* the same file with the hook moved into `A` — then only `A`'s test
   is touching. *Catches:* over-narrowing, the one way this three-line repair can be wrong.
-- **AC-5 — the stop fires on every `describe` spelling the caller recognizes.** `describe.each`,
-  `describe.only`, `describe.skip`, `describe.concurrent` as the NESTED registrar, each with a
-  spawning hook and a pure sibling. *Catches:* a stop keyed to a bare `describe` identifier while
-  the caller's own `registrarRoot` accepts modifiers — the two predicates disagreeing is the leak
-  surviving in a spelling nobody looked at.
-- **AC-6 — all four hook registrars.** `beforeEach`, `beforeAll`, `afterEach`, `afterAll` as the
-  nested spawner. *Catches:* a fixture pair covering only the `before*` forms, which reads as
-  complete and leaves half the defect live (the same defect shape #843's §3.11 row D found).
+  **The falsifying mutant is named, because only one of two plausible ones fails it.** A stop placed
+  BEFORE the `isHook` push drops the outer describe's own hooks and reds this criterion (probed:
+  `expected 'environment-free' to be 'environment-touching'`). A stop placed AFTER the push but
+  keyed to any nested call is EQUIVALENT here and passes — collection has already happened by then.
+  Stating which mutant discriminates is what stops this criterion from reading stronger than it is.
+- **AC-5 — the stop fires on every `describe` spelling the caller recognizes, and the fixture set is
+  DERIVED rather than enumerated.** The cases are generated from `MODIFIERS`
+  (`tests/mutation/source/premiseScan.ts:48`) itself — exported for this purpose — one per member,
+  each as the NESTED registrar with a spawning hook and a pure sibling, PLUS at least one compound
+  chain (`describe.concurrent.each`), which `registrarRoot`'s loop
+  (`tests/mutation/source/premiseScan.ts:73`) accepts and a single-modifier fixture set does not
+  reach. The criterion asserts the generated count equals the derived population, so a member added
+  to `MODIFIERS` later is covered by default rather than silently exempt.
+  *Catches:* a stop keyed to a bare `describe` identifier while the caller's own `registrarRoot`
+  accepts modifiers — the two predicates disagreeing is the leak surviving in a spelling nobody
+  looked at. **It also catches the weaker repair an ENUMERATED criterion would have accepted:** a
+  hand-written stop-list covering only the rows the criterion happens to name. Spec round 1 probed
+  exactly that hole — `describe.for`, `describe.sequential` and `describe.concurrent.each` each
+  retain the wrong sibling verdict today, and a four-row fixture list would have passed an
+  implementation that still leaked all three.
+- **AC-6 — every hook registrar, DERIVED from the matcher.** The four names live in a regex literal
+  inside `hookBodies` (`tests/mutation/source/premiseScan.ts:1834`); they are lifted to an exported
+  list the regex is BUILT FROM, and the fixtures are generated from that list, one per member as the
+  nested spawner. Same derivation rule as AC-5, and for the same reason — this is one class, swept
+  in one round rather than one member per round. *Catches:* a fixture pair covering only the
+  `before*` forms, which reads as complete and leaves half the defect live (the same defect shape
+  #843's §3.11 row D found).
 - **AC-7 — the guard still pins what it claims.** `pnpm mutation:guards` on `premiseScan` at or
   above its floor with an empty unaccepted-survivor set, re-run after the repair.
 
