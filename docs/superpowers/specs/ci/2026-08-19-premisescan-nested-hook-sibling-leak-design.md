@@ -92,8 +92,12 @@ stop's line count.
 
 **Every one of these lands AFTER a test that reds without it**, which is invariant 1 and not a
 stylistic preference: an export authored before the fixtures that consume it can only ever be
-observed green. The plan sequences each accordingly — the derived families are authored first, red
-on the missing export, then red behaviourally, and only then is the scanner changed.
+observed green. The plan sequences each accordingly — every test in a task is authored before that
+task's first production edit, and the edit is then the minimal change that answers the reds already
+observed. **That includes the dedup**, whose only exercising test is structural: a behavioural red
+cannot prove it, because the four registrars are already covered by enumerated cases, so the
+structural assertion is authored alongside the behavioural family and BEFORE the duplicate is
+deleted — not after it, as a discrimination check on work already done.
 
 ## §3 Probes (run 2026-08-19 against `origin/main` at the branch base)
 
@@ -185,7 +189,8 @@ props, no conditional render change.
   STRUCTURAL assertion that exactly one registrar-name literal survives in the scanner. AC-6's
   behavioural cases cannot express this, because the four registrars are already covered, so a red
   produced by editing the list would be carried by the pre-existing enumerated cases rather than by
-  anything this arc authors.
+  anything this arc authors. It is authored BEFORE the duplicate is deleted, so the deletion has an
+  exercising red rather than a retrospective check.
 - **UNCHANGED** `tests/mutation/_metaPremiseContract.test.ts` — no declared count moves (§3.2). That
   it is unchanged is the arc's headline, so it is asserted rather than assumed.
 - **UNCHANGED** `tests/mutation/source/registry.ts` — same surface, same floor; the score is re-run

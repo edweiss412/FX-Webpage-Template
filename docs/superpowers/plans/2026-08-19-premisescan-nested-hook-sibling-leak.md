@@ -161,36 +161,39 @@ if (n !== describeCall && ts.isCallExpression(n) && registrarRoot(n.expression) 
 
 ## Task 4: one registrar set, not two
 
-<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:1840` why=`hookBodies carries a SECOND registrar regex textually identical to HOOK_REGISTRARS at :66, so the fixture set and the matcher can drift apart silently - the disagreement AC-6 claims to eliminate. Step 1 authors the AC-6 family against an exported registrar list that does not exist yet and Step 2 observes it red; Step 3 lifts the names and deletes the duplicate, and Step 4 re-runs the same command green. A behavioural red cannot carry this alone - the four registrars are already covered by enumerated cases at premiseScan.test.ts:2929 and :2955 - so Step 5 adds the structural half in its own suite, authored red before the same dedup is verified` ac=AC-6 -->
+<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts tests/mutation/source/premiseScanMatcherIdentity.test.ts` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:1840` why=`hookBodies carries a SECOND registrar regex textually identical to HOOK_REGISTRARS at :66, so the fixture set and the matcher can drift apart silently - the disagreement AC-6 claims to eliminate. BOTH tests are authored before any production edit: Step 1 writes the structural assertion that exactly one registrar-name literal survives, which reds on today's two, and Step 2 writes the derived behavioural family against a registrar list that is not exported yet, which reds on the missing export. Step 3 makes the single minimal change that answers both - export the list, build HOOK_REGISTRARS from it, delete the duplicate at the line named here - and Step 4 re-runs the same command green` ac=AC-6 -->
 
 **Files:** `tests/mutation/source/premiseScan.test.ts`, `tests/mutation/source/premiseScan.ts`, and a
 new `premiseScanMatcherIdentity` suite under `tests/mutation/source/`.
 
-**Why the behavioural half cannot stand alone.** The four registrars are ALREADY covered by
-enumerated cases at `tests/mutation/source/premiseScan.test.ts:2929` and
-`tests/mutation/source/premiseScan.test.ts:2955`. So a red produced by editing the exported list
-would be carried by those pre-existing tests, not by the cases this task authors. The defect is not
-missing coverage — it is that TWO matchers exist where the design assumes one — and that is a
-structural property, so it gets a structural assertion in Step 5.
+**Why there are two tests and not one.** The four registrars are ALREADY covered by enumerated cases
+at `tests/mutation/source/premiseScan.test.ts:2929` and
+`tests/mutation/source/premiseScan.test.ts:2955`, so no behavioural red can prove the DEDUP — editing
+the exported list would red those pre-existing cases instead. The dedup is a structural property and
+gets a structural assertion; the behavioural family's separate value is that it is DERIVED, so a
+fifth registrar is covered by default. **Both are authored before the production edit that answers
+them**, which is what round 5 found missing when the dedup preceded its only exercising test.
 
-- [ ] **Step 1: author the AC-6 family, changing no production code.** One case per member of an
-      exported registrar list imported from `tests/mutation/source/premiseScan.ts`: spawner nested
-      in `A`, pure test in sibling `B`, `B` free. Assert the generated count against that list's
-      length in the same expression.
-- [ ] **Step 2: observe the red** — the module exports no such list.
-- [ ] **Step 3: lift the names and delete the duplicate.** Export the four registrar names as a
-      list, BUILD `HOOK_REGISTRARS` (`tests/mutation/source/premiseScan.ts:66`) from it, and change
-      `hookBodies` at `tests/mutation/source/premiseScan.ts:1840` to use that constant instead of
-      its own copy. The existing consumer at `tests/mutation/source/premiseScan.ts:1758` is
-      untouched — it tests the same regex object.
-- [ ] **Step 4: re-run the SAME command green.**
-- [ ] **Step 5: add the structural half, red first.** In a new `premiseScanMatcherIdentity` suite,
-      assert that `tests/mutation/source/premiseScan.ts` contains exactly ONE registrar-name
-      literal. To observe its red, restore the duplicate literal at
-      `tests/mutation/source/premiseScan.ts:1840`, run the new suite and see it fail, then delete it
-      again and see the same command pass. State the premise executably —
+- [ ] **Step 1: author the structural assertion, changing no production code.** In a new
+      `premiseScanMatcherIdentity` suite, assert that `tests/mutation/source/premiseScan.ts` contains
+      exactly ONE registrar-name literal. State the premise executably —
       `premise("the module was read", source.length, 0)` from `tests/_shared/premise.ts` — so an
       unreadable path cannot pass as zero occurrences.
+- [ ] **Step 2: author the AC-6 behavioural family, still changing no production code.** One case per
+      member of an exported registrar list imported from `tests/mutation/source/premiseScan.ts`:
+      spawner nested in `A`, pure test in sibling `B`, `B` free. Assert the generated count against
+      that list's length in the same expression.
+- [ ] **Step 3: observe the red — BOTH halves, from one command.** Run the `red=` command. The
+      identity suite fails because two registrar-name literals exist today
+      (`tests/mutation/source/premiseScan.ts:66` and
+      `tests/mutation/source/premiseScan.ts:1840`); the deciding suite fails because the module
+      exports no registrar list. Neither failure can be carried by a pre-existing test.
+- [ ] **Step 4: make the single minimal change that answers both.** Export the four registrar names
+      as a list, BUILD `HOOK_REGISTRARS` (`tests/mutation/source/premiseScan.ts:66`) from it, and
+      change `hookBodies` at `tests/mutation/source/premiseScan.ts:1840` to use that constant instead
+      of its own copy. The existing consumer at `tests/mutation/source/premiseScan.ts:1758` is
+      untouched — it tests the same regex object.
+- [ ] **Step 5: re-run the SAME command green.**
 - [ ] **Step 6: commit.** `refactor(mutation): hookBodies and the top-level seed share one registrar set`
 
 <!-- tasks: end -->
