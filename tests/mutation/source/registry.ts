@@ -199,14 +199,14 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "makes this a re-key rather than a new acceptance.",
       },
       {
-        siteId: "relational-boundary:1906:28:<><=",
+        siteId: "relational-boundary:1932:28:<><=",
         kind: "equivalent",
         reason:
           "The premise-placement test asks whether the premise call starts BEFORE the registration " +
           "call. `<` and `<=` differ only when the two nodes start at the identical offset, which " +
           "two distinct sibling statements cannot do — equality there would mean they are the same " +
           "node, and the walk never compares a node against itself. Re-keyed by the mutated " +
-          "EXPRESSION (1752 -> 2061 -> 1864 -> 1872 -> 1881 -> 1891 -> 1906), byte-identical at every key. Keys six and seven were bought by ONE arc that never touched this function: the sixth by its twelve-line stop in `hookBodies` seventy lines above, the seventh by the fifteen-line repair of that stop a few hours later. Two gate cycles, roughly sixteen minutes of measurement, for an expression nobody edited -- which is the sharpest statement in the repo of BL-MUTATION-SITEID-LINE-KEYED-CHURN.",
+          "EXPRESSION (1752 -> 2061 -> 1864 -> 1872 -> 1881 -> 1891 -> 1906 -> 1932), byte-identical at every key. Keys six, seven and EIGHT were bought by ONE arc that never touched this function -- its stop in `hookBodies` seventy lines above, then two review-driven repairs of that stop within a single afternoon. THREE full gate cycles, roughly twenty-five minutes of pure measurement, for an expression nobody edited. Every key is a re-run, so the churn taxes wall clock and not just attention: this is the measured case for BL-MUTATION-SITEID-LINE-KEYED-CHURN.",
       },
     ],
   },
