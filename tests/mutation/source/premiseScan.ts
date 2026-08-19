@@ -1883,7 +1883,10 @@ function hookBodies(describeCall: ts.CallExpression): ts.Node[] {
  *
  * The accept-set is CLOSED by that grammar -- these are the node kinds that
  * wrap an expression without changing what runs -- rather than grown one
- * spelling at a time.
+ * spelling at a time. The list is TypeScript's own OuterExpressionKinds minus
+ * PartiallyEmittedExpression, which the parser never produces from source;
+ * omitting ExpressionWithTypeArguments made the closure claim FALSE rather
+ * than merely incomplete, which is what diff round 6 caught.
  */
 function isSuiteBody(arg: ts.Expression): boolean {
   let node: ts.Node = arg;
@@ -1892,7 +1895,8 @@ function isSuiteBody(arg: ts.Expression): boolean {
     ts.isAsExpression(node) ||
     ts.isSatisfiesExpression(node) ||
     ts.isNonNullExpression(node) ||
-    ts.isTypeAssertionExpression(node)
+    ts.isTypeAssertionExpression(node) ||
+    ts.isExpressionWithTypeArguments(node)
   )
     node = node.expression;
   return ts.isArrowFunction(node) || ts.isFunctionExpression(node);

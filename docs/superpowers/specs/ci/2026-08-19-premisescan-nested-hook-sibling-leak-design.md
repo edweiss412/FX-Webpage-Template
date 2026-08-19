@@ -71,8 +71,8 @@ there registers on the PARENT and runs for its siblings. Pruning them turns a to
 which is a silent free rather than a conservative report.
 
 **Which argument is the body is decided through TypeScript's OUTER-EXPRESSION grammar, not by the
-argument node's own kind** (`isSuiteBody`). `(fn)`, `fn as T`, `fn satisfies T`, `fn!` and a type
-assertion are runtime-transparent: Vitest invokes the same callback with the nested suite current.
+argument node's own kind** (`isSuiteBody`). `(fn)`, `fn as T`, `fn satisfies T`, `fn!`, a type
+assertion and `fn<T>` are runtime-transparent: Vitest invokes the same callback with the nested suite current.
 Reading only a bare arrow or function expression let a wrapped body be walked as an eager argument
 and put the nested branch's hooks back on its siblings — diff round 4 probed five spellings, all
 reproducing. The accept-set is CLOSED by that grammar rather than grown one spelling at a time, which
@@ -237,7 +237,7 @@ props, no conditional render change.
   5. AC-8's three eager-position cases: a hook in a `describe.each` producer, a hook in a nested
      describe's NAME argument, and the BODY foil. Added at diff round 2, after a probe showed the
      whole-call prune turning a touching sibling free.
-  6. AC-9's five wrapped-body cases, generated from a wrapper table. Added at diff round 4, after a
+  6. AC-9's seven wrapped-body cases, generated from a wrapper table. Added at diff round 4, after a
      probe showed a parenthesized or asserted body being walked as an eager argument.
      These add no coverage the enumerated cases at
      `tests/mutation/source/premiseScan.test.ts:2932` and
@@ -317,7 +317,12 @@ Every positive fixture has a foil, so no assertion can pass by the classifier be
   folded into AC-5, because its absence is what let a silent free ship.
 - **AC-9 — a nested body wrapped in a runtime-transparent expression is still a BODY.** One case per
   wrapper spelling — parenthesized arrow, parenthesized function expression, `as`, `satisfies`,
-  non-null — each leaving the sibling `environment-free` while branch A stays touching. *Catches:* a
+  non-null, and both `ExpressionWithTypeArguments` forms — each leaving the sibling
+  `environment-free` while branch A stays touching. **The population is TypeScript's own
+  `OuterExpressionKinds` minus `PartiallyEmittedExpression`, which the parser never produces from
+  source**, so "closed by the grammar" is a checkable claim rather than a description of whichever
+  spellings were thought of. Diff round 6 caught the omission of `ExpressionWithTypeArguments`, which
+  made that claim FALSE rather than incomplete. *Catches:* a
   body test read on the argument node's own kind, which walks a wrapped body as if it were an eager
   argument and puts the nested hooks back on the siblings. Diff round 4 probed all five plus a type
   assertion. The accept-set is closed by TypeScript's outer-expression grammar, so this is a

@@ -4108,6 +4108,12 @@ describe("a nested body wrapped in a transparent expression is still a BODY", ()
     satisfiesExpression:
       '((() => { beforeEach(() => { spawnHelper(); }); it("inA", () => {}); }) satisfies () => void)',
     nonNull: '((() => { beforeEach(() => { spawnHelper(); }); it("inA", () => {}); })!)',
+    // ExpressionWithTypeArguments. TypeScript's own outer-expression list
+    // includes it, so omitting it made the "closed by the grammar" claim FALSE
+    // rather than merely incomplete (diff round 6).
+    genericArrow: '((() => { beforeEach(() => { spawnHelper(); }); it("inA", () => {}); })<never>)',
+    genericFunction:
+      '((function () { beforeEach(() => { spawnHelper(); }); it("inA", () => {}); })<never>)',
   };
 
   for (const [form, body] of Object.entries(WRAPPED_BODIES)) {
