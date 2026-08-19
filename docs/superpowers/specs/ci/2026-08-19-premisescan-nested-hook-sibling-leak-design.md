@@ -62,9 +62,33 @@ recognize one (`registrarRoot`, `tests/mutation/source/premiseScan.ts:68`):
     if (n !== describeCall && ts.isCallExpression(n) && registrarRoot(n.expression) === "describe")
       return;
 
-Three lines. The outer describe's OWN hooks are unaffected: they are direct children of the outer
+Three lines — but the repair is NOT three lines, and round 1's derived-cover findings are why. The
+stop is three lines; AC-5 and AC-6 additionally require production edits, enumerated in §2.1 so no
+reader takes the stop for the whole diff. The outer describe's OWN hooks are unaffected: they are direct children of the outer
 call, collected before the check fires, and the caller carries them to every descendant. That
 non-regression is AC-4, and it is the assertion that stops the repair from over-narrowing.
+
+### §2.1 The implementation surface, stated whole
+
+Round 1's derived-cover repair moved this past a one-line change, so it is enumerated rather than
+described by a line count:
+
+1. **The stop** in `hookBodies` (`tests/mutation/source/premiseScan.ts:1834`) — three lines, above.
+2. **`hookBodies` stops carrying its own copy of the registrar set.** `HOOK_REGISTRARS` already
+   exists as a regex at `tests/mutation/source/premiseScan.ts:66` and is consumed by the top-level
+   hook seed at `tests/mutation/source/premiseScan.ts:1758`; `hookBodies` at
+   `tests/mutation/source/premiseScan.ts:1840` carries a SECOND, textually identical regex literal.
+   AC-6's derivation is only meaningful if both matchers are one, so `hookBodies` is changed to use
+   the existing constant and the duplicate is deleted. **Introducing a NEW exported symbol under
+   that name would collide with the live one**, which is why the repair is a dedup rather than an
+   addition.
+3. **Two exported name lists**, so fixtures are generated from the matcher rather than typed beside
+   it: the registrar names `HOOK_REGISTRARS` is built from, and `MODIFIERS`
+   (`tests/mutation/source/premiseScan.ts:48`), today module-local.
+
+Items 2 and 3 are production edits to an enrolled guard surface, so AC-7's gate run is not a
+formality — the mutant population moves. That cost is accepted and stated, not hidden behind the
+stop's line count.
 
 ## §3 Probes (run 2026-08-19 against `origin/main` at the branch base)
 
@@ -111,7 +135,7 @@ That is the leak reporting itself gone. No other fixture moves.
 ### Dimensional Invariants
 
 None. This arc introduces no rendered component, no fixed-dimension parent and no box-model change:
-the diff is three lines of scanner code plus unit fixtures. No file under `app/`, `components/`,
+the diff is scanner code and unit fixtures (§2.1). No file under `app/`, `components/`,
 `app/globals.css`, `tailwind.config.*` or `DESIGN.md` is touched, so the invariant-8 UI definition is
 not triggered.
 
@@ -168,9 +192,10 @@ Every positive fixture has a foil, so no assertion can pass by the classifier be
   accepts modifiers — the two predicates disagreeing is the leak surviving in a spelling nobody
   looked at. **It also catches the weaker repair an ENUMERATED criterion would have accepted:** a
   hand-written stop-list covering only the rows the criterion happens to name. Spec round 1 probed
-  exactly that hole — `describe.for`, `describe.sequential` and `describe.concurrent.each` each
-  retain the wrong sibling verdict today, and a four-row fixture list would have passed an
-  implementation that still leaked all three.
+  exactly that hole; the probe record's Instrument 3 then measured the whole population both ways — all eight single spellings
+  plus one compound chain leak on the unrepaired tree and are closed by the repair, with `inA`
+  holding as the foil in every row. A four-row fixture list would have passed an implementation that
+  still leaked the rest.
 - **AC-6 — every hook registrar, DERIVED from the matcher.** The four names live in a regex literal
   inside `hookBodies` (`tests/mutation/source/premiseScan.ts:1834`); they are lifted to an exported
   list the regex is BUILT FROM, and the fixtures are generated from that list, one per member as the

@@ -12,6 +12,8 @@ transcript is never corrected and never compared against later prose.
 | the leak shape has zero occurrences | every `describe` in every enrolled suite | `GUARD_SURFACES.flatMap(s => s.suitePaths)`, de-duplicated | YES — 62 entries, 405 `describe` sites |
 | the repair moves no verdict | every enrolled suite's declared count | `tests/mutation/_metaPremiseContract.test.ts` walks the registry itself | YES |
 | the repair moves no fixture but the pin | every case in the deciding suite | `tests/mutation/source/premiseScan.test.ts`, 300 cases | YES |
+| every describe spelling leaks, and the repair closes every one | plain + all seven `MODIFIERS` members + one compound chain | generated from `MODIFIERS` (`tests/mutation/source/premiseScan.ts:48`) | YES — 9 forms, before and after |
+| modifier chains of length 3 or more | — | not walked | NO — `registrarRoot`'s loop is uniform in depth, so the 2-modifier case exercises the same path |
 | suites outside the registry | — | not walked | NO — outside the probe domain by declaration |
 
 ## Instrument 1 — leak-shape population (re-implementation, corroborating)
@@ -59,10 +61,58 @@ Test Files  1 failed (1)
      Tests  1 failed | 299 passed (300)
 ```
 
+## Instrument 3 — every describe spelling, before and after (AC-5's premise)
+
+Nine nested-registrar spellings, each with a spawning `beforeEach` in branch A and a pure test in
+sibling B under a shared outer `describe`. `describe.each` and `describe.for` use the curried form;
+`describe.concurrent.each` is the compound chain `registrarRoot`'s modifier loop
+(`tests/mutation/source/premiseScan.ts:73`) accepts and a single-modifier set never reaches. Each
+case writes a fresh module tree under `mkdtempSync` and calls
+`classifyTests(root, "tests/probe.test.ts")`.
+
+The scanner is LEXICAL, so `describe.todo("A", () => { … })` is a real case here even though Vitest
+never runs that body: `hookBodies` sees the hook regardless of runtime semantics.
+
+Before the repair — every spelling leaks:
+
+```text
+plain            inA=environment-touching  inB=environment-touching
+each             inA=environment-touching  inB=environment-touching
+for              inA=environment-touching  inB=environment-touching
+skip             inA=environment-touching  inB=environment-touching
+only             inA=environment-touching  inB=environment-touching
+concurrent       inA=environment-touching  inB=environment-touching
+sequential       inA=environment-touching  inB=environment-touching
+todo             inA=environment-touching  inB=environment-touching
+concurrent.each  inA=environment-touching  inB=environment-touching
+```
+
+After the repair — every spelling closed, and `inA` holds in every row, which is the foil:
+
+```text
+plain            inA=environment-touching  inB=environment-free
+each             inA=environment-touching  inB=environment-free
+for              inA=environment-touching  inB=environment-free
+skip             inA=environment-touching  inB=environment-free
+only             inA=environment-touching  inB=environment-free
+concurrent       inA=environment-touching  inB=environment-free
+sequential       inA=environment-touching  inB=environment-free
+todo             inA=environment-touching  inB=environment-free
+concurrent.each  inA=environment-touching  inB=environment-free
+```
+
+Coverage: the eight single spellings are `plain` plus every member of `MODIFIERS`
+(`tests/mutation/source/premiseScan.ts:48`); the ninth is one compound chain. Chains of length
+three or more are not walked and are not claimed — `registrarRoot`'s loop is uniform in depth, so
+the two-modifier case exercises the same code path.
+
+
 ## Conclusions, each bounded to what was walked
 
 1. Exact-count equality in `_metaPremiseContract` holds under the repair. The criterion amended
    AC-1 installed is unmoved.
 2. Exactly one fixture changes verdict, and it is the pin that exists to record the leak.
-3. Nothing is claimed about suites outside `GUARD_SURFACES.suitePaths`; they are not walked, and
+3. Every `describe` spelling the caller recognizes leaks today and is closed by the repair, with
+   branch A holding as the foil in all nine rows. AC-5's claim is measured rather than asserted.
+4. Nothing is claimed about suites outside `GUARD_SURFACES.suitePaths`; they are not walked, and
    the probe domain excludes them by declaration.
