@@ -194,6 +194,34 @@ not triggered.
 None. No visual state is added or changed — no `AnimatePresence`, no `exit`/`initial`/`animate`
 props, no conditional render change.
 
+## §4 Documented limits
+
+1. **A suite body reached through an expression OUTSIDE TypeScript's outer-expression grammar is
+   walked as an eager argument, and the nested branch's hooks reach its siblings.** `isSuiteBody`
+   unwraps parentheses, `as`, `satisfies`, non-null and type assertions — the closed set of node
+   kinds that wrap an expression without changing what runs. A comma expression whose right operand
+   is the callback (`describe("A", (sideEffect(), () => { … }))`) evaluates to that function at
+   runtime, but is a `BinaryExpression` after unwrapping, so the walk treats it as eager.
+
+   **Declined rather than fixed, and the reason is the rule rather than the effort.** This is the
+   THIRD consecutive review round on one axis — the stop's argument handling — after the eager
+   arguments (round 2) and the wrapped bodies (round 4). Each earlier repair grew the recognizer by
+   one grammar feature, and AGENTS.md's same-axis recurrence rule says the class-level answer is
+   narrowing or a documented limit, never another grammar case: each widening is a bigger target for
+   the next round.
+
+   **Probed, and the population is zero.** Across the 62 enrolled suites, 411 `describe` sites carry
+   **0** comma-expression arguments. The form is also outside the threat fence — nobody writes a
+   comma expression as a suite body by accident — and the worst case is the CONSERVATIVE direction:
+   the sibling reads `environment-touching`, so a test is told to carry a premise it does not need.
+   Loud and wasteful, never a silent free. That is precisely the shape §1.2's consequence bound
+   admits as a documented limit.
+
+   **Un-defer trigger:** a comma-expression or other non-outer-expression suite body appearing in an
+   enrolled suite, or a decision to give `hookBodies` a third answer — cannot-classify, reported
+   rather than guessed — which is a design change to the scanner's reporting channel and belongs to
+   its own arc.
+
 ## §5 Meta-test / registry inventory
 
 - **EXTENDS** `tests/mutation/source/premiseScan.test.ts`, in four separate fixture classes — the
