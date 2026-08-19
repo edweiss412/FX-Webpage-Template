@@ -62,9 +62,10 @@ recognize one (`registrarRoot`, `tests/mutation/source/premiseScan.ts:68`):
     if (n !== describeCall && ts.isCallExpression(n) && registrarRoot(n.expression) === "describe")
       return;
 
-Three lines — but the repair is NOT three lines, and round 1's derived-cover findings are why. The
-stop is three lines; AC-5 and AC-6 additionally require production edits, enumerated in §2.1 so no
-reader takes the stop for the whole diff. The outer describe's OWN hooks are unaffected: they are direct children of the outer
+Three lines, and one more edit beyond them: the dedup AC-6 needs. §2.1 enumerates both, so no reader
+takes the stop for the whole diff — and it enumerates ONLY those two, because the exports an earlier
+draft added for AC-5 and AC-6 are deleted from the design (§2.1). The outer describe's OWN hooks are
+unaffected: they are direct children of the outer
 call, collected before the check fires, and the caller carries them to every descendant. That
 non-regression is AC-4, and it is the assertion that stops the repair from over-narrowing.
 

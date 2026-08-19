@@ -26,26 +26,28 @@ cite it.
 
 ## The implementation surface, stated whole
 
-Round 1's derived-cover repair moved this beyond a one-line change, so it is enumerated rather than
-described as "three lines":
+Two production edits, and no more:
 
 1. **The stop** in `hookBodies` (`tests/mutation/source/premiseScan.ts:1834`) — three lines.
-2. **`hookBodies` stops carrying its own copy of the registrar set.** `HOOK_REGISTRARS` already
-   exists as a regex at `tests/mutation/source/premiseScan.ts:66` and is consumed by the top-level
-   hook seed at `tests/mutation/source/premiseScan.ts:1758`; `hookBodies` at
-   `tests/mutation/source/premiseScan.ts:1840` carries a SECOND, textually identical regex
-   literal. AC-6's derivation is only meaningful if both matchers are one, so `hookBodies` is
-   changed to use the existing constant and the duplicate literal is deleted.
-3. **Two exported name lists**, so the fixtures can be generated from the matcher instead of typed
-   beside it: the registrar names that `HOOK_REGISTRARS` is BUILT FROM, and `MODIFIERS`
-   (`tests/mutation/source/premiseScan.ts:48`), today module-local.
+2. **The dedup.** `HOOK_REGISTRARS` already exists as a regex at
+   `tests/mutation/source/premiseScan.ts:66` and is consumed by the top-level hook seed at
+   `tests/mutation/source/premiseScan.ts:1758`; `hookBodies` at
+   `tests/mutation/source/premiseScan.ts:1840` carries a SECOND, textually identical literal.
+   `hookBodies` is changed to use the existing constant and the duplicate is deleted. Introducing a
+   NEW exported symbol under that name would collide with the live one, which is why this is a dedup
+   rather than an addition.
 
-4. **A structural identity test** — a new suite, `premiseScanMatcherIdentity`, beside the deciding
-   one — pinning that exactly one registrar-name literal survives. It is what makes item 2 assertable: the
-   behavioural cases cannot express it, because the four registrars are already covered.
+**Nothing is exported for a test's benefit.** An earlier draft added two exported name lists so the
+derived fixtures could import them; spec rounds 4, 5 and 6 each found that surface producing a
+production edit ordered ahead of its red, and round 6 named the rule that closes it — a red whose
+failure is an unresolved import goes green when the TEST changes rather than when the implementation
+lands (`docs/agents/writing-plans.md:15`). Per the same-axis recurrence rule in AGENTS.md the repair
+is NARROWING, so those exports are deleted from the design; the derived covers read the scanner's
+SOURCE through the TypeScript AST instead, which is what the structural identity assertion already
+does. Every red below therefore fails for a scanner reason.
 
-Items 2 and 3 are production edits to an enrolled guard surface. Task 5 re-runs the mutation gate
-over them; that is the accepted cost of the derivation, not a hidden one.
+Both edits are on an enrolled guard surface, so Task 5's gate run is not a formality — the mutant
+population moves.
 
 ## Global constraints
 
@@ -209,9 +211,10 @@ so the assertion reads the source. Nothing is exported for it, for the reason Ta
 authored red: this task's command must be GREEN, and a task whose contract is "stay green" does not
 belong in a red-contract region.
 
-- [ ] **Step 1: run the gate.** `pnpm heavy pnpm mutation:guards`. Tasks 2 and 4 added exported
-      symbols and deleted a duplicated literal on an enrolled surface, so the mutant population
-      moves and this run is not a formality.
+- [ ] **Step 1: run the gate.** `pnpm heavy pnpm mutation:guards`. Tasks 2 and 4 changed control
+      flow in `hookBodies` and deleted a duplicated literal on an enrolled surface, so the mutant
+      population moves and this run is not a formality. No symbol was exported, so no new surface
+      enters the registry.
 - [ ] **Step 2: dispose of every survivor.** A survivor is repaid with a test or argued
       `equivalent` in the registry with its reasoning. Any `siteId` re-key is DERIVED from the
       failing run's own output, never hand-edited by line number.
