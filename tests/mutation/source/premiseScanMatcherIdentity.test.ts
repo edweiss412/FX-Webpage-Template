@@ -13,7 +13,7 @@ import { premise } from "../../_shared/premise";
  * and `hookBodies` carried a SECOND, textually identical regex literal. Two
  * matchers where the design assumes one is a drift the behavioural fixtures
  * cannot detect: all four registrars are already covered by enumerated cases
- * (premiseScan.test.ts:2929, :2955), so editing either matcher reds those
+ * (premiseScan.test.ts:2932, :2958), so editing either matcher reds those
  * instead. The property is a property of the SOURCE, so it is asserted there.
  *
  * Plan: docs/superpowers/plans/2026-08-19-premisescan-nested-hook-sibling-leak.md

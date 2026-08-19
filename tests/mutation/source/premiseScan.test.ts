@@ -3974,7 +3974,7 @@ describe("AC-4 — an outer describe's OWN hooks still reach every descendant", 
 /**
  * AC-6, behavioural half — every hook registrar, DERIVED from the matcher.
  *
- * These add no coverage the enumerated cases at :2929 and :2955 lack, and they
+ * These add no coverage the enumerated cases at :2932 and :2958 lack, and they
  * are not this task's red; the structural assertion in
  * premiseScanMatcherIdentity is. Their value is that the population is READ
  * from HOOK_REGISTRARS rather than typed beside it, so a fifth registrar is

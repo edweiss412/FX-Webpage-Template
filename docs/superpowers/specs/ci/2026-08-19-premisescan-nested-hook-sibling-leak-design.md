@@ -180,8 +180,8 @@ props, no conditional render change.
      compound chain (`describe.concurrent.each`). Nine cases, generated rather than typed.
   4. AC-6's DERIVED hook-registrar family: one case per name read out of `HOOK_REGISTRARS`.
      These add no coverage the enumerated cases at
-     `tests/mutation/source/premiseScan.test.ts:2929` and
-     `tests/mutation/source/premiseScan.test.ts:2955` lack; their value is that they are derived, so
+     `tests/mutation/source/premiseScan.test.ts:2932` and
+     `tests/mutation/source/premiseScan.test.ts:2958` lack; their value is that they are derived, so
      a fifth registrar is covered by default.
 
   The two foils at `tests/mutation/source/premiseScan.test.ts:2976` and
@@ -242,8 +242,8 @@ Every positive fixture has a foil, so no assertion can pass by the classifier be
   registrar names are read out of `HOOK_REGISTRARS` (`tests/mutation/source/premiseScan.ts:66`) by
   the same AST route, and the fixtures are generated from them, one per member as the nested spawner.
   The criterion's discriminating half is structural rather than behavioural — the four registrars are
-  already covered by enumerated cases at `tests/mutation/source/premiseScan.test.ts:2929` and
-  `tests/mutation/source/premiseScan.test.ts:2955`, so only an assertion that ONE registrar-name
+  already covered by enumerated cases at `tests/mutation/source/premiseScan.test.ts:2932` and
+  `tests/mutation/source/premiseScan.test.ts:2958`, so only an assertion that ONE registrar-name
   literal survives can prove the dedup. Same derivation rule as AC-5, and for the same reason — this is one class, swept
   in one round rather than one member per round. *Catches:* a fixture pair covering only the
   `before*` forms, which reads as complete and leaves half the defect live (the same defect shape

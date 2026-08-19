@@ -175,8 +175,8 @@ if (n !== describeCall && ts.isCallExpression(n) && registrarRoot(n.expression) 
 `tests/mutation/source/premiseScan.test.ts`, `tests/mutation/source/premiseScan.ts`.
 
 **Why the red is structural.** The four registrars are ALREADY covered by enumerated cases at
-`tests/mutation/source/premiseScan.test.ts:2929` and
-`tests/mutation/source/premiseScan.test.ts:2955`, so no behavioural red can prove the DEDUP. The
+`tests/mutation/source/premiseScan.test.ts:2932` and
+`tests/mutation/source/premiseScan.test.ts:2958`, so no behavioural red can prove the DEDUP. The
 defect is that TWO matchers exist where the design assumes one, which is a property of the source,
 so the assertion reads the source. Nothing is exported for it, for the reason Task 2 records.
 
