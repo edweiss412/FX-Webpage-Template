@@ -1424,6 +1424,25 @@ AGENTS.md already says to class-sweep a finding's SHAPE across the code before p
 
 **First scheduled step:** decide which of the two forms to build, then confirm against this arc's own history — replay the R2 and R4 repairs and check that the proposed mechanism flags the claims R4 F3 and R5 F1 later found. A mechanism that does not flag those two is not worth building.
 
+## BL-REVIEWROUND-MERGEDARCS-AT-THE-TIMEOUT-BOUNDARY — the live-history report runs 28s against a 30s cap and every arc pushes it closer
+
+**Status:** OPEN · **Severity:** MEDIUM (a required unit gate; when it reds the merge is blocked and the only remedy is a re-run or an unrelated gate edit) · **Class:** CI reliability · **Effort:** S · **Filed:** 2026-08-19 (`fix/premisescan-nested-hook-sibling-leak`, seen while shipping an unrelated scanner change) · **Facing:** process · **Mint-exception:** invariant · **Class-sweep exception:** (c) — the repair is a change to `lib/reviewRounds/mergedArcs.ts` or to that suite's timeout, a surface this arc does not otherwise touch · **Reachability:** PROBED — same-machine differential, both sides, below.
+
+`tests/reviewRounds/report.test.ts:1262` walks every first-parent merge on `main` through `mergedArcs` (`lib/reviewRounds/mergedArcs.ts:42`) and compares the result against the live log. The walk costs about 28 seconds against Vitest's 30-second per-test cap on the `parallel` project. The margin is ~2 seconds and it SHRINKS with every merge the repository accumulates, so whether the gate is green is a property of the calendar rather than of the tree.
+
+**Incident:** this arc. The suite passes on `origin/main` and TIMES OUT on the branch, three runs out of three, `Test timed out in 30000ms`. Same-machine differential, same `node_modules`, `git log` itself is 75ms and returns 824 merges on both sides:
+
+```
+mergedArcs()   origin/main   27863ms, 27738ms   -> test PASSES (41 passed)
+               branch HEAD   29921ms, 29944ms   -> test TIMES OUT
+```
+
+Both figures are stable across repeats, so the ~2.1s delta is signal rather than noise. `recognized=823, unrecognized=1` on BOTH sides — the arc contributes no merge commit, so the extra cost is the corpus rows it adds, not new history. **The tempting reading, that this arc broke something, is wrong in the direction that matters: main is already at 93% of the cap, and ANY arc that adds review-round rows lands on the same edge.**
+
+**Why it is filed rather than fixed here.** The ratified precedent is `BL-PREMISE-CONTRACT-SUITE-AT-THE-TIMEOUT-BOUNDARY` (archived 2026-08-18), whose disposition states it directly: raising a timeout inside an unrelated PR puts a gate edit outside that PR's reviewed surface, class-sweep exception (c). The difference from that row is that main was over the cap there and is UNDER it here, so this one blocks the arc that finds it rather than failing by luck on both sides — which is why the disposition needs an owner rather than a default.
+
+**First scheduled step:** decide which side moves, and the choice is not mechanical. Either give that one case an explicit `testTimeout` above the measured cost with a comment naming the measurement (cheap, honest, leaves the walk's cost invisible and the margin still shrinking), or make `mergedArcs` cheaper — 824 merges at ~34ms each suggests a per-merge subprocess, and batching or memoising it would drop the walk by an order of magnitude and end the class. The second is the better repair; measure before choosing.
+
 ## BL-SPECLINT-ORPHANED-TASK-MARKERS — a plan whose markers sit outside a region lints as `0 hard` while checking nothing
 
 **Status:** OPEN · **Severity:** MEDIUM (no shipped defect; the gate reports a pass over an empty set, which is the failure mode `spec:lint` exists to prevent) · **Class:** spec-lint grammar / review tooling · **Effort:** S · **Filed:** 2026-08-19 (`fix/premisescan-nested-hook-sibling-leak`, spec review R2 F1) · **Facing:** process · **Class-sweep exception:** (c) — the repair is an arm inside `lib/specLint/`, a surface this arc does not otherwise touch · **Reachability:** PROBED — the reviewer's own probe reproduces, and both figures come from data the linter already computes.
