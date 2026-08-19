@@ -1862,14 +1862,40 @@ function hookBodies(describeCall: ts.CallExpression): ts.Node[] {
       registrarRoot(n.expression) === "describe"
     ) {
       if (ts.isCallExpression(n.expression)) for (const a of n.expression.arguments) walk(a);
-      for (const a of n.arguments)
-        if (!ts.isArrowFunction(a) && !ts.isFunctionExpression(a)) walk(a);
+      for (const a of n.arguments) if (!isSuiteBody(a)) walk(a);
       return;
     }
     ts.forEachChild(n, walk);
   };
   walk(describeCall);
   return out;
+}
+
+/**
+ * The registration argument that IS the nested suite's body.
+ *
+ * Tested through TypeScript's outer-expression grammar rather than on the
+ * argument node itself: `(fn)`, `fn as T`, `fn satisfies T`, `fn!` and a type
+ * assertion are all runtime-transparent, so Vitest invokes the same callback
+ * with the NESTED suite current. Reading only a bare arrow or function
+ * expression let a wrapped body be walked as if it were an eager argument,
+ * which put the nested branch's hooks back on its siblings (diff round 4).
+ *
+ * The accept-set is CLOSED by that grammar -- these are the node kinds that
+ * wrap an expression without changing what runs -- rather than grown one
+ * spelling at a time.
+ */
+function isSuiteBody(arg: ts.Expression): boolean {
+  let node: ts.Node = arg;
+  while (
+    ts.isParenthesizedExpression(node) ||
+    ts.isAsExpression(node) ||
+    ts.isSatisfiesExpression(node) ||
+    ts.isNonNullExpression(node) ||
+    ts.isTypeAssertionExpression(node)
+  )
+    node = node.expression;
+  return ts.isArrowFunction(node) || ts.isFunctionExpression(node);
 }
 
 /** The producer argument of `describe.each(<producer>)(...)`, if any. */

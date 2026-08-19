@@ -4087,3 +4087,41 @@ describe("a hook in a nested registration's EAGER arguments belongs to the paren
     expect(all.find((t) => t.testName === "inB")?.verdict).toBe("environment-free");
   });
 });
+
+describe("a nested body wrapped in a transparent expression is still a BODY", () => {
+  // Diff review r4, BLOCKING. The body test was `isArrowFunction || isFunctionExpression`
+  // on the argument node itself, so any runtime-transparent wrapper -- parentheses,
+  // `as`, `satisfies`, `!`, a type assertion -- made the argument something else and
+  // the walk descended into the body, recreating the sibling leak the arc exists to
+  // close. All of these invoke the callback with the NESTED suite current, so the
+  // hook inside does NOT run for the sibling.
+  //
+  // The accept-set is closed by TypeScript's own outer-expression grammar rather than
+  // grown case by case: these are exactly the node kinds that wrap an expression
+  // without changing what runs.
+  const WRAPPED_BODIES: Record<string, string> = {
+    parenthesized: '(() => { beforeEach(() => { spawnHelper(); }); it("inA", () => {}); })',
+    parenthesizedFunction:
+      '(function () { beforeEach(() => { spawnHelper(); }); it("inA", () => {}); })',
+    asExpression:
+      '((() => { beforeEach(() => { spawnHelper(); }); it("inA", () => {}); }) as () => void)',
+    satisfiesExpression:
+      '((() => { beforeEach(() => { spawnHelper(); }); it("inA", () => {}); }) satisfies () => void)',
+    nonNull: '((() => { beforeEach(() => { spawnHelper(); }); it("inA", () => {}); })!)',
+  };
+
+  for (const [form, body] of Object.entries(WRAPPED_BODIES)) {
+    it(`a ${form} nested body keeps its hook off the sibling`, () => {
+      const all = classificationsWithModules(
+        OUTER_HOOK_HELPER,
+        `import { spawnHelper } from "__MODULE_helper__";
+         describe("outer", () => {
+           describe("A", ${body});
+           describe("B", () => { it("inB", () => {}); });
+         });`,
+      );
+      expect(all.find((t) => t.testName === "inA")?.verdict).toBe("environment-touching");
+      expect(all.find((t) => t.testName === "inB")?.verdict).toBe("environment-free");
+    });
+  }
+});

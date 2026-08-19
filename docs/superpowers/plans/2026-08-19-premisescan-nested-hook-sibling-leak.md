@@ -136,8 +136,7 @@ if (n !== describeCall && ts.isCallExpression(n) && registrarRoot(n.expression) 
   // current, so a hook written there registers on US and runs for our
   // other tests.
   if (ts.isCallExpression(n.expression)) for (const a of n.expression.arguments) walk(a);
-  for (const a of n.arguments)
-    if (!ts.isArrowFunction(a) && !ts.isFunctionExpression(a)) walk(a);
+  for (const a of n.arguments) if (!isSuiteBody(a)) walk(a);
   return;
 }
 ```
