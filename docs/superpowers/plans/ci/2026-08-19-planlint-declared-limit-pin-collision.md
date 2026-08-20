@@ -170,6 +170,7 @@ because "the arm draws nothing here" is the claim a future widening would quietl
 | Declined shape | Spec | Assert |
 | --- | --- | --- |
 | a test-shaped line inside a MULTI-LINE ordinary string | §3.1 item 3 | no pin |
+| a `\\` escape in a title | §3.1 item 2 | decodes to ONE backslash — its own case, since a decoder handling only quote, newline and tab passes every other case here |
 | `describe(` title | §2.3 | no pin |
 | `test.each(` / `it.each(` | §8 item 3 | no pin |
 | template-literal title | §8 item 4 | no pin |
@@ -249,7 +250,9 @@ fails any implementation using `String.prototype.includes` on the raw path.
 - [ ] **Step 1: Write the failing suite.** Extent cases, grain cases, fence-inertness, second block,
       indented continuation line, and a path naming three surfaces (the live
       `tests/docs/_metaReviewRoundEconomy.test.ts` shape). Plus the three shapes spec round 1 added,
-      each with the live input that motivated it: paths INLINE on the header line (the
+      each with the live input that motivated it, plus a PREFIXED-path case (`archive/` prepended to a
+      live entry) which an implementation checking only the character AFTER the match wrongly reads as
+      the enrolled surface: paths INLINE on the header line (the
       `docs/superpowers/plans/2026-08-09-m-wave-2/plan.md` shape, whose missed advisory was the
       finding); an ORDERED run after the header, which is declined so its numbered task steps cannot
       name a surface (spec §8 item 11); and a delimited-token match, where appending `.bak` to a live
@@ -290,17 +293,49 @@ Implements spec §3.3 and §3.4.
 
 **What is red and why:** `checkDeclaredLimitPins` does not exist; Tasks 1-2 produce data, not findings.
 
-**The fail-open case is the point of this task.** A resolver returning `null` for a `suitePath` must
-produce `DECLARED_LIMIT_PIN_SUITE_UNREADABLE`, not an empty pin list that reads as "no pins here". The
-test uses a fake resolver returning `null` for exactly one of two suites and asserts BOTH that the
-advisory fires for that suite AND that the other suite's pins still report — so an implementation that
-bails out of the whole surface on one unreadable suite fails.
+**The fail-open closure is the point of this task, and it has THREE channels** (spec §3.4). Only one is
+visible through `readFileLines`:
 
-**Anti-tautology.** The dedup case constructs one pin reachable through two surfaces and asserts
-exactly one finding; an implementation iterating surfaces without deduplicating passes every other
-case. The title-substring case — TITLE matching, which stays a verbatim substring test (spec §8 item 7); PATH matching is delimited-token since round 1, and the two must not be conflated — constructs a pin whose title is a proper substring of a longer title present
-in the plan, and asserts the longer title's presence does NOT satisfy the shorter pin unless it
-literally contains it. Severity is asserted over every emitted finding, not sampled.
+1. `readFileLines` returns `null` — unreadable or a symlink.
+2. The `suitePath` is absent from `listTrackedFiles()`. The read seam is TRACKING-BLIND: it resolves any
+   file on disk, so an untracked suite reads fine and reports "no pins" with nothing saying the tree and
+   the index disagree. Its fixture uses a resolver whose read SUCCEEDS and returns real pin-bearing
+   text — an implementation resting on `readFileLines` alone passes channel 1 and fails only this.
+3. Preparation reports PARSE DIAGNOSTICS. The fixture must be the UNTERMINATED-COMMENT one specifically:
+   a generic syntax error passes whether diagnostics were taken from the raw text or the stripped text,
+   and only an unterminated `/*` discriminates, because stripping consumes it to EOF and yields a clean
+   parse (spec §3.1).
+
+**All three channels assert the OTHER suite's pins still report.** The parse channel needs this most and
+is likeliest to lack it: live surfaces have several suites and the pins are often in the later one —
+`reviewRoundCount` names `tests/reviewRounds/count.test.ts` AND `tests/docs/_metaReviewRoundEconomy.test.ts`,
+and both of that surface's pins are in the second. An implementation that `return`s from the SURFACE on
+a parse failure, while correctly continuing for channels 1 and 2, passes every other fixture here and
+silently suppresses a live pin. So the parse fixture pairs an unparseable FIRST suite with a pin-bearing
+SECOND and asserts BOTH the advisory and the pin.
+
+**Weaker implementation to kill: an arm that emits the unreadable advisory unconditionally.** It
+satisfies all three channel cases, so the discriminating case is the negative one — a healthy suite
+(tracked, readable, parseable) draws NO `DECLARED_LIMIT_PIN_SUITE_UNREADABLE`, asserted directly rather
+than inferred from other cases passing.
+
+**Decoding, the other half of Task 1's pair.** A plan naming the DECODED title draws nothing; a plan
+naming the SOURCE spelling of the same title draws the advisory. Either assertion alone is satisfiable
+by an implementation carrying the raw capture end to end. The pair names exactly ONE of the two
+spellings in the plan — naming both silences both and proves nothing. A decoded NEWLINE title named
+across two plan lines and a decoded TAB title named within one line each draw nothing (spec §8 item 13);
+both fail a per-line obligation matcher, which is the implementation they exist to reject.
+
+**Fixture neutralization (spec §6): the dedup case needs a partner.** "One pin reachable through two
+surfaces draws ONE finding" is ALSO satisfied by an implementation that ignores surfaces entirely and
+reports per pin. Pair it with a TWO-DIFFERENT-PINS-on-two-surfaces case expecting TWO findings; only an
+implementation that tracks surfaces AND deduplicates passes both.
+
+**Anti-tautology.** The title-substring case is about TITLE matching, which stays a verbatim substring
+test (spec §8 item 7) — PATH matching has been a delimited-token test since round 1 and the two must not
+be conflated. It constructs a pin whose title is a proper substring of a longer title present in the
+plan and asserts the longer title's presence does NOT satisfy the shorter pin unless it literally
+contains it. Severity is asserted over EVERY emitted finding, not sampled.
 
 - [ ] **Step 1: Create the STUB** (`checkDeclaredLimitPins` returning `[]`), then write the failing suite.
 - [ ] **Step 2: Observe red AND CONFIRM THE REASON.** Run
@@ -521,8 +556,13 @@ all of them while the false-advisory class survives at the boundary where it act
 cannot catch it either: the arm is advisory-only, so the dogfood lint is green whether or not the arm
 ever ran.
 
-The fixture pair holds one LIVE pin and a second, **differently titled**, wrapped in `/* … */`. The
-shipped CLI must emit exactly ONE advisory, naming the live pin.
+The fixture holds one LIVE pin plus ONE DECOY PER PREPARATION CHANNEL, each **differently titled**:
+inside `/* … */`, inside a template literal, and inside a multi-line ordinary string. The shipped CLI
+must emit exactly ONE advisory, naming the live pin. A single comment decoy would certify only the
+comment channel — an adapter blanking comments but not templates passes it and every pure test — so the
+decoy set IS the §3.1 channel list and grows with it. A SECOND run, over an unparseable fixture suite,
+asserts the unreadable advisory appears: a strip-then-parse adapter cannot be caught by a core-level
+fixture that merely injects a status.
 
 **The two titles must differ, and this is the fixture's whole discriminating power.** With identical
 titles both pins share a `(path, title)` identity, §3.3's dedup collapses them, and an adapter that
