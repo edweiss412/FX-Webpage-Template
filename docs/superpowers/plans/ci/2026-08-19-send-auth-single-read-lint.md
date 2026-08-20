@@ -30,6 +30,18 @@ either points at a surviving spec section or is new.
   must not read as green.
 - **Findings are data, not strings.** Every finding is a typed record with `code`, `file`, `line`, and
   the method or callee it names; assertions compare records by equality, never a rendered substring.
+- **A finding's IDENTITY includes the named callee or method, and NOTHING is deduplicated.** Two
+  findings that share a code, a file and a line but name different callees are DISTINCT and must both
+  survive to the assertion. This is not hypothetical: the round-4 fixture emits exactly that pair —
+  `RAW-HANDOFF` twice on one line, once for `observe()` and once for `cacheOf()` — so an implementation
+  that keys a set on `code:file:line`, which is the natural way to write a dedup, collapses them and
+  reports one. The scanner performs no dedup, no collapsing and no ordering guarantee, and the plan
+  specifies none: a cross-finding rule is exactly what can neutralize a fixture that is sound in
+  isolation, because it operates BETWEEN findings rather than within one.
+- **Assertions over multi-finding fixtures are ORDER-INDEPENDENT.** Compare sorted records or a set of
+  records, never a positional array. Two findings on the same line have no natural order, so a
+  positional assertion either flakes or passes by luck — and passing by luck is the failure mode the
+  whole fixture set exists to exclude.
 - **Silence is never a certificate.** Every task adding a classification adds, in the same commit, the
   fixture proving the UNCLASSIFIED form is REPORTED rather than dropped (spec §0).
 - **Heavy-phase discipline.** `pnpm mutation:guards` is a MUST-WRAP command: it runs as
@@ -301,6 +313,7 @@ about a property it never tested.
 | A derivation exempts its READS, not its subtree | Skip the whole initializer subtree | `{ ...ch, leaked: inspect(ch) }` — a raw handoff INSIDE the initializer must still report `RAW-HANDOFF` | T5 |
 | Import discovery follows the SYMBOL | Compare the local import name | `import type { Channel as Alias }` — an aliased import must still be discovered | T6 |
 | A marker in JSX is not a declaration | Recognize comments in TypeScript only | The impostor fixture is `.tsx`, so a TS-only comment recognizer cannot pass it | T2 |
+| Same-line findings stay distinct | Dedup on `code:file:line` | The round-4 fixture's two `RAW-HANDOFF` findings share a line and differ only by callee; both must survive | T5 |
 
 **Round 4 found six more instances of this class, and they are recorded above rather than paraphrased.**
 The cover as first derived was incomplete in a specific way worth naming: it enumerated weaker
