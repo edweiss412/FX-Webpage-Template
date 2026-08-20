@@ -651,6 +651,18 @@ green, the tests are real, and the only symptom is a score that will not move fo
 cannot see. So if a later task wants a second file, it is added to `suitePaths` in the same commit or
 the assertions do not count.
 
+**A surviving mutant of the weaker-implementation shape is BLOCKING, and may NOT be accepted.** This
+is a hard acceptance condition on this task, not a preference. The registry allows an
+`accepted-gap` row with an argument, and that mechanism is legitimate for a mutant whose kill would
+require machinery out of proportion to the risk. **It is NOT available here.** If a surviving mutant
+demonstrates that a weaker implementation passes the suite — a node kind unexamined, a comment syntax
+unrecognized, an import form unfollowed, an exemption reaching further than the rule states — the
+repair is a fixture and a code change, and the mutant must end up KILLED. Writing an `accepted-gap`
+row against one of those is the one move that would silently re-open the class this arc spent four
+plan rounds bounding, and it would do so wearing a machine-checked veneer. `equivalent` is likewise
+unavailable for that shape: a mutant that changes which inputs the scanner classifies is not
+behaviour-preserving by definition.
+
 Then, and BEFORE the round-1 diff dispatch: `FX_HEAVY_PRIORITY=1 pnpm heavy pnpm mutation:guards`.
 
 **How to scope it, corrected against the `mutation:guards` script definition in the repo manifest.** `-t` does not bound the gate, because
@@ -729,6 +741,29 @@ live tree while drafting this plan.
 5. Real CI green, then `gh pr merge --merge`, then fast-forward local `main` and verify
    `git rev-list --left-right --count main...origin/main` reports `0  0`.
 
+## Deferred verification — the residual class, and the gate that owns it
+
+**This is a deferred verification with a named mechanical owner, NOT a documented limit.** The
+distinction is load-bearing and should survive into the handoff: a documented limit says nobody will
+check this. Here somebody will.
+
+**The class.** "A weaker implementation passes my fixtures." Plan rounds 2, 3 and 4 each surfaced
+instances; the derived cover above enumerates every one found, first at the level of each rule and then
+at the level of the analysis primitives the rules are built from. **A seventh weakness probably
+exists.** Four rounds bounded the class; none of them proved it empty, and no reading of a fixture
+table can.
+
+**Its acceptance test is mechanical and one stage downstream.** Task 8 enrols `sendAuthScan` in the
+source-mutation registry, and a surviving mutant IS the sentence "a weaker implementation passes my
+fixtures", machine-computed over a closed operator set applied to a finite program. The closable
+criterion is the mutation score plus an EMPTY unaccepted-survivor set. That is why this arc stops
+paying plan rounds against the class: enumeration over weaker implementations does not terminate, and
+the mutation gate does.
+
+**Where the seventh weakness is expected to surface: at Task 8, as a surviving mutant.** It is expected
+there, it is BLOCKING when it appears (see Task 8's acceptance condition), and it is repaired with a
+fixture and a code change rather than absorbed by an `accepted-gap` row.
+
 ## Peer filings owed in the graduation commit
 
 Both rows land in the SAME ledger commit that archives `BL-SEND-AUTH-SINGLE-READ-LINT`. Filing peers
@@ -768,6 +803,11 @@ both FAIL `RED_COLLECTS_NOTHING`; both `pnpm heavy` forms are silent. So neither
 ## 12. Closeout
 
 impeccable-gate: N/A — no UI surface
+
+**Merge condition carried from the plan review's disposition:** an unaccepted survivor of the
+weaker-implementation shape at Task 8 is a BLOCKING defect requiring repair. It may not be closed with
+an `accepted-gap` or `equivalent` registry row. The residual class is a deferred verification owned by
+that gate, not a documented limit — see the deferred-verification section above.
 
 The diff touches `tests/**`, `scripts/pane-compaction.ts` (one comment line) and `BACKLOG.md`. No file
 under `app/` or `components/`, no `@theme` token block, no change to `DESIGN.md` or a tailwind config,

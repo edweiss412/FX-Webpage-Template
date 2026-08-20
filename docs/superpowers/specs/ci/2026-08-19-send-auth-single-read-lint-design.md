@@ -473,7 +473,10 @@ Supabase client call. **DB layers:** N/A — no migration, no RPC, no CHECK.
   walk resolved at least one module (`tests/_shared/premise.ts`), so an empty registry or a mis-rooted
   walk cannot report green.
 - **AC-12** `pnpm mutation:guards` scores `sendAuthScan` with zero unaccepted survivors; the row's
-  `scoreFloor` records the measured value and every accepted survivor carries its argument.
+  `scoreFloor` records the measured value and every accepted survivor carries its argument. A survivor
+  demonstrating that a WEAKER IMPLEMENTATION passes the suite — an unexamined node kind, an
+  unrecognized comment syntax, an unfollowed import form, an exemption reaching past its rule — is
+  BLOCKING and must end up KILLED; neither `accepted-gap` nor `equivalent` is available for that shape.
 - **AC-13** The ledger row's stale `adapter.test.ts` claim is corrected to what that file asserts, and
   names `tests/paneCompaction/revalidate.test.ts:121` as the contract that does pin an ordering case.
 - **AC-14** Discovery is anchored on SINKS, not effects: a function whose only effect calls are `out`
