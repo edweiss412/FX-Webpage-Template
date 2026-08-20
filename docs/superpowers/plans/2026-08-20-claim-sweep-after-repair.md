@@ -220,9 +220,9 @@ Run over the nine tasks as they stand:
 
 | Task | red command runs | the edit that turns it green | deliverable? |
 | --- | --- | --- | --- |
-| 1 | its new suite | creates `claimSweep.ts` | yes |
-| 2 | its new suite | the refusal branch in `claimSweep.ts` | yes |
-| 3 | its new suite | the named half in `claimSweep.ts` | yes |
+| 1 | its new suite | creates the arm's module | yes |
+| 2 | its new suite | the refusal branch in the arm | yes |
+| 3 | its new suite | the named half in the arm | yes |
 | 4 | its new suite | the fourth code's branch | yes |
 | 5 | its new suite | the declared swept set | yes |
 | 6 | its new suite | the exported code list and the reconciliation | yes |
