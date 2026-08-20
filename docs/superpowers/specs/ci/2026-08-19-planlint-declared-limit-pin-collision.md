@@ -101,10 +101,23 @@ Running the shipped rules (§3) over the plan corpus enumerated by `git ls-files
 
 **3 plans draw an advisory; 5 advisories total**, at the §2 baseline.
 
+The SET, as `(plan, suitePath, title)` triples — written out in full because a count is not an oracle. A
+test given only plan names and counts can be satisfied by a title substitution within the same plan and
+suite, and a test that captures whatever the implementation produced is tautological. These are the
+values §6's corpus case asserts against:
+
 ```
-docs/superpowers/plans/2026-07-19-spec-lint.md             2  (numerics.test.ts)
-docs/superpowers/plans/2026-08-04-review-round-economy.md  2  (_metaReviewRoundEconomy.test.ts)
-docs/superpowers/plans/2026-08-09-m-wave-2/plan.md         1  (interactionTimingScan.test.ts)
+docs/superpowers/plans/2026-07-19-spec-lint.md
+  tests/specLint/numerics.test.ts
+    "an irregular plural is NOT singularized — documented limit, not a wrong flag"
+    "the wedge-remeasure anchor pair stays SILENT — the arm's documented limit (spec §3.3)"
+docs/superpowers/plans/2026-08-04-review-round-economy.md
+  tests/docs/_metaReviewRoundEconomy.test.ts
+    "PASSES a stale none followed by candidate lines - documented limit §5.7"
+    "does NOT resolve an id defined only as a body sub-item - the documented limit"
+docs/superpowers/plans/2026-08-09-m-wave-2/plan.md
+  tests/docs/interactionTimingScan.test.ts
+    "a COMPUTED key is a documented limit, not a site"
 ```
 
 Round 3's narrowing removed two of the five plans measured before it. Both were BLANK-GAP absorptions —
@@ -300,7 +313,7 @@ machinery, and the assertion is the exact SET rather than emptiness:
 
 | Negative case | Paired positive, in the same input and the same run |
 | --- | --- |
-| each decline shape (`describe(`, `.each`, template, multi-line literal, comment, second argument, multi-line ordinary string) | the same fixture file carries a LIVE pin, and the assertion is that the pin set equals exactly that one pin — an arm returning empty fails |
+| each decline shape (`describe(`, `.each`, template, multi-line literal, comment, second argument, multi-line ordinary string) | IDENTICAL BYTES with the declining feature removed — `describe(` becomes `test(`, the comment markers come off, the template backticks become quotes — and that variant REPORTS. One variable, same machinery |
 | an enrolled path in prose outside every declaration names nothing | the same fixture plan carries a real declaration naming a DIFFERENT enrolled surface, asserted named |
 | a healthy suite draws no `DECLARED_LIMIT_PIN_SUITE_UNREADABLE` | the same run must still report that suite's pins — silence everywhere fails |
 | a dispositioned title draws no pin | the same file's non-dispositioned pin must still report |
@@ -309,6 +322,16 @@ machinery, and the assertion is the exact SET rather than emptiness:
 
 The direction is the point: a weaker implementation falls SILENT where a finding is owed, which is the
 fail-open side, and only a positive expectation can catch it.
+
+**Each pair differs by exactly ONE VARIABLE**, so the clean verdict is ATTRIBUTABLE. Pairing a negative
+with some unrelated positive elsewhere proves only that the suite as a whole works; pairing it with the
+same input minus the one declining feature proves THIS case was reached and decided. A decline that
+passes because the scanner never got there is the failure this discriminates.
+
+**This cover is ORTHOGONAL to the weaker-implementation cover above, and is expected to kill nothing it
+already kills.** The weaker-implementation cover defends against machinery that RAN and decided
+WRONGLY; an expect-CLEAN pair defends against machinery that NEVER RAN AT ALL. Neither can reach the
+other's class, so zero overlap is the evidence they are two covers rather than two spellings of one.
 
 **Second question, asked of every fixture: which rule DECIDES the observation you assert on, and is it
 the rule under test?** If a cross-finding rule can produce your pass condition by a different route, the

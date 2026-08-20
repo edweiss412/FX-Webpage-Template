@@ -112,7 +112,7 @@ phrase-bearing titles: 12 { describe: 3, test: 3, it: 6 } { '"': 12 } | .each fo
 
 $ pnpm tsx .probe/probe4.ts            # grain: Files declaration vs whole document
 closed path set: 100
-plans naming an enrolled path ANYWHERE: 63
+plans naming an enrolled path ANYWHERE: 65
 
 $ pnpm tsx .probe/probe7.ts            # shape census, fence-aware and no-blank-skip
 plans: 666
@@ -288,7 +288,12 @@ fails any implementation using `String.prototype.includes` on the raw path.
       the 100 live enrolled paths, which passes every other case in this suite. The case injects a
       surface whose `sourcePath` and `suitePaths` appear nowhere in `tests/mutation/source/registry.ts`
       and asserts it is named by a fixture plan. Verified synthetic by grepping the registry for the
-      chosen paths at authoring time.
+      chosen paths at authoring time. **The assertion runs to an ADVISORY, not to `namedSurfaces`.**
+      Round 3 caught this and it is an instance the mechanical fixture pass missed: an integration that
+      uses the injected table inside `namedSurfaces` and then ignores or replaces that result downstream
+      passes a naming-only assertion, while Tasks 5 and 7b exercise only REAL enrolled surfaces and so
+      never notice. The case therefore carries a pin on the synthetic surface and asserts
+      `DECLARED_LIMIT_PIN_UNNAMED` for it, end to end through `checkDeclaredLimitPins`.
 - [ ] **Step 3: Implement `namedSurfaces` and the `EnrolledSurface` type.**
 - [ ] **Step 4: Observe green.**
 - [ ] **Step 5: Commit.**
@@ -447,7 +452,7 @@ into `lib/` pass. The purity meta-test is re-run in this task's green step for t
       fails with zero `DECLARED_LIMIT_PIN_UNNAMED` findings against one expected — `runLint` never
       calls the arm. A type error at the new parameter is ALSO an invalid red: fix the signature first.
 - [ ] **Step 3: Thread the table through `runLint`; project `GUARD_SURFACES` in the adapter; PREPARE the
-      **INJECTION ONLY. Preparation is deliberately NOT wired here** — it is the subject of Task 7b's
+      **INJECTION ONLY — no preparation of any kind. Preparation is deliberately NOT wired here** — it is the subject of Task 7b's
       red, and wiring it now would make that test green the moment it is authored, which is the
       per-task red-first violation this ordering exists to avoid. Task 5 ends with the adapter passing
       RAW suite lines and a correctly injected table — `stripCommentsSafely` for comments, parser template ranges for
@@ -533,16 +538,20 @@ git add tests/specLint/__fixtures__/declaredLimitPins tests/specLint/declaredLim
 git commit -m "test(spec-lint): replay the shell-binding pin collision; pin the corpus advisory set"
 ```
 
-<!-- tasks: depth=3 red-contract -->
-
-### Task 7: Mutation enrolment — both declarations, then the scoped run
+### Task 7: Mutation enrolment — both declarations, then the scoped run  (outside the red-contract region)
 
 **Files:**
 
 - Modify: `tests/mutation/source/registry.ts` (one `declaredLimitPins` row)
 - Modify: `tests/mutation/source/expectedLedgerKinds.ts` (its `EXPECTED_LEDGER_KINDS` entry)
 
-<!-- task: red=`VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest run --project mutation tests/mutation/guardSurfaces.gates.test.ts` red-state=authored red-target=`tests/mutation/source/expectedLedgerKinds.ts:24` why=`the corpus gate compares Object.keys(EXPECTED_LEDGER_KINDS) against the registry ids (tests/mutation/guardSurfaces.gates.test.ts:21), so adding the registry row alone leaves the gate red on the missing ledger-kinds entry - the exact half-enrolment this task exists to close, observed after Step 1 adds the registry row and before Step 3 adds the ledger-kinds entry; the gate is GREEN on the pre-implementation tree, so this red is authored by the task rather than live on it` ac=AC-8 -->
+**NOT in a red-contract region, and disclosed rather than dressed as TDD.** This task writes no failing
+CASE. It edits production registry DATA so an already-existing gate goes red, then supplies the second
+half of that same edit. The command is GREEN before Step 1, so `red-state=authored` would be false under
+its governing definition and `red-state=live` equally so. The red-then-green cycle is real and is worth
+performing — it is the task's own evidence that a registry row alone is not enrolment — but it is a
+data-driven cycle, not a test-first one, and claiming otherwise inside the region would assert a
+contract this task does not meet.
 
 Implements spec §7. Enrolment precedes the round-1 diff dispatch.
 
@@ -571,9 +580,20 @@ second declaration. That ordering is the task's own evidence that a registry row
       (`_metaSourceShardIntegrity` pins the shard set byte-for-byte) and confirm that meta-test green.
 
 ```bash
-pnpm heavy pnpm vitest run tests/mutation/guardSurfaces.shard9.test.ts
+# Same excluded shape as the gates file: a bare `vitest run` collects NOTHING here.
+VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy pnpm exec vitest run --project mutation \
+  tests/mutation/guardSurfaces.shard9.test.ts
 rm tests/mutation/guardSurfaces.shard9.test.ts
 pnpm vitest run tests/mutation/_metaSourceShardIntegrity.test.ts
+```
+
+- [ ] **Step 5b: Run the CANONICAL command spec §7 requires before the round-1 diff dispatch.** The
+      scoped shard is a development convenience; the evidence the spec asks for is the whole-registry
+      run, and Task 8's `pnpm test` cannot substitute because the mutation suites are nightly-only
+      exclusions.
+
+```bash
+pnpm heavy pnpm mutation:guards
 ```
 
 - [ ] **Step 6: Repay every survivor with a CASE, or accept it with an argument.** A survivor in the
@@ -586,6 +606,8 @@ pnpm vitest run tests/mutation/_metaSourceShardIntegrity.test.ts
 git add tests/mutation/source/registry.ts tests/mutation/source/expectedLedgerKinds.ts
 git commit -m "test(infra): enrol declaredLimitPins as a guard surface - registry row and ledger kinds"
 ```
+
+<!-- tasks: depth=3 red-contract -->
 
 ### Task 7b: CLI boundary proof — the adapter's preparation
 
@@ -688,9 +710,16 @@ and all seven sit inside a region.
 **Files:**
 
 - Modify: `docs/agents/writing-plans.md` (one sentence under the reconciliation/closeout-sweeps bullet)
-- Modify: `docs/superpowers/specs/README.md` (one row)
+- Modify: `docs/superpowers/specs/ci/README.md` (one row — the `ci/` index, not the parent)
+- Modify: this spec and this plan (Step 4b removes their expired waivers)
 
-- [ ] **Step 1: Record the pre-edit docs-gate verdict.** Run the command above and paste its result.
+- [ ] **Step 1: Record the pre-edit docs-gate verdict.** Run the FULL docs suite — not a single file,
+      because the checks that matter walk the LIVE corpus and a scoped run passes while the branch is
+      red — and paste its result:
+
+```bash
+pnpm heavy pnpm vitest run tests/docs/
+```
 - [ ] **Step 2: Make the doc edits.**
 - [ ] **Step 3: Re-run the docs gates and the dogfood lint.**
 
@@ -713,10 +742,23 @@ pnpm typecheck && pnpm exec eslint lib/specLint scripts/spec-lint.ts tests/specL
 pnpm heavy pnpm test
 ```
 
-- [ ] **Step 5: Commit.**
+- [ ] **Step 4b: Remove every forward-declaration waiver whose reason has expired**, now that Tasks 1-7b
+      have tracked the files they create. Delete each `<!-- spec-lint: ignore -->` whose target now
+      exists, then confirm BOTH documents still lint `0 hard` WITHOUT it — that is the only proof the
+      waiver was load-bearing for nothing. A waiver left behind stops suppressing a forward declaration
+      and starts masking any real citation defect at that line.
 
 ```bash
-git add docs/agents/writing-plans.md docs/superpowers/specs/README.md
+pnpm spec:lint docs/superpowers/specs/ci/2026-08-19-planlint-declared-limit-pin-collision.md
+pnpm spec:lint docs/superpowers/plans/ci/2026-08-19-planlint-declared-limit-pin-collision.md
+```
+
+- [ ] **Step 5: Commit** — the spec and plan are MODIFIED FILES of this task, because Step 4b edits them.
+
+```bash
+git add docs/agents/writing-plans.md docs/superpowers/specs/ci/README.md \
+        docs/superpowers/specs/ci/2026-08-19-planlint-declared-limit-pin-collision.md \
+        docs/superpowers/plans/ci/2026-08-19-planlint-declared-limit-pin-collision.md
 git commit -m "docs: record the declared-limit pin advisory beside the sweep discipline it mechanizes"
 ```
 
