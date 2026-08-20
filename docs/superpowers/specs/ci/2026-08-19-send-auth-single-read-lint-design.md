@@ -520,6 +520,32 @@ Supabase client call. **DB layers:** N/A — no migration, no RPC, no CHECK.
   limit 1. A later edit that starts reporting it would fail this assertion, which is how the fence
   holds in both directions.
 
+- **AC-16** Every shape the population walk cannot reach REPORTS, and each is proven by a case that
+  fails when the arm is removed rather than by an assertion that it exists. A destructured surface
+  parameter reports `UNCLASSIFIED-USE` naming each bound member; a sink called from a class or object
+  method, or at module scope, reports `UNDECLARED-PASS` named for its enclosing declaration; a class
+  FIELD holding the surface binds, and a sink reached through `this.ch` is found by taking the
+  receiver at its rightmost name. The one shape still declined — a receiver that is a CALL RESULT — is
+  DECLARED SILENCE under §4's no-call-graph fence, and it is named here so that silence is a stated
+  disposition rather than an omission.
+- **AC-17** A namespace import that reaches the surface type by qualified name reports
+  `UNREGISTERED-IMPORTER`; one that never reaches it does NOT. The negative half is proven
+  ATTRIBUTABLE rather than accidental: the arm prefilters on the surface-type NAME before parsing, so
+  the declining fixture deliberately carries that token in its header prose. Without it the file is
+  skipped before the qualified-name check runs and the clean verdict would prove only that the
+  prefilter works — two bounds can reject the input, so the fixture is constructed in the gap where
+  only the bound under test can.
+- **AC-18** No loop in the scanner has its termination decided by a mutable predicate. The two that
+  did are gone: the whitespace walk is a regex match for the leading run, carrying no comparison
+  operator at all, and the comment walk is bounded by `ranges.length`, a ceiling no mutant can lift.
+  The remaining two ascend a finite tree assigning `cursor = cursor.parent` in the BODY, so a mutated
+  predicate can only stop them earlier. This is a property of the module, not a list of repairs — the
+  worst case for any mutant is a survivor that can be read, never a hang that takes the measurement
+  down while reporting nothing.
+- **AC-19** No assertion in the gate can pass while the scanner looked at nothing. The one case built
+  entirely from negative assertions carries its premise IN THE SAME CASE, and the premise is proven to
+  fire by forcing the read set empty.
+
 ## §7 Lint disposition
 
 `pnpm spec:lint docs/superpowers/specs/ci/2026-08-19-send-auth-single-read-lint-design.md` is run before
