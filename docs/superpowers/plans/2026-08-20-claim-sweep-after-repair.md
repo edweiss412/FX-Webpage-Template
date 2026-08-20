@@ -447,6 +447,16 @@ The population is ENUMERATED at run time and asserted as a RELATION:
 and this arc paid for that four times — the figure moved 936 → 943 → 947 → 953 across its own rounds
 because its own documents were in its own corpus.
 
+**The corpus-pollution question, asked of every document this arc tracks, including ones nobody would
+call a fixture.** This arm scans `docs/`, not `tests/`, so a synthetic title in these suites is not
+corpus — but the SPEC, the PROBE RECORD and THIS PLAN are, which is why `ARC_DOCUMENTS` names all three.
+This plan's fenced Files blocks and its `58 → 57` examples are transition-shaped text in the very corpus
+the census measures, and they move nothing only because `ARC_DOCUMENTS` excluded the plan BEFORE it
+existed. **Any further document this arc adds — a closeout, a handoff — joins `ARC_DOCUMENTS` in the same
+commit**, or it silently moves a number a later task pins. Synthetic literals live in ONE SHARED MODULE
+and the no-collision cover keys on that module's own data rather than on a nonce token, which is a
+convention a fixture can forget and a convention-keyed check is blind to exactly what forgets it.
+
 ## Task 9 — the arm never rewrites a document, proved rather than assumed
 
 <!-- task: red=`pnpm vitest run tests/specLint/claimSweepNoRewrite.test.ts` red-state=authored red-target=`scripts/spec-lint.ts:363` why=`the CLI rejects the claim-sweep flags, so the end-to-end run under the write-spy never executes and the case asserting zero writes with a non-zero finding count fails on the finding count` ac=AC-3 -->
@@ -509,8 +519,8 @@ Three rules bind the run, each here because it was measured elsewhere:
   with a case, and only then argue equivalence with a written premise re-checked against the diff. There
   is no rung for "restructure until the operator does not apply" — it raises the number without improving
   the suite, invisibly.
-- **TOTALISING HAS A HAZARD, and this surface is full of string scans, so the form is mandated here rather
-  than left to taste.** Rewriting `while (i < s.length && p(s[i]))` as `while (p(s.charAt(i)))` deletes the
+- **TOTALISING HAS A HAZARD, and this surface is full of string scans, so the form is mandated here and
+  the audit is a PREDICATE run over the whole module rather than a look at the loops anyone noticed.** Rewriting `while (i < s.length && p(s[i]))` as `while (p(s.charAt(i)))` deletes the
   bounds comparison a mutant survived on and MOVES TERMINATION INTO THE PREDICATE: an equality-flip mutant
   then spins forever, because `charAt` keeps returning empty past the end. A bounded counting loop is
   mutation-SAFE by construction — whatever a mutant does to the predicate, the bound still ends it and the
@@ -533,8 +543,10 @@ Three rules bind the run, each here because it was measured elsewhere:
   SURFACE grain by reading annotation TITLES (`source-mutation gate — <id> > <case>`), never by leg
   number, which moves as the partition re-packs. **Absence from a failure list is not evidence of
   passing** — locate `claimSweep` by name and read its result.
-- **STAMP THE PROVENANCE INSIDE THE MEASURED COMMAND, never beside it.** Print the source blob hash from
-  WITHIN the same invocation that measures, and quote THAT in the closeout. A hash computed in a separate
+- **STAMP THE PROVENANCE INSIDE THE MEASURED COMMAND, never beside it, and stamp a PAIR.** Print the blob
+  hashes of BOTH the source AND every deciding suite, from WITHIN the same invocation that measures, BEFORE
+  and AFTER the run, and quote those in the closeout. A single stamp catches a stale read; the
+  before/after pair also catches an edit landing DURING the run. A hash computed in a separate
   call is a second read of mutable state and can observe different bytes than the run does — the same
   two-reads defect this batch found in markers, ledgers, citations and verifiers, landing on provenance
   itself. An arc reported a score against an intermediate blob for exactly this reason and caught it only
@@ -549,6 +561,28 @@ Three rules bind the run, each here because it was measured elsewhere:
   container preserves insertion order; a branch that can never fire because its input is always
   path-shaped; a ternary fallback unreachable because the regex matches every string. Write the reason
   next to the deletion.
+- **A DELETION THAT CHANGES BEHAVIOUR ON ANY INPUT IS RULE 26 IN A QUIETER COSTUME.** Removing a mutation
+  site by narrowing what the code does reads as cleanup in the diff, which makes it more tempting than the
+  obvious form of gaming, not less. The test: if a change removes a site AND changes behaviour on any
+  input however exotic, it buys a metric point with correctness. Keep the correct code and argue the
+  equivalence.
+- **The two restructuring rules pull opposite ways, and the discriminator is this:** making a mutant
+  UNREPRESENTABLE is gaming the score; making a mutant TERMINATE is not. Check the DIRECTION as evidence
+  rather than asserting intent — a termination repair that ADDS a comparison cannot be site-shrinking
+  dressed as safety, and one that REDUCES the site count owes a stated reason that is termination and not
+  tidiness.
+- **An EQUIVALENCE ROW carries four properties or it is not one**, and rung 4 is reached only when the
+  first three rungs are individually refused with a reason: (a) the other rungs genuinely failed, each
+  reason stated; (b) it is a PROOF that no separating case CAN exist, not a report that none came to mind;
+  (c) the PREMISE is written down and re-checked against the SHIPPED source, naming what would VOID the
+  row if it changed; and (d) **it was composed BEFORE the measurement landed**. An equivalence argument
+  written after the score is a rationalisation with a citation; written before, it is a prediction.
+- **Apply the predicted-side-effect rule FORWARD as well as backward.** Before a re-measure, state what the
+  run must show if the repairs landed as believed — fewer mutants after deletions, a shorter wall clock —
+  and name the falsifier. **And refuse to claim the evidence where the situation does not provide it:** a
+  structural hazard removed BEFORE it ever fired predicts no speedup, and saying it does is exactly the
+  story-fitted-to-outcome the rule exists to prevent. If no hang was observed, a slower next run is fine
+  and a faster one is evidence of something nobody had reason to believe in.
 
 ## Task 11 — the killer audit: three states, enumerated from the table
 
