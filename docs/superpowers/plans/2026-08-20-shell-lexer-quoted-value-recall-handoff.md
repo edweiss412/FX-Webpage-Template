@@ -102,8 +102,15 @@ membership, escalates.
 
 **Measurement and harness**
 
-- The scoped gate run is **899s**, not the batch's ~93s per-surface figure: 63 mutants against an
-  897-test deciding suite at ~14s each. Budget ~15 min per re-measure and blob-hash before re-running.
+- The scoped gate run is **899s at handoff time**, not the batch's ~93s per-surface figure: 63 mutants
+  against an 897-test deciding suite at ~14s each. Both numbers grow with the diff — treat them as the
+  SHAPE (roughly a quarter-hour, scaling with mutants x suite size) rather than as current values, and
+  read the closeout for what the arc actually measured.
+- **Blob-hash before re-running, and know what retires a score.** It is a pure function of (source,
+  operators, deciding suites), so ANY edit to `scan.ts` or the deciding suite — a comment included,
+  because a shifted line changes every ledger `siteId` — retires the number. Sequence every source and
+  suite edit you intend to make BEFORE the measure: this arc killed three runs mid-flight for exactly
+  that reason, twice on its own sequencing and once because a repair to the repair was still owed.
 - `-t` does NOT bound the gate — `runSurface` executes at module scope during collection. Scope with a
   temporary `guardSurfaces.shardTmp*.test.ts` filtering `GUARD_SURFACES`, run FOREGROUND under
   `pnpm heavy`, then **delete it**: `_metaSourceShardIntegrity` pins the shard set byte-for-byte.

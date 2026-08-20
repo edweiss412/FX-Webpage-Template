@@ -8,6 +8,39 @@ Last reconciled: 2026-08-17 — `fix/shell-binding-mixed-quoted-value` graduated
 
 ---
 
+## BL-MUTATION-SCORE-CO-TENANCY-DETERMINISM — a source-mutation surface flipped killed-to-survived with byte-identical inputs, twice, and the score contract assumes that cannot happen
+
+**Status:** OPEN · **Filed:** 2026-08-20 (`fix/shell-lexer-quoted-value-recall`, from CI triage on PR #856) · **Severity:** MEDIUM (if a score is not reproducible from its declared inputs, every "0 unaccepted survivors" claim in the convergence criterion is a measurement of something the criterion does not name) · **Class:** mutation harness fidelity · **Effort:** M · **Facing:** process · **Class-sweep exception:** (c) — the repair is a determinism investigation of the runner, a surface this PR does not otherwise touch. · **Reachability:** PROBED — see the two instances below. · **Incident:** PR #856's `source-shards (0)` leg was triaged as an inherited main-red and is not one — run <https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32375262145> (job `96445004668`) against main's same-day nightly <https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32344648722> (job `96350700409`), where the same surface is green.
+
+**The incident in full.** PR #856's `source-shards (0)` leg (run `32375262145`, job `96445004668`) failed with `unaccepted-survivor: 1 survivor(s) with no ledger row: logical-connector:259:20:&&>||` on the `ledgerGit` surface. Main's own nightly the same day (run `32344648722`, base `03953337388b`, job `96350700409`) reported that leg failing on `rowScanOpener` ALONE — `ledgerGit` was green. The cost is a triage that reads as an inherited red and is not one: three surfaces on that PR did map verbatim onto `BL-MUTATION-HARNESS-MAIN-RED`, so the fourth was one glance away from being waved through with them.
+
+**The anomaly is established; the mechanism is not.** `scripts/lib/ledger-git.ts` and both deciding suites named in the surface's registry row (`tests/scripts/ledgerClaimsCheck.test.ts`, `tests/scripts/ledgerGitSpawnSeam.test.ts`) are BYTE-IDENTICAL between `03953337388b` and #856's HEAD, verified by blob hash; that PR's diff touches none of the three, and its only `tests/mutation/source/registry.ts` edit is confined to the `psqlStartupScan` row. A mutation score is documented as a pure function of (source, operators, deciding suites). All three were unchanged and the verdict moved. **Second instance:** the `ledgerGit` registry row already records a killed-locally / survived-CI divergence for the `diffHunks` count pair on 2026-08-08, and re-establishes it with a constructed case — so this is the second time this surface's verdict has depended on something outside its declared inputs.
+
+**Candidate mechanism, now WEAKENED — state it as a candidate, not a finding.** #856 moved `psqlStartupScan` from 63 to 69 mutants and 24 to 25 accepted rows, which re-weights the LPT partition (`tests/mutation/source/shardPartition.ts`); main's over-budget legs were 0 and 2, #856's were 1 and 2, so the packing demonstrably changed and `ledgerGit` ran under different co-tenancy. Against it: a five-night surface-grain null measured on `feat/send-auth-single-read-lint` found `registry.ts`'s blob DIFFERENT on all five shas and its row count moving 36 → 38 → 38, with the failing LEG numbers moving every night — {0,2,3}, then {0,1,2}, then {0,2} — while the red SURFACE set did not budge: the same three surfaces, three nights running. Leg identity is noise; surface identity was stable across repacks that certainly happened. **The honest ceiling on that null, stated by the arc that measured it:** historical shard ASSIGNMENTS were never computed, because `weightOf` reads each `sourcePath` from the working tree and a faithful per-night partition needs a full checkout of each sha. So what is established is "the registry changed nightly, gained two rows, and nothing flipped" — NOT how many surfaces those nights actually moved. A +2-row repack moving nothing is a much smaller claim than a +6-mutant one being ruled out. That measurement excluded 08-17 → 08-18 deliberately, because content and packing are confounded across that pair.
+
+**Open question, deliberately not answered here: can co-tenancy move a surface's score?** If it can, the score contract is wrong about its own inputs and the convergence criterion inherits the error. If it cannot, the two flips above need a different explanation and still need one.
+
+**First scheduled step, already pre-registered elsewhere.** `feat/send-auth-single-read-lint` enrols
+`sendAuthScan` and re-packs the same partition at roughly thirty times this arc's perturbation, with
+main's per-surface baseline recorded before opening. Its run `32391432379` (head `4dfd01465`, weight
+255, `sendAuthScan` landing in shard 3) moves **30 of 38 surfaces and leaves 8 stayers** — a stayer arm
+small enough that a flip inside it is strong evidence, and a mover arm large enough that a clean sweep
+of no flips is strong evidence against. If untouched surfaces flip there with byte-identical inputs,
+co-tenancy moves from candidate to measured; if none do, that is evidence AGAINST the mechanism rather
+than a null result, and the anomaly above survives still needing an explanation. Given the five-night
+null, the negative outcome is the more likely one.
+
+**`ledgerGit` itself can no longer serve as the discriminator, and this row deliberately does not claim
+it can.** The one run in which it was a STAYER — experiment A, run `32387829831` at head `a1737eee3` —
+was CANCELLED by GitHub's concurrency group when that branch pushed its own repairs, so all four
+source-shards legs reported nothing and the clean separation of "the surface moved" from "its
+neighbours moved" produced no data and is not coming. In the surviving experiment `ledgerGit` is a
+mover (shard 0 to 1), so the pending test speaks to the mechanism in general and not to this surface in
+particular. Recorded because a row citing a discriminator that was never measured is worse than one
+citing none.
+
+**Not a duplicate of `BL-MUTATION-HARNESS-MAIN-RED`.** That row names `shardBudget`, `destructiveFileAnalysis` and `rowScanOpener` as main's standing failure set. `ledgerGit` is a fourth surface and is GREEN on main, which is the entire point: this row is about a verdict that MOVES, not about one that is stuck red.
+
 ## BL-PREMISESCAN-ALIAS-SLICE-UNCOVERED — the `@/` specifier slice has no killing test
 
 **Status:** OPEN · **Filed:** 2026-08-16 (`fix/scanner-scope-totality`, from the premiseScan mutation-gate enrolment) · **Class:** guard coverage · **Effort:** S · **Class-sweep exception:** (c) — closing it needs a corpus module this PR does not otherwise touch. · **Reachability:** PROBED — a declared mutant that survives the shipped suite.

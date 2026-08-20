@@ -605,3 +605,193 @@ binding bash does not make", which condemned behavior that shipped long before t
    on those two rows, but the record should not carry a wrong oracle value: **treat P5 and P6's oracle
    entries as requiring `U` set, and their unset readings as `p`.** The other eight composition rows
    are unaffected.
+
+### Diff round-2 addendum (2026-08-20, same arc) — the `-` parameter, and redirection precedence
+
+Both findings were settled against bash BEFORE any test was written, per the authored-and-run rule.
+Every number below is the output of the command printed beside it, run in this session.
+
+**Instrument — bash oracle, the `-` special parameter.** `bash -c "PG=<spelling>; printf '[%s]\n' "$PG""`:
+
+| spelling | bash | reading |
+| --- | --- | --- |
+| `${-:+X}` | `[X]` | binds — `$-` is always set and non-null, so the ALTERNATE is taken |
+| `${-+X}` | `[X]` | binds, same reason |
+| `${-:-X}` | `[hBc]` | yields `$-` itself |
+| `${--X}` | `[hBc]` | yields `$-` itself |
+| `${-=X}` | `[hBc]` | yields `$-` itself |
+| `${-:=X}` | `[hBc]` | yields `$-` itself |
+| `${@:+X}` | `[]` | the already-supported twin, empty here only because there are no positionals |
+
+So two of the six are true binds and four are the ratified MAY-BIND over-report (§7.4) — the same
+treatment `${U:-psql}` gets when `U` happens to be set. Reading them per-operator-per-parameter is
+predicate growth; the over-report arm is the permitted one (§6 item 11).
+
+**Instrument — bash oracle, redirection precedence.** `bash -c "<command>; printf '[%s]\n' "$PG""`:
+
+| command | bash binds |
+| --- | --- |
+| `read -r PG <<< psql` | `[psql]` |
+| `read -r PG <<< psql <<< notpsql` | `[notpsql]` |
+| `read -r PG <<< notpsql <<< psql` | `[psql]` |
+| `read -r PG <<< psql < /dev/null` | `[]` |
+| `read -r PG <<< psql </dev/null` (ATTACHED) | `[]` |
+| `read -r PG <<< psql 2< /dev/null` | `[psql]` |
+
+The last two rows are the ones that decided the SHAPE of the repair, not merely its direction. The
+attached spelling overrides, and an attached redirection emits no `RedirectionTarget` at all — so a
+reading built on `targets` is blind to exactly the override it performs, which is why the lexer now
+records the redirection OPERATOR (with its fd prefix) rather than the rule being expressed over
+targets. And `2<` opens fd 2, so an fd-blind rule would have declined a real binding: the fd prefix
+had to be captured, not guessed conservatively.
+
+**Instrument — scanner behavior, before and after.** `scanShellIndirection(source, "x.sh").length`:
+
+| source | before | after | bash |
+| --- | --- | --- | --- |
+| `PG=${-:+'psql'}` (and the other five operators) | 0 | 1 | binds / may-bind |
+| `read -r PG <<< ${-:+'psql'}` | 0 | 1 | binds |
+| `read -r PG <<< p'sql' <<< notpsql` | 1 | 0 | `notpsql` |
+| `read -r PG <<< p'sql' < /dev/null` | 1 | 0 | empty |
+| `read -r PG <<< p'sql' </dev/null` | 1 | 0 | empty |
+| `read -r PG <<< p'sql' 2< /dev/null` | 1 | 1 | `psql` |
+| `read -r PG <<< notpsql <<< p'sql'` | 1 | 1 | `psql` |
+| `read -r PG <<< p'sql' > notpsql` | 1 | 1 | `psql` |
+
+**The class sweep, and how the word route's own fixtures concealed it.** The same two
+mis-attributions were live in the LINE-TEXT route the whole time, and neither round-1's repair nor
+round-2's first repair reached it. Probed with PLAIN spellings, which is what put that route in play:
+
+| source | before | after | bash |
+| --- | --- | --- | --- |
+| `read -r PG <<< notpsql; cat <<< psql` | 1 | 0 | `notpsql` |
+| `read -r PG <<< psql < /dev/null` | 1 | 0 | empty |
+| `read -r PG <<< psql <<< notpsql` | 1 | 0 | `notpsql` |
+| `read -r MSG <<< 'psql failed to connect' < /dev/null` | 1 | 0 | empty |
+| `read -r MSG <<< 'psql failed to connect'` | 1 | 1 | prose, ratified over-report |
+| `read -r PG < /dev/null <<< psql` | 1 | 1 | `psql` |
+
+Every word-route fixture spells psql with an embedded quote (`p'sql'`), which the text route's value
+pattern rejects for an unrelated reason — so the two readings were never both live on one case, and
+the text route's copy of the defect was invisible to the entire fixture set that repaired the word
+route. That is the concrete form of "a confident clean result from an unsound method is
+indistinguishable from a real one."
+
+**The documented limit the boundary buys**, probed in both directions:
+
+| source | scanner | bash | reading |
+| --- | --- | --- | --- |
+| `X=$(read -r PG <<< psql)` | 2 | `psql` | pre-existing union double-count, IDENTICAL at the committed parent |
+| `X=$(read -r PG <<< psql < /dev/null)` | 2 | empty | §6 item 10 — the text route cannot see a body's redirections |
+| `X=$(read -r PG <<< p'sql' < /dev/null)` | 0 | empty | the WORD route reads the body's own ledger and declines correctly |
+
+### Diff round-2 addendum, part 2 — the narrowing that manufactured a miss
+
+Recorded because the defect existed on this branch, the whole deciding suite was GREEN across it, and
+it was found by applying a test to the repair rather than by any check the repair had passed.
+
+**The shape.** The first form of the F3 repair pinned the text regex to the last `<<<` ON THE LINE.
+That is correct within one command and wrong across two: the last operator on the line can belong to a
+DIFFERENT command, so a `read` that really does bind psql was read against the other command's target
+and went silent.
+
+Measured against the committed parent, by importing both modules in one process (`parent` =
+`git show HEAD:…/scan.ts`, `now` = the working tree mid-repair):
+
+| source | parent | mid-repair | bash binds | reading |
+| --- | --- | --- | --- | --- |
+| `read -r PG <<< psql; cat <<< notpsql` | 1 | **0** | `psql` | a CORRECT report turned into silence |
+| `cat <<< notpsql; read -r PG <<< psql` | 1 | **0** | `psql` | same, other ordering |
+| `read -r PG <<< notpsql; cat <<< psql` | 1 | 0 | `notpsql` | a false positive correctly removed |
+| `read -r PG <<< p'sql'; cat <<< notpsql` | 0 | 0 | `psql` | PRE-EXISTING miss, unchanged by this arc |
+
+Row three is why the defect was invisible: the same edit that silenced rows one and two correctly
+silenced row three, so every aggregate reading of the change looked like a strictly safer recognizer.
+
+**The repair, and the final matrix.** The reach is bounded to the `read`'s own command SEGMENT
+(`(?:(?![;&|])[^\n])*`) and the lookahead pins the last `<<<` WITHIN that segment; the precedence gate
+is applied to the text route only when the span is one command. Fifteen cases, each with its bash
+oracle, all matching:
+
+| source | scanner | bash |
+| --- | --- | --- |
+| `read -r PG <<< psql; cat <<< notpsql` | 1 | `psql` |
+| `cat <<< notpsql; read -r PG <<< psql` | 1 | `psql` |
+| `read -r PG <<< notpsql; cat <<< psql` | 0 | `notpsql` |
+| `read -r PG <<< psql` | 1 | `psql` |
+| `read -r PG <<< psql <<< notpsql` | 0 | `notpsql` |
+| `read -r PG <<< notpsql <<< psql` | 1 | `psql` |
+| `read -r MSG <<< 'psql failed to connect'` | 1 | prose, ratified over-report |
+| `read -r PG <<< "a;b" <<< psql` | 1 | `psql` — the WORD route covers the quoted separator |
+| `read -r PG <<< psql < /dev/null` | 0 | empty |
+| `read -r PG <<< psql </dev/null` | 0 | empty |
+| `read -r PG <<< psql 2< /dev/null` | 1 | `psql` |
+| `read -r PG <<< psql < /dev/null; cat x` | 1 | empty — declared over-report, precedence unread on a multi-command line |
+| `read -r PG <<< p'sql'` | 1 | `psql` |
+| `read -r PG <<< p'sql' < /dev/null` | 0 | empty |
+| `read -r PG <<< p'sql'; cat <<< notpsql` | 0 | `psql` — PRE-EXISTING, parent 0 as well |
+
+**Both directions proven on the pin.** Reverting the segment bound while keeping the lookahead makes
+the deciding suite FAIL naming exactly `psql-bearing read, another command AFTER` and
+`... BEFORE`; restoring it passes, source verified byte-identical by blob hash
+(`36ec64f38a7f59284bdaf6a45d5e56ba1301feb9`).
+
+### Diff round-2 addendum, part 3 — the character class carries no accidental range
+
+`-` was added to the parameter-name class as `[@*#?$!-]`, where the `-` is literal only because it
+sits immediately before the `]`. One character earlier and `!-]` would be a RANGE, silently admitting
+`"`, `#`, `$`, `%`, `&`, `'`, `(`, `)`, `*`, `+` and `,` as parameter names — a widening no test in the
+suite asks about, because the accept-set tests all probe the OPERATOR side.
+
+Checked directly rather than by reading the regex:
+
+```js
+const re = /^(?:[A-Za-z_]\w*(?:\[[^\]]*\])?|\d+|[@*#?$!-])/;
+["@", "*", "#", "?", "$", "!", "-"].every((c) => re.test(c));            // true
+["'", "%", ",", "+", ":", ".", "/", "^", "~", "&", "(", ")"].filter((c) => re.test(c)); // []
+```
+
+Recorded here rather than pinned in the deciding suite deliberately: a leak's worst case is a
+conservative OVER-report on a spelling nobody writes, which §7.4 permits, and a suite edit costs a full
+re-measure. **Re-file trigger:** any edit to that class, which should re-run the two lines above.
+
+### Diff round-2 addendum, part 4 — which fixtures actually isolate what
+
+Two hazards apply to this arm's fixtures and both were checked by probe rather than by reading, because
+a fixture that looks discriminating and is not is indistinguishable from one that is at authoring time.
+
+**The `${…}` operand rows: a second rule can produce the same 1.** `valueBinds` has a pre-existing
+VERBATIM-TEXT fallback that reports a bare word-boundaried `psql`, so a BARE operand reports whatever
+the parameter-name class does. Measured:
+
+| source | reports | decided by |
+| --- | --- | --- |
+| `PG=${-:+psql}` (bare) | 1 | the verbatim fallback — proves NOTHING about the class |
+| `PG=${%:+psql}` (bare, name outside the class) | 1 | the same fallback, and `%` is not in the class |
+| `PG=${-:+'psql'}` (quoted) | 1 | the class — the fallback cannot see a quoted operand |
+| `PG=${%:+'psql'}` (quoted, name outside the class) | 0 | the class, declining |
+| `read -r PG <<< ${-:+'psql'}` | 1 | the class, at the second consumer |
+| `read -r PG <<< ${%:+'psql'}` | 0 | the class, declining |
+
+Every F2 fixture uses the QUOTED spelling, which is the input in the GAP between the two rules: the
+fallback rejects it for its quotes, so only the parameter-name class can decide it. The bare spelling
+would have proved nothing.
+
+**The here-string rows: which route decides.** A row isolates the LINE-TEXT route only when the word
+route cannot report it. The word-route twin of a plain fixture is its `p'sql'` spelling, which the text
+route's value pattern rejects for an unrelated reason:
+
+| row | plain | `p'sql'` twin | isolates |
+| --- | --- | --- | --- |
+| `read -r PG <<< psql; cat <<< notpsql` | 1 | 0 | the TEXT route |
+| `read -r MSG <<< 'psql failed to connect'` | 1 | no twin exists | the TEXT route — `valueBinds` declines prose for want of a flag-shaped token, so the word route cannot report it |
+| `read -r PG <<< psql 2< /dev/null` | 1 | 1 | neither — union-decided |
+| `read -r PG < /dev/null <<< psql` | 1 | 1 | neither — union-decided |
+| `read -r PG <<< psql` | 1 | 1 | neither — union-decided |
+
+So the sweep case's discriminating power sits in its psql-first row and its prose row; the other three
+"must stay 1" rows are non-regression pins and are recorded as such rather than credited with more.
+This matters because the case's five ZERO rows are expect-clean assertions, which any implementation
+that fails to look would also satisfy — an implementation with a DEAD text route passes every zero and
+the union-decided premise, and is caught only by those two rows. Recorded so a later author does not
+delete either one as redundant.

@@ -255,6 +255,96 @@ rule is therefore: a target belongs to logical line `i` when its physical line f
 `i..k` that `scanShellIndirection` already computes while building `spliced`. No new grammar, no line
 arithmetic invented for this arm — the span is the loop's own.
 
+**Span membership is NECESSARY and not SUFFICIENT, and both further conditions arrived as review
+findings on this arc.** The span answers "could this target belong to that `read`"; two more questions
+decide whether it DOES, and each was a false report until it was asked:
+
+1. **One command on the span** (diff round 1 finding 2). Membership of a logical line is not membership
+   of a COMMAND: `read -r PG <<< notpsql; cat <<< psql` puts both targets on one span while bash binds
+   `notpsql`. The separator is read from the LEXER's own operator words, so a quoted `;` is data here
+   exactly as it is to the shell, and the route declines the whole span rather than trying to partition
+   it.
+2. **The EFFECTIVE final fd-0 redirection is the `<<<`** (diff round 2 finding 3). The shell applies
+   redirections left to right and the last one on a descriptor wins, so a here-string can be discarded
+   by something later in the very same command: `read -r PG <<< psql < /dev/null` binds the empty
+   string and `read -r PG <<< psql <<< notpsql` binds `notpsql` (both probed). `effectiveStdin` takes
+   the last input redirection on the span — the closed set `<` `<<` `<<-` `<<<` `<>` `<&` — that
+   carries no fd prefix or an explicit `0`; `2<` opens fd 2 and bash's dynamic `{v}<` assigns a fresh
+   descriptor, so neither displaces stdin (probed: both still bind `psql`).
+
+**Both conditions are enforced through ONE gate, `effectiveHereString`, and that is the point of the
+repair rather than a tidiness.** The here-string family is a UNION of a line-text reading and a
+lexed-word reading, and rounds 1 and 2 each repaired only the word half — so the identical
+mis-attributions survived in the text route, which is a route and not a file and is therefore the
+"same defect, different site" the class-sweep rule refuses as a deferral. The word route's own
+fixtures could not expose it: each spells psql with an embedded quote (`p'sql'`) that the text route's
+value pattern rejects for an unrelated reason, so the two readings were never both live on one case.
+A shared gate makes them incapable of disagreeing about WHICH target binds while leaving them free to
+disagree about what it says, which is the difference the union exists for.
+
+The text regex reaches the same operator by construction, through two bounded changes that are ONE
+decision: the middle no longer crosses `;`, `&` or `|`, so a match covers the `read`'s OWN command
+segment, and a lookahead pins it to the LAST `<<<` WITHIN that segment. Computing the approved
+position separately would be a second grammar over the text, free to disagree with the first.
+
+**Each change without the other is a defect, and the third combination is worth recording because this
+arc shipped it mid-repair and caught it before commit.** Without the segment bound the match
+BACKTRACKS across a separator (`read -r PG <<< notpsql; cat <<< psql` reads the second command's
+target and reports, while bash binds `notpsql`). Without the lookahead it backtracks within the
+command (`read -r PG <<< psql <<< notpsql` reads the first target, while bash binds `notpsql`). With
+the lookahead but NOT the segment bound, the last `<<<` on the LINE can belong to another command — so
+`read -r PG <<< psql; cat <<< notpsql` reads `notpsql` and goes SILENT on a binding bash really makes.
+
+**That third shape is the failure mode of narrowing itself, which is why every decline in this section
+now names what the reader gets instead.** A narrowing that removes a false positive can manufacture a
+silent miss in the same edit, and the closeout then reads as a strictly safer recognizer. §7.4 permits
+a conservative NON-REPORT *plus a declared limit*, and a conservative OVER-report; it does not permit
+an UNDECLARED miss, which is exactly what a decline with no channel is. The whole deciding suite
+stayed green across the defective shape — the fixture set could not see it — so the cases that would
+have caught it are now pinned, each stating what bash binds, so a zero reads as "there is no binding"
+rather than as "the scanner declined".
+
+| declined input | what the reader gets instead |
+| --- | --- |
+| the psql target belongs to ANOTHER command | a correct zero — bash binds the other value, nothing is missed |
+| the here-string is overridden within its own command | a correct zero — bash binds empty or the later target |
+| a separator inside a QUOTED target cuts the text route's reach | the WORD route reports it: to the lexer's operator words a quoted `;` is data |
+| redirection precedence on a MULTI-command line | an over-report, declared — `read -r PG <<< psql < /dev/null; cat x` reports though bash binds empty |
+| an override inside a substitution BODY | an over-report, declared — §6 item 10 |
+| a multi-line target whose psql is not on line 1 | a correct zero — `read` binds the first line, so bash binds the other value |
+| a quoted separator AND a second command together | a PRE-EXISTING miss, unchanged by this arc: parent and HEAD both report 0 |
+
+The table covers this arc's ROUND-1 narrowings as well as round 2's, because the rule is about the
+act of narrowing rather than about one finding. Round 1's three were re-probed under it: the
+first-line-and-IFS rule declines only targets bash does not bind from line 1; the one-command decline
+in the word route is covered by the text route's segment reach; and deciding nesting on the RAW
+operand declines only text that quote removal made LOOK like an expansion, which is data. The two
+residual reports it leaves (`read -r PG <<< $'${U:-psql}\nx'` and `PG=${U:-'${V:-psql}'}`, both
+reporting 1 where bash binds a literal) are over-reports, already fenced.
+
+Two are over-reports and none is an unsignalled miss. The precedence gate is therefore applied to the
+text route only where the span is ONE command: on a multi-command span the span-wide "effective"
+redirection can belong to a different command, and gating on it would silence the very bindings the
+segment reach exists to keep.
+
+**Where the gate does not apply, and why that direction is the safe one.** It is consulted only when
+the lexer positively RECORDED an fd-0 input redirection on the span. The outer lex replaces a
+substitution body with the opaque `${}` word and so records no redirection for anything inside one,
+and the text route exists precisely because it is the only reading that sees in there — so gating on
+an EMPTY ledger would read "the lexer saw nothing" as "nothing is there" and silently retire that
+contribution. An override INSIDE a substitution body is therefore unread by the text route and is a
+DOCUMENTED LIMIT; the word route reads the body's own ledger and does decline there, so the residue is
+a conservative over-report, which §7.4 permits. The five zero rows of the sweep case in the deciding
+suite are the same gate firing where it can see, so the limit is stated alongside a positive control
+rather than alone.
+
+**Why this is a repair and not the may-bind posture being relitigated.** §7.4 ratifies reading a
+parameter expansion unconditionally because a static reader CANNOT know whether `U` is set when
+`${U:-psql}` expands. Redirection precedence is not of that kind — it is decided on the page, by text
+the lexer already holds — so misreading it is a MIS-READ rather than a conservative may-bind, and it
+lands on the wrong-attribution arm the bound forbids. The repair NARROWS over a closed operator set;
+it grows no per-operator predicate.
+
 Union rather than replacement, for two reasons that are both regressions if ignored:
 
 1. **The line-text reading is the one place the word route is blind by construction.** The outer lex
@@ -570,6 +660,27 @@ rather than one that is absent. No limit in this list is a false certification.
    about whole-value spellings, and every case they name survives. Orchestrator disposition, 2026-08-20.
    **Re-file trigger:** a live corpus instance of a composed expansion value, or a reading that
    reaches composition without substituting across a complement boundary.
+10. **NEW (diff round 2 finding 3, class sweep).** A here-string overridden by a later fd-0
+    redirection INSIDE a substitution body is still reported by the LINE-TEXT route:
+    `X=$(read -r PG <<< psql < /dev/null)` reports, while bash binds the empty string. The word route
+    reads that body's OWN redirection ledger and declines correctly; the text route cannot, because
+    the outer lex replaces the body with the opaque `${}` word and records no redirection within it.
+    **Why this is a limit and not a gap to close:** the gate is consulted only where the lexer
+    positively recorded an fd-0 input redirection, and that boundary is load-bearing in the other
+    direction — the text route exists BECAUSE it is the only reading that sees inside a body, so
+    treating its empty ledger as "no redirection is there" would silently retire that contribution
+    rather than narrow it. The residue is a conservative over-report, which §7.4 permits, and the
+    flat spellings of the same shape are all reported correctly (the five zero rows of the sweep case).
+    **Re-file trigger:** a live corpus instance of an overridden here-string inside a substitution
+    body, or any arc that gives the outer lex a view of a body's redirections for another reason.
+11. **NEW (diff round 2 finding 2).** The four UNSET-branch spellings on an always-set special
+    parameter — `${-:-'psql'}`, `${--'psql'}`, `${-='psql'}`, `${-:='psql'}` — report, while bash
+    yields `$-` itself (probed: `[hBc]`). This is not new behavior and not specific to `-`: it is the
+    ratified MAY-BIND posture of §7.4, identical to `${U:-psql}` reporting when `U` happens to be set,
+    and `$`, `?` and `#` have carried it since the parameter class was first widened. Reading it
+    per-operator-per-parameter is the predicate growth the standing repair direction forbids, and the
+    over-report arm is the permitted one. **Re-file trigger:** a consequence bound that stops
+    permitting conservative over-reports.
 
 ---
 
@@ -587,11 +698,18 @@ that suite or the runner cannot see it, and a green suite elsewhere buys zero sc
 set.** Both are machine-computed. A "the guard does not pin what it claims" finding is admissible only
 with the surviving mutant that demonstrates it — an operator and a site, both from the declared set.
 
-Declared state at the branch point, read from the registry rather than asserted by this spec:
+Declared state AT THE BRANCH POINT, read from the registry rather than asserted by this spec:
 `operators: ["relational-boundary", "regex-quantifier-bound"]`, 63 mutants, 39/39 counted, 24
 `equivalent` rows, NO accepted gap, `scoreFloor: 1`; the count is mirrored at
-`tests/mutation/source/expectedLedgerKinds.ts` (`psqlStartupScan: { equivalent: 24 }`) and gated by
-`registerSurfaceCases`.
+`tests/mutation/source/expectedLedgerKinds.ts` and gated by `registerSurfaceCases`.
+
+**AS SHIPPED, after diff rounds 1 and 2: 75 mutants, 27 `equivalent`, 48 counted, 48 killed, score
+1.0000, NO accepted gap, `scoreFloor: 1`.** Both arms moved every site below the lexer and the two
+diff rounds moved them twice more, so all 24 original rows were re-keyed and re-read, three were
+added across the arc, and the mirror in `expectedLedgerKinds.ts` moved with them. The counted total
+grew because this round ADDED comparisons (an offset-max in `effectiveStdin` and a target-position
+check in the word route) rather than removing any: a repair that shrank the site count would owe an
+explanation, since making a mutant unrepresentable raises the score without improving the suite.
 
 ### 7.2 The equivalence ledger must be RE-DERIVED, not inherited
 
@@ -622,17 +740,27 @@ unchanged pair owes no re-run.
 **The gate command's COLLECTION is proven by running it, not by a linter.** Plain `spec:lint` makes no
 collection claim at all, and under `--exec-red` the collection arm is SILENT for any command wrapped in
 `pnpm heavy` — which AGENTS.md mandates for every heavy phase, so the arm cannot see this class. The
-proof here is the run itself: the scoped gate collected seven gate cases over 63 mutants. For contrast,
+proof here is the run itself: the scoped gate collected seven gate cases over 75 mutants. For contrast,
 the spelling that must never appear in a red or a gate is
 `npx vitest run tests/mutation/guardSurfaces.gates.test.ts`, which exits 0 having collected ZERO tests
 — the file is excluded from every default project by `NIGHTLY_ONLY_EXCLUDES` (`vitest.projects.ts`),
 and the run prints it in its own `exclude:` list. Green from birth, and no later edit makes it fail.
 
-**Measured cost, 2026-08-20, on this branch: 899s for a green baseline run of the seven gate cases**
-(temporary single-surface shard, `pnpm heavy`, foreground). The batch-level "~93s per surface" figure
-does not apply to this surface: 63 mutants against an 897-test deciding suite that takes about 14s per
-execution. Budget ~15 minutes per re-measure and plan the number of re-measures accordingly — this is
-why §7.2's blob-hash rule earns its place rather than being a nicety.
+**Measured cost, 2026-08-20, on this branch: 899s at the branch point and 1068.08s as shipped**, both
+for a green run of the seven gate cases (temporary single-surface shard, `pnpm heavy`, foreground).
+The batch-level "~93s per surface" figure does not apply here: 75 mutants against a 973-test deciding
+suite at roughly 14s per execution. Budget a quarter-hour per re-measure and plan how many you can
+afford — which is why §7.2's blob-hash rule earns its place rather than being a nicety.
+
+**Four runs were spent to land one number, and three were discarded on purpose.** A score is a pure
+function of (source, operators, deciding suites), so ANY edit to `scan.ts` or the deciding suite
+retires it — a comment alone re-keys every ledger `siteId`. Two runs were killed because source or
+suite edits were still owed, and a third because a repair to the repair was. A fourth face of the same
+rule showed up when an edit landed DURING a run: the overlay reads from memory so the score survives,
+but the gate's own byte-identity case fails, which makes that run discovery rather than evidence. The
+provenance stamp is therefore emitted from INSIDE the measured invocation, before AND after — a stamp
+taken beside the run is a second read of mutable state, and on its first use here it caught one:
+a separately-taken hash named bytes no run had measured.
 
 ### 7.4 Consequence bound, probe domain, threat fence
 
@@ -657,10 +785,17 @@ finding:
   which condemned that ratified behavior and is corrected here: the forbidden directions are a false
   CERTIFICATION and a wrong attribution, not a conservative may-bind report.
 - **PROBE DOMAIN.** The instrument set of
-  `docs/superpowers/specs/ci/probes/2026-08-17-shell-binding-mixed-quoted-probes.md` including its
-  round-1, round-2, round-6 and 2026-08-20 supplements, plus the live tracked corpus
-  `scanShellIndirection` walks. A probe more than one ordinary edit away from an input in that domain
-  files to documented limits, not to a finding.
+  `docs/superpowers/specs/ci/probes/2026-08-17-shell-binding-mixed-quoted-probes.md` — **that file
+  ENTIRE, every supplement and addendum it carries, including ones added after this line was
+  written** — plus the live tracked corpus `scanShellIndirection` walks. A probe more than one
+  ordinary edit away from an input in that domain files to documented limits, not to a finding.
+
+  **Stated as the whole file rather than as a list of its sections, and the change is not cosmetic.**
+  This line previously enumerated "the round-1, round-2, round-6 and 2026-08-20 supplements", and diff
+  round 2 added four addenda without touching it — so the domain silently stopped describing the
+  corpus it names, in a document whose own rule is that a brief-versus-spec mismatch is itself a
+  finding. An enumeration of a growing corpus goes stale on every addition and gives a reviewer a
+  domain narrower than the evidence; the file reference cannot.
 - **Threat fence.** Ordinary authoring mistakes by a contributor writing shell in this repository.
   Adversarial shell obfuscation is out of scope and files to documented limits.
 
