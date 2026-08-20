@@ -166,8 +166,10 @@ $ git show '32e3fcd60^:docs/superpowers/plans/2026-08-17-shell-binding-mixed-quo
 
 Implements spec §3.1 items 1-3. Pure over one file's lines; no filesystem, no registry import.
 
-**What is red and why:** the module does not exist. The suite's expectations encode the accept-set and
-every declined shape; none can pass until `discoverPins` exists.
+**What is red and why:** `discoverPins` EXISTS as a Step-1 stub returning an empty array, so the suite
+resolves and every ACCEPT case fails on its assertion — zero pins where the case demands one, named in
+the output. The decline cases pass vacuously against the stub and become meaningful only once the
+accept-set lands, which is why the red step reads per-case output rather than the exit code.
 
 The declined shapes are asserted individually, each with its spec §8 item cited in the test body,
 because "the arm draws nothing here" is the claim a future widening would quietly break.
@@ -252,10 +254,11 @@ git commit -m "feat(spec-lint): declared-limit pin grammar - phrase in a single-
 
 Implements spec §3.2. The enrolled table is a parameter; the module still imports no registry.
 
-**What is red and why:** `namedSurfaces` does not exist. Task 1 shipped pin discovery only.
+**What is red and why:** `namedSurfaces` EXISTS as a Step-1 stub returning an empty set, so the suite
+resolves and each naming case fails on its assertion — an empty set where the case demands a surface id.
 
 **Anti-tautology.** The prose-outside-a-block case is the §2.5 measurement made executable: it is the
-38-plan false-advisory source, and a whole-document implementation passes every other case in this
+42-plan false-advisory source (65 whole-document minus 23 Files-grain on the current tree; the spec's dated §2.5 baseline is 63 minus 23), and a whole-document implementation passes every other case in this
 suite while failing that one. The unmodeled-verb case (`- Regenerate: \`lib/…\``) is the §2.5 verb
 argument made executable: an implementation that accept-lists `Modify`/`Test`/`Create` passes the rest
 and fails that one. The inline-header case fails any implementation that scans only the lines BELOW the
@@ -287,13 +290,14 @@ fails any implementation using `String.prototype.includes` on the raw path.
 - [ ] **Step 2b: Add the SYNTHETIC-SURFACE case.** Weaker implementation to kill: a hardcoded copy of
       the 100 live enrolled paths, which passes every other case in this suite. The case injects a
       surface whose `sourcePath` and `suitePaths` appear nowhere in `tests/mutation/source/registry.ts`
-      and asserts it is named by a fixture plan. Verified synthetic by grepping the registry for the
-      chosen paths at authoring time. **The assertion runs to an ADVISORY, not to `namedSurfaces`.**
-      Round 3 caught this and it is an instance the mechanical fixture pass missed: an integration that
-      uses the injected table inside `namedSurfaces` and then ignores or replaces that result downstream
-      passes a naming-only assertion, while Tasks 5 and 7b exercise only REAL enrolled surfaces and so
-      never notice. The case therefore carries a pin on the synthetic surface and asserts
-      `DECLARED_LIMIT_PIN_UNNAMED` for it, end to end through `checkDeclaredLimitPins`.
+      and asserts `namedSurfaces` returns it. Verified synthetic by grepping the registry for the chosen
+      paths at authoring time. **This is the NAMING half only, and it is deliberately not the whole
+      proof:** round 3 established that a naming-only assertion is passed by an integration that uses
+      the injected table here and then ignores the result downstream. The END-TO-END half — the same
+      synthetic surface carrying a pin and drawing `DECLARED_LIMIT_PIN_UNNAMED` — lands in **Task 3**,
+      where advisories first exist. Splitting it is not a weakening: asserting an advisory here would
+      make Task 2's red unresolvable until Task 3 shipped, so the task could never complete its own
+      red-then-green cycle.
 - [ ] **Step 3: Implement `namedSurfaces` and the `EnrolledSurface` type.**
 - [ ] **Step 4: Observe green.**
 - [ ] **Step 5: Commit.**
@@ -316,7 +320,9 @@ git commit -m "feat(spec-lint): read enrolled surfaces from a plan's Files decla
 
 Implements spec §3.3 and §3.4.
 
-**What is red and why:** `checkDeclaredLimitPins` does not exist; Tasks 1-2 produce data, not findings.
+**What is red and why:** `checkDeclaredLimitPins` EXISTS as a Step-1 stub returning no findings, so
+every positive case fails on its assertion — an empty finding array where a code is expected. The
+silence cases pass vacuously against the stub, so the red step reads per-case output, not the exit code.
 
 **The fail-open closure is the point of this task, and it has THREE channels** (spec §3.4). Only one is
 visible through `readFileLines`:
@@ -358,6 +364,12 @@ declaration line, so an anchor-position dedup — which no rule mandates and any
 for — collapses them. This case asserts BOTH findings appear from one surface with two unnamed pins.
 The dedup-partner case below uses two SURFACES and leaves this untested, and the corpus case catches it
 only after the collapse has shipped.
+
+**The synthetic surface's END-TO-END case lives here** (Task 2 owns the naming half). The same
+synthetic surface — paths absent from `tests/mutation/source/registry.ts` — carries a pin and must draw
+`DECLARED_LIMIT_PIN_UNNAMED` through `checkDeclaredLimitPins`. An integration that consults the injected
+table when NAMING and then ignores or replaces that result downstream passes Task 2 and fails only here,
+and Tasks 5 and 7b cannot catch it because they exercise only REAL enrolled surfaces.
 
 **Fixture neutralization (spec §6): the dedup case needs a partner.** "One pin reachable through two
 surfaces draws ONE finding" is ALSO satisfied by an implementation that ignores surfaces entirely and
@@ -451,15 +463,11 @@ into `lib/` pass. The purity meta-test is re-run in this task's green step for t
       `pnpm vitest run tests/specLint/declaredLimitPinsWiring.test.ts`. Expected: the plan-kind case
       fails with zero `DECLARED_LIMIT_PIN_UNNAMED` findings against one expected — `runLint` never
       calls the arm. A type error at the new parameter is ALSO an invalid red: fix the signature first.
-- [ ] **Step 3: Thread the table through `runLint`; project `GUARD_SURFACES` in the adapter; PREPARE the
-      **INJECTION ONLY — no preparation of any kind. Preparation is deliberately NOT wired here** — it is the subject of Task 7b's
-      red, and wiring it now would make that test green the moment it is authored, which is the
-      per-task red-first violation this ordering exists to avoid. Task 5 ends with the adapter passing
-      RAW suite lines and a correctly injected table — `stripCommentsSafely` for comments, parser template ranges for
-      fixture bodies. The core receives prepared lines and owns no notion of code. Do NOT hand-roll a
-      comment stripper: `tests/cross-cutting/_metaStripCommentsSingleSource.test.ts` forbids local
-      copies, and its walker root is `tests/` only — so a copy in `lib/` would be invisible to it and
-      the rule would go unenforced exactly where it was broken.**
+- [ ] **Step 3: Thread the table through `runLint` and project `GUARD_SURFACES` in the adapter.**
+      **INJECTION ONLY — no preparation of any kind.** Task 5 ends with the adapter passing RAW suite
+      lines and a correctly injected table. Preparation is Task 7b's to implement, and wiring it here
+      would make that task's authored red green the moment it is written, which is the per-task
+      red-first violation this ordering exists to prevent.
 - [ ] **Step 4: Observe green**, then re-run the invariant checks this diff already passed:
       `pnpm vitest run tests/specLint/_metaPureCore.test.ts` and `pnpm typecheck`.
 - [ ] **Step 5: Commit.**
@@ -680,6 +688,13 @@ does that. Three facts, three proofs, stated so no one reads any of them as cove
       export, or zero collected tests invalidates the red.
 - [ ] **Step 3: Implement `prepareSuiteText`** — parse RAW for diagnostics, then blank comments,
       template bodies and multi-line ordinary strings — and wire it into the adapter's read path.
+- [ ] **Step 3a: Add the UNPARSEABLE-SUITE case, in process.** Suite text whose only defect is an
+      unterminated `/*` above a live pin. Expected: preparation reports the parse failure, so the suite
+      DECLINES and contributes no pins. This is the only executable proof that diagnostics come from the
+      RAW text — a strip-then-parse implementation consumes the opener to EOF, reports a clean parse and
+      silently returns no pins, and no core-level fixture can catch it because those merely inject a
+      status. It goes RED against the Step 1 stub (which reports no diagnostics at all) and green with
+      Step 3's raw-first order.
 - [ ] **Step 3b: Add the subprocess WIRING case**, over a fixture plan naming a REAL enrolled surface,
       asserting the advisory appears identified by that surface's specific `(suitePath, title)`.
       Expected to pass on authoring: Task 5 already injected the table. It is characterization of the
@@ -696,21 +711,22 @@ git commit -m "test(spec-lint): prove the adapter prepares and injects, through 
 <!-- tasks: end -->
 
 **Region boundaries, disclosed rather than silent.** This plan declares TWO task regions — Tasks 1-5,
-then Tasks 7 and 7b — and TWO tasks sit outside them. **Task 6** is characterization: after Tasks 1-5
+then Task 7b — and THREE tasks sit outside them. **Task 6** is characterization: after Tasks 1-5
 the core is complete, so its suite is green the moment it is authored, measured rather than assumed
 since the live corpus yields the same seven pins prepared or unprepared. **Task 8** That is deliberate: Task 8 edits two documents and runs gates,
 and it has no test-first cycle to declare. A marker on either would assert a red that cannot fire. The
 exclusions are stated because an undisclosed one is the silent-under-coverage defect
 `BL-SPECLINT-RED-TARGET-CANNOT-NAME-A-REPO-ROOT-SURFACE` records: the lint stays green, the region stays
-well-formed, and nothing reports that a task opted out. Seven of this plan's nine tasks are test-first
-and all seven sit inside a region.
+well-formed, and nothing reports that a task opted out. Counted mechanically rather than asserted: this
+plan has NINE tasks, SIX of them marked and inside a region (1, 2, 3, 4, 5, 7b) and THREE excluded
+(6, 7, 8), each for the reason given above.
 
 ### Task 8: Docs, dogfood, and whole-tree gates
 
 **Files:**
 
 - Modify: `docs/agents/writing-plans.md` (one sentence under the reconciliation/closeout-sweeps bullet)
-- Modify: `docs/superpowers/specs/ci/README.md` (one row — the `ci/` index, not the parent)
+- Verify: `docs/superpowers/specs/ci/README.md` already carries this spec's row (it was added mid-arc when `tests/docs/specsReadmeIndexParity.test.ts` went red on the branch — the PER-DIRECTORY index is the one that gate enforces, not the root)
 - Modify: this spec and this plan (Step 4b removes their expired waivers)
 
 - [ ] **Step 1: Record the pre-edit docs-gate verdict.** Run the FULL docs suite — not a single file,
@@ -742,6 +758,14 @@ pnpm typecheck && pnpm exec eslint lib/specLint scripts/spec-lint.ts tests/specL
 pnpm heavy pnpm test
 ```
 
+- [ ] **Step 4a: Prove `parse.ts` is unmodified BY DIFF.** The purity meta-test only rejects `node:fs`,
+      `node:child_process` and `node:process` imports and typecheck sees nothing, so neither can support
+      AC-8's clause:
+
+```bash
+git diff --exit-code origin/main -- lib/specLint/parse.ts
+```
+
 - [ ] **Step 4b: Remove every forward-declaration waiver whose reason has expired**, now that Tasks 1-7b
       have tracked the files they create. Delete each `<!-- spec-lint: ignore -->` whose target now
       exists, then confirm BOTH documents still lint `0 hard` WITHOUT it — that is the only proof the
@@ -764,7 +788,7 @@ git commit -m "docs: record the declared-limit pin advisory beside the sweep dis
 
 ## Plan-time observed red set
 
-Executed 2026-08-19 against the pre-implementation tree. All SEVEN marked tasks are `red-state=authored`: their failing cases do not exist yet, so none is run
+Executed 2026-08-19 against the pre-implementation tree. All SIX marked tasks are `red-state=authored`: their failing cases do not exist yet, so none is run
 now, and each names the production surface whose absence or defect makes it fail — verified below.
 The region therefore declares no `red-state=live` command, so `spec:lint --exec-red` has nothing to
 execute here and its silence is not a certificate. **Two sharper facts about what the lint does NOT
