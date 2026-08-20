@@ -417,6 +417,12 @@ population is total for formats nobody thought of):
   CUSTOM-id control (`ATTENTION-INDEX-JUMP-FOCUS-1`) proving the selector reaches entries that use no
   `BL-`/`DEF-` prefix at all
 
+**A zero you have EXPLAINED is more dangerous than a zero you have not**, because the explanation
+retires the question. The `DEFERRED.md` zero was not simply missed here: it was noticed, investigated,
+and rationalised — a level-2 scan produced three prose headings, and those three headings became a
+reason to stop looking. The signal was present and the explanation is what buried it. A blind spot is
+closed by looking; this is closed only by a different instrument.
+
 **Every conclusion the first verify reached survives the correction** — no intersection, both rows
 archived and absent from open, the attached row still open, zero in-progress markers. What was wrong
 was the POPULATION the conclusions ranged over, and that is worth recording rather than quietly
