@@ -619,7 +619,11 @@ So:
   fixture suite text holding one live pin plus one decoy per channel. This is where the decoys live and
   it is the only place they can be observed.
 - **WIRING is proved BY SUBPROCESS**, running the shipped CLI over a fixture PLAN that names a REAL
-  enrolled surface and asserting the arm's advisory appears with that surface's real pin. That proves
+  enrolled surface and asserting the arm's advisory appears **identified by that surface's specific
+  `(suitePath, title)`** — not merely that some advisory was emitted. Fixture pass, iteration on the
+  restructured tasks: asserting presence alone is satisfied by ANY advisory the run happens to produce,
+  including one from an unrelated surface the fixture plan also names, so the identity is the assertion
+  and the bare count is not. That proves
   the adapter injects the table and reaches the core end to end; it says nothing about preparation,
   because the real suites contain no decoys (measured: prepared and unprepared agree on the live
   corpus).
