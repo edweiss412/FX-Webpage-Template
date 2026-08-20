@@ -1834,17 +1834,72 @@ function unclassifiableWithin(node: ts.Node, facts: ModuleFacts): string[] {
 function hookBodies(describeCall: ts.CallExpression): ts.Node[] {
   const out: ts.Node[] = [];
   const walk = (n: ts.Node): void => {
+    // HOOK_REGISTRARS, not a second copy of it: the top-level seed already
+    // consults that constant, and two matchers where the design assumes one can
+    // drift apart silently.
     if (
       ts.isCallExpression(n) &&
       ts.isIdentifier(n.expression) &&
-      /^(beforeEach|beforeAll|afterEach|afterAll)$/.test(n.expression.text)
+      HOOK_REGISTRARS.test(n.expression.text)
     ) {
       out.push(n);
+    }
+    // A nested describe OWNS the hooks in its BODY, and the caller already carries
+    // ours down to it, so descending into that body would attach its hooks to its
+    // SIBLINGS -- a pure test told to carry a premise it does not need.
+    // Recognised by the SAME predicate the caller uses, so the two cannot
+    // disagree about what a describe is.
+    //
+    // Only the BODY is pruned. A nested registration's other positions are
+    // evaluated while THIS describe is still current -- the curried
+    // `.each`/`.for` producer, and the eager name and options arguments -- so a
+    // hook written there registers on US and runs for our other tests. Pruning
+    // the call whole read those as the nested branch's and turned a touching
+    // sibling free, which is a silent free rather than a conservative report.
+    if (
+      n !== describeCall &&
+      ts.isCallExpression(n) &&
+      registrarRoot(n.expression) === "describe"
+    ) {
+      if (ts.isCallExpression(n.expression)) for (const a of n.expression.arguments) walk(a);
+      for (const a of n.arguments) if (!isSuiteBody(a)) walk(a);
+      return;
     }
     ts.forEachChild(n, walk);
   };
   walk(describeCall);
   return out;
+}
+
+/**
+ * The registration argument that IS the nested suite's body.
+ *
+ * Tested through TypeScript's outer-expression grammar rather than on the
+ * argument node itself: `(fn)`, `fn as T`, `fn satisfies T`, `fn!` and a type
+ * assertion are all runtime-transparent, so Vitest invokes the same callback
+ * with the NESTED suite current. Reading only a bare arrow or function
+ * expression let a wrapped body be walked as if it were an eager argument,
+ * which put the nested branch's hooks back on its siblings (diff round 4).
+ *
+ * The accept-set is CLOSED by that grammar -- these are the node kinds that
+ * wrap an expression without changing what runs -- rather than grown one
+ * spelling at a time. The list is TypeScript's own OuterExpressionKinds minus
+ * PartiallyEmittedExpression, which the parser never produces from source;
+ * omitting ExpressionWithTypeArguments made the closure claim FALSE rather
+ * than merely incomplete, which is what diff round 6 caught.
+ */
+function isSuiteBody(arg: ts.Expression): boolean {
+  let node: ts.Node = arg;
+  while (
+    ts.isParenthesizedExpression(node) ||
+    ts.isAsExpression(node) ||
+    ts.isSatisfiesExpression(node) ||
+    ts.isNonNullExpression(node) ||
+    ts.isTypeAssertionExpression(node) ||
+    ts.isExpressionWithTypeArguments(node)
+  )
+    node = node.expression;
+  return ts.isArrowFunction(node) || ts.isFunctionExpression(node);
 }
 
 /** The producer argument of `describe.each(<producer>)(...)`, if any. */
