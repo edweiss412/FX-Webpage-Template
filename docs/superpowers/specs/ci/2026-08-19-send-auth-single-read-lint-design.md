@@ -67,9 +67,20 @@ A conservative report is a DOCUMENTED LIMIT; silence is never a certificate.
   declared under a loop, an undeclared pass — is a DOCUMENTED LIMIT, not a finding. A finding
   requires a probe showing a SILENT pass: the scanner reporting nothing while a surface use it claims
   to cover is present.
-- **PROBE DOMAIN — DERIVED.** The modules named by the scanner's enrolment registry
-  (`SEND_AUTH_SURFACES`, in the scanner module of §2.5) on the live tree, plus the fixtures under
-  `tests/paneCompaction/fixtures/sendAuth/`. A probe outside that domain, or more than one ordinary
+- **PROBE DOMAIN — DERIVED, AND DERIVED ON BOTH HALVES.** The modules named by the scanner's
+  enrolment registry (`SEND_AUTH_SURFACES`, in the scanner module of §2.5) on the live tree, plus
+  EVERY file under EVERY fixture root the gate scans — today `FIXTURE_ROOT` and `CONTROL_ROOT` in
+  the gate module, `tests/paneCompaction/fixtures/sendAuth/` and
+  `tests/paneCompaction/fixtures/sendAuthLiveControl/` — **including files and roots added after this
+  line was written.** The second root was omitted while this read as a single directory, which is
+  the enumeration failure in miniature: correct when written, and wrong the moment the gate grew a
+  root. An enumeration over a growing corpus decays through ADDITION rather than through mistake,
+  so review cannot see it; the domain is therefore stated as the roots the gate scans rather than as
+  a list of the directories it scanned on the day.
+
+  It cuts both ways, which is why it is worth the words: a reviewer can rule the arc's own probes
+  out of domain, and the arc can cite evidence its brief does not admit. Either way the round is
+  spent arguing scope instead of substance. A probe outside that domain, or more than one ordinary
   edit away from an input in it, files to documented limits rather than to a round. The population is
   read from the registry and never quoted as a number here; the dated census lives in §3.
 - **Threat fence.** Ordinary authoring by a contributor who EDITS THE SURFACE USES of an enrolled
