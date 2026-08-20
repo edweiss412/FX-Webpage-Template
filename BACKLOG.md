@@ -1424,6 +1424,27 @@ AGENTS.md already says to class-sweep a finding's SHAPE across the code before p
 
 **First scheduled step:** decide which of the two forms to build, then confirm against this arc's own history — replay the R2 and R4 repairs and check that the proposed mechanism flags the claims R4 F3 and R5 F1 later found. A mechanism that does not flag those two is not worth building.
 
+## BL-PREMISESCAN-FILE-SUITE-EAGER-HOOKS-LOST — at file scope a hook in a registration's eager position reaches no sibling
+
+**Status:** OPEN · **Severity:** MEDIUM (a silent FREE — a sibling suite reads free while the hook genuinely runs for it) · **Class:** guard fidelity · **Effort:** M · **Filed:** 2026-08-19 (`fix/premisescan-nested-hook-sibling-leak`, diff review r9) · **Facing:** process · **Mint-exception:** invariant · **Class-sweep exception:** (c) — the repair changes the top-level SEED's contract, not the nested stop the finding arc ships · **Reachability:** PROBED — same-machine differential on both trees, plus an 84-case sweep.
+
+A hook written in a registration's EAGER position — a name argument, an options argument, a curried `.each`/`.for` producer — is evaluated while the CURRENT suite is collecting, so Vitest registers it on that suite. Where the parent is a `describe`, `hookBodies` attaches it correctly. Where the parent is the FILE suite there is no such collection: the top-level seed (`tests/mutation/source/premiseScan.ts:1748`) recognizes only direct hook STATEMENTS. The hook is never attached, and a sibling suite reads `environment-free` while it runs for that sibling.
+
+**Incident:** diff review round 9 of `fix/premisescan-nested-hook-sibling-leak`, raised as one ordinary edit from that arc's own AC-8 fixture — lifting the A/B describes out of their outer wrapper. Bracketed against `origin/main` before disposition, the shipped classifier called in memory on both trees:
+
+```
+origin/main   top_name     inA=environment-touching  inB=environment-free
+              nested_name  inA=environment-touching  inB=environment-touching
+this branch   top_name     inA=environment-touching  inB=environment-free
+              nested_name  inA=environment-touching  inB=environment-touching
+```
+
+Identical on both sides. That round's own sweep put the population at **84 cases** — name and options arguments across nine `describe` spellings, plus `.each`, `.for` and `.concurrent.each` producers, crossed with all four hook registrars — every one unchanged by the arc.
+
+**Shape of the repair.** Give the top-level seed the same eager-position reading `hookBodies` now has: collect hooks from a file-scope registration's non-body arguments, not only from direct statements. The nested rule already exists and is tested; this is the same rule applied at one more scope, which is why it is a seed-contract change rather than new analysis. The honest alternative, if the seed is left alone, is to REPORT rather than pass clean.
+
+**First scheduled step:** probe how many enrolled suites write a hook in a file-scope eager position today. The arc that filed this measured 84 constructed cases but not the live population, and zero would make either choice cheap.
+
 ## BL-PREMISESCAN-NAMED-SUITE-FACTORY-HOOKS-LOST — a suite registered with a named factory reads free while its hook touches the environment
 
 **Status:** OPEN · **Severity:** MEDIUM (a silent FREE — the direction that does not announce itself; an enrolled test would be told it needs no premise while its hook spawns) · **Class:** guard fidelity · **Effort:** M · **Filed:** 2026-08-19 (`fix/premisescan-nested-hook-sibling-leak`, diff review r7 finding 1) · **Facing:** process · **Mint-exception:** invariant · **Class-sweep exception:** (c) — the repair is a new identifier-resolution path in `hookBodies`, a mechanism the finding arc does not otherwise touch · **Reachability:** PROBED — same-machine differential on both trees, below.

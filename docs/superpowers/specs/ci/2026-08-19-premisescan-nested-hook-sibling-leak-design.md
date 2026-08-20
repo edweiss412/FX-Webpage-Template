@@ -244,6 +244,32 @@ props, no conditional render change.
 
    **Filed as `BL-PREMISESCAN-NAMED-SUITE-FACTORY-HOOKS-LOST`** with the differential above.
 
+6. **At FILE scope, a hook in a registration's EAGER position reaches no sibling, and this arc
+   neither causes nor widens it.** The eager-position rule (AC-8) works by attaching such hooks to
+   the enclosing `describe`'s collection. When the parent is the FILE suite there is no such
+   collection: the top-level seed (`tests/mutation/source/premiseScan.ts:1748`) recognizes only
+   direct hook STATEMENTS, so a hook inside a name, options or producer argument at file scope is
+   never attached, and a sibling suite reads `environment-free` while the hook genuinely runs for it.
+
+   **Pre-existing, and bracketed before disposition.** The shipped classifier, called in memory on
+   both trees:
+
+   ```text
+   origin/main   top_name     inA=environment-touching  inB=environment-free
+                 nested_name  inA=environment-touching  inB=environment-touching
+   this branch   top_name     inA=environment-touching  inB=environment-free
+                 nested_name  inA=environment-touching  inB=environment-touching
+   ```
+
+   Both rows are identical on both sides. Diff round 9's own sweep put the population at **84 cases**
+   — name and options arguments across all nine derived `describe` spellings, plus `.each`, `.for`
+   and `.concurrent.each` producers, crossed with all four hook registrars — every one behaving the
+   same before and after this arc.
+
+   **Filed as `BL-PREMISESCAN-FILE-SUITE-EAGER-HOOKS-LOST`.** The repair is a seed that collects
+   eager-position hooks at file scope, which is a change to the seed's own contract rather than to
+   the nested stop this arc ships — class-sweep exception (c).
+
 ## §5 Meta-test / registry inventory
 
 - **EXTENDS** `tests/mutation/source/premiseScan.test.ts`, in the fixture classes enumerated below — the
@@ -330,9 +356,13 @@ Every positive fixture has a foil, so no assertion can pass by the classifier be
   in one round rather than one member per round. *Catches:* a fixture pair covering only the
   `before*` forms, which reads as complete and leaves half the defect live (the same defect shape
   #843's §3.11 row D found).
-- **AC-8 — a hook in a nested registration's EAGER positions belongs to the PARENT.** A spawning
-  hook inside a `describe.each` producer array, and one inside a nested `describe`'s NAME argument,
-  each leave the parent's sibling test `environment-touching`. *Foil:* the same hook in the nested
+- **AC-8 — a hook in a nested registration's EAGER positions belongs to the PARENT, WHERE THAT
+  PARENT IS A `describe`.** A spawning hook inside a `describe.each` producer array, and one inside a
+  nested `describe`'s NAME argument, each leave the parent's sibling test `environment-touching`.
+  **The bound is deliberate and is §4 limit 6:** at FILE scope the top-level seed collects only
+  direct hook statements, so the same hook in an eager position reaches no sibling. Every fixture
+  here supplies an enclosing `describe`, and diff round 9 was right that an unbounded statement of
+  this criterion would claim more than the fixtures show. *Foil:* the same hook in the nested
   BODY, which leaves the sibling `environment-free` — without it a repair that simply stopped
   pruning would pass. *Catches:* the whole-call prune diff round 2 probed, which read those hooks as
   the nested branch's and turned a touching sibling free. Stated as its own criterion rather than
