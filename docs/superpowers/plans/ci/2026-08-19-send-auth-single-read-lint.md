@@ -1,7 +1,7 @@
 # Send-authorization single-read lint — implementation plan
 
 Spec: `docs/superpowers/specs/ci/2026-08-19-send-auth-single-read-lint-design.md`, canonical
-throughout. Row: `BL-SEND-AUTH-SINGLE-READ-LINT` (`BACKLOG.md:1291`).
+throughout. Row: `BL-SEND-AUTH-SINGLE-READ-LINT` (`BACKLOG.md:1350`).
 Branch: `feat/send-auth-single-read-lint`.
 
 **This plan is derived from the NARROWED spec, and a pre-narrowing draft was discarded rather than
@@ -108,38 +108,54 @@ round-1 findings, and it is the concrete reason this plan was re-derived rather 
   §3.3's r2 F1 mutant scanning CLEAN. The command is in spec §3; the throwaway prototypes live under
   the gitignored `.claude/` tree and are deliberately not tracked.
 
-### Fixture-collision check — RUN, with output and per-hit disposition
+### Fixture-collision check — a DERIVED cover, after the first two attempts were unsound
 
-The fixtures deliberately contain violating code and a `// send-auth: pass` token, so any OTHER
-filesystem-walking meta-test that claims `tests/**` could trip on them.
+The fixtures deliberately contain violating code and a `// send-auth: pass` token, so any other
+suite that walks `tests/` could claim them. Two earlier attempts at this check were wrong, and both
+are recorded because the second is the instructive one.
 
-The first sweep drafted for this check was `rg -l "walkSourceFiles|readdirSync" tests/`, and it is
-recorded here because it was WRONG in an instructive way: it returns **193** files, since it matches
-every meta-test that walks anything at all. A 193-row disposition list is a sweep authored but not
-usefully run, which is the defect the reconciliation rule names. The question is narrower — which
-walkers could actually CLAIM `tests/paneCompaction/fixtures/sendAuth/`:
+**Attempt 1, too broad to act on.** `rg -l "walkSourceFiles|readdirSync" tests/` returns 193 files —
+every suite that walks anything at all. A 193-row disposition list is a sweep authored but not usefully
+run.
+
+**Attempt 2, narrow but UNSOUND — and this is the one to learn from.** Grepping for the literal
+`paneCompaction` finds only suites that already name the directory, and therefore cannot find a GENERIC
+walker by construction. A live counterexample defeats it outright:
+`tests/cross-cutting/_metaStripCommentsSingleSource.test.ts:304-317` recursively walks all of
+`tests/` and never contains the token. A sweep whose method cannot surface the thing it is looking for
+proves nothing, however clean its output looks.
+
+**The derived cover.** The property that matters is not "mentions paneCompaction" but "roots a
+recursive walk at `tests/`", so the cover is derived from the walk root:
 
 ```sh
-$ rg -ln "paneCompaction" tests/ --glob '!tests/paneCompaction/**'
-tests/mutation/source/registry.ts
-tests/mutation/source/expectedLedgerKinds.ts
-tests/mutation/_metaPremiseContract.test.ts
+$ rg -ln 'readdirSync|walkSourceFiles' tests/ --glob '!tests/paneCompaction/**' \
+    | xargs rg -l 'TESTS_DIR|TESTS_ROOT|ROOTS|SCANNED_DIRS'
 ```
 
-**Three hits, and all three are the mutation-enrolment declarations that Task 9 edits by design.** Each
-names its `tests/paneCompaction` suite paths EXPLICITLY
-(`tests/mutation/source/registry.ts:235-251`, `tests/mutation/_metaPremiseContract.test.ts:52-61`) —
-none walks the directory, so none can claim a fixture that is not itself a test file. No walker outside
-`tests/paneCompaction/` is rooted broadly enough to reach the fixtures, and no skip-list edit is owed.
+Five suites walk all of `tests/` and WILL see the fixtures. Each carries its disposition:
+
+| Walker | Disposition |
+| --- | --- |
+| `tests/cross-cutting/_metaStripCommentsSingleSource.test.ts` | Requires a walked file not to implement its own comment handling. The fixtures are inert data and the scanner uses the shared `commentRanges`, so both comply. |
+| `tests/cross-cutting/vitest-projects-partition.test.ts` | Pins that every non-nightly test file lands in exactly one default project. The fixtures carry a plain TypeScript extension rather than a test one, so it never claims them; the GATE SUITE does land in the serial project, which is the one real obligation and is asserted in Task 1. |
+| `tests/db/_metaLocalDbUrlGuard.test.ts` | Guards DB-URL usage. The fixtures touch no database. |
+| `tests/cross-cutting/no-m9-5-surfaces.test.ts` | Bans references to retired M9.5 surfaces. The fixtures name none. |
+| `tests/components/admin/showpage/shareChipOrphanRemoval.test.ts` | Scans for orphaned share-chip renderers. Unrelated surface. |
+
+No skip-list edit is owed, but the conclusion now rests on a cover derived from the walk root rather
+than on a token that generic walkers cannot contain.
 
 ### `paneCompactionCore`'s ledger is NOT disturbed by this arc — checked, not assumed
 
 Mutation site ids are line-keyed, so an edit that shifts lines in an enrolled source invalidates that
-surface's accepted rows. Task 8 adds one comment line to `scripts/pane-compaction.ts`. The enrolled
+surface's accepted rows. Task 7 adds one comment line to `scripts/pane-compaction.ts`. The enrolled
 surface is a DIFFERENT file: `paneCompactionCore.sourcePath` is `scripts/lib/pane-compaction-core.ts`
-(`tests/mutation/source/registry.ts:233`). Its seven accepted rows are keyed on lines in that file
+(`tests/mutation/source/registry.ts:233`). Its EIGHT accepted rows (`tests/mutation/source/registry.ts:299-354`) are keyed on lines in that file
 (`integer-literal:557:53:0>1` and its siblings) and are untouched by anything this arc edits, so they
-are inherited legitimately rather than by assumption. Recorded here so a reviewer does not re-derive
+are inherited legitimately rather than by assumption. The count is stated because it was first written
+as seven — an `awk` range that clipped the last row — and a number nobody re-derives is exactly the
+kind of claim this plan asks its own tasks to produce by command. Recorded here so a reviewer does not re-derive
 it, and so that a later task which DOES touch the core file knows the rule it would then owe.
 
 ## Meta-test inventory (mandatory declaration)
@@ -177,12 +193,12 @@ code for the WRONG site.
 | AC | Task | AC | Task |
 | --- | --- | --- | --- |
 | AC-1 totality, module-wide | T3 | AC-9 `UNREGISTERED-IMPORTER` | T6 |
-| AC-2 ambient callback stays clean | T3 | AC-10 live tree green, red without the marker | T8 |
-| AC-3 injection outside vs handoff inside | T3, T5 | AC-11 the gate's own premise | T8 |
-| AC-4 read set derived from the type | T1 | AC-12 mutation score, no unaccepted survivors | T9 |
+| AC-2 ambient callback stays clean | T3 | AC-10 live tree green, red without the marker | T7 |
+| AC-3 injection outside vs handoff inside | T3, T5 | AC-11 the gate's own premise | T7 |
+| AC-4 read set derived from the type | T1 | AC-12 mutation score, no unaccepted survivors | T8 |
 | AC-5 declared / undeclared / ambiguous pass | T2 | AC-13 the ledger row's stale claim | closeout |
 | AC-6 `NON-STRAIGHT-LINE-READ` | T4 | AC-14 discovery anchored on sinks | T2 |
-| AC-7 `MULTI-READ` | T4 | AC-15 the withdrawn claim, pinned both ways | T7 |
+| AC-7 `MULTI-READ` | T4 | AC-15 the withdrawn claim, pinned both ways | T2 |
 | AC-8 one declared derivation | T5 | AC-7b derivation position | T5 |
 
 ## Tasks
@@ -191,20 +207,41 @@ code for the WRONG site.
 
 ## Task 1 — the scanner module, and the read set derived from the surface type
 
-<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/sendAuthScan.ts` why=`SEND_AUTH_SURFACES and scanModule do not exist, so the suite throws on an unresolved import before any assertion runs` ac=AC-4 -->
+<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/sendAuthScan.ts` why=`readsFor returns the hardcoded live read names, so the fixture surface's extra undeclared member is absent from the returned set and the equality assertion fails on a VALUE, not on an unresolved import` ac=AC-4 -->
 
-The fixture-collision sweep above is already dispositioned at plan time — three hits, all explicit
-suite-path lists, no skip-list edit owed — so this task does not re-run it.
+The fixture-collision sweep above is already dispositioned at plan time, so this task does not re-run
+it. Its one obligation from that table: the gate suite must land in exactly one default project, which
+`tests/cross-cutting/vitest-projects-partition.test.ts` pins and which holds because
+`tests/paneCompaction/**` is absent from `PARALLEL_TEST_GLOBS` (`vitest.projects.ts:104`) and so runs
+in the serial project.
 
 Create the scanner module exporting `SEND_AUTH_SURFACES`, `scanModule(file, row): Finding[]`,
-`scanRepo(roots): Finding[]`, and the `Finding` type — an importable module, no module-scope
-`process.exit`, with the gate suite importing it in the same commit (spec §2.5 edits 1-2).
+`scanRepo(roots): Finding[]`, the `Finding` type, **and `readsFor(sourceText, row): string[]`** — an
+importable module, no module-scope `process.exit`, with the gate suite importing it in the same commit
+(spec §2.5 edits 1-2).
 
-The read set is the COMPLEMENT: parse the `Surface` type declaration, take every member, subtract the
-row's declared `sinks`, `effects` and `ambient`. **What makes this red discriminating:** the test adds a
-member to a fixture surface type and declares it nowhere, then asserts a read through it is counted —
-so an implementation that hardcodes the ten live read names passes nothing. Spec §2.2 is the table;
-AC-4 is the contract.
+**`readsFor` exists because AC-4 is otherwise UNOBSERVABLE, and that is a real design constraint rather
+than a convenience.** The read set is the COMPLEMENT: every member of the `Surface` type declaration
+minus the row's declared `sinks`, `effects` and `ambient`. But a correctly-counted single read produces
+NO finding, so nothing in a findings-only API distinguishes "this member is in the read set" from "this
+member is ignored". Proving AC-4 through `scanModule` would require provoking a VIOLATION, and every
+violation code belongs to Tasks 3-5 — implementing one here would invalidate a later task's RED, and
+omitting it would leave this task's discriminator vacuous. Exposing the derived set directly resolves
+both: the assertion compares `readsFor(...)` against the expected complement by equality.
+
+**`readsFor` is a FOURTH export beyond the three the approved spec names** (§2.5 edit 1 lists
+`SEND_AUTH_SURFACES`, `scanModule` and `scanRepo`). It is additive and contradicts no spec claim — the
+read set and its derivation are exactly as §2.2 defines them; this only makes the derivation readable
+by a test. Recorded rather than slipped in, because the spec is ratified and a silent divergence from a
+ratified artifact is the kind of drift review exists to catch.
+
+**The RED is an assertion failure, not a collection failure, and the distinction is load-bearing.** A
+red that comes from an unresolved import is invalid by construction — it goes green when the test file
+changes rather than when the implementation lands (`docs/agents/writing-plans.md`, RED-validity
+bullet). So the module is created in this task with `readsFor` present but returning the ten live read
+names as a hardcoded list. The suite then feeds it a FIXTURE surface type carrying an eleventh member
+declared in none of the three sets, and asserts the returned set contains it. That fails on a value the
+implementation controls. GREEN is deriving the complement from the parsed type declaration.
 
 ## Task 2 — declared passes, anchored on sinks and read impostor-safely
 
@@ -222,6 +259,18 @@ line-regex over the function span.
 AC-14 rides here: a function whose only effect calls are `out` is NOT send-bearing. The live module is
 the proof — `main` carries fifteen `s.out(...)` calls and no pass (spec §3.5), so a scanner anchored on
 effects reports against correct code.
+
+**AC-15 rides in this task's commit, and it is deliberately an assertion with no red of its own.** A
+fixture whose pass is called CONDITIONALLY must scan CLEAN, asserted with a comment naming spec §4
+limit 1 and citing the §3.3 probe. There is no honest red-then-green cycle for it: the scanner already
+declines to analyze control flow, so the assertion passes the moment it is written. That is what a
+characterization pin IS, and manufacturing a `red=` for it would be the
+marker-whose-cycle-cannot-complete shape the red contract rejects — the same reasoning that keeps the
+ledger correction out of the task list. Its value is directional: spec round 2 defeated a dominance
+rule with one conditional, and the design responded by WITHDRAWING the claim. Without this assertion
+the fence holds in one direction only — a later contributor "fixes" the apparent gap, control-flow
+analysis re-enters, and the round-1-through-round-3 ratchet restarts. With it, that edit fails a test
+that explains why.
 
 ## Task 3 — totality, MODULE-WIDE
 
@@ -254,8 +303,12 @@ method may appear at most once on that path (`MULTI-READ`, naming BOTH lines) (s
 **This one rule replaces the discarded draft's per-invocation counting and its cycle detection.** Spec
 round 2's F2 — a NAMED local callback invoked twice — is caught because the read sits behind a nested
 function, with no need to know how many times it runs. Round 1's F2 repeated helper is caught by
-Task 5's `RAW-HANDOFF`. Three fixtures: `nested-function`, `named-callback` (asserted by that name,
-per AC-6), `loop-read`.
+Task 5's `RAW-HANDOFF`. FOUR fixtures, and the fourth is what makes the other three mean anything: `nested-function`,
+`named-callback` (asserted by that name, per AC-6), `loop-read`, and **`single-read-clean` — an
+ordinary straight-line read of one method, which must scan CLEAN**. Without that counterpart this
+task's green is satisfiable by reporting EVERY in-pass direct read, which would pass all three
+violation fixtures and fail the live tree. AC-7's `MULTI-READ` case pairs the same way: two
+straight-line reads of one method report and name BOTH lines, one read scans clean.
 
 ## Task 5 — exactly one declared derivation, and no raw handoff inside the pass
 
@@ -287,35 +340,24 @@ injection and must NOT report.
 
 ## Task 6 — `scanRepo` walks from disk, and unregistered importers are reported
 
-<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/sendAuthScan.ts` why=`scanRepo does not exist, so the fixture module importing Surface without a registry row yields no UNREGISTERED-IMPORTER` ac=AC-9 -->
+<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/sendAuthScan.ts` why=`scanRepo exists from Task 1 but walks nothing and knows no import edges, so the fixture module importing Surface without a registry row yields no UNREGISTERED-IMPORTER` ac=AC-9 -->
 
 `scanRepo` walks the declared roots from disk via `walkSourceFiles`
 (`lib/messages/__internal__/walkSourceFiles.ts:8`) — not from a hardcoded file list, so a module added
 under a walked root is covered by default rather than silently exempt. Any module importing a
 registered `surfaceType` symbol without its own row is `UNREGISTERED-IMPORTER` (spec §2.4).
 
+**The red reason is stated against the tree AS OF THIS TASK, not against an empty repo.** Task 1
+already creates and exports `scanRepo`, so "it does not exist" would be false here; what is missing at
+this point is the filesystem walk and the import-edge arm behind it. A red whose stated reason is
+already untrue is a plan defect even when the command still fails, because the next reader cannot tell
+which defect the cycle is proving.
+
 **What makes the red discriminating:** the fixture module is added under the walked root with NO
 registry edit, and the assertion is that it is discovered anyway. A scanner iterating
 `SEND_AUTH_SURFACES` alone cannot pass it.
 
-## Task 7 — the withdrawn claim, pinned as a limit in both directions
-
-<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/fixtures/sendAuth/conditional-pass.ts` why=`the fixture does not exist, so the assertion that a conditionally-called pass scans CLEAN has nothing to scan` ac=AC-15 -->
-
-A fixture in which the pass is called CONDITIONALLY scans clean, and the suite asserts that clean
-result with a comment naming spec §4 limit 1 and citing the §3.3 probe.
-
-**This is the only task whose deliverable is an assertion that something is NOT reported, and it is
-deliberate.** Spec round 2's F1 defeated the dominance rule with one conditional; the spec responded by
-withdrawing the claim rather than widening the recognizer. Without this assertion the fence holds in
-one direction only — a later contributor "fixes" the gap, control-flow analysis re-enters, and the
-round-1-through-round-2 ratchet restarts. With it, that edit fails a test that explains why.
-
-The comment above the assertion states the disposition in full: control flow is a DOCUMENTED LIMIT of
-this gate on its own terms, filing no ledger row, and `BL-PANE-COMPACTION-SEND-AUTHORIZATION` owns the
-separate question of what authorizes a send.
-
-## Task 8 — declare the pass on the live adapter, with the gate's own premise
+## Task 7 — declare the pass on the live adapter, with the gate's own premise
 
 <!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`scripts/pane-compaction.ts:785` why=`drive() calls s.send at three sites with no // send-auth: pass declaration anywhere in the file, so once Task 1 has authored the suite the live-tree scan reports UNDECLARED-PASS and the assert-empty fails` ac=AC-10 -->
 
@@ -332,26 +374,55 @@ GREEN is ONE line — `// send-auth: pass` above `authorize` (`scripts/pane-comp
 behavior change, no reordering, nothing else in that file.
 
 **AC-11, and it is the reason this task is not tautological.** The live-tree assertion is
-`expect(scanRepo(roots)).toEqual([])`, which passes trivially against an empty registry or a mis-rooted
-walk — the exact PR #701 shape where a guard's premise was false where it ran, so it passed
-unconditionally and would have forever. Both premises execute UNCONDITIONALLY relative to the
-assertion, never inside a `.each` callback: `premise("enrolled surfaces", SEND_AUTH_SURFACES.length, 0)`
-and `premise("modules resolved by the walk", walked.length, 0)`
-(`tests/_shared/premise.ts:26`, strict `>`).
+`expect(scanRepo(roots)).toEqual([])`, which passes trivially whenever the scanner looked at nothing —
+the exact PR #701 shape where a guard's premise was false where it ran, so it passed unconditionally
+and would have forever.
 
-## Task 9 — enrol the scanner and score it
+**Counting is not enough, and that is the correction this task carries.** `SEND_AUTH_SURFACES.length > 0`
+plus `walked.length > 0` are both satisfiable while the two sets never INTERSECT: nonempty unrelated
+roots, a registry naming modules the walk never reaches, or a `scanRepo` that ignores its walk
+entirely all keep the assertion green. A premise must be proven on the case's OWN inputs, not on
+adjacent ones. So the premises assert the intersection and the analysis, not the cardinalities:
+
+- `premiseHolds("an enrolled module is among the walked files", walked.some((w) => SEND_AUTH_SURFACES.some((r) => w.endsWith(r.module))))`
+- a POSITIVE CONTROL through the same `scanRepo` call: a known-violating fixture placed under the same
+  roots is reported, proving the walk reached files and the analysis ran, in the same invocation whose
+  emptiness the live-tree assertion depends on.
+
+Both execute UNCONDITIONALLY relative to what they guard — never inside a `.each` callback, whose case
+count can be zero (`tests/_shared/premise.ts:26` and `tests/_shared/premise.ts:36`).
+
+## Task 8 — enrol the scanner and score it
 
 <!-- task: red=`VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest run --project mutation tests/mutation/guardSurfaces.gates.test.ts` red-state=authored red-target=`tests/mutation/source/expectedLedgerKinds.ts:24` why=`the gate asserts the EXPECTED_LEDGER_KINDS key set EQUALS the enrolled surface list, so the registry row this task adds without its companion entry reds on the key-set comparison` ac=AC-12 -->
 
-**The red command needed correcting at plan time, and the defect it carried is worth recording.** The
-command first drafted here was `pnpm vitest run tests/mutation/guardSurfaces.gates.test.ts`. Run on the
-live tree it **exits 0** — the gate file is in `NIGHTLY_ONLY_EXCLUDES` (`vitest.projects.ts:100`), so
-every default project excludes it and the run collects nothing. That is the fail-open shape the red
-contract names outright: a command whose target it cannot collect reports green from the moment it is
-written, and no amount of later editing would have made it fail. The gate needs its own project and
-env gate, exactly as CI invokes it (`.github/workflows/mutation-harness.yml:190`); with those it
-collects and passes today (5 tests), which is also why the marker is `authored` rather than `live` —
-the failing case is the one THIS task creates by adding a registry row without its companion entry.
+**The red command needed correcting TWICE at plan time, and both defects are worth recording.**
+
+*First,* the command originally drafted was `pnpm vitest run tests/mutation/guardSurfaces.gates.test.ts`.
+Run on the live tree it **exits 0** — the gate file is in `NIGHTLY_ONLY_EXCLUDES`
+(`vitest.projects.ts:100`), so every default project excludes it and the run collects nothing. That is
+the fail-open shape the red contract names outright: a command whose target it cannot collect reports
+green from the moment it is written, and no later edit would ever make it fail. It needs the project
+and env gate CI uses (`.github/workflows/mutation-harness.yml:190`).
+
+*Second,* even corrected, that single command proves only ONE of the three declarations.
+`tests/mutation/guardSurfaces.gates.test.ts` imports `EXPECTED_LEDGER_KINDS` and `GUARD_SURFACES` and
+compares those two key sets; it never imports `EXPECTED_ENV_TOUCHING` and never calls `validateSurface`.
+So it goes GREEN with the third declaration missing and proves nothing about the exactly-once `control`
+constraint this task also relies on. The red is therefore stated over all three, and each is a distinct
+command run in the task:
+
+```sh
+VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest run --project mutation   tests/mutation/guardSurfaces.gates.test.ts     # EXPECTED_LEDGER_KINDS vs GUARD_SURFACES
+pnpm vitest run tests/mutation/_metaPremiseContract.test.ts     # EXPECTED_ENV_TOUCHING vs enrolled suites
+pnpm vitest run tests/mutation/_metaGuardSurfaceRegistry.test.ts # validateSurface over every row
+```
+
+The third command is where `validateSurface`'s constraints actually live — `scoreFloor` in `(0,1]`,
+`control.from` differing from `control.to`, and `control.from` occurring EXACTLY ONCE in `sourcePath`
+— asserted over every enrolled row at `tests/mutation/_metaGuardSurfaceRegistry.test.ts:41`. The task
+asserts them where they live rather than where the first draft assumed they did, and all three
+commands are run and observed in this task.
 
 Enrolment is THREE declarations, and a registry row alone leaves the corpus gate red: the
 `GUARD_SURFACES` row (`id: "sendAuthScan"`), the `EXPECTED_LEDGER_KINDS` entry
@@ -375,8 +446,18 @@ cannot see. So if a later task wants a second file, it is added to `suitePaths` 
 the assertions do not count.
 
 Then, and BEFORE the round-1 diff dispatch: `FX_HEAVY_PRIORITY=1 pnpm heavy pnpm mutation:guards`.
-Scope it with a temporary `GUARD_SURFACES` filter placed BEFORE `registerSurfaceCases` — `-t` does not
-bound the gate, because `runSurface` executes at collection — and DELETE the shard after the run.
+
+**How to scope it, corrected against the `mutation:guards` script definition in the repo manifest.** `-t` does not bound the gate, because
+`runSurface` executes in the `describe.each` body at COLLECTION, so a name filter prunes reporting only
+after every surface has already run. Nor does adding a temporary shard file help: `mutation:guards`
+names the four committed shard files and the corpus gate EXPLICITLY, so a new shard is simply not
+collected, filtering one committed shard leaves the other three running, and filtering the shared
+registry breaks the corpus-wide key and partition assertions that range over the whole of
+`GUARD_SURFACES`. The scoping that actually works is to run ONE committed shard file directly with the
+project and env gate, after confirming which shard owns `sendAuthScan` via
+`surfacesForShard` (`tests/mutation/source/shardPartition.ts`) — the partition is deterministic, so the
+owning shard is derived rather than guessed. The full `mutation:guards` run is what produces the number
+quoted in the round-1 brief; the single-shard run is only for iterating.
 `scoreFloor` records the MEASURED value; every accepted survivor carries its argument, with
 `equivalent` excluded from the denominator and `accepted-gap` retained
 (`tests/mutation/source/ledger.ts:80-81`). Site ids are line-keyed, so the ledger is re-derived after
