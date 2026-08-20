@@ -23,6 +23,8 @@ cite it.
 - **AC-5** — the stop fires on every `describe` spelling, from a DERIVED fixture set. Task 2.
 - **AC-6** — every hook registrar, derived from the matcher rather than typed beside it. Task 4.
 - **AC-7** — the source-mutation gate still passes with an empty unaccepted-survivor set. Task 5.
+- **AC-8** — a hook in a nested registration's EAGER positions belongs to the parent. Task 2a.
+- **AC-9** — a nested body wrapped in a runtime-transparent expression is still a body. Task 2b.
 
 ## The implementation surface, stated whole
 
@@ -152,6 +154,42 @@ if (n !== describeCall && ts.isCallExpression(n) && registrarRoot(n.expression) 
       the plain case stays green while every modifier case reds — the discrimination a four-row
       enumerated list would not have had. Restore and re-run green.
 - [ ] **Step 7: commit.** `fix(mutation): a nested describe's hooks stop reaching its siblings`
+
+## Task 2a: a nested registration's EAGER arguments belong to the parent
+
+<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:1834` why=`Task 2's stop prunes the nested registration, and pruning it WHOLE is wrong: the curried .each/.for producer and the eager name/options arguments are evaluated while the PARENT suite is current, so a hook written there registers on the parent and runs for its siblings. Step 1 authors the two positive cases and the BODY foil with no production edit; Step 2 observes them red against the whole-call prune at the line named here; Step 3 walks the eager positions and Step 4 re-runs the same command green` ac=AC-8 -->
+
+**Files:** `tests/mutation/source/premiseScan.test.ts`, `tests/mutation/source/premiseScan.ts`.
+
+- [ ] **Step 1: author the cases, changing no production code.** A spawning hook inside a
+      `describe.each` producer array, and one inside a nested `describe`'s NAME argument, each
+      leaving the parent's sibling test `environment-touching`. **Plus the FOIL** — the same hook in
+      the nested BODY, leaving the sibling `environment-free`. Without the foil, a repair that simply
+      stopped pruning would pass.
+- [ ] **Step 2: observe the red.** Both positives fail with
+      `expected 'environment-free' to be 'environment-touching'`; the foil passes throughout.
+- [ ] **Step 3: walk the eager positions before returning** — the callee's own arguments, where a
+      curried producer lives, and every argument that is not the body.
+- [ ] **Step 4: re-run the SAME command green.**
+- [ ] **Step 5: commit.** `fix(mutation): the stop prunes a nested describe's BODY, not its arguments`
+
+## Task 2b: a wrapped nested body is still a BODY
+
+<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:1888` why=`deciding the body by the argument node's OWN kind lets any runtime-transparent wrapper - parentheses, as, satisfies, non-null, a type assertion, type arguments - make the argument something else, so the walk descends into the body and puts the nested branch's hooks back on its siblings. Step 1 authors one case per wrapper spelling with no production edit; Step 2 observes them red against the predicate at the line named here; Step 3 replaces the kind test with isSuiteBody and Step 4 re-runs the same command green` ac=AC-9 -->
+
+**Files:** `tests/mutation/source/premiseScan.test.ts`, `tests/mutation/source/premiseScan.ts`.
+
+- [ ] **Step 1: author one case per wrapper spelling, changing no production code**, generated from a
+      wrapper table: parenthesized arrow, parenthesized function expression, `as`, `satisfies`,
+      non-null, and both `ExpressionWithTypeArguments` forms.
+- [ ] **Step 2: observe them red** — each reports the sibling `environment-touching`.
+- [ ] **Step 3: add `isSuiteBody`**, which unwraps through TypeScript's OUTER-EXPRESSION grammar
+      before testing for a function. **The accept-set is that grammar — TypeScript's own
+      `OuterExpressionKinds` minus `PartiallyEmittedExpression`, which the parser never produces from
+      source — so "closed by the grammar" is checkable rather than a list of remembered spellings.**
+      Accumulating one spelling per review round is what the same-axis recurrence rule forbids.
+- [ ] **Step 4: re-run the SAME command green.**
+- [ ] **Step 5: commit.** `fix(mutation): a wrapped nested body is still a body`
 
 ## Task 3: the outer describe's own hooks still reach every descendant
 

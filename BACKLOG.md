@@ -1424,6 +1424,27 @@ AGENTS.md already says to class-sweep a finding's SHAPE across the code before p
 
 **First scheduled step:** decide which of the two forms to build, then confirm against this arc's own history — replay the R2 and R4 repairs and check that the proposed mechanism flags the claims R4 F3 and R5 F1 later found. A mechanism that does not flag those two is not worth building.
 
+## BL-PREMISESCAN-NAMED-SUITE-FACTORY-HOOKS-LOST — a suite registered with a named factory reads free while its hook touches the environment
+
+**Status:** OPEN · **Severity:** MEDIUM (a silent FREE — the direction that does not announce itself; an enrolled test would be told it needs no premise while its hook spawns) · **Class:** guard fidelity · **Effort:** M · **Filed:** 2026-08-19 (`fix/premisescan-nested-hook-sibling-leak`, diff review r7 finding 1) · **Facing:** process · **Mint-exception:** invariant · **Class-sweep exception:** (c) — the repair is a new identifier-resolution path in `hookBodies`, a mechanism the finding arc does not otherwise touch · **Reachability:** PROBED — same-machine differential on both trees, below.
+
+`hookBodies` (`tests/mutation/source/premiseScan.ts`) collects hooks LEXICALLY inside a registration. Vitest also accepts a named factory — `describe("A", suiteA)` where `suiteA` is a module-scope arrow, function expression or declaration — and invokes it with that suite current. The factory's body lives elsewhere in the file, so it is never walked, and every test in that suite reads `environment-free` while its hook genuinely reaches the environment.
+
+**Incident:** diff review round 7 of `fix/premisescan-nested-hook-sibling-leak`, raised as one ordinary refactor from that arc's own fixtures — extracting an inline callback to a named constant is routine authoring, not obfuscation. Bracketed against `origin/main` before disposition, the shipped classifier called in memory on both trees:
+
+```
+origin/main   const-arrow     inA=environment-free      inB=environment-free
+              inline-control  inA=environment-touching  inB=environment-touching
+this branch   const-arrow     inA=environment-free      inB=environment-free
+              inline-control  inA=environment-touching  inB=environment-free
+```
+
+The named-factory rows are IDENTICAL on both sides. The arc that found it neither causes nor widens it; only the inline control moves, which is the sibling leak that arc closes.
+
+**Shape of the repair.** Resolve a factory ARGUMENT that is an identifier to its declaration in the same module and walk that body as the suite's own. The scope machinery to do it already exists — `premiseScan` resolves helper extents innermost-out — so this is a new caller of an existing resolver rather than new resolution. The honest alternative, if resolution is declined, is to REPORT: a registration whose body cannot be located is `unclassifiable` rather than silently free, which satisfies the consequence bound without following the identifier.
+
+**First scheduled step:** decide between resolving and reporting, then probe the population — how many enrolled suites register with a named factory today. Zero would make either choice cheap; a non-trivial count argues for resolving.
+
 ## BL-REVIEWROUND-MERGEDARCS-AT-THE-TIMEOUT-BOUNDARY — the live-history report runs 28s against a 30s cap and every arc pushes it closer
 
 **Status:** OPEN · **Severity:** MEDIUM (a required unit gate; when it reds the merge is blocked and the only remedy is a re-run or an unrelated gate edit) · **Class:** CI reliability · **Effort:** S · **Filed:** 2026-08-19 (`fix/premisescan-nested-hook-sibling-leak`, seen while shipping an unrelated scanner change) · **Facing:** process · **Mint-exception:** invariant · **Class-sweep exception:** (c) — the repair is a change to `lib/reviewRounds/mergedArcs.ts` or to that suite's timeout, a surface this arc does not otherwise touch · **Reachability:** PROBED — same-machine differential, both sides, below.

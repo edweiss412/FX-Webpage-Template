@@ -222,6 +222,29 @@ props, no conditional render change.
    rather than guessed — which is a design change to the scanner's reporting channel and belongs to
    its own arc.
 
+2. **A suite registered with a NAMED factory loses its hooks entirely, and this arc neither causes
+   nor widens it.** `describe("A", suiteA)` where `suiteA` is a module-scope arrow, function
+   expression or declaration is accepted and invoked by Vitest, but `hookBodies` only collects hooks
+   LEXICALLY inside the registration, so the factory's body — which lives elsewhere in the file — is
+   never walked. The test reads `environment-free` while its hook genuinely reaches the environment.
+
+   **That is a silent free, which §0's bound forbids, and it is PRE-EXISTING.** Same-machine
+   differential, the shipped classifier called in memory on both trees:
+
+   ```text
+   origin/main   const-arrow     inA=environment-free      inB=environment-free
+                 inline-control  inA=environment-touching  inB=environment-touching
+   this branch   const-arrow     inA=environment-free      inB=environment-free
+                 inline-control  inA=environment-touching  inB=environment-free
+   ```
+
+   The named-factory rows are IDENTICAL on both sides; only the inline control moves, which is the
+   leak this arc closes. Repairing it means teaching `hookBodies` to resolve a factory identifier to
+   its declaration and walk that body — a new resolution path in a mechanism this arc does not
+   otherwise touch, which is class-sweep exception (c).
+
+   **Filed as `BL-PREMISESCAN-NAMED-SUITE-FACTORY-HOOKS-LOST`** with the differential above.
+
 ## §5 Meta-test / registry inventory
 
 - **EXTENDS** `tests/mutation/source/premiseScan.test.ts`, in four separate fixture classes — the
