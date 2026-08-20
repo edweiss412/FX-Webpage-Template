@@ -478,6 +478,44 @@ git add tests/mutation/source/registry.ts tests/mutation/source/expectedLedgerKi
 git commit -m "test(infra): enrol declaredLimitPins as a guard surface - registry row and ledger kinds"
 ```
 
+### Task 7b: CLI boundary proof — the adapter's preparation, through a real subprocess
+
+**Files:**
+
+<!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
+- Create: `tests/specLint/declaredLimitPinsCli.test.ts`
+- Create: `tests/specLint/__fixtures__/declaredLimitPins/cli/` (a fixture plan and a fixture suite)
+
+<!-- task: red=`pnpm vitest run tests/specLint/declaredLimitPinsCli.test.ts` red-state=authored red-target=`scripts/spec-lint.ts:526` why=`the adapter's runLint call passes no surface table and no prepared suite text, so a real spec-lint subprocess over the fixture pair emits ZERO DECLARED_LIMIT_PIN_UNNAMED findings where the case expects exactly one - an ASSERTION failure on the parsed CLI output, not a module or collection failure` ac=AC-10 -->
+
+Round 4 found that every other suite in this plan exercises the pure core with prepared lines the test
+itself supplies, so a shipped adapter that passes RAW lines, or never injects the table at all, passes
+all of them while the false-advisory class survives at the boundary where it actually lives. `0 hard`
+cannot catch it either: the arm is advisory-only, so the dogfood lint is green whether or not the arm
+ever ran.
+
+The fixture pair holds one LIVE pin and a second pin identical but for being wrapped in `/* … */`. The
+shipped CLI must emit exactly ONE advisory, naming the live pin.
+
+**Anti-tautology.** Both failure directions are asserted from the same run, because either alone is
+satisfiable by the other defect: TWO findings prove the adapter never prepared the suite text; ZERO
+prove it never injected the surface table. A test asserting only "at least one finding" passes an
+unprepared adapter.
+
+- [ ] **Step 1: Write the fixture pair and the failing suite** (spawn the real CLI, parse its output).
+- [ ] **Step 2: Observe red AND CONFIRM THE REASON.** Run
+      `pnpm vitest run tests/specLint/declaredLimitPinsCli.test.ts`. Expected: zero advisories against
+      one expected, from a CLI run that exited normally. A spawn error, a non-zero exit for another
+      reason, or zero collected tests invalidates the red.
+- [ ] **Step 3: Wire preparation and injection in the adapter until the run emits exactly one.**
+- [ ] **Step 4: Observe green**, then re-run Task 5's purity meta-test and `pnpm typecheck`.
+- [ ] **Step 5: Commit.**
+
+```bash
+git add tests/specLint/declaredLimitPinsCli.test.ts tests/specLint/__fixtures__/declaredLimitPins/cli
+git commit -m "test(spec-lint): prove the adapter prepares and injects, through the shipped CLI"
+```
+
 <!-- tasks: end -->
 
 **Region boundary, disclosed rather than silent.** The declared task region closes here, so Task 8 is
@@ -485,8 +523,8 @@ NOT covered by `spec:lint --exec-red`. That is deliberate: Task 8 edits two docu
 and it has no test-first cycle to declare — a marker on it would assert a red that does not exist. The
 exclusion is stated because an undisclosed one is the silent-under-coverage defect
 `BL-SPECLINT-RED-TARGET-CANNOT-NAME-A-REPO-ROOT-SURFACE` records: the lint stays green, the region stays
-well-formed, and nothing reports that a task opted out. Seven of this plan's eight tasks are test-first
-and all seven are inside the region.
+well-formed, and nothing reports that a task opted out. Eight of this plan's nine tasks are test-first
+and all eight are inside the region.
 
 ### Task 8: Docs, dogfood, and whole-tree gates
 
@@ -563,7 +601,8 @@ red for a command that exits 0 today would be the "pasted a command prompt besid
 | AC-6 corpus SET over the enumerated corpus | Task 6 | live-tree corpus case, set assertion, no count |
 | AC-7 dispositions: no stale row, derived census | Task 4 | `_metaDeclaredLimitPins.test.ts |
 | AC-8 both enrolment declarations, score ≥ 0.95 | Tasks 5, 7 | gates test, purity meta-test, scoped run |
-| AC-9 both documents lint `0 hard` | Task 8 | `pnpm spec:lint` on spec and plan |
+| AC-9 both documents lint `0 hard` (NOT arm-ran evidence) | Task 8 | `pnpm spec:lint` on spec and plan |
+| AC-10 adapter prepares AND injects, both directions | Task 7b | real `spec:lint` subprocess over the fixture pair |
 
 No AC is satisfied by a green suite alone: each row names the executable step that produces the
 evidence and the channel it arrives on.
