@@ -376,3 +376,70 @@ E5 whole dq                            -> <'psql'>
    minutes per re-measure.
 6. **A here-DOC body is read as command text today** (G1, G2 both produce a site). Pre-existing,
    untouched by either arm, and recorded here so a later reader does not attribute it to this arc.
+
+### Spec round-2 addendum (2026-08-20, same arc, same day)
+
+Spec round 2 returned four BLOCKING findings, all on one axis: input families the design's operator
+partition and behavior table had failed to name. Every family below was probed on both instruments
+before the repair. Scanner (`hits` = indirection count, `sites` = psql-site count):
+
+```
+{"label":"K1 op = quoted","hits":0,"sites":0}          PG=${U='psql'}
+{"label":"K2 op + quoted","hits":0,"sites":0}          U=1; PG=${U+'psql'}
+{"label":"K3 op = bare","hits":1,"sites":0}            PG=${U=psql}
+{"label":"K4 op + bare","hits":1,"sites":0}            U=1; PG=${U+psql}
+{"label":"L1 multiword bare operand","hits":0,"sites":0}    PG=${U:-psql -X}
+{"label":"L2 multiword quoted head","hits":0,"sites":0}     PG=${U:-'psql' -X}
+{"label":"L3 multiword quoted whole","hits":0,"sites":0}    PG=${U:-'psql -X'}
+{"label":"M1 substring offset","hits":0,"sites":0}     U=xpsql; PG=${U:1}
+{"label":"M2 substring off:len","hits":0,"sites":0}    U=xpsql; PG=${U:1:4}
+{"label":"M3 substring negative","hits":0,"sites":0}   U=xpsql; PG=${U: -4}
+{"label":"M4 case upper","hits":1,"sites":0}           U=psql; PG=${U^}
+{"label":"M5 case lower all","hits":1,"sites":0}       U=PSQL; PG=${U,,}
+{"label":"M6 at-operator Q","hits":1,"sites":0}        U=psql; PG=${U@Q}
+{"label":"M7 at-operator U","hits":1,"sites":0}        U=psql; PG=${U@U}
+{"label":"N1 cont before redir","hits":0,"sites":0}    read -r PG \<newline> <<< p'sql'
+{"label":"N2 cont after redir","hits":0,"sites":0}     read -r PG <<< \<newline> p'sql'
+{"label":"N3 cont plain baseline","hits":1,"sites":0}  read -r PG \<newline> <<< psql
+{"label":"N4 cont after redir plain","hits":1,"sites":0}  read -r PG <<< \<newline> psql
+```
+
+Bash oracle, same runner:
+
+```
+K1 op= quoted              -> <psql>
+K2 op+ quoted              -> <psql>
+L1 multiword bare          -> <psql -X>
+L2 multiword q-head        -> <psql -X>
+L3 multiword q-whole       -> <psql -X>
+M1 substring off           -> <psql>
+M2 substring o:l           -> <psql>
+M3 substring neg           -> <psql>
+M4 case upper              -> <Psql>
+M5 case lower all          -> <psql>
+M6 at Q                    -> <'psql'>
+M7 at U                    -> <PSQL>
+N1 cont before             -> <psql>
+N2 cont after              -> <psql>
+```
+
+Readings:
+
+1. **The two operators the design promised but never measured** are K1 and K2; their BARE siblings
+   K3/K4 already report through the verbatim word text, which is why nobody noticed the quoted ones
+   were absent from the behavior table.
+2. **A multiword operand needs its separators.** L1-L3 all bind `psql -X`, and `valueBinds` decides a
+   multiword value only after finding whitespace in it, so a default reassembled by CONCATENATING the
+   operand's lexed words could never reach the branch that binds them. Reassembly joins with a single
+   space instead — faithful here because an assignment RHS is not word-split.
+3. **Substring expansion is a silent MISS in every form** (M1-M3: bash derives `psql`, both scanners
+   report nothing, before and after this arc). Case-modification and transformation go the other way:
+   M4, M6 and M7 report 1 while bash binds `Psql`, `'psql'` and `PSQL` — conservative over-reports.
+   M5 reports 1 and bash really does bind `psql`. The mixed directions are why the design states the
+   non-value-supplying complement as a DEFAULT-DENY with the directions recorded, rather than as a
+   list of operators it happens to have thought of.
+4. **A continuation defeats line-based association.** N1 and N2 bind `psql` and report 0, while their
+   unquoted siblings N3/N4 report 1 through the existing pattern. `spliced` joins continuations, so a
+   target's PHYSICAL line is not the LOGICAL line the `read` prefix matched on; associating the two by
+   physical line would have shipped the here-string arm with a false certification behind any
+   continuation.

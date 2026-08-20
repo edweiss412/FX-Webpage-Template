@@ -72,6 +72,13 @@ supplement; the load-bearing rows:
 | C7 | `PG=${U-'psql'}` | `psql` | 0 |
 | C9 | `PG=${U:-${V:-'psql'}}` | `psql` | 0 |
 | E5 | `PG="${U:-'psql'}"` | `'psql'` (quotes LITERAL) | 0 |
+| K1 | `PG=${U='psql'}` | `psql` | 0 |
+| K2 | `PG=${U+'psql'}` | `psql` | 0 |
+| L1 | `PG=${U:-psql -X}` | `psql -X` | 0 |
+| M1 | `U=xpsql; PG=${U:1}` | `psql` | 0 |
+| M4 | `U=psql; PG=${U^}` | `Psql` | 1 |
+| N1 | `read -r PG \` + newline + ` <<< p'sql'` | `psql` | 0 |
+| N3 | `read -r PG \` + newline + ` <<< psql` | `psql` | 1 |
 
 E5 is the row that sets arm 2's boundary and is stated here rather than buried in §3: inside double
 quotes the operand's quote characters are literal pathname data, so the correct reading of
@@ -224,9 +231,21 @@ The existing `READ_HERE_STRING` regex is **kept and still evaluated**, and a sec
 disjunct is added. The rule reports if EITHER fires.
 
 - Existing disjunct: `READ_HERE_STRING` against `spliced`, unchanged.
-- New disjunct: a `read`-grammar PREFIX match on the same `spliced` line — the identical grammar with
-  the value portion removed — AND a retained target on that line whose `operator` is `<<<` and whose
-  dequoted `text` satisfies `valueBinds`.
+- New disjunct: a `read`-grammar PREFIX match on a `spliced` line — the identical grammar with the
+  value portion removed — AND a retained `<<<` target belonging to THAT LOGICAL LINE whose dequoted
+  `text` satisfies `valueBinds`.
+
+**The association is by LOGICAL line, and getting that wrong was spec round 2 finding 1.** `spliced` is
+built by joining backslash-newline continuations, so the logical line at index `i` covers physical
+lines `i..k`; a `RedirectionTarget.line` is the PHYSICAL line its target starts on. Requiring the
+target to sit on line `i` therefore fails for both ordinary continuation positions — a continuation
+before the `<<<` and one between `<<<` and its target — and the probe confirms it: `read -r PG \`
++ newline + ` <<< p'sql'` and `read -r PG <<< \` + newline + ` p'sql'` both bind `psql` in bash and
+both report 0 today, while their unquoted siblings report 1 through the old pattern. Left unfixed the
+arm would announce the here-string closed and leave a FALSE CERTIFICATION behind a continuation. The
+rule is therefore: a target belongs to logical line `i` when its physical line falls in the span
+`i..k` that `scanShellIndirection` already computes while building `spliced`. No new grammar, no line
+arithmetic invented for this arm — the span is the loop's own.
 
 Union rather than replacement, for two reasons that are both regressions if ignored:
 
@@ -252,17 +271,32 @@ Inside the `${…}` branch — and therefore, per §2, only outside double quote
 expansion far enough to answer one question: *does this expansion supply a default WORD, and what is
 it after quote removal?*
 
-- **Value-supplying operators only:** `${U:-word}`, `${U-word}`, `${U:=word}`, `${U=word}`,
-  `${U:+word}` and `${U+word}`. For anything else the branch
-  behaves exactly as today and records nothing. That is the whole of the narrowing, and it is what pins
-  the pattern (`#`, `##`, `%`, `%%`, `/`, `//`), length (`${#name}`), indirection (`${!name}`),
-  error (`${U:?word}`, `${U?word}`) and subscript forms at their current values, probed at 1, 1, 1, 0 and 1
-  respectively for the psql-shaped spellings in §4, all unchanged.
-- **The operand is dequoted by `lexShellWords` itself.** The operand slice is re-lexed, and the
-  concatenated text of its words is the recorded default. Mixed quoting, ANSI-C `$'…'`, escapes and a
-  NESTED `${…}` all come free, because they are the same lexer — there is no second grammar to keep in
-  step, which is the defect the retired pattern family was made of. A nested expansion's own recorded
-  defaults are appended transitively, which is what closes C9.
+- **An ACCEPT-SET of exactly six operators, and DEFAULT-DENY for the whole complement.** The accepted
+  set is `${U:-word}`, `${U-word}`, `${U:=word}`, `${U=word}`, `${U:+word}` and `${U+word}`.
+  **Every other `${…}` interior — whatever its operator, whether or not this spec names it, whether or
+  not bash has it today — records nothing and keeps its current reading, by default rather than by
+  enumeration.** This is stated as a default-deny on purpose, and it is spec round 2's structural
+  repair: rounds 1 and 2 both spent findings on operators a list had failed to mention (round 2 found
+  substring expansion missing from a partition that claimed to be exhaustive), and a list over a
+  grammar can always be extended by one more round. A six-member accept-set plus a complement default
+  cannot. Consequences that follow from the default rather than from a promise: the pattern
+  (`#`, `##`, `%`, `%%`, `/`, `//`), length (`${#name}`), indirection (`${!name}`), error
+  (`${U:?word}`, `${U?word}`), subscript, SUBSTRING (`${U:1}`, `${U:1:4}`, `${U: -4}`),
+  case-modification (`^`, `^^`, `,`, `,,`) and transformation (`${U@Q}` and its siblings) forms all
+  keep exactly today's behavior. §4 records what each of them measures today; §6 item 4 records the
+  complement as ONE limit rather than a list.
+- **The operand is dequoted by `lexShellWords` itself, and its word SEPARATORS survive.** The operand
+  slice is re-lexed and the recorded default is its words **joined by a single space** — not
+  concatenated. Spec round 2 finding 3: concatenation turns `${U:-psql -X}` into `psql-X`, and
+  `valueBinds` decides multiword values by first asking whether the value contains whitespace, so a
+  concatenated default can never reach the branch that would bind it. Joining with one space is the
+  faithful reading for an assignment value (an assignment RHS is not word-split, so bash binds
+  `psql -X` verbatim) and is lossless for the predicate, which re-splits on whitespace immediately.
+  The normalization is stated here rather than left implicit because it is the one lossy step in the
+  arm. Mixed quoting, ANSI-C `$'…'`, escapes and a NESTED `${…}` all come free, because they are the
+  same lexer — there is no second grammar to keep in step, which is the defect the retired pattern
+  family was made of. A nested expansion's own recorded defaults are appended transitively, which is
+  what closes C9.
 - **The result is recorded on the word, not substituted into it:**
   `ShellWord.expansionDefaults: string[]`. The word's `text` stays the verbatim slice, so every
   existing reading of that text — including the bare-operand hit at C4 and every pattern-operand
@@ -289,7 +323,8 @@ E5 needs no guard clause: the branch that records defaults is unreachable inside
 
 ## 4. Behavior deltas (complete, from the probe record)
 
-Every row is probed on both instruments. **Flips (0 → 1), eleven:**
+Every row is probed on both instruments, and the set is complete over the PROBE DOMAIN's instrument
+set — not over the open input space, which no document can enumerate. **Flips (0 → 1), eighteen:**
 
 | id | spelling | arm |
 | --- | --- | --- |
@@ -304,6 +339,13 @@ Every row is probed on both instruments. **Flips (0 → 1), eleven:**
 | C6 | `PG=${U:+'psql'}` | 2 |
 | C7 | `PG=${U-'psql'}` | 2 |
 | C9 | `PG=${U:-${V:-'psql'}}` | 2 |
+| K1 | `PG=${U='psql'}` | 2 |
+| K2 | `PG=${U+'psql'}` | 2 |
+| L1 | `PG=${U:-psql -X}` | 2 |
+| L2 | `PG=${U:-'psql' -X}` | 2 |
+| L3 | `PG=${U:-'psql -X'}` | 2 |
+| N1 | `read -r PG \` + newline + ` <<< p'sql'` | 1 |
+| N2 | `read -r PG <<< \` + newline + ` p'sql'` | 1 |
 
 **Unchanged, and each one is a pin the suite must carry** (probed value in parentheses): A5 (1),
 A9 here-doc body (1 site — pre-existing, out of scope), A10 `notpsql` (0), A11 prose here-string (1),
@@ -313,7 +355,13 @@ verdict unchanged), F1/F2 the attached-versus-detached substitution target (1 an
 C4 (1), D1/D2/D3 pattern operands (0), D4 length (1),
 D5 bare remove-prefix (1), D6 error operand (0), D7 indirection (1), D8 subscript (1), E1 operand prose
 (0), E2 `notpsql` operand (0), E3 quoted semicolon operand (0), E4 trailing-backslash operand (0),
-E5 double-quoted whole expansion (0), E6 substitution inside operand (1).
+E5 double-quoted whole expansion (0), E6 substitution inside operand (1), K3/K4 the BARE `=` and `+`
+operands (1 each — they already report through the verbatim text), M1/M2/M3 substring expansion
+(0 each — bash derives `psql` from all three and the scanner is silent before and after; §6 item 4),
+M4 `${U^}` (1, and bash binds `Psql` — a pre-existing over-report), M5 `${U,,}` (1, bash binds `psql`
+— a correct report), M6 `${U@Q}` (1, bash binds `'psql'` — over-report), M7 `${U@U}` (1, bash binds
+`PSQL` — over-report), N3/N4 the PLAIN continuation here-strings (1 each, already closed by the
+existing pattern).
 
 **Live-tree census:** UNCHANGED by this diff. Measured 76 sites / 0 unprotected / 0 indirections at
 the branch point on 2026-08-20; both arms only ADD reports for spellings the corpus does not contain,
@@ -408,9 +456,19 @@ Retiring two bullets, adding one. Each remaining limit is a MISSED REPORT, never
    its incident (`BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION`).
    **Re-file trigger:** a live corpus instance of any spelling above, or any arc that needs attached
    targets lexed for another reason.
-4. **REMOVED** (arm 2): quoting or escapes inside a `${…}` expansion operand. Superseded by §3.3 for
-   the value-supplying operators; the pattern, length, indirection, error and subscript forms were
-   never covered by that bullet's claim and keep their current conservative readings.
+4. **REPLACED** (arm 2), and deliberately stated as a COMPLEMENT rather than a list. Quoting or
+   escapes inside a `${…}` operand are read for the six value-supplying operators in §3.3's
+   accept-set. **For every other `${…}` interior the operand is not read at all** — pattern, length,
+   indirection, error, subscript, substring, case-modification, transformation, and any operator bash
+   adds after this is written. Each keeps exactly today's behavior, which §4 records per family. The
+   failure direction across the complement is mixed and is stated rather than glossed: substring
+   expansion is a silent MISS (`U=xpsql; PG=${U:1}` binds `psql`, scanner 0 before and after), while
+   `${U^}`, `${U@Q}` and `${U@U}` are conservative OVER-reports (they report 1 while bash binds
+   `Psql`, `'psql'` and `PSQL`). Neither direction is changed by this arc.
+   This entry is written as a complement because spec rounds 1 and 2 each spent a finding on an
+   operator a list had failed to name, and a list over a grammar admits one more round indefinitely.
+   **Re-file trigger:** a live corpus instance of a psql binding through any non-value-supplying
+   expansion operator.
 5. A WRAPPER-prefixed multiword value whose psql path needs the split reading. Unchanged.
 6. `PG=$(x)psql`-shaped values over-report conservatively. Unchanged.
 7. An ANSI-C `\U` escape above the Unicode maximum keeps its raw text rather than throwing. Unchanged,
@@ -494,7 +552,7 @@ is not by itself proof for AC-3 or AC-6; the field checklist is named.
 
 | id | criterion | proved by |
 | --- | --- | --- |
-| AC-1 | The twelve §4 flips report | New positive assertions in the deciding suite, one per row, each with a premise showing its plain sibling already reports. |
+| AC-1 | The eighteen §4 flips report | New positive assertions in the deciding suite, one per row, each with a premise showing its plain sibling already reports. |
 | AC-2 | Every §4 "unchanged" row holds its probed value | Assertions in the deciding suite; the pre-existing ones stay, the newly named ones are added. |
 | AC-3 | The site path is byte-identical in behavior | `git diff` shows no change to `scanShellText` and none to the attached-target regex, AND a suite case asserting a retained target is invisible to `scanSource` (`cat x > psql` → 0 sites; `psql -X -qAt mydb > out.sql` → 1 site, `suppressesStartupFiles: true`). The diff alone is not the proof — the assertion is. |
 | AC-4 | Live-tree census unchanged BY THIS DIFF | Two `collectPsqlUsage` measurements on the same tree, at `origin/main` and at HEAD, asserted EQUAL on sites / unprotected / indirections. No literal is asserted: the count is 76 / 0 / 0 on 2026-08-20 and belongs to whoever last added a psql call, so a literal would fail under an unrelated arc's diff. |
