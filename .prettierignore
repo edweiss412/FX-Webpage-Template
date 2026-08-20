@@ -98,3 +98,14 @@ tests/components/admin/review/__fixtures__/
 # comparison would then assert against reformatted bytes rather than the bytes
 # the component actually emitted.
 tests/fixtures/venueSectionRawWifi.html
+
+# The claim sweep's historical re-enactment fixtures are FROZEN BLOBS of the
+# incident arc's documents, checked out verbatim from `fede5f084` and
+# `c272ebed3` (spec §6). Every assertion over them is a
+# `(document, line, COLUMN, token)` set taken from the probe record, so
+# re-flowing a markdown table moves the columns and the replay stops
+# reproducing the acceptance criterion it exists to pin. An artifact whose
+# value is EVIDENTIARY must not be updated to stay current: freshness and
+# fidelity are opposite requirements here. Byte-identity against the two blobs
+# is asserted by tests/specLint/claimSweepFixtures.ts's own integrity case.
+tests/specLint/fixtures/claimSweep/

@@ -6,7 +6,8 @@ export type Check =
   | "copy"
   | "sections"
   | "taskContract"
-  | "universals";
+  | "universals"
+  | "claimSweep";
 export interface Finding {
   check: Check;
   code: string;
@@ -15,6 +16,22 @@ export interface Finding {
   column: number; // 1-based UTF-16 code-unit offset; whole-doc findings use 1
   message: string;
   detail?: string;
+  /**
+   * The SWEPT document this finding is about; absent = the linted document.
+   *
+   * Only the claim sweep sets it: that arm reports over a DECLARED set of
+   * documents (spec §3.3) while every other arm reports over the one document
+   * `spec:lint` was given, so `LintResult.doc` identifies those and this field
+   * would be noise on them.
+   */
+  docPath?: string;
+  /**
+   * The declared token this finding is about — the superseded value, or the
+   * changed-claim identifier. Part of the claim sweep's finding IDENTITY,
+   * `(code, docPath, docLine, column, token)`, which is why it is a field
+   * rather than only a substring of `message`.
+   */
+  token?: string;
 }
 export interface InventoryOccurrence {
   docLine: number;
