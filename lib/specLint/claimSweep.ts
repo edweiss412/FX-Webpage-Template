@@ -365,13 +365,20 @@ function namedHalf(docs: readonly SweepDocument[], record: RepairRecord): Findin
   const identifier = record.claimAbout;
   if (identifier === null) return [];
   const findings: Finding[] = [];
+  // Counted BEFORE the span filter, and that placement is the whole of the
+  // not-found rule below. An identifier the repair restated at every one of its
+  // occurrences reports NOTHING and WAS FOUND -- two different states that a
+  // predicate keyed on the REPORTED list collapses into one, which would put a
+  // false statement about the corpus in the arm's own finding text.
+  let exactOccurrences = 0;
   for (const doc of docs) {
     if (doc.lines === null) continue;
     const touched = record.touchedLines.get(doc.path);
     for (let i = 0; i < doc.lines.length; i += 1) {
-      // The repair's OWN new claim is the one occurrence that is not unswept.
-      if (touched !== undefined && touched.has(i + 1)) continue;
       for (const at of boundedOccurrences(doc.lines[i]!, identifier, IDENTIFIER_BOUNDARY)) {
+        exactOccurrences += 1;
+        // The repair's OWN new claim is the one occurrence that is not unswept.
+        if (touched !== undefined && touched.has(i + 1)) continue;
         findings.push({
           check: "claimSweep",
           code: "CLAIM_SITE_UNSWEPT",
@@ -388,6 +395,29 @@ function namedHalf(docs: readonly SweepDocument[], record: RepairRecord): Findin
         });
       }
     }
+  }
+  // THE FOURTH CODE (spec §3.4). Exact matching means a declared identifier can
+  // occur zero times, and §3.2 requires that be REPORTED rather than silently
+  // swept: the one-character truncation `PublishedReviewModal.tsx:96` occurs
+  // ZERO times exactly and on NINE lines as a substring, so exact matching
+  // without this report converts nine wrong advisories into SILENCE -- the same
+  // defect wearing the conservative direction's clothes. A narrowing that gives
+  // a declined input no channel is not a narrowing; it is going quiet.
+  //
+  // It carries the fact and NO location, because there is no location.
+  if (exactOccurrences === 0) {
+    findings.push({
+      check: "claimSweep",
+      code: "CLAIM_IDENTIFIER_NOT_FOUND",
+      severity: "advisory",
+      docLine: 1,
+      column: 1,
+      token: identifier,
+      message: `${identifier} was DECLARED as a changed claim and occurs zero times EXACTLY in the swept set`,
+      detail:
+        "nothing was swept for it. Check the declaration for a truncation or a typo -- an " +
+        "ordinary one-character slip matches as a SUBSTRING and would have reported everywhere.",
+    });
   }
   return findings;
 }
