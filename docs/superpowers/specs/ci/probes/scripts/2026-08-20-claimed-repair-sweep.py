@@ -52,6 +52,22 @@ PRESENT = [
     ("probes 8.2 inference rules",    [PROBE], "All three \"same arc\" inference rules are wrong"),
     ("probes 8.3 symlink",            [PROBE], "The unreadable-document branch is a live corpus shape"),
     ("probes numbering scheme",       [PROBE], "which is not the corpus round number"),
+    # --- round 6 ---
+    ("3.4 three codes",               [SPEC],  "**Three codes.** One per half"),
+    ("3.4 accept-set is closed",      [SPEC],  "The three are the whole accept-set: the arm emits nothing else."),
+    ("6 identity carries the column", [SPEC],  "A finding's identity is `(code, doc, line, COLUMN, token)`"),
+    ("6 identity fixture row",        [SPEC],  "or dedup by line |"),
+    ("6 no dedup by position/line",   [SPEC],  "**No dedup by\nposition, by line, or by token is permitted**"),
+    ("6 replay unmoved, measured",    [SPEC],  "survivors sit on nine DISTINCT lines"),
+    ("AC-4 identity with column",     [SPEC],  "nine `(document, line, column, token)` numeric survivors"),
+    ("3.1 cites 5 item 7",            [SPEC],  "recorded as §5 item 7 and restated in the module header."),
+    ("probes 5.1 cites 5 item 7",     [PROBE], "the miss is declared (spec §5 item 7)"),
+    ("7 states where measured",       [SPEC],  "A score is reported WITH WHERE IT WAS MEASURED"),
+    ("7 surface-grain triage",        [SPEC],  "Triage at SURFACE grain, never at leg grain"),
+    ("7 absence is not evidence",     [SPEC],  "Absence from a failure list is not\nevidence of passing"),
+    ("probes 9.1 collision probe",    [PROBE], "The live corpus collides under a line-keyed identity"),
+    ("probes 9.2 replay unaffected",  [PROBE], "The historical replay is unaffected"),
+    ("probes 9.3 reviewer confirmed", [PROBE], "the replay was not the case in point"),
 ]
 
 ABSENT = [
@@ -68,6 +84,12 @@ ABSENT = [
     ("retired: 17 contributed by this arc",   [PROBE],       "…contributed by THIS ARC's own documents:            17"),
     ("retired: FileResolver resolves the set",[SPEC],        "Resolved through the existing\n`FileResolver`"),
     ("retired: line-numbered types.ts cite",  [SPEC],        "lib/specLint/types.ts:41-45"),
+    # --- round 6: the superseded text, quoted in full so the deliberate
+    # withdrawn-draft mention of the old key does not read as a survival ---
+    ("retired: 'Two codes' header",           [SPEC],        "Two codes, because the two halves assert different things"),
+    ("retired: 3.1 -> 5 item 6",              [SPEC],        "recorded as §5 item 6"),
+    ("retired: probes 5.1 -> 5 item 6",       [PROBE],       "the miss is declared (spec §5 item 6)"),
+    ("retired: AC-4 line-keyed identity",     [SPEC],        "nine `(document, line, token)` numeric survivors"),
 ]
 
 print("\n-- CONTROLS --")

@@ -154,7 +154,7 @@ sentence: "Update the census-length premise from 21 to 57, and the distinct-iden
 The obvious refinement — exclude only when the sentence reads as ONE transition, exactly one of each —
 **fails**, because a legitimate transition has precisely that shape too. Separating them requires
 knowing which CLAIM each number belongs to, which is the recognizer the design exists to avoid. So the
-arm declines and the miss is declared (spec §5 item 6). The failure direction is a missed advisory, not
+arm declines and the miss is declared (spec §5 item 7). The failure direction is a missed advisory, not
 a false one.
 
 ### 5.2 The named half's measured volume on the incident
@@ -236,13 +236,14 @@ cover keys on that module's data rather than on a nonce convention a fixture cou
 
 Every command below was run in this session, on this worktree, and its output is pasted verbatim.
 
-The repairs this round CLAIMS are verified in both directions by
-`scripts/2026-08-20-round5-repair-sweep.py` — every claimed repair present NOW, and every model this
+The repairs of THIS round and every later one are verified in both directions by
+`scripts/2026-08-20-claimed-repair-sweep.py` — every claimed repair present NOW, and every model any
 round retired absent NOW, since a repair that adds the replacement while leaving the superseded text
-standing passes every positive check. It prints raw counts rather than a verdict, and it asserts a
+standing passes every positive check. Witnesses accumulate across rounds rather than being replaced, so
+a repair cannot regress once a later round moves on. It prints raw counts rather than a verdict, and it asserts a
 must-be-PRESENT control in EACH document plus a must-be-ABSENT control before reporting anything, so a
-failed read cannot masquerade as a clean sweep. Current run: 0 claimed-but-absent of 29, 0
-retired-but-surviving of 10. Its first run reported one survivor and the survivor was a defect in the
+failed read cannot masquerade as a clean sweep. Current run: 0 claimed-but-absent of 44, 0
+retired-but-surviving of 14. Its first run reported one survivor and the survivor was a defect in the
 WITNESS, not in the document — the historical `947 of 947` figure in §6, which the repair deliberately
 KEEPS beside the population it ranges over. That is the 9.1 shape: a witness that no longer matches the
 repaired text is indistinguishable from an absent repair until someone reads the section.
@@ -313,3 +314,59 @@ One tracked symlink under the swept tree. `FileResolver`'s own contract already 
 An implementation that continues silently on it satisfies every occurrence assertion while AC-5's
 "never silently skipped" is false of it, which is why §3.4 carries a third code and §6 carries the
 fixture that kills the silent form.
+
+
+## 9. Round-6 supplement — a finding's identity needs the column, and the replay proves it does not move
+
+### 9.1 The live corpus collides under a line-keyed identity
+
+At this arc's merge-base `4dfd784ed062`, for the accepted declaration `58 → 57`, over the whole
+`docs/superpowers` markdown corpus:
+
+```
+$ git grep -n -P '\b58\b.*\b58\b' 4dfd784ed062 -- 'docs/superpowers/*.md' 'docs/superpowers/**/*.md' |
+    grep -v '\b57\b' |
+    perl -ne '$n=()=/\b58\b/g; /^([^:]+:[^:]+:\d+):/; print "$1 occurrences=$n\n"'
+…/handoffs/M12-solo-dev-ux-validation.md:863                       occurrences=2
+…/plans/2026-07-27-inline-later-group-own-hotel/00-overview.md:54  occurrences=2
+…/plans/2026-08-09-admin-nav-badge-suspense.md:13                  occurrences=2
+…/specs/ci/2026-08-16-heavy-orphan-worker-lifetime-design.md:358   occurrences=2
+…/specs/ci/probes/2026-08-16-mutation-gate-weight-probe.md:141     occurrences=2
+…/specs/parser/probes/2026-08-07-mutation-wave-ledger-probe.md:59  occurrences=2
+…/specs/probes/2026-08-11-speclint-arm-survivor-classification.md:176  occurrences=3
+…/v1-pre-deployment-amendments/2026-05-19-solo-dev-ux-validation-design.md:144  occurrences=3
+```
+
+Eight lines, 18 reportable occurrences, EIGHT distinct `(code, doc, line, token)` identities. Ten
+occurrences are lost, and lost SILENTLY — the arm would report a smaller set that looks like a
+legitimate dedup. §6 forbids positional dedup in prose while the identity key it gave could not express
+the case; the key now carries the column, which `Finding.column` in `lib/specLint/types.ts` has always
+supplied.
+
+### 9.2 The historical replay is unaffected, and that is measured rather than assumed
+
+Widening an identity tuple invites the question of whether AC-4's set moved. It does not. Sentence-scoped
+co-occurrence over `fede5f084`'s three arc documents, reproducing the acceptance criterion exactly:
+
+```
+survivors: 9
+    spec:220 col 395      plan:9   col 521      plan:119 col 74
+    spec:282 col 47       plan:18  col 139      plan:140 col 95
+    plan:7   col 246      plan:112 col 122      plan:188 col 37
+excluded occurrences: 3
+    spec:220 col 83       plan:79  col 54       plan:102 col 290
+distinct (doc, line, token) identities among survivors = 9 vs 9 occurrences
+```
+
+Nine survivors on nine distinct lines, so both keys yield the same nine. **Note `spec:220`, which carries
+one EXCLUDED and one SURVIVING occurrence of `58` on the same line** — the sentence rule separates them,
+and a LINE-scoped implementation gets this line wrong in both directions at once. A line-scoped run of
+the same measurement returns 7 survivors and 5 excluded occurrences, which is neither the acceptance
+criterion's 9 nor its 3.
+
+### 9.3 The reviewer was right about the corpus and the replay was not the case in point
+
+The round's finding was raised against AC-1/AC-7 and the §6 identity, and both halves needed separating
+before repair: the collision is real on the LIVE corpus (9.1) and absent from the FROZEN replay (9.2).
+Attribution owes a probe even when the probe confirms the reviewer, because the repair text would
+otherwise have claimed the replay was at risk when it never was.

@@ -178,7 +178,7 @@ A legitimate transition sentence has exactly the same shape — one of each — 
 them. Anything that could would have to understand which CLAIM each number belongs to, which is the
 recognizer this design exists to avoid (§1.1 item 3). The arm therefore declines: the failure direction
 is a MISSED advisory, never a false one, which is the conservative side of the consequence bound. It is
-recorded as §5 item 6 and restated in the module header.
+recorded as §5 item 7 and restated in the module header.
 
 **The sentence is the scope, and the line is not.** The incident's sharpest survivor sits on a line the
 repair itself rewrote for an unrelated reason, so any rule keyed on diff status misses it (§1.1 item 4).
@@ -262,7 +262,9 @@ symlink.
 
 ### 3.4 The finding, and what it does NOT assert
 
-Two codes, because the two halves assert different things and one wording cannot carry both:
+**Three codes.** One per half, because the halves assert different facts and one wording cannot carry
+both — and a third for a document that was never read, which neither occurrence code can truthfully
+describe. The three are the whole accept-set: the arm emits nothing else.
 
 ```
 VALUE_SUPERSEDED_ELSEWHERE  advisory        (numeric half)
@@ -381,6 +383,7 @@ force. Two covers are mandatory before any review dispatch, both learned on this
 | §3.0 declared input | INFER the pair from the repair's diff | the incident commit itself, whose diff carries `58` on BOTH sides and changes several literals: an inferring implementation picks a pair (any pair) and reports, while the shipped arm with `--repair` and NO declaration must report NOTHING and say why. Both halves asserted — the silence, and the reason line |
 | §3.0 declared input | accept a declaration and ignore `--repair` | a declared pair whose surviving occurrence sits INSIDE the repair's hunks still reports for the numeric half, while the named half's own new claim (also inside them) does not — the spans are used by §3.2 and only there |
 | §3.1 numeric half | report every surviving N (the naive form) | a transition sentence carrying BOTH values draws nothing — the 923-site corpus shape |
+| §3.1 identity | key a finding `(code, doc, line, token)`, or dedup by line | a line carrying the superseded token TWICE in one sentence lacking the replacement reports TWICE, at two different columns — a line-keyed identity emits one and the loss is silent. Drawn from the live corpus, where the accepted `58 → 57` declaration has eight such lines and ten occurrences to lose. Paired positive, one variable: the SAME line with the second occurrence moved into a sentence that carries the replacement reports exactly ONCE, so the single finding is attributable to the sentence rule rather than to a dedup |
 | §3.1 sentence scope | scope to the LINE instead | a line carrying BOTH a `57/58` transition sentence AND a separate stale `58` sentence — line scope excludes the whole line and misses the stale one, sentence scope reports it. Review caught the earlier fixture here: the consequence-bound line contains only `58`, so both scopes treat it identically and it discriminated nothing |
 | §3.1 discriminator | exclude anything inside the repair's diff | that same survivor, an ADDED line in that hunk, must still report |
 | §3.2 named half | report every occurrence of the identifier | the repair's OWN new claim, inside its hunk, draws nothing |
@@ -400,9 +403,24 @@ crashed read, a scanner returning the empty set. So:
 
 **Second question, asked of every fixture: which rule DECIDES the observation, and is it the rule under
 test?** Cross-finding machinery an implementer will invent — dedup by token, ordering, collapse by line
-— can produce a pass value by another route. A finding's identity is `(code, doc, line, token)`;
-several findings legitimately share a line when one sentence carries two superseded tokens, and no
-dedup by position is permitted.
+— can produce a pass value by another route.
+
+**A finding's identity is `(code, doc, line, COLUMN, token)`, and the column is load-bearing rather than
+decorative.** An earlier draft keyed it `(code, doc, line, token)` and said in the next clause that
+several findings legitimately share a line — which the key it had just given cannot express. Measured at
+the merge-base for the accepted `58 → 57` declaration: eight lines carry the superseded token two or
+three times in a sentence that lacks the replacement, so 18 reportable occurrences collapse to 8
+line-keyed identities and TEN vanish, silently, into what looks like a dedup. `Finding.column` already
+exists for exactly this — `lib/specLint/types.ts` declares it a 1-based UTF-16 code-unit offset — and §2's
+own naive census already dedups on `(path, value offset)`, so the offset was in the instrument and
+missing only from the identity. Findings on one line have no natural order, so every multi-finding
+assertion is order-independent: a sorted record or a set, never a positional array. **No dedup by
+position, by line, or by token is permitted**, and there is no ordering guarantee to rely on.
+
+The widening does NOT move AC-4's replay, which is measured rather than assumed: the nine `fede5f084`
+survivors sit on nine DISTINCT lines (spec 220, 282; plan 7, 9, 18, 112, 119, 140, 188), so the same
+nine identities appear under either key. The live corpus is where the two keys diverge, which is why the
+fixture below is drawn from it.
 
 **Every weaker implementation named above owes a SHIPPED killing check, and that is verified
 mechanically at implementation time.** A table that names the case and a suite that omits it is the gap
@@ -445,6 +463,16 @@ as its expected key set. A registry row alone leaves the corpus gate red.
 dispatch, and that brief states `MUTATION SCORE: <k>/<t>` plus "0 unaccepted survivors" on its
 `GUARD SURFACE:` line, or the wrapper exits 2.
 
+**A score is reported WITH WHERE IT WAS MEASURED, and a green local run is necessary rather than
+sufficient.** State the local foreground run or the CI leg and its run id. If CI has run this surface,
+read that result and reconcile it against the local number instead of assuming they agree; a
+disagreement whose inputs are byte-identical by blob hash — source, declared operators, deciding suites
+— is a finding about the harness and not about this diff, and the repair is a probe, never a code change
+chasing it. **Triage at SURFACE grain, never at leg grain:** the annotation TITLE carries
+`source-mutation gate — <id> > <case>` and so names the surface, while the assertion message does not,
+and leg numbers move between runs as the partition re-packs. **Absence from a failure list is not
+evidence of passing** — locate `claimSweep` by name and read its result.
+
 **A PERFECT SCORE DOES NOT SUBSUME THE §6 KILLER AUDIT, and the closeout states both separately.** The
 score covers what the DECLARED OPERATORS CAN EXPRESS. The audit covers implementations a human would
 plausibly write that no operator generates — an unanchored substring matcher, a hardcoded id list, a
@@ -481,8 +509,10 @@ rather than excusing it, and it cannot go stale when the surrounding code change
 - **AC-3** — Severity is advisory over EVERY emitted finding, asserted structurally rather than sampled;
   the arm never rewrites a document.
 - **AC-4** — The historical replay reproduces from committed blobs as a SET, never a count.
-  `fede5f084` yields exactly the nine `(document, line, token)` numeric survivors and the three
-  exclusions. `c272ebed3` yields the MEASURED named-half set: the identifier occurs NINE times across
+  `fede5f084` yields exactly the nine `(document, line, column, token)` numeric survivors and the three
+  excluded occurrences. Those nine sit on nine distinct lines — spec 220 and 282, plan 7, 9, 18, 112,
+  119, 140 and 188 — measured rather than assumed, so widening the identity to carry the column leaves
+  this set unchanged while making the live-corpus collisions in §6 expressible. `c272ebed3` yields the MEASURED named-half set: the identifier occurs NINE times across
   that arc — spec lines 153, 155, 268, 327; plan lines 85, 148, 149, 211; probe record line 64 — and the
   arm reports those outside the repair's hunks. An earlier draft claimed it yields "the §6 survivor",
   which review refuted by counting; the criterion now states what the mechanism actually produces. **A count is defeated by substitution** — swapping one survivor
