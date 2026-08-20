@@ -46,7 +46,11 @@ reports the claims elsewhere in the same arc's documents that the repair superse
 
 ## 2. Measured calibration
 
-Full derivations in the probe record; these are the results the design rests on.
+Full derivations in the probe record, and the scripts that produced every number are committed beside
+it at `docs/superpowers/specs/ci/probes/scripts/`. **Each row is a MEASUREMENT AT ONE COMMIT, not a
+normative claim** — the corpus grows, and the transition-sentence figure moved from 936 to 943 between
+this spec's first draft and its first review purely because this arc added documents. That is why §6
+and §9 assert SETS and RELATIONS and never a cardinality typed into a test.
 
 | Measurement | Value |
 | --- | --- |
@@ -55,7 +59,7 @@ Full derivations in the probe record; these are the results the design rests on.
 | …of which plain `X → Y` transition sentences | 923 |
 | Incident survivors reported by the shipped discriminator | 9 of 9 |
 | Incident transition sentences correctly excluded | 3 |
-| Corpus transition sentences excluded by the same rule | 935 of 936 |
+| Corpus transition sentences excluded by the same rule | 942 of 943 (at this commit) |
 
 The naive form — "after a repair changes N to M, report every surviving N" — scores roughly one false
 advisory per document. **The before/after sentence is the corpus's dominant shape, not an edge case**,
@@ -64,9 +68,29 @@ consequence bound ranges over.
 
 ## 3. The arm
 
+### 3.0 The repair record is DECLARED, never inferred
+
+The arm does not read a commit and guess what it superseded. Round 1 showed why: the incident commit
+changes many numeric literals and `58` occurs on BOTH sides of its diff, so no rule over that diff
+selects the semantic pair `58 → 57` deterministically. An implementation left to infer it may pick a
+different pair, or none, while satisfying every other word of this spec.
+
+So the AUTHOR declares the supersession, in the same shape the task-marker contract uses — the grain is
+declared, never inferred from prose, which is the principle `docs/agents/spec-self-review.md` already
+states for exactly this reason:
+
+```
+pnpm spec:lint <doc> --superseded 58 --replacement 57
+pnpm spec:lint <doc> --superseded 'PublishedReviewModal.tsx:964 is in (a)' --claim-now 'is in (b)'
+```
+
+`--repair <rev>` is accepted ALONGSIDE a declaration, never instead of one: it supplies the hunk spans
+that scope §3.2's "outside the repair" test, and nothing else. Absent a declaration the arm runs
+nothing and says so; silence from an undeclared invocation is not a certificate.
+
 ### 3.1 The numeric half
 
-Given a repair that changes a numeric literal N to M, the arm reports every occurrence of N in the
+Given a DECLARED supersession of numeric literal N by M, the arm reports every occurrence of N in the
 arc's documents **whose enclosing sentence does not also carry M**.
 
 A transition sentence names both values by construction (`"grows from 21 rows to 57, not 58"`); a stale
@@ -97,15 +121,27 @@ grounds as every other fail-open closure in this repo.
 
 ### 3.4 The finding, and what it does NOT assert
 
+Two codes, because the two halves assert different things and one wording cannot carry both:
+
 ```
-CLAIM_SUPERSEDED_ELSEWHERE  advisory
-  <doc>:<line> still claims <token>, which <repair> superseded
-  detail: the repair changed <token> to <replacement>; this occurrence is outside that change.
-          Re-read it: it is stale, or it is deliberate and wants a word saying so.
+VALUE_SUPERSEDED_ELSEWHERE  advisory        (numeric half)
+  <doc>:<line> carries <N>, declared superseded by <M>, in a sentence that does not name <M>
+  detail: re-read it -- it is stale, or it is deliberate and wants a word saying so.
+
+CLAIM_SITE_UNSWEPT  advisory                (named-claim half)
+  <doc>:<line> makes a claim about <identifier>, whose claim the repair changed elsewhere
+  detail: the IDENTIFIER is not superseded -- this occurrence may be correct. Re-read it against
+          the repair's new claim.
 ```
 
-The arm asserts that the occurrence EXISTS and that the repair superseded the token. It does not assert
-the claim is wrong. A deliberate historical reference — a dated record, a narration of what an earlier
+**The named half deliberately does not say "superseded".** Round 1 caught the earlier wording asserting
+it: a repair that re-classifies a site changes the CLAIM about a stable identifier, and the identifier
+itself has no replacement. Saying otherwise would be a wrong advisory in the arm's own finding text.
+`RepairRecord` therefore carries a superseded/replacement PAIR for the numeric half and a changed-claim
+identifier for the named half — different shapes, because they are different facts.
+
+The arm asserts that the occurrence EXISTS and, for the numeric half, that the value was declared
+superseded. It does not assert the claim is wrong. A deliberate historical reference — a dated record, a narration of what an earlier
 draft said — is a legitimate survivor, and the author dispositions it.
 
 ## 4. Architecture
@@ -145,7 +181,7 @@ force. Two covers are mandatory before any review dispatch, both learned on this
 | Rule | Weaker implementation that would pass | Fixture that kills it |
 | --- | --- | --- |
 | §3.1 numeric half | report every surviving N (the naive form) | a transition sentence carrying BOTH values draws nothing — the 923-site corpus shape |
-| §3.1 sentence scope | scope to the LINE instead | the incident's consequence bound, which shares a line with nothing and sits inside the repair's own hunk |
+| §3.1 sentence scope | scope to the LINE instead | a line carrying BOTH a `57/58` transition sentence AND a separate stale `58` sentence — line scope excludes the whole line and misses the stale one, sentence scope reports it. Round 1 caught the earlier fixture here: the consequence-bound line contains only `58`, so both scopes treat it identically and it discriminated nothing |
 | §3.1 discriminator | exclude anything inside the repair's diff | that same survivor, an ADDED line in that hunk, must still report |
 | §3.2 named half | report every occurrence of the identifier | the repair's OWN new claim, inside its hunk, draws nothing |
 | §3.3 document set | sweep the spec only | a survivor in the PLAN reports — the incident had 7 of its 9 there |
@@ -226,8 +262,12 @@ dispatch, and that brief states `MUTATION SCORE: <k>/<t>` plus "0 unaccepted sur
   things", and this AC asks the second question.
 - **AC-5** — Document set: a survivor in the PLAN reports, not only one in the spec; an unreadable
   document is REPORTED, never silently skipped.
-- **AC-6** — Corpus: the enumerated corpus yields the §2 SET, asserted as a set with no cardinality
-  typed into the test.
+- **AC-6** — Corpus: the assertion is a RELATION, not §2's cardinality, because that number moves with
+  the corpus (936 → 943 during round 1 alone). Enumerated at run time: EVERY sentence carrying a
+  declared transition pair is excluded, and the count of those NOT excluded is reported rather than
+  pinned — so a new document changes the total without failing the test, while a change that stops
+  excluding transition sentences fails it immediately. The incident replay (AC-4) is where an exact SET
+  is asserted, because its inputs are frozen blobs.
 - **AC-7** — Every weaker implementation named in §6 has a killing check PRESENT IN THE SHIPPED TESTS,
   enumerated from the §6 table rather than from recall, and each is confirmed to FAIL when its
   behaviour is broken. Every rule AND every fixture kills its named weaker implementation, and no fixture is

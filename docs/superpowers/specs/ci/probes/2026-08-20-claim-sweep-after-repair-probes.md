@@ -1,5 +1,9 @@
 # Probe record — claim sweep after a repair (`BL-SPEC-CLAIM-SWEEP-AFTER-REASONING-FINDING`)
 
+Scripts committed beside this record under `scripts/`: `2026-08-20-naive-false-positive-census.py` produced the 1030-site census, and `2026-08-20-discriminator-recall-precision.py` produced the incident recall and the corpus
+exclusion. Both are re-runnable, and their CORPUS figures move as the corpus grows — which is why the
+spec asserts relations rather than cardinalities, and why each number here is dated to its commit.
+
 Run 2026-08-20 on `feat/speclint-claim-sweep-after-repair` at `039533373`. These are the spec's
 round-0 design inputs: the entry's own acceptance criterion, the naive mechanism's false-positive rate,
 and the discriminator that closes the gap. Every number below was produced by the command beside it.
@@ -85,7 +89,7 @@ survivor can sit on a line the repair itself touched.
 ### 3.2 Recall, against the incident
 
 ```
-$ python3 pr2probe2.py
+$ python3 scripts/2026-08-20-discriminator-recall-precision.py
 THE INCIDENT: repair fede5f084 changed 58 -> 57
   spec: reported 2 | excluded as transition sentences 1
   plan: reported 7 | excluded as transition sentences 2
@@ -98,8 +102,8 @@ exclusions are the repair's own before/after sentences, which must survive.
 ### 3.3 Precision, against the corpus
 
 ```
-corpus transition sentences: carry BOTH values 935 | carry only one 1
-=> the same-sentence-carries-the-replacement rule excludes 935 of 936
+corpus transition sentences: carry BOTH values 942 | carry only one 1
+=> the same-sentence-carries-the-replacement rule excludes 942 of 943
 ```
 
 The naive form's ~1030 false positives collapse to ~1. The rule needs no recognizer for transition
@@ -113,7 +117,8 @@ is the cheaper invariant that holds without parsing.
 2. The consequence bound has a number to range over from round 0: on the live corpus the arm's false
    advisories must be ~0 against a population where the naive form scores ~1030.
 3. The numeric half's discriminator is sentence-scoped co-occurrence, validated in both directions —
-   9/9 recall on the incident, 935/936 exclusion on the corpus.
+   9/9 recall on the incident, 942/943 exclusion on the corpus at this commit (936 when first
+   measured; the corpus grew during round 1, which is the reason the spec pins relations, not counts).
 4. The "outside the diff hunks" alternative is REFUTED with a live counterexample, so it does not need
    re-deriving in review.
 5. The named-claim half tracks identifiers rather than values, which is why it does not inherit the
