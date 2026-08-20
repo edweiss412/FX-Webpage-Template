@@ -135,10 +135,14 @@ summary: 0 hard, <n> advisory
 **Zero hard is the claim; the advisory count is deliberately not pinned.** An exact advisory total
 changes on almost every edit to this document, so a number written here is stale by the next commit —
 and a count the reader cannot reproduce is precisely the defect this plan asks its own tasks to avoid.
-(It was pinned once, at 24, and was 22 two commits later.) What IS stable and checkable: every
-red-contract advisory is `RED_SUITE_UNVERIFIED` naming the gate suite this plan creates, which is the
-correct signal for an `authored` red pointing at a file that does not exist yet; the remainder are the
-document-level advisories `spec:lint` emits for any prose of this length.
+(It was pinned once, at 24, and was 22 two commits later.) What IS stable and checkable is `0 hard`,
+and it holds in BOTH of this document's states. Before Task 1 lands, every red-contract advisory is
+`RED_SUITE_UNVERIFIED` naming the gate suite this plan creates — the correct signal for an `authored`
+red pointing at a file that does not exist yet. Once Task 1 has created that suite the arm falls
+silent, and the advisories that remain are the document-level ones `spec:lint` emits for any prose of
+this length. Both states were observed rather than predicted; the transition is stated because a
+sentence true only before the implementation lands is the stale-predecessor shape this plan asks its
+own tasks to avoid.
 
 **Silence must be distinguished from a pass, because this arm is silent on some command shapes.**
 Probed while drafting: `spec:lint --exec-red` mints NO finding — not even the `RED_PROBE_UNVERIFIED`
