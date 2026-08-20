@@ -1,0 +1,330 @@
+# Plan — premiseScan nested-hook sibling leak
+
+**Spec:** `docs/superpowers/specs/ci/2026-08-19-premisescan-nested-hook-sibling-leak-design.md`
+**Probe record:** `docs/superpowers/specs/ci/probes/2026-08-19-premisescan-nested-hook-leak-probe.md`
+**Row:** `BL-PREMISESCAN-NESTED-HOOK-SIBLING-LEAK` · **Branch:** `fix/premisescan-nested-hook-sibling-leak`
+
+**Goal:** stop `hookBodies` from attaching an inner `describe`'s hooks to that describe's siblings,
+without moving any live verdict and without widening the recognizer.
+
+- impeccable-gate: N/A — no UI surface. No file under `app/`, `components/`, `app/globals.css`,
+  `tailwind.config.*` or `DESIGN.md` is touched.
+
+## Acceptance criteria this plan discharges
+
+Each id is defined in the spec's §6 and is named here so it resolves outside the task markers that
+cite it.
+
+- **AC-1** — no declared count in `tests/mutation/_metaPremiseContract.test.ts` moves. Task 2 Step 5.
+- **AC-2** — the shared-outer sibling classifies `environment-free` while branch A stays touching.
+  Task 2.
+- **AC-3** — the two existing AC-12b foils stay green, byte-unchanged. Task 2 Step 4.
+- **AC-4** — the OUTER describe's own hooks still reach every descendant. Task 3.
+- **AC-5** — the stop fires on every `describe` spelling, from a DERIVED fixture set. Task 2.
+- **AC-6** — every hook registrar, derived from the matcher rather than typed beside it. Task 4.
+- **AC-7** — the source-mutation gate still passes with an empty unaccepted-survivor set. Task 5.
+- **AC-8** — a hook in a nested registration's EAGER positions belongs to the parent. Task 2a.
+- **AC-9** — a nested body wrapped in a runtime-transparent expression is still a body. Task 2b.
+
+## The implementation surface, stated whole
+
+Two production edits, and no more:
+
+1. **The body-only stop** in `hookBodies` (`tests/mutation/source/premiseScan.ts:1834`).
+2. **The dedup.** `HOOK_REGISTRARS` already exists as a regex at
+   `tests/mutation/source/premiseScan.ts:66` and is consumed by the top-level hook seed at
+   `tests/mutation/source/premiseScan.ts:1758`; `hookBodies` at
+   `tests/mutation/source/premiseScan.ts:1840` carries a SECOND, textually identical literal.
+   `hookBodies` is changed to use the existing constant and the duplicate is deleted. Introducing a
+   NEW exported symbol under that name would collide with the live one, which is why this is a dedup
+   rather than an addition.
+
+**Nothing is exported for a test's benefit.** An earlier draft added two exported name lists so the
+derived fixtures could import them; spec rounds 4, 5 and 6 each found that surface producing a
+production edit ordered ahead of its red, and round 6 named the rule that closes it — a red whose
+failure is an unresolved import goes green when the TEST changes rather than when the implementation
+lands (`docs/agents/writing-plans.md:15`). Per the same-axis recurrence rule in AGENTS.md the repair
+is NARROWING, so those exports are deleted from the design; the derived covers read the scanner's
+SOURCE through the TypeScript AST instead, which is what the structural identity assertion already
+does. Every red below therefore fails for a scanner reason.
+
+Both edits are on an enrolled guard surface, so Task 5's gate run is not a formality — the mutant
+population moves.
+
+## Global constraints
+
+1. **TDD per task.** Every task in a red-contract region installs or authors its red, observes it,
+   makes the minimal change, and RE-RUNS THE SAME COMMAND to observe green. A step that says
+   "revert" without re-running has observed half a contract.
+2. **No `-t` in a `red=` command.** A name filter that matches nothing exits 0, so the red can
+   report green from the moment it is written (`RED_TEST_NAME_FILTER`,
+   `lib/specLint/redContract.ts:46`). Every red below runs a whole file.
+3. **No command that lies about its status.** `if … then … fi`, never `cmd || echo ok`. `git grep`,
+   not `rg` — `rg` is not guaranteed on the PATH.
+4. **Derived covers, never enumerated lists.** Where a task asserts over a set of spellings or
+   registrars, the set is READ from the source of truth in the same assertion.
+5. **Heavy phases run under the semaphore.** `pnpm heavy pnpm test`, `pnpm heavy pnpm mutation:guards`.
+
+---
+
+## Task 1: pin the base
+
+**Files:** none modified. No red: this task establishes the ground every later red-state claim
+rests on, so it is deliberately outside the red-contract region rather than carrying an invented
+red-state.
+
+- [ ] **Step 1: record the base.** `git merge-base origin/main HEAD` and `git log --oneline -1`.
+      Every probe figure in the spec's §3 was taken at `a85ccd453`; if the merge-base has moved,
+      re-run §3.1, §3.2 and the probe record's Instrument 3 and re-derive any conclusion whose row moved.
+- [ ] **Step 2: confirm the leak is live.** `npx vitest run tests/mutation/source/premiseScan.test.ts`
+      passes on the unrepaired tree, the shared-outer pin included. That pass is what makes Task 2's
+      red mean what it claims.
+- [ ] **Step 3: confirm the corpus baseline.** `npx vitest run tests/mutation/_metaPremiseContract.test.ts`
+      passes. This is the number AC-1 must still hold afterwards.
+
+---
+
+<!-- tasks: depth=2 red-contract -->
+
+## Task 2: the sibling stops inheriting, in every describe spelling
+
+<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:1834` why=`hookBodies walks a describe with ts.forEachChild and never stops, so an inner describe's hook is collected by every ancestor and attached to every SIBLING branch. Step 1 authors the tests with NO production edit - the fixture sets are derived by reading the scanner's own source, so nothing the test needs is missing from the module. Step 2 observes a purely BEHAVIOURAL red: the inverted pin and all nine spellings report a touching sibling, and they do so because of the recursive collection at the line named here. Step 3 narrows it; Step 4 re-runs the same command green` ac=AC-2,AC-5,AC-1,AC-3 -->
+
+**Files:** `tests/mutation/source/premiseScan.test.ts`, `tests/mutation/source/premiseScan.ts`.
+
+**Why AC-5's family lives here.** Its behavioural red exists only while the leak does. Authored after
+the narrowing, those nine cases could only ever be observed green — and the probe record's
+Instrument 3 already measured the whole population leaking on the unrepaired tree, so the red is a
+measurement rather than a construction.
+
+**Why nothing is exported.** Rounds 4-6 each found a production edit ordered ahead of its red, and
+round 6 named the rule that closes the class: a red whose failure comes from an unresolved import is
+invalid by construction, because it goes green when the TEST file changes rather than when the
+implementation lands (`docs/agents/writing-plans.md:15`). Exporting `MODIFIERS` so a fixture could
+import it produced exactly that shape. So the derivation reads the scanner's SOURCE instead —
+`ts.createSourceFile` over `tests/mutation/source/premiseScan.ts`, extracting the `MODIFIERS` set
+literal at `tests/mutation/source/premiseScan.ts:48`. The cover is still derived, no production line
+moves for the sake of a test, and every red below fails because of scanner behaviour.
+
+- [ ] **Step 1: author the tests. Step 3 is the only production change this task LANDS**, and the
+      tree at the task's end is exactly what Step 3 left; Step 6 installs a mutant and reverts it
+      within that step, as a check on the tests rather than a change to the scanner.
+      (a) Rewrite the fixture at `tests/mutation/source/premiseScan.test.ts:3033`: `inA` keeps
+      `environment-touching` — it is the FOIL, and a repair that stopped collecting hooks altogether
+      would pass a one-sided assertion — while `inB` becomes `environment-free`.
+      (b) Add the AC-5 family. Read the modifier set from the scanner source with the TypeScript
+      AST and generate one case per member as the NESTED registrar, plus the plain `describe` and one
+      COMPOUND chain (`describe.concurrent.each`), whose path is `registrarRoot`'s modifier loop at
+      `tests/mutation/source/premiseScan.ts:73`. `describe.each` and `describe.for` take the curried
+      form. `describe.todo` is a real case, not an exception: the scanner is LEXICAL, so it sees a
+      hook in a `describe.todo` body regardless of Vitest never running it. Assert the generated
+      count against the extracted set's size plus the extra cases in the same expression, and state
+      the premise executably with `premise("the modifier set was extracted", members.length, 0)` from
+      `tests/_shared/premise.ts` — a mis-read source then reds loudly instead of passing as an empty
+      loop.
+- [ ] **Step 2: observe the red, and it is behavioural from the first run.** The inverted pin and all
+      nine spellings fail: each sibling still classifies `environment-touching`, because `hookBodies`
+      collects recursively. Every one of those failures names a scanner defect, not a missing import.
+- [ ] **Step 3: narrow `hookBodies`** (`tests/mutation/source/premiseScan.ts:1834`), recognizing a
+      nested `describe` with the SAME predicate the caller uses (`registrarRoot`,
+      `tests/mutation/source/premiseScan.ts:68`):
+
+```ts
+// A nested describe owns its own hooks and the caller already carries ours
+// down to it, so walking into it attaches its hooks to its SIBLINGS.
+if (n !== describeCall && ts.isCallExpression(n) && registrarRoot(n.expression) === "describe") {
+  // Only the BODY is pruned. The curried `.each`/`.for` producer and the
+  // eager name/options arguments are evaluated while THIS describe is still
+  // current, so a hook written there registers on US and runs for our
+  // other tests.
+  if (ts.isCallExpression(n.expression)) for (const a of n.expression.arguments) walk(a);
+  for (const a of n.arguments) if (!isSuiteBody(a)) walk(a);
+  return;
+}
+```
+
+- [ ] **Step 4: re-run the SAME command and observe green** — no skips. AC-3 is discharged here
+      rather than separately: the two existing AC-12b foils live in this file and are unchanged, so
+      their passing in this run is the assertion.
+- [ ] **Step 5: AC-1.** `npx vitest run tests/mutation/_metaPremiseContract.test.ts` — green, every
+      declared count unchanged. **This staying green is the arc's headline, so it is asserted, not
+      assumed.**
+- [ ] **Step 6: verify the derivation discriminates**, a check ON the tests rather than a TDD step:
+      key the stop to `ts.isIdentifier(n.expression) && n.expression.text === "describe"` and confirm
+      the plain case stays green while every modifier case reds — the discrimination a four-row
+      enumerated list would not have had. Restore and re-run green.
+- [ ] **Step 7: commit.** `fix(mutation): a nested describe's hooks stop reaching its siblings`
+
+## Task 2a: a nested registration's EAGER arguments belong to the parent
+
+<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:1834` why=`Task 2's stop prunes the nested registration, and pruning it WHOLE is wrong: the curried .each/.for producer and the eager name/options arguments are evaluated while the PARENT suite is current, so a hook written there registers on the parent and runs for its siblings. Step 1 authors the two positive cases and the BODY foil with no production edit; Step 2 observes them red against the whole-call prune at the line named here; Step 3 walks the eager positions and Step 4 re-runs the same command green` ac=AC-8 -->
+
+**Files:** `tests/mutation/source/premiseScan.test.ts`, `tests/mutation/source/premiseScan.ts`.
+
+- [ ] **Step 1: author the cases, changing no production code.** A spawning hook inside a
+      `describe.each` producer array, and one inside a nested `describe`'s NAME argument, each
+      leaving the parent's sibling test `environment-touching`. **Plus the FOIL** — the same hook in
+      the nested BODY, leaving the sibling `environment-free`. Without the foil, a repair that simply
+      stopped pruning would pass.
+- [ ] **Step 2: observe the red.** Both positives fail with
+      `expected 'environment-free' to be 'environment-touching'`; the foil passes throughout.
+- [ ] **Step 3: walk the eager positions before returning** — the callee's own arguments, where a
+      curried producer lives, and every argument that is not the body.
+- [ ] **Step 4: re-run the SAME command green.**
+- [ ] **Step 5: commit.** `fix(mutation): the stop prunes a nested describe's BODY, not its arguments`
+
+## Task 2b: a wrapped nested body is still a BODY
+
+<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:1888` why=`deciding the body by the argument node's OWN kind lets any runtime-transparent wrapper - parentheses, as, satisfies, non-null, a type assertion, type arguments - make the argument something else, so the walk descends into the body and puts the nested branch's hooks back on its siblings. Step 1 authors one case per wrapper spelling with no production edit; Step 2 observes them red against the predicate at the line named here; Step 3 replaces the kind test with isSuiteBody and Step 4 re-runs the same command green` ac=AC-9 -->
+
+**Files:** `tests/mutation/source/premiseScan.test.ts`, `tests/mutation/source/premiseScan.ts`.
+
+- [ ] **Step 1: author one case per wrapper spelling, changing no production code**, generated from a
+      wrapper table: parenthesized arrow, parenthesized function expression, `as`, `satisfies`,
+      non-null, and both `ExpressionWithTypeArguments` forms.
+- [ ] **Step 2: observe them red** — each reports the sibling `environment-touching`.
+- [ ] **Step 3: add `isSuiteBody`**, which unwraps through TypeScript's OUTER-EXPRESSION grammar
+      before testing for a function. **The accept-set is that grammar — TypeScript's own
+      `OuterExpressionKinds` minus `PartiallyEmittedExpression`, which the parser never produces from
+      source — so "closed by the grammar" is checkable rather than a list of remembered spellings.**
+      Accumulating one spelling per review round is what the same-axis recurrence rule forbids.
+- [ ] **Step 4: re-run the SAME command green.**
+- [ ] **Step 5: commit.** `fix(mutation): a wrapped nested body is still a body`
+
+## Task 3: the outer describe's own hooks still reach every descendant
+
+<!-- task: red=`npx vitest run tests/mutation/source/premiseScan.test.ts` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:1834` why=`the one way Task 2's narrowing can be wrong is over-narrowing, and no existing fixture covers that direction - :2976 and :3011 both put the spawner in a nested describe and :3033 asserts the sibling. A non-regression pin cannot red against correct code, so its red is authored against a NAMED mutant IN the production surface at the line named here: Step 2 moves the stop ABOVE the isHook push, which drops the outer describe's own hooks, and the authored case reds on scanner behaviour. Step 3 restores the shipped stop and re-runs the same command green` ac=AC-4 -->
+
+**Files:** `tests/mutation/source/premiseScan.test.ts`.
+
+- [ ] **Step 1: author the case and its foil, changing no production code.** A spawning `beforeEach`
+      declared DIRECTLY in `describe("outer")`, with pure tests in nested `A` and `B`: both classify
+      `environment-touching`. The foil is the same file with that hook moved into `A`: then only
+      `A`'s test is touching and `B`'s is free. **Both halves are required** — the positive alone
+      passes under a `hookBodies` that never stops, and the foil alone passes under one that always
+      stops.
+- [ ] **Step 2: install the NAMED mutant and observe the red.** Two plausible over-narrowings exist
+      and this criterion catches only one, so the falsifying one is named rather than left to
+      whoever runs the step. Move the `return` ABOVE the `isHook` push and key it to any nested
+      call; the outer describe's own hooks are then dropped and the new case reds — probed
+      2026-08-19: `expected 'environment-free' to be 'environment-touching'`. The same stop placed
+      AFTER the push is EQUIVALENT here and passes; that is not the case failing to discriminate.
+- [ ] **Step 3: restore the shipped stop and re-run the SAME command green.**
+- [ ] **Step 4: commit.** `test(mutation): pin that an outer describe's hooks still reach descendants`
+
+## Task 4: one registrar set, not two
+
+<!-- task: red=`npx vitest run tests/mutation/source/premiseScanMatcherIdentity.test.ts` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:1840` why=`hookBodies carries a SECOND registrar regex textually identical to HOOK_REGISTRARS at :66, so the matcher a fixture set is derived from is not the matcher hookBodies consults - the drift AC-6 claims to eliminate. Step 1 authors a structural assertion that exactly one registrar-name literal exists in the scanner, and Step 2 observes it red because the duplicate at the line named here is present. That red names a production line and cannot go green by editing the test. Step 3 deletes the duplicate and Step 4 re-runs the same command green` ac=AC-6 -->
+
+**Files:** a new `premiseScanMatcherIdentity` suite under `tests/mutation/source/`,
+`tests/mutation/source/premiseScan.test.ts`, `tests/mutation/source/premiseScan.ts`.
+
+**Why the red is structural.** The four registrars are ALREADY covered by enumerated cases at
+`tests/mutation/source/premiseScan.test.ts:2932` and
+`tests/mutation/source/premiseScan.test.ts:2958`, so no behavioural red can prove the DEDUP. The
+defect is that TWO matchers exist where the design assumes one, which is a property of the source,
+so the assertion reads the source. Nothing is exported for it, for the reason Task 2 records.
+
+- [ ] **Step 1: author the structural assertion, changing no production code.** In a new
+      `premiseScanMatcherIdentity` suite, assert that `tests/mutation/source/premiseScan.ts` contains
+      exactly ONE registrar-name literal. State the premise executably —
+      `premise("the module was read", source.length, 0)` from `tests/_shared/premise.ts` — so an
+      unreadable path cannot pass as zero occurrences.
+- [ ] **Step 2: observe the red.** Two literals exist today, at
+      `tests/mutation/source/premiseScan.ts:66` and `tests/mutation/source/premiseScan.ts:1840`. The
+      failure is a property of the scanner source and cannot be cleared by changing the test.
+- [ ] **Step 3: delete the duplicate.** `hookBodies` at
+      `tests/mutation/source/premiseScan.ts:1840` uses `HOOK_REGISTRARS`
+      (`tests/mutation/source/premiseScan.ts:66`) instead of its own copy. The existing consumer at
+      `tests/mutation/source/premiseScan.ts:1758` is untouched — it tests the same regex object.
+- [ ] **Step 4: re-run the SAME command green.**
+- [ ] **Step 5: add the AC-6 derived family**, in `tests/mutation/source/premiseScan.test.ts`, reading
+      the registrar names out of `HOOK_REGISTRARS` in the scanner source by the same AST route
+      Task 2 uses: one case per member, spawner nested in `A`, pure test in sibling `B`, `B` free,
+      the generated count asserted against the extracted list's length. **These add no coverage the
+      enumerated cases lack and are not claimed as a red** — their value is that they are DERIVED, so
+      a fifth registrar is covered by default rather than silently exempt. Run
+      `npx vitest run tests/mutation/source/premiseScan.test.ts` green.
+- [ ] **Step 6: commit.** `refactor(mutation): hookBodies and the top-level seed share one registrar set`
+
+<!-- tasks: end -->
+
+---
+
+## Task 5: the guard still pins what it claims
+
+**Files:** `tests/mutation/source/registry.ts` if and only if a `siteId` re-key is required. No
+authored red: this task's command must be GREEN, and a task whose contract is "stay green" does not
+belong in a red-contract region.
+
+**`origin/main` is RED on this gate, and it is not this arc's red.** A baseline run at `a85ccd453`,
+before any code edit on this branch, failed on `destructiveFileAnalysis` with eight unaccepted
+survivors and eight complementary stale ledger rows, every pair one or two lines apart — the
+line-keyed `siteId` churn already filed as `BL-MUTATION-SITEID-LINE-KEYED-CHURN`, to which that run
+is now attached as a second incident. This branch's diff against main touches only `docs/` and
+`BACKLOG.md` at that point, so the failure is categorically pre-existing. Repairing another surface's
+ledger here is class-sweep exception (c) — a surface this arc does not otherwise touch — so the gate
+is read SCOPED to `premiseScan`, and the pre-existing red is recorded rather than silently ratified.
+The run cost 4,489s, so budget it as a long pole rather than a quick check.
+
+- [ ] **Step 1: run the gate.** `pnpm heavy pnpm mutation:guards`. Tasks 2 and 4 changed control
+      flow in `hookBodies` and deleted a duplicated literal on an enrolled surface, so the mutant
+      population moves and this run is not a formality. No symbol was exported, so no new surface
+      enters the registry.
+- [ ] **Step 1a: bracket before blaming the diff.** If any surface OTHER than `premiseScan` fails,
+      re-run that surface against `origin/main` (or cite the baseline recorded above) before touching
+      it. A failure reproducing on main is not this arc's to fix; record it against the owning ledger
+      row and move on.
+- [ ] **Step 2: dispose of every survivor.** A survivor is repaid with a test or argued
+      `equivalent` in the registry with its reasoning. Any `siteId` re-key is DERIVED from the
+      failing run's own output, never hand-edited by line number.
+- [ ] **Step 3: record the score** here and in the round-1 diff brief: killed/total plus
+      "0 unaccepted survivors". Enrolment precedes review — a diff dispatched before this runs
+      invites a whole round of the-guard-does-not-pin-what-it-claims findings the score settles
+      mechanically.
+- [ ] **Step 4: commit** only if the registry changed.
+
+---
+
+<!-- tasks: depth=2 red-contract -->
+
+## Task 6: whole-suite green, then graduation
+
+<!-- task: red=`npx vitest run tests/docs/_metaLedgerInProgress.test.ts` red-state=authored red-target=`tests/docs/_metaLedgerInProgress.test.ts:52` why=`the state that creates and removes this failure is the ledger row in BACKLOG.md, which the marker grammar cannot name - a root-level file is bare-filename shorthand and RED_TARGET_INVALID rejects it (lib/specLint/redContract.ts:164) - so the target names the predicate the row is judged by: :52 is the isArchive test (:51 is its doc comment), and an archive may not hold an entry whose status is IN PROGRESS. Step 3 moves the row into BACKLOG-archive.md with its marker still attached and the command reds; Step 4 strips the marker in the SAME edit session and re-runs the same command green, which is what proves the marker came off before the merge` ac=AC-1 -->
+
+**Files:** `BACKLOG.md`, `BACKLOG-archive.md`,
+`docs/review-rounds/fix/premisescan-nested-hook-sibling-leak/`.
+
+- [ ] **Step 1: whole suite and static gates.** `pnpm heavy pnpm test`; `pnpm typecheck`;
+      `pnpm exec eslint .`; `pnpm format:check`.
+- [ ] **Step 2: whole-diff adversarial review to APPROVE**, dispatched BEFORE the graduation commit,
+      with Task 5's mutation score on the brief's `GUARD SURFACE:` line.
+- [ ] **Step 3: move the row to the archive with its marker STILL ATTACHED and observe the red.**
+      Run the `red=` command. Expected: FAIL — `archived work cannot be in flight`.
+- [ ] **Step 4: strip the marker in the SAME edit session, write the graduation record, and re-run
+      the SAME command green.** Invariant 12 is literal: a graduating entry's marker comes off in
+      the same commit that archives it, because archives categorically reject in-progress work.
+- [ ] **Step 5: leave it all uncommitted and review it as a working-tree diff**, so the PR's last
+      commit is still reviewed even though nothing may follow it. The wrapper writes that review's
+      corpus row at dispatch time, into the worktree, beside the graduation edits.
+- [ ] **Step 6: ONE commit closes the history** — archive move, marker strip, graduation record,
+      every corpus row. Then prove the marker is gone from the tree that merges:
+
+```bash
+if git grep -n -F 'Status:** IN PROGRESS' -- BACKLOG.md BACKLOG-archive.md; then
+  echo "marker still present — it would merge to main"; exit 1
+fi
+echo "no in-progress marker in the tree that merges"
+```
+
+- [ ] **Step 7: push, real CI green, `gh pr merge --merge`, fast-forward `main`, verify
+      `git rev-list --left-right --count main...origin/main` reports `0  0`.** Then Stage 4.4:
+      delete the cron nudge and clear the pane and agent labels.
+
+<!-- tasks: end -->
+
+---
+
+## 12. Close-out
+
+impeccable-gate: N/A — no UI surface
