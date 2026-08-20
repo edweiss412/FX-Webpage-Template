@@ -114,10 +114,10 @@ $ pnpm tsx .probe/probe4.ts            # grain: Files declaration vs whole docum
 closed path set: 100
 plans naming an enrolled path ANYWHERE: 63
 
-$ pnpm tsx .probe/probe7.ts            # which shapes carry a Files declaration
-                                       # FENCE-AWARE, and against the no-blank-skip rule
-**Files:** headers: 2567 | header line itself carries a path: 696 (642 slash-bearing + 54 root-file)
-next line opens an UNORDERED list: 1666 | an ORDERED list: 19 | neither: 882
+$ pnpm tsx .probe/probe7.ts            # shape census, fence-aware and no-blank-skip
+plans: 666
+**Files:** headers (non-fenced): 2567 | header carries a path: 696 (root-file only: 54)
+next line opens UNORDERED: 1666 | ORDERED: 19 | neither: 882
 
 $ pnpm tsx .probe/probe9.ts            # the shipped rules (spec 3.1/3.2 as of round 3) over the corpus
 live pins 7 | suites carrying >=1 5
@@ -376,7 +376,7 @@ git commit -m "feat(spec-lint): advise on unnamed declared-limit pins; report an
 <!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 - Create: `tests/specLint/_metaDeclaredLimitPins.test.ts`
 
-<!-- task: red=`pnpm vitest run tests/specLint/_metaDeclaredLimitPins.test.ts` red-state=authored red-target=`tests/specLint/declaredLimitPinDispositions.ts` why=`Step 1 creates the registry as an exported EMPTY array, so the meta-test resolves and fails on its ASSERTION: with no dispositions the shipped scanner reports NINE phrase-bearing titles over the enrolled suites where the derived census expects the SEVEN live pins of spec 2.4, and the two closure narrations of 2.4 appear in the observed set by name` ac=AC-7 -->
+<!-- task: red=`pnpm vitest run tests/specLint/_metaDeclaredLimitPins.test.ts` red-state=authored red-target=`tests/specLint/declaredLimitPinDispositions.ts` why=`Step 1 creates the registry as an exported EMPTY array, so the meta-test resolves and fails on a TARGETED assertion rather than on a census: spec 2.4 names two titles that narrate a CLOSED limit, and the suite asserts neither appears in the pin set. With an empty registry both DO appear, by name, in the failure output. The derived census cannot supply this red - with no dispositions both its sides hold the same nine titles and it is green - which is why the red is the two named closures and the census rides along as characterization` ac=AC-7 -->
 
 Implements spec §5. The registry lives under `tests/` because it is test-facing data, and the core
 receives it as a parameter — `lib/` still imports nothing from `tests/`.
@@ -397,9 +397,12 @@ it: a check that cannot fail is not a check.
 
 - [ ] **Step 1: Create the registry as an exported EMPTY array**, then write the failing meta-test.
 - [ ] **Step 2: Observe red AND CONFIRM THE REASON.** Run
-      `pnpm vitest run tests/specLint/_metaDeclaredLimitPins.test.ts`. Expected: the census set differs
-      by exactly the two §2.4 closure titles, named in the diff. A failure of any other shape — import,
-      parse, zero collected — invalidates the red.
+      `pnpm vitest run tests/specLint/_metaDeclaredLimitPins.test.ts`. Expected: the two §2.4 closure
+      titles are asserted absent from the pin set and BOTH appear, named in the failure output. A
+      failure of any other shape — import, parse, zero collected — invalidates the red.
+      **The derived census is NOT the red and must not be read as one:** with an empty registry its two
+      sides hold the same nine titles and it passes. It is characterization that becomes meaningful once
+      Step 3 lands, and the suite says so in a comment beside it.
 - [ ] **Step 3: Fill the registry with the two spec §2.4 rows and their reasons.**
 - [ ] **Step 4: Observe green**, and record the live census in the commit message.
 - [ ] **Step 5: Commit.**
@@ -503,14 +506,15 @@ a literal array and never inside a `.each` callback. Without it, a run in a chec
 returns nothing asserts an empty set against an empty set and reports PASS.
 
 - [ ] **Step 1: Extract the three fixtures** with the commands above.
-- [ ] **Step 2: Write the failing suite** (replay both directions; corpus set; premise).
-- [ ] **Step 3: Observe red AND CONFIRM THE REASON.** Run
-      `pnpm vitest run tests/specLint/declaredLimitPinsCorpus.test.ts`. Expected: the replay case fails
-      on the pre-Step-3b fixture drawing zero advisories against one expected, and the corpus case on a
-      set difference. A fixture-read error means the Step 1 extraction failed, not that the arm is
-      wrong — that is an invalid red and the task stops.
-- [ ] **Step 4: Make it green** — this is where any grammar gap the corpus reveals is repaired by
-      NARROWING and a spec §8 entry, never by widening the predicate.
+- [ ] **Step 2: Write the suite** (replay both directions; corpus set; premise). It is expected to pass
+      on first run — that is what characterization means here, and asserting otherwise would be the
+      impossible red this task's header declines.
+- [ ] **Step 3: RUN it and RECORD the observed values** in the commit: the replay's one-then-zero, and
+      the corpus SET. If either differs from spec §2.6, that is a REAL DEFECT in Tasks 1-5 and the task
+      stops until it is understood — a difference here is the only signal this task can give, and it
+      must never be absorbed by adjusting the expectation.
+- [ ] **Step 4: If a corpus difference IS a grammar gap**, repair it by NARROWING plus a spec §8 entry,
+      never by widening the predicate.
 - [ ] **Step 5: Commit.**
 
 ```bash
@@ -578,9 +582,10 @@ git commit -m "test(infra): enrol declaredLimitPins as a guard surface - registr
 
 <!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 - Create: `tests/specLint/declaredLimitPinsCli.test.ts`
-- Create: `tests/specLint/__fixtures__/declaredLimitPins/cli/` (a fixture plan and a fixture suite)
+- Create: `tests/specLint/__fixtures__/declaredLimitPins/cli/` (a fixture plan, and fixture suite TEXT)
+- Modify: `scripts/spec-lint.ts` (export the preparation function; wire it into the read path)
 
-<!-- task: red=`pnpm vitest run tests/specLint/declaredLimitPinsCli.test.ts` red-state=authored red-target=`scripts/spec-lint.ts:526` why=`the adapter's runLint call passes no surface table and no prepared suite text, so a real spec-lint subprocess over the fixture pair emits ZERO DECLARED_LIMIT_PIN_UNNAMED findings where the case expects exactly one - an ASSERTION failure on the parsed CLI output, not a module or collection failure` ac=AC-10 -->
+<!-- task: red=`pnpm vitest run tests/specLint/declaredLimitPinsCli.test.ts` red-state=authored red-target=`scripts/spec-lint.ts:442` why=`Step 1 adds prepareSuiteText to the adapter as an exported STUB returning its input UNCHANGED, so the suite resolves and fails on its ASSERTION: prepared text still carries all three decoy titles where the case asserts none survives. That is the reachable red. The subprocess WIRING step cannot supply one - Task 5 already injected the table, and prepared and unprepared agree on every real enrolled suite (measured), so that assertion is green when authored and is characterization of the end-to-end path rather than this task's red` ac=AC-10 -->
 
 Round 4 found that every other suite in this plan exercises the pure core with prepared lines the test
 itself supplies, so a shipped adapter that passes RAW lines, or never injects the table at all, passes
@@ -631,17 +636,25 @@ So:
 Neither step covers the other, and neither covers table-driven NAMING — Task 2's synthetic-surface case
 does that. Three facts, three proofs, stated so no one reads any of them as covering more.
 
-- [ ] **Step 1: Write the fixture pair and the failing suite** (spawn the real CLI, parse its output).
+- [ ] **Step 1: Add `prepareSuiteText` to the adapter as an exported STUB returning its input
+      unchanged**, then write the fixture suite TEXT (one live pin, one decoy per channel) and the
+      failing in-process case. The stub is the `red-target=` defect, not the implementation.
 - [ ] **Step 2: Observe red AND CONFIRM THE REASON.** Run
-      `pnpm vitest run tests/specLint/declaredLimitPinsCli.test.ts`. Expected: zero advisories against
-      one expected, from a CLI run that exited normally. A spawn error, a non-zero exit for another
-      reason, or zero collected tests invalidates the red.
-- [ ] **Step 3: Wire preparation and injection in the adapter until the run emits exactly one.**
+      `pnpm vitest run tests/specLint/declaredLimitPinsCli.test.ts`. Expected: the prepared text still
+      contains all three decoy titles, each named in the failure output. A spawn error, an unresolved
+      export, or zero collected tests invalidates the red.
+- [ ] **Step 3: Implement `prepareSuiteText`** — parse RAW for diagnostics, then blank comments,
+      template bodies and multi-line ordinary strings — and wire it into the adapter's read path.
+- [ ] **Step 3b: Add the subprocess WIRING case**, over a fixture plan naming a REAL enrolled surface,
+      asserting the advisory appears identified by that surface's specific `(suitePath, title)`.
+      Expected to pass on authoring: Task 5 already injected the table. It is characterization of the
+      end-to-end path, recorded as such rather than dressed as a red.
 - [ ] **Step 4: Observe green**, then re-run Task 5's purity meta-test and `pnpm typecheck`.
 - [ ] **Step 5: Commit.**
 
 ```bash
-git add tests/specLint/declaredLimitPinsCli.test.ts tests/specLint/__fixtures__/declaredLimitPins/cli
+git add tests/specLint/declaredLimitPinsCli.test.ts tests/specLint/__fixtures__/declaredLimitPins/cli \
+        scripts/spec-lint.ts
 git commit -m "test(spec-lint): prove the adapter prepares and injects, through the shipped CLI"
 ```
 
@@ -696,7 +709,7 @@ git commit -m "docs: record the declared-limit pin advisory beside the sweep dis
 
 ## Plan-time observed red set
 
-Executed 2026-08-19 against the pre-implementation tree. All EIGHT marked tasks are `red-state=authored`: their failing cases do not exist yet, so none is run
+Executed 2026-08-19 against the pre-implementation tree. All SEVEN marked tasks are `red-state=authored`: their failing cases do not exist yet, so none is run
 now, and each names the production surface whose absence or defect makes it fail — verified below.
 The region therefore declares no `red-state=live` command, so `spec:lint --exec-red` has nothing to
 execute here and its silence is not a certificate. **Two sharper facts about what the lint does NOT
