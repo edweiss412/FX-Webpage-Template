@@ -845,6 +845,54 @@ describe("Task 8 — second repair pass, from the re-measure at 0.9259", () => {
     );
   });
 
+  it("reports the surface DESTRUCTURED in a parameter, naming the bound member", () => {
+    // Diff r1 F2, and the case the arm shipped WITHOUT. `settle({ dispatch }: Channel)`
+    // calls the sink through a bare local, so no property access on a binding exists
+    // and every member-based arm is blind to it. Four mutants survived on this arm
+    // alone — the report, the recursion, the entry call, and the parameter/variable
+    // disjunct — while the suite was green, because the case lived only in a scratch
+    // probe. A fix with no case is a claim.
+    const f = "destructured-param-sink.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "UNCLASSIFIED-USE", "dispatch", lineOf(f, "export function settle({ dispatch }")),
+    ]);
+  });
+
+  it("reports a surface binding used in a COMPARISON", () => {
+    // The negative half of the `this.ch = injected` exemption, which is deliberately
+    // narrow: an assignment whose TARGET is a property of `this`. Widen its
+    // conjunction to a disjunction and every identifier whose parent is a binary
+    // expression is exempted — including this one, which then falls silent.
+    const f = "binding-in-comparison.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "UNCLASSIFIED-USE", "ch", lineOf(f, "return ch !== maybe")),
+    ]);
+  });
+
+  it("names the NEAREST enclosing named construct, not the method containing it", () => {
+    // A sink inside a named function nested in a class method must report `inner`,
+    // not `run`. The naming walk checks a METHOD arm before a FUNCTION-DECLARATION
+    // arm, so a mutant that stops the function arm matching does not fail loudly — it
+    // silently names the method instead, a different and wronger answer. Asserting
+    // the NAME rather than merely that something reported is what catches it.
+    const f = "nested-named-function-sink.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "UNDECLARED-PASS", "inner", lineOf(f, 'ch.dispatch("p1"')),
+    ]);
+  });
+
+  it("does NOT fire on a sink's NAME belonging to some other object", () => {
+    // The sink test is a conjunction: the receiver's rightmost name is a surface
+    // BINDING, and the member is a declared sink. Weaken it to a disjunction and it
+    // fires on any `.dispatch(...)` anywhere — a false positive on correct code,
+    // which the consequence bound forbids as firmly as silence.
+    //
+    // Expect-CLEAN, and attributable rather than accidental because its positive pair
+    // is ONE VARIABLE away: `class-field-sink` reaches the same arm through the same
+    // shape, differing only in that its receiver IS a surface binding.
+    expect(scan("sink-name-on-other-object.ts")).toEqual([]);
+  });
+
   it("reports a sink reached through a CLASS FIELD holding the surface", () => {
     // Rule 28 applied to this arc's OWN repair: a narrowing that declines an input
     // owes that input a CHANNEL, and "nothing" is not one. The diff-r1 totality arm

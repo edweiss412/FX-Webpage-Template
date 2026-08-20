@@ -284,11 +284,15 @@ const markersIn = (file: string, text: string, sf: ts.SourceFile): Marker[] => {
     // mutant unrepresentable would be gaming the score; making it terminate is not.
     let pos = end;
     const advancePastWhitespace = (): void => {
-      const run = /^\s*/.exec(text.slice(pos));
-      pos += run === null ? 0 : run[0].length;
+      // TOTAL, and with nothing to mutate. `/\S|$/` matches every string -- at the
+      // first non-whitespace character, or at the end -- so `search` never returns
+      // -1 and there is no null branch to test. The branch this replaces was
+      // UNREACHABLE (`/^\s*/` is zero-width and matches everything), i.e. a site
+      // that could only ever have been defended by an equivalence argument.
+      pos += text.slice(pos).search(/\S|$/);
     };
     advancePastWhitespace();
-    for (let step = 0; step < ranges.length; step += 1) {
+    for (const _boundedByOneRangePerStep of ranges) {
       const next = ranges.find(([a]) => a === pos);
       if (next === undefined) break;
       pos = next[1];
@@ -1015,8 +1019,11 @@ const importEdgeFindings = (
           lines: [line],
         });
       }
-      continue;
     }
+    // No `continue` after the namespace branch: a NamespaceImport is never
+    // NamedImports -- distinct SyntaxKinds -- so this next line already continues
+    // for exactly those nodes. The statement was removable with the corpus green,
+    // and a removable statement is a deletion, not an equivalence row.
     if (!ts.isNamedImports(bindings)) continue;
 
     for (const row of candidates) {
