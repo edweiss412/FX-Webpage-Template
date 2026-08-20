@@ -67,9 +67,13 @@ tests/_shared/stripComments.ts      # REUSED, unmodified: the single-source comm
 - No other registry applies: no Supabase call boundary, no admin alert, no advisory-lock topology, no
   tile sentinel. Declared explicitly rather than left silent.
 
-## Pre-draft verification pass (run 2026-08-19, live tree at `4e074d3bc`)
+## Pre-draft verification pass (run 2026-08-19 onward; see the per-block baselines below)
 
-Every path, symbol and number the tasks name was verified against the tree before drafting.
+Every path, symbol and number the tasks name was verified against the tree before drafting. **The
+baseline is per block, not one commit:** the structural checks below were run at `4e074d3bc`, where the
+corpus held 664 tracked plans; the corpus and shape figures were RE-RUN after this arc merged
+`origin/main` and after rounds 1, 3 and 6 changed the rules, and stand at the current tree with 666.
+Quoting one baseline for all of them would have been false, which round 6 caught in the spec.
 
 ```
 $ ls scripts/spec-lint.ts lib/specLint/{run,types,redContract,fixtureContract}.ts
@@ -251,7 +255,10 @@ and fails that one. The inline-header case fails any implementation that scans o
 header — which is what the round-1 finding caught in the calibration probe itself. The `.bak` case
 fails any implementation using `String.prototype.includes` on the raw path.
 
-- [ ] **Step 1: Write the failing suite.** Extent cases, grain cases, fence-inertness, second block,
+- [ ] **Step 1: Create the STUB.** `export function namedSurfaces(...): Set<string> { return new Set(); }`,
+      typed as the real signature. This is the `red-target=` defect, not the implementation — without it
+      the suite fails on a missing export, which `docs/agents/writing-plans.md` rules invalid.
+- [ ] **Step 1b: Write the failing suite.** Extent cases, grain cases, fence-inertness, second block,
       indented continuation line, and a path naming three surfaces (the live
       `tests/docs/_metaReviewRoundEconomy.test.ts` shape). Plus the three shapes spec round 1 added,
       each with the live input that motivated it, plus a PREFIXED-path case (`archive/` prepended to a
@@ -426,11 +433,10 @@ into `lib/` pass. The purity meta-test is re-run in this task's green step for t
       fails with zero `DECLARED_LIMIT_PIN_UNNAMED` findings against one expected — `runLint` never
       calls the arm. A type error at the new parameter is ALSO an invalid red: fix the signature first.
 - [ ] **Step 3: Thread the table through `runLint`; project `GUARD_SURFACES` in the adapter; PREPARE the
-      suite text there in the FIXED ORDER of spec §3.1 — parse the RAW text for diagnostics FIRST, then
-      blank comments, template bodies, and MULTI-LINE ordinary strings (single-line ones carry the
-      titles and must survive). The order is load-bearing: stripping first consumes an unterminated
-      `/*` to EOF, so the parse comes back clean and the suite reports "no pins" with no advisory —
-      the silent fail-open the decline exists to prevent — `stripCommentsSafely` for comments, parser template ranges for
+      **INJECTION ONLY. Preparation is deliberately NOT wired here** — it is the subject of Task 7b's
+      red, and wiring it now would make that test green the moment it is authored, which is the
+      per-task red-first violation this ordering exists to avoid. Task 5 ends with the adapter passing
+      RAW suite lines and a correctly injected table — `stripCommentsSafely` for comments, parser template ranges for
       fixture bodies. The core receives prepared lines and owns no notion of code. Do NOT hand-roll a
       comment stripper: `tests/cross-cutting/_metaStripCommentsSingleSource.test.ts` forbids local
       copies, and its walker root is `tests/` only — so a copy in `lib/` would be invisible to it and
@@ -444,7 +450,9 @@ git add lib/specLint/run.ts scripts/spec-lint.ts tests/specLint/declaredLimitPin
 git commit -m "feat(spec-lint): thread the enrolled-surface table core-ward from the adapter"
 ```
 
-### Task 6: Historical re-enactment and corpus regression
+<!-- tasks: end -->
+
+### Task 6: Historical re-enactment and corpus regression  (outside the red-contract region)
 
 **Files:**
 
@@ -452,7 +460,17 @@ git commit -m "feat(spec-lint): thread the enrolled-surface table core-ward from
 <!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 - Create: `tests/specLint/declaredLimitPinsCorpus.test.ts`
 
-<!-- task: red=`pnpm vitest run tests/specLint/declaredLimitPinsCorpus.test.ts` red-state=authored red-target=`lib/specLint/declaredLimitPins.ts` why=`the fixtures and the suite do not exist; once authored, the replay case fails until the arm discriminates the pre-Step-3b plan from the merged one, and the corpus case fails unless the live-tree run over the tracked plan corpus produces exactly the four-advisory SET of spec 2.6` ac=AC-4,AC-6 -->
+**NOT in the red-contract region, and disclosed rather than faked.** By this point Tasks 1-5 have
+implemented the whole core, so a correct implementation makes this suite green the moment it is
+authored: there is no deliberately defective surface left for it to observe. Measured, not assumed —
+the live corpus yields the SAME seven pins prepared or unprepared, because no enrolled suite currently
+holds a test-shaped line inside a comment, template or multi-line string. This task is therefore
+CHARACTERIZATION, not a TDD cycle, and a `red-state=authored` marker here would assert a red that
+cannot fire. That is precisely the silent under-coverage
+`BL-SPECLINT-RED-TARGET-CANNOT-NAME-A-REPO-ROOT-SURFACE` records, so it is stated instead.
+
+Its value is regression, and that is real: it pins the §2.7 replay and the §2.6 SET so a later change
+to any rule must restate them deliberately.
 
 Implements spec §2.6 and §2.7. The fixtures are extracted once, at implementation time, with the
 commands the spec §2.7 table names, and committed — so the replay does not depend on those blobs
@@ -475,8 +493,9 @@ put a second copy of a 5000-line suite into typecheck and collection.
 repair, so an arm that always fires and an arm that never fires each fail one direction. The corpus case
 ENUMERATES the corpus at run time and asserts the SET of `(plan, suitePath, title)` — never a count, and
 never a cardinality typed into the test. Two reasons, both measured on this arc: a count passes on a
-different set of the same size, and the corpus grew by one plan between drafting and spec round 1 (this
-plan), which would have stranded any hard-coded total on its first run.
+different set of the same size, and the corpus grew between drafting and review, which would have
+stranded any hard-coded total. The expected set is spec §2.6's — **three plans, five advisories** at the
+§2 baseline — read from the spec rather than retyped here, since two copies drift.
 
 **Premise.** The corpus case states executably that the enumerated plan corpus is non-empty and that at
 least one enrolled surface carries at least one pin, using `tests/_shared/premise.ts`, in ONE test over
@@ -498,6 +517,8 @@ returns nothing asserts an empty set against an empty set and reports PASS.
 git add tests/specLint/__fixtures__/declaredLimitPins tests/specLint/declaredLimitPinsCorpus.test.ts
 git commit -m "test(spec-lint): replay the shell-binding pin collision; pin the corpus advisory set"
 ```
+
+<!-- tasks: depth=3 red-contract -->
 
 ### Task 7: Mutation enrolment — both declarations, then the scoped run
 
@@ -522,10 +543,11 @@ second declaration. That ordering is the task's own evidence that a registry row
       Expected: the ledger-kinds key comparison fails, naming `declaredLimitPins` as present in the
       registry and absent from `EXPECTED_LEDGER_KINDS`. **The bare `pnpm vitest run <file>` form is NOT
       usable here and the difference is not cosmetic:** that file is in `NIGHTLY_ONLY_EXCLUDES`
-      (`vitest.projects.ts`), so every default project excludes it, the run collects ZERO tests and
-      exits 0 — a red that is green from birth and that no later edit can ever make fail. Verified on
-      the live tree: the bare form exits 0 with no tests collected; the project-and-env-gated form above
-      collects 5.
+      (`vitest.projects.ts`), so every default project excludes it and the run collects ZERO tests. Verified
+      on the live tree: the bare form prints `No test files found` and exits 1, while the
+      project-and-env-gated form above collects 5. The bare form's exit code is NOT the problem — it is
+      that the failure is for the WRONG REASON, so no later edit can ever turn it green, and a red that
+      cannot express a verdict is worthless in either direction.
 - [ ] **Step 3: Add the `EXPECTED_LEDGER_KINDS` entry.**
 - [ ] **Step 4: Observe green.** Same command.
 - [ ] **Step 5: Score the surface.** Temporary tests/mutation/guardSurfaces.shard9.test.ts filtering
@@ -550,7 +572,7 @@ git add tests/mutation/source/registry.ts tests/mutation/source/expectedLedgerKi
 git commit -m "test(infra): enrol declaredLimitPins as a guard surface - registry row and ledger kinds"
 ```
 
-### Task 7b: CLI boundary proof — the adapter's preparation, through a real subprocess
+### Task 7b: CLI boundary proof — the adapter's preparation
 
 **Files:**
 
@@ -585,12 +607,25 @@ satisfiable by the other defect: TWO findings prove the adapter never prepared t
 prove it never injected the surface table. A test asserting only "at least one finding" passes an
 unprepared adapter.
 
-**What this task does NOT prove, stated so nobody reads it as covering more.** The fixture must name a
-REAL enrolled surface, because the shipped adapter reads the real registry and would never name a
-synthetic one. So this task cannot distinguish a table-driven adapter from one carrying a hardcoded copy
-of today's enrolled paths — both emit the same single finding. Task 7b proves PREPARATION at the
-boundary; Task 2's synthetic-surface case proves NAMING is table-driven. Two defects, two proofs,
-neither covering the other (spec §6).
+**The proof is TWO steps, because one mechanism cannot reach both facts.** Plan round 1 established
+why: the shipped CLI resolves `suitePaths` from the real registry and the tracked-file index, so a
+fixture suite under `__fixtures__/` is NEVER READ by a real subprocess, and decoys planted there are
+unreachable. Planting them in a real enrolled suite is not an option — that edits a tracked test file
+to make a test pass.
+
+So:
+
+- **PREPARATION is proved IN PROCESS**, against the adapter's exported preparation function over a
+  fixture suite text holding one live pin plus one decoy per channel. This is where the decoys live and
+  it is the only place they can be observed.
+- **WIRING is proved BY SUBPROCESS**, running the shipped CLI over a fixture PLAN that names a REAL
+  enrolled surface and asserting the arm's advisory appears with that surface's real pin. That proves
+  the adapter injects the table and reaches the core end to end; it says nothing about preparation,
+  because the real suites contain no decoys (measured: prepared and unprepared agree on the live
+  corpus).
+
+Neither step covers the other, and neither covers table-driven NAMING — Task 2's synthetic-surface case
+does that. Three facts, three proofs, stated so no one reads any of them as covering more.
 
 - [ ] **Step 1: Write the fixture pair and the failing suite** (spawn the real CLI, parse its output).
 - [ ] **Step 2: Observe red AND CONFIRM THE REASON.** Run
@@ -608,13 +643,15 @@ git commit -m "test(spec-lint): prove the adapter prepares and injects, through 
 
 <!-- tasks: end -->
 
-**Region boundary, disclosed rather than silent.** The declared task region closes here, so Task 8 is
-NOT covered by `spec:lint --exec-red`. That is deliberate: Task 8 edits two documents and runs gates,
-and it has no test-first cycle to declare — a marker on it would assert a red that does not exist. The
-exclusion is stated because an undisclosed one is the silent-under-coverage defect
+**Region boundaries, disclosed rather than silent.** This plan declares TWO task regions — Tasks 1-5,
+then Tasks 7 and 7b — and TWO tasks sit outside them. **Task 6** is characterization: after Tasks 1-5
+the core is complete, so its suite is green the moment it is authored, measured rather than assumed
+since the live corpus yields the same seven pins prepared or unprepared. **Task 8** That is deliberate: Task 8 edits two documents and runs gates,
+and it has no test-first cycle to declare. A marker on either would assert a red that cannot fire. The
+exclusions are stated because an undisclosed one is the silent-under-coverage defect
 `BL-SPECLINT-RED-TARGET-CANNOT-NAME-A-REPO-ROOT-SURFACE` records: the lint stays green, the region stays
-well-formed, and nothing reports that a task opted out. Eight of this plan's nine tasks are test-first
-and all eight are inside the region.
+well-formed, and nothing reports that a task opted out. Seven of this plan's nine tasks are test-first
+and all seven sit inside a region.
 
 ### Task 8: Docs, dogfood, and whole-tree gates
 
@@ -629,8 +666,9 @@ and all eight are inside the region.
 
 ```bash
 pnpm vitest run tests/docs/agentsHeavyPhaseRule.test.ts
-pnpm spec:lint docs/superpowers/specs/ci/2026-08-19-planlint-declared-limit-pin-collision.md \
-               docs/superpowers/plans/ci/2026-08-19-planlint-declared-limit-pin-collision.md
+# ONE document per invocation -- the CLI exits 2 on two positional paths.
+pnpm spec:lint docs/superpowers/specs/ci/2026-08-19-planlint-declared-limit-pin-collision.md
+pnpm spec:lint docs/superpowers/plans/ci/2026-08-19-planlint-declared-limit-pin-collision.md
 ```
 
 Expected: `0 hard` on both documents, INCLUDING the new arm running against this plan — the plan's own
@@ -654,7 +692,7 @@ git commit -m "docs: record the declared-limit pin advisory beside the sweep dis
 
 ## Plan-time observed red set
 
-Executed 2026-08-19 against the pre-implementation tree. All seven marked tasks are `red-state=authored`: their failing cases do not exist yet, so none is run
+Executed 2026-08-19 against the pre-implementation tree. All EIGHT marked tasks are `red-state=authored`: their failing cases do not exist yet, so none is run
 now, and each names the production surface whose absence or defect makes it fail — verified below.
 The region therefore declares no `red-state=live` command, so `spec:lint --exec-red` has nothing to
 execute here and its silence is not a certificate. **Two sharper facts about what the lint does NOT
@@ -692,15 +730,16 @@ red for a command that exits 0 today would be the "pasted a command prompt besid
 | AC | Proved by | Channel |
 | --- | --- | --- |
 | AC-1 pin grammar, accept-set and every decline | Task 1 | tests/specLint/declaredLimitPins.test.ts |
-| AC-2 Files-block grain, prose draws nothing | Task 2 | tests/specLint/declaredLimitPinsFiles.test.ts |
+| AC-2 Files-declaration grain, prose draws nothing | Task 2 | tests/specLint/declaredLimitPinsFiles.test.ts |
 | AC-3 obligation, dedup, advisory-only severity | Tasks 3, 5 | obligation + wiring suites |
 | AC-4 historical replay, both directions | Task 6 | `declaredLimitPinsCorpus.test.ts, committed blobs |
 | AC-5 both fail-open channels reported, not skipped | Task 3 | fake resolver: `null` read, and a SUCCEEDING read on an untracked path |
 | AC-6 corpus SET over the enumerated corpus | Task 6 | live-tree corpus case, set assertion, no count |
-| AC-7 dispositions: no stale row, derived census | Task 4 | `_metaDeclaredLimitPins.test.ts |
+| AC-7 dispositions: no stale row, derived census | Task 4 | _metaDeclaredLimitPins.test.ts |
+| AC-7a every rule AND every fixture kills its named weaker implementation, and no fixture is neutralized by another rule | Tasks 1, 2, 3, 4, 7b | the two §6 tables, one fixture per row; the pass is re-run to a FIXED POINT before each dispatch and its iteration counts recorded in the round filing |
 | AC-8 both enrolment declarations, score ≥ 0.95 | Tasks 5, 7 | gates test, purity meta-test, scoped run |
 | AC-9 both documents lint `0 hard` (NOT arm-ran evidence) | Task 8 | `pnpm spec:lint` on spec and plan |
-| AC-10 adapter prepares AND injects, both directions | Task 7b | real `spec:lint` subprocess over the fixture pair |
+| AC-10 adapter PREPARES (in process, over decoys) and WIRES (subprocess, real surface) | Task 7b | two steps, because the real CLI never reads a fixture suite |
 
 No AC is satisfied by a green suite alone: each row names the executable step that produces the
 evidence and the channel it arrives on.
