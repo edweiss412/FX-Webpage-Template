@@ -1,3 +1,36 @@
+## BL-PREMISESCAN-NESTED-HOOK-SIBLING-LEAK — a hook in one nested describe leaks to its siblings — CLOSED 2026-08-19 (`fix/premisescan-nested-hook-sibling-leak`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-19 · **Effort (as shipped):** S for the repair, M for the arc · **Severity (as filed):** MEDIUM (a FALSE POSITIVE, pre-existing) · **Class:** guard fidelity · **Filed:** 2026-08-16 (`fix/premisescan-import-edges`, probe §3.11 row A) · **Reachability:** PROBED at filing and re-probed at design time against the shipped classifier.
+
+**Resolution — two edits.** `hookBodies` walked a `describe` with `ts.forEachChild` and never stopped, while its caller already accumulates hooks downward. An inner `describe`'s hook was therefore collected twice — once correctly by that `describe`, and once by every ancestor, which attached it to every test in every SIBLING branch. The walk now stops at a nested `describe`, recognised by `registrarRoot`, the same predicate the caller uses, so the two cannot disagree about what a `describe` is. Second edit: `hookBodies` consults the existing `HOOK_REGISTRARS` constant instead of a second, textually identical regex literal of its own.
+
+**The deferral that filed this row was refuted by measurement, not by argument.** The owning spec's §4 limit 14 deferred the repair on the stated grounds that fixing it "would move a SEVENTEENTH verdict", breaking that arc's amended AC-1. Nobody had run it. Applied to the shipped classifier before a line of this arc was written: `_metaPremiseContract` 10 passed with every declared count unmoved, and exactly ONE fixture changed verdict — the pin that existed to record the leak. The blocker was an inference.
+
+**What guards it.** The AC-5 family's population is DERIVED, read out of `MODIFIERS` in the scanner's own source through the TypeScript AST: one case per member plus the plain spelling and one compound chain (`describe.concurrent.each`), nine in all, with the generated count asserted against the extracted set and a `premise()` guard so a mis-read source reds instead of passing as an empty loop. Discrimination was proved rather than assumed — keying the stop to a bare `describe` identifier reds all eight modifier and chain cases while the plain case stays green, which is exactly what a four-row enumerated fixture list would have accepted. AC-4 pins the opposite direction (an outer `describe`'s own hooks still reach every descendant) with its foil and its NAMED falsifying mutant, since only one of two plausible over-narrowings discriminates. AC-6's structural half lives in a new `premiseScanMatcherIdentity` suite asserting exactly one registrar-name literal survives; no behavioural red could isolate the dedup, because all four registrars were already covered by enumerated cases.
+
+**Nothing is exported for a test's benefit, and that is the arc's most expensive lesson.** An earlier design exported `MODIFIERS` and a registrar list so the derived fixtures could import them. Spec rounds 4, 5 and 6 each found a production edit ordered ahead of the red justifying it, and each of the first two repairs RESEQUENCED and added surface. Round 6 named the rule that closed it: a red whose failure is an unresolved import goes green when the TEST changes rather than when the implementation lands (`docs/agents/writing-plans.md:15`). Per the same-axis recurrence rule the repair was NARROWING — both exports deleted, the derived covers reading the scanner source instead, and the production surface back to two edits.
+
+**Review economy, recorded because the shape is the finding.** Spec APPROVED at round 10, plan at round 1, whole diff at round 14. **The diff stage is where the value was, and it is worth being exact about it rather than flattering:** three of its findings touched the repair — the eager-argument silent free (r2), the wrapped-body leak (r4), and the outer-expression closure the code claimed but did not hold (r6). One more, at r12, showed that a repair made at r10 had turned a silent OMISSION into a silent WRONG verdict, and that completion was REVERTED. The spec stage, by contrast, produced seventeen findings and none of them touched the repair.
+
+**Four gaps were found PRE-EXISTING and recorded rather than fixed**, each bracketed against `origin/main` or measured at zero occurrences in the enrolled domain. THREE carry ledger rows: the named-factory hook loss (`BL-PREMISESCAN-NAMED-SUITE-FACTORY-HOOKS-LOST`), file-scope eager positions (`BL-PREMISESCAN-FILE-SUITE-EAGER-HOOKS-LOST`), and the hand-maintained accept-sets (`BL-PREMISESCAN-REGISTRAR-ACCEPT-SETS-HAND-MAINTAINED`). **The fourth — the comma-expression suite body — deliberately has NO row**, and the asymmetry is the point: its worst case is a CONSERVATIVE report (a sibling reads touching, so a test is told to carry a premise it does not need), its population is zero, and the 2026-08-04 filing bar demotes exactly that shape to a documented limit rather than the open queue. It lives as spec §4 limit 4 with an un-defer trigger. All four are spec §4 limits 4-7.
+
+**The arc's own most expensive lesson is the r10/r12 pair.** Completing a hand-maintained accept-set was defensible on its own terms and still wrong, because it made a further shape reachable. The same-axis recurrence rule predicted exactly that, and applying it at the sixth round on one axis rather than the tenth would have saved three rounds. Full record: `docs/review-rounds/fix/premisescan-nested-hook-sibling-leak/a85ccd453103.md`.
+
+**Spec:** `docs/superpowers/specs/ci/2026-08-19-premisescan-nested-hook-sibling-leak-design.md`. **Probe record:** `docs/superpowers/specs/ci/probes/2026-08-19-premisescan-nested-hook-leak-probe.md`. **Plan:** `docs/superpowers/plans/2026-08-19-premisescan-nested-hook-sibling-leak.md`. **Round corpus:** `docs/review-rounds/fix/premisescan-nested-hook-sibling-leak/`.
+
+**The entry as filed follows, with its in-flight status marker removed on archiving per invariant 12** — archives categorically reject in-progress work. Read it as history: its closing paragraph argues that `BL-PREMISESCAN-IMPORT-EDGE-FIDELITY` could not fix the leak because "repairing the recursion moves live verdicts", and **that is the claim this arc measured and refuted** — it moves none. The probe table above it is retained because it is the arc's originating evidence and its rows still reproduce on the pre-repair tree.
+
+`hookBodies` collects recursively (`ts.forEachChild`), so under a shared outer `describe` a spawning hook in branch A is attached to tests in sibling branch B. Probed:
+
+```
+A: sibling nested describes, hook only in A  ->  inA=touching, inB=TOUCHING   <- false positive
+B: top-level sibling describes, hook in A    ->  inA=touching, inB=free       [correct]
+```
+
+The leak needs a shared outer `describe`; without one the branches do not share a collection point.
+
+**Why `BL-PREMISESCAN-IMPORT-EDGE-FIDELITY` does not fix it**, under class-sweep exception (c): repairing the recursion moves live verdicts, and that arc's headline constraint is verdict-neutrality against `_metaPremiseContract`'s exact counts. The two cannot ship together by construction. That arc's own top-level hook seed is deliberately NON-recursive so it does not widen this leak, and its AC-12b asserts the leaked value as-is so a later change cannot deepen it silently.
+
 ## BL-PLANLINT-CONSTRUCTED-FIXTURE-SATISFIABILITY — a plan-embedded fixture snippet is asserted against, never executed — CLOSED 2026-08-18 (`fix/planlint-fixture-satisfiability`, SHIPPED)
 
 **Status:** SHIPPED 2026-08-18 · **Effort (as shipped):** M · **Severity (as filed):** LOW · **Class:** review-round reduction (tooling) · **Filed:** 2026-08-16, from the review-round filing `docs/review-rounds/feat/mutation-section-order/40a7adfa5f29.md` (plan §, its single candidate) · **Reachability:** PROBED at filing — two rounds on one arc died on the same shape, plan r4 and spec r6.
@@ -419,6 +452,53 @@ invariant 12 — archives categorically reject in-progress work (heading demoted
 
 **Why it is a row and not a kill.** The killing input is a label the corpus does not contain, and `tests/parser/fieldNearMiss.test.ts`'s header forbids hand-written rows precisely because one can be tuned until it passes — so the gap is ledgered as `accepted-gap` with this ref rather than closed with a fixture that proves nothing about real sheets. **First scheduled step:** decide whether an equal-size token match SHOULD be a type-(b) hit at all (it is set equality, so arguably it belongs in the type-(a) arm keyed on the token set rather than the normalized string), then pin whichever direction is chosen. A real reordered-label instance appearing in a future sheet promotes this from a boundary question to an ordinary near-miss.
 
+## BL-PREMISESCAN-IMPORT-EDGE-FIDELITY — ordinary import forms and helper-body unclassifiable constructs silently lose environment reach — CLOSED 2026-08-17 (`fix/premisescan-import-edges`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-17 (PR #843) · **Effort (as shipped):** M · **Severity (as filed):** MEDIUM (both halves are false NEGATIVES — the direction that does not announce itself) · **Class:** guard fidelity · **Filed:** 2026-08-15 (`docs/scanner-scope-totality-spec`, spec review R1 findings 2 and 3 — reviewer-probed) · **Reachability:** PROBED at filing — the five-form import table and the four-cell propagation table below, both reproduced at design time against the merged tree.
+
+**Resolution.** `premiseScan` asked a target module for a LOCAL DECLARATION under the name the IMPORTING side binds — the wrong question twice over: a rename or a default import asks for a name the target does not export, and a re-export is not a declaration at all. Both halves are replaced by a cross-module EXPORT model: E1-E6 export resolution, forward following with a popped `active` set as the cycle test, member-precise namespace bindings in both the `ns.member` and `ns["member"]` spellings, the recognized-unresolvable forms REPORTED rather than passed as pure (spec §2.4b), and unclassifiable reasons propagated from helpers, hooks and `describe.each` producers to every caller. Half 1's five-form table and half 2's four propagation cells are regression fixtures in `tests/mutation/source/premiseScan.test.ts` (295 cases).
+
+**The headline is a FINDING, not a regression, and it is why AC-1 was amended.** `lib/log/index.ts` re-exports `log` from `./logger`, and `logger.ts` is environment-touching on a DIRECT import — the barrel hid a real environment reach. Sixteen tests in two enrolled suites were reading free while genuinely reaching environment state: `tests/auth/sameOriginServerAction.test.ts` 7 -> 10 and `tests/parser/fieldNearMissBaseline.test.ts` 0 -> 13. Twelve carried neither premise nor exemption; real premises were written for them at the user's decision, and four were later removed as dominated by their own assertions and replaced with reasoned `// no-premise:` exemptions. Verdict-neutrality was REPLACED by exact-count equality against those declared numbers, so a seventeenth moving verdict still reds.
+
+**Ship-and-fence, chosen by the user at diff round 2.** Round 2's split decided the arc: zero findings on the export-resolution core, six of eight on two heuristics added while repairing round 1 (a module-load traversal and an unreferenced-binding report), each finding one more execution spelling — class static initializers, enum member initializers, namespace bodies, an inline object method, `functionExpr.call(...)`, an inline class constructor, a hook wrapped in `void`. Deciding "does this run at module load" over the whole grammar does not terminate, so both heuristics are WITHDRAWN and recorded as documented limits carrying round 2's probe output: spec §4 limit 16 (work that runs at module load), §4 limit 17 (a modelled binding nothing references) and §4 limit 18 (own-body precedence for memberless namespaces, fenced in both directions). **Limit 16 states plainly that it is the one place the spec knowingly does not meet its consequence bound**; it is pre-existing rather than a regression, live-domain population is ZERO and re-checked by AC-1's exact-count equality on every run, and the whole class sits behind one `isAtModuleLoad` predicate, so a later arc has a seam rather than a sweep.
+
+**What guards it.** The surface stays enrolled in the source-mutation registry: 155 mutants, 153 killed, score 1.0000 against a 0.95 floor, unaccepted-survivor set empty — the two survivors are the ledgered equivalences. §2.7's provenance short-circuit budget was measured rather than assumed: 29.9-34.7s against a 33.9/34.1s pre-repair baseline.
+
+**Filed rather than repaired, each naming its class-sweep exception:** `BL-PREMISESCAN-NESTED-HOOK-SIBLING-LEAK` (§4 limit 14 — repairing the recursive hook collection moves a seventeenth verdict, which amended AC-1 forbids, so the two cannot ship together by construction) and `BL-PREMISESCAN-UNPARSEABLE-MODULE-UNREACHABLE` (§4 limit 8; DEMOTED to a documented limit 2026-08-18, entry above). The round-economy filing at `docs/review-rounds/fix/premisescan-import-edges/59a9ef25a97b.md` filed its Mechanizable half rather than declining it: `BL-EXPORTRESOLUTION-SPREAD-NOT-RELITERAL` and `BL-MUTATION-SITEID-LINE-KEYED-CHURN`. A stale `EXPECTED_LEDGER_KINDS.fieldNearMiss` declaration on main was fixed in passing, with `BL-CARVE-GUARD-SCANS-GITIGNORED-PATHS` filed separately.
+
+**Spec:** `docs/superpowers/specs/ci/2026-08-16-premisescan-import-edge-fidelity-design.md` (spec-APPROVED r6). **Plan:** `docs/superpowers/plans/2026-08-16-premisescan-import-edge-fidelity.md` (plan-APPROVED r21). **Diff rounds:** 8, 8, 5, 2 findings then APPROVE. **Round corpus:** `docs/review-rounds/fix/premisescan-import-edges/`.
+
+**This archive move is LATE, and that is recorded rather than smoothed over.** PR #843 shipped the repair and filed its two rows but dropped its own Task 7 archive move, so this entry stayed in `BACKLOG.md` reading `OPEN` for two days — the exact signal another session reads to pick up work that is already done. The move, this record and the correction of the stale "remains OPEN" sentence in `BL-PREMISESCAN-NESTED-HELPER-SCOPE` above were performed 2026-08-19 on `fix/premisescan-import-edge-fidelity`, the branch already holding the invariant-12 claim on this row.
+
+**The entry as filed follows, with its in-flight status marker removed on archiving per invariant 12** — archives categorically reject in-progress work. Its two probe tables are retained because they are the arc's regression cases.
+
+Two probed reachability gaps in `tests/mutation/source/premiseScan.ts`, distinct from the scope-resolution axis `BL-PREMISESCAN-NESTED-HELPER-SCOPE`'s arc repairs (that arc also fixes the ALIAS row below, the one case inside the lookup it already rewrites; the rest is this row).
+
+**Half 1 — import forms.** Cross-module extent lookup resolves by the LOCAL name against the target module, and import facts keep only local-name → specifier, so ordinary repository-local refactors lose a reachable spawning helper. Reviewer probe (same helper, same call site, only the import form varied):
+
+```
+direct          -> environment-touching
+named_alias     -> environment-free      (fixed by the scope arc: propertyName-aware lookup)
+namespace       -> environment-free
+default_renamed -> environment-free
+reexport        -> environment-free
+```
+
+Namespace imports, renamed defaults, and re-export chains need tracking structures the scanner does not have (namespace member edges; re-export following — the canonical premise design additionally wants an unfollowable re-export to report `unclassifiable`, not pass clean).
+
+**Half 2 — unclassifiable constructs do not propagate through reachable helpers.** `moduleFacts` records non-literal dynamic `import()` and computed `process` access wherever they occur, but final classification consults them only lexically within the test's own extent (`unclassifiableWithin` filters the module-level list to "unparseable" entries). Reviewer probe:
+
+```
+module_dynamic    -> environment-free
+describe_dynamic  -> environment-free
+module_computed   -> environment-free
+describe_computed -> environment-free
+```
+
+A helper whose body holds a construct the recognizer explicitly refuses to resolve should surface `unclassifiable` to its callers; today it reads as free.
+
+**Scope if promoted:** thread importedName (`propertyName`) through every lookup (the scope arc lands this), add namespace-member and re-export edges with an unfollowable-edge → `unclassifiable` posture, and propagate helper-extent unclassifiable reasons into the caller's verdict. Regression cases: the five-form import table and the four-cell propagation table above, plus the AC-10b collision fixture (must stay quiet).
+
 ## BL-SHELL-BINDING-MIXED-QUOTED-VALUE — an assignment whose value mixes a quoted segment with a bare one is not read as a binding — CLOSED 2026-08-17 (`fix/shell-binding-mixed-quoted-value`, SHIPPED)
 
 **Status:** SHIPPED 2026-08-17 · **Effort (as shipped):** M · **Filed:** 2026-08-16 (`test/psql-scan-mutation-enrolment`, from the mutation-enrolment disposition of `relational-boundary:2167:54`; corrected the same day after cross-model review r2) · **Reachability:** PROBED at filing (six-row instrument against bash) and again at design time (probe record, instruments 1–2 plus three round supplements).
@@ -699,7 +779,7 @@ Landed with it: cross-module lookups resolve through the import's `propertyName`
 
 The recognizer was then ENROLLED in the source-mutation registry (floor 0.95). That run is what exposed the dead duplicated `unclassifiable` rules in `moduleFacts`, whose entries a downstream filter dropped unconditionally — live-looking code that could never affect a verdict, now removed.
 
-**Scope fence held:** namespace, renamed-default and re-export forms, and helper-body unclassifiable propagation, are untouched — `BL-PREMISESCAN-IMPORT-EDGE-FIDELITY` owns those and remains OPEN. One new row was filed from this work: `BL-PREMISESCAN-ALIAS-SLICE-UNCOVERED`.
+**Scope fence held:** namespace, renamed-default and re-export forms, and helper-body unclassifiable propagation, are untouched — `BL-PREMISESCAN-IMPORT-EDGE-FIDELITY` owns those and was OPEN at this arc's close; it CLOSED 2026-08-17 (`fix/premisescan-import-edges`, PR #843), entry above. One new row was filed from this work: `BL-PREMISESCAN-ALIAS-SLICE-UNCOVERED`.
 
 **Probed, not theorized.** Two sources differing ONLY in where the helper is declared — same `spawnSync`, same import, same call site:
 

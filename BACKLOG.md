@@ -956,21 +956,6 @@ than by role precisely because they are all present. `aria-hidden={!isActive}` i
 change, deferred only because it moves several existing role-based queries and belongs with the
 current-slide announcement decision rather than ahead of it.
 
-### BL-PREMISESCAN-NESTED-HOOK-SIBLING-LEAK — a hook in one nested describe leaks to its siblings
-
-**Status:** OPEN · **Severity:** MEDIUM (a FALSE POSITIVE, pre-existing) · **Class:** guard fidelity · **Filed:** 2026-08-16 (`fix/premisescan-import-edges`, probe §3.11 row A) · **Effort:** M
-
-`hookBodies` collects recursively (`ts.forEachChild`), so under a shared outer `describe` a spawning hook in branch A is attached to tests in sibling branch B. Probed:
-
-```
-A: sibling nested describes, hook only in A  ->  inA=touching, inB=TOUCHING   <- false positive
-B: top-level sibling describes, hook in A    ->  inA=touching, inB=free       [correct]
-```
-
-The leak needs a shared outer `describe`; without one the branches do not share a collection point.
-
-**Why `BL-PREMISESCAN-IMPORT-EDGE-FIDELITY` does not fix it**, under class-sweep exception (c): repairing the recursion moves live verdicts, and that arc's headline constraint is verdict-neutrality against `_metaPremiseContract`'s exact counts. The two cannot ship together by construction. That arc's own top-level hook seed is deliberately NON-recursive so it does not widen this leak, and its AC-12b asserts the leaked value as-is so a later change cannot deepen it silently.
-
 ### BL-PLANLINT-ASSERTIONLESS-EXPECT — an `expect(` with no matcher asserts nothing, and is mechanically detectable
 
 **Status:** OPEN · **Severity:** MEDIUM · **Class:** review economy · **Filed:** 2026-08-16 (`fix/premisescan-import-edges`, plan round-4 finding 1) · **Effort:** S
@@ -1006,37 +991,6 @@ Proposal: make `CITATION_MALFORMED` a dispatch-blocking condition in `scripts/co
 A spec designed against an unmerged PR pinned `ac9a40cd8`; the branch advanced five commits mid-review, and the document ended up citing two different trees at once — one limit describing a parser behaviour the target no longer had, and one limit citing a comment only the newer commits contained. **Probe evidence:** round-3 finding 5, plus `git log ac9a40cd8..origin/fix/scanner-scope-totality` showing the five commits and `premiseScan.ts:61` showing the changed parse-kind selection.
 
 Proposal: when a `--lint-doc` document names both a branch and a commit sha, compare the sha to that branch's current head and surface the drift at dispatch time. Cheap, and it catches the class before a reviewer spends a round on it.
-
-### BL-PREMISESCAN-IMPORT-EDGE-FIDELITY — ordinary import forms and helper-body unclassifiable constructs silently lose environment reach
-
-**Status:** OPEN · **Severity:** MEDIUM (both halves are false NEGATIVES — the direction that does not announce itself) · **Class:** guard fidelity · **Filed:** 2026-08-15 (`docs/scanner-scope-totality-spec`, spec review R1 findings 2 and 3 — reviewer-probed, transcripts below) · **Effort:** M
-
-Two probed reachability gaps in `tests/mutation/source/premiseScan.ts`, distinct from the scope-resolution axis `BL-PREMISESCAN-NESTED-HELPER-SCOPE`'s arc repairs (that arc also fixes the ALIAS row below, the one case inside the lookup it already rewrites; the rest is this row).
-
-**Half 1 — import forms.** Cross-module extent lookup resolves by the LOCAL name against the target module, and import facts keep only local-name → specifier, so ordinary repository-local refactors lose a reachable spawning helper. Reviewer probe (same helper, same call site, only the import form varied):
-
-```
-direct          -> environment-touching
-named_alias     -> environment-free      (fixed by the scope arc: propertyName-aware lookup)
-namespace       -> environment-free
-default_renamed -> environment-free
-reexport        -> environment-free
-```
-
-Namespace imports, renamed defaults, and re-export chains need tracking structures the scanner does not have (namespace member edges; re-export following — the canonical premise design additionally wants an unfollowable re-export to report `unclassifiable`, not pass clean).
-
-**Half 2 — unclassifiable constructs do not propagate through reachable helpers.** `moduleFacts` records non-literal dynamic `import()` and computed `process` access wherever they occur, but final classification consults them only lexically within the test's own extent (`unclassifiableWithin` filters the module-level list to "unparseable" entries). Reviewer probe:
-
-```
-module_dynamic    -> environment-free
-describe_dynamic  -> environment-free
-module_computed   -> environment-free
-describe_computed -> environment-free
-```
-
-A helper whose body holds a construct the recognizer explicitly refuses to resolve should surface `unclassifiable` to its callers; today it reads as free.
-
-**Scope if promoted:** thread importedName (`propertyName`) through every lookup (the scope arc lands this), add namespace-member and re-export edges with an unfollowable-edge → `unclassifiable` posture, and propagate helper-extent unclassifiable reasons into the caller's verdict. Regression cases: the five-form import table and the four-cell propagation table above, plus the AC-10b collision fixture (must stay quiet).
 
 ### BL-NEARMISS-CANDIDATE-RENDER — the near-miss card asks Doug to judge a suggestion no surface displays
 
@@ -1197,6 +1151,15 @@ The filter is not loose by accident — it covers the eight parser shard files, 
 
 **Reachability: PROBED, twice, and the two measurements disagree — which is itself the finding.** #833 measured **27.6 s against the 30 s ceiling on an UNLOADED box**, and 43 s under contention, where it failed `test:fast`. A re-probe at 22:31 CDT on 2026-08-16, scoped to that one case, measured **19.18 s of test time** (`Duration 20.85s`, `1 passed | 41 skipped`) on a box with five arcs working. Two readings of one test, taken hours apart on the same day, disagree by more than 8 s: the surviving margin is somewhere between ~2 s and ~11 s depending on load, and no single number describes it. Both are recorded here deliberately, because a row claiming either one alone would misstate how load-sensitive the test is.
 
+**Third measurement, 2026-08-19 (`fix/premisescan-nested-hook-sibling-leak`).** The walk is now at the ceiling on a LOADED box, and the same-machine differential shows the branch tipping it rather than the tree being at fault — which is what the growth half predicted:
+
+```
+mergedArcs()   origin/main   27863ms, 27738ms   -> test PASSES (41 passed)
+               branch HEAD   29921ms, 29944ms   -> test TIMES OUT, 3 runs of 3
+```
+
+`git log` itself is 75ms and returns 824 first-parent merges on both sides (799 -> 803 -> 804 -> **824** across the three filings), and both trees report `recognized=823, unrecognized=1`. The arc contributes no merge commit, so its ~2.1s is the review-round rows it adds. **Main is at 93% of the cap and any arc adding corpus rows lands on the same edge.** That arc filed a duplicate row for this and removed it on discovering this one; the measurement is kept here, where it belongs.
+
 **The growth is the durable half.** Main was at 799 first-parent merges when #833 measured, 803 ninety minutes later, and **804** at filing. The trend has no ceiling and no reset.
 
 **Deriving the expectation is DELIBERATE and must not be undone by a careless repair.** The comment above the call says so in terms: "Numbers are derived from the live log, never from literals - a hardcoded 676 makes this a tripwire on the calendar instead of on the producer." A fix that hardcodes the count would trade a slow test for a test that fails on a date, which is the defect the current design already rejected.
@@ -1309,6 +1272,19 @@ The information to fix it is already in the failing run, and the two sets are co
 FAIL unaccepted-survivor: 2 survivor(s) with no ledger row: relational-boundary:604:29:>>>=, relational-boundary:1864:28:<><=
 FAIL stale-ledger-row: 2 ledger row(s) whose site no longer survives: relational-boundary:721:29:>>>=, relational-boundary:2061:28:<><=
 ```
+
+**Second incident, 2026-08-19, and it changes the severity argument** (`fix/premisescan-nested-hook-sibling-leak`, baseline gate run before any code edit). The same shape on a DIFFERENT surface, `destructiveFileAnalysis`, and this time **on `origin/main` itself** rather than under an in-flight diff — eight survivors and eight complementary stale rows, every pair one or two lines apart:
+
+```
+unaccepted-survivor: logical-connector:371:61:&&>||, logical-connector:388:32:&&>||, integer-literal:392:19:0>1,
+  relational-boundary:392:27:<><=, integer-literal:392:47:1>2, relational-boundary:397:24:>>>=,
+  logical-connector:503:73:&&>||, relational-boundary:626:29:>>>=
+stale-ledger-row:    logical-connector:370:61:&&>||, logical-connector:387:32:&&>||, integer-literal:391:19:0>1,
+  relational-boundary:391:27:<><=, integer-literal:391:47:1>2, relational-boundary:396:24:>>>=,
+  logical-connector:502:73:&&>||, relational-boundary:602:29:>>>=
+```
+
+The filed severity is LOW on the grounds that this is bookkeeping that never produces a wrong verdict. That still holds per-run, but a red on MAIN is different in kind from a red under a diff: every arc that runs `pnpm mutation:guards` now inherits a failure it did not cause, must bracket it against main to prove that, and either scopes around it or repairs another arc's surface. The run that measured this took **4,489s**. Reachability is therefore no longer hypothetical for the cost claim — it is charged to every concurrent arc until main is green.
 
 **The mechanical form:** key on the mutated EXPRESSION plus a disambiguator instead of the line, or have the gate emit a `--rekey` patch when the stale set and the unaccepted set are the same size and the expressions match. A third shape belongs here too, measured on the same arc: **removing dead code widened the mutation surface** — deleting an orphaned union variant forced a rewrite of its enclosing condition, and the natural rewrite turned a truthy numeric check into `carried.length > 0`, an operator where there had been none, producing a brand-new survivor. Nothing warned; the gate noticed one cycle later.
 
@@ -1441,6 +1417,95 @@ AGENTS.md already says to class-sweep a finding's SHAPE across the code before p
 2. **A stale-predecessor check at the document level:** when a numeric literal or named claim changes in a spec or plan, fail if occurrences of the superseded value survive elsewhere in the same arc's documents. This is the cheaper of the two and generalises past this arc — it is the same defect class the self-consistency sweep in `docs/agents/spec-self-review.md` already targets by hand.
 
 **First scheduled step:** decide which of the two forms to build, then confirm against this arc's own history — replay the R2 and R4 repairs and check that the proposed mechanism flags the claims R4 F3 and R5 F1 later found. A mechanism that does not flag those two is not worth building.
+
+## BL-PREMISESCAN-REGISTRAR-ACCEPT-SETS-HAND-MAINTAINED — the scanner's registrar and modifier lists drift from Vitest's actual API
+
+**Status:** OPEN · **Severity:** MEDIUM (drift is silent in the FREE direction: an unrecognised registrar means the test is not classified at all, or its hooks are not collected) · **Class:** guard fidelity · **Effort:** M · **Filed:** 2026-08-19 (`fix/premisescan-nested-hook-sibling-leak`, diff review r10) · **Facing:** process · **Mint-exception:** invariant · **Class-sweep exception:** (c) — the repair derives both sets from Vitest's surface, a change to how the scanner is configured rather than to the nested stop the finding arc ships · **Reachability:** PROBED — one member was LIVE in an enrolled suite, transcript below.
+
+`premiseScan` carries two hand-maintained accept-sets: `MODIFIERS` (`tests/mutation/source/premiseScan.ts:48`) and `HOOK_REGISTRARS` (`:66`). Both drift from the Vitest version actually installed, and the drift is silent in the free direction — an unrecognised registrar means `registrarRoot` does not see a registration at all.
+
+**Incident, and it was live rather than constructed.** Diff review round 10 found `MODIFIERS` missing `shuffle`, `skipIf` and `runIf`. `test.skipIf(...)` is used by an ENROLLED suite — `tests/cross-cutting/psqlStartupFileSuppression.test.ts:1653` — and that test was ABSENT from the scanner's census entirely:
+
+```
+classified tests: 365      rows near line 1653: []      (before the repair)
+```
+
+**That arc completed the three modifiers at its round 10 and REVERTED the completion at its round 12**, which is the measurement this row now rests on. Completing the set made a further shape reachable that had not been before: `registrarRoot` peels callee CALLS and PROPERTIES in separate loops, so a conditional chain resolves by neither. Probed on both trees:
+
+```
+origin/main    test.skipIf(...).each  ->  []                          (not classified)
+with round 10  test.skipIf(...).each  ->  [["<test…>","environment-free"]]
+```
+
+Main is silently INCOMPLETE; the completion made it silently WRONG. Population of chain forms across the whole `tests/` tree: ZERO. The revert restores byte-identical behaviour to `origin/main`.
+
+**So the two halves must ship together, and that is what this row is for.** Completing the accept-sets without fixing the peel loop trades a silent omission for a silent wrong verdict; fixing the loop without completing the sets leaves the enrolled `.skipIf` test uncensused. `aroundAll`/`aroundEach` add a third consideration: zero enrolled call sites today, but adding them changes which tests are classified corpus-wide, which is an AC-1 movement needing the same decision PR #843's sixteen-test movement did.
+
+**Shape of the repair.** Derive both sets from Vitest's own surface instead of restating it: the installed package exports the hook registrars as globals and the suite modifiers as properties of `describe`, so a startup-time read gives an accept-set that cannot drift. Completing a hand-maintained list by hand is what this arc did twice (`ExpressionWithTypeArguments` at round 6, these three at round 10) and it does not terminate — the next Vitest release adds the next member.
+
+**First scheduled step:** measure what a derived set would ADD beyond today's lists, and run `_metaPremiseContract` against it. If the delta moves declared counts, the row carries an AC-1 amendment and needs the same user decision PR #843's sixteen-test movement did.
+
+## BL-PREMISESCAN-FILE-SUITE-EAGER-HOOKS-LOST — at file scope a hook in a registration's eager position reaches no sibling
+
+**Status:** OPEN · **Severity:** MEDIUM (a silent FREE — a sibling suite reads free while the hook genuinely runs for it) · **Class:** guard fidelity · **Effort:** M · **Filed:** 2026-08-19 (`fix/premisescan-nested-hook-sibling-leak`, diff review r9) · **Facing:** process · **Mint-exception:** invariant · **Class-sweep exception:** (c) — the repair changes the top-level SEED's contract, not the nested stop the finding arc ships · **Reachability:** PROBED — same-machine differential on both trees, plus an 84-case sweep.
+
+A hook written in a registration's EAGER position — a name argument, an options argument, a curried `.each`/`.for` producer — is evaluated while the CURRENT suite is collecting, so Vitest registers it on that suite. Where the parent is a `describe`, `hookBodies` attaches it correctly. Where the parent is the FILE suite there is no such collection: the top-level seed (`tests/mutation/source/premiseScan.ts:1748`) recognizes only direct hook STATEMENTS. The hook is never attached, and a sibling suite reads `environment-free` while it runs for that sibling.
+
+**Incident:** diff review round 9 of `fix/premisescan-nested-hook-sibling-leak`, raised as one ordinary edit from that arc's own AC-8 fixture — lifting the A/B describes out of their outer wrapper. Bracketed against `origin/main` before disposition, the shipped classifier called in memory on both trees:
+
+```
+origin/main   top_name     inA=environment-touching  inB=environment-free
+              nested_name  inA=environment-touching  inB=environment-touching
+this branch   top_name     inA=environment-touching  inB=environment-free
+              nested_name  inA=environment-touching  inB=environment-touching
+```
+
+Identical on both sides. That round's own sweep put the population at **84 cases** — name and options arguments across nine `describe` spellings, plus `.each`, `.for` and `.concurrent.each` producers, crossed with all four hook registrars — every one unchanged by the arc.
+
+**Shape of the repair.** Give the top-level seed the same eager-position reading `hookBodies` now has: collect hooks from a file-scope registration's non-body arguments, not only from direct statements. The nested rule already exists and is tested; this is the same rule applied at one more scope, which is why it is a seed-contract change rather than new analysis. The honest alternative, if the seed is left alone, is to REPORT rather than pass clean.
+
+**First scheduled step:** probe how many enrolled suites write a hook in a file-scope eager position today. The arc that filed this measured 84 constructed cases but not the live population, and zero would make either choice cheap.
+
+## BL-PREMISESCAN-NAMED-SUITE-FACTORY-HOOKS-LOST — a suite registered with a named factory reads free while its hook touches the environment
+
+**Status:** OPEN · **Severity:** MEDIUM (a silent FREE — the direction that does not announce itself; an enrolled test would be told it needs no premise while its hook spawns) · **Class:** guard fidelity · **Effort:** M · **Filed:** 2026-08-19 (`fix/premisescan-nested-hook-sibling-leak`, diff review r7 finding 1) · **Facing:** process · **Mint-exception:** invariant · **Class-sweep exception:** (c) — the repair is a new identifier-resolution path in `hookBodies`, a mechanism the finding arc does not otherwise touch · **Reachability:** PROBED — same-machine differential on both trees, below.
+
+`hookBodies` (`tests/mutation/source/premiseScan.ts`) collects hooks LEXICALLY inside a registration. Vitest also accepts a named factory — `describe("A", suiteA)` where `suiteA` is a module-scope arrow, function expression or declaration — and invokes it with that suite current. The factory's body lives elsewhere in the file, so it is never walked, and every test in that suite reads `environment-free` while its hook genuinely reaches the environment.
+
+**Incident:** diff review round 7 of `fix/premisescan-nested-hook-sibling-leak`, raised as one ordinary refactor from that arc's own fixtures — extracting an inline callback to a named constant is routine authoring, not obfuscation. Bracketed against `origin/main` before disposition, the shipped classifier called in memory on both trees:
+
+```
+origin/main   const-arrow     inA=environment-free      inB=environment-free
+              inline-control  inA=environment-touching  inB=environment-touching
+this branch   const-arrow     inA=environment-free      inB=environment-free
+              inline-control  inA=environment-touching  inB=environment-free
+```
+
+The named-factory rows are IDENTICAL on both sides. The arc that found it neither causes nor widens it; only the inline control moves, which is the sibling leak that arc closes.
+
+**Shape of the repair.** Resolve a factory ARGUMENT that is an identifier to its declaration in the same module and walk that body as the suite's own. The scope machinery to do it already exists — `premiseScan` resolves helper extents innermost-out — so this is a new caller of an existing resolver rather than new resolution. The honest alternative, if resolution is declined, is to REPORT: a registration whose body cannot be located is `unclassifiable` rather than silently free, which satisfies the consequence bound without following the identifier.
+
+**First scheduled step:** decide between resolving and reporting, then probe the population — how many enrolled suites register with a named factory today. Zero would make either choice cheap; a non-trivial count argues for resolving.
+
+## BL-SPECLINT-ORPHANED-TASK-MARKERS — a plan whose markers sit outside a region lints as `0 hard` while checking nothing
+
+**Status:** OPEN · **Severity:** MEDIUM (no shipped defect; the gate reports a pass over an empty set, which is the failure mode `spec:lint` exists to prevent) · **Class:** spec-lint grammar / review tooling · **Effort:** S · **Filed:** 2026-08-19 (`fix/premisescan-nested-hook-sibling-leak`, spec review R2 F1) · **Facing:** process · **Class-sweep exception:** (c) — the repair is an arm inside `lib/specLint/`, a surface this arc does not otherwise touch · **Reachability:** PROBED — the reviewer's own probe reproduces, and both figures come from data the linter already computes.
+
+`taskTopology` (`lib/specLint/taskContract.ts`) enrols a `<!-- task: … -->` marker only when it is owned by a `<!-- tasks: depth=N red-contract -->` region (`lib/specLint/taskContract.ts:28`). A plan carrying markers and no region therefore enrols ZERO of them, every red-contract check is skipped, and `pnpm spec:lint` prints `summary: 0 hard` — indistinguishable from a plan whose contract genuinely passes. Nothing compares the two counts, though the linter has both.
+
+**Incident:** This arc, spec round 2 finding 1. The plan at `docs/superpowers/plans/2026-08-19-premisescan-nested-hook-sibling-leak.md` carried seven markers and no region; the author read `0 hard` as a pass and dispatched. The reviewer's probe:
+
+```text
+taskRegionLines=0 taskMarkers=7
+line 30 parsed=null
+line 152 parsed=null
+```
+
+Two of those markers additionally carried `red-state=pre-existing-green`, which the grammar does not accept (`lib/specLint/taskContract.ts:49` allows only `live|authored`) — and the malformed-state check never ran either, for the same reason. One full spec round on this arc is attributable to the shape. Corpus row: `docs/review-rounds/fix/premisescan-nested-hook-sibling-leak/a85ccd453103.jsonl`, round 2; filing: the sibling `.md`.
+
+**Shape of the repair.** An advisory — `TASK_MARKERS_UNENROLLED` — emitted when a plan's marker count is positive and its red-contract region extent is zero, naming the marker lines that parsed to nothing. Advisory rather than hard, because a document may legitimately quote a marker as an example; the existing use-versus-mention handling in the citations arm is the precedent. It is a comparison of two numbers the topology pass already returns, not new parsing.
+
+**First scheduled step:** confirm `taskTopology` exposes both figures on the same call (it returns `extents` and the marker list), then site the advisory beside the existing region checks so a reader finds all of them together.
 
 ## BL-SPECLINT-RED-TARGET-CANNOT-NAME-A-REPO-ROOT-SURFACE — a plan whose production surface is a root file silently under-covers its own red contract
 
