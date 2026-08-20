@@ -166,3 +166,27 @@ The spec had claimed the replay yields "the §6 identifier survivor". It yields 
 which the arm reports those outside the repair's hunks. AC-4 now states the measured set. The volume is
 the design: a reclassified site is claimed about wherever the arc discusses it, and the advisory asks
 for exactly the re-read the ledger entry wants.
+
+
+## 6. Round-3 supplement — the lone outlier, characterised rather than assumed
+
+The discriminator's precision was reported as "942 of 943" and its single non-excluded row was described
+in the spec as a transition spanning two sentences. **Instrumenting the loop refuted that.**
+
+```
+carry BOTH 947 | carry only one 1
+
+  file: docs/superpowers/plans/2026-08-16-serialize-error-structure.md
+  pair: 0 -> 1
+  sentence: 200 visits clean, 201 truncates (kills <=to<, 0to1, and halved-decrement budget mutants)
+```
+
+The row is the mutation-operator NAME `0to1` inside a test title. The census regex matches it as an
+arrow shape, while `0` and `1` never appear as standalone words in that sentence — so it is a FALSE HIT
+OF THE CENSUS INSTRUMENT, not a miss of the discriminator. The honest statement is that the rule
+excludes **947 of 947 real transition sentences**, with one census artefact alongside.
+
+The correction matters beyond the number: the earlier text named a failure mode (`a transition spanning
+two sentences`) that the corpus does not contain, and a documented limit describing a case that does not
+exist is as misleading as an undocumented one that does. Characterise the outlier; do not infer it from
+the shape of the count.

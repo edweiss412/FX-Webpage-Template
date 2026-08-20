@@ -60,7 +60,8 @@ and §9 assert SETS and RELATIONS and never a cardinality typed into a test.
 | …of which plain `X → Y` transition sentences | 923 |
 | Incident survivors reported by the shipped discriminator | 9 of 9 |
 | Incident transition sentences correctly excluded | 3 |
-| Corpus transition sentences excluded by the same rule | 942 of 943 (at this commit) |
+| REAL corpus transition sentences excluded by the rule | 947 of 947 (at this commit) |
+| …plus one census false hit that is not a transition (§5 item 1) | 1 |
 
 The naive form — "after a repair changes N to M, report every surviving N" — scores roughly one false
 advisory per document. **The before/after sentence is the corpus's dominant shape, not an edge case**,
@@ -132,6 +133,11 @@ repair itself rewrote for an unrelated reason, so any rule keyed on diff status 
 
 ### 3.2 The named-claim half
 
+**The identifier is matched EXACTLY, never as a substring.** A declared `file:line` that occurs zero
+times is reported as NOT FOUND rather than silently matching its own prefix: `…tsx:96` is one deleted
+character from `…tsx:964`, occurs nowhere exactly, and would match nine times as a substring — nine
+wrong advisories from an ordinary typo.
+
 Given a repair that changes a claim about a named IDENTIFIER — a `file:line`, a symbol, a token the
 repair's own diff carries on both a removed and an added line — the arm reports every OTHER occurrence
 of that identifier in the arc's documents, outside the repair's hunks, as a claim to re-read.
@@ -198,8 +204,14 @@ means no repair was named and the arm runs nothing.
 limit belongs where the code is READ, not only where the spec is filed — a maintainer reaching for the
 module does not necessarily reach for this document.
 
-1. **A sentence is delimited lexically**, and a repair whose transition spans two sentences draws a
-   false advisory. Measured: 1 of 936 corpus transition sentences (§2).
+1. **A sentence is delimited lexically**, so a repair whose transition genuinely spans two sentences
+   would draw a false advisory. **No such case exists in the corpus** — that is measured, not assumed.
+   The single non-excluded row in §2 is not a transition at all: it is the mutation-operator NAME
+   `0to1` inside a test title (`docs/superpowers/plans/2026-08-16-serialize-error-structure.md`, "kills
+   <=to<, 0to1, and halved-decrement budget mutants"), which the CENSUS regex matches as an arrow shape
+   while `0` and `1` never appear as standalone words. It is a false hit of the census instrument, not
+   a miss of the discriminator. An earlier draft of this limit diagnosed it as a two-sentence
+   transition on assumption; instrumenting the loop refuted that.
 2. **A value that legitimately recurs** — a version number, an unrelated count that happens to equal the
    superseded one — is reported. The failure direction is a nuisance line, never a missed collision.
 3. **The arm reports; it never rewrites.** Prose repairs are read, not swept: only a reader can tell a
@@ -232,6 +244,9 @@ force. Two covers are mandatory before any review dispatch, both learned on this
 
 | Rule | Weaker implementation that would pass | Fixture that kills it |
 | --- | --- | --- |
+| §3.0 refusal, `N === M` | accept it and run | a declaration whose superseded value equals its replacement is REFUSED, naming both values; an implementation that runs reports zero on a corpus where the value occurs, which is the silent clean the refusal exists to prevent |
+| §3.0 refusal, `--claim-about` without `--repair` | run anyway on an inferred exclusion | the incident's identifier, whose nine occurrences split five INSIDE the repair spans and four outside: without spans an implementation reports all nine, including the repair's own five new claims |
+| §3.2 identity | match the identifier as a SUBSTRING | a one-character truncation of the declared `file:line` (`…tsx:96` for `…tsx:964`) occurs ZERO times exactly and nine times as a substring — an ordinary CLI typo, so a substring implementation emits nine wrong advisories while the exact rule reports none and says the identifier was not found |
 | §3.0 declared input | INFER the pair from the repair's diff | the incident commit itself, whose diff carries `58` on BOTH sides and changes several literals: an inferring implementation picks a pair (any pair) and reports, while the shipped arm with `--repair` and NO declaration must report NOTHING and say why. Both halves asserted — the silence, and the reason line |
 | §3.0 declared input | accept a declaration and ignore `--repair` | a declared pair whose surviving occurrence sits INSIDE the repair's hunks still reports for the numeric half, while the named half's own new claim (also inside them) does not — the spans are used by §3.2 and only there |
 | §3.1 numeric half | report every surviving N (the naive form) | a transition sentence carrying BOTH values draws nothing — the 923-site corpus shape |
@@ -272,8 +287,11 @@ FROM THE TABLE ITSELF — never from recall — and classifies each into THREE s
 Only PROVEN counts: presence is not adequacy, applied to this rule itself.
 
 **Historical re-enactment, executable.** The probe record's two blobs ship as fixtures: `fede5f084`'s
-tree draws exactly the 9 numeric survivors and excludes the 3 transition sentences; `c272ebed3`'s draws
-the §6 identifier survivor. These are the entry's own acceptance criterion, pinned by the incident
+tree draws exactly the 9 numeric survivors and excludes the 3 transition sentences; `c272ebed3` draws the MEASURED FOUR
+sites — spec 268 and 327, plan 211, probe record 64 — being the nine occurrences minus the five inside
+the repair's spans. An earlier draft said "the §6 identifier survivor" here, a singleton the round-2
+repair had already refuted in AC-4 while this sentence kept it; a fixture asserting the singleton passes
+while three required advisories vanish. These are the entry's own acceptance criterion, pinned by the incident
 rather than by a synthetic analogue.
 
 **Corpus regression.** The tracked corpus, ENUMERATED at run time rather than counted in the test,
@@ -295,6 +313,20 @@ as its expected key set. A registry row alone leaves the corpus gate red.
 `pnpm heavy pnpm mutation:guards` — the canonical whole-registry command — runs BEFORE the round-1 diff
 dispatch, and that brief states `MUTATION SCORE: <k>/<t>` plus "0 unaccepted survivors" on its
 `GUARD SURFACE:` line, or the wrapper exits 2.
+
+**A PERFECT SCORE DOES NOT SUBSUME THE §6 KILLER AUDIT, and the closeout states both separately.** The
+score covers what the DECLARED OPERATORS CAN EXPRESS. The audit covers implementations a human would
+plausibly write that no operator generates — an unanchored substring matcher, a hardcoded id list, a
+scanner that skips the DEFERRED half. Neither dominates: a sibling arc hand-built a weaker matcher that
+passed its entire corpus and that its registry could not express, so no score however perfect would
+have surfaced it. Both are required, and a reviewer treating the score as covering the audit is
+mistaken.
+
+**Survivor handling, in order of preference.** DELETE the site; else make the predicate TOTAL so the
+differing case is unreachable by construction; else kill it with a test; and only then argue
+equivalence, with a written premise re-checked against the diff before committing. An equivalence
+argument and a deletion describe the same fact, and deletion is the honest form — it removes the site
+rather than excusing it, and it cannot go stale when the surrounding code changes.
 
 ## 8. Wiring & docs (same PR)
 
