@@ -17,7 +17,7 @@ This spec adds one `spec:lint` arm over plan-kind documents. For each enrolled g
 5. **The plan's obligation is to NAME the pin, not to resolve it.** The arm cannot tell "I retire this pin" from "I deliberately leave it alone"; both are compliance. Naming means the pin's title appears verbatim in the plan text. That is what the incident's own repair did (`docs/superpowers/plans/2026-08-17-shell-binding-mixed-quoted-value.md`, Step 3b, which quotes the title in full).
 6. **The grain is the plan's Files declaration, not the whole document.** Measured at the §2 baseline: whole-document matching draws on 63 plans against the Files grain's 23, the difference naming an enrolled path only in prose (§2.5). A plan citing `tests/mutation/_metaPremiseContract.test.ts` because its tests must satisfy the premise contract is not editing that file, and advising it about pins there is exactly the false advisory the consequence bound forbids.
 7. **No new `Check` union member and no `CHECK_ORDER` change.** Findings report `check: "taskContract"`, following the fixture arm (`docs/superpowers/specs/2026-08-18-planlint-fixture-satisfiability.md` §5).
-8. **Threat fence.** The arm defends against ordinary authoring mistakes by a contributor writing a plan. Adversarial obfuscation — a title constructed to evade the phrase match, a Files block written to hide a path — is out of scope and files to §8, not to a review round.
+8. **Threat fence.** The arm defends against ordinary authoring mistakes by a contributor writing a plan. Adversarial obfuscation — a title constructed to evade the phrase match, a Files declaration written to hide a path — is out of scope and files to §8, not to a review round.
 
 ### 1.2 Out of scope
 
@@ -82,14 +82,14 @@ tests/cross-cutting/psqlStartupFileSuppression.test.ts:5167  each quote-concaten
 
 Line numbers here are drafting-time locators and rot at every merge; the pin's IDENTITY is (path, title), which no edit elsewhere in the file can invalidate.
 
-### 2.5 Why the Files block, measured
+### 2.5 Why the Files declaration, measured
 
 | Grain | Plans drawing ≥1 hit |
 | --- | --- |
 | Enrolled path anywhere in the document | 63 |
 | Enrolled path in a Files declaration (§3.2) | 23 |
 
-The 40-plan difference is prose citation: plans naming `_metaPremiseContract.test.ts`, `_metaReviewRoundEconomy.test.ts` or `numerics.ts` as context, contracts to satisfy, or prior art. None of them edits the surface. The Files block is the plan's own declaration of what it touches, so it is the grain — declared, never inferred, the same principle the task-marker contract rests on (`docs/agents/spec-self-review.md`).
+The 40-plan difference is prose citation: plans naming `_metaPremiseContract.test.ts`, `_metaReviewRoundEconomy.test.ts` or `numerics.ts` as context, contracts to satisfy, or prior art. None of them edits the surface. The Files declock is the plan's own declaration of what it touches, so it is the grain — declared, never inferred, the same principle the task-marker contract rests on (`docs/agents/spec-self-review.md`).
 
 **Two shapes carry the declaration, and only two.** 696 of the 2567 headers put the paths on the header line itself — 642 naming a path with a directory separator and a further 54 naming only a ROOT file (`BACKLOG.md`, `package.json`, `AGENTS.md`, and the §3.2 exemplar), which are accepted paths like any other and were wrongly excluded by a slash-bearing probe until round 6 (`**Files:** create \`a\`, \`b\`; modify \`c\``); 1666 are IMMEDIATELY followed by an unordered list. Both are read. An ORDERED list after the header — 19 headers — is DECLINED: sampling those runs shows the numbered items are as often TASK STEPS as files (`1. **RED first …**`, `1. Merge \`origin/main\` …`, `1. Move the full body to \`BACKLOG-archive.md\``), and admitting them would re-import exactly the prose citations this grain exists to exclude. The arm cannot classify an ordered run, so it declines and files the limit (§8 item 11) rather than guessing.
 
@@ -123,7 +123,7 @@ The cardinality here is a MEASUREMENT at one commit, never a normative claim: th
 | Input | Blob | Result |
 | --- | --- | --- |
 | Suite, pre-repair | `d4060b8b8^:tests/cross-cutting/psqlStartupFileSuppression.test.ts` | 1 pin discovered: `a QUOTED backslash path in shell text is a KNOWN miss` (line 4176) |
-| Plan, pre-Step-3b | `32e3fcd60^:docs/superpowers/plans/2026-08-17-shell-binding-mixed-quoted-value.md` | names the surface in its Files block; **1 advisory**, naming that pin |
+| Plan, pre-Step-3b | `32e3fcd60^:docs/superpowers/plans/2026-08-17-shell-binding-mixed-quoted-value.md` | names the surface in its Files declaration; **1 advisory**, naming that pin |
 | Plan, post-Step-3b | `32e3fcd60:` same path | names the surface AND the pin; **0 advisories** |
 
 Both directions, from committed history, with no constructed input. A mechanism that flags the pre-repair plan but stays silent on the repair is the mechanism the entry asked for; one that fires on both would be a nuisance, and one that fires on neither would be decoration.
@@ -392,7 +392,7 @@ Tightening this wording is a CONTRACT CHANGE and owes a probe like any other cla
 ## 10. Acceptance criteria
 
 - **AC-1** — Pin grammar: each of the three phrases in a single-line `test(`/`it(` title in a double-quoted or single-quoted literal is a pin, case-insensitively; the pin's title is the DECODED literal content, proved by a source-spelled `\"` title whose decoded form a plan names (no advisory) and whose source spelling a plan names (advisory); each excluded shape of §8 items 3, 4 and 5, plus a `describe(` title, a phrase in a comment, and a phrase in a non-first argument, draws NOTHING, asserted per shape. Proved by the pin-grammar suite.
-- **AC-2** — Files-block grain: an enrolled path inside a modeled Files block names its surface; the same path in prose outside every block names nothing; a `**Files:**` line inside a fence is inert. Proved by the extent suite, and by the corpus assertion of AC-6, whose corpus contains the prose-only plans §2.5 measures — that table is the single source for the population, and AC-2 deliberately quotes no cardinality of its own.
+- **AC-2** — Files-declaration grain: an enrolled path inside a modeled Files declaration names its surface; the same path in prose outside every block names nothing; a `**Files:**` line inside a fence is inert. Proved by the extent suite, and by the corpus assertion of AC-6, whose corpus contains the prose-only plans §2.5 measures — that table is the single source for the population, and AC-2 deliberately quotes no cardinality of its own.
 - **AC-3** — Obligation: a named pin draws nothing, an unnamed one draws exactly one `DECLARED_LIMIT_PIN_UNNAMED` at advisory severity, and a pin reachable through two surfaces draws one finding, not two. No input at any severity other than advisory is produced by this arm, asserted structurally over the emitted findings rather than by sampling.
 - **AC-4** — The §2.7 replay reproduces from committed blobs: the pre-repair suite yields exactly the pin `a QUOTED backslash path in shell text is a KNOWN miss`; the pre-Step-3b plan draws exactly one advisory naming it; the merged plan draws zero. This is the ledger entry's own acceptance test.
 - **AC-5** — Fail-open closed on BOTH channels: a `suitePath` whose `readFileLines` returns `null` AND a `suitePath` absent from `listTrackedFiles()` each draw `DECLARED_LIMIT_PIN_SUITE_UNREADABLE` and suppress no other finding. The untracked case is asserted with a resolver whose read SUCCEEDS, since a tracking-blind implementation passes the `null` case and fails only this one.

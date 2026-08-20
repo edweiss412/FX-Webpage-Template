@@ -111,8 +111,9 @@ closed path set: 100
 plans naming an enrolled path ANYWHERE: 63
 
 $ pnpm tsx .probe/probe7.ts            # which shapes carry a Files declaration
-**Files:** headers: 2559 | header line itself carries a path: 636
-followed by UNORDERED list: 2136 | by ORDERED list: 25 | by neither: 398
+                                       # FENCE-AWARE, and against the no-blank-skip rule
+**Files:** headers: 2567 | header line itself carries a path: 696 (642 slash-bearing + 54 root-file)
+next line opens an UNORDERED list: 1666 | an ORDERED list: 19 | neither: 882
 
 $ pnpm tsx .probe/probe9.ts            # the shipped rules (spec 3.1/3.2 as of round 3) over the corpus
 live pins 7 | suites carrying >=1 5
@@ -123,7 +124,7 @@ docs/superpowers/plans/2026-08-09-m-wave-2/plan.md  (1)
 ```
 
 Spec rounds 1 and 3 moved these rules and the numbers with them. Round 1: the Files declaration now spans the
-HEADER LINE's own remainder (636 headers put the paths there, and missing them dropped a real
+HEADER LINE's own remainder (696 headers put the paths there, and missing them dropped a real
 `interactionTimingScan` advisory), an ORDERED run after the header is DECLINED as unclassifiable, and a
 path is matched as a DELIMITED TOKEN rather than a bare substring (a `.bak` sibling contains a live
 entry and names a different file). Round 3 then NARROWED twice more, and the counts above are the post-round-3 measurement: suite text is
