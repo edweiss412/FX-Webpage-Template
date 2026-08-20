@@ -15,7 +15,8 @@
  * here would pass the moment it was written. It ships as a green-phase pin.
  */
 import { describe, expect, it } from "vitest";
-import { claimSweep, type RepairRecord, type SweepDocument } from "../../lib/specLint/claimSweep";
+import { claimSweep } from "../../lib/specLint/claimSweep";
+import type { RepairRecord, SweepDocument } from "../../lib/specLint/types";
 import {
   FEDE_SURVIVORS,
   INCIDENT_PLAN,

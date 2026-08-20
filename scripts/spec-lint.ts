@@ -17,9 +17,14 @@ import {
   planExecutionsForText,
   probesToSpawn,
 } from "../lib/specLint/redContract";
-import { declarationRefusal, type ClaimSweepDeclaration } from "../lib/specLint/claimSweep";
+import {
+  declarationRefusal,
+  parseRepairSpans,
+  type ClaimSweepDeclaration,
+} from "../lib/specLint/claimSweep";
 import { exitCodeForResult, runLint } from "../lib/specLint/run";
 import type {
+  ClaimSweepInput,
   ExecOutcome,
   ExecResults,
   FileResolver,
@@ -60,6 +65,17 @@ export interface CliDeps {
    * any test that only recorded the command.
    */
   spawn(command: string, cwd: string, timeoutMs: number, mode: "parse" | "exec"): SpawnResult;
+
+  /**
+   * The claim sweep's git seam (claim-sweep spec §3.0/§4): the UNIFIED-0 diff
+   * of `rev` restricted to `paths`, verbatim.
+   *
+   * Returns raw TEXT rather than parsed spans on purpose. The PARSE is pure and
+   * lives in the core, where it is mutation-scored with the rest of the arm and
+   * where a test-side extractor can reconcile against it; only the SPAWN is
+   * impure, so only the spawn is behind this seam.
+   */
+  repairDiff(rev: string, paths: readonly string[]): string;
 
   /**
    * The fixture splice seam (fixture spec §4.2). Every path below is
@@ -349,6 +365,8 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
     claimAbout: string | null;
     repair: string | null;
   } = { superseded: null, replacement: null, claimAbout: null, repair: null };
+  /** Declared peers, in argv order. Repeatable; duplicates are collapsed later. */
+  const alsoPaths: string[] = [];
   const positionals: string[] = [];
   const errors: string[] = [];
   for (let i = 0; i < argv.length; i++) {
@@ -391,6 +409,17 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
         errors.push(`duplicate ${tok}`);
       } else {
         declared[key] = next;
+        i++;
+      }
+    } else if (tok === "--also") {
+      // REPEATABLE, and every repetition is honoured: the swept set is `<doc>`
+      // plus each `--also` and nothing else. Keeping only the last would drop
+      // the peer where 7 of the incident's 9 survivors were.
+      const next = argv[i + 1];
+      if (next === undefined || next.startsWith("--")) {
+        errors.push("--also requires a value (a repo-relative document path)");
+      } else {
+        alsoPaths.push(next);
         i++;
       }
     } else if (tok.startsWith("--")) {
@@ -574,6 +603,46 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
       fixtureResults = runFixtureSplice(spliceFixturePlanForText(text), deps, timeoutMs).results;
     }
 
+    // ---- claim sweep (claim-sweep spec §3.3): the swept set is DECLARED ----
+    // `<doc>` plus each `--also`, DEDUPED so naming the linted document as its
+    // own peer cannot double-count it, and NOTHING else. No inference from
+    // citation, stem or date: all three were measured wrong on the incident's
+    // own arc, each in a different direction.
+    let sweepInput: ClaimSweepInput | null = null;
+    if (declared.superseded !== null || declared.claimAbout !== null) {
+      const seen = new Set<string>([repoRelPath]);
+      const documents = [
+        // The LINTED document's lines come from the text already read, never a
+        // second read: two reads of mutable state can observe different bytes.
+        { path: repoRelPath, lines: splitLines(text) },
+        ...alsoPaths.flatMap((peer) => {
+          if (seen.has(peer)) return [];
+          seen.add(peer);
+          // null passes THROUGH rather than being dropped: an omitted entry is
+          // indistinguishable from a peer nobody declared, and §3.3 requires an
+          // unreadable peer to be REPORTED.
+          return [{ path: peer, lines: resolver.readFileLines(peer) }];
+        }),
+      ];
+      sweepInput = {
+        documents,
+        record: {
+          superseded: declared.superseded,
+          replacement: declared.replacement,
+          claimAbout: declared.claimAbout,
+          touchedLines:
+            declared.repair === null
+              ? new Map<string, ReadonlySet<number>>()
+              : parseRepairSpans(
+                  deps.repairDiff(
+                    declared.repair,
+                    documents.map((d) => d.path),
+                  ),
+                ),
+        },
+      };
+    }
+
     const result = runLint(
       { text, repoRelPath, kind: docKind, kindSource },
       resolver,
@@ -581,6 +650,7 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
       parseResults,
       probeResults,
       fixtureResults,
+      sweepInput,
     );
     return {
       stdout: json ? JSON.stringify(result) + "\n" : renderText(result),
@@ -652,6 +722,12 @@ export function nodeDeps(root: string): CliDeps {
     },
     readFileBytes: (p) => readFileSync(p),
     realpath: (p) => realpathSync(p),
+    repairDiff: (rev, paths) =>
+      execFileSync("git", ["show", "--format=", "--unified=0", rev, "--", ...paths], {
+        cwd: root,
+        encoding: "utf8",
+        maxBuffer: 64 * 1024 * 1024,
+      }),
     spawn: (command, cwd, timeoutMs, mode) => {
       // `-nc` is the parse check: sh reads the whole command for syntax and
       // executes none of it. `-c` is the ordinary run.

@@ -57,6 +57,12 @@ function memDeps(files: Record<string, string>): CliDeps {
       return Buffer.from(c, "utf8");
     },
     realpath: (p) => p,
+    // Never reached: these suites declare no claim sweep, so the adapter
+    // never resolves a repair diff. A THROW rather than a stub return, so an
+    // unexpected call is loud instead of contributing empty spans.
+    repairDiff: () => {
+      throw new Error("repairDiff: not expected in this suite");
+    },
     spawn: () => ({ status: 0, signal: null, stdout: "", stderr: "" }),
     ...memSpliceSeam(),
   };

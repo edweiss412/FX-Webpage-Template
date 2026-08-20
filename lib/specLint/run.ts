@@ -1,4 +1,5 @@
 import { checkCitations } from "./citations";
+import { claimSweep } from "./claimSweep";
 import { checkCopy } from "./copyRules";
 import { ambiguousBasenames, basenameOf, checkNumerics, scriptMentionMatcher } from "./numerics";
 import { parseDoc, type DocModel } from "./parse";
@@ -24,6 +25,7 @@ import { checkUniversals } from "./universals";
 import { checkSections } from "./sections";
 import type {
   Check,
+  ClaimSweepInput,
   ExecResults,
   FileResolver,
   Finding,
@@ -95,6 +97,7 @@ export function runLint(
   parse?: ParseResults | null,
   probes?: ProbeResults | null,
   fixtures?: FixtureResults | null,
+  sweep?: ClaimSweepInput | null,
 ): LintResult {
   const model = parseDoc(doc.text);
   // Span-exact exclusion (arms spec §5): a `red-target=` capture IS a citation,
@@ -150,6 +153,17 @@ export function runLint(
       ? synthesizeFixtureFindings(spliceFixturePlan(model, doc.kind), fixtures)
       : [];
 
+  // Claim-sweep findings (claim-sweep spec §3), outcome-injected like the four
+  // above: the adapter resolves the declared documents and the repair's hunk
+  // spans, and the core is a pure map from those to findings. Absent record =
+  // nothing was declared and the arm runs nothing -- and the adapter REFUSES an
+  // undeclared invocation rather than reporting that silence as a clean.
+  //
+  // Runs for BOTH kinds. A repair's superseded claims can survive in a spec or
+  // in a plan, and the incident had 7 of its 9 in the plan.
+  const sweepFindings =
+    sweep === undefined || sweep === null ? [] : claimSweep(sweep.documents, sweep.record);
+
   let findings: Finding[] = [
     ...model.documentFindings,
     ...citations.findings,
@@ -164,6 +178,7 @@ export function runLint(
     ...execFindings,
     ...collectionFindings,
     ...fixtureFindings,
+    ...sweepFindings,
   ];
 
   // ---- ignore-waiver application (spec §3) ----

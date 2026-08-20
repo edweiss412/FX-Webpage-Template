@@ -10,7 +10,8 @@
  * carries the fact and NO location, because there is no location.
  */
 import { describe, expect, it } from "vitest";
-import { claimSweep, type RepairRecord } from "../../lib/specLint/claimSweep";
+import { claimSweep } from "../../lib/specLint/claimSweep";
+import type { RepairRecord } from "../../lib/specLint/types";
 import {
   C272_OUTSIDE_SPANS,
   INCIDENT_IDENTIFIER,

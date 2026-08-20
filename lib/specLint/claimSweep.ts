@@ -93,7 +93,7 @@
  *    the module header restates this limit.
  * ---------------------------------------------------------------------------
  */
-import type { Finding } from "./types";
+import type { Finding, RepairRecord, SweepDocument } from "./types";
 
 /**
  * THE WHOLE FINDING ACCEPT-SET. The arm emits no other code.
@@ -146,47 +146,6 @@ function sweepFinding(f: {
   detail: string;
 }): Finding {
   return { check: "claimSweep", severity: "advisory", ...f };
-}
-
-/**
- * One document in the DECLARED swept set (spec §3.3). `lines` is null when the
- * resolver could not read it — a tracked symlink, an unreadable file. The
- * declaration is what puts a document here; nothing is inferred from a
- * citation, a filename stem or a date prefix, because all three were measured
- * wrong on the incident's own arc, each in a different direction.
- */
-export interface SweepDocument {
-  /** Repo-relative path, used verbatim in the finding's identity and message. */
-  path: string;
-  /** null = declared but unreadable. It was NOT swept, and silence is not a clean. */
-  lines: string[] | null;
-}
-
-/**
- * The repair, DECLARED by the author and never inferred from a diff (spec §3.0).
- *
- * The incident commit changes many numeric literals and carries `58` on BOTH
- * sides of its own diff, so no rule over that diff selects the semantic pair
- * `58 -> 57` deterministically. The numeric half therefore takes a
- * superseded/replacement PAIR and the named half takes a changed-claim
- * IDENTIFIER — different shapes, because they are different facts: a repair
- * that re-classifies a site changes the CLAIM about a stable identifier, and
- * the identifier itself has no replacement.
- */
-export interface RepairRecord {
-  /** The superseded numeric literal, or null when no numeric pair was declared. */
-  superseded: string | null;
-  /** Its replacement. Null iff `superseded` is null. */
-  replacement: string | null;
-  /** An identifier whose claim the author says the repair changed, or null. */
-  claimAbout: string | null;
-  /**
-   * Repo-relative path -> the 1-based lines the repair's hunks added or
-   * changed. Consumed by the NAMED half only: the numeric half is deliberately
-   * blind to diff status, because the incident's sharpest survivor is an ADDED
-   * line inside the repair's own hunk (probes §3.1).
-   */
-  touchedLines: ReadonlyMap<string, ReadonlySet<number>>;
 }
 
 /**
@@ -510,6 +469,43 @@ function unreadableDocuments(docs: readonly SweepDocument[]): Finding[] {
     );
   }
   return findings;
+}
+
+/**
+ * The repair's touched lines, parsed from a UNIFIED-0 diff.
+ *
+ * PURE, and here rather than in the adapter, so the parse is mutation-scored
+ * with the rest of the arm and so the test-side extractor in
+ * `tests/specLint/claimSweepFixtures.ts` has something to reconcile against.
+ * Two independent derivations of the same spans cannot disagree quietly.
+ *
+ * `@@ -a,b +c,d @@` names the AFTER side as `c` for `d` lines. `d` defaults to
+ * 1 when omitted, and `d === 0` is a pure DELETION that touches no after-line —
+ * treating it as one line would exclude an occurrence the repair did not
+ * write.
+ *
+ * The line loop is a `for...of` over a finite array, so no mutation of a
+ * predicate can extend it.
+ */
+export function parseRepairSpans(diffText: string): Map<string, Set<number>> {
+  const spans = new Map<string, Set<number>>();
+  let current: Set<number> | null = null;
+  for (const line of diffText.split("\n")) {
+    const file = /^\+\+\+ b\/(\S+)/.exec(line);
+    if (file !== null) {
+      const path = file[1]!;
+      current = spans.get(path) ?? new Set<number>();
+      spans.set(path, current);
+      continue;
+    }
+    const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(line);
+    if (hunk === null || current === null) continue;
+    const start = Number(hunk[1]);
+    const count = hunk[2] === undefined ? 1 : Number(hunk[2]);
+    // Bounded by the declared count, which is data rather than a predicate.
+    for (let n = start; n < start + count; n += 1) current.add(n);
+  }
+  return spans;
 }
 
 /**

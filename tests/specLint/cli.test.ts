@@ -633,6 +633,12 @@ function memDeps(opts: MemOpts = {}) {
       return Buffer.from(c, "utf8");
     },
     realpath: (p) => opts.realpathOverride?.[p] ?? p,
+    // Never reached: these suites declare no claim sweep, so the adapter
+    // never resolves a repair diff. A THROW rather than a stub return, so an
+    // unexpected call is loud instead of contributing empty spans.
+    repairDiff: () => {
+      throw new Error("repairDiff: not expected in this suite");
+    },
     spawn: (command, cwd, timeoutMs, mode) => {
       calls.spawns.push({ command, cwd, timeoutMs, mode });
       // Default: parse checks pass, red commands report red. A test that cares

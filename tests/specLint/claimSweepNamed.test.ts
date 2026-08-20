@@ -15,7 +15,8 @@
  * cannot kill a wrong attribution — the occurrences are right either way.
  */
 import { describe, expect, it } from "vitest";
-import { claimSweep, type RepairRecord } from "../../lib/specLint/claimSweep";
+import { claimSweep } from "../../lib/specLint/claimSweep";
+import type { RepairRecord } from "../../lib/specLint/types";
 import {
   C272_COLLATERAL_OUTSIDE,
   C272_INSIDE_SPANS,

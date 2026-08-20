@@ -12,7 +12,8 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { claimSweep, sentenceSpans, type RepairRecord } from "../../lib/specLint/claimSweep";
+import { claimSweep, sentenceSpans } from "../../lib/specLint/claimSweep";
+import type { RepairRecord } from "../../lib/specLint/types";
 import {
   FEDE_EXCLUDED,
   FEDE_SURVIVORS,

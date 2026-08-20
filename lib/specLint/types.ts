@@ -62,6 +62,57 @@ export interface FileResolver {
 }
 
 /**
+ * One document in the claim sweep's DECLARED swept set (claim-sweep spec §3.3).
+ *
+ * Lives here with `ExecResults`, `ParseResults` and `FixtureResults` because it
+ * is the same kind of thing: data the ADAPTER resolves and INJECTS, so that no
+ * filesystem or git type crosses the purity boundary.
+ */
+export interface SweepDocument {
+  /** Repo-relative path, used verbatim in the finding's identity and message. */
+  path: string;
+  /** null = declared but unreadable. It was NOT swept, and silence is not a clean. */
+  lines: string[] | null;
+}
+
+/**
+ * The repair, DECLARED by the author and never inferred from a diff
+ * (claim-sweep spec §3.0).
+ *
+ * The incident commit changes many numeric literals and carries `58` on BOTH
+ * sides of its own diff, so no rule over that diff selects the semantic pair
+ * deterministically. The numeric half therefore takes a superseded/replacement
+ * PAIR and the named half takes a changed-claim IDENTIFIER — different shapes,
+ * because they are different facts: a repair that re-classifies a site changes
+ * the CLAIM about a stable identifier, and the identifier itself has no
+ * replacement.
+ */
+export interface RepairRecord {
+  /** The superseded numeric literal, or null when no numeric pair was declared. */
+  superseded: string | null;
+  /** Its replacement. Null iff `superseded` is null. */
+  replacement: string | null;
+  /** An identifier whose claim the author says the repair changed, or null. */
+  claimAbout: string | null;
+  /**
+   * Repo-relative path -> the 1-based lines the repair's hunks added or
+   * changed. Consumed by the NAMED half only: the numeric half is deliberately
+   * blind to diff status, because the incident's sharpest survivor is an ADDED
+   * line inside the repair's own hunk.
+   */
+  touchedLines: ReadonlyMap<string, ReadonlySet<number>>;
+}
+
+/**
+ * What the adapter hands the claim sweep: the resolved swept set and the
+ * declared repair. Absent/null = nothing was declared and the arm runs nothing.
+ */
+export interface ClaimSweepInput {
+  documents: readonly SweepDocument[];
+  record: RepairRecord;
+}
+
+/**
  * A `red=` command's observed outcome (arms spec §4.4). Classification is
  * error-first and lives in the ADAPTER; the core only ever receives this token,
  * so no runner type crosses the purity boundary.

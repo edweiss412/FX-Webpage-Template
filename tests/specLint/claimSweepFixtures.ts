@@ -13,7 +13,7 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { SweepDocument } from "../../lib/specLint/claimSweep";
+import type { SweepDocument } from "../../lib/specLint/types";
 
 const FIXTURE_ROOT = join(process.cwd(), "tests/specLint/fixtures/claimSweep");
 
