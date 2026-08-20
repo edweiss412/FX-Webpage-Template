@@ -39,7 +39,7 @@ const WALK_ROOT = join(ROOT, "tests", "mutation");
  */
 const SPAWN_SHAPES = [/execFileSync\s*\(/, /spawnSync\s*\(/, /\bspawn\s*\(/];
 
-type Hit = { file: string; line: number; text: string };
+type Hit = { file: string; line: number; text: string; index: number };
 
 /** Every file under the walk root, discovered from DISK. No extension filter. */
 function walk(dir: string): string[] {
@@ -49,7 +49,37 @@ function walk(dir: string): string[] {
   });
 }
 
-type Sweep = { hits: Hit[]; filesRead: number; bytesRead: number; unreadable: string[] };
+type Sweep = {
+  hits: Hit[];
+  filesRead: number;
+  bytesRead: number;
+  unreadable: string[];
+  sources: Map<string, string>;
+};
+
+/**
+ * The call text starting at an open paren, by balanced scan.
+ *
+ * Not a parser and deliberately not on its way to becoming one: it counts
+ * brackets. The standing repair direction under same-axis recurrence on a
+ * recognizer is NARROWING, so this stays a bracket counter and anything it
+ * cannot classify is a disposition question rather than a grammar feature.
+ */
+function callTextAt(source: string, openIndex: number): string {
+  let depth = 0;
+  for (let i = openIndex; i < source.length; i += 1) {
+    const c = source[i];
+    if (c === "(" || c === "[" || c === "{") depth += 1;
+    else if (c === ")" || c === "]" || c === "}") {
+      depth -= 1;
+      if (depth === 0) return source.slice(openIndex, i + 1);
+    }
+  }
+  return source.slice(openIndex);
+}
+
+/** A call is BOUNDED when its options carry an explicit wall-clock ceiling. */
+const isBounded = (call: string): boolean => /\btimeout\s*:/.test(call);
 
 /**
  * The walk, WITH ITS INPUT ACCOUNTED FOR.
@@ -67,6 +97,8 @@ function sweep(): Sweep {
   let bytesRead = 0;
   let filesRead = 0;
 
+  const sources = new Map<string, string>();
+
   const hits = files.flatMap((full) => {
     const file = relative(ROOT, full).split(sep).join("/");
     let source: string;
@@ -78,13 +110,29 @@ function sweep(): Sweep {
     }
     filesRead += 1;
     bytesRead += source.length;
-    return source
-      .split("\n")
-      .map((text, i) => ({ file, line: i + 1, text: text.trim() }))
-      .filter((hit) => SPAWN_SHAPES.some((shape) => shape.test(hit.text)));
+    sources.set(file, source);
+
+    const found: Hit[] = [];
+    let offset = 0;
+    for (const [i, text] of source.split("\n").entries()) {
+      for (const shape of SPAWN_SHAPES) {
+        const m = shape.exec(text);
+        if (m) {
+          found.push({
+            file,
+            line: i + 1,
+            text: text.trim(),
+            index: offset + m.index + m[0].length - 1,
+          });
+          break;
+        }
+      }
+      offset += text.length + 1;
+    }
+    return found;
   });
 
-  return { hits, filesRead, bytesRead, unreadable };
+  return { hits, filesRead, bytesRead, unreadable, sources };
 }
 
 /**
@@ -102,7 +150,23 @@ function sweep(): Sweep {
  * below so it is not untested machinery.
  */
 type Disposition =
-  | { kind: "file"; file: string; member: boolean; reason: string }
+  /**
+   * MEMBER: these hits ARE harness children of the filed class, and the row
+   * claims they are bounded. The claim is CHECKED — every hit in the file must
+   * carry an explicit ceiling — so a new unbounded spawn added here fails, and
+   * so does removing a ceiling from an existing one.
+   */
+  | { kind: "file"; file: string; member: true; reason: string }
+  /**
+   * NON-MEMBER: these hits are not executed harness children at all — fixture
+   * strings, comment prose, or the bounding mechanism itself. That claim cannot
+   * be checked without telling a call from a string, which is a parser, and the
+   * standing repair direction here is narrowing rather than recognizer growth.
+   * So the row pins its HIT COUNT instead: a new hit re-opens the disposition
+   * and fails by name, which is the property the count is for. Counting is not
+   * recognizing.
+   */
+  | { kind: "file"; file: string; member: false; reason: string; hits: number }
   | { kind: "site"; file: string; line: number; member: boolean; reason: string };
 
 const DISPOSITIONS: readonly Disposition[] = [
@@ -113,6 +177,7 @@ const DISPOSITIONS: readonly Disposition[] = [
     reason:
       "NOT a member — this IS the bounding mechanism. Both calls take the shared " +
       "spawn options, whose `timeout` is the caller's ceiling or the module default.",
+    hits: 2,
   },
   {
     kind: "file",
@@ -122,6 +187,7 @@ const DISPOSITIONS: readonly Disposition[] = [
       "NOT a member — the live-integration suite deliberately launches unbounded, " +
       "detached and orphaned process trees as its FIXTURES. Bounding them would " +
       "delete the property under test.",
+    hits: 6,
   },
   {
     kind: "file",
@@ -131,6 +197,7 @@ const DISPOSITIONS: readonly Disposition[] = [
       "NOT a member — deliberate timeout and hang fixtures for the source harness's " +
       "own ceiling, including a 600 s sleep whose whole purpose is to be killed. The " +
       "real calls here already carry an explicit ceiling; the rest are fixture strings.",
+    hits: 3,
   },
   {
     kind: "file",
@@ -140,6 +207,7 @@ const DISPOSITIONS: readonly Disposition[] = [
       "NOT a member — every hit is a source string inside a fixture template, never " +
       "an executed call. A pattern tight enough to exclude them by shape would have " +
       "been tight enough to miss a real site.",
+    hits: 89,
   },
   {
     kind: "file",
@@ -148,6 +216,7 @@ const DISPOSITIONS: readonly Disposition[] = [
     reason:
       "NOT a member — every hit is documentation prose naming the binding shape the " +
       "scanner reasons about. Nothing here launches anything.",
+    hits: 4,
   },
   {
     kind: "file",
@@ -156,6 +225,7 @@ const DISPOSITIONS: readonly Disposition[] = [
     reason:
       "NOT a member — the hit is a comment quoting the very call shape AC-1 rejects, " +
       "in the suite that rejects it.",
+    hits: 1,
   },
   {
     kind: "file",
@@ -165,6 +235,7 @@ const DISPOSITIONS: readonly Disposition[] = [
       "NOT a member — the hits are fixture strings in this guard's own matcher cases. " +
       "The guard reported itself on its first run, which is the guard working: it takes " +
       "no filename filter, so nothing exempts it from the walk it performs.",
+    hits: 3,
   },
   {
     kind: "file",
@@ -184,7 +255,7 @@ function rowsFor(hit: Hit): Disposition[] {
 }
 
 describe("every spawn site under tests/mutation/ is disposed of", () => {
-  const { hits, filesRead, bytesRead, unreadable } = sweep();
+  const { hits, filesRead, bytesRead, unreadable, sources } = sweep();
 
   // Executable premise, asserted UPSTREAM of the count as well as on it.
   //
@@ -227,6 +298,59 @@ describe("every spawn site under tests/mutation/ is disposed of", () => {
     expect(undispositioned).toEqual([]);
   });
 
+  // A file row used to dispose of EVERY hit in its file, forever, including one
+  // added tomorrow — so the guard's advertised property ("a new site fails by
+  // default") held only for files with NO row. Diff review round 1 probed it:
+  // swapping the bounded `execFileSync` in `overlayWiring.test.ts` for an
+  // unbounded `spawnSync` left the guard silent, because the file already had a
+  // row. The row asserted a reason that nothing checked.
+  //
+  // The two cases below make each row's own claim executable, by the only means
+  // available to each kind.
+  it("a MEMBER row's claim is CHECKED — every hit in it carries a ceiling", () => {
+    // BOTH row kinds, not just the file form. The finding was about file rows,
+    // but a `site` row carries the same `member` claim and nothing checked it
+    // either — the same shape one row-kind over, which is what the class sweep
+    // is for rather than repairing the instance review happened to name.
+    const memberRows = DISPOSITIONS.filter((row) => row.member);
+    const isMemberHit = (hit: Hit) =>
+      memberRows.some((row) =>
+        row.kind === "file"
+          ? row.file === hit.file
+          : row.file === hit.file && row.line === hit.line,
+      );
+
+    // Must-be-PRESENT control, and it is the load-bearing half: an absent-only
+    // assertion agrees with total failure, so prove there is something to check.
+    premiseHolds("at least one MEMBER row exists to check", memberRows.length > 0);
+    const checked = hits.filter(isMemberHit);
+    premiseHolds("the member rows actually cover swept hits", checked.length > 0);
+
+    const unbounded = checked
+      .filter((hit) => !isBounded(callTextAt(sources.get(hit.file) ?? "", hit.index)))
+      .map((hit) => `${hit.file}:${hit.line} — ${hit.text.slice(0, 90)}`);
+
+    expect(unbounded).toEqual([]);
+  });
+
+  it("a NON-MEMBER row pins its hit count, so a NEW site re-opens it", () => {
+    const drifted = DISPOSITIONS.filter(
+      (row): row is Extract<Disposition, { kind: "file"; member: false }> =>
+        row.kind === "file" && !row.member,
+    )
+      .map((row) => ({
+        file: row.file,
+        declared: row.hits,
+        actual: hits.filter((h) => h.file === row.file).length,
+      }))
+      .filter((r) => r.declared !== r.actual)
+      // Raw numbers, not a computed verdict: "declared 4, found 5" says what to
+      // do; "drift detected" does not.
+      .map((r) => `${r.file}: row declares ${r.declared}, walk found ${r.actual}`);
+
+    expect(drifted).toEqual([]);
+  });
+
   it("no site is claimed by more than one row", () => {
     const doubled = hits.filter((hit) => rowsFor(hit).length > 1).map((h) => `${h.file}:${h.line}`);
     expect(doubled).toEqual([]);
@@ -250,7 +374,13 @@ describe("every spawn site under tests/mutation/ is disposed of", () => {
 describe("the matcher itself", () => {
   // The site form is used by no live row today — every file's hits share one
   // reason — so it is exercised here rather than shipped untested.
-  const fileRow: Disposition = { kind: "file", file: "a/b.ts", member: false, reason: "x" };
+  const fileRow: Disposition = {
+    kind: "file",
+    file: "a/b.ts",
+    member: false,
+    reason: "x",
+    hits: 1,
+  };
   const siteRow: Disposition = { kind: "site", file: "c/d.ts", line: 7, member: true, reason: "y" };
   const match = (hit: Hit, rows: readonly Disposition[]) =>
     rows.filter((row) =>
@@ -258,16 +388,16 @@ describe("the matcher itself", () => {
     );
 
   it("a file row covers every line in its file", () => {
-    expect(match({ file: "a/b.ts", line: 99, text: "" }, [fileRow])).toEqual([fileRow]);
+    expect(match({ file: "a/b.ts", line: 99, text: "", index: 0 }, [fileRow])).toEqual([fileRow]);
   });
 
   it("a site row covers only its own line", () => {
-    expect(match({ file: "c/d.ts", line: 7, text: "" }, [siteRow])).toEqual([siteRow]);
-    expect(match({ file: "c/d.ts", line: 8, text: "" }, [siteRow])).toEqual([]);
+    expect(match({ file: "c/d.ts", line: 7, text: "", index: 0 }, [siteRow])).toEqual([siteRow]);
+    expect(match({ file: "c/d.ts", line: 8, text: "", index: 0 }, [siteRow])).toEqual([]);
   });
 
   it("an unmapped file matches nothing", () => {
-    expect(match({ file: "e/f.ts", line: 1, text: "" }, [fileRow, siteRow])).toEqual([]);
+    expect(match({ file: "e/f.ts", line: 1, text: "", index: 0 }, [fileRow, siteRow])).toEqual([]);
   });
 
   it("the shapes match calls and not neighbouring identifiers", () => {

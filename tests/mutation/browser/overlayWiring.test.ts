@@ -264,7 +264,12 @@ describe("AC-8 — every child this suite spawns is bounded", () => {
   // itself — so this case is not counted as one of the sites it checks.
   it("passes an explicit timeout at every execFileSync call site", () => {
     const source = readFileSync(join(ROOT, "tests/mutation/browser/overlayWiring.test.ts"), "utf8");
-    const sites = [...source.matchAll(/execFileSync\s*\(/g)];
+    // ALL THREE call shapes, not just the one this file happens to use today.
+    // Diff review round 1 probed the gap: swapping the bounded `execFileSync`
+    // here for an unbounded `spawnSync` left this scan silent, because it only
+    // looked for one shape — so the bound could be removed by an ordinary edit
+    // that changed nothing else. The shapes match the derived cover's.
+    const sites = [...source.matchAll(/execFileSync\s*\(|spawnSync\s*\(|\bspawn\s*\(/g)];
 
     // Executable premise: a scan that found nothing would pass vacuously and
     // would forever — `BL-GUARD-PREMISE-REACHABILITY`'s exact shape.
