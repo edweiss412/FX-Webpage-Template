@@ -1462,7 +1462,7 @@ recoverable from git history on this branch; restore them with the arc rather th
 
 ## BL-SPEC-CLAIM-SWEEP-AFTER-REASONING-FINDING — a repair fixes the site the finding named and leaves the document unswept
 
-**Status:** OPEN · **Severity:** LOW-MEDIUM (no shipped defect; it buys review rounds) · **Class:** review economy / authoring tooling · **Effort:** M · **Filed:** 2026-08-18 (`fix/control-outline-border-token`, spec review R2 F1 + R4 F3, then R4 F1 + R5 F1) · **Facing:** process · **Class-sweep exception:** (c) — the repair is a new lint arm or derived helper, a surface this arc does not otherwise touch · **Reachability:** PROBED — all four findings are committed corpus rows and the unswept claims reproduce on the pre-repair blobs.
+**Status:** IN PROGRESS · **Branch:** feat/speclint-claim-sweep-after-repair · **Severity:** LOW-MEDIUM (no shipped defect; it buys review rounds) · **Class:** review economy / authoring tooling · **Effort:** M · **Filed:** 2026-08-18 (`fix/control-outline-border-token`, spec review R2 F1 + R4 F3, then R4 F1 + R5 F1) · **Facing:** process · **Class-sweep exception:** (c) — the repair is a new lint arm or derived helper, a surface this arc does not otherwise touch · **Reachability:** PROBED — all four findings are committed corpus rows and the unswept claims reproduce on the pre-repair blobs.
 
 AGENTS.md already says to class-sweep a finding's SHAPE across the code before patching the named instance. It does not say the same about the DOCUMENT, and that gap is measurable.
 
