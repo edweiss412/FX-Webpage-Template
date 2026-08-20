@@ -211,6 +211,23 @@ export function declarationRefusal(d: ClaimSweepDeclaration): string | null {
 const NUMERIC_BOUNDARY = /[A-Za-z0-9_]/;
 
 /**
+ * The boundary alphabet for a declared IDENTIFIER — a `file:line`, a symbol.
+ *
+ * Deliberately NOT the numeric one, and the difference is measured rather than
+ * chosen. `/` is EXCLUDED, so a path separator is a boundary: every occurrence
+ * of `PublishedReviewModal.tsx:964` in the incident arc is preceded by `/`
+ * (it is the tail of `components/admin/showpage/...`), so treating `/` as
+ * identifier continuation returns ZERO occurrences and the replay reports
+ * nothing at all. `.`, `:` and `-` ARE included, so `…tsx:96` does not match
+ * inside `…tsx:964` — the one-character truncation that occurs zero times
+ * exactly and on nine lines as a substring.
+ *
+ * A number is a WORD; a `file:line` is a path-ish token whose separator is `/`.
+ * One alphabet for both would get one of the two wrong.
+ */
+const IDENTIFIER_BOUNDARY = /[A-Za-z0-9_.:\-]/;
+
+/**
  * A sentence break: whitespace immediately after `.`, `;` or `:`. A sentence is
  * delimited LEXICALLY and never spans a line (spec §5 item 1) — the same rule
  * the probe scripts measured recall and precision with, so the shipped arm and
@@ -316,6 +333,66 @@ function numericHalf(docs: readonly SweepDocument[], record: RepairRecord): Find
 }
 
 /**
+ * The named-claim half (spec §3.2): report every occurrence of a DECLARED
+ * identifier OUTSIDE the repair's hunks, as a claim to re-read.
+ *
+ * THE ARM DOES NOT ESTABLISH THAT THE REPAIR CHANGED THE CLAIM, and the finding
+ * text must not say it did. An earlier draft described the identifier
+ * STRUCTURALLY — "a token the repair's own diff carries on both a removed and
+ * an added line" — which reads as a criterion the arm could check. It is not
+ * one, and the counterexample is in the incident's own repair:
+ * `components/admin/HoverHelp.tsx:562` sits on BOTH sides of a rewritten bullet
+ * while its classification is untouched, and the site that repair actually
+ * reclassified is a different one on the same line. WHICH identifier had its
+ * claim changed is therefore the AUTHOR's declaration, on exactly the grounds
+ * the numeric pair is: it is a semantic fact about the repair, and no rule over
+ * the diff recovers it.
+ *
+ * This half does NOT inherit the numeric half's before/after problem. An
+ * identifier does not appear in transition sentences the way a number does,
+ * because a repair that re-classifies a site does not write "site X was in (a),
+ * now in (b)" as a value pair. So there is no sentence rule here — the
+ * exclusion is span-based, and its cost is spec §5 item 6: an occurrence the
+ * repair TOUCHED for an unrelated reason is treated like its own new claim and
+ * suppressed. Missed advisory, never a false one.
+ *
+ * Its VOLUME is high by design. A reclassified site is claimed about wherever
+ * the arc discusses it — nine occurrences for the incident's one site — and the
+ * advisory asks for exactly the re-read the ledger entry wants. The numeric
+ * half is the precise one; this is the thorough one.
+ */
+function namedHalf(docs: readonly SweepDocument[], record: RepairRecord): Finding[] {
+  const identifier = record.claimAbout;
+  if (identifier === null) return [];
+  const findings: Finding[] = [];
+  for (const doc of docs) {
+    if (doc.lines === null) continue;
+    const touched = record.touchedLines.get(doc.path);
+    for (let i = 0; i < doc.lines.length; i += 1) {
+      // The repair's OWN new claim is the one occurrence that is not unswept.
+      if (touched !== undefined && touched.has(i + 1)) continue;
+      for (const at of boundedOccurrences(doc.lines[i]!, identifier, IDENTIFIER_BOUNDARY)) {
+        findings.push({
+          check: "claimSweep",
+          code: "CLAIM_SITE_UNSWEPT",
+          severity: "advisory",
+          docPath: doc.path,
+          docLine: i + 1,
+          column: at + 1,
+          token: identifier,
+          message: `${doc.path}:${i + 1} mentions ${identifier}, DECLARED as a claim this repair changed`,
+          detail:
+            "the identifier is not superseded, and this arm did not verify that the repair " +
+            "changed the claim -- the declaration did. Re-read this occurrence against the " +
+            "repair's new claim.",
+        });
+      }
+    }
+  }
+  return findings;
+}
+
+/**
  * The sweep. A null record means no repair was declared and the arm runs
  * nothing — silence from an undeclared invocation is not a certificate, which
  * is why the adapter REFUSES such an invocation rather than reporting a clean.
@@ -330,5 +407,5 @@ function numericHalf(docs: readonly SweepDocument[], record: RepairRecord): Find
  */
 export function claimSweep(docs: readonly SweepDocument[], record: RepairRecord | null): Finding[] {
   if (record === null) return [];
-  return numericHalf(docs, record);
+  return [...numericHalf(docs, record), ...namedHalf(docs, record)];
 }

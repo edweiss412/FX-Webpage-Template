@@ -95,6 +95,23 @@ describe("claim sweep — the numeric half", () => {
       expect(findings.every((f) => f.token === "58")).toBe(true);
     });
 
+    it("states the finding by EQUALITY, so no superset wording can pass", () => {
+      // Class sweep from the named half's mutant (b): a `toMatch` presence
+      // assertion is satisfied by every superset of the required wording, so a
+      // message could acquire an extra claim and stay green. The expected text
+      // is DERIVED from each finding's own fields, so a message that names the
+      // wrong document, line or token fails as well.
+      for (const f of findings) {
+        expect(f.message).toBe(
+          `${f.docPath}:${f.docLine} carries ${f.token}, declared superseded by 57, ` +
+            `in a sentence that does not name 57`,
+        );
+        expect(f.detail).toBe(
+          "re-read it -- it is stale, or it is deliberate and wants a word saying so.",
+        );
+      }
+    });
+
     it("excludes exactly the three transition-sentence occurrences", () => {
       const reported = new Set(keys(findings));
       for (const excluded of FEDE_EXCLUDED) expect(reported.has(excluded)).toBe(false);

@@ -67,6 +67,38 @@ export function incidentDiff(rev: string): string {
 }
 
 /**
+ * The repair's touched lines, DERIVED from the committed unified-0 diff rather
+ * than typed out.
+ *
+ * This is deliberately a SECOND, INDEPENDENT extractor: the shipped adapter
+ * derives the same spans from live git (Task 7), and reconciling two routes is
+ * evidence a hand-listed span table could never be. A typed span list is also
+ * an enumeration that re-opens the moment the fixture changes, and nothing
+ * would say it did.
+ *
+ * `@@ -a,b +c,d @@` names the AFTER side as `c` for `d` lines; `d` defaults to
+ * 1 when omitted, and `d === 0` is a pure deletion that touches no after-line.
+ */
+export function repairSpans(rev: string): Map<string, Set<number>> {
+  const spans = new Map<string, Set<number>>();
+  let current: Set<number> | null = null;
+  for (const line of incidentDiff(rev).split("\n")) {
+    const file = /^\+\+\+ b\/(\S+)/.exec(line);
+    if (file !== null) {
+      current = spans.get(file[1]!) ?? new Set<number>();
+      spans.set(file[1]!, current);
+      continue;
+    }
+    const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(line);
+    if (hunk === null || current === null) continue;
+    const start = Number(hunk[1]);
+    const count = hunk[2] === undefined ? 1 : Number(hunk[2]);
+    for (let n = start; n < start + count; n += 1) current.add(n);
+  }
+  return spans;
+}
+
+/**
  * The R4 repair's nine numeric survivors, verbatim from probes §9.2 —
  * `<path>:<line>:<column>`. Nine DISTINCT lines, which is why the replay set is
  * identical under a line-keyed and a column-keyed identity, and why the live
