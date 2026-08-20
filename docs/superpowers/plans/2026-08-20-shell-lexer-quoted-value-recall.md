@@ -70,11 +70,11 @@ on. A green suite is NOT the proof for AC-3, AC-5 or AC-6 — each names its own
 | AC-1 | The twenty-six §4 flips report | 2, 3 | one positive assertion per row in the deciding suite, each on its OWN line (see "Cross-finding identity"), each with a premise showing its plain sibling already reports |
 | AC-2 | Every §4 "unchanged" row holds its probed value | 2, 3, 4 | assertions in the deciding suite; pre-existing ones stay |
 | AC-3 | The site path is byte-identical in behavior | 2, 4 | `git diff` shows no change to `scanShellText` and none to the attached-target regex, AND the suite asserts a retained target is invisible to BOTH `scanSource` and the assignment route |
-| AC-4 | Live-tree census unchanged BY THIS DIFF | 7 | two `collectPsqlUsage` measurements, `origin/main` and HEAD, asserted equal — no literal |
+| AC-4 | Live-tree census unchanged BY THIS DIFF | 6 | two `collectPsqlUsage` measurements, `origin/main` and HEAD, asserted equal — no literal |
 | AC-5 | Every pin the change invalidates is dispositioned | 2, 3, 5 | the two KNOWN pins retire inside the tasks that invalidate them; Task 5 runs the whole suite as the cover for pins nobody predicted |
-| AC-6 | Mutation score holds with an EMPTY unaccepted-survivor set | 7 | scoped `pnpm heavy` gate run, counts pasted into close-out |
-| AC-7 | Ledger-kind count matches the re-derived ledger | 7 | `expectedLedgerKinds.ts` equals the registry's actual row count |
-| AC-8 | Documentation sweep complete | 2, 3, 6 | each pin's doc lines land with that pin's retirement; Task 6 lands only the residue |
+| AC-6 | Mutation score holds with an EMPTY unaccepted-survivor set | 6 | scoped `pnpm heavy` gate run, counts pasted into close-out |
+| AC-7 | Ledger-kind count matches the re-derived ledger | 6 | `expectedLedgerKinds.ts` equals the registry's actual row count |
+| AC-8 | Documentation sweep complete | 2, 3 | every documentation edit lands with the pin or boundary it describes; Task 5 carries the one remaining no-edit confirmation |
 | AC-9 | Each rule resists its strictly weaker implementation AND its cross-finding neighbour | 2, 3, 4 | one killer fixture per rule, each PROBED below, landing with the task that implements its rule |
 
 ## The implementation surface, stated whole
@@ -134,9 +134,9 @@ named by symbol):
 ## Meta-test inventory
 
 - **Extends:** none structurally — the deciding suite gains cases, not a new registry.
-- **Must keep passing, each named by the task that runs it:** `_metaSourceShardIntegrity` (Task 7 —
+- **Must keep passing, each named by the task that runs it:** `_metaSourceShardIntegrity` (Task 6 —
   the temp shard is created AND deleted there), `_metaLedgerInProgress`, `_metaLedgerMintBar` and
-  `_metaReviewRoundEconomy` (Task 8).
+  `_metaReviewRoundEconomy` (Task 7).
 - **"None applies" is not claimed anywhere in this plan.**
 
 ## Strictly weaker implementations, and the fixture that kills each
@@ -230,6 +230,17 @@ written into the `scan.ts` header block here.
 
 Killers 1 and 2 land here.
 
+**The remaining fifteen unchanged §4 rows are pinned here too** (plan round 4 finding 1 — a census of
+the deciding suite and the plan found A3, A5, A9, A10, B2, B4, F1, F2, F10, F11, G1, G2, E2, E5 and Q2
+covered by neither). One further table-driven case pins each at the value measured on this branch:
+A3 `read -r PG <<<p'sql'` 0 hits, A5 `read -r PG <<< 'psql'` 1, A9 the here-DOC body 1 SITE,
+A10 `notpsql` 0, B2 `cat x > 'psql'` 0 sites, B4 `psql -qAt mydb > out.sql` 1 site unsuppressed,
+F1 `cat x > $(command -v psql)` 1 hit and F2 the ATTACHED spelling 0 (the pair that documents §6
+item 3), F10 `psql -X -qAt mydb < in.sql` 1 site suppressed, F11 `psql -qAt mydb>out.sql` 1 site
+unsuppressed, G1/G2 the here-DOC bodies 1 site each, E2 `${U:-'notpsql'}` 0, E5 `PG="${U:-'psql'}"` 0,
+Q2 `PG="p${U:-sql}"` 0. Pinning all fifteen is what makes AC-2 true as written; leaving a subset would
+require arguing which rows are "plausibly" movable, which is the judgment a reviewer would relitigate.
+
 **The DEFAULT-DENY complement is made EXECUTABLE here, not merely asserted** (plan round 3 finding 1 —
 AC-2 claimed every unchanged §4 row had an assertion and the complement rows had none). One
 table-driven case lists every complement operator with the value it holds TODAY, measured:
@@ -280,7 +291,12 @@ the neighbour.
 
 The two pins this change invalidates are known, and Tasks 2 and 3 retire them inside their own cycles.
 **This task is the cover for pins nobody predicted:** run the whole deciding suite and disposition
-every newly failing test in this commit.
+every newly failing test in this commit. It also carries the one remaining documentation
+CONFIRMATION, which is not an edit: no `DEFERRED.md` pointer to either ledger row exists, verified by
+repo-wide grep at spec time and re-run here. (Plan round 4 finding 2: an earlier draft kept a separate
+documentation task holding the three stale `75`s, which Task 2 had already been given — after Task 2
+those literals do not exist, so that task reduced to a no-edit confirmation and could not satisfy
+commit-per-task. It is deleted and its confirmation moved here.)
 
 One property of the corpus is load-bearing, and it was plan round 1 finding 4: the six declared-miss
 rows live in ONE loop in ONE test, so execution surfaces only the FIRST failing row and throws before
@@ -292,22 +308,7 @@ a later reader does not mistake the run for a cover it cannot be.
 Expected after Tasks 2-4: nothing newly failing. Anything else is a finding against the spec's §5
 table — record it and reconcile the table before proceeding.
 
-## Task 6: residual documentation sweep
-
-All pin-coupled documentation landed with its pin in Tasks 2 and 3 — including the three groups an
-earlier draft wrongly deferred here (plan round 2 finding 2): the inline comment citing the here-string
-ledger row, the nested-body closing paragraph, and the prior design's §6 items 1 and 7. That is what
-the spec's same-commit companion-sweep contract requires and what keeps commit-per-task intact.
-
-**What remains is genuinely uncoupled**, because it is pre-existing drift from an unrelated arc rather
-than anything either pin describes:
-
-- `scan.ts` three stale `75`s → the measured census, or a form carrying no literal. Found by spec
-  round 1's census probe; no pin asserts them and no task above invalidates them.
-- Confirmation, not an edit: no `DEFERRED.md` pointer to either row exists — verified by repo-wide grep
-  at spec time and re-run here.
-
-## Task 7: re-derive the mutation ledger, then score
+## Task 6: re-derive the mutation ledger, then score
 
 `siteId` is `<operator>:<line>:<column>:<mutation>` — LINE-KEYED — so essentially every row below the
 lexer moves; that churn is what `BL-MUTATION-SITEID-LINE-KEYED-CHURN` records.
@@ -322,7 +323,7 @@ delete the temp shard, and paste mutants/killed/equivalent plus the empty unacce
 close-out. Also run the two `collectPsqlUsage` measurements for AC-4 — `origin/main` and HEAD, asserted
 equal, no literal.
 
-## Task 8: ledger close-out, ONE commit BEFORE whole-diff review
+## Task 7: ledger close-out, ONE commit BEFORE whole-diff review
 
 The whole ledger change at once, so absence is guaranteed rather than maintained: archive both
 graduating rows with their IN PROGRESS markers stripped in the same commit, leave
