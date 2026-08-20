@@ -271,9 +271,12 @@ props, no conditional render change.
    the nested stop this arc ships — class-sweep exception (c).
 
 7. **`aroundAll` and `aroundEach` are not recognized as hook registrars, and this arc does not add
-   them.** Vitest exposes both as globals (`node_modules/vitest/globals.d.ts:17-18`), and
-   `HOOK_REGISTRARS` names only the four `before*`/`after*` forms, so a suite whose environment reach
-   comes from a wrapping hook reads `environment-free`.
+   them.** Vitest exposes both as globals: the installed package's global type declarations name
+   `aroundEach` and `aroundAll`. That was verified by reading the package rather than by citing it,
+   because a dependency path is untracked and a citation into one cannot resolve. `HOOK_REGISTRARS`
+   names only the four
+   `before*`/`after*` forms, so a suite whose environment reach comes from a wrapping hook reads
+   `environment-free`.
 
    **Pre-existing, and OUTSIDE the probe domain — probed, not assumed.** A scan of all 62 enrolled
    suites finds **zero** `aroundAll`/`aroundEach` call sites, and diff round 10's own differential
@@ -403,7 +406,12 @@ Every positive fixture has a foil, so no assertion can pass by the classifier be
 ## §7 Lint disposition
 
 `pnpm spec:lint` reports **0 hard** on this document and on the plan, and that is the only figure
-stated here. Two earlier drafts quoted the advisory set — first as a count, then as an enumerated
+stated here. **It is a claim the reviewer should re-run rather than trust:** diff round 11 caught it
+false, because a citation into an installed dependency cannot resolve — an untracked file is a hard
+`CITATION_FILE_MISSING` however real the file is on disk. The repair of that finding then broke the
+same rule a second time, in the sentence explaining it, which is the strongest argument available
+that this belongs to a lint arm rather than to authorial care. A fact read out of a
+dependency is stated in prose and verified by reading the package; it is never cited. Two earlier drafts quoted the advisory set — first as a count, then as an enumerated
 list of classes — and BOTH went stale at the next repair, costing a finding each time (rounds 3
 and 9). The enumeration was the same defect as the count wearing a longer form, so it is replaced by
 the invariant rather than by a third list.
