@@ -209,8 +209,8 @@ props, no conditional render change.
    narrowing or a documented limit, never another grammar case: each widening is a bigger target for
    the next round.
 
-   **Probed, and the population is zero.** Across the 62 enrolled suites, 411 `describe` sites carry
-   **0** comma-expression arguments. The form is also outside the threat fence — nobody writes a
+   **Probed, and the population is zero.** Across the enrolled suites, NO `describe` site carries a
+   comma-expression argument. The form is also outside the threat fence — nobody writes a
    comma expression as a suite body by accident — and the worst case is the CONSERVATIVE direction:
    the sibling reads `environment-touching`, so a test is told to carry a premise it does not need.
    Loud and wasteful, never a silent free. That is precisely the shape §1.2's consequence bound
