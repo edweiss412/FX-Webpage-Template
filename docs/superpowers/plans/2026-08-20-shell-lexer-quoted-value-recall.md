@@ -11,6 +11,44 @@ value dequoted. Arm 2 reads the operand of a WHOLE-VALUE accepted `${…}` expan
 orchestrator ship-and-fence after five review rounds; §1.1's twelve ratified rows are the fence and
 this plan does not reopen any of them.
 
+**Task decomposition note.** Plan round 1 returned six BLOCKING findings that were ONE defect with
+instances: tasks whose red could not be observed at their own boundary, and pin retirement deferred
+past the tasks that invalidate the pins — which would have left the suite red at every intermediate
+commit. The decomposition below is the repair. **Every task retires the pins it invalidates, inside its
+own cycle, together with the documentation lines describing that pin's limit**, so the same command
+really is red then green at each boundary and no commit ships a red suite.
+
+## Two fences carried from the spec, restated because implementers read plans
+
+- **The MAY-BIND posture is ratified and is not relitigated in either direction.** A static reader
+  cannot know whether a parameter is unset or null, so an accepted operand is read unconditionally.
+  The scanner reports 1 TODAY for `U=other` + `PG=${U:-psql}` and for `PG=${U:+psql}` with `U` unset,
+  while bash binds `other` and empty. Arm 2 extends the identical treatment from bare operands to
+  quoted ones. Do not add a guard inferring runtime state, and do not file the existing behavior as a
+  defect.
+- **Usefulness is not the criterion; correct ATTRIBUTION is.** A report that is correct but lands on
+  code nobody will change is a documented limit, not a false positive. The forbidden directions are a
+  false CERTIFICATION and a wrong line/file attribution.
+- **Composition is a documented limit** (spec §6 item 9), ratified after the substitution model
+  produced a false report across a complement boundary. Do not reach for it.
+
+## Cross-finding identity, and what the implementer will invent
+
+`scanShellIndirection` emits **at most ONE hit per line** — `hit = assigned ?? aliased ?? functionDef
+?? githubEnvWrite ?? positionalBinding`. That collapse already exists in shipped code and can satisfy
+a fixture's pass condition by a route other than the rule under test. Probed:
+`PG=psql; read -r Q <<< p'sql'` reports **1** hit on line 1 today — the assignment route alone produces
+it — while `read -r Q <<< p'sql'` alone reports **0**. A here-string fixture sharing a line with an
+assignment binding therefore cannot fail, whatever the here-string rule does.
+
+- **Every flip fixture puts its subject ALONE on its own line**, no other binding route on that line.
+  The discriminating pair above is committed as a case in its own right.
+- **Multi-hit assertions are order-independent** — sorted records or sets, never a positional array.
+- **A hit's assertion identity is (file, line, matched text)**; the plan neither assumes the scanner
+  deduplicates nor assumes it does not.
+- For every fixture ask not only "what weaker implementation passes this?" but **"which rule DECIDES
+  the observation I am asserting on, and is it the rule under test?"**
+
 ## Acceptance criteria this plan discharges
 
 Spec §7.5 is canonical; this table names the task that performs each proof and the channel it arrives
@@ -18,15 +56,15 @@ on. A green suite is NOT the proof for AC-3, AC-5 or AC-6 — each names its own
 
 | id | criterion | task | channel |
 | --- | --- | --- | --- |
-| AC-1 | The twenty-six §4 flips report | 3, 4 | one positive assertion per row in the deciding suite, each with a premise showing its plain sibling already reports |
-| AC-2 | Every §4 "unchanged" row holds its probed value | 3, 4, 5 | assertions in the deciding suite; pre-existing ones stay |
-| AC-3 | The site path is byte-identical in behavior | 2, 5 | `git diff` shows no change to `scanShellText` and none to the attached-target regex, AND the suite asserts a retained target is invisible to `scanSource` |
-| AC-4 | Live-tree census unchanged BY THIS DIFF | 8 | two `collectPsqlUsage` measurements, `origin/main` and HEAD, asserted equal — no literal |
-| AC-5 | Every pin the change invalidates is dispositioned | 6 | run the whole deciding suite and disposition EVERY newly failing test in that commit |
-| AC-6 | Mutation score holds with an EMPTY unaccepted-survivor set | 8 | scoped `pnpm heavy` gate run, counts pasted into close-out |
-| AC-7 | Ledger-kind count matches the re-derived ledger | 8 | `expectedLedgerKinds.ts` equals the registry's actual row count |
-| AC-8 | Documentation sweep complete | 7 | every §5 companion-sweep bullet in the same commit as its pin edit |
-| AC-9 | Each rule resists its strictly weaker implementation | 2, 3, 4, 5 | one killer fixture per rule, from this plan's "Strictly weaker implementations" table; each lands in the deciding suite with the task that implements its rule |
+| AC-1 | The twenty-six §4 flips report | 2, 3 | one positive assertion per row in the deciding suite, each on its OWN line (see "Cross-finding identity"), each with a premise showing its plain sibling already reports |
+| AC-2 | Every §4 "unchanged" row holds its probed value | 2, 3, 4 | assertions in the deciding suite; pre-existing ones stay |
+| AC-3 | The site path is byte-identical in behavior | 2, 4 | `git diff` shows no change to `scanShellText` and none to the attached-target regex, AND the suite asserts a retained target is invisible to BOTH `scanSource` and the assignment route |
+| AC-4 | Live-tree census unchanged BY THIS DIFF | 7 | two `collectPsqlUsage` measurements, `origin/main` and HEAD, asserted equal — no literal |
+| AC-5 | Every pin the change invalidates is dispositioned | 2, 3, 5 | the two KNOWN pins retire inside the tasks that invalidate them; Task 5 runs the whole suite as the cover for pins nobody predicted |
+| AC-6 | Mutation score holds with an EMPTY unaccepted-survivor set | 7 | scoped `pnpm heavy` gate run, counts pasted into close-out |
+| AC-7 | Ledger-kind count matches the re-derived ledger | 7 | `expectedLedgerKinds.ts` equals the registry's actual row count |
+| AC-8 | Documentation sweep complete | 2, 3, 6 | each pin's doc lines land with that pin's retirement; Task 6 lands only the residue |
+| AC-9 | Each rule resists its strictly weaker implementation AND its cross-finding neighbour | 2, 3, 4 | one killer fixture per rule, each PROBED below, landing with the task that implements its rule |
 
 ## The implementation surface, stated whole
 
@@ -38,11 +76,13 @@ Anchors as they stand at the start of this plan (they move as tasks land, which 
 named by symbol):
 
 - `type ShellWord` — `scan.ts:801`
-- `let dropWord = false;` in `lexShellWords` — `scan.ts:929`
+- `lexShellWords`' `dropWord` DECLARATION `scan.ts:929`; the behavior-producing ASSIGNMENT
+  `dropWord = true` — `scan.ts:1237`, immediately after the attached-target regex at `scan.ts:1235`
 - the `${…}` branch, `character === "$" && text[i + 1] === "{"` — `scan.ts:1017`
-- the attached-target consumption regex — `scan.ts:1235`, and `dropWord = true` at `scan.ts:1237`
 - `READ_HERE_STRING` — `scan.ts:2254`
 - `valueBinds` — `scan.ts:2347`
+- the six-row declared-miss loop in the deciding suite — `psqlStartupFileSuppression.test.ts:5167`,
+  whose zero assertion sits at `psqlStartupFileSuppression.test.ts:5210`
 
 ## Global constraints
 
@@ -92,15 +132,17 @@ named by symbol):
 
 One exhaustive pass over every rule, done before the tasks rather than one row per review finding.
 Distinct from anti-tautology and both apply: anti-tautology asks whether a fixture can fail at all;
-this asks whether it can fail for the RIGHT reason. Every killer below lands in the deciding suite.
+this asks whether it can fail for the RIGHT reason; the cross-finding question above asks whether a
+DIFFERENT rule decides the observation. All three apply to every row, and **every killer below is
+probed** — plan round 1 found three of the five rows carrying killers that did not kill.
 
 | # | rule | strictly weaker implementation that would pass a naive fixture set | killer fixture |
 | --- | --- | --- | --- |
 | 1 | candidate only when the WHOLE value is one accepted `${…}` | read the operand of any accepted `${…}` appearing anywhere in the value (the withdrawn substitution model) | `PG=p${U:-"sql"}` stays 0, and `U=xpsql; PG=${U#${V:-'psql'}}` stays 0 — the second is the false report the narrowing exists to remove |
-| 2 | accept-set is exactly six operators, complement default-denied | "any operator whose spelling contains `-` or `=`", or "whichever operators the fixtures happen to name" | `${U#'psql'}`, `${U%'psql'}`, `${U/'psql'/x}`, `${U:1}` stay 0 and `${U^}`, `${U@Q}` stay 1 — a weaker set flips at least one |
+| 2 | accept-set is exactly six operators, complement default-denied | a DENYLIST — "any operator except `#`, `%`, `/`" — which silently accepts substring, case-modification and transformation | `U=xpsql; PG=${U:1}` stays 0: a denylist would read its operand and report. (`${U^}` and `${U@Q}` staying 1 is NOT a killer — they already report through the verbatim text, for a pre-existing reason a denylist does not change.) |
 | 3 | here-string association is by LOGICAL line | association by PHYSICAL line, or "any `<<<` target anywhere in the file" | N1/N2 (continuation before and after the operator) BIND; a `read` on one logical line with an unrelated `<<<` target on another does NOT |
-| 4 | the whole-value rule applies to a `<<<` target, symmetrically | "any retained redirection target is read as a here-string value" | `cat x > ${U:-psql}` does NOT report — a `>` target is not `<<<`; and `read -r PG <<< ${U#'psql'}` stays 0 |
-| 5 | retained targets never reach argv | retention that adds targets to the word array and filters them at ONE consumer | `cat x > psql` → 0 sites AND `psql -X -qAt mydb > out.sql` → 1 site, tokens `["-X","-qAt","mydb"]`, `suppressesStartupFiles: true` — a single-consumer filter passes the first and fails the second |
+| 4 | the whole-value rule applies to a `<<<` target SPECIFICALLY | keep the read-prefix and logical-line checks but ignore WHICH redirection operator the target belongs to | `read -r PG < ${U:-psql}` stays 0 — with `<` the shell hands `read` the file's CONTENT (bash binds `psql-file-content`, probed), so an operator-blind implementation reports and this kills it. `cat x > ${U:-psql}` is NOT a valid killer: it has no `read`, so the prefix check alone rejects it and the fixture cannot discriminate |
+| 5 | retained targets never reach argv | retention that adds targets to the word array and filters them at the `scanShellText` consumer ONLY | `cat x > PG=psql` reports 0 hits — the ASSIGNMENT route is a second consumer, so a `scanShellText`-only filter leaves the retained `PG=psql` target visible to it and it reports. Paired with `cat x > psql` → 0 sites and `psql -X -qAt mydb > out.sql` → 1 site, tokens `["-X","-qAt","mydb"]`, `suppressesStartupFiles: true` |
 
 ## Task 1: pin the base
 
@@ -114,84 +156,84 @@ Executed at plan-authoring time on this branch; the numbers below are outputs, n
 
 <!-- tasks: depth=2 red-contract -->
 
-## Task 2: detached redirection targets ride a side channel
+## Task 2: detached targets are retained AND the here-string reads them
 
-<!-- task: red=`npx vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:929` why=`a detached redirection target is built by the ordinary loop and then discarded at flush because dropWord is set at the line named here, so no word carrying its dequoted text ever exists. Step 1 authors the retention cases plus the two argv-invisibility cases with NO production edit; Step 2 observes them red against that discard; Step 3 turns dropWord into pendingTarget and pushes the word into a third optional out-parameter; Step 4 re-runs the SAME command green. The red is behavioural and names a production line, so it cannot go green by editing the test` ac=AC-3,AC-9 -->
+<!-- task: red=`npx vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:1237` why=`a detached redirection target is discarded by the dropWord assignment at the line named here, so no word carrying its dequoted text ever exists and READ_HERE_STRING must read the spliced line through a single-delimiter shape. Retention ALONE is unobservable - lexShellWords is private, scanShellText passes no targets array, and both argv-invisibility assertions already pass today - so retention and its consumer are ONE cycle, which is what makes the red behavioural (plan round 1 finding 1). Step 1 authors A1, A6, A7, H4, N1 and N2 each ALONE on its own line, plus the argv-invisibility and operator-discrimination killers, with no production edit. Step 2 observes them red against that discard. Step 3 turns dropWord into pendingTarget, pushes into a third optional out-parameter, and adds the word-route disjunct associated by LOGICAL line. Step 4 retires the here-string row of the declared-miss loop and its scan.ts limit clause IN THIS TASK, then re-runs the SAME command green` ac=AC-1,AC-2,AC-3,AC-5,AC-8,AC-9 -->
 
 `lexShellWords(text, nested, targets?)` gains a third optional out-parameter of
-`RedirectionTarget = { operator, text, line, offset }`. Targets are pushed there and NEVER into the
-returned word array, so `scanShellText` — which passes no array — receives a byte-identical
-`ShellWord[]`. The ATTACHED path is untouched: no recursive lexing, no change to the consumption regex
-at `scan.ts:1235`.
+`RedirectionTarget = { operator, text, line, offset }`. Targets never enter the returned word array,
+so `scanShellText` — which passes no array — receives a byte-identical `ShellWord[]`. The ATTACHED
+path is untouched: no recursive lexing, no change to the consumption regex.
 
-Cases (deciding suite): a detached `<<<` target's dequoted text is retained; `cat x > psql` yields 0
-sites; `psql -X -qAt mydb > out.sql` yields 1 site with tokens `["-X","-qAt","mydb"]` and
-`suppressesStartupFiles: true`. The last two are killer #5 — a weaker "filter at one consumer"
-retention passes the first and fails the second.
+The here-string rule becomes a UNION. The existing regex stays as one disjunct: it is the only reading
+that sees inside a `$(…)` body, and it is stricter-in-reverse on
+`read -r MSG <<< 'psql failed to connect'`, which reports 1 today and must keep reporting. The new
+disjunct is a `read`-grammar PREFIX match plus a `<<<` target belonging to the same LOGICAL line — a
+target belongs to logical line `i` when its physical line falls in the `i..k` span the loop already
+computes while building `spliced`.
 
-## Task 3: the here-string family reads its target, associated by LOGICAL line
+`visitBody` passes a `targets` array and offsets each target's line back, exactly as it already does
+for `assignmentBindingLines`. That closes A7.
 
-<!-- task: red=`npx vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:2254` why=`READ_HERE_STRING at the line named here reads the here-string value out of the spliced line through a single-delimiter shape, so a quote-concatenated value is missed. Step 1 authors A1/A6/A7/H4/N1/N2 with no production edit; Step 2 observes them red against that pattern; Step 3 adds the word-route disjunct - a read-grammar PREFIX match plus a retained <<< target belonging to the same LOGICAL line - keeping the existing regex as the other disjunct; Step 4 re-runs the same command green` ac=AC-1,AC-2,AC-9 -->
+**Pins retired in this task**, because this task is what invalidates them: the here-string row of the
+six-row declared-miss loop, re-pinned as a hit; the here-string clause leaves `scan.ts` documented-
+limits bullet 1, and the false mechanism sentence ("since the lexer drops a redirection operand before
+words exist") goes with it.
 
-Union, not replacement: the existing regex stays as one disjunct because the raw line is the only
-reading that sees inside a `$(…)` body, and because `valueBinds` is stricter than the pattern in one
-probed case (`read -r MSG <<< 'psql failed to connect'` reports 1 today and must keep reporting).
+Killers 3, 4 and 5 land here.
 
-Association is by LOGICAL line: `spliced` joins backslash-newline continuations, so a target belongs to
-logical line `i` when its physical line falls in the span `i..k` the loop already computes. Killer #3
-is the pair N1/N2 plus the negative case (a `read` on one logical line, an unrelated `<<<` target on
-another).
+## Task 3: the whole-value expansion candidate
 
-Nested bodies: `visitBody` passes a `targets` array and offsets each target's line back, exactly as it
-already does for `assignmentBindingLines`. That closes A7.
-
-## Task 4: the whole-value expansion candidate
-
-<!-- task: red=`npx vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:1017` why=`the branch at the line named here consumes a ${...} expansion whole and appends its raw slice, so operand-internal quoting is data to every downstream reader and only a bare psql inside it reports. Step 1 authors C1-C3, C5-C7, C9, K1-K2, L1-L3 and R1-R8 with no production edit; Step 2 observes them red against that verbatim append; Step 3 sets expandedCandidate when the whole value is ONE accepted expansion and tests it with the existing predicate; Step 4 re-runs the same command green` ac=AC-1,AC-2,AC-9 -->
+<!-- task: red=`npx vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:1017` why=`the branch at the line named here consumes a ${...} expansion whole and appends its raw slice, so operand-internal quoting is data to every downstream reader and only a bare psql inside it reports. Step 1 authors C1-C3, C5-C7, C9, K1-K2, L1-L3 and R1-R8, each ALONE on its own line, with no production edit. Step 2 observes them red against that verbatim append. Step 3 sets expandedCandidate when the whole value is ONE accepted expansion and tests it with the existing predicate, applying the same rule to a <<< target. Step 4 retires the quoted-expansion row of the declared-miss loop and its scan.ts limit bullet IN THIS TASK, then re-runs the SAME command green` ac=AC-1,AC-2,AC-5,AC-8,AC-9 -->
 
 `ShellWord.expandedCandidate: string | null` is set only when the word's entire value is a single
 accepted `${…}` — accept-set exactly `${U:-word}`, `${U-word}`, `${U:=word}`, `${U=word}`,
 `${U:+word}`, `${U+word}` — and is then that span's dequoted operand. `null` otherwise. No substitution
-into surrounding text. The verbatim `text` is still tested; the candidate is an additional string
-tested by the SAME predicate.
+into surrounding text. The verbatim `text` is still tested; the candidate is an ADDITIONAL string
+tested by the SAME predicate. A `<<<` target whose entire text is one accepted expansion gets the same
+rule at the second site, which is what closes R1-R8; Task 2's retention is what makes that site exist.
 
-The `<<<` target gets the same rule at a second site (Task 3's retention makes that possible), which is
-what closes R1-R8.
+**Pins retired in this task:** the quoted-expansion-operand row of the declared-miss loop, re-pinned as
+a hit; the `${…}`-operand bullet in `scan.ts` is replaced by the complement entry.
 
-Killers #1 and #2 land here. #1 is the pair `PG=p${U:-"sql"}` and `U=xpsql; PG=${U#${V:-'psql'}}`, both
-staying 0 — the second is the false report the narrower model exists to prevent. #2 is the complement
-row set, each holding today's value.
+Killers 1 and 2 land here.
 
-## Task 5: the negative surface, in one place
+## Task 4: the negative surface, red against a NAMED MUTANT
 
-<!-- task: red=`npx vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:2347` why=`the precision cases must be decided by valueBinds at the line named here rather than by a second predicate, and no existing case proves the candidate route reaches it. Step 1 authors the precision set - ${U:-'psql;x'}, ${U:-'psql\'}, ${M:-'psql failed to connect'}, composed notpsql and composed prose - with no production edit; Step 2 observes the two that must REPORT red while the rest already pass, which is what shows the route is live rather than the cases being vacuous; Step 3 lands the shared predicate call; Step 4 re-runs the same command green` ac=AC-2,AC-3,AC-9 -->
+<!-- task: red=`npx vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:2347` why=`every case here is a zero that must STAY zero, and a non-regression pin cannot red against correct code - plan round 1 finding 2. Its red is therefore authored against a NAMED MUTANT in the production surface: Step 2 removes the separator rejection from valueBinds at the line named here, which makes the precision cases report and the authored assertions go red on SCANNER behaviour rather than on a test-local edit. Step 3 restores the shipped predicate and Step 4 re-runs the SAME command green. The mutant is named, applied and reverted inside this task and is never committed` ac=AC-2,AC-3,AC-9 -->
 
-Every case here is a zero that must STAY a zero, so each carries a premise proving the fixture reaches
-the assertion on its own inputs — a suite of zeros that never reach the predicate is green about
-nothing. The premise for each precision row is its selected-state sibling reporting.
+The precision set: `${U:-'psql;x'}`, `${U:-'psql\'}`, `${M:-'psql failed to connect'}`, composed
+`notpsql`, composed prose, `PG="p${U:-'sql'}"` (bash binds `p'sql'`, so the zero is CORRECT), and the
+composition family, now a documented limit.
+
+Each case carries a premise proving the fixture reaches the predicate on its OWN inputs — the premise
+is its selected-state sibling reporting — because a suite of zeros that never reach the predicate is
+green about nothing.
 
 <!-- tasks: end -->
 
-## Task 6: declared-limit pins, by execution
+## Task 5: whole-suite execution as the cover for UNKNOWN pins
 
-**Do not search for the pins. Run the suite and read what breaks.** Two rounds were spent learning that
-a phrase grep cannot find a pin asserting a suppression verdict rather than a zero, and that the
-replacement grep was wrong in a different way. After Tasks 2-5 land, run the whole deciding suite and
-disposition EVERY newly failing test in this commit.
+The two pins this change invalidates are known, and Tasks 2 and 3 retire them inside their own cycles.
+**This task is the cover for pins nobody predicted:** run the whole deciding suite and disposition
+every newly failing test in this commit.
 
-Expected: exactly two retire (the here-string row and the quoted-expansion-operand row of the
-six-row declared-miss array) and are re-pinned as hits; the array's other four rows and its premise
-loop stand unchanged; the nine remaining pins in spec §5 stand. **A newly failing test outside that
-expectation is a finding against the spec's table, not a test to fix** — record it and reconcile the
-table before proceeding.
+One property of the corpus is load-bearing, and it was plan round 1 finding 4: the six declared-miss
+rows live in ONE loop in ONE test, so execution surfaces only the FIRST failing row and throws before
+reaching the rest. **Execution is therefore the cover for pins in SEPARATE tests**, and the loop's own
+six rows are dispositioned by reading the loop — sound there and only there, because the loop is a
+finite literal array in one place rather than a pattern over a 5225-line file. Both facts are stated so
+a later reader does not mistake the run for a cover it cannot be.
 
-## Task 7: documentation sweep, one commit
+Expected after Tasks 2-4: nothing newly failing. Anything else is a finding against the spec's §5
+table — record it and reconcile the table before proceeding.
 
-Every bullet below lands with the pin edits, per spec §5:
+## Task 6: residual documentation sweep
 
-- `scan.ts` documented-limits block: the here-string clause leaves bullet 1 (interpreter-positional and
-  alias clauses stay); the `${…}`-operand bullet is replaced by the complement entry; the false
-  mechanism sentence ("since the lexer drops a redirection operand before words exist") goes.
+The pin-coupled documentation landed with its pin in Tasks 2 and 3, which is what the spec's
+same-commit companion-sweep contract requires and what keeps commit-per-task intact (plan round 1
+finding 5). What remains has no pin to travel with:
+
 - `scan.ts` nested-body closing paragraph: add the here-string word-route clause so the "never blind"
   claim stays true and visibly so.
 - `scan.ts` inline comment in `scanShellIndirection` citing the here-string ledger row.
@@ -200,29 +242,29 @@ Every bullet below lands with the pin edits, per spec §5:
   line each. That spec is not rewritten.
 - No `DEFERRED.md` pointer to either row exists — verified by repo-wide grep at spec time.
 
-## Task 8: re-derive the mutation ledger, then score
+## Task 7: re-derive the mutation ledger, then score
 
 `siteId` is `<operator>:<line>:<column>:<mutation>` — LINE-KEYED — so essentially every row below the
-lexer moves. That churn is the named cost `BL-MUTATION-SITEID-LINE-KEYED-CHURN` records.
+lexer moves; that churn is what `BL-MUTATION-SITEID-LINE-KEYED-CHURN` records.
 
-Re-keying is the cheap half. **Each of the 24 equivalence ARGUMENTS is re-read against its new site**;
-several reason about `scanShellText`'s command assembly and about `valueBinds`, and Task 4 adds a
-candidate test to the latter. No row is carried over on the strength of having been true before. If the
-count changes, `expectedLedgerKinds.ts` changes in the same commit.
+Re-keying is the cheap half. **Each of the 24 equivalence ARGUMENTS is re-read against its new site.**
+Several reason about `scanShellText`'s command assembly and about `valueBinds`, and Task 3 adds a
+candidate test to the latter, so those arguments are re-verified rather than inherited. If the count
+changes, `expectedLedgerKinds.ts` changes in the same commit.
 
 Then: blob-hash `scan.ts` and the suite, run the scoped gate FOREGROUND under `pnpm heavy` (~899s),
 delete the temp shard, and paste mutants/killed/equivalent plus the empty unaccepted-survivor set into
 close-out. Also run the two `collectPsqlUsage` measurements for AC-4 — `origin/main` and HEAD, asserted
 equal, no literal.
 
-## Task 9: ledger close-out, ONE commit BEFORE whole-diff review
+## Task 8: ledger close-out, ONE commit BEFORE whole-diff review
 
 The whole ledger change at once, so absence is guaranteed rather than maintained: archive both
 graduating rows with their IN PROGRESS markers stripped in the same commit, leave
 `BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION` open, then verify by set arithmetic (union of
 `BL-`/`DEF-` ids exact; `comm -12` archived-vs-open empty) and re-run `_metaLedgerInProgress`,
-`_metaLedgerMintBar` and `_metaReviewRoundEconomy`. The review-round filing's heading count tracks the
-corpus for the CURRENT base — a mid-arc merge of `origin/main` re-bases it and the heading moves.
+`_metaLedgerMintBar` and `_metaReviewRoundEconomy`. The review-round filing's heading counts the corpus
+for the CURRENT base; a mid-arc merge of `origin/main` re-bases it and the heading moves.
 
 Never arm `gh pr merge --auto` before this commit is pushed AND review has approved.
 
