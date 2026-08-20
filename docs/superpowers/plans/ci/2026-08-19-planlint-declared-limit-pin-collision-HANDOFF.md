@@ -14,6 +14,19 @@ for the implementer.
 | spec | 4 under `03953337388b`, 1 under `4e074d3bcbfa` | 21 | closed after a fixture pass run to a fixed point |
 | plan | 5 | 35 | ACCEPTED by orchestrator fence after round 5 |
 
+**NEITHER STAGE CLOSED WITH AN `APPROVE` VERDICT, and that is a disposition rather than a skipped
+gate.** Recording it because absence of a verdict and absence of a process are the same shape on disk,
+and a later auditor is right to read an unexplained gap as the latter.
+
+- **Spec** was closed by a mechanical oracle plus an orchestrator ruling: the fixture-adequacy class was
+  settled by a pass run to a FIXED POINT (iterations 1 then 0) rather than by a further round, on the
+  measured grounds that across the arc the pass found six instances to the reviewers' zero on that
+  question. Ruling: "do not buy a round for something you can compute."
+- **Plan** was closed by an orchestrator FENCE after round 5, which returned three same-vector
+  recurrences. Red-validity was ruled closed by this arc's own cover (every red rationale enumerated
+  from the document, six statements, zero invalid); task-ordering was ROUTED to implementation as
+  self-proving under TDD, carrying the two conditions below.
+
 Every finding was accepted; none was refuted. The corpus is
 `docs/review-rounds/feat/planlint-declared-limit-pin-collision/`, and the filing beside it carries the
 per-stage analysis. One `no_verdict` row is labelled with its cause (a dispatching-session SIGTERM,
