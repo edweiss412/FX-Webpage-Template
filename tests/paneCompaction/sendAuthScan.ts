@@ -446,6 +446,7 @@ const analyzePassReads = (
   bindings: ReadonlySet<string>,
   reads: readonly string[],
   passFn: ts.Node,
+  derivations: readonly Derivation[],
 ): Finding[] => {
   const readSet = new Set<string>(reads);
   const out: Finding[] = [];
@@ -461,6 +462,15 @@ const analyzePassReads = (
       readSet.has(n.expression.name.text)
     ) {
       const member = n.expression.name.text;
+      // Raw reads inside a derivation's OWN initializer are exempt from this
+      // rule: that is the shipped memo at `scripts/pane-compaction.ts:797`,
+      // which reads `marker` once inside the snapshot it is building. The
+      // exemption covers the READS; a raw HANDOFF in the same initializer still
+      // reports, which `derivation-leaks-handoff` pins.
+      const inDerivationInitializer = derivations.some(
+        (d) => n.getStart(sf) >= d.initializer.getStart(sf) && n.getEnd() <= d.initializer.getEnd(),
+      );
+      if (inDerivationInitializer) return;
       let cursor: ts.Node = n.parent;
       let nested = false;
       while (cursor !== passFn && cursor.parent !== undefined) {
@@ -491,6 +501,169 @@ const analyzePassReads = (
   return out;
 };
 
+/**
+ * Rule 3 — EXACTLY ONE declared derivation, and no raw handoff inside the pass.
+ *
+ * A derivation is a variable declaration inside the pass whose initializer either
+ * SPREADS the surface or calls a DECLARED derivation helper with it. Reads through
+ * the derived binding are unconstrained.
+ *
+ * The helper list is DECLARED, not inferred, and that is a measurement rather
+ * than a preference: accepting any call that merely TAKES the surface made
+ * `observe(freshPane, freshRoster, as, s, cacheOf(s))` read as a derivation and
+ * silenced the round-4 shape entirely (spec §3.2).
+ */
+type Derivation = { name: string; line: number; declaration: ts.Node; initializer: ts.Node };
+
+const calleeNameOf = (call: ts.CallExpression): string => {
+  if (ts.isIdentifier(call.expression)) return call.expression.text;
+  if (ts.isPropertyAccessExpression(call.expression)) return call.expression.name.text;
+  return "(anonymous)";
+};
+
+const isDerivationInitializer = (
+  node: ts.Node,
+  row: SendAuthSurface,
+  bindings: ReadonlySet<string>,
+): boolean => {
+  if (ts.isObjectLiteralExpression(node)) {
+    return node.properties.some(
+      (prop) =>
+        ts.isSpreadAssignment(prop) &&
+        ts.isIdentifier(prop.expression) &&
+        bindings.has(prop.expression.text),
+    );
+  }
+  if (ts.isCallExpression(node)) {
+    return (
+      ts.isIdentifier(node.expression) &&
+      row.derivationHelpers.includes(node.expression.text) &&
+      node.arguments.some((a) => ts.isIdentifier(a) && bindings.has(a.text))
+    );
+  }
+  return false;
+};
+
+const derivationsIn = (
+  sf: ts.SourceFile,
+  row: SendAuthSurface,
+  bindings: ReadonlySet<string>,
+  passFn: ts.Node,
+): Derivation[] => {
+  const out: Derivation[] = [];
+  const visit = (n: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(n) &&
+      ts.isIdentifier(n.name) &&
+      n.initializer !== undefined &&
+      isDerivationInitializer(n.initializer, row, bindings)
+    ) {
+      out.push({
+        name: n.name.text,
+        line: sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1,
+        declaration: n,
+        initializer: n.initializer,
+      });
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(passFn);
+  return out;
+};
+
+/** The declared name of a pass function, for the findings that name the pass. */
+const passNameOf = (fn: ts.Node): string => {
+  const parent = fn.parent;
+  if (ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) return parent.name.text;
+  if (ts.isFunctionDeclaration(fn) && fn.name !== undefined) return fn.name.text;
+  return "(anonymous)";
+};
+
+const analyzeDerivations = (
+  sf: ts.SourceFile,
+  file: string,
+  passFn: ts.Node,
+  derivations: readonly Derivation[],
+): Finding[] => {
+  const out: Finding[] = [];
+  const passLine = sf.getLineAndCharacterOfPosition(passFn.getStart(sf)).line + 1;
+  const passName = passNameOf(passFn);
+
+  // "Exactly one" is violated by ZERO as well as by two. Without the zero arm the
+  // rule degrades silently into "at most one", and every read then comes straight
+  // off the live surface at its own instant.
+  if (derivations.length === 0) {
+    out.push({
+      code: "MISSING-DERIVATION",
+      file,
+      line: passLine,
+      name: passName,
+      lines: [passLine],
+    });
+  } else if (derivations.length > 1) {
+    out.push({
+      code: "MULTI-DERIVATION",
+      file,
+      line: derivations[0]!.line,
+      name: passName,
+      lines: derivations.map((d) => d.line),
+    });
+  }
+
+  // The exemption is POSITIONAL, not temporal. The round-2 draft justified it by
+  // claiming the initializer "is evaluated once per pass", and round 3 defeated
+  // that by declaring the derivation under a two-iteration loop and inside a
+  // named callback invoked twice — both scanned clean. What it now rests on is
+  // checkable in the source text, using rule 2's existing predicate.
+  for (const derivation of derivations) {
+    let cursor: ts.Node = derivation.declaration.parent;
+    while (cursor !== passFn && cursor.parent !== undefined) {
+      if (blocksStraightLine(cursor)) {
+        out.push({
+          code: "NON-STRAIGHT-LINE-DERIVATION",
+          file,
+          line: derivation.line,
+          name: derivation.name,
+          lines: [derivation.line],
+        });
+        break;
+      }
+      cursor = cursor.parent;
+    }
+  }
+  return out;
+};
+
+/**
+ * Passing the raw surface to anything else inside the pass is RAW-HANDOFF.
+ *
+ * The same shape OUTSIDE a pass is ordinary injection and is correct — the live
+ * report phase does exactly that. So this ranges over the pass only.
+ */
+const analyzeHandoffs = (
+  sf: ts.SourceFile,
+  file: string,
+  bindings: ReadonlySet<string>,
+  passFn: ts.Node,
+  derivations: readonly Derivation[],
+): Finding[] => {
+  const out: Finding[] = [];
+  const visit = (n: ts.Node): void => {
+    if (ts.isCallExpression(n) && !derivations.some((d) => d.initializer === n)) {
+      for (const argument of n.arguments) {
+        if (!ts.isIdentifier(argument) || !bindings.has(argument.text)) continue;
+        const line = sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
+        // Named by CALLEE: two handoffs can share a code, a file AND a line and
+        // differ only here, so the callee is part of the finding's IDENTITY.
+        out.push({ code: "RAW-HANDOFF", file, line, name: calleeNameOf(n), lines: [line] });
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(passFn);
+  return out;
+};
+
 /** Scan one enrolled module against its row. */
 export function scanModule(file: string, row: SendAuthSurface): Finding[] {
   const text = readFileSync(file, "utf8");
@@ -498,14 +671,26 @@ export function scanModule(file: string, row: SendAuthSurface): Finding[] {
   const bindings = surfaceBindings(sf, row);
   const markers = markersIn(file, text, sf);
   const reads = readsFromSourceFile(sf, row);
-  const findings: Finding[] = classifyUses(sf, file, row, bindings, reads);
 
   // Rules 2 and 3 range over every DECLARED pass, whether or not its enclosing
   // function turned out to be send-bearing: a declared pass is a claim about how
   // the surface is read there, and the claim is checked wherever it is made.
-  for (const marker of markers) {
-    if (marker.kind !== "pass" || marker.fn === null) continue;
-    findings.push(...analyzePassReads(sf, file, bindings, reads, marker.fn));
+  const passes = markers
+    .filter((m) => m.kind === "pass" && m.fn !== null)
+    .map((m) => ({ fn: m.fn!, derivations: derivationsIn(sf, row, bindings, m.fn!) }));
+
+  // A DERIVED binding is not a raw surface binding: reads through it are
+  // unconstrained, which is what makes the snapshot worth taking at all. Removing
+  // the derived names before any other analysis is what keeps the live memo's
+  // `snapshot.marker(...)` from counting against rule 2.
+  const derived = new Set<string>(passes.flatMap((p) => p.derivations.map((d) => d.name)));
+  const raw = new Set<string>([...bindings].filter((b) => !derived.has(b)));
+
+  const findings: Finding[] = classifyUses(sf, file, row, raw, reads);
+  for (const { fn, derivations } of passes) {
+    findings.push(...analyzePassReads(sf, file, raw, reads, fn, derivations));
+    findings.push(...analyzeDerivations(sf, file, fn, derivations));
+    findings.push(...analyzeHandoffs(sf, file, raw, fn, derivations));
   }
 
   for (const fn of topLevelFunctions(sf)) {

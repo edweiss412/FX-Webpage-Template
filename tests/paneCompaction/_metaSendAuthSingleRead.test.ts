@@ -361,3 +361,95 @@ describe("AC-6/AC-7 — in-pass reads are straight-line and single", () => {
     expect(scan(f)).toEqual([finding(f, "NON-STRAIGHT-LINE-READ", "gauge", lineOf(f, needle))]);
   });
 });
+
+describe("AC-7b/AC-8 — exactly one declared derivation, declared straight-line", () => {
+  it("the SHIPPED MEMO's shape scans clean", () => {
+    // A derivation on the straight-line path, memoizing a raw read inside its own
+    // initializer. Banning derivations outright satisfies every violation case
+    // below and fails HERE — and the live module carries this exact shape at
+    // `scripts/pane-compaction.ts:797`, so a rule that reported it would fail
+    // against correct shipped code.
+    expect(scan("derivation-clean.ts")).toEqual([]);
+  });
+
+  it("a SPREAD is a derivation, and reads THROUGH the derived binding are unconstrained", () => {
+    // Two reads of one method through `snap`. If a spread were not recognized the
+    // pass would have zero derivations AND those two reads would become a
+    // MULTI-READ — it fails twice over, which is the point. The live memo is a
+    // SPREAD, not a helper call, so a helper-only recognizer passes the rest of
+    // this corpus and then reports against the live tree.
+    expect(scan("spread-derivation.ts")).toEqual([]);
+  });
+
+  it("a DECLARED helper initializer is a derivation, not a handoff", () => {
+    expect(scan("helper-derivation.ts")).toEqual([]);
+  });
+
+  it("ZERO derivations reports — 'exactly one' is violated by zero as well as by two", () => {
+    // Without this the rule degrades silently into "at most one", and every read
+    // then comes straight off the live surface at its own instant.
+    const f = "zero-derivations.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "MISSING-DERIVATION", "authorizeOnce", lineOf(f, "const authorizeOnce")),
+    ]);
+  });
+
+  it("TWO derivations report MULTI-DERIVATION naming both declarations", () => {
+    const f = "multi-derivation.ts";
+    const a = lineOf(f, "const first: Channel");
+    const b = lineOf(f, "const second = snapshotOf(ch)");
+    expect(scan(f)).toEqual([finding(f, "MULTI-DERIVATION", "authorizeOnce", a, [a, b])]);
+  });
+
+  it.each([["derivation-in-loop.ts"], ["derivation-in-named-callback.ts"]])(
+    "%s reports NON-STRAIGHT-LINE-DERIVATION",
+    (f) => {
+      // Both are round-3 F1 shapes and both scanned CLEAN under the round-2
+      // design, whose exemption rested on a TEMPORAL claim ("the initializer is
+      // evaluated once per pass"). The exemption is now POSITIONAL and the check
+      // is rule 2's existing predicate applied to the DECLARATION — no new
+      // mechanism, which is what made that repair subtractive.
+      expect(scan(f)).toEqual([
+        finding(f, "NON-STRAIGHT-LINE-DERIVATION", "snap", lineOf(f, "const snap: Channel")),
+      ]);
+    },
+  );
+
+  it("a derivation exempts its READS, not its whole initializer subtree", () => {
+    // An implementation that skips the subtree on recognizing a derivation passes
+    // every other derivation fixture and silently permits a handoff.
+    const f = "derivation-leaks-handoff.ts";
+    expect(scan(f)).toEqual([finding(f, "RAW-HANDOFF", "inspect", lineOf(f, "inspect(ch)"))]);
+  });
+});
+
+describe("AC-8 — the round-4 regression pin", () => {
+  it("emits TWO RAW-HANDOFF findings on ONE line, distinguished only by callee", () => {
+    // THE IDENTITY PIN. These two records share `code`, `file` AND `line`, and
+    // differ only in `name`. A dedup keyed on `code:file:line` — the natural way
+    // to write one — collapses them into a single finding and this case goes
+    // green having tested nothing. Compared as SORTED RECORDS because two
+    // findings on one line have no natural order.
+    //
+    // The fixture carries its own derivation deliberately, so MISSING-DERIVATION
+    // cannot be the record that makes the assertion pass.
+    //
+    // An "any call taking the surface is a derivation" reading silences this
+    // fixture ENTIRELY (spec §3.2), which is why the helper list is DECLARED.
+    const f = "round4-raw-handoff.ts";
+    const line = lineOf(f, 'observeAll("p1", "main", ch,');
+    expect(scan(f)).toEqual(
+      sortFindings([
+        finding(f, "RAW-HANDOFF", "observeAll", line),
+        finding(f, "RAW-HANDOFF", "snapshotOf", line),
+      ]),
+    );
+  });
+
+  it("the same shape OUTSIDE the pass is ordinary injection and does NOT report", () => {
+    // AC-3's other half. Reporting every raw-surface argument anywhere passes the
+    // pin above and then fires on the live `drive(opts, pane, roster, s)` and
+    // `cacheOf(s)` in the report phase.
+    expect(scan("injection-outside-pass.ts")).toEqual([]);
+  });
+});
