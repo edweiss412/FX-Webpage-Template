@@ -180,6 +180,8 @@ force. Two covers are mandatory before any review dispatch, both learned on this
 
 | Rule | Weaker implementation that would pass | Fixture that kills it |
 | --- | --- | --- |
+| §3.0 declared input | INFER the pair from the repair's diff | the incident commit itself, whose diff carries `58` on BOTH sides and changes several literals: an inferring implementation picks a pair (any pair) and reports, while the shipped arm with `--repair` and NO declaration must report NOTHING and say why. Both halves asserted — the silence, and the reason line |
+| §3.0 declared input | accept a declaration and ignore `--repair` | a declared pair whose surviving occurrence sits INSIDE the repair's hunks still reports for the numeric half, while the named half's own new claim (also inside them) does not — the spans are used by §3.2 and only there |
 | §3.1 numeric half | report every surviving N (the naive form) | a transition sentence carrying BOTH values draws nothing — the 923-site corpus shape |
 | §3.1 sentence scope | scope to the LINE instead | a line carrying BOTH a `57/58` transition sentence AND a separate stale `58` sentence — line scope excludes the whole line and misses the stale one, sentence scope reports it. Round 1 caught the earlier fixture here: the consequence-bound line contains only `58`, so both scopes treat it identically and it discriminated nothing |
 | §3.1 discriminator | exclude anything inside the repair's diff | that same survivor, an ADDED line in that hunk, must still report |
@@ -196,6 +198,7 @@ crashed read, a scanner returning the empty set. So:
 | a transition sentence draws nothing | the SAME sentence with the replacement value deleted reports |
 | the repair's own new claim draws nothing | the same identifier in another section reports |
 | a repair changing no token draws nothing | the same repair with one value changed reports |
+| `--repair` with no declaration draws nothing | the same invocation plus `--superseded`/`--replacement` reports — one variable apart, so the silence is attributable to the missing declaration rather than to the arm failing to look |
 
 **Second question, asked of every fixture: which rule DECIDES the observation, and is it the rule under
 test?** Cross-finding machinery an implementer will invent — dedup by token, ordering, collapse by line
