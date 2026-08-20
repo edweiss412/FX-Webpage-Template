@@ -204,6 +204,66 @@ apply time, and an anchor table now carries BASE and HEAD columns.
   data: `b99ao3v9o` completed at 1004.31s, 16.7 minutes, exit 0. Nobody is asked to act on
   this.
 
+## 8b. The formatter was a silent input mutation, and only CI could have caught it
+
+CI's `format:check` failed on 12 files after both review scopes had already returned
+APPROVE. The mechanism is worth stating plainly: earlier commits on this arc used
+`--no-verify`, and **the flag that unblocks worktree setup also disables the only local
+copy of that CI gate.** Nothing local was checking what CI checks, so no amount of care
+in this worktree would have surfaced it earlier. This is the local-passes-CI-fails class
+exactly as the cross-cutting discipline describes it.
+
+Formatting the SOURCES was right. Formatting the FIXTURES was not, and prettier proved it
+rather than the argument doing so: after the reflow, `plan-pre-step3b.md` drew **0**
+advisories where `declaredLimitPinsCorpus` requires exactly **1**.
+
+**A formatter is a SILENT INPUT MUTATION for any fixture that is PARSED rather than merely
+read.** These two markdown documents ARE the recognizer's input, and prettier normalizes
+precisely what the arm reads — `**Files:**` block shape, the blank line that makes a
+declaration DECLINE, list markers, indentation. The general hazard: *"the formatter touched
+it" is indistinguishable from "the recognizer regressed" unless something fails.* Here
+something did. It need not have.
+
+Repair: fixtures reverted, their directory added to `.prettierignore` with the measured
+reason inline — the same posture already taken for the parser corpus, the cross-cutting
+audit fixtures, the directive fixtures and the captured baselines. That list is
+ENUMERATED, so every new fixture directory is unprotected by default; the derived-cover
+repair is filed as orchestrator follow-up and deliberately NOT built here.
+
+### The score was retired by whitespace, and that is correct
+
+The format pass edited `lib/specLint/declaredLimitPins.ts`, `scripts/spec-lint.ts` and the
+registry row — two of the four input classes a score is a function of. So the previous
+108/108 was retired even though the edit was whitespace-only.
+
+The tempting exception is the dangerous one. "Semantically irrelevant" is a judgement the
+stamp DELIBERATELY DOES NOT MAKE; a stamp that accepted whitespace-only diffs would need a
+semantic model of the diff, which is a second definition that can drift from the first
+without either looking wrong. Any input byte moves, the score is retired. Corollary: a
+score cited in a live review brief has the same expiry as the score, so that brief's
+`GUARD SURFACE:` line was stale until the re-measure landed.
+
+Re-measured GREEN — 7 of 7, exit 0, 231.10s, 14 inputs stamped before and after with zero
+drift — and the score re-derived through the shipped `score()` at 108/108. Unchanged, but
+DERIVED rather than reasoned to.
+
+## 8c. What the reviewers volunteered
+
+Both scopes returned APPROVE with zero findings at round 1, and two details are worth
+recording because a bare APPROVE would not carry them.
+
+The CORE reviewer named the axis this arc treats as highest-risk without being told which
+one it was: *"all character walks terminate structurally."* Termination is the one property
+the harness cannot check for itself, because **a timeout SCORES AS DETECTION** — a hang is
+counted killed and costs only wall clock, so a third introduced hang would never surface as
+a red suite.
+
+The SUITES reviewer could not run a Vitest rerun (`EPERM` from the read-only sandbox
+denying temp-directory creation) and said so, explicitly declining to treat it as test
+evidence. That is the reviewer-side form of the rule this arc hit twice: **a probe that
+could not run is not a probe that found nothing.** It volunteered the limitation instead of
+reporting a clean run.
+
 ## 9. Cost note for the next person enrolling a corpus walker
 
 One deciding suite enumerates every tracked plan and reads every enrolled suite, ONCE PER
