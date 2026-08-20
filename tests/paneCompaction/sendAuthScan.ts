@@ -17,9 +17,11 @@
 // call graph here, no path counting and no dominance analysis.
 
 import { readFileSync } from "node:fs";
+import { dirname, join, normalize } from "node:path";
 
 import ts from "typescript";
 
+import { walkSourceFiles } from "../../lib/messages/__internal__/walkSourceFiles";
 import { commentRanges } from "../_shared/stripComments";
 
 /** One enrolled module. Every rule below is driven by this row, never by a literal. */
@@ -745,12 +747,83 @@ export function scanModule(file: string, row: SendAuthSurface): Finding[] {
   return findings;
 }
 
-/** Walk the declared roots from disk and scan every enrolled module under them. */
+/** Repo-relative module path a specifier resolves to, or null when it is not local. */
+const resolveSpecifier = (fromFile: string, specifier: string): string | null => {
+  if (specifier.startsWith("@/")) return specifier.slice(2);
+  if (specifier.startsWith(".")) return normalize(join(dirname(fromFile), specifier));
+  return null;
+};
+
+const withoutExtension = (path: string): string => path.replace(/\.tsx?$/, "");
+
+/**
+ * Discovery beyond the registry: an import-edge arm, exact and checker-free.
+ *
+ * Any module that imports a registered `surfaceType` SYMBOL from a registered
+ * module, and is not itself registered, is `UNREGISTERED-IMPORTER` (§2.4). It
+ * follows the SYMBOL rather than the local binding name, so
+ * `import type { Channel as Alias }` is still discovered.
+ *
+ * DOCUMENTED LIMIT: a namespace import (`import * as M`) and a re-export chain
+ * are not followed. The scanner has no call graph and no module resolution
+ * beyond this one edge (§4 limit 6), and a module reached only that way is
+ * outside its range until enrolled — the same posture as the mutation registry,
+ * where enrolment is an act (§4 limit 4).
+ */
+const importEdgeFindings = (
+  file: string,
+  text: string,
+  registry: readonly SendAuthSurface[],
+): Finding[] => {
+  const out: Finding[] = [];
+  // A file importing the symbol necessarily contains its NAME, so this prefilter
+  // is sound and keeps the parse off the ~575 live files that cannot match.
+  const candidates = registry.filter((row) => text.includes(row.surfaceType));
+  if (candidates.length === 0) return out;
+
+  const sf = parse(file, text);
+  for (const statement of sf.statements) {
+    if (!ts.isImportDeclaration(statement)) continue;
+    if (!ts.isStringLiteral(statement.moduleSpecifier)) continue;
+    const resolved = resolveSpecifier(file, statement.moduleSpecifier.text);
+    if (resolved === null) continue;
+    const bindings = statement.importClause?.namedBindings;
+    if (bindings === undefined || !ts.isNamedImports(bindings)) continue;
+
+    for (const row of candidates) {
+      if (withoutExtension(resolved) !== withoutExtension(row.module)) continue;
+      for (const element of bindings.elements) {
+        // `propertyName` is the SYMBOL when the import is aliased; `name` is the
+        // local binding. Comparing the local name misses `Channel as Alias`.
+        const symbol = (element.propertyName ?? element.name).text;
+        if (symbol !== row.surfaceType) continue;
+        const line = sf.getLineAndCharacterOfPosition(statement.getStart(sf)).line + 1;
+        out.push({ code: "UNREGISTERED-IMPORTER", file, line, name: symbol, lines: [line] });
+      }
+    }
+  }
+  return out;
+};
+
+/**
+ * Walk the declared roots FROM DISK and scan every enrolled module under them.
+ *
+ * From disk rather than from a hardcoded file list, so a module added under a
+ * walked root is covered by default rather than silently exempt — the same
+ * fail-by-default posture the repo's other structural guards use.
+ */
 export function scanRepo(
   roots: readonly string[],
   registry: readonly SendAuthSurface[] = SEND_AUTH_SURFACES,
 ): Finding[] {
-  void roots;
-  void registry;
-  return [];
+  const findings: Finding[] = [];
+  for (const file of walkSourceFiles(roots)) {
+    const row = registry.find((r) => file.endsWith(r.module));
+    if (row !== undefined) {
+      findings.push(...scanModule(file, row));
+      continue;
+    }
+    findings.push(...importEdgeFindings(file, readFileSync(file, "utf8"), registry));
+  }
+  return findings;
 }

@@ -27,6 +27,7 @@ import { describe, expect, it } from "vitest";
 import {
   readsFor,
   scanModule,
+  scanRepo,
   type Finding,
   type FindingCode,
   type SendAuthSurface,
@@ -451,5 +452,59 @@ describe("AC-8 — the round-4 regression pin", () => {
     // pin above and then fires on the live `drive(opts, pane, roster, s)` and
     // `cacheOf(s)` in the report phase.
     expect(scan("injection-outside-pass.ts")).toEqual([]);
+  });
+});
+
+/**
+ * A registry pointed ENTIRELY at fixtures. THREE rows, so nothing in `scanRepo`
+ * may assume a single-row registry: a scanner that stops at the first row reports
+ * nothing about the second module and nothing about anything importing it.
+ */
+const FIXTURE_REGISTRY: SendAuthSurface[] = [
+  { ...CHANNEL_ROW, module: fixture("registered-channel.ts") },
+  { ...CHANNEL_ROW, module: fixture("second-registered-channel.ts") },
+  { ...CHANNEL_ROW, module: fixture("registered-importer.ts") },
+];
+
+describe("AC-9 — scanRepo walks from disk, and unregistered importers report", () => {
+  const found = (): Finding[] => sortFindings(scanRepo([FIXTURE_ROOT], FIXTURE_REGISTRY));
+
+  it("discovers a module under the walked root that has NO registry row", () => {
+    // The discriminator: the fixture sits under the root with no registry edit. A
+    // scanner iterating SEND_AUTH_SURFACES alone cannot reach it, and neither can
+    // a hardcoded file list — which is why discovery is a filesystem walk, so a
+    // module added under a walked root is covered by default rather than silently
+    // exempt.
+    const f = "unregistered-importer.ts";
+    expect(found()).toContainEqual(
+      finding(f, "UNREGISTERED-IMPORTER", "Channel", lineOf(f, "import type { Channel }")),
+    );
+  });
+
+  it("follows the SYMBOL, not the local binding name", () => {
+    // `import type { Channel as Alias }` is an ordinary TypeScript spelling, not
+    // an obfuscation. Comparing the local name passes every other import fixture
+    // and misses this one.
+    const f = "aliased-importer.ts";
+    expect(found()).toContainEqual(
+      finding(f, "UNREGISTERED-IMPORTER", "Channel", lineOf(f, "import type { Channel as Alias }")),
+    );
+  });
+
+  it("does NOT report an importer that HAS a registry row", () => {
+    // Without this, an implementation reporting every importer of the type passes
+    // both cases above and then fires on every enrolled module.
+    expect(found().filter((x) => x.file === fixture("registered-importer.ts"))).toEqual([]);
+  });
+
+  it("reports exactly the two unregistered importers and NOTHING else", () => {
+    // The closed statement. `toContainEqual` proves presence; this proves ABSENCE
+    // of everything else, which is what stops the arm firing on the other
+    // forty-odd fixtures sharing this root — most of which DECLARE a type of the
+    // same NAME locally without importing anything.
+    expect(found().map((x) => `${x.code} ${x.file}`)).toEqual([
+      `UNREGISTERED-IMPORTER ${fixture("aliased-importer.ts")}`,
+      `UNREGISTERED-IMPORTER ${fixture("unregistered-importer.ts")}`,
+    ]);
   });
 });
