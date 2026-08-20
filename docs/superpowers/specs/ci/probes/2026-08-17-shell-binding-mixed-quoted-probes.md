@@ -443,3 +443,68 @@ Readings:
    target's PHYSICAL line is not the LOGICAL line the `read` prefix matched on; associating the two by
    physical line would have shipped the here-string arm with a false certification behind any
    continuation.
+
+### Spec round-3 addendum (2026-08-20, same arc, same day)
+
+Round 3 returned two BLOCKING findings. The first is the one that changed the design's MODEL rather
+than its lists.
+
+Scanner, composition family (`hits` = indirection count; all sites 0):
+
+```
+{"label":"P1 literal-before :-","hits":0}      PG=p${U:-"sql"}
+{"label":"P2 literal-before -","hits":0}       PG=p${U-"sql"}
+{"label":"P3 literal-before :=","hits":0}      PG=p${U:="sql"}
+{"label":"P4 literal-before =","hits":0}       PG=p${U="sql"}
+{"label":"P5 literal-before :+","hits":0}      PG=p${U:+"sql"}
+{"label":"P6 literal-before +","hits":0}       PG=p${U+"sql"}
+{"label":"P7 literal-after","hits":0}          PG=${U:-"p"}sql
+{"label":"P8 nested suffix","hits":0}          PG=${U:-${V:-p}sql}
+{"label":"P9 nested middle","hits":0}          PG=${U:-p${V:-s}ql}
+{"label":"P10 bare literal-before","hits":0}   PG=p${U:-sql}
+{"label":"P11 accepted + non-accepted mix","hits":0}   U=xy; PG=${U#x}${V:-"psql"}
+```
+
+Scanner, the double-quote boundary and the precision cases:
+
+```
+{"label":"Q1 dq whole expansion bare","hits":1}   PG="${U:-psql}"
+{"label":"Q2 dq composed bare","hits":0}          PG="p${U:-sql}"
+{"label":"Q3 dq composed quoted op","hits":0}     PG="p${U:-'sql'}"
+{"label":"Q5 composed notpsql","hits":0}          PG=p${U:-"gcli"}
+{"label":"Q6 composed prose","hits":0}            MSG=p${M:-"sql failed to connect"}
+{"label":"Q7 composed semicolon","hits":0}        PG=p${U:-"sql;x"}
+```
+
+Bash oracle:
+
+```
+P1 literal-before :-         -> <psql>
+P7 literal-after             -> <psql>
+P8 nested suffix             -> <psql>
+P9 nested middle             -> <psql>
+P10 bare lit-before          -> <psql>
+P11 mixed                    -> <ypsql>
+Q2 dq composed bare          -> <psql>
+Q3 dq composed q-op          -> <p'sql'>
+Q7 composed semicolon        -> <psql;x>
+```
+
+Readings:
+
+1. **Composition defeats any model built out of PARTS.** In P1-P10 the operand alone does not bind and
+   the verbatim word does not bind, so no disjunct over "the defaults this word contains" can ever
+   report them, while bash binds `psql` in all ten. P10 is the sharpest: its operand is BARE, so this
+   is not a quoting gap at all — composition was broken independently of the arc's subject. The design
+   answer is one substituted CANDIDATE word rather than a list of recorded defaults; composition then
+   stops being a family to enumerate.
+2. **The candidate model creates exactly one new over-report, and it is safe.** P11 mixes an accepted
+   expansion with a non-accepted one; substituting only the accepted one yields `${U#x}psql`, which the
+   predicate accepts on the bare `psql` while bash binds `ypsql`. Same direction and same reason as the
+   ratified `PG=$(x)psql` reading.
+3. **The double-quote boundary holds in BOTH directions, which is why it stays structural.** Q3 binds
+   `p'sql'` — the operand's quotes are literal there — so the scanner's zero is CORRECT. Q2 binds
+   `psql` and stays a declared miss. Reading Q2 without breaking Q3 would mean deciding per operand
+   whether its quotes are syntax or data inside a double-quoted span.
+4. **Precision survives the model change:** Q5 (`notpsql`), Q6 (prose) and Q7 (`psql;x`) all stay 0,
+   each rejected by the predicate that already rejects the same shape as a literal value.

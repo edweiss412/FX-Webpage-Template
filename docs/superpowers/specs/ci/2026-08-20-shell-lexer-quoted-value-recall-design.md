@@ -285,27 +285,43 @@ it after quote removal?*
   case-modification (`^`, `^^`, `,`, `,,`) and transformation (`${U@Q}` and its siblings) forms all
   keep exactly today's behavior. §4 records what each of them measures today; §6 item 4 records the
   complement as ONE limit rather than a list.
-- **The operand is dequoted by `lexShellWords` itself, and its word SEPARATORS survive.** The operand
-  slice is re-lexed and the recorded default is its words **joined by a single space** — not
-  concatenated. Spec round 2 finding 3: concatenation turns `${U:-psql -X}` into `psql-X`, and
-  `valueBinds` decides multiword values by first asking whether the value contains whitespace, so a
-  concatenated default can never reach the branch that would bind it. Joining with one space is the
-  faithful reading for an assignment value (an assignment RHS is not word-split, so bash binds
-  `psql -X` verbatim) and is lossless for the predicate, which re-splits on whitespace immediately.
-  The normalization is stated here rather than left implicit because it is the one lossy step in the
-  arm. Mixed quoting, ANSI-C `$'…'`, escapes and a NESTED `${…}` all come free, because they are the
-  same lexer — there is no second grammar to keep in step, which is the defect the retired pattern
-  family was made of. A nested expansion's own recorded defaults are appended transitively, which is
-  what closes C9.
-- **The result is recorded on the word, not substituted into it:**
-  `ShellWord.expansionDefaults: string[]`. The word's `text` stays the verbatim slice, so every
-  existing reading of that text — including the bare-operand hit at C4 and every pattern-operand
-  over-report — is bit-for-bit what it is today.
-- **`valueBinds(value, file, expansionDefaults = [])` gains ONE disjunct:** a recorded default that
-  satisfies the same predicate binds. Same predicate, not a second one, so `${U:-'psql;x'}`,
-  `${U:-'psql\'}` and `${M:-'psql failed to connect'}` decline for exactly the reasons a literal
-  `psql;x`, a trailing-backslash value and a flagless multiword value decline today — all three probed
-  at 0 and unchanged.
+- **ONE substituted CANDIDATE word, not a list of recorded defaults.** The lexer produces
+  `ShellWord.expandedCandidate: string | null` — the word's text with every ACCEPTED expansion
+  replaced by its dequoted operand, recursively, and `null` when the word contains no accepted
+  expansion. `valueBinds` runs its EXISTING predicate on the candidate as well as on the verbatim
+  text; there is no new predicate and no new disjunct grammar.
+
+  **This replaces the recorded-defaults model the first two drafts carried, and the replacement is
+  smaller than what it replaces.** Spec round 3 finding 1 showed why an array of operands cannot
+  work: a value ASSEMBLED from an accepted expansion and adjacent text — `PG=p${U:-"sql"}` and its
+  literal-after, nested-suffix and nested-middle siblings — has an operand (`sql`) that does not bind
+  and a verbatim text that does not bind, so no disjunct over the parts can ever see the whole. All
+  nine probed spellings bind `psql` in bash and report 0. Composition is not a family to enumerate
+  alongside the others; it is what a word IS, and the model has to answer "what could this word
+  expand to?" rather than "what defaults does it contain?". One candidate string answers it, and
+  three consequences fall out instead of being specified:
+  - Composition in every position works, including nested (`${U:-${V:-p}sql}`) — the substitution is
+    recursive because the lexer already recurses.
+  - The separator problem round 2 finding 3 raised disappears: the operand's DEQUOTED TEXT is
+    substituted, so `${U:-psql -X}` yields the candidate `psql -X` with its whitespace intact and
+    `valueBinds` reaches its multiword branch on the ordinary path. Nothing is joined and nothing is
+    normalized, so the arm no longer has a lossy step.
+  - Default-deny is preserved exactly: a non-accepted expansion is not substituted, so a word
+    containing only non-accepted expansions has a candidate equal to its own text and cannot change
+    verdict.
+- **The verbatim `text` is still tested, unchanged.** Every existing reading — the bare-operand hit at
+  C4, every pattern-operand over-report — is bit-for-bit what it is today, because the candidate is
+  an ADDITIONAL string to test, never a replacement for the one already tested.
+- **The predicate is not weakened, so precision holds where it held.** `${U:-'psql;x'}` yields the
+  candidate `psql;x` and is rejected on the separator; `${U:-'psql\'}` is rejected on the trailing
+  backslash; `${M:-'psql failed to connect'}` reaches the multiword branch and is declined for
+  carrying no flag. All three probed at 0 and unchanged, as is `PG=p${U:-"sql;x"}` (bash binds
+  `psql;x`).
+- **One conservative OVER-report is created, and it is declared rather than discovered.** A word that
+  mixes an accepted expansion with a NON-accepted one — `U=xy; PG=${U#x}${V:-"psql"}` — yields the
+  candidate `${U#x}psql`, which the predicate accepts on its bare `psql` while bash binds `ypsql`.
+  The direction is safe and it is the same conservative reading the ratified `PG=$(x)psql` case
+  already has (§6 item 6), so it is consistent rather than novel. Probed: 0 today, 1 after.
 
 E5 needs no guard clause: the branch that records defaults is unreachable inside double quotes, so
 `PG="${U:-'psql'}"` records nothing and stays 0. The boundary is structural.
@@ -324,7 +340,7 @@ E5 needs no guard clause: the branch that records defaults is unreachable inside
 ## 4. Behavior deltas (complete, from the probe record)
 
 Every row is probed on both instruments, and the set is complete over the PROBE DOMAIN's instrument
-set — not over the open input space, which no document can enumerate. **Flips (0 → 1), eighteen:**
+set — not over the open input space, which no document can enumerate. **Flips (0 → 1), twenty-nine:**
 
 | id | spelling | arm |
 | --- | --- | --- |
@@ -346,6 +362,17 @@ set — not over the open input space, which no document can enumerate. **Flips 
 | L3 | `PG=${U:-'psql -X'}` | 2 |
 | N1 | `read -r PG \` + newline + ` <<< p'sql'` | 1 |
 | N2 | `read -r PG <<< \` + newline + ` p'sql'` | 1 |
+| P1 | `PG=p${U:-"sql"}` | 2 |
+| P2 | `PG=p${U-"sql"}` | 2 |
+| P3 | `PG=p${U:="sql"}` | 2 |
+| P4 | `PG=p${U="sql"}` | 2 |
+| P5 | `PG=p${U:+"sql"}` | 2 |
+| P6 | `PG=p${U+"sql"}` | 2 |
+| P7 | `PG=${U:-"p"}sql` | 2 |
+| P8 | `PG=${U:-${V:-p}sql}` | 2 |
+| P9 | `PG=${U:-p${V:-s}ql}` | 2 |
+| P10 | `PG=p${U:-sql}` (bare operand, composed) | 2 |
+| Q4 | `U=xy; PG=${U#x}${V:-"psql"}` — CONSERVATIVE OVER-REPORT, bash binds `ypsql` (§3.3) | 2 |
 
 **Unchanged, and each one is a pin the suite must carry** (probed value in parentheses): A5 (1),
 A9 here-doc body (1 site — pre-existing, out of scope), A10 `notpsql` (0), A11 prose here-string (1),
@@ -361,7 +388,11 @@ operands (1 each — they already report through the verbatim text), M1/M2/M3 su
 M4 `${U^}` (1, and bash binds `Psql` — a pre-existing over-report), M5 `${U,,}` (1, bash binds `psql`
 — a correct report), M6 `${U@Q}` (1, bash binds `'psql'` — over-report), M7 `${U@U}` (1, bash binds
 `PSQL` — over-report), N3/N4 the PLAIN continuation here-strings (1 each, already closed by the
-existing pattern).
+existing pattern), Q2 `PG="p${U:-sql}"` (0 — bash binds `psql`, but the `${…}` branch is unreachable
+inside double quotes, so this stays a declared MISS; §6 item 8), Q3 `PG="p${U:-'sql'}"` (0 — and here
+the zero is CORRECT, bash binds `p'sql'`, the same boundary working in the other direction),
+Q5 composed `notpsql` (0), Q6 composed prose (0), Q7 `PG=p${U:-"sql;x"}` (0 — candidate `psql;x`
+rejected on the separator).
 
 **Live-tree census:** UNCHANGED by this diff. Measured 76 sites / 0 unprotected / 0 indirections at
 the branch point on 2026-08-20; both arms only ADD reports for spellings the corpus does not contain,
@@ -376,10 +407,21 @@ call and this spec must not own their number.
 Repairing these rows flips two committed pins from RECORDS into FALSE ASSERTIONS. A pin discovered at
 implementation time is an unplanned extra task and is the exact defect
 `BL-PLANLINT-DECLARED-LIMIT-PIN-COLLISION` names, so every declared-limit pin in the deciding suite is
-enumerated here with an explicit disposition. **Ten pins, found by hand** (`grep -n -i 'KNOWN
-miss\|documented limit\|declared miss\|declared limit\|residual limit'` over the suite, then a
-classification pass over all 121 zero-assertions to separate documented misses from correct-behavior
-zeros).
+listed here with an explicit disposition.
+
+**The inventory is produced by a stated PROCEDURE, and the table is its output as of 2026-08-20** —
+not a list somebody remembered. Spec round 3 found the first version short by one, and the miss is
+instructive: the procedure was "grep the limit phrases, then classify the zero-assertions", and the
+pin it missed asserts no zero at all. A template literal whose `\u{…}` sits at the Unicode maximum
+still produces a SITE; what degrades is the LINE. So the procedure is now: (1) grep the suite for
+`KNOWN miss`, `documented limit`, `declared miss`, `declared limit`, `residual limit`; (2) classify
+every zero-assertion in the file; (3) **also** classify every assertion whose expected value encodes a
+DEGRADED-BUT-PRESENT result — a fallback line, a dropped token, a demoted verdict — because a
+documented limit does not have to be a zero. The plan re-runs all three steps against the tree it is
+about to edit and disposes of whatever they return, which is the same derivation
+`BL-PLANLINT-DECLARED-LIMIT-PIN-COLLISION` proposes to mechanize.
+
+**Eleven pins as of 2026-08-20.**
 
 | # | pin (suite) | disposition |
 | --- | --- | --- |
@@ -393,8 +435,9 @@ zeros).
 | 8 | same test, "the mixed spelling" | Left alone — same reason; the assignment word route already dequotes it and the flag criterion still declines. |
 | 9 | `a \U escape AT the Unicode maximum still decodes` (its paired zero for `\U00110000psql`) | Left alone — `decodeAnsiCEscape` is untouched; arm 2 re-lexes operands THROUGH it, so the conservative reading is inherited rather than changed. |
 | 10 | `the derived roots really were derived…` / `never contains the tracked source root %s` (the §4.2 root-skip stays-quiet pin) | Left alone — different surface (gitignore root-skip derivation); neither arm touches `rootSkipNamesFromGitignore` or the walk. |
+| 11 | `a template literal's \u{...} AT the Unicode maximum still maps its lines` | Left alone — `mapRawToLines` and the template path are untouched. Listed because round 3 showed it is a DISTINCT limit from pin 9 and a differently shaped one: the site is still reported and only its LINE degrades to the literal's opening line, so it is a conservative REPORT, not a missed one. It asserts a line, not a zero, which is why the first procedure could not see it. |
 
-Two pins retire; eight are left alone with a reason. The two retiring rows live in ONE test over a
+Two pins retire; nine are left alone with a reason. The two retiring rows live in ONE test over a
 six-row literal array, so the edit is two rows out of that array plus two new positive assertions —
 the array's remaining four rows and its premise loop stay as they are.
 
@@ -429,7 +472,10 @@ the array's remaining four rows and its premise loop stay as they are.
 
 ## 6. Documented limits (module-header edits, shipped with the diff)
 
-Retiring two bullets, adding one. Each remaining limit is a MISSED REPORT, never a false certification.
+Two bullets retire, two are added. **Most limits below are MISSED REPORTS; several are not, and saying
+so plainly is the point of this sentence.** Item 3 is a missed SITE, items 4 and 7 include conservative
+OVER-reports, and the template-literal line-map limit (§5 pin 11) is a report whose LINE degrades
+rather than one that is absent. No limit in this list is a false certification.
 
 1. Quote-concatenated spellings of a rule KEYWORD — a mixed-quoted `alias`/`function` NAME whose body
    binds another program, and a mixed-quoted interpreter positional. **The here-string clause is
@@ -472,7 +518,16 @@ Retiring two bullets, adding one. Each remaining limit is a MISSED REPORT, never
 5. A WRAPPER-prefixed multiword value whose psql path needs the split reading. Unchanged.
 6. `PG=$(x)psql`-shaped values over-report conservatively. Unchanged.
 7. An ANSI-C `\U` escape above the Unicode maximum keeps its raw text rather than throwing. Unchanged,
-   and inherited by arm 2's operand re-lex.
+   and inherited by arm 2's operand re-lex. Its TEMPLATE-LITERAL sibling is a DIFFERENT limit and is
+   listed separately at §5 pin 11: there the site is still reported and only its LINE degrades to the
+   literal's opening line, so it is a conservative REPORT rather than a missed one.
+8. **NEW.** A value COMPOSED inside double quotes (`PG="p${U:-sql}"`) is not read: the `${…}` branch
+   that produces the candidate is unreachable inside double quotes, and that unreachability is exactly
+   what makes `PG="p${U:-'sql'}"` correct (bash binds `p'sql'` there, and the scanner's zero is right).
+   The bare-operand case inside double quotes is therefore a declared MISS — bash binds `psql`,
+   scanner 0 before and after. Reading it would mean deciding per-operand whether its quotes are
+   syntax or data inside a double-quoted span, which is the boundary §3.3 keeps structural.
+   **Re-file trigger:** a live corpus instance of a composed double-quoted expansion value.
 
 ---
 
@@ -552,11 +607,11 @@ is not by itself proof for AC-3 or AC-6; the field checklist is named.
 
 | id | criterion | proved by |
 | --- | --- | --- |
-| AC-1 | The eighteen §4 flips report | New positive assertions in the deciding suite, one per row, each with a premise showing its plain sibling already reports. |
+| AC-1 | The twenty-nine §4 flips report | New positive assertions in the deciding suite, one per row, each with a premise showing its plain sibling already reports. |
 | AC-2 | Every §4 "unchanged" row holds its probed value | Assertions in the deciding suite; the pre-existing ones stay, the newly named ones are added. |
 | AC-3 | The site path is byte-identical in behavior | `git diff` shows no change to `scanShellText` and none to the attached-target regex, AND a suite case asserting a retained target is invisible to `scanSource` (`cat x > psql` → 0 sites; `psql -X -qAt mydb > out.sql` → 1 site, `suppressesStartupFiles: true`). The diff alone is not the proof — the assertion is. |
 | AC-4 | Live-tree census unchanged BY THIS DIFF | Two `collectPsqlUsage` measurements on the same tree, at `origin/main` and at HEAD, asserted EQUAL on sites / unprotected / indirections. No literal is asserted: the count is 76 / 0 / 0 on 2026-08-20 and belongs to whoever last added a psql call, so a literal would fail under an unrelated arc's diff. |
-| AC-5 | Two pins retired, eight untouched | The §5 table, checked row by row against the suite diff; the four surviving rows of the six-row array are asserted unchanged. |
+| AC-5 | Two pins retired, nine untouched, and the PROCEDURE re-run | The §5 table, checked row by row against the suite diff, AND a fresh run of §5's three-step procedure against the tree being edited — the table is that procedure's 2026-08-20 output, not a substitute for running it. The four surviving rows of the six-row array are asserted unchanged. |
 | AC-6 | Mutation score holds with an EMPTY unaccepted-survivor set | A scoped `pnpm heavy` gate run, pasted into the closeout with its mutant/killed/equivalent counts. A green unit suite does NOT prove this. |
 | AC-7 | Ledger-kind count matches the re-derived ledger | `expectedLedgerKinds.ts` equals the registry's actual row count; the gate's own AC-13 case fails otherwise. |
 | AC-8 | Documentation sweep complete | Every §5 companion-sweep bullet landed in the same commit as its pin edit. |
