@@ -1449,8 +1449,7 @@ function lexShellWords(
  * complement member removes the mechanism that generated it rather than adding
  * care around it.
  */
-function acceptedExpansionOperand(span: string, depth = 0): string | null {
-  if (depth > 8) return null;
+function acceptedExpansionOperand(span: string): string | null {
   if (!span.startsWith("${") || !span.endsWith("}")) return null;
   // An UNTERMINATED expansion is a shell syntax error, so the file runs nothing
   // and binds nothing. `matchBrace` returns the LAST index when it finds no
@@ -1462,10 +1461,29 @@ function acceptedExpansionOperand(span: string, depth = 0): string | null {
   const rest = interior.slice(name[0].length);
   const operator = EXPANSION_ACCEPT.find((accepted) => rest.startsWith(accepted));
   if (operator === undefined) return null;
-  const operand = lexShellWords(rest.slice(operator.length), [], [], true)[0]?.text ?? "";
+  // Trimmed on the DEFAULT-IFS edges, exactly as `assignmentBindingLines`
+  // already trims an assignment value, and for the same shell reason: an
+  // unquoted expansion word-splits at its use site, so `PG=${U:- psql -X}` runs
+  // psql there. It is also LOAD-BEARING for an equivalence claim in the
+  // mutation ledger. Every other caller of `valueBinds` trims, and the split
+  // reading depends on it: with a leading empty part at argv[0] the reading
+  // silently declines a wrapper-quoted psql the EVAL reading cannot see either.
+  // Probed on this branch: without this trim,
+  // `PG=${U:-" /tmp/O'Reilly/psql -X"}` reports 1 while the
+  // `filter(part => part.length > 0)` mutant reports 0 - a separating input, so
+  // the candidate route had broken an argument that held before it existed.
+  const operand = (lexShellWords(rest.slice(operator.length), [], [], true)[0]?.text ?? "").replace(
+    /^[ \t\n]+|[ \t\n]+$/g,
+    "",
+  );
   // A NESTED accepted expansion resolves through the SAME whole-value rule
   // applied to the operand, which closes C9 and R8 without a second grammar.
-  return acceptedExpansionOperand(operand, depth + 1) ?? operand;
+  // The recursion needs no depth counter: an operand is the text INSIDE its own
+  // braces minus the name and the operator, so it is strictly shorter than the
+  // span it came from and the descent terminates on length alone. A counter
+  // here would be a bound nothing can reach, which is a mutation site that
+  // earns nothing and a number a later reader would have to justify.
+  return acceptedExpansionOperand(operand) ?? operand;
 }
 
 /**

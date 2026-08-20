@@ -5253,6 +5253,29 @@ describe("arm 1 - a DETACHED here-string target is read from the lexer's retaine
   // `psql-file-content`, probed) rather than the word. The single variable is
   // the operator. `cat x > ${U:-psql}` would NOT be a valid killer: it carries
   // no `read`, so the prefix check alone rejects it and it cannot discriminate.
+  // Killer 4-prime, and it is the one that actually exercises the per-target
+  // operator check. The fixture below is decided by a DIFFERENT rule: the
+  // read-grammar PREFIX requires `<<<`, so a line carrying only a `<` never
+  // reaches the target loop at all and stays 0 under an operator-blind
+  // implementation too. This one puts a `<<<` read AND a second, non-`<<<`
+  // target on the same logical line, so the prefix matches and the operator
+  // check is the only thing between the `>` target and the predicate. Probed:
+  // 0 shipped, 1 with the operator check removed.
+  test("killer 4: a NON-here-string target on a read's own line is not read", () => {
+    const otherOperator = "read -r PG <<< notpsql > ${U:-psql}\n";
+    const onTheHereString = "read -r PG <<< ${U:-psql} > notpsql\n";
+    premise(
+      "the one-variable twin, the same psql value moved onto the `<<<` target, reports",
+      scanShellIndirection(onTheHereString, "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection(otherOperator, "x.sh")).toHaveLength(0);
+  });
+
+  // Killer 4 - a `<` target is not a here-string. NOTE what decides this one:
+  // the read-grammar PREFIX requires `<<<`, so this line never reaches the
+  // target loop. It pins the PREFIX rule, not the per-target operator check;
+  // the fixture above is the one for that.
   test("killer 4: a `<` target that is not a here-string does not bind the read", () => {
     const notHereString = "read -r PG < ${U:-psql}\n";
     const hereString = "read -r PG <<< ${U:-psql}\n";
@@ -5371,6 +5394,24 @@ describe("arm 2 - a WHOLE-VALUE accepted expansion has its operand decided", () 
       0,
     );
     expect(scanShellIndirection(value, "x.sh"), label).toHaveLength(1);
+  });
+
+  // The candidate is TRIMMED on its default-IFS edges, like every other value
+  // `valueBinds` sees. Pinned because that trim is load-bearing for a mutation
+  // equivalence claim, not merely tidy: the SPLIT reading decides this value
+  // (the eval reading takes the pathname apostrophe as syntax and declines),
+  // and an untrimmed operand puts an empty string at argv[0], which silently
+  // declines it. bash binds ` /tmp/O'Reilly/psql -X` here and word-splits it at
+  // the use site, so the report is correct.
+  test("a candidate is trimmed on its IFS edges, so the split reading still sees argv[0]", () => {
+    const leading = 'PG=${U:-" /tmp/O\'Reilly/psql -X"}\n';
+    const flush = 'PG=${U:-"/tmp/O\'Reilly/psql -X"}\n';
+    premise(
+      "the one-variable twin, the same operand with no leading space, reports",
+      scanShellIndirection(flush, "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection(leading, "x.sh")).toHaveLength(1);
   });
 
   // Killer 1 - the candidate exists ONLY when the WHOLE value is one accepted
