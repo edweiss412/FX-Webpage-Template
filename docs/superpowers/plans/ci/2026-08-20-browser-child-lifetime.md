@@ -95,6 +95,7 @@ that would satisfy the naive fixtures, and the fixture that kills it.
 | AC-3 (hang → infra) | throw `MutantRunInfraError` for EVERY child — the hanging case passes | a fast HEALTHY child in the same suite that must NOT throw and must return its numeric exit status. Without this negative case the timeout proof is satisfied by a runner that scores nothing at all |
 | AC-4 (cause distinguishability) | emit three arbitrary distinct strings unrelated to what happened — inequality holds | attribution: the timeout cause must be the one produced BY the constructed hang (AC-3's case), and the sentinel cause the one produced by a sentinel-absent child. Inequality alone is satisfied by noise |
 | AC-5 (signal + code preserved) | hardcode one signal/code pair into the message — a single-case fixture passes | two cases with DIFFERENT signal/code pairs, each asserted to carry its own values through |
+| AC-6 (`perl`-absent fallback still bounded) | a fallback that passes `timeout` on the `perl` spawn but drops it from the DIRECT spawn — the existing suite asserts the ceiling only on `calls[0]` and never inspects `calls[1].timeout` (`tests/mutation/source/spawnBounded.test.ts:208`), so an ordinary `perl`-absent hanging child stays unbounded and every current fixture passes. The enrolled operators cannot generate that object-option mutation either | Task 3: assert `calls[1]!.timeout` on the fallback path, so the direct spawn carries the same ceiling |
 | AC-7 (gate green, 19/19) | none — this is the real gate executing the real surface | n/a: the gate is not a fixture set, which is why it is the closeout gate rather than a task |
 
 **Why this table is derived rather than enumerated.** Its rows are the acceptance criteria themselves,
@@ -158,11 +159,27 @@ ever thrown. Authored red: the failing cases arrive with this task.
 
 Replace the `execFileSync` call with `spawnBounded` per spec §5.2 and map per §5.3.
 
-**One seam is added so the ceiling is testable in seconds rather than eleven minutes:** `runChild`
-takes the ceiling as a defaulted parameter, `timeoutMs: number = BROWSER_MUTANT_TIMEOUT_MS`. Every
-production call site keeps today's arity, so the default is what ships; the suite passes a small value
-to construct a real timeout. This is the minimum seam that lets AC-3 be **executed rather than
-simulated**, which the spec requires in as many words.
+**Two seams, and the ORDER between them is what makes the red honest.** Round 2 established that the
+previous draft's red was unproducible: `runChild` is private — it is absent from the export list at
+`tests/mutation/browser/runner.ts:44-101` — so a suite calling it with a small ceiling fails on
+missing ACCESS, which is the same wrong-reason shape Task 1 was repaired for. This task therefore
+lands in three observable steps, and the RED is taken between the second and the third:
+
+1. **Export the seam, unchanged behaviour.** `export function runChild(root, suite, manifestPath,
+   timeoutMs: number = BROWSER_MUTANT_TIMEOUT_MS)`. The parameter is accepted and NOT yet used; the
+   body still calls `execFileSync`. Every production call site keeps today's arity. Nothing is red
+   here and nothing is claimed to be — this step exists so the red can fail for the right reason.
+2. **Write the suite and OBSERVE THE RED.** The access and the parameter now exist, so the failure is
+   behavioural: with a deciding suite pointed at a command that sleeps **6 s** and a ceiling of
+   **2 s**, the unbounded `execFileSync` lets the child run to completion and `runChild` returns
+   normally, so the `expect(...).toThrow(MutantRunInfraError)` assertion FAILS. Deliberately an
+   assertion failure rather than a hang: the child terminates on its own in 6 s, well inside vitest's
+   default case timeout, so the red is fast, deterministic, and cannot be mistaken for an infra stall.
+3. **Swap to `spawnBounded` and go green.** The 2 s ceiling now kills the 6 s child and the throw
+   arrives.
+
+The production line whose absence makes step 2 red is the `spawnBounded` call itself; nothing
+test-local can turn it green.
 
 - **AC-3 — a CONSTRUCTED HANGING CHILD, not an injected outcome.** The previous draft injected
   `{kind:"timeout"}` into a fake spawn seam, which can pass while the real caller never generates
@@ -194,13 +211,35 @@ fails (AC-1) — this is the mutant the previous draft's four did not cover; dro
 `spawnBounded` call and the constructed-hang case fails, because the default ceiling no longer yields
 to the suite's small value (AC-3).
 
-**Why the `perl`-absent fallback is NOT a task here.** The previous draft made it Task 3, and plan
-review round 1 showed that task could not produce a red in task order — Task 2 installs the swap
-before it runs — and that `spawnBounded` already implements AND tests the fallback
-(`tests/mutation/source/spawnBounded.ts:117-121`, with `ownGroup` in its own enrolled suite). Adding a
-second gate over already-green behavior in a module this arc does not modify is a regression test for
-someone else's surface. It is dropped rather than restated: **AC-6 is satisfied by `spawnBounded`'s
-existing coverage**, and this plan says so instead of duplicating it.
+**The `perl`-absent fallback IS a task again, for a reason round 1 did not have.** Round 1 correctly
+killed the previous Task 3: it could not be red in task order, and it duplicated coverage
+`spawnBounded` already had. Round 2 then probed that the coverage does not actually exist — the
+ceiling is asserted on `calls[0]` only, so a fallback that drops `timeout` from the direct spawn
+passes every current fixture and leaves a `perl`-absent hanging child unbounded. That is a breach of
+the consequence bound, not a duplicate. Task 3 below closes it with ONE assertion, and its red is
+ordinary.
+
+## Task 3 — the `perl`-absent fallback carries the ceiling too
+
+<!-- task: red=`pnpm vitest run tests/mutation/source/spawnBounded.test.ts` ac=AC-6 -->
+
+**What is red and why.** `spawnBounded`'s fallback case asserts the ceiling on the `perl` spawn only
+(`tests/mutation/source/spawnBounded.test.ts:208` and the fallback case below it): it never inspects
+`calls[1]!.timeout`. Add that assertion and it fails **only if** the direct spawn does not carry the
+ceiling — so to observe the red, the pre-dispatch mutant that drops `timeout` from the fallback
+`spawnSync` is applied, the new assertion is confirmed failing, and the mutant is reverted. On
+unmutated `main` the assertion passes immediately, which is stated plainly rather than dressed as a
+red: **this task closes a coverage hole, and its evidence is the mutant that the new assertion kills
+and the old fixtures did not.**
+
+That mutant is recorded in the task's commit with its before/after, because it is the whole
+justification for the task: round 2 showed the enrolled operator set cannot generate this
+object-option mutation, so no mutation score would have caught it either.
+
+**This changes a SUITE, not the `spawnBounded` module.** Spec §8's rule — a repair that modifies
+`spawnBounded.ts` makes that surface's score the convergence criterion — is not triggered: the source
+file is untouched, and a strengthened suite can only raise its score. `pnpm mutation:guards` is
+therefore not required for this task, and no score is claimed.
 
 <!-- tasks: end -->
 
@@ -231,6 +270,7 @@ requires wrapping — which is why this gate's collection is proved by execution
 
 - [ ] Task 1 — constant + derivation test
 - [ ] Task 2 — call-site swap, executed hanging-child proof
+- [ ] Task 3 — fallback ceiling assertion
 - [ ] Closeout gate — full gate green (`pnpm heavy`)
 - [ ] Self-review
 - [ ] **Adversarial review (cross-model)** — `codex-guard --stage plan`

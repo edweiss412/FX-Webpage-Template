@@ -302,11 +302,17 @@ claim that the ceiling covers every case.
   inequality of the produced messages rather than a literal match on any one of them.
 - **AC-5.** A child killed by a signal still reaches the infra path with its `signal` and `code`
   preserved — the existing behavior, re-asserted so the swap cannot silently drop it.
-- **AC-6.** `ownGroup: false` (no `perl`) still bounds the child by the ceiling. **Satisfied by
-  `spawnBounded`'s existing, enrolled coverage** (`tests/mutation/source/spawnBounded.ts:117-121`),
-  not by a new suite in this arc: the fallback lives entirely inside a module this design does not
-  modify, so a second gate over it here would be a regression test for another surface — and, placed
-  after the Task 2 swap, could not produce a red at all.
+- **AC-6.** `ownGroup: false` (no `perl`) still bounds the child by the ceiling. **The existing
+  coverage does NOT establish this, and the earlier claim that it did was wrong.** Probed in plan
+  review round 2: `spawnBounded`'s suite asserts the ceiling on the `perl` spawn only — `calls[0]` —
+  and never inspects `calls[1]!.timeout` (`tests/mutation/source/spawnBounded.test.ts:208` and the
+  fallback case below it), so a fallback that drops `timeout` from the direct `spawnSync` passes every
+  current fixture and leaves an ordinary `perl`-absent hanging child unbounded. The enrolled operator
+  set cannot generate that object-option mutation either, so no mutation score would have caught it.
+  Closed by ONE added assertion on the fallback path — a change to that SUITE, not to
+  `spawnBounded.ts`, so §8's "modifying `spawnBounded` makes its score the criterion" rule is not
+  triggered and a strengthened suite can only raise the score.
+
 - **AC-7.** `pnpm heavy pnpm mutation:browser` remains GREEN end to end, with the surface still
   scoring 19/19 and its ledger still empty — the swap changes lifetime, not verdicts.
 
