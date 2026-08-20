@@ -1456,7 +1456,13 @@ function acceptedExpansionOperand(span: string): string | null {
   // close, so the boundary is checked here rather than assumed.
   if (matchBrace(span, 1, "{", "}") !== span.length - 1) return null;
   const interior = span.slice(2, span.length - 1);
-  const name = /^[A-Za-z_]\w*(?:\[[^\]]*\])?/.exec(interior);
+  // The PARAMETER, not just an identifier. A positional (`${1:-word}`) and the
+  // special parameters take the same value-supplying operators an identifier
+  // does, and bash binds their operands identically, so an identifier-only
+  // reading default-denied spellings the accept-set had already promised.
+  // Widening the NAME does not widen the accept-set: `${#psql}` and `${!psql}`
+  // still find no accepted operator after the name and are still default-denied.
+  const name = /^(?:[A-Za-z_]\w*(?:\[[^\]]*\])?|\d+|[@*#?$!])/.exec(interior);
   if (!name) return null;
   const rest = interior.slice(name[0].length);
   const operator = EXPANSION_ACCEPT.find((accepted) => rest.startsWith(accepted));
@@ -1472,18 +1478,24 @@ function acceptedExpansionOperand(span: string): string | null {
   // `PG=${U:-" /tmp/O'Reilly/psql -X"}` reports 1 while the
   // `filter(part => part.length > 0)` mutant reports 0 - a separating input, so
   // the candidate route had broken an argument that held before it existed.
-  const operand = (lexShellWords(rest.slice(operator.length), [], [], true)[0]?.text ?? "").replace(
+  const rawOperand = rest.slice(operator.length);
+  const operand = (lexShellWords(rawOperand, [], [], true)[0]?.text ?? "").replace(
     /^[ \t\n]+|[ \t\n]+$/g,
     "",
   );
-  // A NESTED accepted expansion resolves through the SAME whole-value rule
-  // applied to the operand, which closes C9 and R8 without a second grammar.
+  // A NESTED accepted expansion resolves through the SAME whole-value rule, and
+  // it is decided on the RAW operand rather than on the dequoted result. Quote
+  // removal turns `'${V:-psql}'` into text that LOOKS like an expansion and is
+  // not one - bash binds that literal string - so recursing on the dequoted text
+  // reinterprets DATA as SYNTAX. That is the same defect the withdrawn
+  // substitution model had, one level down, and reading the raw slice removes
+  // the mechanism rather than guarding its output.
   // The recursion needs no depth counter: an operand is the text INSIDE its own
   // braces minus the name and the operator, so it is strictly shorter than the
   // span it came from and the descent terminates on length alone. A counter
   // here would be a bound nothing can reach, which is a mutation site that
   // earns nothing and a number a later reader would have to justify.
-  return acceptedExpansionOperand(operand) ?? operand;
+  return acceptedExpansionOperand(rawOperand.replace(/^[ \t\n]+|[ \t\n]+$/g, "")) ?? operand;
 }
 
 /**
@@ -2740,6 +2752,7 @@ function splicedAt(first: string, lines: string[], index: number): { spliced: st
 function hereStringBindingLines(
   source: string,
   targets: RedirectionTarget[],
+  words: ShellWord[],
   file: string,
 ): Set<number> {
   const found = new Set<number>();
@@ -2752,13 +2765,36 @@ function hereStringBindingLines(
     const code = comment === undefined ? line : line.slice(0, comment);
     const { spliced, to } = splicedAt(code, lines, index);
     if (!READ_HERE_STRING_PREFIX.test(spliced)) continue;
+    // ONE COMMAND per logical line, or the route declines. Membership of a
+    // logical line is not membership of a COMMAND: in
+    // `read -r PG <<< notpsql; cat <<< p"sql"` both targets share the line while
+    // bash binds `notpsql`, so associating by line alone attributes the second
+    // command's value to the first command's read - a report bash does not make.
+    // The separator is read from the LEXER's own operator words rather than from
+    // a second grammar over the text, so a quoted `;` is data here exactly as it
+    // is to the shell. Declining the whole line is conservative and closes the
+    // class; the line-text rule still applies, unchanged.
+    const separated = words.some(
+      (word) => word.operator && word.text !== "\n" && word.line >= index && word.line <= to,
+    );
+    if (separated) continue;
     for (const target of targets) {
       // The operator is load-bearing, not decoration: with `<` the shell hands
       // `read` the FILE'S CONTENT, so an operator-blind reading reports a
       // binding bash does not make.
       if (target.operator !== "<<<") continue;
       if (target.line < index || target.line > to) continue;
-      if (valueBinds(target.text, file, wholeValueCandidate(target, 0))) {
+      // `read NAME` binds the FIRST LINE of its input, with default-IFS edges
+      // stripped - not the whole here-string. Passing the entire target both
+      // MISSED bindings bash makes (`$'psql\\nignored'` and `$'\\tpsql '` bind
+      // psql) and REPORTED one it does not (`$'other\\npsql -X'` binds `other`).
+      // The candidate is offered only when nothing was truncated, so a
+      // multi-line target cannot be read through a span that spills past the
+      // line bash actually binds.
+      const bound = (target.text.split("\n")[0] ?? "").replace(/^[ \t]+|[ \t]+$/g, "");
+      if (bound.length === 0) continue;
+      const candidate = bound === target.text ? wholeValueCandidate(target, 0) : null;
+      if (valueBinds(bound, file, candidate)) {
         found.add(index);
         break;
       }
@@ -2807,7 +2843,7 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
   // Arm 1's word route, kept as its OWN set rather than merged into
   // `bindingLines`, so the two routes stay distinguishable to a reader and to a
   // mutant even though both collapse to the same emission below.
-  const hereStringLines = hereStringBindingLines(source, targets, file);
+  const hereStringLines = hereStringBindingLines(source, targets, words, file);
   const visitBody = (body: NestedShell): void => {
     if (body.backtick && backticksAreMarkdown) return;
     const inner: NestedShell[] = [];
@@ -2829,7 +2865,7 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
     // reason: the outer lex replaced the whole substitution with the opaque
     // `${}` word and so retained no target for anything inside it, which is why
     // `X=$(read -r PG <<< p'sql')` was invisible to both readings (probe A7).
-    for (const bound of hereStringBindingLines(body.text, innerTargets, file)) {
+    for (const bound of hereStringBindingLines(body.text, innerTargets, innerWords, file)) {
       hereStringLines.add(body.line + bound);
     }
     for (const deeper of inner) visitBody({ ...deeper, line: body.line + deeper.line });

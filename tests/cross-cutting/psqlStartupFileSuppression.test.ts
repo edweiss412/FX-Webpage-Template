@@ -5583,6 +5583,124 @@ describe("arm 2 - a WHOLE-VALUE accepted expansion has its operand decided", () 
   });
 });
 
+describe("diff review round 1 - the four findings, each pinned", () => {
+  // F1. `read NAME` binds the FIRST LINE of its input with default-IFS edges
+  // stripped, not the whole here-string. Reading the entire target both MISSED
+  // bindings bash makes and REPORTED one it does not, so the two directions are
+  // pinned together - a fixture set carrying only the misses would go green on
+  // an implementation that reads the whole target and merely got luckier.
+  test("F1: a here-string target is read as `read` reads it - first line, IFS-trimmed", () => {
+    const rows: Array<[label: string, source: string, hits: number]> = [
+      ["a trailing line is not part of the binding", "read -r PG <<< $'psql\\nignored'\n", 1],
+      ["IFS edges are stripped", "read -r PG <<< $'\\tpsql '\n", 1],
+      ["the psql is on a line `read` never binds", "read -r PG <<< $'other\\npsql -X'\n", 0],
+    ];
+    premise(
+      "the single-line sibling of all three reaches the rule and reports",
+      scanShellIndirection("read -r PG <<< $'psql'\n", "x.sh").length,
+      0,
+    );
+    expect(rows.map(([l, s]) => [l, scanShellIndirection(s, "x.sh").length])).toEqual(
+      rows.map(([l, , h]) => [l, h]),
+    );
+  });
+
+  // F2. Membership of a LOGICAL LINE is not membership of a COMMAND. Both
+  // orders are pinned because the defect is symmetric, and the one-variable
+  // twin keeps the same two targets on the same line with the separator
+  // removed, so the zero is attributable to the separator and not to the
+  // machinery having stopped looking.
+  test("F2: a target belonging to ANOTHER command on the same line does not bind the read", () => {
+    const after = 'read -r PG <<< notpsql; cat <<< p"sql"\n';
+    const before = 'cat <<< p"sql"; read -r PG <<< notpsql\n';
+    const oneCommand = "read -r PG <<< p'sql'\n";
+    premise(
+      "the one-variable twin, a single command on the line, reports",
+      scanShellIndirection(oneCommand, "x.sh").length,
+      0,
+    );
+    expect([
+      ["separator after the read", scanShellIndirection(after, "x.sh").length],
+      ["separator before the read", scanShellIndirection(before, "x.sh").length],
+    ]).toEqual([
+      ["separator after the read", 0],
+      ["separator before the read", 0],
+    ]);
+  });
+
+  // F3. The accept-set is about the OPERATOR, and a positional or special
+  // parameter takes the same value-supplying operators an identifier does. An
+  // identifier-only name reading default-denied spellings the accept-set had
+  // already promised, which is a defect INSIDE promised scope rather than a
+  // request to widen it.
+  test.each([
+    ["a positional parameter, default", "PG=${1:-'psql'}\n", "PG=${U:-'psql'}\n"],
+    ["a positional parameter, alternate", "PG=${1:+'psql'}\n", "PG=${U:+'psql'}\n"],
+  ])("F3: %s binds psql", (label, positional, identifier) => {
+    premise(
+      `${label}: the identifier-named twin, differing only in the PARAMETER, reports`,
+      scanShellIndirection(identifier, "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection(positional, "x.sh"), label).toHaveLength(1);
+  });
+
+  // F3, the other direction: widening the NAME must not widen the ACCEPT-SET.
+  // `${#psql}` and `${!psql}` now parse a name where they did not before, and
+  // must still find no accepted operator after it.
+  test("F3: a widened parameter name does not admit a complement operator", () => {
+    expect([
+      ["length", scanShellIndirection("PG=${#psql}\n", "x.sh").length],
+      ["indirection", scanShellIndirection("PG=${!psql}\n", "x.sh").length],
+      ["quoted length operand", scanShellIndirection("PG=${#'psql'}\n", "x.sh").length],
+      ["quoted indirection operand", scanShellIndirection("PG=${!'psql'}\n", "x.sh").length],
+    ]).toEqual([
+      // The first two report through the VERBATIM text for a pre-existing
+      // reason and are ratified out of scope in both directions. The quoted
+      // spellings are the ones a candidate would have to read, and they stay 0.
+      ["length", 1],
+      ["indirection", 1],
+      ["quoted length operand", 0],
+      ["quoted indirection operand", 0],
+    ]);
+  });
+
+  // F4. Quote removal turns `'${V:-psql}'` into text that LOOKS like an
+  // expansion and is not one - bash binds that literal string. Recursing on the
+  // DEQUOTED operand reinterpreted data as syntax, which is the withdrawn
+  // substitution model's defect one level down. Nesting is now decided on the
+  // RAW operand.
+  test("F4: a QUOTED literal that looks like an expansion is not resolved as one", () => {
+    const quotedLiteral = "PG=${U:-'${V:-p\"sql\"}'}\n";
+    const liveNesting = "PG=${U:-${V:-'psql'}}\n";
+    premise(
+      "the one-variable twin, the same shape with the inner expansion UNQUOTED and therefore live, reports",
+      scanShellIndirection(liveNesting, "x.sh").length,
+      0,
+    );
+    // Probed: 1 before the repair, 0 after, while the live-nesting twin holds at
+    // 1 - which is what separates the mechanism repair from a blanket decline.
+    expect(scanShellIndirection(quotedLiteral, "x.sh")).toHaveLength(0);
+  });
+
+  // F4's RESIDUAL, pinned as the documented limit it is rather than left
+  // unstated. With a BARE inner operand the dequoted literal still carries a
+  // word-boundaried `psql` and no rejected character, so it reports through
+  // `valueBinds`'s pre-existing fallback - the same conservative over-report
+  // `PG=${U#psql}` has always made. bash binds the literal `${V:-psql}`, so the
+  // report is LOUD rather than wrong-silent, which the consequence bound
+  // permits and section 1.1 row 6 ratifies out of scope in both directions.
+  test("F4 residual: a bare inner operand still over-reports through the verbatim fallback", () => {
+    expect([
+      ["single-quoted literal", scanShellIndirection("PG=${U:-'${V:-psql}'}\n", "x.sh").length],
+      ["ANSI-C literal", scanShellIndirection("PG=${U:-$'${V:-p\\163ql}'}\n", "x.sh").length],
+    ]).toEqual([
+      ["single-quoted literal", 1],
+      ["ANSI-C literal", 1],
+    ]);
+  });
+});
+
 describe("arm 2 precision - the zeros that must STAY zero", () => {
   // Every case here is a non-regression pin, and a pin against correct code
   // cannot red on its own. Its red is authored against NAMED MUTANTS in

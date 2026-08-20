@@ -2113,7 +2113,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // RE-DERIVED 2026-08-20 for the quoted-value recall arc
     // (BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE + BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE),
     // which edits lexShellWords and the binding rules and therefore moved every
-    // site below the lexer: 63 mutants -> 67, and all 24 accepted rows re-keyed,
+    // site below the lexer: 63 mutants -> 69, and all 24 accepted rows re-keyed,
     // with a 25th added for the line loop in the function arm 1 introduced.
     // The gate's FIRST run on this arc scored 0.9545 with two unaccepted
     // survivors, and both were dispositioned rather than accepted: the line-loop
@@ -2131,6 +2131,11 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // trimming the candidate where it is produced, with the separating input
     // recorded on that row and pinned in the deciding suite. None of the 24 is
     // carried over on the strength of having been true before.
+    // Re-keyed ONCE MORE after diff review round 1, whose four repairs moved
+    // every site below them again: read's first-line-and-IFS semantics, the
+    // one-command-per-logical-line narrowing, the widened parameter name, and
+    // deciding nested expansions on the RAW operand rather than the dequoted
+    // one. 67 -> 69 mutants; all 25 rows re-keyed and every argument re-read.
     // Achieved 39/39 counted (63 mutants, 24 equivalent, NO accepted gap) after
     // the 2026-08-17 arc, whose diff-review repairs moved every site twice; it was 30/30
     // (48 mutants, 18 equivalent) after the 2026-08-16 disposition arc, whose
@@ -2152,7 +2157,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     },
     accepted: [
       {
-        siteId: "relational-boundary:2749:29:<><=",
+        siteId: "relational-boundary:2762:29:<><=",
         kind: "equivalent",
         reason:
           'hereStringBindingLines\'s line loop indexes lines[index], so the widened bound adds one iteration at index === lines.length. There lines[index] is undefined and the `?? ""` yields the empty string, commentAt[index] is undefined so no comment slice happens, and splicedAt("", lines, lines.length) returns immediately because /\\\\$/ does not match the empty string. READ_HERE_STRING_PREFIX then requires a literal `read` and cannot match "", so the iteration hits `continue` before reaching the target loop: `found` is untouched and no target is examined. Same one-past-the-end shape as the commentIndexPerLine and matchBrace rows above, in the function arm 1 added (scan.ts, symbol hereStringBindingLines). Boundary pin: \'a `<<<` target on ANOTHER logical line does not bind the read\'.',
@@ -2183,38 +2188,38 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "The widened containment bound in exemptionOnLines can only admit a range whose end equals `at`, the marker's own start column. For such a range the reason is sliced over [at + EXEMPTION_MARKER.length, at), an empty range, so reason.length > 0 is false and control falls through to the next candidate line exactly as the original's `continue` does - no returned value differs. It cannot shadow a wider range either: a range containing `at` must begin at or before `at`, a range ending at `at` belongs to a different comment, and TypeScript comment ranges on one line never overlap, so `find` cannot return the narrow range where the original returned a wider one. Every range commentIndexPerLine produces ends at Infinity and is unaffected (scan.ts, symbols exemptionOnLines and jsCommentRangesPerLine). Boundary pin: 'a marker beginning exactly where the comment ends grants no exemption'.",
       },
       {
-        siteId: "relational-boundary:1823:46:>>>=",
+        siteId: "relational-boundary:1835:46:>>>=",
         kind: "equivalent",
         reason:
           "The length bound is a redundant partner of the conjunct it is ANDed with: /^-[a-zA-Z]*S[\\s\\S]/ requires a dash, an S and at least one character after it, so it matches nothing shorter than three characters. The only candidates the widened bound newly admits are exactly two characters long, and every one of them fails that regex, so the attached-script branch is entered on precisely the same set (scan.ts, symbol scanShellText, the env -S attached-script slice). Boundary pin: 'env -S takes the next word, and the attached form carries its own script'.",
       },
       {
-        siteId: "relational-boundary:1997:22:>>>=",
+        siteId: "relational-boundary:2009:22:>>>=",
         kind: "equivalent",
         reason:
           "The widened bound changes behaviour only when `raw` is the empty string, and there it evaluates the delimiter regex against raw[0], which is undefined. RegExp.prototype.test coerces its argument to the string 'undefined', which contains none of the four delimiter characters, so the test is false and `i` is 0 either way (scan.ts, symbol mapRawToLines). Boundary pin: 'a template literal reports the physical line its psql text came from'.",
       },
       {
-        siteId: "relational-boundary:1998:26:>>>=",
+        siteId: "relational-boundary:2010:26:>>>=",
         kind: "equivalent",
         reason:
           "The widened bound admits only raw.length === i, reachable in two shapes and outcome-neutral in both. With i === 0 the slice is empty, raw.at(-1) is undefined, and test('undefined') is false, so `end` is raw.length either way. With i === 1 the slice is a single delimiter character; the mutant sets `end` to 0 where the original sets it to 1, but `end` is used only as the `while (i < end)` bound and both 1 < 0 and 1 < 1 are false, so the walk emits nothing and the function returns the same produced === cooked verdict (scan.ts, symbol mapRawToLines). Boundary pin: 'a template literal reports the physical line its psql text came from'.",
       },
       // ---- equivalent: an appended empty command, and a uniform shift -----
       {
-        siteId: "relational-boundary:1652:22:>>>=",
+        siteId: "relational-boundary:1664:22:>>>=",
         kind: "equivalent",
         reason:
           "The trailing flush in scanShellText can only APPEND an empty command, never insert one, so the parallel commands/followedBy arrays stay index-aligned - the two pushes are unconditional partners. Every consumer treats the extra entry exactly as the original treated its absence: the bare-shell stdin scan skips it as a stage because its followedBy entry is the empty string rather than '|', and skips it as a SUCCESSOR because next[0] is undefined precisely where `next === undefined` was; the per-command scan's findIndex returns -1 on an empty argv and continues (scan.ts, symbol scanShellText). Boundary pin: 'a command terminated by a trailing ; is still reported'.",
       },
       {
-        siteId: "relational-boundary:1733:30:>>>=",
+        siteId: "relational-boundary:1745:30:>>>=",
         kind: "equivalent",
         reason:
           "When `remaining` is empty the widened guard runs a block that reduces to scanShellText('', file, 0): the join loop has nothing to iterate, `joined` stays empty, that call lexes no words and returns no sites, and the sites loop - the only place `anchor` (remaining[0], undefined here) is dereferenced - never runs. The `joinedHandled = true` and `break` that follow sit OUTSIDE the guard and run identically either way. The empty case is reachable, not hypothetical: `ssh database` with no remote command (scan.ts, symbol scanShellText, the trailing-script/eval joining branch). Boundary pin: 'an ssh host with no remote command is not a site'.",
       },
       {
-        siteId: "relational-boundary:1743:19:>>>=",
+        siteId: "relational-boundary:1755:19:>>>=",
         kind: "equivalent",
         reason:
           "Admitting k === 0 prepends one separator to `joined` and one entry to each of joinedOffsets and joinedLines, so the mutant's joined string is exactly ' ' + the original's and each array is exactly one extra element followed by the original array. A leading space is word-separator whitespace to the re-lexer, so the same words are produced with every offset raised by one, and the two lookups joinedOffsets[site.offset] and joinedLines[site.offset] therefore read the SAME element as before; the `?? anchor` fallbacks cannot fire in one and not the other. The mapping the arrays exist to serve is unchanged (scan.ts, symbol scanShellText, the joined-string builder). Boundary pin: 'an ssh remote command on a continuation line reports its own physical line'.",
@@ -2225,57 +2230,57 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // family: the `index > 1` rows read a different element from the
       // `index > 0` rows, so each carries its own citation.
       {
-        siteId: "relational-boundary:2189:12:>>>=",
+        siteId: "relational-boundary:2201:12:>>>=",
         kind: "equivalent",
         reason:
           "The clause is `index > 0 && WRAPPERS.test(basename(before[index - 1] ?? ''))` in isStrongPrefixWord. Widening the guard admits only index === 0, where before[-1] is undefined, the ?? yields the empty string, the file's own basename returns '' for it (Math.max of two missing lastIndexOf results is -1, so slice(0) returns the whole empty word), and WRAPPERS is an anchored alternation of non-empty program names that cannot match ''. The clause evaluates to false exactly as the short-circuit did (scan.ts, symbol isStrongPrefixWord). Boundary pin: 'the first preceding word vouches only through its own spelling'.",
       },
       {
-        siteId: "relational-boundary:2190:12:>>>=",
+        siteId: "relational-boundary:2202:12:>>>=",
         kind: "equivalent",
         reason:
           "The twin clause `index > 1 && WRAPPERS.test(basename(before[index - 2] ?? ''))` in isStrongPrefixWord. Widening admits only index === 1, whose lookback is before[-1] - undefined, so the same collapse applies: '' through the ??, '' through basename, and no match against the anchored WRAPPERS alternation. Argued separately from the index > 0 twin because it reads a DIFFERENT element (scan.ts, symbol isStrongPrefixWord). Boundary pin: 'the first preceding word vouches only through its own spelling'.",
       },
       {
-        siteId: "relational-boundary:2206:16:>>>=",
+        siteId: "relational-boundary:2218:16:>>>=",
         kind: "equivalent",
         reason:
           "The same lookback clause `index > 0 && WRAPPERS.test(basename(before[index - 1] ?? ''))`, in prefixIsCommandish's per-word predicate rather than isStrongPrefixWord. `before` here is the site's full precedingWords array and `index` is the callback's own index, so index === 0 again reads before[-1]: undefined, then '', then no match against the anchored alternation (scan.ts, symbol prefixIsCommandish). Boundary pin: 'the first preceding word vouches only through its own spelling'.",
       },
       {
-        siteId: "relational-boundary:2207:16:>>>=",
+        siteId: "relational-boundary:2219:16:>>>=",
         kind: "equivalent",
         reason:
           "The two-word lookback `index > 1 && WRAPPERS.test(basename(before[index - 2] ?? ''))` in prefixIsCommandish. Widening admits index === 1 only, reading before[-1]: undefined, '' through the ??, '' through basename, no match against the anchored WRAPPERS alternation (scan.ts, symbol prefixIsCommandish). Boundary pin: 'the first preceding word vouches only through its own spelling'.",
       },
       // ---- equivalent: a quantifier its own character class already covers -
       {
-        siteId: "regex-quantifier-bound:2685:21:{1,2}>{1,3}",
+        siteId: "regex-quantifier-bound:2697:21:{1,2}>{1,3}",
         kind: "equivalent",
         reason:
           "The dash run in INTERPRETER_POSITIONAL_BINDING is followed by [A-Za-z-]*, a character class that ALREADY contains a dash, so -{1,2}[A-Za-z-]* and -{1,3}[A-Za-z-]* denote the same language: one dash followed by any run of letters and dashes. Every extra dash the widened quantifier could consume is a dash the class consumes instead, so no input matches one and not the other, and the pattern is only ever consulted through .test (scan.ts, symbol INTERPRETER_POSITIONAL_BINDING, used in scanShellIndirection). Its twin at 2372:38 has the follower class [A-Za-z0-9], which contains no dash - that one is killed by a test rather than blessed here. Boundary pin: 'an extra dash in the -c spelling still reports the positional binding'.",
       },
       {
-        siteId: "relational-boundary:2856:54:<><=",
+        siteId: "relational-boundary:2892:54:<><=",
         kind: "equivalent",
         reason:
           "The `logical` continuation loop can take the extra iteration only when the accumulated text still ends with a backslash at k + 1 === lines.length - that is, when the final element of `lines` ends with one. That iteration appends lines[k+1] ?? '' (the empty string) and replaces the trailing backslash with a SPACE, after which the loop's own trailing-backslash test fails and it exits, so the mutant's `logical` differs from the original's in exactly its last character. Neither consumer can tell those apart: the quoted-binding pattern requires a closing quote, which neither a backslash nor a space supplies, and every whitespace run in INTERPRETER_POSITIONAL_BINDING is followed by required content that the extra iteration adds nothing to. Both characters are non-word, so a trailing word boundary holds identically (scan.ts, symbol scanShellIndirection). Boundary pin: 'a quoted binding split by a backslash continuation is one assignment'.",
       },
       // ---- equivalent: bounds a parsed YAML document cannot reach ---------
       {
-        siteId: "relational-boundary:3135:31:<><=",
+        siteId: "relational-boundary:3171:31:<><=",
         kind: "equivalent",
         reason:
           "The alias-resolution loop cannot approach its bound: the yaml parser refuses to register an anchor on an alias node - probed on this tree, `a: &x one` / `b: &y *x` / `c: *y` throws 'Unresolved alias (the anchor must be set before the alias): y' - so an Alias always resolves to a NON-alias node and resolveNode returns on its second pass with `depth` never exceeding 1. A bound of 32 versus 33 is unreachable in either direction (scan.ts, symbol resolveRunShells, helper resolveNode). Boundary pin: 'an aliased run body resolves, and its site is pinned to the run key'.",
       },
       {
-        siteId: "relational-boundary:3267:35:<><=",
+        siteId: "relational-boundary:3303:35:<><=",
         kind: "equivalent",
         reason:
           "The same depth guard in the entrypoint/args walk's own `resolved` helper - a separate copy with the same premise. Chained aliases cannot exist, because the yaml parser will not attach an anchor to an alias node (same probe as the resolveRunShells row), so `resolved` returns after at most two passes and `depth` never exceeds 1 (scan.ts, symbol scanWorkflowIndirection, the entrypoint/args resolver). Boundary pin: 'an aliased run body resolves, and its site is pinned to the run key'.",
       },
       {
-        siteId: "relational-boundary:3377:32:<><=",
+        siteId: "relational-boundary:3413:32:<><=",
         kind: "equivalent",
         reason:
           "`range` is the run VALUE node's range and `keyRange` its own key's, and equality between them is unreachable: in a block mapping the key's characters and the ':' separator occupy the offsets before the value, so a non-alias value starts strictly after its key, while an alias resolves to an anchor defined elsewhere in the document - never at the byte offset this pair's key scalar occupies. The `?? 0` fallback cannot produce equality either, because a pair produced by parseDocument always carries a key range; it is defensive against the optional chain, not a reachable state (scan.ts, symbol scanWorkflowIndirection, the alias anchor comparison). Boundary pin: 'an aliased run body resolves, and its site is pinned to the run key'.",
@@ -2293,19 +2298,19 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "The ANSI-C close-quote scan indexes text[k] by its own counter, so the widened bound adds one iteration at k === text.length where text[k] is undefined. The body compares that character against exactly two one-character literals - a backslash, whose branch skips the escaped character, and the closing single quote, whose branch assigns `close` and breaks - and undefined is strictly equal to neither, so `close` is still -1 and the unterminated-string path is taken identically (scan.ts, symbol lexShellWords, the ANSI-C branch). Boundary pin: 'an unterminated ANSI-C string keeps the old undecoded reading'.",
       },
       {
-        siteId: "relational-boundary:2636:72:>>>=",
+        siteId: "relational-boundary:2648:72:>>>=",
         kind: "equivalent",
         reason:
           "The filter drops empty parts from value.split(/[ \\t\\n]+/), and EVERY value reaching this branch has had its leading and trailing [ \\t\\n] runs stripped: the assignment and compound-array callers trim two statements above, and arm 2's expansion CANDIDATE is trimmed where it is produced, in acceptedExpansionOperand. Splitting on a whitespace-RUN separator can only produce an empty part at the very start or the very end of the subject, so a trimmed subject produces none: the predicate is true for every part either way, and the widened bound admits a part that cannot exist. RE-DERIVED 2026-08-20 and this row is why the candidate is trimmed at all - the argument had genuinely STOPPED being true when arm 2 added a caller that did not trim. Probed on that branch: `PG=${U:-\" /tmp/O'Reilly/psql -X\"}` reported 1 shipped and 0 under this mutant, a separating input, because the SPLIT reading decides that value (the eval reading takes the pathname apostrophe as syntax) and a leading empty part puts \"\" at argv[0]. Pinned by 'a candidate is trimmed on its IFS edges, so the split reading still sees argv[0]' (scan.ts, symbols valueBinds and acceptedExpansionOperand). Boundary pin: 'an unquoted $CMD binds when its first word is psql and a later word is a flag'.",
       },
       {
-        siteId: "relational-boundary:2638:20:>>>=",
+        siteId: "relational-boundary:2650:20:>>>=",
         kind: "equivalent",
         reason:
           "`parts.length > 1` is a readability partner of the conjunct two lines below it, not an independent gate: that last conjunct is parts.slice(1).some(...), and for parts.length <= 1 the slice is empty, so `.some` returns false and `splitBound` is false regardless. Admitting parts.length === 1 changes no verdict - it only evaluates isPsqlCommandWord(parts[0]) before reaching the same false (scan.ts, symbol assignmentBindingLines, the word-split reading). Boundary pin: 'an unquoted $CMD binds when its first word is psql and a later word is a flag'.",
       },
       {
-        siteId: "relational-boundary:2706:52:<><=",
+        siteId: "relational-boundary:2718:52:<><=",
         kind: "equivalent",
         reason:
           "The `spliced` continuation loop's widened bound can take its extra iteration only when the FINAL element of `lines` ends with a backslash, and that iteration appends lines[k+1] ?? '' - the empty string - after deleting the trailing backslash, so the mutant's `spliced` differs from the original's by exactly one trailing backslash at end of subject. Neither remaining consumer can observe that. READ_HERE_STRING and githubEnvWrite both end their psql clause in \\bpsql\\b followed by a character class that matches the empty string, so no match can END at that final backslash and deleting it destroys no match; nor can deleting it create one, because a newly created match would have to end at the new final character - meaning the subject ended `psql\\` - and \\bpsql\\b already matched there, a backslash being a non-word character. githubEnvWrite's other clause is the fixed GITHUB_ENV/GITHUB_OUTPUT literal, whose trailing boundary holds against a backslash and against end of subject alike (scan.ts, symbol scanShellIndirection). Boundary pin: 'a trailing backslash at end of input is literal, so it binds nothing'.",
@@ -2315,13 +2320,13 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // Both added by the diff-review-r1 repair, and both partners of a
       // condition beside them rather than independent gates.
       {
-        siteId: "relational-boundary:2582:24:<><=",
+        siteId: "relational-boundary:2594:24:<><=",
         kind: "equivalent",
         reason:
           "The element walk's bound stops BEFORE `close`, the index of the closing `)`. Widening it to include that index adds one iteration whose word is that `)` - an operator - and the loop body's first statement is `if (word.operator) continue`, so the iteration reads no element and moves no state. `close` is assigned only from a word whose text is exactly `)`, so no other word can occupy that index (scan.ts, symbol compoundArrayBinds). Boundary pin: 'an element after the closing paren is not part of the value'.",
       },
       {
-        siteId: "relational-boundary:2589:22:>>>=",
+        siteId: "relational-boundary:2601:22:>>>=",
         kind: "equivalent",
         reason:
           '`value.length > 0` is a readability partner of the `valueBinds(...)` conjunct beside it, not an independent gate: widening it admits only the empty string, and valueBinds("") is false on every path - /\\s/ does not match it, basename("") is "" which isPsqlName rejects, and /\\bpsql\\b/ cannot match an empty subject. RE-READ 2026-08-20: this line now passes arm 2\'s candidate as a third argument, and that cannot change the verdict, because an empty value means the value starts at the END of the word, so no recorded span can begin at or after it and wholeValueCandidate returns null - the candidate disjunct is skipped and the call is valueBinds("", file, null) exactly as before. The empty case is reachable rather than hypothetical (`PG=([0]=)`), and probed at zero both ways (scan.ts, symbol compoundArrayBinds). Boundary pin: \'a compound array of other programs binds nothing\'.',
