@@ -15,7 +15,7 @@ This spec adds one `spec:lint` arm over plan-kind documents. For each enrolled g
 3. **Discovery is by PHRASE IN A TEST TITLE, not by reading assertions.** The arm never parses a test body, never looks for `toHaveLength(0)`, and owns no JavaScript grammar beyond a single-line call-opener match (§3.1). The rejected alternative — locate the zero assertion and prove the title governs it — needs block extents over TypeScript and is the recognizer-growth road `lib/specLint/` already measured at 20 diff rounds with a flat finding rate (`docs/review-rounds/feat/speclint-prose-count-parity/`).
 4. **A title that narrates a CLOSED limit is dispositioned per instance, never pattern-matched.** Two live titles say a limit closed (§2.4). Recognizing them would need tense and polarity over English; instead each is one row in a disposition registry with a reason, asserted against the scanner by a meta-test (§5). This is the `accepted:` shape the mutation registry already uses for survivors it cannot kill (`tests/mutation/source/registry.ts:37`).
 5. **The plan's obligation is to NAME the pin, not to resolve it.** The arm cannot tell "I retire this pin" from "I deliberately leave it alone"; both are compliance. Naming means the pin's title appears verbatim in the plan text. That is what the incident's own repair did (`docs/superpowers/plans/2026-08-17-shell-binding-mixed-quoted-value.md`, Step 3b, which quotes the title in full).
-6. **The grain is the plan's Files block, not the whole document.** Measured: whole-document matching draws on 63 of 664 plans, 48 of them naming an enrolled path only in prose (§2.5). A plan citing `tests/mutation/_metaPremiseContract.test.ts` because its tests must satisfy the premise contract is not editing that file, and advising it about pins there is exactly the false advisory the consequence bound forbids.
+6. **The grain is the plan's Files declaration, not the whole document.** Measured at the §2 baseline: whole-document matching draws on 63 plans against the Files grain's 25, the difference naming an enrolled path only in prose (§2.5). A plan citing `tests/mutation/_metaPremiseContract.test.ts` because its tests must satisfy the premise contract is not editing that file, and advising it about pins there is exactly the false advisory the consequence bound forbids.
 7. **No new `Check` union member and no `CHECK_ORDER` change.** Findings report `check: "taskContract"`, following the fixture arm (`docs/superpowers/specs/2026-08-18-planlint-fixture-satisfiability.md` §5).
 8. **Threat fence.** The arm defends against ordinary authoring mistakes by a contributor writing a plan. Adversarial obfuscation — a title constructed to evade the phrase match, a Files block written to hide a path — is out of scope and files to §8, not to a review round.
 
@@ -37,9 +37,12 @@ Every number below was produced by a probe run against the live tree at `4e074d3
 | Enrolled guard surfaces (`GUARD_SURFACES`) | 38 |
 | Distinct enrolled paths (`sourcePath` ∪ `suitePaths`) | 100 |
 | Distinct `suitePaths` | 62 |
-| Tracked plan `.md` files (`git ls-files 'docs/superpowers/plans'`) | 664 |
-| Plans carrying a `**Files:**` block | 364 |
-| Plans naming an enrolled path INSIDE a Files block | 15 |
+| Tracked plan `.md` files (`git ls-files 'docs/superpowers/plans'`) | 665 |
+| `**Files:**` headers across them | 2559 |
+| …whose header line itself carries a path | 636 |
+| …followed by an unordered list | 2136 |
+| …followed by an ordered list | 25 |
+| Plans naming an enrolled path in a Files declaration | 25 |
 
 ### 2.2 The phrase population, and why the title narrowing is load-bearing
 
@@ -82,24 +85,31 @@ Line numbers here are drafting-time locators and rot at every merge; the pin's I
 | Grain | Plans drawing ≥1 hit |
 | --- | --- |
 | Enrolled path anywhere in the document | 63 |
-| Enrolled path inside a `**Files:**` block | 15 |
+| Enrolled path in a Files declaration (§3.2) | 25 |
 
-The 48-plan difference is prose citation: plans naming `_metaPremiseContract.test.ts`, `_metaReviewRoundEconomy.test.ts` or `numerics.ts` as context, contracts to satisfy, or prior art. None of them edits the surface. The Files block is the plan's own declaration of what it touches, so it is the grain — declared, never inferred, the same principle the task-marker contract rests on (`docs/agents/spec-self-review.md`).
+The 38-plan difference is prose citation: plans naming `_metaPremiseContract.test.ts`, `_metaReviewRoundEconomy.test.ts` or `numerics.ts` as context, contracts to satisfy, or prior art. None of them edits the surface. The Files block is the plan's own declaration of what it touches, so it is the grain — declared, never inferred, the same principle the task-marker contract rests on (`docs/agents/spec-self-review.md`).
 
-The Files block's INTERNAL grammar is deliberately not modeled. A probe over the corpus's bullet verbs returns `Modify` 2011, `Test` 960, `Create` 761, `Commit` 22, `AC` 22, `Delete` 21 and a long tail of one-off labels (`Modify or delete`, `Create or finalize`, `Regenerate`, `deliver row`, `Route precedence pin`, …). An accept-set over verbs is a denylist wearing an accept-set's clothes. The arm reads only whether an enrolled path — a member of a closed 100-element set — appears on a line inside the block.
+**Two shapes carry the declaration, and only two.** 636 of the 2559 headers put the paths on the header line itself (`**Files:** create \`a\`, \`b\`; modify \`c\``); 2136 are followed by an unordered list. Both are read. An ORDERED list after the header — 25 headers — is DECLINED: sampling those runs shows the numbered items are as often TASK STEPS as files (`1. **RED first …**`, `1. Merge \`origin/main\` …`, `1. Move the full body to \`BACKLOG-archive.md\``), and admitting them would re-import exactly the prose citations this grain exists to exclude. The arm cannot classify an ordered run, so it declines and files the limit (§8 item 11) rather than guessing.
+
+The Files declaration's INTERNAL grammar is deliberately not modeled. A probe over the corpus's bullet verbs returns `Modify` 2011, `Test` 960, `Create` 761, `Commit` 22, `AC` 22, `Delete` 21 and a long tail of one-off labels (`Modify or delete`, `Create or finalize`, `Regenerate`, `deliver row`, `Route precedence pin`, …). An accept-set over verbs is a denylist wearing an accept-set's clothes. The arm reads only whether an enrolled path — a member of a closed 100-element set — appears on a line inside the block.
 
 ### 2.6 The corpus rate, which is what the ledger asked to measure
 
 Running the shipped rules (§3) over the plan corpus enumerated by `git ls-files 'docs/superpowers/plans' | grep '\.md$'` (§2.1 owns that count):
 
-**2 plans draw an advisory; 4 advisories total.**
+**5 plans draw an advisory; 7 advisories total**, at the §2 baseline.
 
 ```
-docs/superpowers/plans/2026-07-19-spec-lint.md            2  (numerics.test.ts pins)
-docs/superpowers/plans/2026-08-04-review-round-economy.md  2  (_metaReviewRoundEconomy.test.ts pins)
+docs/superpowers/plans/2026-07-19-spec-lint.md                    2  (numerics.test.ts)
+docs/superpowers/plans/2026-08-04-review-round-economy.md         2  (_metaReviewRoundEconomy.test.ts)
+docs/superpowers/plans/2026-08-09-m-wave-2/plan.md                1  (interactionTimingScan.test.ts)
+docs/superpowers/plans/2026-08-16-psql-scan-mutation-enrolment.md 1  (psqlStartupFileSuppression.test.ts)
+docs/superpowers/plans/2026-08-17-speclint-prose-consistency-arms.md 1 (universals.test.ts)
 ```
 
-Both plans MERGED before the pins they are advised about existed. The arm reads the tree at lint time, so re-linting a historical plan can advise about a pin added after it merged — a documented limit (§8 item 1), not a defect, and one with no cost in the arm's actual payoff moment, which is a plan being written now.
+Every one is a MERGED plan that names an enrolled surface in its Files declaration and does not name that surface's pin. The arm reads the tree at lint time, so re-linting a historical plan can advise about a pin added after it merged — a documented limit (§8 item 1), not a defect, and one with no cost in the arm's actual payoff moment, which is a plan being written now.
+
+The cardinality here is a MEASUREMENT at one commit, never a normative claim: the corpus grows, so §6 and §10 assert the derived SET the shipped scanner reports over the enumerated corpus, and no test hard-codes this count.
 
 ### 2.7 The incident, re-enacted from git (the acceptance criterion)
 
@@ -128,9 +138,9 @@ The pin's identity is `(path, title)`. Its reported location is the matching lin
 
 ### 3.2 Surfaces a plan names (pure, over the parsed plan model)
 
-A **Files block** opens on a non-fenced line matching `**Files:**` or `**Files**` (optionally as a list item) and extends over the immediately following run of lines that are list items or their indented continuations, ending at the first blank line or the first line that is neither.
+A **Files declaration** opens on a non-fenced line matching `**Files:**` or `**Files**` (optionally as a list item). It spans that line's own remainder, plus — when the next non-blank line opens an UNORDERED list item — the following run of unordered list items and their indented continuations, ending at the first blank line or the first line that is neither. When the next non-blank line opens an ORDERED list, the declaration is the header remainder alone and the ordered run is declined (§2.5, §8 item 11).
 
-Inside that run, a line **names** an enrolled path when it contains that path as a substring. The candidate set is the closed set of every enrolled `sourcePath` and `suitePath`. A path naming several surfaces (`tests/docs/_metaReviewRoundEconomy.test.ts` is a `suitePath` of three) names all of them; pins are deduplicated by (path, title) afterwards, so the reader sees each pin once.
+Inside that span, a line **names** an enrolled path when the path occurs as a DELIMITED token: the characters immediately before and after the occurrence are not path characters (`[A-Za-z0-9._/-]`). A bare substring test is unsound — a sibling path formed by appending .bak to a live entry contains that entry as a substring while naming a different file, and that is one ordinary authoring edit from a live corpus entry. The candidate set is the closed set of every enrolled `sourcePath` and `suitePath`. A path naming several surfaces (`tests/docs/_metaReviewRoundEconomy.test.ts` is a `suitePath` of three) names all of them; pins are deduplicated by (path, title) afterwards, so the reader sees each pin once.
 
 ### 3.3 The obligation, and the finding
 
@@ -200,7 +210,7 @@ All under `tests/specLint/`, TDD per task, anti-tautology rules of `docs/agents/
 - **Obligation (pure).** Title present verbatim → nothing; absent → one advisory; present inside a fenced block → nothing (the plan named it); one pin reachable through two surfaces → ONE advisory, not two; a pin whose title is a substring of a longer title → the longer title's presence does not satisfy the shorter pin unless it literally contains it, asserted with a constructed pair.
 - **Unreadable suite (§3.4).** A resolver returning `null` for a `suitePath` draws `DECLARED_LIMIT_PIN_SUITE_UNREADABLE` and no pin findings for that suite — asserted with a fake resolver, because the failure mode is that this case is indistinguishable from "no pins".
 - **Historical re-enactment (§2.7), executable.** The pre-repair suite blob and both plan blobs are committed as fixtures; the pre-Step-3b plan draws exactly one advisory naming the pin, and the merged plan draws zero. This is the entry's acceptance criterion pinned by the incident itself rather than by a synthetic analogue.
-- **Corpus regression.** The 664 tracked plans relint to exactly the §2.6 result — 2 plans, 4 advisories, enumerated by (plan, path, title). A test asserting only a COUNT would pass on a different four, so the assertion is on the set.
+- **Corpus regression.** The tracked plan corpus, ENUMERATED at run time rather than counted in the test, relints to exactly the §2.6 SET of `(plan, suitePath, title)` triples. A test asserting a COUNT would pass on a different set and would go stale the moment a plan is added — including this arc's own plan, which grew the corpus between drafting and review. The §2.6 cardinality is a dated measurement; the assertion is the set.
 - **Injection.** A null table draws zero findings of either code; a table naming a surface with no pins draws nothing.
 - **Dogfood.** This spec and its plan exit 0 hard under `pnpm spec:lint`, attached to every review dispatch (`docs/agents/spec-self-review.md`).
 
@@ -223,8 +233,10 @@ Enrolment is TWO declarations: a `tests/mutation/source/registry.ts` row (`id: "
 6. **The phrase accept-set is fixed at three.** A pin phrased another way ("stays a limit", "still missed") is invisible. Widening the set is an accept-set change with its own corpus numbers, not a review round — and each widening enlarges the target, which is the ratchet the narrowing rule exists to stop.
 7. **Naming is a verbatim substring test.** A plan that paraphrases a pin instead of quoting it still draws the advisory. The advisory prints the exact string to include, so the repair is a copy-paste; the failure direction is a nuisance line, never a missed collision.
 8. **The arm cannot tell retirement from deliberate retention** (§1.1 item 5). It reports that the plan is silent, which is the fact it can establish.
-9. **A Files block written in an unmodeled shape is not read.** A plan that lists files in a table, a fenced block, or prose under a differently-worded heading draws nothing. Measured: 364 of 664 plans carry the `**Files:**` shape, and every plan naming an enrolled path in a modeled block was found (§2.1). Silence from this arm is not a certificate.
+9. **A Files declaration written in an unmodeled shape is not read.** A plan that lists files in a table, a fenced block, or prose under a differently-worded heading draws nothing. Measured: of 2559 `**Files:**` headers, 636 carry the paths inline and 2136 open an unordered run — the two modeled shapes — while 25 open an ordered run (declined, item 11) and 398 are followed by neither (§2.1). Silence from this arm is not a certificate.
 10. **Adversarial evasion is out of scope** (§1.1 item 8).
+11. **An ordered list after a Files header is declined** (§2.5). 25 headers of 2559 are followed by one, and sampling shows those runs are as often task steps as file lists, so the arm reads the header remainder alone and reports nothing about the run. The failure direction is a missed advisory, never a false one — the conservative side, and the side the consequence bound requires.
+12. **A path that is a proper prefix of another path is distinguished by delimitation, not by tracking.** The arm does not ask git whether a named path exists; a .bak sibling of a live entry fails the delimiter test and names nothing, and an untracked path that IS delimited names its surface if it string-matches an enrolled entry. Checking trackedness would make the arm's verdict depend on index state a plan author cannot see.
 
 ## 9. Wiring & docs (same PR)
 
@@ -241,7 +253,7 @@ Enrolment is TWO declarations: a `tests/mutation/source/registry.ts` row (`id: "
 - **AC-3** — Obligation: a named pin draws nothing, an unnamed one draws exactly one `DECLARED_LIMIT_PIN_UNNAMED` at advisory severity, and a pin reachable through two surfaces draws one finding, not two. No input at any severity other than advisory is produced by this arm, asserted structurally over the emitted findings rather than by sampling.
 - **AC-4** — The §2.7 replay reproduces from committed blobs: the pre-repair suite yields exactly the pin `a QUOTED backslash path in shell text is a KNOWN miss`; the pre-Step-3b plan draws exactly one advisory naming it; the merged plan draws zero. This is the ledger entry's own acceptance test.
 - **AC-5** — Fail-open closed: a `suitePath` the resolver cannot read draws `DECLARED_LIMIT_PIN_SUITE_UNREADABLE` and suppresses no other finding; "no pins" and "could not look" are distinguishable in the output, asserted with a fake resolver returning `null`.
-- **AC-6** — Corpus: the 664 tracked plans draw exactly the §2.6 SET — 2 plans, 4 advisories, each identified by (plan, suitePath, title) — asserted as a set, never as a count.
+- **AC-6** — Corpus: the tracked plan corpus, enumerated at run time, draws exactly the §2.6 SET, each advisory identified by (plan, suitePath, title) — asserted as a set, never as a count, and never against a cardinality typed into the test.
 - **AC-7** — Dispositions: every row resolves to a live title, every row carries a non-empty reason, and the pin census is derived by running the shipped scanner rather than by a literal in the test. A constructed disposition suppresses its own pin and no other.
 - **AC-8** — Enrolment: `declaredLimitPins` carries both declarations (registry row AND `EXPECTED_LEDGER_KINDS`), scores at or above 0.95 with an empty unaccepted-survivor set, and the purity meta-test passes with `parse.ts` unmodified.
 - **AC-9** — This spec and the implementation plan lint clean (`0 hard`) through the shipped `spec:lint` at dispatch time.

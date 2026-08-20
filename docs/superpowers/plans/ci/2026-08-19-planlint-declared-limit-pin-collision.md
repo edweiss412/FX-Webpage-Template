@@ -80,7 +80,7 @@ surfaces: 38
 distinct suitePaths: 62
 
 $ git ls-files 'docs/superpowers/plans' | grep -c '\.md$'
-664
+665
 
 $ pnpm tsx .probe/probe2.ts            # phrase lines vs phrase-in-title
 grammar A (any line):   30
@@ -89,16 +89,29 @@ grammar B (title only): 12
 $ pnpm tsx .probe/verify.ts            # keyword and delimiter distribution
 phrase-bearing titles: 12 { describe: 3, test: 3, it: 6 } { '"': 12 } | .each forms: 0
 
-$ pnpm tsx .probe/probe4.ts            # Files-block grain vs whole-document
+$ pnpm tsx .probe/probe4.ts            # grain: Files declaration vs whole document
 closed path set: 100
 plans naming an enrolled path ANYWHERE: 63
-plans naming one in a Files block:     15
-plans with a **Files:** block: 364     # from probe3.ts
 
-$ pnpm tsx .probe/probe6.ts            # the shipped rules over the whole plan corpus
-distinct suitePaths: 62 | distinct pins: 7 | suites carrying >=1: 5
-plans: 664 | drawing >=1 advisory: 2 | total advisories: 4
+$ pnpm tsx .probe/probe7.ts            # which shapes carry a Files declaration
+**Files:** headers: 2559 | header line itself carries a path: 636
+followed by UNORDERED list: 2136 | by ORDERED list: 25 | by neither: 398
+
+$ pnpm tsx .probe/probe8.ts            # the shipped rules (spec 3.2 as repaired) over the corpus
+suitePaths 62 | live pins 7 | suites carrying >=1 5
+plans 665 | naming an enrolled surface in a Files span: 25 | drawing >=1 advisory: 5 | advisories: 7
+docs/superpowers/plans/2026-07-19-spec-lint.md  (2)
+docs/superpowers/plans/2026-08-04-review-round-economy.md  (2)
+docs/superpowers/plans/2026-08-09-m-wave-2/plan.md  (1)
+docs/superpowers/plans/2026-08-16-psql-scan-mutation-enrolment.md  (1)
+docs/superpowers/plans/2026-08-17-speclint-prose-consistency-arms.md  (1)
 ```
+
+Spec round 1 moved two of these rules and the numbers with them: the Files declaration now spans the
+HEADER LINE's own remainder (636 headers put the paths there, and missing them dropped a real
+`interactionTimingScan` advisory), an ORDERED run after the header is DECLINED as unclassifiable, and a
+path is matched as a DELIMITED TOKEN rather than a bare substring (a `.bak` sibling contains a live
+entry and names a different file). The counts above are the post-repair measurement.
 
 The `.probe/` scripts are scratch, untracked, and are NOT shipped. Task 6 re-expresses probe6 as a
 committed corpus test so the numbers stop depending on a scratch file.
@@ -181,14 +194,21 @@ Implements spec §3.2. The enrolled table is a parameter; the module still impor
 **What is red and why:** `namedSurfaces` does not exist. Task 1 shipped pin discovery only.
 
 **Anti-tautology.** The prose-outside-a-block case is the §2.5 measurement made executable: it is the
-48-plan false-advisory source, and a whole-document implementation passes every other case in this
+38-plan false-advisory source, and a whole-document implementation passes every other case in this
 suite while failing that one. The unmodeled-verb case (`- Regenerate: \`lib/…\``) is the §2.5 verb
 argument made executable: an implementation that accept-lists `Modify`/`Test`/`Create` passes the rest
-and fails that one.
+and fails that one. The inline-header case fails any implementation that scans only the lines BELOW the
+header — which is what the round-1 finding caught in the calibration probe itself. The `.bak` case
+fails any implementation using `String.prototype.includes` on the raw path.
 
 - [ ] **Step 1: Write the failing suite.** Extent cases, grain cases, fence-inertness, second block,
       indented continuation line, and a path naming three surfaces (the live
-      `tests/docs/_metaReviewRoundEconomy.test.ts` shape).
+      `tests/docs/_metaReviewRoundEconomy.test.ts` shape). Plus the three shapes spec round 1 added,
+      each with the live input that motivated it: paths INLINE on the header line (the
+      `docs/superpowers/plans/2026-08-09-m-wave-2/plan.md` shape, whose missed advisory was the
+      finding); an ORDERED run after the header, which is declined so its numbered task steps cannot
+      name a surface (spec §8 item 11); and a delimited-token match, where appending `.bak` to a live
+      entry must name NOTHING while the entry itself still names its surface (spec §3.2).
 - [ ] **Step 2: Observe red.** Run: `pnpm vitest run tests/specLint/declaredLimitPinsFiles.test.ts`.
 - [ ] **Step 3: Implement `namedSurfaces` and the `EnrolledSurface` type.**
 - [ ] **Step 4: Observe green.**
@@ -335,8 +355,10 @@ put a second copy of a 5000-line suite into typecheck and collection.
 
 **Anti-tautology.** The replay asserts BOTH directions from one pair of inputs that differ only by the
 repair, so an arm that always fires and an arm that never fires each fail one direction. The corpus case
-asserts the SET of `(plan, suitePath, title)`, never the count — a count of four passes on a different
-four, which is exactly how a silently-relocated grammar would escape.
+ENUMERATES the corpus at run time and asserts the SET of `(plan, suitePath, title)` — never a count, and
+never a cardinality typed into the test. Two reasons, both measured on this arc: a count passes on a
+different set of the same size, and the corpus grew by one plan between drafting and spec round 1 (this
+plan), which would have stranded any hard-coded total on its first run.
 
 **Premise.** The corpus case states executably that the enumerated plan corpus is non-empty and that at
 least one enrolled surface carries at least one pin, using `tests/_shared/premise.ts`, in ONE test over
@@ -480,7 +502,7 @@ red for a command that exits 0 today would be the "pasted a command prompt besid
 | AC-3 obligation, dedup, advisory-only severity | Tasks 3, 5 | obligation + wiring suites |
 | AC-4 historical replay, both directions | Task 6 | `declaredLimitPinsCorpus.test.ts, committed blobs |
 | AC-5 unreadable suite is reported, not skipped | Task 3 | fake resolver returning `null` |
-| AC-6 corpus SET (2 plans, 4 advisories) | Task 6 | live-tree corpus case, set assertion |
+| AC-6 corpus SET over the enumerated corpus | Task 6 | live-tree corpus case, set assertion, no count |
 | AC-7 dispositions: no stale row, derived census | Task 4 | `_metaDeclaredLimitPins.test.ts |
 | AC-8 both enrolment declarations, score ≥ 0.95 | Tasks 5, 7 | gates test, purity meta-test, scoped run |
 | AC-9 both documents lint `0 hard` | Task 8 | `pnpm spec:lint` on spec and plan |
