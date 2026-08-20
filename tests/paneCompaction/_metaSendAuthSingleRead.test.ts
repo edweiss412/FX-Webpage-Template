@@ -799,6 +799,61 @@ describe("Task 8 — second repair pass, from the re-measure at 0.9259", () => {
     ]);
   });
 
+  it("does not let ONE pass's derivation name exempt ANOTHER pass's raw binding", () => {
+    // Diff r1 F1. `derived` was a module-wide Set of NAMES, so a derivation called
+    // `snap` in `settle` removed the raw parameter `snap` in `other` from the raw
+    // set entirely, and `other`'s double read went unreported. The killer audit is
+    // what proved this case was MISSING rather than merely passing: with the fix in
+    // place but no fixture, reverting the scoping left the suite green.
+    const f = "derivation-name-collision.ts";
+    // The classifier half of the same scoping: a bare mention of `snap` OUTSIDE the
+    // pass that derived that name must still be reported. Under the module-wide set
+    // it was skipped, so this and the MULTI-READ below fail on different arms.
+    expect(scan(f)).toContainEqual(
+      finding(f, "UNCLASSIFIED-USE", "snap", lineOf(f, "const held = [snap]")),
+    );
+    expect(scan(f)).toContainEqual(
+      finding(f, "MULTI-READ", "panes", lineOf(f, "const first = snap.panes()"), [
+        lineOf(f, "const first = snap.panes()"),
+        lineOf(f, "const second = snap.panes()"),
+      ]),
+    );
+  });
+
+  it("...and its control, one variable apart, reports the SAME finding", () => {
+    // Identical second function with the colliding first function REMOVED. Without
+    // it, the case above is satisfied by an implementation reporting MULTI-READ for
+    // an unrelated reason; with it, the only difference between reporting and not
+    // is the scoping under test.
+    const f = "derivation-name-collision-control.ts";
+    expect(scan(f)).toContainEqual(
+      finding(f, "MULTI-READ", "panes", lineOf(f, "const first = snap.panes()"), [
+        lineOf(f, "const first = snap.panes()"),
+        lineOf(f, "const second = snap.panes()"),
+      ]),
+    );
+  });
+
+  it("reports a sink reached through a CLASS FIELD holding the surface", () => {
+    // Rule 28 applied to this arc's OWN repair: a narrowing that declines an input
+    // owes that input a CHANNEL, and "nothing" is not one. The diff-r1 totality arm
+    // reached sinks called on a bare identifier binding; `this.ch.dispatch(...)`
+    // has a PROPERTY ACCESS receiver and a PropertyDeclaration binding, so it was
+    // declined by both halves and reported nothing at all.
+    //
+    // The one class still declined is a receiver that is a CALL RESULT
+    // (`getChannel().dispatch()`), and that is DECLARED SILENCE under the ratified
+    // no-call-graph fence rather than an accidental gap.
+    const f = "class-field-sink.ts";
+    expect(scan(f)).toEqual([
+      // Anchored on the CALL's own text, not on `this.ch.dispatch(`: the fixture's
+      // header prose names that construct too, so the looser anchor resolved to the
+      // comment at line 7. A fixture's own explanation is part of the text a lookup
+      // searches — the same collision rule 21 pins at corpus scale, in miniature.
+      finding(f, "UNDECLARED-PASS", "settle", lineOf(f, 'this.ch.dispatch("p1"')),
+    ]);
+  });
+
   it("reports two markers STACKED above ONE declaration", () => {
     // Rule 21.1 — association has more than one axis, and varying one and calling
     // the boundary covered is the same defect as a fixture whose observation a

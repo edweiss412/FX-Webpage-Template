@@ -303,7 +303,10 @@ const surfaceBindings = (sf: ts.SourceFile, row: SendAuthSurface): Set<string> =
   const isSurfaceRef2 = (t: ts.TypeNode | undefined): boolean => isSurfaceRef(t, row);
   const visit = (n: ts.Node): void => {
     if (
-      (ts.isParameter(n) || ts.isVariableDeclaration(n)) &&
+      // A PropertyDeclaration is included for the same reason as the other two: a
+      // class holding the surface (`private ch: Channel`) is ordinary authoring
+      // inside the threat fence, and omitting it made `this.ch.send(...)` silent.
+      (ts.isParameter(n) || ts.isVariableDeclaration(n) || ts.isPropertyDeclaration(n)) &&
       isSurfaceRef2(n.type) &&
       ts.isIdentifier(n.name)
     ) {
@@ -411,6 +414,22 @@ const classifyUses = (
     // which rule 3 owns; outside one it is ordinary injection and correct.
     if (ts.isCallExpression(parent) && parent.arguments.includes(id)) return;
 
+    // STORING the surface into a field of `this` -- `this.ch = ch` in a constructor
+    // -- is the same ordinary injection as passing it as an argument, and the field
+    // it lands in is itself a surface binding, so the sink calls through it are
+    // reached. Deliberately narrow: ONLY an assignment whose target is a property of
+    // `this`. A wider "any assignment RHS" exemption would be keyed far coarser than
+    // the fact it disposes of and would swallow real handoffs.
+    if (
+      ts.isBinaryExpression(parent) &&
+      parent.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      parent.right === id &&
+      ts.isPropertyAccessExpression(parent.left) &&
+      parent.left.expression.kind === ts.SyntaxKind.ThisKeyword
+    ) {
+      return;
+    }
+
     // A declaration NAME is filtered before `classify` runs, so an identifier
     // whose parent is a VariableDeclaration is necessarily its initializer; the
     // second conjunct could never be false and was a mutation site excusing
@@ -443,6 +462,7 @@ const classifyUses = (
       const isDeclarationName =
         (ts.isParameter(parent) ||
           ts.isVariableDeclaration(parent) ||
+          ts.isPropertyDeclaration(parent) ||
           ts.isBindingElement(parent)) &&
         parent.name === node;
       const isPropertyName = ts.isPropertyAccessExpression(parent) && parent.name === node;
@@ -777,11 +797,23 @@ const unreachedOccurrences = (
   const walkSinks = (n: ts.Node): void => {
     if (ts.isCallExpression(n)) {
       const callee = n.expression;
+      // The receiver is taken at its RIGHTMOST NAME, so `this.ch.send(...)` and
+      // `self.ch.send(...)` are reached as well as a bare `ch.send(...)`. Rule 28:
+      // a narrowing that declines an input owes it a CHANNEL, and these had none.
+      //
+      // A receiver that is a CALL RESULT (`getChannel().send(...)`) is still
+      // declined, and that one is DECLARED SILENCE under the ratified no-call-graph
+      // fence (§4) rather than an accidental gap — the scanner cannot know what a
+      // call returns without the machinery this arc withdrew.
+      const receiverName = (e: ts.Expression): string | null =>
+        ts.isIdentifier(e) ? e.text : ts.isPropertyAccessExpression(e) ? e.name.text : null;
       const isMemberSink =
         ts.isPropertyAccessExpression(callee) &&
-        ts.isIdentifier(callee.expression) &&
-        bindings.has(callee.expression.text) &&
-        row.sinks.includes(callee.name.text);
+        row.sinks.includes(callee.name.text) &&
+        (() => {
+          const name = receiverName(callee.expression);
+          return name !== null && bindings.has(name);
+        })();
       // A sink reached through a destructured local: no property access exists to
       // inspect, so the local's own name is the whole signal.
       const isBareSink = ts.isIdentifier(callee) && destructured.has(callee.text);
