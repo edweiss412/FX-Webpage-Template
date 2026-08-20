@@ -105,6 +105,29 @@ inline tokens (`// no-telemetry: <reason>`, `tests/log/mutationSurface/exemption
 const authorize = (): Authz => { ... };
 ```
 
+**"On the line above" is resolved in SOURCE TEXT, past whitespace AND any further comment run.**
+Diff r1 F4 read the sentence above as an exact-adjacency rule and correctly called the shipped
+behaviour a deviation from it, so the rule is stated here rather than left to the reader. The
+looser reading is the RATIFIED one and this is the direction it is ratified in: an explanatory
+comment written between the marker and the declaration it describes is ordinary authoring, and
+refusing to attach there would report `UNDECLARED-PASS` against a pass a human plainly declared —
+a WRONG ATTRIBUTION, which the consequence bound forbids in the same breath as silence. What the
+grammar does NOT admit is a marker attaching to something that is not a function: a marker whose
+next real token starts a non-function declaration attaches to nothing, its function stays
+undeclared, and the module reports. Both directions are pinned executably — `marker-then-comment`
+scans clean, `marker-then-comment-detached` reports — so neither side is relitigated.
+
+**What discovery cannot reach is REPORTED, not skipped (diff r1 F2/F3).** The population walk ranges
+over module-level functions, and three shapes fell outside it silently: a surface binding introduced by
+DESTRUCTURING a parameter (`settle({ dispatch }: Channel)`, where no property access on a binding
+exists for any member-based arm to see), a sink called from a CLASS OR OBJECT METHOD, and a sink called
+at MODULE SCOPE. The repair is DEFAULT-DENY rather than a wider recognizer — each is reported, the
+destructure as `UNCLASSIFIED-USE` naming every bound member and the others as `UNDECLARED-PASS` naming
+the enclosing declaration — so the complement of the accept set is answered by construction instead of
+one grammar corner per round. The module-scope case previously asserted CLEAN as a documented limit;
+that disposition is WITHDRAWN, because the bound forbids silence about a send with no pass and a
+conservative over-report is a limit while silence is not.
+
 Discovery is fail-by-default and anchored on the SINK: a **send-bearing function** is one whose body
 calls a declared SINK method on a surface binding — in the live instance, `s.send(...)` at
 `scripts/pane-compaction.ts:858`, `scripts/pane-compaction.ts:874` and `scripts/pane-compaction.ts:899`,
@@ -180,7 +203,13 @@ instant of the clock rather than a second read of a pane.
 
 **Discovery beyond the registry** is an import-edge arm, exact and checker-free: walking the roots, any
 module that imports the `surfaceType` symbol from a registered module and is not itself registered is
-reported as `UNREGISTERED-IMPORTER`. A brand-new surface type with its own sink is outside the
+reported as `UNREGISTERED-IMPORTER`. **A NAMESPACE import reaches the symbol through a qualified name
+and is reported on the same rule** (`import * as registered from "./m"` plus `registered.Channel`).
+Diff r1 F5 found the arm skipping namespace imports entirely while the suite called that "a documented
+limit, held explicitly" — a limit this section never stated and §4 never excepted, so it was silence
+wearing a limit's label. The match stays EXACT rather than blanket: a namespace import whose module
+never mentions the type is not reported, pinned by the one-variable pair `namespace-importer` /
+`namespace-importer-unused`. A brand-new surface type with its own sink is outside the
 scanner's range until it is enrolled, exactly as with the mutation registry — enrolment is an act
 (§4 limit 4).
 

@@ -289,18 +289,22 @@ const markersIn = (file: string, text: string, sf: ts.SourceFile): Marker[] => {
   return out;
 };
 
+/** Is this type annotation a reference to the row's surface type? ONE copy, reused
+ *  by the binding walk and by the totality arm, so the two cannot drift apart. */
+const isSurfaceRef = (t: ts.TypeNode | undefined, row: SendAuthSurface): boolean =>
+  t !== undefined &&
+  ts.isTypeReferenceNode(t) &&
+  ts.isIdentifier(t.typeName) &&
+  t.typeName.text === row.surfaceType;
+
 /** Bindings of the surface type: parameters and variable declarations annotated with it. */
 const surfaceBindings = (sf: ts.SourceFile, row: SendAuthSurface): Set<string> => {
   const names = new Set<string>();
-  const isSurfaceRef = (t: ts.TypeNode | undefined): boolean =>
-    t !== undefined &&
-    ts.isTypeReferenceNode(t) &&
-    ts.isIdentifier(t.typeName) &&
-    t.typeName.text === row.surfaceType;
+  const isSurfaceRef2 = (t: ts.TypeNode | undefined): boolean => isSurfaceRef(t, row);
   const visit = (n: ts.Node): void => {
     if (
       (ts.isParameter(n) || ts.isVariableDeclaration(n)) &&
-      isSurfaceRef(n.type) &&
+      isSurfaceRef2(n.type) &&
       ts.isIdentifier(n.name)
     ) {
       names.add(n.name.text);
@@ -363,6 +367,7 @@ const classifyUses = (
   row: SendAuthSurface,
   bindings: ReadonlySet<string>,
   reads: readonly string[],
+  derivedAt: (name: string, at: ts.Node) => boolean,
 ): Finding[] => {
   const known = new Set<string>([...reads, ...row.sinks, ...row.effects, ...row.ambient]);
   const ambient = new Set<string>(row.ambient);
@@ -441,7 +446,9 @@ const classifyUses = (
           ts.isBindingElement(parent)) &&
         parent.name === node;
       const isPropertyName = ts.isPropertyAccessExpression(parent) && parent.name === node;
-      if (!isDeclarationName && !isPropertyName) classify(node);
+      // Derived AT THIS USE, not anywhere in the module: reads through a snapshot
+      // are unconstrained inside the pass that took it, and nowhere else.
+      if (!isDeclarationName && !isPropertyName && !derivedAt(node.text, node)) classify(node);
     }
     ts.forEachChild(node, visit);
   };
@@ -705,6 +712,96 @@ const analyzeHandoffs = (
   return out;
 };
 
+/**
+ * Occurrences DISCOVERY CANNOT REACH, reported rather than skipped.
+ *
+ * The consequence bound is "handled correctly OR SIGNALED — never silently
+ * wrong", and diff round 1 found three ways the population walk fell short of it
+ * while staying quiet. The repair is DEFAULT-DENY rather than a wider recognizer:
+ * what the analysis cannot classify is REPORTED, so the complement of the accept
+ * set is answered by construction instead of one grammar corner per round. A
+ * conservative over-report is a documented limit; silence is not.
+ *
+ * (a) A surface binding introduced by DESTRUCTURING. `settle({ dispatch }: Channel)`
+ *     calls the sink through a bare local, so nothing is a property access on a
+ *     binding and every member-based arm is blind to it. Each bound member is
+ *     reported BY NAME, matching what `classifyUses` already does for a
+ *     destructured variable declaration.
+ * (b) A sink call outside every discovered module-level function — a class method,
+ *     an object-literal method, or module scope itself. Discovery ranges over
+ *     module-level functions by design (§3.5, so a nested arrow is not reported as
+ *     its own pass), and a send-bearing construct outside that range must not
+ *     therefore vanish.
+ */
+const unreachedOccurrences = (
+  sf: ts.SourceFile,
+  file: string,
+  row: SendAuthSurface,
+  bindings: ReadonlySet<string>,
+  topLevel: readonly { node: ts.Node; name: string; line: number }[],
+): Finding[] => {
+  const out: Finding[] = [];
+  const at = (node: ts.Node): number =>
+    sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+
+  // (a) destructured surface bindings
+  const destructured = new Set<string>();
+  const walkDestructures = (n: ts.Node): void => {
+    if (
+      (ts.isParameter(n) || ts.isVariableDeclaration(n)) &&
+      isSurfaceRef(n.type, row) &&
+      ts.isObjectBindingPattern(n.name)
+    ) {
+      for (const element of n.name.elements) {
+        const named = element.propertyName ?? element.name;
+        const member = ts.isIdentifier(named) ? named.text : "(computed)";
+        if (ts.isIdentifier(element.name)) destructured.add(element.name.text);
+        const line = at(element);
+        out.push({ code: "UNCLASSIFIED-USE", file, line, name: member, lines: [line] });
+      }
+    }
+    ts.forEachChild(n, walkDestructures);
+  };
+  walkDestructures(sf);
+
+  // (b) sink calls no discovered module-level function contains
+  const enclosingName = (n: ts.Node): string => {
+    for (let cur: ts.Node | undefined = n.parent; cur !== undefined; cur = cur.parent) {
+      if (ts.isMethodDeclaration(cur) && ts.isIdentifier(cur.name)) return cur.name.text;
+      if (ts.isFunctionDeclaration(cur) && cur.name !== undefined) return cur.name.text;
+      if (ts.isPropertyAssignment(cur) && ts.isIdentifier(cur.name)) return cur.name.text;
+      if (ts.isVariableDeclaration(cur) && ts.isIdentifier(cur.name)) return cur.name.text;
+    }
+    return "(module scope)";
+  };
+  const walkSinks = (n: ts.Node): void => {
+    if (ts.isCallExpression(n)) {
+      const callee = n.expression;
+      const isMemberSink =
+        ts.isPropertyAccessExpression(callee) &&
+        ts.isIdentifier(callee.expression) &&
+        bindings.has(callee.expression.text) &&
+        row.sinks.includes(callee.name.text);
+      // A sink reached through a destructured local: no property access exists to
+      // inspect, so the local's own name is the whole signal.
+      const isBareSink = ts.isIdentifier(callee) && destructured.has(callee.text);
+      if ((isMemberSink || isBareSink) && !topLevel.some((t) => lexicallyWithin(t.node, n, sf))) {
+        const line = at(n);
+        out.push({
+          code: "UNDECLARED-PASS",
+          file,
+          line,
+          name: enclosingName(n),
+          lines: [line],
+        });
+      }
+    }
+    ts.forEachChild(n, walkSinks);
+  };
+  walkSinks(sf);
+  return out;
+};
+
 /** Scan one enrolled module against its row. */
 export function scanModule(file: string, row: SendAuthSurface): Finding[] {
   const text = readFileSync(file, "utf8");
@@ -724,17 +821,30 @@ export function scanModule(file: string, row: SendAuthSurface): Finding[] {
   // unconstrained, which is what makes the snapshot worth taking at all. Removing
   // the derived names before any other analysis is what keeps the live memo's
   // `snapshot.marker(...)` from counting against rule 2.
-  const derived = new Set<string>(passes.flatMap((p) => p.derivations.map((d) => d.name)));
-  const raw = new Set<string>([...bindings].filter((b) => !derived.has(b)));
+  // The exemption is keyed to the PASS THAT DECLARES IT, not to the module. Keyed
+  // module-wide by TEXT, a derivation named `snap` in one pass silently exempted a
+  // RAW parameter named `snap` in another, and the second pass's double read went
+  // unreported -- an exemption keyed coarser than the fact it disposes of absorbs
+  // every later arrival at the finer grain, invisibly, because the absorbed thing
+  // does not exist yet when the row is written (diff r1 F1).
+  const derivedAt = (name: string, at: ts.Node): boolean =>
+    passes.some((p) => p.derivations.some((d) => d.name === name) && lexicallyWithin(p.fn, at, sf));
 
-  const findings: Finding[] = classifyUses(sf, file, row, raw, reads);
+  const topLevel = topLevelFunctions(sf);
+  const findings: Finding[] = classifyUses(sf, file, row, bindings, reads, derivedAt);
+  findings.push(...unreachedOccurrences(sf, file, row, bindings, topLevel));
   for (const { fn, derivations } of passes) {
-    findings.push(...analyzePassReads(sf, file, raw, reads, fn, derivations));
+    // Per-pass, for the same reason: inside THIS pass, only THIS pass's derivations
+    // are derived. Another pass's names are ordinary raw bindings here.
+    const rawHere = new Set<string>(
+      [...bindings].filter((b) => !derivations.some((d) => d.name === b)),
+    );
+    findings.push(...analyzePassReads(sf, file, rawHere, reads, fn, derivations));
     findings.push(...analyzeDerivations(sf, file, fn, derivations));
-    findings.push(...analyzeHandoffs(sf, file, raw, fn, derivations));
+    findings.push(...analyzeHandoffs(sf, file, rawHere, fn, derivations));
   }
 
-  for (const fn of topLevelFunctions(sf)) {
+  for (const fn of topLevel) {
     // Send-bearing: the SUBTREE calls a declared SINK on a surface binding.
     // Anchored on sinks, never on effects — anchoring on every effect makes the
     // live `main` send-bearing through its fifteen `out(...)` calls and reports
@@ -827,7 +937,44 @@ const importEdgeFindings = (
     const resolved = resolveSpecifier(file, statement.moduleSpecifier.text);
     if (resolved === null) continue;
     const bindings = statement.importClause?.namedBindings;
-    if (bindings === undefined || !ts.isNamedImports(bindings)) continue;
+    if (bindings === undefined) continue;
+
+    // A NAMESPACE import of a registered module reaches the surface type through a
+    // QUALIFIED name (`registered.Channel`), which §2.4's rule covers -- "any module
+    // that imports the surfaceType symbol" -- and which §4 never excepted. Skipping
+    // it entirely was a limit the spec did not record and the suite ratified, so it
+    // was silence rather than a documented limit (diff r1 F5). Qualified-name
+    // matching is EXACT and checker-free, the same posture as the named-import arm:
+    // a namespace import whose module never mentions the type is not reported.
+    if (ts.isNamespaceImport(bindings)) {
+      for (const row of candidates) {
+        if (withoutExtension(resolved) !== withoutExtension(row.module)) continue;
+        let qualified = false;
+        const look = (n: ts.Node): void => {
+          if (
+            ts.isQualifiedName(n) &&
+            ts.isIdentifier(n.left) &&
+            n.left.text === bindings.name.text &&
+            n.right.text === row.surfaceType
+          ) {
+            qualified = true;
+          }
+          ts.forEachChild(n, look);
+        };
+        look(sf);
+        if (!qualified) continue;
+        const line = sf.getLineAndCharacterOfPosition(statement.getStart(sf)).line + 1;
+        out.push({
+          code: "UNREGISTERED-IMPORTER",
+          file,
+          line,
+          name: row.surfaceType,
+          lines: [line],
+        });
+      }
+      continue;
+    }
+    if (!ts.isNamedImports(bindings)) continue;
 
     for (const row of candidates) {
       if (withoutExtension(resolved) !== withoutExtension(row.module)) continue;

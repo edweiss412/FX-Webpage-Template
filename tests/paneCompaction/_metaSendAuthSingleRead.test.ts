@@ -518,11 +518,31 @@ describe("AC-9 — scanRepo walks from disk, and unregistered importers report",
     expect(found()).toContainEqual(finding(f, "UNDECLARED-PASS", "settle", fnLine(f)));
   });
 
-  it("does NOT follow a NAMESPACE import — a documented limit, held explicitly", () => {
-    // `import * as registered from "./registered-channel"` has no NAMED bindings.
-    // The guard that skips it was removable, and without it the arm walks into
-    // `bindings.elements` on an import that has none.
-    expect(found().filter((x) => x.file === fixture("namespace-importer.ts"))).toEqual([]);
+  it("DOES follow a namespace import that reaches the type by qualified name", () => {
+    // This case asserted the opposite and called it "a documented limit, held
+    // explicitly". Diff round 1 established the limit was never documented: §2.4
+    // says any module importing the surfaceType symbol and not itself registered is
+    // reported, and §4 excepts nothing for namespace imports — so the suite was
+    // ratifying a contradiction the spec did not contain. `registered.Channel` is a
+    // QualifiedName, which is how a namespace import reaches a symbol.
+    const f = "namespace-importer.ts";
+    expect(found()).toContainEqual(
+      finding(f, "UNREGISTERED-IMPORTER", "Channel", lineOf(f, "import * as registered")),
+    );
+  });
+
+  it("...and DECLINES a namespace import that never reaches the type, one variable apart", () => {
+    // Exact rather than blanket: reporting every namespace importer of a registered
+    // module would fire on any module that merely imports something else from it.
+    // The pair differs from the case above ONLY in whether a `registered.Channel`
+    // qualified name exists.
+    //
+    // The clean verdict here is ATTRIBUTABLE, which an expect-CLEAN case otherwise
+    // is not: the arm prefilters on the surface type NAME before parsing, so a
+    // fixture omitting the token would be skipped before the qualified-name check
+    // ran and would pass for the wrong reason. That fixture carries the token in
+    // its header prose, so the file IS parsed and the arm genuinely decides.
+    expect(found().filter((x) => x.file === fixture("namespace-importer-unused.ts"))).toEqual([]);
   });
 
   it("does NOT report an importer that HAS a registry row", () => {
@@ -538,6 +558,9 @@ describe("AC-9 — scanRepo walks from disk, and unregistered importers report",
     // same NAME locally without importing anything.
     expect(found().map((x) => `${x.code} ${x.file}`)).toEqual([
       `UNREGISTERED-IMPORTER ${fixture("aliased-importer.ts")}`,
+      // The namespace importer, reached by qualified name. Its silent-skip was
+      // diff r1 F5; the closed statement is where its absence would have shown.
+      `UNREGISTERED-IMPORTER ${fixture("namespace-importer.ts")}`,
       // The registered violator. Its presence is what makes the per-module
       // fan-out load-bearing rather than decorative.
       `UNDECLARED-PASS ${fixture("undeclared-pass.ts")}`,
@@ -726,15 +749,23 @@ describe("Task 8 — holes the mutation gate found, each now pinned", () => {
 });
 
 describe("Task 8 — second repair pass, from the re-measure at 0.9259", () => {
-  it("a sink called at MODULE SCOPE is a documented limit, not a finding", () => {
-    // Discovery ranges over module-level FUNCTIONS. Its pair is
-    // `undeclared-pass.ts`: the same call inside a function IS reported, so the
-    // clean verdict here is the LIMIT rather than silence.
+  it("REPORTS a sink called at module scope, which was silence until diff r1", () => {
+    // This case asserted CLEAN and called it a documented limit. Diff round 1
+    // showed the limit was the wrong disposition: discovery ranges over
+    // module-level FUNCTIONS by design (§3.5, so a nested arrow is not reported as
+    // its own pass), and a send-bearing construct OUTSIDE that range was therefore
+    // vanishing rather than being limited. The bound is "handled correctly or
+    // SIGNALED — never silently wrong", and silence about a send with no pass is
+    // exactly what it forbids.
     //
-    // The gate is what made this worth pinning: without it, treating any
-    // module-level declaration as a function reports `UNDECLARED-PASS` against a
-    // bare statement, and nothing in the corpus objected.
-    expect(scan("module-level-sink.ts")).toEqual([]);
+    // The repair is DEFAULT-DENY, not a wider recognizer: what discovery cannot
+    // reach is reported. An expect-a-REPORT case is also the stronger direction —
+    // an expect-CLEAN case is satisfied by any implementation that fails to look.
+    const f = "module-level-sink.ts";
+    // NAMED for the declaration that holds the call (`sent`) rather than with a
+    // generic "(module scope)" label — the report points somewhere an author can
+    // act on. The fallback label exists for a call held by no named construct.
+    expect(scan(f)).toEqual([finding(f, "UNDECLARED-PASS", "sent", lineOf(f, "ch.dispatch("))]);
   });
 
   it("a derivation under TWO blocking ancestors reports ONCE", () => {
