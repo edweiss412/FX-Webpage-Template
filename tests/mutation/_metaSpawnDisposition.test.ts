@@ -1,3 +1,4 @@
+import * as childProcess from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
@@ -21,6 +22,14 @@ import { premiseHolds } from "../_shared/premise";
  *
  *   rg -n 'execFileSync\(|spawnSync\(|\bspawn\(' tests/mutation/
  *
+ * DOCUMENTED LIMIT, stated where the guard lives rather than only in the spec:
+ * this counts tokens per file and never reads them. A child whose own ARGUMENT
+ * text spells the guard's ceiling tokens moves both counts together and is
+ * falsely certified. Telling that text from a real options object means telling
+ * a string literal from code, which is a parser; the standing repair direction
+ * here is narrowing, and a contributor writing a child script that spells the
+ * guard's own constants is outside the threat fence. Spec §6 limit 7.
+ *
  * The scan is deliberately DUMB: it is a text match, so it also returns comment
  * prose and fixture strings that merely quote the shape. Teaching it to tell a
  * call from a string would grow a recognizer one grammar corner at a time, which
@@ -32,13 +41,32 @@ const ROOT = resolve(__dirname, "..", "..");
 const WALK_ROOT = join(ROOT, "tests", "mutation");
 
 /**
- * The call shapes, as regexes.
+ * The call shapes, DERIVED from `node:child_process` rather than enumerated.
  *
- * Written with escaped parentheses so this file's own source does NOT contain
- * the literal text they match — otherwise the guard would report itself, and
- * silencing that would need the filename filter the guard exists without.
+ * Diff review round 4 probed the enumerated version: it named three shapes and
+ * missed `execSync`, `execFile`, `exec` and `fork`, so an ordinary harness child
+ * written with any of those evaded a guard advertising "every spawn site". A
+ * hand-written list is the enumeration failure this guard exists to replace, one
+ * level up from the disposition rows — so the names come from the module's own
+ * exports and a Node release that adds one is covered by default.
+ *
+ * Member access is DELIBERATELY NOT excluded. A lookbehind rejecting `.exec(`
+ * would also drop `real.spawnSync(...)` and `real.execFileSync(...)`, which are
+ * real spawns, and under-reporting is the direction the consequence bound
+ * forbids. It over-reports on `RegExp.prototype.exec` instead, and those lines
+ * take disposition rows like anything else — a conservative over-report is a
+ * documented limit, exactly as a conservative non-report is.
+ *
+ * The patterns are built at runtime, so this file's own source does not contain
+ * the literal text they match and the guard is not reporting itself for holding
+ * its own pattern.
  */
-const SPAWN_SHAPES = [/execFileSync\s*\(/, /spawnSync\s*\(/, /\bspawn\s*\(/];
+const SPAWN_API_NAMES = Object.entries(childProcess)
+  .filter(([name, value]) => /^(spawn|exec|fork)/.test(name) && typeof value === "function")
+  .map(([name]) => name)
+  .sort();
+
+const SPAWN_SHAPES = SPAWN_API_NAMES.map((name) => new RegExp(String.raw`(?<![\w$])${name}\s*\(`));
 
 type Hit = { file: string; line: number; text: string; index: number };
 
@@ -196,8 +224,8 @@ const DISPOSITIONS: readonly Disposition[] = [
     reason:
       "NOT a member — this IS the bounding mechanism. Both calls take the shared " +
       "spawn options, whose `timeout` is the caller's ceiling or the module default.",
-    hits: 2,
-    digest: "a5348d5976fa",
+    hits: 3,
+    digest: "ab5c5ebd50f8",
   },
   {
     kind: "file",
@@ -229,8 +257,8 @@ const DISPOSITIONS: readonly Disposition[] = [
       "NOT a member — every hit is a source string inside a fixture template, never " +
       "an executed call. A pattern tight enough to exclude them by shape would have " +
       "been tight enough to miss a real site.",
-    hits: 89,
-    digest: "2ca5a6615b0f",
+    hits: 91,
+    digest: "4c0d9448a901",
   },
   {
     kind: "file",
@@ -260,8 +288,49 @@ const DISPOSITIONS: readonly Disposition[] = [
       "NOT a member — the hits are fixture strings in this guard's own matcher cases. " +
       "The guard reported itself on its first run, which is the guard working: it takes " +
       "no filename filter, so nothing exempts it from the walk it performs.",
-    hits: 3,
-    digest: "209e81631f36",
+    hits: 9,
+    digest: "4a62c44bff55",
+  },
+  {
+    kind: "file",
+    file: "tests/mutation/source/spawnBounded.test.ts",
+    member: false,
+    reason:
+      "NOT a member — the hit is the perl supervisor's own `fork()`, inside the watchdog " +
+      "program text this suite pins as a string. It is perl source, not a Node child.",
+    hits: 1,
+    digest: "3bc7216c4b80",
+  },
+  {
+    kind: "file",
+    file: "tests/mutation/_metaSourceShardIntegrity.test.ts",
+    member: false,
+    reason:
+      "NOT a member — `RegExp.prototype.exec`, surfaced because the derived shape set admits " +
+      "member access on purpose: a lookbehind that rejected `.exec(` would also drop " +
+      "`real.spawnSync(...)`, and under-reporting is the direction the bound forbids.",
+    hits: 1,
+    digest: "1b6ece2e2748",
+  },
+  {
+    kind: "file",
+    file: "tests/mutation/source/operators.ts",
+    member: false,
+    reason:
+      "NOT a member — `RegExp.prototype.exec` in a quantifier scan. Same over-report as above, " +
+      "and the digest is what keeps the claim honest: the line cannot change without re-opening.",
+    hits: 1,
+    digest: "1d91a41d5606",
+  },
+  {
+    kind: "file",
+    file: "tests/mutation/source/registry.ts",
+    member: false,
+    reason:
+      "NOT a member — both hits are `RegExp.prototype.exec` quoted inside COMMENT prose " +
+      "describing a mutation family. Nothing here launches anything.",
+    hits: 2,
+    digest: "d1ee1db41652",
   },
   {
     kind: "file",
@@ -291,6 +360,26 @@ describe("every spawn site under tests/mutation/ is disposed of", () => {
   // check reading an empty corpus reports zero undispositioned sites and looks
   // correct. The load-bearing half is must-be-PRESENT, and the strongest form of
   // it is upstream of every count — prove the input was read at all.
+  // The SHAPE SET is derived, so its own emptiness is a fail-open the same way an
+  // empty walk is. Must-be-PRESENT, because an absent-only control agrees with
+  // total failure.
+  it("derived the spawn API from node, not from a hand-written list", () => {
+    premiseHolds("node:child_process exposes spawn-family functions", SPAWN_API_NAMES.length > 0);
+    // The seven that exist today, asserted so a derivation returning a SUBSET is
+    // caught. New names are welcome; losing one silently is not.
+    expect(SPAWN_API_NAMES).toEqual(
+      expect.arrayContaining([
+        "exec",
+        "execFile",
+        "execFileSync",
+        "execSync",
+        "fork",
+        "spawn",
+        "spawnSync",
+      ]),
+    );
+  });
+
   it("read a non-empty population before counting anything", () => {
     premiseHolds("the walk read at least one file", filesRead > 0);
     premiseHolds("the walk read a non-trivial number of bytes", bytesRead > 0);

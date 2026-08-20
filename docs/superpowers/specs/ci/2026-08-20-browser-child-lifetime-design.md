@@ -299,6 +299,31 @@ claim that the ceiling covers every case.
    owns that budget. Locally — the environment where every measured disaster occurred — no job budget
    exists and the ceiling is the only bound.
 
+7. **The spawn-disposition guard counts tokens per file and does not read them.** Its MEMBER
+   property is an equality between two counts over one file — one accepted ceiling per spawn hit —
+   and its NON-MEMBER property is a digest over exactly the lines a row disposes of. Neither asks what
+   any line MEANS, which is what makes them cheap and what makes them closable: an input that confuses
+   "which options belong to which call" can only move a count.
+
+   The price is stated rather than hidden. A child whose own argument text happens to contain the
+   guard's ceiling tokens — a `node -e` script whose source spells `timeout: WIRING_CHILD_TIMEOUT_MS`
+   and `killSignal: "SIGKILL"` — moves both counts together and is falsely certified. Diff review
+   round 4 constructed exactly that. **It is a documented limit and not a finding**, on two grounds
+   that both have to hold: distinguishing that text from a real options object requires telling a
+   string literal from code, which is a parser, and the standing repair direction on this surface
+   under same-axis recurrence is NARROWING rather than predicate growth (three consecutive diff rounds
+   landed on this one axis); and writing a child script that spells the guard's own constants is not
+   an ordinary authoring mistake by a contributor, which is the §1.2 threat fence.
+
+   **What round 4 DID close, because it was on the other side of that line:** the shape set was
+   hand-enumerated at three names and missed `execSync`, `execFile`, `exec` and `fork`, so an ordinary
+   harness child written with any of them was invisible. That is a cover gap rather than a
+   classification question, and the repair derives the names from `node:child_process`'s own exports —
+   a Node release adding one is covered by default. Member access is deliberately NOT excluded: a
+   lookbehind rejecting `.exec(` would also drop `real.spawnSync(...)`, and under-reporting is the
+   direction §1.2's bound forbids. The guard over-reports on `RegExp.prototype.exec` instead, and
+   those lines carry disposition rows like anything else.
+
 ## 7. Acceptance criteria
 
 - **AC-1.** `runChild` spawns through `spawnBounded`, and `tests/mutation/browser/runner.ts` imports

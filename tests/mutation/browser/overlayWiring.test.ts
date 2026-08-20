@@ -1,3 +1,4 @@
+import * as childProcess from "node:child_process";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -264,7 +265,18 @@ describe("AC-8 — every child this suite spawns is bounded", () => {
   // itself — so this case is not counted as one of the sites it checks.
   it("carries one accepted ceiling and one untrappable kill per spawn", () => {
     const source = readFileSync(join(ROOT, "tests/mutation/browser/overlayWiring.test.ts"), "utf8");
-    const sites = [...source.matchAll(/execFileSync\s*\(|spawnSync\s*\(|\bspawn\s*\(/g)];
+    // DERIVED from `node:child_process`, matching the meta guard rather than
+    // repeating a hand-written list. Round 4 probed the enumerated version: it
+    // named three shapes and missed `execSync`, `execFile`, `exec` and `fork`,
+    // so an ordinary wiring child written with any of those was invisible here.
+    const spawnApi = Object.entries(childProcess)
+      .filter(([name, value]) => /^(spawn|exec|fork)/.test(name) && typeof value === "function")
+      .map(([name]) => name)
+      .sort();
+    premiseHolds("node:child_process exposes spawn-family functions", spawnApi.length > 0);
+    const sites = spawnApi.flatMap((name) => [
+      ...source.matchAll(new RegExp(String.raw`(?<![\w$])${name}\s*\(`, "g")),
+    ]);
 
     // Executable premise: a scan that found nothing would pass vacuously and
     // would forever — `BL-GUARD-PREMISE-REACHABILITY`'s exact shape.
