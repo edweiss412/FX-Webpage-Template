@@ -254,7 +254,6 @@ tests/_shared/stripComments.ts      # REUSED, unmodified: the single-source comm
 
 ## 5. The disposition registry and its derived cover
 
-<!-- spec-lint: ignore — new file created by this spec; not yet tracked -->
 `tests/specLint/declaredLimitPinDispositions.ts` holds one row per phrase-bearing title that is NOT a live pin:
 
 ```ts
@@ -276,7 +275,6 @@ is tense and polarity over English, a predicate that would be attacked every rou
 corner at a time. Two rows with reasons hold the same fact without parsing anything, and the derived
 cover in this section is what keeps them honest.
 
-<!-- spec-lint: ignore — new file created by this spec; not yet tracked -->
 `tests/specLint/_metaDeclaredLimitPins.test.ts` is the cover, and it walks the enrolled suites from disk so a new suite file is covered by default:
 
 1. **No stale row.** Every disposition's (path, title) still matches a title on disk. A row whose test was renamed or deleted fails, so the registry cannot silently accumulate.
@@ -395,7 +393,6 @@ never tested.
 
 ## 7. Mutation enrolment (before the first review dispatch)
 
-<!-- spec-lint: ignore — new file created by this spec; not yet tracked -->
 `lib/specLint/declaredLimitPins.ts` is a guard surface whose defect class is exactly "reports OK while the output moved" — every branch either emits a code or deliberately says nothing — so enrolment precedes review (AGENTS.md convergence-criterion bullet 4). It ships as an importable module with referring suites from the start, never a terminal CLI script.
 
 Enrolment is TWO declarations: a `tests/mutation/source/registry.ts` row (`id: "declaredLimitPins"`, `sourcePath`, `suitePaths` naming the §6 pure suites, `operators: [...OPERATOR_NAMES]`, `scoreFloor: 0.95`, a `control` mutant, `accepted: []`), following the `redContract` row (`tests/mutation/source/registry.ts:525`) verbatim in shape, AND an `EXPECTED_LEDGER_KINDS` entry in `tests/mutation/source/expectedLedgerKinds.ts`, which `tests/mutation/guardSurfaces.gates.test.ts` reads as its expected key set — a registry row alone leaves the corpus gate red.
@@ -438,6 +435,7 @@ Tightening this wording is a CONTRACT CHANGE and owes a probe like any other cla
 14. **A Files declaration separated from its list by a blank line reads as INLINE.** If the header names paths, the list below is not read; if it names none, the declaration is empty and the plan names nothing. The failure direction is a missed advisory, never a false one.
 15. **Code-ness is the TypeScript parser's answer, and a suite the parser cannot read is DECLINED, never scanned raw.** If preparation reports parse diagnostics, the arm emits `DECLARED_LIMIT_PIN_SUITE_UNREADABLE` for that suite and reports no pins from it. An earlier draft called scanning the raw text "conservative over-reporting"; round 4 refuted that with one ordinary edit — inserting an unterminated `/*` above a live pin leaves two real pins textually visible while neither executes, so the raw scan produces WRONG ADVISORIES. Under this spec's own consequence bound a wrong advisory is the failure, so over-reporting is not the safe direction and never was. Declining is: it is the same decline-and-surface the bound explicitly permits, and it reuses the fail-open code rather than inventing a third one.
 16. **A path that is a proper prefix of another path is distinguished by delimitation, not by tracking.** The arm does not ask git whether a named path exists; a .bak sibling of a live entry fails the delimiter test and names nothing, and an untracked path that IS delimited names its surface if it string-matches an enrolled entry. Checking trackedness would make the arm's verdict depend on index state a plan author cannot see.
+17. **A pin that follows another call on the SAME PHYSICAL LINE is not read.** §3.1 item 1 anchors the opener at the start of the line modulo leading whitespace, so a `test(` sitting after a preceding statement on one line draws nothing. The failure direction is a missed advisory, never a false one — the conservative side the consequence bound requires. Recorded because the anchor's obvious axis is POSITION WITHIN THE LINE, which the accept set already varies with an indented opener, while this is a SECOND axis of the same boundary: line, call, statement, file and scope are different axes, and varying one while calling the boundary covered is the same defect as a fixture whose observation a different rule decides. Asserted in `tests/specLint/declaredLimitPins.test.ts`, paired against identical bytes with the preceding statement removed, which REPORT.
 
 ## 9. Wiring & docs (same PR)
 
