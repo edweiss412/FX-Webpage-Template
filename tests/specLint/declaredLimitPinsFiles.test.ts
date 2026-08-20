@@ -102,11 +102,7 @@ describe("namedSurfaces — INLINE form reads its own line and nothing below it"
       `- [ ] Step 1: read \`${REVIEW_ECONOMY_SUITE}\` for prior art`,
       "- [ ] Step 2: commit",
     );
-    expect(named(listForm)).toEqual([
-      "reviewRoundCorpus",
-      "reviewRoundCount",
-      "reviewRoundFiling",
-    ]);
+    expect(named(listForm)).toEqual(["reviewRoundCorpus", "reviewRoundCount", "reviewRoundFiling"]);
   });
 
   it("treats a ROOT-FILE path on the header as making the form INLINE (round 6)", () => {
@@ -132,7 +128,13 @@ describe("namedSurfaces — INLINE form reads its own line and nothing below it"
 describe("namedSurfaces — LIST form, and where the run ends", () => {
   it("reads a run of unordered items immediately below the header", () => {
     expect(
-      named(doc("**Files:**", "- Modify: `lib/reviewRounds/count.ts`", "- Test: `tests/reviewRounds/count.test.ts`")),
+      named(
+        doc(
+          "**Files:**",
+          "- Modify: `lib/reviewRounds/count.ts`",
+          "- Test: `tests/reviewRounds/count.test.ts`",
+        ),
+      ),
     ).toEqual(["reviewRoundCount"]);
   });
 
@@ -212,7 +214,11 @@ describe("namedSurfaces — declined shapes, each paired on ONE variable", () =>
   });
 
   it("…and the SAME BYTES with the list marker swapped NAME all three surfaces", () => {
-    expect(named(UNORDERED)).toEqual(["reviewRoundCorpus", "reviewRoundCount", "reviewRoundFiling"]);
+    expect(named(UNORDERED)).toEqual([
+      "reviewRoundCorpus",
+      "reviewRoundCount",
+      "reviewRoundFiling",
+    ]);
   });
 
   // ── a fenced header ───────────────────────────────────────────────────────────
@@ -268,9 +274,9 @@ describe("namedSurfaces — boundaries of the LIST-form lookahead", () => {
   });
 
   it("…while the same header WITH a list under it names its surface", () => {
-    expect(named(doc("## Task 1", "", "**Files:**", "- Modify: `lib/reviewRounds/count.ts`"))).toEqual([
-      "reviewRoundCount",
-    ]);
+    expect(
+      named(doc("## Task 1", "", "**Files:**", "- Modify: `lib/reviewRounds/count.ts`")),
+    ).toEqual(["reviewRoundCount"]);
   });
 
   it("declines when the line below the header opens a FENCE", () => {
@@ -309,7 +315,9 @@ describe("namedSurfaces — the delimiter test, at both of its edges", () => {
     // stops at the first occurrence — or advances past the second while resuming —
     // reports the wrong answer for the line.
     expect(
-      named(doc("**Files:**", "- Modify: xlib/reviewRounds/count.ts and `lib/reviewRounds/count.ts`")),
+      named(
+        doc("**Files:**", "- Modify: xlib/reviewRounds/count.ts and `lib/reviewRounds/count.ts`"),
+      ),
     ).toEqual(["reviewRoundCount"]);
   });
 });
@@ -385,7 +393,11 @@ describe("namedSurfaces — the table is INJECTED, not hardcoded (spec §6)", ()
   });
 
   it("names nothing for a document with no Files declaration at all", () => {
-    const noDeclaration = doc("## Task 1", "", "We will edit `lib/reviewRounds/count.ts` eventually.");
+    const noDeclaration = doc(
+      "## Task 1",
+      "",
+      "We will edit `lib/reviewRounds/count.ts` eventually.",
+    );
     expect(named(noDeclaration)).toEqual([]);
     // Control: the same path inside a real declaration DOES name.
     expect(named(doc("**Files:**", "- Modify: `lib/reviewRounds/count.ts`"))).toEqual([

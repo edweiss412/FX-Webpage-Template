@@ -353,7 +353,8 @@ export function runFixtureSplice(
 function scriptKindFor(path: string): ts.ScriptKind {
   if (path.endsWith(".tsx")) return ts.ScriptKind.TSX;
   if (path.endsWith(".jsx")) return ts.ScriptKind.JSX;
-  if (path.endsWith(".mts") || path.endsWith(".cts") || path.endsWith(".ts")) return ts.ScriptKind.TS;
+  if (path.endsWith(".mts") || path.endsWith(".cts") || path.endsWith(".ts"))
+    return ts.ScriptKind.TS;
   return ts.ScriptKind.JS;
 }
 

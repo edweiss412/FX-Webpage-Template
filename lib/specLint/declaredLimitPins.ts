@@ -436,10 +436,7 @@ export function namedSurfaceAnchors(
  * The enrolled table is a PARAMETER: this module imports no registry, so the mutation
  * harness scores the logic while the registry stays the registry.
  */
-export function namedSurfaces(
-  model: DocModel,
-  surfaces: readonly EnrolledSurface[],
-): Set<string> {
+export function namedSurfaces(model: DocModel, surfaces: readonly EnrolledSurface[]): Set<string> {
   return new Set(namedSurfaceAnchors(model, surfaces).keys());
 }
 
@@ -449,9 +446,7 @@ export function namedSurfaces(
  * whether diagnostics were taken before or after blanking is a property of the ADAPTER
  * and is invisible here. Task 7b proves that ordering against the real function.
  */
-export type PreparedSuite =
-  | { status: "ok"; lines: readonly string[] }
-  | { status: "parse-failed" };
+export type PreparedSuite = { status: "ok"; lines: readonly string[] } | { status: "parse-failed" };
 
 /** Injected by the adapter, which owns the only TypeScript parse (spec §4). */
 export type SuitePreparer = (path: string, rawLines: readonly string[]) => PreparedSuite;

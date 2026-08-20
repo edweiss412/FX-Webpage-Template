@@ -116,7 +116,9 @@ describe("declared-limit pin dispositions — the registry (spec §5)", () => {
     // registry that suppressed everything, or by a scan that never ran.
     const live = identities(livePins());
     expect(
-      live.some((id) => id.startsWith("tests/cross-cutting/psqlStartupFileSuppression.test.ts\u0000")),
+      live.some((id) =>
+        id.startsWith("tests/cross-cutting/psqlStartupFileSuppression.test.ts\u0000"),
+      ),
     ).toBe(true);
   });
 
@@ -154,7 +156,10 @@ describe("declared-limit pin dispositions — the registry (spec §5)", () => {
   it("carries no row with an empty or whitespace REASON", () => {
     // A waiver that launders itself is the shape WAIVER_MISSING_REASON already refuses.
     for (const row of NOT_A_PIN) {
-      expect(row.reason.trim().length, `disposition for ${row.title} carries no reason`).toBeGreaterThan(0);
+      expect(
+        row.reason.trim().length,
+        `disposition for ${row.title} carries no reason`,
+      ).toBeGreaterThan(0);
     }
   });
 });

@@ -639,7 +639,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
         siteId: "relational-boundary:334:28:<><=",
         kind: "equivalent",
         reason:
-          "at j === model.lines.length the read is model.lines[j] ?? \"\", which yields \"\", and the next statement breaks on item.trim() === \"\". The extra iteration reads nothing and appends nothing. Depends on the total ?? \"\" read rather than a non-null assertion, which would have thrown instead. Argued BEFORE the confirming run.",
+          'at j === model.lines.length the read is model.lines[j] ?? "", which yields "", and the next statement breaks on item.trim() === "". The extra iteration reads nothing and appends nothing. Depends on the total ?? "" read rather than a non-null assertion, which would have thrown instead. Argued BEFORE the confirming run.',
       },
       {
         siteId: "integer-literal:392:17:0>1",
@@ -651,7 +651,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
         siteId: "relational-boundary:392:23:<><=",
         kind: "equivalent",
         reason:
-          "STRUCTURAL: the mutant grants exactly ONE extra iteration, at at === line.length, where the first statement is line.startsWith(path, at). startsWith at an index equal to the string length is TRUE ONLY FOR THE EMPTY STRING, so for any non-empty path the body continues and the loop exits on the next increment — every later statement is unreachable in that iteration. PROBED: all 107 paths in the closed enrolled candidate set are non-empty and all 107 return false for startsWith(path, line.length), with a CONTROL confirming startsWith(\"\", length) is true, so the zero is attributable rather than the probe being broken. PREMISE: no enrolled path is the empty string. Origin noted honestly - written after seeing the survivor list - but the support is the proof and the probe, not the survival.",
+          'STRUCTURAL: the mutant grants exactly ONE extra iteration, at at === line.length, where the first statement is line.startsWith(path, at). startsWith at an index equal to the string length is TRUE ONLY FOR THE EMPTY STRING, so for any non-empty path the body continues and the loop exits on the next increment — every later statement is unreachable in that iteration. PROBED: all 107 paths in the closed enrolled candidate set are non-empty and all 107 return false for startsWith(path, line.length), with a CONTROL confirming startsWith("", length) is true, so the zero is attributable rather than the probe being broken. PREMISE: no enrolled path is the empty string. Origin noted honestly - written after seeing the survivor list - but the support is the proof and the probe, not the survival.',
       },
     ],
   },

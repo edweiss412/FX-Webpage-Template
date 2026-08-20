@@ -47,8 +47,16 @@ const SOURCE_B = "lib/qplinth/beta.ts";
 const UNNAMED = "DECLARED_LIMIT_PIN_UNNAMED";
 const UNREADABLE = "DECLARED_LIMIT_PIN_SUITE_UNREADABLE";
 
-const SURFACE_A: EnrolledSurface = { id: "qplinthAlpha", sourcePath: SOURCE_A, suitePaths: [SUITE_A] };
-const SURFACE_B: EnrolledSurface = { id: "qplinthBeta", sourcePath: SOURCE_B, suitePaths: [SUITE_B] };
+const SURFACE_A: EnrolledSurface = {
+  id: "qplinthAlpha",
+  sourcePath: SOURCE_A,
+  suitePaths: [SUITE_A],
+};
+const SURFACE_B: EnrolledSurface = {
+  id: "qplinthBeta",
+  sourcePath: SOURCE_B,
+  suitePaths: [SUITE_B],
+};
 /** One pin reachable through TWO surfaces: both name the same suite. */
 const SURFACE_B_SHARING_A: EnrolledSurface = {
   id: "qplinthBetaSharing",
@@ -129,14 +137,7 @@ describe("checkDeclaredLimitPins — the obligation (spec §3.3)", () => {
   });
 
   it("counts a title inside a FENCED block as named — the search is the whole document", () => {
-    const plan = doc(
-      "**Files:**",
-      `- Modify: \`${SUITE_A}\``,
-      "",
-      "```",
-      T.piCompanion,
-      "```",
-    );
+    const plan = doc("**Files:**", `- Modify: \`${SUITE_A}\``, "", "```", T.piCompanion, "```");
     expect(codes(run(plan, { files: { [SUITE_A]: [pinLine(T.piCompanion)] } }))).toEqual([]);
   });
 
@@ -250,13 +251,24 @@ describe("checkDeclaredLimitPins — decoding, the other half of Task 1's pair",
   it("matches a decoded NEWLINE title spanning TWO plan lines (spec §8 item 13)", () => {
     // Fails a per-line obligation matcher, which is the implementation this rejects.
     const pin = 'test("a qplinth newline\\nspanning documented limit", () => {});';
-    const plan = doc("**Files:**", `- Modify: \`${SUITE_A}\``, "", "a qplinth newline", "spanning documented limit");
+    const plan = doc(
+      "**Files:**",
+      `- Modify: \`${SUITE_A}\``,
+      "",
+      "a qplinth newline",
+      "spanning documented limit",
+    );
     expect(codes(run(plan, { files: { [SUITE_A]: [pin] } }))).toEqual([]);
   });
 
   it("matches a decoded TAB title within ONE plan line (spec §8 item 13)", () => {
     const pin = 'test("a qplinth tab\\tbearing documented limit", () => {});';
-    const plan = doc("**Files:**", `- Modify: \`${SUITE_A}\``, "", "a qplinth tab\tbearing documented limit");
+    const plan = doc(
+      "**Files:**",
+      `- Modify: \`${SUITE_A}\``,
+      "",
+      "a qplinth tab\tbearing documented limit",
+    );
     expect(codes(run(plan, { files: { [SUITE_A]: [pin] } }))).toEqual([]);
   });
 });
@@ -406,10 +418,12 @@ describe("checkDeclaredLimitPins — injection, end to end (spec §6)", () => {
   });
 
   it("draws nothing for a named surface whose suite holds no pins, while a pin-bearing one draws", () => {
-    expect(run(declaring(SUITE_A), { files: { [SUITE_A]: ['test("ordinary", () => {});'] } })).toEqual([]);
-    expect(codes(run(declaring(SUITE_A), { files: { [SUITE_A]: [pinLine(T.piCompanion)] } }))).toEqual([
-      UNNAMED,
-    ]);
+    expect(
+      run(declaring(SUITE_A), { files: { [SUITE_A]: ['test("ordinary", () => {});'] } }),
+    ).toEqual([]);
+    expect(
+      codes(run(declaring(SUITE_A), { files: { [SUITE_A]: [pinLine(T.piCompanion)] } })),
+    ).toEqual([UNNAMED]);
   });
 
   it("honors the disposition registry end to end", () => {
@@ -417,7 +431,9 @@ describe("checkDeclaredLimitPins — injection, end to end (spec §6)", () => {
     const dispositions: PinDisposition[] = [
       { path: SUITE_A, title: T.sigmaDispositioned, reason: "constructed for this suite" },
     ];
-    expect(titlesIn(run(declaring(SUITE_A), { files, dispositions }), UNNAMED)).toEqual([T.tauLive]);
+    expect(titlesIn(run(declaring(SUITE_A), { files, dispositions }), UNNAMED)).toEqual([
+      T.tauLive,
+    ]);
     // Control: without the row, BOTH draw.
     expect(titlesIn(run(declaring(SUITE_A), { files }), UNNAMED)).toEqual(
       [T.sigmaDispositioned, T.tauLive].sort(),

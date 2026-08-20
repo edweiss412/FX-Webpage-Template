@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  discoverPins,
-  type Pin,
-  type PinDisposition,
-} from "../../lib/specLint/declaredLimitPins";
+import { discoverPins, type Pin, type PinDisposition } from "../../lib/specLint/declaredLimitPins";
 import { SYNTHETIC_TITLES as T } from "./__fixtures__/declaredLimitPins/syntheticTitles";
 
 /**
@@ -328,10 +324,7 @@ describe("discoverPins — the GRAIN is the test, not the zero it tabulates (spe
 });
 
 describe("discoverPins — dispositions are keyed on (path, title) (spec §5)", () => {
-  const SOURCE = [
-    `test("${T.sigmaDispositioned}", () => {});`,
-    `test("${T.tauLive}", () => {});`,
-  ];
+  const SOURCE = [`test("${T.sigmaDispositioned}", () => {});`, `test("${T.tauLive}", () => {});`];
   const ROW: PinDisposition[] = [
     { path: SUITE, title: T.sigmaDispositioned, reason: "constructed for this suite" },
   ];

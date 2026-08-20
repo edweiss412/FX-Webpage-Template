@@ -82,7 +82,10 @@ describe("declared-limit pins — §2.7 replay, from committed blobs (AC-4)", ()
 
   it("states its premise executably: the blobs are present and carry what the replay needs", () => {
     premise("pre-repair suite blob lines", suitePreRepair.split("\n").length, 1000);
-    premiseHolds("the pre-repair suite still carries the incident pin", suitePreRepair.includes(INCIDENT_PIN));
+    premiseHolds(
+      "the pre-repair suite still carries the incident pin",
+      suitePreRepair.includes(INCIDENT_PIN),
+    );
     premiseHolds(
       "the two plan blobs differ, so a replay comparing them is comparing something",
       planPre !== planPost,
@@ -134,7 +137,11 @@ describe("declared-limit pins — §2.6 corpus regression (AC-6)", () => {
       }
     },
     listTrackedFiles: () =>
-      execFileSync("git", ["ls-files"], { cwd: REPO, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
+      execFileSync("git", ["ls-files"], {
+        cwd: REPO,
+        encoding: "utf8",
+        maxBuffer: 64 * 1024 * 1024,
+      })
         .split("\n")
         .filter(Boolean),
   };
@@ -157,9 +164,10 @@ describe("declared-limit pins — §2.6 corpus regression (AC-6)", () => {
         NOT_A_PIN,
       )) {
         if (finding.code !== "DECLARED_LIMIT_PIN_UNNAMED") continue;
-        const parsed = /^(\S+):\d+ pins a declared limit that this plan does not name: "(.*)"$/.exec(
-          finding.message,
-        );
+        const parsed =
+          /^(\S+):\d+ pins a declared limit that this plan does not name: "(.*)"$/.exec(
+            finding.message,
+          );
         rows.push(`${plan} | ${parsed?.[1] ?? "?"} | ${parsed?.[2] ?? finding.message}`);
       }
     }
@@ -183,7 +191,7 @@ describe("declared-limit pins — §2.6 corpus regression (AC-6)", () => {
   it("relints to exactly the §2.6 SET of (plan, suitePath, title)", () => {
     expect(corpusAdvisories()).toEqual(
       [
-        'docs/superpowers/plans/2026-07-19-spec-lint.md | tests/specLint/numerics.test.ts | an irregular plural is NOT singularized — documented limit, not a wrong flag',
+        "docs/superpowers/plans/2026-07-19-spec-lint.md | tests/specLint/numerics.test.ts | an irregular plural is NOT singularized — documented limit, not a wrong flag",
         "docs/superpowers/plans/2026-07-19-spec-lint.md | tests/specLint/numerics.test.ts | the wedge-remeasure anchor pair stays SILENT — the arm's documented limit (spec §3.3)",
         "docs/superpowers/plans/2026-08-04-review-round-economy.md | tests/docs/_metaReviewRoundEconomy.test.ts | PASSES a stale none followed by candidate lines - documented limit §5.7",
         "docs/superpowers/plans/2026-08-04-review-round-economy.md | tests/docs/_metaReviewRoundEconomy.test.ts | does NOT resolve an id defined only as a body sub-item - the documented limit",

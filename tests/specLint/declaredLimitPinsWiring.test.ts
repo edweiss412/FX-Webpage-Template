@@ -37,7 +37,8 @@ const resolver: FileResolver = {
 
 const doc = (kind: "spec" | "plan"): LintDoc => ({
   text: PLAN_TEXT,
-  repoRelPath: kind === "plan" ? "docs/superpowers/plans/qplinth.md" : "docs/superpowers/specs/qplinth.md",
+  repoRelPath:
+    kind === "plan" ? "docs/superpowers/plans/qplinth.md" : "docs/superpowers/specs/qplinth.md",
   kind,
   kindSource: "explicit",
 });
@@ -53,13 +54,19 @@ describe("runLint — the declared-limit pin arm is wired, plan-kind only", () =
 
   it("reports NOTHING for a SPEC-kind document, with the plan-kind case as its pair", () => {
     // A spec carries no Files list, so the collision is a plan-time fact.
-    expect(armCodes(runLint(doc("spec"), resolver, null, null, null, null, { surfaces: [SURFACE] }))).toEqual([]);
-    expect(armCodes(runLint(doc("plan"), resolver, null, null, null, null, { surfaces: [SURFACE] }))).toEqual([UNNAMED]);
+    expect(
+      armCodes(runLint(doc("spec"), resolver, null, null, null, null, { surfaces: [SURFACE] })),
+    ).toEqual([]);
+    expect(
+      armCodes(runLint(doc("plan"), resolver, null, null, null, null, { surfaces: [SURFACE] })),
+    ).toEqual([UNNAMED]);
   });
 
   it("reports NOTHING for a NULL table, with the injected-table case as its pair", () => {
     expect(armCodes(runLint(doc("plan"), resolver, null, null, null, null, null))).toEqual([]);
-    expect(armCodes(runLint(doc("plan"), resolver, null, null, null, null, { surfaces: [SURFACE] }))).toEqual([UNNAMED]);
+    expect(
+      armCodes(runLint(doc("plan"), resolver, null, null, null, null, { surfaces: [SURFACE] })),
+    ).toEqual([UNNAMED]);
   });
 
   it("leaves an EXISTING caller that passes no table byte-identical", () => {
@@ -77,14 +84,16 @@ describe("runLint — the declared-limit pin arm is wired, plan-kind only", () =
     // which no other case here would notice.
     const dispositioned = runLint(doc("plan"), resolver, null, null, null, null, {
       surfaces: [SURFACE],
-      dispositions: [{ path: SUITE, title: T.piCompanion, reason: "constructed for this assertion" }],
+      dispositions: [
+        { path: SUITE, title: T.piCompanion, reason: "constructed for this assertion" },
+      ],
     });
     expect(armCodes(dispositioned)).toEqual([]);
     // Paired: the same run WITHOUT the row still draws, so the silence above is the
     // disposition and not the arm having gone quiet.
-    expect(armCodes(runLint(doc("plan"), resolver, null, null, null, null, { surfaces: [SURFACE] }))).toEqual([
-      UNNAMED,
-    ]);
+    expect(
+      armCodes(runLint(doc("plan"), resolver, null, null, null, null, { surfaces: [SURFACE] })),
+    ).toEqual([UNNAMED]);
   });
 
   it("emits the arm's findings at ADVISORY severity, so `0 hard` is unaffected", () => {
