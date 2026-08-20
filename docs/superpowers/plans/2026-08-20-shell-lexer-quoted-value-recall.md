@@ -428,6 +428,66 @@ archived and absent from open, the attached row still open, zero in-progress mar
 was the POPULATION the conclusions ranged over, and that is worth recording rather than quietly
 fixing: the close-out commit's message states the pre-correction numbers.
 
+### A boundary has more DIMENSIONS than the one you varied (diff round 1, finding 2)
+
+Killer 3 was sound and still missed the arc's worst defect. It asked whether a `<<<` target on
+ANOTHER LOGICAL LINE binds a `read`, varied that one axis, and called the association boundary
+covered. The axis it never varied was the COMMAND: `read -r PG <<< notpsql; cat <<< p"sql"` puts
+both targets on ONE logical line belonging to TWO commands, and the rule reported 1 where bash binds
+`notpsql`.
+
+**Line, command, statement, scope and file are different axes of the same boundary.** Varying one
+and declaring the boundary covered is the same defect as a fixture whose observation is decided by a
+different rule — the weakness is invisible because the fixture that exists does discriminate, just
+along an axis that was never the risky one.
+
+The repair is worth stating as a pattern too: the word route declines a logical line when the
+LEXER'S OWN OPERATOR WORDS show more than one command. Narrowing with parts that already ship beats
+narrowing with new ones — there is no second grammar to keep in step, and a quoted `;` stays data
+here for exactly the reason it is data to the shell.
+
+### Two covers, and neither subsumes the other (fleet rule 19)
+
+The convergence criterion for this surface is reported as TWO numbers, not one, because they range
+over different spaces:
+
+1. **Mutation score** — machine-computed over the registry's DECLARED operator set
+   (`relational-boundary`, `regex-quantifier-bound`), with an empty unaccepted-survivor set.
+2. **The weaker-implementation audit** — seven implementations a human would plausibly write,
+   each BUILT, applied to the surface, and the shipped killer observed to FAIL against it, source
+   restored and verified by blob hash. Reported in three states: ABSENT, PRESENT-BUT-UNPROVEN,
+   PROVEN.
+
+**A perfect score is not permission to skip the audit.** The declared operator set is not a superset
+of the weaker-implementation space: an implementation no operator can GENERATE never appears as a
+survivor, however perfect the score. This arc's own numbers show the two finding different things —
+the gate found the equivalence-argument break and two survivors, while the audit found the
+PRESENT-BUT-UNPROVEN killer that no mutant would have surfaced.
+
+### Does this guard scan a tree containing its own fixtures? (fleet rule 21) — yes, and it is handled
+
+This arc adds roughly sixty psql-bearing fixture strings to the deciding suite, and
+`collectPsqlUsage` walks the whole repository including `tests/`. Asked directly rather than
+inferred from a green suite, because the consequence is asymmetric: a polluting fixture inflates a
+count the suite elsewhere pins, so everything passes while the pinned number is wrong.
+
+Measured on the deciding suite in isolation: **464 `scanBinaryIndirection` hits** and **0
+`scanSource` sites**. The census nevertheless reports 0 indirections, and the mechanism is named
+rather than lucky — `SELF` (`scan.ts`, symbol `SELF`) lists the guard's own two files and the walk
+excludes them from INDIRECTION scanning.
+
+Two properties of that exclusion are what make it safe, and both are worth stating because a
+blanket skip would have neither:
+
+- It is **narrow**. The two files are still WALKED and still scanned for call SITES. A real
+  unprotected psql invocation committed into the suite would still fail by default; only the
+  fixture STRINGS are exempt, which is the population that cannot be a call site.
+- It **fails loudly if removed**. Deleting `SELF` makes the walk report 464 indirections against a
+  test asserting 0, so the exclusion cannot rot silently into a suppression nobody notices.
+
+Verified for this arc specifically: `scanSource` over the deciding suite returns **0 sites**, so
+none of the added fixtures is a call site, and AC-4's two-scanner census is identical.
+
 ### Granularity audit (fleet rule 16)
 
 An exemption keyed coarser than what it exempts silently absorbs everything that arrives later at the
