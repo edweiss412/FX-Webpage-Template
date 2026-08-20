@@ -214,8 +214,15 @@ lands in three observable steps, and the RED is taken between the second and the
    behavioural: with a deciding suite pointed at a command that sleeps **6 s** and a ceiling of
    **2 s**, the unbounded `execFileSync` lets the child run to completion and `runChild` returns
    normally, so the `expect(...).toThrow(MutantRunInfraError)` assertion FAILS. Deliberately an
-   assertion failure rather than a hang: the child terminates on its own in 6 s, well inside vitest's
-   default case timeout, so the red is fast, deterministic, and cannot be mistaken for an infra stall.
+   assertion failure rather than a hang: the child terminates on its own in 6 s, so the red is fast,
+   deterministic, and cannot be mistaken for an infra stall.
+
+   **Corrected at implementation time — the original sentence said "well inside vitest's default case
+   timeout", which implied a backstop that cannot exist here.** Both `execFileSync` and `spawnBounded`
+   spawn SYNCHRONOUSLY, blocking the test thread, so vitest cannot fire a per-case timeout until the
+   call returns — the outer layer is unreachable exactly when the inner one is stuck. What makes this
+   red fast is the child terminating on its own, not any timeout catching it. Observed: 16.25 s for
+   the whole suite before the swap, 5.7 s after.
 3. **Swap to `spawnBounded` and go green.** The 2 s ceiling now kills the 6 s child and the throw
    arrives.
 

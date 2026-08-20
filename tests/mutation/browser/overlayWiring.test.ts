@@ -39,6 +39,21 @@ const ROOT = resolve(__dirname, "..", "..", "..");
  * hang, which is precisely what AC-8 names.
  */
 const WIRING_CHILD_TIMEOUT_MS = 300_000;
+
+/**
+ * The measurement the ceiling above is a multiple OF — the derivation, which is
+ * the load-bearing half.
+ *
+ * 60_000 is not a maximum. It is the value that was OBSERVED TO BE INSUFFICIENT:
+ * a healthy bundle child exceeded it and died `ETIMEDOUT` during a full parallel
+ * `tests/mutation/` run. The true contended maximum is unknown and greater than
+ * this, so the multiple is applied to a floor rather than to a measured peak.
+ *
+ * What would have to change for the number to move: a re-measurement UNDER FULL
+ * PARALLEL CONTENTION, not in isolation. The isolated figure for this file is
+ * 2432 ms and it is the figure that produced the ceiling which failed.
+ */
+const OBSERVED_INSUFFICIENT_CEILING_MS = 60_000;
 const BUNDLE = join(ROOT, "tests", "e2e", "_tapTargetFloorBundle.mjs");
 const OVERLAY_CONFIG = "tests/mutation/browser/vitestOverlay.config.ts";
 const PROBE_FIXTURE = "tests/mutation/browser/fixtures/overlayProbe.fixture.ts";
@@ -283,5 +298,15 @@ describe("AC-8 — every child this suite spawns is bounded", () => {
       .map(({ line }) => `overlayWiring.test.ts:${line}`);
 
     expect(unbounded).toEqual([]);
+  });
+
+  // The DERIVATION, not the value. A bare 300000 invites the next reader to tune
+  // it; pinning the relationship states what would have to change for the number
+  // to move, and fences the exact mistake that produced the previous ceiling.
+  it("keeps the ceiling a multiple of a CONTENDED observation", () => {
+    expect(WIRING_CHILD_TIMEOUT_MS).toBeGreaterThanOrEqual(5 * OBSERVED_INSUFFICIENT_CEILING_MS);
+    // Not the ratified mutant ceiling: these are wiring children, and reusing
+    // 660_000 would imply a derivation the browser-gate probe does not support.
+    expect(WIRING_CHILD_TIMEOUT_MS).not.toBe(660_000);
   });
 });

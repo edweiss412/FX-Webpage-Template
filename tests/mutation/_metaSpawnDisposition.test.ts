@@ -49,20 +49,42 @@ function walk(dir: string): string[] {
   });
 }
 
-function sweep(): Hit[] {
-  return walk(WALK_ROOT).flatMap((full) => {
+type Sweep = { hits: Hit[]; filesRead: number; bytesRead: number; unreadable: string[] };
+
+/**
+ * The walk, WITH ITS INPUT ACCOUNTED FOR.
+ *
+ * An earlier version swallowed a failed read into an empty result, which is the
+ * empty-population failure that no control on the OUTPUT can see: the count, and
+ * any control over the count, are all downstream of the same broken read, and a
+ * check that reports "no undispositioned sites" is indistinguishable from one
+ * that read nothing at all. So the bytes and the file count come back with the
+ * hits, and an unreadable file is REPORTED rather than skipped.
+ */
+function sweep(): Sweep {
+  const files = walk(WALK_ROOT);
+  const unreadable: string[] = [];
+  let bytesRead = 0;
+  let filesRead = 0;
+
+  const hits = files.flatMap((full) => {
+    const file = relative(ROOT, full).split(sep).join("/");
     let source: string;
     try {
       source = readFileSync(full, "utf8");
-    } catch {
+    } catch (e) {
+      unreadable.push(`${file}: ${String(e)}`);
       return [];
     }
-    const file = relative(ROOT, full).split(sep).join("/");
+    filesRead += 1;
+    bytesRead += source.length;
     return source
       .split("\n")
       .map((text, i) => ({ file, line: i + 1, text: text.trim() }))
       .filter((hit) => SPAWN_SHAPES.some((shape) => shape.test(hit.text)));
   });
+
+  return { hits, filesRead, bytesRead, unreadable };
 }
 
 /**
@@ -162,14 +184,34 @@ function rowsFor(hit: Hit): Disposition[] {
 }
 
 describe("every spawn site under tests/mutation/ is disposed of", () => {
-  const hits = sweep();
+  const { hits, filesRead, bytesRead, unreadable } = sweep();
 
-  // Executable premise. A walk that silently returned nothing would pass
-  // vacuously and would forever — `BL-GUARD-PREMISE-REACHABILITY`'s exact shape,
-  // and the reason this is asserted rather than assumed.
-  it("the walk actually found spawn sites", () => {
+  // Executable premise, asserted UPSTREAM of the count as well as on it.
+  //
+  // A walk that silently returned nothing would pass vacuously and would forever
+  // — `BL-GUARD-PREMISE-REACHABILITY`'s exact shape. But a must-be-absent control
+  // on the output cannot catch that, because it AGREES with total failure: a
+  // check reading an empty corpus reports zero undispositioned sites and looks
+  // correct. The load-bearing half is must-be-PRESENT, and the strongest form of
+  // it is upstream of every count — prove the input was read at all.
+  it("read a non-empty population before counting anything", () => {
+    premiseHolds("the walk read at least one file", filesRead > 0);
+    premiseHolds("the walk read a non-trivial number of bytes", bytesRead > 0);
     premiseHolds("the walk root holds at least one spawn site", hits.length > 0);
-    expect(hits.length).toBeGreaterThan(0);
+
+    // Raw counts, not a computed verdict: a verdict hides the difference between
+    // "zero matches" and "the read is broken".
+    expect({
+      filesRead: filesRead > 0,
+      bytesRead: bytesRead > 1000,
+      hits: hits.length > 0,
+    }).toEqual({ filesRead: true, bytesRead: true, hits: true });
+  });
+
+  // A file the walk could not read contributes no hits and would otherwise pass
+  // unnoticed — the silent half of the same failure.
+  it("could read every file it walked", () => {
+    expect(unreadable).toEqual([]);
   });
 
   // THE DIRECTION THAT MATTERS. The strictly weaker guard asserts only that the

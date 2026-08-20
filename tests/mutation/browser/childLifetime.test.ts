@@ -26,7 +26,16 @@ const SMALL_CEILING_MS = 2_000;
 /** Generous enough that a healthy child is never converted into a timeout. */
 const GENEROUS_CEILING_MS = 120_000;
 
-/** Every case spawns a real `pnpm exec vitest` child; the default 30 s is tight. */
+/**
+ * Headroom for the ASYNC parts of a case — and explicitly NOT a backstop for the
+ * child.
+ *
+ * `spawnBounded` uses `spawnSync`, which blocks the test thread, so vitest cannot
+ * fire a per-case timeout while a child is running: the timer only gets a turn
+ * once the call returns. A layered-defence reading of this value would be false —
+ * the outer layer is unreachable exactly when the inner one is stuck. The only
+ * thing bounding a child here is the ceiling passed to `runChild`.
+ */
 const CASE_TIMEOUT = { timeout: 60_000 } as const;
 
 const SLEEPING_SUITE: DecidingSuite = {
