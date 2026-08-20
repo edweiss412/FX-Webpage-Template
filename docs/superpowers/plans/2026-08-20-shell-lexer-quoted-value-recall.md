@@ -198,6 +198,13 @@ says the lexer drops the operand before words exist; the nested-body closing par
 gain the here-string word-route clause so its "never blind" claim stays true; and item 1 of the prior
 design's §6, which corresponds to this retiring row.
 
+**Also in this commit, because they live in the same `scan.ts` header block this task is already
+editing** (plan round 3 finding 2): the NEW documented-limit entry for the attached-target family
+(spec §6 item 3), and the three stale `75`s in that block's census sentences. Spec §5 lists the `75`s
+as a companion sweep landing with the pin edits; they are pre-existing drift rather than something a
+pin describes, but they sit in the block this task rewrites, so the same-commit contract is satisfied
+here rather than deferred.
+
 Killers 3, 4 and 5 land here.
 
 ## Task 3: the whole-value expansion candidate
@@ -216,7 +223,23 @@ a hit; the `${…}`-operand bullet in `scan.ts` is replaced by the complement en
 prior design's §6, which corresponds to this retiring row, gains its dated superseded-by line here
 rather than later.
 
+**New documented-limit entries owned by this task** (plan round 3 finding 2 — they had no owner):
+spec §6 item 8, composition inside double quotes, and item 9, whole-value composition with its
+adjacency and nesting cases. Both describe boundaries THIS task's accept-set creates, so both are
+written into the `scan.ts` header block here.
+
 Killers 1 and 2 land here.
+
+**The DEFAULT-DENY complement is made EXECUTABLE here, not merely asserted** (plan round 3 finding 1 —
+AC-2 claimed every unchanged §4 row had an assertion and the complement rows had none). One
+table-driven case lists every complement operator with the value it holds TODAY, measured:
+`${U#'psql'}` 0, `${U%'psql'}` 0, `${U/'psql'/x}` 0, `${#psql}` 1, `${U#psql}` 1, `${U:?'psql'}` 0,
+`${!psql}` 1, `${A[psql]}` 1, substring `${U:1}` / `${U:1:4}` / `${U: -4}` 0, `${U^}` 1, `${U,,}` 1,
+`${U@Q}` 1, `${U@U}` 1, and inside a here-string target `${U#'psql'}` 0 and `${U:1}` 0. The case
+asserts the whole table, so a change that reads ANY complement operand moves at least one row. The
+mixed directions are the point: the ones at 1 report through the verbatim text for a pre-existing
+reason, and a candidate that started reading them would not change those — which is why the zeros
+carry the discriminating weight and the table asserts both.
 
 ## Task 4: the negative surface, red against a NAMED MUTANT
 
@@ -226,9 +249,30 @@ The precision set: `${U:-'psql;x'}`, `${U:-'psql\'}`, `${M:-'psql failed to conn
 `notpsql`, composed prose, `PG="p${U:-'sql'}"` (bash binds `p'sql'`, so the zero is CORRECT), and the
 composition family, now a documented limit.
 
-Each case carries a premise proving the fixture reaches the predicate on its OWN inputs — the premise
-is its selected-state sibling reporting — because a suite of zeros that never reach the predicate is
-green about nothing.
+Each case carries a premise proving the fixture reaches the predicate **on its OWN inputs**. Plan
+round 3 finding 3: an earlier draft made every premise "its selected-state sibling reports", and an
+adjacent case is explicitly NOT a premise (`docs/agents/writing-plans.md`, premise rule) — a sibling
+can hold while this case's own input never reaches the machinery at all.
+
+The premise for each row is therefore a property computed from that row's OWN fixture text, asserted
+immediately above the assertion it guards:
+
+- For a candidate-route zero (`${U:-'psql;x'}`, `${U:-'psql\'}`, `${M:-'psql failed to connect'}`):
+  the fixture's value is a WHOLE-VALUE span whose operator is in the accept-set and whose operand
+  contains `psql`. That is exactly the condition under which the candidate exists, so the zero is
+  attributable to the predicate rejecting the candidate rather than to no candidate being built.
+- For the double-quoted composition zero (`PG="p${U:-'sql'}"`) and the whole-value composition zeros:
+  spec §3.3 requires that NO candidate exists for these, so the premise is the complement of the
+  above — the fixture's `${…}` is inside a double-quoted span, or the value is not a single span — and
+  the assertion is that the zero holds for that structural reason. A reporting sibling would prove the
+  opposite boundary and is not used.
+- For composed `notpsql` and composed prose: the fixture contains no psql-shaped word after
+  dequoting, asserted on the fixture's own text.
+
+Every premise uses `premise` / `premiseHolds` from `tests/_shared/premise.ts`, sits outside any
+`.each` callback, and is stated on the case's own inputs — a suite of zeros that never reach the
+predicate is green about nothing, and a suite of zeros guarded by a neighbour's success is green about
+the neighbour.
 
 <!-- tasks: end -->
 
