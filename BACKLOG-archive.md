@@ -1,3 +1,96 @@
+## BL-SEND-AUTH-SINGLE-READ-LINT — a send-authorization path may read each surface at most once per pass
+
+**Status:** SHIPPED 2026-08-20 (`feat/send-auth-single-read-lint`) · **Effort (as shipped):** M — a structural lint plus a boundary decision about which surface
+methods it ranges over, and one existing passing instance to pin it against.
+
+One class of defect produced a P0 in four consecutive review rounds of
+`feat/orchestrator-pane-compaction`, and every intermediate repair was too
+small. r1 re-read the marker but authorized against a nonce captured earlier.
+r2 re-observed the pane but compared only the verdict. r3 compared the whole
+decision but ran it against the original roster. r4 fixed all of that and still
+read the marker twice — once inside revalidation, once for the nonce — so a
+takeover changing `sessionId` between the two reads preserved the nonce and
+passed rule 5 on the stale copy, and `/compact` was sent.
+
+**Probed, not theorized.** Each was demonstrated by a reviewer probe that
+exited 0 and sent bytes.
+
+**One claim in this row was REFUTED by the citation pass that designed its fix,
+and is corrected here rather than carried into the archive.** The row said the
+round-4 case is pinned by `tests/paneCompaction/adapter.test.ts` counting MARKER
+READS. That file's only counter is the `reads` push-array at
+`tests/paneCompaction/adapter.test.ts:411`, asserted `toEqual([])` at
+`tests/paneCompaction/adapter.test.ts:442` under the describe at
+`tests/paneCompaction/adapter.test.ts:396` — it pins that the send FENCE observes
+nothing, a different contract that became true only when the fence landed. The
+contract that DOES pin an authorization-ordering case is
+`tests/paneCompaction/revalidate.test.ts:121` ("compares the nonce the marker
+holds AFTER revalidation, not before").
+
+**Why a lint and not a test.** No suite assertion can express "these two values
+came from different instants" — four rounds of green tests coexisted with the
+defect. The mechanizable form is structural: inside a function that authorizes a
+send, each injected surface method may be invoked at most once per pass, so a
+second read is a lint error rather than a race nobody can see. Closing repair
+shipped in that arc (one snapshot per authorization) is the shape the lint would
+enforce.
+
+**First scheduled step:** decide the surface boundary the rule ranges over —
+every `Surface` method, or only the ones feeding a classification — then pin it
+against `scripts/pane-compaction.ts`, which is a passing instance today.
+
+**Resolution — a structural lint, its gate, and ONE comment line.** The scanner is
+`tests/paneCompaction/sendAuthScan.ts`, an importable module with a referring suite
+from the start because it is a guard surface; the gate is
+`tests/paneCompaction/_metaSendAuthSingleRead.test.ts`; the corpus is 62 fixtures
+authored against a deliberately different registry row (`Channel` / `ch` /
+`dispatch` / `settle` / `snapshotOf`) with NO live spelling anywhere, so a scanner
+hardcoded to the live vocabulary fails every one of them. The live instance is
+covered by exactly one case, and `scripts/pane-compaction.ts` changed by exactly
+one line — `git diff --numstat` reports `1 0`.
+
+**The first scheduled step is settled.** The read set is DERIVED from the surface
+type declaration: every member minus the row's declared sinks, effects and ambient
+members. A member added later is a READ by default, which is the strict direction;
+"only the ones feeding a classification" needs dataflow and is declined.
+
+**What it declines, withdrawn rather than deferred.** Control flow is not analyzed
+and no claim rests on it. Spec rounds 1-2 returned seven findings, every one an
+evasion of a claim that tried to prove an EXECUTION property, so under the
+repair-direction rule the dominance rule was WITHDRAWN and the call-graph traversal
+deleted. The fence is pinned executably in both directions — a conditionally-called
+pass scans CLEAN and a test asserts that, so a later contributor "fixing" the
+apparent gap fails a test that explains why.
+
+**The residual was routed to a machine oracle rather than to more review rounds,
+and that disposition paid.** Four plan rounds bounded the class "a weaker
+implementation passes my fixtures" without proving it empty. Enrolment in the
+source-mutation registry settled it: the first scored run was 0.8584 with 31
+unaccepted survivors and exposed four genuine fail-open holes the rounds had not
+found — `scanRepo`'s entire per-module fan-out was deletable with the corpus green,
+the `interface` branch of the read-set derivation was removable, an unnamed
+module-level function was never discovered, and the classifier's final fallthrough
+was unreached.
+
+**Two covers, stated separately, neither subsuming the other.** A perfect score
+covers what the DECLARED OPERATORS can express, applied to a finite program. It does
+not cover implementations a human would plausibly write that no operator generates,
+and this arc has the demonstration: an unanchored `body.includes(PASS_TOKEN)` matcher
+passed the ENTIRE fixture corpus, and no declared operator produces that edit, so no
+score however perfect would have surfaced it. Only building the weaker version by
+hand found it.
+
+- **MUTATION SCORE — 1.0000 (202/202), zero survivors, zero accepted ledger rows.**
+  Measured LOCALLY, foreground, 06:45-07:09 on 2026-08-20, 1425.96s, NO CI run id.
+  The empty ledger is the dividend of deleting survivors rather than arguing them
+  equivalent: nothing excused means nothing to re-validate when the surrounding code
+  moves, and an equivalence row cannot silently inflate the score.
+- **KILLER AUDIT — 29 PROVEN, 0 present-but-unproven, 0 absent, 0 skipped.** Every
+  weaker implementation the plan's table names, built as a source mutation and run
+  against the suite, source restored byte-identical afterwards. A killing check that
+  is never run against the mutant it targets is a claim, not a proof, and it fails in
+  the direction that looks green.
+
 ## BL-MUTATION-BROWSER-CHILD-LIFETIME — the browser mutation gate spawns Playwright children with no lifetime bound — CLOSED 2026-08-20 (`fix/mutation-browser-child-lifetime`, SHIPPED)
 
 **Status:** SHIPPED 2026-08-20 · **Effort (as shipped):** M · **Severity (as filed):** MEDIUM · **Class:** local capacity / process hygiene · **Filed:** 2026-08-17 (`fix/mutation-child-lifetime`, class-sweep of the source-harness repair, exception (c)) · **Reachability:** PROBED at filing by citation, and re-probed at design time by MEASUREMENT.
