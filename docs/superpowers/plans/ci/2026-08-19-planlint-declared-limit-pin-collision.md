@@ -332,10 +332,13 @@ visible through `readFileLines`:
    file on disk, so an untracked suite reads fine and reports "no pins" with nothing saying the tree and
    the index disagree. Its fixture uses a resolver whose read SUCCEEDS and returns real pin-bearing
    text — an implementation resting on `readFileLines` alone passes channel 1 and fails only this.
-3. Preparation reports PARSE DIAGNOSTICS. The fixture must be the UNTERMINATED-COMMENT one specifically:
-   a generic syntax error passes whether diagnostics were taken from the raw text or the stripped text,
-   and only an unterminated `/*` discriminates, because stripping consumes it to EOF and yields a clean
-   parse (spec §3.1).
+3. Preparation reports PARSE DIAGNOSTICS. **Task 3 owns the CHANNEL, not the ORDERING**, and it proves
+   the channel by INJECTING a parse-failure status: the pure core receives a prepared result and never
+   parses anything itself. Whether diagnostics were taken BEFORE or AFTER blanking is a property of the
+   ADAPTER and is invisible here, so the unterminated-comment discriminator lives in Task 7b Step 2b,
+   against the real preparation function. One fact, one owner — an earlier draft assigned that proof to
+   this core suite, to an unreachable CLI fixture and to the in-process case at once, and those three
+   cannot all execute.
 
 **All three channels assert the OTHER suite's pins still report.** The parse channel needs this most and
 is likeliest to lack it: live surfaces have several suites and the pins are often in the later one —
@@ -409,8 +412,9 @@ git commit -m "feat(spec-lint): advise on unnamed declared-limit pins; report an
 Implements spec §5. The registry lives under `tests/` because it is test-facing data, and the core
 receives it as a parameter — `lib/` still imports nothing from `tests/`.
 
-**What is red and why:** the registry module does not exist, and the live-tree census in the meta-test
-sees the two closure narrations of spec §2.4 as pins.
+**What is red and why:** the registry EXISTS as a Step-1 stub exporting an EMPTY array, so the meta-test
+resolves and fails on its targeted assertion — spec §2.4's two closure titles are asserted absent from
+the pin set and both appear, by name, in the failure output.
 
 The four cover assertions (spec §5): no stale row; no empty reason; the census is DERIVED by running
 the shipped scanner over the enrolled suites rather than typed as a literal; both directions — a
@@ -686,15 +690,16 @@ does that. Three facts, three proofs, stated so no one reads any of them as cove
       `pnpm vitest run tests/specLint/declaredLimitPinsCli.test.ts`. Expected: the prepared text still
       contains all three decoy titles, each named in the failure output. A spawn error, an unresolved
       export, or zero collected tests invalidates the red.
-- [ ] **Step 3: Implement `prepareSuiteText`** — parse RAW for diagnostics, then blank comments,
-      template bodies and multi-line ordinary strings — and wire it into the adapter's read path.
-- [ ] **Step 3a: Add the UNPARSEABLE-SUITE case, in process.** Suite text whose only defect is an
+- [ ] **Step 2b: Add the UNPARSEABLE-SUITE case, in process, BEFORE any implementation.** Suite text whose only defect is an
       unterminated `/*` above a live pin. Expected: preparation reports the parse failure, so the suite
       DECLINES and contributes no pins. This is the only executable proof that diagnostics come from the
       RAW text — a strip-then-parse implementation consumes the opener to EOF, reports a clean parse and
       silently returns no pins, and no core-level fixture can catch it because those merely inject a
-      status. It goes RED against the Step 1 stub (which reports no diagnostics at all) and green with
-      Step 3's raw-first order.
+      status. It goes RED against the Step-1 stub, which reports no diagnostics at all, and green once
+      Step 3 lands the raw-first order — the same command, red then green, test written first.
+- [ ] **Step 3: Implement `prepareSuiteText`** — parse RAW for diagnostics, THEN blank comments,
+      template bodies and multi-line ordinary strings — and wire it into the adapter's read path. This
+      turns Step 1's decoy case and Step 2b's unparseable case green on their own commands.
 - [ ] **Step 3b: Add the subprocess WIRING case**, over a fixture plan naming a REAL enrolled surface,
       asserting the advisory appears identified by that surface's specific `(suitePath, title)`.
       Expected to pass on authoring: Task 5 already injected the table. It is characterization of the
