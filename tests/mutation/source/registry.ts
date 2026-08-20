@@ -186,7 +186,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     },
     accepted: [
       {
-        siteId: "relational-boundary:603:29:>>>=",
+        siteId: "relational-boundary:622:29:>>>=",
         kind: "equivalent",
         reason:
           "`here.length > 0` versus `>= 0` agree on every reachable input: an extents entry is " +
@@ -199,14 +199,14 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "makes this a re-key rather than a new acceptance.",
       },
       {
-        siteId: "relational-boundary:1936:28:<><=",
+        siteId: "relational-boundary:1955:28:<><=",
         kind: "equivalent",
         reason:
           "The premise-placement test asks whether the premise call starts BEFORE the registration " +
           "call. `<` and `<=` differ only when the two nodes start at the identical offset, which " +
           "two distinct sibling statements cannot do — equality there would mean they are the same " +
           "node, and the walk never compares a node against itself. Re-keyed by the mutated " +
-          "EXPRESSION (1752 -> 2061 -> 1864 -> 1872 -> 1881 -> 1891 -> 1906 -> 1932 -> 1936), byte-identical at every key. Keys six through NINE were bought by ONE arc that never touched this function -- its stop in `hookBodies` seventy lines above, then three review-driven repairs of that stop in a single afternoon, the last of which added ONE LINE and moved the key by four. FOUR full gate cycles, roughly thirty-three minutes of pure measurement, for an expression nobody edited. Every key is a re-run, so the churn taxes wall clock and not just attention: this is the measured case for BL-MUTATION-SITEID-LINE-KEYED-CHURN, and the marginal cost of a one-line edit is its sharpest single data point.",
+          "EXPRESSION (1752 -> 2061 -> 1864 -> 1872 -> 1881 -> 1891 -> 1906 -> 1932 -> 1936 -> 1955), byte-identical at every key. Keys six through TEN were bought by ONE arc that never touched this function -- its stop in `hookBodies` seventy lines above, then four review-driven repairs of that stop and its neighbours in a single afternoon. FIVE full gate cycles, roughly forty minutes of pure measurement, for an expression nobody edited. The tenth re-key also moved the OTHER accepted row (603 -> 622) for the first time, because reformatting one `Set` literal to multi-line pushed every site below it down nineteen lines: the churn is proportional to LINES MOVED, not to semantic change. Every key is a re-run, so it taxes wall clock and not just attention. This is the measured case for BL-MUTATION-SITEID-LINE-KEYED-CHURN.",
       },
     ],
   },
