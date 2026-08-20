@@ -24,10 +24,16 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { walkSourceFiles } from "@/lib/messages/__internal__/walkSourceFiles";
+
+import { premise, premiseHolds } from "../_shared/premise";
+
 import {
+  LIVE_ROOTS,
   readsFor,
   scanModule,
   scanRepo,
+  SEND_AUTH_SURFACES,
   type Finding,
   type FindingCode,
   type SendAuthSurface,
@@ -505,6 +511,65 @@ describe("AC-9 — scanRepo walks from disk, and unregistered importers report",
     expect(found().map((x) => `${x.code} ${x.file}`)).toEqual([
       `UNREGISTERED-IMPORTER ${fixture("aliased-importer.ts")}`,
       `UNREGISTERED-IMPORTER ${fixture("unregistered-importer.ts")}`,
+    ]);
+  });
+});
+
+describe("AC-10/AC-11 — the live tree, with the gate's own premise", () => {
+  const LIVE = [...LIVE_ROOTS];
+  const CONTROL_ROOT = "tests/paneCompaction/fixtures/sendAuthLiveControl";
+
+  it("is GREEN on the live tree, and its premise guards it IN THE SAME CASE", () => {
+    // `expect(scanRepo(...)).toEqual([])` passes trivially whenever the scanner
+    // looked at NOTHING — the PR #701 shape, where a guard's premise was false
+    // where it ran, so it passed unconditionally and would have forever.
+    //
+    // COUNTING IS NOT ENOUGH, and that is the correction this carries.
+    // `SEND_AUTH_SURFACES.length > 0` and `walked.length > 0` are BOTH satisfiable
+    // while the two sets never INTERSECT: unrelated nonempty roots, a registry
+    // naming modules the walk never reaches, or a `scanRepo` that ignores its walk
+    // entirely all keep the assertion green. A premise must be proven on the
+    // case's OWN inputs, so it asserts the intersection rather than cardinalities.
+    //
+    // It sits in the SAME case as the assertion it guards, not a neighbouring
+    // one: a premise in its own `it()` guards nothing, because the assertion case
+    // still runs and still passes on its own terms and the gate goes red only
+    // because a DIFFERENT case failed. That is one layer wearing the costume of
+    // two.
+    const walked = walkSourceFiles(LIVE);
+    premiseHolds(
+      "an enrolled module is among the walked files",
+      walked.some((w) => SEND_AUTH_SURFACES.some((r) => w.endsWith(r.module))),
+    );
+    expect(scanRepo(LIVE)).toEqual([]);
+  });
+
+  it("and the SAME roots configuration does report, proven in a SECOND invocation", () => {
+    // The positive control cannot share the call whose emptiness the assertion
+    // above depends on — one call cannot be both empty and non-empty. The round-1
+    // version of this premise put it in that same call and was internally
+    // unsatisfiable; the round-2 reviewer caught it.
+    //
+    // The ONLY delta between the two calls is one added root, so a non-empty
+    // result here is what makes the emptiness above mean "found nothing wrong"
+    // rather than "looked at nothing".
+    const controlFile = `${CONTROL_ROOT}/unregistered-live-importer.ts`;
+    const importLine =
+      readFileSync(controlFile, "utf8")
+        .split("\n")
+        .findIndex((l) => l.includes("import type { Surface }")) + 1;
+    // Derived from the fixture's own text, and proven to have resolved: a `0`
+    // flowing into the expected record would be a check that cannot fail.
+    premise("the control fixture's import line resolved", importLine, 0);
+
+    expect(scanRepo([...LIVE, CONTROL_ROOT])).toEqual([
+      {
+        code: "UNREGISTERED-IMPORTER",
+        file: controlFile,
+        line: importLine,
+        name: "Surface",
+        lines: [importLine],
+      },
     ]);
   });
 });

@@ -58,6 +58,15 @@ export const SEND_AUTH_SURFACES: readonly SendAuthSurface[] = [
   },
 ];
 
+/**
+ * The roots the live-tree scan walks.
+ *
+ * `scripts` and `lib` are where §3.7's census looked for a herdr send, and they
+ * are narrow and explicit because `walkSourceFiles` skips only `__generated__` —
+ * it does NOT skip `node_modules`, so a broad root would walk the world.
+ */
+export const LIVE_ROOTS: readonly string[] = ["scripts", "lib"];
+
 export type FindingCode =
   | "UNDECLARED-PASS"
   | "AMBIGUOUS-PASS"
