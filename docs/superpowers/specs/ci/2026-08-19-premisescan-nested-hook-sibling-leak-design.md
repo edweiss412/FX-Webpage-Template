@@ -194,9 +194,8 @@ not triggered.
 None. No visual state is added or changed — no `AnimatePresence`, no `exit`/`initial`/`animate`
 props, no conditional render change.
 
-## §4 Documented limits
 
-1. **A suite body reached through an expression OUTSIDE TypeScript's outer-expression grammar is
+4. **A suite body reached through an expression OUTSIDE TypeScript's outer-expression grammar is
    walked as an eager argument, and the nested branch's hooks reach its siblings.** `isSuiteBody`
    unwraps parentheses, `as`, `satisfies`, non-null and type assertions — the closed set of node
    kinds that wrap an expression without changing what runs. A comma expression whose right operand
@@ -222,7 +221,7 @@ props, no conditional render change.
    rather than guessed — which is a design change to the scanner's reporting channel and belongs to
    its own arc.
 
-2. **A suite registered with a NAMED factory loses its hooks entirely, and this arc neither causes
+5. **A suite registered with a NAMED factory loses its hooks entirely, and this arc neither causes
    nor widens it.** `describe("A", suiteA)` where `suiteA` is a module-scope arrow, function
    expression or declaration is accepted and invoked by Vitest, but `hookBodies` only collects hooks
    LEXICALLY inside the registration, so the factory's body — which lives elsewhere in the file — is
@@ -247,7 +246,7 @@ props, no conditional render change.
 
 ## §5 Meta-test / registry inventory
 
-- **EXTENDS** `tests/mutation/source/premiseScan.test.ts`, in four separate fixture classes — the
+- **EXTENDS** `tests/mutation/source/premiseScan.test.ts`, in the fixture classes enumerated below — the
   inventory is swept against §6 rather than listing whichever addition was drafted first:
   1. The `tests/mutation/source/premiseScan.test.ts:3033` pin is RETIRED and replaced by its
      inversion (AC-2), `inA` retained as the foil.
