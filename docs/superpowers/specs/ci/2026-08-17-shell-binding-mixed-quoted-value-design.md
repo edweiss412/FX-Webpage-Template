@@ -361,7 +361,14 @@ concatenation." Swept across every rule family in `scanShellIndirection`:
    premise (`CMD='sudo psql -X mydb'` reports via the eval reading), never silent-wrong on
    anything the readings claim. Wrapper-aware splitting is out of scope in both directions
    (§1.1).
-7. Quoting or escapes INSIDE a `${…}` expansion operand (`PG=${U:-'psql'}` and its quote/escape
+7. **Superseded in part, 2026-08-20** by `docs/superpowers/specs/ci/2026-08-20-shell-lexer-quoted-value-recall-design.md`
+   (`BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE`): the operand IS read for the six value-supplying
+   operators when the whole value is one such expansion. The complement — pattern, length,
+   indirection, error, subscript, substring, case-modification, transformation — is default-denied
+   and keeps the reading described below, as does any value that COMPOSES an accepted expansion
+   with other text.
+
+   Quoting or escapes INSIDE a `${…}` expansion operand (`PG=${U:-'psql'}` and its quote/escape
    siblings) are not dequoted — the expansion is one verbatim word by design, and only a bare
    `psql` inside it reports (`PG=${U:-psql}` does; probed both instruments). A missed report,
    never a false certification; ledger `BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE`.

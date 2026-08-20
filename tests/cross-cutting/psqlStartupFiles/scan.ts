@@ -237,9 +237,46 @@
  *    reading requires psql at ARGV[0] and the eval reading takes the pathname
  *    quote as syntax, so both decline. Wrapper-aware splitting is out of scope
  *    in both directions.
- *  - Quoting or escapes INSIDE a `${…}` expansion operand (`PG=${U:-'psql'}`),
- *    which is data to a word the lexer keeps verbatim by design — ledger
- *    BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE. A bare `PG=${U:-psql}` reports.
+ *  - The `${…}` operand is read for the SIX value-supplying operators in
+ *    `EXPANSION_ACCEPT` (`:-` `-` `:=` `=` `:+` `+`) when the WHOLE value is one
+ *    such expansion. For EVERY OTHER `${…}` interior the operand is not read at
+ *    all - pattern, length, indirection, error, subscript, substring,
+ *    case-modification, transformation, and any operator bash adds after this is
+ *    written. Each keeps exactly today's behavior. Written as a COMPLEMENT
+ *    rather than a list because spec rounds 1 and 2 each spent a finding on an
+ *    operator a list had failed to name, and a list over a grammar admits one
+ *    more round indefinitely.
+ *    The failure direction across the complement is MIXED, and saying so is the
+ *    point: substring expansion is a silent MISS (`U=xpsql; PG=${U:1}` binds
+ *    `psql`, scanner 0 before and after), while `${U^}`, `${U@Q}` and `${U@U}`
+ *    are conservative OVER-reports (bash binds `Psql`, `'psql'` and `PSQL`).
+ *    Neither direction is changed here (BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE,
+ *    closed 2026-08-20). RE-FILE TRIGGER: a live corpus instance of a psql
+ *    binding through any non-value-supplying expansion operator.
+ *  - A value COMPOSED inside DOUBLE QUOTES (`PG="p${U:-sql}"`) is not read: the
+ *    `${…}` branch that records the candidate is unreachable inside double
+ *    quotes, and that unreachability is exactly what makes `PG="p${U:-'sql'}"`
+ *    CORRECT - bash binds `p'sql'` there, so the scanner's zero is right. The
+ *    bare-operand case inside double quotes is therefore a declared MISS: bash
+ *    binds `psql`, scanner 0 before and after. Reading it would mean deciding
+ *    per-operand whether its quotes are syntax or data inside a double-quoted
+ *    span, which is the boundary this design keeps structural. RE-FILE TRIGGER:
+ *    a live corpus instance of a composed double-quoted expansion value.
+ *  - A value that COMPOSES an accepted expansion with anything else is not read,
+ *    and this is the boundary the whole-value fence buys: literal text before it
+ *    (`PG=p${U:-"sql"}`), literal text after it (`PG=${U:-"p"}sql`), a nested
+ *    accepted expansion supplying only PART of the value (`PG=${U:-${V:-p}sql}`),
+ *    the bare-operand versions of all of those, and an accepted expansion
+ *    ADJACENT TO or INSIDE a complement member (`${U#x}${V:-"psql"}`,
+ *    `U=xpsql; PG=${U#${V:-'psql'}}`). Bash binds `psql` in the composition
+ *    spellings and the scanner reports 0 before and after. Not a gap to close:
+ *    the withdrawn substitution model DID read composition, and it substituted
+ *    an accepted child inside a non-accepted parent, so `${U#${V:-'psql'}}`
+ *    reported while bash binds `xpsql`. Wrongly-loud is the one direction the
+ *    consequence bound does not permit, and the mechanism that reached
+ *    composition is the same mechanism that produced it. RE-FILE TRIGGER: a live
+ *    corpus instance of a composed expansion value, or a reading that reaches
+ *    composition without substituting across a complement boundary.
  *  - The ATTACHED redirection TARGET family is not read at all, and it is the
  *    sharpest limit in this list. The attached-target regex wholly CONSUMES its
  *    match, so a target that contains a command SUBSTITUTION hides an executing
@@ -843,7 +880,29 @@ type ShellWord = {
    * exemption written for an unrelated call. */
   offsets: number[];
   operator: boolean;
+  /** Arm 2. When this word's text ENDS with a `${…}` expansion drawn from the
+   * six-member accept-set, the span's DEQUOTED operand and the index in `text`
+   * where that span begins; `null` otherwise. A CONSUMER decides WHOLE-VALUE by
+   * comparing `at` to where its own value starts, which is what keeps the
+   * assignment grammar in `assignmentBindingLines` and out of the lexer, and
+   * what makes composition (`PG=p${U:-"psql"}`) unreadable by construction
+   * rather than by a guard. Recorded in the `${…}` branch, which is
+   * structurally UNREACHABLE inside double quotes - that is the whole of why
+   * `PG="${U:-'psql'}"` stays 0, where bash really does bind the literal
+   * `'psql'`. */
+  expandedCandidate: { operand: string; at: number } | null;
 };
+
+/** The six VALUE-SUPPLYING expansion operators, longest spelling first. This is
+ * an ACCEPT-SET, and every other `${…}` interior - pattern, length,
+ * indirection, error, subscript, substring, case-modification, transformation,
+ * and any operator bash adds after this is written - is DEFAULT-DENIED: its
+ * operand is not read at all and it keeps exactly the reading it has today.
+ * Stated as a default rather than as a list on purpose. Spec rounds 1 and 2 each
+ * spent a finding on an operator a list had failed to name, and a list over a
+ * grammar admits one more round indefinitely; a six-member accept-set plus a
+ * complement default cannot. */
+const EXPANSION_ACCEPT = [":-", ":=", ":+", "-", "=", "+"];
 
 export const OPERATOR_STARTS = new Set([";", "&", "|", "(", ")", "\n"]);
 
@@ -957,12 +1016,17 @@ type RedirectionTarget = {
   line: number;
   /** Raw index of the target's first character in that text. */
   offset: number;
+  /** Arm 2, applied symmetrically at this SECOND site: the same whole-value
+   * candidate an assignment value carries. Not a second mechanism - the same
+   * predicate at another call site. */
+  expandedCandidate: { operand: string; at: number } | null;
 };
 
 function lexShellWords(
   text: string,
   nested: NestedShell[] = [],
   targets: RedirectionTarget[] = [],
+  braceOperand = false,
 ): ShellWord[] {
   const words: ShellWord[] = [];
   let buffer = "";
@@ -984,9 +1048,18 @@ function lexShellWords(
    * 2026-08-17 arc retired when it deleted the per-delimiter pattern family.
    * Holds the matched OPERATOR while a target is pending, null otherwise. */
   let pendingTarget: string | null = null;
+  /** Arm 2: the accepted `${…}` span most recently appended to `buffer`, with
+   * the buffer positions it occupies. At flush it becomes the word's
+   * `expandedCandidate` only if it still runs to the END of the buffer, which
+   * is how literal text AFTER the span (`PG=${U:-"p"}sql`) disqualifies it. */
+  let pendingCandidate: { operand: string; at: number; end: number } | null = null;
 
   const flush = (): void => {
     if (started) {
+      const expandedCandidate =
+        pendingCandidate !== null && pendingCandidate.end === buffer.length
+          ? { operand: pendingCandidate.operand, at: pendingCandidate.at }
+          : null;
       if (pendingTarget === null)
         words.push({
           text: buffer,
@@ -996,6 +1069,7 @@ function lexShellWords(
           quoted: bufferQuoted,
           lines: bufferLines,
           operator: false,
+          expandedCandidate,
         });
       else
         targets.push({
@@ -1003,8 +1077,10 @@ function lexShellWords(
           text: buffer,
           line: startLine,
           offset: startOffset,
+          expandedCandidate,
         });
       pendingTarget = null;
+      pendingCandidate = null;
     }
     buffer = "";
     bufferOffsets = [];
@@ -1098,7 +1174,17 @@ function lexShellWords(
           offset: i + 2 + entry.offset,
           backtick: entry.backtick,
         });
+      const spanAt = buffer.length;
       appendRun(slice, i, false);
+      // Arm 2. The expansion still becomes ONE opaque word whose text is the
+      // verbatim slice - resolved-scope row 4, and the property that stops
+      // brace-protected whitespace from splitting a redirection target into a
+      // phantom argv word. What is added is a DECISION recorded alongside it.
+      // Deciding it HERE rather than over the word's text is load-bearing: this
+      // branch is unreachable inside double quotes, where the operand's quote
+      // characters are literal pathname data, so E5 needs no guard clause.
+      const operand = acceptedExpansionOperand(slice);
+      pendingCandidate = operand === null ? null : { operand, at: spanAt, end: buffer.length };
       i = close;
       continue;
     }
@@ -1254,12 +1340,24 @@ function lexShellWords(
         quoted: [true],
         lines: [line],
         operator: true,
+        expandedCandidate: null,
       });
       line++;
       continue;
     }
 
     if (/\s/.test(character)) {
+      // Inside a `${…}` OPERAND bash performs no word splitting and no operator
+      // parsing, so whitespace there is ordinary literal text. Keeping it means
+      // a multiword operand keeps its OWN separators - `${U:-'psql' -X}` yields
+      // the candidate `psql -X`, not a normalized join - so `valueBinds` reaches
+      // its multiword branch with the string bash would really bind.
+      if (braceOperand) {
+        begin(i);
+        append(character, i);
+        if (character === "\n") line++;
+        continue;
+      }
       flush();
       continue;
     }
@@ -1273,7 +1371,10 @@ function lexShellWords(
     // `-F>/dev/null` followed by a standalone `-X` — a FALSE SAFE, since bash
     // removes the redirection and psql really receives `-F -X mydb`, where
     // `-X` is the field separator.
-    if (!started || FD_PREFIX.test(buffer) || character === "<" || character === ">") {
+    if (
+      !braceOperand &&
+      (!started || FD_PREFIX.test(buffer) || character === "<" || character === ">")
+    ) {
       // Longest-first: `<<<` before `<<`, `<>` and `>|` before the bare forms,
       // or the shorter match leaves a stray `<`/`>` that reads as a SECOND
       // redirection and eats the following argv word.
@@ -1304,7 +1405,7 @@ function lexShellWords(
       }
     }
 
-    if (OPERATOR_STARTS.has(character)) {
+    if (OPERATOR_STARTS.has(character) && !braceOperand) {
       flush();
       const two = text.slice(i, i + 2);
       const operator = two === "&&" || two === "||" ? two : character;
@@ -1316,6 +1417,7 @@ function lexShellWords(
         quoted: [...operator].map(() => true),
         lines: [...operator].map(() => line),
         operator: true,
+        expandedCandidate: null,
       });
       i += operator.length - 1;
       continue;
@@ -1326,6 +1428,63 @@ function lexShellWords(
   }
   flush();
   return words;
+}
+
+/**
+ * The DEQUOTED default operand of a `${…}` span that is, in its ENTIRETY, one
+ * expansion drawn from `EXPANSION_ACCEPT` - and `null` for every other interior,
+ * by default rather than by enumeration. Arm 2 of
+ * docs/superpowers/specs/ci/2026-08-20-shell-lexer-quoted-value-recall-design.md
+ * (ledger BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE).
+ *
+ * The operand is dequoted by `lexShellWords` ITSELF, in brace-operand mode, so
+ * mixed quoting, ANSI-C `$'…'`, escapes and a nested accepted `${…}` all come
+ * free: there is no second grammar to keep in step with the first.
+ *
+ * WHOLE-VALUE ONLY, and the narrowness is the point. A wider substitution model
+ * was tried and withdrawn because it read an accepted child inside a
+ * NON-accepted parent - `U=xpsql; PG=${U#${V:-'psql'}}` yielded the candidate
+ * `${U#psql}` and REPORTED, while bash binds `xpsql`. Conservative-and-silent is
+ * a documented limit; wrongly-loud is not, and refusing to look inside a
+ * complement member removes the mechanism that generated it rather than adding
+ * care around it.
+ */
+function acceptedExpansionOperand(span: string, depth = 0): string | null {
+  if (depth > 8) return null;
+  if (!span.startsWith("${") || !span.endsWith("}")) return null;
+  // An UNTERMINATED expansion is a shell syntax error, so the file runs nothing
+  // and binds nothing. `matchBrace` returns the LAST index when it finds no
+  // close, so the boundary is checked here rather than assumed.
+  if (matchBrace(span, 1, "{", "}") !== span.length - 1) return null;
+  const interior = span.slice(2, span.length - 1);
+  const name = /^[A-Za-z_]\w*(?:\[[^\]]*\])?/.exec(interior);
+  if (!name) return null;
+  const rest = interior.slice(name[0].length);
+  const operator = EXPANSION_ACCEPT.find((accepted) => rest.startsWith(accepted));
+  if (operator === undefined) return null;
+  const operand = lexShellWords(rest.slice(operator.length), [], [], true)[0]?.text ?? "";
+  // A NESTED accepted expansion resolves through the SAME whole-value rule
+  // applied to the operand, which closes C9 and R8 without a second grammar.
+  return acceptedExpansionOperand(operand, depth + 1) ?? operand;
+}
+
+/**
+ * A word's expansion candidate, but only when the accepted span covers the WHOLE
+ * of the value beginning at `valueAt` - nothing but IFS whitespace before it,
+ * and, by construction of `expandedCandidate`, nothing at all after it.
+ *
+ * Keeping the whole-value TEST here rather than in the lexer is what lets the
+ * lexer stay ignorant of the assignment grammar while `PG=p${U:-"psql"}` is
+ * still unreadable: the span is recorded, and the consumer sees it does not
+ * start where its value starts.
+ */
+function wholeValueCandidate(
+  word: { text: string; expandedCandidate: { operand: string; at: number } | null },
+  valueAt: number,
+): string | null {
+  const span = word.expandedCandidate;
+  if (span === null || span.at < valueAt) return null;
+  return /^[ \t\n]*$/.test(word.text.slice(valueAt, span.at)) ? span.operand : null;
 }
 
 /** The command word, with any directory prefix removed. */
@@ -2376,7 +2535,8 @@ function assignmentBindingLines(words: ShellWord[], file: string): Set<number> {
       continue;
     }
     if (value.length === 0) continue;
-    if (valueBinds(value, file)) found.add(word.line);
+    if (valueBinds(value, file, wholeValueCandidate(word, word.text.length - match[1]!.length)))
+      found.add(word.line);
   }
   return found;
 }
@@ -2407,7 +2567,9 @@ function compoundArrayBinds(words: ShellWord[], from: number, file: string): boo
     // An element is either a bare value or `[key]=value` / `[key]+=value`.
     const keyed = /^\[[^\]]*\]\+?=([\s\S]*)$/.exec(word.text);
     const value = (keyed ? keyed[1]! : word.text).replace(/^[ \t\n]+|[ \t\n]+$/g, "");
-    if (value.length > 0 && valueBinds(value, file)) return true;
+    const valueAt = keyed ? word.text.length - keyed[1]!.length : 0;
+    if (value.length > 0 && valueBinds(value, file, wholeValueCandidate(word, valueAt)))
+      return true;
   }
   return false;
 }
@@ -2417,7 +2579,16 @@ function compoundArrayBinds(words: ShellWord[], from: number, file: string): boo
  * single-word case and by every element of a compound array, so the two cannot
  * drift into two different readings of the same string.
  */
-function valueBinds(value: string, file: string): boolean {
+function valueBinds(value: string, file: string, candidate: string | null = null): boolean {
+  // Arm 2: the candidate is an ADDITIONAL string tested by this SAME predicate,
+  // never a replacement for the verbatim reading below. That is why every
+  // existing verdict is bit-for-bit what it was - the bare-operand hit, and
+  // every conservative complement over-report alike - and why precision holds
+  // where it held: `${U:-'psql;x'}` yields the candidate `psql;x` and is
+  // rejected on the separator, `${U:-'psql\'}` on the trailing backslash, and
+  // `${M:-'psql failed to connect'}` reaches the multiword branch and is
+  // declined for carrying no flag-shaped token.
+  if (candidate !== null && valueBinds(candidate, file)) return true;
   if (/\s/.test(value)) {
     // A MULTIWORD value binds a command LINE (`CMD='psql -qAt mydb'; eval
     // "$CMD"`): re-lex the dequoted value and require a psql site carrying a
@@ -2569,7 +2740,7 @@ function hereStringBindingLines(
       // binding bash does not make.
       if (target.operator !== "<<<") continue;
       if (target.line < index || target.line > to) continue;
-      if (valueBinds(target.text, file)) {
+      if (valueBinds(target.text, file, wholeValueCandidate(target, 0))) {
         found.add(index);
         break;
       }

@@ -5293,6 +5293,255 @@ describe("arm 1 - a DETACHED here-string target is read from the lexer's retaine
   });
 });
 
+describe("arm 2 - a WHOLE-VALUE accepted expansion has its operand decided", () => {
+  // Ledger: BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE. Design:
+  // docs/superpowers/specs/ci/2026-08-20-shell-lexer-quoted-value-recall-design.md
+  // section 3.3. The lexer consumes a `${...}` expansion whole and appends the
+  // raw slice as ONE opaque word - the property that stops brace-protected
+  // whitespace from splitting a redirection target into a phantom argv word,
+  // and it is PRESERVED. Arm 2 adds a DECISION alongside that word: when the
+  // whole value is one expansion drawn from a six-member ACCEPT-SET, its
+  // dequoted operand becomes an ADDITIONAL string tested by the SAME
+  // `valueBinds` predicate. The verbatim text is still tested, unchanged.
+  //
+  // Every fixture sits ALONE on its own line, and every premise below is that
+  // row's OWN plain sibling - the identical spelling with the operand's quoting
+  // removed - so each flip is attributable to the operand's dequoting and to
+  // nothing else. Each was measured at 1 on this branch before the arm landed.
+  test.each([
+    ["C1 a single-quoted operand", "PG=${U:-'psql'}\n", "PG=${U:-psql}\n"],
+    ["C2 a mixed double-quoted operand", 'PG=${U:-p"sql"}\n', "PG=${U:-psql}\n"],
+    ["C3 an ANSI-C operand", "PG=${U:-$'p\\163ql'}\n", "PG=${U:-psql}\n"],
+    ["C5 the assign-default operator", "PG=${U:='psql'}\n", "PG=${U:=psql}\n"],
+    ["C6 the alternate operator", "PG=${U:+'psql'}\n", "PG=${U:+psql}\n"],
+    ["C7 the unset-only default operator", "PG=${U-'psql'}\n", "PG=${U-psql}\n"],
+    ["C9 a NESTED accepted operand", "PG=${U:-${V:-'psql'}}\n", "PG=${U:-${V:-psql}}\n"],
+    ["K1 the bare assign operator", "PG=${U='psql'}\n", "PG=${U=psql}\n"],
+    ["K2 the bare alternate operator", "PG=${U+'psql'}\n", "PG=${U+psql}\n"],
+    ["L1 a MULTIWORD bare operand", "PG=${U:-psql -X}\n", "PG=${U:-psql}\n"],
+    ["L2 a multiword operand, quoted command", "PG=${U:-'psql' -X}\n", "PG=${U:-psql}\n"],
+    ["L3 a multiword operand, wholly quoted", "PG=${U:-'psql -X'}\n", "PG=${U:-psql}\n"],
+  ])("%s binds psql", (label, value, plain) => {
+    premise(
+      `${label}: this row's own plain sibling already reports through the expansion route`,
+      scanShellIndirection(plain, "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection(value, "x.sh"), label).toHaveLength(1);
+  });
+
+  // The SECOND site: a here-string TARGET whose entire text is one accepted
+  // expansion gets the identical rule, which is what makes the two arms
+  // compose. Arm 1's retention is what makes this site exist at all - before
+  // it there was no target to decide. Same predicate, second call site, not a
+  // second mechanism.
+  test.each([
+    ["R1 a single-quoted operand", "read -r PG <<< ${U:-'psql'}\n", "read -r PG <<< ${U:-psql}\n"],
+    [
+      "R2 a mixed double-quoted operand",
+      'read -r PG <<< ${U:-p"sql"}\n',
+      "read -r PG <<< ${U:-psql}\n",
+    ],
+    [
+      "R3 the assign-default operator",
+      "read -r PG <<< ${U:='psql'}\n",
+      "read -r PG <<< ${U:=psql}\n",
+    ],
+    ["R4 the alternate operator", "read -r PG <<< ${U:+'psql'}\n", "read -r PG <<< ${U:+psql}\n"],
+    [
+      "R5 the unset-only default operator",
+      "read -r PG <<< ${U-'psql'}\n",
+      "read -r PG <<< ${U-psql}\n",
+    ],
+    ["R6 the bare assign operator", "read -r PG <<< ${U='psql'}\n", "read -r PG <<< ${U=psql}\n"],
+    [
+      "R7 the bare alternate operator",
+      "read -r PG <<< ${U+'psql'}\n",
+      "read -r PG <<< ${U+psql}\n",
+    ],
+    [
+      "R8 a NESTED accepted operand",
+      "read -r PG <<< ${U:-${V:-'psql'}}\n",
+      "read -r PG <<< ${U:-${V:-psql}}\n",
+    ],
+  ])("%s binds psql through a here-string target", (label, value, plain) => {
+    premise(
+      `${label}: this row's own plain sibling already reports through the here-string target`,
+      scanShellIndirection(plain, "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection(value, "x.sh"), label).toHaveLength(1);
+  });
+
+  // Killer 1 - the candidate exists ONLY when the WHOLE value is one accepted
+  // expansion. The strictly weaker implementation is the SUBSTITUTION model the
+  // round-3 spec draft carried, which read the operand of any accepted `${...}`
+  // appearing ANYWHERE in the value. It was withdrawn because it produced a
+  // FALSE REPORT across a complement boundary, and wrongly-loud is the one
+  // direction the consequence bound does not permit.
+  test("killer 1: an accepted expansion COMPOSED with literal text is not read", () => {
+    // bash binds `ppsql` here, so the zero is CORRECT, not merely conservative.
+    const composed = 'PG=p${U:-"psql"}\n';
+    const alone = 'PG=${U:-"psql"}\n';
+    premise(
+      "the one-variable twin, the same operand with no literal text before the span, reports",
+      scanShellIndirection(alone, "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection(composed, "x.sh")).toHaveLength(0);
+  });
+
+  test("killer 1: an accepted expansion INSIDE a complement member is not read", () => {
+    // The substitution model yielded the candidate `${U#psql}` here and
+    // reported, while bash binds `xpsql`. This is the exact false report the
+    // whole-value fence removes by construction rather than by care.
+    const wrapped = "U=xpsql\nPG=${U#${V:-'psql'}}\n";
+    const unwrapped = "U=xpsql\nPG=${V:-'psql'}\n";
+    premise(
+      "the one-variable twin, the same accepted span with no complement member around it, reports",
+      scanShellIndirection(unwrapped, "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection(wrapped, "x.sh")).toHaveLength(0);
+  });
+
+  // Killer 2 - the accept-set is exactly six operators and the whole complement
+  // is DEFAULT-DENIED. The strictly weaker implementation is a DENYLIST ("any
+  // operator except `#`, `%`, `/`"), which silently accepts the error-word,
+  // substring, case-modification and transformation forms. `${U:?word}` is
+  // outside such a denylist, so a denylist reads its operand `psql` and REPORTS
+  // - while bash binds NOTHING there, because the expansion errors and the
+  // shell exits. `${U:1}` is NOT a killer: a denylist reading it extracts the
+  // operand `1`, which the predicate rejects anyway, so both implementations
+  // agree and the fixture cannot discriminate.
+  test("killer 2: the error-word operator is outside the accept-set and is not read", () => {
+    const errorWord = "PG=${U:?'psql'}\n";
+    const accepted = "PG=${U:-'psql'}\n";
+    premise(
+      "the one-variable twin, the same operand under an ACCEPTED operator, reports",
+      scanShellIndirection(accepted, "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection(errorWord, "x.sh")).toHaveLength(0);
+  });
+
+  // The DEFAULT-DENY complement, made EXECUTABLE rather than merely asserted.
+  // Every row carries the value it holds TODAY, measured on this branch, and
+  // the case asserts the WHOLE table at once - so a change that starts reading
+  // ANY complement operand moves at least one row and fails here.
+  //
+  // The mixed directions are the point, and they are what make this table a
+  // real check rather than an absence-asserting one: the rows at 1 report
+  // through the VERBATIM text for a pre-existing reason (a bare `psql` survives
+  // in the word), and a candidate that started reading them would not change
+  // those. So the zeros carry the discriminating weight while the ones are the
+  // must-be-PRESENT control that proves the machinery ran at all.
+  //
+  // Recorded because it contradicts the plan's transcribed table: the
+  // case-modification and transformation rows are 0 STANDALONE. Section 4's `1`
+  // for them belongs to the `U=psql;` prefix in the probe spelling, where the
+  // ASSIGNMENT route decides the observation - a different rule from the one
+  // under test - so the standalone spelling is what is pinned here.
+  test("every DEFAULT-DENIED complement operator keeps exactly today's reading", () => {
+    const rows: Array<[label: string, source: string]> = [
+      ["pattern # quoted", "PG=${U#'psql'}\n"],
+      ["pattern % quoted", "PG=${U%'psql'}\n"],
+      ["pattern / quoted", "PG=${U/'psql'/x}\n"],
+      ["length", "PG=${#psql}\n"],
+      ["pattern # bare", "PG=${U#psql}\n"],
+      ["error word quoted", "PG=${U:?'psql'}\n"],
+      ["indirection", "PG=${!psql}\n"],
+      ["subscript", "PG=${A[psql]}\n"],
+      ["substring offset", "PG=${U:1}\n"],
+      ["substring offset and length", "PG=${U:1:4}\n"],
+      ["substring negative offset", "PG=${U: -4}\n"],
+      ["case modification ^", "PG=${U^}\n"],
+      ["case modification ,,", "PG=${U,,}\n"],
+      ["transformation @Q", "PG=${U@Q}\n"],
+      ["transformation @U", "PG=${U@U}\n"],
+      ["target, pattern #", "read -r PG <<< ${U#'psql'}\n"],
+      ["target, substring", "read -r PG <<< ${U:1}\n"],
+    ];
+    const measured = rows.map(([label, source]) => [
+      label,
+      scanShellIndirection(source, "x.sh").length,
+    ]);
+    expect(measured).toEqual([
+      ["pattern # quoted", 0],
+      ["pattern % quoted", 0],
+      ["pattern / quoted", 0],
+      ["length", 1],
+      ["pattern # bare", 1],
+      ["error word quoted", 0],
+      ["indirection", 1],
+      ["subscript", 1],
+      ["substring offset", 0],
+      ["substring offset and length", 0],
+      ["substring negative offset", 0],
+      ["case modification ^", 0],
+      ["case modification ,,", 0],
+      ["transformation @Q", 0],
+      ["transformation @U", 0],
+      ["target, pattern #", 0],
+      ["target, substring", 0],
+    ]);
+  });
+
+  // The remaining section 4 "unchanged" rows, pinned at the value measured on
+  // this branch. Pinning ALL of them is what makes AC-2 true as written;
+  // leaving a subset would require arguing which rows are "plausibly" movable,
+  // which is exactly the judgment a reviewer would relitigate. Sites and hits
+  // are asserted in ONE table so a change that moves any of them fails here.
+  test("every remaining section 4 unchanged row holds its probed value", () => {
+    const hitRows: Array<[label: string, source: string]> = [
+      ["A3 the ATTACHED here-string, withdrawn scope", "read -r PG <<<p'sql'\n"],
+      ["A5 a fully quoted target", "read -r PG <<< 'psql'\n"],
+      ["A10 a notpsql target", "read -r PG <<< notpsql\n"],
+      ["F1 a DETACHED substitution target", "cat x > $(command -v psql)\n"],
+      ["F2 the ATTACHED substitution target", "cat x >$(command -v psql)\n"],
+      ["E2 a notpsql operand", "PG=${U:-'notpsql'}\n"],
+      ["E5 a double-quoted WHOLE expansion", "PG=\"${U:-'psql'}\"\n"],
+      ["Q2 a composed value inside double quotes", 'PG="p${U:-sql}"\n'],
+    ];
+    expect(
+      hitRows.map(([label, source]) => [label, scanShellIndirection(source, "x.sh").length]),
+    ).toEqual([
+      ["A3 the ATTACHED here-string, withdrawn scope", 0],
+      ["A5 a fully quoted target", 1],
+      ["A10 a notpsql target", 0],
+      ["F1 a DETACHED substitution target", 1],
+      ["F2 the ATTACHED substitution target", 0],
+      ["E2 a notpsql operand", 0],
+      ["E5 a double-quoted WHOLE expansion", 0],
+      ["Q2 a composed value inside double quotes", 0],
+    ]);
+
+    const siteRows: Array<[label: string, source: string]> = [
+      ["A9 a here-DOC body", "read -r PG <<EOF\npsql\nEOF\n"],
+      ["B2 a redirection target NAMED psql, quoted", "cat x > 'psql'\n"],
+      ["B4 a psql call carrying a redirection", "psql -qAt mydb > out.sql\n"],
+      ["F10 a psql call carrying an INPUT redirection", "psql -X -qAt mydb < in.sql\n"],
+      ["F11 a psql call, ATTACHED output redirection", "psql -qAt mydb>out.sql\n"],
+      ["G1 an unquoted here-DOC body", "cat <<EOF\npsql -qAt mydb\nEOF\n"],
+      ["G2 a quoted here-DOC body", "cat <<'EOF'\npsql -qAt mydb\nEOF\n"],
+    ];
+    expect(
+      siteRows.map(([label, source]) => {
+        const sites = sitesIn(source, "x.sh");
+        return [label, sites.length, sites.map((s) => s.suppressesStartupFiles)];
+      }),
+    ).toEqual([
+      ["A9 a here-DOC body", 1, [false]],
+      ["B2 a redirection target NAMED psql, quoted", 0, []],
+      ["B4 a psql call carrying a redirection", 1, [false]],
+      ["F10 a psql call carrying an INPUT redirection", 1, [true]],
+      ["F11 a psql call, ATTACHED output redirection", 1, [false]],
+      ["G1 an unquoted here-DOC body", 1, [false]],
+      ["G2 a quoted here-DOC body", 1, [false]],
+    ]);
+  });
+});
+
 describe("documented limits - quote-concatenated spellings outside the assignment family", () => {
   // Spec §6: these families still read their KEYWORD or operand through a
   // per-line pattern, so a quote-concatenated spelling of it is missed. The
@@ -5339,10 +5588,14 @@ describe("documented limits - quote-concatenated spellings outside the assignmen
       // multiword branch, where a flagless path is declined - spec 6 item 5
       // (round-4 fallout, pinned so the zero is declared).
       ["a whitespace directory component", "PG='/tmp/x y/psql'\n", "PG='/tmp/xy/psql'\n"],
-      // ledger: BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE - the ${...} word is
-      // kept verbatim by design, so operand-INTERNAL quoting is data (plan
-      // round-2 finding 1; bash binds psql for every quoted-operand sibling).
-      ["a quoted expansion operand", "PG=${U:-'psql'}\n", "PG=${U:-psql}\n"],
+      // The quoted-expansion-operand row RETIRED 2026-08-20. Arm 2 of
+      // BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE decides the operand of a
+      // WHOLE-VALUE accepted expansion and tests it with the same `valueBinds`,
+      // so the spelling is a HIT now and is re-pinned as one - with its
+      // operator, nesting, multiword and here-string-target siblings - by the
+      // "arm 2 - a WHOLE-VALUE accepted expansion has its operand decided"
+      // block above. The DEFAULT-DENIED complement and the composition family
+      // stay at 0 and are pinned there in the same block.
     ];
     for (const [label, missed, plain] of rows) {
       premiseHolds(
