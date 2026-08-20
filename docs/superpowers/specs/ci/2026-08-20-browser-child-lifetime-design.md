@@ -297,12 +297,16 @@ claim that the ceiling covers every case.
 is not the check — exiting non-zero is not evidence of the defect the task names. Three fail-open
 shapes, all of which this plan's `red=` commands are checked against by reading the failure output:
 
-1. **Cannot collect.** The browser gate's files are nightly-only:
-   `tests/mutation/browser/browserSurfaces.gate.test.ts` runs solely under the env-and-project-gated
-   form `VITEST_INCLUDE_MUTATION_HARNESS=1 vitest run --project mutation <file>` (the
-   `mutation:browser` script). A bare `pnpm vitest run <that file>` **exits 0 because the default
-   projects exclude it and nothing collects** — green from birth, and no later edit can ever make it
-   fail. Every `red=` here uses the gated form.
+1. **Cannot collect — and this tree has the trap in BOTH directions, so the form is chosen per
+   target and probed, never assumed.** Measured on this tree at `039533373`:
+
+   | target | correct invocation | the wrong one, and what it does |
+   | --- | --- | --- |
+   | the nightly gate file `tests/mutation/browser/browserSurfaces.gate.test.ts` | `pnpm mutation:browser` (`VITEST_INCLUDE_MUTATION_HARNESS=1 vitest run --project mutation <file>`) | bare `pnpm vitest run <file>` → **exit 0, nothing collected**: it is in `NIGHTLY_ONLY_EXCLUDES` (`vitest.projects.ts:101`) and every default project excludes it |
+   | a unit test such as `tests/mutation/browser/mutate.test.ts` | bare `pnpm vitest run <file>` → collects and runs (41 tests) | the gated form → **exit 0, nothing collected**: the `mutation` project's include list is only the four nightly gate files |
+
+   Either mistake yields a red that is **green from birth**, which no later edit can make fail. The
+   plan states the invocation per task and records the observed collection count.
 2. **Fails before any assertion.** A red that dies on an unresolved import, a missing fixture, or a
    config error exits non-zero and **looks healthy to every "did it exit non-zero" check there is**,
    while proving nothing about the production defect. This is the shape that survives the other two
