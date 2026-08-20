@@ -247,6 +247,24 @@ Re-measured GREEN — 7 of 7, exit 0, 231.10s, 14 inputs stamped before and afte
 drift — and the score re-derived through the shipped `score()` at 108/108. Unchanged, but
 DERIVED rather than reasoned to.
 
+### A green board can be attached to superseded bytes
+
+Two instrument defects, recorded because both were nearly acted on.
+
+**The head moved under the board.** Required checks attach to the HEAD COMMIT, so pushing
+the closeout commit forced all twelve to re-run. That cost was taken KNOWINGLY, in
+preference to merging on a head whose CI had validated different bytes. The reasoning that
+makes it not-a-tradeoff: **a green board attached to superseded bytes is not a weaker
+signal than no signal — it is a FALSE one.**
+
+**The poll could not see its own subject.** The first CI waiter polled the PR board, which
+is a VIEW whose subject moves underneath it: after a push it can report the PREVIOUS head's
+completed run as green, for a commit CI never examined. That is the stale-marker and
+stale-score shape one layer out. The replacement reads `check-runs` for one explicit sha and
+treats anything not completed ON THAT SHA as pending. The board-keyed waiter's output was
+DISCARDED rather than raced against the new one — the correct disposition for an instrument
+found unable to see its subject is to stop reading it, not to average it with a better one.
+
 ## 8c. What the reviewers volunteered
 
 Both scopes returned APPROVE with zero findings at round 1, and two details are worth
