@@ -34,15 +34,26 @@ really is red then green at each boundary and no commit ships a red suite.
 
 ## Cross-finding identity, and what the implementer will invent
 
-`scanShellIndirection` emits **at most ONE hit per line** — `hit = assigned ?? aliased ?? functionDef
-?? githubEnvWrite ?? positionalBinding`. That collapse already exists in shipped code and can satisfy
-a fixture's pass condition by a route other than the rule under test. Probed:
-`PG=psql; read -r Q <<< p'sql'` reports **1** hit on line 1 today — the assignment route alone produces
-it — while `read -r Q <<< p'sql'` alone reports **0**. A here-string fixture sharing a line with an
+Two distinct emission routes exist, and conflating them is how a fixture stops discriminating.
+
+**Route A, the coalesced LINE route**, emits at most ONE hit per line —
+`hit = assigned ?? aliased ?? functionDef ?? githubEnvWrite ?? positionalBinding`. Probed:
+`PG=psql; read -r Q <<< p'sql'` reports **1** hit on line 1 today (the assignment route produces it)
+while `read -r Q <<< p'sql'` alone reports **0**. A here-string fixture sharing a line with an
 assignment binding therefore cannot fail, whatever the here-string rule does.
+
+**Route B, `visitBody`, emits INDEPENDENTLY and BEFORE route A**, so one-per-line is a fact about
+route A only and NOT about `scanShellIndirection`. Probed: `X=$(read -r PG <<< psql)` reports **2**
+hits on line 1, texts `read -r PG <<< psql` and `X=$(read -r PG <<< psql)`. Plan round 2 finding 3 — an
+earlier draft claimed the one-per-line property for the whole function, which is false and would have
+let A7's premise be satisfied by nested DISCOVERY rather than by the here-string route under test.
 
 - **Every flip fixture puts its subject ALONE on its own line**, no other binding route on that line.
   The discriminating pair above is committed as a case in its own right.
+- **A7 and every other NESTED-body fixture asserts on the hit's TEXT, not merely on a count**, because
+  route B emits for the enclosing substitution independently of the rule under test. A7's premise names
+  the here-string route specifically rather than saying "the plain sibling reports" — its plain
+  sibling reports TWICE, once per route.
 - **Multi-hit assertions are order-independent** — sorted records or sets, never a positional array.
 - **A hit's assertion identity is (file, line, matched text)**; the plan neither assumes the scanner
   deduplicates nor assumes it does not.
@@ -123,9 +134,9 @@ named by symbol):
 ## Meta-test inventory
 
 - **Extends:** none structurally — the deciding suite gains cases, not a new registry.
-- **Must keep passing, and each is named by a task:** `_metaSourceShardIntegrity` (Task 8, the temp
-  shard must be deleted), `_metaLedgerInProgress` and `_metaLedgerMintBar` (Task 9),
-  `_metaReviewRoundEconomy` (Task 9, the filing's heading count tracks the corpus).
+- **Must keep passing, each named by the task that runs it:** `_metaSourceShardIntegrity` (Task 7 —
+  the temp shard is created AND deleted there), `_metaLedgerInProgress`, `_metaLedgerMintBar` and
+  `_metaReviewRoundEconomy` (Task 8).
 - **"None applies" is not claimed anywhere in this plan.**
 
 ## Strictly weaker implementations, and the fixture that kills each
@@ -139,7 +150,7 @@ probed** — plan round 1 found three of the five rows carrying killers that did
 | # | rule | strictly weaker implementation that would pass a naive fixture set | killer fixture |
 | --- | --- | --- | --- |
 | 1 | candidate only when the WHOLE value is one accepted `${…}` | read the operand of any accepted `${…}` appearing anywhere in the value (the withdrawn substitution model) | `PG=p${U:-"sql"}` stays 0, and `U=xpsql; PG=${U#${V:-'psql'}}` stays 0 — the second is the false report the narrowing exists to remove |
-| 2 | accept-set is exactly six operators, complement default-denied | a DENYLIST — "any operator except `#`, `%`, `/`" — which silently accepts substring, case-modification and transformation | `U=xpsql; PG=${U:1}` stays 0: a denylist would read its operand and report. (`${U^}` and `${U@Q}` staying 1 is NOT a killer — they already report through the verbatim text, for a pre-existing reason a denylist does not change.) |
+| 2 | accept-set is exactly six operators, complement default-denied | a DENYLIST — "any operator except `#`, `%`, `/`" — which silently accepts error-word, substring, case-modification and transformation | `PG=${U:?'psql'}` stays 0. the `${U:?word}` operator is outside the denylist, so a denylist reads its operand `psql` and REPORTS while the accept-set declines; probed 0 today, and bash binds nothing there because the expansion errors. (`${U:1}` is NOT a killer — a denylist reading it extracts the operand `1`, which the predicate rejects anyway, so both implementations agree. `${U^}` and `${U@Q}` are not killers either: they already report through the verbatim text for a pre-existing reason.) |
 | 3 | here-string association is by LOGICAL line | association by PHYSICAL line, or "any `<<<` target anywhere in the file" | N1/N2 (continuation before and after the operator) BIND; a `read` on one logical line with an unrelated `<<<` target on another does NOT |
 | 4 | the whole-value rule applies to a `<<<` target SPECIFICALLY | keep the read-prefix and logical-line checks but ignore WHICH redirection operator the target belongs to | `read -r PG < ${U:-psql}` stays 0 — with `<` the shell hands `read` the file's CONTENT (bash binds `psql-file-content`, probed), so an operator-blind implementation reports and this kills it. `cat x > ${U:-psql}` is NOT a valid killer: it has no `read`, so the prefix check alone rejects it and the fixture cannot discriminate |
 | 5 | retained targets never reach argv | retention that adds targets to the word array and filters them at the `scanShellText` consumer ONLY | `cat x > PG=psql` reports 0 hits — the ASSIGNMENT route is a second consumer, so a `scanShellText`-only filter leaves the retained `PG=psql` target visible to it and it reports. Paired with `cat x > psql` → 0 sites and `psql -X -qAt mydb > out.sql` → 1 site, tokens `["-X","-qAt","mydb"]`, `suppressesStartupFiles: true` |
@@ -180,6 +191,13 @@ six-row declared-miss loop, re-pinned as a hit; the here-string clause leaves `s
 limits bullet 1, and the false mechanism sentence ("since the lexer drops a redirection operand before
 words exist") goes with it.
 
+**And the documentation that goes STALE the moment this task lands, which travels with it** (plan
+round 2 finding 2 — an earlier draft deferred these as "no pin to travel with", which was wrong):
+the inline comment in `scanShellIndirection` that cites `BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE` and
+says the lexer drops the operand before words exist; the nested-body closing paragraph, which must
+gain the here-string word-route clause so its "never blind" claim stays true; and item 1 of the prior
+design's §6, which corresponds to this retiring row.
+
 Killers 3, 4 and 5 land here.
 
 ## Task 3: the whole-value expansion candidate
@@ -194,7 +212,9 @@ tested by the SAME predicate. A `<<<` target whose entire text is one accepted e
 rule at the second site, which is what closes R1-R8; Task 2's retention is what makes that site exist.
 
 **Pins retired in this task:** the quoted-expansion-operand row of the declared-miss loop, re-pinned as
-a hit; the `${…}`-operand bullet in `scan.ts` is replaced by the complement entry.
+a hit; the `${…}`-operand bullet in `scan.ts` is replaced by the complement entry; and item 7 of the
+prior design's §6, which corresponds to this retiring row, gains its dated superseded-by line here
+rather than later.
 
 Killers 1 and 2 land here.
 
@@ -230,17 +250,18 @@ table — record it and reconcile the table before proceeding.
 
 ## Task 6: residual documentation sweep
 
-The pin-coupled documentation landed with its pin in Tasks 2 and 3, which is what the spec's
-same-commit companion-sweep contract requires and what keeps commit-per-task intact (plan round 1
-finding 5). What remains has no pin to travel with:
+All pin-coupled documentation landed with its pin in Tasks 2 and 3 — including the three groups an
+earlier draft wrongly deferred here (plan round 2 finding 2): the inline comment citing the here-string
+ledger row, the nested-body closing paragraph, and the prior design's §6 items 1 and 7. That is what
+the spec's same-commit companion-sweep contract requires and what keeps commit-per-task intact.
 
-- `scan.ts` nested-body closing paragraph: add the here-string word-route clause so the "never blind"
-  claim stays true and visibly so.
-- `scan.ts` inline comment in `scanShellIndirection` citing the here-string ledger row.
-- `scan.ts` three stale `75`s → the measured census, or a form carrying no literal.
-- `2026-08-17-shell-binding-mixed-quoted-value-design.md` §6 items 1 and 7: one dated superseded-by
-  line each. That spec is not rewritten.
-- No `DEFERRED.md` pointer to either row exists — verified by repo-wide grep at spec time.
+**What remains is genuinely uncoupled**, because it is pre-existing drift from an unrelated arc rather
+than anything either pin describes:
+
+- `scan.ts` three stale `75`s → the measured census, or a form carrying no literal. Found by spec
+  round 1's census probe; no pin asserts them and no task above invalidates them.
+- Confirmation, not an edit: no `DEFERRED.md` pointer to either row exists — verified by repo-wide grep
+  at spec time and re-run here.
 
 ## Task 7: re-derive the mutation ledger, then score
 
