@@ -310,6 +310,7 @@ while a different rule decided the observation.
 | AC-10's live/commented pair | §3.3 dedup on identical titles (round 5's finding) | the two titles differ |
 | the GRAIN case (a six-row table under one title yields ONE pin, §8 item 12) | §3.2 dedup on `(suitePath, title)`: an implementation emitting one pin PER ROW and then deduplicating by title also yields one | assert the pin's LINE equals the enclosing test-title line, not a table row's — the count alone cannot separate "one pin, correctly grained" from "six pins, collapsed" |
 | the SYNTHETIC-SURFACE case | §5 disposition keying, if the synthetic title happened to match a disposition row | synthetic titles are checked against `NOT_A_PIN` at authoring time; a collision would silence the case and it would pass for the wrong reason |
+| every multi-finding case | an anchor-position dedup, which no rule here mandates but an implementer will reach for (§3.3) | a TWO-PINS-ON-ONE-SURFACE case at unit level: both pins anchor at the SAME declaration line and BOTH findings must appear. The dedup-partner case uses two SURFACES and so leaves the shared-anchor collapse untested; the corpus case would catch it only after an implementer shipped it |
 
 **The two adapter defects need two different proofs, and neither covers the other.** Running the
 weaker-implementation pass over the FIXTURES — not only over the rules, which is what round 5 showed is

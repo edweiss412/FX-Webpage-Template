@@ -329,6 +329,12 @@ spellings in the plan — naming both silences both and proves nothing. A decode
 across two plan lines and a decoded TAB title named within one line each draw nothing (spec §8 item 13);
 both fail a per-line obligation matcher, which is the implementation they exist to reject.
 
+**Two pins on ONE surface, at the SAME anchor.** Every pin of a surface anchors at that surface's Files-
+declaration line, so an anchor-position dedup — which no rule mandates and any implementer will reach
+for — collapses them. This case asserts BOTH findings appear from one surface with two unnamed pins.
+The dedup-partner case below uses two SURFACES and leaves this untested, and the corpus case catches it
+only after the collapse has shipped.
+
 **Fixture neutralization (spec §6): the dedup case needs a partner.** "One pin reachable through two
 surfaces draws ONE finding" is ALSO satisfied by an implementation that ignores surfaces entirely and
 reports per pin. Pair it with a TWO-DIFFERENT-PINS-on-two-surfaces case expecting TWO findings; only an
