@@ -149,6 +149,8 @@ the fail-open shapes this plan's own RED-form section rejects, and shipping it w
 review round 1 caught first. The suite instead imports the MODULE — `tests/mutation/browser/runner.ts`
 resolves today — and asserts on the exported binding:
 
+<!-- plan-fences: ignore UNIMPORTED_IDENTIFIER — `expect` is vitest's own global under this repo's config; the fragment is the body of a case inside a new suite, not a standalone module -->
+
 ```ts
 import * as runner from "./runner";
 // resolves now; the ASSERTION is what fails, and it fails on the missing export
