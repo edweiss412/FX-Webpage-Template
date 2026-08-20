@@ -328,5 +328,51 @@ E5 whole dq                            -> <'psql'>
    consumption regex stops at `(` and the body is never collected. Declared as a documented limit with
    a re-file trigger rather than closed, since closing it is recognizer growth for a corner with zero
    corpus instances.
+
+   **Extended by spec round 1 (2026-08-20), same arc, same day.** The reviewer probed the family this
+   reading had characterised only through F1/F2 and found it both wider and worse. A target that
+   CONTAINS a command substitution is wholly consumed by the attached regex, so the body is invisible
+   to BOTH scanners while bash executes it. Reviewer's transcript, verbatim:
+
+   ```text
+   {"id":"dq-dollar-paren","hits":[],"sites":[]}
+   {"id":"bare-backtick","hits":[],"sites":[]}
+   {"id":"dq-backtick","hits":[],"sites":[]}
+   {"id":"locale-dq-dollar-paren","hits":[],"sites":[]}
+   {"id":"brace-default-dollar-paren","hits":[],"sites":[]}
+   {"id":"baseline-attached-dollar-paren","hits":[],"sites":[{"line":1,"tokens":["-qAt","mydb"],"suppressesStartupFiles":false}]}
+   {"id":"baseline-detached-dq","hits":[],"sites":[{"line":1,"tokens":["-qAt","mydb"],"suppressesStartupFiles":false}]}
+   ```
+
+   Bash oracle, with `psql` replaced by a harmless shell function that reports its arguments:
+
+   ```text
+   dq-dollar-paren: CALLED <-qAt mydb>
+   bare-backtick: CALLED <-qAt mydb>
+   dq-backtick: CALLED <-qAt mydb>
+   locale-dq-dollar-paren: CALLED <-qAt mydb>
+   brace-default-dollar-paren: CALLED <-qAt mydb>
+   ```
+
+   So the worst case is a MISSED SITE for an executing command, not a missed discovery hit, and this
+   reading's original "missed report" phrasing understated it. The correction is recorded here rather
+   than by rewriting the measurements above, which stand as taken. Disposition: the arc WITHDREW its
+   attached-target scope, filed `BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION` with this round as
+   the incident, and covers detached targets only.
+
+7. **Live-tree census, measured 2026-08-20 at the branch point:** 76 sites, 0 unprotected,
+   0 indirections, 0 unreadable, 3425 files scanned. The `scan.ts` module header still says 75 in
+   three places — pre-existing drift from an unrelated arc that added a psql call, not a scanner
+   defect. Surfaced by spec round 1 finding 2 and confirmed independently with
+   `collectPsqlUsage(process.cwd())` on this branch. **A scratch `.ts` file left in the worktree root
+   is scanned like any other source file:** an uncommitted probe script containing psql spellings put
+   the deciding suite RED and the mutation baseline into `BaselineNotGreenError` until it was removed.
+   Worth knowing before blaming a code change for a red baseline.
+
+8. **Scoped mutation-gate cost for `psqlStartupScan`, measured 2026-08-20:** 899s wall clock for a
+   green baseline run of the seven gate cases, via a temporary single-surface shard under
+   `pnpm heavy`. The batch-level "~93s per surface" figure does not hold here — this surface pairs 63
+   mutants with an 897-test deciding suite that takes about 14s per execution. Budget roughly 15
+   minutes per re-measure.
 6. **A here-DOC body is read as command text today** (G1, G2 both produce a site). Pre-existing,
    untouched by either arm, and recorded here so a later reader does not attribute it to this arc.

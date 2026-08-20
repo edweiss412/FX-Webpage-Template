@@ -18,9 +18,12 @@ Surface: `tests/cross-cutting/psqlStartupFiles/scan.ts`. Deciding suite:
 
 **There are zero live corpus instances of either spelling, and this spec does not manufacture one.**
 The value here is RECALL on a spelling that is reachable and that bash really binds — proved by a bash
-oracle, in the probe record — not the repair of a live miss. The census this guard defends has stayed
-75 psql call sites / 0 unprotected through every review round of its history, and neither arm changes
-that number. A reader who wants a live-miss justification will not find one, and should not: the
+oracle, in the probe record — not the repair of a live miss. The census this guard defends reads
+76 psql call sites / 0 unprotected / 0 indirections as of this arc's branch point (measured
+2026-08-20; the number grows whenever an unrelated arc adds a psql call, and the `scan.ts` header's
+three surviving `75`s are that drift, swept in §5). Neither arm changes it, and §7.5 asserts that as
+an INVARIANCE between two measurements rather than as a literal, so the criterion cannot go stale
+under someone else's diff. A reader who wants a live-miss justification will not find one, and should not: the
 convergence criterion in §7 is a mutation score, not a corpus hit count.
 
 ### 1.1 Arm 1 — a here-string target never becomes a word
@@ -55,7 +58,6 @@ supplement; the load-bearing rows:
 | id | spelling | bash binds | scanner today |
 | --- | --- | --- | --- |
 | A1 | `read -r PG <<< p'sql'` | `psql` | 0 |
-| A3 | `read -r PG <<<p'sql'` (attached) | `psql` | 0 |
 | A5 | `read -r PG <<< 'psql'` | `psql` | 1 |
 | A6 | `read -r PG <<< $'p\163ql'` | `psql` | 0 |
 | A7 | `X=$(read -r PG <<< p'sql')` | `psql` (in the subshell) | 0 |
@@ -106,19 +108,26 @@ the decision.
    over-reports in the SAFE direction, they are not this arc's rows, and §3 pins each at its current
    value rather than fixing it. Proposing a fix for one of them is a re-scope decision for the
    orchestrator, not a review finding.
-7. **The site path is unchanged BY CONSTRUCTION, not by care.** §3.1 gives `lexShellWords` an optional
+7. **The ATTACHED redirection family is WITHDRAWN SCOPE, settled at spec round 1, and does not go to
+   a nearest-sounding ledger row.** Arm 1 covers DETACHED targets only. The attached family's real
+   worst case — a command substitution inside an attached target hiding an executing psql from both
+   scanners — is PRE-EXISTING, untouched by this diff, and recorded in this surface's own limits
+   record at §6 item 3 with its probe and a re-file trigger, per the 2026-08-04 filing bar. Re-proposing
+   recursive lexing of attached targets is refused in §3.1 with the reason; re-proposing it is a
+   re-scope decision for the orchestrator, not a review finding.
+8. **The site path is unchanged BY CONSTRUCTION, not by care.** §3.1 gives `lexShellWords` an optional
    out-parameter; `scanShellText` does not pass one and therefore receives a byte-identical word array.
    A finding of the form "the retained target could be read as argv" must exhibit the call site that
    passes the array, or it is refuted by the signature.
-8. **The 2026-08-17 design spec is annotated, not rewritten.** Its §6 items 1 and 7 each gain a dated
+9. **The 2026-08-17 design spec is annotated, not rewritten.** Its §6 items 1 and 7 each gain a dated
    one-line superseded-by pointer to this spec. That spec is the design record of a shipped arc; this
    spec plus the `scan.ts` documented-limits block is the LIVE record. Rewriting a shipped spec's prose
    to match a later arc is how two copies drift.
-9. **`BACKLOG-archive.md`'s account of the 2026-08-17 sweep is a dated record and is not corrected.**
+10. **`BACKLOG-archive.md`'s account of the 2026-08-17 sweep is a dated record and is not corrected.**
    It accurately records what was filed then, including the "ripple into every redirection consumer"
    cost estimate that §3.1 declines to pay. The estimate being superseded is a fact about this spec,
    not an error in that one.
-10. **No new mutation operators.** The enrolled operator set for `psqlStartupScan` is
+11. **No new mutation operators.** The enrolled operator set for `psqlStartupScan` is
     `relational-boundary` + `regex-quantifier-bound`, ratified as a scoped subset with its own numbers
     (`tests/mutation/source/registry.ts`, the `psqlStartupScan` row's leading comment). A reviewer
     proposing a third family owes a registry change carrying before/after numbers; that is not a round
@@ -184,28 +193,30 @@ there are no new consumers to ripple into. `assignmentBindingLines` and `compoun
 see nothing new. This is resolved-scope row 7, and it is a property of the signature rather than of
 careful editing at each consumer.
 
-Two entry points, ONE dequoting mechanism:
+**ONE entry point: the DETACHED spelling.** The existing `dropWord` becomes `pendingTarget`: the word
+is built by the ordinary loop, and at `flush()` it is pushed to `targets` instead of `words`. The word
+therefore carries the lexer's full quote removal, ANSI-C decoding and escape handling for free, because
+it IS an ordinary lexer word that simply lands in a different array. There is no second dequoting path
+and therefore nothing that can drift from the first — the defect shape the 2026-08-17 arc retired when
+it deleted the per-delimiter pattern family.
 
-- **Detached** (`>` + whitespace + target). The existing `dropWord` becomes `pendingTarget`: the word
-  is built by the ordinary loop, and at `flush()` it is pushed to `targets` instead of `words`. The
-  word therefore carries the lexer's full quote removal, ANSI-C decoding and escape handling for free.
-- **Attached** (`>target`). The existing regex still bounds CONSUMPTION — where the redirection ends is
-  not changing — and its captured slice is handed to `lexShellWords` recursively; the first
-  non-operator word of that lex supplies `text`. Offsets are re-anchored by adding the slice's start
-  index. An attached target cannot contain a newline (the regex excludes whitespace), so `line` is the
-  lexer's current line.
+**The ATTACHED spelling (`>target`) is untouched, and that is a narrowing, not an omission.** Spec
+round 1 established the reason with a probe, and it is stronger than the F1/F2 inconsistency this spec
+originally cited. The attached-target regex wholly consumes its match, so an attached target that
+CONTAINS A COMMAND SUBSTITUTION hides an executing command from both scanners: `cat x >"$(psql -qAt
+mydb)"`, the bare-backtick and double-quoted-backtick spellings, the locale-quoted `$"…"` form, and a
+substitution inside an attached `${…}` target all report zero sites AND zero indirection hits today,
+while bash executes the body (round-1 probe, reproduced in the probe record's 2026-08-20 supplement
+reading 5). The first draft of this spec proposed handing the attached slice to `lexShellWords`
+recursively. That is refused: exposing those nested bodies to `scanShellText` is exactly what would
+make the site path non-identical, and NOT exposing them leaves the miss in place while adding
+machinery. Under the standing repair direction (§1.1 row 5) the class repair is to decline the whole
+attached family, keep its consumption byte-for-byte as it is, and record the limit accurately (§6
+item 3) — never to grow the lexer toward a corner with zero corpus instances.
 
-Both paths end in one `pushTarget` helper, so the two spellings cannot drift into two readings of the
-same string — the defect shape the 2026-08-17 arc retired when it deleted the per-delimiter pattern
-family.
-
-**Why the attached regex is kept rather than deleted.** Letting the main loop lex the attached target
-would be less code and is tempting. It is also a probed behavior change outside this arc's rows:
-`cat x >$(command -v psql)` reports 0 today and would report 1, because the regex stops at `(` where
-the loop would recognise a command substitution and collect its body. The detached spelling
-`cat x > $(command -v psql)` already reports 1, so the two spellings genuinely disagree — and closing
-that disagreement is recognizer growth in exchange for a corner nobody has written. Under resolved-scope
-row 5 it files as a documented limit (§6 item 3) with a re-file trigger, not as work.
+The cost is one probed spelling: `read -r PG <<<p'sql'` (attached here-string, probe A3) stays at 0
+and joins §6 item 3. `read -r PG <<< p'sql'` — the spelling the ledger row actually names — is
+detached and is closed.
 
 ### 3.2 The here-string family reads its value from the retained target
 
@@ -278,12 +289,11 @@ E5 needs no guard clause: the branch that records defaults is unreachable inside
 
 ## 4. Behavior deltas (complete, from the probe record)
 
-Every row is probed on both instruments. **Flips (0 → 1), twelve:**
+Every row is probed on both instruments. **Flips (0 → 1), eleven:**
 
 | id | spelling | arm |
 | --- | --- | --- |
 | A1 | `read -r PG <<< p'sql'` | 1 |
-| A3 | `read -r PG <<<p'sql'` | 1 |
 | A6 | `read -r PG <<< $'p\163ql'` | 1 |
 | A7 | `X=$(read -r PG <<< p'sql')` | 1 |
 | H4 | `read -r PG <<< /usr/'bin'/psql` | 1 |
@@ -297,16 +307,19 @@ Every row is probed on both instruments. **Flips (0 → 1), twelve:**
 
 **Unchanged, and each one is a pin the suite must carry** (probed value in parentheses): A5 (1),
 A9 here-doc body (1 site — pre-existing, out of scope), A10 `notpsql` (0), A11 prose here-string (1),
-H3 (1), B1/B2 a redirection target NAMED psql (0 sites), B3/B4/F10/F11 a psql call carrying a
-redirection (1 site each, tokens and suppression verdict unchanged), F1/F2 the attached-versus-detached
-substitution target (1 and 0 — §6 item 3), C4 (1), D1/D2/D3 pattern operands (0), D4 length (1),
+H3 (1), A3 the ATTACHED here-string (0 — withdrawn scope, §6 item 3), B1/B2 a redirection target NAMED
+psql (0 sites), B3/B4/F10/F11 a psql call carrying a redirection (1 site each, tokens and suppression
+verdict unchanged), F1/F2 the attached-versus-detached substitution target (1 and 0 — §6 item 3),
+C4 (1), D1/D2/D3 pattern operands (0), D4 length (1),
 D5 bare remove-prefix (1), D6 error operand (0), D7 indirection (1), D8 subscript (1), E1 operand prose
 (0), E2 `notpsql` operand (0), E3 quoted semicolon operand (0), E4 trailing-backslash operand (0),
 E5 double-quoted whole expansion (0), E6 substitution inside operand (1).
 
-**Live-tree census:** unchanged at 75 sites / 0 unprotected / 0 indirections. Both arms only ADD
-reports for spellings the corpus does not contain, so the walk's verdict on this repository cannot
-move; the plan's verification step asserts this rather than assuming it.
+**Live-tree census:** UNCHANGED by this diff. Measured 76 sites / 0 unprotected / 0 indirections at
+the branch point on 2026-08-20; both arms only ADD reports for spellings the corpus does not contain,
+so the walk's verdict on this repository cannot move. AC-4 asserts the INVARIANCE (same tree, before
+and after, equal) rather than the literal, because the literal belongs to whoever last added a psql
+call and this spec must not own their number.
 
 ---
 
@@ -351,6 +364,13 @@ the array's remaining four rows and its premise loop stay as they are.
   the reason the here-string reads the spliced line.
 - `docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md` §6 items 1 and 7:
   one dated superseded-by line each (resolved-scope row 8).
+- **`scan.ts`'s three stale `75`s** (the module header's census sentences) go to the measured 76, or
+  to a form that does not carry a literal at all. They are pre-existing drift from an unrelated arc
+  that added a psql call, found by spec round 1's census probe; the block is one this diff already
+  edits, so leaving them is knowingly shipping a false number in a file under the cursor.
+- **A new ledger row, `BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION`**, filed with the round-1
+  probe as its evidence and this arc's spec round 1 as its incident, recording the withdrawn attached
+  family (§1.1 row 7, §6 item 3).
 - **`DEFERRED.md`: no pointer to either row exists.** Verified with
   `grep -rn 'BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE\|BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE'` across
   the repository; the hits are `BACKLOG.md` (the two rows), `BACKLOG-archive.md` (the dated 2026-08-17
@@ -368,13 +388,26 @@ Retiring two bullets, adding one. Each remaining limit is a MISSED REPORT, never
    removed from this bullet** (arm 1).
 2. A multiword assignment value whose psql command carries no flag-shaped token, including a quoted
    YAML `run:` scalar and a quoted directory component carrying IFS whitespace. Unchanged.
-3. **NEW.** An ATTACHED command-substitution redirection target (`cat x >$(command -v psql)`) is not
-   read as executable discovery, while the DETACHED spelling (`cat x > $(…)`) is. The attached form's
-   consumption regex stops at `(`, so the substitution body is never collected. Probed both ways:
-   0 and 1. Worst case is a missed report on a spelling with zero corpus instances; closing it means
-   letting the main loop lex attached targets, which is recognizer growth for a constructed corner.
-   **Re-file trigger:** a live corpus instance of an attached substitution redirection target, or any
-   arc that needs the main loop to lex attached targets for another reason.
+3. **NEW, and it is the sharpest limit in this list.** The ATTACHED redirection target family is not
+   read at all. The attached-target regex wholly consumes its match, so a target that CONTAINS A
+   COMMAND SUBSTITUTION hides an executing command from BOTH scanners — zero sites and zero
+   indirection hits — while bash runs it. The complete family, each spelling probed at 0/0 with the
+   bash oracle confirming the call really happens (spec round 1; probe record 2026-08-20 supplement
+   reading 5): a bare backtick target; `$(…)` or a backtick inside an attached DOUBLE-QUOTED target;
+   a locale-quoted `$"…"` target; and a command substitution inside an attached `${…}` target. The
+   plain attached here-string (`read -r PG <<<p'sql'`) is the same family's benign end and is also
+   missed.
+   **This is a MISSED SITE for an executing psql, not merely a missed discovery hit**, and the earlier
+   draft of this spec described it as the latter. It is PRE-EXISTING — every probe above reports the
+   same zeros before this diff — and this arc does not make it worse, but it must not be understated
+   here.
+   Why it is not closed in this arc: the only readings that would close it either expose the nested
+   bodies to `scanShellText`, which breaks the by-construction identity arm 1 rests on, or add
+   recursive lexing that still does not report. Both are recognizer growth toward a corner with zero
+   corpus instances, against the standing repair direction. Filed as a ledger row with this round as
+   its incident (`BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION`).
+   **Re-file trigger:** a live corpus instance of any spelling above, or any arc that needs attached
+   targets lexed for another reason.
 4. **REMOVED** (arm 2): quoting or escapes inside a `${…}` expansion operand. Superseded by §3.3 for
    the value-supplying operators; the pattern, length, indirection, error and subscript forms were
    never covered by that bullet's claim and keep their current conservative readings.
@@ -431,6 +464,12 @@ Score BEFORE closeout, never while holding a mergeable PR. Blob-hash `scan.ts` a
 before any re-measure — the score is a pure function of (source, operators, deciding suites), and an
 unchanged pair owes no re-run.
 
+**Measured cost, 2026-08-20, on this branch: 899s for a green baseline run of the seven gate cases**
+(temporary single-surface shard, `pnpm heavy`, foreground). The batch-level "~93s per surface" figure
+does not apply to this surface: 63 mutants against an 897-test deciding suite that takes about 14s per
+execution. Budget ~15 minutes per re-measure and plan the number of re-measures accordingly — this is
+why §7.2's blob-hash rule earns its place rather than being a nicety.
+
 ### 7.4 Consequence bound, probe domain, threat fence
 
 Stated here so every review brief can cite them, and so a brief-versus-spec mismatch is itself a
@@ -457,8 +496,8 @@ is not by itself proof for AC-3 or AC-6; the field checklist is named.
 | --- | --- | --- |
 | AC-1 | The twelve §4 flips report | New positive assertions in the deciding suite, one per row, each with a premise showing its plain sibling already reports. |
 | AC-2 | Every §4 "unchanged" row holds its probed value | Assertions in the deciding suite; the pre-existing ones stay, the newly named ones are added. |
-| AC-3 | The site path is byte-identical in behavior | `git diff` shows no change to `scanShellText`, AND a suite case asserting a retained target is invisible to `scanSource` (`cat x > psql` → 0 sites; `psql -X -qAt mydb > out.sql` → 1 site, `suppressesStartupFiles: true`). The diff alone is not the proof — the assertion is. |
-| AC-4 | Live-tree census unchanged | `collectPsqlUsage` case in the suite: 75 sites, 0 unprotected, 0 indirections. |
+| AC-3 | The site path is byte-identical in behavior | `git diff` shows no change to `scanShellText` and none to the attached-target regex, AND a suite case asserting a retained target is invisible to `scanSource` (`cat x > psql` → 0 sites; `psql -X -qAt mydb > out.sql` → 1 site, `suppressesStartupFiles: true`). The diff alone is not the proof — the assertion is. |
+| AC-4 | Live-tree census unchanged BY THIS DIFF | Two `collectPsqlUsage` measurements on the same tree, at `origin/main` and at HEAD, asserted EQUAL on sites / unprotected / indirections. No literal is asserted: the count is 76 / 0 / 0 on 2026-08-20 and belongs to whoever last added a psql call, so a literal would fail under an unrelated arc's diff. |
 | AC-5 | Two pins retired, eight untouched | The §5 table, checked row by row against the suite diff; the four surviving rows of the six-row array are asserted unchanged. |
 | AC-6 | Mutation score holds with an EMPTY unaccepted-survivor set | A scoped `pnpm heavy` gate run, pasted into the closeout with its mutant/killed/equivalent counts. A green unit suite does NOT prove this. |
 | AC-7 | Ledger-kind count matches the re-derived ledger | `expectedLedgerKinds.ts` equals the registry's actual row count; the gate's own AC-13 case fails otherwise. |
