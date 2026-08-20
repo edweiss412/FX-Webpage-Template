@@ -87,6 +87,13 @@ one-row declaration rather than new machinery:
 No advisory-lock surface, no Supabase call boundary, no admin mutation, no `admin_alerts` catalog row —
 this arm reads documents and emits lint findings. Declared explicitly rather than left silent.
 
+The three other mandatory task types are N/A with their reasons, declared rather than omitted: **no
+layout-dimensions task** (no fixed-dimension parent, no rendered DOM at all); **no transition-audit task**
+(no component, no transition inventory); **no e2e harness-readiness checklist** (no Playwright, no
+server). **No TypeScript snippet is embedded in any task body**, so the typecheck-pasted-snippets pass has
+an empty subject — the code shapes live in the suites the tasks create, under the repo's strict tsconfig,
+and the plan names behaviour rather than pasting implementations.
+
 ---
 
 ## 2. Architecture and the purity boundary
@@ -178,10 +185,14 @@ the start.
 <!-- task: red=`pnpm vitest run tests/specLint/claimSweepNumeric.test.ts` red-state=authored red-target=`lib/specLint/claimSweep.ts` why=`checkClaimSweep does not exist, so every numeric-half case throws on an undefined export and no sentence can be scoped` ac=AC-1,AC-6 -->
 
 **What is red and why:** the suite is new and imports `checkClaimSweep` from a module that does not
-exist; the import fails to resolve, so the file cannot collect. That is a fail-for-the-wrong-reason
-shape, so the RED step asserts the observed output names the missing export rather than merely exiting
-non-zero — a red that goes green when the TEST changes rather than when the implementation lands is
-invalid by construction.
+exist, so the file cannot COLLECT. **This is the plan's ONE collection-shaped red and it is called out
+as such**, because a command that fails for the wrong reason exits non-zero, looks healthy to every check
+that asks "did this fail", and goes green when the TEST file is edited rather than when the
+implementation lands. Two things make it legitimate here and both are required of the RED step: the
+observed output must NAME the missing module (matched against this `why=`, not merely non-zero), and the
+only edit that could turn it green without an implementation is deleting the import, which deletes the
+test. **Every LATER task's red is a VALUE assertion**, because the module exists from Task 1 onward — a
+task whose red is still an import error after Task 1 is a defect in that task, not a red.
 
 Implements §3.1. A declared `--superseded N --replacement M` reports every occurrence of `N` whose
 SENTENCE does not also carry `M`. Sentence, not line: the incident's sharpest survivor shares a line
@@ -239,7 +250,12 @@ Implements §3.2. The identifier is matched EXACTLY. Killing fixtures:
   ZERO times exactly and on nine lines as a substring at `c272ebed3`;
 - "report every occurrence" — killed by the repair's OWN new claim, inside its hunk, drawing nothing;
 - the ATTRIBUTION wording — killed over EVERY emitted finding rather than sampled: the advisory says the
-  DECLARATION identified the changed claim, never that the arm verified it. `components/admin/HoverHelp.tsx:562`
+  DECLARATION identified the changed claim, never that the arm verified it. **This is a string-presence
+  assertion, so all four pre-dispatch mutants are run against it and their results recorded in the
+  commit:** (a) the wording emptied; (b) the expected wording plus an appended suffix; (c) the wording
+  present but not live — in a comment, or on a branch the fixture does not reach — so it exists somewhere
+  but not where the assertion claims; (d) each discriminating parameter varied in turn. The same four are
+  run against the `detail:` lines of all four codes in Task 6. `components/admin/HoverHelp.tsx:562`
   on `c272ebed3` sits on both sides of the repair's hunk with its classification unchanged, so the
   occurrences are right and the attribution is the only thing that can be wrong. **The occurrence
   assertions cannot kill this one** — that is why it is asserted separately.
@@ -271,7 +287,11 @@ own arc, each in a different direction (probes §8.2). Killing fixtures:
 
 - "sweep the spec only" — killed by a survivor in the PLAN, where 7 of the incident's 9 were;
 - INFERENCE — killed by declaring the peers, asserting the swept set is exactly the declared documents,
-  and keeping an undeclared sibling present in the tree and absent from the result;
+  and keeping an undeclared sibling present in the tree and absent from the result. **Neither half
+  discriminates alone and the plan says so**: the absent-sibling case is also satisfied by an
+  implementation that sweeps ONLY the linted document, and the plan-peer case is also satisfied by one
+  that sweeps the whole tree. Only the two TOGETHER pin the set to exactly the declared documents, so
+  they are asserted as one case over one corpus rather than as two independent ones;
 - "continue silently when `readFileLines()` returns null" — killed by a declared peer whose read returns
   null emitting `SWEEP_DOCUMENT_UNREADABLE`. The silent implementation emits nothing for it while every
   occurrence assertion still passes. Paired positive: the SAME peer readable, contributing its own
@@ -284,8 +304,11 @@ tree, and `FileResolver`'s own doc comment names the case.
 
 <!-- task: red=`pnpm vitest run tests/specLint/claimSweepIdentity.test.ts` red-state=authored red-target=`lib/specLint/claimSweep.ts` why=`CLAIM_SWEEP_CODES is not exported and findings carry no column, so two survivors in one sentence collapse to one and the emitted-set assertion has nothing to compare against` ac=AC-3 -->
 
-**What is red and why:** the collision case asserts TWO findings at two different columns and gets one;
-the code-set case fails to import `CLAIM_SWEEP_CODES`.
+**What is red and why:** the collision case asserts TWO findings at two different columns and gets one.
+The code-set case imports the module NAMESPACE and asserts `CLAIM_SWEEP_CODES` is a four-member set; it
+reads `undefined` and fails on a value comparison. Namespace import ON PURPOSE — a named import of a
+missing export is a link-time error, which is the collection shape Task 1 declares as this plan's only
+legitimate instance.
 
 Implements §3.4's identity and accept-set. A finding's identity is `(code, doc, line, column, token)`.
 Measured at the merge-base for the accepted `58 → 57` declaration: eight lines carry the token two or
@@ -293,9 +316,13 @@ three times in a sentence lacking the replacement, so 18 reportable occurrences 
 identities and TEN vanish silently into what looks like a legitimate dedup.
 
 - Killing fixture: a line carrying the token TWICE in one sentence lacking the replacement reports
-  TWICE, at two different columns. Paired positive, one variable: the same line with the second
-  occurrence moved into a sentence carrying the replacement reports exactly ONCE — so the single finding
-  is attributable to the SENTENCE rule rather than to a dedup.
+  TWICE, **and the assertion is on the two COLUMN VALUES, not on the count**. Counting two would be
+  satisfied by an implementation that keys identity on `(code, doc, line, token)` and simply never dedups
+  — a weaker implementation this fixture would otherwise wave through, since identity only bites once
+  something dedups. Asserting the columns equal the measured offsets kills it: it has no column to
+  report. Paired positive, one variable: the same line with the second occurrence moved into a sentence
+  carrying the replacement reports exactly ONCE — so the single finding is attributable to the SENTENCE
+  rule rather than to a dedup.
 - **Every multi-finding assertion is ORDER-INDEPENDENT** — a sorted record or a set, never a positional
   array. Findings on one line have no natural order, and the plan states outright that the arm makes no
   ordering or dedup guarantee, so no implementer invents one.
@@ -373,13 +400,29 @@ module's own data rather than on a nonce convention a fixture could forget.
 
 ## Task 10 — mutation enrolment, before the first diff dispatch
 
-<!-- task: red=`pnpm vitest run tests/mutation/guardSurfaces.gates.test.ts` red-state=authored red-target=`tests/mutation/source/expectedLedgerKinds.ts:24` why=`the EXPECTED_LEDGER_KINDS object literal has no claimSweep key, so the registry row this task adds leaves the expected-key-set comparison unequal` ac=AC-8 -->
+<!-- task: red=`VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest run --project mutation tests/mutation/guardSurfaces.gates.test.ts` red-state=authored red-target=`tests/mutation/source/expectedLedgerKinds.ts:24` why=`the EXPECTED_LEDGER_KINDS object literal has no claimSweep key, so the registry row this task adds leaves the expected-key-set comparison unequal` ac=AC-8 -->
 
 **What is red and why:** the registry row lands without its `EXPECTED_LEDGER_KINDS` key, so
 `Object.keys(EXPECTED_LEDGER_KINDS).sort()` differs from the registry's ids and the equality assertion
-fails naming `claimSweep`. **This command is in `NIGHTLY_ONLY_EXCLUDES` for the default vitest project**,
-so the task runs it through the mutation project explicitly and the RED step records the collection
-count — a suite that collects zero tests is green from birth and can never fail.
+fails naming `claimSweep`.
+
+**The env gate and `--project mutation` are BOTH load-bearing, and the draft of this plan got it wrong.**
+`tests/mutation/guardSurfaces.gates.test.ts` is in `NIGHTLY_ONLY_EXCLUDES` (`vitest.projects.ts`), so a
+bare `pnpm vitest run <that file>` collects ZERO tests and exits 0 — green from birth, unable to fail
+however the implementation lands. `pnpm spec:lint --exec-red` caught it as `RED_SUITE_UNCOLLECTED` during
+plan self-review; the shipped form matches the `mutation:guards` script and was verified to collect:
+
+```
+$ VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest list --project mutation tests/mutation/guardSurfaces.gates.test.ts
+[mutation] … > declares expected ledger-kind counts for every enrolled surface
+[mutation] … > (a) the union of every shard slice is exactly the registry
+[mutation] … > (b) no surface appears in two slices
+[mutation] … > (c) the per-surface case count is 7 …
+[mutation] … > runs a fixture that outlives vitest's 5000ms default
+```
+
+The RED step records the collection count alongside the failure, so a later regression to an
+uncollectable form is visible rather than silently green.
 
 Enrolment is TWO declarations: a `tests/mutation/source/registry.ts` row (`id: "claimSweep"`,
 `sourcePath: "lib/specLint/claimSweep.ts"`, `suitePaths` naming Tasks 1-6 and 8-9's suites,
@@ -428,12 +471,24 @@ dominates; both are required.
 
 ## Task 12 — citation re-point, wiring, docs, and the ledger closeout
 
-<!-- task: red=`pnpm spec:lint docs/superpowers/plans/2026-08-20-claim-sweep-after-repair.md` red-state=live red-target=`lib/specLint/claimSweep.ts` why=`Tasks 1-11 tracked claimSweep.ts, so every path-only red-target above is now RED_TARGET_INVALID and this command exits 1 naming them` ac=AC-9 -->
+<!-- task: red=`pnpm spec:lint docs/superpowers/plans/2026-08-20-claim-sweep-after-repair.md` red-state=authored red-target=`lib/specLint/claimSweep.ts` why=`Task 1 tracks the module named by ten path-only red-target citations, so each becomes RED_TARGET_INVALID and this command exits 1 naming them` ac=AC-9 -->
 
-**What is red and why:** this red is CAUSED BY THIS PLAN'S OWN EXECUTION and is the only `red-state=live`
-marker here. At plan time the command passes (the path is untracked, so path-only is legal). After Task 1
-it FAILS with one `RED_TARGET_INVALID` per remaining path-only citation. The RED step records the exact
-count and the names; the GREEN step is the same command passing after the re-point.
+**What is red and why:** this red is CAUSED BY THIS PLAN'S OWN EXECUTION, and getting its `red-state`
+right took a correction worth recording. It was drafted `red-state=live`, which asserts the command fails
+on the CURRENT tree — and it does not: the path is untracked today, path-only is legal, and the command
+exits 0. `pnpm spec:lint --exec-red` reported `RED_ALREADY_GREEN` during plan self-review. The honest
+classification is `authored`: **the failing case is brought into being by Task 1**, exactly like a task
+that writes a new test case, and the red-target names the production surface whose tracking causes it.
+
+After Task 1 the command FAILS with one `RED_TARGET_INVALID` per path-only citation — ten of them, the
+count §3 pins. The RED step records the count and the names; the GREEN step is the SAME command passing
+after the re-point.
+
+**Consequence, declared rather than left to be discovered:** no marker in this plan is `red-state=live`,
+so `pnpm spec:lint --exec-red` executes NOTHING here. Its clean result is the shape of a check that had
+nothing to run, not evidence the reds are sound — two absences reinforcing each other read as a pass.
+What DOES verify them is the static half (which caught both defects above) plus each task observing its
+own red at execution time and matching the output to its `why=`.
 
 1. **Re-point every `red-target=` in §3's anchor table**, filling the HEAD column. Verify each by READING
    the line and matching it to the symbol its `why=` names — never by confirming the citation resolves,
@@ -510,3 +565,33 @@ over English is what §1.1 item 3 forbids this arm and building one inside the g
 mistake at one remove.
 
 The round-economy filing for the stage is `docs/review-rounds/feat/speclint-claim-sweep-after-repair/4dfd784ed062.md`.
+
+---
+
+## 6. Weaker-implementation audit of THIS PLAN's own fixtures — one exhaustive pass, not instance-hunting
+
+Run over every rule at once during plan self-review, because three instances of one shape is the
+same-vector trigger and the prescribed answer is a derived cover rather than another round of
+instance-hunting. For each rule: the strictly weaker implementation that would satisfy the fixtures AS
+DRAFTED, and what was added to kill it. **Two rules failed this pass and both are repaired above.**
+
+| Rule | Weaker implementation that passed the DRAFT | Repair |
+| --- | --- | --- |
+| Task 6, identity | key on `(code, doc, line, token)` and never dedup — reports twice, so a COUNT assertion passes | assert the two COLUMN VALUES against the measured offsets; an implementation with no column has nothing to report |
+| Task 5, swept set | sweep only the linted document (the undeclared-sibling half passes), or sweep the whole tree (the plan-peer half passes) | assert both halves as ONE case over ONE corpus; neither discriminates alone |
+| Task 1, numeric half | line scope | the line carrying a transition sentence AND a separate stale sentence — already in the draft |
+| Task 2, refusals | accept `N === M` and run | already asserted as a REFUSAL with both values named, plus exit 2 and zero findings |
+| Task 3, named half | substring matching; report every occurrence; assert attribution by sampling | already three separate fixtures; the attribution one is asserted over EVERY emitted finding because the occurrence assertions structurally cannot kill it |
+| Task 4, not-found | emit not-found whenever the occurrence list is empty | that IS the rule; the pair one variable apart (truncated vs untruncated identifier) is what makes the clean half attributable |
+| Task 9, corpus | hardcode the excluded paths | `ARC_DOCUMENTS` IS a declared tuple, so this is the specification rather than a weaker form; the relation asserted is that the enumeration excludes them AND the unfiltered enumeration contains them |
+
+**Which rule DECIDES the observation, asked of every fixture:** Task 3's span-exclusion cases are decided
+by the SPAN rule and not by the sentence rule, so their survivors are placed in sentences that carry the
+replacement — otherwise the numeric half would report them anyway and the case could not fail. Task 4's
+not-found case carries no superseded/replacement pair at all, so nothing the numeric half does can
+produce its observation.
+
+**What the implementer owes on top of this pass (AC-7).** This audit is a PLAN-side cover and it cannot
+see what actually ships. Every weaker implementation named here and in spec §6 gets its killing check
+verified PRESENT IN THE SHIPPED TESTS and PROVEN — observed failing when the behaviour is broken —
+because the gap between a correct plan and a missing fixture is invisible to plan review by construction.
