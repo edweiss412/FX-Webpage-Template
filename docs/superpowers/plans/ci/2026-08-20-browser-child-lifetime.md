@@ -95,7 +95,7 @@ that would satisfy the naive fixtures, and the fixture that kills it.
 | AC-3 (hang → infra) | throw `MutantRunInfraError` for EVERY child — the hanging case passes | a fast HEALTHY child in the same suite that must NOT throw and must return its numeric exit status. Without this negative case the timeout proof is satisfied by a runner that scores nothing at all |
 | AC-4 (cause distinguishability) | emit three arbitrary distinct strings unrelated to what happened — inequality holds | attribution: the timeout cause must be the one produced BY the constructed hang (AC-3's case), and the sentinel cause the one produced by a sentinel-absent child. Inequality alone is satisfied by noise |
 | AC-5 (signal + code preserved) | hardcode one signal/code pair into the message — a single-case fixture passes | two cases with DIFFERENT signal/code pairs, each asserted to carry its own values through |
-| AC-6 (`perl`-absent fallback still bounded) | a fallback that passes `timeout` on the `perl` spawn but drops it from the DIRECT spawn — the existing suite asserts the ceiling only on `calls[0]` and never inspects `calls[1].timeout` (`tests/mutation/source/spawnBounded.test.ts:208`), so an ordinary `perl`-absent hanging child stays unbounded and every current fixture passes. The enrolled operators cannot generate that object-option mutation either | Task 3: assert `calls[1]!.timeout` on the fallback path, so the direct spawn carries the same ceiling |
+| AC-6 (`perl`-absent fallback still bounded) | **presence is not forwarding** — an implementation that OVERWRITES the direct spawn's ceiling with `MUTANT_TIMEOUT_MS` passes the earlier tasks, the current fallback fixture, an assertion that merely checks `calls[1]!.timeout` is set, and the `perl`-PRESENT closeout gate, while shipping a `perl`-absent browser child the source ceiling instead of the ratified one. See Task 3 for the two probed citations | the task below asserts **caller-value forwarding** — the fallback case passes a distinctive `timeoutMs`, and `calls[1]!.timeout` must equal THAT value, which neither module default can satisfy |
 | AC-7 (gate green, 19/19) | none — this is the real gate executing the real surface | n/a: the gate is not a fixture set, which is why it is the closeout gate rather than a task |
 
 **Why this table is derived rather than enumerated.** Its rows are the acceptance criteria themselves,
@@ -219,27 +219,49 @@ passes every current fixture and leaves a `perl`-absent hanging child unbounded.
 the consequence bound, not a duplicate. Task 3 below closes it with ONE assertion, and its red is
 ordinary.
 
-## Task 3 — the `perl`-absent fallback carries the ceiling too
+## Task 3 — the `perl`-absent fallback forwards the CALLER'S ceiling
 
 <!-- task: red=`pnpm vitest run tests/mutation/source/spawnBounded.test.ts` ac=AC-6 -->
 
-**What is red and why.** `spawnBounded`'s fallback case asserts the ceiling on the `perl` spawn only
-(`tests/mutation/source/spawnBounded.test.ts:208` and the fallback case below it): it never inspects
-`calls[1]!.timeout`. Add that assertion and it fails **only if** the direct spawn does not carry the
-ceiling — so to observe the red, the pre-dispatch mutant that drops `timeout` from the fallback
-`spawnSync` is applied, the new assertion is confirmed failing, and the mutant is reverted. On
-unmutated `main` the assertion passes immediately, which is stated plainly rather than dressed as a
-red: **this task closes a coverage hole, and its evidence is the mutant that the new assertion kills
-and the old fixtures did not.**
+**What is red and why, and why "timeout is set" is the wrong assertion.** The fallback path's ceiling was found unasserted in the
+second plan round, and the obvious repair was found still too weak in the third:
+the fallback case in `spawnBounded.test.ts` supplies **no** `timeoutMs`
+(`tests/mutation/source/spawnBounded.test.ts:258`), and
+the only distinctive caller value in the suite, `4_242`, is asserted solely on `calls[0]`
+(`tests/mutation/source/spawnBounded.test.ts:225`). An assertion that `calls[1]!.timeout` is merely
+SET is therefore satisfied by an implementation that overwrites the direct spawn's ceiling with
+`MUTANT_TIMEOUT_MS` — and that implementation ships a `perl`-absent browser child a 180 s ceiling
+instead of the ratified 660 s, silently, past every other gate in this plan including the
+`perl`-PRESENT closeout run.
 
-That mutant is recorded in the task's commit with its before/after, because it is the whole
-justification for the task: round 2 showed the enrolled operator set cannot generate this
-object-option mutation, so no mutation score would have caught it either.
+So the assertion is **caller-value forwarding**, on the fallback case specifically:
+
+```ts
+spawnBounded(ARGV, { cwd: "/root", env: {} as unknown as NodeJS.ProcessEnv, timeoutMs: 4_242 });
+// ...
+expect(calls[1]!.timeout).toBe(4_242); // the CALLER's value reached the DIRECT spawn
+```
+
+The distinctive value is what discriminates: it is neither `MUTANT_TIMEOUT_MS` nor
+`BROWSER_MUTANT_TIMEOUT_MS`, so an overwrite by either constant fails, and so does an omission.
+
+**Two pre-dispatch mutants, both recorded in the task's commit with before/after**, because they are
+the task's entire justification:
+
+1. drop `timeout` from the fallback `spawnSync` options — the new assertion fails (round 2's shape);
+2. replace the fallback's `timeout` with `MUTANT_TIMEOUT_MS` — the new assertion fails (round 3's
+   shape), where an assertion checking only presence would have passed.
+
+Both mutants are reverted after being observed. On unmutated `main` the assertion passes immediately,
+which is stated plainly rather than dressed as a red: **this task closes a coverage hole, and its
+evidence is the two mutants the new assertion kills and the old fixtures did not.** Round 3 also
+confirmed the enrolled operator set cannot generate either object-option mutation, so no mutation
+score would have caught them.
 
 **This changes a SUITE, not the `spawnBounded` module.** Spec §8's rule — a repair that modifies
 `spawnBounded.ts` makes that surface's score the convergence criterion — is not triggered: the source
 file is untouched, and a strengthened suite can only raise its score. `pnpm mutation:guards` is
-therefore not required for this task, and no score is claimed.
+therefore not required, and no score is claimed.
 
 <!-- tasks: end -->
 

@@ -302,16 +302,17 @@ claim that the ceiling covers every case.
   inequality of the produced messages rather than a literal match on any one of them.
 - **AC-5.** A child killed by a signal still reaches the infra path with its `signal` and `code`
   preserved — the existing behavior, re-asserted so the swap cannot silently drop it.
-- **AC-6.** `ownGroup: false` (no `perl`) still bounds the child by the ceiling. **The existing
-  coverage does NOT establish this, and the earlier claim that it did was wrong.** Probed in plan
-  review round 2: `spawnBounded`'s suite asserts the ceiling on the `perl` spawn only — `calls[0]` —
-  and never inspects `calls[1]!.timeout` (`tests/mutation/source/spawnBounded.test.ts:208` and the
-  fallback case below it), so a fallback that drops `timeout` from the direct `spawnSync` passes every
-  current fixture and leaves an ordinary `perl`-absent hanging child unbounded. The enrolled operator
-  set cannot generate that object-option mutation either, so no mutation score would have caught it.
-  Closed by ONE added assertion on the fallback path — a change to that SUITE, not to
-  `spawnBounded.ts`, so §8's "modifying `spawnBounded` makes its score the criterion" rule is not
-  triggered and a strengthened suite can only raise the score.
+- **AC-6.** `ownGroup: false` (no `perl`) still bounds the child **with the CALLER'S ceiling**, and
+  the criterion is forwarding rather than presence. Two probes, from two plan rounds, moved this from
+  an assumption to a stated test: the suite asserts the ceiling on `calls[0]` only and never inspects
+  the direct spawn (`tests/mutation/source/spawnBounded.test.ts:208`), and the fallback case supplies
+  no `timeoutMs` at all while the sole distinctive caller value `4_242` is asserted on `calls[0]`
+  alone (`tests/mutation/source/spawnBounded.test.ts:225`). So an assertion that the fallback's
+  timeout is merely SET is satisfied by an implementation that overwrites it with `MUTANT_TIMEOUT_MS`
+  — shipping a `perl`-absent browser child the 180 s source ceiling instead of the ratified 660 s,
+  past every other gate including a `perl`-PRESENT gate run. The acceptance is therefore that a
+  distinctive caller value reaches `calls[1]`. Closed by an added assertion on that SUITE, not by a
+  change to `spawnBounded.ts`, so §8's score-becomes-criterion rule is not triggered.
 
 - **AC-7.** `pnpm heavy pnpm mutation:browser` remains GREEN end to end, with the surface still
   scoring 19/19 and its ledger still empty — the swap changes lifetime, not verdicts.
