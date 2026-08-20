@@ -295,6 +295,19 @@ about a property it never tested.
 | Registry may hold many rows | Assume a single row | Two registered modules in one `scanRepo` run | T6 |
 | A declared sink may be absent | Assume the sink is always called | Row whose sink is never called: module scans clean | T2 |
 | Live-tree emptiness is meaningful | Assert cardinalities | Intersection premise + positive control in a second invocation | T7 |
+| Read set spans EVERY type member | Inspect `MethodSignature` only | The undeclared extra member is a `PropertySignature` (`marker: (cwd) => …`), not a method | T1 |
+| Ambient exemption is for CALLBACK handoffs | Exempt every ambient reference | `const clock = ch.clock` — a bare ambient alias must still report `UNCLASSIFIED-USE` | T3 |
+| Straight-line spans all nesting kinds | Recognize only the AST kinds the fixtures happen to use | One fixture per function-like kind (declaration, arrow, method, `function` expression) and per iteration kind (`for`, `for..of`, `while`, `do..while`) | T4, T5 |
+| A derivation exempts its READS, not its subtree | Skip the whole initializer subtree | `{ ...ch, leaked: inspect(ch) }` — a raw handoff INSIDE the initializer must still report `RAW-HANDOFF` | T5 |
+| Import discovery follows the SYMBOL | Compare the local import name | `import type { Channel as Alias }` — an aliased import must still be discovered | T6 |
+| A marker in JSX is not a declaration | Recognize comments in TypeScript only | The impostor fixture is `.tsx`, so a TS-only comment recognizer cannot pass it | T2 |
+
+**Round 4 found six more instances of this class, and they are recorded above rather than paraphrased.**
+The cover as first derived was incomplete in a specific way worth naming: it enumerated weaker
+implementations of each RULE, but not weaker implementations of the ANALYSIS PRIMITIVES the rules are
+built from — which AST node kinds are inspected, which comment syntaxes are recognized, which import
+forms are followed, how far an exemption extends. A rule can be stated exactly and still be satisfied
+by a scanner that reads only part of the language.
 
 Two rows in that table were GAPS when it was written — `effects-only-no-pass` and
 `registered-importer` — and both are added to their tasks by this pass rather than left for a reviewer
@@ -332,8 +345,8 @@ starting points rather than as the disposition list:
   its own comment handling. The fixtures are inert data and the scanner uses the shared
   `commentRanges`, so both should comply.
 - `tests/cross-cutting/vitest-projects-partition.test.ts` pins that every non-nightly test file lands
-  in exactly one default project. The fixtures carry a plain TypeScript extension rather than a test
-  one, so it never claims them; the GATE SUITE does land in exactly one, because
+  in exactly one default project. The fixtures carry non-test extensions — `.ts`, plus one `.tsx` for the JSX impostor case — so it
+  never claims them; the GATE SUITE does land in exactly one, because
   `tests/paneCompaction/**` is absent from `PARALLEL_TEST_GLOBS` (`vitest.projects.ts:104`) and so runs
   in the serial project.
 
@@ -362,7 +375,10 @@ red that comes from an unresolved import is invalid by construction — it goes 
 changes rather than when the implementation lands (`docs/agents/writing-plans.md`, RED-validity
 bullet). So the module is created in this task with `readsFor` present but returning the ten live read
 names as a hardcoded list. The suite then feeds it a FIXTURE surface type carrying an eleventh member
-declared in none of the three sets, and asserts the returned set contains it. That fails on a value the
+declared in none of the three sets, and asserts the returned set contains it. **That member is a
+PROPERTY signature, not a method** (`extra: (arg: string) => void`), because the rule ranges over every
+member of the type declaration and a scanner inspecting only `MethodSignature` would otherwise pass —
+the live type mixes both forms, so this is the ordinary case rather than an exotic one. That fails on a value the
 implementation controls. GREEN is deriving the complement from the parsed type declaration.
 
 ## Task 2 — declared passes, anchored on sinks and read impostor-safely
@@ -428,6 +444,11 @@ declaration name, or an AMBIENT member handed on as a callback. Anything else �
 totality rule with `const { send } = s` in a branch OUTSIDE the pass. Fixture `destructure-outside-pass`
 is that exact shape and must report.
 
+**The ambient exemption is for a CALLBACK HANDOFF, not for every mention of an ambient member.** A
+third fixture, `ambient-alias`, holds `const clock = ch.clock` — a bare alias, not handed to anything —
+and must report `UNCLASSIFIED-USE`. Without it, an implementation that exempts every ambient reference
+passes both cases below, and an ambient member could then be aliased and called twice invisibly.
+
 **AC-2 is the false-positive guard and it must land in this same commit:** `random: s.random` at
 `scripts/pane-compaction.ts:850` is an ambient member handed on as a callback, and it appears in
 correct live code. A rule that reports it fails the live tree. The paired fixture does the same thing
@@ -445,10 +466,13 @@ method may appear at most once on that path (`MULTI-READ`, naming BOTH lines) (s
 **This one rule replaces the discarded draft's per-invocation counting and its cycle detection.** Spec
 round 2's F2 — a NAMED local callback invoked twice — is caught because the read sits behind a nested
 function, with no need to know how many times it runs. Round 1's F2 repeated helper is caught by
-Task 5's `RAW-HANDOFF`. FOUR fixtures, all authored against the `Channel` row rather than the live spellings (see the
-renamed-surface section), and the fourth is what makes the other three mean anything: `nested-function`,
-`named-callback` (asserted by that name, per AC-6), `loop-read`, and **`single-read-clean` — an
-ordinary straight-line read of one method, which must scan CLEAN**. Without that counterpart this
+Task 5's `RAW-HANDOFF`. The fixtures are authored against the `Channel` row rather than the live spellings (see the
+renamed-surface section), and they must span the AST KINDS rather than one example of each idea — a
+scanner that recognizes only the two node kinds a minimal fixture set happens to use satisfies the rule
+as stated while missing the rest of the language. So: one case per function-like kind (a function
+declaration, an arrow, an object method, a `function` expression) and one per iteration kind (`for`,
+`for..of`, `while`, `do..while`), plus `named-callback` asserted by that name per AC-6, and
+**`single-read-clean` — an ordinary straight-line read of one method, which must scan CLEAN**. Without that counterpart this
 task's green is satisfiable by reporting EVERY in-pass direct read, which would pass all three
 violation fixtures and fail the live tree. AC-7's `MULTI-READ` case pairs the same way: two
 straight-line reads of one method report and name BOTH lines, one read scans clean.
@@ -480,6 +504,10 @@ helper-only, at-most-one implementation satisfies:
 - `zero-derivations` — a pass with NO derivation at all must report `MULTI-DERIVATION`'s counterpart:
   "exactly one" is violated by zero as well as by two. State the code the scanner emits for it and
   assert that record, so the rule cannot quietly degrade into "at most one".
+- `derivation-leaks-handoff` — `{ ...ch, leaked: inspect(ch) }`. A derivation exempts the READS taken
+  through it; it does not exempt its whole initializer subtree. The raw surface passed to `inspect`
+  inside that initializer must still report `RAW-HANDOFF`. An implementation that skips the subtree on
+  recognizing a derivation passes every other derivation fixture and silently permits a handoff.
 - `spread-derivation` — a derivation whose initializer SPREADS the surface (`{ ...ch, marker: … }`)
   rather than calling a declared helper. It must be recognized as a derivation, and reads through the
   resulting binding must be unconstrained. Without this case an implementation that only recognizes
@@ -512,6 +540,11 @@ which defect the cycle is proving.
 **What makes the red discriminating:** the fixture module is added under the walked root with NO
 registry edit, and the assertion is that it is discovered anyway. A scanner iterating
 `SEND_AUTH_SURFACES` alone cannot pass it.
+
+**Discovery follows the SYMBOL, not the local name:** an `aliased-importer` fixture writes
+`import type { Channel as Alias }` and must still be discovered. Comparing the local binding text
+passes every other import fixture and misses this one, which is an ordinary TypeScript spelling rather
+than an obfuscation.
 
 **And its counterpart, a gap until the weaker-implementation pass above:** `registered-importer` — a
 module that imports the surface type and DOES have a registry row — must NOT report. Without it, an
