@@ -1,9 +1,9 @@
-import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { BaselineNotGreenError } from "../source/oracle";
 import { MutantRunInfraError, type MutantOutcome, type RunResult } from "../source/runner";
+import { spawnBounded } from "../source/spawnBounded";
 import {
   accountOutcomes,
   applyEdits,
@@ -158,31 +158,58 @@ type ChildRun = { exitStatus: number | null; report?: ReportEvidence };
  * and re-read after, so "tests ran" is evidence from THIS child rather than an
  * artefact of an earlier one.
  */
-function runChild(root: string, suite: DecidingSuite, manifestPath: string | null): ChildRun {
+export function runChild(
+  root: string,
+  suite: DecidingSuite,
+  manifestPath: string | null,
+  timeoutMs: number = BROWSER_MUTANT_TIMEOUT_MS,
+): ChildRun {
   const { file, args } = childCommand(suite);
   const reportPath = join(root, REPORT);
   if (suite.kind === "playwright") rmSync(reportPath, { force: true });
 
   const spawnedAt = Date.now();
-  // Initialised to the CONSERVATIVE value, not left unassigned: if either arm's
-  // assignment is ever removed, the child reads as "no numeric status" and is
-  // classified infra, rather than inheriting `undefined` and being scored KILLED.
-  let exitStatus: number | null = null;
-  try {
-    execFileSync(file, args, {
-      cwd: root,
-      stdio: "pipe",
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        ...(manifestPath ? { MUTATION_OVERLAY_MANIFEST: manifestPath } : {}),
-      },
-    });
-    exitStatus = 0;
-  } catch (e) {
-    const err = e as { status?: number | null };
-    exitStatus = typeof err.status === "number" ? err.status : null;
+  const { outcome } = spawnBounded([file, ...args], {
+    cwd: root,
+    env: {
+      ...process.env,
+      ...(manifestPath ? { MUTATION_OVERLAY_MANIFEST: manifestPath } : {}),
+    },
+    timeoutMs,
+  });
+
+  // A timeout is INFRA here, never KILLED — `childRun`'s reading rather than
+  // `runSuite`'s (spec §5.3). `runSuite`'s rests on the hang being the MUTANT's
+  // doing; a Playwright child's hang causes are dominated by the environment,
+  // and the surrounding module already refuses that inference — `classifyChild`
+  // returns infra for any non-numeric exit precisely because scoring it as
+  // detection would inflate the score with a kill the suite never earned.
+  //
+  // The cause NAMES THE CEILING, so it cannot be mistaken for the signal death
+  // below. `interpretSpawnOutcome` exists to tell a timeout kill apart from this
+  // machine's idle-process reaper, which arrives in the same shape; collapsing
+  // them back into one string here would discard exactly that distinction.
+  if (outcome.kind === "timeout") {
+    throw new MutantRunInfraError(
+      `${suiteLabel(suite)} — the child exceeded its ${timeoutMs} ms wall-clock ceiling ` +
+        `and its process group was killed`,
+      null,
+      undefined,
+    );
   }
+
+  // Today's behavior for a non-numeric death, made EXPLICIT rather than routed
+  // through `exitStatus = null`: the signal and errno ride in the error rather
+  // than being discarded on the way to `classifyChild`.
+  if (outcome.kind === "infra") {
+    throw new MutantRunInfraError(
+      `${suiteLabel(suite)} — the child produced no numeric exit status`,
+      outcome.signal,
+      outcome.code,
+    );
+  }
+
+  const exitStatus: number = outcome.code;
 
   return suite.kind === "playwright"
     ? { exitStatus, report: reportEvidence({ path: reportPath, spawnedAt }) }
