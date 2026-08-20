@@ -504,6 +504,39 @@ live tree while drafting this plan.
 5. Real CI green, then `gh pr merge --merge`, then fast-forward local `main` and verify
    `git rev-list --left-right --count main...origin/main` reports `0  0`.
 
+## Peer filings owed in the graduation commit
+
+Both rows land in the SAME ledger commit that archives `BL-SEND-AUTH-SINGLE-READ-LINT`. Filing peers
+alongside a graduation is standard here and costs no extra PR. Each is process-facing, so each carries
+an `**Incident:**` citing a cost event that has ALREADY happened — a surviving mutant or a "this could
+miss X" is probe evidence, not an incident.
+
+**Row 1 — the round corpus re-bases on a mid-arc merge, and the threshold gate fails OPEN.**
+`**Facing:** process`. Rounds are keyed `(branch, baseSha12)`, so merging `origin/main` mid-stage
+splits an arc's rounds across two corpus files and the `ROUND_THRESHOLD` gate counts per file. An arc
+can therefore sit below the trigger while genuinely owing a filing — the gate stays green by counting
+less, which is the fail-open direction.
+`**Incident:**` this arc. Its four spec rounds sit 3 + 1 across `4b5028b446a4` and `03953337388b` after
+PR #854 was merged mid-stage; the gate saw at most three and stayed green, and the filing at
+`docs/review-rounds/feat/send-auth-single-read-lint/4b5028b446a4.md` was written voluntarily rather
+than because anything demanded it. The same merge also tripped the contiguity check, because the round
+after it was dispatched as `--round 4` into a base holding no rounds 1-3.
+
+**Row 2 — `spec:lint --exec-red`'s collection arm is SILENT on any `pnpm heavy` command.**
+`**Facing:** process`. `deriveCollectionProbe` returns kind `none` for that shape and
+`collectionProbePlan` drops it (`lib/specLint/redContract.ts:722`), so the marker never enters the
+probe plan and no finding is minted — not even the `RED_PROBE_UNVERIFIED` advisory the same function
+emits for a probe it cannot derive. Since `AGENTS.md` MANDATES `pnpm heavy` for every heavy phase, the
+arm is silent on exactly the class of command the repo requires to be wrapped, and silent reads as
+clean. This is `BL-GUARD-PREMISE-REACHABILITY`'s shape: the condition is false where the guard runs, so
+it passes unconditionally and would forever.
+`**Incident:**` this plan's Task 8 red. Wrapped per the heavy rule, it exited 0 on the live tree —
+green from birth — while `pnpm spec:lint --exec-red` reported nothing about it. It was found by running
+the command by hand. Isolated in four runs at plan time: the bare form and the env-var-prefixed form
+both FAIL `RED_COLLECTS_NOTHING`; both `pnpm heavy` forms are silent. So neither the
+`NIGHTLY_ONLY_EXCLUDES` shape nor the env-var prefix is the cause — the wrapper is.
+**Not repaired by this arc**, which owns the lint's subject rather than the lint.
+
 ## 12. Closeout
 
 impeccable-gate: N/A — no UI surface
