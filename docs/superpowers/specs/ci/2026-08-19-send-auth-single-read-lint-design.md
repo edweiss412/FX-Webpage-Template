@@ -12,7 +12,7 @@ coexisted with it, because no suite assertion can express
 
 **What this gate claims, exactly.** Inside a declared authorization pass, every use of the injected
 surface is one the scanner has classified, and each read method is read at most once, on a
-straight-line path, in that pass. Any use it cannot classify — an alias, a destructure, a computed
+straight-line path, in that pass — as is the declaration of any derivation. Any use it cannot classify — an alias, a destructure, a computed
 member, a read behind a nested function or a loop, a handoff of the raw surface — is REPORTED BY NAME
 and the gate FAILS.
 
@@ -133,16 +133,23 @@ instant of the clock rather than a second read of a pane.
 2. **In-pass reads are straight-line and single — `NON-STRAIGHT-LINE-READ`, `MULTI-READ`.** Inside the
    declared pass, a read call must sit on the pass's own straight-line path: no enclosing nested
    function, callback, or loop between it and the pass body. Each read method may appear at most once
-   on that path. A read behind a nested function has no static count — that is r2 F2's named callback
-   and r1 F2's repeated helper, and both are now reported by ONE rule instead of counted by a call
-   graph.
+   on that path, and so must the DECLARATION of a derivation (rule 3) —
+   `NON-STRAIGHT-LINE-DERIVATION`. A read behind a nested function has no static count — that is
+   r2 F2's named callback and r1 F2's repeated helper, and both are now reported by ONE rule instead of
+   counted by a call graph. Extending the same predicate to the derivation declaration is what closes
+   r3 F1, and it costs no new mechanism: the check already existed and simply was not applied there.
 3. **Exactly one declared derivation, and no raw handoff inside the pass — `MULTI-DERIVATION`,
    `RAW-HANDOFF`.** A derivation is a variable declaration inside the pass whose initializer either
    spreads the surface (`{ ...s, marker: … }`) or calls a DECLARED derivation helper with it
    (`cacheOf`, `scripts/pane-compaction.ts:362`; `memoize`, `scripts/pane-compaction.ts:343`). Reads
    through the derived binding are unconstrained, and raw reads inside the derivation's own initializer
-   count once, because the initializer is evaluated once per pass — that is the shipped memo at
-   `scripts/pane-compaction.ts:797`. Passing the raw surface to anything else inside the pass is
+   are not counted against rule 2's per-method limit — that is the shipped memo at
+   `scripts/pane-compaction.ts:797`. **The exemption is positional, not temporal**, and the earlier
+   draft's temporal wording is deleted rather than reworded: "the initializer is evaluated once per
+   pass" is an EXECUTION property, and r3 F1 defeated it by declaring the derivation under a
+   two-iteration loop and under a named callback invoked twice, both scanning clean (§3.8). What the
+   exemption now rests on is checkable in the source text: the declaration itself sits on the
+   straight-line path, enforced by rule 2. Passing the raw surface to anything else inside the pass is
    `RAW-HANDOFF`. **The helper list is DECLARED, not inferred.** Accepting any call that merely takes the
    surface made `observe(freshPane, freshRoster, as, s, cacheOf(s))` read as a derivation and silenced
    the round-4 shape entirely (measured, §3.2).
@@ -206,7 +213,7 @@ mechanics. Transcripts are dated observations at base `4b5028b44` and are never 
 ### §3.1 The shipped pass PASSES, under the narrowed rule
 
 ```
-$ tsx proto4.ts scripts/pane-compaction.ts Surface authorize s \
+$ tsx proto5.ts scripts/pane-compaction.ts Surface authorize s \
     send out,outRaw,nonceWrite,nonceConsume now,random cacheOf,memoize
 reads=roster,branches,screen,purview,marker,git,gh,corpus,nonceRead,resolveTarget
 pass authorize line 785; derivations=1; straight-line reads: roster x1  marker x1
@@ -215,7 +222,10 @@ exit=0
 ```
 
 Two raw reads, both straight-line: `s.roster()` at `scripts/pane-compaction.ts:786`, and the memo's
-`s.marker(cwd)` inside the single derivation's initializer, counted once by rule 3.
+`s.marker(cwd)` inside the single derivation's initializer, exempt from rule 2's per-method limit
+because the derivation's DECLARATION is itself straight-line. This transcript is the one that had to
+be re-taken after the r3 F1 repair, and it is the repair's false-positive check: the shipped memo IS a
+derivation, so a rule that reported it would fail against correct live code.
 
 ### §3.2 The round-4 defect is CAUGHT, and the declared-helper list is why
 
@@ -302,6 +312,44 @@ different contract and became true only when the fence landed. The contract that
 authorization-ordering case is `tests/paneCompaction/revalidate.test.ts:121`
 ("compares the nonce the marker holds AFTER revalidation, not before"). §2.5 edit 6 corrects the row.
 
+### §3.8 The round-3 F1 repair, and the regression sweep that admitted it
+
+r3 F1: the derivation exemption still rested on an execution property. The reviewer declared the
+derivation itself under a two-iteration loop, and separately inside a named callback invoked twice,
+with an eager `s.marker(...)` in the initializer. Both scanned CLEAN against the round-2 design.
+Reproduced here rather than accepted on report — the loop mutant wraps the snapshot declaration at
+`scripts/pane-compaction.ts:797`:
+
+```
+$ tsx proto4.ts .claude/mutant-r3f1-loop.ts Surface authorize s send ... cacheOf,memoize
+pass authorize line 785; derivations=1; straight-line reads: roster x1  marker x1
+  no findings
+```
+
+The repair is SUBTRACTIVE: delete the exemption's temporal justification and apply rule 2's existing
+`straightLine` predicate to the derivation DECLARATION. No new mechanism, no call graph, no path
+counting, and §2.3 gets shorter. Under the repair-direction rule this is the narrowing direction —
+which matters, because every earlier repair on this axis WIDENED the analysis and each widening was a
+bigger target for the next round.
+
+The sweep that admitted it. A repair on this arc is not accepted on the strength of the case it
+closes: two of the owning PR's repairs introduced the following round's defect, so the whole corpus is
+re-run and the false-positive check is the one that decides.
+
+```
+live tree            no findings          <- decides it; the shipped memo IS a derivation
+r3F1 loop            NON-STRAIGHT-LINE-DERIVATION :798
+r3F1 named callback  NON-STRAIGHT-LINE-DERIVATION :798
+round-4              RAW-HANDOFF x2       <- regression holds
+r2 F2 named callback NON-STRAIGHT-LINE-READ
+r2 F3 destructure    UNCLASSIFIED-USE
+r2 F1 conditional    no findings          <- limit 1's fence did not move
+```
+
+The last row is the one to read twice. r2 F1 must STAY clean: it is the withdrawn control-flow claim,
+and a repair that started reporting it would have re-opened the axis this design closed by declining
+it. AC-15 pins that in both directions and AC-7b pins this one.
+
 ## §4 Documented limits
 
 1. **Control flow is not analyzed, and no claim rests on it** (§3.3). A send reachable without the pass,
@@ -324,9 +372,13 @@ authorization-ordering case is `tests/paneCompaction/revalidate.test.ts:121`
    whose whole purpose is comparing an OLD report against a fresh one, since `report` is initialized
    from `observe(...)` at `scripts/pane-compaction.ts:709`. Pinned executably instead at
    `tests/paneCompaction/revalidate.test.ts:121`.
-3. **Memoization is not verified.** Reads through a derived binding are unconstrained, so a derivation
-   that fails to memoize is not a lint finding. Whether the live snapshot memoizes is pinned by tests
-   (`scripts/pane-compaction.ts:797` is the shape).
+3. **Memoization is not verified, and after the r3 F1 repair that is the ONLY thing left unverified
+   about a derivation.** Reads through a derived binding are unconstrained, so a derivation that fails
+   to memoize is not a lint finding. What the gate DOES now check is positional and textual: the
+   derivation's declaration sits on the straight-line path (rule 2). What it does not check is what the
+   initializer computes or how many times the runtime evaluates it — that is behavior, pinned by tests
+   (`scripts/pane-compaction.ts:797` is the shape). The earlier draft blurred these by claiming the
+   initializer "is evaluated once per pass"; that claim is deleted, not softened (§3.8).
 4. **Enrolment is an act.** A new surface type with its own sink, in a module importing nothing from a
    registered one, is outside the scanner's range until it is enrolled — the same posture as the
    mutation registry. The import-edge arm (§2.4) covers the reachable case.
@@ -400,6 +452,11 @@ Supabase client call. **DB layers:** N/A — no migration, no RPC, no CHECK.
   name.
 - **AC-7** Two straight-line reads of the same method in the pass report `MULTI-READ` naming both
   lines; one read scans clean.
+- **AC-7b** A derivation DECLARED inside a loop, or inside a named callback invoked more than once,
+  reports `NON-STRAIGHT-LINE-DERIVATION`. Both shapes are the round-3 F1 probes (§3.8) and are asserted
+  by name. The shipped memo at `scripts/pane-compaction.ts:797` — a derivation on the straight-line
+  path — must NOT report, and the two together are what make this rule discriminating rather than a
+  blanket ban on derivations.
 - **AC-8** Exactly one derivation per pass: two report `MULTI-DERIVATION`. A derivation is recognized
   only for a DECLARED helper or a spread — a call to an undeclared function taking the raw surface
   inside the pass is `RAW-HANDOFF`, and the round-4 fixture proves it (an "any call" reading silences

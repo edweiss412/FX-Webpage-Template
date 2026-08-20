@@ -181,7 +181,7 @@ code for the WRONG site.
 | AC-5 declared / undeclared / ambiguous pass | T2 | AC-13 the ledger row's stale claim | closeout |
 | AC-6 `NON-STRAIGHT-LINE-READ` | T4 | AC-14 discovery anchored on sinks | T2 |
 | AC-7 `MULTI-READ` | T4 | AC-15 the withdrawn claim, pinned both ways | T7 |
-| AC-8 one declared derivation | T5 | | |
+| AC-8 one declared derivation | T5 | AC-7b derivation position | T5 |
 
 ## Tasks
 
@@ -257,14 +257,23 @@ per AC-6), `loop-read`.
 
 ## Task 5 — exactly one declared derivation, and no raw handoff inside the pass
 
-<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/sendAuthScan.ts` why=`derivations are not recognized, so the round-4 fixture reports no RAW-HANDOFF and the two-derivation fixture reports no MULTI-DERIVATION` ac=AC-8 -->
+<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/sendAuthScan.ts` why=`derivations are not recognized, so the round-4 fixture reports no RAW-HANDOFF, the two-derivation fixture reports no MULTI-DERIVATION, and the looped-derivation fixture reports no NON-STRAIGHT-LINE-DERIVATION` ac=AC-8 -->
 
 A derivation is a declaration inside the pass whose initializer spreads the surface or calls a
 DECLARED derivation helper with it (`cacheOf`, `memoize`). Two derivations is `MULTI-DERIVATION`.
 Reads through a derived binding are unconstrained; raw reads inside the derivation's own initializer
-count ONCE, because the initializer is evaluated once per pass — that is the shipped memo at
-`scripts/pane-compaction.ts:797`. Passing the raw surface to anything else inside the pass is
-`RAW-HANDOFF` (spec §2.3 rule 3).
+are exempt from rule 2's per-method limit — that is the shipped memo at
+`scripts/pane-compaction.ts:797`. **The exemption is POSITIONAL, not temporal, and the difference is
+this task's whole point:** the derivation's DECLARATION must itself sit on the straight-line path, or
+it reports `NON-STRAIGHT-LINE-DERIVATION` (spec §2.3 rules 2 and 3). Passing the raw surface to
+anything else inside the pass is `RAW-HANDOFF`.
+
+**Two fixtures carry the r3 F1 shapes and one carries the false-positive check** (AC-7b). Spec round 3
+defeated a temporal exemption — "evaluated once per pass" — by declaring the derivation under a
+two-iteration loop, and separately inside a named callback invoked twice; both scanned clean and both
+must now report. The third fixture is the shipped-memo shape, a derivation ON the straight-line path,
+which must NOT report. Without that third fixture this rule could be satisfied by banning derivations
+outright, which would fail the live tree.
 
 **The declared helper list is the measurement, not a preference.** Spec §3.2: an “any call taking the
 surface is a derivation” reading silenced the round-4 shape ENTIRELY, because
