@@ -315,12 +315,16 @@ separate question of what authorizes a send.
 
 ## Task 8 — declare the pass on the live adapter, with the gate's own premise
 
-<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=live red-target=`scripts/pane-compaction.ts:785` why=`drive() calls s.send at three sites with no // send-auth: pass declaration anywhere in the file, so the live-tree scan reports UNDECLARED-PASS and the assert-empty fails` ac=AC-10 -->
+<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`scripts/pane-compaction.ts:785` why=`drive() calls s.send at three sites with no // send-auth: pass declaration anywhere in the file, so once Task 1 has authored the suite the live-tree scan reports UNDECLARED-PASS and the assert-empty fails` ac=AC-10 -->
 
-The `red=` here is `red-state=live`: the failing case exists on the tree at plan time, because the
-declaration comment has not been added. Verified — `rg -n "send-auth: pass" scripts/pane-compaction.ts`
-returns nothing, while `s.send(` appears at `scripts/pane-compaction.ts:857`,
-`scripts/pane-compaction.ts:873` and `scripts/pane-compaction.ts:898`, all lexically inside `drive()` (`scripts/pane-compaction.ts:700`).
+**The `red=` is `authored`, not `live`, and the distinction was probed rather than assumed.** The
+DEFECT is live: `rg -n "send-auth: pass" scripts/pane-compaction.ts` returns nothing, while `s.send(`
+appears at `scripts/pane-compaction.ts:857`, `scripts/pane-compaction.ts:873` and
+`scripts/pane-compaction.ts:898`, all lexically inside `drive()` (`scripts/pane-compaction.ts:700`).
+But the COMMAND is not live — the suite is authored by Task 1, so running it on today's tree reports no
+test files found rather than the stated failure. That is a red exiting non-zero for a COLLECTION
+reason, which the red contract names as believed rather than observed, so classifying it `live` would
+have been exactly the defect that contract exists to catch.
 
 GREEN is ONE line — `// send-auth: pass` above `authorize` (`scripts/pane-compaction.ts:785`). No
 behavior change, no reordering, nothing else in that file.
@@ -335,7 +339,17 @@ and `premise("modules resolved by the walk", walked.length, 0)`
 
 ## Task 9 — enrol the scanner and score it
 
-<!-- task: red=`FX_HEAVY_PRIORITY=1 pnpm heavy pnpm vitest run tests/mutation/guardSurfaces.gates.test.ts` red-state=live red-target=`tests/mutation/source/expectedLedgerKinds.ts:24` why=`the gate asserts the EXPECTED_LEDGER_KINDS key set EQUALS the enrolled surface list, so the registry row added in this task without its companion entry reds on the key-set comparison` ac=AC-12 -->
+<!-- task: red=`VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest run --project mutation tests/mutation/guardSurfaces.gates.test.ts` red-state=authored red-target=`tests/mutation/source/expectedLedgerKinds.ts:24` why=`the gate asserts the EXPECTED_LEDGER_KINDS key set EQUALS the enrolled surface list, so the registry row this task adds without its companion entry reds on the key-set comparison` ac=AC-12 -->
+
+**The red command needed correcting at plan time, and the defect it carried is worth recording.** The
+command first drafted here was `pnpm vitest run tests/mutation/guardSurfaces.gates.test.ts`. Run on the
+live tree it **exits 0** — the gate file is in `NIGHTLY_ONLY_EXCLUDES` (`vitest.projects.ts:100`), so
+every default project excludes it and the run collects nothing. That is the fail-open shape the red
+contract names outright: a command whose target it cannot collect reports green from the moment it is
+written, and no amount of later editing would have made it fail. The gate needs its own project and
+env gate, exactly as CI invokes it (`.github/workflows/mutation-harness.yml:190`); with those it
+collects and passes today (5 tests), which is also why the marker is `authored` rather than `live` —
+the failing case is the one THIS task creates by adding a registry row without its companion entry.
 
 Enrolment is THREE declarations, and a registry row alone leaves the corpus gate red: the
 `GUARD_SURFACES` row (`id: "sendAuthScan"`), the `EXPECTED_LEDGER_KINDS` entry
