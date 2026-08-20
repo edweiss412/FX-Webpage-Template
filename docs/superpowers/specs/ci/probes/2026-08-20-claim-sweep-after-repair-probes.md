@@ -370,3 +370,33 @@ The round's finding was raised against AC-1/AC-7 and the §6 identity, and both 
 before repair: the collision is real on the LIVE corpus (9.1) and absent from the FROZEN replay (9.2).
 Attribution owes a probe even when the probe confirms the reviewer, because the repair text would
 otherwise have claimed the replay was at risk when it never was.
+
+
+## 10. Round-7 supplement — closing the accept-set exposed a signal nothing could carry
+
+The bounded confirmation round returned ONE finding, and it is the shape a confirmation round exists to
+find: **the repair introduced it.** Closing §3.4's output set at three codes collided with a requirement
+§3.2 has carried since exact matching landed — a declared identifier occurring zero times must be
+reported NOT FOUND. None of the three could carry it: `CLAIM_SITE_UNSWEPT` asserts an occurrence AT A
+LOCATION and there is none, and the other two do not apply.
+
+The measurement, over the incident arc's three documents at `c272ebed3`:
+
+```
+$ for f in <spec> <plan> <probe>; do git show c272ebed3:$f | grep -c -F 'PublishedReviewModal.tsx:964'; done
+4  spec        4  plan        1  probe record          -> 9 lines
+$ …the same three, exact-matched against the TRUNCATED 'PublishedReviewModal.tsx:96'
+exact = 0        substring = 9 lines
+```
+
+So the ordinary one-character CLI slip is a live input that matches nothing exactly and everything as a
+substring. Exact matching without a not-found report converts that typo's nine WRONG ADVISORIES into
+SILENCE — the same defect wearing the conservative direction's clothes, and the reason the fourth code
+is a completion of the identity rule rather than an addition to the arm.
+
+**The repair is not "add a code", it is "derive the inventory".** §3.4 now tables every normative outcome
+in §3 against the channel it leaves by — FINDING, REFUSAL, or DECLARED SILENCE — because a set closed by
+enumeration re-opens the moment a requirement is written in one section with no channel in another,
+which is precisely what happened here. The three §3.0 refusals are stated as adapter-level usage errors
+that exit 2 and emit no finding, on the `pnpm spec:lint BACKLOG.md` precedent, so a swept-and-clean run
+can never be confused with a run that never started.

@@ -186,9 +186,11 @@ repair itself rewrote for an unrelated reason, so any rule keyed on diff status 
 ### 3.2 The named-claim half
 
 **The identifier is matched EXACTLY, never as a substring.** A declared `file:line` that occurs zero
-times is reported as NOT FOUND rather than silently matching its own prefix: `…tsx:96` is one deleted
-character from `…tsx:964`, occurs nowhere exactly, and would match nine times as a substring — nine
-wrong advisories from an ordinary typo.
+times is reported as NOT FOUND — `CLAIM_IDENTIFIER_NOT_FOUND`, §3.4 — rather than silently matching its
+own prefix: `…tsx:96` is one deleted character from `…tsx:964`, occurs nowhere exactly, and matches on
+nine lines as a substring — nine wrong advisories from an ordinary typo. The not-found report is the
+other half of that rule: exact matching without it converts the typo's nine wrong advisories into
+SILENCE, which is the same defect wearing the conservative direction's clothes.
 
 Given a DECLARED identifier — a `file:line`, a symbol — whose claim the author says the repair changed,
 the arm reports every OTHER occurrence of that identifier in the arc's documents, outside the repair's
@@ -262,9 +264,19 @@ symlink.
 
 ### 3.4 The finding, and what it does NOT assert
 
-**Three codes.** One per half, because the halves assert different facts and one wording cannot carry
-both — and a third for a document that was never read, which neither occurrence code can truthfully
-describe. The three are the whole accept-set: the arm emits nothing else.
+**FOUR codes, and they are the whole FINDING accept-set: the arm emits no other finding.** One per
+half, because the halves assert different facts and one wording cannot carry both; a third for a
+document that was never read; and a fourth for a declared identifier that is not there, which is the one
+outcome the other three cannot represent without lying about a location.
+
+**The refusals are NOT findings, and saying so is what makes the accept-set closable.** §3.0's three
+refusals — `N === M`, `--claim-about` without `--repair`, and `--repair` with no declaration — are
+ADAPTER-level usage errors: the run does not happen, no document was swept, and there is nothing to
+report ABOUT a document. Each prints its reason naming the offending values and exits 2, the code
+`spec:lint` already uses for a usage error rather than a document defect (`pnpm spec:lint BACKLOG.md`
+exits 2 with "cannot infer kind from path"). A refusal that emitted a finding would put a usage mistake
+in the same channel as a claim about the corpus, and a reader could not tell a swept-and-clean run from
+a run that never started.
 
 ```
 VALUE_SUPERSEDED_ELSEWHERE  advisory        (numeric half)
@@ -279,13 +291,57 @@ CLAIM_SITE_UNSWEPT  advisory                (named-claim half)
 SWEEP_DOCUMENT_UNREADABLE  advisory         (either half)
   <doc> was declared in the swept set and could not be read; it was NOT swept
   detail: the sweep over this document did not happen. Silence about it is not a clean.
+
+CLAIM_IDENTIFIER_NOT_FOUND  advisory        (named-claim half)
+  <identifier> was DECLARED as a changed claim and occurs zero times EXACTLY in the swept set
+  detail: nothing was swept for it. Check the declaration for a truncation or a typo -- an ordinary
+          one-character slip matches as a SUBSTRING and would have reported everywhere.
 ```
+
+**The FOURTH code exists because closing the accept-set exposed a signal §3.2 had required since the
+identity rule landed and no code could carry.** Exact matching means a declared identifier can occur
+zero times, and §3.2 requires that be reported as NOT FOUND rather than silently swept — the whole point
+of the rule, since the one-character truncation `PublishedReviewModal.tsx:96` occurs ZERO times exactly
+and on NINE lines as a substring across the incident's arc, measured at `c272ebed3`. `CLAIM_SITE_UNSWEPT`
+asserts an occurrence AT A LOCATION, so emitting it here would invent one; the other two do not apply;
+and silence is the fail-open this arm exists to prevent. The code carries the fact and no location,
+because there is no location.
 
 **The third code exists because neither occurrence code can truthfully describe a document that was
 never read.** §3.3 requires an unreadable peer to be REPORTED, and review found that requirement had no
 output contract and no killing fixture: an implementation that continues silently on
 `readFileLines() === null` satisfies every occurrence assertion in §6 while AC-5's "never silently
 skipped" is false of it. The code is the contract, and §6 carries the fixture that kills the silent form.
+
+**SIGNAL INVENTORY — every normative outcome in §3, and the channel it leaves by.** Closing the
+accept-set is only safe if the set is COMPLETE, and the way that goes wrong is a requirement written in
+one section with no channel in another — which is exactly how the not-found signal came to be required
+by §3.2 and unrepresentable by §3.4. So the inventory is stated as a table over §3's own requirements
+rather than as a list of codes, and the rule is: **every outcome §3 requires leaves by exactly one of
+three channels, and a requirement with no channel is a defect in this spec.**
+
+| §3 requires | Channel |
+| --- | --- |
+| a surviving numeric occurrence in a sentence lacking the replacement | FINDING `VALUE_SUPERSEDED_ELSEWHERE` |
+| an occurrence of a declared identifier outside the repair's spans | FINDING `CLAIM_SITE_UNSWEPT` |
+| a declared identifier occurring zero times exactly | FINDING `CLAIM_IDENTIFIER_NOT_FOUND` |
+| a declared peer the resolver cannot read | FINDING `SWEEP_DOCUMENT_UNREADABLE` |
+| `--superseded N --replacement N` | REFUSAL, exit 2, both values named (§3.0) |
+| `--claim-about` without `--repair` | REFUSAL, exit 2, naming the missing flag (§3.0) |
+| `--repair` with no declaration | REFUSAL, exit 2, naming what was not declared (§3.0) |
+| an undeclared peer | DECLARED SILENCE — §5 item 9 |
+| a half-repaired sentence | DECLARED SILENCE — §5 item 7 |
+| a reworded survivor | DECLARED SILENCE — §5 item 6 |
+| a collateral identifier the author declared | reported as an occurrence; the mis-declaration is the author's, §5 item 8 |
+
+Three channels, and the difference between them is load-bearing: a FINDING is a claim about a document,
+a REFUSAL says the run never happened, and a DECLARED SILENCE is a documented limit the author already
+dispositioned. Collapsing any two would make a swept-and-clean run indistinguishable from a run that
+never started, or from one that declined.
+
+**The implementation asserts the code set, not a code list read from prose:** the shipped module exports
+its codes and §6's cover asserts the emitted set over the whole fixture corpus equals exactly those
+four. A fifth code, or a missing one, fails without anyone re-reading this table.
 
 **The named half deliberately does not say "superseded", and it does not say the REPAIR changed the
 claim either — it says the DECLARATION did (§3.2).** The first review caught the earlier wording
@@ -379,7 +435,9 @@ force. Two covers are mandatory before any review dispatch, both learned on this
 | §3.3 document set, resolution | INFER the peers from citations, stem, or date | the incident's own arc, where citation-only misses the plan (7 of the 9 survivors), stem-only misses `2026-08-18-border-border-neutral-fill-census.md`, and date matching pulls in the unrelated `2026-08-18-process-facing-mint-bar.md`. The fixture declares the peers, asserts the swept set is EXACTLY `<doc>` plus each `--also`, and keeps an undeclared sibling present in the tree and absent from the result |
 | §3.4 unreadable peer | continue silently when `readFileLines()` returns null | a declared peer whose read returns null emits `SWEEP_DOCUMENT_UNREADABLE`; the silent implementation emits nothing for it while every occurrence-code assertion in this table still passes. Paired positive: the same peer READABLE, contributing its own occurrence findings — one variable, the readability |
 | §2.0 fixture literals | key the no-collision check on a NONCE token | a synthetic literal written WITHOUT the nonce, which the nonce grep cannot see and the shared-module key still covers |
-| §3.2 identity | match the identifier as a SUBSTRING | a one-character truncation of the declared `file:line` (`…tsx:96` for `…tsx:964`) occurs ZERO times exactly and nine times as a substring — an ordinary CLI typo, so a substring implementation emits nine wrong advisories while the exact rule reports none and says the identifier was not found |
+| §3.4 accept-set | emit a fifth code, or drop one | the emitted code set over the whole fixture corpus, compared against the module's OWN exported code list rather than a list retyped into the test, so the drift cannot relocate into the checker. Paired with the three refusals asserted to emit no finding at all and exit 2, which is what keeps a refusal out of the finding channel |
+| §3.4 not-found signal | match exactly and stay SILENT when nothing matches | the same truncated `…tsx:96` against `c272ebed3`: the run must emit exactly one `CLAIM_IDENTIFIER_NOT_FOUND` and ZERO `CLAIM_SITE_UNSWEPT`, asserted as both halves. A silent implementation emits nothing and passes every occurrence assertion in this table, because there are no occurrences to assert on. Paired positive, ONE variable — the identifier: the untruncated `…tsx:964`, same commit and same swept set, emits zero not-found and its occurrences instead |
+| §3.2 identity | match the identifier as a SUBSTRING | a one-character truncation of the declared `file:line` (`…tsx:96` for `…tsx:964`) occurs ZERO times exactly and nine times as a substring — an ordinary CLI typo, so a substring implementation emits nine wrong advisories while the exact rule reports no occurrence and emits `CLAIM_IDENTIFIER_NOT_FOUND` |
 | §3.0 declared input | INFER the pair from the repair's diff | the incident commit itself, whose diff carries `58` on BOTH sides and changes several literals: an inferring implementation picks a pair (any pair) and reports, while the shipped arm with `--repair` and NO declaration must report NOTHING and say why. Both halves asserted — the silence, and the reason line |
 | §3.0 declared input | accept a declaration and ignore `--repair` | a declared pair whose surviving occurrence sits INSIDE the repair's hunks still reports for the numeric half, while the named half's own new claim (also inside them) does not — the spans are used by §3.2 and only there |
 | §3.1 numeric half | report every surviving N (the naive form) | a transition sentence carrying BOTH values draws nothing — the 923-site corpus shape |
@@ -503,11 +561,16 @@ rather than excusing it, and it cannot go stale when the surrounding code change
   whose sentence carries it draws nothing; the scope is the SENTENCE, proved by a survivor sharing a
   line with a transition and by one inside the repair's own hunk.
 - **AC-2** — Named half: a DECLARED identifier reports at every OTHER occurrence; the repair's own new
-  claim draws nothing. The advisory attributes the changed claim to the DECLARATION and never to the
+  claim draws nothing; and a declared identifier occurring zero times EXACTLY emits
+  `CLAIM_IDENTIFIER_NOT_FOUND` rather than silence, proved against the truncated identifier and paired
+  with the untruncated one, one variable apart. The advisory attributes the changed claim to the DECLARATION and never to the
   arm's own analysis, asserted over every emitted finding — the arm cannot verify the repair changed the
   claim, and `HoverHelp.tsx:562` on `c272ebed3` is the live case where it did not (§3.2, §5 item 8).
 - **AC-3** — Severity is advisory over EVERY emitted finding, asserted structurally rather than sampled;
-  the arm never rewrites a document.
+  the arm never rewrites a document. The emitted CODE SET over the whole fixture corpus equals exactly
+  the four of §3.4 — asserted against the module's own exported codes, never against a list retyped from
+  prose — so a fifth code or a missing one fails without anyone re-reading the signal inventory. The
+  three §3.0 refusals are asserted to emit NO finding and exit 2.
 - **AC-4** — The historical replay reproduces from committed blobs as a SET, never a count.
   `fede5f084` yields exactly the nine `(document, line, column, token)` numeric survivors and the three
   excluded occurrences. Those nine sit on nine distinct lines — spec 220 and 282, plan 7, 9, 18, 112,

@@ -53,8 +53,9 @@ PRESENT = [
     ("probes 8.3 symlink",            [PROBE], "The unreadable-document branch is a live corpus shape"),
     ("probes numbering scheme",       [PROBE], "which is not the corpus round number"),
     # --- round 6 ---
-    ("3.4 three codes",               [SPEC],  "**Three codes.** One per half"),
-    ("3.4 accept-set is closed",      [SPEC],  "The three are the whole accept-set: the arm emits nothing else."),
+    # round 6's "Three codes" pair is SUPERSEDED by round 7's four-code inventory, not
+    # absent -- it moves to the retired list below rather than being deleted, so the
+    # supersession is asserted in the direction that can catch a regression.
     ("6 identity carries the column", [SPEC],  "A finding's identity is `(code, doc, line, COLUMN, token)`"),
     ("6 identity fixture row",        [SPEC],  "or dedup by line |"),
     ("6 no dedup by position/line",   [SPEC],  "**No dedup by\nposition, by line, or by token is permitted**"),
@@ -68,6 +69,20 @@ PRESENT = [
     ("probes 9.1 collision probe",    [PROBE], "The live corpus collides under a line-keyed identity"),
     ("probes 9.2 replay unaffected",  [PROBE], "The historical replay is unaffected"),
     ("probes 9.3 reviewer confirmed", [PROBE], "the replay was not the case in point"),
+    # --- round 7 ---
+    ("3.4 four codes",                [SPEC],  "**FOUR codes, and they are the whole FINDING accept-set"),
+    ("3.4 not-found code",            [SPEC],  "CLAIM_IDENTIFIER_NOT_FOUND  advisory"),
+    ("3.4 refusals are not findings", [SPEC],  "**The refusals are NOT findings"),
+    ("3.4 refusal exit 2 precedent",  [SPEC],  "cannot infer kind from path"),
+    ("3.4 signal inventory table",    [SPEC],  "SIGNAL INVENTORY — every normative outcome in §3"),
+    ("3.4 three channels",            [SPEC],  "a REFUSAL says the run never happened"),
+    ("3.4 code set asserted",         [SPEC],  "the shipped module exports\nits codes"),
+    ("3.2 names the not-found code",  [SPEC],  "`CLAIM_IDENTIFIER_NOT_FOUND`, §3.4"),
+    ("6 not-found fixture row",       [SPEC],  "match exactly and stay SILENT when nothing matches"),
+    ("6 accept-set fixture row",      [SPEC],  "emit a fifth code, or drop one"),
+    ("AC-2 not-found clause",         [SPEC],  "occurring zero times EXACTLY emits"),
+    ("AC-3 code-set clause",          [SPEC],  "equals exactly\n  the four of §3.4"),
+    ("probes 10 supplement",          [PROBE], "closing the accept-set exposed a signal nothing could carry"),
 ]
 
 ABSENT = [
@@ -90,6 +105,10 @@ ABSENT = [
     ("retired: 3.1 -> 5 item 6",              [SPEC],        "recorded as §5 item 6"),
     ("retired: probes 5.1 -> 5 item 6",       [PROBE],       "the miss is declared (spec §5 item 6)"),
     ("retired: AC-4 line-keyed identity",     [SPEC],        "nine `(document, line, token)` numeric survivors"),
+    # --- round 7: the three-code closure the confirmation round refuted ---
+    ("retired: 'Three codes' header",         [SPEC],        "**Three codes.** One per half"),
+    ("retired: 'Three codes' closure",        [SPEC],        "The three are the whole accept-set: the arm emits nothing else."),
+    ("retired: silent not-found wording",     [SPEC],        "the exact rule reports none and says the identifier was not found"),
 ]
 
 print("\n-- CONTROLS --")
