@@ -98,6 +98,21 @@ that would satisfy the naive fixtures, and the fixture that kills it.
 | AC-6 (`perl`-absent fallback still bounded) | **presence is not forwarding** — an implementation that OVERWRITES the direct spawn's ceiling with `MUTANT_TIMEOUT_MS` passes the earlier tasks, the current fallback fixture, an assertion that merely checks `calls[1]!.timeout` is set, and the `perl`-PRESENT closeout gate, while shipping a `perl`-absent browser child the source ceiling instead of the ratified one. See Task 3 for the two probed citations | the task below asserts **caller-value forwarding** — the fallback case passes a distinctive `timeoutMs`, and `calls[1]!.timeout` must equal THAT value, which neither module default can satisfy |
 | AC-7 (gate green, 19/19) | none — this is the real gate executing the real surface | n/a: the gate is not a fixture set, which is why it is the closeout gate rather than a task |
 
+**Second pass over the SAME fixtures: is any of them neutralized by another rule in this spec?**
+A fixture can be sound in isolation and stop discriminating once the whole rule set runs — the likely
+culprits are rules that operate BETWEEN cases rather than within one. Run exhaustively, not per
+finding:
+
+| AC | neutralized by another rule? |
+| --- | --- |
+| AC-1 | no — nothing else in the set constrains this module's imports |
+| AC-2 | **nearly.** AC-3 always passes an EXPLICIT small ceiling, so it can never exercise the default. AC-2's spy case must therefore call with NO explicit ceiling; if it were folded into AC-3's construction the default path would go untested and a call site passing `MUTANT_TIMEOUT_MS` would ship |
+| AC-3 | no |
+| AC-4 | no — its discriminator is inequality across three causes, which no other rule collapses |
+| AC-5 | no |
+| AC-6 | **YES, and this is the instance that proves the pass is worth running.** The closeout gate runs with `perl` PRESENT, so it never exercises the fallback: an implementation that overwrites the direct spawn's ceiling passes every other criterion and the gate, and only a fixture asserting caller-value forwarding on `calls[1]` discriminates it. Found by review, not by this table |
+| AC-7 | n/a — the gate is not a fixture set |
+
 **Why this table is derived rather than enumerated.** Its rows are the acceptance criteria themselves,
 taken from spec §7 in full — every AC gets a row, so a new AC cannot silently skip the pass. The rule
 it defends against is the one plan review round 1 demonstrated on AC-1: a source-substring check was

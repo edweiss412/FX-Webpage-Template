@@ -37,13 +37,23 @@ supervisor that is a process-group leader with a parent-death watchdog.
 
 Stated here so no review brief has to invent it (AGENTS.md round-economy block).
 
-- **Consequence bound.** Every browser-gate child either completes and yields a numeric exit status,
-  or is killed and reported as an infrastructure fault — never silently converted into a mutation
-  verdict, never left running. **A healthy-but-slow child must not become a timeout**: the ceiling
-  is derived as a stated multiple of a measured healthy maximum precisely so that a timeout means a
-  hang rather than a slow machine. The worst case of a ceiling that is too generous is a hung child
-  living 11 minutes instead of hours — a DOCUMENTED LIMIT (§6), not a finding. A wrongly-SCORED
-  verdict is the only outcome this design treats as a defect.
+- **Consequence bound.** The forbidden directions are **false CERTIFICATION** and **wrong
+  ATTRIBUTION**: a child that produced no verdict must never be scored as one, and a timeout must
+  never be read as the suite detecting the mutant. Every browser-gate child therefore either
+  completes and yields a numeric exit status, or is killed and reported as an infrastructure fault —
+  never silently converted into a mutation verdict, never left running.
+
+  **A conservative over-report is a DOCUMENTED LIMIT, exactly as a conservative non-report is.** A
+  genuinely healthy child slower than the ceiling IS killed and reported as infra, and that is the
+  design working, not a breach: it scores nothing, it is loud, and §6.1-6.2 record it. An earlier
+  draft of this bound said "a healthy-but-slow child must not become a timeout" — an absolute that
+  condemns the surface's own ratified behavior, since any finite ceiling converts a sufficiently slow
+  healthy child into a timeout. That wording is withdrawn: it was stricter than the thing it
+  describes, and a bound stricter than its surface manufactures findings against correct code. What
+  the ceiling's derivation buys is that such a conversion is IMPROBABLE (10x a reproduced measured
+  maximum, §5.1), not that it is impossible. A wrongly-SCORED verdict remains the only outcome this
+  design treats as a defect.
+
 - **PROBE DOMAIN:** the current browser mutant set (`tests/mutation/browser/registry.ts` —
   one surface, `tapTargetFloor`, 19 mutants, 2 deciding suites) and the measured per-child
   distribution in `docs/superpowers/specs/ci/probes/2026-08-20-browser-child-wallclock-probe.md`
@@ -224,8 +234,16 @@ children is `3600 - 1800 = 1800 s`, and at 660 s per hung child:
 | 3 | 1980 s | 3780 s | **job timeout binds first** |
 
 **Only the first row is reachable, which makes the bound exact rather than merely comfortable.** A
-timeout throws `MutantRunInfraError` (§5.3), nothing in the browser runner catches it — the sole
-`catch` is inside `runChild` itself (`tests/mutation/browser/runner.ts:162`) — so the throw
+timeout throws `MutantRunInfraError` (§5.3) and nothing in the browser runner catches it. The
+conservatism is auditable rather than asserted — the sole `catch` in either file is the one inside
+`runChild`:
+
+```
+$ rg -n 'catch' tests/mutation/browser/runner.ts tests/mutation/browser/browserSurfaces.gate.test.ts
+tests/mutation/browser/runner.ts:162:  } catch (e) {
+```
+
+so the throw
 propagates out of `runMutant`, out of `runBrowserSurface`'s `map`, and aborts the invocation. A
 second hung child is never reached in the same run. The worst reachable case is therefore
 **2460 s against a 3600 s budget**, and the multi-hang rows above are retained only to show what the
