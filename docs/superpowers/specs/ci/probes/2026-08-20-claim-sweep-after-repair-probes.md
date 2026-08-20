@@ -4,6 +4,11 @@ Scripts committed beside this record under `scripts/`: `2026-08-20-naive-false-p
 exclusion. Both are re-runnable, and their CORPUS figures move as the corpus grows — which is why the
 spec asserts relations rather than cardinalities, and why each number here is dated to its commit.
 
+**Supplement numbering below follows this arc's DISPATCH sequence, which is not the corpus round
+number** — the review corpus is keyed by (branch, merge-base) and restarts at 1 whenever the base moves,
+so this arc's five spec dispatches sit 2 + 3 across two `docs/review-rounds/` files. The spec itself
+carries no round numbers for the same reason.
+
 Run 2026-08-20 on `feat/speclint-claim-sweep-after-repair` at `039533373`. These are the spec's
 round-0 design inputs: the entry's own acceptance criterion, the naive mechanism's false-positive rate,
 and the discriminator that closes the gap. Every number below was produced by the command beside it.
@@ -170,6 +175,11 @@ for exactly the re-read the ledger entry wants.
 
 ## 6. Round-3 supplement — the lone outlier, characterised rather than assumed
 
+**The figures in this supplement were measured over the then-current UNFILTERED corpus and are kept as a
+record of that run; §7 and spec §2.0 supersede the POPULATION they range over.** What survives unchanged
+is the outlier's identity, which is what this supplement was written to establish — the live population
+census reports the same single row today, at 935 excluded and 1 not.
+
 The discriminator's precision was reported as "942 of 943" and its single non-excluded row was described
 in the spec as a transition spanning two sentences. **Instrumenting the loop refuted that.**
 
@@ -184,9 +194,122 @@ carry BOTH 947 | carry only one 1
 The row is the mutation-operator NAME `0to1` inside a test title. The census regex matches it as an
 arrow shape, while `0` and `1` never appear as standalone words in that sentence — so it is a FALSE HIT
 OF THE CENSUS INSTRUMENT, not a miss of the discriminator. The honest statement is that the rule
-excludes **947 of 947 real transition sentences**, with one census artefact alongside.
+excludes **every real transition sentence in the corpus it was run over**, with one census artefact
+alongside — 947 of 947 in that run, 935 of 935 in the declared-population run of §7, and the SET of
+non-excluded rows identical in both. The relation is the claim; neither cardinality is.
 
 The correction matters beyond the number: the earlier text named a failure mode (`a transition spanning
 two sentences`) that the corpus does not contain, and a documented limit describing a case that does not
 exist is as misleading as an undocumented one that does. Characterise the outlier; do not infer it from
 the shape of the count.
+
+
+## 7. Round-4 supplement — the arm's own documents were in its own corpus
+
+The question "does my guard scan a tree that contains my tests or fixtures?" answered on this arm, which
+scans DOCUMENTS and whose spec and probe record ARE documents:
+
+```
+$ python3 docs/superpowers/specs/ci/probes/scripts/2026-08-20-population-census.py
+  tracked docs/superpowers markdown files:      1133
+  this arc's own documents, excluded by path:      2
+  population actually measured below:           1131
+  transition-shape sentences carrying BOTH values (excluded by the rule): 935
+  ...carrying only one (NOT excluded):                                      1
+  census shape hits, total:                                               936
+```
+
+936 over the declared population is exactly what was measured before either arc document existed. The
+UNFILTERED figure, and the arc's contribution to it, are deliberately NOT recorded here: writing either
+one down changes it, so the number would be stale in the same commit that states it — which is the
+defect this supplement exists to record. **The drift it caused is the historical sequence
+936 → 943 → 947 → 953**, each step chased as ordinary corpus growth when the growth was the arc writing
+examples about transitions into a corpus that counts transitions.
+
+The consequence is asymmetric, which is why it matters: a polluting example INFLATES a count the spec
+elsewhere pins, so the suite passes while the number it pins is wrong. The population now excludes the
+arc's own documents (spec §2.0), synthetic literals live in one shared module, and the no-collision
+cover keys on that module's data rather than on a nonce convention a fixture could forget.
+
+
+## 8. Round-5 supplement — three facts the arm cannot infer, measured on the incident's own arc
+
+Every command below was run in this session, on this worktree, and its output is pasted verbatim.
+
+The repairs this round CLAIMS are verified in both directions by
+`scripts/2026-08-20-round5-repair-sweep.py` — every claimed repair present NOW, and every model this
+round retired absent NOW, since a repair that adds the replacement while leaving the superseded text
+standing passes every positive check. It prints raw counts rather than a verdict, and it asserts a
+must-be-PRESENT control in EACH document plus a must-be-ABSENT control before reporting anything, so a
+failed read cannot masquerade as a clean sweep. Current run: 0 claimed-but-absent of 29, 0
+retired-but-surviving of 10. Its first run reported one survivor and the survivor was a defect in the
+WITNESS, not in the document — the historical `947 of 947` figure in §6, which the repair deliberately
+KEEPS beside the population it ranges over. That is the 9.1 shape: a witness that no longer matches the
+repaired text is indistinguishable from an absent repair until someone reads the section.
+
+### 8.1 A touched identifier is not a reclassified one
+
+The repair commit `c272ebed3` rewrites one bullet:
+
+```
+$ git show --format= --unified=0 c272ebed3 -- <the three arc documents> |
+    grep -E '^[-+].*HoverHelp\.tsx:562'
+-**(a) 13 sites carry another hover cue → DELETE the `hover:border-border-strong`.** …
++**(a) 12 sites carry another hover cue ON THE SAME RENDER PATH → DELETE …
+```
+
+`components/admin/HoverHelp.tsx:562` sits on BOTH lines, and its classification is unchanged — the site
+this repair actually reclassified is a different one on the same bullet. Occurrences at that commit:
+
+```
+$ for f in <spec> <plan> <probe>; do git show c272ebed3:$f | grep -c -F 'components/admin/HoverHelp.tsx:562'; done
+3  docs/superpowers/specs/2026-08-18-control-outline-border-token-design.md
+0  docs/superpowers/plans/2026-08-18-control-outline-border-token.md
+1  docs/superpowers/specs/probes/2026-08-18-border-border-neutral-fill-census.md
+```
+
+Four occurrences, one of them the repair's own added line, so declaring this identifier draws three.
+**Every one of the three is a TRUE statement about an occurrence and a FALSE statement about the
+repair**, if the finding text says the repair changed that identifier's claim. This is why §3.2 makes
+the changed-claim identifier the author's DECLARATION and why §3.4's wording attributes it there — the
+structural description the earlier draft used ("a token the repair's diff carries on both a removed and
+an added line") is satisfied by exactly this case. Spec §5 item 8 records the residue.
+
+### 8.2 All three "same arc" inference rules are wrong on the one arc we have
+
+```
+$ git ls-tree -r --name-only c272ebed3 docs/superpowers | grep '/2026-08-18-'
+docs/superpowers/plans/2026-08-18-control-outline-border-token.md
+docs/superpowers/specs/2026-08-18-control-outline-border-token-design.md
+docs/superpowers/specs/2026-08-18-process-facing-mint-bar.md
+docs/superpowers/specs/probes/2026-08-18-border-border-neutral-fill-census.md
+
+$ git show c272ebed3:<spec>  | grep -c -F '2026-08-18-control-outline-border-token.md'   # spec -> plan
+0
+$ git show c272ebed3:<spec>  | grep -c -F 'border-border-neutral-fill-census'            # spec -> probe
+1
+$ git show c272ebed3:<plan>  | grep -c -F 'control-outline-border-token-design'          # plan -> spec
+1
+$ git show c272ebed3:<plan>  | grep -c -F 'border-border-neutral-fill-census'            # plan -> probe
+1
+```
+
+Citation-following from the spec reaches the probe record and NOT the plan — where 7 of the incident's 9
+survivors were. Stem matching on `control-outline-border-token` misses the probe record, which is named
+`2026-08-18-border-border-neutral-fill-census.md`. Date matching pulls in `2026-08-18-process-facing-mint-bar.md`,
+an unrelated arc. Each rule fails in a different direction on the only arc available to calibrate
+against, which is the whole argument for the declared `--also` set in spec §3.3.
+
+### 8.3 The unreadable-document branch is a live corpus shape
+
+```
+$ git ls-files -s docs/superpowers | awk '$1==120000 {print $1, $4}'
+120000 docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M11-user-facing-docs.md
+```
+
+One tracked symlink under the swept tree. `FileResolver`'s own contract already names this case —
+`/** null = tracked but unreadable OR tracked symlink (spec §7) */` above `readFileLines` in
+`lib/specLint/types.ts` — so `null` is reachable from the shipped resolver rather than hypothetical.
+An implementation that continues silently on it satisfies every occurrence assertion while AC-5's
+"never silently skipped" is false of it, which is why §3.4 carries a third code and §6 carries the
+fixture that kills the silent form.

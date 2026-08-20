@@ -46,21 +46,71 @@ reports the claims elsewhere in the same arc's documents that the repair superse
 
 ## 2. Measured calibration
 
-Full derivations in the probe record, and the scripts that produced every number are committed beside
-it at `docs/superpowers/specs/ci/probes/scripts/`. **Each row is a MEASUREMENT AT ONE COMMIT, not a
-normative claim** — the corpus grows, and the transition-sentence figure moved from 936 to 943 between
-this spec's first draft and its first review purely because this arc added documents. That is why §6
-and §9 assert SETS and RELATIONS and never a cardinality typed into a test.
+### 2.0 THE POPULATION IS DECLARED, AND EXCLUDES THIS ARC'S OWN DOCUMENTS
+
+This arm scans documents. Its spec, its plan and its probe record ARE documents, and every example they
+carry — `"grows from 21 rows to 57, not 58"`, the census tables, the probe transcripts — is a transition
+sentence in the very corpus §2 measures. Each one MOVES a number this document pins.
+
+**That is the cause of THREE separate number-drift repairs on this arc** — the historical sequence
+936 → 943 → 947 → 953, each chased as ordinary corpus growth when the growth was mine. Review then found
+the fourth instance INSIDE THE SECTION WRITTEN TO DECLARE THE HAZARD: this block stated an arc-inclusive
+figure that was already stale when the reviewer read it, because writing the section changed the number
+the section reported. **No arc-inclusive figure is stated anywhere in this document**, and that is a
+design decision rather than an omission — the act of writing one moves it, so any value here would be a
+fifth instance of the same defect. The sequence above is kept as HISTORY, describing past commits, which
+is the one form such a number cannot go stale in.
+
+The fix is not a fresher number. It is ONE POPULATION, DECLARED BY PATH, and ONE SCRIPT emitting every
+row of §2 from it — `docs/superpowers/specs/ci/probes/scripts/2026-08-20-population-census.py`, whose
+`ARC_DOCUMENTS` tuple names this spec, this arc's probe record AND its plan (listed before the plan
+exists, so the plan cannot repeat the drift on arrival). Rows measured over two different populations is
+the inconsistency the split scripts produced; one run of one script cannot produce it.
+
+One run of that script over that population, at this arc's merge-base `4dfd784ed062` — the base is the
+anchor rather than a HEAD sha, because this arc's own commits cannot move these rows and no other
+`docs/superpowers` markdown file on this branch is touched:
+
+```
+tracked docs/superpowers markdown files:          1133
+this arc's own documents, excluded by path:          2   (the plan is declared, not yet written)
+population measured:                              1131
+census shape hits over the population:             936   (935 excluded by the rule, 1 not — §5 item 1)
+```
+
+Every row of the table below comes from that one run. The UNFILTERED corpus carries more, and the
+difference is this arc's own writing — a quantity that changes with every sentence added to this
+paragraph, which is precisely why nothing in §2, §6 or §9 is measured over the unfiltered corpus and why
+no figure for it appears here.
+
+**Every number in §2 is a MEASUREMENT AT ONE COMMIT, never a normative claim.** The population still
+grows as OTHER arcs write documents. What it no longer does is move when THIS document is edited, which
+is the only drift that produced a repair here. §6 and §9 assert SETS and RELATIONS and never a
+cardinality typed into a test: AC-6 states the relation, and **no fixture pins 936, 1009, or any other
+figure from the table below.**
+
+**Synthetic fixture literals therefore live in ONE SHARED MODULE, and the no-collision cover is keyed on
+THAT DATA.** The rejected alternative was a nonce token grepped across fixture titles: a nonce is a
+CONVENTION, so the check would be blind to any fixture literal written without it — the same
+convention-keyed blindness that made a prefix-keyed ledger extractor miss 21 custom-id rows. Keying on
+the shared module's own exported data means a literal that forgets the convention is still in the
+population. The cover asserts zero collisions with a POSITIVE CONTROL — a real transition sentence from
+outside this arc's documents — so a zero is attributable rather than the shape of an empty read.
+
+
+Full derivations are in the probe record, and every script that produced a number is committed beside it
+at `docs/superpowers/specs/ci/probes/scripts/`. The rows below are one run of the population census,
+over the population §2.0 declares.
 
 | Measurement | Value |
 | --- | --- |
-| Tracked `docs/superpowers` markdown files | 1127 |
-| Sites the NAIVE form would wrongly flag, DEDUPLICATED by (path, value offset) | 1021 |
-| …raw matches before dedup, since the six shapes overlap | 1049 |
+| Tracked `docs/superpowers` markdown files | 1133, of which 2 are this arc's own and EXCLUDED — population 1131 |
+| Sites the NAIVE form would wrongly flag, DEDUPLICATED by (path, value offset) | 1009 |
+| …raw matches before dedup, since the six shapes overlap | 1032 |
 | …of which plain `X → Y` transition sentences | 923 |
 | Incident survivors reported by the shipped discriminator | 9 of 9 |
 | Incident transition sentences correctly excluded | 3 |
-| REAL corpus transition sentences excluded by the rule | 947 of 947 (at this commit) |
+| REAL corpus transition sentences excluded by the rule | 935 of 935 |
 | …plus one census false hit that is not a transition (§5 item 1) | 1 |
 
 The naive form — "after a repair changes N to M, report every surviving N" — scores roughly one false
@@ -72,7 +122,7 @@ consequence bound ranges over.
 
 ### 3.0 The repair record is DECLARED, never inferred
 
-The arm does not read a commit and guess what it superseded. Round 1 showed why: the incident commit
+The arm does not read a commit and guess what it superseded. The first review showed why: the incident commit
 changes many numeric literals and `58` occurs on BOTH sides of its diff, so no rule over that diff
 selects the semantic pair `58 → 57` deterministically. An implementation left to infer it may pick a
 different pair, or none, while satisfying every other word of this spec.
@@ -82,11 +132,13 @@ declared, never inferred from prose, which is the principle `docs/agents/spec-se
 states for exactly this reason:
 
 ```
-pnpm spec:lint <doc> --superseded 58 --replacement 57
-pnpm spec:lint <doc> --claim-about 'PublishedReviewModal.tsx:964' --repair <rev>
+pnpm spec:lint <doc> --superseded 58 --replacement 57 --also <plan> --also <probe-record>
+pnpm spec:lint <doc> --claim-about 'PublishedReviewModal.tsx:964' --repair <rev> --also <plan>
 ```
 
-**A declaration where the superseded value EQUALS the replacement is REFUSED, by name.** Round 3 found
+The swept document set is declared the same way and for the same reason (§3.3).
+
+**A declaration where the superseded value EQUALS the replacement is REFUSED, by name.** Review found
 that `--superseded 58 --replacement 58` — one ordinary typo — makes every sentence containing `58` also
 "carry the replacement", so §3.1 suppresses all twelve occurrences and the run reports a silent clean.
 The declaration is well-formed by every other test, so nothing else catches it. `N === M` is rejected
@@ -114,7 +166,7 @@ parser. Measured recall and precision are in §2.
 
 **A HALF-REPAIRED SENTENCE IS A DECLARED MISS, and this is the numeric half's sharpest limit.** If one
 sentence carries two claims on the same value and the author repairs only the first, the sentence now
-contains the replacement and §3.1 suppresses the surviving stale claim. Round 2 found it; the obvious
+contains the replacement and §3.1 suppresses the surviving stale claim. Review found it; the obvious
 refinement was tested and REJECTED on measurement rather than on taste:
 
 ```
@@ -138,9 +190,25 @@ times is reported as NOT FOUND rather than silently matching its own prefix: `�
 character from `…tsx:964`, occurs nowhere exactly, and would match nine times as a substring — nine
 wrong advisories from an ordinary typo.
 
-Given a repair that changes a claim about a named IDENTIFIER — a `file:line`, a symbol, a token the
-repair's own diff carries on both a removed and an added line — the arm reports every OTHER occurrence
-of that identifier in the arc's documents, outside the repair's hunks, as a claim to re-read.
+Given a DECLARED identifier — a `file:line`, a symbol — whose claim the author says the repair changed,
+the arm reports every OTHER occurrence of that identifier in the arc's documents, outside the repair's
+hunks, as a claim to re-read.
+
+**THE ARM DOES NOT ESTABLISH THAT THE REPAIR CHANGED THE CLAIM, and its finding text must not say it
+did.** An earlier draft described the identifier STRUCTURALLY — "a token the repair's own diff carries on
+both a removed and an added line" — which reads as a criterion the arm could check. It is not one, and
+the counterexample is in the incident's own repair. `c272ebed3` rewrites `**(a) 13 sites carry another
+hover cue` to `**(a) 12 sites carry another hover cue ON THE SAME RENDER PATH`, so
+`components/admin/HoverHelp.tsx:562` sits on BOTH the removed and the added line while its
+classification is untouched — the site that repair actually reclassified is a different one on the same
+line. `HoverHelp.tsx:562` occurs four times in that arc (three in the spec, one in the probe record);
+declaring it draws the three outside the hunks, and wording that asserts the repair changed ITS claim is
+a wrong advisory in the arm's own finding text.
+
+WHICH identifier had its claim changed is therefore the AUTHOR's declaration (§3.0), on exactly the
+grounds the numeric pair is: it is a semantic fact about the repair, and no rule over the diff recovers
+it. The arm asserts that the occurrence EXISTS and that the identifier was DECLARED. §3.4's wording says
+that and no more, and §5 item 8 records what the arm consequently cannot catch.
 
 **Its volume is high by design, and that is stated so nobody reads it as noise.** A reclassified site is
 claimed about wherever the arc discusses it — nine occurrences for the incident's one site — and the
@@ -153,11 +221,44 @@ in (a), now in (b)" as a value pair. The incident is the demonstration — the r
 `PublishedReviewModal.tsx:964` in its new claim while THAT SPEC's §6 kept the retired reasoning about the same site
 two sections away (probes §1.2).
 
-### 3.3 What counts as "the arc's documents"
+### 3.3 What counts as "the arc's documents" — DECLARED, like everything else the arm cannot infer
 
-The spec, the plan, and any probe record under the same arc — §1.1 item 6. Resolved through the existing
-`FileResolver`; a document the resolver cannot read is REPORTED, never silently skipped, on the same
-grounds as every other fail-open closure in this repo.
+The unit is the artifact pair (§1.1 item 6): the spec, the plan, and any probe record of the same arc.
+**Which FILES those are is DECLARED on the invocation and never inferred.** "Same arc" has no executable
+identity in this repo, and all three inference rules were measured against the incident's own arc —
+which is exactly one such arc — with each wrong in a different direction:
+
+| Inference rule | What it does on the incident's arc (`c272ebed3`) |
+| --- | --- |
+| Follow the spec's citations | the spec links the probe record but NOT the plan (the plan links both), so citation-only resolution misses the plan — where 7 of the incident's 9 survivors were |
+| Match the filename stem | the probe record is `2026-08-18-border-border-neutral-fill-census.md` against a stem of `control-outline-border-token`; stem-only resolution misses it |
+| Match the date prefix | `2026-08-18-` also matches `docs/superpowers/specs/2026-08-18-process-facing-mint-bar.md`, an unrelated arc; date matching over-includes |
+
+Nothing in the existing surface settles it either: the `FileResolver` interface in
+`lib/specLint/types.ts` supplies file ACCESS — `readFileLines(path): string[] | null` and
+`listTrackedFiles()` — and has no notion of arc membership. (Cited by NAME and by quoted content, not by
+line: the implementation edits that file, and a line citation into an arm's own blast radius does not
+break, it silently points somewhere else.) So the peers are named:
+
+```
+pnpm spec:lint <doc> --superseded 58 --replacement 57 \
+  --also docs/superpowers/plans/<plan>.md \
+  --also docs/superpowers/specs/probes/<probe>.md
+```
+
+`--also` is repeatable and takes a path; the swept set is `<doc>` plus every `--also`, and nothing else.
+A peer the author does not name is NOT swept, and the run says nothing about it — a MISSED advisory,
+never a false one, recorded as §5 item 9.
+
+This is also what makes the §6 pure fixtures and the production invocation agree. A pure fixture INJECTS
+its document set, so it can pass while a resolving production path silently omits a required peer; with
+the set declared there is nothing left to resolve, and the two run the same contract.
+
+A declared peer the resolver CANNOT READ is REPORTED, never silently skipped (§3.4, third code), on the
+same grounds as every other fail-open closure in this repo. That branch is a LIVE corpus shape rather
+than a hypothetical — `git ls-files -s docs/superpowers | awk '$1==120000'` finds
+`docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/handoffs/M11-user-facing-docs.md`, tracked as a
+symlink.
 
 ### 3.4 The finding, and what it does NOT assert
 
@@ -169,13 +270,24 @@ VALUE_SUPERSEDED_ELSEWHERE  advisory        (numeric half)
   detail: re-read it -- it is stale, or it is deliberate and wants a word saying so.
 
 CLAIM_SITE_UNSWEPT  advisory                (named-claim half)
-  <doc>:<line> makes a claim about <identifier>, whose claim the repair changed elsewhere
-  detail: the IDENTIFIER is not superseded -- this occurrence may be correct. Re-read it against
-          the repair's new claim.
+  <doc>:<line> mentions <identifier>, DECLARED as a claim this repair changed
+  detail: the identifier is not superseded, and this arm did not verify that the repair changed the
+          claim -- the declaration did. Re-read this occurrence against the repair's new claim.
+
+SWEEP_DOCUMENT_UNREADABLE  advisory         (either half)
+  <doc> was declared in the swept set and could not be read; it was NOT swept
+  detail: the sweep over this document did not happen. Silence about it is not a clean.
 ```
 
-**The named half deliberately does not say "superseded".** Round 1 caught the earlier wording asserting
-it: a repair that re-classifies a site changes the CLAIM about a stable identifier, and the identifier
+**The third code exists because neither occurrence code can truthfully describe a document that was
+never read.** §3.3 requires an unreadable peer to be REPORTED, and review found that requirement had no
+output contract and no killing fixture: an implementation that continues silently on
+`readFileLines() === null` satisfies every occurrence assertion in §6 while AC-5's "never silently
+skipped" is false of it. The code is the contract, and §6 carries the fixture that kills the silent form.
+
+**The named half deliberately does not say "superseded", and it does not say the REPAIR changed the
+claim either — it says the DECLARATION did (§3.2).** The first review caught the earlier wording
+asserting supersession: a repair that re-classifies a site changes the CLAIM about a stable identifier, and the identifier
 itself has no replacement. Saying otherwise would be a wrong advisory in the arm's own finding text.
 `RepairRecord` therefore carries a superseded/replacement PAIR for the numeric half and a changed-claim
 identifier for the named half — different shapes, because they are different facts.
@@ -235,6 +347,20 @@ module does not necessarily reach for this document.
    anything that could would need to know which claim each number belongs to. Missed advisory, never a
    false one.
 
+8. **A COLLATERAL IDENTIFIER IS THE AUTHOR'S TO GET RIGHT** (§3.2). The arm cannot separate an
+   identifier whose CLAIM the repair changed from one the repair's diff merely TOUCHED, because the
+   difference is semantic and the diff does not carry it. Measured on `c272ebed3`:
+   `components/admin/HoverHelp.tsx:562` occurs on both the removed and the added line of the repair's
+   hunk while staying in exactly the classification it started in. Declaring it produces advisories that
+   are TRUE about the occurrences and WRONG about the repair, which is why §3.4's wording attributes the
+   changed claim to the DECLARATION and never to the arm's own analysis. A nuisance advisory on a
+   mis-declaration, never a silent miss.
+9. **A PEER THE AUTHOR DOES NOT DECLARE IS NOT SWEPT** (§3.3). The swept set is `<doc>` plus each
+   `--also`, so an undeclared plan or probe record is simply absent and the run says nothing about it.
+   Each of the three inference rules that would close this is wrong on the incident's own arc —
+   citation-only misses the plan, stem-only misses the probe record, date matching pulls in an unrelated
+   spec (§3.3 measures all three) — so the arm declines to guess. Missed advisory, never a false one.
+
 ## 6. Testing
 
 All under `tests/specLint/`, TDD per task, anti-tautology rules of `docs/agents/writing-plans.md` in
@@ -246,11 +372,16 @@ force. Two covers are mandatory before any review dispatch, both learned on this
 | --- | --- | --- |
 | §3.0 refusal, `N === M` | accept it and run | a declaration whose superseded value equals its replacement is REFUSED, naming both values; an implementation that runs reports zero on a corpus where the value occurs, which is the silent clean the refusal exists to prevent |
 | §3.0 refusal, `--claim-about` without `--repair` | run anyway on an inferred exclusion | the incident's identifier, whose nine occurrences split five INSIDE the repair spans and four outside: without spans an implementation reports all nine, including the repair's own five new claims |
+| §2.0 population | measure the corpus INCLUDING the arm's own documents | asserted as a SET RELATION and never a cardinality: the enumerated population contains NONE of `ARC_DOCUMENTS`, and the SAME enumeration without the exclusion contains ALL of the ones that exist. An implementation that forgets the exclusion fails the first half; one that enumerates nothing fails the second, so the pair cannot be satisfied by an empty read. **No fixture pins 936, 1009 or any other §2 figure** — AC-6 forbids it, and pinning one is how a corpus that grows turns a correct arm red |
+| §3.2 attribution | word the advisory as "the repair changed this claim" | `components/admin/HoverHelp.tsx:562` declared against `c272ebed3`, where it occurs on BOTH sides of the repair's hunk with its classification unchanged: the advisory text is asserted to attribute the change to the DECLARATION, over EVERY emitted finding rather than sampled. The occurrences are right and the attribution is the only thing that can be wrong, so the occurrence assertions cannot kill this |
+| §3.3 document set, resolution | INFER the peers from citations, stem, or date | the incident's own arc, where citation-only misses the plan (7 of the 9 survivors), stem-only misses `2026-08-18-border-border-neutral-fill-census.md`, and date matching pulls in the unrelated `2026-08-18-process-facing-mint-bar.md`. The fixture declares the peers, asserts the swept set is EXACTLY `<doc>` plus each `--also`, and keeps an undeclared sibling present in the tree and absent from the result |
+| §3.4 unreadable peer | continue silently when `readFileLines()` returns null | a declared peer whose read returns null emits `SWEEP_DOCUMENT_UNREADABLE`; the silent implementation emits nothing for it while every occurrence-code assertion in this table still passes. Paired positive: the same peer READABLE, contributing its own occurrence findings — one variable, the readability |
+| §2.0 fixture literals | key the no-collision check on a NONCE token | a synthetic literal written WITHOUT the nonce, which the nonce grep cannot see and the shared-module key still covers |
 | §3.2 identity | match the identifier as a SUBSTRING | a one-character truncation of the declared `file:line` (`…tsx:96` for `…tsx:964`) occurs ZERO times exactly and nine times as a substring — an ordinary CLI typo, so a substring implementation emits nine wrong advisories while the exact rule reports none and says the identifier was not found |
 | §3.0 declared input | INFER the pair from the repair's diff | the incident commit itself, whose diff carries `58` on BOTH sides and changes several literals: an inferring implementation picks a pair (any pair) and reports, while the shipped arm with `--repair` and NO declaration must report NOTHING and say why. Both halves asserted — the silence, and the reason line |
 | §3.0 declared input | accept a declaration and ignore `--repair` | a declared pair whose surviving occurrence sits INSIDE the repair's hunks still reports for the numeric half, while the named half's own new claim (also inside them) does not — the spans are used by §3.2 and only there |
 | §3.1 numeric half | report every surviving N (the naive form) | a transition sentence carrying BOTH values draws nothing — the 923-site corpus shape |
-| §3.1 sentence scope | scope to the LINE instead | a line carrying BOTH a `57/58` transition sentence AND a separate stale `58` sentence — line scope excludes the whole line and misses the stale one, sentence scope reports it. Round 1 caught the earlier fixture here: the consequence-bound line contains only `58`, so both scopes treat it identically and it discriminated nothing |
+| §3.1 sentence scope | scope to the LINE instead | a line carrying BOTH a `57/58` transition sentence AND a separate stale `58` sentence — line scope excludes the whole line and misses the stale one, sentence scope reports it. Review caught the earlier fixture here: the consequence-bound line contains only `58`, so both scopes treat it identically and it discriminated nothing |
 | §3.1 discriminator | exclude anything inside the repair's diff | that same survivor, an ADDED line in that hunk, must still report |
 | §3.2 named half | report every occurrence of the identifier | the repair's OWN new claim, inside its hunk, draws nothing |
 | §3.3 document set | sweep the spec only | a survivor in the PLAN reports — the incident had 7 of its 9 there |
@@ -289,7 +420,7 @@ Only PROVEN counts: presence is not adequacy, applied to this rule itself.
 **Historical re-enactment, executable.** The probe record's two blobs ship as fixtures: `fede5f084`'s
 tree draws exactly the 9 numeric survivors and excludes the 3 transition sentences; `c272ebed3` draws the MEASURED FOUR
 sites — spec 268 and 327, plan 211, probe record 64 — being the nine occurrences minus the five inside
-the repair's spans. An earlier draft said "the §6 identifier survivor" here, a singleton the round-2
+the repair's spans. An earlier draft said "the §6 identifier survivor" here, a singleton the second review's
 repair had already refuted in AC-4 while this sentence kept it; a fixture asserting the singleton passes
 while three required advisories vanish. These are the entry's own acceptance criterion, pinned by the incident
 rather than by a synthetic analogue.
@@ -343,8 +474,10 @@ rather than excusing it, and it cannot go stale when the surrounding code change
 - **AC-1** — Numeric half: a surviving occurrence whose sentence lacks the replacement reports; one
   whose sentence carries it draws nothing; the scope is the SENTENCE, proved by a survivor sharing a
   line with a transition and by one inside the repair's own hunk.
-- **AC-2** — Named half: an identifier whose claim the repair changed reports at every OTHER occurrence;
-  the repair's own new claim draws nothing.
+- **AC-2** — Named half: a DECLARED identifier reports at every OTHER occurrence; the repair's own new
+  claim draws nothing. The advisory attributes the changed claim to the DECLARATION and never to the
+  arm's own analysis, asserted over every emitted finding — the arm cannot verify the repair changed the
+  claim, and `HoverHelp.tsx:562` on `c272ebed3` is the live case where it did not (§3.2, §5 item 8).
 - **AC-3** — Severity is advisory over EVERY emitted finding, asserted structurally rather than sampled;
   the arm never rewrites a document.
 - **AC-4** — The historical replay reproduces from committed blobs as a SET, never a count.
@@ -352,14 +485,19 @@ rather than excusing it, and it cannot go stale when the surrounding code change
   exclusions. `c272ebed3` yields the MEASURED named-half set: the identifier occurs NINE times across
   that arc — spec lines 153, 155, 268, 327; plan lines 85, 148, 149, 211; probe record line 64 — and the
   arm reports those outside the repair's hunks. An earlier draft claimed it yields "the §6 survivor",
-  which round 2 refuted by counting; the criterion now states what the mechanism actually produces. **A count is defeated by substitution** — swapping one survivor
+  which review refuted by counting; the criterion now states what the mechanism actually produces. **A count is defeated by substitution** — swapping one survivor
   for a different occurrence keeps the total at nine while changing what is asserted — so the assertion
   is the set. A count answers "did something new appear"; a set or digest answers "are these the same
   things", and this AC asks the second question.
-- **AC-5** — Document set: a survivor in the PLAN reports, not only one in the spec; an unreadable
-  document is REPORTED, never silently skipped.
+- **AC-5** — Document set: the swept set is EXACTLY the declared documents — `<doc>` plus each `--also`
+  — with no inference from citation, stem or date, and an undeclared sibling in the same tree is absent
+  from the result. A survivor in the PLAN reports, not only one in the spec. A declared document the
+  resolver cannot read emits `SWEEP_DOCUMENT_UNREADABLE`; silence about it fails this criterion, and the
+  paired readable case proves the assertion is not satisfied by an empty run.
 - **AC-6** — Corpus: the assertion is a RELATION, not §2's cardinality, because that number moves with
-  the corpus (936 → 943 during round 1 alone). Enumerated at run time: EVERY sentence carrying a
+  the corpus — the historical sequence 936 → 943 → 947 → 953 across this arc's own rounds, §2.0. The POPULATION is a relation
+  too: it contains none of `ARC_DOCUMENTS` and the unfiltered enumeration contains all of them, so no
+  test pins a figure this arc's own writing can move. Enumerated at run time: EVERY sentence carrying a
   declared transition pair is excluded, and the count of those NOT excluded is reported rather than
   pinned — so a new document changes the total without failing the test, while a change that stops
   excluding transition sentences fails it immediately. The incident replay (AC-4) is where an exact SET
