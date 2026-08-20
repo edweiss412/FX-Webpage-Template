@@ -17,6 +17,7 @@ import {
   planExecutionsForText,
   probesToSpawn,
 } from "../lib/specLint/redContract";
+import { declarationRefusal, type ClaimSweepDeclaration } from "../lib/specLint/claimSweep";
 import { exitCodeForResult, runLint } from "../lib/specLint/run";
 import type {
   ExecOutcome,
@@ -340,6 +341,14 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
   let json = false;
   let execRed = false;
   let kindFlag: string | null = null;
+  // Claim-sweep declaration (spec §3.0). The author DECLARES the supersession;
+  // the arm never infers it from a diff.
+  const declared: {
+    superseded: string | null;
+    replacement: string | null;
+    claimAbout: string | null;
+    repair: string | null;
+  } = { superseded: null, replacement: null, claimAbout: null, repair: null };
   const positionals: string[] = [];
   const errors: string[] = [];
   for (let i = 0; i < argv.length; i++) {
@@ -359,6 +368,31 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
         kindFlag = next;
         i++;
       }
+    } else if (
+      tok === "--superseded" ||
+      tok === "--replacement" ||
+      tok === "--claim-about" ||
+      tok === "--repair"
+    ) {
+      // Same arity handling as --kind: a flag whose value is missing must NOT
+      // consume the next token, or a following flag is silently eaten.
+      const key = (
+        {
+          "--superseded": "superseded",
+          "--replacement": "replacement",
+          "--claim-about": "claimAbout",
+          "--repair": "repair",
+        } as const
+      )[tok];
+      const next = argv[i + 1];
+      if (next === undefined || next.startsWith("--")) {
+        errors.push(`${tok} requires a value`);
+      } else if (declared[key] !== null) {
+        errors.push(`duplicate ${tok}`);
+      } else {
+        declared[key] = next;
+        i++;
+      }
     } else if (tok.startsWith("--")) {
       errors.push(`unknown flag: ${tok}`);
     } else {
@@ -371,7 +405,24 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
   if (positionals.length !== 1) {
     errors.push(`expected exactly one document path, got ${positionals.length}`);
   }
+  // ARITY, not one of §3.0's three refusals: a numeric declaration is a PAIR,
+  // and half of one is an unparseable invocation rather than an incoherent
+  // declaration. It joins the pre-existing usage channel for the same reason
+  // `--kind requires a value` does.
+  if (declared.superseded !== null && declared.replacement === null) {
+    errors.push("--superseded requires --replacement (the value it was replaced WITH)");
+  }
+  if (declared.replacement !== null && declared.superseded === null) {
+    errors.push("--replacement requires --superseded (the value it replaced)");
+  }
   if (errors.length > 0) return usage(json, errors.join("; "));
+
+  // The three refusals of spec §3.0, decided by the PURE core so the rule and
+  // the arm cannot disagree about what a well-formed declaration is. Refused
+  // BEFORE any document is read: nothing was swept, so there is nothing to
+  // report about a document.
+  const refusal = declarationRefusal(declared satisfies ClaimSweepDeclaration);
+  if (refusal !== null) return usage(json, refusal);
 
   // The ceiling is validated BEFORE anything is linted or executed: a malformed
   // value must never silently disable or zero the timeout (spec §4.4).

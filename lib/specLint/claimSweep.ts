@@ -137,6 +137,71 @@ export interface RepairRecord {
 }
 
 /**
+ * What the author DECLARED on the invocation, before any document is read.
+ *
+ * Separate from `RepairRecord` on purpose: this is the raw declaration, whose
+ * three malformed shapes are REFUSED (§3.0); a `RepairRecord` is what a
+ * well-formed declaration becomes.
+ */
+export interface ClaimSweepDeclaration {
+  superseded: string | null;
+  replacement: string | null;
+  claimAbout: string | null;
+  repair: string | null;
+}
+
+/**
+ * The three refusals of spec §3.0, as a PURE predicate: the reason line, or
+ * null when the declaration is well formed.
+ *
+ * A refusal is NOT a finding. The adapter routes the returned reason to the
+ * usage channel — exit 2, no report written — because the run does not happen,
+ * no document is swept, and there is nothing to report ABOUT a document. If a
+ * refusal emitted a finding, a usage mistake would arrive in the same channel
+ * as a claim about the corpus and a reader could not tell a swept-and-clean run
+ * from a run that never started.
+ *
+ * Each reason NAMES the offending values rather than the flag alone, because
+ * the flag name is what the pre-existing unknown-flag error already says and it
+ * does not distinguish these three from a typo.
+ *
+ * Flag ARITY errors — `--superseded` without `--replacement`, a flag given no
+ * value — are NOT among these three and are not part of §3.4's signal
+ * inventory. They belong to the adapter's pre-existing usage channel alongside
+ * `--kind requires a value (spec|plan)`: they say the invocation is
+ * unparseable, where these three say a parseable invocation declares something
+ * incoherent.
+ */
+export function declarationRefusal(d: ClaimSweepDeclaration): string | null {
+  if (d.superseded !== null && d.replacement !== null && d.superseded === d.replacement) {
+    return (
+      `--superseded and --replacement are both ${d.superseded}: a declaration whose ` +
+      `superseded value is equal to its replacement makes EVERY sentence containing ` +
+      `${d.superseded} also carry the replacement, so every occurrence is suppressed and ` +
+      `the run reports a silent clean. Declare the value the repair replaced ` +
+      `${d.superseded} WITH.`
+    );
+  }
+  if (d.claimAbout !== null && d.repair === null) {
+    return (
+      `--claim-about ${d.claimAbout} requires --repair <rev>: only the repair's hunk ` +
+      `spans can exclude the repair's OWN new claim, and without them every occurrence ` +
+      `of the identifier is reported, including the ones the repair just wrote.`
+    );
+  }
+  if (d.repair !== null && d.superseded === null && d.claimAbout === null) {
+    return (
+      `--repair ${d.repair} was given with nothing DECLARED: pass --superseded <N> ` +
+      `--replacement <M>, or --claim-about <identifier>, or both. The arm does not read ` +
+      `a commit and guess what it superseded -- that commit's own diff carries values on ` +
+      `both sides, so no rule over it selects a semantic pair. Silence from an undeclared ` +
+      `invocation is not a certificate, which is why this refuses rather than reporting clean.`
+    );
+  }
+  return null;
+}
+
+/**
  * ASCII word characters — the boundary alphabet for a NUMERIC token, matching
  * `\b` in both the probe scripts and this module. `1058` must not match `58`;
  * `57/58` must. Written as an explicit class rather than `\b` so the rule is
