@@ -495,3 +495,22 @@ export function checkDeclaredLimitPins(
   }
   return findings;
 }
+
+/**
+ * Everything the arm needs, injected as ONE value so `runLint` grows one optional
+ * parameter rather than three. A null/absent value means the arm runs nothing — the
+ * same static/injected split the exec, parse, probe and fixture arms already use, which
+ * keeps every existing caller compiling and byte-identical in behavior.
+ *
+ * `dispositions` and `prepareSuite` are optional because Task 5 wires INJECTION ONLY.
+ * The adapter passes RAW suite lines here; real preparation is Task 7b's, and wiring it
+ * early would turn that task's authored red green the moment it was written.
+ */
+export interface DeclaredLimitPinInputs {
+  surfaces: readonly EnrolledSurface[];
+  dispositions?: readonly PinDisposition[];
+  prepareSuite?: SuitePreparer;
+}
+
+/** Identity preparation: the core scans exactly the lines the resolver returned. */
+export const RAW_SUITE_PREPARER: SuitePreparer = (_path, lines) => ({ status: "ok", lines });

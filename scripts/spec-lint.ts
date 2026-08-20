@@ -18,6 +18,13 @@ import {
   probesToSpawn,
 } from "../lib/specLint/redContract";
 import { exitCodeForResult, runLint } from "../lib/specLint/run";
+// The adapter may import from tests/ — established by scripts/print-mutation-sites.ts,
+// which imports tests/mutation/source/operators. This is precisely why the registry is
+// read HERE and injected as data: lib/specLint/** imports neither, so the mutation
+// harness scores the logic while the registry stays the registry.
+import { GUARD_SURFACES } from "../tests/mutation/source/registry";
+import { NOT_A_PIN } from "../tests/specLint/declaredLimitPinDispositions";
+import type { EnrolledSurface } from "../lib/specLint/types";
 import type {
   ExecOutcome,
   ExecResults,
@@ -523,6 +530,15 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
       fixtureResults = runFixtureSplice(spliceFixturePlanForText(text), deps, timeoutMs).results;
     }
 
+    // PROJECTED, not passed through: the core receives exactly (id, sourcePath,
+    // suitePaths) and never sees a registry row, so no registry type crosses the
+    // purity boundary.
+    const enrolledSurfaces: readonly EnrolledSurface[] = GUARD_SURFACES.map((surface) => ({
+      id: surface.id,
+      sourcePath: surface.sourcePath,
+      suitePaths: surface.suitePaths,
+    }));
+
     const result = runLint(
       { text, repoRelPath, kind: docKind, kindSource },
       resolver,
@@ -530,6 +546,10 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
       parseResults,
       probeResults,
       fixtureResults,
+      // INJECTION ONLY. No `prepareSuite` yet, so the core scans RAW resolver lines;
+      // real preparation is Task 7b's, and wiring it here would turn that task's
+      // authored red green the moment it was written.
+      { surfaces: enrolledSurfaces, dispositions: NOT_A_PIN },
     );
     return {
       stdout: json ? JSON.stringify(result) + "\n" : renderText(result),
