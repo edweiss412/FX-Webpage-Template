@@ -17,6 +17,19 @@ import { buildManifest } from "./mutate";
  * serves disk text, which is the exact mutant this file exists to kill.
  */
 const ROOT = resolve(__dirname, "..", "..", "..");
+
+/**
+ * Wall-clock ceiling for ONE child this WIRING suite spawns.
+ *
+ * Deliberately NOT `BROWSER_MUTANT_TIMEOUT_MS`: these are wiring children, not
+ * mutant children, and reusing the ratified 660 s would imply a derivation the
+ * browser-gate probe does not support for them. Derived from this file instead —
+ * its slowest child measured 2432 ms across all eleven cases, so 60 s is ~25x
+ * the measured maximum, and it sits BELOW every per-case timeout here
+ * (120 s / 180 s / 300 s) so the child's own bound fires first and the failure
+ * names the hung child rather than an expired case.
+ */
+const WIRING_CHILD_TIMEOUT_MS = 60_000;
 const BUNDLE = join(ROOT, "tests", "e2e", "_tapTargetFloorBundle.mjs");
 const OVERLAY_CONFIG = "tests/mutation/browser/vitestOverlay.config.ts";
 const PROBE_FIXTURE = "tests/mutation/browser/fixtures/overlayProbe.fixture.ts";
@@ -49,6 +62,8 @@ function bundle(env: Record<string, string>, outName: string): string {
     cwd: ROOT,
     stdio: "pipe",
     env: { ...process.env, ...env },
+    timeout: WIRING_CHILD_TIMEOUT_MS,
+    killSignal: "SIGKILL",
   });
   return readFileSync(outfile, "utf8");
 }
@@ -94,7 +109,10 @@ describe("bundle overlay — env SET (spec §3.1)", () => {
     const decoyDir = join(dir, "decoy");
     const decoy = join(decoyDir, "probeMarker.tsx");
     rmSync(decoyDir, { recursive: true, force: true });
-    execFileSync("mkdir", ["-p", decoyDir]);
+    execFileSync("mkdir", ["-p", decoyDir], {
+      timeout: WIRING_CHILD_TIMEOUT_MS,
+      killSignal: "SIGKILL",
+    });
     writeFileSync(decoy, `export const PROBE = "DECOY";\n`);
     const mutant = join(dir, "decoy.mutant.tsx");
     writeFileSync(mutant, `export const PROBE = "${MUTANT_TEXT}";\n`);
@@ -123,6 +141,8 @@ describe("bundle overlay — env UNSET means OFF (AC-3)", () => {
     const raw = execFileSync(process.execPath, [probe, manifest], {
       cwd: ROOT,
       encoding: "utf8",
+      timeout: WIRING_CHILD_TIMEOUT_MS,
+      killSignal: "SIGKILL",
     });
     const { off, on } = JSON.parse(raw) as { off: string[]; on: string[] };
     premiseHolds("the plugin list is non-empty in both states", off.length > 0 && on.length > 0);
@@ -153,6 +173,8 @@ describe("browser-mode vitest overlay config (spec §3.3 step 3)", () => {
         cwd: ROOT,
         stdio: "pipe",
         env: { ...process.env, ...env },
+        timeout: WIRING_CHILD_TIMEOUT_MS,
+        killSignal: "SIGKILL",
       });
       return 0;
     } catch (e) {
@@ -204,5 +226,53 @@ describe("the CSS half and the untouched sibling (spec §3.2, AC-3)", () => {
     const sibling = readFileSync(join(ROOT, "tests", "e2e", "_step3ReviewModalBundle.mjs"), "utf8");
     expect(sibling).not.toContain("MUTATION_OVERLAY_MANIFEST");
     expect(sibling).not.toContain("mutation-overlay");
+  });
+});
+
+describe("AC-8 — every child this suite spawns is bounded", () => {
+  // Derived from the file's own source, never from a list of line numbers: the
+  // strictly weaker implementation is to bound only the site review named and
+  // leave the others, which is the per-instance whack-a-mole the class-sweep
+  // rule exists to prevent. Scanning EVERY call means a site added later fails
+  // by default instead of silently joining the uncovered set.
+  //
+  // The pattern's own source text is `execFileSync\s*\(`, which does not match
+  // itself — so this case is not counted as one of the sites it checks.
+  it("passes an explicit timeout at every execFileSync call site", () => {
+    const source = readFileSync(join(ROOT, "tests/mutation/browser/overlayWiring.test.ts"), "utf8");
+    const sites = [...source.matchAll(/execFileSync\s*\(/g)];
+
+    // Executable premise: a scan that found nothing would pass vacuously and
+    // would forever — `BL-GUARD-PREMISE-REACHABILITY`'s exact shape.
+    premiseHolds("the wiring suite spawns children at all", sites.length > 0);
+
+    const unbounded = sites
+      .map((site) => {
+        const open = site.index + site[0].length - 1;
+        let depth = 0;
+        let close = source.length - 1;
+        for (let i = open; i < source.length; i += 1) {
+          const c = source[i];
+          if (c === "(" || c === "[" || c === "{") depth += 1;
+          else if (c === ")" || c === "]" || c === "}") {
+            depth -= 1;
+            if (depth === 0) {
+              close = i;
+              break;
+            }
+          }
+        }
+        const line = source.slice(0, site.index).split("\n").length;
+        return { line, call: source.slice(open, close + 1) };
+      })
+      // BOTH, because presence is not adequacy: a `timeout` armed with the
+      // default SIGTERM is not a ceiling on a `pnpm exec vitest` child, which can
+      // trap it — the site would carry the key and still hang indefinitely, which
+      // is the failure AC-8 names.
+      .filter(({ call }) => !/\btimeout\s*:/.test(call) || !/killSignal\s*:\s*"SIGKILL"/.test(call))
+      // Fails BY NAME, so the repair is obvious rather than a hunt.
+      .map(({ line }) => `overlayWiring.test.ts:${line}`);
+
+    expect(unbounded).toEqual([]);
   });
 });
