@@ -1155,6 +1155,18 @@ for (const s of GUARD_SURFACES) { const k = s.accepted.reduce((a,r)=>{a[r.kind]=
 
 **What these four runs do NOT establish is the budget half**, which on 08-18 and 08-19 failed the `budget` job for reasons that are not this row's coverage failures. That is `BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH`.
 
+## BL-SPECLINT-RED-REASON-VERIFICATION — the red-contract arm checks that a command fails, never that it failed for the reason the task named
+
+**Status:** OPEN. · **Filed:** 2026-08-20 (`fix/mutation-browser-child-lifetime`, from that arc's plan rounds 1 and 2) · **Facing:** process · **Severity:** MEDIUM (it does not fail anything; it lets a task ship a RED that no later edit can make fail) · **Class:** spec-lint arm · **Effort:** M
+
+**Incident:** two of four plan rounds on `fix/mutation-browser-child-lifetime` were spent on ONE shape, and it recurred after being named. Round 1 rejected Task 1's red — an unresolved import, which fails before any assertion runs. Round 2 rejected Task 2's red for the same shape in a different costume: `runChild` is private, so a suite calling it fails on missing ACCESS rather than on the defect. Both rows are in the corpus at `docs/review-rounds/fix/mutation-browser-child-lifetime/03953337388b.jsonl` (`plan` rounds 1 and 2, `findingCount` 7 and 2). The plan carried a section rejecting exactly this shape two headings above the task that committed it, so authoring discipline had already been applied and did not hold.
+
+**What the current arm can and cannot see.** `spec:lint --exec-red` decides whether a `red=` command COLLECTS its target, which is a different question from whether it failed for the stated reason. A command that collects, runs, and dies on an unresolved import or a missing export exits non-zero and **looks healthy to every "did it exit non-zero" check there is**. Two further blind spots make the gap wider than it reads: the collection arm returns nothing at all when no probes ran (`lib/specLint/redContract.ts:754`), and it is SILENT for any command wrapped in `pnpm heavy` — `deriveCollectionProbe` yields `none` and `collectionProbePlan` continues past it (`lib/specLint/redContract.ts:721`) — emitting neither a FAIL nor the `RED_PROBE_UNVERIFIED` advisory. AGENTS.md mandates `pnpm heavy` for every heavy phase, so the arm cannot see the class the repo requires wrapping.
+
+**Direction, stated not implemented.** The v2 marker already carries `why=`, a prose statement of what is red and why. An arm could run the `red=` under `--exec-red` and compare the observed failure against that field — at minimum rejecting the mechanically recognizable non-reasons (module-resolution failure, missing export, config error, zero tests collected) rather than attempting to match prose. That is a narrower and closable claim than "the failure matches the stated reason", and it is the half that both incidents above would have failed.
+
+**Reachability: PROBED.** Both instances are quoted from reviewer output on a real arc, not constructed. The `pnpm heavy` blind spot is a static reading of the two cited lines and was confirmed by a third party the same night; it is a documented limit of the arm rather than a hypothetical.
+
 ## BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH — the source shards blew the 3600s budget on main, four days after the row that closed the wall-clock ceiling was archived
 
 **Status:** OPEN. · **Filed:** 2026-08-20 (`docs/mutation-harness-main-red-filing`, from arc-browser's pre-task verification of the nightly reds) · **Facing:** process · **Severity:** MEDIUM (it fails a non-required gate today; the same growth censors a quarter of the source gate's annotations at the next enrolment) · **Class:** CI capacity · **Effort:** S-M

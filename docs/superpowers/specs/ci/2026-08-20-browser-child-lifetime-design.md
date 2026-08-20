@@ -332,6 +332,12 @@ claim that the ceiling covers every case.
   distinctive caller value reaches `calls[1]`. Closed by an added assertion on that SUITE, not by a
   change to `spawnBounded.ts`, so §8's score-becomes-criterion rule is not triggered.
 
+- **AC-8.** Every spawn in `tests/mutation/browser/overlayWiring.test.ts` carries an explicit
+  `timeout`. These are the class-sweep's peers (§9) — four `execFileSync` calls with no bound, one of
+  which spawns a full `pnpm exec vitest run`. Repaired in-branch rather than filed, per the
+  class-sweep default. The value is a suite-local constant and deliberately NOT
+  `BROWSER_MUTANT_TIMEOUT_MS`: these are wiring children, not mutant children, and reusing the
+  ratified ceiling would imply a derivation the probe does not support.
 - **AC-7.** `pnpm heavy pnpm mutation:browser` remains GREEN end to end, with the surface still
   scoring 19/19 and its ledger still empty — the swap changes lifetime, not verdicts.
 
@@ -386,10 +392,17 @@ Consequences for this arc's review, stated so a brief cannot invent a criterion 
 ## 9. Peers and class-sweep disposition
 
 The sweep for this shape — `execFileSync`/`spawnSync` on a harness child with no lifetime bound —
-was run by the sibling arc across `tests/mutation/**` and named exactly two members: the source
-callers (repaired there) and this one. This arc closes the second. **The sweep is re-run at
-implementation time against the live tree** rather than inherited on trust, and its command and
-output land in the plan per the authored-AND-RUN rule.
+was run by the sibling arc across `tests/mutation/**` and named two members: the source callers
+(repaired there) and `runChild`. **Re-run at plan time without a filename filter, it names four more**
+— all four `execFileSync` calls in `tests/mutation/browser/overlayWiring.test.ts`, including one that
+spawns a full `pnpm exec vitest run` unbounded. They are repaired in-branch under AC-8 instead of being
+filed, per the class-sweep default that instances 2..N cost nearly nothing while the context is
+already held.
+
+**The first attempt at this sweep was UNSOUND and is recorded as such.** It excluded `*.test.ts` by
+filename before inspecting any hit, so it could not have established its own "one unrepaired member"
+conclusion — the filter removed candidates that were in class. The plan carries the corrected command
+and a per-hit disposition for every line it returns.
 
 **The cover is derived from a WALK ROOT and a call SHAPE, never from a name.** The sweep is
 `rg -n 'execFileSync|spawnSync' tests/ scripts/` — every spawn site under those roots — and it is

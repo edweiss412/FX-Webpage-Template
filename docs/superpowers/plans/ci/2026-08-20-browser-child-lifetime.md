@@ -26,29 +26,47 @@ Every symbol this plan names, verified against the live tree at `039533373` + th
 | the gate file is nightly-only | `vitest.projects.ts:101` (`NIGHTLY_ONLY_EXCLUDES`) |
 | browser surface set: 1 surface, 19 mutants, 2 deciding suites | `tests/mutation/browser/registry.ts`, `tapTargetFloor` |
 
-## Class sweep — authored AND RUN, cover derived from a walk root
+## Class sweep — authored AND RUN, and the first attempt was UNSOUND
 
 The class is "a mutation-harness child spawned with no lifetime bound." The cover is the **walk root
-plus the call shape**, never an identifier: a helper that walks a directory and spawns what it finds
-contains none of this arc's names by construction, so a clean name-grep would prove nothing.
+plus the call shape**, never an identifier.
+
+**The first version of this sweep excluded real members of the class before inspecting them**, and
+the fourth plan round caught it. It piped through `grep -v '\.test\.ts'` while claiming walk-root
+coverage — so it could not have proved "one unrepaired member," because the filter removed candidates
+by filename before any hit was read. A confident clean result from an unsound method is
+indistinguishable from a real one at the point of authorship, which is exactly why the method and not
+the output is what has to be defensible. The exclusion is removed:
 
 ```
-$ rg -n 'execFileSync|spawnSync|\bspawn\(' tests/mutation/ | grep -v '\.test\.ts'
-tests/mutation/browser/runner.ts:1:import { execFileSync } from "node:child_process";
-tests/mutation/browser/runner.ts:152:    execFileSync(file, args, {
-tests/mutation/source/spawnBounded.ts:1:import { type StdioOptions, spawnSync } from "node:child_process";
-tests/mutation/source/spawnBounded.ts:147:  const grouped = spawnSync("perl", [...WATCHDOG_ARGV, ...argv], spawnOptions);
-tests/mutation/source/spawnBounded.ts:149:  const result = fellBack ? spawnSync(argv[0], argv.slice(1), spawnOptions) : grouped;
-  (+ 9 hits in tests/mutation/source/premiseScan.ts, ALL of them prose in comments
-     about the token `spawnSync`, no call site — read individually, not filtered by pattern)
+$ rg -n 'execFileSync\(|spawnSync\(|\bspawn\(' tests/mutation/
+tests/mutation/browser/runner.ts:152          execFileSync(file, args, {...})
+tests/mutation/browser/overlayWiring.test.ts:48    execFileSync(process.execPath, [BUNDLE, ...])
+tests/mutation/browser/overlayWiring.test.ts:97    execFileSync("mkdir", ["-p", decoyDir])
+tests/mutation/browser/overlayWiring.test.ts:123   execFileSync(process.execPath, [probe, manifest])
+tests/mutation/browser/overlayWiring.test.ts:152   execFileSync("pnpm", ["exec","vitest","run",...])
+tests/mutation/source/spawnBounded.ts:147,149      spawnSync(...)  <- the bounding mechanism itself
+tests/mutation/source/spawnBounded.live.test.ts    spawn/spawnSync  (live-integration suite)
+tests/mutation/source/runner.test.ts:220,256       real.spawnSync / real.execFileSync
+tests/mutation/source/premiseScan.test.ts          ~90 hits, ALL of them fixture STRINGS
 ```
 
-**Disposition, per hit rather than in aggregate:** `runner.ts:152` is the defect and Task 2 repairs
-it. `tests/mutation/source/spawnBounded.ts:147` and `tests/mutation/source/spawnBounded.ts:149` ARE the bounding mechanism. The `premiseScan.ts` hits are comments —
-and they are the reason each hit is read: a pattern tight enough to exclude them would have been
-tight enough to miss a real site spelled slightly differently.
+**Per-hit disposition — every hit, not a summary:**
 
-**One unrepaired member. No peer is deferred, so no `BL-` filing is owed by this sweep.**
+| site | disposition |
+| --- | --- |
+| `tests/mutation/browser/runner.ts:152` | **the filed defect.** Task 2 |
+| `tests/mutation/browser/overlayWiring.test.ts:152` (`runFixture`) | **IN CLASS, repaired by Task 4.** Spawns a full `pnpm exec vitest run` with no `timeout`; if that child wedges the wiring suite hangs indefinitely — the same shape, the same tree, inside the threat fence |
+| `tests/mutation/browser/overlayWiring.test.ts:48` and `tests/mutation/browser/overlayWiring.test.ts:123` | **IN CLASS, repaired by Task 4.** Node bundle and probe children; terminating in practice, unbounded by construction |
+| `tests/mutation/browser/overlayWiring.test.ts:97` | **IN CLASS, repaired by Task 4.** `mkdir -p` terminates trivially, but it is bounded for uniformity rather than argued about — a per-site judgement call is how the next one gets missed |
+| `tests/mutation/source/spawnBounded.ts:147` and `tests/mutation/source/spawnBounded.ts:149` | **not a member** — this IS the bounding mechanism; both calls carry `spawnOptions.timeout` |
+| `tests/mutation/source/spawnBounded.live.test.ts` | **not a member** — the live-integration suite deliberately spawns unbounded, detached and orphaned trees as its FIXTURES; bounding them would delete the property under test |
+| `tests/mutation/source/runner.test.ts:220` and `tests/mutation/source/runner.test.ts:256` | **not a member** — both construct deliberate timeout/hang fixtures for the source harness's own ceiling; the second is a 600 s sleep whose whole purpose is to be killed |
+| `tests/mutation/source/premiseScan.test.ts` (~90) | **not members** — every hit is a source string inside a fixture template, never an executed call. Read individually; a pattern tight enough to exclude them by shape would have been tight enough to miss a real site |
+
+**No peer is deferred, so no `BL-` filing is owed** — the four in-class test-harness sites are repaired
+in this branch by Task 4 rather than filed, which is the class-sweep default: the marginal cost of
+instances 2..N while already holding the context is near zero.
 
 ## Meta-test inventory
 
@@ -278,6 +296,25 @@ score would have caught them.
 file is untouched, and a strengthened suite can only raise its score. `pnpm mutation:guards` is
 therefore not required, and no score is claimed.
 
+## Task 4 — bound the sweep's peer spawn sites
+
+<!-- task: red=`pnpm vitest run tests/mutation/browser/overlayWiring.test.ts` ac=AC-8 -->
+
+**What is red and why.** The four `execFileSync` calls in `tests/mutation/browser/overlayWiring.test.ts`
+(four sites: 48, 97, 123, 152) pass no `timeout`, so each can hang the suite indefinitely — line 152
+spawns a full `pnpm exec vitest run`. Add an assertion that every `execFileSync` options object in
+that file carries a `timeout`, and it fails on the current tree because none does.
+
+**AC-8** — every spawn in `tests/mutation/browser/overlayWiring.test.ts` carries an explicit
+`timeout`. The value is a suite-local constant, NOT `BROWSER_MUTANT_TIMEOUT_MS`: these are wiring
+children, not mutant children, and reusing the ratified ceiling here would imply a derivation that the
+probe does not support.
+
+**Strictly weaker implementation:** bound only line 152, the one review named, and leave the other three
+— which is per-instance whack-a-mole and is what the class-sweep rule exists to prevent. **Killed by**
+asserting over EVERY `execFileSync` options object in the file rather than a named line, so a site
+added later fails by default.
+
 <!-- tasks: end -->
 
 ## Closeout gate — OUTSIDE the task region, deliberately
@@ -308,6 +345,7 @@ requires wrapping — which is why this gate's collection is proved by execution
 - [ ] Task 1 — constant + derivation test
 - [ ] Task 2 — call-site swap, executed hanging-child proof
 - [ ] Task 3 — fallback ceiling assertion
+- [ ] Task 4 — bound the sweep's peer spawn sites
 - [ ] Closeout gate — full gate green (`pnpm heavy`)
 - [ ] Self-review
 - [ ] **Adversarial review (cross-model)** — `codex-guard --stage plan`
