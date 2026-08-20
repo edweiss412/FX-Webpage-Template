@@ -63,6 +63,24 @@ export const MIXED_LINE = `${TRANSITION_SENTENCE} ${STALE_SENTENCE}`;
 export const SIBLING_STALE_SENTENCE =
   "The retired 58-row manifest is still cited by the loader shim.";
 
+/**
+ * A line carrying the superseded value TWICE in ONE sentence that lacks the
+ * replacement, so it reports twice at two distinct columns. A line-keyed
+ * identity emits one and the loss is silent, arriving as what looks like a
+ * legitimate dedup.
+ */
+export const DOUBLE_OCCURRENCE_LINE =
+  "The 8811-row census and the 8811-entry manifest disagree about the same lane.";
+
+/**
+ * The SAME two occurrences with the second moved into a sentence that carries
+ * the replacement, so exactly one reports. One variable apart from the line
+ * above, which is what makes the single finding attributable to the SENTENCE
+ * rule rather than to a dedup that happens to leave one behind.
+ */
+export const DOUBLE_OCCURRENCE_SPLIT_LINE =
+  "The 8811-row census disagrees about the same lane. The manifest moved from 8811 to 8812.";
+
 /** A sentence carrying the ABSENT pair's superseded value, for that pin's paired positive. */
 export const ABSENT_PAIR_STALE_SENTENCE =
   "The retired 7733-entry manifest is still cited by the loader shim.";
@@ -86,5 +104,7 @@ export const SYNTHETIC_LITERALS: readonly string[] = [
   MIXED_LINE,
   ABSENT_PAIR_STALE_SENTENCE,
   SIBLING_STALE_SENTENCE,
+  DOUBLE_OCCURRENCE_LINE,
+  DOUBLE_OCCURRENCE_SPLIT_LINE,
   ABSENT_IDENTIFIER,
 ];

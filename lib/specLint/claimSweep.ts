@@ -96,6 +96,59 @@
 import type { Finding } from "./types";
 
 /**
+ * THE WHOLE FINDING ACCEPT-SET. The arm emits no other code.
+ *
+ * One per half, because the halves assert different facts and one wording
+ * cannot carry both; a third for a document that was never read; and a fourth
+ * for a declared identifier that is not there, which is the one outcome the
+ * other three cannot represent without lying about a location.
+ *
+ * THE REFUSALS ARE NOT FINDINGS and are deliberately absent from this list.
+ * §3.0's three refusals are adapter-level USAGE ERRORS: the run does not
+ * happen, no document is swept, and there is nothing to report ABOUT a
+ * document. A refusal in this channel would put a usage mistake beside a claim
+ * about the corpus, and a reader could not tell a swept-and-clean run from a
+ * run that never started.
+ *
+ * Exported so the covering suite compares the EMITTED set against this list
+ * rather than against a list retyped into a test — otherwise the drift the
+ * check exists to catch simply relocates into the checker.
+ */
+export const CLAIM_SWEEP_CODES = [
+  "VALUE_SUPERSEDED_ELSEWHERE",
+  "CLAIM_SITE_UNSWEPT",
+  "SWEEP_DOCUMENT_UNREADABLE",
+  "CLAIM_IDENTIFIER_NOT_FOUND",
+] as const;
+
+export type ClaimSweepCode = (typeof CLAIM_SWEEP_CODES)[number];
+
+/**
+ * Every finding this module emits is built here, and `code` is typed
+ * `ClaimSweepCode` rather than `string`. So the accept-set is closed at COMPILE
+ * TIME in one direction — a fifth code does not typecheck — while the suite
+ * closes the other, that every listed code is actually reachable. Neither
+ * direction alone is the claim §3.4 makes.
+ *
+ * Severity is not a parameter. Every finding is ADVISORY: the arm reports
+ * claims to RE-READ and cannot know whether a surviving occurrence is stale or
+ * deliberate, so there is nothing for a `fail` to mean here. A `fail` would
+ * also make the arm block a merge on a judgement only the author can make.
+ */
+function sweepFinding(f: {
+  code: ClaimSweepCode;
+  docPath?: string;
+  docLine: number;
+  column: number;
+  /** Absent only on `SWEEP_DOCUMENT_UNREADABLE`, which is about a DOCUMENT. */
+  token?: string;
+  message: string;
+  detail: string;
+}): Finding {
+  return { check: "claimSweep", severity: "advisory", ...f };
+}
+
+/**
  * One document in the DECLARED swept set (spec §3.3). `lines` is null when the
  * resolver could not read it — a tracked symlink, an unreadable file. The
  * declaration is what puts a document here; nothing is inferred from a
@@ -313,19 +366,19 @@ function numericHalf(docs: readonly SweepDocument[], record: RepairRecord): Find
         const span = spans.find((s) => s.start <= at && at < s.end);
         const sentence = span === undefined ? line : line.slice(span.start, span.end);
         if (carries(sentence, replacement, NUMERIC_BOUNDARY)) continue;
-        findings.push({
-          check: "claimSweep",
-          code: "VALUE_SUPERSEDED_ELSEWHERE",
-          severity: "advisory",
-          docPath: doc.path,
-          docLine: i + 1,
-          column: at + 1,
-          token: superseded,
-          message:
-            `${doc.path}:${i + 1} carries ${superseded}, declared superseded by ` +
-            `${replacement}, in a sentence that does not name ${replacement}`,
-          detail: "re-read it -- it is stale, or it is deliberate and wants a word saying so.",
-        });
+        findings.push(
+          sweepFinding({
+            code: "VALUE_SUPERSEDED_ELSEWHERE",
+            docPath: doc.path,
+            docLine: i + 1,
+            column: at + 1,
+            token: superseded,
+            message:
+              `${doc.path}:${i + 1} carries ${superseded}, declared superseded by ` +
+              `${replacement}, in a sentence that does not name ${replacement}`,
+            detail: "re-read it -- it is stale, or it is deliberate and wants a word saying so.",
+          }),
+        );
       }
     }
   }
@@ -379,20 +432,20 @@ function namedHalf(docs: readonly SweepDocument[], record: RepairRecord): Findin
         exactOccurrences += 1;
         // The repair's OWN new claim is the one occurrence that is not unswept.
         if (touched !== undefined && touched.has(i + 1)) continue;
-        findings.push({
-          check: "claimSweep",
-          code: "CLAIM_SITE_UNSWEPT",
-          severity: "advisory",
-          docPath: doc.path,
-          docLine: i + 1,
-          column: at + 1,
-          token: identifier,
-          message: `${doc.path}:${i + 1} mentions ${identifier}, DECLARED as a claim this repair changed`,
-          detail:
-            "the identifier is not superseded, and this arm did not verify that the repair " +
-            "changed the claim -- the declaration did. Re-read this occurrence against the " +
-            "repair's new claim.",
-        });
+        findings.push(
+          sweepFinding({
+            code: "CLAIM_SITE_UNSWEPT",
+            docPath: doc.path,
+            docLine: i + 1,
+            column: at + 1,
+            token: identifier,
+            message: `${doc.path}:${i + 1} mentions ${identifier}, DECLARED as a claim this repair changed`,
+            detail:
+              "the identifier is not superseded, and this arm did not verify that the repair " +
+              "changed the claim -- the declaration did. Re-read this occurrence against the " +
+              "repair's new claim.",
+          }),
+        );
       }
     }
   }
@@ -406,18 +459,18 @@ function namedHalf(docs: readonly SweepDocument[], record: RepairRecord): Findin
   //
   // It carries the fact and NO location, because there is no location.
   if (exactOccurrences === 0) {
-    findings.push({
-      check: "claimSweep",
-      code: "CLAIM_IDENTIFIER_NOT_FOUND",
-      severity: "advisory",
-      docLine: 1,
-      column: 1,
-      token: identifier,
-      message: `${identifier} was DECLARED as a changed claim and occurs zero times EXACTLY in the swept set`,
-      detail:
-        "nothing was swept for it. Check the declaration for a truncation or a typo -- an " +
-        "ordinary one-character slip matches as a SUBSTRING and would have reported everywhere.",
-    });
+    findings.push(
+      sweepFinding({
+        code: "CLAIM_IDENTIFIER_NOT_FOUND",
+        docLine: 1,
+        column: 1,
+        token: identifier,
+        message: `${identifier} was DECLARED as a changed claim and occurs zero times EXACTLY in the swept set`,
+        detail:
+          "nothing was swept for it. Check the declaration for a truncation or a typo -- an " +
+          "ordinary one-character slip matches as a SUBSTRING and would have reported everywhere.",
+      }),
+    );
   }
   return findings;
 }
@@ -445,16 +498,16 @@ function unreadableDocuments(docs: readonly SweepDocument[]): Finding[] {
   const findings: Finding[] = [];
   for (const doc of docs) {
     if (doc.lines !== null) continue;
-    findings.push({
-      check: "claimSweep",
-      code: "SWEEP_DOCUMENT_UNREADABLE",
-      severity: "advisory",
-      docPath: doc.path,
-      docLine: 1,
-      column: 1,
-      message: `${doc.path} was declared in the swept set and could not be read; it was NOT swept`,
-      detail: "the sweep over this document did not happen. Silence about it is not a clean.",
-    });
+    findings.push(
+      sweepFinding({
+        code: "SWEEP_DOCUMENT_UNREADABLE",
+        docPath: doc.path,
+        docLine: 1,
+        column: 1,
+        message: `${doc.path} was declared in the swept set and could not be read; it was NOT swept`,
+        detail: "the sweep over this document did not happen. Silence about it is not a clean.",
+      }),
+    );
   }
   return findings;
 }
