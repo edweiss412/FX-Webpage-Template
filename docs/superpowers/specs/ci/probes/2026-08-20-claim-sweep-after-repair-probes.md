@@ -123,3 +123,40 @@ is the cheaper invariant that holds without parsing.
    re-deriving in review.
 5. The named-claim half tracks identifiers rather than values, which is why it does not inherit the
    before/after problem: an identifier does not appear in transition sentences the way a number does.
+
+
+## 5. Round-2 supplement — the refinement that FAILED, and the named half's real volume
+
+Run 2026-08-20 after the spec's second adversarial round, by
+`scripts/2026-08-20-round2-refinement-and-named-half-census.py`.
+
+### 5.1 A half-repaired sentence cannot be discriminated by counting
+
+Round 2 found a silent miss: one sentence carrying two claims on the same value, with only the first
+repaired, now contains the replacement — so §3.1 suppresses the surviving stale claim.
+
+```
+sentence: "Update the census-length premise from 21 to 57, and the distinct-identity assertion to 58."
+  occurrences of 58: 1     occurrences of 57: 1
+```
+
+The obvious refinement — exclude only when the sentence reads as ONE transition, exactly one of each —
+**fails**, because a legitimate transition has precisely that shape too. Separating them requires
+knowing which CLAIM each number belongs to, which is the recognizer the design exists to avoid. So the
+arm declines and the miss is declared (spec §5 item 6). The failure direction is a missed advisory, not
+a false one.
+
+### 5.2 The named half's measured volume on the incident
+
+```
+files the repair touched: 4
+spec: 4 occurrences at lines [153, 155, 268, 327]
+plan: 4 occurrences at lines [85, 148, 149, 211]
+probe record: 1 occurrence at line [64]
+TOTAL occurrences of the identifier across the arc: 9
+```
+
+The spec had claimed the replay yields "the §6 identifier survivor". It yields nine occurrences, of
+which the arm reports those outside the repair's hunks. AC-4 now states the measured set. The volume is
+the design: a reclassified site is claimed about wherever the arc discusses it, and the advisory asks
+for exactly the re-read the ledger entry wants.

@@ -81,11 +81,17 @@ states for exactly this reason:
 
 ```
 pnpm spec:lint <doc> --superseded 58 --replacement 57
-pnpm spec:lint <doc> --superseded 'PublishedReviewModal.tsx:964 is in (a)' --claim-now 'is in (b)'
+pnpm spec:lint <doc> --claim-about 'PublishedReviewModal.tsx:964' --repair <rev>
 ```
 
+**`--repair` is REQUIRED for the named half** and optional for the numeric one. The named half's whole
+exclusion is "everywhere except where the repair restated the claim", so without the hunk spans it has
+no way to omit the repair's own new claim and would report it as unswept — a wrong advisory. An invocation
+of `--claim-about` without `--repair` is refused, by name, rather than running on an inferred exclusion.
+
 `--repair <rev>` is accepted ALONGSIDE a declaration, never instead of one: it supplies the hunk spans
-that scope §3.2's "outside the repair" test, and nothing else. Absent a declaration the arm runs
+that scope §3.2's "outside the repair" test, and nothing else. It is REQUIRED whenever `--claim-about`
+is given. Absent a declaration the arm runs
 nothing and says so; silence from an undeclared invocation is not a certificate.
 
 ### 3.1 The numeric half
@@ -98,6 +104,22 @@ claim names only the superseded one (`"every element in the 58-row census carrie
 co-occurrence test is the whole discriminator: no recognizer for transition prose, no tense model, no
 parser. Measured recall and precision are in §2.
 
+**A HALF-REPAIRED SENTENCE IS A DECLARED MISS, and this is the numeric half's sharpest limit.** If one
+sentence carries two claims on the same value and the author repairs only the first, the sentence now
+contains the replacement and §3.1 suppresses the surviving stale claim. Round 2 found it; the obvious
+refinement was tested and REJECTED on measurement rather than on taste:
+
+```
+sentence: "Update the census-length premise from 21 to 57, and the distinct-identity assertion to 58."
+  occurrences of 58: 1     occurrences of 57: 1
+```
+
+A legitimate transition sentence has exactly the same shape — one of each — so counting cannot separate
+them. Anything that could would have to understand which CLAIM each number belongs to, which is the
+recognizer this design exists to avoid (§1.1 item 3). The arm therefore declines: the failure direction
+is a MISSED advisory, never a false one, which is the conservative side of the consequence bound. It is
+recorded as §5 item 6 and restated in the module header.
+
 **The sentence is the scope, and the line is not.** The incident's sharpest survivor sits on a line the
 repair itself rewrote for an unrelated reason, so any rule keyed on diff status misses it (§1.1 item 4).
 
@@ -106,6 +128,11 @@ repair itself rewrote for an unrelated reason, so any rule keyed on diff status 
 Given a repair that changes a claim about a named IDENTIFIER — a `file:line`, a symbol, a token the
 repair's own diff carries on both a removed and an added line — the arm reports every OTHER occurrence
 of that identifier in the arc's documents, outside the repair's hunks, as a claim to re-read.
+
+**Its volume is high by design, and that is stated so nobody reads it as noise.** A reclassified site is
+claimed about wherever the arc discusses it — nine occurrences for the incident's one site — and the
+advisory says "re-read these against the repair's new claim", which is exactly the sweep the ledger entry
+asks for. The numeric half is the precise one; the named half is the thorough one.
 
 This half does not inherit the before/after problem: an identifier does not appear in transition
 sentences the way a number does, because a repair that re-classifies a site does not write "site X was
@@ -175,6 +202,12 @@ module does not necessarily reach for this document.
    meaning while keeping every number and identifier. This arm tracks tokens, and silence is not a
    certificate.
 5. **Adversarial construction is out of scope** (§1.1 item 7).
+6. **A HALF-REPAIRED SENTENCE IS MISSED** (§3.1). One sentence carrying two claims on the same value,
+   with only the first repaired, is suppressed because the sentence now names the replacement. The
+   discriminating refinement was tested and rejected: a half-repaired sentence and a legitimate
+   transition both carry exactly one of each value, so no sentence-local count separates them, and
+   anything that could would need to know which claim each number belongs to. Missed advisory, never a
+   false one.
 
 ## 6. Testing
 
@@ -268,9 +301,12 @@ dispatch, and that brief states `MUTATION SCORE: <k>/<t>` plus "0 unaccepted sur
   the repair's own new claim draws nothing.
 - **AC-3** — Severity is advisory over EVERY emitted finding, asserted structurally rather than sampled;
   the arm never rewrites a document.
-- **AC-4** — The historical replay reproduces from committed blobs as a SET, never a count:
-  `fede5f084` yields exactly the nine `(document, line, token)` survivors and the three exclusions,
-  `c272ebed3` the identifier survivor. **A count is defeated by substitution** — swapping one survivor
+- **AC-4** — The historical replay reproduces from committed blobs as a SET, never a count.
+  `fede5f084` yields exactly the nine `(document, line, token)` numeric survivors and the three
+  exclusions. `c272ebed3` yields the MEASURED named-half set: the identifier occurs NINE times across
+  that arc — spec lines 153, 155, 268, 327; plan lines 85, 148, 149, 211; probe record line 64 — and the
+  arm reports those outside the repair's hunks. An earlier draft claimed it yields "the §6 survivor",
+  which round 2 refuted by counting; the criterion now states what the mechanism actually produces. **A count is defeated by substitution** — swapping one survivor
   for a different occurrence keeps the total at nine while changing what is asserted — so the assertion
   is the set. A count answers "did something new appear"; a set or digest answers "are these the same
   things", and this AC asks the second question.
