@@ -353,6 +353,31 @@ describe("discoverPins — dispositions are keyed on (path, title) (spec §5)", 
   });
 });
 
+describe("discoverPins — the opener boundary has TWO axes, and both are varied", () => {
+  /**
+   * CHARACTERIZATION, disclosed rather than dressed as a TDD cycle: this asserts
+   * behavior Task 1 already shipped. It exists because a boundary tested along one axis
+   * only is the same defect as a fixture whose observation a different rule decides.
+   *
+   * The anchor is "the start of the line modulo leading whitespace". The obvious axis is
+   * POSITION WITHIN THE LINE, varied above by an indented opener. The axis NOT varied
+   * there is ANOTHER CALL ON THE SAME LINE — a pin sitting after a preceding statement,
+   * which the anchor declines. That is a missed advisory, never a false one, which is
+   * the side the consequence bound requires; it is recorded as a documented limit rather
+   * than left as an untested corner.
+   */
+  const SECOND_ON_LINE = [COMPANION, `}); test("${T.psiSecondOnLine}", () => {});`];
+  const AT_LINE_START = SECOND_ON_LINE.map((l) => l.replace(/^\}\); /, ""));
+
+  it("declines a pin that follows another call on the SAME physical line", () => {
+    expectTitles(pins(SECOND_ON_LINE), T.piCompanion);
+  });
+
+  it("…and the SAME BYTES with the preceding statement removed REPORT it", () => {
+    expectTitles(pins(AT_LINE_START), T.psiSecondOnLine, T.piCompanion);
+  });
+});
+
 describe("discoverPins — degenerate inputs, each paired with a reporting run", () => {
   it("returns no pins for an empty file, while a pin-bearing file in the same run reports", () => {
     expect(pins([])).toEqual([]);

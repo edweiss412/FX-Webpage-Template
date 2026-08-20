@@ -58,6 +58,9 @@ export const SYNTHETIC_TITLES = {
   omegaGrain: "the qplinth omega ledger is a declared miss set",
   sigmaDispositioned: "the qplinth sigma bridge is a documented limit",
   tauLive: "the qplinth tau hinge is a known miss",
+  /** A pin sitting AFTER another call on the same physical line (the second axis of
+   *  the opener boundary). Declined — conservative, a missed advisory never a false one. */
+  psiSecondOnLine: "the qplinth psi coupler is a documented limit",
   /** Carries NO member of the three-phrase accept set — the §8 item 6 near miss. */
   rhoNearMiss: "the qplinth rho bolt stays a limit",
 } as const;
