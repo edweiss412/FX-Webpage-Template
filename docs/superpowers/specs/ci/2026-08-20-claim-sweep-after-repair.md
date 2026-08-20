@@ -72,11 +72,16 @@ anchor rather than a HEAD sha, because this arc's own commits cannot move these 
 `docs/superpowers` markdown file on this branch is touched:
 
 ```
-tracked docs/superpowers markdown files:          1133
-this arc's own documents, excluded by path:          2   (the plan is declared, not yet written)
+tracked docs/superpowers markdown files:          1134
+this arc's own documents, excluded by path:          3
 population measured:                              1131
 census shape hits over the population:             936   (935 excluded by the rule, 1 not — §5 item 1)
 ```
+
+**The plan arriving is the proof the exclusion works.** `ARC_DOCUMENTS` named it before it existed, so
+writing it moved the tracked count from 1133 to 1134 and the excluded count from 2 to 3 while the
+POPULATION and every row of the table below stayed exactly where they were. Under the old
+measure-everything approach the plan's arrival would have been a fifth number-drift repair.
 
 Every row of the table below comes from that one run. The UNFILTERED corpus carries more, and the
 difference is this arc's own writing — a quantity that changes with every sentence added to this
@@ -104,7 +109,7 @@ over the population §2.0 declares.
 
 | Measurement | Value |
 | --- | --- |
-| Tracked `docs/superpowers` markdown files | 1133, of which 2 are this arc's own and EXCLUDED — population 1131 |
+| Tracked `docs/superpowers` markdown files | 1134, of which 3 are this arc's own and EXCLUDED — population 1131 |
 | Sites the NAIVE form would wrongly flag, DEDUPLICATED by (path, value offset) | 1009 |
 | …raw matches before dedup, since the six shapes overlap | 1032 |
 | …of which plain `X → Y` transition sentences | 923 |
@@ -339,9 +344,24 @@ a REFUSAL says the run never happened, and a DECLARED SILENCE is a documented li
 dispositioned. Collapsing any two would make a swept-and-clean run indistinguishable from a run that
 never started, or from one that declined.
 
-**The implementation asserts the code set, not a code list read from prose:** the shipped module exports
-its codes and §6's cover asserts the emitted set over the whole fixture corpus equals exactly those
-four. A fifth code, or a missing one, fails without anyone re-reading this table.
+**The table above is DERIVED where deriving it is possible, and the residue is declared rather than
+asserted away.** A table that merely CLAIMS to be derived is enumeration in derivation's costume, and it
+drifts the first time a requirement is added — which is exactly how the not-found signal came to be
+required with no channel. So the cover runs in BOTH directions over the halves a checker can read:
+
+- every FINDING row names a code that is in the module's exported `CLAIM_SWEEP_CODES`, and every exported
+  code appears in exactly ONE row — so a fifth code, a missing one, or a row naming a code that does not
+  exist fails without anyone re-reading this table;
+- every DECLARED SILENCE row names a `§5 item N` that EXISTS, so a limit deleted from §5 cannot leave a
+  row pointing at nothing;
+- every REFUSAL row corresponds to a refusal §6 asserts exits 2 with no finding.
+
+**What the cover CANNOT do is read §3's prose and discover a requirement with no row at all**, and that
+is §5 item 10 rather than a claim quietly left standing. Extracting normative outcomes from English is
+the recognizer §1.1 item 3 forbids this arm from building, and building one HERE — inside the guard's own
+test — would be the same mistake at one remove. The cover carries a POSITIVE CONTROL so its clean verdict
+is attributable rather than the shape of a check that never fired: a constructed row naming a code the
+module does not export makes it report both names and exit non-zero.
 
 **The named half deliberately does not say "superseded", and it does not say the REPAIR changed the
 claim either — it says the DECLARATION did (§3.2).** The first review caught the earlier wording
@@ -418,6 +438,15 @@ module does not necessarily reach for this document.
    Each of the three inference rules that would close this is wrong on the incident's own arc —
    citation-only misses the plan, stem-only misses the probe record, date matching pulls in an unrelated
    spec (§3.3 measures all three) — so the arm declines to guess. Missed advisory, never a false one.
+10. **THE SIGNAL INVENTORY'S COMPLETENESS AGAINST PROSE IS NOT MECHANICALLY CHECKED** (§3.4). The
+   cover reconciles the table against the module's exported codes and against §5's item numbers, in both
+   directions, and it CANNOT read §3's prose to find a requirement that has no row. A requirement added
+   to §3 without a row is therefore invisible to it — the same shape as the defect that produced the
+   fourth code, surviving in the one place a checker cannot reach without becoming a recognizer over
+   English (§1.1 item 3). Declared, with the positive control that proves the cover fires on the half it
+   DOES check, rather than left as an unstated assumption. The mitigation is procedural and stated here
+   so it is met at the point of temptation: **an edit adding a normative outcome to §3 adds its row in
+   the same commit**, and the module header restates this limit.
 
 ## 6. Testing
 
@@ -435,6 +464,7 @@ force. Two covers are mandatory before any review dispatch, both learned on this
 | §3.3 document set, resolution | INFER the peers from citations, stem, or date | the incident's own arc, where citation-only misses the plan (7 of the 9 survivors), stem-only misses `2026-08-18-border-border-neutral-fill-census.md`, and date matching pulls in the unrelated `2026-08-18-process-facing-mint-bar.md`. The fixture declares the peers, asserts the swept set is EXACTLY `<doc>` plus each `--also`, and keeps an undeclared sibling present in the tree and absent from the result |
 | §3.4 unreadable peer | continue silently when `readFileLines()` returns null | a declared peer whose read returns null emits `SWEEP_DOCUMENT_UNREADABLE`; the silent implementation emits nothing for it while every occurrence-code assertion in this table still passes. Paired positive: the same peer READABLE, contributing its own occurrence findings — one variable, the readability |
 | §2.0 fixture literals | key the no-collision check on a NONCE token | a synthetic literal written WITHOUT the nonce, which the nonce grep cannot see and the shared-module key still covers |
+| §3.4 signal inventory | hand-maintain the table and assert it is derived | the reconciliation runs BOTH directions over the halves a checker can read — every FINDING row names an exported code and every exported code appears in exactly ONE row, every DECLARED SILENCE row names a `§5 item N` that exists, every REFUSAL row matches a refusal asserted to exit 2. POSITIVE CONTROL, so a clean verdict is attributable: a constructed row naming a code the module does not export makes it report both names and exit non-zero. The prose half it cannot reach is §5 item 10 |
 | §3.4 accept-set | emit a fifth code, or drop one | the emitted code set over the whole fixture corpus, compared against the module's OWN exported code list rather than a list retyped into the test, so the drift cannot relocate into the checker. Paired with the three refusals asserted to emit no finding at all and exit 2, which is what keeps a refusal out of the finding channel |
 | §3.4 not-found signal | match exactly and stay SILENT when nothing matches | the same truncated `…tsx:96` against `c272ebed3`: the run must emit exactly one `CLAIM_IDENTIFIER_NOT_FOUND` and ZERO `CLAIM_SITE_UNSWEPT`, asserted as both halves. A silent implementation emits nothing and passes every occurrence assertion in this table, because there are no occurrences to assert on. Paired positive, ONE variable — the identifier: the untruncated `…tsx:964`, same commit and same swept set, emits zero not-found and its occurrences instead |
 | §3.2 identity | match the identifier as a SUBSTRING | a one-character truncation of the declared `file:line` (`…tsx:96` for `…tsx:964`) occurs ZERO times exactly and nine times as a substring — an ordinary CLI typo, so a substring implementation emits nine wrong advisories while the exact rule reports no occurrence and emits `CLAIM_IDENTIFIER_NOT_FOUND` |
@@ -570,7 +600,10 @@ rather than excusing it, and it cannot go stale when the surrounding code change
   the arm never rewrites a document. The emitted CODE SET over the whole fixture corpus equals exactly
   the four of §3.4 — asserted against the module's own exported codes, never against a list retyped from
   prose — so a fifth code or a missing one fails without anyone re-reading the signal inventory. The
-  three §3.0 refusals are asserted to emit NO finding and exit 2.
+  signal inventory itself is RECONCILED in both directions against those exported codes and against §5's
+  item numbers, with a positive control proving the reconciliation fires; the prose half it cannot reach
+  is declared as §5 item 10 rather than claimed. The three §3.0 refusals are asserted to emit NO finding
+  and exit 2.
 - **AC-4** — The historical replay reproduces from committed blobs as a SET, never a count.
   `fede5f084` yields exactly the nine `(document, line, column, token)` numeric survivors and the three
   excluded occurrences. Those nine sit on nine distinct lines — spec 220 and 282, plan 7, 9, 18, 112,
