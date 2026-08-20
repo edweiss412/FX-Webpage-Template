@@ -423,6 +423,43 @@ function namedHalf(docs: readonly SweepDocument[], record: RepairRecord): Findin
 }
 
 /**
+ * The THIRD code (spec §3.4): a document that was DECLARED and could not be
+ * read was NOT swept, and silence about it is not a clean.
+ *
+ * Neither occurrence code can truthfully describe a document that was never
+ * read -- both assert something about content -- so an implementation that
+ * continues silently on `readFileLines() === null` satisfies every occurrence
+ * assertion while "never silently skipped" is false of it. The code IS the
+ * contract.
+ *
+ * ONE per unreadable document, not one per run: two unreadable peers are two
+ * documents nobody swept, and a single run-level advisory would name at most
+ * one of them.
+ *
+ * This is a LIVE corpus shape rather than a hypothetical. `git ls-files -s
+ * docs/superpowers | awk '$1==120000'` finds a tracked SYMLINK under the swept
+ * tree, and `FileResolver`'s own contract names the case: "null = tracked but
+ * unreadable OR tracked symlink".
+ */
+function unreadableDocuments(docs: readonly SweepDocument[]): Finding[] {
+  const findings: Finding[] = [];
+  for (const doc of docs) {
+    if (doc.lines !== null) continue;
+    findings.push({
+      check: "claimSweep",
+      code: "SWEEP_DOCUMENT_UNREADABLE",
+      severity: "advisory",
+      docPath: doc.path,
+      docLine: 1,
+      column: 1,
+      message: `${doc.path} was declared in the swept set and could not be read; it was NOT swept`,
+      detail: "the sweep over this document did not happen. Silence about it is not a clean.",
+    });
+  }
+  return findings;
+}
+
+/**
  * The sweep. A null record means no repair was declared and the arm runs
  * nothing — silence from an undeclared invocation is not a certificate, which
  * is why the adapter REFUSES such an invocation rather than reporting a clean.
@@ -437,5 +474,5 @@ function namedHalf(docs: readonly SweepDocument[], record: RepairRecord): Findin
  */
 export function claimSweep(docs: readonly SweepDocument[], record: RepairRecord | null): Finding[] {
   if (record === null) return [];
-  return [...numericHalf(docs, record), ...namedHalf(docs, record)];
+  return [...numericHalf(docs, record), ...namedHalf(docs, record), ...unreadableDocuments(docs)];
 }

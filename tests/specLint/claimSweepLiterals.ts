@@ -54,6 +54,15 @@ export const STALE_SENTENCE = "Every row of the 8811-slot ledger carries a lane 
  */
 export const MIXED_LINE = `${TRANSITION_SENTENCE} ${STALE_SENTENCE}`;
 
+/**
+ * A stale claim carrying the INCIDENT's superseded value (58), for the
+ * undeclared-sibling pair in the document-set suite. It has to carry the value
+ * the incident declaration names, or the sibling contributes nothing whether it
+ * is declared or not and the pair discriminates nothing.
+ */
+export const SIBLING_STALE_SENTENCE =
+  "The retired 58-row manifest is still cited by the loader shim.";
+
 /** A sentence carrying the ABSENT pair's superseded value, for that pin's paired positive. */
 export const ABSENT_PAIR_STALE_SENTENCE =
   "The retired 7733-entry manifest is still cited by the loader shim.";
@@ -76,5 +85,6 @@ export const SYNTHETIC_LITERALS: readonly string[] = [
   STALE_SENTENCE,
   MIXED_LINE,
   ABSENT_PAIR_STALE_SENTENCE,
+  SIBLING_STALE_SENTENCE,
   ABSENT_IDENTIFIER,
 ];
