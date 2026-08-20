@@ -436,10 +436,10 @@ unchanged pair owes no re-run.
 Stated here so every review brief can cite them, and so a brief-versus-spec mismatch is itself a
 finding:
 
-- **Consequence bound.** Every input is handled correctly or signalled; the guard never silently
-  certifies a psql invocation it has mis-read. A conservative NON-REPORT plus a declared limit is a
-  DOCUMENTED LIMIT, not a finding. Both arms move only in the report direction, and §4 lists every
-  probed movement.
+- **Consequence bound.** Every input is handled correct or signaled, never silently wrong: the guard
+  never silently certifies a psql invocation it has mis-read, and never attributes a report to the
+  wrong line or file. A conservative NON-REPORT plus a declared limit is a DOCUMENTED LIMIT, not a
+  finding. Both arms move only in the report direction, and §4 lists every probed movement.
 - **PROBE DOMAIN.** The instrument set of
   `docs/superpowers/specs/ci/probes/2026-08-17-shell-binding-mixed-quoted-probes.md` including its
   round-1, round-2, round-6 and 2026-08-20 supplements, plus the live tracked corpus
