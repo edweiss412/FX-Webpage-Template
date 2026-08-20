@@ -419,13 +419,94 @@ const classifyUses = (
   return out;
 };
 
+/**
+ * Rule 2 — in-pass reads are STRAIGHT-LINE and SINGLE.
+ *
+ * Inside the declared pass a read call must sit on the pass's own straight-line
+ * path: no enclosing nested function, callback, or loop between it and the pass
+ * body. Each read method may appear at most once on that path.
+ *
+ * This ONE rule replaces the discarded draft's per-invocation counting and its
+ * cycle detection. Spec round 2's F2 — a NAMED local callback invoked twice — is
+ * caught because the read sits behind a nested function, with no need to know
+ * how many times it runs. A read behind a nested function has no static count,
+ * so position is the checkable property and execution is not.
+ */
+const blocksStraightLine = (n: ts.Node): boolean =>
+  isFunctionLike(n) ||
+  ts.isForStatement(n) ||
+  ts.isForOfStatement(n) ||
+  ts.isForInStatement(n) ||
+  ts.isWhileStatement(n) ||
+  ts.isDoStatement(n);
+
+const analyzePassReads = (
+  sf: ts.SourceFile,
+  file: string,
+  bindings: ReadonlySet<string>,
+  reads: readonly string[],
+  passFn: ts.Node,
+): Finding[] => {
+  const readSet = new Set<string>(reads);
+  const out: Finding[] = [];
+  const onPath = new Map<string, number[]>();
+  const lineAt = (n: ts.Node): number => sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
+
+  const visit = (n: ts.Node): void => {
+    if (
+      ts.isCallExpression(n) &&
+      ts.isPropertyAccessExpression(n.expression) &&
+      ts.isIdentifier(n.expression.expression) &&
+      bindings.has(n.expression.expression.text) &&
+      readSet.has(n.expression.name.text)
+    ) {
+      const member = n.expression.name.text;
+      let cursor: ts.Node = n.parent;
+      let nested = false;
+      while (cursor !== passFn && cursor.parent !== undefined) {
+        if (blocksStraightLine(cursor)) {
+          nested = true;
+          break;
+        }
+        cursor = cursor.parent;
+      }
+      const line = lineAt(n);
+      if (nested) {
+        out.push({ code: "NON-STRAIGHT-LINE-READ", file, line, name: member, lines: [line] });
+      } else {
+        onPath.set(member, [...(onPath.get(member) ?? []), line]);
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(passFn);
+
+  for (const [member, lines] of onPath) {
+    // Names BOTH lines: the finding is about two instants, so naming one of them
+    // would report half the defect.
+    if (lines.length > 1) {
+      out.push({ code: "MULTI-READ", file, line: lines[0]!, name: member, lines });
+    }
+  }
+  return out;
+};
+
 /** Scan one enrolled module against its row. */
 export function scanModule(file: string, row: SendAuthSurface): Finding[] {
   const text = readFileSync(file, "utf8");
   const sf = parse(file, text);
   const bindings = surfaceBindings(sf, row);
   const markers = markersIn(file, text, sf);
-  const findings: Finding[] = classifyUses(sf, file, row, bindings, readsFromSourceFile(sf, row));
+  const reads = readsFromSourceFile(sf, row);
+  const findings: Finding[] = classifyUses(sf, file, row, bindings, reads);
+
+  // Rules 2 and 3 range over every DECLARED pass, whether or not its enclosing
+  // function turned out to be send-bearing: a declared pass is a claim about how
+  // the surface is read there, and the claim is checked wherever it is made.
+  for (const marker of markers) {
+    if (marker.kind !== "pass" || marker.fn === null) continue;
+    findings.push(...analyzePassReads(sf, file, bindings, reads, marker.fn));
+  }
 
   for (const fn of topLevelFunctions(sf)) {
     // Send-bearing: the SUBTREE calls a declared SINK on a surface binding.

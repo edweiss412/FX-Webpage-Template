@@ -316,3 +316,48 @@ describe("AC-2 — the ambient exemption is for a CALLBACK HANDOFF, and only tha
     ]);
   });
 });
+
+describe("AC-6/AC-7 — in-pass reads are straight-line and single", () => {
+  it("ONE straight-line read of one method scans CLEAN", () => {
+    // The false-positive counterpart, and without it this whole block is
+    // satisfied by reporting EVERY in-pass direct read — which passes every
+    // violation case below and then fails against the live tree.
+    expect(scan("single-read-clean.ts")).toEqual([]);
+  });
+
+  it("two straight-line reads of the SAME method report MULTI-READ naming BOTH lines", () => {
+    // Two values read at different instants can disagree; one cannot. That is
+    // the entire defect class this gate exists for.
+    const f = "multi-read.ts";
+    const first = lineOf(f, "ch.panes()", 1);
+    const second = lineOf(f, "ch.panes()", 2);
+    expect(scan(f)).toEqual([finding(f, "MULTI-READ", "panes", first, [first, second])]);
+  });
+
+  it("the round-2 F2 NAMED CALLBACK reports NON-STRAIGHT-LINE-READ", () => {
+    // Asserted by that name per AC-6. Caught by POSITION, with no need to know
+    // how many times the callback runs — which is exactly what replaced the
+    // discarded draft's per-invocation counting and its cycle detection.
+    const f = "named-callback.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "NON-STRAIGHT-LINE-READ", "gauge", lineOf(f, "ch.gauge(id)")),
+    ]);
+  });
+
+  // One case per FUNCTION-LIKE kind and per ITERATION kind. A scanner that
+  // recognizes only the node kinds a minimal fixture set happens to use
+  // satisfies the rule AS STATED while missing the rest of the language — the
+  // analysis-primitive weakness round 4 named, distinct from a weak rule.
+  it.each([
+    ["nested-function-declaration.ts", "ch.gauge(id)"],
+    ["nested-arrow.ts", "ch.gauge(id)"],
+    ["nested-object-method.ts", "ch.gauge(id)"],
+    ["nested-function-expression.ts", "ch.gauge(id)"],
+    ["loop-for.ts", "ch.gauge(String(i))"],
+    ["loop-for-of.ts", "ch.gauge(id)"],
+    ["loop-while.ts", "ch.gauge(String(left))"],
+    ["loop-do-while.ts", "ch.gauge(String(left))"],
+  ])("%s reports NON-STRAIGHT-LINE-READ", (f, needle) => {
+    expect(scan(f)).toEqual([finding(f, "NON-STRAIGHT-LINE-READ", "gauge", lineOf(f, needle))]);
+  });
+});
