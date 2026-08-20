@@ -170,7 +170,14 @@ Implements spec §3.1 items 1-3. Pure over one file's lines; no filesystem, no r
 every declined shape; none can pass until `discoverPins` exists.
 
 The declined shapes are asserted individually, each with its spec §8 item cited in the test body,
-because "the arm draws nothing here" is the claim a future widening would quietly break:
+because "the arm draws nothing here" is the claim a future widening would quietly break.
+
+**Every decline fixture carries a LIVE PIN alongside the declined shape, and the assertion is the exact
+pin SET rather than emptiness** (spec §6). An expect-CLEAN fixture is satisfied by any implementation
+that fails to LOOK — a garbage parse, an empty walk, a scanner returning `[]` unconditionally — so on
+its own it discriminates almost nothing. With the live pin present, an arm that returns empty fails the
+positive half, and the weaker implementation's real signature (falling silent where a finding is owed,
+which is the fail-open direction) is caught.
 
 | Declined shape | Spec | Assert |
 | --- | --- | --- |
@@ -272,7 +279,9 @@ fails any implementation using `String.prototype.includes` on the raw path.
       `pnpm vitest run tests/specLint/declaredLimitPinsFiles.test.ts`. Expected: the naming cases fail
       with an empty set against an expected surface id. A module-resolution error, a parse error, or
       zero collected tests means the red is invalid and the task stops.
-- [ ] **Step 2a: Fixture neutralization check.** The prose-outside-a-declaration fixture must contain NO
+- [ ] **Step 2a: Fixture neutralization and PAIRING check.** The prose-outside-a-declaration fixture
+      carries a real declaration naming a DIFFERENT enrolled surface, asserted NAMED in the same run —
+      without it, an implementation that names nothing passes. It must also contain NO
       positive occurrence of the same enrolled path: if that path also sits in a real declaration in the
       fixture plan, §3.2 names the surface anyway and the negative case cannot fail.
 - [ ] **Step 2b: Add the SYNTHETIC-SURFACE case.** Weaker implementation to kill: a hardcoded copy of
@@ -328,7 +337,9 @@ SECOND and asserts BOTH the advisory and the pin.
 **Weaker implementation to kill: an arm that emits the unreadable advisory unconditionally.** It
 satisfies all three channel cases, so the discriminating case is the negative one — a healthy suite
 (tracked, readable, parseable) draws NO `DECLARED_LIMIT_PIN_SUITE_UNREADABLE`, asserted directly rather
-than inferred from other cases passing.
+than inferred from other cases passing. **That negative is PAIRED**: the same run must still report that
+healthy suite's pins, so an arm that has gone silent everywhere fails it rather than passing by absence
+(spec §6).
 
 **Decoding, the other half of Task 1's pair.** A plan naming the DECODED title draws nothing; a plan
 naming the SOURCE spelling of the same title draws the advisory. Either assertion alone is satisfiable
@@ -638,7 +649,9 @@ does that. Three facts, three proofs, stated so no one reads any of them as cove
 
 - [ ] **Step 1: Add `prepareSuiteText` to the adapter as an exported STUB returning its input
       unchanged**, then write the fixture suite TEXT (one live pin, one decoy per channel) and the
-      failing in-process case. The stub is the `red-target=` defect, not the implementation.
+      failing in-process case. The assertion is the exact surviving SET — every decoy title gone AND the
+      LIVE pin's title still present — never merely that the decoys are absent, which a preparation that
+      blanks the whole file would satisfy. The stub is the `red-target=` defect, not the implementation.
 - [ ] **Step 2: Observe red AND CONFIRM THE REASON.** Run
       `pnpm vitest run tests/specLint/declaredLimitPinsCli.test.ts`. Expected: the prepared text still
       contains all three decoy titles, each named in the failure output. A spawn error, an unresolved

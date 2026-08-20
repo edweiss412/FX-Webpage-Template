@@ -292,6 +292,24 @@ healthy-suite silence case).
 | §4 adapter, INJECTION | a hardcoded copy of the live enrolled table | the §6 synthetic-surface case — NOT AC-10, see the division below |
 | §2.7 replay | special-case the two historical blobs | the corpus case, which ranges over the whole tracked corpus and fails any blob-specific implementation |
 
+**An expect-CLEAN fixture is WEAK BY DEFAULT, and every one here is PAIRED.** A fixture whose expected
+value is "nothing" is satisfied by any implementation that FAILS TO LOOK — a garbage parse, an empty
+walk, a scanner that returns the empty set unconditionally, a crashed discovery step. It discriminates
+almost nothing on its own. So every negative case in §6 shares its input with a POSITIVE one on the same
+machinery, and the assertion is the exact SET rather than emptiness:
+
+| Negative case | Paired positive, in the same input and the same run |
+| --- | --- |
+| each decline shape (`describe(`, `.each`, template, multi-line literal, comment, second argument, multi-line ordinary string) | the same fixture file carries a LIVE pin, and the assertion is that the pin set equals exactly that one pin — an arm returning empty fails |
+| an enrolled path in prose outside every declaration names nothing | the same fixture plan carries a real declaration naming a DIFFERENT enrolled surface, asserted named |
+| a healthy suite draws no `DECLARED_LIMIT_PIN_SUITE_UNREADABLE` | the same run must still report that suite's pins — silence everywhere fails |
+| a dispositioned title draws no pin | the same file's non-dispositioned pin must still report |
+| AC-10 step 1: no decoy title survives preparation | the LIVE pin's title MUST survive it — a preparation that blanks everything satisfies the negative half alone |
+| a null injected table draws no findings | the same suite's non-null-table case draws the expected finding |
+
+The direction is the point: a weaker implementation falls SILENT where a finding is owed, which is the
+fail-open side, and only a positive expectation can catch it.
+
 **Second question, asked of every fixture: which rule DECIDES the observation you assert on, and is it
 the rule under test?** If a cross-finding rule can produce your pass condition by a different route, the
 fixture proves nothing — and the question has to be asked of the machinery the IMPLEMENTER will invent,
@@ -333,7 +351,7 @@ never tested.
 - **Fail-open fires only when it should.** A healthy suite — tracked, readable, parseable — draws NO `DECLARED_LIMIT_PIN_SUITE_UNREADABLE`, asserted directly rather than inferred from other cases passing. An implementation that emits the advisory unconditionally satisfies all three channel cases and is caught only here.
 - **CLI boundary proof (a real subprocess, and the ONLY proof that covers preparation).** Every other case in this section exercises the pure core with prepared lines supplied by the test, so a shipped adapter that passes RAW lines — or never injects the surface table at all — satisfies all of them and the whole round-3 false-advisory class survives where it actually lives. **The proof is TWO steps, because no single mechanism reaches both facts.** An earlier draft of this section required preparation to be proved through the shipped CLI over a decoy-bearing fixture suite. Plan round 1 proved that UNRUNNABLE: the CLI resolves `suitePaths` from the real registry and the tracked-file index, so a fixture suite under `__fixtures__/` is never read and planted decoys cannot be observed at all. Planting them in a real enrolled suite would mean editing a tracked test to make a test pass. An acceptance criterion that cannot execute is decoration, so it is replaced rather than defended:
 
-- **PREPARATION is proved IN PROCESS**, against the adapter's exported preparation function over fixture suite TEXT holding one live pin plus one decoy per channel, each carrying a DIFFERENT title: one inside `/* … */`, one inside a template literal, one inside a multi-line ordinary string. A single comment decoy would certify only the comment channel, so the decoy set is §3.1's channel list and grows with it.
+- **PREPARATION is proved IN PROCESS**, against the adapter's exported preparation function over fixture suite TEXT holding one live pin plus one decoy per channel, each carrying a DIFFERENT title: one inside `/* … */`, one inside a template literal, one inside a multi-line ordinary string. The assertion is the exact surviving SET — every decoy title gone AND THE LIVE PIN'S TITLE STILL PRESENT — never merely that the decoys are absent, which a preparation blanking the whole file would satisfy. A single comment decoy would certify only the comment channel, so the decoy set is §3.1's channel list and grows with it.
 - **WIRING is proved BY SUBPROCESS**, running the shipped CLI over a fixture PLAN naming a REAL enrolled surface, asserting the arm's advisory appears identified by that surface's specific `(suitePath, title)` — not merely that some advisory was emitted. The run must emit exactly one `DECLARED_LIMIT_PIN_UNNAMED`, naming the live pin and not the commented one.
 
 **The two titles must differ, and round 5 is why.** An earlier draft made the commented pin IDENTICAL to the live one; both then share a `(path, title)` identity, the §3.3 deduplication collapses them, and an adapter that never prepares the text emits exactly one finding — the pass condition. The proof was satisfiable by the defect it existed to catch. Distinct titles make "two findings" reachable, so the assertion can fail in the direction it claims to test. In the preparation step, prepared text still showing a decoy's title proves the adapter skipped that channel. In the wiring step, no advisory proves it never injected. Neither covers the other, and neither covers table-driven NAMING — the §6 synthetic-surface case does that. Three facts, three proofs, stated so none is read as covering more. Both failure directions are asserted, because either alone is satisfiable by the other defect.
