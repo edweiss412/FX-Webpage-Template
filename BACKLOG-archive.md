@@ -17,6 +17,8 @@
 
 **Enrolment, stated rather than claimed.** `tests/mutation/browser/runner.ts` is NOT enrolled and NOT enrollable — the registry's own browser block says so, because the spawn boundary needs a real Playwright child. No mutation score is claimed for it and none was stated. `spawnBounded` IS enrolled and this arc does not modify it; Task 3 strengthened its SUITE, which can only raise that surface's score.
 
+**The diff stage was closed by ORCHESTRATOR DISPOSITION at the round cap, not by an APPROVE, and that is stated because a disposition nobody wrote down is indistinguishable from a skipped gate.** Three counted diff rounds, the last returning NEEDS-ATTENTION. Rounds 1, 3 and 4 all landed on one axis — the disposition guard's fidelity — so `bl-orch` pre-ruled ship-and-fence at round 4 rather than a fifth round. Round 4's finding had two halves and they fell on opposite sides of that ruling: the hand-enumerated shape set was a COVER gap and was repaired (the names now derive from `node:child_process`'s own exports), while a child whose argument text spells the guard's ceiling tokens needs a string-literal reader and is fenced as spec §6 limit 7. Full record: `docs/review-rounds/fix/mutation-browser-child-lifetime/03953337388b.md`.
+
 **Closeout gate:** `pnpm heavy pnpm mutation:browser` GREEN at 612.26 s, inside the probe's measured 617-652 s band, with `tapTargetFloor` at its `scoreFloor` of 1 and an empty accepted ledger.
 
 **Peers filed, not closed here:** `BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH` (a different job with a different repair) and `BL-SPECLINT-RED-REASON-VERIFICATION` (the red-contract arm checks that a command fails, never that it failed for the reason the task named — the shape that cost two of this arc's four plan rounds).
