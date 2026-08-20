@@ -64,6 +64,12 @@ tests/mutation/source/premiseScan.test.ts          ~90 hits, ALL of them fixture
 | `tests/mutation/source/runner.test.ts:220` and `tests/mutation/source/runner.test.ts:256` | **not a member** — both construct deliberate timeout/hang fixtures for the source harness's own ceiling; the second is a 600 s sleep whose whole purpose is to be killed |
 | `tests/mutation/source/premiseScan.test.ts` (~90) | **not members** — every hit is a source string inside a fixture template, never an executed call. Read individually; a pattern tight enough to exclude them by shape would have been tight enough to miss a real site |
 
+**The table above is EVIDENCE, not the cover.** A committed list re-opens the moment someone adds a
+spawn site — the enumeration failure the class-sweep rule names by name, and the reason this sweep was
+wrong the first time. Task 5 turns it into a derived guard: the sweep runs, and every line it returns
+must map to a disposition row or the guard fails. A new spawn site then fails by default instead of
+silently joining the uncovered set.
+
 **No peer is deferred, so no `BL-` filing is owed** — the four in-class test-harness sites are repaired
 in this branch by Task 4 rather than filed, which is the class-sweep default: the marginal cost of
 instances 2..N while already holding the context is near zero.
@@ -317,6 +323,49 @@ probe does not support.
 asserting over EVERY `execFileSync` options object in the file rather than a named line, so a site
 added later fails by default.
 
+## Task 5 — make the disposition cover DERIVED, so a new spawn site fails by default
+
+<!-- task: red=`pnpm vitest run tests/mutation/_metaSpawnDisposition.test.ts` ac=AC-9 -->
+
+**What is red and why.** No guard exists, so the sweep's cover is a static list in a markdown file and
+nothing notices when it goes stale. The new suite walks `tests/mutation/` itself, collects every spawn
+call site, and asserts each one maps to a disposition row. It reds on the current tree because the
+registry of rows does not exist yet; the production line that makes it pass is that registry.
+
+**AC-9** — every spawn site under `tests/mutation/` maps to exactly one disposition row, and an
+unmapped site fails the guard.
+
+Shape, so the guard cannot repeat the defect it exists to prevent:
+
+- **The walk is the cover.** The suite walks the directory tree from `tests/mutation/` with `readdir`
+  and matches the call SHAPE (`execFileSync(`, `spawnSync(`, `spawn(`). It does **not** take a
+  filename filter, and it does not take a list of files to check — a guard given the list it is
+  meant to derive proves nothing.
+- **Rows may be keyed by file OR by `file:line`.** A file-keyed row carries a reason that applies to
+  every hit in it (`premiseScan.test.ts` — all hits are fixture strings inside templates;
+  `spawnBounded.live.test.ts` — unbounded spawns ARE the property under test). A line-keyed row
+  disposes of one site. Both forms are checked; neither is assumed.
+- **Failure is by NAME.** An unmapped hit fails with its `file:line` and the matched text, so the
+  repair is obvious rather than a hunt.
+- **The registry lives in the suite, not in the plan.** Markdown cannot be executed, and a table a
+  guard does not read is decoration.
+
+Derivation command, printed so the guard's claim is reproducible by hand:
+
+```
+rg -n 'execFileSync\(|spawnSync\(|\bspawn\(' tests/mutation/
+```
+
+**Strictly weaker implementation:** assert only that the registry's rows all still resolve to real
+sites — a direction check that passes while a NEW undispositioned site sits uncovered, which is the
+enumeration failure wearing a guard's clothes. **Killed by** asserting the other direction as the
+primary one: every SWEPT hit must map to a row. Both directions are asserted, and the swept-to-row
+direction is the one that fails on a new site.
+
+**Premise, stated executably** (`tests/_shared/premise.ts`): the walk found at least one spawn site.
+A guard whose walk silently returns nothing passes vacuously and would forever — the exact shape
+`BL-GUARD-PREMISE-REACHABILITY` records.
+
 <!-- tasks: end -->
 
 ## Closeout gate — OUTSIDE the task region, deliberately
@@ -348,6 +397,7 @@ requires wrapping — which is why this gate's collection is proved by execution
 - [ ] Task 2 — call-site swap, executed hanging-child proof
 - [ ] Task 3 — fallback ceiling assertion
 - [ ] Task 4 — bound the sweep's peer spawn sites
+- [ ] Task 5 — derived disposition guard
 - [ ] Closeout gate — full gate green (`pnpm heavy`)
 - [ ] Self-review
 - [ ] **Adversarial review (cross-model)** — `codex-guard --stage plan`
