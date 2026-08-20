@@ -7,7 +7,7 @@ this one; a figure typed by hand from memory is the next stale vector.
 
 - Gate: **GREEN**
 - Tests: `7 passed (7)`
-- Duration: `216.94s`
+- Duration: `231.10s`
 - Run exit: `0`
 - Unaccepted survivors: **0** (the gate reported none)
 
@@ -26,16 +26,16 @@ row itself, and fixtures are expanded by the same command that stamps them.
 
 | kind | blob | path |
 | --- | --- | --- |
-| source | `90dc65070a05` | `lib/specLint/declaredLimitPins.ts` |
-| registry | `0dbe8cee5c82` | `tests/mutation/source/registry.ts` |
+| source | `1539e7a361a7` | `lib/specLint/declaredLimitPins.ts` |
+| registry | `b94061eb24f5` | `tests/mutation/source/registry.ts` |
 | ledger | `ad43d69abc69` | `tests/mutation/source/expectedLedgerKinds.ts` |
-| suite | `6946923b6137` | `tests/specLint/declaredLimitPins.test.ts` |
-| suite | `c91d28c101c5` | `tests/specLint/declaredLimitPinsFiles.test.ts` |
-| suite | `d2e35a43182d` | `tests/specLint/declaredLimitPinsObligation.test.ts` |
-| suite | `6a5991df2bda` | `tests/specLint/declaredLimitPinsWiring.test.ts` |
-| suite | `fa28eccd7d5b` | `tests/specLint/declaredLimitPinsCorpus.test.ts` |
+| suite | `52c9e9ed9118` | `tests/specLint/declaredLimitPins.test.ts` |
+| suite | `1ba84c533fb4` | `tests/specLint/declaredLimitPinsFiles.test.ts` |
+| suite | `caf533c7ee25` | `tests/specLint/declaredLimitPinsObligation.test.ts` |
+| suite | `1c144ba16ade` | `tests/specLint/declaredLimitPinsWiring.test.ts` |
+| suite | `1b56b2d3c6ae` | `tests/specLint/declaredLimitPinsCorpus.test.ts` |
 | suite | `b244adebed0d` | `tests/specLint/declaredLimitPinsCli.test.ts` |
-| suite | `62a28164d74a` | `tests/specLint/_metaDeclaredLimitPins.test.ts` |
+| suite | `c5d6edb86073` | `tests/specLint/_metaDeclaredLimitPins.test.ts` |
 | fixture | `addfb8795142` | `tests/specLint/__fixtures__/declaredLimitPins/plan-post-step3b.md` |
 | fixture | `3830d24e843c` | `tests/specLint/__fixtures__/declaredLimitPins/plan-pre-step3b.md` |
 | fixture | `c144a53db913` | `tests/specLint/__fixtures__/declaredLimitPins/suite-pre-repair.txt` |
