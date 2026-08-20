@@ -167,6 +167,13 @@ test?** Cross-finding machinery an implementer will invent — dedup by token, o
 several findings legitimately share a line when one sentence carries two superseded tokens, and no
 dedup by position is permitted.
 
+**Every weaker implementation named above owes a SHIPPED killing check, and that is verified
+mechanically at implementation time.** A table that names the case and a suite that omits it is the gap
+between plan and implementation: no plan review catches it, because the plan is correct, and no fixture
+audit catches it, because the fixture does not exist. So the implementer enumerates the killing checks
+FROM THE TABLE ITSELF — never from recall — and confirms each exists in the shipped tests and FAILS when
+the corresponding behaviour is broken.
+
 **Historical re-enactment, executable.** The probe record's two blobs ship as fixtures: `fede5f084`'s
 tree draws exactly the 9 numeric survivors and excludes the 3 transition sentences; `c272ebed3`'s draws
 the §6 identifier survivor. These are the entry's own acceptance criterion, pinned by the incident
@@ -211,13 +218,19 @@ dispatch, and that brief states `MUTATION SCORE: <k>/<t>` plus "0 unaccepted sur
   the repair's own new claim draws nothing.
 - **AC-3** — Severity is advisory over EVERY emitted finding, asserted structurally rather than sampled;
   the arm never rewrites a document.
-- **AC-4** — The historical replay reproduces from committed blobs: `fede5f084` yields exactly the
-  9 numeric survivors and the 3 exclusions, `c272ebed3` the identifier survivor.
+- **AC-4** — The historical replay reproduces from committed blobs as a SET, never a count:
+  `fede5f084` yields exactly the nine `(document, line, token)` survivors and the three exclusions,
+  `c272ebed3` the identifier survivor. **A count is defeated by substitution** — swapping one survivor
+  for a different occurrence keeps the total at nine while changing what is asserted — so the assertion
+  is the set. A count answers "did something new appear"; a set or digest answers "are these the same
+  things", and this AC asks the second question.
 - **AC-5** — Document set: a survivor in the PLAN reports, not only one in the spec; an unreadable
   document is REPORTED, never silently skipped.
 - **AC-6** — Corpus: the enumerated corpus yields the §2 SET, asserted as a set with no cardinality
   typed into the test.
-- **AC-7** — Every rule AND every fixture kills its named weaker implementation, and no fixture is
+- **AC-7** — Every weaker implementation named in §6 has a killing check PRESENT IN THE SHIPPED TESTS,
+  enumerated from the §6 table rather than from recall, and each is confirmed to FAIL when its
+  behaviour is broken. Every rule AND every fixture kills its named weaker implementation, and no fixture is
   neutralized by another rule; the pass is re-run to a FIXED POINT before each dispatch and its
   iteration counts recorded in the round filing.
 - **AC-8** — Enrolment carries BOTH declarations, scores at or above 0.95 with an empty
