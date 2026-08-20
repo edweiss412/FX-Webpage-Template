@@ -53,9 +53,18 @@ tight enough to miss a real site spelled slightly differently.
 ## Meta-test inventory
 
 **CREATES:** none. **EXTENDS:** none.
-`tests/mutation/_metaPremiseContract.test.ts` already governs premise statements in mutation-enrolled
-suites and covers Task 3's premise by existing membership; no registry row is added because no new
-surface is enrolled (spec §8 — `runner.ts` is not enrollable, and `spawnBounded` is unmodified).
+
+**A claim in the previous draft was false and is corrected here rather than quietly dropped.** That
+draft asserted `tests/mutation/_metaPremiseContract.test.ts` already covered this arc's premise by
+existing membership. It does not: that suite derives its universe from
+`GUARD_SURFACES.flatMap((s) => s.suitePaths)` (`tests/mutation/_metaPremiseContract.test.ts:334`), and
+the browser rows contribute only `tests/mutation/browser/registry.test.ts` and
+`tests/mutation/browser/mutate.test.ts`. A new suite is covered by it only if a registry row lists it,
+and this arc adds no registry row (spec §8 — `runner.ts` is not enrollable and `spawnBounded` is
+unmodified).
+
+So: **no meta-test governs this arc's new suites, and that is stated rather than assumed.** The
+premise discipline here is convention, enforced by review, not by a walker.
 
 ## RED-command form — probed per target, both directions of the trap
 
@@ -72,13 +81,48 @@ Every task below therefore records **the invocation, the observed failure line, 
 line that makes it fail** — running the command is not the check; matching the failure to the
 asserted reason is.
 
+## Strictly-weaker-implementation pass — one exhaustive sweep over every AC
+
+Anti-tautology asks whether a test can fail at all. This asks a different question: **can it fail for
+the RIGHT REASON, or is the fixture set also satisfied by something weaker than what was specified?**
+Run as ONE pass over all acceptance criteria, not per finding. For each: the weaker implementation
+that would satisfy the naive fixtures, and the fixture that kills it.
+
+| AC | strictly weaker implementation that would still pass | the fixture that kills it |
+| --- | --- | --- |
+| AC-1 (no `node:child_process` import) | `runner.ts` imports nothing from `node:child_process` but calls a HELPER in another module that spawns unbounded — the import assertion passes while the defect is intact | AC-3's constructed hang: a module that still spawns unbounded cannot time out a hanging child. The behavioral case is what closes the binding case, which is why AC-1 is not asserted on source alone |
+| AC-2 (constant + derivation) | the constant is exported and correct but the call site passes `MUTANT_TIMEOUT_MS` — every AC-2 assertion passes and the shipped ceiling is 180 s | spy on `spawnBounded` and call `runChild` with NO explicit ceiling: assert the `timeoutMs` it actually received `=== BROWSER_MUTANT_TIMEOUT_MS`. Asserting the constant's value never proves the call site uses it |
+| AC-3 (hang → infra) | throw `MutantRunInfraError` for EVERY child — the hanging case passes | a fast HEALTHY child in the same suite that must NOT throw and must return its numeric exit status. Without this negative case the timeout proof is satisfied by a runner that scores nothing at all |
+| AC-4 (cause distinguishability) | emit three arbitrary distinct strings unrelated to what happened — inequality holds | attribution: the timeout cause must be the one produced BY the constructed hang (AC-3's case), and the sentinel cause the one produced by a sentinel-absent child. Inequality alone is satisfied by noise |
+| AC-5 (signal + code preserved) | hardcode one signal/code pair into the message — a single-case fixture passes | two cases with DIFFERENT signal/code pairs, each asserted to carry its own values through |
+| AC-7 (gate green, 19/19) | none — this is the real gate executing the real surface | n/a: the gate is not a fixture set, which is why it is the closeout gate rather than a task |
+
+**Why this table is derived rather than enumerated.** Its rows are the acceptance criteria themselves,
+taken from spec §7 in full — every AC gets a row, so a new AC cannot silently skip the pass. The rule
+it defends against is the one plan review round 1 demonstrated on AC-1: a source-substring check was
+satisfied by `import { execFileSync as legacyRun }`, an ordinary alias refactor, while the unbounded
+call stayed live.
+
 <!-- tasks: depth=2 -->
 
 ## Task 1 — the ceiling constant, and a test that pins its derivation
 
 <!-- task: red=`pnpm vitest run tests/mutation/browser/timeout.test.ts` ac=AC-2 -->
 
-**What is red and why.** The suite this task writes cannot resolve `BROWSER_MUTANT_TIMEOUT_MS`, because the production line that exports it — in `tests/mutation/browser/runner.ts` — does not exist yet. Authored red: the failing case arrives with this task.
+**What is red and why — and why it is NOT an unresolved import.** The previous draft made this task's
+red an import of a symbol that does not exist, which fails before any assertion runs. That is one of
+the fail-open shapes this plan's own RED-form section rejects, and shipping it was the defect plan
+review round 1 caught first. The suite instead imports the MODULE — `tests/mutation/browser/runner.ts`
+resolves today — and asserts on the exported binding:
+
+```ts
+import * as runner from "./runner";
+// resolves now; the ASSERTION is what fails, and it fails on the missing export
+expect(Object.keys(runner)).toContain("BROWSER_MUTANT_TIMEOUT_MS");
+```
+
+The production line that makes it pass is the `export const` below; nothing test-local can turn it
+green.
 
 Add to `tests/mutation/browser/runner.ts`:
 
@@ -95,109 +139,99 @@ Add to `tests/mutation/browser/runner.ts`:
 export const BROWSER_MUTANT_TIMEOUT_MS = 660_000;
 ```
 
-New test file (created by this task) tests/mutation/browser/timeout.test.ts asserts BOTH the value and its **derivation
-relationship**, so editing the number without re-measuring fails:
+**AC-2** is satisfied by assertions that all read the exported constant, never a literal re-declared
+in the test:
 
-**AC-2** is satisfied by three assertions, all reading the exported constant:
-
-- `BROWSER_MUTANT_TIMEOUT_MS === 660_000`.
+- the export exists (above), and `BROWSER_MUTANT_TIMEOUT_MS === 660_000`;
 - `BROWSER_MUTANT_TIMEOUT_MS >= 10 * MEASURED_HEALTHY_MAX_MS`, where `MEASURED_HEALTHY_MAX_MS = 65_111`
-  is a named local constant carrying the probe path in a comment.
-- `BROWSER_MUTANT_TIMEOUT_MS !== MUTANT_TIMEOUT_MS` — the whole point of the arc is that the source
-  ceiling does not transfer, and an import-and-reuse regression must fail here.
+  is a named local carrying the probe path in a comment — this is the derivation, and it fails if the
+  number is lowered without a re-measurement;
+- `BROWSER_MUTANT_TIMEOUT_MS !== MUTANT_TIMEOUT_MS`, so an import-and-reuse regression reds.
 
-**Failure mode this catches:** someone lowering the constant to "make CI faster" without a
-re-measurement, and someone `import`ing `MUTANT_TIMEOUT_MS` instead. **Anti-tautology:** the
-assertions read the exported constant, not a literal re-declared in the test.
-
-**RED, observed:** the suite cannot resolve `BROWSER_MUTANT_TIMEOUT_MS` from `runner.ts`. The failure
-line is an unresolved-import error naming that symbol — recorded in the task's RED commit — and the
-production line that fixes it is the `export const` above. Per the spec's shape (2), an
-unresolved-import red is itself one of the fail-open shapes, so this task's GREEN is not
-that the command exits 0, but that all three assertions execute and pass.
-
-## Task 2 — swap the call site, and map the outcomes
+## Task 2 — swap the call site, and prove the ceiling by RUNNING a hanging child
 
 <!-- task: red=`pnpm vitest run tests/mutation/browser/childLifetime.test.ts` ac=AC-1,AC-3,AC-4,AC-5 -->
 
-**What is red and why.** `runChild` still calls `execFileSync` (`tests/mutation/browser/runner.ts:152`), so a child that exceeds the ceiling is never killed and no timeout-shaped `MutantRunInfraError` is ever thrown. Authored red: the failing cases arrive with this task.
+**What is red and why.** `runChild` still calls `execFileSync` (`tests/mutation/browser/runner.ts:152`),
+so a child that exceeds the ceiling is never killed and no timeout-shaped `MutantRunInfraError` is
+ever thrown. Authored red: the failing cases arrive with this task.
 
-Replace the `execFileSync` call in `runChild` with `spawnBounded`, per spec §5.2, and map per §5.3:
+Replace the `execFileSync` call with `spawnBounded` per spec §5.2 and map per §5.3.
 
-| `outcome.kind` | mapping |
-| --- | --- |
-| `exit` | `exitStatus = outcome.code`, `classifyChild` unchanged |
-| `timeout` | `MutantRunInfraError` whose cause names the ceiling |
-| `infra` | `MutantRunInfraError` preserving `signal` and `code` |
+**One seam is added so the ceiling is testable in seconds rather than eleven minutes:** `runChild`
+takes the ceiling as a defaulted parameter, `timeoutMs: number = BROWSER_MUTANT_TIMEOUT_MS`. Every
+production call site keeps today's arity, so the default is what ships; the suite passes a small value
+to construct a real timeout. This is the minimum seam that lets AC-3 be **executed rather than
+simulated**, which the spec requires in as many words.
 
-New test file (created by this task) tests/mutation/browser/childLifetime.test.ts, driving `runChild` through an **injected spawn
-seam** rather than a real 11-minute child (the ceiling itself is not exercised in wall clock):
+- **AC-3 — a CONSTRUCTED HANGING CHILD, not an injected outcome.** The previous draft injected
+  `{kind:"timeout"}` into a fake spawn seam, which can pass while the real caller never generates
+  `ETIMEDOUT` and kills nothing; plan review round 1 rejected it and the spec never permitted it. The
+  suite instead points a deciding suite at a real command that sleeps well past a 2000 ms ceiling and
+  asserts the call throws `MutantRunInfraError`. What is executed is `spawnBounded` itself, the
+  supervisor, and the kill — the whole path, not a stub of it.
+- **AC-4 — the throw is ATTRIBUTED to the timeout arm, not merely observed.** `runChild` is not the
+  only source of `MutantRunInfraError` in this file: the sentinel/report path throws its own
+  (`tests/mutation/browser/runner.ts:227`). "It threw" therefore proves nothing. The assertion matches
+  the timeout cause specifically AND asserts it is **not equal** to the signal cause and not equal to
+  the sentinel cause — inequality of produced messages, never a literal match on any one of them, so
+  re-wording a message cannot silently make two paths identical.
+- **AC-1 — asserted at the BINDING level and behaviorally, because a source substring is defeated by
+  an ordinary alias.** Plan review round 1 probed exactly this: `import { execFileSync as legacyRun }`
+  plus a live `legacyRun(file, args)` passes a bare `execFileSync(` absence check while the unbounded
+  call is still there. So AC-1 asserts that `tests/mutation/browser/runner.ts` **imports nothing from
+  `node:child_process` at all** — a binding-level property no alias evades, since the module's only
+  spawn route becomes `spawnBounded` — and the AC-3 execution above is the behavioral half: a module
+  still spawning unbounded cannot make a constructed hanging child time out.
+- **AC-5** — a child killed by a signal still reaches the infra path with `signal` and `code`
+  preserved.
 
-- **AC-1** — no `execFileSync` remains: assert on the module source read from disk, scoped to
-  `tests/mutation/browser/runner.ts`. Not a substring search for `spawnBounded` (which the import
-  line alone would satisfy) but the absence of `execFileSync(` **and** the presence of a
-  `timeoutMs: BROWSER_MUTANT_TIMEOUT_MS` argument at the call.
-- **AC-3** — a seam returning `{kind:"timeout"}` produces `MutantRunInfraError` and **no** verdict.
-  Asserted as: the call throws, AND neither KILLED nor SURVIVED is ever returned. The negative half is
-  the point — a test that only asserts the throw would pass if the code threw for any reason.
-- **AC-4** — the timeout cause string `!==` the signal cause string. Asserted as inequality of the
-  two produced messages, never as a literal match on either, so re-wording one does not silently
-  make them identical.
-- **AC-5** — a seam returning `{kind:"infra", signal:"SIGKILL", code:"ERR"}` reaches
-  `MutantRunInfraError` with both fields preserved.
+**Pre-dispatch mutants, results recorded in the task's commit.** Each names the assertion it must
+defeat: delete the `timeout` arm and the constructed-hang case fails (AC-3); make the timeout and
+sentinel cause strings identical and the inequality assertion fails (AC-4); re-introduce
+`execFileSync` under an alias beside the bounded call and the `node:child_process` import assertion
+fails (AC-1) — this is the mutant the previous draft's four did not cover; drop `timeoutMs` from the
+`spawnBounded` call and the constructed-hang case fails, because the default ceiling no longer yields
+to the suite's small value (AC-3).
 
-**Anti-tautology:** each case asserts against the value the seam returned, never against a container
-that would also be satisfied by the default path. **Four pre-dispatch mutants**, results recorded in
-the task's commit — delete the `timeout` arm and the timeout assertion fails (AC-3); make both
-cause strings identical and the distinguishability assertion fails (AC-4); leave `execFileSync`
-in place beside the new call and the source assertion fails (AC-1); drop `timeoutMs` from the
-call and the argument assertion fails (AC-1).
-
-## Task 3 — the `perl`-absent fallback still bounds the child
-
-<!-- task: red=`pnpm vitest run tests/mutation/browser/childLifetime.fallback.test.ts` ac=AC-6 -->
-
-**What is red and why.** Without Task 2's swap there is no `spawnBounded` call in `tests/mutation/browser/runner.ts` at all, so the fallback path this asserts does not exist to be exercised. Authored red.
-
-`spawnBounded` falls back to a direct spawn with `ownGroup: false` when `perl` is missing
-(`tests/mutation/source/spawnBounded.ts:117-121`); the ceiling still applies, the group reap does not.
-Assert that `runChild` inherits that behavior.
-
-**AC-6** is this task's acceptance. **Premise, stated executably** with `premise` / `premiseHolds` from `tests/_shared/premise.ts`, and
-placed **unconditionally relative to what it guards** — never inside a `.each` callback:
-
-> the constructed environment actually lacks a resolvable `perl`
-
-Where that environment cannot be constructed the case is **skipped with a surfaced signal**, never
-silently passed. This is the exact shape `BL-GUARD-PREMISE-REACHABILITY` records: a guard whose
-condition is false where it runs passes unconditionally and would forever.
-
-## Task 4 — the gate is still green, and still scores 19/19
-
-<!-- task: red=`pnpm heavy pnpm mutation:browser` ac=AC-7 -->
-
-**What is red and why — nothing is, and that is declared rather than hidden.** This is a GATE command: it passes on the current tree (measured, twice) and must still pass after the swap. It is listed so the closeout RUNS it instead of assuming the swap was verdict-neutral.
-
-Run the full gate end to end under the semaphore. **`pnpm heavy` is mandatory** — the gate spawns a
-real Playwright child per mutant, and roughly nine concurrent arcs exhausted this machine's memory
-once already. `FX_HEAVY_SLOT_DIR` is never set.
-
-**AC-7** acceptance: the gate suite passes in full, exit 0, `tapTargetFloor` still 19/19 with an empty ledger. The swap changes
-lifetime, not verdicts — a changed score here is a defect in Task 2, not a number to update.
-
-**This command is declared `red-state=live` and passes today.** It is a merge gate, not a RED: its
-purpose is that the closeout executes it rather than assuming the swap was verdict-neutral. Recorded
-explicitly because a gate command that is green from the start is otherwise indistinguishable from a
-red that never worked.
+**Why the `perl`-absent fallback is NOT a task here.** The previous draft made it Task 3, and plan
+review round 1 showed that task could not produce a red in task order — Task 2 installs the swap
+before it runs — and that `spawnBounded` already implements AND tests the fallback
+(`tests/mutation/source/spawnBounded.ts:117-121`, with `ownGroup` in its own enrolled suite). Adding a
+second gate over already-green behavior in a module this arc does not modify is a regression test for
+someone else's surface. It is dropped rather than restated: **AC-6 is satisfied by `spawnBounded`'s
+existing coverage**, and this plan says so instead of duplicating it.
 
 <!-- tasks: end -->
+
+## Closeout gate — OUTSIDE the task region, deliberately
+
+`pnpm heavy pnpm mutation:browser`, run at closeout. **It is not a task and carries no `red=`.** It is
+green on the current tree (measured twice, probe §1) and must still be green after the swap; a
+knowingly-green command inside the enrolled task region misrepresents the red-then-green contract,
+which is what plan review round 1 found. Declaring it here keeps the obligation to RUN it without
+dressing it as a RED.
+
+`pnpm heavy` is mandatory — the gate spawns a real Playwright child per mutant, and roughly nine
+concurrent arcs exhausted this machine's memory once already. `FX_HEAVY_SLOT_DIR` is never set.
+
+**AC-7** acceptance: the gate suite passes in full, exit 0, `tapTargetFloor` still 19/19 with an empty
+ledger. The swap changes lifetime, not verdicts — a changed score is a defect in Task 2, not a number
+to update. **Collection is proved by running it and reading the output**, never by `spec:lint`.
+
+- The plain invocation makes NO collection claim: `synthesizeCollectionFindings` returns `[]` when no
+  probes ran (`lib/specLint/redContract.ts:754`).
+- Under `--exec-red` the arm is silent for anything wrapped in `pnpm heavy`:
+  `collectionProbePlan` continues past it (`lib/specLint/redContract.ts:721`).
+
+AGENTS.md mandates `pnpm heavy` for every heavy phase, so that arm cannot see the class the repo
+requires wrapping — which is why this gate's collection is proved by execution.
 
 ## Checklist
 
 - [ ] Task 1 — constant + derivation test
-- [ ] Task 2 — call-site swap + outcome mapping
-- [ ] Task 3 — fallback premise
-- [ ] Task 4 — full gate green (`pnpm heavy`)
+- [ ] Task 2 — call-site swap, executed hanging-child proof
+- [ ] Closeout gate — full gate green (`pnpm heavy`)
 - [ ] Self-review
 - [ ] **Adversarial review (cross-model)** — `codex-guard --stage plan`
 - [ ] Execution handoff

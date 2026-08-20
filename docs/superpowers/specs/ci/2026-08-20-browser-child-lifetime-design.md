@@ -152,6 +152,14 @@ const { outcome } = spawnBounded([file, ...args], {
 });
 ```
 
+**One seam, so the ceiling can be EXECUTED rather than simulated.** `runChild` takes the ceiling as a
+defaulted parameter — `timeoutMs: number = BROWSER_MUTANT_TIMEOUT_MS` — so every production call site
+keeps today's arity and ships the real ceiling, while a test can pass a small value and construct a
+genuine timeout in seconds. This exists because AC-3 requires a constructed hanging child: a test that
+injects a `{kind: "timeout"}` outcome into a fake spawn seam can pass while the real caller never
+generates `ETIMEDOUT` and kills nothing, which is a fail-open proof of exactly the property this
+design exists to establish.
+
 `spawnBounded` discards child stdio by design (`spawnBounded.ts:126-138`), which the current
 `stdio: "pipe"` does not. That is a behavior change and an intended one: nothing in `runChild` reads
 the child's output — the verdict comes from the exit status, the overlay sentinel, and the
@@ -275,21 +283,30 @@ claim that the ceiling covers every case.
 
 ## 7. Acceptance criteria
 
-- **AC-1.** `runChild` spawns through `spawnBounded` with `timeoutMs: BROWSER_MUTANT_TIMEOUT_MS`; no
-  `execFileSync` remains in `tests/mutation/browser/runner.ts`.
+- **AC-1.** `runChild` spawns through `spawnBounded`, and `tests/mutation/browser/runner.ts` imports
+  NOTHING from `node:child_process`. Stated at the binding level deliberately: a source check for the
+  substring `execFileSync(` is defeated by `import { execFileSync as legacyRun }` plus a live
+  `legacyRun(file, args)`, which leaves the unbounded call in place while the check passes. AC-3's
+  execution is the behavioral half — a module still spawning unbounded cannot time out a constructed
+  hanging child.
 - **AC-2.** `BROWSER_MUTANT_TIMEOUT_MS === 660_000`, and a test pins BOTH the value and its
   derivation relationship to the probe's measured maximum, so a later edit to the number without a
   re-measurement fails.
-- **AC-3.** A child that exceeds the ceiling produces `MutantRunInfraError` and **never** a
-  `"KILLED"` or `"SURVIVED"` verdict — proven executably by a constructed hanging child, not by
-  reading the mapping.
-- **AC-4.** The timeout cause string is distinguishable from the signal/OOM cause string (§5.3), and
-  a test asserts the two are not equal rather than asserting either literal alone.
+- **AC-3.** A child that exceeds the ceiling produces `MutantRunInfraError` and never a scored
+  verdict — proven executably by a CONSTRUCTED HANGING CHILD run against a small injected ceiling
+  (§5.2), never by injecting a timeout outcome into a fake spawn seam and never by reading the
+  mapping.
+- **AC-4.** The timeout cause is distinguishable from the signal/OOM cause AND from the
+  sentinel/report infra cause this file already throws (`tests/mutation/browser/runner.ts:227`), so
+  that "it threw `MutantRunInfraError`" cannot stand in for "the timeout arm fired". The test asserts
+  inequality of the produced messages rather than a literal match on any one of them.
 - **AC-5.** A child killed by a signal still reaches the infra path with its `signal` and `code`
   preserved — the existing behavior, re-asserted so the swap cannot silently drop it.
-- **AC-6.** `ownGroup: false` (no `perl`) still bounds the child by the ceiling. Premise stated
-  executably per `tests/_shared/premise.ts`: the case is skipped-with-signal, never silently passed,
-  where the fallback cannot be constructed.
+- **AC-6.** `ownGroup: false` (no `perl`) still bounds the child by the ceiling. **Satisfied by
+  `spawnBounded`'s existing, enrolled coverage** (`tests/mutation/source/spawnBounded.ts:117-121`),
+  not by a new suite in this arc: the fallback lives entirely inside a module this design does not
+  modify, so a second gate over it here would be a regression test for another surface — and, placed
+  after the Task 2 swap, could not produce a red at all.
 - **AC-7.** `pnpm heavy pnpm mutation:browser` remains GREEN end to end, with the surface still
   scoring 19/19 and its ledger still empty — the swap changes lifetime, not verdicts.
 
