@@ -259,3 +259,60 @@ describe("AC-15 — the withdrawn control-flow claim, pinned as a limit", () => 
     expect(scan(f)).toEqual([finding(f, "UNDECLARED-PASS", "settle", fnLine(f))]);
   });
 });
+
+describe("AC-1 — totality is MODULE-WIDE", () => {
+  it("reports an ALIAS of a read member", () => {
+    const f = "alias-read.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "UNCLASSIFIED-USE", "memo", lineOf(f, "const m = ch.memo")),
+    ]);
+  });
+
+  it("reports a DESTRUCTURE sitting OUTSIDE the declared pass", () => {
+    // Round-2 F3's evasion verbatim. A pass-SCOPED totality rule cannot see it,
+    // which is the whole reason the rule ranges over the module.
+    const f = "destructure-outside-pass.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "UNCLASSIFIED-USE", "dispatch", lineOf(f, "const { dispatch } = ch")),
+    ]);
+  });
+
+  it("reports a COMPUTED member access", () => {
+    const f = "computed-member.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "UNCLASSIFIED-USE", "ch", lineOf(f, "const picked = ch[key]")),
+    ]);
+  });
+
+  it("reports a BARE MENTION", () => {
+    const f = "bare-mention.ts";
+    expect(scan(f)).toEqual([finding(f, "UNCLASSIFIED-USE", "ch", lineOf(f, "const held = ch;"))]);
+  });
+});
+
+describe("AC-2 — the ambient exemption is for a CALLBACK HANDOFF, and only that", () => {
+  // These three are ONE triple. Drop any and the exemption reads as a hole: the
+  // first alone is satisfied by exempting every ambient reference, and the first
+  // two alone by exempting every callback handoff regardless of member class.
+  it("an AMBIENT member handed on as a callback does NOT report", () => {
+    // The live module carries this shape at `scripts/pane-compaction.ts:850`
+    // (`random: s.random`), so a rule that reported it fails on correct code.
+    expect(scan("ambient-callback-clean.ts")).toEqual([]);
+  });
+
+  it("the SAME handoff shape with a READ member DOES report", () => {
+    const f = "read-callback-reports.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "UNCLASSIFIED-USE", "memo", lineOf(f, "mint({ memo: ch.memo })")),
+    ]);
+  });
+
+  it("a BARE ambient alias reports — a mention is not a handoff", () => {
+    // Without this, an ambient member could be aliased and then called twice
+    // invisibly, which is the exact invisibility this gate exists to remove.
+    const f = "ambient-alias.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "UNCLASSIFIED-USE", "clock", lineOf(f, "const clock = ch.clock")),
+    ]);
+  });
+});

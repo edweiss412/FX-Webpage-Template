@@ -318,13 +318,114 @@ const topLevelFunctions = (sf: ts.SourceFile): { node: ts.Node; name: string; li
 const lexicallyWithin = (outer: ts.Node, inner: ts.Node, sf: ts.SourceFile): boolean =>
   inner.getStart(sf) >= outer.getStart(sf) && inner.getEnd() <= outer.getEnd();
 
+/**
+ * Rule 1 — TOTALITY, MODULE-WIDE.
+ *
+ * Every occurrence of a surface binding anywhere in an enrolled module is one of:
+ * a direct member call, a declared derivation source, an ordinary injection
+ * argument, a parameter or declaration name, or an AMBIENT member handed on as a
+ * callback. Anything else is REPORTED BY NAME and fails the gate.
+ *
+ * MODULE-WIDE rather than pass-scoped, because the destructured-sink evasion
+ * (spec round 2, F3) lives OUTSIDE the pass. An ambient reference is exempt
+ * because a generator carries no observation and so cannot hold a stale one —
+ * but the exemption is for a callback HANDOFF, not for every mention, or an
+ * ambient member could be aliased and called twice invisibly.
+ */
+const classifyUses = (
+  sf: ts.SourceFile,
+  file: string,
+  row: SendAuthSurface,
+  bindings: ReadonlySet<string>,
+  reads: readonly string[],
+): Finding[] => {
+  const known = new Set<string>([...reads, ...row.sinks, ...row.effects, ...row.ambient]);
+  const ambient = new Set<string>(row.ambient);
+  const out: Finding[] = [];
+
+  const report = (node: ts.Node, name: string): void => {
+    const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+    out.push({ code: "UNCLASSIFIED-USE", file, line, name, lines: [line] });
+  };
+
+  const classify = (id: ts.Identifier): void => {
+    const parent = id.parent;
+
+    if (ts.isPropertyAccessExpression(parent) && parent.expression === id) {
+      const member = parent.name.text;
+      const grand = parent.parent;
+      if (ts.isCallExpression(grand) && grand.expression === parent) {
+        // A direct member call. A member absent from the type entirely cannot be
+        // classified, and silence is never a certificate.
+        if (!known.has(member)) report(parent, member);
+        return;
+      }
+      // Referenced without being called. Exempt ONLY when it is an ambient member
+      // being handed on: a property value or a call argument.
+      const handedOn =
+        (ts.isPropertyAssignment(grand) && grand.initializer === parent) ||
+        (ts.isCallExpression(grand) && grand.arguments.includes(parent));
+      if (ambient.has(member) && handedOn) return;
+      report(parent, member);
+      return;
+    }
+
+    if (ts.isElementAccessExpression(parent) && parent.expression === id) {
+      // The member is not knowable from the source text, so the use cannot be
+      // classified; the finding names the binding instead.
+      report(parent, id.text);
+      return;
+    }
+
+    // A declared derivation SOURCE. Rule 3 (Task 5) decides whether the
+    // derivation itself is well-formed; here it is simply a classified use.
+    if (ts.isSpreadAssignment(parent) && parent.expression === id) return;
+
+    // An injection argument. Inside a declared pass this becomes RAW-HANDOFF,
+    // which rule 3 owns; outside one it is ordinary injection and correct.
+    if (ts.isCallExpression(parent) && parent.arguments.includes(id)) return;
+
+    if (ts.isVariableDeclaration(parent) && parent.initializer === id) {
+      if (ts.isObjectBindingPattern(parent.name)) {
+        // Calls through the bindings are invisible, so each bound member is
+        // reported by NAME rather than the destructure being reported once.
+        for (const element of parent.name.elements) {
+          const named = element.propertyName ?? element.name;
+          report(element, ts.isIdentifier(named) ? named.text : id.text);
+        }
+        return;
+      }
+      report(id, id.text);
+      return;
+    }
+
+    report(id, id.text);
+  };
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isIdentifier(node) && bindings.has(node.text)) {
+      const parent = node.parent;
+      const isDeclarationName =
+        (ts.isParameter(parent) ||
+          ts.isVariableDeclaration(parent) ||
+          ts.isBindingElement(parent)) &&
+        parent.name === node;
+      const isPropertyName = ts.isPropertyAccessExpression(parent) && parent.name === node;
+      if (!isDeclarationName && !isPropertyName) classify(node);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  return out;
+};
+
 /** Scan one enrolled module against its row. */
 export function scanModule(file: string, row: SendAuthSurface): Finding[] {
   const text = readFileSync(file, "utf8");
   const sf = parse(file, text);
   const bindings = surfaceBindings(sf, row);
   const markers = markersIn(file, text, sf);
-  const findings: Finding[] = [];
+  const findings: Finding[] = classifyUses(sf, file, row, bindings, readsFromSourceFile(sf, row));
 
   for (const fn of topLevelFunctions(sf)) {
     // Send-bearing: the SUBTREE calls a declared SINK on a surface binding.
