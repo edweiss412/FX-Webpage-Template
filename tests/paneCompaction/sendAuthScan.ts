@@ -190,18 +190,6 @@ type Marker = {
   fn: ts.Node | null;
 };
 
-/**
- * TOTAL over every index, so the scan needs no bounds check.
- *
- * `charAt` past the end returns "", which is not whitespace — where `text[i]`
- * returns `undefined` and would have to be reasoned about. The bounds test it
- * replaces was a relational mutation site whose only differing case was the very
- * end of the file, i.e. a site that could only ever be defended by an
- * equivalence argument. Removing it is strictly better than winning that
- * argument.
- */
-const isWhitespaceAt = (text: string, index: number): boolean => /\s/.test(text.charAt(index));
-
 const isFunctionLike = (n: ts.Node): boolean =>
   ts.isFunctionDeclaration(n) ||
   ts.isFunctionExpression(n) ||
@@ -276,12 +264,35 @@ const markersIn = (file: string, text: string, sf: ts.SourceFile): Marker[] => {
     // "Immediately above" is a source-text relation, so it is resolved in source
     // text: the next real token past this comment and any run of whitespace and
     // further comments.
+    // BOTH loops here terminate independently of what a mutant does to any
+    // predicate, and that is the point rather than a style choice.
+    //
+    // The whitespace run was a `while (isWhitespaceAt(text, pos)) pos += 1`. Its
+    // termination lived ENTIRELY in the predicate: negate the whitespace test and
+    // `charAt` past the end keeps returning "" forever, so the mutant does not
+    // fail, it HANGS -- it burns the whole per-case timeout and takes the entire
+    // measurement down with it. A regex match for the leading run has no loop and
+    // no comparison operator to mutate at all.
+    //
+    // The comment walk was a `for (;;)` whose only exit was `find(([a]) => a ===
+    // pos)` returning undefined. Flip that `===` and it re-finds the same range
+    // forever at an unchanging `pos`. It is now BOUNDED BY CONSTRUCTION: each step
+    // consumes one comment range, so `ranges.length` steps is a ceiling no mutant
+    // can lift, and the worst case degrades from a hang to a SURVIVOR YOU CAN SEE.
+    //
+    // Note the direction: this ADDS a comparison rather than removing one. Making a
+    // mutant unrepresentable would be gaming the score; making it terminate is not.
     let pos = end;
-    for (;;) {
-      while (isWhitespaceAt(text, pos)) pos += 1;
+    const advancePastWhitespace = (): void => {
+      const run = /^\s*/.exec(text.slice(pos));
+      pos += run === null ? 0 : run[0].length;
+    };
+    advancePastWhitespace();
+    for (let step = 0; step < ranges.length; step += 1) {
       const next = ranges.find(([a]) => a === pos);
       if (next === undefined) break;
       pos = next[1];
+      advancePastWhitespace();
     }
     const node = nodeStartingAt(sf, pos);
     out.push({ kind, reason, fn: node === null ? null : passFunctionOf(node) });
