@@ -197,7 +197,19 @@ DECLARED_LIMIT_PIN_UNNAMED  advisory
   detail: surface <id>; name it in the plan (retire it, or say it is left alone), or waive this advisory.
 ```
 
-anchored at the Files-block line that named the surface.
+anchored at the Files-declaration line that named the surface.
+
+**A finding's IDENTITY is `(code, suitePath, title)` — never its anchor position — and several findings
+legitimately share one anchor line.** This is stated because the implementer will otherwise invent the
+collapse: every pin of one surface anchors at the SAME declaration line, so the dedup any competent
+author reaches for — a set keyed on `code:file:line` — silently merges them. It is live, not
+hypothetical: `tests/specLint/numerics.test.ts` carries two pins and
+`tests/docs/_metaReviewRoundEconomy.test.ts` two more, and the §2.6 corpus expects two advisories from
+each of the plans naming them. The ONLY deduplication this arm performs is §3.2's, on `(suitePath,
+title)`, so one pin reachable through several surfaces is reported once; there is no other collapse,
+and no ordering guarantee beyond the emission order stated above. Every multi-finding assertion in §6 is
+therefore written over a SET or a sorted list, never a positional array — findings sharing an anchor
+have no natural order, and a positional assertion either flakes or passes by luck.
 
 ### 3.4 A suite the resolver cannot read is REPORTED, never skipped
 
@@ -279,7 +291,11 @@ healthy-suite silence case).
 | §4 adapter, INJECTION | a hardcoded copy of the live enrolled table | the §6 synthetic-surface case — NOT AC-10, see the division below |
 | §2.7 replay | special-case the two historical blobs | the corpus case, which ranges over the whole tracked corpus and fails any blob-specific implementation |
 
-**Second question, asked of every fixture: does another rule in THIS spec neutralize it?** The
+**Second question, asked of every fixture: which rule DECIDES the observation you assert on, and is it
+the rule under test?** If a cross-finding rule can produce your pass condition by a different route, the
+fixture proves nothing — and the question has to be asked of the machinery the IMPLEMENTER will invent,
+not only of what this document already contains (the anchor-position dedup pinned in §3.3 is exactly
+that case: nothing here mandated it, and it would have collapsed a surface's pins anyway). The
 cross-finding rules — identity `(path, title)` (§3.1), deduplication (§3.3), multi-surface naming
 (§3.2), disposition keying (§5) — operate ACROSS findings rather than within one, so they can quietly
 collapse a fixture's expected outcome into the pass value. Asking it exhaustively found three instances
@@ -292,6 +308,8 @@ while a different rule decided the observation.
 | the prose-outside-a-declaration case | §3.2 multi-surface naming: if the same path also appears in a real declaration in that fixture plan, the declaration names the surface and the negative case cannot fail | a negative naming fixture contains NO positive occurrence of the same path |
 | the shared-pin dedup case (one pin, two surfaces → ONE finding) | nothing collapses it, but an implementation that IGNORES surfaces entirely and reports per pin also yields one | pair it with a two-DIFFERENT-pins-on-two-surfaces case expecting TWO findings; only an implementation that tracks surfaces AND dedups passes both |
 | AC-10's live/commented pair | §3.3 dedup on identical titles (round 5's finding) | the two titles differ |
+| the GRAIN case (a six-row table under one title yields ONE pin, §8 item 12) | §3.2 dedup on `(suitePath, title)`: an implementation emitting one pin PER ROW and then deduplicating by title also yields one | assert the pin's LINE equals the enclosing test-title line, not a table row's — the count alone cannot separate "one pin, correctly grained" from "six pins, collapsed" |
+| the SYNTHETIC-SURFACE case | §5 disposition keying, if the synthetic title happened to match a disposition row | synthetic titles are checked against `NOT_A_PIN` at authoring time; a collision would silence the case and it would pass for the wrong reason |
 
 **The two adapter defects need two different proofs, and neither covers the other.** Running the
 weaker-implementation pass over the FIXTURES — not only over the rules, which is what round 5 showed is

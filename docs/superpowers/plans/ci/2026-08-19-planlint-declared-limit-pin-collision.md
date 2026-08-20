@@ -184,7 +184,10 @@ the obligation compares against it. Splitting the pair across the two tasks woul
 the seam between them stays wrong, so Task 1's assertion names the decoded VALUE explicitly rather than
 round-tripping whatever the implementation produced.
 
-One more case, and it is a GRAIN assertion rather than a decline: a test whose BODY tabulates several
+One more case, and it is a GRAIN assertion rather than a decline. **It asserts the pin's LINE, not just
+the count** (spec §6): an implementation emitting one pin PER TABLE ROW and then deduplicating by title
+also yields one, so the count alone cannot separate "one pin, correctly grained" from "six pins,
+collapsed". The line must be the enclosing test title's. a test whose BODY tabulates several
 declared misses under one phrase-bearing title yields exactly ONE pin, not one per row (spec §8 item
 12). The live instance is the six-row table under `each quote-concatenated keyword/operand spelling is a
 declared miss`; a concurrent arc enumerating that file BY ZERO counted ten where this arm counts one,
