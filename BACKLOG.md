@@ -1139,7 +1139,7 @@ class-sweep exception (c). May share one lint surface with
 
 ## BL-MUTATION-HARNESS-MAIN-RED — the source-mutation gate is red on main, every PR inherits it, and the failure set turns over faster than a row can name it
 
-**Status:** OPEN. · **Filed:** 2026-08-16 (found while shipping `chore/round-economy-enforcement-pair`, whose own enrolled surfaces passed) · **Re-scoped:** 2026-08-16 (`docs/mutation-ledger-accuracy`) · **Severity:** MEDIUM (a permanently red non-required gate trains every arc to read its verdict as noise, which is how the twelve-survivor catch of #786 nearly did not happen) · **Class:** CI gate fidelity · **Effort:** S-M
+**Status:** IN PROGRESS · **Branch:** docs/mutation-harness-main-red-filing · **Filed:** 2026-08-16 (found while shipping `chore/round-economy-enforcement-pair`, whose own enrolled surfaces passed) · **Re-scoped:** 2026-08-16 (`docs/mutation-ledger-accuracy`) · **Severity:** MEDIUM (a permanently red non-required gate trains every arc to read its verdict as noise, which is how the twelve-survivor catch of #786 nearly did not happen) · **Class:** CI gate fidelity · **Effort:** S-M
 
 **Renamed away from a title carrying a count.** This entry shipped as `…-TWO-SURFACES`, and within the same day it was filed (`a49ef67a4`, 08:55) the count went two, three, four — while the MEMBERS turned over completely, so that both originally-named failures have stopped reproducing and not one of the four failures below is one the original row mentioned. The count was the fastest-staling fact in the row, so the id no longer carries one. Nothing else cites the old id; this heading was its only occurrence.
 
@@ -1176,6 +1176,64 @@ class-sweep exception (c). May share one lint surface with
 Neither is equivalent; both are genuine coverage gaps in `tests/ci/shardBudget.test.ts`. An earlier draft of this row reasoned from the SHAPE of the sites — a boundary comparison, an integer inside a string — and concluded "plausibly equivalent". That inference was wrong in the dangerous direction, and it is recorded here so the next reader does not re-derive it: on this gate, argue from the mutant's evaluated output, never from the site's shape.
 
 Confirm the clean baseline with `workflow_dispatch` on main, not by reading a PR run — and note that a PR run's head is the PR branch, which is why the set above is dated to a revision rather than to "main".
+
+**The main-branch baseline this row asks for now exists, and it is stronger than the `workflow_dispatch` it asks for** (recorded 2026-08-20 by `docs/mutation-harness-main-red-filing`; the row stays OPEN — this supplies evidence the row requested, it does not change the work). FOUR consecutive SCHEDULED runs on `main` — [31933821808](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/31933821808) (08-16), [32007234397](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32007234397) (08-17), [32111856491](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32111856491) (08-18) and [32228276600](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32228276600) (08-19), against a last-green [31871859884](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/31871859884) (08-15). A scheduled run's head IS the default branch, so the set below is dated to `main` rather than to a revision for the first time — and 08-19's head is `4e074d3bc`, which is main as it stands at this filing, so nothing here is extrapolated forward. Read per-annotation, per the trap above; leg numbers are omitted for the reason that trap gives.
+
+- **(1) `shardBudget` — CONFIRMED ON MAIN, three times** (08-17, 08-18, 08-19), with the same two survivors quoted verbatim on 08-18 and 08-19: `relational-boundary:73:56:<=><` and `integer-literal:118:66:100>101`. Alongside (4) this is now the row's best-evidenced item.
+- **(2) `rowScanOpener` — CONFIRMED ON MAIN, three times and STILL OPEN.** `expected { equivalent: 2 } to deeply equal {}` on 08-17, 08-18 and 08-19.
+- **(3) `fieldNearMiss` — REPAIRED.** It failed on 08-17 (`expected { equivalent: 1, 'accepted-gap': 1 } to deeply equal {}`) and is absent from 08-18 and 08-19. Settled by DERIVATION rather than by that absence — re-running this row's own static comparison over the CURRENT registry yields exactly ONE mismatch, `rowScanOpener`, out of 38 surfaces. **This corrects a claim the paragraph above makes:** "a fix for one is a fix for both" proved false — one was fixed without the other. The class-closure argument itself survives, since the derivation still ranges over every surface at once and the nine enrolled since have added no third instance; only the coupling claim was wrong.
+- **(4) `destructiveFileAnalysis` — CONFIRMED ON MAIN three times, which is the independent reproduction this row asked to be treated as confirmation.** It is no longer the weakest item and the "observed exactly ONCE" caveat above is superseded. 08-19 additionally emits BOTH halves in one annotation, so the line-shift diagnosis is now read directly rather than inferred: survivors `logical-connector:371:61`, `388:32`, `503:73`, `integer-literal:392:19`, `392:47`, `relational-boundary:392:27`, `397:24`, `626:29` against stale rows `logical-connector:370:61`, `387:32`, `502:73`, `integer-literal:391:19`, `391:47`, `relational-boundary:391:27`, `396:24`, `602:29` — the same one-to-one pairing, seven at plus-one line and the eighth `626:29` for `602:29`.
+- **A FIFTH failure this row never named, which its own thesis predicts:** `premiseScan` — `stale-ledger-row: 1` on 08-17. Absent from 08-18 and 08-19 and NOT settled by derivation, so it is recorded exactly as the lapsed pair below is — observed once on main, not confirmed closed.
+- **Both "stopped reproducing" failures are now settled on main in BOTH directions.** They were live: the 08-16 nightly — a main-branch head predating this row's own filing — carries `interactionTimingScan` `unaccepted-survivor: 1` AND `tests/parser/mutationHarness.shard4.test.ts` DRIFTED fingerprints, and those two were its ONLY failures. And they are gone: both are absent from 08-17, 08-18 and 08-19, with every `parser-shards` leg and `parser-gates` green on all three. Three consecutive main nightlies is the baseline this row wanted. Neither closure is attributed to a merge here.
+
+Derivation for (3), which needs no CI and is reproducible at any revision:
+
+```
+pnpm tsx -e 'import {GUARD_SURFACES} from "./tests/mutation/source/registry.ts";
+import {EXPECTED_LEDGER_KINDS} from "./tests/mutation/source/expectedLedgerKinds.ts";
+for (const s of GUARD_SURFACES) { const k = s.accepted.reduce((a,r)=>{a[r.kind]=(a[r.kind]??0)+1;return a;},{});
+  if (JSON.stringify(k)!==JSON.stringify(EXPECTED_LEDGER_KINDS[s.id])) console.log(s.id,k,EXPECTED_LEDGER_KINDS[s.id]); }'
+# at 4e074d3bc: MISMATCH rowScanOpener: registry={"equivalent":2} declared={}
+#              surfaces=38 mismatches=1
+```
+
+**What these four runs do NOT establish is the budget half**, which on 08-18 and 08-19 failed the `budget` job for reasons that are not this row's coverage failures. That is `BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH`.
+
+## BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH — the source shards blew the 3600s budget on main, four days after the row that closed the wall-clock ceiling was archived
+
+**Status:** OPEN. · **Filed:** 2026-08-20 (`docs/mutation-harness-main-red-filing`, from arc-browser's pre-task verification of the nightly reds) · **Facing:** process · **Severity:** MEDIUM (it fails a non-required gate today; the same growth censors a quarter of the source gate's annotations at the next enrolment) · **Class:** CI capacity · **Effort:** S-M
+
+**Incident:** the `budget` job FAILED on the scheduled `main` run of **2026-08-18** — [run 32111856491](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32111856491) — with `leg source-shards-1 took 4442s, over the 3600s budget`, `leg source-shards-2 took 4562s, over the 3600s budget`, `leg source-shards-3 took 4025s, over the 3600s budget`, then `check-shard-budget: 3 failure(s)`. It failed AGAIN on **2026-08-19** — [run 32228276600](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32228276600) — with `leg source-shards-0 took 5210s, over the 3600s budget` plus warnings on all three remaining legs. The last scheduled `main` run to pass it, [32007234397](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32007234397) (08-17), carried a single warning: `leg source-shards-3 took 3404s, over 75% of the 3600s budget`. The binding leg went from 94.6% of budget to 144.7% in two nightlies.
+
+**These are measurements, not timeout walls** — the distinction the archived `BL-MUTATION-HARNESS-WALLCLOCK-CEILING` draws about its own `5410s` figure, which was a leg cancelled at its ceiling. `timeout-minutes` is 90 (5400 s) and the longest leg here is 5210 s = **86.8 min**, so no leg was cancelled and every leg reported its gate annotations. Corroborated independently by the job clocks: on 08-19 `source-shards (0)` ran 07:32:08→08:59:03.
+
+**The cause is enrolment growth, and the archived row predicted it in as many words.** `BL-MUTATION-HARNESS-WALLCLOCK-CEILING` was CLOSED 2026-08-16 by the sharding of #834, on a measurement at 29 surfaces where the binding leg was 3356 s = 93.2% of budget with **244 s** of headroom, and it says: "it survives by a margin a single enrolment can erase, so anyone deciding whether to raise `SOURCE_SHARD_COUNT` should re-measure rather than trust either number." Five surfaces enrolled between the 08-17 and 08-18 nightlies alone — `paneCompactionCore`, `modal-wait-disposition`, `mutationSurfaceEnumerate`, `mutationSurfaceTotality`, `spawnBounded` (from `git diff 59a9ef25a b24e3ac5f -- tests/mutation/source/registry.ts | grep -E '^\+.*id: "'`).
+
+The series, each surface count produced by the command below it:
+
+| revision | surfaces | binding leg | % of 3600 s budget | `budget` job |
+|---|---|---|---|---|
+| `c5518dfab` (wallclock row's measurement) | 29 | 3356 s | 93.2% | pass, 2 warnings |
+| `59a9ef25a` (08-17 nightly head) | 31 | 3404 s | 94.6% | pass, 1 warning |
+| `b24e3ac5f` (08-18 nightly head) | 36 | 4562 s | 126.7% | **FAIL, 3 legs over** |
+| `4e074d3bc` (08-19 head = main at filing) | 38 | 5210 s | **144.7%** | **FAIL, 1 leg over** |
+
+```
+git show <rev>:tests/mutation/source/registry.ts | grep -cE '^\s+id: "'
+```
+
+That lexical count is validated rather than trusted: at HEAD it agrees with the authoritative one — `pnpm tsx -e 'import {GUARD_SURFACES} from "./tests/mutation/source/registry.ts"; console.log(GUARD_SURFACES.length)'` prints `38` — and at `c5518dfab` it reproduces the `29` the archived row states independently. **The last row is current main, not a projection**: the 08-19 nightly's head IS `4e074d3bc`.
+
+**The consequence is not the red `budget` job; it is the leg that goes silent next.** A leg that hits `timeout-minutes: 90` reports NO gate annotation for ANY surface it holds — the trap `BL-MUTATION-HARNESS-MAIN-RED` records, which has already masked a genuine surface failure once. The binding leg is at 5210 s against a 5400 s ceiling: **190 s of margin**, against the ~1800 s that two nightlies of enrolment just added. The next comparable batch does not merely breach the budget again, it censors a quarter of the source gate — and a censored leg is indistinguishable from a leg that had nothing to report.
+
+**Reachability: PROBED.** Every figure is quoted from a CI annotation or produced by the command printed beside it. The breach has been observed twice on main, out of the three sharded main nightlies that have ever run (08-16 predates the sharding and ran as a single job); the 08-17 run at 94.6% is a corroborating trend, not a counterexample.
+
+**First scheduled step: re-measure, then raise `SOURCE_SHARD_COUNT`** (`tests/mutation/source/shardPartition.ts:26`, currently `4`) — which is what the workflow's own triage guidance prescribes verbatim: "over budget: the design reporting on itself as surfaces enrol. Raise SOURCE_SHARD_COUNT in tests/mutation/source/shardPartition.ts — NOT timeout-minutes." (`.github/workflows/mutation-harness.yml:346`).
+
+**Do not expect the count alone to fix it, and this is the trap in the repair.** The partition is LPT over MODELLED CHILD BOOTS, and the archived row measured that model to be badly miscalibrated to seconds: at `c5518dfab` the four legs weighed 636 / 631 / 637 / 637 — one boot apart — while their wall clocks were 886 / 2166 / 3069 / 3356 s, a **3.8x** spread (1.4 s/boot against 5.3 s/boot). Raising the count rebalances BOOTS. Bounding wall clock needs a weight calibrated to seconds, which is the archived row's own conclusion and its deferred limit L-2 (sub-surface partitioning) — filed there with the `budget` job named as its self-reporting trigger. This row is that trigger firing.
+
+**Not a duplicate of `BL-MUTATION-HARNESS-MAIN-RED`.** That row is the source gate's COVERAGE failure set — surviving mutants and ledger-kind drift — and explicitly disclaims the budget half. This is the `budget` job: a different job, a different failure, a different repair. The 08-18 and 08-19 nightlies are red for both reasons at once, which is exactly why they are easy to conflate.
+
 
 ## BL-MUTATION-HARNESS-PR-TRIGGER-FANOUT — the harness's path-filtered PR trigger runs the whole matrix on every harness-touching PR, and those legs compete with that PR's own required checks
 
