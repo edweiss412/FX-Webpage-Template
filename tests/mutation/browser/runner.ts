@@ -40,6 +40,26 @@ const REPORT = join("test-results", "standalone-report.json");
 
 const OVERLAY_CONFIG = "tests/mutation/browser/vitestOverlay.config.ts";
 
+/**
+ * Wall-clock ceiling for ONE browser-gate child.
+ *
+ * 10x the pooled measured healthy maximum (65111 ms across 82 children in two
+ * green runs; probe 2026-08-20 §2). NOT `MUTANT_TIMEOUT_MS`: that is 180 s
+ * against a ~2 s source suite, and only 2.76x THIS surface's measured max, so
+ * one contention regime widening the tail threefold puts HEALTHY children past
+ * it — converting a healthy run into an infra fault, which is a worse failure
+ * than the unbounded child this repair removes.
+ *
+ * The multiple applies to the MAX and not the median because the max is already
+ * 2.66x its own median, and it is usable at all only because it REPRODUCES:
+ * 65111 ms in one run, 62723 ms in the other, within 4%. A single-run maximum is
+ * indistinguishable from a stall.
+ *
+ * Re-measure rather than re-argue when a second browser surface enrols: the
+ * number is a multiple of a measurement, and the measurement is per-surface-set.
+ */
+export const BROWSER_MUTANT_TIMEOUT_MS = 660_000;
+
 /** The overlay-liveness sentinel every overlay layer writes after validating. */
 export const sentinelPath = (manifestPath: string): string => `${manifestPath}.ok`;
 
