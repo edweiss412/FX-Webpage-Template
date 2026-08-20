@@ -601,6 +601,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
       "tests/specLint/declaredLimitPinsObligation.test.ts",
       "tests/specLint/declaredLimitPinsWiring.test.ts",
       "tests/specLint/declaredLimitPinsCorpus.test.ts",
+      "tests/specLint/declaredLimitPinsCli.test.ts",
       "tests/specLint/_metaDeclaredLimitPins.test.ts",
     ],
     operators: [...OPERATOR_NAMES],
