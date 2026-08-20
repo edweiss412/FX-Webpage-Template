@@ -134,6 +134,17 @@ describe("AC-4 — the read set is DERIVED from the surface type declaration", (
 
   it("excludes every member the row declares as a sink, an effect or ambient", () => {
     const reads = readsFor(readFixture("surface-type-extra-member.ts"), CHANNEL_ROW);
+    // The premise guards the assertion IN THE SAME CASE, because every assertion
+    // below is NEGATIVE and `.not.toContain` on an EMPTY array passes vacuously. A
+    // scanner that returned [] -- broken parse, wrong extension, a walk that never
+    // ran -- would satisfy "no declared member is a read" perfectly while having
+    // looked at nothing. The premise is proven on this case's OWN input rather than
+    // by a neighbouring case that happens to pass.
+    premise(
+      "the read set is non-empty, so the exclusions below are about something",
+      reads.length,
+      0,
+    );
     for (const declared of [...CHANNEL_ROW.sinks, ...CHANNEL_ROW.effects, ...CHANNEL_ROW.ambient]) {
       expect(reads, `${declared} is declared and must not be a read`).not.toContain(declared);
     }
