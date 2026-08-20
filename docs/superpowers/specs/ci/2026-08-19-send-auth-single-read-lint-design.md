@@ -59,9 +59,12 @@ A conservative report is a DOCUMENTED LIMIT; silence is never a certificate.
 
 ## §1.2 Convergence criterion (all four, stated in every review brief)
 
-- **Consequence bound.** Every occurrence of an enrolled surface binding is classified by the scanner
-  or REPORTED BY NAME, and every report fails the gate. A conservative report — an unclassified use, a
-  read behind a nested function, an undeclared pass — is a DOCUMENTED LIMIT, not a finding. A finding
+- **Consequence bound.** Every occurrence of an enrolled surface binding is handled correctly or
+  signaled — never silently wrong: it is classified by the scanner or REPORTED BY NAME, and every
+  report fails the gate. Inside a declared pass this ranges over read POSITION as well as read count,
+  and over the position of a derivation's DECLARATION (§2.3 rules 2-3, tightened by the r3 F1 repair in
+  §3.8). A conservative report — an unclassified use, a read behind a nested function, a derivation
+  declared under a loop, an undeclared pass — is a DOCUMENTED LIMIT, not a finding. A finding
   requires a probe showing a SILENT pass: the scanner reporting nothing while a surface use it claims
   to cover is present.
 - **PROBE DOMAIN — DERIVED.** The modules named by the scanner's enrolment registry
@@ -71,7 +74,7 @@ A conservative report is a DOCUMENTED LIMIT; silence is never a certificate.
   read from the registry and never quoted as a number here; the dated census lives in §3.
 - **Threat fence.** Ordinary authoring by a contributor who EDITS THE SURFACE USES of an enrolled
   module: a direct call, a call through a helper, an alias, a destructure, a read inside a callback or
-  a loop. **Control flow is outside the fence** — whether a send is reachable without the pass, whether
+  a loop, a derivation moved under one. **Control flow is outside the fence** — whether a send is reachable without the pass, whether
   a refusal is honoured, whether a branch is taken. Those file to §4 limit 1, which cites the probe
   that settles them, and are not findings.
 - **Score.** `sendAuthScan` IS enrolled in the source-mutation registry (§5). `pnpm mutation:guards`
