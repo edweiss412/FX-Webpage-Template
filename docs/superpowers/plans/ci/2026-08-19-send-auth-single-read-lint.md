@@ -82,10 +82,12 @@ round-1 findings, and it is the concrete reason this plan was re-derived rather 
   (`tests/mutation/_metaPremiseContract.test.ts:32`), which asserts the declared key set EQUALS the
   enrolled suite list (`tests/mutation/_metaPremiseContract.test.ts:376`), so an undeclared suite reds
   immediately. A registry row alone leaves the corpus gate red.
-- **`-t` cannot scope the gate.** `runSurface` executes in the `describe.each` body at collection
-  (`tests/mutation/source/surfaceCases.ts`), so a name filter prunes reporting only after every
-  surface has already run. Scope with a temporary `GUARD_SURFACES` filter placed BEFORE
-  `registerSurfaceCases`, and delete the shard after the run.
+- **`-t` cannot scope the gate, and neither can a temporary shard.** `runSurface` executes in the
+  `describe.each` body at collection (`tests/mutation/source/surfaceCases.ts`), so a name filter prunes
+  reporting only after every surface has already run. A temporary shard file does not work either — the
+  `mutation:guards` script names the four committed shard files explicitly, so a new one is never
+  collected. Task 8 carries the scoping that does work, with its exact command; this bullet states only
+  what does NOT, so the two cannot drift apart.
 - **`premise` API is exactly two functions.** `premise(description, actual, mustExceed)` — strict `>`
   (`tests/_shared/premise.ts:26`) — and `premiseHolds(description, condition)`
   (`tests/_shared/premise.ts:36`).
@@ -115,17 +117,22 @@ to run the arm that decides the question over ALL of them:
 
 ```sh
 $ pnpm spec:lint --exec-red docs/superpowers/plans/ci/2026-08-19-send-auth-single-read-lint.md
-summary: 0 hard, 24 advisory
+summary: 0 hard, <n> advisory
 ```
 
-Zero hard. The advisories are all `RED_SUITE_UNVERIFIED` on the gate suite this plan creates, which is
-the expected and correct signal for an `authored` red naming a file that does not exist yet.
+**Zero hard is the claim; the advisory count is deliberately not pinned.** An exact advisory total
+changes on almost every edit to this document, so a number written here is stale by the next commit —
+and a count the reader cannot reproduce is precisely the defect this plan asks its own tasks to avoid.
+(It was pinned once, at 24, and was 22 two commits later.) What IS stable and checkable: every
+red-contract advisory is `RED_SUITE_UNVERIFIED` naming the gate suite this plan creates, which is the
+correct signal for an `authored` red pointing at a file that does not exist yet; the remainder are the
+document-level advisories `spec:lint` emits for any prose of this length.
 
 **Silence must be distinguished from a pass, because this arm is silent on some command shapes.**
 Probed while drafting: `spec:lint --exec-red` mints NO finding — not even the `RED_PROBE_UNVERIFIED`
 advisory it emits for a probe it cannot derive — when a `red=` is wrapped in `pnpm heavy`, because
 `deriveCollectionProbe` returns kind `none` and `collectionProbePlan` drops the marker
-(`lib/specLint/redContract.ts:722`). So "no finding" is evidence of collection only where the arm can
+(`lib/specLint/redContract.ts:721`). So "no finding" is evidence of collection only where the arm can
 see the shape at all.
 
 **Task 8's marker is one the arm CANNOT see, deliberately.** Its command is a `--project mutation` run,
@@ -143,8 +150,11 @@ The fixtures deliberately contain violating code and a `// send-auth: pass` toke
 that walks `tests/` could claim them. **Three attempts at a static cover are recorded here because the
 third failure is the one that settles the method question.**
 
-*Attempt 1, too broad to act on.* `rg -l "walkSourceFiles|readdirSync" tests/` returns 193 files —
-every suite that walks anything. A 193-row disposition list is a sweep authored but not usefully run.
+*Attempt 1, too broad to act on.* `rg -l "walkSourceFiles|readdirSync" tests/` returns on the order of
+190 files — every suite that walks anything. The exact total is not quoted because it is not
+reproducible across environments: review measured 194 against 193 here, a difference in ignore-file
+handling, and nothing in the argument depends on which is right. A disposition list of that size is a
+sweep authored but not usefully run at any of those numbers.
 
 *Attempt 2, unsound.* Grepping for the literal `paneCompaction` can only find suites that already name
 the directory, so a GENERIC walker is invisible to it by construction.
@@ -153,11 +163,11 @@ contains the token.
 
 *Attempt 3, ALSO unsound, and by the same mechanism one level up.* Deriving the cover from walk-root
 VARIABLE NAMES (`TESTS_DIR|TESTS_ROOT|ROOTS|SCANNED_DIRS`) is still a name grep — it just greps for a
-different name. It misses `walkFiles(join(ROOT, ".github", "actions"))`-style helpers
-(`tests/ci/_metaSpecRegistration.test.ts:201`, `tests/drive/_metaDriveCallBounds.test.ts:245`) and any
-walker whose root is spelled inline. Its printed command does not even reproduce the row count it was
-used to justify. **A name-derived cover cannot answer this question, and no further grep will fix
-that** — the property "walks a directory that contains my fixtures" is not a lexical property.
+different name, so a walker whose root is spelled inline, or held in a constant named anything else,
+stays invisible. **It fails on its own terms before any of that matters: the command as printed returns
+ZERO files, not the five rows it was used to justify.** A cover that cannot reproduce itself is not
+evidence, and no further grep repairs the class — "walks a directory that contains my fixtures" is not
+a lexical property, so no static pattern can decide it.
 
 **The cover is therefore EXECUTION, and it belongs to Task 1 rather than to plan time.** The fixtures
 do not exist yet, so nothing can be run against them today; that is a fact about the question, not a
@@ -179,7 +189,7 @@ most likely to fire, but the disposition list is produced by the run, not by thi
 Mutation site ids are line-keyed, so an edit that shifts lines in an enrolled source invalidates that
 surface's accepted rows. Task 7 adds one comment line to `scripts/pane-compaction.ts`. The enrolled
 surface is a DIFFERENT file: `paneCompactionCore.sourcePath` is `scripts/lib/pane-compaction-core.ts`
-(`tests/mutation/source/registry.ts:233`). Its EIGHT accepted rows (`tests/mutation/source/registry.ts:299-354`) are keyed on lines in that file
+(`tests/mutation/source/registry.ts:233`). Its EIGHT accepted rows are keyed on lines in that file
 (`integer-literal:557:53:0>1` and its siblings) and are untouched by anything this arc edits, so they
 are inherited legitimately rather than by assumption. The count is stated because it was first written
 as seven — an `awk` range that clipped the last row — and a number nobody re-derives is exactly the
@@ -322,10 +332,24 @@ A send-bearing function is one whose body calls a declared SINK on a surface bin
 declared `// send-auth: pass` per send-bearing function, or `// send-auth: exempt: <reason>` with a
 non-empty reason. Zero is `UNDECLARED-PASS`; two or more is `AMBIGUOUS-PASS` (spec §2.1).
 
-Two failure modes this task must catch, each with its own fixture: an empty exempt reason does NOT
-suppress; and a `// send-auth: pass` token inside a string literal or JSX is NOT a declaration — which
-is why extraction goes through `commentRanges` (`tests/_shared/stripComments.ts:13`) and not a
-line-regex over the function span.
+Four failure modes this task must catch, each with its own fixture. The first two are about the token:
+an empty exempt reason does NOT suppress; and a `// send-auth: pass` token inside a string literal or
+JSX is NOT a declaration — which is why extraction goes through `commentRanges`
+(`tests/_shared/stripComments.ts:13`) and not a line-regex over the function span.
+
+**The other two exist because the rule is about ASSOCIATION, and a module-wide marker COUNT would
+satisfy everything else.** The spec requires the marker immediately above the pass, and exactly one
+pass lexically inside each send-bearing function. An implementation that merely counts markers per
+FILE passes every fixture above:
+
+- `detached-marker` — the module contains a `// send-auth: pass` marker, but it sits above something
+  that is not the pass (a helper, a type, a blank run). The send-bearing function therefore has NO
+  declared pass and must report `UNDECLARED-PASS`, even though the file's marker count is 1.
+- `two-sends-one-marker` — TWO send-bearing functions and a single marker, correctly attached to a pass
+  inside the first. The second must report `UNDECLARED-PASS`. A per-file counter sees one marker and
+  one-or-more send-bearing functions and says nothing.
+
+Both are authored against the `Channel` row like the rest of the corpus.
 
 AC-14 rides here: a function whose only effect calls are `out` is NOT send-bearing. The live module is
 the proof — `main` carries fifteen `s.out(...)` calls and no pass (spec §3.5), so a scanner anchored on
@@ -401,6 +425,19 @@ two-iteration loop, and separately inside a named callback invoked twice; both s
 must now report. The third fixture is the shipped-memo shape, a derivation ON the straight-line path,
 which must NOT report. Without that third fixture this rule could be satisfied by banning derivations
 outright, which would fail the live tree.
+
+**Two more cases, because "exactly one" and "a spread is a derivation" are both currently unproved.**
+The listed fixtures exercise multiple, helper-based and looped derivations, all of which a
+helper-only, at-most-one implementation satisfies:
+
+- `zero-derivations` — a pass with NO derivation at all must report `MULTI-DERIVATION`'s counterpart:
+  "exactly one" is violated by zero as well as by two. State the code the scanner emits for it and
+  assert that record, so the rule cannot quietly degrade into "at most one".
+- `spread-derivation` — a derivation whose initializer SPREADS the surface (`{ ...ch, marker: … }`)
+  rather than calling a declared helper. It must be recognized as a derivation, and reads through the
+  resulting binding must be unconstrained. Without this case an implementation that only recognizes
+  `snapshotOf(...)` passes the whole set, and would then report against the live tree — where the
+  shipped memo at `scripts/pane-compaction.ts:797` is a SPREAD, not a helper call.
 
 **The declared helper list is the measurement, not a preference.** Spec §3.2: an “any call taking the
 surface is a derivation” reading silenced the round-4 shape ENTIRELY, because
@@ -536,11 +573,22 @@ after every surface has already run. Nor does adding a temporary shard file help
 names the four committed shard files and the corpus gate EXPLICITLY, so a new shard is simply not
 collected, filtering one committed shard leaves the other three running, and filtering the shared
 registry breaks the corpus-wide key and partition assertions that range over the whole of
-`GUARD_SURFACES`. The scoping that actually works is to run ONE committed shard file directly with the
-project and env gate, after confirming which shard owns `sendAuthScan` via
-`surfacesForShard` (`tests/mutation/source/shardPartition.ts`) — the partition is deterministic, so the
-owning shard is derived rather than guessed. That single-shard run is a `--project mutation` run and
-so is wrapped too.
+`GUARD_SURFACES`. The scoping that actually works is to run ONE COMMITTED shard file, after DERIVING which shard owns
+`sendAuthScan` rather than guessing — the partition is deterministic
+(`SOURCE_SHARD_COUNT` is 4, `tests/mutation/source/shardPartition.ts:26`):
+
+```sh
+npx tsx -e "
+import { SOURCE_SHARD_COUNT, surfacesForShard } from './tests/mutation/source/shardPartition';
+for (let i = 0; i < SOURCE_SHARD_COUNT; i++)
+  if (surfacesForShard(i).some((s) => s.id === 'sendAuthScan')) console.log(i);"
+# then, with N the shard it printed:
+FX_HEAVY_PRIORITY=1 pnpm heavy env VITEST_INCLUDE_MUTATION_HARNESS=1 \
+  pnpm exec vitest run --project mutation tests/mutation/guardSurfaces.shardN.test.ts
+```
+
+Verified at plan time by running the derivation against an already-enrolled id: `paneCompactionCore`
+resolves to shard 2. That single-shard run is a `--project mutation` run and so is wrapped too.
 
 **Wrapping these costs the `--exec-red` collection check, and that trade is deliberate.** A `pnpm heavy`
 command is invisible to `deriveCollectionProbe`, so the arm mints nothing for these two markers — the
@@ -615,9 +663,12 @@ after it was dispatched as `--round 4` into a base holding no rounds 1-3.
 
 **Row 2 — `spec:lint --exec-red`'s collection arm is SILENT on any `pnpm heavy` command.**
 `**Facing:** process`. `deriveCollectionProbe` returns kind `none` for that shape and
-`collectionProbePlan` drops it (`lib/specLint/redContract.ts:722`), so the marker never enters the
+`collectionProbePlan` drops it (`lib/specLint/redContract.ts:721`), so the marker never enters the
 probe plan and no finding is minted — not even the `RED_PROBE_UNVERIFIED` advisory the same function
-emits for a probe it cannot derive. Since `AGENTS.md` MANDATES `pnpm heavy` for every heavy phase, the
+emits for a probe it cannot derive. **That asymmetry is the difference between a gap and a bug:** the
+code carries a deliberate, named path for "I could not derive a probe for this", and the heavy-wrapped
+shape does not take it. So this is an unclassified shape falling THROUGH the classifier, not an
+exemption anyone chose. Since `AGENTS.md` MANDATES `pnpm heavy` for every heavy phase, the
 arm is silent on exactly the class of command the repo requires to be wrapped, and silent reads as
 clean. This is `BL-GUARD-PREMISE-REACHABILITY`'s shape: the condition is false where the guard runs, so
 it passes unconditionally and would forever.
