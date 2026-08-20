@@ -210,7 +210,7 @@ export function discoverPins(
   lines: readonly string[],
   dispositions: readonly PinDisposition[],
 ): Pin[] {
-  const disposed = new Set(dispositions.map((d) => `${d.path} ${d.title}`));
+  const disposed = new Set(dispositions.map((d) => `${d.path}\u0000${d.title}`));
   const pins: Pin[] = [];
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]!;
@@ -222,7 +222,7 @@ export function discoverPins(
     if (!PHRASES.some((phrase) => haystack.includes(phrase))) continue;
     // Keyed on the PAIR, never the path: a path-keyed row would absorb every future
     // pin in that file, invisibly, because the absorbed thing does not exist yet.
-    if (disposed.has(`${path} ${title}`)) continue;
+    if (disposed.has(`${path}\u0000${title}`)) continue;
     pins.push({ path, line: index + 1, title });
   }
   return pins;
