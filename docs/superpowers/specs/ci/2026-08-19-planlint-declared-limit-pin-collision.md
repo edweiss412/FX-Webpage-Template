@@ -263,6 +263,19 @@ export const NOT_A_PIN: readonly { path: string; title: string; reason: string }
 
 Two rows today, both from §2.4.
 
+**The disposition is keyed at the SAME GRANULARITY as the thing it disposes of, and that is load-bearing
+rather than incidental.** A pin's identity is `(path, title)` (§3.1), so a disposition row is
+`(path, title)` too. A row keyed on the PATH alone would absorb every future pin in that file — the
+suite would be pre-dispositioned, and a genuinely new declared-limit pin added there tomorrow would be
+silently exempt, which is invisible in every positive test because the absorbed thing does not exist
+yet. §6 asserts the finer grain directly: the same title at a DIFFERENT path still draws.
+
+**And the registry is a per-instance disposition rather than a recognizer, deliberately.** The honest
+alternative — deciding from the text whether a title narrates a CLOSED limit or declares a live one —
+is tense and polarity over English, a predicate that would be attacked every round and widened one
+corner at a time. Two rows with reasons hold the same fact without parsing anything, and the derived
+cover in this section is what keeps them honest.
+
 <!-- spec-lint: ignore — new file created by this spec; not yet tracked -->
 `tests/specLint/_metaDeclaredLimitPins.test.ts` is the cover, and it walks the enrolled suites from disk so a new suite file is covered by default:
 
