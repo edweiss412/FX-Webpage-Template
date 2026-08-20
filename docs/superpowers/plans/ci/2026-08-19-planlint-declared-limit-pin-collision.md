@@ -158,6 +158,12 @@ because "the arm draws nothing here" is the claim a future widening would quietl
 | phrase in a `//` or `/* */` comment | §2.2 | no pin |
 | phrase in the SECOND argument, not the title | §3.1 item 2 | no pin |
 
+One more case, and it is a GRAIN assertion rather than a decline: a test whose BODY tabulates several
+declared misses under one phrase-bearing title yields exactly ONE pin, not one per row (spec §8 item
+12). The live instance is the six-row table under `each quote-concatenated keyword/operand spelling is a
+declared miss`; a concurrent arc enumerating that file BY ZERO counted ten where this arm counts one,
+and the test pins which unit ships so the two are never read as a recall gap.
+
 **Anti-tautology.** Each accept case names the concrete failure mode it catches: a matcher anchored to
 `test(` alone misses the six live `it(` pins; a case-sensitive matcher misses
 `CLOSED (was DOCUMENTED LIMIT)`; a naive double-quote-to-double-quote match misses a title containing an escaped quote. Each
@@ -177,7 +183,7 @@ git add lib/specLint/declaredLimitPins.ts tests/specLint/declaredLimitPins.test.
 git commit -m "feat(spec-lint): declared-limit pin grammar - phrase in a single-line test title"
 ```
 
-### Task 2: Files-block extent and surface naming
+### Task 2: Files-declaration span and surface naming
 
 **Files:**
 
@@ -216,7 +222,7 @@ fails any implementation using `String.prototype.includes` on the raw path.
 
 ```bash
 git add lib/specLint/declaredLimitPins.ts lib/specLint/types.ts tests/specLint/declaredLimitPinsFiles.test.ts
-git commit -m "feat(spec-lint): read enrolled surfaces from a plan's Files block, not its prose"
+git commit -m "feat(spec-lint): read enrolled surfaces from a plan's Files declaration, not its prose"
 ```
 
 ### Task 3: The obligation, both finding codes, and the fail-open closure
@@ -242,7 +248,7 @@ bails out of the whole surface on one unreadable suite fails.
 
 **Anti-tautology.** The dedup case constructs one pin reachable through two surfaces and asserts
 exactly one finding; an implementation iterating surfaces without deduplicating passes every other
-case. The substring case constructs a pin whose title is a proper substring of a longer title present
+case. The title-substring case — TITLE matching, which stays a verbatim substring test (spec §8 item 7); PATH matching is delimited-token since round 1, and the two must not be conflated — constructs a pin whose title is a proper substring of a longer title present
 in the plan, and asserts the longer title's presence does NOT satisfy the shorter pin unless it
 literally contains it. Severity is asserted over every emitted finding, not sampled.
 
@@ -448,7 +454,7 @@ pnpm spec:lint docs/superpowers/specs/ci/2026-08-19-planlint-declared-limit-pin-
 ```
 
 Expected: `0 hard` on both documents, INCLUDING the new arm running against this plan — the plan's own
-Files blocks name `tests/mutation/source/registry.ts` and several enrolled `lib/specLint/*` paths, so
+Files declarations name `tests/mutation/source/registry.ts` and several enrolled `lib/specLint/*` paths, so
 the arm reports on itself. Any advisory it raises against this plan is dispositioned in the plan text by
 naming the pin, which is the arm dogfooding its own contract.
 
