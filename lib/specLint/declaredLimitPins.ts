@@ -25,6 +25,9 @@
  * at one.
  */
 
+import type { DocModel } from "./parse";
+import type { EnrolledSurface } from "./types";
+
 /**
  * A declared-limit pin. Its IDENTITY is `(path, title)` (spec §3.1) — never its line,
  * which is a lint-time locator that rots at every edit elsewhere in the file.
@@ -223,4 +226,150 @@ export function discoverPins(
     pins.push({ path, line: index + 1, title });
   }
   return pins;
+}
+
+/** A `**Files:**` or `**Files**` header, optionally written as a list item. */
+const FILES_HEADER = /^[ \t]*(?:[-*+][ \t]+)?\*\*Files:?\*\*/;
+const UNORDERED_ITEM = /^[ \t]*[-*+][ \t]+/;
+/** An indented continuation of the list item above it. */
+const INDENTED_CONTINUATION = /^[ \t]+\S/;
+
+/**
+ * Does this text name SOMETHING PATH-SHAPED? Used only to classify the header's FORM
+ * (spec §3.2), never to decide enrolment — the candidate set for that is the closed
+ * set of enrolled paths.
+ *
+ * Two shapes, because both are live. 642 headers name a path with a directory
+ * separator; a further 54 name only a ROOT file (`BACKLOG.md`, `package.json`,
+ * `AGENTS.md`), and a slash-bearing probe wrongly excluded every one of them until
+ * round 6. The bare-file form requires a TWO-character extension so ordinary prose
+ * abbreviations ("t.b.d", "e.g.") do not read as a filename and silently reclassify a
+ * list-form header as inline.
+ */
+const PATH_SHAPED =
+  /(?:^|[^A-Za-z0-9._/-])(?:[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+|[A-Za-z0-9_-]+\.[A-Za-z0-9]{2,})(?![A-Za-z0-9._/-])/;
+
+/** Spec §3.2's delimiter class: what may NOT abut a path for the token to be delimited. */
+const PATH_CHAR = /[A-Za-z0-9._/-]/;
+
+/**
+ * A plan's Files declarations, as line indices (spec §3.2). Fenced lines are inert:
+ * `model.fencedInfo[i]` is `undefined` ONLY for a line outside every fence, so this
+ * single test excludes both fence bodies and their delimiters.
+ */
+function filesDeclarations(model: DocModel): number[][] {
+  const declarations: number[][] = [];
+  for (let i = 0; i < model.lines.length; i += 1) {
+    if (model.fencedInfo[i] !== undefined) continue;
+    const line = model.lines[i]!;
+    const header = FILES_HEADER.exec(line);
+    if (header === null) continue;
+
+    // INLINE — the header's own remainder names a path, so the declaration is THAT
+    // LINE ALONE and nothing below it is read. An inline declaration is complete where
+    // it is written, and reading on absorbs whatever follows: a live plan carries
+    // `**Files:** \`BACKLOG.md\`` followed by a blank and a TASK CHECKLIST, and
+    // skipping that blank made one ordinary prior-art citation in a checklist step
+    // advise about an unrelated pin.
+    if (PATH_SHAPED.test(line.slice(header[0].length))) {
+      declarations.push([i]);
+      continue;
+    }
+
+    // LIST — the header names no path and the line IMMEDIATELY below opens an
+    // unordered item. NO BLANK LINE IS EVER SKIPPED: the blank is the signal that the
+    // list below belongs to something else.
+    const next = i + 1;
+    if (
+      next < model.lines.length &&
+      model.fencedInfo[next] === undefined &&
+      UNORDERED_ITEM.test(model.lines[next]!)
+    ) {
+      const span = [i];
+      for (let j = next; j < model.lines.length; j += 1) {
+        if (model.fencedInfo[j] !== undefined) break;
+        const item = model.lines[j]!;
+        if (item.trim() === "") break; // first blank ends the run
+        if (!UNORDERED_ITEM.test(item) && !INDENTED_CONTINUATION.test(item)) break;
+        span.push(j);
+      }
+      declarations.push(span);
+      continue;
+    }
+
+    // ANYTHING ELSE — an ordered run, a blank, a table, a fence — is DECLINED, and the
+    // declaration is the header remainder alone (spec §8 items 11 and 14). Sampling the
+    // 19 ordered runs shows their numbered items are as often TASK STEPS as files, so
+    // the arm cannot classify one and declines rather than guessing. The failure
+    // direction is a missed advisory, never a false one.
+    declarations.push([i]);
+  }
+  return declarations;
+}
+
+/**
+ * Does `line` name `path` as a DELIMITED TOKEN (spec §3.2)?
+ *
+ * A bare substring test is unsound in BOTH directions and both are one ordinary
+ * authoring edit from a live corpus entry: a `.bak` sibling CONTAINS a live entry while
+ * naming a different file (the trailing side), and an `archive/`-prefixed path contains
+ * it too (the leading side, which an implementation checking only the character AFTER
+ * the match gets wrong).
+ *
+ * Every occurrence is examined, not just the first: a line can carry the path twice,
+ * once abutted and once clean, and stopping at the first match would report the wrong
+ * answer for the line.
+ */
+function namesPath(line: string, path: string): boolean {
+  for (let from = 0; ; ) {
+    const at = line.indexOf(path, from);
+    if (at === -1) return false;
+    const before = at > 0 ? line[at - 1]! : "";
+    const after = at + path.length < line.length ? line[at + path.length]! : "";
+    if (!PATH_CHAR.test(before) && !PATH_CHAR.test(after)) return true;
+    from = at + 1;
+  }
+}
+
+/**
+ * Every enrolled surface a plan names, mapped to the Files-declaration line that named
+ * it — the line an advisory about that surface anchors at (spec §3.3).
+ *
+ * The FIRST naming wins, so the anchor is stable when a plan names one surface in two
+ * declarations. Line numbers are 1-based on the way out.
+ */
+export function namedSurfaceAnchors(
+  model: DocModel,
+  surfaces: readonly EnrolledSurface[],
+): Map<string, number> {
+  const anchors = new Map<string, number>();
+  for (const declaration of filesDeclarations(model)) {
+    for (const index of declaration) {
+      const line = model.lines[index]!;
+      for (const surface of surfaces) {
+        if (anchors.has(surface.id)) continue;
+        const paths = [surface.sourcePath, ...surface.suitePaths];
+        if (paths.some((path) => namesPath(line, path))) {
+          // Anchored at the DECLARATION's header line, not the matching item, so every
+          // pin of one surface shares one anchor — which is why a finding's identity is
+          // `(code, suitePath, title)` and never its position (spec §3.3).
+          anchors.set(surface.id, declaration[0]! + 1);
+        }
+      }
+    }
+  }
+  return anchors;
+}
+
+/**
+ * The set of enrolled surface ids a plan NAMES in its Files declarations (spec §3.2).
+ *
+ * The enrolled table is a PARAMETER: this module imports no registry, so the mutation
+ * harness scores the logic while the registry stays the registry.
+ */
+export function namedSurfaces(
+  model: DocModel,
+  surfaces: readonly EnrolledSurface[],
+): Set<string> {
+  return new Set(namedSurfaceAnchors(model, surfaces).keys());
 }
