@@ -8,6 +8,17 @@ filing sat outside what it read.  The population is now spec, probe record, plan
 and filing, and any document this arc adds later joins the list in the same
 commit.
 
+TWO DEFECTS ARE POSSIBLE HERE AND ONLY ONE IS CLOSED.  REACH -- not opening or
+not finishing every document in the population -- is closed: the population is
+declared above, a must-be-PRESENT control sits in EACH document, and the size is
+printed beside every zero.  VOCABULARY is NOT closed and is a DOCUMENTED LIMIT:
+the witness lists below are hand-maintained, so this sweep only knows the vectors
+someone named.  That is the enumeration defect arriving on the sweep itself, and
+it is declared rather than papered over.  Where a vector IS a number, take it as
+an ARGUMENT from whatever produced it -- the population census is the source of
+every figure in spec section 2 -- rather than retyping it here, so a new
+measurement cannot silently outrun the check that guards it.
+
 Positive direction: every repair CLAIMED in any round is present NOW.
 Negative direction: every model any round RETIRED is gone -- a repair that adds
 the replacement while leaving the superseded text standing reads as complete in
@@ -23,6 +34,7 @@ norm  = lambda s: re.sub(r"\s+", " ", s)
 
 PLAN   = "docs/superpowers/plans/2026-08-20-claim-sweep-after-repair.md"
 FILING = "docs/review-rounds/feat/speclint-claim-sweep-after-repair/4dfd784ed062.md"
+HANDOFF = "docs/superpowers/plans/2026-08-20-claim-sweep-after-repair-handoff.md"
 
 # THE SWEEP UNIT IS EVERY DOCUMENT THIS ARC WRITES, not the spec/probe pair it
 # started as.  Plan review round 4 found SEVEN current-tense survivors in the
@@ -30,7 +42,7 @@ FILING = "docs/review-rounds/feat/speclint-claim-sweep-after-repair/4dfd784ed062
 # while this script reported a clean sweep, because the filing sat outside the
 # population it read.  A cover that is clean about documents it never opened is
 # the fail-open this arc exists to catch, one artifact further out.
-docs = {p: norm(pathlib.Path(p).read_text()) for p in (SPEC, PROBE, PLAN, FILING)}
+docs = {p: norm(pathlib.Path(p).read_text()) for p in (SPEC, PROBE, PLAN, FILING, HANDOFF)}
 for p, t in docs.items():
     print(f"read {p}: {len(t)} normalised chars")
     # RULE 47: a check that reports a zero states the SIZE of the set it scanned.
@@ -49,7 +61,9 @@ PRESENT = [
     ("2.0 ARC_DOCUMENTS tuple",       [SPEC],  "`ARC_DOCUMENTS` tuple names this spec"),
     ("2.0 no-arc-figure rule",        [SPEC],  "**No arc-inclusive figure is stated anywhere in this document**"),
     ("2.0 base-anchored derivation",  [SPEC],  "at this arc's merge-base `4dfd784ed062`"),
-    ("2.0 plan arrival moved nothing",[SPEC],  "The plan arriving is the proof the exclusion works"),
+    # superseded when the handoff arrived and became the SECOND proof of the same
+    # property; the plan-only wording is on the retired list.
+    ("2.0 arrival moved nothing",     [SPEC],  "arriving are the proof the exclusion works"),
     ("2.0 shared-module literals",    [SPEC],  "Synthetic fixture literals therefore live in ONE SHARED MODULE"),
     ("3.2 arm does not establish",    [SPEC],  "THE ARM DOES NOT ESTABLISH THAT THE REPAIR CHANGED THE CLAIM"),
     ("3.2 HoverHelp counterexample",  [SPEC],  "components/admin/HoverHelp.tsx:562"),
@@ -127,6 +141,9 @@ PRESENT = [
     ("plan: safe forms by compute",   [PLAN],   "safe because of what they COMPUTE, not how they look"),
     ("2.0 motivating instance",       [SPEC],   "THE MOTIVATING INSTANCE IS THIS ARC'S OWN"),
     ("2.0 one control one read",      [SPEC],   "ONE control proves\nONE read succeeded"),
+    ("2.0 handoff arrival",           [SPEC],   "The plan and the handoff arriving are the proof"),
+    ("2.0 same-commit declaration",   [SPEC],   "joins `ARC_DOCUMENTS` in the SAME COMMIT"),
+    ("handoff: ruling for the PR body",[HANDOFF], "belongs in the PR body verbatim"),
     ("plan: derived red check",       [PLAN],   "it is a verification step"),
     ("plan: nine tasks",              [PLAN],   "TDD contract for Tasks 1-9"),
     ("plan: derived commit scope",    [PLAN],   "DERIVED from the files the task touches"),
@@ -169,6 +186,8 @@ ABSENT = [
     ("retired: filing six dispatches",        [FILING],      "All six dispatches returned"),
     ("retired: plan 4 rounds heading",         [FILING],      "## plan — 4 rounds"),
     ("retired: eleven of twenty-two",          [FILING],      "eleven of the twenty-two"),
+    ("retired: 1134/3 table row",              [SPEC],        "1134, of which 3 are this arc's own"),
+    ("retired: plan-only arrival proof",       [SPEC],        "**The plan arriving is the proof the exclusion works.**"),
     ("retired: unexported INPUTS stamp",       [PLAN],        "git hash-object $INPUTS"),
     ("retired: header-advance as safe form",   [PLAN],        "and a SEARCH LOOP THAT ADVANCES IN ITS OWN HEADER"),
     # --- plan rounds 1-3: task shapes the plan retired ---
@@ -189,12 +208,14 @@ print(f"  must-be-ABSENT  control nonsense string       : {ctl_absent}  (need 0)
 ctl_probe = count([PROBE], "## 1. The entry's acceptance criterion")
 ctl_plan = count([PLAN], "## 0. Pre-draft code-verification pass")
 ctl_filing = count([FILING], "# Review-round filing")
+ctl_handoff = count([HANDOFF], "# Handoff —")
 print(f"  must-be-PRESENT control, PROBE record        : {ctl_probe}  (need >=1)")
 print(f"  must-be-PRESENT control, PLAN                : {ctl_plan}  (need >=1)")
 print(f"  must-be-PRESENT control, FILING              : {ctl_filing}  (need >=1)")
+print(f"  must-be-PRESENT control, HANDOFF             : {ctl_handoff}  (need >=1)")
 # ONE CONTROL PER DOCUMENT, because a control in one file proves only that ONE
 # read succeeded -- which is exactly how the filing stayed invisible.
-assert ctl_present >= 1 and ctl_absent == 0 and ctl_probe >= 1 and ctl_plan >= 1 and ctl_filing >= 1, \
+assert ctl_present >= 1 and ctl_absent == 0 and ctl_probe >= 1 and ctl_plan >= 1 and ctl_filing >= 1 and ctl_handoff >= 1, \
     "CONTROLS VOID -- run means nothing"
 
 print("\n-- POSITIVE DIRECTION: repairs claimed this round --")

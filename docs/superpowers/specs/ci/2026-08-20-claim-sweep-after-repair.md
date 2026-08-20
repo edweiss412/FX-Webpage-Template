@@ -72,16 +72,19 @@ anchor rather than a HEAD sha, because this arc's own commits cannot move these 
 `docs/superpowers` markdown file on this branch is touched:
 
 ```
-tracked docs/superpowers markdown files:          1134
-this arc's own documents, excluded by path:          3
+tracked docs/superpowers markdown files:          1135
+this arc's own documents, excluded by path:          4
 population measured:                              1131
 census shape hits over the population:             936   (935 excluded by the rule, 1 not — §5 item 1)
 ```
 
-**The plan arriving is the proof the exclusion works.** `ARC_DOCUMENTS` named it before it existed, so
-writing it moved the tracked count from 1133 to 1134 and the excluded count from 2 to 3 while the
-POPULATION and every row of the table below stayed exactly where they were. Under the old
-measure-everything approach the plan's arrival would have been a fifth number-drift repair.
+**The plan and the handoff arriving are the proof the exclusion works, twice.** `ARC_DOCUMENTS` named
+each before it existed, so writing them moved the tracked count 1133 → 1134 → 1135 and the excluded count
+2 → 3 → 4 while the POPULATION and every row of the table below stayed exactly where they were. Under the
+old measure-everything approach each arrival would have been another number-drift repair. **The rule that
+makes it hold: any document this arc adds joins `ARC_DOCUMENTS` in the SAME COMMIT that adds it** — the
+declaration is what does the work, and a document declared late has already moved a number by the time
+anyone notices.
 
 Every row of the table below comes from that one run. The UNFILTERED corpus carries more, and the
 difference is this arc's own writing — a quantity that changes with every sentence added to this
@@ -124,7 +127,7 @@ over the population §2.0 declares.
 
 | Measurement | Value |
 | --- | --- |
-| Tracked `docs/superpowers` markdown files | 1134, of which 3 are this arc's own and EXCLUDED — population 1131 |
+| Tracked `docs/superpowers` markdown files | 1135, of which 4 are this arc's own and EXCLUDED — population 1131 |
 | Sites the NAIVE form would wrongly flag, DEDUPLICATED by (path, value offset) | 1009 |
 | …raw matches before dedup, since the six shapes overlap | 1032 |
 | …of which plain `X → Y` transition sentences | 923 |

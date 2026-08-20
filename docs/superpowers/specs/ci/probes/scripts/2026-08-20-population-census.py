@@ -19,6 +19,7 @@ ARC_DOCUMENTS = (
     "docs/superpowers/specs/ci/2026-08-20-claim-sweep-after-repair.md",
     "docs/superpowers/specs/ci/probes/2026-08-20-claim-sweep-after-repair-probes.md",
     "docs/superpowers/plans/2026-08-20-claim-sweep-after-repair.md",
+    "docs/superpowers/plans/2026-08-20-claim-sweep-after-repair-handoff.md",
 )
 
 def sentences(text):
