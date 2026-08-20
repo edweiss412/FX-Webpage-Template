@@ -260,6 +260,60 @@ describe("namedSurfaces — a path is a DELIMITED TOKEN, not a substring (spec �
   });
 });
 
+describe("namedSurfaces — boundaries of the LIST-form lookahead", () => {
+  it("declines a header that is the LAST line of the document", () => {
+    // There is no next line to look at. Paired below, so "names nothing" cannot pass by
+    // the scanner never having run.
+    expect(named(doc("## Task 1", "", "**Files:**"))).toEqual([]);
+  });
+
+  it("…while the same header WITH a list under it names its surface", () => {
+    expect(named(doc("## Task 1", "", "**Files:**", "- Modify: `lib/reviewRounds/count.ts`"))).toEqual([
+      "reviewRoundCount",
+    ]);
+  });
+
+  it("declines when the line below the header opens a FENCE", () => {
+    // The lookahead must reject a fenced next line, not merely a non-list one.
+    const fencedBelow = doc("**Files:**", "```", "- Modify: `lib/reviewRounds/count.ts`", "```");
+    expect(named(fencedBelow)).toEqual([]);
+  });
+
+  it("reads a list run that reaches the END OF THE DOCUMENT with no trailing blank", () => {
+    // Drives the run loop to the final line. Without this the loop's bound is never
+    // exercised at its boundary and an off-by-one there goes unnoticed.
+    expect(named(doc("**Files:**", "- Modify: `lib/reviewRounds/count.ts`"))).toEqual([
+      "reviewRoundCount",
+    ]);
+  });
+});
+
+describe("namedSurfaces — the delimiter test, at both of its edges", () => {
+  it("declines a path preceded by a path character at position ONE", () => {
+    // The LEADING edge at its tightest: the enrolled path starts at index 1, so an
+    // implementation that only checks `index > 0` before reading the preceding
+    // character reads "" and wrongly accepts.
+    expect(named(doc("**Files:**", "- Modify: xlib/reviewRounds/count.ts"))).toEqual([]);
+  });
+
+  it("names a path that ends EXACTLY at the end of the line", () => {
+    // The TRAILING edge at its tightest: nothing follows the path, so an implementation
+    // that requires a character after the match drops a real citation.
+    expect(named(doc("**Files:**", "- Modify: lib/reviewRounds/count.ts"))).toEqual([
+      "reviewRoundCount",
+    ]);
+  });
+
+  it("keeps scanning past an ABUTTED occurrence to find a clean one on the same line", () => {
+    // A line can carry the path twice, once abutted and once delimited. A scan that
+    // stops at the first occurrence — or advances past the second while resuming —
+    // reports the wrong answer for the line.
+    expect(
+      named(doc("**Files:**", "- Modify: xlib/reviewRounds/count.ts and `lib/reviewRounds/count.ts`")),
+    ).toEqual(["reviewRoundCount"]);
+  });
+});
+
 describe("namedSurfaces — the grain, made executable (spec §2.5)", () => {
   it("names NOTHING for an enrolled path in prose outside every declaration", () => {
     // The §2.5 measurement as a test: a whole-document implementation passes every

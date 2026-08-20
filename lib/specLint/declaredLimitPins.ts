@@ -99,13 +99,22 @@ const SIMPLE_ESCAPES: Readonly<Record<string, string>> = {
 };
 
 /**
- * Decode a string-literal body (spec §3.1 item 2).
+ * Decode a string-literal body (spec §3.1 item 2), or DECLINE it.
  *
  * The runtime test name is the DECODED string, so a plan author quoting the pin copies
  * the decoded form; comparing a source spelling against the plan would draw a false
  * advisory on a title the accept-set explicitly admits. `\\` yielding ONE backslash is
  * called out in the spec because a decoder implementing only the quote, newline and tab
  * escapes passes almost every fixture while violating it.
+ *
+ * ── NUMERIC ESCAPES ARE DECODED, NOT DECLINED ────────────────────────────────
+ * `\xHH`, `\uHHHH` and `\u{…}` resolve; a MALFORMED one falls through to the identity
+ * rule rather than declining the line. An earlier repair deleted this machinery because
+ * 26 of the surface's first 48 mutation survivors lived in it — but those survivors meant
+ * the paths were UNTESTED, not dead, and deleting them made the arm go SILENT on a class
+ * it can reach: two live test titles in this repo already carry `\x1b`, on a suite of an
+ * enrolled surface. A decline with no channel is not the conservative direction, it is
+ * the fail-open one wearing its clothes. So the paths are back and they are TESTED.
  */
 function decode(body: string): string {
   let out = "";
@@ -115,12 +124,13 @@ function decode(body: string): string {
       out += ch;
       continue;
     }
-    const next = body[i + 1];
-    if (next === undefined) {
-      // A trailing lone backslash decodes to itself rather than swallowing the end.
-      out += "\\";
-      break;
-    }
+    // TOTAL rather than asserted: `charAt` returns "" past the end. `decode` only ever
+    // runs on a TERMINATED literal, whose body cannot end in an unescaped backslash —
+    // that backslash would have escaped the closing quote — so the empty case is
+    // unreachable today. It is written totally anyway, because that reachability is a
+    // PROSE argument and a later edit to the scanner could quietly falsify it, at which
+    // point a non-null assertion would append the string "undefined" to a title.
+    const next = body.charAt(i + 1);
     if (next === "u" || next === "x") {
       const decoded = decodeNumericEscape(body, i);
       if (decoded !== null) {
@@ -128,8 +138,9 @@ function decode(body: string): string {
         i = decoded.lastIndex;
         continue;
       }
-      // A malformed \u or \x is not a numeric escape; fall through to the
-      // identity rule below rather than dropping the character silently.
+      // A MALFORMED numeric escape is not a numeric escape. It falls through to the
+      // identity rule below rather than being dropped, so the title still decodes to
+      // something faithful instead of the arm going silent on the whole line.
     }
     out += SIMPLE_ESCAPES[next] ?? next;
     i += 1;
@@ -150,13 +161,16 @@ function decodeNumericEscape(
     return { text: String.fromCodePoint(parseInt(hex, 16)), lastIndex: start + 1 };
   }
   if (body[start] === "{") {
-    const close = body.indexOf("}", start);
-    if (close === -1) return null;
-    const hex = body.slice(start + 1, close);
-    if (!/^[0-9a-fA-F]{1,6}$/.test(hex)) return null;
-    const code = parseInt(hex, 16);
+    // ONE match rather than find-brace/slice/validate. Not a tidy-up: the separate
+    // find-brace guard, once mutated, stops firing and the function returns
+    // `lastIndex: -1`, which REWINDS the decode cursor and re-scans from the start
+    // forever. A match cannot yield a negative index, so the hang stops being
+    // expressible. The {1,6} bound lives on INSIDE the pattern and keeps its fixture.
+    const braced = /^\{([0-9a-fA-F]{1,6})\}/.exec(body.slice(start));
+    if (braced === null) return null;
+    const code = parseInt(braced[1]!, 16);
     if (code > 0x10ffff) return null;
-    return { text: String.fromCodePoint(code), lastIndex: close };
+    return { text: String.fromCodePoint(code), lastIndex: start + braced[0].length - 1 };
   }
   const hex = body.slice(start, start + 4);
   if (!/^[0-9a-fA-F]{4}$/.test(hex)) return null;
@@ -170,20 +184,46 @@ function decodeNumericEscape(
  * the opener's line.
  */
 function firstArgumentLiteral(line: string, afterOpenParen: number): string | null {
-  let i = afterOpenParen;
-  while (i < line.length && (line[i] === " " || line[i] === "\t")) i += 1;
-  const quote = line[i];
+  // The leading run is consumed by a MATCH, not by a loop, and that is a correctness
+  // requirement rather than a style choice.
+  //
+  // An earlier repair wrote this as `while (line.charAt(i) === " " || ...) i += 1`, to
+  // delete the bounds comparison a mutant had survived on. That trade was WRONG: an
+  // unbounded loop moves TERMINATION into the predicate, so an equality-flip mutant
+  // (`===` to `!==`) spins forever, because `charAt` keeps returning "" past the end
+  // where the bounded form simply stopped. It cost two whole scoring runs, both killed
+  // at ~12 minutes with the harness's per-mutant budget burned by the hang.
+  //
+  // A regex match terminates by construction NO MATTER WHAT a mutant does to it, and it
+  // still carries no comparison operator to mutate. That is the property the bounded
+  // loop had and the totalised loop threw away.
+  // `^[ \t]*` matches EVERY string — the star admits the empty run — so `exec` cannot
+  // return null here and there is no fallback branch to get wrong. Asserted rather than
+  // branched, because a branch that cannot be taken is a site a mutant lives in for free.
+  const leading = /^[ \t]*/.exec(line.slice(afterOpenParen))!;
+  const i = afterOpenParen + leading[0].length;
+  const quote = line.charAt(i);
   // A backtick is a template literal: substitution would make the title non-constant,
   // and a constant one is an ordinary edit away from a quoted literal (spec §8 item 4).
   if (quote !== '"' && quote !== "'") return null;
+  // ITERATED, not indexed, for the same termination reason as the leading run above: a
+  // `for…of` over a finite string ends no matter what a mutant does to the body, where
+  // the unbounded indexed form spins forever once `ch === ""` is flipped and the line
+  // holds an unterminated literal (`test("`). Escape state is a FLAG rather than
+  // index arithmetic, which also removes the lookahead and the manual advance.
   let body = "";
-  for (let j = i + 1; j < line.length; j += 1) {
-    const ch = line[j]!;
+  let escaped = false;
+  for (const ch of line.slice(i + 1)) {
+    if (escaped) {
+      body += ch;
+      escaped = false;
+      continue;
+    }
     if (ch === "\\") {
       // Escape-aware, so a `\"` inside the title does not end the literal early — the
       // failure a naive quote-to-quote match makes, which then never sees the phrase.
-      body += ch + (line[j + 1] ?? "");
-      j += 1;
+      body += ch;
+      escaped = true;
       continue;
     }
     if (ch === quote) return decode(body);
@@ -212,8 +252,9 @@ export function discoverPins(
 ): Pin[] {
   const disposed = new Set(dispositions.map((d) => `${d.path}\u0000${d.title}`));
   const pins: Pin[] = [];
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index]!;
+  // `entries()` rather than an index loop: the bound and the increment stop existing,
+  // so neither has an off-by-one to get wrong.
+  for (const [index, line] of lines.entries()) {
     const opener = OPENER.exec(line);
     if (opener === null) continue;
     const title = firstArgumentLiteral(line, opener[0].length);
@@ -259,9 +300,8 @@ const PATH_CHAR = /[A-Za-z0-9._/-]/;
  */
 function filesDeclarations(model: DocModel): number[][] {
   const declarations: number[][] = [];
-  for (let i = 0; i < model.lines.length; i += 1) {
+  for (const [i, line] of model.lines.entries()) {
     if (model.fencedInfo[i] !== undefined) continue;
-    const line = model.lines[i]!;
     const header = FILES_HEADER.exec(line);
     if (header === null) continue;
 
@@ -280,29 +320,37 @@ function filesDeclarations(model: DocModel): number[][] {
     // unordered item. NO BLANK LINE IS EVER SKIPPED: the blank is the signal that the
     // list below belongs to something else.
     const next = i + 1;
+    // Indexed ONCE and tested for presence, rather than compared against a length: the
+    // bounds comparison stops existing, and each remaining conjunct answers for a case
+    // that is actually exercised — a header on the LAST line (no next line at all), and
+    // a next line that opens a FENCE.
+    const nextLine = model.lines[next];
     if (
-      next < model.lines.length &&
+      nextLine !== undefined &&
       model.fencedInfo[next] === undefined &&
-      UNORDERED_ITEM.test(model.lines[next]!)
+      UNORDERED_ITEM.test(nextLine)
     ) {
       const span = [i];
       for (let j = next; j < model.lines.length; j += 1) {
         if (model.fencedInfo[j] !== undefined) break;
-        const item = model.lines[j]!;
+        const item = model.lines[j] ?? "";
         if (item.trim() === "") break; // first blank ends the run
         if (!UNORDERED_ITEM.test(item) && !INDENTED_CONTINUATION.test(item)) break;
         span.push(j);
       }
       declarations.push(span);
-      continue;
     }
 
-    // ANYTHING ELSE — an ordered run, a blank, a table, a fence — is DECLINED, and the
-    // declaration is the header remainder alone (spec §8 items 11 and 14). Sampling the
-    // 19 ordered runs shows their numbered items are as often TASK STEPS as files, so
-    // the arm cannot classify one and declines rather than guessing. The failure
-    // direction is a missed advisory, never a false one.
-    declarations.push([i]);
+    // ANYTHING ELSE — an ordered run, a blank, a table, a fence — is DECLINED (spec §8
+    // items 11 and 14). Sampling the 19 ordered runs shows their numbered items are as
+    // often TASK STEPS as files, so the arm cannot classify one and declines rather than
+    // guessing. The failure direction is a missed advisory, never a false one.
+    //
+    // NOTHING IS RECORDED for a declined header, and that is not an omission: the
+    // declaration would be the header REMAINDER alone, and a remainder carrying an
+    // enrolled path is PATH_SHAPED, which would have classified it INLINE above. So the
+    // declined branch can never name a surface, and a push here would be dead weight a
+    // mutant could live in for free.
   }
   return declarations;
 }
@@ -321,14 +369,35 @@ function filesDeclarations(model: DocModel): number[][] {
  * answer for the line.
  */
 function namesPath(line: string, path: string): boolean {
-  for (let from = 0; ; ) {
-    const at = line.indexOf(path, from);
-    if (at === -1) return false;
-    const before = at > 0 ? line[at - 1]! : "";
-    const after = at + path.length < line.length ? line[at + path.length]! : "";
+  // The search ADVANCES IN THE HEADER, so this terminates by construction: `at` strictly
+  // increases and `indexOf` eventually returns -1 no matter what a mutant does to the
+  // condition. The earlier `for (;;)` form did not — flipping `at === -1` left it
+  // re-searching from the same offset forever, and a hanging mutant burns the harness's
+  // whole per-mutant budget. Two scoring runs died that way before the shape was fixed
+  // here and in the literal scanner.
+  //
+  // `charAt` on both sides, so the out-of-range case needs no comparison of its own:
+  // it returns "" past either end, which is not a path character.
+  // BOUNDED IN THE HEADER by `line.length`, and that is a termination requirement rather
+  // than a style choice. The previous form resumed an `indexOf` from a value the loop
+  // condition controlled: invert `at !== -1` and the update becomes `indexOf(path, 0)`,
+  // which returns -1 forever whenever the path is absent, so the scan restarts from zero
+  // and never ends. A hung mutant SCORES AS DETECTION here, so it costs three minutes of
+  // wall clock and reports nothing — which is precisely why it survived an audit that
+  // checked the loop's SHAPE instead of what its update computes when the guard flips.
+  //
+  // No mutation of the predicate can extend a walk whose ceiling is the string's own
+  // length. Note the repair ADDS a comparison rather than removing one, so it is not
+  // site-shrinking wearing termination's clothes.
+  for (let at = 0; at < line.length; at += 1) {
+    if (!line.startsWith(path, at)) continue;
+    // `charAt` on both sides: it returns "" past either end, which is not a path
+    // character, so the out-of-range case needs no branch of its own.
+    const before = line.charAt(at - 1);
+    const after = line.charAt(at + path.length);
     if (!PATH_CHAR.test(before) && !PATH_CHAR.test(after)) return true;
-    from = at + 1;
   }
+  return false;
 }
 
 /**
@@ -427,7 +496,11 @@ export function checkDeclaredLimitPins(
    *  reported once. There is no other collapse — in particular NOT on the anchor. */
   const reportedPins = new Set<string>();
 
-  for (const [id, anchorLine] of [...anchors].sort((a, b) => a[1] - b[1])) {
+  // NOT sorted: `filesDeclarations` walks lines in ascending order and a Map preserves
+  // insertion order, so `anchors` is ALREADY in doc order of first naming. A comparator
+  // here could never reorder anything — it was dead, and dead code is deleted rather
+  // than defended with an equivalence argument that a later refactor could falsify.
+  for (const [id, anchorLine] of anchors) {
     const surface = byId.get(id);
     if (surface === undefined) continue;
 

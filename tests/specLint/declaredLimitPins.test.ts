@@ -353,6 +353,111 @@ describe("discoverPins — dispositions are keyed on (path, title) (spec §5)", 
   });
 });
 
+describe("discoverPins — NUMERIC escapes are decoded, and malformed ones fall through", () => {
+  /**
+   * These paths exist because DELETING them was the wrong repair. An earlier round cut
+   * the numeric decoder after 26 of the surface's 48 mutation survivors landed in it —
+   * but a survivor means UNTESTED, not DEAD, and removing reachable code made the arm
+   * fall SILENT on a class it can meet: two live titles in this repo already carry
+   * `\x1b`, on a suite belonging to an enrolled surface. A decline with no channel is
+   * the fail-open direction wearing the conservative one's clothes.
+   *
+   * So the paths are back and each is asserted. Every case pins the DECODED title
+   * exactly, which is what kills the offset arithmetic inside the decoder: a mutant that
+   * consumes one character too few or too many corrupts the tail of the title rather
+   * than the escape itself.
+   */
+  it("decodes a 4-digit `\\u` escape and keeps decoding after it", () => {
+    expectTitles(
+      pins([`test("a qplinth chi\\u2014rotor is a documented limit", () => {});`]),
+      "a qplinth chi\u2014rotor is a documented limit",
+    );
+  });
+
+  it("decodes a 2-digit `\\x` escape and keeps decoding after it", () => {
+    expectTitles(
+      pins([`test("a qplinth psi\\x41rotor is a known miss", () => {});`]),
+      "a qplinth psi\x41rotor is a known miss",
+    );
+  });
+
+  it("decodes a braced `\\u{…}` escape of more than four digits", () => {
+    expectTitles(
+      pins([`test("a qplinth omega\\u{1F600}rotor is a declared miss", () => {});`]),
+      "a qplinth omega\u{1F600}rotor is a declared miss",
+    );
+  });
+
+  it("treats a MALFORMED `\\u` as an ordinary escape rather than declining the line", () => {
+    // The direction matters: falling through to the identity rule keeps a faithful-ish
+    // title and keeps the pin REPORTED, where declining would drop it silently.
+    expectTitles(
+      pins([`test("a qplinth tau\\uZZZZ rotor is a documented limit", () => {});`]),
+      "a qplinth tauuZZZZ rotor is a documented limit",
+    );
+  });
+
+  it("treats a MALFORMED `\\x` the same way", () => {
+    expectTitles(
+      pins([`test("a qplinth rho\\xZZ rotor is a known miss", () => {});`]),
+      "a qplinth rhoxZZ rotor is a known miss",
+    );
+  });
+
+  it("decodes the MAXIMUM valid code point, one below the ceiling's rejection", () => {
+    // Pairs with the case below on the ceiling itself: `\u{10FFFF}` is the largest legal
+    // code point and must DECODE, so a comparison that rejects it too is caught here
+    // rather than silently narrowing the accept set by one.
+    expectTitles(
+      pins([`test("a qplinth nu\\u{10FFFF} rotor is a declared miss", () => {});`]),
+      "a qplinth nu\u{10FFFF} rotor is a declared miss",
+    );
+  });
+
+  it("falls through when a braced escape is never closed", () => {
+    // No `}` at all, so the brace scan finds nothing and the escape is not one.
+    expectTitles(
+      pins([`test("a qplinth mu\\u{ABC rotor is a known miss", () => {});`]),
+      "a qplinth muu{ABC rotor is a known miss",
+    );
+  });
+
+  it("falls through when a braced escape exceeds the maximum code point", () => {
+    // The 0x10FFFF ceiling. `\u{110000}` is one past it, so it is not a valid escape and
+    // the identity rule keeps the title readable and the pin REPORTED.
+    expectTitles(
+      pins([`test("a qplinth iota\\u{110000} rotor is a documented limit", () => {});`]),
+      "a qplinth iotau{110000} rotor is a documented limit",
+    );
+  });
+
+  it("falls through when a braced escape carries more digits than the grammar allows", () => {
+    // CONSTRUCTED IN THE GAP BETWEEN TWO BOUNDS, and that is the whole point. An earlier
+    // version of this case used `\u{1234567}` and killed NOTHING: seven digits, yes, but
+    // 0x1234567 is 19088743, which the 0x10FFFF ceiling rejects too — so the decoder
+    // returned null under the mutant AND without it, and a DIFFERENT RULE decided the
+    // observation. `\u{00010FF}` is seven hex digits whose VALUE is 4351, which the
+    // ceiling accepts, so only the digit bound can reject it.
+    expectTitles(
+      pins([`test("a qplinth kappa\\u{00010FF} rotor is a known miss", () => {});`]),
+      "a qplinth kappau{00010FF} rotor is a known miss",
+    );
+  });
+
+  it("decodes the `\\0` escape, which no other case exercises", () => {
+    expectTitles(
+      pins([`test("a qplinth upsilon\\0gap is a documented limit", () => {});`]),
+      T.upsilonNullEscape,
+    );
+  });
+
+  it("skips WHITESPACE between the open paren and the literal", () => {
+    // Kills an advance that moves more than one character at a time: with a two-step
+    // advance the scan lands past the quote and the pin is lost.
+    expectTitles(pins([`test( \t "${T.phiSpacedLiteral}", () => {});`]), T.phiSpacedLiteral);
+  });
+});
+
 describe("discoverPins — the opener boundary has TWO axes, and both are varied", () => {
   /**
    * CHARACTERIZATION, disclosed rather than dressed as a TDD cycle: this asserts

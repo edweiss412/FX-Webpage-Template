@@ -148,6 +148,9 @@ describe("checkDeclaredLimitPins — the obligation (spec §3.3)", () => {
     // and looks healthy to every did-it-fail check while proving nothing.
     expect(codes(findings)).toEqual([UNNAMED]);
     expect(findings[0]!.docLine).toBe(3);
+    // COLUMN is asserted too. It is a whole-line finding, so column 1 is the contract;
+    // without this the constant is unpinned and any value would satisfy the suite.
+    expect(findings.every((f) => f.column === 1)).toBe(true);
   });
 
   it("reports EVERY finding at advisory severity, asserted over all of them rather than sampled", () => {
@@ -163,6 +166,38 @@ describe("checkDeclaredLimitPins — the obligation (spec §3.3)", () => {
     expect(findings.length).toBeGreaterThan(1);
     expect(findings.every((f) => f.severity === "advisory")).toBe(true);
     expect(new Set(findings.map((f) => f.check))).toEqual(new Set(["taskContract"]));
+  });
+});
+
+describe("checkDeclaredLimitPins — emission order (spec §3.3)", () => {
+  it("emits in DOC ORDER of first naming, then pin order within a suite", () => {
+    // Spec §3.3 states an emission order, so it is asserted rather than left to the
+    // caller. Note `runLint` re-sorts every finding by (check, docLine, column, code),
+    // so this order is observable only on a DIRECT call — which is exactly why it needs
+    // its own case and cannot be inferred from the wiring suite.
+    //
+    // Every OTHER multi-finding assertion in this arc is deliberately order-independent,
+    // because findings sharing an anchor have no natural order and a positional
+    // assertion there would either flake or pass by luck.
+    const plan = doc(
+      "**Files:**",
+      `- Modify: \`${SUITE_B}\``,
+      "",
+      "## Task 2",
+      "",
+      "**Files:**",
+      `- Modify: \`${SUITE_A}\``,
+    );
+    const findings = run(plan, {
+      surfaces: [SURFACE_A, SURFACE_B],
+      files: { [SUITE_A]: [pinLine(T.piCompanion)], [SUITE_B]: [pinLine(T.tauLive)] },
+    });
+    // SUITE_B is named FIRST in the document, so its advisory comes first even though
+    // SURFACE_A is first in the injected table.
+    // Anchored at the HEADER lines (1 and 6), not at the item lines that carry the
+    // paths — every pin of a surface shares its declaration's anchor.
+    expect(findings.map((f) => f.docLine)).toEqual([1, 6]);
+    expect(titlesIn([findings[0]!], UNNAMED)).toEqual([T.tauLive]);
   });
 });
 
@@ -273,7 +308,12 @@ describe("checkDeclaredLimitPins — the fail-open closure, all THREE channels (
     });
     expect(codes(findings)).toEqual([UNNAMED, UNREADABLE].sort());
     expect(titlesIn(findings, UNNAMED)).toEqual([T.tauLive]);
-    expect(findings.find((f) => f.code === UNREADABLE)!.message).toContain(SUITE_A);
+    const unreadable = findings.find((f) => f.code === UNREADABLE)!;
+    expect(unreadable.message).toContain(SUITE_A);
+    // The unreadable finding carries its OWN column constant, which the UNNAMED case
+    // cannot pin: both are whole-line findings and both must report column 1.
+    expect(unreadable.column).toBe(1);
+    expect(unreadable.docLine).toBeGreaterThan(0);
   });
 
   it("channel 2 — an UNTRACKED suite whose read SUCCEEDS draws it too", () => {

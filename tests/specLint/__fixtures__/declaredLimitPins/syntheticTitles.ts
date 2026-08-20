@@ -61,6 +61,14 @@ export const SYNTHETIC_TITLES = {
   /** A pin sitting AFTER another call on the same physical line (the second axis of
    *  the opener boundary). Declined — conservative, a missed advisory never a false one. */
   psiSecondOnLine: "the qplinth psi coupler is a documented limit",
+  /** Source-spells a NUMERIC escape, which the arm DECLINES rather than decodes. */
+  chiNumericEscape: "a qplinth chi rotor is a documented limit",
+  /** Same bytes minus the numeric escape — the paired positive for the decline. */
+  chiPlain: "a qplinth chi rotor is a documented limit (plain)",
+  /** Carries a `\0` escape, the one simple escape no other case exercises. */
+  upsilonNullEscape: "a qplinth upsilon\u0000gap is a documented limit",
+  /** Reached only through leading whitespace between `(` and the quote. */
+  phiSpacedLiteral: "a qplinth phi bracket is a known miss",
   /** Carries NO member of the three-phrase accept set — the §8 item 6 near miss. */
   rhoNearMiss: "the qplinth rho bolt stays a limit",
 } as const;

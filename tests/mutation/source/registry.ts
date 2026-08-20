@@ -593,6 +593,68 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // child per case, and the four pure suites above already hold every
     // deciding assertion. If a survivor turns out to need it, it belongs here —
     // placement outside suitePaths buys zero score (the #831 lesson).
+    id: "declaredLimitPins",
+    sourcePath: "lib/specLint/declaredLimitPins.ts",
+    suitePaths: [
+      "tests/specLint/declaredLimitPins.test.ts",
+      "tests/specLint/declaredLimitPinsFiles.test.ts",
+      "tests/specLint/declaredLimitPinsObligation.test.ts",
+      "tests/specLint/declaredLimitPinsWiring.test.ts",
+      "tests/specLint/declaredLimitPinsCorpus.test.ts",
+      "tests/specLint/_metaDeclaredLimitPins.test.ts",
+    ],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.95,
+    control: { from: 'kind !== "plan"', to: 'kind === "plan"' },
+    // Declared EMPTY before the first scored run, per enrolment-precedes-review. The run
+    // refuted it — 48 survivors at 0.6471 — and all but five were repaid by DELETING dead
+    // code or adding cases. These five are argued, and rule 20 puts that rung LAST.
+    //
+    // THREE OF THEM SHARE ONE INVARIANT rather than having three separate stories, which
+    // is what makes them a derived cover instead of three rationalisations:
+    //
+    //   IN LIST FORM THE HEADER LINE CARRIES NO ENROLLED PATH. A header whose remainder
+    //   names a path is classified INLINE by the branch above, and every enrolled path is
+    //   PATH_SHAPED (it contains a directory separator). So by the time control reaches
+    //   the LIST test, the header's own line cannot name a surface.
+    //
+    // That invariant is not invented for these rows — it is the same one that made the
+    // declined-branch push deletable, so it is exercised by something other than the
+    // argument that needs it. IF IT EVER BECOMES FALSE, ALL THREE ROWS ARE VOID AT ONCE.
+    accepted: [
+      {
+        siteId: "logical-connector:329:30:&&>||",
+        kind: "equivalent",
+        reason:
+          "header on the LAST line: conjunct 1 is false, but under || the next disjunct (fencedInfo[next] === undefined, undefined out of range) is true, so the LIST branch is entered. Its span loop is j = next; j < model.lines.length with next === model.lines.length, so the body never runs and span stays [i]. Per the LIST-form invariant, scanning [i] names nothing — identical to the declined path, which records nothing. Argued BEFORE the confirming run.",
+      },
+      {
+        siteId: "logical-connector:330:44:&&>||",
+        kind: "equivalent",
+        reason:
+          "next line opens a FENCE: conjunct 1 (nextLine !== undefined) is true, so || short-circuits into the LIST branch. The span loop's FIRST statement is the fence guard, which fires on that very line, leaving span = [i]. Per the LIST-form invariant, names nothing. Argued BEFORE the confirming run.",
+      },
+      {
+        siteId: "relational-boundary:334:28:<><=",
+        kind: "equivalent",
+        reason:
+          "at j === model.lines.length the read is model.lines[j] ?? \"\", which yields \"\", and the next statement breaks on item.trim() === \"\". The extra iteration reads nothing and appends nothing. Depends on the total ?? \"\" read rather than a non-null assertion, which would have thrown instead. Argued BEFORE the confirming run.",
+      },
+      {
+        siteId: "integer-literal:392:17:0>1",
+        kind: "equivalent",
+        reason:
+          "starting the scan at 1 skips index 0, and NO LINE THIS ARM SCANS CAN BEGIN WITH AN ENROLLED PATH AT INDEX 0. Structural: a line inside a declaration span is the header (opens **Files:** or a list marker), a list item (opens [-*+] plus whitespace), or an indented continuation (opens with whitespace) — all three hold a non-path character at index 0, and a bare path at column 0 matches none of them, so it ENDS the run rather than being scanned. Probed as well as argued: 51061 declaration-shaped lines across the tracked corpus, ZERO beginning with an enrolled path, with a control confirming enrolled paths do occur. Origin noted honestly - written after seeing the survivor list - but the support is the structural proof and the probe, not the survival. FALSIFIER IS EXECUTABLE, not prose: if this site stops surviving, the row becomes a stale-ledger-row and the gate REDS on it (tests/mutation/source/gate.ts), so nobody has to remember to re-check.",
+      },
+      {
+        siteId: "relational-boundary:392:23:<><=",
+        kind: "equivalent",
+        reason:
+          "STRUCTURAL: the mutant grants exactly ONE extra iteration, at at === line.length, where the first statement is line.startsWith(path, at). startsWith at an index equal to the string length is TRUE ONLY FOR THE EMPTY STRING, so for any non-empty path the body continues and the loop exits on the next increment — every later statement is unreachable in that iteration. PROBED: all 107 paths in the closed enrolled candidate set are non-empty and all 107 return false for startsWith(path, line.length), with a CONTROL confirming startsWith(\"\", length) is true, so the zero is attributable rather than the probe being broken. PREMISE: no enrolled path is the empty string. Origin noted honestly - written after seeing the survivor list - but the support is the proof and the probe, not the survival.",
+      },
+    ],
+  },
+  {
     id: "fixtureContract",
     sourcePath: "lib/specLint/fixtureContract.ts",
     suitePaths: [

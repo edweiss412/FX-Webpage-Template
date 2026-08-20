@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { GUARD_SURFACES } from "../mutation/source/registry";
 import { discoverPins, type Pin } from "../../lib/specLint/declaredLimitPins";
@@ -203,5 +203,49 @@ describe("declared-limit pin dispositions — this arc's fixtures are not corpus
     // assertion above would pass while proving nothing.
     const liveTitles = new Set(livePins().map((pin) => pin.title));
     expect(liveTitles.has("a COMPUTED key is a documented limit, not a site")).toBe(true);
+  });
+});
+
+describe("declared-limit pins — the enrolled suite list is DERIVED, not trusted", () => {
+  /**
+   * `suitePaths` in `tests/mutation/source/registry.ts` is an ENUMERATION, and an
+   * enumeration over a growing set goes stale on ADDITION rather than on mistake: it is
+   * correct when written and silently wrong the moment someone adds a suite. The cost is
+   * not cosmetic — a suite absent from `suitePaths` buys ZERO mutation score and decides
+   * nothing, so its assertions run, pass, and prove nothing about the surface.
+   *
+   * CONTAINMENT, not equality, and the direction is the point: every test file that
+   * IMPORTS the core must be registered, while a registered suite that reaches the arm
+   * some other way is fine. The wiring suite is exactly that case — it exercises the arm
+   * through `runLint` rather than by a direct import — so an equality assertion would
+   * fail on correct data.
+   *
+   * Keyed on the IMPORT GRAPH rather than on a filename pattern, because a name-keyed
+   * check is blind to any suite that tests the core under a different name.
+   */
+  const SPEC_LINT_TESTS = readdirSync(join(REPO, "tests/specLint"))
+    .filter((name) => name.endsWith(".test.ts"))
+    .map((name) => `tests/specLint/${name}`);
+
+  const importsCore = SPEC_LINT_TESTS.filter((rel) =>
+    /from\s+"[^"]*\/declaredLimitPins"/.test(readFileSync(join(REPO, rel), "utf8")),
+  );
+
+  const registered = new Set(
+    GUARD_SURFACES.find((s) => s.id === "declaredLimitPins")?.suitePaths ?? [],
+  );
+
+  it("finds importers at all, so the containment below is not vacuous", () => {
+    premise("tests/specLint suites importing the core", importsCore.length, 3);
+    premiseHolds("the surface is enrolled and carries suitePaths", registered.size > 0);
+  });
+
+  it("registers every suite that imports the core", () => {
+    const unregistered = importsCore.filter((rel) => !registered.has(rel));
+    expect(
+      unregistered,
+      `these suites test the core but are absent from suitePaths, so they buy ZERO ` +
+        `mutation score and decide nothing:\n  ${unregistered.join("\n  ")}`,
+    ).toEqual([]);
   });
 });
