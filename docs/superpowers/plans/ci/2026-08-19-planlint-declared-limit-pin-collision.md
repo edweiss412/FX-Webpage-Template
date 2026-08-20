@@ -169,6 +169,7 @@ because "the arm draws nothing here" is the claim a future widening would quietl
 
 | Declined shape | Spec | Assert |
 | --- | --- | --- |
+| a test-shaped line inside a MULTI-LINE ordinary string | §3.1 item 3 | no pin |
 | `describe(` title | §2.3 | no pin |
 | `test.each(` / `it.each(` | §8 item 3 | no pin |
 | template-literal title | §8 item 4 | no pin |
@@ -373,7 +374,11 @@ into `lib/` pass. The purity meta-test is re-run in this task's green step for t
       fails with zero `DECLARED_LIMIT_PIN_UNNAMED` findings against one expected — `runLint` never
       calls the arm. A type error at the new parameter is ALSO an invalid red: fix the signature first.
 - [ ] **Step 3: Thread the table through `runLint`; project `GUARD_SURFACES` in the adapter; PREPARE the
-      suite text there (spec §3.1) — `stripCommentsSafely` for comments, parser template ranges for
+      suite text there in the FIXED ORDER of spec §3.1 — parse the RAW text for diagnostics FIRST, then
+      blank comments, template bodies, and MULTI-LINE ordinary strings (single-line ones carry the
+      titles and must survive). The order is load-bearing: stripping first consumes an unterminated
+      `/*` to EOF, so the parse comes back clean and the suite reports "no pins" with no advisory —
+      the silent fail-open the decline exists to prevent — `stripCommentsSafely` for comments, parser template ranges for
       fixture bodies. The core receives prepared lines and owns no notion of code. Do NOT hand-roll a
       comment stripper: `tests/cross-cutting/_metaStripCommentsSingleSource.test.ts` forbids local
       copies, and its walker root is `tests/` only — so a copy in `lib/` would be invisible to it and
@@ -509,8 +514,14 @@ all of them while the false-advisory class survives at the boundary where it act
 cannot catch it either: the arm is advisory-only, so the dogfood lint is green whether or not the arm
 ever ran.
 
-The fixture pair holds one LIVE pin and a second pin identical but for being wrapped in `/* … */`. The
+The fixture pair holds one LIVE pin and a second, **differently titled**, wrapped in `/* … */`. The
 shipped CLI must emit exactly ONE advisory, naming the live pin.
+
+**The two titles must differ, and this is the fixture's whole discriminating power.** With identical
+titles both pins share a `(path, title)` identity, §3.3's dedup collapses them, and an adapter that
+never prepares the text emits exactly one finding — the pass condition. The proof would be satisfiable
+by the defect it exists to catch. Round 5 found that in the draft written one round earlier, which is
+why the weaker-implementation pass is run over FIXTURES and not only over rules.
 
 **Anti-tautology.** Both failure directions are asserted from the same run, because either alone is
 satisfiable by the other defect: TWO findings prove the adapter never prepared the suite text; ZERO
