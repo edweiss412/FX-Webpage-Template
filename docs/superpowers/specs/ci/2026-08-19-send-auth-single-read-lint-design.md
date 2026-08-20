@@ -82,6 +82,15 @@ A conservative report is a DOCUMENTED LIMIT; silence is never a certificate.
   unaccepted-survivor set. A "the guard does not pin what it claims" finding is admissible only with
   the surviving mutant that demonstrates it.
 
+  **AMENDED AT IMPLEMENTATION TIME, BY MEASUREMENT.** The score alone does NOT close the
+  weaker-implementation class. It closes what the DECLARED OPERATORS can express; an unanchored
+  marker matcher (`body.includes(...)` for `body === ...`) passed the entire fixture corpus, and no
+  operator in the declared set produces that edit, so no score could have reported it. The criterion
+  is therefore the score AND a killer audit over every weaker implementation the plan's table names,
+  each one BUILT and observed to red. Neither cover dominates the other, and a perfect score is not
+  permission to skip the audit. A finding is still admissible only with its demonstrating mutant —
+  hand-built counts, and names which weaker implementation it instantiates.
+
 ## §2 The rule, stated whole
 
 ### §2.1 What a pass is — declared, and undeclared is a finding
@@ -98,7 +107,7 @@ const authorize = (): Authz => { ... };
 
 Discovery is fail-by-default and anchored on the SINK: a **send-bearing function** is one whose body
 calls a declared SINK method on a surface binding — in the live instance, `s.send(...)` at
-`scripts/pane-compaction.ts:857`, `scripts/pane-compaction.ts:873` and `scripts/pane-compaction.ts:898`,
+`scripts/pane-compaction.ts:858`, `scripts/pane-compaction.ts:874` and `scripts/pane-compaction.ts:899`,
 all lexically inside `drive()` (`scripts/pane-compaction.ts:700`). Every send-bearing function MUST
 lexically contain exactly one declared pass, or carry `// send-auth: exempt: <reason>` with a non-empty
 reason. Zero is `UNDECLARED-PASS`; two or more is `AMBIGUOUS-PASS`.
@@ -128,7 +137,7 @@ instant of the clock rather than a second read of a pane.
 1. **Totality, MODULE-WIDE — `UNCLASSIFIED-USE`.** Every occurrence of a surface binding anywhere in an
    enrolled module is one of: a direct member call (`s.marker(...)`), a declared derivation source
    (rule 3), an ordinary injection argument OUTSIDE a pass, a parameter or declaration name, or an
-   AMBIENT member handed on as a callback (`random: s.random`, `scripts/pane-compaction.ts:850`).
+   AMBIENT member handed on as a callback (`random: s.random`, `scripts/pane-compaction.ts:851`).
    Anything else — `const m = s.marker`, `const { send } = s`, `s[name]`, a bare mention — is REPORTED
    and fails the gate. Module-wide rather than pass-scoped, because the destructured-sink evasion
    (r2 F3) lives OUTSIDE the pass; an ambient reference is exempt because a generator carries no
@@ -147,7 +156,7 @@ instant of the clock rather than a second read of a pane.
    (`cacheOf`, `scripts/pane-compaction.ts:362`; `memoize`, `scripts/pane-compaction.ts:343`). Reads
    through the derived binding are unconstrained, and raw reads inside the derivation's own initializer
    are not counted against rule 2's per-method limit — that is the shipped memo at
-   `scripts/pane-compaction.ts:797`. **The exemption is positional, not temporal**, and the earlier
+   `scripts/pane-compaction.ts:798`. **The exemption is positional, not temporal**, and the earlier
    draft's temporal wording is deleted rather than reworded: "the initializer is evaluated once per
    pass" is an EXECUTION property, and r3 F1 defeated it by declaring the derivation under a
    two-iteration loop and under a named callback invoked twice, both scanning clean (§3.8). What the
@@ -179,14 +188,10 @@ scanner's range until it is enrolled, exactly as with the mutation registry — 
 
 Six edits, and no more:
 
-<!-- spec-lint: ignore — created by this spec's implementation; not tracked yet -->
-
 1. **The scanner module** (`sendAuthScan.ts`, under `tests/paneCompaction/`) — NEW. Exports
    `SEND_AUTH_SURFACES`, `scanModule(file, row): Finding[]`, and `scanRepo(roots): Finding[]`.
    Importable module with a referring suite from the start, because it is a guard surface and the
    registry can only overlay a target a Vitest suite imports (`AGENTS.md`, convergence bullet 4).
-
-<!-- spec-lint: ignore — created by this spec's implementation; not tracked yet -->
 
 2. **The gate** (`_metaSendAuthSingleRead.test.ts`, alongside it) — NEW. `scanRepo` over the live roots
    asserted empty, plus the fixture cases. No pnpm script — both closest analogues are gated by
@@ -224,7 +229,7 @@ pass authorize line 785; derivations=1; straight-line reads: roster x1  marker x
 exit=0
 ```
 
-Two raw reads, both straight-line: `s.roster()` at `scripts/pane-compaction.ts:786`, and the memo's
+Two raw reads, both straight-line: `s.roster()` at `scripts/pane-compaction.ts:787`, and the memo's
 `s.marker(cwd)` inside the single derivation's initializer, exempt from rule 2's per-method limit
 because the derivation's DECLARATION is itself straight-line. This transcript is the one that had to
 be re-taken after the r3 F1 repair, and it is the repair's false-positive check: the shipped memo IS a
@@ -321,7 +326,7 @@ r3 F1: the derivation exemption still rested on an execution property. The revie
 derivation itself under a two-iteration loop, and separately inside a named callback invoked twice,
 with an eager `s.marker(...)` in the initializer. Both scanned CLEAN against the round-2 design.
 Reproduced here rather than accepted on report — the loop mutant wraps the snapshot declaration at
-`scripts/pane-compaction.ts:797`:
+`scripts/pane-compaction.ts:798`:
 
 ```
 $ tsx proto4.ts .claude/mutant-r3f1-loop.ts Surface authorize s send ... cacheOf,memoize
@@ -371,7 +376,7 @@ it. AC-15 pins that in both directions and AC-7b pins this one.
    **Fenced in both directions:** this is not a gap to be closed by a later round of this arc, and it
    is not a claim this gate makes.
 2. **A value captured outside the pass is invisible.** The taint arm that would catch it fires on the
-   shipped, correct comparison `fresh.verdict !== report.verdict` (`scripts/pane-compaction.ts:825`),
+   shipped, correct comparison `fresh.verdict !== report.verdict` (`scripts/pane-compaction.ts:826`),
    whose whole purpose is comparing an OLD report against a fresh one, since `report` is initialized
    from `observe(...)` at `scripts/pane-compaction.ts:709`. Pinned executably instead at
    `tests/paneCompaction/revalidate.test.ts:121`.
@@ -380,7 +385,7 @@ it. AC-15 pins that in both directions and AC-7b pins this one.
    to memoize is not a lint finding. What the gate DOES now check is positional and textual: the
    derivation's declaration sits on the straight-line path (rule 2). What it does not check is what the
    initializer computes or how many times the runtime evaluates it — that is behavior, pinned by tests
-   (`scripts/pane-compaction.ts:797` is the shape). The earlier draft blurred these by claiming the
+   (`scripts/pane-compaction.ts:798` is the shape). The earlier draft blurred these by claiming the
    initializer "is evaluated once per pass"; that claim is deleted, not softened (§3.8).
 4. **Enrolment is an act.** A new surface type with its own sink, in a module importing nothing from a
    registered one, is outside the scanner's range until it is enrolled — the same posture as the
@@ -441,7 +446,7 @@ Supabase client call. **DB layers:** N/A — no migration, no RPC, no CHECK.
   when they sit OUTSIDE the declared pass.
 - **AC-2** An AMBIENT member handed on as a callback (`random: s.random`) does NOT report, and the same
   shape with a READ member does. The live module carries the ambient case at
-  `scripts/pane-compaction.ts:850`, so a rule that reported it would fail on correct code.
+  `scripts/pane-compaction.ts:851`, so a rule that reported it would fail on correct code.
 - **AC-3** Ordinary injection outside a pass — `drive(opts, pane, roster, s)`, `cacheOf(s)`,
   `observe(pane, roster, as, s, cache)` in the report phase — does NOT report. Inside a pass the same
   shape reports `RAW-HANDOFF`.
@@ -457,7 +462,7 @@ Supabase client call. **DB layers:** N/A — no migration, no RPC, no CHECK.
   lines; one read scans clean.
 - **AC-7b** A derivation DECLARED inside a loop, or inside a named callback invoked more than once,
   reports `NON-STRAIGHT-LINE-DERIVATION`. Both shapes are the round-3 F1 probes (§3.8) and are asserted
-  by name. The shipped memo at `scripts/pane-compaction.ts:797` — a derivation on the straight-line
+  by name. The shipped memo at `scripts/pane-compaction.ts:798` — a derivation on the straight-line
   path — must NOT report, and the two together are what make this rule discriminating rather than a
   blanket ban on derivations.
 - **AC-8** Exactly one derivation per pass: two report `MULTI-DERIVATION`. A derivation is recognized

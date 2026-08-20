@@ -92,7 +92,7 @@ round-1 findings, and it is the concrete reason this plan was re-derived rather 
   `tests/mutation/source/surfaceCases.ts:59`; and every enrolled suite path must declare its
   environment-touching count in `EXPECTED_ENV_TOUCHING`
   (`tests/mutation/_metaPremiseContract.test.ts:32`), which asserts the declared key set EQUALS the
-  enrolled suite list (`tests/mutation/_metaPremiseContract.test.ts:376`), so an undeclared suite reds
+  enrolled suite list (`tests/mutation/_metaPremiseContract.test.ts:386`), so an undeclared suite reds
   immediately. A registry row alone leaves the corpus gate red.
 - **`-t` cannot scope the gate, and neither can a temporary shard.** `runSurface` executes in the
   `describe.each` body at collection (`tests/mutation/source/surfaceCases.ts`), so a name filter prunes
@@ -214,8 +214,6 @@ it, and so that a later task which DOES touch the core file knows the rule it wo
 
 ## Meta-test inventory (mandatory declaration)
 
-<!-- spec-lint: ignore — created by this plan's implementation; not tracked yet -->
-
 - **CREATES:** `tests/paneCompaction/_metaSendAuthSingleRead.test.ts` — the gate itself.
 - **EXTENDS:** `tests/mutation/source/registry.ts` (one `GUARD_SURFACES` row),
   `tests/mutation/source/expectedLedgerKinds.ts` (one entry),
@@ -281,7 +279,7 @@ Three findings across plan rounds 2 and 3 were ONE class: **the fixture set was 
 something that is not the thing the rule specifies.** A scanner hardcoded to the live spellings passed
 the whole corpus; a per-file marker counter satisfied a rule about association; a helper-only
 recognizer satisfied "exactly one derivation" and would then have reported against the live tree, since
-the shipped memo at `scripts/pane-compaction.ts:797` is a SPREAD. Three instances in two rounds is the
+the shipped memo at `scripts/pane-compaction.ts:798` is a SPREAD. Three instances in two rounds is the
 same-vector trigger, and the prescribed answer is a derived cover rather than another round.
 
 This is the cover, applied in ONE pass to every rule the plan specifies. It is distinct from the
@@ -316,8 +314,19 @@ about a property it never tested.
 | Straight-line spans all nesting kinds | Recognize only the AST kinds the fixtures happen to use | One fixture per function-like kind (declaration, arrow, method, `function` expression) and per iteration kind (`for`, `for..of`, `while`, `do..while`) | T4, T5 |
 | A derivation exempts its READS, not its subtree | Skip the whole initializer subtree | `{ ...ch, leaked: inspect(ch) }` — a raw handoff INSIDE the initializer must still report `RAW-HANDOFF` | T5 |
 | Import discovery follows the SYMBOL | Compare the local import name | `import type { Channel as Alias }` — an aliased import must still be discovered | T6 |
-| A marker in JSX is not a declaration | Recognize comments in TypeScript only | The impostor fixture is `.tsx`, so a TS-only comment recognizer cannot pass it | T2 |
+| A marker in JSX is not a declaration | An UNANCHORED line scan (no comment extraction) | `marker-in-jsx` — the impostor sits immediately above a pass-shaped declaration, so a line scan attaches it and reports the module clean | T2 |
+| ScriptKind is chosen by EXTENSION | Hardcode one ScriptKind | `generic-arrow-scriptkind` — measured TS=1 marker vs TSX=0 comments for the whole file; the weaker variant falls SILENT where a finding is owed | T2 |
 | Same-line findings stay distinct | Dedup on `code:file:line` | The round-4 fixture's two `RAW-HANDOFF` findings share a line and differ only by callee; both must survive | T5 |
+
+**One row of this table was REFUTED at implementation time and is corrected above.**
+As drafted it claimed the `.tsx` impostor kills a TS-only comment recognizer. It does not: lexed
+as plain TypeScript that fixture's line yields the comment `// send-auth: pass</p>`, which no
+anchored marker grammar accepts, so the weaker recognizer reaches the SAME verdict by a different
+route and the case discriminates nothing. Measured, not reasoned — a hardcoded-ScriptKind variant
+run against the whole corpus reported ALL VERDICTS MATCH. The ScriptKind question moved to
+`generic-arrow-scriptkind`, which must REPORT rather than scan clean, because an expect-CLEAN case
+is satisfied by any implementation that fails to look: under the wrong kind the parse is garbage,
+no top-level function is found, and the empty set comes back for the wrong reason.
 
 **Round 4 found six more instances of this class, and they are recorded above rather than paraphrased.**
 The cover as first derived was incomplete in a specific way worth naming: it enumerated weaker
@@ -348,6 +357,8 @@ to find as instance four.
 <!-- tasks: depth=2 red-contract -->
 
 ## Task 1 — the scanner module, and the read set derived from the surface type
+
+<!-- spec-lint: ignore — `red-target=` named this module while it was UNTRACKED, which is what the marker asserts: the task CREATES it. Task 1 committed it, so the bare path now reads as a tracked file owing a line citation — and the defective line these reds named is the stub each task replaced, which no longer exists to cite. Waived per marker rather than once for the document, so a future marker is not pre-absorbed. -->
 
 <!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/sendAuthScan.ts` why=`readsFor returns the hardcoded live read names, so the fixture surface's extra undeclared member is absent from the returned set and the equality assertion fails on a VALUE, not on an unresolved import` ac=AC-4 -->
 
@@ -400,6 +411,8 @@ implementation controls. GREEN is deriving the complement from the parsed type d
 
 ## Task 2 — declared passes, anchored on sinks and read impostor-safely
 
+<!-- spec-lint: ignore — `red-target=` named this module while it was UNTRACKED, which is what the marker asserts: the task CREATES it. Task 1 committed it, so the bare path now reads as a tracked file owing a line citation — and the defective line these reds named is the stub each task replaced, which no longer exists to cite. Waived per marker rather than once for the document, so a future marker is not pre-absorbed. -->
+
 <!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/sendAuthScan.ts` why=`the scanner has no pass discovery, so UNDECLARED-PASS is never emitted and the fixture asserting it gets an empty findings array` ac=AC-5 -->
 
 A send-bearing function is one whose body calls a declared SINK on a surface binding. Exactly one
@@ -449,6 +462,8 @@ that explains why.
 
 ## Task 3 — totality, MODULE-WIDE
 
+<!-- spec-lint: ignore — `red-target=` named this module while it was UNTRACKED, which is what the marker asserts: the task CREATES it. Task 1 committed it, so the bare path now reads as a tracked file owing a line citation — and the defective line these reds named is the stub each task replaced, which no longer exists to cite. Waived per marker rather than once for the document, so a future marker is not pre-absorbed. -->
+
 <!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/sendAuthScan.ts` why=`nothing classifies surface occurrences, so the alias and destructure fixtures report no UNCLASSIFIED-USE` ac=AC-1 -->
 
 Every occurrence of a surface binding ANYWHERE in an enrolled module is one of: a direct member call,
@@ -467,12 +482,14 @@ and must report `UNCLASSIFIED-USE`. Without it, an implementation that exempts e
 passes both cases below, and an ambient member could then be aliased and called twice invisibly.
 
 **AC-2 is the false-positive guard and it must land in this same commit:** `random: s.random` at
-`scripts/pane-compaction.ts:850` is an ambient member handed on as a callback, and it appears in
+`scripts/pane-compaction.ts:851` is an ambient member handed on as a callback, and it appears in
 correct live code. A rule that reports it fails the live tree. The paired fixture does the same thing
 with a READ member and MUST report — the two together are what make the exemption discriminating
 rather than a hole.
 
 ## Task 4 — in-pass reads are straight-line and single
+
+<!-- spec-lint: ignore — `red-target=` named this module while it was UNTRACKED, which is what the marker asserts: the task CREATES it. Task 1 committed it, so the bare path now reads as a tracked file owing a line citation — and the defective line these reds named is the stub each task replaced, which no longer exists to cite. Waived per marker rather than once for the document, so a future marker is not pre-absorbed. -->
 
 <!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/sendAuthScan.ts` why=`no read-position analysis exists, so the nested-callback and twice-read fixtures both report an empty findings array` ac=AC-6 -->
 
@@ -496,13 +513,15 @@ straight-line reads of one method report and name BOTH lines, one read scans cle
 
 ## Task 5 — exactly one declared derivation, and no raw handoff inside the pass
 
+<!-- spec-lint: ignore — `red-target=` named this module while it was UNTRACKED, which is what the marker asserts: the task CREATES it. Task 1 committed it, so the bare path now reads as a tracked file owing a line citation — and the defective line these reds named is the stub each task replaced, which no longer exists to cite. Waived per marker rather than once for the document, so a future marker is not pre-absorbed. -->
+
 <!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/sendAuthScan.ts` why=`derivations are not recognized, so the round-4 fixture reports no RAW-HANDOFF, the two-derivation fixture reports no MULTI-DERIVATION, and the looped-derivation fixture reports no NON-STRAIGHT-LINE-DERIVATION` ac=AC-8 -->
 
 A derivation is a declaration inside the pass whose initializer spreads the surface or calls a
 DECLARED derivation helper with it (`cacheOf`, `memoize`). Two derivations is `MULTI-DERIVATION`.
 Reads through a derived binding are unconstrained; raw reads inside the derivation's own initializer
 are exempt from rule 2's per-method limit — that is the shipped memo at
-`scripts/pane-compaction.ts:797`. **The exemption is POSITIONAL, not temporal, and the difference is
+`scripts/pane-compaction.ts:798`. **The exemption is POSITIONAL, not temporal, and the difference is
 this task's whole point:** the derivation's DECLARATION must itself sit on the straight-line path, or
 it reports `NON-STRAIGHT-LINE-DERIVATION` (spec §2.3 rules 2 and 3). Passing the raw surface to
 anything else inside the pass is `RAW-HANDOFF`.
@@ -529,7 +548,7 @@ helper-only, at-most-one implementation satisfies:
   rather than calling a declared helper. It must be recognized as a derivation, and reads through the
   resulting binding must be unconstrained. Without this case an implementation that only recognizes
   `snapshotOf(...)` passes the whole set, and would then report against the live tree — where the
-  shipped memo at `scripts/pane-compaction.ts:797` is a SPREAD, not a helper call.
+  shipped memo at `scripts/pane-compaction.ts:798` is a SPREAD, not a helper call.
 
 **The declared helper list is the measurement, not a preference.** Spec §3.2: an “any call taking the
 surface is a derivation” reading silenced the round-4 shape ENTIRELY, because
@@ -540,6 +559,8 @@ AC-3's other half rides here: the same `observe(..., s, ...)` shape OUTSIDE a pa
 injection and must NOT report.
 
 ## Task 6 — `scanRepo` walks from disk, and unregistered importers are reported
+
+<!-- spec-lint: ignore — `red-target=` named this module while it was UNTRACKED, which is what the marker asserts: the task CREATES it. Task 1 committed it, so the bare path now reads as a tracked file owing a line citation — and the defective line these reds named is the stub each task replaced, which no longer exists to cite. Waived per marker rather than once for the document, so a future marker is not pre-absorbed. -->
 
 <!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/sendAuthScan.ts` why=`scanRepo exists from Task 1 but walks nothing and knows no import edges, so the fixture module importing Surface without a registry row yields no UNREGISTERED-IMPORTER` ac=AC-9 -->
 
@@ -575,8 +596,8 @@ a single-row registry.
 
 **The `red=` is `authored`, not `live`, and the distinction was probed rather than assumed.** The
 DEFECT is live: `rg -n "send-auth: pass" scripts/pane-compaction.ts` returns nothing, while `s.send(`
-appears at `scripts/pane-compaction.ts:857`, `scripts/pane-compaction.ts:873` and
-`scripts/pane-compaction.ts:898`, all lexically inside `drive()` (`scripts/pane-compaction.ts:700`).
+appears at `scripts/pane-compaction.ts:858`, `scripts/pane-compaction.ts:874` and
+`scripts/pane-compaction.ts:899`, all lexically inside `drive()` (`scripts/pane-compaction.ts:700`).
 But the COMMAND is not live — the suite is authored by Task 1, so running it on today's tree reports no
 test files found rather than the stated failure. That is a red exiting non-zero for a COLLECTION
 reason, which the red contract names as believed rather than observed, so classifying it `live` would
@@ -651,7 +672,7 @@ Enrolment is THREE declarations, and a registry row alone leaves the corpus gate
 `GUARD_SURFACES` row (`id: "sendAuthScan"`), the `EXPECTED_LEDGER_KINDS` entry
 (`tests/mutation/source/expectedLedgerKinds.ts:24`), and the `EXPECTED_ENV_TOUCHING` key
 (`tests/mutation/_metaPremiseContract.test.ts:32`), whose meta-test asserts the declared key set
-EQUALS the enrolled suite list (`tests/mutation/_metaPremiseContract.test.ts:376`).
+EQUALS the enrolled suite list (`tests/mutation/_metaPremiseContract.test.ts:386`).
 
 `control` is a deliberately behavior-changing edit the suite MUST notice, with `control.from` occurring
 EXACTLY ONCE in `sourcePath` (`tests/mutation/source/registry.ts:94`).
@@ -776,6 +797,26 @@ fixtures", machine-computed over a closed operator set applied to a finite progr
 criterion is the mutation score plus an EMPTY unaccepted-survivor set. That is why this arc stops
 paying plan rounds against the class: enumeration over weaker implementations does not terminate, and
 the mutation gate does.
+
+**MEASURED CORRECTION — the mutation gate does NOT subsume this class, and the two
+covers do not dominate each other.** The gate closes what its DECLARED OPERATORS can
+express, applied to a finite program. That is a real closure and it found four
+fail-open holes four plan rounds had missed. But it is not the whole space: an
+unanchored marker matcher — `body.includes(PASS_TOKEN)` in place of
+`body === PASS_TOKEN` — passed the ENTIRE fixture corpus, and no operator in the
+declared set produces that edit, so no score could ever have reported it. It was
+found by BUILDING the weaker implementation by hand and running the suite against
+it, and the fixture that now kills it (`marker-with-trailing-text`) also pins the
+scanner's literal-grammar limit executably.
+
+So the closable criterion is the score plus an empty unaccepted-survivor set PLUS a
+killer audit over every weaker implementation this table names — each one built,
+run, and observed to red. A perfect score is not permission to skip the audit, and
+a passing audit is not permission to skip the score. The audit's own result is
+recorded with the run: 29 weaker implementations built, 29 PROVEN, 0 UNPROVEN,
+0 SKIPPED, source restored byte-for-byte. Its three-state reporting is deliberate —
+a probe that fails to APPLY is not a probe that passed, and collapsing those two
+is how an audit reports green on nothing.
 
 **Where the seventh weakness is expected to surface: at Task 8, as a surviving mutant.** It is expected
 there, it is BLOCKING when it appears (see Task 8's acceptance condition), and it is repaired with a
