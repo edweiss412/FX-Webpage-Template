@@ -92,7 +92,10 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // failed to install reds the case immediately. The surface's LIVE suite spawns
   // real process trees and is deliberately not enrolled, so it never reaches this
   // table.
-  "tests/mutation/source/spawnBounded.test.ts": 8,
+  // 8 -> 9 (2026-08-20): the AC-6 case asserting the perl-absent fallback forwards
+  // the CALLER'S ceiling carries the same no-premise declaration as its siblings —
+  // the child_process seam is mocked at module scope, so nothing is spawned.
+  "tests/mutation/source/spawnBounded.test.ts": 9,
   "tests/mutation/_metaPremiseContract.test.ts": 1,
   // 15 -> 16 (2026-08-09): the constructed multi-line hunk case that kills the
   // diffHunks count-collapse pair (BL-MUTATION-LEDGERGIT-SITE-DRIFT) builds a

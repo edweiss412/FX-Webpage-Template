@@ -270,6 +270,44 @@ describe("spawnBounded — how the child is launched", () => {
     expect(killed).toEqual([]);
   });
 
+  it("forwards the CALLER'S ceiling to the direct spawn, not a module default", () => {
+    // no-premise: the child_process seam is mocked at module scope, so nothing is
+    // spawned and there is no ambient precondition to state. A mock that failed to
+    // install reds this case at once — `calls` stays empty and the assertions below
+    // read `undefined`.
+    //
+    // AC-6, and the criterion is FORWARDING rather than presence. The fallback
+    // case above supplies no `timeoutMs` at all, and the suite's only distinctive
+    // caller value is asserted on `calls[0]` alone — so an assertion that the
+    // fallback's timeout is merely SET is satisfied by an implementation that
+    // overwrites it with `MUTANT_TIMEOUT_MS`. That implementation ships a
+    // `perl`-absent browser child the 180 s source ceiling instead of the
+    // ratified 660 s, silently, past a `perl`-PRESENT gate run and every other
+    // fixture in this file.
+    //
+    // 4242 discriminates because it is neither module default: an overwrite by
+    // either constant fails, and so does an omission.
+    reset([
+      { status: null, signal: null, error: Object.assign(new Error("nope"), { code: "ENOENT" }) },
+      { status: 0, signal: null },
+    ]);
+    withKillSpy(() =>
+      spawnBounded(ARGV, {
+        cwd: "/root",
+        env: {} as unknown as NodeJS.ProcessEnv,
+        timeoutMs: 4_242,
+      }),
+    );
+
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.cmd).toBe("pnpm");
+    expect(calls[1]!.timeout).toBe(4_242);
+    expect(calls[1]!.timeout).not.toBe(MUTANT_TIMEOUT_MS);
+    // The untrappable kill reaches the fallback too: a ceiling armed with
+    // SIGTERM is not a ceiling, because a vitest child can trap it.
+    expect(calls[1]!.killSignal).toBe("SIGKILL");
+  });
+
   it("does NOT fall back when perl itself ran and the failure came from elsewhere", () => {
     // no-premise: the child_process seam is mocked at module scope, so nothing is
     // spawned and there is no ambient precondition to state. A mock that failed to
