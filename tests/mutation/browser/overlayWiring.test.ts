@@ -23,13 +23,22 @@ const ROOT = resolve(__dirname, "..", "..", "..");
  *
  * Deliberately NOT `BROWSER_MUTANT_TIMEOUT_MS`: these are wiring children, not
  * mutant children, and reusing the ratified 660 s would imply a derivation the
- * browser-gate probe does not support for them. Derived from this file instead —
- * its slowest child measured 2432 ms across all eleven cases, so 60 s is ~25x
- * the measured maximum, and it sits BELOW every per-case timeout here
- * (120 s / 180 s / 300 s) so the child's own bound fires first and the failure
- * names the hung child rather than an expired case.
+ * browser-gate probe does not support for them.
+ *
+ * The number is 300 s because 60 s was tried and FAILED on a healthy child. In
+ * isolation this file's slowest child measures 2432 ms across all eleven cases;
+ * under a full parallel `tests/mutation/` run one bundle child blew past 60 s and
+ * died with ETIMEDOUT — the arc's own limit §6.1 ("calibrated on one machine at
+ * low contention") turned on the constant derived from it. 300 s is ~123x the
+ * isolated maximum and 5x the contended observation.
+ *
+ * The per-case timeout is NOT a second line of defence here, which is why this
+ * ceiling is generous rather than tight. `execFileSync` is SYNCHRONOUS: it blocks
+ * the test thread, so vitest cannot fire a case timeout until the child returns.
+ * This value is the only thing standing between a wedged child and an indefinite
+ * hang, which is precisely what AC-8 names.
  */
-const WIRING_CHILD_TIMEOUT_MS = 60_000;
+const WIRING_CHILD_TIMEOUT_MS = 300_000;
 const BUNDLE = join(ROOT, "tests", "e2e", "_tapTargetFloorBundle.mjs");
 const OVERLAY_CONFIG = "tests/mutation/browser/vitestOverlay.config.ts";
 const PROBE_FIXTURE = "tests/mutation/browser/fixtures/overlayProbe.fixture.ts";
