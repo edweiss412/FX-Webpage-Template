@@ -24,6 +24,11 @@ tests/_shared/stripComments.ts      # REUSED, unmodified: the single-source comm
 
 - **TDD per task** (invariant 1): failing test → minimal implementation → passing test → commit. Never
   implementation before the test that exercises it.
+- **Every rule names the strictly WEAKER implementation its fixtures must kill** (spec §6 table). Run
+  as ONE exhaustive pass over all rules, never per finding — three instances in two rounds is the
+  same-vector trigger and the answer is a derived cover, not another round. Distinct from the
+  anti-tautology rule and both apply: anti-tautology asks whether a test can fail at all; this asks
+  whether it can fail for the RIGHT REASON.
 - **A RED is confirmed by its REASON, not by its exit code.** Every task's red step reads the failure
   OUTPUT and matches it to the defect the task claims. This is stricter than "run the command", and the
   difference is the whole point: a command that collects nothing exits 0 and is green from birth, while
@@ -183,6 +188,11 @@ declared misses under one phrase-bearing title yields exactly ONE pin, not one p
 declared miss`; a concurrent arc enumerating that file BY ZERO counted ten where this arm counts one,
 and the test pins which unit ships so the two are never read as a recall gap.
 
+**Weaker implementation to kill:** the seven live pin titles, hardcoded. It passes the corpus assertion
+and every accept case whose title is copied from the corpus. **Therefore no accept-case title in this
+suite may appear anywhere in the live corpus** — a hard requirement, checked by grepping each fixture
+title against the enrolled suites before the task is called done, not a stylistic preference.
+
 **Anti-tautology.** Each accept case names the concrete failure mode it catches: a matcher anchored to
 `test(` alone misses the six live `it(` pins; a case-sensitive matcher misses
 `CLOSED (was DOCUMENTED LIMIT)`; a naive double-quote-to-double-quote match misses a title containing an escaped quote. Each
@@ -243,6 +253,11 @@ fails any implementation using `String.prototype.includes` on the raw path.
       `pnpm vitest run tests/specLint/declaredLimitPinsFiles.test.ts`. Expected: the naming cases fail
       with an empty set against an expected surface id. A module-resolution error, a parse error, or
       zero collected tests means the red is invalid and the task stops.
+- [ ] **Step 2b: Add the SYNTHETIC-SURFACE case.** Weaker implementation to kill: a hardcoded copy of
+      the 100 live enrolled paths, which passes every other case in this suite. The case injects a
+      surface whose `sourcePath` and `suitePaths` appear nowhere in `tests/mutation/source/registry.ts`
+      and asserts it is named by a fixture plan. Verified synthetic by grepping the registry for the
+      chosen paths at authoring time.
 - [ ] **Step 3: Implement `namedSurfaces` and the `EnrolledSurface` type.**
 - [ ] **Step 4: Observe green.**
 - [ ] **Step 5: Commit.**
