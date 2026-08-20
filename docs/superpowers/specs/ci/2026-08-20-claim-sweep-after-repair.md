@@ -159,6 +159,11 @@ means no repair was named and the arm runs nothing.
 
 ## 5. Documented limits (round 0)
 
+<!-- spec-lint: ignore — new file created by this spec; not yet tracked -->
+**Every limit below is restated in `lib/specLint/claimSweep.ts`'s own module header.** A documented
+limit belongs where the code is READ, not only where the spec is filed — a maintainer reaching for the
+module does not necessarily reach for this document.
+
 1. **A sentence is delimited lexically**, and a repair whose transition spans two sentences draws a
    false advisory. Measured: 1 of 936 corpus transition sentences (§2).
 2. **A value that legitimately recurs** — a version number, an unrelated count that happens to equal the
@@ -210,8 +215,14 @@ dedup by position is permitted.
 mechanically at implementation time.** A table that names the case and a suite that omits it is the gap
 between plan and implementation: no plan review catches it, because the plan is correct, and no fixture
 audit catches it, because the fixture does not exist. So the implementer enumerates the killing checks
-FROM THE TABLE ITSELF — never from recall — and confirms each exists in the shipped tests and FAILS when
-the corresponding behaviour is broken.
+FROM THE TABLE ITSELF — never from recall — and classifies each into THREE states, not two:
+
+- **ABSENT** — the table names the case and no test covers it.
+- **PRESENT BUT UNPROVEN** — a test exists and has never been run against the mutant it targets. That
+  is a CLAIM, not a proof, and it fails in the direction that looks green.
+- **PROVEN** — the check exists AND was observed failing when its behaviour was broken.
+
+Only PROVEN counts: presence is not adequacy, applied to this rule itself.
 
 **Historical re-enactment, executable.** The probe record's two blobs ship as fixtures: `fede5f084`'s
 tree draws exactly the 9 numeric survivors and excludes the 3 transition sentences; `c272ebed3`'s draws
@@ -272,8 +283,9 @@ dispatch, and that brief states `MUTATION SCORE: <k>/<t>` plus "0 unaccepted sur
   excluding transition sentences fails it immediately. The incident replay (AC-4) is where an exact SET
   is asserted, because its inputs are frozen blobs.
 - **AC-7** — Every weaker implementation named in §6 has a killing check PRESENT IN THE SHIPPED TESTS,
-  enumerated from the §6 table rather than from recall, and each is confirmed to FAIL when its
-  behaviour is broken. Every rule AND every fixture kills its named weaker implementation, and no fixture is
+  enumerated from the §6 table rather than from recall, and each is PROVEN — observed failing when its
+  behaviour is broken — rather than merely present. Absent, present-but-unproven and proven are three
+  distinct states and only the third satisfies this criterion. Every rule AND every fixture kills its named weaker implementation, and no fixture is
   neutralized by another rule; the pass is re-run to a FIXED POINT before each dispatch and its
   iteration counts recorded in the round filing.
 - **AC-8** — Enrolment carries BOTH declarations, scores at or above 0.95 with an empty
