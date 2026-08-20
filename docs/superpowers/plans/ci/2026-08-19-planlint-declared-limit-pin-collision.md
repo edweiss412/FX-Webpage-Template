@@ -567,7 +567,15 @@ git commit -m "docs: record the declared-limit pin advisory beside the sweep dis
 Executed 2026-08-19 against the pre-implementation tree. All seven marked tasks are `red-state=authored`: their failing cases do not exist yet, so none is run
 now, and each names the production surface whose absence or defect makes it fail — verified below.
 The region therefore declares no `red-state=live` command, so `spec:lint --exec-red` has nothing to
-execute here and its silence is not a certificate.
+execute here and its silence is not a certificate. **Two sharper facts about what the lint does NOT
+claim, so no reader mistakes a green report for coverage it never offered.** Plain `pnpm spec:lint`
+makes no COLLECTION claim at all — the collection arm returns nothing when no probes ran, and probes
+run only under `--exec-red` (`lib/specLint/redContract.ts`). And under `--exec-red` the arm is SILENT
+for any command wrapped in `pnpm heavy`, drawing neither a finding nor the unverified advisory — which
+is precisely the class `AGENTS.md` MANDATES wrapping. This plan's two heavy-wrapped commands (the
+scoped mutation run in Task 7, `pnpm test` in Task 8) are therefore proved by RUNNING them and reading
+their output in their own steps, never by the lint's silence. The same rule already governs every
+`red=` here: a red is confirmed by its REASON, read from the failure output.
 
 ```
 $ ls lib/specLint/declaredLimitPins.ts tests/specLint/declaredLimitPinDispositions.ts
