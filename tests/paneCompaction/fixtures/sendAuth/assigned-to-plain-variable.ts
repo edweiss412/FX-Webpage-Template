@@ -25,6 +25,11 @@ export type Channel = {
   clock(): number;
 };
 
+// The binding is assigned and never read ON PURPOSE — that IS the shape under test —
+// so the unused-variable rule is suppressed at LINE granularity rather than by
+// renaming to the `_`-prefixed form the rule would accept. A rename would change the
+// name the scanner REPORTS, which is the value this fixture asserts.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 declare let holder: Channel;
 
 export function stash(ch: Channel): void {
