@@ -533,6 +533,22 @@ Three rules bind the run, each here because it was measured elsewhere:
   SURFACE grain by reading annotation TITLES (`source-mutation gate — <id> > <case>`), never by leg
   number, which moves as the partition re-packs. **Absence from a failure list is not evidence of
   passing** — locate `claimSweep` by name and read its result.
+- **STAMP THE PROVENANCE INSIDE THE MEASURED COMMAND, never beside it.** Print the source blob hash from
+  WITHIN the same invocation that measures, and quote THAT in the closeout. A hash computed in a separate
+  call is a second read of mutable state and can observe different bytes than the run does — the same
+  two-reads defect this batch found in markers, ledgers, citations and verifiers, landing on provenance
+  itself. An arc reported a score against an intermediate blob for exactly this reason and caught it only
+  because its stamp was inside the run. If the stamp and the run are two commands, that is not provenance,
+  it is a coincidence that usually holds.
+- **Confirm a fix by a PREDICTED SIDE EFFECT, not by absence of the symptom.** "It did not fail this time"
+  is consistent with luck. Ask what else the hypothesis predicts and check that too — a hang diagnosis
+  predicts the run gets FASTER, not merely that it stops dying, because mutants no longer burn a full
+  per-mutant timeout.
+- **A survivor resolved by DELETION owes a proof, not an assertion**, and the proof is usually that the
+  differing case is unreachable: a comparator that cannot reorder because the walk is ascending and the
+  container preserves insertion order; a branch that can never fire because its input is always
+  path-shaped; a ternary fallback unreachable because the regex matches every string. Write the reason
+  next to the deletion.
 
 ## Task 11 — the killer audit: three states, enumerated from the table
 
