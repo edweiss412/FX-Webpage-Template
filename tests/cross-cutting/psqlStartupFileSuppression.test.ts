@@ -5542,6 +5542,113 @@ describe("arm 2 - a WHOLE-VALUE accepted expansion has its operand decided", () 
   });
 });
 
+describe("arm 2 precision - the zeros that must STAY zero", () => {
+  // Every case here is a non-regression pin, and a pin against correct code
+  // cannot red on its own. Its red is authored against NAMED MUTANTS in
+  // `valueBinds` -- the separator rejection, the trailing-backslash rejection
+  // and the flag requirement -- applied and reverted inside the task that
+  // introduced this block, never committed. That makes the red SCANNER
+  // behaviour rather than a test-local edit.
+  //
+  // Each premise is computed from THAT ROW'S OWN fixture text. An adjacent
+  // case is explicitly NOT a premise: a sibling can hold while this row's own
+  // input never reaches the machinery at all, and a suite of zeros guarded by
+  // a neighbour's success is green about the neighbour.
+
+  /** A reading of the FIXTURE'S OWN BYTES, never of the scanner. It answers one
+   * structural question about the row: is this assignment's value, in its
+   * entirety, a single `${...}` span? Brace-matched rather than
+   * `startsWith`/`endsWith`, because `${U#x}${V:-"psql"}` satisfies both ends
+   * while being two spans. */
+  const wholeValueSpan = (source: string): string | null => {
+    const value = source
+      .trim()
+      .split("\n")
+      .at(-1)!
+      .replace(/^[A-Za-z_]\w*=/, "");
+    if (!value.startsWith("${") || !value.endsWith("}")) return null;
+    let depth = 0;
+    for (let i = 1; i < value.length; i++) {
+      if (value[i] === "{") depth++;
+      else if (value[i] === "}") {
+        depth--;
+        if (depth === 0) return i === value.length - 1 ? value.slice(2, i) : null;
+      }
+    }
+    return null;
+  };
+  /** The six-member accept-set, read off the fixture's own interior. */
+  const ACCEPTED = /^[A-Za-z_]\w*(?:\[[^\]]*\])?(?::-|:=|:\+|-|=|\+)/;
+
+  // CLASS A -- the candidate EXISTS and the PREDICATE declines it. The premise
+  // is the exact condition under which a candidate is built, computed on this
+  // row's own text, so the zero is attributable to the predicate rejecting the
+  // candidate rather than to no candidate having been built.
+  test.each([
+    ["a separator in the operand", "PG=${U:-'psql;x'}\n"],
+    ["a trailing backslash in the operand", "PG=${U:-'psql\\'}\n"],
+    ["a multiword operand carrying no flag", "PG=${M:-'psql failed to connect'}\n"],
+  ])("%s reaches the predicate and is declined", (label, source) => {
+    const interior = wholeValueSpan(source);
+    premiseHolds(
+      `${label}: this fixture's own value IS one accept-set span whose operand carries psql, which is exactly when a candidate is built`,
+      interior !== null && ACCEPTED.test(interior) && /psql/.test(interior),
+    );
+    expect(scanShellIndirection(source, "x.sh"), label).toHaveLength(0);
+  });
+
+  // CLASS B -- NO candidate exists, by construction. The premise is the
+  // complement of class A's: the value is not a single accept-set span, or the
+  // span sits inside a double-quoted value where the recording branch is
+  // unreachable. A REPORTING sibling would prove the opposite boundary and is
+  // deliberately not used.
+  //
+  // bash binds `psql` in the composition spellings, so these are DOCUMENTED
+  // LIMITS rather than correct silence -- except the double-quoted ones, where
+  // bash binds `p'sql'` and the zero is right. Both directions of the same
+  // structural boundary, which is why they sit together.
+  test.each([
+    ["P1 literal before, :-", 'PG=p${U:-"sql"}\n'],
+    ["P2 literal before, -", 'PG=p${U-"sql"}\n'],
+    ["P3 literal before, :=", 'PG=p${U:="sql"}\n'],
+    ["P4 literal before, =", 'PG=p${U="sql"}\n'],
+    ["P5 literal before, :+", 'PG=p${U:+"sql"}\n'],
+    ["P6 literal before, +", 'PG=p${U+"sql"}\n'],
+    ["P7 literal AFTER the span", 'PG=${U:-"p"}sql\n'],
+    ["P10 a BARE operand composed", "PG=p${U:-sql}\n"],
+    ["S4 accepted ADJACENT to a complement member", 'U=xy\nPG=${U#x}${V:-"psql"}\n'],
+    ["S5 accepted INSIDE a complement member", "U=xpsql\nPG=${U#${V:-'psql'}}\n"],
+    ["Q3 composed inside DOUBLE QUOTES, quoted operand", "PG=\"p${U:-'sql'}\"\n"],
+    ["Q5 a composed value that is not psql", 'PG=p${U:-"gcli"}\n'],
+    ["Q6 a composed value that is prose", 'MSG=p${M:-"sql failed to connect"}\n'],
+    ["Q7 a composed value carrying a separator", 'PG=p${U:-"sql;x"}\n'],
+  ])("%s builds no candidate at all", (label, source) => {
+    const interior = wholeValueSpan(source);
+    premiseHolds(
+      `${label}: this fixture's own value is NOT a single accept-set span, which is exactly when no candidate is built`,
+      interior === null || !ACCEPTED.test(interior),
+    );
+    expect(scanShellIndirection(source, "x.sh"), label).toHaveLength(0);
+  });
+
+  // CLASS C -- a candidate IS built and carries no psql-shaped word. These two
+  // are the composition cases the class B premise cannot claim, because their
+  // value really is a single accept-set span; what composes is the OPERAND.
+  // Stating that separately is the point: a premise that quietly covered them
+  // with class B's would be false on this row's own inputs.
+  test.each([
+    ["P8 a nested expansion supplying a SUFFIX", "PG=${U:-${V:-p}sql}\n"],
+    ["P9 a nested expansion supplying the MIDDLE", "PG=${U:-p${V:-s}ql}\n"],
+  ])("%s builds a candidate that carries no psql", (label, source) => {
+    const interior = wholeValueSpan(source);
+    premiseHolds(
+      `${label}: this fixture's own value IS one accept-set span, so a candidate is built, and its interior carries no psql`,
+      interior !== null && ACCEPTED.test(interior) && !/psql/.test(interior),
+    );
+    expect(scanShellIndirection(source, "x.sh"), label).toHaveLength(0);
+  });
+});
+
 describe("documented limits - quote-concatenated spellings outside the assignment family", () => {
   // Spec §6: these families still read their KEYWORD or operand through a
   // per-line pattern, so a quote-concatenated spelling of it is missed. The
