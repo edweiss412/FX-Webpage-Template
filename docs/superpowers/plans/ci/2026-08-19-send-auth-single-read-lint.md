@@ -54,8 +54,10 @@ BACKLOG.md                                            # EDIT: the row's stale cl
 Every citation below was re-derived against the live tree at `b7dbb60ed` for THIS draft rather than
 inherited from the discarded one. **Two citations in the discarded draft had already drifted** —
 it cited `tests/mutation/source/registry.ts:83` for the `scoreFloor` check (line 83 is blank; the check is at
-`tests/mutation/source/registry.ts:81`) and `stripComments.ts:12` for `commentRanges` (line 12 is a
-comment; the export is at `tests/_shared/stripComments.ts:13`). That is the class that dominates
+`tests/mutation/source/registry.ts:81`) and, in the draft's own unqualified form, `stripComments.ts:12`
+for `commentRanges` — line 12 there is a comment, and the export is at
+`tests/_shared/stripComments.ts:13`. Both are quoted here as the WRONG citations they were, not used
+as references. That is the class that dominates
 round-1 findings, and it is the concrete reason this plan was re-derived rather than patched.
 
 - **Registry row shape.** `GuardSurface` (`tests/mutation/source/registry.ts:12`) requires `id`,
