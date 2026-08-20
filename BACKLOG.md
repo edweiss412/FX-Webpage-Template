@@ -1151,6 +1151,15 @@ The filter is not loose by accident — it covers the eight parser shard files, 
 
 **Reachability: PROBED, twice, and the two measurements disagree — which is itself the finding.** #833 measured **27.6 s against the 30 s ceiling on an UNLOADED box**, and 43 s under contention, where it failed `test:fast`. A re-probe at 22:31 CDT on 2026-08-16, scoped to that one case, measured **19.18 s of test time** (`Duration 20.85s`, `1 passed | 41 skipped`) on a box with five arcs working. Two readings of one test, taken hours apart on the same day, disagree by more than 8 s: the surviving margin is somewhere between ~2 s and ~11 s depending on load, and no single number describes it. Both are recorded here deliberately, because a row claiming either one alone would misstate how load-sensitive the test is.
 
+**Third measurement, 2026-08-19 (`fix/premisescan-nested-hook-sibling-leak`).** The walk is now at the ceiling on a LOADED box, and the same-machine differential shows the branch tipping it rather than the tree being at fault — which is what the growth half predicted:
+
+```
+mergedArcs()   origin/main   27863ms, 27738ms   -> test PASSES (41 passed)
+               branch HEAD   29921ms, 29944ms   -> test TIMES OUT, 3 runs of 3
+```
+
+`git log` itself is 75ms and returns 824 first-parent merges on both sides (799 -> 803 -> 804 -> **824** across the three filings), and both trees report `recognized=823, unrecognized=1`. The arc contributes no merge commit, so its ~2.1s is the review-round rows it adds. **Main is at 93% of the cap and any arc adding corpus rows lands on the same edge.** That arc filed a duplicate row for this and removed it on discovering this one; the measurement is kept here, where it belongs.
+
 **The growth is the durable half.** Main was at 799 first-parent merges when #833 measured, 803 ninety minutes later, and **804** at filing. The trend has no ceiling and no reset.
 
 **Deriving the expectation is DELIBERATE and must not be undone by a careless repair.** The comment above the call says so in terms: "Numbers are derived from the live log, never from literals - a hardcoded 676 makes this a tripwire on the calendar instead of on the producer." A fix that hardcodes the count would trade a slow test for a test that fails on a date, which is the defect the current design already rejected.
@@ -1477,25 +1486,6 @@ The named-factory rows are IDENTICAL on both sides. The arc that found it neithe
 **Shape of the repair.** Resolve a factory ARGUMENT that is an identifier to its declaration in the same module and walk that body as the suite's own. The scope machinery to do it already exists — `premiseScan` resolves helper extents innermost-out — so this is a new caller of an existing resolver rather than new resolution. The honest alternative, if resolution is declined, is to REPORT: a registration whose body cannot be located is `unclassifiable` rather than silently free, which satisfies the consequence bound without following the identifier.
 
 **First scheduled step:** decide between resolving and reporting, then probe the population — how many enrolled suites register with a named factory today. Zero would make either choice cheap; a non-trivial count argues for resolving.
-
-## BL-REVIEWROUND-MERGEDARCS-AT-THE-TIMEOUT-BOUNDARY — the live-history report runs 28s against a 30s cap and every arc pushes it closer
-
-**Status:** OPEN · **Severity:** MEDIUM (a required unit gate; when it reds the merge is blocked and the only remedy is a re-run or an unrelated gate edit) · **Class:** CI reliability · **Effort:** S · **Filed:** 2026-08-19 (`fix/premisescan-nested-hook-sibling-leak`, seen while shipping an unrelated scanner change) · **Facing:** process · **Mint-exception:** invariant · **Class-sweep exception:** (c) — the repair is a change to `lib/reviewRounds/mergedArcs.ts` or to that suite's timeout, a surface this arc does not otherwise touch · **Reachability:** PROBED — same-machine differential, both sides, below.
-
-`tests/reviewRounds/report.test.ts:1262` walks every first-parent merge on `main` through `mergedArcs` (`lib/reviewRounds/mergedArcs.ts:42`) and compares the result against the live log. The walk costs about 28 seconds against Vitest's 30-second per-test cap on the `parallel` project. The margin is ~2 seconds and it SHRINKS with every merge the repository accumulates, so whether the gate is green is a property of the calendar rather than of the tree.
-
-**Incident:** this arc. The suite passes on `origin/main` and TIMES OUT on the branch, three runs out of three, `Test timed out in 30000ms`. Same-machine differential, same `node_modules`, `git log` itself is 75ms and returns 824 merges on both sides:
-
-```
-mergedArcs()   origin/main   27863ms, 27738ms   -> test PASSES (41 passed)
-               branch HEAD   29921ms, 29944ms   -> test TIMES OUT
-```
-
-Both figures are stable across repeats, so the ~2.1s delta is signal rather than noise. `recognized=823, unrecognized=1` on BOTH sides — the arc contributes no merge commit, so the extra cost is the corpus rows it adds, not new history. **The tempting reading, that this arc broke something, is wrong in the direction that matters: main is already at 93% of the cap, and ANY arc that adds review-round rows lands on the same edge.**
-
-**Why it is filed rather than fixed here.** The ratified precedent is `BL-PREMISE-CONTRACT-SUITE-AT-THE-TIMEOUT-BOUNDARY` (archived 2026-08-18), whose disposition states it directly: raising a timeout inside an unrelated PR puts a gate edit outside that PR's reviewed surface, class-sweep exception (c). The difference from that row is that main was over the cap there and is UNDER it here, so this one blocks the arc that finds it rather than failing by luck on both sides — which is why the disposition needs an owner rather than a default.
-
-**First scheduled step:** decide which side moves, and the choice is not mechanical. Either give that one case an explicit `testTimeout` above the measured cost with a comment naming the measurement (cheap, honest, leaves the walk's cost invisible and the margin still shrinking), or make `mergedArcs` cheaper — 824 merges at ~34ms each suggests a per-merge subprocess, and batching or memoising it would drop the walk by an order of magnitude and end the class. The second is the better repair; measure before choosing.
 
 ## BL-SPECLINT-ORPHANED-TASK-MARKERS — a plan whose markers sit outside a region lints as `0 hard` while checking nothing
 
