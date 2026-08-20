@@ -189,6 +189,10 @@ declared misses under one phrase-bearing title yields exactly ONE pin, not one p
 declared miss`; a concurrent arc enumerating that file BY ZERO counted ten where this arm counts one,
 and the test pins which unit ships so the two are never read as a recall gap.
 
+**Fixture neutralization (spec §6):** every DECLINE fixture in this suite uses a title distinct from
+every accept fixture in the same file. With a shared title, §3.1 identity plus §3.3 dedup yield one
+finding whether the shape was declined or merely deduplicated, so the decline case could not fail.
+
 **Weaker implementation to kill:** the seven live pin titles, hardcoded. It passes the corpus assertion
 and every accept case whose title is copied from the corpus. **Therefore no accept-case title in this
 suite may appear anywhere in the live corpus** — a hard requirement, checked by grepping each fixture
@@ -254,6 +258,9 @@ fails any implementation using `String.prototype.includes` on the raw path.
       `pnpm vitest run tests/specLint/declaredLimitPinsFiles.test.ts`. Expected: the naming cases fail
       with an empty set against an expected surface id. A module-resolution error, a parse error, or
       zero collected tests means the red is invalid and the task stops.
+- [ ] **Step 2a: Fixture neutralization check.** The prose-outside-a-declaration fixture must contain NO
+      positive occurrence of the same enrolled path: if that path also sits in a real declaration in the
+      fixture plan, §3.2 names the surface anyway and the negative case cannot fail.
 - [ ] **Step 2b: Add the SYNTHETIC-SURFACE case.** Weaker implementation to kill: a hardcoded copy of
       the 100 live enrolled paths, which passes every other case in this suite. The case injects a
       surface whose `sourcePath` and `suitePaths` appear nowhere in `tests/mutation/source/registry.ts`

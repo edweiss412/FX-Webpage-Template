@@ -264,6 +264,20 @@ healthy-suite silence case).
 | §4 adapter, INJECTION | a hardcoded copy of the live enrolled table | the §6 synthetic-surface case — NOT AC-10, see the division below |
 | §2.7 replay | special-case the two historical blobs | the corpus case, which ranges over the whole tracked corpus and fails any blob-specific implementation |
 
+**Second question, asked of every fixture: does another rule in THIS spec neutralize it?** The
+cross-finding rules — identity `(path, title)` (§3.1), deduplication (§3.3), multi-surface naming
+(§3.2), disposition keying (§5) — operate ACROSS findings rather than within one, so they can quietly
+collapse a fixture's expected outcome into the pass value. Asking it exhaustively found three instances
+beyond the AC-10 one, and all four share a shape: the fixture was authored against the rule it tests
+while a different rule decided the observation.
+
+| Fixture | The rule that neutralizes it | Requirement now placed on the fixture |
+| --- | --- | --- |
+| a DECLINE case (`describe(`, template, comment, multi-line string) | §3.1 identity + §3.3 dedup: if the declined shape shares a title with an accepted pin in the same file, one finding appears either way | every decline fixture uses a title DISTINCT from every accept fixture in that file, so "declined" and "deduplicated" are distinguishable outcomes |
+| the prose-outside-a-declaration case | §3.2 multi-surface naming: if the same path also appears in a real declaration in that fixture plan, the declaration names the surface and the negative case cannot fail | a negative naming fixture contains NO positive occurrence of the same path |
+| the shared-pin dedup case (one pin, two surfaces → ONE finding) | nothing collapses it, but an implementation that IGNORES surfaces entirely and reports per pin also yields one | pair it with a two-DIFFERENT-pins-on-two-surfaces case expecting TWO findings; only an implementation that tracks surfaces AND dedups passes both |
+| AC-10's live/commented pair | §3.3 dedup on identical titles (round 5's finding) | the two titles differ |
+
 **The two adapter defects need two different proofs, and neither covers the other.** Running the
 weaker-implementation pass over the FIXTURES — not only over the rules, which is what round 5 showed is
 required — surfaced this: AC-10's fixture must name a REAL enrolled surface, because the shipped adapter
@@ -295,6 +309,24 @@ never tested.
 Enrolment is TWO declarations: a `tests/mutation/source/registry.ts` row (`id: "declaredLimitPins"`, `sourcePath`, `suitePaths` naming the §6 pure suites, `operators: [...OPERATOR_NAMES]`, `scoreFloor: 0.95`, a `control` mutant, `accepted: []`), following the `redContract` row (`tests/mutation/source/registry.ts:525`) verbatim in shape, AND an `EXPECTED_LEDGER_KINDS` entry in `tests/mutation/source/expectedLedgerKinds.ts`, which `tests/mutation/guardSurfaces.gates.test.ts` reads as its expected key set — a registry row alone leaves the corpus gate red.
 
 `pnpm mutation:guards` runs BEFORE the round-1 diff dispatch and the brief states `MUTATION SCORE: <k>/<t>` plus "0 unaccepted survivors" on its `GUARD SURFACE:` line; the wrapper exits 2 without it. Scoping is by a temporary `guardSurfaces.shard*.test.ts` filtering `GUARD_SURFACES` before `registerSurfaceCases`, deleted after the run (`_metaSourceShardIntegrity` pins the shard set byte-for-byte); `-t` does not bound the gate. Deciding assertions live inside the registered `suitePaths` — placement outside them buys zero score.
+
+### 7.1 What the consequence bound forbids, and what it does NOT
+
+The bound is **zero FALSE advisories on the live corpus**, and "false" is defined by ATTRIBUTION: an
+advisory is false when it names a `(plan, pin)` pair that is not a real, un-named, live pin on a surface
+that plan's Files declaration really names. The forbidden directions are false CERTIFICATION — silence
+where a real collision exists — and wrong ATTRIBUTION.
+
+**A correct but unactionable advisory is a documented limit, not a violation, and stating this is not a
+loophole — it is the bound matching the surface.** Every one of the §2.6 live advisories is on a MERGED
+plan nobody will edit again (§8 item 1), and §8 item 7 ratifies that a plan paraphrasing a pin rather
+than quoting it still draws one. Both are conservative over-reports of a real, correctly-attributed
+collision. A bound worded to condemn them — "never advises where an author would not act" — would be
+STRICTER THAN THE RATIFIED SURFACE and would manufacture findings against behavior §1.1 item 5 settled
+at round 0: the arm cannot tell retirement from deliberate retention, so it reports the fact it can
+establish and the author dispositions it.
+
+Tightening this wording is a CONTRACT CHANGE and owes a probe like any other claim about the surface.
 
 ## 8. Documented limits (round 0)
 
