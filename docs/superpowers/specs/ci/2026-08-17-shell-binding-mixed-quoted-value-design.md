@@ -334,6 +334,13 @@ concatenation." Swept across every rule family in `scanShellIndirection`:
    mixed-quoted here-string target (`read PG <<< p'sql'`, ledger-filed) — is not recognized by
    those rule families. Failure direction: a missed report (recall), never a false certification;
    the site path is unaffected because it already reads lexed words.
+
+   **Superseded in part, 2026-08-20** by `docs/superpowers/specs/ci/2026-08-20-shell-lexer-quoted-value-recall-design.md`
+   (`BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE`): the DETACHED here-string target is retained by
+   `lexShellWords` and read through `valueBinds`, so that clause no longer holds. The interpreter
+   positional and `alias`/`function` name clauses stand. The ATTACHED here-string target is a
+   different family, withdrawn there as scope and filed as
+   `BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION`.
 2. A multiword assignment value whose psql command carries no flag-shaped token is declined by
    the flag criterion — the deliberate line between a command binding and prose. This covers
    quoted YAML `run:` scalars read as one word (`- run: "PG=psql; $PG -qAt mydb"`, plain or

@@ -5156,6 +5156,143 @@ describe("mixed-quoted assignment values (BL-SHELL-BINDING-MIXED-QUOTED-VALUE)",
   });
 });
 
+describe("arm 1 - a DETACHED here-string target is read from the lexer's retained word", () => {
+  // Ledger: BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE. Design:
+  // docs/superpowers/specs/ci/2026-08-20-shell-lexer-quoted-value-recall-design.md
+  // sections 3.1-3.2. `lexShellWords` gains an optional third out-parameter and
+  // pushes the DETACHED redirection target there instead of discarding it, so
+  // the target carries the lexer's OWN quote removal, ANSI-C decoding and
+  // escape handling - there is no second dequoting path that can drift from the
+  // first, which is the defect shape the 2026-08-17 arc retired when it deleted
+  // the per-delimiter pattern family. The here-string rule then becomes a
+  // UNION: the existing READ_HERE_STRING pattern (kept - it is the only reading
+  // that sees inside a `$(...)` body, and it is stricter-in-reverse on prose)
+  // plus a `read`-grammar PREFIX match with a `<<<` target belonging to the same
+  // LOGICAL line.
+  //
+  // EVERY fixture below sits ALONE on its own line. `scanShellIndirection` has
+  // TWO emission routes, and the coalesced LINE route emits at most ONE hit per
+  // line (`hit = assigned ?? aliased ?? functionDef ?? githubEnvWrite ??
+  // positionalBinding`), so a here-string sharing its line with an assignment
+  // binding could not fail whatever this rule does.
+  test.each([
+    ["A1 a mixed-quoted target", "read -r PG <<< p'sql'\n", "read -r PG <<< psql\n"],
+    ["A6 an ANSI-C target", "read -r PG <<< $'p\\163ql'\n", "read -r PG <<< psql\n"],
+    [
+      "H4 a quoted DIRECTORY component",
+      "read -r PG <<< /usr/'bin'/psql\n",
+      "read -r PG <<< /usr/bin/psql\n",
+    ],
+    [
+      "N1 a continuation BEFORE the operator",
+      "read -r PG \\\n <<< p'sql'\n",
+      "read -r PG \\\n <<< psql\n",
+    ],
+    [
+      "N2 a continuation BETWEEN the operator and its target",
+      "read -r PG <<< \\\n p'sql'\n",
+      "read -r PG <<< \\\n psql\n",
+    ],
+  ])("%s binds psql from the here-string", (label, mixed, plain) => {
+    // The premise is computed on THIS row's own plain sibling, which differs
+    // from the fixture by exactly one variable - the quoting of the target -
+    // so the flip is attributable to the target's dequoting and not to the
+    // rule never having been reached.
+    premise(
+      `${label}: the PLAIN spelling of this same fixture already reaches the here-string rule`,
+      scanShellIndirection(plain, "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection(mixed, "x.sh"), label).toHaveLength(1);
+  });
+
+  // A7 sits inside a `$(...)` body, where `visitBody` emits INDEPENDENTLY of and
+  // BEFORE the coalesced line route: `X=$(read -r PG <<< psql)` reports TWICE
+  // today, once per route. So a count assertion here would be satisfied by
+  // nested DISCOVERY rather than by the here-string route under test. Both the
+  // premise and the assertion are therefore on hit TEXT: route B can only ever
+  // emit the BODY's text, so a hit carrying the OUTER line is the here-string
+  // route and nothing else.
+  test("A7 a mixed-quoted target inside a command substitution binds psql", () => {
+    const mixed = "X=$(read -r PG <<< p'sql')\n";
+    const plain = "X=$(read -r PG <<< psql)\n";
+    premiseHolds(
+      "A7: the plain spelling's here-string route already emits a hit carrying the OUTER line, distinguishable from visitBody's body-text hit",
+      scanShellIndirection(plain, "x.sh").some((hit) => hit.text === "X=$(read -r PG <<< psql)"),
+    );
+    expect(scanShellIndirection(mixed, "x.sh").map((hit) => hit.text)).toContain(
+      "X=$(read -r PG <<< p'sql')",
+    );
+  });
+
+  // ── Killers: each rule against the strictly weaker implementation that would
+  // pass a naive fixture set. Every expect-CLEAN case below is PAIRED with a
+  // reporting twin differing by exactly ONE variable on the SAME machinery,
+  // because a fixture expecting clean is satisfied by any implementation that
+  // fails to look at all - a broken parse, a wrong operator, an empty target
+  // list. The pair is what makes the zero attributable.
+
+  // Killer 3 - association is by LOGICAL line, not "any `<<<` target anywhere
+  // in the file". The single variable between the two fixtures is WHICH LINE
+  // carries the psql-bearing target; everything else is byte-identical.
+  test("killer 3: a `<<<` target on ANOTHER logical line does not bind the read", () => {
+    const elsewhere = "read -r PG <<< notpsql\ncat x <<< psql\n";
+    const ownLine = "read -r PG <<< psql\ncat x <<< notpsql\n";
+    premise(
+      "the one-variable twin, with the psql target on the READ's own logical line, reports",
+      scanShellIndirection(ownLine, "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection(elsewhere, "x.sh")).toHaveLength(0);
+  });
+
+  // Killer 4 - the whole-value rule applies to a `<<<` target SPECIFICALLY. An
+  // operator-blind implementation that keeps the read-prefix and logical-line
+  // checks but ignores WHICH redirection the target belongs to reports here,
+  // because with `<` the shell hands `read` the FILE'S CONTENT (bash binds
+  // `psql-file-content`, probed) rather than the word. The single variable is
+  // the operator. `cat x > ${U:-psql}` would NOT be a valid killer: it carries
+  // no `read`, so the prefix check alone rejects it and it cannot discriminate.
+  test("killer 4: a `<` target that is not a here-string does not bind the read", () => {
+    const notHereString = "read -r PG < ${U:-psql}\n";
+    const hereString = "read -r PG <<< ${U:-psql}\n";
+    premise(
+      "the one-variable twin, with `<<<` in place of `<` and the same target text, reports",
+      scanShellIndirection(hereString, "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection(notHereString, "x.sh")).toHaveLength(0);
+  });
+
+  // Killer 5 - retained targets must never reach argv, and the ASSIGNMENT route
+  // is a SECOND consumer of the word array. An implementation that adds targets
+  // to the words and filters them at the `scanShellText` consumer only leaves
+  // the retained `PG=psql` visible to `assignmentBindingLines`, which reports.
+  // The single variable is the `cat x > ` redirection prefix.
+  test("killer 5: a retained target is invisible to the ASSIGNMENT route", () => {
+    const asTarget = "cat x > PG=psql\n";
+    const asAssignment = "PG=psql\n";
+    premise(
+      "the one-variable twin, the same `PG=psql` word with no redirection in front of it, reports through the assignment route",
+      scanShellIndirection(asAssignment, "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection(asTarget, "x.sh")).toHaveLength(0);
+  });
+
+  // The other half of killer 5, and the executable half of AC-3: the SITE path
+  // must be byte-identical in behavior. `scanShellText` passes no targets array,
+  // so it receives the same `ShellWord[]` it does today - a property of the
+  // signature rather than of careful editing at each consumer.
+  test("killer 5: a retained target is invisible to the SITE path", () => {
+    expect(sitesIn("cat x > psql\n", "x.sh")).toHaveLength(0);
+    const sites = sitesIn("psql -X -qAt mydb > out.sql\n", "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.tokens).toEqual(["-X", "-qAt", "mydb"]);
+    expect(sites[0]!.suppressesStartupFiles).toBe(true);
+  });
+});
+
 describe("documented limits - quote-concatenated spellings outside the assignment family", () => {
   // Spec §6: these families still read their KEYWORD or operand through a
   // per-line pattern, so a quote-concatenated spelling of it is missed. The
@@ -5166,9 +5303,14 @@ describe("documented limits - quote-concatenated spellings outside the assignmen
   // finding 5).
   test("each quote-concatenated keyword/operand spelling is a declared miss", () => {
     const rows: Array<[label: string, missed: string, plain: string]> = [
-      // ledger: BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE - the here-string
-      // target is a redirection operand the lexer drops before words exist.
-      ["a mixed-quoted here-string", "read -r PG <<< p'sql'\n", "read -r PG <<< psql\n"],
+      // The mixed-quoted here-string row RETIRED 2026-08-20. Arm 1 of
+      // BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE retains the DETACHED redirection
+      // target in the lexer and reads it through `valueBinds`, so the spelling
+      // is a HIT now and is re-pinned as one - together with its ANSI-C,
+      // quoted-directory, continuation and nested-body siblings - by the "arm 1
+      // - a DETACHED here-string target is read from the lexer's retained word"
+      // block above. The ATTACHED spelling (`<<<p'sql'`) is withdrawn scope and
+      // lives in scan.ts's documented-limits block, not here.
       // The alias row's BODY deliberately binds something OTHER than psql. An
       // alias definition is an assignment-SHAPED word, so `alias p'sql'='psql
       // -F'` dequotes to the candidate `psql=psql -F` and the assignment route

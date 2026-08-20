@@ -138,8 +138,8 @@
  * • Hypothetical gaps on surfaces this repository does NOT use, found by
  *   adversarial review rounds R28-R40 and recorded rather than closed. Each was
  *   demonstrated with a live mutant against this file; none is a miss on any
- *   call site in this tree, whose census has stayed 75 sites / 0 unprotected
- *   through every one of those rounds. They are the three entries in the
+ *   call site in this tree, whose census has held 0 unprotected and 0
+ *   indirections through every one of those rounds. They are the three entries in the
  *   Documented limits block below, which is their record of first resort.
  * • Deliberately adversarial spellings beyond the above. The lexer handles the
  *   ones review demonstrated, but the space is unbounded and this file does not
@@ -157,8 +157,10 @@
  * against this file on 2026-08-04 recorded beneath each.
  *
  * The `-X` class is CLOSED on this repository: this file walks the tree and
- * reports 75 psql call sites, 0 unprotected, 0 indirections, and a new site
- * fails by default. Adversarial review rounds R28-R40 hardened the guard's
+ * reports 0 unprotected psql call sites and 0 indirections, and a new site
+ * fails by default. The site COUNT is deliberately not stated here: it belongs
+ * to whoever last added a psql call, and three stale copies of it survived in
+ * this block until 2026-08-20. Adversarial review rounds R28-R40 hardened the guard's
  * RECALL well past that — roughly 120 defects fixed, including several real
  * false safes — and closed every gap that touches a surface this repo uses.
  * Three demonstrated gaps were recorded here, all on surfaces this repo does
@@ -190,7 +192,7 @@
  *    form of the same path has been read since R40.
  *
  * Why recorded rather than fixed: none is a miss on any call site in this
- * tree. The census stayed 75 sites / 0 unprotected through all thirteen
+ * tree. The census held 0 unprotected through all thirteen
  * rounds, and each of these needs a structural change (command-word glob
  * analysis, reading the spawn options object the guard deliberately does not
  * read, and — for item 3, since carried out — a lexer change to double-quote
@@ -213,12 +215,14 @@
  * Design:
  * docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md.
  *
- *  - Quote-concatenated spellings of a rule KEYWORD or non-assignment operand:
- *    a mixed-quoted here-string target (`read PG <<< p'sql'` — ledger
- *    BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE, since the lexer drops a
- *    redirection operand before words exist), a mixed-quoted interpreter
- *    positional (`bash -c '$0 …' p'sql'`), and a mixed-quoted `alias`/
- *    `function` NAME. The alias case is narrower than it looks: an alias
+ *  - Quote-concatenated spellings of a rule KEYWORD: a mixed-quoted
+ *    interpreter positional (`bash -c '$0 …' p'sql'`) and a mixed-quoted
+ *    `alias`/`function` NAME. The mixed-quoted DETACHED here-string target
+ *    LEFT this bullet on 2026-08-20: `lexShellWords` retains the target and
+ *    `hereStringBindingLines` reads it through the same `valueBinds` the
+ *    assignment family uses, so the lexer no longer drops it before words
+ *    exist (BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE, closed). The ATTACHED
+ *    spelling is a different family and is its own entry below. The alias case is narrower than it looks: an alias
  *    definition is an assignment-SHAPED word, so `alias p'sql'='psql -F'` IS
  *    reported through the assignment route; only an alias whose body binds
  *    another program (`alias p'sql'='pgcli -F'`) escapes.
@@ -236,6 +240,25 @@
  *  - Quoting or escapes INSIDE a `${…}` expansion operand (`PG=${U:-'psql'}`),
  *    which is data to a word the lexer keeps verbatim by design — ledger
  *    BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE. A bare `PG=${U:-psql}` reports.
+ *  - The ATTACHED redirection TARGET family is not read at all, and it is the
+ *    sharpest limit in this list. The attached-target regex wholly CONSUMES its
+ *    match, so a target that contains a command SUBSTITUTION hides an executing
+ *    command from BOTH scanners - zero sites and zero indirection hits - while
+ *    bash runs it. The family, each spelling probed at 0/0 with a bash oracle
+ *    confirming the call really happens: a bare backtick target; `$(…)` or a
+ *    backtick inside an attached DOUBLE-QUOTED target; a locale-quoted `$"…"`
+ *    target; and a command substitution inside an attached `${…}` target. The
+ *    plain attached here-string (`read -r PG <<<p'sql'`) is the same family's
+ *    benign end and is also missed. This is a MISSED SITE for an executing
+ *    psql, not merely a missed discovery hit. It is PRE-EXISTING - every probe
+ *    reports the same zeros before and after the 2026-08-20 arm 1 change, which
+ *    covers DETACHED targets only. Not closed there because the only readings
+ *    that would close it either expose the nested bodies to `scanShellText`,
+ *    breaking the by-construction identity of the site path, or add recursive
+ *    lexing that still does not report. Ledger:
+ *    BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION. RE-FILE TRIGGER: a live
+ *    corpus instance of any spelling above, or any arc that needs attached
+ *    targets lexed for another reason.
  *  - `PG=$(x)psql`-shaped values over-report conservatively, matching the
  *    trailing-path reading of `isPsqlCommandWord`.
  *  - An ANSI-C `\U` escape ABOVE the Unicode maximum keeps its raw `\U` text
@@ -254,7 +277,12 @@
  * rules (`READ_HERE_STRING`, `githubEnvWrite`, `INTERPRETER_POSITIONAL_BINDING`,
  * `aliased`, `functionDef`) were never blind here, because the raw line carries
  * the body's characters — which is why this is a one-consumer sweep rather than
- * a family. Left open it was a FALSE CERTIFICATION, not a miss: a body holding
+ * a family. The here-string WORD route added on 2026-08-20 is NOT a line-text
+ * rule and IS blind there, for the same reason the assignment route is: the
+ * outer lex retained no target for anything inside the substitution. So
+ * `visitBody` passes it a `targets` array too, which is what keeps the claim
+ * above true rather than letting it go stale (probe A7).
+ * Left open it was a FALSE CERTIFICATION, not a miss: a body holding
  * both the binding and a literal `psql -X` certified on the literal call while
  * bash ran the expanded one first (diff review r2).
  *
@@ -912,7 +940,30 @@ function decodeAnsiCEscape(text: string, at: number): { decoded: string; consume
   return { decoded: `\\${next}`, consumed: 2 };
 }
 
-function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
+/**
+ * A redirection TARGET the lexer kept, for a caller that asks for one. Targets
+ * never enter the returned word array: `scanShellText` passes no array and so
+ * receives a byte-identical `ShellWord[]`, which is what makes the site path
+ * unchanged BY CONSTRUCTION rather than by care at each consumer. Design:
+ * docs/superpowers/specs/ci/2026-08-20-shell-lexer-quoted-value-recall-design.md
+ * section 3.1.
+ */
+type RedirectionTarget = {
+  /** The redirection operator this target belongs to: `<<<`, `>`, `2>`, as matched. */
+  operator: string;
+  /** The DEQUOTED target word: quote removal and escape processing already applied. */
+  text: string;
+  /** Physical line of the target, 0-based, in the text handed to this lexer. */
+  line: number;
+  /** Raw index of the target's first character in that text. */
+  offset: number;
+};
+
+function lexShellWords(
+  text: string,
+  nested: NestedShell[] = [],
+  targets: RedirectionTarget[] = [],
+): ShellWord[] {
   const words: ShellWord[] = [];
   let buffer = "";
   let bufferOffsets: number[] = [];
@@ -925,12 +976,18 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
   let startLine = 0;
   let startOffset = 0;
   let line = 0;
-  /** Redirections and their targets never reach argv. */
-  let dropWord = false;
+  /** Redirections and their targets never reach argv. A DETACHED target is
+   * still BUILT by the ordinary loop and is handed to `targets` at flush
+   * instead of to `words`, so it carries this lexer's own quote removal,
+   * ANSI-C decoding and escape handling for free - there is no second
+   * dequoting path that can drift from this one, which is the defect shape the
+   * 2026-08-17 arc retired when it deleted the per-delimiter pattern family.
+   * Holds the matched OPERATOR while a target is pending, null otherwise. */
+  let pendingTarget: string | null = null;
 
   const flush = (): void => {
     if (started) {
-      if (!dropWord)
+      if (pendingTarget === null)
         words.push({
           text: buffer,
           line: startLine,
@@ -940,7 +997,14 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
           lines: bufferLines,
           operator: false,
         });
-      dropWord = false;
+      else
+        targets.push({
+          operator: pendingTarget,
+          text: buffer,
+          line: startLine,
+          offset: startOffset,
+        });
+      pendingTarget = null;
     }
     buffer = "";
     bufferOffsets = [];
@@ -1234,7 +1298,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
           const rest = text.slice(i + 1);
           const attached = /^(?:\$\{[^}]*\}|"[^"]*"|'[^']*'|\\.|[^\s;&|()<>])+/.exec(rest);
           if (attached) i += attached[0].length;
-          else dropWord = true;
+          else pendingTarget = redirection[0];
           continue;
         }
       }
@@ -2250,10 +2314,19 @@ export function scanJsSource(source: string, file: string): PsqlSite[] {
  * test timeout, which is a CI failure rather than a slow test.
  */
 const PSQL_VALUE = "[^\\s\"';|&]*\\bpsql\\b[^\\s\"';|&]*";
+/** The `read` grammar up to and including the `<<<` operator. ONE source string
+ * for both readings below, so the line-text rule and the word route cannot
+ * drift into two different ideas of what a here-string read looks like. Which
+ * command words and flag shapes constitute a here-string read is RATIFIED
+ * unchanged by this arc (design section 1.1 row 2); only the VALUE reading moved. */
+const READ_HERE_STRING_PREFIX_SOURCE =
+  "(?:^|[\\s;&|(])read\\s+(?:-\\w+\\s+)*[A-Za-z_]\\w*\\b[^\\n]*<<<";
 /** `read -r PG <<< psql` binds the name from a here-string. */
-const READ_HERE_STRING = new RegExp(
-  `(?:^|[\\s;&|(])read\\s+(?:-\\w+\\s+)*[A-Za-z_]\\w*\\b[^\\n]*<<<\\s*["']?${PSQL_VALUE}`,
-);
+const READ_HERE_STRING = new RegExp(`${READ_HERE_STRING_PREFIX_SOURCE}\\s*["']?${PSQL_VALUE}`);
+/** The IDENTICAL grammar with the VALUE portion removed. The word route decides
+ * the value from the lexer's retained target rather than from the line text, so
+ * it needs the prefix only. */
+const READ_HERE_STRING_PREFIX = new RegExp(READ_HERE_STRING_PREFIX_SOURCE);
 
 /**
  * Assignment bindings are read from LEXED WORDS, not from raw line text. The
@@ -2423,6 +2496,88 @@ const INTERPRETER_POSITIONAL_BINDING = new RegExp(
   )})\\b[^\\n]*?\\s-{1,2}[A-Za-z-]*c[A-Za-z-]*(?:\\s+--)?\\s+(?:'[^']*'|"[^"]*")\\s+[^\\n]*?\\bpsql\\b`,
 );
 
+/**
+ * The shell REMOVES a backslash-newline outright - no space in its place - so
+ * `"/opt/postgresql/17/bin/\` + newline + `psql"` is the single word
+ * `/opt/postgresql/17/bin/psql`. A space-joined view splits the very word the
+ * shell is gluing together, so every binding rule read two halves and neither
+ * contained a psql-shaped value. `first` is the line's own text with any
+ * comment already removed.
+ *
+ * Returns the joined text AND the LAST physical line it consumed, because the
+ * here-string WORD route has to know which physical lines a logical line covers:
+ * a `RedirectionTarget.line` is the PHYSICAL line its target starts on, and a
+ * continuation either before `<<<` or between `<<<` and its target puts that
+ * target on a later line than the `read` (probes N1 and N2). ONE implementation
+ * for both callers, so they cannot disagree about the span.
+ */
+function splicedAt(first: string, lines: string[], index: number): { spliced: string; to: number } {
+  let spliced = first;
+  let to = index;
+  for (let k = index; /\\$/.test(spliced) && k + 1 < lines.length; k++) {
+    spliced = `${spliced.replace(/\\$/, "")}${(lines[k + 1] ?? "").replace(/^\s+/, "")}`;
+    to = k + 1;
+  }
+  return { spliced, to };
+}
+
+/**
+ * Logical-line indexes (0-based) where a `read` binds the psql command name from
+ * a DETACHED here-string TARGET, decided from the LEXER'S RETAINED WORD rather
+ * than from the line text. Arm 1 of
+ * docs/superpowers/specs/ci/2026-08-20-shell-lexer-quoted-value-recall-design.md
+ * (ledger BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE).
+ *
+ * The target's text has already been through the lexer's quote removal, ANSI-C
+ * decoding and escape handling, and it is decided by `valueBinds` - the SAME
+ * predicate the assignment family uses - so neither the dequoting nor the
+ * binding criterion can drift into a second reading of one string.
+ *
+ * Association is by LOGICAL line, never physical. Requiring the target to sit on
+ * the `read`'s own physical line fails for BOTH ordinary continuation positions,
+ * and announcing the here-string family closed while a continuation still hid
+ * one would leave a FALSE CERTIFICATION behind. This route is a UNION MEMBER,
+ * not a replacement: `READ_HERE_STRING` still reads the spliced line, because
+ * that is the only reading that sees inside a `$(...)` body and it is
+ * stricter-in-reverse on prose (`read -r MSG <<< 'psql failed to connect'`
+ * reports today and must keep reporting, while `valueBinds` alone would decline
+ * it for carrying no flag-shaped token).
+ *
+ * The ATTACHED spelling (`<<<p'sql'`) is deliberately NOT read: the attached
+ * target is consumed by a regex that never produces a word, that whole family is
+ * withdrawn scope, and its documented limit is item 3 of the block at the top of
+ * this file.
+ */
+function hereStringBindingLines(
+  source: string,
+  targets: RedirectionTarget[],
+  file: string,
+): Set<number> {
+  const found = new Set<number>();
+  if (targets.length === 0) return found;
+  const lines = source.split("\n");
+  const commentAt = commentIndexPerLine(source, "hash");
+  for (let index = 0; index < lines.length; index++) {
+    const comment = commentAt[index]?.[0]?.[0];
+    const line = lines[index] ?? "";
+    const code = comment === undefined ? line : line.slice(0, comment);
+    const { spliced, to } = splicedAt(code, lines, index);
+    if (!READ_HERE_STRING_PREFIX.test(spliced)) continue;
+    for (const target of targets) {
+      // The operator is load-bearing, not decoration: with `<` the shell hands
+      // `read` the FILE'S CONTENT, so an operator-blind reading reports a
+      // binding bash does not make.
+      if (target.operator !== "<<<") continue;
+      if (target.line < index || target.line > to) continue;
+      if (valueBinds(target.text, file)) {
+        found.add(index);
+        break;
+      }
+    }
+  }
+  return found;
+}
+
 export function scanShellIndirection(source: string, file: string): IndirectionHit[] {
   const hits: IndirectionHit[] = [];
   const lines = source.split("\n");
@@ -2451,7 +2606,8 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
   const lexedSource = YAML_EXTENSIONS.includes(extensionOf(file))
     ? source.replace(/\\\n[ \t]+/g, "\\\n")
     : source;
-  const words = lexShellWords(lexedSource, nested);
+  const targets: RedirectionTarget[] = [];
+  const words = lexShellWords(lexedSource, nested, targets);
   const seenBodies = new Set<string>();
   // In a JS string literal a BACKTICK span is markdown, not shell: prose like
   // "wrap with `command -v psql >/dev/null || (...)`" is documentation. Same
@@ -2459,10 +2615,15 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
   // backtick IS a substitution, so it still counts there.
   const backticksAreMarkdown = JS_EXTENSIONS.includes(extensionOf(file));
   const bindingLines = assignmentBindingLines(words, file);
+  // Arm 1's word route, kept as its OWN set rather than merged into
+  // `bindingLines`, so the two routes stay distinguishable to a reader and to a
+  // mutant even though both collapse to the same emission below.
+  const hereStringLines = hereStringBindingLines(source, targets, file);
   const visitBody = (body: NestedShell): void => {
     if (body.backtick && backticksAreMarkdown) return;
     const inner: NestedShell[] = [];
-    const innerWords = lexShellWords(body.text, inner);
+    const innerTargets: RedirectionTarget[] = [];
+    const innerWords = lexShellWords(body.text, inner, innerTargets);
     // A NESTED body's assignments are invisible to the outer lex, which replaced
     // the whole substitution with the opaque `${}` word — so they are read from
     // the body's OWN words, offset back to their physical line. Without this the
@@ -2474,6 +2635,13 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
     // exactly the shape the false certification hid behind.
     for (const bound of assignmentBindingLines(innerWords, file)) {
       bindingLines.add(body.line + bound);
+    }
+    // The same treatment for the here-string word route, and for the same
+    // reason: the outer lex replaced the whole substitution with the opaque
+    // `${}` word and so retained no target for anything inside it, which is why
+    // `X=$(read -r PG <<< p'sql')` was invisible to both readings (probe A7).
+    for (const bound of hereStringBindingLines(body.text, innerTargets, file)) {
+      hereStringLines.add(body.line + bound);
     }
     for (const deeper of inner) visitBody({ ...deeper, line: body.line + deeper.line });
     if (seenBodies.has(body.text)) return;
@@ -2499,28 +2667,27 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
     for (let k = index; /\\$/.test(logical) && k + 1 < lines.length; k++) {
       logical = `${logical.replace(/\\$/, " ")}${lines[k + 1] ?? ""}`;
     }
-    // The shell REMOVES a backslash-newline outright — no space in its place —
-    // so `"/opt/postgresql/17/bin/\` + newline + `psql"` is the single word
-    // `/opt/postgresql/17/bin/psql`. `logical` joins with a SPACE, which is
-    // right for separating WORDS but splits the very word the shell is gluing
-    // together, so every binding rule read two halves and neither contained a
-    // psql-shaped value. `spliced` is the shell's own reading. Its remaining
-    // consumers are `READ_HERE_STRING` and `githubEnvWrite` — the assignment
-    // family reads lexed words now, where the lexer performs the same splice.
-    let spliced = rawCode;
-    for (let k = index; /\\$/.test(spliced) && k + 1 < lines.length; k++) {
-      spliced = `${spliced.replace(/\\$/, "")}${(lines[k + 1] ?? "").replace(/^\s+/, "")}`;
-    }
+    // `logical` joins with a SPACE, which is right for separating WORDS but
+    // splits the very word the shell is gluing together. `spliced` is the
+    // shell's own reading of the same continuation, built by `splicedAt` — one
+    // implementation, shared with the here-string word route, which needs the
+    // identical logical-line span. Its consumers are `READ_HERE_STRING` and
+    // `githubEnvWrite`; the assignment family reads lexed words now, where the
+    // lexer performs the same splice.
+    const { spliced } = splicedAt(rawCode, lines, index);
     // Any assignment whose VALUE binds the psql command name: `PG=psql`,
     // `PSQL="/usr/bin/psql"`, `PG=p'sql'`, and the parameter-default forms
     // `PSQL="${PSQL:-psql}"` (and `-` `:=` `=` `:+` `+`), where the lexer
     // replaces the whole expansion with an opaque word and the command name
     // only exists at runtime. Decided by `assignmentBindingLines` over the
     // LEXED words above — see its comment for why the declaration-keyword and
-    // quoting-position alternations are gone. `READ_HERE_STRING` still reads
-    // the spliced line: a here-string TARGET is a redirection operand the
-    // lexer drops before words exist (ledger
-    // BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE).
+    // quoting-position alternations are gone. The here-string family is a UNION
+    // of two readings: `READ_HERE_STRING` against the spliced line, which is the
+    // only reading that sees inside a `$(…)` body and is stricter-in-reverse on
+    // prose, and the WORD route in `hereStringBindingLines`, which reads the
+    // lexer's RETAINED redirection target and is therefore immune to quote
+    // concatenation (ledger BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE, closed
+    // 2026-08-20).
     // No literal prefilter here, deliberately, even though both readers
     // require a `psql` inside the text they match. A per-line substring guard
     // would be equivalent TODAY and is worth ~6s on the walk, but it is the
@@ -2528,7 +2695,10 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
     // once and silently disabled every decoding fix — and a guard is not worth
     // weakening for six seconds. The patterns are compiled once at module
     // scope, which is where the real cost was.
-    const assigned = bindingLines.has(index) ? ["", ""] : READ_HERE_STRING.exec(spliced);
+    const assigned =
+      bindingLines.has(index) || hereStringLines.has(index)
+        ? ["", ""]
+        : READ_HERE_STRING.exec(spliced);
     // `alias psql=…`, including the whole-argument quotings `alias 'psql=…'`
     // and `alias "psql=…"`, plus a shell FUNCTION named psql.
     const aliased = /(?:^|\s)alias\s+(?:-\w+\s+)*["']?psql=/.exec(code);
