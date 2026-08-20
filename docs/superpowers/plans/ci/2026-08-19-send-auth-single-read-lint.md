@@ -362,6 +362,18 @@ EQUALS the enrolled suite list (`tests/mutation/_metaPremiseContract.test.ts:376
 `control` is a deliberately behavior-changing edit the suite MUST notice, with `control.from` occurring
 EXACTLY ONCE in `sourcePath` (`tests/mutation/source/registry.ts:94`).
 
+**EVERY assertion about the scanner lives in the enrolled suite, and this is not a style preference.**
+`suitePaths` holds exactly the gate suite this plan creates (spec §5), and only a suite listed
+there decides KILLED versus SURVIVED. An assertion placed in a neighbouring file still runs,
+still passes, and contributes NOTHING to the score — the failure mode is probed rather than theorized
+on the sibling arc, where eight surviving mutants in one round existed solely because their covering
+assertions sat in `tests/paneCompaction/adapter.test.ts`, outside that surface's `suitePaths`; moving
+the same assertions into an enrolled suite killed all eight with no change to the assertions
+(`BL-ENROLLED-SUITE-PLACEMENT-METATEST`, `BACKLOG.md:1381`). Nothing signals the omission: the suite is
+green, the tests are real, and the only symptom is a score that will not move for a reason the author
+cannot see. So if a later task wants a second file, it is added to `suitePaths` in the same commit or
+the assertions do not count.
+
 Then, and BEFORE the round-1 diff dispatch: `FX_HEAVY_PRIORITY=1 pnpm heavy pnpm mutation:guards`.
 Scope it with a temporary `GUARD_SURFACES` filter placed BEFORE `registerSurfaceCases` — `-t` does not
 bound the gate, because `runSurface` executes at collection — and DELETE the shard after the run.
