@@ -16,7 +16,11 @@
 // control-flow property and the spec withdraws it (§4 limit 1). There is no
 // call graph here, no path counting and no dominance analysis.
 
+import { readFileSync } from "node:fs";
+
 import ts from "typescript";
+
+import { commentRanges } from "../_shared/stripComments";
 
 /** One enrolled module. Every rule below is driven by this row, never by a literal. */
 export type SendAuthSurface = {
@@ -150,11 +154,228 @@ function readsFromSourceFile(sf: ts.SourceFile, row: SendAuthSurface): string[] 
   return reads;
 }
 
+/**
+ * The marker grammar is LITERAL, and deliberately not a regex.
+ *
+ * A regex spelling (`/^\/\/\s*send-auth:\s*pass\s*$/`) reads as more tolerant and
+ * is strictly worse: `\s*` is a regex-quantifier-bound mutation SITE, and every
+ * real marker carries exactly one space, so mutating `*` to `+` changes nothing
+ * observable and the mutant SURVIVES. Comparing a trimmed comment against a
+ * literal removes the site rather than covering it.
+ *
+ * DOCUMENTED LIMIT, and it is the conservative direction: a marker written with
+ * doubled or unusual internal whitespace is not recognized, and its function
+ * then reports `UNDECLARED-PASS` — a surfaced report on an unrecognized input,
+ * never a silent pass. This is the shape both closest analogues use for their
+ * inline tokens (`// no-telemetry: <reason>`, `// not-subject-to-meta: <reason>`).
+ */
+const PASS_TOKEN = "// send-auth: pass";
+const EXEMPT_PREFIX = "// send-auth: exempt:";
+
+type Marker = {
+  kind: "pass" | "exempt";
+  reason: string;
+  line: number;
+  /** The function the marker declares, or null when it attaches to anything else. */
+  fn: ts.Node | null;
+};
+
+const isFunctionLike = (n: ts.Node): boolean =>
+  ts.isFunctionDeclaration(n) ||
+  ts.isFunctionExpression(n) ||
+  ts.isArrowFunction(n) ||
+  ts.isMethodDeclaration(n);
+
+/**
+ * The OUTERMOST node beginning exactly at `pos` — not the deepest.
+ *
+ * A marker above `const authorize = () => {}` must see the VariableStatement so
+ * that `passFunctionOf` can reach the initializer.
+ */
+const nodeStartingAt = (sf: ts.SourceFile, pos: number): ts.Node | null => {
+  let found: ts.Node | null = null;
+  const visit = (n: ts.Node): void => {
+    if (found !== null) return;
+    if (n.getStart(sf) === pos) {
+      found = n;
+      return;
+    }
+    if (n.getStart(sf) <= pos && n.getEnd() > pos) ts.forEachChild(n, visit);
+  };
+  ts.forEachChild(sf, visit);
+  return found;
+};
+
+/**
+ * The function a marker declares, or null.
+ *
+ * Null is the `detached-marker` case and it is load-bearing: the marker exists,
+ * the file's marker COUNT is 1, and the send-bearing function still has no
+ * declared pass. An implementation counting markers per FILE reports that module
+ * clean.
+ */
+const passFunctionOf = (node: ts.Node): ts.Node | null => {
+  if (ts.isFunctionDeclaration(node)) return node;
+  if (ts.isVariableStatement(node)) {
+    const init = node.declarationList.declarations[0]?.initializer;
+    if (init !== undefined && isFunctionLike(init)) return init;
+  }
+  if (isFunctionLike(node)) return node;
+  return null;
+};
+
+/**
+ * Markers, extracted through `commentRanges` rather than by scanning lines.
+ *
+ * That is what makes AC-5's impostor clause hold: `commentRanges` takes its
+ * protected ranges from the PARSE, so a token inside a string literal or JSX
+ * text is never a comment at all. The ScriptKind comes from the file EXTENSION,
+ * because reading a `.ts` file as TSX makes `<T>(x: T) => x` open a JSX element
+ * and swallow every comment after it.
+ */
+const markersIn = (file: string, text: string, sf: ts.SourceFile): Marker[] => {
+  const ranges = commentRanges(text, scriptKindFor(file), sf);
+  const out: Marker[] = [];
+  for (const [start, end] of ranges) {
+    const body = text.slice(start, end).trim();
+    let kind: "pass" | "exempt" | null = null;
+    let reason = "";
+    if (body === PASS_TOKEN) kind = "pass";
+    else if (body.startsWith(EXEMPT_PREFIX)) {
+      kind = "exempt";
+      reason = body.slice(EXEMPT_PREFIX.length).trim();
+    }
+    if (kind === null) continue;
+
+    // "Immediately above" is a source-text relation, so it is resolved in source
+    // text: the next real token past this comment and any run of whitespace and
+    // further comments.
+    let pos = end;
+    for (;;) {
+      while (pos < text.length && /\s/.test(text[pos]!)) pos += 1;
+      const next = ranges.find(([a]) => a === pos);
+      if (next === undefined) break;
+      pos = next[1];
+    }
+    const node = nodeStartingAt(sf, pos);
+    out.push({
+      kind,
+      reason,
+      line: sf.getLineAndCharacterOfPosition(start).line + 1,
+      fn: node === null ? null : passFunctionOf(node),
+    });
+  }
+  return out;
+};
+
+/** Bindings of the surface type: parameters and variable declarations annotated with it. */
+const surfaceBindings = (sf: ts.SourceFile, row: SendAuthSurface): Set<string> => {
+  const names = new Set<string>();
+  const isSurfaceRef = (t: ts.TypeNode | undefined): boolean =>
+    t !== undefined &&
+    ts.isTypeReferenceNode(t) &&
+    ts.isIdentifier(t.typeName) &&
+    t.typeName.text === row.surfaceType;
+  const visit = (n: ts.Node): void => {
+    if (
+      (ts.isParameter(n) || ts.isVariableDeclaration(n)) &&
+      isSurfaceRef(n.type) &&
+      ts.isIdentifier(n.name)
+    ) {
+      names.add(n.name.text);
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return names;
+};
+
+/**
+ * MODULE-LEVEL functions, with their names.
+ *
+ * Module-level is the grain §3.5 counts at, and §2.1 states the live sends at
+ * :857, :873 and :898 are "all lexically inside drive()" — one of which sits in
+ * a nested arrow. Taking the innermost enclosing function instead would report
+ * that arrow as its own undeclared pass, against correct live code.
+ */
+const topLevelFunctions = (sf: ts.SourceFile): { node: ts.Node; name: string; line: number }[] => {
+  const out: { node: ts.Node; name: string; line: number }[] = [];
+  const push = (node: ts.Node, name: string): void => {
+    out.push({ node, name, line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1 });
+  };
+  for (const st of sf.statements) {
+    if (ts.isFunctionDeclaration(st) && st.name !== undefined) push(st, st.name.text);
+    else if (ts.isVariableStatement(st)) {
+      for (const d of st.declarationList.declarations) {
+        if (d.initializer !== undefined && isFunctionLike(d.initializer) && ts.isIdentifier(d.name))
+          push(d.initializer, d.name.text);
+      }
+    }
+  }
+  return out;
+};
+
+const lexicallyWithin = (outer: ts.Node, inner: ts.Node, sf: ts.SourceFile): boolean =>
+  inner.getStart(sf) >= outer.getStart(sf) && inner.getEnd() <= outer.getEnd();
+
 /** Scan one enrolled module against its row. */
 export function scanModule(file: string, row: SendAuthSurface): Finding[] {
-  void file;
-  void row;
-  return [];
+  const text = readFileSync(file, "utf8");
+  const sf = parse(file, text);
+  const bindings = surfaceBindings(sf, row);
+  const markers = markersIn(file, text, sf);
+  const findings: Finding[] = [];
+
+  for (const fn of topLevelFunctions(sf)) {
+    // Send-bearing: the SUBTREE calls a declared SINK on a surface binding.
+    // Anchored on sinks, never on effects — anchoring on every effect makes the
+    // live `main` send-bearing through its fifteen `out(...)` calls and reports
+    // against correct code (§3.5, AC-14).
+    let sendBearing = false;
+    const look = (n: ts.Node): void => {
+      if (
+        ts.isCallExpression(n) &&
+        ts.isPropertyAccessExpression(n.expression) &&
+        ts.isIdentifier(n.expression.expression) &&
+        bindings.has(n.expression.expression.text) &&
+        row.sinks.includes(n.expression.name.text)
+      ) {
+        sendBearing = true;
+      }
+      ts.forEachChild(n, look);
+    };
+    look(fn.node);
+    if (!sendBearing) continue;
+
+    // An exempt marker suppresses only with a NON-EMPTY reason: the bare token
+    // is not a certificate.
+    const exempted = markers.some(
+      (m) => m.kind === "exempt" && m.fn === fn.node && m.reason !== "",
+    );
+    if (exempted) continue;
+
+    const passes = markers.filter(
+      (m) => m.kind === "pass" && m.fn !== null && lexicallyWithin(fn.node, m.fn, sf),
+    );
+    if (passes.length === 0) {
+      findings.push({
+        code: "UNDECLARED-PASS",
+        file,
+        line: fn.line,
+        name: fn.name,
+        lines: [fn.line],
+      });
+    } else if (passes.length > 1) {
+      findings.push({
+        code: "AMBIGUOUS-PASS",
+        file,
+        line: fn.line,
+        name: fn.name,
+        lines: passes.map((m) => sf.getLineAndCharacterOfPosition(m.fn!.getStart(sf)).line + 1),
+      });
+    }
+  }
+  return findings;
 }
 
 /** Walk the declared roots from disk and scan every enrolled module under them. */
