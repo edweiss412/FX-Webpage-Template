@@ -296,7 +296,7 @@ it after quote removal?*
   work: a value ASSEMBLED from an accepted expansion and adjacent text — `PG=p${U:-"sql"}` and its
   literal-after, nested-suffix and nested-middle siblings — has an operand (`sql`) that does not bind
   and a verbatim text that does not bind, so no disjunct over the parts can ever see the whole. All
-  nine probed spellings bind `psql` in bash and report 0. Composition is not a family to enumerate
+  ten probed spellings bind `psql` in bash and report 0. Composition is not a family to enumerate
   alongside the others; it is what a word IS, and the model has to answer "what could this word
   expand to?" rather than "what defaults does it contain?". One candidate string answers it, and
   three consequences fall out instead of being specified:
@@ -421,7 +421,11 @@ documented limit does not have to be a zero. The plan re-runs all three steps ag
 about to edit and disposes of whatever they return, which is the same derivation
 `BL-PLANLINT-DECLARED-LIMIT-PIN-COLLISION` proposes to mechanize.
 
-**Eleven pins as of 2026-08-20.**
+**Eleven pins as of 2026-08-20.** One near-miss is recorded so a later reader does not add it:
+`a template literal's \u{...} AT the Unicode maximum still maps its lines` is a correct-behavior
+BOUNDARY assertion, NOT a limit — at the maximum the mapping is right (the site reports line 2), and
+only the ABOVE-maximum case falls back to the literal's opening line. Round 4 caught the first version
+of this table naming the at-maximum test in pin 11's place.
 
 | # | pin (suite) | disposition |
 | --- | --- | --- |
@@ -435,7 +439,7 @@ about to edit and disposes of whatever they return, which is the same derivation
 | 8 | same test, "the mixed spelling" | Left alone — same reason; the assignment word route already dequotes it and the flag criterion still declines. |
 | 9 | `a \U escape AT the Unicode maximum still decodes` (its paired zero for `\U00110000psql`) | Left alone — `decodeAnsiCEscape` is untouched; arm 2 re-lexes operands THROUGH it, so the conservative reading is inherited rather than changed. |
 | 10 | `the derived roots really were derived…` / `never contains the tracked source root %s` (the §4.2 root-skip stays-quiet pin) | Left alone — different surface (gitignore root-skip derivation); neither arm touches `rootSkipNamesFromGitignore` or the walk. |
-| 11 | `a template literal's \u{...} AT the Unicode maximum still maps its lines` | Left alone — `mapRawToLines` and the template path are untouched. Listed because round 3 showed it is a DISTINCT limit from pin 9 and a differently shaped one: the site is still reported and only its LINE degrades to the literal's opening line, so it is a conservative REPORT, not a missed one. It asserts a line, not a zero, which is why the first procedure could not see it. |
+| 11 | `a template literal's \u{...} above the Unicode maximum keeps its raw reading` | Left alone — `mapRawToLines`, `decodeAnsiCEscape` and the template path are untouched. This is a DISTINCT limit from pin 9 and a differently shaped one: the site is still REPORTED but NOT CERTIFIED, because the guard cannot read the argv it would have to certify. It asserts a suppression verdict, not a zero, which is why a zero-assertion census could not see it. |
 
 Two pins retire; nine are left alone with a reason. The two retiring rows live in ONE test over a
 six-row literal array, so the edit is two rows out of that array plus two new positive assertions —
