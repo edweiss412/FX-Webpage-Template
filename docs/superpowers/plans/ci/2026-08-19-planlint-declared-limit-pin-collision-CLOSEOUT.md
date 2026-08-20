@@ -60,13 +60,40 @@ tracking-blind resolver. Neither dominates; both were run and both are reported.
   with the red-then-green between them observed on the live tree: that ordering is the
   task's own evidence that a registry row alone is not enrolment.
 - **Killer audit** — population DERIVED from the spec §6 table, extracted before
-  implementation began, never from recall. 18 rows; 15 audited, **15 PROVEN, 0 not
-  proven**; the 3 adapter rows were ABSENT pending Task 7b and are reported as absent
-  rather than counted as 15 of 15. Method: each weaker implementation was BUILT BY HAND
+  implementation began, never from recall. 18 rows, **18 PROVEN, 0 not proven**.
+
+  The last 3 were re-audited AT CLOSEOUT, and the reason is worth recording: they were
+  written up as "ABSENT pending Task 7b", which was true when written and STALE the moment
+  7b landed. A pending-marker describes a state, and nothing retires it when that state
+  ends — so the record claimed 15 of 18 while the work was 18 of 18. Found by re-reading
+  the sentence against the shipped tree rather than trusting it. Each of the three was
+  proven by BUILDING THE WEAKER VARIANT BY HAND against final source and running its named
+  killing check: PREPARATION weakened to literally pass raw lines fails AC-10 step 1;
+  WIRING weakened to inject no table fails AC-10 step 2 in subprocess; the core weakened to
+  a hardcoded copy of the live table fails the §6 synthetic-surface case.
+
+  One methodological note, because it nearly produced a false row: the first PREPARATION
+  patch DID NOT APPLY (its anchor never matched) and the suite duly passed — which renders
+  as NO-DISCRIMINATION and is indistinguishable from a real one. An unapplied weakening is
+  a verifier defect, never a finding. The re-run asserts the patch applied BEFORE running
+  the check, so "passed" can only mean the check failed to discriminate. Method: each weaker implementation was BUILT BY HAND
   and run against the same fixture inputs the shipped suites assert on, requiring
   disagreement on at least one — a variant agreeing everywhere would be a finding, not a
   pass. Re-run against the final source, because a source edit retires the audit exactly
   as it retires a score.
+
+### The five `accepted:` rows, and what keeps them honest
+
+This arc ships five `equivalent` rows; a sibling arc closed with `accepted: []`. That is a
+STANDING LIABILITY rather than a defect: every accepted row is a claim that a mutant cannot
+be killed, and a row that is merely un-killed BY THE SHIPPED SUITES would silently inflate
+the score.
+
+What keeps them honest is rule 51's self-falsifying gate condition — the `stale-ledger-row`
+check fails the gate when a ledgered survivor STOPS surviving. So an accepted row cannot
+quietly become wrong: the moment a suite grows strong enough to kill one, the gate says so
+and the row must be retired. The rows are load-bearing claims with an expiry mechanism
+attached, not permanent exemptions.
 
 ## 4. What the gate changed, and where I was wrong
 
