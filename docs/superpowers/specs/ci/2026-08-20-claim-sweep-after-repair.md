@@ -112,6 +112,15 @@ member of it, which is precisely how the filing stayed invisible, so a control b
 and the population SIZE is printed beside every zero — `0 of 0` and `0 of 76` render identically and mean
 opposite things.
 
+**A SECOND MOTIVATING INSTANCE, in the same arc's plan, and it cost nothing to find because a sweep was
+run.** The plan RETIRED a mutation-unsafe loop form — "a search loop that advances in its own header" —
+and then, twelve lines lower in the same task, listed that exact form among the safe ones. The retirement
+and the recommendation were both current, both true-looking, and contradictory; the arm's numeric half
+would not have caught it, but its NAMED-CLAIM half is precisely this shape — a claim about a named thing
+that a repair superseded and left standing elsewhere in the same document. **Both motivating instances
+were committed by the author writing the arm that catches them**, which is the argument for the arm: this
+is not an attention failure that more care would close.
+
 **Synthetic fixture literals therefore live in ONE SHARED MODULE, and the no-collision cover is keyed on
 THAT DATA.** The rejected alternative was a nonce token grepped across fixture titles: a nonce is a
 CONVENTION, so the check would be blind to any fixture literal written without it — the same

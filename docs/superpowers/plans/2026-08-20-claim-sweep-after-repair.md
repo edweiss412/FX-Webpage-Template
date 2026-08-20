@@ -881,12 +881,19 @@ same-vector trigger and the prescribed answer is a derived cover rather than ano
 instance-hunting. For each rule: the strictly weaker implementation that would satisfy the fixtures AS
 DRAFTED, and what was added to kill it. **Two rules failed the first pass and both are repaired above.**
 
-**The table's completeness is a DERIVED claim, not an enumerated one**, and it is stated that way because
-an enumeration over a growing plan is correct when written and wrong within the hour — this table was
-exhaustive at round 1 and stopped being so the moment round 1's repairs added five rules to Task 7 and
-one to the killer audit. The rule: **every numbered semantic in a task body, and every row of spec §6, has a row
-here.** A task that gains a semantic gains a row in the same commit, and the closeout's audit is what catches
-the omission mechanically, since it derives its own list from spec §6 rather than from this table.
+**THIS TABLE IS THE PLAN-SIDE PASS, AND IT IS NOT A MIRROR OF SPEC §6 — the draft claimed it was, and a
+mechanical check run at authoring time refuted that.** Spec §6 carries **20** rule rows; this table carries
+**14**, several of which cover more than one §6 row (Task 2 covers both §3.0 refusals; Task 3 covers §3.2's
+identity, named-half and attribution rows). Rows such as §3.4's signal inventory, accept-set and severity,
+and §3.1's sentence scope and discriminator, are covered in their TASK BODIES and have no row here.
+Claiming a mirror was an overclaim of exactly the shape this arc exists to catch, so the claim is
+narrowed to what is true rather than the table padded to fit it.
+
+**What this table IS:** the weaker-implementation pass over the rules THE PLAN introduces — the ones a
+reader of the spec alone would not see, because they live in how a task is decomposed. **What covers §6
+mechanically is Task 9's killer audit**, which DERIVES its list from spec §6 itself and EXECUTES a mutant
+recipe per row; a row missing from that derivation fails there, not here. A task that gains a semantic
+gains a row here in the same commit.
 
 | Rule | Weaker implementation that passed the DRAFT | Repair |
 | --- | --- | --- |

@@ -33,8 +33,14 @@ pnpm spec:lint docs/superpowers/specs/ci/2026-08-20-claim-sweep-after-repair.md
 pnpm spec:lint docs/superpowers/plans/2026-08-20-claim-sweep-after-repair.md --exec-red
 ```
 
-At handoff: sweep `0 of 78` absent / `0 of 35` surviving over 4 documents; census `1131` measured,
-`936 = 935 + 1`; both lints `0 hard`.
+At handoff: the sweep reports **zero** claimed-but-absent and **zero** retired-but-surviving over **5
+documents**; the census reports `1131` measured and `936 = 935 + 1`; both lints are `0 hard`.
+
+**Only the LEFT number of each sweep pair is a claim.** The right-hand totals — witnesses and retired
+models — GROW by design as rounds accumulate, so a larger denominator is expected and is not drift; a
+non-zero left number is. The census figures do NOT move when this arc writes, because `ARC_DOCUMENTS`
+excludes its own documents, which is the whole point of §2.0 — if they move, something was added without
+being declared.
 
 ## 3. The five things most likely to cost you a review round
 
@@ -48,10 +54,20 @@ Each was paid for once already, in the round it is named for.
    command that fails because a file is missing, an import will not resolve, or a suite cannot collect has
    expressed no verdict — and goes green when the TEST changes. Task 1 carries this plan's only
    collection-shaped red and says so.
-3. **The provenance stamp certifies, so a subset is worse than no stamp.** Task 8's command derives its
-   file list and hashes WORKING-TREE bytes for a reason: an unexported variable, a directory argument, or
-   an index-read each produce identical BEFORE and AFTER while the inputs move. Do not hand-maintain that
-   list.
+3. **THE PROVENANCE STAMP CERTIFIES, SO A SUBSET IS WORSE THAN NO STAMP — and the version this plan
+   shipped at round 4 COULD NOT RUN AT ALL.** Three defects in one line, each of which would have produced
+   identical BEFORE and AFTER output and so certified an incoherent run rather than detecting one:
+
+   - a variable assigned outside a single-quoted `sh -c` arrives **EMPTY** in the child;
+   - `git hash-object` **REJECTS a directory** (`fatal: Unable to hash`);
+   - `git ls-files -s` prints **INDEX** blobs, so an unstaged fixture edit and an untracked fixture
+     addition are both invisible.
+
+   The shipped form in Task 8 DERIVES its file list (`git ls-files -o -c --exclude-standard` — tracked
+   plus untracked-not-ignored), hashes **WORKING-TREE** bytes, prints the set SIZE beside the hashes, and
+   diffs before against after. It was RUN against the live tree at plan time, 96 files, rather than
+   reasoned about. **Do not hand-maintain that list and do not trust a stamp you have not executed** — a
+   repair for a fail-open that is itself a worse fail-open is the shape that keeps recurring.
 4. **A cover is clean about documents it never opens.** The claimed-repair sweep reads spec, probe record,
    plan and filing, with a control IN EACH. **Any document you add joins that list, and `ARC_DOCUMENTS`,
    in the same commit** — including this handoff, which is already in both.
