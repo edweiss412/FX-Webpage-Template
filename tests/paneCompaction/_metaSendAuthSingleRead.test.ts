@@ -858,6 +858,43 @@ describe("Task 8 — second repair pass, from the re-measure at 0.9259", () => {
     ]);
   });
 
+  it("reports the surface ASSIGNED to a plain variable", () => {
+    // The SECOND negative half of the `this.ch = injected` exemption, killing a
+    // different weakening than `binding-in-comparison` does. That exemption is a
+    // five-part conjunction; weakening the connector after the OPERATOR test yields
+    // `(isBinaryExpression && operatorIsEquals) || (rest)`, so any `=` assignment
+    // mentioning the surface is exempted no matter what it assigns INTO.
+    //
+    // `binding-in-comparison` cannot reach that: its operator is `!==`, so the first
+    // disjunct is false there and the mutant behaves exactly like the original. Two
+    // negatives, two different weakenings — neither substitutes for the other.
+    const f = "assigned-to-plain-variable.ts";
+    const found = scan(f);
+    const line = lineOf(f, "holder = ch");
+    // Order-independent: both findings sit on ONE line, so they have no natural
+    // order and a positional array would pin an accident of traversal.
+    expect(found).toHaveLength(2);
+    expect(found).toContainEqual(finding(f, "UNCLASSIFIED-USE", "holder", line));
+    expect(found).toContainEqual(finding(f, "UNCLASSIFIED-USE", "ch", line));
+  });
+
+  it("falls through to (module scope) for a sink in a CLASS PROPERTY INITIALIZER", () => {
+    // The only case that reaches the naming walk's FALLBACK: every other reported
+    // call has a method, function, property-assignment or variable declaration above
+    // it. Until this fixture the fallback was unexercised, so its arm was removable.
+    //
+    // It also kills the function-declaration arm's weakening: as a disjunction that
+    // arm fires on ANY ancestor whose `.name` is defined, which here is the
+    // PropertyDeclaration `done`, so the mutant names `done` where the shipped walk
+    // correctly declines every arm. The shipped walk declines on purpose — a property
+    // declaration is not a callable construct, and naming it would point an author at
+    // a declaration rather than at the code that runs.
+    const f = "sink-in-class-property.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "UNDECLARED-PASS", "(module scope)", lineOf(f, 'ch.dispatch("p1"')),
+    ]);
+  });
+
   it("reports a surface binding used in a COMPARISON", () => {
     // The negative half of the `this.ch = injected` exemption, which is deliberately
     // narrow: an assignment whose TARGET is a property of `this`. Widen its
