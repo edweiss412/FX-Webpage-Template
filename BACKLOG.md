@@ -1436,7 +1436,16 @@ AGENTS.md already says to class-sweep a finding's SHAPE across the code before p
 classified tests: 365      rows near line 1653: []      (before the repair)
 ```
 
-The three modifiers were completed in that arc because the gap was inside its declared probe domain and the completion is verdict-neutral (`_metaPremiseContract` 10 passed either way). **`HOOK_REGISTRARS` was NOT completed**: `aroundAll` and `aroundEach` are real Vitest globals — the installed package's global type declarations name both, verified by reading the package rather than by citing an untracked dependency path — but a scan of all 62 enrolled suites finds ZERO call sites, so adding them changes which tests are classified corpus-wide — an AC-1 movement that arc had no mandate for. It is spec §4 limit 7 there.
+**That arc completed the three modifiers at its round 10 and REVERTED the completion at its round 12**, which is the measurement this row now rests on. Completing the set made a further shape reachable that had not been before: `registrarRoot` peels callee CALLS and PROPERTIES in separate loops, so a conditional chain resolves by neither. Probed on both trees:
+
+```
+origin/main    test.skipIf(...).each  ->  []                          (not classified)
+with round 10  test.skipIf(...).each  ->  [["<test…>","environment-free"]]
+```
+
+Main is silently INCOMPLETE; the completion made it silently WRONG. Population of chain forms across the whole `tests/` tree: ZERO. The revert restores byte-identical behaviour to `origin/main`.
+
+**So the two halves must ship together, and that is what this row is for.** Completing the accept-sets without fixing the peel loop trades a silent omission for a silent wrong verdict; fixing the loop without completing the sets leaves the enrolled `.skipIf` test uncensused. `aroundAll`/`aroundEach` add a third consideration: zero enrolled call sites today, but adding them changes which tests are classified corpus-wide, which is an AC-1 movement needing the same decision PR #843's sixteen-test movement did.
 
 **Shape of the repair.** Derive both sets from Vitest's own surface instead of restating it: the installed package exports the hook registrars as globals and the suite modifiers as properties of `describe`, so a startup-time read gives an accept-set that cannot drift. Completing a hand-maintained list by hand is what this arc did twice (`ExpressionWithTypeArguments` at round 6, these three at round 10) and it does not terminate — the next Vitest release adds the next member.
 

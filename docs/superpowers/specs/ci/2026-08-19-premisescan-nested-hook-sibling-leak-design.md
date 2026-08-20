@@ -270,22 +270,37 @@ props, no conditional render change.
    eager-position hooks at file scope, which is a change to the seed's own contract rather than to
    the nested stop this arc ships — class-sweep exception (c).
 
-7. **`aroundAll` and `aroundEach` are not recognized as hook registrars, and this arc does not add
-   them.** Vitest exposes both as globals: the installed package's global type declarations name
-   `aroundEach` and `aroundAll`. That was verified by reading the package rather than by citing it,
-   because a dependency path is untracked and a citation into one cannot resolve. `HOOK_REGISTRARS`
-   names only the four
-   `before*`/`after*` forms, so a suite whose environment reach comes from a wrapping hook reads
-   `environment-free`.
+7. **The registrar and modifier accept-sets are hand-maintained and drift from the installed Vitest,
+   and this arc deliberately ships NONE of that repair.** `MODIFIERS`
+   (`tests/mutation/source/premiseScan.ts:48`) omits `shuffle`, `skipIf` and `runIf`;
+   `HOOK_REGISTRARS` (`tests/mutation/source/premiseScan.ts:66`) omits `aroundAll` and `aroundEach`. Vitest exposes all five: the
+   installed package's global type declarations name the two hooks, and the three modifiers are
+   standard suite API. An unrecognised registrar means `registrarRoot` sees no registration at all,
+   so the test is simply absent from the census — and one enrolled suite is affected today
+   (`tests/cross-cutting/psqlStartupFileSuppression.test.ts:1653` registers `test.skipIf(...)`,
+   which the scanner does not classify).
 
-   **Pre-existing, and OUTSIDE the probe domain — probed, not assumed.** A scan of all 62 enrolled
-   suites finds **zero** `aroundAll`/`aroundEach` call sites, and diff round 10's own differential
-   shows the behaviour identical on `origin/main` and this branch. Adding them would change which
-   tests are classified across the corpus, which is an AC-1 movement this arc has no mandate for.
+   **Round 10 of this arc DID complete `MODIFIERS`, and round 12 REVERTED it.** The completion was
+   justified — the gap was inside the declared probe domain and was verdict-neutral — but it made a
+   further shape reachable that had not been before: `registrarRoot` peels callee CALLS and
+   PROPERTIES in separate loops, so a conditional chain (`test.skipIf(x).each(...)`) is resolved by
+   neither. Probed on both trees:
 
-   Filed with the modifier drift as `BL-PREMISESCAN-REGISTRAR-ACCEPT-SETS-HAND-MAINTAINED`, whose
-   repair is to DERIVE both accept-sets from Vitest's own surface rather than complete them by hand
-   a third time.
+   ```text
+   origin/main   test.skipIf(...).each  ->  []                      (not classified)
+   with round 10 test.skipIf(...).each  ->  [["<test…>", "environment-free"]]
+   ```
+
+   Main is silently incomplete; the completion made it silently WRONG, which is a new failure shape
+   this arc has no business introducing. Population of chain forms across the whole `tests/` tree:
+   **ZERO**. Reverting restores byte-identical behaviour to `origin/main` on this axis.
+
+   **This is the same-axis kill AGENTS.md prescribes**, taken at the sixth round on registrar
+   handling rather than the tenth. Both halves — the uncensused `.skipIf` test and the chain
+   resolution — are filed together on
+   `BL-PREMISESCAN-REGISTRAR-ACCEPT-SETS-HAND-MAINTAINED`, whose repair derives the accept-sets from
+   Vitest's own surface AND fixes the peel loop, because completing the sets without fixing the loop
+   is precisely what round 12 measured going wrong.
 
 ## §5 Meta-test / registry inventory
 
@@ -351,9 +366,11 @@ Every positive fixture has a foil, so no assertion can pass by the classifier be
   (`tests/mutation/source/premiseScan.ts:48`) itself, read out of the scanner source through the
   TypeScript AST rather than imported — nothing is exported for a test's benefit (§2.1) — one per member,
   **so a member added to that set later is covered without touching this suite.** Diff round 10
-  exercised that: completing `MODIFIERS` against Vitest's live API generated `describe.shuffle`,
-  `describe.skipIf` and `describe.runIf` cases automatically. **The derivation is from the SCANNER's
-  set, not from Vitest's** — the two drifting apart is §4 limit 7, not a defect in this criterion,
+  demonstrated that end to end — adding three names generated their cases with no test edit — and
+  round 12 then reverted the addition (§4 limit 7), which removed those three cases just as
+  automatically. The property holds in both directions, which is the point of deriving it. **The
+  derivation is from the SCANNER's set, not from Vitest's** — the two drifting apart is §4 limit 7,
+  not a defect in this criterion,
   each as the NESTED registrar with a spawning hook and a pure sibling, PLUS at least one compound
   chain (`describe.concurrent.each`), which `registrarRoot`'s loop
   (`tests/mutation/source/premiseScan.ts:73`) accepts and a single-modifier fixture set does not
