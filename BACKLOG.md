@@ -1424,6 +1424,24 @@ AGENTS.md already says to class-sweep a finding's SHAPE across the code before p
 
 **First scheduled step:** decide which of the two forms to build, then confirm against this arc's own history — replay the R2 and R4 repairs and check that the proposed mechanism flags the claims R4 F3 and R5 F1 later found. A mechanism that does not flag those two is not worth building.
 
+## BL-PREMISESCAN-REGISTRAR-ACCEPT-SETS-HAND-MAINTAINED — the scanner's registrar and modifier lists drift from Vitest's actual API
+
+**Status:** OPEN · **Severity:** MEDIUM (drift is silent in the FREE direction: an unrecognised registrar means the test is not classified at all, or its hooks are not collected) · **Class:** guard fidelity · **Effort:** M · **Filed:** 2026-08-19 (`fix/premisescan-nested-hook-sibling-leak`, diff review r10) · **Facing:** process · **Mint-exception:** invariant · **Class-sweep exception:** (c) — the repair derives both sets from Vitest's surface, a change to how the scanner is configured rather than to the nested stop the finding arc ships · **Reachability:** PROBED — one member was LIVE in an enrolled suite, transcript below.
+
+`premiseScan` carries two hand-maintained accept-sets: `MODIFIERS` (`tests/mutation/source/premiseScan.ts:48`) and `HOOK_REGISTRARS` (`:66`). Both drift from the Vitest version actually installed, and the drift is silent in the free direction — an unrecognised registrar means `registrarRoot` does not see a registration at all.
+
+**Incident, and it was live rather than constructed.** Diff review round 10 found `MODIFIERS` missing `shuffle`, `skipIf` and `runIf`. `test.skipIf(...)` is used by an ENROLLED suite — `tests/cross-cutting/psqlStartupFileSuppression.test.ts:1653` — and that test was ABSENT from the scanner's census entirely:
+
+```
+classified tests: 365      rows near line 1653: []      (before the repair)
+```
+
+The three modifiers were completed in that arc because the gap was inside its declared probe domain and the completion is verdict-neutral (`_metaPremiseContract` 10 passed either way). **`HOOK_REGISTRARS` was NOT completed**: `aroundAll` and `aroundEach` are real Vitest globals (`node_modules/vitest/globals.d.ts:17-18`) but a scan of all 62 enrolled suites finds ZERO call sites, so adding them changes which tests are classified corpus-wide — an AC-1 movement that arc had no mandate for. It is spec §4 limit 7 there.
+
+**Shape of the repair.** Derive both sets from Vitest's own surface instead of restating it: the installed package exports the hook registrars as globals and the suite modifiers as properties of `describe`, so a startup-time read gives an accept-set that cannot drift. Completing a hand-maintained list by hand is what this arc did twice (`ExpressionWithTypeArguments` at round 6, these three at round 10) and it does not terminate — the next Vitest release adds the next member.
+
+**First scheduled step:** measure what a derived set would ADD beyond today's lists, and run `_metaPremiseContract` against it. If the delta moves declared counts, the row carries an AC-1 amendment and needs the same user decision PR #843's sixteen-test movement did.
+
 ## BL-PREMISESCAN-FILE-SUITE-EAGER-HOOKS-LOST — at file scope a hook in a registration's eager position reaches no sibling
 
 **Status:** OPEN · **Severity:** MEDIUM (a silent FREE — a sibling suite reads free while the hook genuinely runs for it) · **Class:** guard fidelity · **Effort:** M · **Filed:** 2026-08-19 (`fix/premisescan-nested-hook-sibling-leak`, diff review r9) · **Facing:** process · **Mint-exception:** invariant · **Class-sweep exception:** (c) — the repair changes the top-level SEED's contract, not the nested stop the finding arc ships · **Reachability:** PROBED — same-machine differential on both trees, plus an 84-case sweep.

@@ -270,6 +270,20 @@ props, no conditional render change.
    eager-position hooks at file scope, which is a change to the seed's own contract rather than to
    the nested stop this arc ships — class-sweep exception (c).
 
+7. **`aroundAll` and `aroundEach` are not recognized as hook registrars, and this arc does not add
+   them.** Vitest exposes both as globals (`node_modules/vitest/globals.d.ts:17-18`), and
+   `HOOK_REGISTRARS` names only the four `before*`/`after*` forms, so a suite whose environment reach
+   comes from a wrapping hook reads `environment-free`.
+
+   **Pre-existing, and OUTSIDE the probe domain — probed, not assumed.** A scan of all 62 enrolled
+   suites finds **zero** `aroundAll`/`aroundEach` call sites, and diff round 10's own differential
+   shows the behaviour identical on `origin/main` and this branch. Adding them would change which
+   tests are classified across the corpus, which is an AC-1 movement this arc has no mandate for.
+
+   Filed with the modifier drift as `BL-PREMISESCAN-REGISTRAR-ACCEPT-SETS-HAND-MAINTAINED`, whose
+   repair is to DERIVE both accept-sets from Vitest's own surface rather than complete them by hand
+   a third time.
+
 ## §5 Meta-test / registry inventory
 
 - **EXTENDS** `tests/mutation/source/premiseScan.test.ts`, in the fixture classes enumerated below — the
@@ -333,6 +347,10 @@ Every positive fixture has a foil, so no assertion can pass by the classifier be
   DERIVED rather than enumerated.** The cases are generated from `MODIFIERS`
   (`tests/mutation/source/premiseScan.ts:48`) itself, read out of the scanner source through the
   TypeScript AST rather than imported — nothing is exported for a test's benefit (§2.1) — one per member,
+  **so a member added to that set later is covered without touching this suite.** Diff round 10
+  exercised that: completing `MODIFIERS` against Vitest's live API generated `describe.shuffle`,
+  `describe.skipIf` and `describe.runIf` cases automatically. **The derivation is from the SCANNER's
+  set, not from Vitest's** — the two drifting apart is §4 limit 7, not a defect in this criterion,
   each as the NESTED registrar with a spawning hook and a pure sibling, PLUS at least one compound
   chain (`describe.concurrent.each`), which `registrarRoot`'s loop
   (`tests/mutation/source/premiseScan.ts:73`) accepts and a single-modifier fixture set does not

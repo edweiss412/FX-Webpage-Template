@@ -45,7 +45,26 @@ export type TestClassification = {
 };
 
 const REGISTRARS = new Set(["it", "test", "describe"]);
-const MODIFIERS = new Set(["each", "for", "skip", "only", "concurrent", "sequential", "todo"]);
+// Vitest's suite/test modifiers. HAND-MAINTAINED, and it drifted: `shuffle`,
+// `skipIf` and `runIf` were absent until diff round 10, so `registrarRoot`
+// did not recognise `test.skipIf(...)` or `describe.runIf(...)` as registrars
+// at all -- and an ENROLLED suite uses the first
+// (tests/cross-cutting/psqlStartupFileSuppression.test.ts), whose test was
+// consequently missing from the census entirely. The drift is filed as
+// BL-PREMISESCAN-REGISTRAR-ACCEPT-SETS-HAND-MAINTAINED; deriving this from
+// Vitest's own types is that row's repair, not a change made here.
+const MODIFIERS = new Set([
+  "each",
+  "for",
+  "skip",
+  "only",
+  "concurrent",
+  "sequential",
+  "todo",
+  "shuffle",
+  "skipIf",
+  "runIf",
+]);
 
 /** Parsed by EXTENSION: a `.tsx` suite read as TS turns `<div>x</div>` into a
  *  type assertion, so the classifier would be reasoning about an AST the file

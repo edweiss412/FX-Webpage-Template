@@ -4131,3 +4131,41 @@ describe("a nested body wrapped in a transparent expression is still a BODY", ()
     });
   }
 });
+
+describe("a conditional registrar is still a registrar", () => {
+  // Diff review r10. MODIFIERS is a HAND-MAINTAINED list, and it had drifted from
+  // the Vitest API this repo actually uses: `skipIf`, `runIf` and `shuffle` were
+  // absent, so `registrarRoot` did not recognise `test.skipIf(...)` or
+  // `describe.runIf(...)` as registrars at all.
+  //
+  // Not hypothetical, and not outside the probe domain: an ENROLLED suite uses
+  // it. `tests/cross-cutting/psqlStartupFileSuppression.test.ts:1653` registers
+  // `test.skipIf(isRoot)(...)`, and before this repair that test was absent from
+  // the scanner's census entirely -- an enrolled test invisible to the premise
+  // contract, which is a silent gap rather than a wrong verdict.
+  it("a test registered with .skipIf is classified at all", () => {
+    const rows = classificationsWithModules(
+      OUTER_HOOK_HELPER,
+      `import { spawnHelper } from "__MODULE_helper__";
+       test.skipIf(false)("conditional", () => { spawnHelper(); });`,
+    );
+    expect(rows.map((r) => r.testName)).toContain("conditional");
+    expect(rows.find((r) => r.testName === "conditional")?.verdict).toBe("environment-touching");
+  });
+
+  it("a describe registered with .runIf collects its hooks", () => {
+    const all = classificationsWithModules(
+      OUTER_HOOK_HELPER,
+      `import { spawnHelper } from "__MODULE_helper__";
+       describe("outer", () => {
+         describe.runIf(true)("A", () => {
+           beforeEach(() => { spawnHelper(); });
+           it("inA", () => {});
+         });
+         describe("B", () => { it("inB", () => {}); });
+       });`,
+    );
+    expect(all.find((t) => t.testName === "inA")?.verdict).toBe("environment-touching");
+    expect(all.find((t) => t.testName === "inB")?.verdict).toBe("environment-free");
+  });
+});
