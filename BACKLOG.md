@@ -1093,7 +1093,7 @@ class-sweep exception (c). May share one lint surface with
 
 ## BL-MUTATION-HARNESS-MAIN-RED — the source-mutation gate is red on main, every PR inherits it, and the failure set turns over faster than a row can name it
 
-**Status:** IN PROGRESS · **Branch:** docs/mutation-harness-main-red-filing · **Filed:** 2026-08-16 (found while shipping `chore/round-economy-enforcement-pair`, whose own enrolled surfaces passed) · **Re-scoped:** 2026-08-16 (`docs/mutation-ledger-accuracy`) · **Severity:** MEDIUM (a permanently red non-required gate trains every arc to read its verdict as noise, which is how the twelve-survivor catch of #786 nearly did not happen) · **Class:** CI gate fidelity · **Effort:** S-M
+**Status:** OPEN. · **Filed:** 2026-08-16 (found while shipping `chore/round-economy-enforcement-pair`, whose own enrolled surfaces passed) · **Re-scoped:** 2026-08-16 (`docs/mutation-ledger-accuracy`) · **Severity:** MEDIUM (a permanently red non-required gate trains every arc to read its verdict as noise, which is how the twelve-survivor catch of #786 nearly did not happen) · **Class:** CI gate fidelity · **Effort:** S-M
 
 **Renamed away from a title carrying a count.** This entry shipped as `…-TWO-SURFACES`, and within the same day it was filed (`a49ef67a4`, 08:55) the count went two, three, four — while the MEMBERS turned over completely, so that both originally-named failures have stopped reproducing and not one of the four failures below is one the original row mentioned. The count was the fastest-staling fact in the row, so the id no longer carries one. Nothing else cites the old id; this heading was its only occurrence.
 
