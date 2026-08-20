@@ -55,7 +55,8 @@ and §9 assert SETS and RELATIONS and never a cardinality typed into a test.
 | Measurement | Value |
 | --- | --- |
 | Tracked `docs/superpowers` markdown files | 1127 |
-| Sites the NAIVE form would wrongly flag | 1030 |
+| Sites the NAIVE form would wrongly flag, DEDUPLICATED by (path, value offset) | 1021 |
+| …raw matches before dedup, since the six shapes overlap | 1049 |
 | …of which plain `X → Y` transition sentences | 923 |
 | Incident survivors reported by the shipped discriminator | 9 of 9 |
 | Incident transition sentences correctly excluded | 3 |
@@ -83,6 +84,12 @@ states for exactly this reason:
 pnpm spec:lint <doc> --superseded 58 --replacement 57
 pnpm spec:lint <doc> --claim-about 'PublishedReviewModal.tsx:964' --repair <rev>
 ```
+
+**A declaration where the superseded value EQUALS the replacement is REFUSED, by name.** Round 3 found
+that `--superseded 58 --replacement 58` — one ordinary typo — makes every sentence containing `58` also
+"carry the replacement", so §3.1 suppresses all twelve occurrences and the run reports a silent clean.
+The declaration is well-formed by every other test, so nothing else catches it. `N === M` is rejected
+before any document is read, with a message naming both values.
 
 **`--repair` is REQUIRED for the named half** and optional for the numeric one. The named half's whole
 exclusion is "everywhere except where the repair restated the claim", so without the hunk spans it has
@@ -202,7 +209,14 @@ module does not necessarily reach for this document.
    meaning while keeping every number and identifier. This arm tracks tokens, and silence is not a
    certificate.
 5. **Adversarial construction is out of scope** (§1.1 item 7).
-6. **A HALF-REPAIRED SENTENCE IS MISSED** (§3.1). One sentence carrying two claims on the same value,
+6. **A REWORDED SURVIVOR IS MISSED BY THE NAMED HALF** (§3.2). Its exclusion is span-based, so an
+   occurrence the repair TOUCHED for an unrelated reason — a wording change on a line that still carries
+   the retired claim — is treated like the repair's own new claim and suppressed. Measured on the
+   incident: one ordinary edit at spec line 268 moves it inside the repair's spans and the retired union
+   reasoning is silently excluded. This is the named-half analogue of §3.1's same-hunk case, and it is
+   declared rather than closed for the same reason: separating "reworded but still stale" from
+   "restated correctly" requires reading the claim. Missed advisory, never a false one.
+7. **A HALF-REPAIRED SENTENCE IS MISSED** (§3.1). One sentence carrying two claims on the same value,
    with only the first repaired, is suppressed because the sentence now names the replacement. The
    discriminating refinement was tested and rejected: a half-repaired sentence and a legitimate
    transition both carry exactly one of each value, so no sentence-local count separates them, and
@@ -235,7 +249,7 @@ crashed read, a scanner returning the empty set. So:
 | --- | --- |
 | a transition sentence draws nothing | the SAME sentence with the replacement value deleted reports |
 | the repair's own new claim draws nothing | the same identifier in another section reports |
-| a repair changing no token draws nothing | the same repair with one value changed reports |
+| a DECLARED pair whose superseded value appears nowhere in the documents draws nothing | the same declaration against documents where it DOES appear reports — one variable, the corpus, with the declaration held fixed. (An earlier draft paired "a repair changing no token" against "the same repair with one value changed", which moves BOTH the repair and the invocation and is not one variable.) |
 | `--repair` with no declaration draws nothing | the same invocation plus `--superseded`/`--replacement` reports — one variable apart, so the silence is attributable to the missing declaration rather than to the arm failing to look |
 
 **Second question, asked of every fixture: which rule DECIDES the observation, and is it the rule under

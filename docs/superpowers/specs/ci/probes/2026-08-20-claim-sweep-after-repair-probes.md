@@ -1,6 +1,6 @@
 # Probe record — claim sweep after a repair (`BL-SPEC-CLAIM-SWEEP-AFTER-REASONING-FINDING`)
 
-Scripts committed beside this record under `scripts/`: `2026-08-20-naive-false-positive-census.py` produced the 1030-site census, and `2026-08-20-discriminator-recall-precision.py` produced the incident recall and the corpus
+Scripts committed beside this record under `scripts/`: `2026-08-20-naive-false-positive-census.py` produced the naive-form census, and `2026-08-20-discriminator-recall-precision.py` produced the incident recall and the corpus
 exclusion. Both are re-runnable, and their CORPUS figures move as the corpus grows — which is why the
 spec asserts relations rather than cardinalities, and why each number here is dated to its commit.
 
@@ -59,8 +59,14 @@ before/after shapes in the live corpus
       8  'rather than N'          "The band is 3x rather than 2x because …"
       1  'no longer N'
    ----
-   1030  TOTAL
+   1030  TOTAL (raw, at first measurement)
 ```
+
+**Deduplicated, and re-measured at the current base:** the six shapes OVERLAP — `"from 17 to 16"` matches
+both the arrow and the from-to shape and reports the same value occurrence twice — so the honest
+population is keyed on `(path, superseded-value offset)`. That gives **1021 distinct sites against 1049
+raw matches**, 2.7% double-counting. The magnitude of the argument is unchanged; the number is now the
+one a test could reproduce.
 
 Roughly one per document. The before/after sentence is not an edge case to be documented as a limit —
 it is the corpus's dominant shape, and an arm that reports surviving occurrences without accounting for
@@ -115,7 +121,7 @@ is the cheaper invariant that holds without parsing.
 1. Form 2 is buildable as the entry states it, and BOTH halves confirm. Form 1 is fenced out by the
    orchestrator ruling and is not relitigated.
 2. The consequence bound has a number to range over from round 0: on the live corpus the arm's false
-   advisories must be ~0 against a population where the naive form scores ~1030.
+   advisories must be ~0 against a population where the naive form scores ~1021 distinct sites.
 3. The numeric half's discriminator is sentence-scoped co-occurrence, validated in both directions —
    9/9 recall on the incident, 942/943 exclusion on the corpus at this commit (936 when first
    measured; the corpus grew during round 1, which is the reason the spec pins relations, not counts).
