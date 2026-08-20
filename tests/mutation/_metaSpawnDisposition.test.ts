@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -58,28 +59,46 @@ type Sweep = {
 };
 
 /**
- * The call text starting at an open paren, by balanced scan.
+ * Ceiling VALUES this guard accepts, default-denying the entire complement.
  *
- * Not a parser and deliberately not on its way to becoming one: it counts
- * brackets. The standing repair direction under same-axis recurrence on a
- * recognizer is NARROWING, so this stays a bracket counter and anything it
- * cannot classify is a disposition question rather than a grammar feature.
+ * Round 3 probed two evasions of a `timeout:` PRESENCE check, and both are
+ * value questions rather than grammar questions: `timeout: 0` and
+ * `timeout: undefined` both carry the key and bound nothing — measured, a 200 ms
+ * child under either ran to completion with status 0.
+ *
+ * A named constant is accepted only from this set, and each member is pinned
+ * positive by its own derivation test — `BROWSER_MUTANT_TIMEOUT_MS` against the
+ * probe's measured maximum, `WIRING_CHILD_TIMEOUT_MS` against the value observed
+ * to be insufficient. Default-deny is what makes this closable: a new constant
+ * name is not "unrecognized and therefore fine", it is refused until someone
+ * adds it here and pins it.
  */
-function callTextAt(source: string, openIndex: number): string {
-  let depth = 0;
-  for (let i = openIndex; i < source.length; i += 1) {
-    const c = source[i];
-    if (c === "(" || c === "[" || c === "{") depth += 1;
-    else if (c === ")" || c === "]" || c === "}") {
-      depth -= 1;
-      if (depth === 0) return source.slice(openIndex, i + 1);
-    }
-  }
-  return source.slice(openIndex);
-}
+const CEILING_NAMES = ["BROWSER_MUTANT_TIMEOUT_MS", "WIRING_CHILD_TIMEOUT_MS"] as const;
 
-/** A call is BOUNDED when its options carry an explicit wall-clock ceiling. */
-const isBounded = (call: string): boolean => /\btimeout\s*:/.test(call);
+/**
+ * An ACCEPTED ceiling occurrence: a positive integer literal, or a named
+ * constant from the accept-set above. `0`, a negative, `undefined` and `null`
+ * are all refused by construction rather than by enumeration.
+ */
+/**
+ * A stable digest of exactly the hit lines a NON-MEMBER row disposes of.
+ *
+ * Sorted, so line motion alone does not re-open a disposition; trimmed, so
+ * reindentation does not either. Any CHANGE to what a disposed line says does.
+ */
+const digestOf = (hits: readonly Hit[]): string =>
+  createHash("sha256")
+    .update([...hits.map((h) => h.text)].sort().join("\n"))
+    .digest("hex")
+    .slice(0, 12);
+
+const ceilingCount = (source: string): number => {
+  const names = CEILING_NAMES.join("|");
+  const literal = String.raw`0*[1-9][0-9_]*`;
+  return [
+    ...source.matchAll(new RegExp(String.raw`\btimeout\s*:\s*(?:${names}|${literal})\b`, "g")),
+  ].length;
+};
 
 /**
  * The walk, WITH ITS INPUT ACCOUNTED FOR.
@@ -115,16 +134,16 @@ function sweep(): Sweep {
     const found: Hit[] = [];
     let offset = 0;
     for (const [i, text] of source.split("\n").entries()) {
+      // EVERY match on the line, not the first. Round 3 probed the gap: the
+      // sweep recorded at most one hit per line, so a second call added beside
+      // an existing one was invisible to the count that disposes of the file.
+      const seen = new Set<number>();
       for (const shape of SPAWN_SHAPES) {
-        const m = shape.exec(text);
-        if (m) {
-          found.push({
-            file,
-            line: i + 1,
-            text: text.trim(),
-            index: offset + m.index + m[0].length - 1,
-          });
-          break;
+        for (const m of text.matchAll(new RegExp(shape.source, "g"))) {
+          const at = m.index + m[0].length - 1;
+          if (seen.has(at)) continue;
+          seen.add(at);
+          found.push({ file, line: i + 1, text: text.trim(), index: offset + at });
         }
       }
       offset += text.length + 1;
@@ -166,7 +185,7 @@ type Disposition =
    * and fails by name, which is the property the count is for. Counting is not
    * recognizing.
    */
-  | { kind: "file"; file: string; member: false; reason: string; hits: number }
+  | { kind: "file"; file: string; member: false; reason: string; hits: number; digest: string }
   | { kind: "site"; file: string; line: number; member: boolean; reason: string };
 
 const DISPOSITIONS: readonly Disposition[] = [
@@ -178,6 +197,7 @@ const DISPOSITIONS: readonly Disposition[] = [
       "NOT a member — this IS the bounding mechanism. Both calls take the shared " +
       "spawn options, whose `timeout` is the caller's ceiling or the module default.",
     hits: 2,
+    digest: "a5348d5976fa",
   },
   {
     kind: "file",
@@ -188,6 +208,7 @@ const DISPOSITIONS: readonly Disposition[] = [
       "detached and orphaned process trees as its FIXTURES. Bounding them would " +
       "delete the property under test.",
     hits: 6,
+    digest: "ddb1bb452f12",
   },
   {
     kind: "file",
@@ -198,6 +219,7 @@ const DISPOSITIONS: readonly Disposition[] = [
       "own ceiling, including a 600 s sleep whose whole purpose is to be killed. The " +
       "real calls here already carry an explicit ceiling; the rest are fixture strings.",
     hits: 3,
+    digest: "5d87ce9a9050",
   },
   {
     kind: "file",
@@ -208,6 +230,7 @@ const DISPOSITIONS: readonly Disposition[] = [
       "an executed call. A pattern tight enough to exclude them by shape would have " +
       "been tight enough to miss a real site.",
     hits: 89,
+    digest: "2ca5a6615b0f",
   },
   {
     kind: "file",
@@ -217,6 +240,7 @@ const DISPOSITIONS: readonly Disposition[] = [
       "NOT a member — every hit is documentation prose naming the binding shape the " +
       "scanner reasons about. Nothing here launches anything.",
     hits: 4,
+    digest: "8cfcd7a79fdc",
   },
   {
     kind: "file",
@@ -226,6 +250,7 @@ const DISPOSITIONS: readonly Disposition[] = [
       "NOT a member — the hit is a comment quoting the very call shape AC-1 rejects, " +
       "in the suite that rejects it.",
     hits: 1,
+    digest: "21efc803cde9",
   },
   {
     kind: "file",
@@ -236,6 +261,7 @@ const DISPOSITIONS: readonly Disposition[] = [
       "The guard reported itself on its first run, which is the guard working: it takes " +
       "no filename filter, so nothing exempts it from the walk it performs.",
     hits: 3,
+    digest: "209e81631f36",
   },
   {
     kind: "file",
@@ -307,7 +333,17 @@ describe("every spawn site under tests/mutation/ is disposed of", () => {
   //
   // The two cases below make each row's own claim executable, by the only means
   // available to each kind.
-  it("a MEMBER row's claim is CHECKED — every hit in it carries a ceiling", () => {
+  // COUNTING, not attribution. Round 3 showed the forward bracket scan could be
+  // fooled by an ordinary Node child whose ARGUMENT contains a paren inside a
+  // string — the scan ran on and credited a LATER call's ceiling to the new
+  // unbounded one. False certification. Teaching the scanner about string
+  // literals is a lexer, and the standing repair direction on a recognizer here
+  // is NARROWING, so the guard stops attributing options to calls at all: a
+  // MEMBER file must carry one ACCEPTED ceiling per spawn hit. Adding an
+  // unbounded call moves the hits and not the ceilings; removing a ceiling moves
+  // the ceilings and not the hits. Neither needs the guard to know which options
+  // belong to which call.
+  it("a MEMBER row's claim is CHECKED — one accepted ceiling per spawn hit", () => {
     // BOTH row kinds, not just the file form. The finding was about file rows,
     // but a `site` row carries the same `member` claim and nothing checked it
     // either — the same shape one row-kind over, which is what the class sweep
@@ -326,14 +362,27 @@ describe("every spawn site under tests/mutation/ is disposed of", () => {
     const checked = hits.filter(isMemberHit);
     premiseHolds("the member rows actually cover swept hits", checked.length > 0);
 
-    const unbounded = checked
-      .filter((hit) => !isBounded(callTextAt(sources.get(hit.file) ?? "", hit.index)))
-      .map((hit) => `${hit.file}:${hit.line} — ${hit.text.slice(0, 90)}`);
+    const short = [...new Set(checked.map((hit) => hit.file))]
+      .map((file) => ({
+        file,
+        spawns: checked.filter((h) => h.file === file).length,
+        ceilings: ceilingCount(sources.get(file) ?? ""),
+      }))
+      .filter((r) => r.ceilings < r.spawns)
+      // Raw numbers, never a computed verdict: "4 spawn hits, 3 accepted
+      // ceilings" says what to do; "unbounded child detected" does not.
+      .map((r) => `${r.file}: ${r.spawns} spawn hit(s), ${r.ceilings} accepted ceiling(s)`);
 
-    expect(unbounded).toEqual([]);
+    expect(short).toEqual([]);
   });
 
-  it("a NON-MEMBER row pins its hit count, so a NEW site re-opens it", () => {
+  // A COUNT was round 3's third finding: swapping a comment hit for a real
+  // executed child leaves the number unchanged, so the row went on disposing of
+  // a line whose meaning had changed underneath it. The pin is therefore the
+  // exact hit LINES, digested — which no swap survives, and which is still
+  // counting rather than recognizing: the guard never decides what a line MEANS,
+  // only that the lines it was told about are the lines that are there.
+  it("a NON-MEMBER row pins a DIGEST of its hit lines, so a swap re-opens it", () => {
     const drifted = DISPOSITIONS.filter(
       (row): row is Extract<Disposition, { kind: "file"; member: false }> =>
         row.kind === "file" && !row.member,
@@ -341,12 +390,18 @@ describe("every spawn site under tests/mutation/ is disposed of", () => {
       .map((row) => ({
         file: row.file,
         declared: row.hits,
+        declaredDigest: row.digest,
+        actualDigest: digestOf(hits.filter((h) => h.file === row.file)),
         actual: hits.filter((h) => h.file === row.file).length,
       }))
-      .filter((r) => r.declared !== r.actual)
-      // Raw numbers, not a computed verdict: "declared 4, found 5" says what to
-      // do; "drift detected" does not.
-      .map((r) => `${r.file}: row declares ${r.declared}, walk found ${r.actual}`);
+      .filter((r) => r.declared !== r.actual || r.declaredDigest !== r.actualDigest)
+      // Raw values, not a computed verdict: "declares 4/ab12, found 5/cd34" says
+      // what to do; "drift detected" does not.
+      .map(
+        (r) =>
+          `${r.file}: row declares ${r.declared}/${r.declaredDigest}, ` +
+          `walk found ${r.actual}/${r.actualDigest}`,
+      );
 
     expect(drifted).toEqual([]);
   });
@@ -380,6 +435,7 @@ describe("the matcher itself", () => {
     member: false,
     reason: "x",
     hits: 1,
+    digest: "0".repeat(12),
   };
   const siteRow: Disposition = { kind: "site", file: "c/d.ts", line: 7, member: true, reason: "y" };
   const match = (hit: Hit, rows: readonly Disposition[]) =>

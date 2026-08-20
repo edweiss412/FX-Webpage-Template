@@ -262,47 +262,33 @@ describe("AC-8 — every child this suite spawns is bounded", () => {
   //
   // The pattern's own source text is `execFileSync\s*\(`, which does not match
   // itself — so this case is not counted as one of the sites it checks.
-  it("passes an explicit timeout at every execFileSync call site", () => {
+  it("carries one accepted ceiling and one untrappable kill per spawn", () => {
     const source = readFileSync(join(ROOT, "tests/mutation/browser/overlayWiring.test.ts"), "utf8");
-    // ALL THREE call shapes, not just the one this file happens to use today.
-    // Diff review round 1 probed the gap: swapping the bounded `execFileSync`
-    // here for an unbounded `spawnSync` left this scan silent, because it only
-    // looked for one shape — so the bound could be removed by an ordinary edit
-    // that changed nothing else. The shapes match the derived cover's.
     const sites = [...source.matchAll(/execFileSync\s*\(|spawnSync\s*\(|\bspawn\s*\(/g)];
 
     // Executable premise: a scan that found nothing would pass vacuously and
     // would forever — `BL-GUARD-PREMISE-REACHABILITY`'s exact shape.
     premiseHolds("the wiring suite spawns children at all", sites.length > 0);
 
-    const unbounded = sites
-      .map((site) => {
-        const open = site.index + site[0].length - 1;
-        let depth = 0;
-        let close = source.length - 1;
-        for (let i = open; i < source.length; i += 1) {
-          const c = source[i];
-          if (c === "(" || c === "[" || c === "{") depth += 1;
-          else if (c === ")" || c === "]" || c === "}") {
-            depth -= 1;
-            if (depth === 0) {
-              close = i;
-              break;
-            }
-          }
-        }
-        const line = source.slice(0, site.index).split("\n").length;
-        return { line, call: source.slice(open, close + 1) };
-      })
-      // BOTH, because presence is not adequacy: a `timeout` armed with the
-      // default SIGTERM is not a ceiling on a `pnpm exec vitest` child, which can
-      // trap it — the site would carry the key and still hang indefinitely, which
-      // is the failure AC-8 names.
-      .filter(({ call }) => !/\btimeout\s*:/.test(call) || !/killSignal\s*:\s*"SIGKILL"/.test(call))
-      // Fails BY NAME, so the repair is obvious rather than a hunt.
-      .map(({ line }) => `overlayWiring.test.ts:${line}`);
+    // COUNTING rather than attribution, after diff review round 3. The earlier
+    // version walked forward from each call and read the options it found, and
+    // an ordinary Node child whose ARGUMENT contains a paren inside a string —
+    // `["-e", "void '('"]` — sent the bracket scan past its own call and let it
+    // credit a LATER call's ceiling to the new unbounded one. Making the scanner
+    // string-aware is a lexer; the standing repair direction on a recognizer
+    // here is narrowing, so nothing is attributed to anything. One accepted
+    // ceiling and one untrappable kill per spawn is a property no misattribution
+    // can satisfy: a new unbounded call moves the spawn count and not the others.
+    //
+    // The ceiling VALUE is accept-set matched, default-denying the complement:
+    // `timeout: 0` and `timeout: undefined` carry the key and bound nothing —
+    // measured, a 200 ms child under either ran to completion with status 0.
+    const spawns = sites.length;
+    const ceilings = [...source.matchAll(/\btimeout\s*:\s*WIRING_CHILD_TIMEOUT_MS\b/g)].length;
+    const kills = [...source.matchAll(/killSignal\s*:\s*"SIGKILL"/g)].length;
 
-    expect(unbounded).toEqual([]);
+    // Raw numbers, never a computed verdict.
+    expect({ spawns, ceilings, kills }).toEqual({ spawns, ceilings: spawns, kills: spawns });
   });
 
   // The DERIVATION, not the value. A bare 300000 invites the next reader to tune

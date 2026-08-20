@@ -61,19 +61,24 @@ const HEALTHY_SUITE: DecidingSuite = {
  * adversarial process manipulation — which the design's threat fence (spec
  * §1.2) puts out of scope.
  */
-const seam = vi.hoisted(() => ({ override: null as null | (() => BoundedRun) }));
+const seam = vi.hoisted(() => ({
+  override: null as null | (() => BoundedRun),
+  calls: [] as Array<{ timeoutMs: number | undefined }>,
+}));
 
 vi.mock("../source/spawnBounded", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../source/spawnBounded")>();
   return {
     ...actual,
-    spawnBounded: (...args: Parameters<typeof actual.spawnBounded>): BoundedRun =>
-      seam.override ? seam.override() : actual.spawnBounded(...args),
+    spawnBounded: (...args: Parameters<typeof actual.spawnBounded>): BoundedRun => {
+      seam.calls.push({ timeoutMs: args[1].timeoutMs });
+      return seam.override ? seam.override() : actual.spawnBounded(...args);
+    },
   };
 });
 
 /** Imported AFTER the mock declaration so the module graph sees the seam. */
-const { runChild } = await import("./runner");
+const { runChild, BROWSER_MUTANT_TIMEOUT_MS } = await import("./runner");
 
 function withSeam<T>(outcome: BoundedRun, run: () => T): T {
   seam.override = () => outcome;
@@ -130,6 +135,34 @@ describe("AC-3 — a constructed hanging child", () => {
   it("returns a numeric exit status for a healthy child inside the ceiling", CASE_TIMEOUT, () => {
     const { exitStatus } = runChild(ROOT, HEALTHY_SUITE, null, GENEROUS_CEILING_MS);
     expect(exitStatus).toBe(0);
+  });
+});
+
+describe("AC-2 — the PRODUCTION default is the measured ceiling", () => {
+  // Diff review round 3, P1, and it was a genuine miss against the ratified
+  // plan rather than a reviewer stretch. The plan's own weaker-implementation
+  // pass named this exact case: "the constant is exported and correct but the
+  // call site passes `MUTANT_TIMEOUT_MS` — every AC-2 assertion passes and the
+  // shipped ceiling is 180 s", and its neutralization pass added that AC-3 can
+  // never exercise the default because every AC-3 case passes an EXPLICIT
+  // ceiling. Both production call sites omit the argument; every other case
+  // here supplies it. So `timeoutMs: number = 0` was invisible to all of them,
+  // and a `0` timeout does not bound a child at all — the reviewer probed it:
+  // a 200 ms child under `timeout: 0` ran to completion, status 0.
+  //
+  // The assertion is on what `spawnBounded` RECEIVED, never on the constant:
+  // asserting the constant's value cannot prove the call site uses it.
+  it("forwards BROWSER_MUTANT_TIMEOUT_MS when the caller names no ceiling", () => {
+    seam.calls.length = 0;
+    withSeam({ outcome: { kind: "exit", code: 0 }, ownGroup: true }, () =>
+      // THREE arguments — today's production arity, exactly as
+      // `runMutant` and `runBrowserSurface` call it.
+      runChild(ROOT, HEALTHY_SUITE, null),
+    );
+    premiseHolds("the spawn seam recorded the call", seam.calls.length === 1);
+    expect(seam.calls[0]!.timeoutMs).toBe(BROWSER_MUTANT_TIMEOUT_MS);
+    // A ceiling of 0 or undefined bounds nothing; neither may reach the spawn.
+    expect(seam.calls[0]!.timeoutMs).toBeGreaterThan(0);
   });
 });
 
