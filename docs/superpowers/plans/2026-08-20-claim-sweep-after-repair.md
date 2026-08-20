@@ -170,9 +170,17 @@ document and counts itself — the guard measuring its own text, one document ea
 usually bites. Anchoring to `^<!-- task:` excludes the prose that talks ABOUT the citation from the
 count of citations.
 
-That is the count Task 9's RED step must observe. A different count means a citation was edited or a
-task was added without its anchor row, and either is a defect in this plan rather than in the
-implementation. The two exceptions are Task 7 (`scripts/spec-lint.ts`) and Task 8
+That is the count Task 9's RED step must observe. A different count means a citation was edited, a task
+was added without its anchor row, **or a marker has been made INERT by an unbalanced code fence** — and
+the third is not hypothetical: it is what this plan shipped. Task 8's body opened a fence at its purity
+command and never closed it, so every line from there to Task 9's `Files` block was fenced, Task 9's task
+marker was inert, and the observed count was **SIX**. The grep above cannot see that, because it reads the
+LINE and the linter reads the DOCUMENT: `wellFormedMarkers` skips any marker whose `fencedInfo` is set,
+so a fenced marker is silently not a marker at all. Nothing in the plan reported it, the document linted
+`0 hard` throughout, and the discrepancy only surfaced when Task 1 tracked the module and the count could
+finally be compared against something. **A count and the mechanism that consumes it must be derived the
+same way, or the check is measuring a different population than the thing it guards.** The fence is
+repaired and the observed count is now seven. The two exceptions are Task 7 (`scripts/spec-lint.ts`) and Task 8
 (`tests/mutation/source/expectedLedgerKinds.ts`), both tracked today and both cited in line form from the
 start.
 
@@ -365,7 +373,7 @@ not-found and its occurrences instead. **The pair is what makes the clean half a
 
 ## Task 5 — the swept set is declared, and an unreadable peer is reported
 
-<!-- task: red=`pnpm vitest run tests/specLint/claimSweepDocumentSet.test.ts` red-state=authored red-target=`lib/specLint/claimSweep.ts` why=`the arm sweeps only the document it lints, so a survivor in a declared --also peer produces zero findings where the case asserts the plan peer's seven` ac=AC-5 -->
+<!-- task: red=`pnpm vitest run tests/specLint/claimSweepDocumentSet.test.ts` red-state=authored red-target=`lib/specLint/claimSweep.ts` why=`no branch emits SWEEP_DOCUMENT_UNREADABLE, so a declared peer whose read returns null contributes nothing and the case's assertion of exactly one unreadable finding reads an empty result` ac=AC-5 -->
 
 **Files** (fenced: several do not exist yet, and a citation to an absent file is a hard failure):
 
@@ -379,8 +387,14 @@ Implements §3.3 and the third code. The swept set is EXACTLY `<doc>` plus each 
 from citation, stem or date — all three inference rules were measured wrong on the incident's own arc,
 each in a different direction (probes §8.2).
 
-- "sweep the spec only" is killed by a survivor in the PLAN, where 7 of the incident's 9 were. **This is
-  the red.**
+- "sweep the spec only" is killed by a survivor in the PLAN, where 7 of the incident's 9 were. **This
+  half is PRE-SATISFIED by Task 1 and is therefore a GREEN-phase pin, not the red** — Task 1's own
+  acceptance is a nine-survivor replay across THREE documents, so the core has taken a document SET since
+  that task and a plan-peer assertion authored here would pass the moment it was written. The red is the
+  unreadable-peer half below, which is genuinely unimplemented. This was found by executing Task 1 rather
+  than by reading, and it is the general class: **a later task's red can be pre-satisfied by an EARLIER
+  task's requirement**, so every `why=` is re-checked against what the tasks before it now guarantee and
+  not only against the state at authoring.
 - INFERENCE is killed by the SAME case asserting the swept set is EXACTLY the declared documents while an
   undeclared sibling sits in the same tree and contributes nothing. **Neither half discriminates alone**:
   the absent-sibling half is satisfied by an implementation that sweeps only the linted document, and the
@@ -427,7 +441,7 @@ as Task 1's alone.
 
 ## Task 7 — the adapter: flags, hunk spans, peers, and the injection
 
-<!-- task: red=`pnpm vitest run tests/specLint/claimSweepCli.test.ts` red-state=authored red-target=`scripts/spec-lint.ts:363` why=`the flag loop's final else-if branch pushes "unknown flag" for any unrecognised --token, so the end-to-end invocation exits on a usage error where the case asserts the incident's four named-half findings` ac=AC-2,AC-5,AC-9 -->
+<!-- task: red=`pnpm vitest run tests/specLint/claimSweepCli.test.ts` red-state=authored red-target=`scripts/spec-lint.ts:397` why=`the flag loop's final else-if branch pushes "unknown flag: --also", so the end-to-end invocation exits 2 on a usage error where the case asserts the incident's four named-half findings` ac=AC-2,AC-5,AC-9 -->
 
 **Files** (fenced: several do not exist yet, and a citation to an absent file is a hard failure):
 
@@ -544,6 +558,7 @@ population rather than outside it; `git hash-object <file>` reads the working tr
 The count is printed beside the hashes because a stamp over an empty set diffs clean against another
 empty set — `0 of 0` and `96 of 96` render identically in a `diff`.
 
+```
 # purity, RUN rather than described as automatic
 pnpm vitest run tests/specLint/_metaPureCore.test.ts
 ```
