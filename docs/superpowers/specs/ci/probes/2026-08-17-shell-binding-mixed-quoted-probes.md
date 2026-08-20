@@ -184,3 +184,149 @@ current and planned). Declared as spec §6 item 6.
    forward-looking claim was wrong.
 6. **The exotic mixed spellings in non-assignment families** (`bash -c '$0 …' p'sql'` positional,
    `alias p'sql'=…`) score 0 and stay documented limits — see the spec's §6.
+
+## 2026-08-20 supplement (draft-time probes for the quoted-value RECALL arc)
+
+Draft-time probes for `docs/superpowers/specs/ci/2026-08-20-shell-lexer-quoted-value-recall-design.md`
+(ledger rows `BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE` and `BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE`).
+Same two instruments and the same method as instruments 1-2 above. Scanner run on
+`fix/shell-lexer-quoted-value-recall` at branch point `4e074d3bc` via a worktree-local
+`probe-arm.ts` importing `scanShellIndirection` and `scanSource`; `hits` is the indirection count and
+`sites` the psql-site count. This is a dated historical record; the numbers are not corrected later.
+
+### Instrument 1 — current scanner behavior
+
+```
+{"label":"A1 here-string mixed (detached)","hits":0,"sites":0}
+{"label":"A2 here-string plain (detached)","hits":1,"sites":0}
+{"label":"A3 here-string mixed ATTACHED","hits":0,"sites":0}
+{"label":"A4 here-string plain ATTACHED","hits":1,"sites":0}
+{"label":"A5 here-string single-quoted whole","hits":1,"sites":0}
+{"label":"A6 here-string ANSI-C","hits":0,"sites":0}
+{"label":"A7 here-string in nested body","hits":0,"sites":0}
+{"label":"A8 here-string plain in nested body","hits":2,"sites":0}
+{"label":"A9 here-doc (<<) not here-string","hits":0,"sites":1}
+{"label":"A10 here-string notpsql","hits":0,"sites":0}
+{"label":"A11 here-string prose","hits":1,"sites":0}
+{"label":"B1 plain redirect to psql-named file","hits":0,"sites":0}
+{"label":"B2 redirect target quoted psql","hits":0,"sites":0}
+{"label":"B3 psql call with redirect","hits":0,"sites":1}
+{"label":"B4 psql call redirect no -X","hits":0,"sites":1}
+{"label":"B5 assignment-shaped redirect target","hits":0,"sites":0}
+{"label":"C1 operand single-quoted","hits":0,"sites":0}
+{"label":"C2 operand double-quoted","hits":0,"sites":0}
+{"label":"C3 operand ANSI-C","hits":0,"sites":0}
+{"label":"C4 operand bare (baseline)","hits":1,"sites":0}
+{"label":"C5 operand := form quoted","hits":0,"sites":0}
+{"label":"C6 operand :+ form quoted","hits":0,"sites":0}
+{"label":"C7 operand - form quoted","hits":0,"sites":0}
+{"label":"C8 nested expansion operand","hits":1,"sites":0}
+{"label":"C9 nested expansion quoted inner","hits":0,"sites":0}
+{"label":"D1 remove-prefix pattern operand","hits":0,"sites":0}
+{"label":"D2 remove-suffix pattern operand","hits":0,"sites":0}
+{"label":"D3 substitution pattern operand","hits":0,"sites":0}
+{"label":"D4 length operator","hits":1,"sites":0}
+{"label":"D5 bare remove-prefix (current)","hits":1,"sites":0}
+{"label":"D6 error operand","hits":0,"sites":0}
+{"label":"D7 indirection","hits":1,"sites":0}
+{"label":"D8 array subscript","hits":1,"sites":0}
+{"label":"E1 operand prose","hits":0,"sites":0}
+{"label":"E2 operand notpsql","hits":0,"sites":0}
+{"label":"E3 operand quoted semicolon","hits":0,"sites":0}
+{"label":"E4 operand trailing backslash","hits":0,"sites":0}
+{"label":"E5 whole expansion double-quoted","hits":0,"sites":0}
+{"label":"E6 substitution inside operand","hits":1,"sites":0}
+{"label":"F1 detached subst target","hits":1,"sites":0}
+{"label":"F2 ATTACHED subst target","hits":0,"sites":0}
+{"label":"F3 ATTACHED subst target psql call","hits":0,"sites":1,"tokens":[["-qAt","mydb"]],"sup":[false]}
+{"label":"F4 detached subst target psql call","hits":0,"sites":1,"tokens":[["-qAt","mydb"]],"sup":[false]}
+{"label":"F5 attached quoted target","hits":0,"sites":0}
+{"label":"F6 attached brace target","hits":0,"sites":0}
+{"label":"F7 fd-prefixed target psql","hits":0,"sites":0}
+{"label":"F8 append target psql","hits":0,"sites":0}
+{"label":"F9 input redirect psql","hits":0,"sites":0}
+{"label":"F10 psql with input redirect","hits":0,"sites":1,"tokens":[["-X","-qAt","mydb"]],"sup":[true]}
+{"label":"F11 psql no -X with attached redirect","hits":0,"sites":1,"tokens":[["-qAt","mydb"]],"sup":[false]}
+{"label":"G1 heredoc body psql","hits":0,"sites":1,"tokens":[["-qAt","mydb"]],"sup":[false]}
+{"label":"G2 heredoc quoted delim","hits":0,"sites":1,"tokens":[["-qAt","mydb"]],"sup":[false]}
+{"label":"H1 read plain no herestring","hits":0,"sites":0}
+{"label":"H2 herestring var target","hits":0,"sites":0}
+{"label":"H3 herestring path","hits":1,"sites":0}
+{"label":"H4 herestring mixed path","hits":0,"sites":0}
+```
+
+Fixtures for the labelled rows, in the same order they appear above where the source string is not
+already evident from the label:
+
+| label | fixture |
+| --- | --- |
+| A1 / A2 | `read -r PG <<< p'sql'` / `read -r PG <<< psql` |
+| A3 / A4 | `read -r PG <<<p'sql'` / `read -r PG <<<psql` (no space after the operator) |
+| A5 / A6 | `read -r PG <<< 'psql'` / `read -r PG <<< $'p\163ql'` |
+| A7 / A8 | `X=$(read -r PG <<< p'sql')` / `X=$(read -r PG <<< psql)` |
+| A9 | `read -r PG <<EOF` + newline + `psql` + newline + `EOF` |
+| A11 | `read -r MSG <<< 'psql failed to connect'` |
+| B1 / B2 / B5 | `cat x > psql` / `cat x > 'psql'` / `cat x > PG=psql` |
+| B3 / B4 | `psql -X -qAt mydb > out.sql` / `psql -qAt mydb > out.sql` |
+| C1..C3 | `PG=${U:-'psql'}` / `PG=${U:-p"sql"}` / `PG=${U:-$'p\163ql'}` |
+| C5..C7 | `PG=${U:='psql'}` / `PG=${U:+'psql'}` / `PG=${U-'psql'}` |
+| C8 / C9 | `PG=${U:-${V:-psql}}` / `PG=${U:-${V:-'psql'}}` |
+| D1..D3 | `PG=${U#'psql'}` / `PG=${U%'psql'}` / `PG=${U/'psql'/x}` |
+| D4..D8 | `PG=${#psql}` / `PG=${U#psql}` / `PG=${U:?'psql'}` / `PG=${!psql}` / `PG=${A[psql]}` |
+| E1..E4 | `MSG=${M:-'psql failed to connect'}` / `PG=${U:-'notpsql'}` / `PG=${U:-'psql;x'}` / `PG=${U:-'psql\'}` |
+| E5 / E6 | `PG="${U:-'psql'}"` / `PG=${U:-$(command -v psql)}` |
+| F1 / F2 | `cat x > $(command -v psql)` / `cat x >$(command -v psql)` |
+| F3 / F4 | `cat x >$(psql -qAt mydb)` / `cat x > $(psql -qAt mydb)` |
+| F5..F9 | `cat x >'psql'` / `cat x >${DIR}/psql` / `cat x 2>psql` / `cat x >>psql` / `cat < psql` |
+| F10 / F11 | `psql -X -qAt mydb < in.sql` / `psql -qAt mydb>out.sql` |
+| G1 / G2 | `cat <<EOF` and `cat <<'EOF'`, body `psql -qAt mydb` |
+| H1..H4 | `read -r PG` / `read -r PG <<< $PSQL` / `read -r PG <<< /usr/bin/psql` / `read -r PG <<< /usr/'bin'/psql` |
+
+### Instrument 2 — bash oracle
+
+Same runner as instrument 2 above (`printf '%s\n' "$spelling" > f.sh; bash -c ". ./f.sh; printf '%s' \"\$PG\""`).
+
+```
+A1 herestring mixed                    -> <psql>
+A3 herestring attached                 -> <psql>
+A5 herestring quoted                   -> <psql>
+A6 herestring ansic                    -> <psql>
+C1 operand sq                          -> <psql>
+C2 operand dq                          -> <psql>
+C5 operand :=                          -> <psql>
+C6 operand :+ (U set)                  -> <psql>
+C7 operand -                           -> <psql>
+C9 nested quoted inner                 -> <psql>
+D1 remove-prefix pattern               -> <psql>      (U=xpsql; PG=${U#'x'})
+D1b pattern operand psql               -> <x>         (U=psqlx; PG=${U#'psql'})
+D4 length                              -> <0>
+D5 bare remove-prefix                  -> <x>         (U=psqlx; PG=${U#psql})
+D7 indirection                         -> <>          (psql=inner; PG=${!psql})
+E3 operand semicolon                   -> <psql;x>
+E4 operand trailing bs                 -> <psql\>
+E5 whole dq                            -> <'psql'>
+```
+
+### Readings the design relies on
+
+1. **Both filed rows reproduce, and each is wider than filed.** Arm 1 covers the ATTACHED here-string
+   spelling (A3) and a mixed-quoted PATH target (H4), neither named in the ledger row; arm 2 covers
+   the `:=`, `:+` and bare-`-` operators (C5-C7) and a nested quoted operand (C9), where the row named
+   only `:-`.
+2. **E5 is the boundary, and it points the other way.** `PG="${U:-'psql'}"` binds the literal
+   `'psql'` — inside double quotes the operand's quotes are pathname data, not syntax. The scanner's
+   0 is CORRECT and must survive. The lexer's `${…}` fast path is unreachable inside double quotes, so
+   the boundary is structural rather than a guard clause.
+3. **Pattern, length, indirection and subscript operands are pre-existing over-reports, in the safe
+   direction.** D4, D5, D7 and D8 report today and bash binds none of them to psql. They are outside
+   both rows and the design pins them at their current values rather than repairing them.
+4. **A11 shows the current here-string rule is coarser than the assignment family.** A prose value
+   reports (1) because the pattern matches on the `psql` prefix; the dequoted value is multiword with
+   no flag token, so the assignment family's predicate alone would decline it. The design keeps the
+   existing pattern as a disjunct precisely so this zero-flip does not happen.
+5. **Attached and detached substitution targets already disagree** (F2 = 0, F1 = 1): the attached
+   consumption regex stops at `(` and the body is never collected. Declared as a documented limit with
+   a re-file trigger rather than closed, since closing it is recognizer growth for a corner with zero
+   corpus instances.
+6. **A here-DOC body is read as command text today** (G1, G2 both produce a site). Pre-existing,
+   untouched by either arm, and recorded here so a later reader does not attribute it to this arc.
