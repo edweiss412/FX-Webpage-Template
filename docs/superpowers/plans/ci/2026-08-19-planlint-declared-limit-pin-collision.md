@@ -528,6 +528,13 @@ satisfiable by the other defect: TWO findings prove the adapter never prepared t
 prove it never injected the surface table. A test asserting only "at least one finding" passes an
 unprepared adapter.
 
+**What this task does NOT prove, stated so nobody reads it as covering more.** The fixture must name a
+REAL enrolled surface, because the shipped adapter reads the real registry and would never name a
+synthetic one. So this task cannot distinguish a table-driven adapter from one carrying a hardcoded copy
+of today's enrolled paths — both emit the same single finding. Task 7b proves PREPARATION at the
+boundary; Task 2's synthetic-surface case proves NAMING is table-driven. Two defects, two proofs,
+neither covering the other (spec §6).
+
 - [ ] **Step 1: Write the fixture pair and the failing suite** (spawn the real CLI, parse its output).
 - [ ] **Step 2: Observe red AND CONFIRM THE REASON.** Run
       `pnpm vitest run tests/specLint/declaredLimitPinsCli.test.ts`. Expected: zero advisories against

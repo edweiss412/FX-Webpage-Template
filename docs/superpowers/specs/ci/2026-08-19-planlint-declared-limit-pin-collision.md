@@ -260,7 +260,19 @@ healthy-suite silence case).
 | §3.4 channels | honor `readFileLines` only | an untracked suite whose read SUCCEEDS |
 | §3.4 parse channel | strip first, then parse (a clean parse every time) | the UNTERMINATED `/*` fixture specifically — a generic syntax error passes under either order, this one passes only if diagnostics came from the raw text |
 | §5 dispositions | the two known titles, hardcoded | a constructed disposition suppresses its own synthetic pin; removing a real row un-suppresses |
-| §4 adapter | prepare nothing, or inject nothing | AC-10, through the shipped CLI, asserting both directions |
+| §4 adapter, PREPARATION | pass raw lines | AC-10, through the shipped CLI, on differently-titled live and commented pins |
+| §4 adapter, INJECTION | a hardcoded copy of the live enrolled table | the §6 synthetic-surface case — NOT AC-10, see the division below |
+| §2.7 replay | special-case the two historical blobs | the corpus case, which ranges over the whole tracked corpus and fails any blob-specific implementation |
+
+**The two adapter defects need two different proofs, and neither covers the other.** Running the
+weaker-implementation pass over the FIXTURES — not only over the rules, which is what round 5 showed is
+required — surfaced this: AC-10's fixture must name a REAL enrolled surface, because the shipped adapter
+reads the real registry and would not name a synthetic one. So AC-10 cannot tell a table-driven adapter
+from one carrying a hardcoded copy of today's enrolled paths; both emit the same one finding. AC-10
+therefore proves PREPARATION at the boundary, and the core-level synthetic-surface case (§6, AC-7a)
+proves NAMING is table-driven. Stating the division is the point: an unstated one invites a later reader
+to treat either proof as covering both, which is how a fixture set ends up green about a property it
+never tested.
 
 - **Pin grammar (pure).** Each phrase matches in a `test(` and an `it(` title, in double-quoted and single-quoted literals, case-insensitively, with an escaped quote inside the literal. Each excluded shape draws NOTHING and is asserted explicitly, with its §8 item cited in the test body: a `describe(` title; a `.each` form; a template literal; a title whose literal opens on one line and closes on another; a phrase in a comment; a phrase in the SECOND argument. A dispositioned (path, title) draws nothing; the same title at a DIFFERENT path still draws (the disposition is keyed on the pair, not the string). **Decoding is asserted end to end:** a title source-spelled with `\"` yields the DECODED title, a plan naming the decoded form draws nothing, and a plan naming the SOURCE spelling draws the advisory — the pair that fails any implementation carrying the raw capture through to the comparison. **A decoded NEWLINE title named across two plan lines draws nothing, and a decoded TAB title named within one line draws nothing** (§8 item 13): both fail a per-line obligation matcher, which is the implementation this pair exists to reject.
 - **Files-declaration span (pure).** An INLINE declaration reads its own line and nothing below it, asserted with the live blank-then-checklist shape round 3 found — the discriminating case, which any blank-skipping implementation fails. A LIST declaration ends at the first blank line and at the first non-list line; a second `**Files:**` block in the same document is read too; a `**Files:**` line inside a fence is inert; an enrolled path in prose outside any block draws nothing (the §2.5 measurement, made executable); an enrolled path inside a block on a bullet with an unmodeled verb still draws (the §2.5 verb argument, made executable).
