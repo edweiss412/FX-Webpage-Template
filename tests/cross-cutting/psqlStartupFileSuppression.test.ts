@@ -5819,6 +5819,75 @@ describe("diff review round 2 - the two behavioural findings, each pinned", () =
     );
   });
 
+  // ROUND 3 F1. `read` binds the FIRST LINE of its input with default-IFS edges
+  // stripped, and round 1 established that for the target's own text. The
+  // EXPANSION candidate skipped it: the raw target `${U:-$'psql\nignored'}` is
+  // a single line, so the "nothing was truncated" guard passed on the RAW span
+  // while the DECODED operand it hands to `valueBinds` still carried its
+  // newline. Both directions were wrong, which is why both are pinned.
+  test("R3 F1: an expansion candidate is read as `read` reads it, not whole", () => {
+    const rows: Array<[label: string, source: string, hits: number]> = [
+      ["a trailing line is not part of the binding", "read -r PG <<< ${U:-$'psql\\nignored'}\n", 1],
+      ["the psql is on a line `read` never binds", "read -r PG <<< ${U:-$'other\\npsql -X'}\n", 0],
+      // OVER-report, declared. `read` binds the empty first line, but the raw
+      // span still carries a word-boundaried psql and the VERBATIM reading -
+      // which the candidate supplements rather than replaces (arm 2's ratified
+      // contract) - reports it. Wrongly-loud on an input bash binds empty is the
+      // permitted arm of the bound; the two rows above are the ones that had to
+      // move. Pinned at 1 so a later change to the verbatim posture is visible.
+      ["a leading newline is a declared over-report", "read -r PG <<< ${U:-$'\\npsql'}\n", 1],
+      ["IFS edges are stripped from the operand too", "read -r PG <<< ${U:-$'\\tpsql '}\n", 1],
+      // The same three through an assignment, where no `read` truncates and the
+      // whole operand binds -- so these must NOT move with the rows above.
+      // PRE-EXISTING zero, verified against the committed parent rather than
+      // assumed: a multiline expansion value in an ASSIGNMENT reported 0 before
+      // this change too, so it pins that the here-string repair did not reach
+      // the assignment route.
+      ["an assignment value is unchanged by this repair", "PG=${U:-$'psql\\nignored'}\n", 0],
+    ];
+    premise(
+      "the single-line expansion sibling reaches the candidate route and reports",
+      scanShellIndirection("read -r PG <<< ${U:-'psql'}\n", "x.sh").length,
+      0,
+    );
+    expect(rows.map(([l, s]) => [l, scanShellIndirection(s, "x.sh").length])).toEqual(
+      rows.map(([l, , h]) => [l, h]),
+    );
+  });
+
+  // ROUND 3 F2. Position after the effective operator is NECESSARY and not
+  // SUFFICIENT. A here-string on an explicit NON-ZERO fd sits after the
+  // effective stdin operator and was admitted by an ordering test alone, so
+  // `read -r PG <<< notpsql 2<<< psql` reported while bash binds `notpsql`.
+  // The target now carries the OFFSET of the operator that produced it, so the
+  // match is identity rather than inference.
+  test("R3 F2: a target belongs to the redirection that produced it", () => {
+    const rows: Array<[label: string, source: string, hits: number]> = [
+      ["an explicit fd 2 here-string is not stdin", "read -r PG <<< notpsql 2<<< p'sql'\n", 0],
+      ["a dynamic fd here-string is not stdin", "read -r PG <<< notpsql {v}<<< p'sql'\n", 0],
+      ["an explicit fd 9 here-string is not stdin", "read -r PG <<< notpsql 9<<< p'sql'\n", 0],
+      // The control the class is one edit from: remove the fd and it binds.
+      ["the same ordering WITHOUT an fd still binds", "read -r PG <<< notpsql <<< p'sql'\n", 1],
+      // And an explicit `0<<<` IS stdin, spelled the long way.
+      ["an explicit `0<<<` is stdin and binds", "read -r PG <<< notpsql 0<<< p'sql'\n", 1],
+      // The psql-bearing here-string on fd 0 with a NON-stdin one after it is
+      // still the effective one, so it must keep binding.
+      [
+        "a later non-stdin here-string does not override",
+        "read -r PG <<< p'sql' 2<<< notpsql\n",
+        1,
+      ],
+    ];
+    premise(
+      "the fd-less twin of the first row reports, so the difference is the fd",
+      scanShellIndirection("read -r PG <<< notpsql <<< p'sql'\n", "x.sh").length,
+      0,
+    );
+    expect(rows.map(([l, s]) => [l, scanShellIndirection(s, "x.sh").length])).toEqual(
+      rows.map(([l, , h]) => [l, h]),
+    );
+  });
+
   // F3, DERIVED COVER. `INPUT_REDIRECTIONS` is a six-member list, and a list
   // restated beside the grammar it claims to cover is the EXACT shape of this
   // round's F2 - a class asserting full coverage while enumerating a subset.

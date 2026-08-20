@@ -89,7 +89,7 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // counted survivor at all: an `accepted-gap` appearing here would be this surface's
   // first, owing its own filing AND a `scoreFloor` edit, and a new equivalent row is a
   // coverage regression to explain.
-  psqlStartupScan: { equivalent: 27 },
+  psqlStartupScan: { equivalent: 26 },
   // The pane-compaction classifier, enrolled with an EMPTY ledger: it is a pure
   // classifier over injected fixtures, so every survivor is repayable by a test
   // rather than blessable. A row appearing here later is a coverage regression

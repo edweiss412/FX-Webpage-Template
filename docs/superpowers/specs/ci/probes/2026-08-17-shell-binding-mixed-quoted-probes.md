@@ -795,3 +795,52 @@ This matters because the case's five ZERO rows are expect-clean assertions, whic
 that fails to look would also satisfy — an implementation with a DEAD text route passes every zero and
 the union-decided premise, and is caught only by those two rows. Recorded so a later author does not
 delete either one as redundant.
+
+### Diff round-3 addendum — the two findings, and two harness properties re-established
+
+**R3 F1 — the expansion candidate bypassed `read`'s first-line semantics.** The not-truncated guard
+read the RAW span, which for an expansion is a single line, while the DECODED operand handed to
+`valueBinds` still carried its newline. Measured, with bash beside each:
+
+| source | before | after | bash binds |
+| --- | --- | --- | --- |
+| `read -r PG <<< ${U:-$'psql\nignored'}` | 0 | 1 | `psql` — a MISS |
+| `read -r PG <<< ${U:-$'other\npsql -X'}` | 1 | 0 | `other` — a wrong report |
+| `read -r PG <<< ${U:-$'\tpsql '}` | 1 | 1 | `psql` |
+| `read -r PG <<< ${U:-$'\npsql'}` | 1 | 1 | empty — DECLARED over-report, see below |
+| `PG=${U:-$'psql\nignored'}` | 0 | 0 | PRE-EXISTING, verified against the committed parent |
+
+The repair offers the operand's OWN first line rather than declining on a multiline operand, because
+`read` truncates the expanded string exactly as it truncates a literal target. The leading-newline row
+stays at 1: `read` binds the empty first line, but the raw span still carries a word-boundaried psql
+and the verbatim reading — which the candidate SUPPLEMENTS rather than replaces, arm 2's ratified
+contract — reports it. Wrongly-loud on an input bash binds empty is the permitted arm.
+
+**R3 F2 — position after the effective operator is NECESSARY and NOT SUFFICIENT.** A here-string on an
+explicit non-zero fd sits after the effective stdin operator, so an ordering test admitted it:
+
+| source | before | after | bash binds |
+| --- | --- | --- | --- |
+| `read -r PG <<< notpsql 2<<< p'sql'` | 1 | 0 | `notpsql` |
+| `read -r PG <<< notpsql {v}<<< p'sql'` | 1 | 0 | `notpsql` |
+| `read -r PG <<< notpsql <<< p'sql'` | 1 | 1 | `psql` — the fd-less control |
+| `read -r PG <<< notpsql 0<<< p'sql'` | 1 | 1 | `psql` — explicit stdin |
+
+The lexer now records, on each target, the OFFSET OF THE OPERATOR THAT PRODUCED IT, and the consumer
+matches on identity. Ordering cannot express ownership; this is the same lesson as the two-bounds
+technique — an ordering test is satisfied by inputs the rule was never about.
+
+**Rule-29 termination audit, re-run by the PROPERTY rather than by loop shape.** The earlier pass
+concluded "every non-counter `for` advances in its own header", which is a SHAPE and does not carry
+the property. Re-established narrowly and honestly: this surface's declared operators are
+`relational-boundary` and `regex-quantifier-bound`, and NEITHER INVERTS A GUARD. A boundary widening
+turns `<` into `<=`, granting at most one extra iteration, and every loop in the module advances
+unconditionally in every branch — so no mutation IN THE DECLARED SET can extend iteration without
+bound. The general property, over operators this surface does not run, is NOT established here.
+
+**No mutant hit the timeout ceiling, established by magnitude rather than by absence.** A timeout
+counts as DETECTION in this runner, so a hung mutant is scored KILLED and its only symptom is wall
+clock. For the round-2 confirming run, 1068.08s over its 75 mutants is 14.24s per mutant against a deciding suite that runs about 14s —
+one suite execution each. A single 180s hang would have pushed that run's 75 mutants past 1240s. The
+same arithmetic holds for the round-3 confirming run at 74 mutants: 1068.00s is 14.43s per mutant, and
+one hang would have shown as roughly a 17% excess, far outside the 5% threshold set before that run.

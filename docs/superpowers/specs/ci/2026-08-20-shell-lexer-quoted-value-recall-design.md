@@ -272,6 +272,22 @@ decide whether it DOES, and each was a false report until it was asked:
    carries no fd prefix or an explicit `0`; `2<` opens fd 2 and bash's dynamic `{v}<` assigns a fresh
    descriptor, so neither displaces stdin (probed: both still bind `psql`).
 
+**A third condition, and it is not an ordering test (diff round 3 finding 2).** The target must belong
+to the EFFECTIVE redirection ITSELF. Position after it is NECESSARY and NOT SUFFICIENT: a here-string
+on an explicit non-zero fd sits after the effective stdin operator too, so
+`read -r PG <<< notpsql 2<<< psql` satisfied an ordering test and reported while bash binds `notpsql`.
+The lexer therefore records, on every target, the OFFSET OF THE REDIRECTION OPERATOR THAT PRODUCED IT,
+and the consumer matches on IDENTITY. **Ordering cannot express ownership** — whenever a check answers
+"which thing produced this" by reasoning about position, it is an inference standing in for a fact the
+producer could simply have recorded.
+
+That repair RETIRES a mutation ledger row, and the reason is worth stating because a vanishing site is
+what metric-gaming looks like: the comparison was relational and is now an equality, so
+`relational-boundary` no longer generates a site there. It went away as a CONSEQUENCE of a correctness
+fix — the equality is what stops the false report — rather than as its purpose. The discriminator is
+whether the change ALTERS BEHAVIOUR; a reshape that preserves behaviour while removing a site is the
+thing that is forbidden, and this is not one.
+
 **Both conditions are enforced through ONE gate, `effectiveHereString`, and that is the point of the
 repair rather than a tidiness.** The here-string family is a UNION of a line-text reading and a
 lexed-word reading, and rounds 1 and 2 each repaired only the word half — so the identical
@@ -673,6 +689,13 @@ rather than one that is absent. No limit in this list is a false certification.
     flat spellings of the same shape are all reported correctly (the five zero rows of the sweep case).
     **Re-file trigger:** a live corpus instance of an overridden here-string inside a substitution
     body, or any arc that gives the outer lex a view of a body's redirections for another reason.
+12. **NEW (diff round 3 finding 1).** An accepted expansion whose operand's FIRST LINE is empty still
+    reports through the verbatim reading: `read -r PG <<< ${U:-$'\npsql'}` reports while bash binds the
+    empty string. `read` binds the empty first line, so no candidate is offered, but the raw span still
+    carries a word-boundaried psql and the candidate SUPPLEMENTS the verbatim reading rather than
+    replacing it — which is arm 2's ratified contract, not an accident of this repair. Wrongly-loud on
+    an input bash binds empty is the permitted arm of §7.4. **Re-file trigger:** a bound that stops
+    permitting conservative over-reports, or a candidate mechanism that replaces the verbatim reading.
 11. **NEW (diff round 2 finding 2).** The four UNSET-branch spellings on an always-set special
     parameter — `${-:-'psql'}`, `${--'psql'}`, `${-='psql'}`, `${-:='psql'}` — report, while bash
     yields `$-` itself (probed: `[hBc]`). This is not new behavior and not specific to `-`: it is the
@@ -703,8 +726,8 @@ Declared state AT THE BRANCH POINT, read from the registry rather than asserted 
 `equivalent` rows, NO accepted gap, `scoreFloor: 1`; the count is mirrored at
 `tests/mutation/source/expectedLedgerKinds.ts` and gated by `registerSurfaceCases`.
 
-**AS SHIPPED, after diff rounds 1 and 2: 75 mutants, 27 `equivalent`, 48 counted, 48 killed, score
-1.0000, NO accepted gap, `scoreFloor: 1`.** Both arms moved every site below the lexer and the two
+**AS SHIPPED, after diff rounds 1 through 3: 74 mutants, 26 `equivalent`, 48 counted, 48
+killed, score 1.0000, NO accepted gap, `scoreFloor: 1`.** Both arms moved every site below the lexer and the two
 diff rounds moved them twice more, so all 24 original rows were re-keyed and re-read, three were
 added across the arc, and the mirror in `expectedLedgerKinds.ts` moved with them. The counted total
 grew because this round ADDED comparisons (an offset-max in `effectiveStdin` and a target-position
@@ -740,7 +763,7 @@ unchanged pair owes no re-run.
 **The gate command's COLLECTION is proven by running it, not by a linter.** Plain `spec:lint` makes no
 collection claim at all, and under `--exec-red` the collection arm is SILENT for any command wrapped in
 `pnpm heavy` — which AGENTS.md mandates for every heavy phase, so the arm cannot see this class. The
-proof here is the run itself: the scoped gate collected seven gate cases over 75 mutants. For contrast,
+proof here is the run itself: the scoped gate collected seven gate cases over 74 mutants. For contrast,
 the spelling that must never appear in a red or a gate is
 `npx vitest run tests/mutation/guardSurfaces.gates.test.ts`, which exits 0 having collected ZERO tests
 — the file is excluded from every default project by `NIGHTLY_ONLY_EXCLUDES` (`vitest.projects.ts`),
@@ -748,7 +771,7 @@ and the run prints it in its own `exclude:` list. Green from birth, and no later
 
 **Measured cost, 2026-08-20, on this branch: 899s at the branch point and 1068.08s as shipped**, both
 for a green run of the seven gate cases (temporary single-surface shard, `pnpm heavy`, foreground).
-The batch-level "~93s per surface" figure does not apply here: 75 mutants against a 973-test deciding
+The batch-level "~93s per surface" figure does not apply here: 74 mutants against a 975-test deciding
 suite at roughly 14s per execution. Budget a quarter-hour per re-measure and plan how many you can
 afford — which is why §7.2's blob-hash rule earns its place rather than being a nicety.
 

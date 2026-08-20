@@ -1047,6 +1047,12 @@ type RedirectionTarget = {
   line: number;
   /** Raw index of the target's first character in that text. */
   offset: number;
+  /** Raw index of the REDIRECTION OPERATOR that produced this target. Position
+   *  after the effective operator is necessary and NOT sufficient - a
+   *  here-string on an explicit non-zero fd sits after it too - so consumers
+   *  match on IDENTITY here rather than inferring ownership from ordering
+   *  (diff review r3 finding 2). */
+  operatorOffset: number;
   /** Arm 2, applied symmetrically at this SECOND site: the same whole-value
    * candidate an assignment value carries. Not a second mechanism - the same
    * predicate at another call site. */
@@ -1211,6 +1217,7 @@ function lexShellWords(
    * 2026-08-17 arc retired when it deleted the per-delimiter pattern family.
    * Holds the matched OPERATOR while a target is pending, null otherwise. */
   let pendingTarget: string | null = null;
+  let pendingTargetOffset = -1;
   /** Arm 2: the accepted `${…}` span most recently appended to `buffer`, with
    * the buffer positions it occupies. At flush it becomes the word's
    * `expandedCandidate` only if it still runs to the END of the buffer, which
@@ -1240,9 +1247,11 @@ function lexShellWords(
           text: buffer,
           line: startLine,
           offset: startOffset,
+          operatorOffset: pendingTargetOffset,
           expandedCandidate,
         });
       pendingTarget = null;
+      pendingTargetOffset = -1;
       pendingCandidate = null;
     }
     buffer = "";
@@ -1571,7 +1580,10 @@ function lexShellWords(
           const rest = text.slice(i + 1);
           const attached = /^(?:\$\{[^}]*\}|"[^"]*"|'[^']*'|\\.|[^\s;&|()<>])+/.exec(rest);
           if (attached) i += attached[0].length;
-          else pendingTarget = redirection[0];
+          else {
+            pendingTarget = redirection[0];
+            pendingTargetOffset = i - (redirection[0].length - 1);
+          }
           continue;
         }
       }
@@ -2991,10 +3003,12 @@ function hereStringBindingLines(
       // binding bash does not make.
       if (target.operator !== "<<<") continue;
       if (target.line < index || target.line > to) continue;
-      // A target sitting BEFORE the effective redirection is one the shell has
-      // already thrown away. The effective redirection is the last on the span,
-      // so its own target is the only one that can follow it.
-      if (target.offset < effective.offset) continue;
+      // The target must belong to the EFFECTIVE redirection itself, matched by
+      // the operator offset the lexer recorded on it. Ordering alone is not
+      // enough: `read -r PG <<< notpsql 2<<< psql` puts a here-string target
+      // AFTER the effective stdin operator, on fd 2, and bash binds `notpsql`
+      // (diff review r3 finding 2). Identity cannot make that mistake.
+      if (target.operatorOffset !== effective.offset) continue;
       // `read NAME` binds the FIRST LINE of its input, with default-IFS edges
       // stripped - not the whole here-string. Passing the entire target both
       // MISSED bindings bash makes (`$'psql\\nignored'` and `$'\\tpsql '` bind
@@ -3002,9 +3016,28 @@ function hereStringBindingLines(
       // The candidate is offered only when nothing was truncated, so a
       // multi-line target cannot be read through a span that spills past the
       // line bash actually binds.
-      const bound = (target.text.split("\n")[0] ?? "").replace(/^[ \t]+|[ \t]+$/g, "");
-      if (bound.length === 0) continue;
-      const candidate = bound === target.text ? wholeValueCandidate(target, 0) : null;
+      // `read NAME` binds the first line with default-IFS edges stripped, and
+      // that applies to the EXPANSION candidate exactly as it applies to the
+      // target's own text. Reading only the raw span was wrong in both
+      // directions: `${U:-$'psql\nignored'}` is a single RAW line, so the
+      // not-truncated guard passed while the DECODED operand still carried its
+      // newline, and `${U:-$'other\npsql -X'}` reported though bash binds
+      // `other` (diff review r3 finding 1). One helper, applied to whichever
+      // string is about to be read, so the two cannot drift apart.
+      const firstLine = (value: string): string =>
+        (value.split("\n")[0] ?? "").replace(/^[ \t]+|[ \t]+$/g, "");
+      const bound = firstLine(target.text);
+      const operand = wholeValueCandidate(target, 0);
+      // The operand's OWN first line, not the operand whole and not a decline.
+      // `read` receives the EXPANDED string, so it truncates the operand exactly
+      // as it truncates a literal target: `${U:-$'psql\nignored'}` binds `psql`
+      // and was MISSED, while `${U:-$'other\npsql -X'}` binds `other` and was
+      // REPORTED (diff review r3 finding 1). The candidate is an ADDITIONAL
+      // string tested by the same predicate rather than a replacement for the
+      // verbatim reading - arm 2's ratified contract - so an EMPTY first line
+      // yields no candidate rather than forcing a verdict.
+      const candidate = operand === null ? null : firstLine(operand) || null;
+      if (bound.length === 0 && candidate === null) continue;
       if (valueBinds(bound, file, candidate)) {
         found.add(index);
         break;
