@@ -215,8 +215,15 @@ children is `3600 - 1800 = 1800 s`, and at 660 s per hung child:
 | 2 | 1320 s | 3120 s | ceiling fires, job completes and REPORTS |
 | 3 | 1980 s | 3780 s | **job timeout binds first** |
 
-So the ceiling does its work for **one or two** hung children per nightly run and is bound by the job
-budget beyond that. Two observations make that acceptable rather than a defect:
+**Only the first row is reachable, which makes the bound exact rather than merely comfortable.** A
+timeout throws `MutantRunInfraError` (§5.3), nothing in the browser runner catches it — the sole
+`catch` is inside `runChild` itself (`tests/mutation/browser/runner.ts:162`) — so the throw
+propagates out of `runMutant`, out of `runBrowserSurface`'s `map`, and aborts the invocation. A
+second hung child is never reached in the same run. The worst reachable case is therefore
+**2460 s against a 3600 s budget**, and the multi-hang rows above are retained only to show what the
+budget would have to absorb if the abort behavior ever changed.
+
+Two further observations, now belt-and-braces rather than load-bearing:
 
 1. **The realistic case is ONE hung child.** The failure this bounds is a mutant that does not
    terminate; the mutants run sequentially, and a single non-terminating mutant is the shape both the
@@ -227,10 +234,12 @@ budget beyond that. Two observations make that acceptable rather than a defect:
    developer machine, where nothing bounds a child except this ceiling. `pnpm heavy` bounds how many
    heavy phases START, never how long one lives.
 
-**The residual is stated rather than hidden:** past two hung children the job timeout binds, and a
-job killed by `timeout-minutes` reports no gate annotation for any surface it holds — the same
-censoring failure recorded for the source shards under `BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH`. That
-is limit §6.6, not a claim that the ceiling covers every case.
+**The residual is stated rather than hidden:** the ceiling is bounded by the job budget in the sense
+that a job killed by `timeout-minutes` reports no gate annotation for any surface it holds — the same
+censoring failure recorded for the source shards under `BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH`. On
+the arithmetic above that is unreachable through this design's own timeout path; it remains reachable
+through a healthy run that is simply slower than the workflow's estimate. That is limit §6.6, not a
+claim that the ceiling covers every case.
 
 ### 5.4 Guard conditions
 
@@ -256,9 +265,10 @@ is limit §6.6, not a claim that the ceiling covers every case.
    its group, traps signals, or forges a report file defeats this design, as it defeats the sibling's.
 5. **The timeout path is not exercised by the browser gate's own healthy run.** Both measured runs
    were green. Proving the timeout arm is the plan's job (§7), not the gate's.
-6. **In CI the ceiling covers one or two hung children per run, not an unbounded number** (§5.4,
-   computed against `timeout-minutes: 60`). Beyond that the job budget binds first and the job
-   reports nothing at all. Raising `timeout-minutes` is NOT proposed here: it is a CI-capacity
+6. **In CI the ceiling's reachable worst case is 2460 s against a 3600 s budget** (§5.4, computed
+   against `timeout-minutes: 60`), because the first timeout aborts the invocation. What remains
+   reachable is a HEALTHY run slower than the workflow's own ~20-30 min estimate; if that ever
+   exhausts the budget the job reports nothing at all. Raising `timeout-minutes` is NOT proposed here: it is a CI-capacity
    decision on a nightly that already contends with `mutation-harness`, and it belongs to whoever
    owns that budget. Locally — the environment where every measured disaster occurred — no job budget
    exists and the ceiling is the only bound.
