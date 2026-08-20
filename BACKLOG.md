@@ -281,16 +281,6 @@ The rule is right in general — a bare filename in a marker has no anchor conte
 
 **First scheduled step:** confirm whether any OTHER tracked root-level file is a plausible `red-target=` (`git ls-files --full-name . | grep -v /` is the enumeration), since that set bounds how much the gap actually costs.
 
-## BL-MUTATION-BROWSER-CHILD-LIFETIME — the browser mutation gate spawns Playwright children with no lifetime bound
-
-**Status:** IN PROGRESS · **Branch:** fix/mutation-browser-child-lifetime · **Severity:** MEDIUM (same producer shape as `BL-MUTATION-CHILD-LIFETIME-PARENT-DEATH`, on a surface whose children are heavier and longer-lived) · **Class:** local capacity / process hygiene · **Effort:** M · **Filed:** 2026-08-17 (`fix/mutation-child-lifetime`, class-sweep of the source-harness repair) · **Reachability: PROBED** — by citation: the spawn site carries neither bound, and the kernel facts that make a `setpgrp`'d tree survive its parent (probe P-T1 of the sibling design) apply to any spawned tree.
-
-`runChild` calls `execFileSync` with no `timeout` and no process group (`tests/mutation/browser/runner.ts:152`). Its infra discrimination is already correct and is NOT what is filed here — `exitStatus = typeof err.status === "number" ? err.status : null` (`tests/mutation/browser/runner.ts:163`) keeps a signalled child out of the verdict space exactly as the source harness does. What is missing is the bound itself: a hung Playwright child runs until someone notices, and a child that outlives its harness is not reachable by anything the harness can still do.
-
-**Why it is not repaired in the branch that repaired its sibling — class-sweep exception (c).** The mechanism transfers; the NUMBER does not. `MUTANT_TIMEOUT_MS` is 180 s, derived against a ~2 s healthy source-suite run, and each browser child is a full Playwright run whose legitimate wall clock is minutes. Adopting 180 s here would convert healthy runs into timeouts, which is a worse failure than the one being fixed, so the ceiling needs its own derivation against measured browser-gate runs — and that derivation is a redesign of a gate the source-harness PR does not otherwise touch. The shared `spawnBounded` module (`tests/mutation/source/spawnBounded.ts`) is the repair vehicle and already accepts a per-caller `timeoutMs`, so the work is a ceiling measurement plus a call-site swap, not a second mechanism.
-
-**First scheduled step:** measure the wall clock of a full browser-gate run per child across the current mutant set, and derive a ceiling with the same "a timeout means a hang, not a slow machine" margin the source ceiling carries. That measurement bounds the whole entry; without it any number chosen is arbitrary.
-
 ## BL-ADMIN-DEV-PANEL-TAP-FLOOR — the two dev-panel buttons are ~28px, and their classes are not even compiled
 
 **Filed:** 2026-08-14 (`fix/ui-interactive-token-policy`, found by the shipped tap-height scanner's first run). **Class:** accessibility / dev-only surface. **Effort:** S. **Class-sweep exception:** (c) — the repair is a build-scope decision about a surface this branch does not otherwise touch. **Reachability:** PROBED — `pnpm vitest run tests/styles/_metaTapTargetFloor.test.ts` against an empty census names both sites.
