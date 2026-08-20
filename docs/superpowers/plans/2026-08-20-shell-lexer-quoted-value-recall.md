@@ -341,3 +341,54 @@ impeccable-gate: N/A — no UI surface
 This diff touches `tests/**` and `docs/**` only: no file under `app/`, `components/`, `app/globals.css`,
 `tailwind.config.*` or `DESIGN.md`, so invariant 8's dual gate does not apply. Advisory-lock topology:
 not touched, no `pg_advisory*` call in scope. DB layers: none.
+
+### Execution record
+
+**Task 5 — whole-suite execution, the cover for pins nobody predicted.** Run against the tree after
+Tasks 2-4: **951 passed (951)**, up from the 897 pinned at Task 1. Nothing newly failing beyond the
+two pins the §5 table predicted, and each of those retired inside the task that invalidated it —
+never across a commit boundary, so no commit ships a red suite. The six-row declared-miss array is
+now four rows; the two removed are exactly rows 1 and 2 of that table.
+
+The loop's own six rows are dispositioned by READING the loop rather than by the run, and that is
+sound there and only there: they live in one finite literal array in one place, and execution
+surfaces only the FIRST failing row before throwing. Execution is the cover for pins in SEPARATE
+tests. Both facts are stated so a later reader does not mistake the run for a cover it cannot be.
+
+**Task 5 — the documentation CONFIRMATION (no edit).** No `DEFERRED.md` pointer to either ledger row
+exists. Re-run at implementation time with an input proof and both controls, because a count over an
+unread population is indistinguishable from a real zero:
+
+- bytes read: `DEFERRED.md` 35334, `BACKLOG.md` 265859, `BACKLOG-archive.md` 1373085
+- must-be-PRESENT control, `BACKLOG.md`: **2** (the two open rows)
+- must-be-ABSENT, `DEFERRED.md`: **0**
+- every tracked hit, by file: `BACKLOG-archive.md` 1, `BACKLOG.md` 2, the 2026-08-17 plan 7, this
+  arc's handoff 1, this plan 2, the 2026-08-17 design 4, this arc's design 5, the probe record 2,
+  the deciding suite 4, `scan.ts` 5.
+
+### Two corrections recorded rather than folded in
+
+**The plan's executable complement table mis-attributed four numbers.** It lists `${U^}`, `${U,,}`,
+`${U@Q}` and `${U@U}` at 1. Measured STANDALONE they are **0**. Spec §4's 1 for those four belongs to
+the `U=psql;` prefix carried by the probe SPELLING, where the ASSIGNMENT route decides the
+observation — a different rule from the one under test. The standalone spelling is what is pinned,
+with the reason in the test body. The four rows that genuinely sit at 1 (length, bare `#`,
+indirection, subscript) report through the verbatim text and are kept as the must-be-PRESENT half of
+the table, so a zero there can never be mistaken for a broken probe. This changes no ratified
+decision: the accept-set, the default-deny and every §4 flip are untouched.
+
+**Task 4's named mutants moved five rows, not the three predicted.** S4 and S5, the
+complement-boundary cases, are held by the separator rejection on the VERBATIM text as well as by the
+whole-value fence, because `${U#x}${V:-"psql"}` carries a double quote. Their premise is unchanged
+and still correct — no candidate is built for either — but their zero has two independent guards and
+only one is the fence this arc added.
+
+### Granularity audit (fleet rule 16)
+
+An exemption keyed coarser than what it exempts silently absorbs everything that arrives later at the
+finer grain. Audited across this diff: the registry's `equivalent` rows are keyed
+`<operator>:<line>:<column>:<mutation>`, the finest grain the harness offers; the declared-miss array
+rows are keyed to ONE exact spelling each and are pins rather than exemptions, so they suppress
+nothing; `suitePaths` is file-keyed but names exactly one file and is a scope declaration, not an
+exemption. No `// no-telemetry:` or `KNOWN_UNINSTRUMENTED` row is added by this diff. Nothing here is
+keyed coarser than what it disposes of.
