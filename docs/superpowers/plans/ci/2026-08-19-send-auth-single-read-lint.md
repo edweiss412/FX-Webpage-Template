@@ -259,6 +259,47 @@ Two further variations ride in the fixture set for the same reason: a row whose 
 that is NOT called anywhere (so discovery finds no send-bearing function and the module scans clean),
 and a second registered module in one `scanRepo` run (so nothing may assume a single-row registry).
 
+## Weaker-implementation cover — every rule, its weaker form, and the fixture that kills it
+
+Three findings across plan rounds 2 and 3 were ONE class: **the fixture set was satisfiable by
+something that is not the thing the rule specifies.** A scanner hardcoded to the live spellings passed
+the whole corpus; a per-file marker counter satisfied a rule about association; a helper-only
+recognizer satisfied "exactly one derivation" and would then have reported against the live tree, since
+the shipped memo at `scripts/pane-compaction.ts:797` is a SPREAD. Three instances in two rounds is the
+same-vector trigger, and the prescribed answer is a derived cover rather than another round.
+
+This is the cover, applied in ONE pass to every rule the plan specifies. It is distinct from the
+anti-tautology rule and both apply: anti-tautology asks whether an assertion can fail at all; this asks
+whether it can fail for the RIGHT REASON. A fixture set that a weaker implementation passes is green
+about a property it never tested.
+
+| Rule | Strictly weaker implementation that would pass | Fixture that kills it | Task |
+| --- | --- | --- | --- |
+| Read set derived from the type | Hardcode the ten live read names | Fixture surface with an undeclared eleventh member | T1 |
+| Discovery anchored on SINKS | Anchor on any effect | `effects-only-no-pass` — many `emit`/`trace` calls, no sink, no pass: must scan CLEAN | T2 |
+| Marker attaches to a FUNCTION | Count markers per file | `detached-marker`, `two-sends-one-marker` | T2 |
+| Marker read impostor-safely | Line-regex over the function span | Marker token inside a string literal | T2 |
+| Exempt needs a reason | Accept the bare token | Empty-reason fixture | T2 |
+| Totality is MODULE-WIDE | Scope totality to the pass | `destructure-outside-pass` | T3 |
+| Ambient callbacks exempt | Exempt every member handed as a callback | Same shape with a READ member: must report | T3 |
+| Injection outside vs handoff inside | Report every raw-surface argument anywhere | Ordinary injection outside a pass: must NOT report | T3, T5 |
+| Reads must be straight-line | Report every in-pass direct read | `single-read-clean` | T4 |
+| At most one read per method | Report on the first read | `single-read-clean`; and exactly two must report BOTH lines | T4 |
+| EXACTLY one derivation | At most one | `zero-derivations` | T5 |
+| A spread IS a derivation | Recognize declared helpers only | `spread-derivation` (the live memo's own shape) | T5 |
+| Derivation position checked | Ban derivations under any nesting | Shipped-memo shape on the straight-line path: must NOT report | T5 |
+| Declared helper list | Treat any call taking the surface as a derivation | The round-4 fixture (an "any call" reading silences it entirely) | T5 |
+| Unregistered importers report | Iterate the registry only | Fixture module under the walked root with no row | T6 |
+| ...and only UNregistered ones | Report every module importing the type | `registered-importer` — a module WITH a row importing the type: must NOT report | T6 |
+| Rules are registry-driven | Hardcode `Surface`/`s`/`send`/`authorize` | The whole corpus is authored on the `Channel` row | all |
+| Registry may hold many rows | Assume a single row | Two registered modules in one `scanRepo` run | T6 |
+| A declared sink may be absent | Assume the sink is always called | Row whose sink is never called: module scans clean | T2 |
+| Live-tree emptiness is meaningful | Assert cardinalities | Intersection premise + positive control in a second invocation | T7 |
+
+Two rows in that table were GAPS when it was written — `effects-only-no-pass` and
+`registered-importer` — and both are added to their tasks by this pass rather than left for a reviewer
+to find as instance four.
+
 ## Acceptance criterion to task
 
 | AC | Task | AC | Task |
@@ -350,6 +391,12 @@ FILE passes every fixture above:
   one-or-more send-bearing functions and says nothing.
 
 Both are authored against the `Channel` row like the rest of the corpus.
+
+**`effects-only-no-pass` is the fixture that makes AC-14 discriminating**, and it was a gap until the
+weaker-implementation pass above: a `Channel` module whose functions call only `emit` and `trace`, with
+no sink call and no declared pass anywhere, must scan CLEAN. A scanner anchored on effects reports
+`UNDECLARED-PASS` against it. Paired with it, a row whose declared sink is NEVER called must also scan
+clean, so discovery cannot assume the sink is present.
 
 AC-14 rides here: a function whose only effect calls are `out` is NOT send-bearing. The live module is
 the proof — `main` carries fifteen `s.out(...)` calls and no pass (spec §3.5), so a scanner anchored on
@@ -465,6 +512,12 @@ which defect the cycle is proving.
 **What makes the red discriminating:** the fixture module is added under the walked root with NO
 registry edit, and the assertion is that it is discovered anyway. A scanner iterating
 `SEND_AUTH_SURFACES` alone cannot pass it.
+
+**And its counterpart, a gap until the weaker-implementation pass above:** `registered-importer` — a
+module that imports the surface type and DOES have a registry row — must NOT report. Without it, an
+implementation that reports every importer of the type passes the unregistered case and then fires on
+every enrolled module. Two registered modules also appear in one `scanRepo` run, so nothing may assume
+a single-row registry.
 
 ## Task 7 — declare the pass on the live adapter, with the gate's own premise
 
