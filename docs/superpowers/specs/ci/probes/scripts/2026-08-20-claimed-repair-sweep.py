@@ -14,10 +14,24 @@ SPEC  = "docs/superpowers/specs/ci/2026-08-20-claim-sweep-after-repair.md"
 PROBE = "docs/superpowers/specs/ci/probes/2026-08-20-claim-sweep-after-repair-probes.md"
 norm  = lambda s: re.sub(r"\s+", " ", s)
 
-docs = {p: norm(pathlib.Path(p).read_text()) for p in (SPEC, PROBE)}
+PLAN   = "docs/superpowers/plans/2026-08-20-claim-sweep-after-repair.md"
+FILING = "docs/review-rounds/feat/speclint-claim-sweep-after-repair/4dfd784ed062.md"
+
+# THE SWEEP UNIT IS EVERY DOCUMENT THIS ARC WRITES, not the spec/probe pair it
+# started as.  Plan review round 4 found SEVEN current-tense survivors in the
+# FILING -- six rounds for seven, three codes for four, nine limits for ten --
+# while this script reported a clean sweep, because the filing sat outside the
+# population it read.  A cover that is clean about documents it never opened is
+# the fail-open this arc exists to catch, one artifact further out.
+docs = {p: norm(pathlib.Path(p).read_text()) for p in (SPEC, PROBE, PLAN, FILING)}
 for p, t in docs.items():
     print(f"read {p}: {len(t)} normalised chars")
-    assert len(t) > 8000, f"{p} read implausibly small -- run VOID"
+    # RULE 47: a check that reports a zero states the SIZE of the set it scanned.
+    # "0 of 0" and "0 of 70" render identically and mean opposite things, so a
+    # short read aborts rather than producing a clean sweep over nothing.
+    assert len(t) > 4000, f"{p} read implausibly small ({len(t)} chars) -- run VOID"
+print(f"population: {len(docs)} documents, "
+      f"{sum(len(v) for v in docs.values())} normalised chars total")
 
 def count(where, needle):
     return sum(docs[p].count(norm(needle)) for p in where)
@@ -89,6 +103,18 @@ PRESENT = [
     ("AC-2 not-found clause",         [SPEC],  "occurring zero times EXACTLY emits"),
     ("AC-3 code-set clause",          [SPEC],  "equals exactly\n  the four of §3.4"),
     ("probes 10 supplement",          [PROBE], "closing the accept-set exposed a signal nothing could carry"),
+    # --- the PLAN and the FILING, now inside the population (plan r4 f1) ---
+    ("filing: seven rounds",          [FILING], "**Seven rounds of a recognizer"),
+    ("filing: FOUR codes",            [FILING], "the arm ends with FOUR codes"),
+    ("filing: TEN limits",            [FILING], "and TEN declared"),
+    ("filing: 24 findings",           [FILING], "two of the 24 are mechanizable"),
+    ("filing: other 22",              [FILING], "The other 22 were not mechanizable"),
+    ("filing: 2 + 5 split",           [FILING], "seven-round stage sat 2 + 5"),
+    ("filing: seven dispatches",      [FILING], "All seven dispatches returned"),
+    ("plan: derived red check",       [PLAN],   "it is a verification step"),
+    ("plan: nine tasks",              [PLAN],   "TDD contract for Tasks 1-9"),
+    ("plan: derived commit scope",    [PLAN],   "DERIVED from the files the task touches"),
+    ("plan: disposition record",      [PLAN],   "CLOSED BY RULING, not by an APPROVE verdict"),
 ]
 
 ABSENT = [
@@ -118,6 +144,19 @@ ABSENT = [
     ("retired: 'Three codes' header",         [SPEC],        "**Three codes.** One per half"),
     ("retired: 'Three codes' closure",        [SPEC],        "The three are the whole accept-set: the arm emits nothing else."),
     ("retired: silent not-found wording",     [SPEC],        "the exact rule reports none and says the identifier was not found"),
+    # --- plan r4 f1: the retired model as it stood in the FILING ---
+    ("retired: filing six rounds",            [FILING],      "**Six rounds of a recognizer"),
+    ("retired: filing THREE codes",           [FILING],      "the arm ends with THREE codes"),
+    ("retired: filing two of the 23",         [FILING],      "two of the 23 are mechanizable"),
+    ("retired: filing other 21",              [FILING],      "The other 21 were not mechanizable"),
+    ("retired: filing 2 + 4",                 [FILING],      "six-round stage sat 2 + 4"),
+    ("retired: filing six dispatches",        [FILING],      "All six dispatches returned"),
+    # --- plan rounds 1-3: task shapes the plan retired ---
+    ("retired: twelve-task cardinality",      [PLAN],        "repeated twelve times"),
+    ("retired: number-mapped commit scopes",  [PLAN],        "Scope is `speclint` for Tasks 1-9 and 12"),
+    ("retired: separate no-rewrite task",     [PLAN],        "## Task 9 — the arm never rewrites a document"),
+    ("retired: separate corpus task",         [PLAN],        "## Task 8 — the corpus regression, as a relation"),
+    ("retired: separate killer-audit task",   [PLAN],        "## Task 10 — the killer audit"),
 ]
 
 print("\n-- CONTROLS --")
@@ -127,8 +166,15 @@ print(f"  must-be-PRESENT control '## 3. The arm'      : {ctl_present}  (need >=
 print(f"  must-be-ABSENT  control nonsense string       : {ctl_absent}  (need 0)")
 # a control drawn from the OTHER document, so a single-file read cannot fake the pair
 ctl_probe = count([PROBE], "## 1. The entry's acceptance criterion")
+ctl_plan = count([PLAN], "## 0. Pre-draft code-verification pass")
+ctl_filing = count([FILING], "# Review-round filing")
 print(f"  must-be-PRESENT control, PROBE record        : {ctl_probe}  (need >=1)")
-assert ctl_present >= 1 and ctl_absent == 0 and ctl_probe >= 1, "CONTROLS VOID -- run means nothing"
+print(f"  must-be-PRESENT control, PLAN                : {ctl_plan}  (need >=1)")
+print(f"  must-be-PRESENT control, FILING              : {ctl_filing}  (need >=1)")
+# ONE CONTROL PER DOCUMENT, because a control in one file proves only that ONE
+# read succeeded -- which is exactly how the filing stayed invisible.
+assert ctl_present >= 1 and ctl_absent == 0 and ctl_probe >= 1 and ctl_plan >= 1 and ctl_filing >= 1, \
+    "CONTROLS VOID -- run means nothing"
 
 print("\n-- POSITIVE DIRECTION: repairs claimed this round --")
 missing = 0

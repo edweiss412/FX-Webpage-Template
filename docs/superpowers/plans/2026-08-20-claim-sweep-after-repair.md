@@ -511,12 +511,28 @@ $ VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest list --project mutation tes
 The gate red above is the first; these are the other two, both in the GREEN phase, both with their output
 in the commit:
 
+**`$INPUTS` IS EVERY INPUT THE SCORE IS A FUNCTION OF, and round 4 caught it naming only two of four.**
+The score is a pure function of (source, declared operators, deciding suites), so the stamp must cover the
+REGISTRY ROW — which declares `operators`, `suitePaths`, `control` and `scoreFloor` — and Task 1's
+`fixtures/claimSweep/**`, which the deciding suites read. A stamp that omits either leaves the
+before/after pair IDENTICAL while an ordinary mid-run edit changes what the score measures, so the
+provenance proof would accept the incoherent-run condition it exists to detect:
+
+```
+INPUTS="lib/specLint/claimSweep.ts tests/specLint/*.test.ts \
+        tests/specLint/fixtures/claimSweep tests/mutation/source/registry.ts"
+```
+
+`git hash-object` on a directory does not recurse, so the fixtures entry is expanded by the same command
+that stamps it (`git ls-files -s -- tests/specLint/fixtures/claimSweep`), which also means a fixture ADDED
+mid-run changes the stamp rather than hiding behind a glob that was expanded before it existed.
+
 ```
 # the score, with provenance stamped INSIDE the measuring invocation, before and after
 FX_HEAVY_PRIORITY=1 pnpm heavy sh -c '
-  git hash-object lib/specLint/claimSweep.ts tests/specLint/*.test.ts   # BEFORE
+  git hash-object $INPUTS; git ls-files -s -- tests/specLint/fixtures/claimSweep   # BEFORE
   VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest run --project mutation     tests/mutation/guardSurfaces.shard*.test.ts tests/mutation/guardSurfaces.gates.test.ts
-  git hash-object lib/specLint/claimSweep.ts tests/specLint/*.test.ts   # AFTER
+  git hash-object $INPUTS; git ls-files -s -- tests/specLint/fixtures/claimSweep   # AFTER
 '
 
 # purity, RUN rather than described as automatic
@@ -529,7 +545,11 @@ and would pass an empty directory, so its floor assertion is what makes a clean 
 describing it as automatic discovery does not run it, which is what round 3 found.
 
 Enrolment is TWO declarations: a registry row (`id: "claimSweep"`,
-`sourcePath: "lib/specLint/claimSweep.ts"`, `suitePaths` naming Tasks 1-7's suites,
+`sourcePath: "lib/specLint/claimSweep.ts"`, `suitePaths` **DERIVED FROM THE IMPORT GRAPH — every test
+file that imports the module appears in it — and asserted that way rather than typed**, because an
+enumeration of Tasks 1-7's suites is correct when written and wrong the moment a task adds an eighth: a
+suite missing from `suitePaths` buys ZERO score and decides NOTHING, silently. A name-keyed check would be
+blind to any suite that does not follow the convention, so the check keys on the imports,
 `operators: [...OPERATOR_NAMES]`, `scoreFloor: 0.95`, a `control` mutant verified unique on the current
 source, `accepted: []`) AND the `expectedLedgerKinds` key.
 
@@ -542,8 +562,20 @@ and this one had already decayed from three to twelve before anyone read it.
   with a case, and only then argue equivalence with a written premise re-checked against the diff. There
   is no rung for "restructure until the operator does not apply" — it raises the number without improving
   the suite, invisibly.
-- **TOTALISING HAS A HAZARD, and this surface is full of string scans, so the form is mandated here and
-  the audit is a PREDICATE run over the whole module rather than a look at the loops anyone noticed.** Rewriting `while (i < s.length && p(s[i]))` as `while (p(s.charAt(i)))` deletes the
+- **TOTALISING HAS A HAZARD, and this surface is full of string scans, so the audit is by PROPERTY over
+  the whole module — never by recognising a shape.** The property: **no mutation of a loop's predicate can
+  extend its iteration count.** The check is mechanical and takes the guard seriously: **take the value the
+  guard EXCLUDES, feed it to the advance expression by hand, and ask whether the result is a position the
+  loop has already visited.** If yes, that is a hang, not a fixed loop.
+
+  **"A search loop that advances in its own header" is RETIRED as a safe form**, because it is a silhouette
+  rather than a property: `for (let at = s.indexOf(p); at !== -1; at = s.indexOf(p, at + 1))` advances in
+  its header and still hangs under an `at === -1` flip, since the guard excludes the sentinel `-1` and
+  `at + 1` converts it into a valid restart at 0. The forms that survive do so because of what they
+  COMPUTE: a REGEX MATCH for a leading run (no loop at all), a FOR-OF over a finite collection (an
+  iterator drives it, not a predicate), and a loop whose ceiling is EXTERNAL to the predicate — a counter
+  or a `ranges.length` bound no mutant can lift. Use those as examples of the property, never as a
+  checklist to match against. Rewriting `while (i < s.length && p(s[i]))` as `while (p(s.charAt(i)))` deletes the
   bounds comparison a mutant survived on and MOVES TERMINATION INTO THE PREDICATE: an equality-flip mutant
   then spins forever, because `charAt` keeps returning empty past the end. A bounded counting loop is
   mutation-SAFE by construction — whatever a mutant does to the predicate, the bound still ends it and the
@@ -620,7 +652,30 @@ and this one had already decayed from three to twelve before anyone read it.
   argument composed after a discovery run has already named the survivors cannot claim it was written
   first; say so in the row and let the confirming run adjudicate — if the site is killed, the argument is
   wrong and the row comes out.
-- **Apply the predicted-side-effect rule FORWARD as well as backward.** Before a re-measure, state what the
+- **A TIMEOUT SCORES AS A KILL, so a hang INFLATES the score and its only symptom is wall clock.**
+  `MUTANT_TIMEOUT_MS` is 180s and the scoring path counts a timeout as detection, so a hung mutant is
+  recorded KILLED: it costs three minutes and reports nothing — no survivor, no failure, no mark. **A
+  perfect score is therefore consistent with several mutants having hung.** This is the exact inverse of
+  the loud hang that takes a run down, and it is why wall clock is not a soft secondary signal on this
+  surface but the ONLY channel the defect has. **Normalise by MUTANT COUNT before comparing runs** — a
+  measured case went 1425.96s/202 to 1002.31s/261, which reads as a modest speedup on totals and as 7.06s
+  against 3.84s per mutant, nearly halved. If a run takes materially longer than its mutant count
+  predicts, look for children that ran to the ceiling.
+- **A GREEN GATE PRINTS NO COUNTS**, so a score quoted from a passing run is DERIVED from the registry and
+  the generator, not read off the log. Predict the four figures before launching and check the derivation
+  matches; that is a stronger check than reading a number off a screen.
+- **Never diagnose a run by inspecting processes.** Concurrent arcs share process-name space — scoped
+  shard files collide across worktrees, so `ps | grep shard9` counts other arcs' children. Filter by the
+  worktree path or do not use `ps` at all. **A right conclusion reached through contaminated evidence is
+  still a reporting defect:** keep the finding, retract the attribution, and say which is which.
+- **Apply the predicted-side-effect rule FORWARD as well as backward, AND STATE THE MAGNITUDE THAT
+  COUNTS.** A direction-only prediction on a noisy quantity gets confirmed or refuted BY NOISE, which is
+  worse than no prediction because it launders randomness into evidence — a 1% delta over an 18-minute run
+  adjudicates nothing, and "indistinguishable from equal" is an available and honest verdict. The
+  threshold is usually a null rate; where none exists, say the measurement cannot adjudicate and do not
+  score it either way. **And write down a number the fix must MOVE, not only a symptom it must remove:** an
+  absence is satisfied by broken instrumentation, an empty population, or another arc's processes standing
+  in for yours; a predicted magnitude is satisfied by almost nothing except the mechanism being real. Before a re-measure, state what the
   run must show if the repairs landed as believed — fewer mutants after deletions, a shorter wall clock —
   and name the falsifier. **And refuse to claim the evidence where the situation does not provide it:** a
   structural hazard removed BEFORE it ever fired predicts no speedup, and saying it does is exactly the
@@ -712,7 +767,28 @@ own red and matching the output to its `why=`, per §4 step 2.
    `docs/superpowers/specs/ci/README.md`.
 6. **Run the claimed-repair sweep and the population census to a FIXED POINT** — run, repair, run, until
    zero, BEFORE the diff dispatch rather than after.
-7. **The ledger change is ONE commit BEFORE whole-diff review**: archive
+
+   **The sweep's population is EVERY document this arc writes**, which round 4 of plan review established
+   the hard way: it read the spec and probe record only, reported a clean sweep, and the round-economy
+   FILING was carrying seven current-tense survivors of the retired model — six rounds for seven, three
+   codes for four, nine limits for ten. A cover that is clean about documents it never opened is this
+   arc's own defect one artifact further out. It now reads spec, probe record, plan and filing, with a
+   must-be-PRESENT control IN EACH — one control proves one read succeeded, which is exactly how the
+   filing stayed invisible — and **it prints the population SIZE beside every zero**, because `0 of 0` and
+   `0 of 70` render identically and mean opposite things.
+
+   **Any document this arc adds later joins that list in the same commit**, on the same reasoning as
+   `ARC_DOCUMENTS`.
+
+7. **DRY-RUN EVERY STAGED SCRIPT'S ANCHORS BEFORE THE RUN IT WAITS ON, not when it lands.** A staged
+   script is a citation into a moving file and it fails the same silent way as a `red-target`: a wrong
+   anchor either matches NOTHING, which you notice, or matches SOMEWHERE ELSE, which you do not. The
+   exactly-once assertion catches both but only AT APPLY TIME — a measurement has just landed, the commit
+   is under pressure, and the file has moved since the script was written. Count every anchor's matches
+   against the LIVE file and require the count expected, while nothing is waiting. Two real bugs were
+   caught this way on a sibling arc, both invisible to reading: an anchor asserted unique that occurs
+   twenty-one times, and one typed from memory that matched zero.
+8. **The ledger change is ONE commit BEFORE whole-diff review**: archive
    `BL-SPEC-CLAIM-SWEEP-AFTER-REASONING-FINDING`, strip its IN PROGRESS marker, file any class-sweep peers
    with their exception letter. Absence at commit N is absence at every commit after N, so review and CI
    cover exactly what merges. Verify absent-at-HEAD immediately before merge, and re-run the
@@ -734,7 +810,7 @@ performs it, the AC is decoration.
 | AC-3 advisory severity, closed code set, refusals, inventory reconciliation, NO REWRITE | Tasks 2, 6 and 7 | the `claimSweepRefusals` suite (the REASON line naming both values, zero findings, exit 2 pinned in the green phase); the `claimSweepIdentity` suite (emitted set vs the module's exported codes, severity structural, inventory reconciled both directions with its positive control, identity pinned by a proven column mutant); and the no-rewrite case INSIDE the `claimSweepCli` suite (zero writes under a spy, a non-zero finding count asserted FIRST as the premise, a `writeFileSync` mutant observed RED) — it lives there because a separate later task's red would already be green |
 | AC-4 historical replay as a SET | Tasks 1 and 3 | folded into the two halves' own suites as their RED cases rather than a separate task — a replay authored after both halves work would pass the moment it is written, which is a guard with no red |
 | AC-5 declared swept set, unreadable peer | Tasks 5 and 7 | the `claimSweepDocumentSet` suite (exact declared set and undeclared sibling as ONE case, null read reported, paired readable); the `claimSweepCli` suite for every repeated `--also`, unreadable-peer propagation, and peers being SWEPT not LINTED |
-| AC-6 corpus as a RELATION | Task 8 | the `claimSweepCorpus` suite — enumerated at run time, both directions of the population relation, no §2 figure pinned, `ARC_DOCUMENTS` read from the ONE committed data file the census script also reads with a parity assertion, and the collision cover carrying its outside-arc positive control |
+| AC-6 corpus as a RELATION | Tasks 1 and 9 | **SPLIT by the round-3 fold, and named here because a single-task answer would be a stale predecessor.** Task 1's GREEN-phase corpus pin: over the tracked corpus with a declared pair, every sentence carrying both values is excluded and the non-excluded count is REPORTED rather than pinned — no §2 figure appears in any assertion. Task 9 owns the POPULATION half, where the single authority now lives: `ARC_DOCUMENTS` read from the one committed data file the census script also reads, a parity assertion between them, both directions of the relation (the enumeration contains none of them; the same enumeration without the exclusion contains all that exist), and the collision cover with its outside-arc positive control |
 | AC-7 killer audit, three states | Task 9 | the `claimSweepKillerAudit` suite, which EXECUTES each row's mutant recipe — apply, run only that check, require a failure, revert, confirm green — so PROVEN is OBSERVED rather than read; plus its own positive control (one killing check deleted, the row observed ABSENT) and the counts recorded in the round filing |
 | AC-8 enrolment, score, purity | Task 8 | the gates suite through the mutation project, as this task's RED, for both declarations; the provenance-stamped score command in its GREEN phase, with the before/after blob hashes printed INSIDE the measuring invocation; and `_metaPureCore` RUN, not described as automatic — its floor assertion is what makes a clean verdict attributable. The adapter half of purity is AC-3's no-rewrite proof, inside Task 7 |
 | AC-9 both documents lint 0 hard, and every citation re-pointed | Task 9 | `pnpm spec:lint <doc>` on the spec AND this plan, ONE document per invocation; plus the header grep proving §5 items 1-10 are restated, and every red-target re-verified by READING its line |
@@ -808,7 +884,8 @@ the omission mechanically, since it derives its own list from spec §6 rather th
 | Task 7, swept-not-linted | run the full lint over peers | a peer whose own text draws citation, numeric and copy findings; the assertion is on the CODE SET, so a full-lint adapter fails naming the extras |
 | Task 7, no rewrite | write to a document while reporting | the write spy, with a NON-ZERO finding count asserted FIRST as the premise, and a `writeFileSync` mutant observed red |
 | Task 9, killer audit | label every present check PROVEN | a deletion control cannot see it, because deleting a check still yields ABSENT; the audit EXECUTES each row's mutant recipe and records the observed red |
-| Task 8, corpus | hardcode the excluded paths | `ARC_DOCUMENTS` IS a declared tuple, so this is the specification rather than a weaker form; the relation asserted is that the enumeration excludes them AND the unfiltered enumeration contains them |
+| Task 1, corpus pin | pin a §2 cardinality instead of reporting it | a corpus that grows turns a correct arm red; the assertion REPORTS the non-excluded count and pins nothing, and the figure moved 936 → 943 → 947 → 953 across this arc's own rounds |
+| Task 9, population | hardcode the excluded paths, or keep a second literal list | one authority in a data file both readers consume, with a parity assertion. The relation is asserted in BOTH directions, so an implementation that forgets the exclusion fails one half and one that enumerates nothing fails the other |
 
 **Which rule DECIDES the observation, asked of every fixture:** Task 3's span-exclusion cases are decided
 by the SPAN rule and not by the sentence rule, so their survivors are placed in sentences that carry the
