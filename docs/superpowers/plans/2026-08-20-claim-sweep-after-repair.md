@@ -207,6 +207,29 @@ legitimate is that the only edit which could turn it green without an implementa
 import — which deletes the test. A task whose red is still an import or collection error AFTER Task 1 is
 a defect in that task, not a red.
 
+**A TASK WHOSE RED GOES GREEN BY EDITING THE ASSERTION IS NOT A TASK — it is a verification step, and it
+belongs inside one.** This is the plan's most expensive class: it cost three review rounds and three
+separate folds — the historical replay into the two halves' suites, the no-rewrite proof into the adapter,
+and the corpus relation and killer audit into Task 1 and the closeout. Each time the shape was the same
+and the repair was structural rather than a better `why=`. **The derived check, run at authoring time and
+re-run whenever a task is added, folded or split:** for each task, name the edit that turns its red green
+and confirm that edit is part of the DELIVERABLE rather than of the assertion. A task whose only file is
+its own suite fails this by construction.
+
+Run over the nine tasks as they stand:
+
+| Task | red command runs | the edit that turns it green | deliverable? |
+| --- | --- | --- | --- |
+| 1 | its new suite | creates `claimSweep.ts` | yes |
+| 2 | its new suite | the refusal branch in `claimSweep.ts` | yes |
+| 3 | its new suite | the named half in `claimSweep.ts` | yes |
+| 4 | its new suite | the fourth code's branch | yes |
+| 5 | its new suite | the declared swept set | yes |
+| 6 | its new suite | the exported code list and the reconciliation | yes |
+| 7 | its new suite | the adapter's flags, spans and peers | yes |
+| 8 | the mutation gates suite | the `EXPECTED_LEDGER_KINDS` key — a DIFFERENT file from the suite the command runs | yes |
+| 9 | `spec:lint` on this plan | re-pointed citations in this plan — the plan IS the artifact under lint, not an assertion about it | yes |
+
 **Every RED below is an expect-a-REPORT case, never an expect-CLEAN one.** An expect-CLEAN fixture is
 satisfied by any implementation that fails to look — a broken parse, an empty walk, a crashed read — so
 the red anchors on output the implementation must PRODUCE. The expect-CLEAN cases in each task are
