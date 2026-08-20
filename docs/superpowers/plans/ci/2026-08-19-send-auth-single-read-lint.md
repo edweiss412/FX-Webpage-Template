@@ -108,6 +108,30 @@ round-1 findings, and it is the concrete reason this plan was re-derived rather 
   §3.3's r2 F1 mutant scanning CLEAN. The command is in spec §3; the throwaway prototypes live under
   the gitignored `.claude/` tree and are deliberately not tracked.
 
+### Every `red=` swept under `--exec-red`, and the silence distinguished from the pass
+
+Plan round 1 found a red that could not fail. The class repair is not to re-check the named markers but
+to run the arm that decides the question over ALL of them:
+
+```sh
+$ pnpm spec:lint --exec-red docs/superpowers/plans/ci/2026-08-19-send-auth-single-read-lint.md
+summary: 0 hard, 24 advisory
+```
+
+Zero hard. The advisories are all `RED_SUITE_UNVERIFIED` on the gate suite this plan creates, which is
+the expected and correct signal for an `authored` red naming a file that does not exist yet.
+
+**Silence had to be distinguished from a pass, because this arm is silent on some command shapes.**
+Probed while drafting: `spec:lint --exec-red` mints NO finding — not even the `RED_PROBE_UNVERIFIED`
+advisory it emits for a probe it cannot derive — when a `red=` is wrapped in `pnpm heavy`, because
+`deriveCollectionProbe` returns kind `none` and `collectionProbePlan` drops the marker
+(`lib/specLint/redContract.ts:722`). So "no finding" is only evidence of collection if the arm can see
+the shape at all. Task 8's shape was confirmed VISIBLE by pointing the same command at a nonexistent
+suite, which produced `untracked: tests/mutation/__nonexistent_probe.test.ts` — the arm is watching it,
+and its silence on the real command therefore means the command collects. Independently, all three of
+Task 8's commands were run by hand and collect and pass today. The `pnpm heavy` gap is filed as a peer
+row in the closeout below rather than worked around here.
+
 ### Fixture-collision check — a DERIVED cover, after the first two attempts were unsound
 
 The fixtures deliberately contain violating code and a `// send-auth: pass` token, so any other
