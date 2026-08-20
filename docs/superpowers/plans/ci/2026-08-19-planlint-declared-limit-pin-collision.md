@@ -158,6 +158,12 @@ because "the arm draws nothing here" is the claim a future widening would quietl
 | phrase in a `//` or `/* */` comment | §2.2 | no pin |
 | phrase in the SECOND argument, not the title | §3.1 item 2 | no pin |
 
+**Decoding is part of this task, not the obligation's.** The pin's title is the DECODED literal content
+(spec §3.1 item 2). Task 1 asserts a source-spelled `\"` title yields the decoded string; Task 3 asserts
+the obligation compares against it. Splitting the pair across the two tasks would let each pass while
+the seam between them stays wrong, so Task 1's assertion names the decoded VALUE explicitly rather than
+round-tripping whatever the implementation produced.
+
 One more case, and it is a GRAIN assertion rather than a decline: a test whose BODY tabulates several
 declared misses under one phrase-bearing title yields exactly ONE pin, not one per row (spec §8 item
 12). The live instance is the six-row table under `each quote-concatenated keyword/operand spelling is a
@@ -507,7 +513,7 @@ red for a command that exits 0 today would be the "pasted a command prompt besid
 | AC-2 Files-block grain, prose draws nothing | Task 2 | tests/specLint/declaredLimitPinsFiles.test.ts |
 | AC-3 obligation, dedup, advisory-only severity | Tasks 3, 5 | obligation + wiring suites |
 | AC-4 historical replay, both directions | Task 6 | `declaredLimitPinsCorpus.test.ts, committed blobs |
-| AC-5 unreadable suite is reported, not skipped | Task 3 | fake resolver returning `null` |
+| AC-5 both fail-open channels reported, not skipped | Task 3 | fake resolver: `null` read, and a SUCCEEDING read on an untracked path |
 | AC-6 corpus SET over the enumerated corpus | Task 6 | live-tree corpus case, set assertion, no count |
 | AC-7 dispositions: no stale row, derived census | Task 4 | `_metaDeclaredLimitPins.test.ts |
 | AC-8 both enrolment declarations, score ≥ 0.95 | Tasks 5, 7 | gates test, purity meta-test, scoped run |
