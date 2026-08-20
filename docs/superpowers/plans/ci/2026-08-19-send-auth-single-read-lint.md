@@ -813,8 +813,12 @@ So the closable criterion is the score plus an empty unaccepted-survivor set PLU
 killer audit over every weaker implementation this table names — each one built,
 run, and observed to red. A perfect score is not permission to skip the audit, and
 a passing audit is not permission to skip the score. The audit's own result is
-recorded with the run: 29 weaker implementations built, 29 PROVEN, 0 UNPROVEN,
-0 SKIPPED, source restored byte-for-byte. Its three-state reporting is deliberate —
+recorded with THE RUN THAT PRODUCED IT — 29 weaker implementations built, 29 PROVEN,
+0 UNPROVEN, 0 SKIPPED, source restored byte-for-byte — and that figure is a RECORD OF
+A RUN rather than a statement of current fact, so it is NOT updated as the audit
+grows. (Diff r2 later carried it to 35 rows; the shipped closeout states that
+figure.) Freshness and fidelity are opposite requirements here: rewriting a
+recorded result to stay current falsifies the record of what was actually observed. Its three-state reporting is deliberate —
 a probe that fails to APPLY is not a probe that passed, and collapsing those two
 is how an audit reports green on nothing.
 

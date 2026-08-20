@@ -531,7 +531,11 @@ const blocksStraightLine = (n: ts.Node): boolean =>
 const analyzePassReads = (
   sf: ts.SourceFile,
   file: string,
-  bindings: ReadonlySet<string>,
+  // A PREDICATE, not a set: whether a name is a RAW binding depends on WHERE it is
+  // used. A parameter shadowing a derived name inside the same pass is raw at its own
+  // uses and derived nowhere (diff r2 F1), and a set keyed on the name alone cannot
+  // say that.
+  isRaw: (name: string, at: ts.Node) => boolean,
   reads: readonly string[],
   passFn: ts.Node,
   derivations: readonly Derivation[],
@@ -546,7 +550,7 @@ const analyzePassReads = (
       ts.isCallExpression(n) &&
       ts.isPropertyAccessExpression(n.expression) &&
       ts.isIdentifier(n.expression.expression) &&
-      bindings.has(n.expression.expression.text) &&
+      isRaw(n.expression.expression.text, n) &&
       readSet.has(n.expression.name.text)
     ) {
       const member = n.expression.name.text;
@@ -820,18 +824,28 @@ const unreachedOccurrences = (
       // declined, and that one is DECLARED SILENCE under the ratified no-call-graph
       // fence (§4) rather than an accidental gap — the scanner cannot know what a
       // call returns without the machinery this arc withdrew.
-      const receiverName = (e: ts.Expression): string | null =>
-        ts.isIdentifier(e) ? e.text : ts.isPropertyAccessExpression(e) ? e.name.text : null;
+      // Parentheses are a TRANSPARENT WRAPPER -- same meaning, same evaluation order
+      // -- so `(this.ch).send(...)` is the same call as `this.ch.send(...)` to every
+      // reader. Inspecting the node without unwrapping made both the sink walk and the
+      // default-deny arm miss it, and the module reported NOTHING (diff r2 F2). A
+      // wrapper that changes no semantics must not change what the guard sees.
+      const unparen = (e: ts.Expression): ts.Expression =>
+        ts.isParenthesizedExpression(e) ? unparen(e.expression) : e;
+      const receiverName = (raw: ts.Expression): string | null => {
+        const e = unparen(raw);
+        return ts.isIdentifier(e) ? e.text : ts.isPropertyAccessExpression(e) ? e.name.text : null;
+      };
+      const bare = unparen(callee);
       const isMemberSink =
-        ts.isPropertyAccessExpression(callee) &&
-        row.sinks.includes(callee.name.text) &&
+        ts.isPropertyAccessExpression(bare) &&
+        row.sinks.includes(bare.name.text) &&
         (() => {
-          const name = receiverName(callee.expression);
+          const name = receiverName(bare.expression);
           return name !== null && bindings.has(name);
         })();
       // A sink reached through a destructured local: no property access exists to
       // inspect, so the local's own name is the whole signal.
-      const isBareSink = ts.isIdentifier(callee) && destructured.has(callee.text);
+      const isBareSink = ts.isIdentifier(bare) && destructured.has(bare.text);
       if ((isMemberSink || isBareSink) && !topLevel.some((t) => lexicallyWithin(t.node, n, sf))) {
         const line = at(n);
         out.push({
@@ -874,8 +888,40 @@ export function scanModule(file: string, row: SendAuthSurface): Finding[] {
   // unreported -- an exemption keyed coarser than the fact it disposes of absorbs
   // every later arrival at the finer grain, invisibly, because the absorbed thing
   // does not exist yet when the row is written (diff r1 F1).
+  // A NAME is not an identity. The exemption was keyed on (pass, name), so a RAW
+  // parameter SHADOWING a derived name inside the same pass inherited it and its reads
+  // went unreported (diff r2 F1). Name-keyed exemptions do not fail at the boundary
+  // they were written for; they fail wherever the same name reappears meaning
+  // something else.
+  //
+  // Resolving the binding properly needs a checker, which this scanner does not have
+  // and will not grow. The check is CONSERVATIVE in the reporting direction instead:
+  // if any function scope between the use and the derivation RE-DECLARES the name as a
+  // parameter, the use is treated as RAW. A shadow the scanner cannot resolve
+  // therefore REPORTS rather than falling silent, which is the only direction the
+  // consequence bound allows.
+  const shadowedBetween = (name: string, at: ts.Node, declaration: ts.Node): boolean => {
+    for (let cur: ts.Node | undefined = at; cur !== undefined; cur = cur.parent) {
+      if (cur === declaration) return false;
+      if (isFunctionLike(cur)) {
+        const shadows = (cur as ts.SignatureDeclaration).parameters.some(
+          (param) => ts.isIdentifier(param.name) && param.name.text === name,
+        );
+        if (shadows) return true;
+      }
+    }
+    return false;
+  };
+
   const derivedAt = (name: string, at: ts.Node): boolean =>
-    passes.some((p) => p.derivations.some((d) => d.name === name) && lexicallyWithin(p.fn, at, sf));
+    passes.some((p) =>
+      p.derivations.some(
+        (d) =>
+          d.name === name &&
+          lexicallyWithin(p.fn, at, sf) &&
+          !shadowedBetween(name, at, d.declaration),
+      ),
+    );
 
   const topLevel = topLevelFunctions(sf);
   const findings: Finding[] = classifyUses(sf, file, row, bindings, reads, derivedAt);
@@ -883,12 +929,18 @@ export function scanModule(file: string, row: SendAuthSurface): Finding[] {
   for (const { fn, derivations } of passes) {
     // Per-pass, for the same reason: inside THIS pass, only THIS pass's derivations
     // are derived. Another pass's names are ordinary raw bindings here.
-    const rawHere = new Set<string>(
-      [...bindings].filter((b) => !derivations.some((d) => d.name === b)),
-    );
+    // Raw HERE means: a surface binding, and not derived AT THIS USE by THIS pass.
+    const rawHere = (name: string, at: ts.Node): boolean =>
+      bindings.has(name) &&
+      !derivations.some((d) => d.name === name && !shadowedBetween(name, at, d.declaration));
     findings.push(...analyzePassReads(sf, file, rawHere, reads, fn, derivations));
     findings.push(...analyzeDerivations(sf, file, fn, derivations));
-    findings.push(...analyzeHandoffs(sf, file, rawHere, fn, derivations));
+    // `analyzeHandoffs` asks WHICH binding is handed on, not where it is read, so the
+    // name-only view is the right one for it and the predicate would say nothing extra.
+    const rawNames = new Set<string>(
+      [...bindings].filter((b) => !derivations.some((d) => d.name === b)),
+    );
+    findings.push(...analyzeHandoffs(sf, file, rawNames, fn, derivations));
   }
 
   for (const fn of topLevel) {
@@ -950,7 +1002,12 @@ const resolveSpecifier = (fromFile: string, specifier: string): string | null =>
   return null;
 };
 
-const withoutExtension = (path: string): string => path.replace(/\.tsx?$/, "");
+// A `.js` specifier naming a `.ts` module is ORDINARY, not an obfuscation: both
+// bundler and NodeNext resolution map `./m.js` onto `m.ts`, and every ESM-output
+// codebase writes it that way. Stripping only `.ts`/`.tsx` left the resolved path
+// carrying its `.js`, so it matched no registry row and the importer went unreported
+// (diff r2 F3).
+const withoutExtension = (path: string): string => path.replace(/\.(tsx?|jsx?|mjs|cjs)$/, "");
 
 /**
  * Discovery beyond the registry: an import-edge arm, exact and checker-free.
@@ -960,11 +1017,17 @@ const withoutExtension = (path: string): string => path.replace(/\.tsx?$/, "");
  * follows the SYMBOL rather than the local binding name, so
  * `import type { Channel as Alias }` is still discovered.
  *
- * DOCUMENTED LIMIT: a namespace import (`import * as M`) and a re-export chain
- * are not followed. The scanner has no call graph and no module resolution
- * beyond this one edge (§4 limit 6), and a module reached only that way is
- * outside its range until enrolled — the same posture as the mutation registry,
- * where enrolment is an act (§4 limit 4).
+ * A NAMESPACE import IS followed, through the qualified name it necessarily uses
+ * (`import * as M` plus `M.Channel`) — exactly and not blanket, so an importer that
+ * never reaches the type is not reported. This header said the opposite until diff
+ * r2 F5, sitting directly above the arm that already followed it: the code changed
+ * in r1 and the comment did not, which is the same stale-citation defect as a line
+ * number that still resolves and points somewhere else.
+ *
+ * DOCUMENTED LIMIT: a RE-EXPORT CHAIN is not followed. The scanner has no call graph
+ * and no module resolution beyond this one edge (§4 limit 6), and a module reached
+ * only that way is outside its range until enrolled — the same posture as the
+ * mutation registry, where enrolment is an act (§4 limit 4).
  */
 const importEdgeFindings = (
   file: string,

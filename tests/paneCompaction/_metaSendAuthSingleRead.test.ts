@@ -512,6 +512,18 @@ describe("AC-9 — scanRepo walks from disk, and unregistered importers report",
     );
   });
 
+  it("resolves a `.js` SPECIFIER onto the TypeScript module it names", () => {
+    // Diff r2 F3. TypeScript's bundler and NodeNext resolutions both map
+    // `./registered-channel.js` onto `registered-channel.ts`, so this is what every
+    // ESM-output codebase writes rather than an obfuscation. Stripping only `.ts` and
+    // `.tsx` left the resolved path carrying `.js`, matching no registry row, and the
+    // importer went unreported.
+    const f = "js-specifier-importer.ts";
+    expect(found()).toContainEqual(
+      finding(f, "UNREGISTERED-IMPORTER", "Channel", lineOf(f, "import type { Channel }")),
+    );
+  });
+
   it("follows the SYMBOL, not the local binding name", () => {
     // `import type { Channel as Alias }` is an ordinary TypeScript spelling, not
     // an obfuscation. Comparing the local name passes every other import fixture
@@ -569,6 +581,8 @@ describe("AC-9 — scanRepo walks from disk, and unregistered importers report",
     // same NAME locally without importing anything.
     expect(found().map((x) => `${x.code} ${x.file}`)).toEqual([
       `UNREGISTERED-IMPORTER ${fixture("aliased-importer.ts")}`,
+      // The `.js` specifier importer. Diff r2 F3.
+      `UNREGISTERED-IMPORTER ${fixture("js-specifier-importer.ts")}`,
       // The namespace importer, reached by qualified name. Its silent-skip was
       // diff r1 F5; the closed statement is where its absence would have shown.
       `UNREGISTERED-IMPORTER ${fixture("namespace-importer.ts")}`,
@@ -843,6 +857,84 @@ describe("Task 8 — second repair pass, from the re-measure at 0.9259", () => {
         lineOf(f, "const second = snap.panes()"),
       ]),
     );
+  });
+
+  it("rejects the exemption for a derived NAME used OUTSIDE the pass that derives it", () => {
+    // What makes the exemption's CONTAINMENT test decide, which no other case does.
+    // The name matches a real derivation, so the comparison passes; the use sits
+    // outside the pass, so containment must reject it; and the binding is
+    // module-level, so the shadow check has nothing to say. All three conjuncts are
+    // load-bearing here and exactly one of them is under test.
+    const f = "derived-name-used-outside-its-pass.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "UNCLASSIFIED-USE", "snap", lineOf(f, "const parked = [snap]")),
+    ]);
+  });
+
+  it("exempts a bare mention of the DERIVED binding, with the surface bound at module scope", () => {
+    // The exemption's own name comparison is only DECIDING when nothing else answers
+    // first. Every other fixture takes the surface as a PARAMETER, and a parameter of
+    // an enclosing function shadows its own name by construction, so the shadow check
+    // answers and the comparison never runs. Binding at module scope removes that
+    // dominance.
+    //
+    // Expect-CLEAN here is the strong direction rather than the weak one, because the
+    // mutant it targets makes the scanner report MORE: break the name comparison and
+    // `snap` stops matching its own derivation, so this mention is classified and the
+    // case reds on an EXTRA finding.
+    expect(scan("derived-mention-module-binding.ts")).toEqual([]);
+  });
+
+  it("decides the derivation exemption on the NAME, beside a real derivation", () => {
+    // The exemption's own predicate was untestable until this fixture. Every other
+    // case reaching `derivedAt` has either NO declared pass or a pass with NO
+    // derivation, and both short-circuit the `.some(...)` to false whatever the
+    // predicate says — so a mutant could break the name comparison OR the containment
+    // conjunction and the whole corpus still passed. THE POPULATION REACHING A
+    // PREDICATE IS NOT THE POPULATION OF CASES THAT MENTION IT, and only the gate can
+    // tell the difference.
+    //
+    // Here the pass derives `snap` and separately mentions `ch` bare, so the exemption
+    // must decide `ch` on its name and REJECT it.
+    const f = "unclassified-beside-a-derivation.ts";
+    expect(scan(f)).toEqual([finding(f, "UNCLASSIFIED-USE", "ch", lineOf(f, "const held = [ch]"))]);
+  });
+
+  it("does not let a derived name exempt a RAW parameter SHADOWING it in the same pass", () => {
+    // Diff r2 F1. `derivation-name-collision` covers the CROSS-pass case; this is the
+    // same defect one scope down. The inner arrow takes its own `snap` parameter — a
+    // RAW surface binding — and an exemption keyed on (pass, NAME) exempts it because
+    // a derivation of that name exists somewhere in the same pass.
+    //
+    // Name-keyed exemptions do not fail at the boundary they were written for. They
+    // fail wherever the same NAME reappears meaning something else.
+    // The CODE is NON-STRAIGHT-LINE-READ rather than MULTI-READ, and that is the
+    // scanner being right where my first expectation was wrong: both reads sit inside
+    // a nested arrow, so rule 2's position arm owns them and reports each by line.
+    // What the finding proves is unchanged — before the fix this module reported
+    // NOTHING AT ALL, because the shadowing parameter inherited the derivation's
+    // exemption. Silence was the defect; which code closes it is the scanner's call.
+    const f = "same-pass-shadowed-derivation.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "NON-STRAIGHT-LINE-READ", "panes", lineOf(f, "const a = snap.panes()")),
+      finding(f, "NON-STRAIGHT-LINE-READ", "panes", lineOf(f, "const b = snap.panes()")),
+    ]);
+  });
+
+  it("reports a sink whose receiver is PARENTHESIZED", () => {
+    // Diff r2 F2. Parentheses are a transparent wrapper — same meaning, same
+    // evaluation order — but the sink walk inspected the callee's expression NODE,
+    // and a ParenthesizedExpression is neither an identifier nor a property access.
+    // Discovery missed it AND the default-deny arm missed it, so the module reported
+    // nothing at all: a wrapper that changes no semantics silenced the guard.
+    //
+    // Its positive pair is `class-field-sink`, identical but for the parentheses.
+    const f = "parenthesized-receiver.ts";
+    expect(scan(f)).toEqual([
+      // Anchored on the call's own arguments: the fixture's FIRST LINE names the
+      // construct it explains, so the looser anchor resolved to the header comment.
+      finding(f, "UNDECLARED-PASS", "settle", lineOf(f, '(this.ch).dispatch("p1"')),
+    ]);
   });
 
   it("reports the surface DESTRUCTURED in a parameter, naming the bound member", () => {

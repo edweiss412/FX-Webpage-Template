@@ -42,7 +42,7 @@ against `scripts/pane-compaction.ts`, which is a passing instance today.
 **Resolution — a structural lint, its gate, and ONE comment line.** The scanner is
 `tests/paneCompaction/sendAuthScan.ts`, an importable module with a referring suite
 from the start because it is a guard surface; the gate is
-`tests/paneCompaction/_metaSendAuthSingleRead.test.ts`; the corpus is 62 fixtures
+`tests/paneCompaction/_metaSendAuthSingleRead.test.ts`; the corpus is 75 fixtures
 authored against a deliberately different registry row (`Channel` / `ch` /
 `dispatch` / `settle` / `snapshotOf`) with NO live spelling anywhere, so a scanner
 hardcoded to the live vocabulary fails every one of them. The live instance is
@@ -80,12 +80,12 @@ passed the ENTIRE fixture corpus, and no declared operator produces that edit, s
 score however perfect would have surfaced it. Only building the weaker version by
 hand found it.
 
-- **MUTATION SCORE — 1.0000 (202/202), zero survivors, zero accepted ledger rows.**
+- **MUTATION SCORE — 1.0000 (254/254), zero survivors, zero accepted ledger rows.**
   Measured LOCALLY, foreground, 06:45-07:09 on 2026-08-20, 1425.96s, NO CI run id.
   The empty ledger is the dividend of deleting survivors rather than arguing them
   equivalent: nothing excused means nothing to re-validate when the surrounding code
   moves, and an equivalence row cannot silently inflate the score.
-- **KILLER AUDIT — 29 PROVEN, 0 present-but-unproven, 0 absent, 0 skipped.** Every
+- **KILLER AUDIT — 35 PROVEN, 0 present-but-unproven, 0 absent, 0 skipped.** Every
   weaker implementation the plan's table names, built as a source mutation and run
   against the suite, source restored byte-identical afterwards. A killing check that
   is never run against the mutant it targets is a claim, not a proof, and it fails in
