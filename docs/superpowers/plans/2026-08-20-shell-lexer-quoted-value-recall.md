@@ -383,6 +383,45 @@ whole-value fence, because `${U#x}${V:-"psql"}` carries a double quote. Their pr
 and still correct — no candidate is built for either — but their zero has two independent guards and
 only one is the fence this arc added.
 
+### The Task 7 set-arithmetic verify was RE-RUN, because its first extractor was blind twice over
+
+The close-out's first verify keyed on `^##\s+((?:BL|DEF)-[A-Z0-9-]+)`, and that selector is blind on
+BOTH axes fleet rule 9.4 names. It sees only level-2 headings, and it requires a `BL-`/`DEF-` prefix.
+Measured against the corpus it was supposed to cover:
+
+| | first extractor | corrected, keyed on entry-id SHAPE at any heading level |
+| --- | --- | --- |
+| open (`BACKLOG.md`) | 63 | **87** (24 entries sit at level 3) |
+| archived | 300 | **399** (99 at level 3) |
+| `DEFERRED.md` | 0 | **21**, every one a CUSTOM id |
+
+The `DEFERRED.md` zero is the sharpest instance, because it was investigated and explained WRONGLY.
+A level-2 scan found three prose section headings, from which the first reading concluded the file
+"carries no `BL-`/`DEF-` id entries at all, so its zero is a real zero for the id-keyed population."
+It is not: the file holds 21 entries at level 3 under custom ids — `CONTROLOUTLINE-PAIRED-CHROME-WEIGHT-1`,
+`ATTENTION-INDEX-JUMP-FOCUS-1`, `HELPREPORT-MODAL-NO-ESCAPE-1` and eighteen more — and a
+prefix-keyed rule matches none of them. A confident clean result from an unsound method reads exactly
+like a sound one, which is why the repair is a different selector rather than more care with the old one.
+
+**The corrected verify, with an input proof and a control drawn from the CUSTOM-id format** (a
+must-be-present control in the standard format proves only that the read succeeded, not that the
+population is total for formats nobody thought of):
+
+- bytes read at each revision, printed before any count, so an empty read cannot become a zero
+- before the close-out: open 89, archived 397, deferred 21, **union 507**
+- after: open 87, archived 399, deferred 21, **union 507** — EXACT
+- moved out of open: exactly the two graduating rows, and both landed in the archive
+- `comm -12` archived-vs-open EMPTY; archived-vs-DEFERRED EMPTY
+- nothing else entered or left the open ledger
+- controls: standard-id present (the attached row still OPEN, both graduating rows ARCHIVED), and a
+  CUSTOM-id control (`ATTENTION-INDEX-JUMP-FOCUS-1`) proving the selector reaches entries that use no
+  `BL-`/`DEF-` prefix at all
+
+**Every conclusion the first verify reached survives the correction** — no intersection, both rows
+archived and absent from open, the attached row still open, zero in-progress markers. What was wrong
+was the POPULATION the conclusions ranged over, and that is worth recording rather than quietly
+fixing: the close-out commit's message states the pre-correction numbers.
+
 ### Granularity audit (fleet rule 16)
 
 An exemption keyed coarser than what it exempts silently absorbs everything that arrives later at the
