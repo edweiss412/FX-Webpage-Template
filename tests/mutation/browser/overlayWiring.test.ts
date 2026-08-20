@@ -1,3 +1,4 @@
+import * as childProcess from "node:child_process";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,6 +18,43 @@ import { buildManifest } from "./mutate";
  * serves disk text, which is the exact mutant this file exists to kill.
  */
 const ROOT = resolve(__dirname, "..", "..", "..");
+
+/**
+ * Wall-clock ceiling for ONE child this WIRING suite spawns.
+ *
+ * Deliberately NOT `BROWSER_MUTANT_TIMEOUT_MS`: these are wiring children, not
+ * mutant children, and reusing the ratified 660 s would imply a derivation the
+ * browser-gate probe does not support for them.
+ *
+ * The number is 300 s because 60 s was tried and FAILED on a healthy child. In
+ * isolation this file's slowest child measures 2432 ms across all eleven cases;
+ * under a full parallel `tests/mutation/` run one bundle child blew past 60 s and
+ * died with ETIMEDOUT — the arc's own limit §6.1 ("calibrated on one machine at
+ * low contention") turned on the constant derived from it. 300 s is ~123x the
+ * isolated maximum and 5x the contended observation.
+ *
+ * The per-case timeout is NOT a second line of defence here, which is why this
+ * ceiling is generous rather than tight. `execFileSync` is SYNCHRONOUS: it blocks
+ * the test thread, so vitest cannot fire a case timeout until the child returns.
+ * This value is the only thing standing between a wedged child and an indefinite
+ * hang, which is precisely what AC-8 names.
+ */
+const WIRING_CHILD_TIMEOUT_MS = 300_000;
+
+/**
+ * The measurement the ceiling above is a multiple OF — the derivation, which is
+ * the load-bearing half.
+ *
+ * 60_000 is not a maximum. It is the value that was OBSERVED TO BE INSUFFICIENT:
+ * a healthy bundle child exceeded it and died `ETIMEDOUT` during a full parallel
+ * `tests/mutation/` run. The true contended maximum is unknown and greater than
+ * this, so the multiple is applied to a floor rather than to a measured peak.
+ *
+ * What would have to change for the number to move: a re-measurement UNDER FULL
+ * PARALLEL CONTENTION, not in isolation. The isolated figure for this file is
+ * 2432 ms and it is the figure that produced the ceiling which failed.
+ */
+const OBSERVED_INSUFFICIENT_CEILING_MS = 60_000;
 const BUNDLE = join(ROOT, "tests", "e2e", "_tapTargetFloorBundle.mjs");
 const OVERLAY_CONFIG = "tests/mutation/browser/vitestOverlay.config.ts";
 const PROBE_FIXTURE = "tests/mutation/browser/fixtures/overlayProbe.fixture.ts";
@@ -49,6 +87,8 @@ function bundle(env: Record<string, string>, outName: string): string {
     cwd: ROOT,
     stdio: "pipe",
     env: { ...process.env, ...env },
+    timeout: WIRING_CHILD_TIMEOUT_MS,
+    killSignal: "SIGKILL",
   });
   return readFileSync(outfile, "utf8");
 }
@@ -94,7 +134,10 @@ describe("bundle overlay — env SET (spec §3.1)", () => {
     const decoyDir = join(dir, "decoy");
     const decoy = join(decoyDir, "probeMarker.tsx");
     rmSync(decoyDir, { recursive: true, force: true });
-    execFileSync("mkdir", ["-p", decoyDir]);
+    execFileSync("mkdir", ["-p", decoyDir], {
+      timeout: WIRING_CHILD_TIMEOUT_MS,
+      killSignal: "SIGKILL",
+    });
     writeFileSync(decoy, `export const PROBE = "DECOY";\n`);
     const mutant = join(dir, "decoy.mutant.tsx");
     writeFileSync(mutant, `export const PROBE = "${MUTANT_TEXT}";\n`);
@@ -123,6 +166,8 @@ describe("bundle overlay — env UNSET means OFF (AC-3)", () => {
     const raw = execFileSync(process.execPath, [probe, manifest], {
       cwd: ROOT,
       encoding: "utf8",
+      timeout: WIRING_CHILD_TIMEOUT_MS,
+      killSignal: "SIGKILL",
     });
     const { off, on } = JSON.parse(raw) as { off: string[]; on: string[] };
     premiseHolds("the plugin list is non-empty in both states", off.length > 0 && on.length > 0);
@@ -153,6 +198,8 @@ describe("browser-mode vitest overlay config (spec §3.3 step 3)", () => {
         cwd: ROOT,
         stdio: "pipe",
         env: { ...process.env, ...env },
+        timeout: WIRING_CHILD_TIMEOUT_MS,
+        killSignal: "SIGKILL",
       });
       return 0;
     } catch (e) {
@@ -204,5 +251,65 @@ describe("the CSS half and the untouched sibling (spec §3.2, AC-3)", () => {
     const sibling = readFileSync(join(ROOT, "tests", "e2e", "_step3ReviewModalBundle.mjs"), "utf8");
     expect(sibling).not.toContain("MUTATION_OVERLAY_MANIFEST");
     expect(sibling).not.toContain("mutation-overlay");
+  });
+});
+
+describe("AC-8 — every child this suite spawns is bounded", () => {
+  // Derived from the file's own source, never from a list of line numbers: the
+  // strictly weaker implementation is to bound only the site review named and
+  // leave the others, which is the per-instance whack-a-mole the class-sweep
+  // rule exists to prevent. Scanning EVERY call means a site added later fails
+  // by default instead of silently joining the uncovered set.
+  //
+  // The pattern's own source text is `execFileSync\s*\(`, which does not match
+  // itself — so this case is not counted as one of the sites it checks.
+  it("carries one accepted ceiling and one untrappable kill per spawn", () => {
+    const source = readFileSync(join(ROOT, "tests/mutation/browser/overlayWiring.test.ts"), "utf8");
+    // DERIVED from `node:child_process`, matching the meta guard rather than
+    // repeating a hand-written list. Round 4 probed the enumerated version: it
+    // named three shapes and missed `execSync`, `execFile`, `exec` and `fork`,
+    // so an ordinary wiring child written with any of those was invisible here.
+    const spawnApi = Object.entries(childProcess)
+      .filter(([name, value]) => /^(spawn|exec|fork)/.test(name) && typeof value === "function")
+      .map(([name]) => name)
+      .sort();
+    premiseHolds("node:child_process exposes spawn-family functions", spawnApi.length > 0);
+    const sites = spawnApi.flatMap((name) => [
+      ...source.matchAll(new RegExp(String.raw`(?<![\w$])${name}\s*\(`, "g")),
+    ]);
+
+    // Executable premise: a scan that found nothing would pass vacuously and
+    // would forever — `BL-GUARD-PREMISE-REACHABILITY`'s exact shape.
+    premiseHolds("the wiring suite spawns children at all", sites.length > 0);
+
+    // COUNTING rather than attribution, after diff review round 3. The earlier
+    // version walked forward from each call and read the options it found, and
+    // an ordinary Node child whose ARGUMENT contains a paren inside a string —
+    // `["-e", "void '('"]` — sent the bracket scan past its own call and let it
+    // credit a LATER call's ceiling to the new unbounded one. Making the scanner
+    // string-aware is a lexer; the standing repair direction on a recognizer
+    // here is narrowing, so nothing is attributed to anything. One accepted
+    // ceiling and one untrappable kill per spawn is a property no misattribution
+    // can satisfy: a new unbounded call moves the spawn count and not the others.
+    //
+    // The ceiling VALUE is accept-set matched, default-denying the complement:
+    // `timeout: 0` and `timeout: undefined` carry the key and bound nothing —
+    // measured, a 200 ms child under either ran to completion with status 0.
+    const spawns = sites.length;
+    const ceilings = [...source.matchAll(/\btimeout\s*:\s*WIRING_CHILD_TIMEOUT_MS\b/g)].length;
+    const kills = [...source.matchAll(/killSignal\s*:\s*"SIGKILL"/g)].length;
+
+    // Raw numbers, never a computed verdict.
+    expect({ spawns, ceilings, kills }).toEqual({ spawns, ceilings: spawns, kills: spawns });
+  });
+
+  // The DERIVATION, not the value. A bare 300000 invites the next reader to tune
+  // it; pinning the relationship states what would have to change for the number
+  // to move, and fences the exact mistake that produced the previous ceiling.
+  it("keeps the ceiling a multiple of a CONTENDED observation", () => {
+    expect(WIRING_CHILD_TIMEOUT_MS).toBeGreaterThanOrEqual(5 * OBSERVED_INSUFFICIENT_CEILING_MS);
+    // Not the ratified mutant ceiling: these are wiring children, and reusing
+    // 660_000 would imply a derivation the browser-gate probe does not support.
+    expect(WIRING_CHILD_TIMEOUT_MS).not.toBe(660_000);
   });
 });
