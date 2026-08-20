@@ -17,7 +17,7 @@ either points at a surviving spec section or is new.
 - **TDD per task** (invariant 1). Every task: observed red on the stated command, minimal
   implementation, the SAME command green, one commit.
 - **No behavior change to `scripts/pane-compaction.ts`.** The only edit to that file is one comment
-  line (Task 8). The send path is fenced and owned by `BL-PANE-COMPACTION-SEND-AUTHORIZATION`
+  line (Task 7). The send path is fenced and owned by `BL-PANE-COMPACTION-SEND-AUTHORIZATION`
   (spec §1.1 item 1).
 - **The scanner is an importable module with a referring suite from the start**, because it is a guard
   surface and the source-mutation runner overlays a target only when a Vitest suite imports it
@@ -26,7 +26,7 @@ either points at a surviving spec section or is new.
   counting and no dominance analysis (spec §1.1 item 5, §4 limit 1). A task step that would need to
   know whether, when, or how often code RUNS is out of scope by ratified decision, not by omission.
 - **Every guard states its premise executably** (`tests/_shared/premise.ts`). The live-tree assertions
-  in Task 8 are the ones that would otherwise pass vacuously — an empty registry or a mis-rooted walk
+  in Task 7 are the ones that would otherwise pass vacuously — an empty registry or a mis-rooted walk
   must not read as green.
 - **Findings are data, not strings.** Every finding is a typed record with `code`, `file`, `line`, and
   the method or callee it names; assertions compare records by equality, never a rendered substring.
