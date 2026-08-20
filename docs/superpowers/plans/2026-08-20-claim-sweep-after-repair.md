@@ -130,18 +130,18 @@ the defective line instead of the bare path". the new module does not exist toda
 task below legally cites it path-only AT PLAN TIME. **Task 1 tracks it, and from that commit every
 remaining path-only citation is a hard `RED_TARGET_INVALID`.**
 
-The repair is to RE-POINT, never to waive (Task 12), and two rules make the re-pointing durable:
+The repair is to RE-POINT, never to waive (Task 11), and two rules make the re-pointing durable:
 
 - **Every `why=` cites BY SYMBOL or QUOTED CONTENT, never by line.** A symbol survives a shift; a line
   number does not.
 - **`RED_TARGET_INVALID` verifies only that a tracked path has an IN-RANGE line, never what is at it.**
-  A citation that drifts onto different code stays green BY DESIGN. So Task 12 re-verifies by READING
+  A citation that drifts onto different code stays green BY DESIGN. So Task 11 re-verifies by READING
   each line and matching it to the `why=`'s named symbol — not by confirming the citation resolves.
 
-**Anchor table.** Task 12 fills the HEAD column by reading; the BASE column is what the plan cites now.
+**Anchor table.** Task 11 fills the HEAD column by reading; the BASE column is what the plan cites now.
 
 ```
-| Task | red-target at BASE (plan time)                          | What the why= names, by symbol or content        | HEAD (Task 12) |
+| Task | red-target at BASE (plan time)                          | What the why= names, by symbol or content        | HEAD (Task 11) |
 | ---- | ------------------------------------------------------- | ------------------------------------------------ | -------------- |
 | 1    | lib/specLint/claimSweep.ts (untracked)                  | the module itself — created by this task         | n/a            |
 | 2    | lib/specLint/claimSweep.ts                              | "no refusal branch"                              |                |
@@ -151,14 +151,13 @@ The repair is to RE-POINT, never to waive (Task 12), and two rules make the re-p
 | 6    | lib/specLint/claimSweep.ts                              | CLAIM_SWEEP_CODES                                |                |
 | 7    | scripts/spec-lint.ts:363 (tracked)                      | the flag loop's final else-if, "unknown flag"    |                |
 | 8    | lib/specLint/claimSweep.ts                              | ARC_DOCUMENTS                                    |                |
-| 9    | scripts/spec-lint.ts:363 (tracked)                      | the flag loop's final else-if, "unknown flag"    |                |
-| 10   | tests/mutation/source/expectedLedgerKinds.ts:24 (tracked)| EXPECTED_LEDGER_KINDS                            |                |
-| 11   | lib/specLint/claimSweep.ts                              | "the audit's derived cover does not exist"       |                |
-| 12   | lib/specLint/claimSweep.ts                              | the module tracked by Task 1                     |                |
+| 9    | tests/mutation/source/expectedLedgerKinds.ts:24 (tracked)| EXPECTED_LEDGER_KINDS                            |                |
+| 10   | lib/specLint/claimSweep.ts                              | "the audit's derived cover does not exist"       |                |
+| 11   | lib/specLint/claimSweep.ts                              | the module tracked by Task 1                     |                |
 ```
 
-<!-- spec-lint: ignore — the path is the SUBJECT of this sentence; Task 1 creates it and Task 12 re-points every citation to it -->
-**NINE of the twelve cite `lib/specLint/claimSweep.ts` path-only, and ALL NINE are invalidated by Task 1's
+<!-- spec-lint: ignore — the path is the SUBJECT of this sentence; Task 1 creates it and Task 11 re-points every citation to it -->
+**NINE of the eleven cite `lib/specLint/claimSweep.ts` path-only, and ALL NINE are invalidated by Task 1's
 commit** — Task 1's own marker included, because the lint reads the whole plan at any later time and does
 not care that that task's red already happened. Counted, not estimated:
 
@@ -173,17 +172,17 @@ document and counts itself — the guard measuring its own text, one document ea
 usually bites. Anchoring to `^<!-- task:` excludes the prose that talks ABOUT the citation from the
 count of citations.
 
-That is the count Task 12's RED step must observe. A different count means a citation was edited or a
+That is the count Task 11's RED step must observe. A different count means a citation was edited or a
 task was added without its anchor row, and either is a defect in this plan rather than in the
-implementation. The three exceptions are Tasks 7 and 9 (`scripts/spec-lint.ts`) and Task 10
-(`tests/mutation/source/expectedLedgerKinds.ts`), all tracked today and all cited in line form from the
+implementation. The two exceptions are Task 7 (`scripts/spec-lint.ts`) and Task 9
+(`tests/mutation/source/expectedLedgerKinds.ts`), both tracked today and both cited in line form from the
 start.
 
 ---
 
 ## 4. The cycle every task runs, stated once
 
-**This is the TDD contract for Tasks 1-12. It sits OUTSIDE the task region because it is not a task** — a `##` heading inside the region with no `<!-- task: -->` marker is a hard `TASK_MARKER_MISSING`, which is how the draft learned where it belongs. It is stated once rather
+**This is the TDD contract for Tasks 1-11. It sits OUTSIDE the task region because it is not a task** — a `##` heading inside the region with no `<!-- task: -->` marker is a hard `TASK_MARKER_MISSING`, which is how the draft learned where it belongs. It is stated once rather
 than repeated twelve times, and every task body below names only its DELTAS: the files it touches, the
 case it authors, and what its RED output must say.
 
@@ -247,19 +246,25 @@ different occurrence keeps the total at nine while changing what is asserted.
   fixed.
 
 **The module header restates spec §5 items 1-10 verbatim**, which §5 requires and which a behavioural
-suite cannot notice. Task 12 verifies each item is present by number and by its leading phrase.
+suite cannot notice. Task 11 verifies it, and by COMPARISON rather than by prefix.
 
 ## Task 2 — the three refusals, and their channel
 
-<!-- task: red=`pnpm vitest run tests/specLint/claimSweepRefusals.test.ts` red-state=authored red-target=`lib/specLint/claimSweep.ts` why=`there is no refusal branch, so a declaration whose superseded value equals its replacement is ACCEPTED: the run exits 0 with zero findings where the case asserts exit 2 and a reason naming both values` ac=AC-3 -->
+<!-- task: red=`pnpm vitest run tests/specLint/claimSweepRefusals.test.ts` red-state=authored red-target=`lib/specLint/claimSweep.ts` why=`no refusal branch exists, so the run's stderr says "unknown flag: --superseded" where the case asserts a reason naming BOTH declared values and the offending equality` ac=AC-3 -->
 
 **Files** (fenced: several do not exist yet, and a citation to an absent file is a hard failure):
 
 ```
 lib/specLint/claimSweep.ts, scripts/spec-lint.ts, tests/specLint/claimSweepRefusals.test.ts (new).
 ```
-**RED must say:** expected exit code 2, received 0 — a value assertion on the exit code, with the reason
-line absent.
+**RED must say:** expected a reason naming both values, received `unknown flag: --superseded`.
+
+**The exit code is NOT the discriminator here, and the draft of this plan got that wrong.** Before Task 7
+the adapter rejects the unknown flags and ALREADY exits 2, so an assertion of "0 becomes 2" can never
+fail. The reason LINE is what moves: the pre-task message names a flag, the shipped refusal names both
+declared values and the equality between them. Each refusal is asserted on its reason text AND on
+emitting zero findings; the exit code is pinned as a regression assertion in the GREEN phase, where it is
+true for a different cause than the one under test.
 
 Implements §3.0 and the REFUSAL channel of §3.4's signal inventory. Three refusals, each exiting 2 with a
 reason naming the offending values and emitting NO finding:
@@ -393,8 +398,10 @@ as Task 1's alone.
 **Files** (fenced: several do not exist yet, and a citation to an absent file is a hard failure):
 
 ```
-scripts/spec-lint.ts, lib/specLint/run.ts, lib/specLint/types.ts,
-tests/specLint/claimSweepCli.test.ts (new).
+scripts/spec-lint.ts        (flags, git hunk spans, the --also peers; also the writeFileSync mutant site)
+lib/specLint/run.ts         (threads the RepairRecord)
+lib/specLint/types.ts       (RepairRecord; "claimSweep" in Check and CHECK_ORDER)
+tests/specLint/claimSweepCli.test.ts   (new)
 ```
 
 **RED must say:** `unknown flag: --superseded`, exit 2, where the case asserts a four-finding result. An
@@ -402,7 +409,7 @@ end-to-end assertion through the real CLI, not a `RepairRecord` shape check — 
 reached `runLint`" is exactly the assertion an adapter with empty spans, dropped peers, or double-linted
 peers would satisfy.**
 
-Four adapter-owned semantics, each with its own executable case, because the pure-core suites run on
+FIVE adapter-owned semantics, each with its own executable case, because the pure-core suites run on
 CORRECTLY INJECTED data and cannot see any of them:
 
 1. **Hunk spans are exact.** `--repair c272ebed3` produces spans that exclude exactly the five in-hunk
@@ -417,6 +424,18 @@ CORRECTLY INJECTED data and cannot see any of them:
 4. **Peers are SWEPT, not LINTED.** A declared plan peer whose own text would draw citation, numeric and
    copy findings contributes ONLY claim-sweep findings to the result. An adapter that runs the full lint
    over peers returns those other codes, and the assertion is on the code set, so it fails naming them.
+5. **THE ARM NEVER REWRITES A DOCUMENT** (AC-3). Spec §3.4 says so and `_metaPureCore` does not prove it:
+   that meta-test forbids `node:fs` under `lib/specLint/**` ONLY, and this task edits the ADAPTER, where
+   writes remain possible. The proof is behavioural and has both halves — a full invocation over a temp
+   corpus with a spy on every write path asserts ZERO writes, and **the premise is asserted FIRST in the
+   same case:** the run produced a NON-ZERO finding count. "Nothing was written" and "nothing ran" are
+   otherwise indistinguishable. PROVEN, not merely present: a mutant adds one `writeFileSync` to this
+   task's own code path and the case is observed RED, then reverted.
+
+   **This lives HERE rather than in a task of its own, and that is the round-2 repair.** As a separate
+   later task its red would already be green — this task makes the CLI work, so a no-rewrite assertion
+   authored afterwards passes the moment it is written. A test-only task has no red by construction, the
+   same reason the historical replay folded into the two halves' suites.
 
 Adds `--superseded`, `--replacement`, `--claim-about`, `--repair`, repeatable `--also`; resolves hunk
 spans with git IN THE ADAPTER; threads a `RepairRecord` through `runLint`; adds `"claimSweep"` to the
@@ -435,6 +454,17 @@ lib/specLint/claimSweep.ts, tests/specLint/claimSweepCorpus.test.ts (new).
 **RED must say:** expected the population to contain none of the three arc documents, received a
 population containing all three — a set-membership failure, not an absence.
 
+**ONE AUTHORITY FOR `ARC_DOCUMENTS`, and this task must not create a second.** The census script already
+declares it, and spec §2.0 is explicit that the point is ONE POPULATION declared by path. A TypeScript
+literal beside the Python tuple is exactly the split-population drift §2.0 forbids: an ordinary later
+addition updates one list, the other's check stays green, and the two describe different corpora. So the
+<!-- spec-lint: ignore — the data file is CREATED by this task and cannot be tracked before it exists -->
+declaration moves to a single committed data file — `docs/superpowers/specs/ci/probes/scripts/arc-documents.json`
+— READ by the census script and by this suite, with a parity assertion that the file's contents and the
+census script's reported exclusions are the same set. Neither reader carries a literal list. The spec's
+"one script emits every §2 row" is unchanged: the script still emits them, and only the declaration it
+reads has moved out of its body.
+
 The population is ENUMERATED at run time and asserted as a RELATION:
 
 - it contains NONE of `ARC_DOCUMENTS`, and the SAME enumeration without the exclusion contains ALL of the
@@ -447,6 +477,13 @@ The population is ENUMERATED at run time and asserted as a RELATION:
 and this arc paid for that four times — the figure moved 936 → 943 → 947 → 953 across its own rounds
 because its own documents were in its own corpus.
 
+**The synthetic-literal collision cover ships with its POSITIVE CONTROL**, which spec §2.0 and §6
+require and the draft of this task omitted. The cover asserts zero collisions between the shared module's
+synthetic literals and the live corpus; a zero from an empty or unreadable population is indistinguishable
+from a real one, so the same case also asserts that a REAL transition sentence drawn from OUTSIDE this
+arc's documents IS found by the same lookup. One variable — whether the literal is synthetic or live —
+and the zero becomes attributable.
+
 **The corpus-pollution question, asked of every document this arc tracks, including ones nobody would
 call a fixture.** This arm scans `docs/`, not `tests/`, so a synthetic title in these suites is not
 corpus — but the SPEC, the PROBE RECORD and THIS PLAN are, which is why `ARC_DOCUMENTS` names all three.
@@ -457,30 +494,7 @@ commit**, or it silently moves a number a later task pins. Synthetic literals li
 and the no-collision cover keys on that module's own data rather than on a nonce token, which is a
 convention a fixture can forget and a convention-keyed check is blind to exactly what forgets it.
 
-## Task 9 — the arm never rewrites a document, proved rather than assumed
-
-<!-- task: red=`pnpm vitest run tests/specLint/claimSweepNoRewrite.test.ts` red-state=authored red-target=`scripts/spec-lint.ts:363` why=`the CLI rejects the claim-sweep flags, so the end-to-end run under the write-spy never executes and the case asserting zero writes with a non-zero finding count fails on the finding count` ac=AC-3 -->
-
-**Files** (fenced: several do not exist yet, and a citation to an absent file is a hard failure):
-
-```
-tests/specLint/claimSweepNoRewrite.test.ts (new).
-```
-**RED must say:** expected a non-zero finding count under the spy, received a usage error — the premise
-that the run HAPPENED fails before the write assertion is reached.
-
-Spec §3.4 says the arm never rewrites a document and `_metaPureCore` does not prove it: that meta-test
-forbids `node:fs` under `lib/specLint/**` ONLY, and Task 7 edits the ADAPTER, where filesystem writes
-remain possible. So the proof is behavioural and has both halves:
-
-- a full CLI invocation over a temp corpus with a spy on every write path asserts ZERO writes;
-- **the premise is asserted first**, in the same case: the run produced a NON-ZERO finding count. A
-  zero-write result from a run that never executed is the fail-open this task exists to close, and
-  "nothing was written" and "nothing ran" are otherwise indistinguishable.
-- **PROVEN, not merely present:** a mutant adds one `writeFileSync` to the adapter's claim-sweep path and
-  the case is observed RED, then the mutant is reverted. Presence is not adequacy.
-
-## Task 10 — mutation enrolment, before the first diff dispatch
+## Task 9 — mutation enrolment, before the first diff dispatch
 
 <!-- task: red=`VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest run --project mutation tests/mutation/guardSurfaces.gates.test.ts` red-state=authored red-target=`tests/mutation/source/expectedLedgerKinds.ts:24` why=`the EXPECTED_LEDGER_KINDS object literal has no claimSweep key, so the registry row this task adds leaves the expected-key-set comparison unequal and the assertion names claimSweep` ac=AC-8 -->
 
@@ -512,7 +526,9 @@ Enrolment is TWO declarations: a registry row (`id: "claimSweep"`,
 `operators: [...OPERATOR_NAMES]`, `scoreFloor: 0.95`, a `control` mutant verified unique on the current
 source, `accepted: []`) AND the `expectedLedgerKinds` key.
 
-Three rules bind the run, each here because it was measured elsewhere:
+The rules that bind the run, each here because it was measured on another arc rather than imagined. The
+list is deliberately unnumbered: a count beside a growing list is a claim that decays through ADDITION,
+and this one had already decayed from three to twelve before anyone read it.
 
 - **NEVER reshape the source so an operator cannot generate a mutant.** The survivor order of preference
   is DELETE the site, else make the predicate TOTAL so the differing case is unreachable, else kill it
@@ -530,6 +546,15 @@ Three rules bind the run, each here because it was measured elsewhere:
   that ADVANCES IN ITS OWN HEADER. Before the first measure, audit the whole module for the property
   **"no loop's termination depends on a mutable predicate"** — the arc that measured this found a SECOND
   hang site that predated its totalisation entirely.
+- **A DECIDING-SUITE EDIT MID-RUN DOES NOT COST THE RUN — IT SILENTLY CORRUPTS IT.** Change a suite the
+  registry names while mutants are executing and some read the old bytes and some the new; the run then
+  REPORTS A NUMBER that describes no coherent program. That is worse than a killed run, which reports
+  nothing and is noticed. Hold the edit until the run lands, or kill the run first, deliberately, and say
+  so. The paired before/after stamp DETECTS this; detection after the fact still costs the run.
+- **A TRACKED-FILE EDIT MID-RUN VOIDS THE RUN'S OWN INTEGRITY CHECK.** The runner overlays mutants from
+  memory, so the score is not corrupted — but the gate asserts the tracked file is unchanged across the
+  run, and a docstring edit is enough to fail it. This face ANNOUNCES itself, unlike the other two. Treat
+  such a run as DISCOVERY, not scored.
 - **A PUSH SUPERSEDES AN IN-FLIGHT CI MEASUREMENT.** A source edit voids a local score; the same hazard one
   layer out is that GitHub's concurrency group cancels the running job for a superseded sha, so a push ends
   an in-flight run and all its legs report nothing. If the running job IS the evidence, decide deliberately
@@ -577,6 +602,17 @@ Three rules bind the run, each here because it was measured elsewhere:
   (c) the PREMISE is written down and re-checked against the SHIPPED source, naming what would VOID the
   row if it changed; and (d) **it was composed BEFORE the measurement landed**. An equivalence argument
   written after the score is a rationalisation with a citation; written before, it is a prediction.
+- **EQUIVALENCE ROWS SHARING ONE INVARIANT ARE A DERIVED COVER; INDEPENDENT STORIES ARE A SMELL.** Four
+  independent arguments are four chances to be wrong, each resting on its own reading. Four derived from
+  ONE stated invariant are one chance to be wrong, and the invariant is usually load-bearing elsewhere in
+  the module, so something other than the argument has already exercised it. If the rows each have their
+  own unrelated justification, go looking for the shared invariant before writing them; if one exists the
+  rows collapse into a cover and you can state what VOIDS ALL OF THEM AT ONCE, which is the premise
+  property (c) asks for. If none exists, say so — but check first.
+- **When property (d) cannot be met, write the argument as a PREDICTION with a stated falsifier.** An
+  argument composed after a discovery run has already named the survivors cannot claim it was written
+  first; say so in the row and let the confirming run adjudicate — if the site is killed, the argument is
+  wrong and the row comes out.
 - **Apply the predicted-side-effect rule FORWARD as well as backward.** Before a re-measure, state what the
   run must show if the repairs landed as believed — fewer mutants after deletions, a shorter wall clock —
   and name the falsifier. **And refuse to claim the evidence where the situation does not provide it:** a
@@ -584,7 +620,7 @@ Three rules bind the run, each here because it was measured elsewhere:
   story-fitted-to-outcome the rule exists to prevent. If no hang was observed, a slower next run is fine
   and a faster one is evidence of something nobody had reason to believe in.
 
-## Task 11 — the killer audit: three states, enumerated from the table
+## Task 10 — the killer audit: three states, enumerated from the table
 
 <!-- task: red=`pnpm vitest run tests/specLint/claimSweepKillerAudit.test.ts` red-state=authored red-target=`lib/specLint/claimSweep.ts` why=`the audit's derived cover does not exist, so the case asserting every spec 6 weaker-implementation row maps to a shipped killing check reads an empty mapping and fails on the row count` ac=AC-7 -->
 
@@ -595,7 +631,7 @@ tests/specLint/claimSweepKillerAudit.test.ts (new).
 ```
 **RED must say:** expected every §6 row to map to a shipped check, received an empty mapping — a value
 failure on the row count, observed at authoring time BEFORE the mapping is built. **The red is the
-audit's own absence, not the state of the suites**, because by Task 11 the suites of Tasks 1-9 exist and
+audit's own absence, not the state of the suites**, because by Task 10 the suites of Tasks 1-9 exist and
 an audit that merely counted them could begin green — which would be a guard that passes the moment it is
 authored.
 
@@ -607,16 +643,26 @@ only the third counts:
   CLAIM, not a proof, and it fails in the direction that looks green.
 - **PROVEN** — the check exists AND was observed failing when the behaviour it targets was broken.
 
-**The audit's own discriminating power is PROVEN by a positive control:** one killing check is deleted,
-the audit is observed reporting that row ABSENT and exiting non-zero, and the check is restored. Without
-it, an audit that finds everything present is indistinguishable from one that looked at nothing.
+**PROVEN CANNOT BE READ — IT MUST BE OBSERVED, and the round-2 repair is that the audit now OBSERVES it.**
+A deletion control proves only that the audit can report ABSENT: an implementation that labels every
+present check PROVEN passes the live corpus AND the deletion control, because deleting a check still
+yields ABSENT. The two states the audit exists to separate are the two it could not see.
+
+So each row of the audit table names three things — the weaker implementation, the killing check, and a
+MUTANT RECIPE: an exact edit to the shipped source that the check must catch. The task EXECUTES each
+recipe in turn: apply, run only that check, require a FAILURE, revert, and re-run to confirm green again.
+A row is PROVEN when its recipe was applied and its check was observed red IN THIS RUN; PRESENT BUT
+UNPROVEN when the check exists and no recipe is named for it; ABSENT when no check exists. The three
+states are then measured rather than asserted, and the deletion control stays as the audit's own
+positive control — it proves the reporting path works, which is a different question and still worth
+answering.
 
 Counts are recorded in the round filing and stated SEPARATELY from the mutation score at closeout. **A
 perfect score does not subsume this audit**: the score covers what the declared operators can EXPRESS, and
 a hand-written weaker implementation — an unanchored substring matcher, a hardcoded id list, a scanner
 that skips the `--also` peers — may be outside every operator's reach. Neither cover dominates.
 
-## Task 12 — citation re-point, header verification, wiring, docs, and the ledger closeout
+## Task 11 — citation re-point, header verification, wiring, docs, and the ledger closeout
 
 <!-- task: red=`pnpm spec:lint docs/superpowers/plans/2026-08-20-claim-sweep-after-repair.md` red-state=authored red-target=`lib/specLint/claimSweep.ts` why=`Task 1 tracks the module named by the path-only red-target citations above, so each becomes RED_TARGET_INVALID and this command exits 1 naming them` ac=AC-9 -->
 
@@ -641,13 +687,17 @@ nothing to run, not evidence the reds are sound — two absences reinforcing eac
 What DOES verify them is the static half (which caught both defects above) plus each task observing its
 own red and matching the output to its `why=`, per §4 step 2.
 
-1. **Re-point every `red-target=` in §3's anchor table**, filling the HEAD column. Verify each by READING
+1. **Verify the module header restates spec §5 items 1-10 VERBATIM, by COMPARISON rather than by prefix.**
+   A grep for each item's number and leading phrase passes a header that carries every opening clause and
+   truncates or contradicts the rest — which does not establish the "verbatim" claim Task 1 makes. The
+   check extracts §5's ten items from the spec and the ten from the header, normalises whitespace, and
+   asserts the two sequences are EQUAL, printing the first differing item when they are not. Its own
+   positive control: a constructed header with one item truncated makes it report that item and exit
+   non-zero.
+2. **Re-point every `red-target=` in §3's anchor table**, filling the HEAD column. Verify each by READING
    the line and matching it to the symbol its `why=` names — never by confirming the citation resolves,
    because `RED_TARGET_INVALID` checks only that a tracked path has an in-range line and never what is at
    it. A drifted citation stays green by design.
-2. **Verify the module header restates spec §5 items 1-10** — by number and by each item's leading phrase,
-   as a `grep` whose output lands in the commit. §5 requires the restatement and no behavioural suite can
-   notice its absence.
 3. **Wiring and docs** (§8): no new `package.json` script — the arm rides `spec:lint`; one sentence in
    `docs/agents/writing-plans.md` under the reconciliation/closeout-sweeps bullet; one row in
    `docs/superpowers/specs/ci/README.md`.
@@ -672,13 +722,13 @@ performs it, the AC is decoration.
 | --- | --- | --- |
 | AC-1 numeric half, sentence scope | Task 1 | the `claimSweepNumeric` suite: the `fede5f084` replay as the RED, plus four GREEN-phase pins each paired one variable apart |
 | AC-2 named half, attribution, not-found | Tasks 3, 4 and 7 | the `claimSweepNamed` suite (the `c272ebed3` replay as the RED; attribution asserted over EVERY emitted finding, with its four string-presence mutants); the `claimSweepNotFound` suite (one not-found AND zero occurrences, paired with the untruncated identifier); the `claimSweepCli` suite for the hunk spans the named half depends on |
-| AC-3 advisory severity, closed code set, refusals, inventory reconciliation, NO REWRITE | Tasks 2, 6 and 9 | the `claimSweepRefusals` suite (exit 2, zero findings, reason line); the `claimSweepIdentity` suite (emitted set vs the module's exported codes, severity structural, inventory reconciled both directions with its positive control, identity pinned by a proven column mutant); the `claimSweepNoRewrite` suite (zero writes under a spy, with a non-zero finding count asserted FIRST as the premise, and a `writeFileSync` mutant observed RED) |
+| AC-3 advisory severity, closed code set, refusals, inventory reconciliation, NO REWRITE | Tasks 2, 6 and 7 | the `claimSweepRefusals` suite (the REASON line naming both values, zero findings, exit 2 pinned in the green phase); the `claimSweepIdentity` suite (emitted set vs the module's exported codes, severity structural, inventory reconciled both directions with its positive control, identity pinned by a proven column mutant); and the no-rewrite case INSIDE the `claimSweepCli` suite (zero writes under a spy, a non-zero finding count asserted FIRST as the premise, a `writeFileSync` mutant observed RED) — it lives there because a separate later task's red would already be green |
 | AC-4 historical replay as a SET | Tasks 1 and 3 | folded into the two halves' own suites as their RED cases rather than a separate task — a replay authored after both halves work would pass the moment it is written, which is a guard with no red |
 | AC-5 declared swept set, unreadable peer | Tasks 5 and 7 | the `claimSweepDocumentSet` suite (exact declared set and undeclared sibling as ONE case, null read reported, paired readable); the `claimSweepCli` suite for every repeated `--also`, unreadable-peer propagation, and peers being SWEPT not LINTED |
-| AC-6 corpus as a RELATION | Task 8 | the `claimSweepCorpus` suite — enumerated at run time, both directions of the population relation, no §2 figure pinned |
-| AC-7 killer audit, three states | Task 11 | the `claimSweepKillerAudit` suite, its positive control (one killing check deleted, the row observed ABSENT), and the counts recorded in the round filing |
+| AC-6 corpus as a RELATION | Task 8 | the `claimSweepCorpus` suite — enumerated at run time, both directions of the population relation, no §2 figure pinned, `ARC_DOCUMENTS` read from the ONE committed data file the census script also reads with a parity assertion, and the collision cover carrying its outside-arc positive control |
+| AC-7 killer audit, three states | Task 10 | the `claimSweepKillerAudit` suite, which EXECUTES each row's mutant recipe — apply, run only that check, require a failure, revert, confirm green — so PROVEN is OBSERVED rather than read; plus its own positive control (one killing check deleted, the row observed ABSENT) and the counts recorded in the round filing |
 | AC-8 enrolment, score, purity | Task 10 | `guardSurfaces.gates.test.ts` through the mutation project for both declarations; `pnpm heavy pnpm mutation:guards` for the score WITH its provenance; `_metaPureCore` for the core half of purity — the adapter half is AC-3's no-rewrite proof |
-| AC-9 both documents lint 0 hard, and every citation re-pointed | Task 12 | `pnpm spec:lint <doc>` on the spec AND this plan, ONE document per invocation; plus the header grep proving §5 items 1-10 are restated, and every red-target re-verified by READING its line |
+| AC-9 both documents lint 0 hard, and every citation re-pointed | Task 11 | `pnpm spec:lint <doc>` on the spec AND this plan, ONE document per invocation; plus the header grep proving §5 items 1-10 are restated, and every red-target re-verified by READING its line |
 
 **A green suite is not proof for AC-8's purity half by itself** — `_metaPureCore` walks `lib/specLint/`
 and would pass an empty directory; the floor assertion (`files.length >= 8`) is what makes its clean
@@ -726,7 +776,14 @@ The round-economy filing for the stage is `docs/review-rounds/feat/speclint-clai
 Run over every rule at once during plan self-review, because three instances of one shape is the
 same-vector trigger and the prescribed answer is a derived cover rather than another round of
 instance-hunting. For each rule: the strictly weaker implementation that would satisfy the fixtures AS
-DRAFTED, and what was added to kill it. **Two rules failed this pass and both are repaired above.**
+DRAFTED, and what was added to kill it. **Two rules failed the first pass and both are repaired above.**
+
+**The table's completeness is a DERIVED claim, not an enumerated one**, and it is stated that way because
+an enumeration over a growing plan is correct when written and wrong within the hour — this table was
+exhaustive at round 1 and stopped being so the moment round 1's repairs added five rules to Task 7 and
+one to Task 10. The rule: **every numbered semantic in a task body, and every row of spec §6, has a row
+here.** A task that gains a semantic gains a row in the same commit, and Task 10's audit is what catches
+the omission mechanically, since it derives its own list from spec §6 rather than from this table.
 
 | Rule | Weaker implementation that passed the DRAFT | Repair |
 | --- | --- | --- |
@@ -736,6 +793,12 @@ DRAFTED, and what was added to kill it. **Two rules failed this pass and both ar
 | Task 2, refusals | accept `N === M` and run | already asserted as a REFUSAL with both values named, plus exit 2 and zero findings |
 | Task 3, named half | substring matching; report every occurrence; assert attribution by sampling | already three separate fixtures; the attribution one is asserted over EVERY emitted finding because the occurrence assertions structurally cannot kill it |
 | Task 4, not-found | emit not-found whenever the occurrence list is empty | that IS the rule; the pair one variable apart (truncated vs untruncated identifier) is what makes the clean half attributable |
+| Task 7, hunk spans | supply empty spans, or whole-file spans | both directions asserted from the incident: empty spans return nine, whole-file spans return zero, correct spans return four |
+| Task 7, repeated `--also` | keep only the LAST peer | three peers each carrying a distinct survivor, with the expected count DERIVED from the fixture rather than typed |
+| Task 7, unreadable peer | drop the entry rather than passing `null` | the symlink peer beside two readable ones must yield `SWEEP_DOCUMENT_UNREADABLE` and the others' occurrences |
+| Task 7, swept-not-linted | run the full lint over peers | a peer whose own text draws citation, numeric and copy findings; the assertion is on the CODE SET, so a full-lint adapter fails naming the extras |
+| Task 7, no rewrite | write to a document while reporting | the write spy, with a NON-ZERO finding count asserted FIRST as the premise, and a `writeFileSync` mutant observed red |
+| Task 10, killer audit | label every present check PROVEN | a deletion control cannot see it, because deleting a check still yields ABSENT; the audit EXECUTES each row's mutant recipe and records the observed red |
 | Task 8, corpus | hardcode the excluded paths | `ARC_DOCUMENTS` IS a declared tuple, so this is the specification rather than a weaker form; the relation asserted is that the enumeration excludes them AND the unfiltered enumeration contains them |
 
 **Which rule DECIDES the observation, asked of every fixture:** Task 3's span-exclusion cases are decided
