@@ -508,3 +508,61 @@ Readings:
    whether its quotes are syntax or data inside a double-quoted span.
 4. **Precision survives the model change:** Q5 (`notpsql`), Q6 (prose) and Q7 (`psql;x`) all stay 0,
    each rejected by the predicate that already rejects the same shape as a literal value.
+
+### Option A addendum (2026-08-20, orchestrator disposition after spec round 4)
+
+Round 4 returned five findings. Two turned on how far arm 2 should reach and were escalated; the
+orchestrator ruled **whole-value accepted expansions only**. Probes taken for that design, both
+instruments, before the spec was rewritten.
+
+Scanner (current tree — every row below is the BEFORE measurement):
+
+```
+{"label":"R1 target :- quoted","hits":0}       read -r PG <<< ${U:-'psql'}
+{"label":"R2 target :- dq","hits":0}           read -r PG <<< ${U:-p"sql"}
+{"label":"R3 target := quoted","hits":0}       read -r PG <<< ${U:='psql'}
+{"label":"R4 target :+ quoted","hits":0}       read -r PG <<< ${U:+'psql'}
+{"label":"R5 target - quoted","hits":0}        read -r PG <<< ${U-'psql'}
+{"label":"R6 target = quoted","hits":0}        read -r PG <<< ${U='psql'}
+{"label":"R7 target + quoted","hits":0}        read -r PG <<< ${U+'psql'}
+{"label":"R8 target nested","hits":0}          read -r PG <<< ${U:-${V:-'psql'}}
+{"label":"R9 target bare (today)","hits":1}    read -r PG <<< ${U:-psql}
+{"label":"R10 target pattern op","hits":0}     read -r PG <<< ${U#'psql'}
+{"label":"R11 target substring","hits":0}      read -r PG <<< ${U:1}
+{"label":"S1 whole :- quoted","hits":0}        PG=${U:-'psql'}
+{"label":"S2 whole multiword","hits":0}        PG=${U:-psql -X}
+{"label":"S3 composed literal-before","hits":0}   PG=p${U:-"sql"}
+{"label":"S4 mixed accepted+pattern","hits":0}    U=xy; PG=${U#x}${V:-"psql"}
+{"label":"S5 nested inside complement","hits":0}  U=xpsql; PG=${U#${V:-'psql'}}
+```
+
+Bash oracle:
+
+```
+R1 target :- quoted      -> <psql>
+R2 target :- dq          -> <psql>
+R3 target := quoted      -> <psql>
+R4 target :+ (U set)     -> <psql>
+R5 target - quoted       -> <psql>
+R6 target = quoted       -> <psql>
+R7 target + (U set)      -> <psql>
+R8 target nested         -> <psql>
+S5 nested in complement  -> <xpsql>
+```
+
+Readings:
+
+1. **The two arms compose through ONE rule, not a new mechanism.** R1-R8 are here-string targets whose
+   ENTIRE text is a single accepted expansion; the same whole-value rule an assignment value gets,
+   applied at a second site, closes all eight. R9 shows the bare spelling was already reported by the
+   existing pattern, so the gain is exactly the quoted and nested ones. R10/R11 confirm the fence
+   travels with the rule: a complement operator inside a target stays unread.
+2. **S5 is the case that settles the model.** Bash binds `xpsql`, so any reading that reports it is
+   WRONG, not merely eager. The round-3 substitution model reported it, because it substituted an
+   accepted child inside a non-accepted parent. Whole-value-only cannot: the value is not a single
+   accepted expansion, so no candidate exists. The false report is removed by construction rather than
+   by a guard clause, which is the whole reason the narrower model was chosen over patching the wider
+   one.
+3. **The cost is composition, and it is scope this arc never owned.** S3, S4 and the P-family stay 0
+   before and after. Both ledger rows name whole-value spellings; composition entered through review
+   rounds rather than through either requirement.
