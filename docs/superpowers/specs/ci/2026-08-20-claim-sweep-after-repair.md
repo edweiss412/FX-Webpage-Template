@@ -94,6 +94,21 @@ is the only drift that produced a repair here. §6 and §9 assert SETS and RELAT
 cardinality typed into a test: AC-6 states the relation, and **no fixture pins 936, 1009, or any other
 figure from the table below.**
 
+**THE MOTIVATING INSTANCE IS THIS ARC'S OWN, AND IT LANDED ONE ARTIFACT FURTHER OUT THAN THE COVER
+REACHED.** While building the arm, this arc ran a claimed-repair sweep over its spec and probe record and
+read a clean `0 of 59 claimed-but-absent, 0 of 20 retired-but-surviving`. Its round-economy filing was at
+that moment carrying SEVEN current-tense survivors of the model the arc had already retired — six review
+rounds where there were seven, three finding codes where there were four, nine documented limits where
+there were ten, and four more of the same shape. **The sweep was clean about a document it never opened.**
+
+Two properties follow, and the arm inherits both. **The swept set must be every document the arc writes,
+declared and not inferred (§3.3)** — the filing sat outside the pair the cover had been written against,
+and no amount of care on the sweep itself reaches a document it does not read. **And ONE control proves
+ONE read succeeded**: a single must-be-PRESENT witness anywhere in the population is satisfied by any one
+member of it, which is precisely how the filing stayed invisible, so a control belongs in EACH document
+and the population SIZE is printed beside every zero — `0 of 0` and `0 of 76` render identically and mean
+opposite things.
+
 **Synthetic fixture literals therefore live in ONE SHARED MODULE, and the no-collision cover is keyed on
 THAT DATA.** The rejected alternative was a nonce token grepped across fixture titles: a nonce is a
 CONVENTION, so the check would be blind to any fixture literal written without it — the same

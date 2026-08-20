@@ -511,29 +511,38 @@ $ VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest list --project mutation tes
 The gate red above is the first; these are the other two, both in the GREEN phase, both with their output
 in the commit:
 
-**`$INPUTS` IS EVERY INPUT THE SCORE IS A FUNCTION OF, and round 4 caught it naming only two of four.**
-The score is a pure function of (source, declared operators, deciding suites), so the stamp must cover the
-REGISTRY ROW — which declares `operators`, `suitePaths`, `control` and `scoreFloor` — and Task 1's
-`fixtures/claimSweep/**`, which the deciding suites read. A stamp that omits either leaves the
-before/after pair IDENTICAL while an ordinary mid-run edit changes what the score measures, so the
-provenance proof would accept the incoherent-run condition it exists to detect:
+**THE STAMP COVERS EVERY INPUT THE SCORE IS A FUNCTION OF, AND IT IS A DERIVED LIST — round 5 caught the
+round-4 repair shipping a command that could not run.** Three defects in one line, each of which would
+have produced identical BEFORE and AFTER output and so CERTIFIED an incoherent run: a variable assigned
+outside a single-quoted `sh -c` arrives EMPTY in the child; `git hash-object` REJECTS a directory
+(`fatal: Unable to hash`); and `git ls-files -s` prints INDEX blobs, so an unstaged fixture edit and an
+untracked fixture addition are both invisible. **A stamp over a subset is worse than no stamp, because it
+certifies.**
 
-```
-INPUTS="lib/specLint/claimSweep.ts tests/specLint/*.test.ts \
-        tests/specLint/fixtures/claimSweep tests/mutation/source/registry.ts"
-```
-
-`git hash-object` on a directory does not recurse, so the fixtures entry is expanded by the same command
-that stamps it (`git ls-files -s -- tests/specLint/fixtures/claimSweep`), which also means a fixture ADDED
-mid-run changes the stamp rather than hiding behind a glob that was expanded before it existed.
+The shipped form derives its file list and hashes WORKING-TREE bytes, so a fixture added or edited
+mid-run moves the stamp rather than hiding behind a list expanded before it existed. Verified against the
+live tree at plan time — 96 files:
 
 ```
 # the score, with provenance stamped INSIDE the measuring invocation, before and after
 FX_HEAVY_PRIORITY=1 pnpm heavy sh -c '
-  git hash-object $INPUTS; git ls-files -s -- tests/specLint/fixtures/claimSweep   # BEFORE
-  VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest run --project mutation     tests/mutation/guardSurfaces.shard*.test.ts tests/mutation/guardSurfaces.gates.test.ts
-  git hash-object $INPUTS; git ls-files -s -- tests/specLint/fixtures/claimSweep   # AFTER
+  stamp() {
+    git ls-files -o -c --exclude-standard -- \
+      lib/specLint tests/specLint tests/mutation/source/registry.ts \
+      | sort | while read -r f; do printf "%s  %s\n" "$(git hash-object "$f")" "$f"; done
+  }
+  stamp | tee /tmp/stamp.before | wc -l          # BEFORE, with the SET SIZE printed
+  VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest run --project mutation \
+    tests/mutation/guardSurfaces.shard*.test.ts tests/mutation/guardSurfaces.gates.test.ts
+  stamp | tee /tmp/stamp.after | wc -l           # AFTER
+  diff /tmp/stamp.before /tmp/stamp.after && echo "STAMP MATCH" || echo "STAMP DIFFERS -- DISCOVERY, NOT SCORED"
 '
+```
+
+`git ls-files -o -c --exclude-standard` is tracked PLUS untracked-not-ignored, so a NEW fixture is in the
+population rather than outside it; `git hash-object <file>` reads the working tree rather than the index.
+The count is printed beside the hashes because a stamp over an empty set diffs clean against another
+empty set — `0 of 0` and `96 of 96` render identically in a `diff`.
 
 # purity, RUN rather than described as automatic
 pnpm vitest run tests/specLint/_metaPureCore.test.ts
@@ -580,11 +589,13 @@ and this one had already decayed from three to twelve before anyone read it.
   then spins forever, because `charAt` keeps returning empty past the end. A bounded counting loop is
   mutation-SAFE by construction — whatever a mutant does to the predicate, the bound still ends it and the
   worst case is a SURVIVOR you can see. Remove the bound and the worst case is a HANG that takes the whole
-  measurement down and reads like memory pressure. **Safe totalisations, all three carrying no comparison
-  operator to mutate:** a REGEX MATCH for a leading run, a FOR-OF over a finite string, and a search loop
-  that ADVANCES IN ITS OWN HEADER. Before the first measure, audit the whole module for the property
-  **"no loop's termination depends on a mutable predicate"** — the arc that measured this found a SECOND
-  hang site that predated its totalisation entirely.
+  measurement down and reads like memory pressure. **Safe totalisations are safe because of what they COMPUTE, not how they look:** a REGEX MATCH for a
+  leading run (no loop at all) and a FOR-OF over a finite collection (an iterator drives it, not a
+  predicate). **The third form this bullet used to list — a search loop that advances in its own header —
+  is RETIRED above and is NOT repeated here**, which is the defect round 5 found: the retirement and the
+  recommendation sat twelve lines apart in the same task. What replaces it is a loop whose ceiling is
+  EXTERNAL to the predicate — a counter, or a `ranges.length` bound no mutant can lift. Before the first
+  measure, audit the whole module for the property, and the arc that measured this found a SECOND hang site that predated its totalisation entirely.
 - **A DECIDING-SUITE EDIT MID-RUN DOES NOT COST THE RUN — IT SILENTLY CORRUPTS IT.** Change a suite the
   registry names while mutants are executing and some read the old bytes and some the new; the run then
   REPORTS A NUMBER that describes no coherent program. That is worse than a killed run, which reports
@@ -793,6 +804,13 @@ own red and matching the output to its `why=`, per §4 step 2.
    with their exception letter. Absence at commit N is absence at every commit after N, so review and CI
    cover exactly what merges. Verify absent-at-HEAD immediately before merge, and re-run the
    set-arithmetic verify if any post-review repair touches either ledger file.
+
+   **The residual hazard is a LATER merge, not the ordering.** Absence at commit N is absence at every
+   commit after N, so an early closeout cannot become false by drift — but a mid-arc merge of `origin/main`
+   AFTER it re-conflicts both ledger files and can reintroduce a row or a marker. Four arcs are merging
+   around each other. **After EVERY subsequent `origin/main` merge, re-verify the set arithmetic:** the
+   union of `BL-`/`DEF-` ids exact, `comm -12` of archived-versus-open EMPTY (the archive clause fires in
+   both directions, so a plain union RESURRECTS closed rows), and the in-progress marker count ZERO.
 
 <!-- tasks: end -->
 

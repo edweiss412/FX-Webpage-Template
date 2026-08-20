@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
-"""Round-5 repair sweep, BOTH directions, over the artifact PAIR.
+"""Claimed-repair sweep, BOTH directions, over EVERY DOCUMENT THIS ARC WRITES.
 
-Positive direction: every repair CLAIMED this round is present NOW.
-Negative direction: every model this round RETIRED is gone -- a repair that adds
+It began as a sweep over the spec/probe PAIR and that population was the defect:
+plan review round 4 found seven current-tense survivors of the retired model in
+the round-economy FILING while this script reported a clean sweep, because the
+filing sat outside what it read.  The population is now spec, probe record, plan
+and filing, and any document this arc adds later joins the list in the same
+commit.
+
+Positive direction: every repair CLAIMED in any round is present NOW.
+Negative direction: every model any round RETIRED is gone -- a repair that adds
 the replacement while leaving the superseded text standing reads as complete in
 every positive check.  Raw counts only; no computed verdict.  Controls are
 mandatory: a must-be-PRESENT witness proves the read succeeded, a must-be-ABSENT
@@ -111,6 +118,15 @@ PRESENT = [
     ("filing: other 22",              [FILING], "The other 22 were not mechanizable"),
     ("filing: 2 + 5 split",           [FILING], "seven-round stage sat 2 + 5"),
     ("filing: seven dispatches",      [FILING], "All seven dispatches returned"),
+    # --- plan r5: the confirmation round's own row, and the counts it moved ---
+    ("filing: plan 5 rounds",         [FILING], "## plan — 5 rounds"),
+    ("filing: 25 across five",        [FILING], "**25 across\nfive rounds**"),
+    ("filing: eleven of twenty-five", [FILING], "eleven of the twenty-five"),
+    ("plan: derived stamp list",      [PLAN],   "IT IS A DERIVED LIST"),
+    ("plan: subset stamp certifies",  [PLAN],   "A stamp over a subset is worse than no stamp, because it\ncertifies"),
+    ("plan: safe forms by compute",   [PLAN],   "safe because of what they COMPUTE, not how they look"),
+    ("2.0 motivating instance",       [SPEC],   "THE MOTIVATING INSTANCE IS THIS ARC'S OWN"),
+    ("2.0 one control one read",      [SPEC],   "ONE control proves\nONE read succeeded"),
     ("plan: derived red check",       [PLAN],   "it is a verification step"),
     ("plan: nine tasks",              [PLAN],   "TDD contract for Tasks 1-9"),
     ("plan: derived commit scope",    [PLAN],   "DERIVED from the files the task touches"),
@@ -151,6 +167,10 @@ ABSENT = [
     ("retired: filing other 21",              [FILING],      "The other 21 were not mechanizable"),
     ("retired: filing 2 + 4",                 [FILING],      "six-round stage sat 2 + 4"),
     ("retired: filing six dispatches",        [FILING],      "All six dispatches returned"),
+    ("retired: plan 4 rounds heading",         [FILING],      "## plan — 4 rounds"),
+    ("retired: eleven of twenty-two",          [FILING],      "eleven of the twenty-two"),
+    ("retired: unexported INPUTS stamp",       [PLAN],        "git hash-object $INPUTS"),
+    ("retired: header-advance as safe form",   [PLAN],        "and a SEARCH LOOP THAT ADVANCES IN ITS OWN HEADER"),
     # --- plan rounds 1-3: task shapes the plan retired ---
     ("retired: twelve-task cardinality",      [PLAN],        "repeated twelve times"),
     ("retired: number-mapped commit scopes",  [PLAN],        "Scope is `speclint` for Tasks 1-9 and 12"),
@@ -164,7 +184,8 @@ ctl_present = count([SPEC], "## 3. The arm")
 ctl_absent  = count([SPEC, PROBE], "zzz-this-string-is-not-in-either-document-zzz")
 print(f"  must-be-PRESENT control '## 3. The arm'      : {ctl_present}  (need >=1)")
 print(f"  must-be-ABSENT  control nonsense string       : {ctl_absent}  (need 0)")
-# a control drawn from the OTHER document, so a single-file read cannot fake the pair
+# one control PER DOCUMENT: a single global control is satisfied by any one
+# member of the population, which is exactly how the filing stayed invisible
 ctl_probe = count([PROBE], "## 1. The entry's acceptance criterion")
 ctl_plan = count([PLAN], "## 0. Pre-draft code-verification pass")
 ctl_filing = count([FILING], "# Review-round filing")
