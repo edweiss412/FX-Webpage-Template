@@ -48,6 +48,25 @@ silent reordering would let the vector survive into a shipped plan, so:
 - Report it against this plan. Do not resequence the task to make it pass.
 - Confirm every red **failed for the ASSERTED reason** by reading the failure output, not the exit code.
 
+## A SECOND CONDITION, added after handoff was written
+
+**Every weaker implementation the plan names owes a killing check that EXISTS IN THE SHIPPED TESTS, and
+you verify that mechanically — enumerating from the spec §6 tables, never from recall.**
+
+The tables name each weaker implementation and the fixture that kills it. A table that names the case
+while the suite omits it is the gap between plan and implementation: **no plan review catches it,
+because the plan is correct, and no fixture audit catches it, because the fixture does not exist.** A
+sibling arc shipped exactly this an hour after its plan correctly named the case — a default that
+bounded nothing went invisible to every proof, because both production call sites omitted the argument
+while every test supplied it.
+
+Two mechanical steps, at the end of implementation:
+
+1. Enumerate the killing checks FROM the §6 tables. Not from memory of which ones you wrote — this
+   arc's own worst finding was a sweep enumerated from recall that missed one of four sites.
+2. For each, confirm the check exists AND fails when you break the behaviour it covers. A check that
+   cannot fail is not a check.
+
 ## Live facts the implementer should not re-derive
 
 - **Preparation makes NO difference on the live corpus today.** Prepared and unprepared runs both yield
