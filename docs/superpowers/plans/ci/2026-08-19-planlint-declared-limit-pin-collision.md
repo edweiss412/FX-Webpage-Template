@@ -232,8 +232,8 @@ so an implementation anchored to one position cannot pass.
       invalid and the task stops until it is fixed. Paste the observed failure lines into the commit.
 - [ ] **Step 4: Implement `discoverPins`.** Minimal: line scan, opener match, single-line literal
       extraction, three-phrase test, disposition filter. Returns `{ path, line, title }[]`.
-- [ ] **Step 4: Observe green.** Same command, PASS.
-- [ ] **Step 5: Commit.**
+- [ ] **Step 5: Observe green.** Same command, PASS.
+- [ ] **Step 6: Commit.**
 
 ```bash
 git add lib/specLint/declaredLimitPins.ts tests/specLint/declaredLimitPins.test.ts
@@ -718,7 +718,8 @@ git commit -m "test(spec-lint): prove the adapter prepares and injects, through 
 **Region boundaries, disclosed rather than silent.** This plan declares TWO task regions — Tasks 1-5,
 then Task 7b — and THREE tasks sit outside them. **Task 6** is characterization: after Tasks 1-5
 the core is complete, so its suite is green the moment it is authored, measured rather than assumed
-since the live corpus yields the same seven pins prepared or unprepared. **Task 8** That is deliberate: Task 8 edits two documents and runs gates,
+since the live corpus yields the same seven pins prepared or unprepared. **Task 8** carries no marker
+either. That is deliberate: Task 8 edits two documents and runs gates,
 and it has no test-first cycle to declare. A marker on either would assert a red that cannot fire. The
 exclusions are stated because an undisclosed one is the silent-under-coverage defect
 `BL-SPECLINT-RED-TARGET-CANNOT-NAME-A-REPO-ROOT-SURFACE` records: the lint stays green, the region stays
