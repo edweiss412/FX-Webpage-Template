@@ -15,7 +15,7 @@ This spec adds one `spec:lint` arm over plan-kind documents. For each enrolled g
 3. **Discovery is by PHRASE IN A TEST TITLE, not by reading assertions.** The arm never parses a test body, never looks for `toHaveLength(0)`, and owns no JavaScript grammar beyond a single-line call-opener match (§3.1). The rejected alternative — locate the zero assertion and prove the title governs it — needs block extents over TypeScript and is the recognizer-growth road `lib/specLint/` already measured at 20 diff rounds with a flat finding rate (`docs/review-rounds/feat/speclint-prose-count-parity/`).
 4. **A title that narrates a CLOSED limit is dispositioned per instance, never pattern-matched.** Two live titles say a limit closed (§2.4). Recognizing them would need tense and polarity over English; instead each is one row in a disposition registry with a reason, asserted against the scanner by a meta-test (§5). This is the `accepted:` shape the mutation registry already uses for survivors it cannot kill (`tests/mutation/source/registry.ts:37`).
 5. **The plan's obligation is to NAME the pin, not to resolve it.** The arm cannot tell "I retire this pin" from "I deliberately leave it alone"; both are compliance. Naming means the pin's title appears verbatim in the plan text. That is what the incident's own repair did (`docs/superpowers/plans/2026-08-17-shell-binding-mixed-quoted-value.md`, Step 3b, which quotes the title in full).
-6. **The grain is the plan's Files declaration, not the whole document.** Measured at the §2 baseline: whole-document matching draws on 63 plans against the Files grain's 25, the difference naming an enrolled path only in prose (§2.5). A plan citing `tests/mutation/_metaPremiseContract.test.ts` because its tests must satisfy the premise contract is not editing that file, and advising it about pins there is exactly the false advisory the consequence bound forbids.
+6. **The grain is the plan's Files declaration, not the whole document.** Measured at the §2 baseline: whole-document matching draws on 63 plans against the Files grain's 23, the difference naming an enrolled path only in prose (§2.5). A plan citing `tests/mutation/_metaPremiseContract.test.ts` because its tests must satisfy the premise contract is not editing that file, and advising it about pins there is exactly the false advisory the consequence bound forbids.
 7. **No new `Check` union member and no `CHECK_ORDER` change.** Findings report `check: "taskContract"`, following the fixture arm (`docs/superpowers/specs/2026-08-18-planlint-fixture-satisfiability.md` §5).
 8. **Threat fence.** The arm defends against ordinary authoring mistakes by a contributor writing a plan. Adversarial obfuscation — a title constructed to evade the phrase match, a Files block written to hide a path — is out of scope and files to §8, not to a review round.
 
@@ -37,12 +37,12 @@ Every number below was produced by a probe run against the live tree at `4e074d3
 | Enrolled guard surfaces (`GUARD_SURFACES`) | 38 |
 | Distinct enrolled paths (`sourcePath` ∪ `suitePaths`) | 100 |
 | Distinct `suitePaths` | 62 |
-| Tracked plan `.md` files (`git ls-files 'docs/superpowers/plans'`) | 665 |
+| Tracked plan `.md` files (`git ls-files 'docs/superpowers/plans'`) | 666 |
 | `**Files:**` headers across them | 2559 |
 | …whose header line itself carries a path | 636 |
 | …followed by an unordered list | 2136 |
 | …followed by an ordered list | 25 |
-| Plans naming an enrolled path in a Files declaration | 25 |
+| Plans naming an enrolled path in a Files declaration | 23 |
 
 ### 2.2 The phrase population, and why the title narrowing is load-bearing
 
@@ -85,9 +85,9 @@ Line numbers here are drafting-time locators and rot at every merge; the pin's I
 | Grain | Plans drawing ≥1 hit |
 | --- | --- |
 | Enrolled path anywhere in the document | 63 |
-| Enrolled path in a Files declaration (§3.2) | 25 |
+| Enrolled path in a Files declaration (§3.2) | 23 |
 
-The 38-plan difference is prose citation: plans naming `_metaPremiseContract.test.ts`, `_metaReviewRoundEconomy.test.ts` or `numerics.ts` as context, contracts to satisfy, or prior art. None of them edits the surface. The Files block is the plan's own declaration of what it touches, so it is the grain — declared, never inferred, the same principle the task-marker contract rests on (`docs/agents/spec-self-review.md`).
+The 40-plan difference is prose citation: plans naming `_metaPremiseContract.test.ts`, `_metaReviewRoundEconomy.test.ts` or `numerics.ts` as context, contracts to satisfy, or prior art. None of them edits the surface. The Files block is the plan's own declaration of what it touches, so it is the grain — declared, never inferred, the same principle the task-marker contract rests on (`docs/agents/spec-self-review.md`).
 
 **Two shapes carry the declaration, and only two.** 636 of the 2559 headers put the paths on the header line itself (`**Files:** create \`a\`, \`b\`; modify \`c\``); 2136 are followed by an unordered list. Both are read. An ORDERED list after the header — 25 headers — is DECLINED: sampling those runs shows the numbered items are as often TASK STEPS as files (`1. **RED first …**`, `1. Merge \`origin/main\` …`, `1. Move the full body to \`BACKLOG-archive.md\``), and admitting them would re-import exactly the prose citations this grain exists to exclude. The arm cannot classify an ordered run, so it declines and files the limit (§8 item 11) rather than guessing.
 
@@ -97,15 +97,18 @@ The Files declaration's INTERNAL grammar is deliberately not modeled. A probe ov
 
 Running the shipped rules (§3) over the plan corpus enumerated by `git ls-files 'docs/superpowers/plans' | grep '\.md$'` (§2.1 owns that count):
 
-**5 plans draw an advisory; 7 advisories total**, at the §2 baseline.
+**3 plans draw an advisory; 5 advisories total**, at the §2 baseline.
 
 ```
-docs/superpowers/plans/2026-07-19-spec-lint.md                    2  (numerics.test.ts)
-docs/superpowers/plans/2026-08-04-review-round-economy.md         2  (_metaReviewRoundEconomy.test.ts)
-docs/superpowers/plans/2026-08-09-m-wave-2/plan.md                1  (interactionTimingScan.test.ts)
-docs/superpowers/plans/2026-08-16-psql-scan-mutation-enrolment.md 1  (psqlStartupFileSuppression.test.ts)
-docs/superpowers/plans/2026-08-17-speclint-prose-consistency-arms.md 1 (universals.test.ts)
+docs/superpowers/plans/2026-07-19-spec-lint.md             2  (numerics.test.ts)
+docs/superpowers/plans/2026-08-04-review-round-economy.md  2  (_metaReviewRoundEconomy.test.ts)
+docs/superpowers/plans/2026-08-09-m-wave-2/plan.md         1  (interactionTimingScan.test.ts)
 ```
+
+Round 3's narrowing removed two of the five plans measured before it. Both were BLANK-GAP absorptions —
+an inline Files declaration followed by a blank and a task checklist — so each was a false advisory of
+exactly the kind §2.5 says the grain prevents, and the corrected rule dropped them without touching any
+advisory a Files declaration actually earns.
 
 Every one is a MERGED plan that names an enrolled surface in its Files declaration and does not name that surface's pin. The arm reads the tree at lint time, so re-linting a historical plan can advise about a pin added after it merged — a documented limit (§8 item 1), not a defect, and one with no cost in the arm's actual payoff moment, which is a plan being written now.
 
@@ -125,9 +128,29 @@ Both directions, from committed history, with no constructed input. A mechanism 
 
 ## 3. The arm
 
-### 3.1 Pin discovery (pure, over one suite file's lines)
+### 3.1 Pin discovery (pure, over one suite file's PREPARED lines)
 
-A **pin** is a line that satisfies ALL of:
+The core never decides what is code. Before any line is scanned, the ADAPTER prepares the suite text by
+BLANKING every non-code span, position-for-position, so that scanning a prepared line cannot see text
+that never executes:
+
+1. **Comments** are blanked by `stripCommentsSafely` (`tests/_shared/stripComments.ts:68`) — THE
+   comment-stripping module for structural guards, whose own meta-test forbids local copies. It
+   replaces comment characters with spaces and preserves every line terminator, so line and column
+   numbers survive exactly.
+2. **Template-literal bodies** are blanked the same way, from `ts.isTemplateLiteral` ranges reported by
+   the TypeScript parser. Ordinary string literals are LEFT INTACT — they carry the titles.
+
+This is the round-3 repair and it is a NARROWING of the core, not a widening: a line-oriented matcher
+cannot see block-comment or template state, so a live pin wrapped in `/* … */`, and a `test(`-shaped
+line inside a template fixture, were both discovered as pins — one ordinary edit from a live suite, and
+a false advisory in both cases. The core loses the concern entirely rather than growing a lexer to
+answer it: **the TypeScript parser is the oracle for what is code, and the arm owns no grammar for it.**
+`stripCommentsSafely`'s walker covers `tests/` only, so a hand-rolled copy inside `lib/` would be
+invisible to that guard — which is the other reason the logic lives in the adapter and is the shared
+module's, not ours.
+
+A **pin** is a line of the PREPARED text that satisfies ALL of:
 
 1. It opens a call to `test` or `it` — matched at the start of the line modulo leading whitespace. `describe` is excluded (§2.3). A `.each` form is excluded (§8 item 3).
 2. Its first argument is a string literal delimited by a double or single quote, opening and closing on that same line, with standard backslash escapes.
@@ -139,7 +162,13 @@ The pin's identity is `(path, title)`. Its reported location is the matching lin
 
 ### 3.2 Surfaces a plan names (pure, over the parsed plan model)
 
-A **Files declaration** opens on a non-fenced line matching `**Files:**` or `**Files**` (optionally as a list item). It spans that line's own remainder, plus — when the next non-blank line opens an UNORDERED list item — the following run of unordered list items and their indented continuations, ending at the first blank line or the first line that is neither. When the next non-blank line opens an ORDERED list, the declaration is the header remainder alone and the ordered run is declined (§2.5, §8 item 11).
+A **Files declaration** opens on a non-fenced line matching `**Files:**` or `**Files**` (optionally as a list item). Its span is decided by the header line itself:
+
+- **Inline form** — the header line's remainder names at least one path. The declaration is THAT LINE ALONE. Nothing below it is read, because an inline declaration is complete where it is written.
+- **List form** — the header line names no path, and the line IMMEDIATELY BELOW it opens an unordered list item. The declaration is that run of unordered list items and their indented continuations, ending at the first blank line or the first line that is neither.
+- **Anything else** — an ordered run (§8 item 11), a blank line between header and list, a table, a fence — is DECLINED. The declaration is the header remainder alone.
+
+No blank line is ever skipped, and the two forms are exclusive. Round 3 measured why: a live plan carries `**Files:** \`BACKLOG.md\` **and \`BACKLOG-archive.md\`**` followed by a blank and then a TASK CHECKLIST, and skipping the blank absorbed that checklist — so adding one ordinary prior-art citation to a checklist step made an unrelated pin advise. That is exactly the prose-citation false advisory the Files grain exists to prevent, and the blank line is the signal that the list below belongs to something else.
 
 Inside that span, a line **names** an enrolled path when the path occurs as a DELIMITED token: the characters immediately before and after the occurrence are not path characters (`[A-Za-z0-9._/-]`). A bare substring test is unsound — a sibling path formed by appending .bak to a live entry contains that entry as a substring while naming a different file, and that is one ordinary authoring edit from a live corpus entry. The candidate set is the closed set of every enrolled `sourcePath` and `suitePath`. A path naming several surfaces (`tests/docs/_metaReviewRoundEconomy.test.ts` is a `suitePath` of three) names all of them; pins are deduplicated by (path, title) afterwards, so the reader sees each pin once.
 
@@ -169,14 +198,16 @@ and reports zero pins for that suite, saying so rather than implying there are n
 ## 4. Architecture & purity
 
 ```
-scripts/spec-lint.ts                # adapter: imports GUARD_SURFACES, projects it to the injected table
-lib/specLint/declaredLimitPins.ts   # NEW, pure: pin grammar, Files-block extent, obligation, findings
+scripts/spec-lint.ts                # adapter: GUARD_SURFACES -> injected table; PREPARES suite text
+lib/specLint/declaredLimitPins.ts   # NEW, pure: pin grammar, Files-declaration span, obligation, findings
 lib/specLint/run.ts                 # threads the injected table core-ward, plan-kind only
 lib/specLint/types.ts               # EnrolledSurface (id, sourcePath, suitePaths) — no registry type crosses
+tests/_shared/stripComments.ts      # REUSED, unmodified: the single-source comment stripper
 ```
 
 - **The registry is injected as data, never imported by `lib/`.** The adapter reads `GUARD_SURFACES` and passes `readonly { id, sourcePath, suitePaths }[]`. `scripts/` importing `tests/mutation/source/**` is established (`scripts/print-mutation-sites.ts:24`). The core receives a plain array, so the mutation harness scores the LOGIC while the registry stays the registry.
 - **Suite TEXT comes through the existing `FileResolver`**, which the core already takes. No new I/O boundary, and `readFileLines`'s `null` contract is honored explicitly (§3.4).
+- **Preparation is the adapter's, and it is the only place TypeScript is parsed** (§3.1). The adapter calls `stripCommentsSafely` and blanks template ranges; the core receives lines and owns no notion of comment, template, or code. Two reasons, both structural rather than stylistic: the shared stripper is mandated for `tests/` and a private copy in `lib/` would sit outside its walker, and a core that cannot see comment state cannot grow a lexer to guess at it.
 - **Purity holds.** `tests/specLint/_metaPureCore.test.ts` walks the core tree recursively, so the new file is covered by default.
 - **No `parse.ts` change.** Fence awareness comes from `model.fencedInfo`, already computed.
 - **A null injected table means the arm runs nothing** — the same static/injected split the exec, parse, probe and fixture arms use. This keeps `runLint`'s existing callers compiling and their behavior byte-identical.
@@ -207,7 +238,7 @@ A new phrase-bearing title needs no registry row: it simply becomes a pin, which
 All under `tests/specLint/`, TDD per task, anti-tautology rules of `docs/agents/writing-plans.md` in force.
 
 - **Pin grammar (pure).** Each phrase matches in a `test(` and an `it(` title, in double-quoted and single-quoted literals, case-insensitively, with an escaped quote inside the literal. Each excluded shape draws NOTHING and is asserted explicitly, with its §8 item cited in the test body: a `describe(` title; a `.each` form; a template literal; a title whose literal opens on one line and closes on another; a phrase in a comment; a phrase in the SECOND argument. A dispositioned (path, title) draws nothing; the same title at a DIFFERENT path still draws (the disposition is keyed on the pair, not the string). **Decoding is asserted end to end:** a title source-spelled with `\"` yields the DECODED title, a plan naming the decoded form draws nothing, and a plan naming the SOURCE spelling draws the advisory — the pair that fails any implementation carrying the raw capture through to the comparison.
-- **Files-block extent (pure).** The block ends at the first blank line and at the first non-list line; a second `**Files:**` block in the same document is read too; a `**Files:**` line inside a fence is inert; an enrolled path in prose outside any block draws nothing (the §2.5 measurement, made executable); an enrolled path inside a block on a bullet with an unmodeled verb still draws (the §2.5 verb argument, made executable).
+- **Files-declaration span (pure).** An INLINE declaration reads its own line and nothing below it, asserted with the live blank-then-checklist shape round 3 found — the discriminating case, which any blank-skipping implementation fails. A LIST declaration ends at the first blank line and at the first non-list line; a second `**Files:**` block in the same document is read too; a `**Files:**` line inside a fence is inert; an enrolled path in prose outside any block draws nothing (the §2.5 measurement, made executable); an enrolled path inside a block on a bullet with an unmodeled verb still draws (the §2.5 verb argument, made executable).
 - **Obligation (pure).** Title present verbatim → nothing; absent → one advisory; present inside a fenced block → nothing (the plan named it); one pin reachable through two surfaces → ONE advisory, not two; a pin whose title is a substring of a longer title → the longer title's presence does not satisfy the shorter pin unless it literally contains it, asserted with a constructed pair.
 - **Unreadable suite (§3.4), BOTH channels.** A resolver returning `null` for a `suitePath` draws `DECLARED_LIMIT_PIN_SUITE_UNREADABLE`; SEPARATELY, a `suitePath` absent from `listTrackedFiles()` draws it too, asserted with a fake resolver whose `readFileLines` SUCCEEDS for that path and returns real pin-bearing text. That second case is the one a tracking-blind implementation passes silently, and it is the reason the arm cannot rest on `readFileLines` alone. Both assert that the OTHER suite's pins still report, so an implementation abandoning the whole surface on one bad suite fails.
 - **Historical re-enactment (§2.7), executable.** The pre-repair suite blob and both plan blobs are committed as fixtures; the pre-Step-3b plan draws exactly one advisory naming the pin, and the merged plan draws zero. This is the entry's acceptance criterion pinned by the incident itself rather than by a synthetic analogue.
@@ -239,7 +270,9 @@ Enrolment is TWO declarations: a `tests/mutation/source/registry.ts` row (`id: "
 11. **An ordered list after a Files header is declined** (§2.5). 25 headers of 2559 are followed by one, and sampling shows those runs are as often task steps as file lists, so the arm reads the header remainder alone and reports nothing about the run. The failure direction is a missed advisory, never a false one — the conservative side, and the side the consequence bound requires.
 12. **The pin GRAIN is the test, not the individual zero it tabulates.** A test whose body iterates a table of declared misses is ONE pin, however many rows the table holds. Measured on the live corpus: the `documented limits - quote-concatenated spellings outside the assignment family` group in `tests/cross-cutting/psqlStartupFileSuppression.test.ts` holds a six-row table under one title, and a concurrent arc enumerating that file's declared misses BY ZERO counted ten where this arm counts one. Both counts are right about different units, and the arm's unit is the one the obligation needs: a plan changing behavior under any row must name the enclosing test, so no collision is missed — only the arithmetic differs. A reviewer comparing a by-zero census against this arm's output is comparing units, not finding a recall gap.
 13. **A decoded title containing a newline or tab escape can never be named.** The obligation is a verbatim substring test over the plan's text, and a title decoding to an embedded newline cannot appear on one line of prose. No live pin decodes to one; the failure direction is a permanent advisory the author cannot silence except by waiving it, which is why it is stated here rather than left to be discovered.
-14. **A path that is a proper prefix of another path is distinguished by delimitation, not by tracking.** The arm does not ask git whether a named path exists; a .bak sibling of a live entry fails the delimiter test and names nothing, and an untracked path that IS delimited names its surface if it string-matches an enrolled entry. Checking trackedness would make the arm's verdict depend on index state a plan author cannot see.
+14. **A Files declaration separated from its list by a blank line reads as INLINE.** If the header names paths, the list below is not read; if it names none, the declaration is empty and the plan names nothing. The failure direction is a missed advisory, never a false one.
+15. **Code-ness is the TypeScript parser's answer, and unparseable text is scanned as written.** If a suite file cannot be parsed, comment and template ranges are empty and the prepared text equals the raw text — the arm then behaves as it did before round 3 on that file. It is the conservative direction (it can only over-report), and no live suite fails to parse.
+16. **A path that is a proper prefix of another path is distinguished by delimitation, not by tracking.** The arm does not ask git whether a named path exists; a .bak sibling of a live entry fails the delimiter test and names nothing, and an untracked path that IS delimited names its surface if it string-matches an enrolled entry. Checking trackedness would make the arm's verdict depend on index state a plan author cannot see.
 
 ## 9. Wiring & docs (same PR)
 

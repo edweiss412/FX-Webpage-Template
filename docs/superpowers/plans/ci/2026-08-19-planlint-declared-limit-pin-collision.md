@@ -12,17 +12,29 @@ each declared-limit pin in that surface's `suitePaths` whose title the plan does
 ## Architecture (spec §4)
 
 ```
-scripts/spec-lint.ts                # adapter: imports GUARD_SURFACES, projects to the injected table
+scripts/spec-lint.ts                # adapter: GUARD_SURFACES -> injected table; PREPARES suite text
 lib/specLint/declaredLimitPins.ts   # NEW, pure: pin grammar, Files-block extent, obligation, findings
 lib/specLint/run.ts                 # threads the injected table core-ward, plan-kind only
 lib/specLint/types.ts               # EnrolledSurface (id, sourcePath, suitePaths)
 tests/specLint/declaredLimitPinDispositions.ts   # NEW: per-instance NOT_A_PIN rows
+tests/_shared/stripComments.ts      # REUSED, unmodified: the single-source comment stripper
 ```
 
 ## Global constraints
 
 - **TDD per task** (invariant 1): failing test → minimal implementation → passing test → commit. Never
   implementation before the test that exercises it.
+- **A RED is confirmed by its REASON, not by its exit code.** Every task's red step reads the failure
+  OUTPUT and matches it to the defect the task claims. This is stricter than "run the command", and the
+  difference is the whole point: a command that collects nothing exits 0 and is green from birth, while
+  a command that fails on an UNRESOLVED IMPORT exits non-zero and looks healthy to every did-it-fail
+  check there is — yet proves nothing about the assertion. `docs/agents/writing-plans.md` already rules
+  such a red invalid by construction ("an import that does not resolve … goes green when the test file
+  changes, not when the implementation lands").
+- **Consequently every task that CREATES a module creates it as a STUB first**, exported and typed but
+  returning an empty result, so the suite's cases fail on the ASSERTION rather than on module
+  resolution. The stub is the defect the `red-target=` names; it is not the implementation, and the
+  failing case still precedes the behavior.
 <!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 - **Purity.** Every function in `lib/specLint/declaredLimitPins.ts` is a pure map from
   `(model, surfaces, suite texts)` to findings. All I/O stays in `scripts/spec-lint.ts` and in the
@@ -80,7 +92,7 @@ surfaces: 38
 distinct suitePaths: 62
 
 $ git ls-files 'docs/superpowers/plans' | grep -c '\.md$'
-665
+666
 
 $ pnpm tsx .probe/probe2.ts            # phrase lines vs phrase-in-title
 grammar A (any line):   30
@@ -97,21 +109,22 @@ $ pnpm tsx .probe/probe7.ts            # which shapes carry a Files declaration
 **Files:** headers: 2559 | header line itself carries a path: 636
 followed by UNORDERED list: 2136 | by ORDERED list: 25 | by neither: 398
 
-$ pnpm tsx .probe/probe8.ts            # the shipped rules (spec 3.2 as repaired) over the corpus
-suitePaths 62 | live pins 7 | suites carrying >=1 5
-plans 665 | naming an enrolled surface in a Files span: 25 | drawing >=1 advisory: 5 | advisories: 7
+$ pnpm tsx .probe/probe9.ts            # the shipped rules (spec 3.1/3.2 as of round 3) over the corpus
+live pins 7 | suites carrying >=1 5
+plans 666 | naming an enrolled surface: 23 | firing: 3 | advisories: 5
 docs/superpowers/plans/2026-07-19-spec-lint.md  (2)
 docs/superpowers/plans/2026-08-04-review-round-economy.md  (2)
 docs/superpowers/plans/2026-08-09-m-wave-2/plan.md  (1)
-docs/superpowers/plans/2026-08-16-psql-scan-mutation-enrolment.md  (1)
-docs/superpowers/plans/2026-08-17-speclint-prose-consistency-arms.md  (1)
 ```
 
-Spec round 1 moved two of these rules and the numbers with them: the Files declaration now spans the
+Spec rounds 1 and 3 moved these rules and the numbers with them. Round 1: the Files declaration now spans the
 HEADER LINE's own remainder (636 headers put the paths there, and missing them dropped a real
 `interactionTimingScan` advisory), an ORDERED run after the header is DECLINED as unclassifiable, and a
 path is matched as a DELIMITED TOKEN rather than a bare substring (a `.bak` sibling contains a live
-entry and names a different file). The counts above are the post-repair measurement.
+entry and names a different file). Round 3 then NARROWED twice more, and the counts above are the post-round-3 measurement: suite text is
+PREPARED by the adapter (comments blanked by the shared `stripCommentsSafely`, template bodies blanked
+from parser ranges) so the core never guesses what is code; and an INLINE Files declaration is complete
+on its own line, with no blank-line skipping, which dropped two blank-gap false advisories.
 
 The `.probe/` scripts are scratch, untracked, and are NOT shipped. Task 6 re-expresses probe6 as a
 committed corpus test so the numbers stop depending on a scratch file.
@@ -139,7 +152,7 @@ $ git show '32e3fcd60^:docs/superpowers/plans/2026-08-17-shell-binding-mixed-quo
 <!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 - Test: `tests/specLint/declaredLimitPins.test.ts`
 
-<!-- task: red=`pnpm vitest run tests/specLint/declaredLimitPins.test.ts` red-state=authored red-target=`lib/specLint/declaredLimitPins.ts` why=`the module does not exist, so every case in the new suite fails to import it; the accept-set cases (three phrases, test( and it(, double- and single-quoted literals, case-insensitive, escaped quote inside the literal) and the decline cases (describe(, .each, template literal, multi-line literal, phrase in a comment, phrase in the second argument) all have no implementation to exercise` ac=AC-1 -->
+<!-- task: red=`pnpm vitest run tests/specLint/declaredLimitPins.test.ts` red-state=authored red-target=`lib/specLint/declaredLimitPins.ts` why=`Step 1 creates discoverPins as an exported STUB returning an empty array, so the suite RESOLVES and every case fails on its ASSERTION rather than on module resolution - an unresolved-import red would exit non-zero while proving nothing (writing-plans RED validity). The accept-set cases (three phrases, test( and it(, double- and single-quoted literals, case-insensitive, escaped quote inside the literal) and the decline cases (describe(, .each, template literal, multi-line literal, phrase in a comment, phrase in the second argument) all then observe zero pins where the case demands one, and the decline cases pass vacuously against the stub until the accept-set lands, which is why the red step reads the per-case output rather than the exit code` ac=AC-1 -->
 
 Implements spec §3.1 items 1-3. Pure over one file's lines; no filesystem, no registry import.
 
@@ -176,10 +189,15 @@ and the test pins which unit ships so the two are never read as a recall gap.
 case is exercised with the phrase in a DIFFERENT position within the title (leading, medial, trailing),
 so an implementation anchored to one position cannot pass.
 
-- [ ] **Step 1: Write the failing suite.** Cases above, plus the empty-file and no-match cases.
-- [ ] **Step 2: Observe red.** Run: `pnpm vitest run tests/specLint/declaredLimitPins.test.ts`.
-      Expected: FAIL, module not found.
-- [ ] **Step 3: Implement `discoverPins`.** Minimal: line scan, opener match, single-line literal
+- [ ] **Step 1: Create the STUB.** `export function discoverPins(...): Pin[] { return []; }`, typed as
+      the real signature. This is the `red-target=` defect, not the implementation.
+- [ ] **Step 2: Write the failing suite.** Cases above, plus the empty-file and no-match cases.
+- [ ] **Step 3: Observe red AND CONFIRM THE REASON.** Run:
+      `pnpm vitest run tests/specLint/declaredLimitPins.test.ts`. Expected: each accept case fails with
+      `expected [] to have length 1` or equivalent — an ASSERTION failure naming the missing pin. A
+      failure mentioning module resolution, a parse error, or zero collected tests means the red is
+      invalid and the task stops until it is fixed. Paste the observed failure lines into the commit.
+- [ ] **Step 4: Implement `discoverPins`.** Minimal: line scan, opener match, single-line literal
       extraction, three-phrase test, disposition filter. Returns `{ path, line, title }[]`.
 - [ ] **Step 4: Observe green.** Same command, PASS.
 - [ ] **Step 5: Commit.**
@@ -199,7 +217,7 @@ git commit -m "feat(spec-lint): declared-limit pin grammar - phrase in a single-
 <!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 - Test: `tests/specLint/declaredLimitPinsFiles.test.ts`
 
-<!-- task: red=`pnpm vitest run tests/specLint/declaredLimitPinsFiles.test.ts` red-state=authored red-target=`lib/specLint/declaredLimitPins.ts` why=`namedSurfaces does not exist after Task 1, which ships pin discovery only; the new suite calls it for the block-extent cases (ends at the first blank line, ends at the first non-list line, a second block in one document is read, a **Files:** line inside a fence is inert) and for the grain cases (an enrolled path in prose outside every block names nothing) and every case fails on the missing export` ac=AC-2 -->
+<!-- task: red=`pnpm vitest run tests/specLint/declaredLimitPinsFiles.test.ts` red-state=authored red-target=`lib/specLint/declaredLimitPins.ts` why=`Step 1 adds namedSurfaces as an exported STUB returning an empty set, so the suite RESOLVES and each case fails on its ASSERTION rather than on a missing export. The span cases (inline declaration reads its own line only, list declaration ends at the first blank and at the first non-list line, no blank is skipped, a second declaration in one document is read, a **Files:** line inside a fence is inert) and the grain cases (an enrolled path in prose outside every declaration names nothing) then observe an empty set where the case demands a named surface` ac=AC-2 -->
 
 Implements spec §3.2. The enrolled table is a parameter; the module still imports no registry.
 
@@ -221,7 +239,10 @@ fails any implementation using `String.prototype.includes` on the raw path.
       finding); an ORDERED run after the header, which is declined so its numbered task steps cannot
       name a surface (spec §8 item 11); and a delimited-token match, where appending `.bak` to a live
       entry must name NOTHING while the entry itself still names its surface (spec §3.2).
-- [ ] **Step 2: Observe red.** Run: `pnpm vitest run tests/specLint/declaredLimitPinsFiles.test.ts`.
+- [ ] **Step 2: Observe red AND CONFIRM THE REASON.** Run
+      `pnpm vitest run tests/specLint/declaredLimitPinsFiles.test.ts`. Expected: the naming cases fail
+      with an empty set against an expected surface id. A module-resolution error, a parse error, or
+      zero collected tests means the red is invalid and the task stops.
 - [ ] **Step 3: Implement `namedSurfaces` and the `EnrolledSurface` type.**
 - [ ] **Step 4: Observe green.**
 - [ ] **Step 5: Commit.**
@@ -240,7 +261,7 @@ git commit -m "feat(spec-lint): read enrolled surfaces from a plan's Files decla
 <!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 - Test: `tests/specLint/declaredLimitPinsObligation.test.ts`
 
-<!-- task: red=`pnpm vitest run tests/specLint/declaredLimitPinsObligation.test.ts` red-state=authored red-target=`lib/specLint/declaredLimitPins.ts` why=`checkDeclaredLimitPins does not exist after Tasks 1 and 2, which ship discovery and naming but emit no Finding; the new suite asserts DECLARED_LIMIT_PIN_UNNAMED on an unnamed pin, silence on a named one, one finding for a pin reachable through two surfaces, and DECLARED_LIMIT_PIN_SUITE_UNREADABLE when the resolver returns null, and all four fail on the missing export` ac=AC-3,AC-5 -->
+<!-- task: red=`pnpm vitest run tests/specLint/declaredLimitPinsObligation.test.ts` red-state=authored red-target=`lib/specLint/declaredLimitPins.ts` why=`Step 1 adds checkDeclaredLimitPins as an exported STUB returning no findings, so every case fails on its ASSERTION rather than on a missing export: DECLARED_LIMIT_PIN_UNNAMED expected on an unnamed pin, one finding for a pin reachable through two surfaces, and DECLARED_LIMIT_PIN_SUITE_UNREADABLE on BOTH fail-open channels each observe an empty finding list. The silence cases pass vacuously against the stub, which is why the red step reads per-case output rather than the exit code` ac=AC-3,AC-5 -->
 
 Implements spec §3.3 and §3.4.
 
@@ -258,8 +279,10 @@ case. The title-substring case — TITLE matching, which stays a verbatim substr
 in the plan, and asserts the longer title's presence does NOT satisfy the shorter pin unless it
 literally contains it. Severity is asserted over every emitted finding, not sampled.
 
-- [ ] **Step 1: Write the failing suite.**
-- [ ] **Step 2: Observe red.** Run: `pnpm vitest run tests/specLint/declaredLimitPinsObligation.test.ts`.
+- [ ] **Step 1: Create the STUB** (`checkDeclaredLimitPins` returning `[]`), then write the failing suite.
+- [ ] **Step 2: Observe red AND CONFIRM THE REASON.** Run
+      `pnpm vitest run tests/specLint/declaredLimitPinsObligation.test.ts`. Expected: each positive case
+      fails with an empty finding array against an expected code. Anything else invalidates the red.
 - [ ] **Step 3: Implement `checkDeclaredLimitPins`.**
 - [ ] **Step 4: Observe green.**
 - [ ] **Step 5: Commit.**
@@ -278,7 +301,7 @@ git commit -m "feat(spec-lint): advise on unnamed declared-limit pins; report an
 <!-- spec-lint: ignore — new file created by this plan; not yet tracked -->
 - Create: `tests/specLint/_metaDeclaredLimitPins.test.ts`
 
-<!-- task: red=`pnpm vitest run tests/specLint/_metaDeclaredLimitPins.test.ts` red-state=authored red-target=`tests/specLint/declaredLimitPinDispositions.ts` why=`the NOT_A_PIN registry does not exist, so the meta-test cannot import it; and until its two rows exist the shipped scanner reports NINE phrase-bearing titles over the enrolled suites where the census assertion expects the SEVEN live pins of spec 2.4, so the derived-cover case fails on the count as well as on the import` ac=AC-7 -->
+<!-- task: red=`pnpm vitest run tests/specLint/_metaDeclaredLimitPins.test.ts` red-state=authored red-target=`tests/specLint/declaredLimitPinDispositions.ts` why=`Step 1 creates the registry as an exported EMPTY array, so the meta-test resolves and fails on its ASSERTION: with no dispositions the shipped scanner reports NINE phrase-bearing titles over the enrolled suites where the derived census expects the SEVEN live pins of spec 2.4, and the two closure narrations of 2.4 appear in the observed set by name` ac=AC-7 -->
 
 Implements spec §5. The registry lives under `tests/` because it is test-facing data, and the core
 receives it as a parameter — `lib/` still imports nothing from `tests/`.
@@ -297,9 +320,12 @@ the two shipped artifacts — so drift cannot relocate into the test. The stale-
 constructing a disposition for a title that is not on disk and asserting the check FAILS, then removing
 it: a check that cannot fail is not a check.
 
-- [ ] **Step 1: Write the failing meta-test.**
-- [ ] **Step 2: Observe red.** Run: `pnpm vitest run tests/specLint/_metaDeclaredLimitPins.test.ts`.
-- [ ] **Step 3: Create the registry with the two spec §2.4 rows and their reasons.**
+- [ ] **Step 1: Create the registry as an exported EMPTY array**, then write the failing meta-test.
+- [ ] **Step 2: Observe red AND CONFIRM THE REASON.** Run
+      `pnpm vitest run tests/specLint/_metaDeclaredLimitPins.test.ts`. Expected: the census set differs
+      by exactly the two §2.4 closure titles, named in the diff. A failure of any other shape — import,
+      parse, zero collected — invalidates the red.
+- [ ] **Step 3: Fill the registry with the two spec §2.4 rows and their reasons.**
 - [ ] **Step 4: Observe green**, and record the live census in the commit message.
 - [ ] **Step 5: Commit.**
 
@@ -327,8 +353,16 @@ caller; asserting only the positive case would let an implementation that hard-i
 into `lib/` pass. The purity meta-test is re-run in this task's green step for the same reason.
 
 - [ ] **Step 1: Write the failing suite.**
-- [ ] **Step 2: Observe red.** Run: `pnpm vitest run tests/specLint/declaredLimitPinsWiring.test.ts`.
-- [ ] **Step 3: Thread the table through `runLint`; project `GUARD_SURFACES` in the adapter.**
+- [ ] **Step 2: Observe red AND CONFIRM THE REASON.** Run
+      `pnpm vitest run tests/specLint/declaredLimitPinsWiring.test.ts`. Expected: the plan-kind case
+      fails with zero `DECLARED_LIMIT_PIN_UNNAMED` findings against one expected — `runLint` never
+      calls the arm. A type error at the new parameter is ALSO an invalid red: fix the signature first.
+- [ ] **Step 3: Thread the table through `runLint`; project `GUARD_SURFACES` in the adapter; PREPARE the
+      suite text there (spec §3.1) — `stripCommentsSafely` for comments, parser template ranges for
+      fixture bodies. The core receives prepared lines and owns no notion of code. Do NOT hand-roll a
+      comment stripper: `tests/cross-cutting/_metaStripCommentsSingleSource.test.ts` forbids local
+      copies, and its walker root is `tests/` only — so a copy in `lib/` would be invisible to it and
+      the rule would go unenforced exactly where it was broken.**
 - [ ] **Step 4: Observe green**, then re-run the invariant checks this diff already passed:
       `pnpm vitest run tests/specLint/_metaPureCore.test.ts` and `pnpm typecheck`.
 - [ ] **Step 5: Commit.**
@@ -379,7 +413,11 @@ returns nothing asserts an empty set against an empty set and reports PASS.
 
 - [ ] **Step 1: Extract the three fixtures** with the commands above.
 - [ ] **Step 2: Write the failing suite** (replay both directions; corpus set; premise).
-- [ ] **Step 3: Observe red.** Run: `pnpm vitest run tests/specLint/declaredLimitPinsCorpus.test.ts`.
+- [ ] **Step 3: Observe red AND CONFIRM THE REASON.** Run
+      `pnpm vitest run tests/specLint/declaredLimitPinsCorpus.test.ts`. Expected: the replay case fails
+      on the pre-Step-3b fixture drawing zero advisories against one expected, and the corpus case on a
+      set difference. A fixture-read error means the Step 1 extraction failed, not that the arm is
+      wrong — that is an invalid red and the task stops.
 - [ ] **Step 4: Make it green** — this is where any grammar gap the corpus reveals is repaired by
       NARROWING and a spec §8 entry, never by widening the predicate.
 - [ ] **Step 5: Commit.**
@@ -396,7 +434,7 @@ git commit -m "test(spec-lint): replay the shell-binding pin collision; pin the 
 - Modify: `tests/mutation/source/registry.ts` (one `declaredLimitPins` row)
 - Modify: `tests/mutation/source/expectedLedgerKinds.ts` (its `EXPECTED_LEDGER_KINDS` entry)
 
-<!-- task: red=`pnpm vitest run tests/mutation/guardSurfaces.gates.test.ts` red-state=authored red-target=`tests/mutation/source/expectedLedgerKinds.ts:24` why=`the corpus gate compares Object.keys(EXPECTED_LEDGER_KINDS) against the registry ids (tests/mutation/guardSurfaces.gates.test.ts:21), so adding the registry row alone leaves the gate red on the missing ledger-kinds entry - the exact half-enrolment this task exists to close, observed after Step 1 adds the registry row and before Step 3 adds the ledger-kinds entry; the gate is GREEN on the pre-implementation tree, so this red is authored by the task rather than live on it` ac=AC-8 -->
+<!-- task: red=`VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest run --project mutation tests/mutation/guardSurfaces.gates.test.ts` red-state=authored red-target=`tests/mutation/source/expectedLedgerKinds.ts:24` why=`the corpus gate compares Object.keys(EXPECTED_LEDGER_KINDS) against the registry ids (tests/mutation/guardSurfaces.gates.test.ts:21), so adding the registry row alone leaves the gate red on the missing ledger-kinds entry - the exact half-enrolment this task exists to close, observed after Step 1 adds the registry row and before Step 3 adds the ledger-kinds entry; the gate is GREEN on the pre-implementation tree, so this red is authored by the task rather than live on it` ac=AC-8 -->
 
 Implements spec §7. Enrolment precedes the round-1 diff dispatch.
 
@@ -407,7 +445,15 @@ second declaration. That ordering is the task's own evidence that a registry row
 - [ ] **Step 1: Add the registry row** (`id: "declaredLimitPins"`, `sourcePath`, `suitePaths` = the
       Task 1-6 pure suites, `operators: [...OPERATOR_NAMES]`, `scoreFloor: 0.95`, a `control` mutant,
       `accepted: []`), shaped after the `redContract` row.
-- [ ] **Step 2: Observe red.** Run: `pnpm vitest run tests/mutation/guardSurfaces.gates.test.ts`.
+- [ ] **Step 2: Observe red AND CONFIRM THE REASON.** Run
+      `VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm exec vitest run --project mutation tests/mutation/guardSurfaces.gates.test.ts`.
+      Expected: the ledger-kinds key comparison fails, naming `declaredLimitPins` as present in the
+      registry and absent from `EXPECTED_LEDGER_KINDS`. **The bare `pnpm vitest run <file>` form is NOT
+      usable here and the difference is not cosmetic:** that file is in `NIGHTLY_ONLY_EXCLUDES`
+      (`vitest.projects.ts`), so every default project excludes it, the run collects ZERO tests and
+      exits 0 — a red that is green from birth and that no later edit can ever make fail. Verified on
+      the live tree: the bare form exits 0 with no tests collected; the project-and-env-gated form above
+      collects 5.
 - [ ] **Step 3: Add the `EXPECTED_LEDGER_KINDS` entry.**
 - [ ] **Step 4: Observe green.** Same command.
 - [ ] **Step 5: Score the surface.** Temporary tests/mutation/guardSurfaces.shard9.test.ts filtering
