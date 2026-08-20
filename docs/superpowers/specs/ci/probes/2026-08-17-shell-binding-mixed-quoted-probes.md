@@ -566,3 +566,42 @@ Readings:
 3. **The cost is composition, and it is scope this arc never owned.** S3, S4 and the P-family stay 0
    before and after. Both ledger rows name whole-value spellings; composition entered through review
    rounds rather than through either requirement.
+
+### Spec round-5 addendum (2026-08-20) — the may-bind reading, and two record defects of this arc's own
+
+Round 5 raised the unconditional operand read as a NEW false-report class. It is not new. The probe,
+taken in the reviewer's own units (what the scanner reports today, and what bash binds), settles it:
+
+```
+{"label":"T1 BARE :- U set elsewhere","hits":1}   U=other / PG=${U:-psql}
+{"label":"T2 BARE :- no U at all","hits":1}       PG=${U:-psql}
+{"label":"T3 BARE :+ U unset","hits":1}           PG=${U:+psql}
+{"label":"T4 BARE = U set","hits":1}              U=other / PG=${U=psql}
+{"label":"T5 BARE herestring :- U set","hits":1}  U=other / read -r PG <<< ${U:-psql}
+```
+
+```
+T1 bare :- U set               -> <other>
+T3 bare :+ U unset             -> <>
+T4 bare = U set                -> <other>
+```
+
+**The scanner reports 1 in every one of those cases today, while bash binds `other` or empty.** A
+static reader cannot know a parameter's runtime state, so an accepted operand is necessarily read as a
+MAY-BIND. That posture is ratified — the bare-operand hit is the baseline the ledger row itself cites
+— and arm 2 extends the identical treatment from bare operands to quoted ones rather than widening it.
+The spec's consequence bound has been corrected accordingly: an earlier draft said "never reports a
+binding bash does not make", which condemned behavior that shipped long before this arc.
+
+**Two defects in THIS arc's own records, found by the same round and repaired with it:**
+
+1. **Fixture/oracle state mismatch.** The C6 scanner fixture is `PG=${U:+'psql'}` while its oracle line
+   ran `U=1; …`; R4 and R7 have the same shape. The scanner's verdict does not depend on the state, so
+   no measurement changes — but a reader comparing the two columns sees an oracle that binds `psql` and
+   a fixture that could not. The spec's §4 rows now carry the enabling state explicitly.
+2. **P5/P6 in the composition record are wrong as recorded.** With `U` unset, `PG=p${U:+"sql"}` and
+   `PG=p${U+"sql"}` yield `p`, not `psql`; the oracle column was filled from the selected-state
+   reading. Composition is out of scope as of the 2026-08-20 disposition, so nothing downstream depends
+   on those two rows, but the record should not carry a wrong oracle value: **treat P5 and P6's oracle
+   entries as requiring `U` set, and their unset readings as `p`.** The other eight composition rows
+   are unaffected.

@@ -68,12 +68,12 @@ supplement; the load-bearing rows:
 | C3 | `PG=${U:-$'p\163ql'}` | `psql` | 0 |
 | C4 | `PG=${U:-psql}` | `psql` | 1 |
 | C5 | `PG=${U:='psql'}` | `psql` | 0 |
-| C6 | `U=1; PG=${U:+'psql'}` | `psql` | 0 |
+| C6 | `U=1; PG=${U:+'psql'}` | `psql` (operand selected only when `U` is set) | 0 |
 | C7 | `PG=${U-'psql'}` | `psql` | 0 |
 | C9 | `PG=${U:-${V:-'psql'}}` | `psql` | 0 |
 | E5 | `PG="${U:-'psql'}"` | `'psql'` (quotes LITERAL) | 0 |
 | K1 | `PG=${U='psql'}` | `psql` | 0 |
-| K2 | `PG=${U+'psql'}` | `psql` | 0 |
+| K2 | `U=1; PG=${U+'psql'}` | `psql` | 0 |
 | L1 | `PG=${U:-psql -X}` | `psql -X` | 0 |
 | M1 | `U=xpsql; PG=${U:1}` | `psql` | 0 |
 | M4 | `U=psql; PG=${U^}` | `Psql` | 1 |
@@ -348,6 +348,11 @@ E5 needs no guard clause: the branch that records defaults is unreachable inside
 
 ## 4. Behavior deltas (complete, from the probe record)
 
+**Every flip below is a MAY-BIND report, on the same terms as the ratified bare-operand hit** (§7.4):
+the scanner reads an accepted operand without knowing the parameter's runtime state, exactly as it
+already does for `PG=${U:-psql}`. Where a row names an enabling state (`U=1`), that state is what makes
+BASH select the operand; the scanner's verdict does not depend on it.
+
 Every row is probed on both instruments, and the set is complete over the PROBE DOMAIN's instrument
 set — not over the open input space, which no document can enumerate. **Flips (0 → 1), twenty-six:**
 
@@ -365,7 +370,7 @@ set — not over the open input space, which no document can enumerate. **Flips 
 | C7 | `PG=${U-'psql'}` | 2 |
 | C9 | `PG=${U:-${V:-'psql'}}` | 2 |
 | K1 | `PG=${U='psql'}` | 2 |
-| K2 | `PG=${U+'psql'}` | 2 |
+| K2 | `U=1; PG=${U+'psql'}` | 2 |
 | L1 | `PG=${U:-psql -X}` | 2 |
 | L2 | `PG=${U:-'psql' -X}` | 2 |
 | L3 | `PG=${U:-'psql -X'}` | 2 |
@@ -374,10 +379,10 @@ set — not over the open input space, which no document can enumerate. **Flips 
 | R1 | `read -r PG <<< ${U:-'psql'}` | 1+2 |
 | R2 | `read -r PG <<< ${U:-p"sql"}` | 1+2 |
 | R3 | `read -r PG <<< ${U:='psql'}` | 1+2 |
-| R4 | `read -r PG <<< ${U:+'psql'}` | 1+2 |
+| R4 | `U=1; read -r PG <<< ${U:+'psql'}` | 1+2 |
 | R5 | `read -r PG <<< ${U-'psql'}` | 1+2 |
 | R6 | `read -r PG <<< ${U='psql'}` | 1+2 |
-| R7 | `read -r PG <<< ${U+'psql'}` | 1+2 |
+| R7 | `U=1; read -r PG <<< ${U+'psql'}` | 1+2 |
 | R8 | `read -r PG <<< ${U:-${V:-'psql'}}` | 1+2 |
 
 **Unchanged, and each one is a pin the suite must carry** (probed value in parentheses): A5 (1),
@@ -635,9 +640,22 @@ Stated here so every review brief can cite them, and so a brief-versus-spec mism
 finding:
 
 - **Consequence bound.** Every input is handled correct or signaled, never silently wrong: the guard
-  never silently certifies a psql invocation it has mis-read, and never attributes a report to the
+  never silently CERTIFIES a psql invocation it has mis-read, and never attributes a report to the
   wrong line or file. A conservative NON-REPORT plus a declared limit is a DOCUMENTED LIMIT, not a
-  finding. Both arms move only in the report direction, and §4 lists every probed movement.
+  finding, and so is a conservative OVER-report. Both arms move only in the report direction, and §4
+  lists every probed movement.
+
+  **A parameter expansion is read as a MAY-BIND, and that is ratified pre-existing behavior rather
+  than anything this arc introduces.** A static reader cannot know whether `U` is set at the moment
+  `${U:-psql}` expands, so it reads the operand unconditionally. Spec round 5 raised the unconditional
+  read as a new false-report class; it is not new, and the probe settles it in the reviewer's own
+  units: `U=other` + `PG=${U:-psql}` reports **1 today**, as do `PG=${U:+psql}` with `U` unset and
+  `U=other` + `PG=${U=psql}`, while bash binds `other`, empty and `other` respectively. The
+  bare-operand hit is the baseline the ledger row itself cites, and arm 2 extends the IDENTICAL
+  treatment from bare operands to quoted ones — it does not widen the posture, it removes a quoting
+  accident from it. An earlier draft of this bound said "never reports a binding bash does not make",
+  which condemned that ratified behavior and is corrected here: the forbidden directions are a false
+  CERTIFICATION and a wrong attribution, not a conservative may-bind report.
 - **PROBE DOMAIN.** The instrument set of
   `docs/superpowers/specs/ci/probes/2026-08-17-shell-binding-mixed-quoted-probes.md` including its
   round-1, round-2, round-6 and 2026-08-20 supplements, plus the live tracked corpus
