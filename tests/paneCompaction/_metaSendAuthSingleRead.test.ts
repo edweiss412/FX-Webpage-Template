@@ -470,6 +470,20 @@ const FIXTURE_REGISTRY: SendAuthSurface[] = [
   { ...CHANNEL_ROW, module: fixture("registered-channel.ts") },
   { ...CHANNEL_ROW, module: fixture("second-registered-channel.ts") },
   { ...CHANNEL_ROW, module: fixture("registered-importer.ts") },
+  // A registered module that VIOLATES, added by the Task 8 mutation gate.
+  //
+  // Without it, `scanRepo`'s entire per-module fan-out —
+  // `findings.push(...scanModule(file, row))`, the most load-bearing line in the
+  // function — was REMOVABLE with the whole corpus green: every registered
+  // fixture produced zero findings and the live-tree case expects `[]`, so the
+  // aggregation step was only ever reached by cases whose expectation was empty.
+  //
+  // This is rule 11 at a level per-fixture pairing structurally cannot reach.
+  // Each fixture was individually well-paired and the AGGREGATION was still never
+  // exercised. The question a fixture audit cannot ask is "which case fails if
+  // this entire STAGE is deleted"; when the answer is none, no amount of
+  // per-fixture pairing helps.
+  { ...CHANNEL_ROW, module: fixture("undeclared-pass.ts") },
 ];
 
 describe("AC-9 — scanRepo walks from disk, and unregistered importers report", () => {
@@ -497,6 +511,20 @@ describe("AC-9 — scanRepo walks from disk, and unregistered importers report",
     );
   });
 
+  it("scans a REGISTERED module through the walk, not merely its import edges", () => {
+    // The fan-out check. Deleting `scanRepo`'s per-module scan leaves every
+    // import-edge assertion above passing and this one failing alone.
+    const f = "undeclared-pass.ts";
+    expect(found()).toContainEqual(finding(f, "UNDECLARED-PASS", "settle", fnLine(f)));
+  });
+
+  it("does NOT follow a NAMESPACE import — a documented limit, held explicitly", () => {
+    // `import * as registered from "./registered-channel"` has no NAMED bindings.
+    // The guard that skips it was removable, and without it the arm walks into
+    // `bindings.elements` on an import that has none.
+    expect(found().filter((x) => x.file === fixture("namespace-importer.ts"))).toEqual([]);
+  });
+
   it("does NOT report an importer that HAS a registry row", () => {
     // Without this, an implementation reporting every importer of the type passes
     // both cases above and then fires on every enrolled module.
@@ -510,6 +538,9 @@ describe("AC-9 — scanRepo walks from disk, and unregistered importers report",
     // same NAME locally without importing anything.
     expect(found().map((x) => `${x.code} ${x.file}`)).toEqual([
       `UNREGISTERED-IMPORTER ${fixture("aliased-importer.ts")}`,
+      // The registered violator. Its presence is what makes the per-module
+      // fan-out load-bearing rather than decorative.
+      `UNDECLARED-PASS ${fixture("undeclared-pass.ts")}`,
       `UNREGISTERED-IMPORTER ${fixture("unregistered-importer.ts")}`,
     ]);
   });
@@ -518,6 +549,35 @@ describe("AC-9 — scanRepo walks from disk, and unregistered importers report",
 describe("AC-10/AC-11 — the live tree, with the gate's own premise", () => {
   const LIVE = [...LIVE_ROOTS];
   const CONTROL_ROOT = "tests/paneCompaction/fixtures/sendAuthLiveControl";
+
+  const SELF = [
+    "tests/paneCompaction/sendAuthScan.ts",
+    "tests/paneCompaction/_metaSendAuthSingleRead.test.ts",
+  ];
+
+  it("no walked root contains the scanner or this suite", () => {
+    // Rule 21: a guard scanning a tree that holds its own tests measures ITSELF.
+    // Every literal here matching the scanner's patterns becomes corpus, and the
+    // consequence is asymmetric — a polluting occurrence INFLATES a count pinned
+    // elsewhere, so the suite passes while the number it pins is wrong.
+    //
+    // Keyed on the ROOT DATA, not on a filename convention. A check looking for
+    // `*.test.ts` or a nonce in the name is blind to any polluting file written
+    // without the convention — 9.4 turned on the mitigation itself.
+    const walked = walkSourceFiles([...LIVE, FIXTURE_ROOT, CONTROL_ROOT]);
+    premise("the roots resolve to files at all", walked.length, 0);
+    expect(walked.filter((w) => SELF.some((self) => w.endsWith(self)))).toEqual([]);
+  });
+
+  it("...and the SAME filter DOES match once the scanner's own directory is walked", () => {
+    // The positive control, one root apart. Without it the empty result above is
+    // satisfied by a filter that matches nothing at all, and "the scanner is not
+    // corpus" is indistinguishable from "this check is broken".
+    const walked = walkSourceFiles([...LIVE, FIXTURE_ROOT, CONTROL_ROOT, "tests/paneCompaction"]);
+    expect(walked.filter((w) => SELF.some((self) => w.endsWith(self))).sort()).toEqual(
+      [...SELF].sort(),
+    );
+  });
 
   it("is GREEN on the live tree, and its premise guards it IN THE SAME CASE", () => {
     // `expect(scanRepo(...)).toEqual([])` passes trivially whenever the scanner
@@ -571,5 +631,158 @@ describe("AC-10/AC-11 — the live tree, with the gate's own premise", () => {
         lines: [importLine],
       },
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 8 repairs. Every case below was added because the SOURCE-MUTATION GATE
+// proved the corpus could not see the defect: the first scored run was 0.8584
+// with 31 unaccepted survivors, and four of those were genuine fail-open holes
+// rather than equivalences. Four plan rounds did not find them; one 906s run did.
+// ---------------------------------------------------------------------------
+
+describe("Task 8 — holes the mutation gate found, each now pinned", () => {
+  it("derives the read set from an INTERFACE declaration too", () => {
+    // The whole `interface` branch was REMOVABLE with the corpus green, because
+    // every other fixture spells its surface as a type alias. A scanner
+    // understanding one spelling returns an EMPTY read set — silently — against a
+    // module using the other.
+    expect(readsFor(readFixture("interface-surface.ts"), CHANNEL_ROW)).toEqual([
+      "panes",
+      "gauge",
+      "memo",
+      "claim",
+    ]);
+  });
+
+  it("ignores type members whose names are not identifiers", () => {
+    // A quoted key and an index signature are not read names. Admitting them puts
+    // `wire-format` into the read set.
+    expect(readsFor(readFixture("exotic-type-members.ts"), CHANNEL_ROW)).toEqual([
+      "panes",
+      "gauge",
+      "memo",
+      "claim",
+    ]);
+  });
+
+  it("discovers an UNNAMED module-level function that is send-bearing", () => {
+    // Requiring a NAME made `export default function () { ch.dispatch(...) }`
+    // undiscoverable, and therefore silent — a send-bearing function nobody
+    // reports, which is the direction the consequence bound forbids.
+    const f = "anonymous-toplevel-send.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "UNDECLARED-PASS", "(anonymous)", lineOf(f, "export default function")),
+    ]);
+  });
+
+  it("reports a bare mention that no earlier classifier arm names", () => {
+    // The classifier's FINAL FALLTHROUGH was unreached: its report statement was
+    // removable with the corpus green.
+    const f = "bare-mention-in-array.ts";
+    expect(scan(f)).toEqual([finding(f, "UNCLASSIFIED-USE", "ch", lineOf(f, "const held = [ch]"))]);
+  });
+
+  it("reports a read member handed on as a bare CALL ARGUMENT", () => {
+    // The called-versus-referenced test must ask whether the call's CALLEE is this
+    // access, not merely whether a call is nearby — otherwise a member passed as a
+    // callback reads as an invocation and is silently classified.
+    const f = "read-as-call-argument.ts";
+    expect(scan(f)).toEqual([finding(f, "UNCLASSIFIED-USE", "memo", lineOf(f, "mint(ch.memo)"))]);
+  });
+
+  it("does not treat a declared helper called with something ELSE as a derivation", () => {
+    // Recognizing a helper by its callee alone makes any `snapshotOf(...)` a
+    // derivation, and the pass then silently satisfies "exactly one" without ever
+    // snapshotting the surface.
+    const f = "helper-other-argument.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "MISSING-DERIVATION", "authorizeOnce", lineOf(f, "const authorizeOnce")),
+    ]);
+  });
+
+  it("accepts the marker attaching to the send-bearing function ITSELF", () => {
+    // Two arms the corpus never exercised while every pass was a nested arrow: the
+    // containment test must accept a function as lexically within itself, and the
+    // pass name must come from a FunctionDeclaration rather than a variable
+    // declaration. A finding NAMED `settle` proves both.
+    const f = "pass-is-toplevel-function.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "MISSING-DERIVATION", "settle", lineOf(f, "export function settle")),
+    ]);
+  });
+
+  it("skips a COMMENT RUN between the marker and the declaration it attaches to", () => {
+    expect(scan("marker-then-comment.ts")).toEqual([]);
+  });
+
+  it("...and its positive pair, one delta apart, still reports", () => {
+    // Same comment run, but what follows it is not a function — so the marker
+    // attaches to nothing and the pass stays undeclared. Without this pair, the
+    // clean result above is satisfied by a scanner that never resolved the marker.
+    const f = "marker-then-comment-detached.ts";
+    expect(scan(f)).toEqual([finding(f, "UNDECLARED-PASS", "settle", fnLine(f))]);
+  });
+});
+
+describe("Task 8 — second repair pass, from the re-measure at 0.9259", () => {
+  it("a sink called at MODULE SCOPE is a documented limit, not a finding", () => {
+    // Discovery ranges over module-level FUNCTIONS. Its pair is
+    // `undeclared-pass.ts`: the same call inside a function IS reported, so the
+    // clean verdict here is the LIMIT rather than silence.
+    //
+    // The gate is what made this worth pinning: without it, treating any
+    // module-level declaration as a function reports `UNDECLARED-PASS` against a
+    // bare statement, and nothing in the corpus objected.
+    expect(scan("module-level-sink.ts")).toEqual([]);
+  });
+
+  it("a derivation under TWO blocking ancestors reports ONCE", () => {
+    // The straight-line walk stops at the first blocking ancestor. Without that
+    // stop it emits one finding per enclosing loop or function — duplicates no
+    // single-ancestor fixture can see, and both existing round-3 F1 shapes have
+    // exactly one ancestor each.
+    const f = "derivation-in-loop-in-callback.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "NON-STRAIGHT-LINE-DERIVATION", "snap", lineOf(f, "const snap: Channel")),
+    ]);
+  });
+
+  it("does NOT accept a comment that merely CONTAINS the marker token", () => {
+    // The grammar is LITERAL. An unanchored matcher passed the ENTIRE corpus
+    // until this fixture existed, because nothing carried the token alongside
+    // other text — and the mutation gate's operator set cannot express that
+    // change, so only building the weaker implementation by hand found it.
+    //
+    // This is the executable form of the scanner's documented limit: a marker
+    // with trailing text is unrecognized and its function REPORTS, which is the
+    // conservative direction.
+    const f = "marker-with-trailing-text.ts";
+    expect(scan(f)).toEqual([finding(f, "UNDECLARED-PASS", "settle", fnLine(f))]);
+  });
+
+  it("names an UNNAMED pass function rather than reaching for a name that is not there", () => {
+    const f = "anonymous-pass.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "MISSING-DERIVATION", "(anonymous)", lineOf(f, "export default function")),
+    ]);
+  });
+
+  it("reports two markers STACKED above ONE declaration", () => {
+    // Rule 21.1 — association has more than one axis, and varying one and calling
+    // the boundary covered is the same defect as a fixture whose observation a
+    // different rule decides. The axes already carried: ADJACENCY
+    // (`marker-then-comment`), TARGET KIND (`marker-then-comment-detached`), SCOPE
+    // (`two-sends-one-marker`), SELF (`pass-is-toplevel-function`), and
+    // multiplicity ACROSS targets (`ambiguous-pass`). Multiplicity ON ONE target
+    // was uncovered.
+    //
+    // Both markers resolve past the intervening comment to the SAME declaration,
+    // so `lines` names that one declaration TWICE — the observable difference from
+    // `ambiguous-pass`, whose two lines differ. An implementation deduping the
+    // pass set by attached node collapses this to one pass and reports clean.
+    const f = "stacked-markers.ts";
+    const decl = lineOf(f, "const authorizeOnce");
+    expect(scan(f)).toEqual([finding(f, "AMBIGUOUS-PASS", "settle", fnLine(f), [decl, decl])]);
   });
 });

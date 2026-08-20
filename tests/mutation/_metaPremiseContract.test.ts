@@ -59,6 +59,13 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   "tests/paneCompaction/revalidate.test.ts": 0,
   "tests/paneCompaction/ruleIdentity.test.ts": 0,
   "tests/paneCompaction/mutantKills.test.ts": 0,
+  // The send-auth gate, enrolled 2026-08-20 with the sendAuthScan surface. 0
+  // honestly and structurally: it reads fixture FILES and walks source roots,
+  // but ENVIRONMENT_SOURCES.modules is ["node:child_process",
+  // "scripts/lib/ledger-git"] and this suite imports neither. Reading a file
+  // the repo already tracks is not provenance, by the same rule the other
+  // pure-core suites above are 0 under.
+  "tests/paneCompaction/_metaSendAuthSingleRead.test.ts": 0,
   // The premise recognizer's own two suites, enrolled 2026-08-16 with the
   // premiseScan surface. Both counts are DERIVED from a run of the recognizer
   // over them, not asserted from reading:

@@ -186,10 +186,21 @@ const EXEMPT_PREFIX = "// send-auth: exempt:";
 type Marker = {
   kind: "pass" | "exempt";
   reason: string;
-  line: number;
   /** The function the marker declares, or null when it attaches to anything else. */
   fn: ts.Node | null;
 };
+
+/**
+ * TOTAL over every index, so the scan needs no bounds check.
+ *
+ * `charAt` past the end returns "", which is not whitespace — where `text[i]`
+ * returns `undefined` and would have to be reasoned about. The bounds test it
+ * replaces was a relational mutation site whose only differing case was the very
+ * end of the file, i.e. a site that could only ever be defended by an
+ * equivalence argument. Removing it is strictly better than winning that
+ * argument.
+ */
+const isWhitespaceAt = (text: string, index: number): boolean => /\s/.test(text.charAt(index));
 
 const isFunctionLike = (n: ts.Node): boolean =>
   ts.isFunctionDeclaration(n) ||
@@ -211,7 +222,11 @@ const nodeStartingAt = (sf: ts.SourceFile, pos: number): ts.Node | null => {
       found = n;
       return;
     }
-    if (n.getStart(sf) <= pos && n.getEnd() > pos) ts.forEachChild(n, visit);
+    // No containment prune: a node beginning at `pos` necessarily sits inside
+    // ancestors that contain `pos`, so a subtree excluding `pos` cannot hold one.
+    // The prune was three mutation sites excusing themselves as equivalences; the
+    // walk is over a single file and the sites are gone instead.
+    ts.forEachChild(n, visit);
   };
   ts.forEachChild(sf, visit);
   return found;
@@ -263,18 +278,13 @@ const markersIn = (file: string, text: string, sf: ts.SourceFile): Marker[] => {
     // further comments.
     let pos = end;
     for (;;) {
-      while (pos < text.length && /\s/.test(text[pos]!)) pos += 1;
+      while (isWhitespaceAt(text, pos)) pos += 1;
       const next = ranges.find(([a]) => a === pos);
       if (next === undefined) break;
       pos = next[1];
     }
     const node = nodeStartingAt(sf, pos);
-    out.push({
-      kind,
-      reason,
-      line: sf.getLineAndCharacterOfPosition(start).line + 1,
-      fn: node === null ? null : passFunctionOf(node),
-    });
+    out.push({ kind, reason, fn: node === null ? null : passFunctionOf(node) });
   }
   return out;
 };
@@ -315,7 +325,11 @@ const topLevelFunctions = (sf: ts.SourceFile): { node: ts.Node; name: string; li
     out.push({ node, name, line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1 });
   };
   for (const st of sf.statements) {
-    if (ts.isFunctionDeclaration(st) && st.name !== undefined) push(st, st.name.text);
+    // An anonymous declaration (`export default function () { … }`) is still a
+    // function and can still call a sink. Requiring a NAME made it undiscoverable
+    // and therefore SILENT, which the consequence bound forbids; it is named
+    // "(anonymous)" instead so the report can still point at a line.
+    if (ts.isFunctionDeclaration(st)) push(st, st.name?.text ?? "(anonymous)");
     else if (ts.isVariableStatement(st)) {
       for (const d of st.declarationList.declarations) {
         if (d.initializer !== undefined && isFunctionLike(d.initializer) && ts.isIdentifier(d.name))
@@ -381,22 +395,22 @@ const classifyUses = (
       return;
     }
 
-    if (ts.isElementAccessExpression(parent) && parent.expression === id) {
-      // The member is not knowable from the source text, so the use cannot be
-      // classified; the finding names the binding instead.
-      report(parent, id.text);
-      return;
-    }
-
     // A declared derivation SOURCE. Rule 3 (Task 5) decides whether the
     // derivation itself is well-formed; here it is simply a classified use.
-    if (ts.isSpreadAssignment(parent) && parent.expression === id) return;
+    // A SpreadAssignment has exactly one expression child, so an identifier whose
+    // PARENT is the spread necessarily IS that expression; the second conjunct
+    // could never be false and was a mutation site excusing itself.
+    if (ts.isSpreadAssignment(parent)) return;
 
     // An injection argument. Inside a declared pass this becomes RAW-HANDOFF,
     // which rule 3 owns; outside one it is ordinary injection and correct.
     if (ts.isCallExpression(parent) && parent.arguments.includes(id)) return;
 
-    if (ts.isVariableDeclaration(parent) && parent.initializer === id) {
+    // A declaration NAME is filtered before `classify` runs, so an identifier
+    // whose parent is a VariableDeclaration is necessarily its initializer; the
+    // second conjunct could never be false and was a mutation site excusing
+    // itself as an equivalence.
+    if (ts.isVariableDeclaration(parent)) {
       if (ts.isObjectBindingPattern(parent.name)) {
         // Calls through the bindings are invisible, so each bound member is
         // reported by NAME rather than the destructure being reported once.
@@ -410,6 +424,11 @@ const classifyUses = (
       return;
     }
 
+    // Everything unmatched, INCLUDING a computed member access: the member is not
+    // knowable from the source text, so the finding names the binding. A separate
+    // arm for `ch[key]` produced this exact record — same code, same name, same
+    // line, since the access begins at the binding — so it was deleted rather
+    // than kept as a site arguing its own equivalence.
     report(id, id.text);
   };
 
@@ -443,6 +462,22 @@ const classifyUses = (
  * how many times it runs. A read behind a nested function has no static count,
  * so position is the checkable property and execution is not.
  */
+/**
+ * Node identity rather than offsets.
+ *
+ * "Is this read inside that initializer" is a TREE question, and answering it by
+ * comparing start/end offsets introduces two relational boundaries whose endpoint
+ * cases are unreachable — exactly the shape that ends up defended by an
+ * equivalence argument instead of being removed. Walking parents cannot be off by
+ * an endpoint.
+ */
+const hasAncestor = (node: ts.Node, ancestor: ts.Node): boolean => {
+  for (let cursor: ts.Node | undefined = node; cursor !== undefined; cursor = cursor.parent) {
+    if (cursor === ancestor) return true;
+  }
+  return false;
+};
+
 const blocksStraightLine = (n: ts.Node): boolean =>
   isFunctionLike(n) ||
   ts.isForStatement(n) ||
@@ -478,17 +513,12 @@ const analyzePassReads = (
       // which reads `marker` once inside the snapshot it is building. The
       // exemption covers the READS; a raw HANDOFF in the same initializer still
       // reports, which `derivation-leaks-handoff` pins.
-      const inDerivationInitializer = derivations.some(
-        (d) => n.getStart(sf) >= d.initializer.getStart(sf) && n.getEnd() <= d.initializer.getEnd(),
-      );
+      const inDerivationInitializer = derivations.some((d) => hasAncestor(n, d.initializer));
       if (inDerivationInitializer) return;
       let cursor: ts.Node = n.parent;
       let nested = false;
       while (cursor !== passFn && cursor.parent !== undefined) {
-        if (blocksStraightLine(cursor)) {
-          nested = true;
-          break;
-        }
+        if (blocksStraightLine(cursor)) nested = true;
         cursor = cursor.parent;
       }
       const line = lineAt(n);

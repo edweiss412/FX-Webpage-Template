@@ -1,4 +1,3 @@
-/* eslint-disable react/jsx-no-comment-textnodes */
 // FIXTURE — AC-5: a marker token inside JSX TEXT is not a declaration.
 //
 // The impostor sits IMMEDIATELY ABOVE a pass-shaped declaration, and that is
@@ -28,6 +27,11 @@ export type Channel = {
 };
 
 export function settle(ch: Channel): number {
+  // The JSX text below LOOKS like a comment, which is exactly the impostor under
+  // test. The suppression is keyed to THAT ONE LINE rather than to the file: a
+  // file-level disable would silently absorb any future comment-textnode added
+  // here, which is a suppression keyed coarser than the thing it suppresses.
+  // eslint-disable-next-line react/jsx-no-comment-textnodes
   const banner = <p>// send-auth: pass</p>;
   const authorizeOnce = (): boolean => {
     const snap: Channel = { ...ch };
