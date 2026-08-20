@@ -956,21 +956,6 @@ than by role precisely because they are all present. `aria-hidden={!isActive}` i
 change, deferred only because it moves several existing role-based queries and belongs with the
 current-slide announcement decision rather than ahead of it.
 
-### BL-PREMISESCAN-NESTED-HOOK-SIBLING-LEAK — a hook in one nested describe leaks to its siblings
-
-**Status:** IN PROGRESS · **Branch:** fix/premisescan-nested-hook-sibling-leak · **Severity:** MEDIUM (a FALSE POSITIVE, pre-existing) · **Class:** guard fidelity · **Filed:** 2026-08-16 (`fix/premisescan-import-edges`, probe §3.11 row A) · **Effort:** M
-
-`hookBodies` collects recursively (`ts.forEachChild`), so under a shared outer `describe` a spawning hook in branch A is attached to tests in sibling branch B. Probed:
-
-```
-A: sibling nested describes, hook only in A  ->  inA=touching, inB=TOUCHING   <- false positive
-B: top-level sibling describes, hook in A    ->  inA=touching, inB=free       [correct]
-```
-
-The leak needs a shared outer `describe`; without one the branches do not share a collection point.
-
-**Why `BL-PREMISESCAN-IMPORT-EDGE-FIDELITY` does not fix it**, under class-sweep exception (c): repairing the recursion moves live verdicts, and that arc's headline constraint is verdict-neutrality against `_metaPremiseContract`'s exact counts. The two cannot ship together by construction. That arc's own top-level hook seed is deliberately NON-recursive so it does not widen this leak, and its AC-12b asserts the leaked value as-is so a later change cannot deepen it silently.
-
 ### BL-PLANLINT-ASSERTIONLESS-EXPECT — an `expect(` with no matcher asserts nothing, and is mechanically detectable
 
 **Status:** OPEN · **Severity:** MEDIUM · **Class:** review economy · **Filed:** 2026-08-16 (`fix/premisescan-import-edges`, plan round-4 finding 1) · **Effort:** S
