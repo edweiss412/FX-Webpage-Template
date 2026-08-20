@@ -281,16 +281,6 @@ The rule is right in general — a bare filename in a marker has no anchor conte
 
 **First scheduled step:** confirm whether any OTHER tracked root-level file is a plausible `red-target=` (`git ls-files --full-name . | grep -v /` is the enumeration), since that set bounds how much the gap actually costs.
 
-## BL-MUTATION-BROWSER-CHILD-LIFETIME — the browser mutation gate spawns Playwright children with no lifetime bound
-
-**Severity:** MEDIUM (same producer shape as `BL-MUTATION-CHILD-LIFETIME-PARENT-DEATH`, on a surface whose children are heavier and longer-lived) · **Class:** local capacity / process hygiene · **Effort:** M · **Filed:** 2026-08-17 (`fix/mutation-child-lifetime`, class-sweep of the source-harness repair) · **Reachability: PROBED** — by citation: the spawn site carries neither bound, and the kernel facts that make a `setpgrp`'d tree survive its parent (probe P-T1 of the sibling design) apply to any spawned tree.
-
-`runChild` calls `execFileSync` with no `timeout` and no process group (`tests/mutation/browser/runner.ts:152`). Its infra discrimination is already correct and is NOT what is filed here — `exitStatus = typeof err.status === "number" ? err.status : null` (`tests/mutation/browser/runner.ts:163`) keeps a signalled child out of the verdict space exactly as the source harness does. What is missing is the bound itself: a hung Playwright child runs until someone notices, and a child that outlives its harness is not reachable by anything the harness can still do.
-
-**Why it is not repaired in the branch that repaired its sibling — class-sweep exception (c).** The mechanism transfers; the NUMBER does not. `MUTANT_TIMEOUT_MS` is 180 s, derived against a ~2 s healthy source-suite run, and each browser child is a full Playwright run whose legitimate wall clock is minutes. Adopting 180 s here would convert healthy runs into timeouts, which is a worse failure than the one being fixed, so the ceiling needs its own derivation against measured browser-gate runs — and that derivation is a redesign of a gate the source-harness PR does not otherwise touch. The shared `spawnBounded` module (`tests/mutation/source/spawnBounded.ts`) is the repair vehicle and already accepts a per-caller `timeoutMs`, so the work is a ceiling measurement plus a call-site swap, not a second mechanism.
-
-**First scheduled step:** measure the wall clock of a full browser-gate run per child across the current mutant set, and derive a ceiling with the same "a timeout means a hang, not a slow machine" margin the source ceiling carries. That measurement bounds the whole entry; without it any number chosen is arbitrary.
-
 ## BL-ADMIN-DEV-PANEL-TAP-FLOOR — the two dev-panel buttons are ~28px, and their classes are not even compiled
 
 **Filed:** 2026-08-14 (`fix/ui-interactive-token-policy`, found by the shipped tap-height scanner's first run). **Class:** accessibility / dev-only surface. **Effort:** S. **Class-sweep exception:** (c) — the repair is a build-scope decision about a surface this branch does not otherwise touch. **Reachability:** PROBED — `pnpm vitest run tests/styles/_metaTapTargetFloor.test.ts` against an empty census names both sites.
@@ -1154,6 +1144,18 @@ for (const s of GUARD_SURFACES) { const k = s.accepted.reduce((a,r)=>{a[r.kind]=
 ```
 
 **What these four runs do NOT establish is the budget half**, which on 08-18 and 08-19 failed the `budget` job for reasons that are not this row's coverage failures. That is `BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH`.
+
+## BL-SPECLINT-RED-REASON-VERIFICATION — the red-contract arm checks that a command fails, never that it failed for the reason the task named
+
+**Status:** OPEN. · **Filed:** 2026-08-20 (`fix/mutation-browser-child-lifetime`, from that arc's plan rounds 1 and 2) · **Facing:** process · **Severity:** MEDIUM (it does not fail anything; it lets a task ship a RED that no later edit can make fail) · **Class:** spec-lint arm · **Effort:** M
+
+**Incident:** two of four plan rounds on `fix/mutation-browser-child-lifetime` were spent on ONE shape, and it recurred after being named. Round 1 rejected Task 1's red — an unresolved import, which fails before any assertion runs. Round 2 rejected Task 2's red for the same shape in a different costume: `runChild` is private, so a suite calling it fails on missing ACCESS rather than on the defect. Both rows are in the corpus at `docs/review-rounds/fix/mutation-browser-child-lifetime/03953337388b.jsonl` (`plan` rounds 1 and 2, `findingCount` 7 and 2). The plan carried a section rejecting exactly this shape two headings above the task that committed it, so authoring discipline had already been applied and did not hold.
+
+**What the current arm can and cannot see.** `spec:lint --exec-red` decides whether a `red=` command COLLECTS its target, which is a different question from whether it failed for the stated reason. A command that collects, runs, and dies on an unresolved import or a missing export exits non-zero and **looks healthy to every "did it exit non-zero" check there is**. Two further blind spots make the gap wider than it reads: the collection arm returns nothing at all when no probes ran (`lib/specLint/redContract.ts:754`), and it is SILENT for any command wrapped in `pnpm heavy` — `deriveCollectionProbe` yields `none` and `collectionProbePlan` continues past it (`lib/specLint/redContract.ts:721`) — emitting neither a FAIL nor the `RED_PROBE_UNVERIFIED` advisory. AGENTS.md mandates `pnpm heavy` for every heavy phase, so the arm cannot see the class the repo requires wrapping.
+
+**Direction, stated not implemented.** The v2 marker already carries `why=`, a prose statement of what is red and why. An arm could run the `red=` under `--exec-red` and compare the observed failure against that field — at minimum rejecting the mechanically recognizable non-reasons (module-resolution failure, missing export, config error, zero tests collected) rather than attempting to match prose. That is a narrower and closable claim than "the failure matches the stated reason", and it is the half that both incidents above would have failed.
+
+**Reachability: PROBED.** Both instances are quoted from reviewer output on a real arc, not constructed. The `pnpm heavy` blind spot is a static reading of the two cited lines and was confirmed by a third party the same night; it is a documented limit of the arm rather than a hypothetical.
 
 ## BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH — the source shards blew the 3600s budget on main, four days after the row that closed the wall-clock ceiling was archived
 

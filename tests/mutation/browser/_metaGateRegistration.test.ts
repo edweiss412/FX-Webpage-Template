@@ -161,10 +161,21 @@ describe("the runner cannot assert success it did not compute", () => {
     ).not.toMatch(/baselineGreen:\s*true/);
   });
 
-  it("keeps the exit status defaulted to the CONSERVATIVE value", () => {
-    // Round 4: unassigned, a removed assignment leaves `undefined`, which scores
-    // KILLED. Defaulted to null it classifies infra instead.
-    expect(runnerCode).toMatch(/let exitStatus: number \| null = null;/);
+  it("binds the exit status where it CANNOT be left unassigned", () => {
+    // Round 4 pinned `let exitStatus: number | null = null` — a conservative
+    // DEFAULT, because a removed assignment would otherwise leave `undefined`,
+    // which scored KILLED. The bounded-spawn swap makes that shape inexpressible
+    // rather than merely defaulted: the non-numeric outcomes THROW above this
+    // line, and what remains is a `const` initialised from the outcome itself. A
+    // `const` cannot be declared without an initialiser, so there is no
+    // assignment left for a `statement-removal` to delete. Strictly stronger than
+    // the default it replaces, which is why the pin moved instead of being
+    // dropped.
+    expect(runnerCode).toMatch(/const exitStatus: number = outcome\.code;/);
+    expect(
+      runnerCode,
+      "a mutable exit status re-introduces the deletable-assignment shape",
+    ).not.toMatch(/let exitStatus/);
   });
 
   it("folds the per-suite verdict through the ENROLLED predicate", () => {
