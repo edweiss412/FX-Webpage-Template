@@ -103,3 +103,16 @@ sdd/
 .review/
 
 tests/.spec-lint-fixtures*/
+
+# Scoped-shard scratch for the source-mutation harness. `guardSurfaces.shard0..3`
+# are the REAL, committed shards that `_metaSourceShardIntegrity` pins byte-for-byte;
+# anything above that range is a throwaway that scopes a run to one surface and must
+# never be committed. It reached main-bound commits once already, via `git add -A`
+# over a tree that deliberately holds untracked scratch — the one command that stages
+# everything is exactly the one that captures a file whose whole contract is to stay
+# untracked. Four required checks went red on a fresh checkout while every local run
+# looked normal, because the file is on disk whether or not it is TRACKED.
+#
+# A control in the tree rather than in anyone's intentions: "I will remember to stage
+# by path" is the shape of discipline that fails at hour six of an arc.
+tests/mutation/guardSurfaces.shard[4-9].test.ts
