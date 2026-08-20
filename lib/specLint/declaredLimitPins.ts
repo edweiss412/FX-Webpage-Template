@@ -26,7 +26,7 @@
  */
 
 import type { DocModel } from "./parse";
-import type { EnrolledSurface } from "./types";
+import type { EnrolledSurface, FileResolver, Finding } from "./types";
 
 /**
  * A declared-limit pin. Its IDENTITY is `(path, title)` (spec §3.1) — never its line,
@@ -372,4 +372,126 @@ export function namedSurfaces(
   surfaces: readonly EnrolledSurface[],
 ): Set<string> {
   return new Set(namedSurfaceAnchors(model, surfaces).keys());
+}
+
+/**
+ * A suite's text after PREPARATION (spec §3.1) — or the fact that it could not be
+ * parsed at all. The core receives this RESULT and never parses anything itself, so
+ * whether diagnostics were taken before or after blanking is a property of the ADAPTER
+ * and is invisible here. Task 7b proves that ordering against the real function.
+ */
+export type PreparedSuite =
+  | { status: "ok"; lines: readonly string[] }
+  | { status: "parse-failed" };
+
+/** Injected by the adapter, which owns the only TypeScript parse (spec §4). */
+export type SuitePreparer = (path: string, rawLines: readonly string[]) => PreparedSuite;
+
+const ADVISORY = "advisory" as const;
+const CHECK = "taskContract" as const;
+
+/**
+ * The obligation and both finding codes (spec §3.3, §3.4).
+ *
+ * Emission order is doc order of first naming, then suite order, then pin order within
+ * a suite. NO ORDERING GUARANTEE BEYOND THAT is offered, and none should be relied on:
+ * a finding's IDENTITY is `(code, suitePath, title)`, never its anchor position, and
+ * several findings legitimately share one anchor line.
+ */
+export function checkDeclaredLimitPins(
+  model: DocModel,
+  kind: "spec" | "plan",
+  surfaces: readonly EnrolledSurface[] | null,
+  resolver: FileResolver,
+  prepare: SuitePreparer,
+  dispositions: readonly PinDisposition[],
+): Finding[] {
+  // A spec carries no Files list, so the collision is a plan-time fact; and a NULL
+  // injected table means the arm runs nothing, which keeps every existing caller
+  // compiling and byte-identical in behavior.
+  if (kind !== "plan" || surfaces === null) return [];
+
+  const anchors = namedSurfaceAnchors(model, surfaces);
+  if (anchors.size === 0) return [];
+
+  const byId = new Map(surfaces.map((surface) => [surface.id, surface]));
+  // The obligation searches the WHOLE document, fenced blocks included, and it must:
+  // a decoded title containing a NEWLINE is named across two plan lines, and a
+  // per-line matcher would fail it and emit a permanent advisory nobody could silence
+  // (spec §8 item 13).
+  const documentText = model.lines.join("\n");
+  const tracked = new Set(resolver.listTrackedFiles());
+
+  const findings: Finding[] = [];
+  /** Spec §3.2's ONLY deduplication: one pin reachable through several surfaces is
+   *  reported once. There is no other collapse — in particular NOT on the anchor. */
+  const reportedPins = new Set<string>();
+
+  for (const [id, anchorLine] of [...anchors].sort((a, b) => a[1] - b[1])) {
+    const surface = byId.get(id);
+    if (surface === undefined) continue;
+
+    for (const suitePath of surface.suitePaths) {
+      const unreadable = (): void => {
+        findings.push({
+          check: CHECK,
+          code: "DECLARED_LIMIT_PIN_SUITE_UNREADABLE",
+          severity: ADVISORY,
+          docLine: anchorLine,
+          column: 1,
+          message: `surface ${id} names a deciding suite this lint could not read: ${suitePath}`,
+        });
+      };
+
+      // Each channel CONTINUES to the next suite and never returns from the SURFACE.
+      // Live surfaces genuinely carry several suites with the pins in the later one, so
+      // abandoning the surface on one bad suite silently suppresses a live pin while
+      // passing every single-suite fixture.
+
+      // Channel 2 first, because it is the one a tracking-blind implementation misses:
+      // the read seam resolves any file on disk, so an untracked suite reads fine and
+      // reports "no pins" with nothing saying the tree and the index disagree.
+      if (!tracked.has(suitePath)) {
+        unreadable();
+        continue;
+      }
+      // Channel 1 — unreadable, or a symlink.
+      const raw = resolver.readFileLines(suitePath);
+      if (raw === null) {
+        unreadable();
+        continue;
+      }
+      // Channel 3 — preparation could not parse it. Scanning the raw text is NOT the
+      // conservative fallback it looks like: an unterminated `/*` above a live pin
+      // leaves two real pins textually visible while neither executes, so a raw scan
+      // produces WRONG ADVISORIES, which is the direction the consequence bound
+      // forbids. Declining and saying so is the safe side (spec §8 item 15).
+      const prepared = prepare(suitePath, raw);
+      if (prepared.status !== "ok") {
+        unreadable();
+        continue;
+      }
+
+      for (const pin of discoverPins(suitePath, prepared.lines, dispositions)) {
+        const identity = `${pin.path}\u0000${pin.title}`;
+        if (reportedPins.has(identity)) continue;
+        reportedPins.add(identity);
+        // Naming is a VERBATIM SUBSTRING test (spec §8 item 7). A plan that paraphrases
+        // a pin still draws; the advisory prints the exact string to include, so the
+        // repair is a copy-paste and the failure direction is a nuisance line, never a
+        // missed collision.
+        if (documentText.includes(pin.title)) continue;
+        findings.push({
+          check: CHECK,
+          code: "DECLARED_LIMIT_PIN_UNNAMED",
+          severity: ADVISORY,
+          docLine: anchorLine,
+          column: 1,
+          message: `${pin.path}:${pin.line} pins a declared limit that this plan does not name: "${pin.title}"`,
+          detail: `surface ${id}; name it in the plan (retire it, or say it is left alone), or waive this advisory.`,
+        });
+      }
+    }
+  }
+  return findings;
 }
