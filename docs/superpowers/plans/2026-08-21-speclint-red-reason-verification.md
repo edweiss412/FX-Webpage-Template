@@ -72,14 +72,19 @@ already has.
 
 ## 3. Citation lifetime — this plan's own execution moves its own red-target
 
-Task 1 edits at line 721. Line 717 is ABOVE it and therefore unaffected, which is why Task 2's
-red-target survives Task 1. Task 1's own target does not: once the `continue` becomes a push, the line
-it names holds something else.
+The plan carries exactly ONE `red-target=`, and it names line 721, the line Task 1 edits. Once the
+`continue` becomes a push, that line holds something else. The citation is stale by the time the task
+that declares it is done.
 
-`RED_TARGET_INVALID` cannot see this. It checks that the path is tracked and the line is in range,
-not that the line still holds what `why=` describes. So both `red-target=` citations are RE-READ at
-closeout and corrected in the closing commit. This is stated as a step rather than left as a habit
-because the arm being repaired here is the one that would otherwise catch it.
+`RED_TARGET_INVALID` cannot see this. It checks that the path is tracked and the line is in range, not
+that the line still holds what `why=` describes. So the citation is RE-READ at closeout, by reading
+the line rather than confirming it resolves, and corrected in the closing commit.
+
+The re-read is a STEP rather than a habit, because the arm being repaired here is the one that would
+otherwise catch it.
+
+Line 717 is ABOVE the edit and therefore unaffected. It is cited in §0's verification table and in the
+Task 1 assertion table at row 4, and those citations survive the change untouched.
 
 ## 4. The cycle every task runs, stated once
 
@@ -91,8 +96,8 @@ because the arm being repaired here is the one that would otherwise catch it.
 5. Commit.
 
 Step 1's read is not ceremony. This arc exists because a red that exits non-zero for the wrong reason
-looks identical to one that exits non-zero for the right one, and both tasks below are authored reds
-that no one will ever watch fail again.
+looks identical to one that exits non-zero for the right one, and the task below carries an authored
+red that no one will ever watch fail again.
 
 <!-- tasks: depth=2 red-contract -->
 
@@ -128,9 +133,9 @@ narrow the reach to nine is forbidden by spec §2 and fails the negative half be
 `synthesizeCollectionFindings` only when probes are non-null. Every case passes the flag, or it
 passes while proving nothing.
 
-**The four assertions, all in this one cycle.** Three are red today and one is green today; both kinds
-are required, because an implementation emitting the advisory unconditionally satisfies the red ones
-alone.
+**Five assertions, all in this one cycle: three red today and two green today.** Both kinds are
+required. The red ones alone are satisfied by an implementation that emits the advisory
+unconditionally, and the green ones alone are satisfied by changing nothing at all.
 
 | # | fixture | assertion | today |
 | - | ------- | --------- | ----- |
@@ -260,10 +265,17 @@ acceptance table.
 - Run `pnpm spec:lint` on this plan and report the result. This arc's own arm reads it.
 - Add the `probe:reach` package script in the same commit as Task 1, per §6. Without it the plan cites
   a criterion no command can invoke, which is the defect round 1 found.
-- Neither `red=` is `pnpm heavy`-wrapped, and both are vitest-shaped at the anchor, so the plan's own
-  reds sit inside the arm's sighted domain rather than demonstrating the blind spot. Stated because a
-  reviewer will check.
-- Re-read both `red-target=` lines at closeout per §3.
+- **Run `EXPECT_ADVISORY=1 pnpm probe:reach` as the LAST command before the closing commit**, after
+  every source edit including any prompted by Task 2's mutation validation. §6 names this as the
+  oracle's third scheduling site and round 2 found the site was named and never written. Without it, a
+  source repair made after Task 1's own post-change run leaves every other command green while the
+  final tree fails the closed criterion.
+- The plan's single `red=` is not `pnpm heavy`-wrapped and IS vitest-shaped at the anchor, so it sits
+  inside the arm's sighted domain rather than demonstrating the blind spot. The oracle invocation is
+  NOT a second red and is not a marker command: `EXPECT_ADVISORY=1 pnpm probe:reach` derives
+  `{ kind: "none" }`, which is the very class this arc repairs, and it is scheduled as a step in §6
+  rather than declared as a marker red.
+- Re-read the single `red-target=` line at closeout per §3.
 - No fenced block carries an em-dash: `FENCE_EM_DASH` is a plan-fence rule and
   `tests/docs/planFencesBaseline.ts` is a DECREASE-ONLY ratchet, so a new hit fails unlisted.
 - `pnpm typecheck` before push. It was red on this branch for two rounds because `tsx` resolved an
