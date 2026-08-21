@@ -299,12 +299,15 @@ C derived+peel       77        2762           101      2660               1
 ```
 
 **The claim is the RECORD diff, not the totals.** Three equal integers are satisfied by any
-permutation that keeps the counts, so `--records` emits one `verdict | suite | line | name` row per
-classified test and the comparison is a diff of those rows:
+permutation that keeps the counts, so `--records` emits one `verdict | suite | name` row per
+classified test and the comparison is a diff of those rows. **The row is keyed by NAME, never by
+line** — inserting a case anywhere in a suite re-keys every record below it, and the diff then reports
+a wall of spurious moves that hides the real one, which is the same churn
+`BL-MUTATION-SITEID-LINE-KEYED-CHURN` is filed against in the survivor ledger:
 
 ```
 $ diff <(A --records) <(C --records)
-> environment-free | tests/cross-cutting/psqlStartupFileSuppression.test.ts | 1654 | chmod 000 on a directory holding a psql site fails the census
+> environment-free | tests/cross-cutting/psqlStartupFileSuppression.test.ts | chmod 000 on a directory holding a psql site fails the census
 ```
 
 **One record added, zero records moved.** The environment-touching set — all 101 rows — is

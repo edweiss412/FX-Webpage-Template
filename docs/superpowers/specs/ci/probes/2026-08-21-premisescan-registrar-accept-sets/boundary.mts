@@ -38,6 +38,19 @@ describe("s", () => {
 test.beforeEach(() => { process.env.CI; });
 it("child", () => {});
 `,
+  // Task 2's SECOND red: the nested prune at premiseScan.ts:1862. Only the
+  // OUTER SIBLING discriminates -- with the prune still keyed on "describe"
+  // alone, the nested suite's hook is read as content of the outer describe and
+  // leaks to the sibling. Asserting the inner child alone passes either way.
+  nestedPrune: `import { describe, suite, it, beforeEach } from "vitest";
+describe("outer", () => {
+  suite("inner", () => {
+    beforeEach(() => { process.env.CI; });
+    it("inner child", () => {});
+  });
+  it("outer sibling", () => {});
+});
+`,
   // Task 3's red: the suite-factory alias.
   factoryAlias: `import { describe, it } from "vitest";
 describe("outer", (t) => {
@@ -53,8 +66,9 @@ for (const [name, src] of Object.entries(FIXTURES)) {
   const file = `${name}.test.ts`;
   writeFileSync(join(dir, file), src);
   const rows = classifyTests(dir, file);
-  const child = rows.find((r) => r.testName === "child");
-  console.log(`${name.padEnd(14)} rows=${rows.length}  child=${child ? child.verdict : "(NOT CLASSIFIED)"}`);
+  const shown = rows.filter((r) => r.testName === "child" || r.testName.includes("sibling") || r.testName.includes("inner child"));
+  const desc = shown.length > 0 ? shown.map((r) => `${r.testName}=${r.verdict}`).join("  ") : "(NOT CLASSIFIED)";
+  console.log(`${name.padEnd(14)} rows=${rows.length}  ${desc}`);
   seen += rows.length;
 }
 

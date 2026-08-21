@@ -173,10 +173,25 @@ suiteTwin      rows=1  child=environment-free
 describeTwin   rows=1  child=environment-touching
 qualifiedHook  rows=1  child=environment-free
 factoryAlias   rows=1  child=environment-free
+nestedPrune    rows=2  inner child=environment-touching  outer sibling=environment-touching
 ```
 
-`suiteTwin` free against `describeTwin` touching is Task 2's red, and the twin is what makes it
-discriminating rather than a constant. `qualifiedHook` and `factoryAlias` free are Task 3's two reds.
+`suiteTwin` free against `describeTwin` touching is Task 2's first red. `qualifiedHook` and
+`factoryAlias` free are Task 3's two reds.
+
+**`nestedPrune` is Task 2's SECOND red, and it exists because the twin alone does not discriminate**
+(plan review r2 finding 1). Measured across three implementations:
+
+| | `suiteTwin child` | `nestedPrune outer sibling` |
+| --- | --- | --- |
+| shipped | environment-free | environment-touching |
+| **dispatch widened ONLY** | environment-touching ✓ | environment-touching ✗ |
+| both sites widened | environment-touching ✓ | environment-FREE ✓ |
+
+The middle row is the whole point: widening only `tests/mutation/source/premiseScan.ts:1672` satisfies
+the twin completely while the nested `suite`'s hook still leaks to its sibling through the unrepaired
+prune at `tests/mutation/source/premiseScan.ts:1862`. **The sibling, not the inner child, is the
+assertion** — the inner child is touching under all three.
 
 **These four lines are IDENTICAL with Task 1 applied**, which is worth stating rather than glossing:
 the probe establishes that Tasks 2 and 3 red at their boundaries, and says NOTHING about Task 1 — the
@@ -203,7 +218,7 @@ so none owes an observed-failing run at plan time.
 
 | instrument | on this branch | with the change | what a WRONG result means |
 | --- | --- | --- | --- |
-| `census.mts` | exit 0, `2761 / 101 / 1` | exit 0, `2762 / 101 / 1`, one record ADDED | a moved env-touching record means AC-1 moved and a user decision IS owed — stop and escalate |
+| `census.mts` | exit 0, `2761 / 101 / 1` | `101` unchanged; `classified` rises by one PLUS one per new case in `premiseScan.test.ts`, which is a `suitePath` and therefore censused | a moved env-touching record means AC-1 moved and a user decision IS owed — stop and escalate |
 | `census.mts --records` with the name channel severed | exit 2, "the record channel is dead" | unchanged | exit 0 here means the abort was removed; the diff is then blind to verdict moves |
 | `_metaPremiseContract` | 11 passed | 11 passed, unchanged | any per-suite count change contradicts AC-1 |
 | `premiseScan.test.ts` | 326 passed | 326 + the new cases | — |
@@ -322,8 +337,30 @@ Two sites name `"describe"` and both must accept `suite`: the walk's dispatch
 exists to catch** — the prune would then treat a nested `suite` as ordinary content and attach its
 hooks to its siblings.
 
-The case is written as a TWIN: the same body under `describe` and under `suite`, asserting the same
-verdict. A twin is what makes it impossible to pass by asserting a constant.
+**TWO cases, because there are two sites and the first case passes with the second site unrepaired.**
+Plan review r2 finding 1 demonstrated exactly that: widening only the dispatch satisfied every
+assertion the first draft listed.
+
+1. **The dispatch twin.** The same body under `describe` and under `suite`, asserting the same verdict.
+   A twin is what makes it impossible to pass by asserting a constant.
+2. **The nested-prune case, which is the ONLY one that reaches
+   `tests/mutation/source/premiseScan.ts:1862`.** A `suite` nested inside an outer `describe`, with a
+   hook inside the NESTED one and a sibling test in the OUTER one:
+
+   ```ts
+   describe("outer", () => {
+     suite("inner", () => {
+       beforeEach(() => { process.env.CI; });
+       it("inner child", () => {});
+     });
+     it("outer sibling", () => {});
+   });
+   ```
+
+   `inner child` is environment-touching and **`outer sibling` is environment-FREE**. With the prune
+   still keyed on `"describe"` alone, the nested `suite` is not recognized as a suite, its hook is
+   treated as ordinary content of the outer describe, and the sibling is wrongly reported touching.
+   The sibling assertion is the whole case; asserting only `inner child` passes either way.
 
 Also assert `bench("b", fn)` produces **no** classification (AC-5's other half, and §5 L3).
 
@@ -386,9 +423,34 @@ Three commands, and the third is the one that can fail meaningfully:
         <(grep '^environment-touching' /tmp/census-after.txt)  # expect: EMPTY, exit 0
    ```
 
-   **Expect exactly one added row and ZERO moved rows**, and the environment-touching set
-   byte-identical. The second diff is the load-bearing one: the first passes if a touching row is
-   swapped for a free row, since that is still one `>` and one `<`.
+   **Expect exactly one added row and ZERO moved rows** in the UNEDITED population, and the
+   environment-touching set byte-identical. The second diff is the load-bearing one: the first passes
+   if a touching row is swapped for a free row, since that is still one `>` and one `<`.
+
+**`tests/mutation/source/premiseScan.test.ts` IS in the census population** — it is one of
+premiseScan's three `suitePaths` — so Tasks 1-3 add cases to a suite the census counts, and a bare
+`2762` is an expectation this plan's own work invalidates (plan review r2 finding 2). The claim is
+therefore PARTITIONED, and the records are name-keyed so that inserting a case does not re-key every
+record below it:
+
+```bash
+EDITED='tests/mutation/source/premiseScan.test.ts'
+grep -v -F "$EDITED" /tmp/census-before.txt > /tmp/before-unedited.txt
+grep -v -F "$EDITED" /tmp/census-after.txt  > /tmp/after-unedited.txt
+diff /tmp/before-unedited.txt /tmp/after-unedited.txt   # expect: exactly one `>`, no `<`
+
+# in the EDITED suite: additions only, every addition environment-free, no verdict moved
+diff <(grep -F "$EDITED" /tmp/census-before.txt) <(grep -F "$EDITED" /tmp/census-after.txt) \
+  | grep '^<' && { echo "FAIL: a pre-existing record in the edited suite moved or vanished"; exit 1; }
+diff <(grep -F "$EDITED" /tmp/census-before.txt) <(grep -F "$EDITED" /tmp/census-after.txt) \
+  | grep '^>' | grep -v '^> environment-free' && { echo "FAIL: a new case is not environment-free"; exit 1; }
+```
+
+**Every new case must be environment-FREE, and that is a requirement on how the cases are written,
+not a prediction.** The fixtures are source STRINGS passed to `classifyTests`; a string literal
+containing `process.env` is not a property access, so the case bodies do not read the environment. A
+case that genuinely needs to would owe an `EXPECTED_ENV_TOUCHING` update, which step 1 catches by
+failing — so this is checked, not assumed.
 
 **If any env-touching record moves, AC-1 has moved and a user decision IS owed** (spec §4, and the
 PR #843 escalation shape). Stop and escalate rather than updating `EXPECTED_ENV_TOUCHING`.

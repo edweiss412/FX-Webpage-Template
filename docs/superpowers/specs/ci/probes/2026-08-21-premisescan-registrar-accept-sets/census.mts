@@ -69,9 +69,14 @@ console.log(`unclassifiable  ${count("unclassifiable")}`);
 
 if (process.argv.includes("--records")) {
   console.log("");
-  const key = (r: Row) => `${r.suite}\u0000${String(r.line).padStart(6, "0")}\u0000${r.name}`;
-  const sorted = rows.slice().sort((a, b) => key(a).localeCompare(key(b)));
+  // A record is keyed by NAME, never by line. Line is provenance, not identity:
+  // inserting a case anywhere in a suite re-keys every record below it, and a
+  // diff then reports a wall of spurious moves that hides the real one. This is
+  // the same churn `tests/mutation/source/registry.ts` carries in its
+  // line-keyed accepted survivors, and `BL-MUTATION-SITEID-LINE-KEYED-CHURN`
+  // is filed against it -- there is no reason to reproduce it here.
+  const sorted = rows.slice().sort((a, b) => `${a.suite}\u0000${a.name}`.localeCompare(`${b.suite}\u0000${b.name}`));
   for (const r of sorted) {
-    console.log([r.verdict, r.suite, r.line, r.name].join(" | "));
+    console.log([r.verdict, r.suite, r.name].join(" | "));
   }
 }
