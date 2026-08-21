@@ -1,10 +1,11 @@
 # Orchestrator pane compaction (project-scoped)
 
-> **The sending modes are disabled in this release.** `--checkpoint`, `--compact` and
-> `--resume` refuse immediately and name `BL-PANE-COMPACTION-SEND-AUTHORIZATION`. What ships
-> is the classifier and the read-only surfaces: the default report, `--check` and `--json`.
-> Everything below about the three-step protocol describes the design those modes will
-> implement when the authorization arc lands; it is not what the shipped binary does today.
+> **All five surfaces ship enabled.** `--checkpoint`, `--compact` and `--resume` send, and
+> each authorizes from ONE read-once pass over its world: every decision input is read at
+> most once per invocation and nothing is carried in from an earlier command. The design is
+> `docs/superpowers/specs/2026-08-21-pane-compaction-send-authorization.md`; the fence those
+> modes shipped behind through 2026-08-20, and why, is a dated record in §7 of the
+> 2026-08-16 design.
 
 
 Extracted so it loads on demand instead of in every session. This file is canonical for its
@@ -12,6 +13,28 @@ subject and carries the same authority as `AGENTS.md`; `AGENTS.md` links here. A
 agent harness working in this repo.
 
 Read this before compacting any pane other than your own.
+
+## Operator procedure between commands
+
+**Exit 0 means authorized and sent. It does not mean delivered, and the tool will never
+claim otherwise.** `herdr agent send` returning `{"type":"ok"}` describes the transport, not
+the delivery: an unsubmitted `[Pasted text #N]` and a dropped first send both return ok. The
+tool takes no post-send read and prints no echo, deliberately — a read-back would be a
+second `screen` read inside the pass, and classifying what came back would mean reading pane
+text for meaning, which this surface does not do. So the verification is yours:
+
+- **After every live command, read the target pane back** (`herdr pane read <paneId>`) before
+  sequencing the next step. A send that returns ok is not a send until a pane read shows it.
+- **Send `/compact` into an EMPTY queue.** A `/compact` queued behind other pending input can
+  merge into one combined message and arrive as prose rather than executing as a command. The
+  nonce is already consumed at that point, so the recovery is a fresh `--checkpoint`.
+- **A freshly launched pane drops its first send** while its TUI is not yet accepting input
+  (measured three-for-three on kickoff briefs). Compaction targets are established panes, so
+  this is off the ordinary path; where it happens, the pane read shows an unmoved pane and
+  the command is re-run.
+- **A usage-walled target cannot compact.** Compaction is itself an API call, so a pane idle
+  at a quota wall accepts the text and cannot act on it. Not detectable from outside; the
+  pane read shows the staged text, and the procedure is to compact after the reset.
 
 ## Why this exists
 

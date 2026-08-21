@@ -626,10 +626,17 @@ about what this surface declines to promise.
    orchestrator believed cheaper than it was, which is the same class of outcome as the
    auto-compaction it replaces.
 
-2. **[SHIPPED DISABLED] The three sending modes are fenced in this release.** `--checkpoint`,
-   `--compact` and `--resume` refuse before any observation and name
+2. **[SHIPPED DISABLED] The three sending modes are fenced in this release.**
+   **SUPERSEDED 2026-08-21.** `--checkpoint`, `--compact` and `--resume` refuse before any observation and name
    `BL-PANE-COMPACTION-SEND-AUTHORIZATION`. The classifier and the read-only surfaces (default
    report, `--check`, `--json`) ship enabled.
+
+   **Superseded 2026-08-21** by
+   `docs/superpowers/specs/2026-08-21-pane-compaction-send-authorization.md`, which removed
+   the fence whole and rebuilt the send path on one read-once pass per invocation. This limit
+   is kept rather than deleted because it is the dated record of WHY the modes were fenced,
+   which is the context a later reader needs in order to judge whether the replacement was the
+   right one. Everything below in this entry describes the state through 2026-08-20.
 
    This is a conservative behaviour plus a surfaced signal, which is what a documented limit
    requires: the refusal is a real disable rather than a note, and its message names the COMMAND

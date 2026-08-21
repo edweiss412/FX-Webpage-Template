@@ -17,6 +17,11 @@ const ROOT = join(__dirname, "..", "..");
 const AGENTS = readFileSync(join(ROOT, "AGENTS.md"), "utf8");
 const WRITEUP_PATH = "docs/agents/orchestrator-pane-compaction.md";
 const WRITEUP = readFileSync(join(ROOT, WRITEUP_PATH), "utf8");
+const SEND_AUTH_SPEC_PATH = "docs/superpowers/specs/2026-08-21-pane-compaction-send-authorization.md";
+const SEND_AUTH_SPEC = readFileSync(join(ROOT, SEND_AUTH_SPEC_PATH), "utf8");
+const DESIGN_2026_08_16_PATH =
+  "docs/superpowers/specs/2026-08-16-orchestrator-pane-compaction-design.md";
+const DESIGN_2026_08_16 = readFileSync(join(ROOT, DESIGN_2026_08_16_PATH), "utf8");
 
 describe("pane-compaction contract", () => {
   it("both documents are substantial, so an emptied file cannot pass", () => {
@@ -24,6 +29,8 @@ describe("pane-compaction contract", () => {
     // `not.toMatch` below while satisfying nothing a reader needs.
     premise("the write-up has content", WRITEUP.length, 2000);
     premise("AGENTS.md has content", AGENTS.length, 10000);
+    premise("the send-auth spec has content", SEND_AUTH_SPEC.length, 10000);
+    premise("the 2026-08-16 design has content", DESIGN_2026_08_16.length, 10000);
   });
 
   it("AGENTS.md points at the write-up by path", () => {
@@ -57,5 +64,86 @@ describe("pane-compaction contract", () => {
     }
     expect(WRITEUP).toContain("t < 5");
     expect(WRITEUP).toContain("t >= 8");
+  });
+});
+
+describe("the send path ships ENABLED, and the docs say so (AC-13)", () => {
+  it("the write-up carries no fence banner", () => {
+    // The banner told a reader the three modes refuse immediately. Leaving it
+    // in place after the fence is removed is worse than never having had it:
+    // an operator would not reach for a command the canonical document says
+    // does not work.
+    expect(WRITEUP).not.toContain("The sending modes are disabled in this release");
+    expect(WRITEUP).not.toContain("it is not what the shipped binary does today");
+  });
+
+  it("AGENTS.md's bullet no longer says the three modes ship disabled", () => {
+    expect(AGENTS).not.toContain("The three sending modes ship DISABLED");
+    expect(AGENTS).not.toContain("the design the fenced modes will implement");
+  });
+
+  it("AGENTS.md keeps its four load-bearing rules", () => {
+    // The positive twin. A bullet rewritten to say "enabled" and nothing else
+    // would satisfy every `not.toContain` above while dropping the rules that
+    // are the reason the bullet exists.
+    for (const rule of [
+      "nothing ever interrupts",
+      "single-use nonce",
+      "`--resume` has its own predicate",
+      "`--as <sessionId>` is always explicit",
+    ]) {
+      expect(AGENTS, `AGENTS.md must keep: ${rule}`).toContain(rule);
+    }
+  });
+
+  it("the write-up documents the operator's post-send pane read as PROCEDURE", () => {
+    // Spec §3.3: the tool takes no post-send reads and prints no echo, because
+    // a read-back would be a second `screen` read inside the pass and the first
+    // step toward classifying display strings. The evidence the field notes
+    // measured -- a send that returns ok is not a send -- is real, and it lives
+    // here as operator procedure instead.
+    expect(WRITEUP).toContain("herdr pane read");
+    expect(WRITEUP.toLowerCase()).toContain("describes the transport");
+    expect(WRITEUP.toLowerCase()).toContain("empty queue");
+  });
+
+  it("the 2026-08-16 design's fence limit is annotated as superseded, not deleted", () => {
+    // A dated record of the fence decision. Deleting it would erase why the
+    // modes were ever disabled, which is the context the next reader needs to
+    // judge whether this arc's replacement was the right one.
+    expect(DESIGN_2026_08_16).toContain("[SHIPPED DISABLED]");
+    expect(DESIGN_2026_08_16).toContain("2026-08-21-pane-compaction-send-authorization");
+    expect(DESIGN_2026_08_16).toContain("SUPERSEDED 2026-08-21");
+  });
+});
+
+describe("the bounded decay classes are stated as BOUNDED (AC-15)", () => {
+  // Round 4 caught an earlier draft claiming the addressed payloads closed more
+  // than they do. The address line closes the WRONG-RECIPIENT class and the
+  // resume payload's deference closes the `blockedOn` class; a verdict or
+  // purview change with branch, session and blockedOn unchanged is invisible to
+  // the recipient BY CONSTRUCTION and is priced as a bounded consequence.
+  //
+  // Pinned in prose because no test can observe a claim the code does not make:
+  // the overclaim was a sentence, so the guard is a sentence.
+  it("the spec prices verdict/purview decay as bounded, not closed", () => {
+    expect(SEND_AUTH_SPEC).toContain("**[bounded], not closed**");
+    expect(SEND_AUTH_SPEC).toContain("the `blockedOn` decay class and NO OTHER");
+  });
+
+  it("the write-up says the same, so the two cannot disagree", () => {
+    expect(WRITEUP.toLowerCase()).toContain("bounded");
+    expect(WRITEUP).toContain("blockedOn");
+  });
+
+  it("neither document claims the address line closes every decay class", () => {
+    for (const [name, doc] of [
+      [SEND_AUTH_SPEC_PATH, SEND_AUTH_SPEC],
+      [WRITEUP_PATH, WRITEUP],
+    ] as const) {
+      expect(doc, `${name} overclaims the address line`).not.toMatch(
+        /address line clos(es|ing) (every|all)/i,
+      );
+    }
   });
 });
