@@ -8,6 +8,44 @@ export type Check =
   | "taskContract"
   | "universals"
   | "claimSweep";
+
+/**
+ * RENDER ORDER for `Check`, and ORDER ONLY.
+ *
+ * The adapter's text renderer used to carry its own hand-written array of check
+ * names and FILTER the findings by it. That array was correct when written and
+ * silently wrong the moment a check was added: `claimSweep` shipped with a
+ * complete implementation, a passing suite and a mutation score, and every one
+ * of its findings was dropped before it reached a human, because it was not one
+ * of the seven names in that list. The default output said `0 hard, N advisory`
+ * and printed no claims to re-read. That is this very arm's defect class --
+ * reports OK while the output moved -- landing on the arm's own output path.
+ *
+ * Two things stop it recurring, and the second is the load-bearing one:
+ *
+ * 1. The exhaustiveness assertion below is a COMPILE-TIME error if a `Check` is
+ *    missing from this array.
+ * 2. The renderer derives its GROUPS from the findings themselves and uses this
+ *    array only to ORDER them, appending anything it does not recognise. So a
+ *    check absent from this list prints LAST rather than not at all. A list that
+ *    decides visibility can hide a check; a list that decides order cannot.
+ */
+export const CHECK_ORDER = [
+  "document",
+  "citations",
+  "numerics",
+  "copy",
+  "sections",
+  "taskContract",
+  "universals",
+  "claimSweep",
+] as const satisfies readonly Check[];
+
+/** `true` only when every `Check` appears in `CHECK_ORDER`; otherwise a type error. */
+type _ChecksAreOrdered = Exclude<Check, (typeof CHECK_ORDER)[number]> extends never ? true : false;
+const _checkOrderIsExhaustive: _ChecksAreOrdered = true;
+void _checkOrderIsExhaustive;
+
 export interface Finding {
   check: Check;
   code: string;

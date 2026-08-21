@@ -23,6 +23,7 @@ import {
   type ClaimSweepDeclaration,
 } from "../lib/specLint/claimSweep";
 import { exitCodeForResult, runLint } from "../lib/specLint/run";
+import { CHECK_ORDER } from "../lib/specLint/types";
 import type {
   ClaimSweepInput,
   ExecOutcome,
@@ -151,20 +152,20 @@ function usage(json: boolean, msg: string): CliOutput {
   };
 }
 
-function renderText(result: LintResult): string {
+export function renderText(result: LintResult): string {
   const out: string[] = [];
   out.push(`spec:lint ${result.doc}`);
   out.push(`kind: ${result.kind} (${result.kindSource})`);
   out.push("");
+  // GROUPS COME FROM THE FINDINGS, order comes from CHECK_ORDER, and anything
+  // unrecognised is appended rather than dropped. The previous form filtered by
+  // a hand-written list and made `claimSweep` invisible in default output for
+  // the whole of its implementation.
+  const present = [...new Set(result.findings.map((f) => f.check))];
   const checks = [
-    "document",
-    "citations",
-    "numerics",
-    "copy",
-    "sections",
-    "taskContract",
-    "universals",
-  ] as const;
+    ...CHECK_ORDER.filter((c) => present.includes(c)),
+    ...present.filter((c) => !(CHECK_ORDER as readonly string[]).includes(c)),
+  ];
   for (const check of checks) {
     const fs = result.findings.filter((f) => f.check === check);
     if (fs.length === 0) continue;
@@ -624,6 +625,28 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
           return [{ path: peer, lines: resolver.readFileLines(peer) }];
         }),
       ];
+      // Read the repair's diff BEFORE building the record, so a git refusal has
+      // somewhere to go. Unguarded, a bad rev threw out of `runCli` as an
+      // unhandled exception; routed here it joins the usage channel the three
+      // refusals already use -- exit 2, no report written -- because a run that
+      // could not read the repair did not happen, and reporting a clean for it
+      // is the same false certificate the refusals exist to prevent.
+      let repairDiffText = "";
+      if (declared.repair !== null) {
+        try {
+          repairDiffText = deps.repairDiff(
+            declared.repair,
+            documents.map((d) => d.path),
+          );
+        } catch (e) {
+          const detail = e instanceof Error ? e.message.split("\n")[0] : String(e);
+          return usage(
+            json,
+            `--repair ${declared.repair} could not be read as a revision: ${detail}. ` +
+              `No document was swept, so this is NOT a clean.`,
+          );
+        }
+      }
       sweepInput = {
         documents,
         record: {
@@ -633,12 +656,7 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
           touchedLines:
             declared.repair === null
               ? new Map<string, ReadonlySet<number>>()
-              : parseRepairSpans(
-                  deps.repairDiff(
-                    declared.repair,
-                    documents.map((d) => d.path),
-                  ),
-                ),
+              : parseRepairSpans(repairDiffText),
         },
       };
     }
@@ -723,7 +741,14 @@ export function nodeDeps(root: string): CliDeps {
     readFileBytes: (p) => readFileSync(p),
     realpath: (p) => realpathSync(p),
     repairDiff: (rev, paths) =>
-      execFileSync("git", ["show", "--format=", "--unified=0", rev, "--", ...paths], {
+      // `--end-of-options` is load-bearing, not tidiness. The arity check accepts
+      // any value not starting with `--`, so `--repair -3` is a parseable
+      // invocation, and git then reads `-3` as the max-count OPTION rather than
+      // as a revision: it succeeds, returns unrelated recent hunks, and those
+      // hunks suppress the very occurrence the run was asked about. A SILENT
+      // CLEAN from an invocation the user believes they declared correctly.
+      // With this, git refuses the value instead, and the refusal is surfaced.
+      execFileSync("git", ["show", "--format=", "--unified=0", "--end-of-options", rev, "--", ...paths], {
         cwd: root,
         encoding: "utf8",
         maxBuffer: 64 * 1024 * 1024,

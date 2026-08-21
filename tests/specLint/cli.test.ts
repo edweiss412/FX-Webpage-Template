@@ -10,7 +10,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { classifySpawnResult, runCli, type CliDeps } from "../../scripts/spec-lint";
+import { classifySpawnResult, renderText, runCli, type CliDeps } from "../../scripts/spec-lint";
+import { CHECK_ORDER } from "../../lib/specLint/types";
+import type { Finding, LintResult } from "../../lib/specLint/types";
 import { memSpliceSeam } from "./_memSpliceSeam";
 
 const ROOT = process.cwd();
@@ -1079,5 +1081,110 @@ describe("runCli — spawn authorization per population cell (spec §3/§5.2)", 
       spawnFor: (command, mode) => (mode === "exec" ? { status: 0, signal: null } : undefined),
     });
     expect(r.codes).toEqual(["RED_ALREADY_GREEN"]);
+  });
+});
+
+/**
+ * The renderer cannot hide a check.
+ *
+ * `renderText` used to FILTER findings through a hand-written array of seven
+ * check names. `claimSweep` shipped with a complete implementation, a passing
+ * suite and a mutation score, and every finding it produced was dropped before
+ * a human saw it: the default output read `summary: 0 hard, N advisory` and
+ * printed no claims to re-read. Nothing failed. The JSON output was correct the
+ * whole time, which is why no assertion caught it -- every claim-sweep test
+ * asserted against findings or against `--json`.
+ *
+ * The property that replaces the list: GROUPS come from the findings, the array
+ * decides ORDER only, and an unrecognised check is appended rather than
+ * dropped. The second case below is the one that matters -- it fails against
+ * any renderer that decides visibility from a list, including a corrected list.
+ */
+describe("renderText groups from the findings, never from a fixed list", () => {
+  const finding = (check: string, code: string) =>
+    ({
+      check,
+      code,
+      severity: "advisory",
+      docLine: 1,
+      column: 1,
+      message: `${code} message`,
+    }) as unknown as Finding;
+
+  const render = (findings: Finding[]) =>
+    renderText({
+      doc: "docs/x.md",
+      kind: "plan",
+      kindSource: "flag",
+      findings,
+      inventory: [],
+    } as unknown as LintResult);
+
+  it("PREMISE: claimSweep is a Check and is listed in CHECK_ORDER", () => {
+    // The compile-time assertion in types.ts already enforces exhaustiveness.
+    // This makes the specific regression visible as a named test rather than as
+    // a type error nobody reads in a passing run.
+    expect(CHECK_ORDER).toContain("claimSweep");
+  });
+
+  it("renders claimSweep findings in DEFAULT text output", () => {
+    const out = render([finding("claimSweep", "VALUE_SUPERSEDED_ELSEWHERE")]);
+    expect(out).toContain("claimSweep:");
+    expect(out).toContain("VALUE_SUPERSEDED_ELSEWHERE");
+    expect(out).toContain("summary: 0 hard, 1 advisory");
+  });
+
+  it("renders a check that is NOT in CHECK_ORDER, appended rather than dropped", () => {
+    // The anti-invisibility property itself. A renderer that filters by a list
+    // passes the case above the moment the list is corrected, and fails this
+    // one forever. The summary line is asserted too, because a count that
+    // includes a finding the body omits is the exact shape of the original
+    // defect: it read `0 hard, 26 advisory` while printing none of them.
+    const out = render([finding("notAKnownCheck", "SOME_CODE")]);
+    expect(out).toContain("notAKnownCheck:");
+    expect(out).toContain("SOME_CODE");
+    expect(out).toContain("summary: 0 hard, 1 advisory");
+  });
+
+  it("orders known checks by CHECK_ORDER and puts the unknown one last", () => {
+    const out = render([
+      finding("zzUnknown", "LAST_CODE"),
+      finding("claimSweep", "SWEEP_CODE"),
+      finding("document", "DOC_CODE"),
+    ]);
+    const at = (s: string) => out.indexOf(s);
+    expect(at("document:")).toBeLessThan(at("claimSweep:"));
+    expect(at("claimSweep:")).toBeLessThan(at("zzUnknown:"));
+  });
+});
+
+/**
+ * `--end-of-options`, end to end against REAL git.
+ *
+ * The injected-deps cases in `claimSweepCli.test.ts` cover the wrapper that
+ * turns a git refusal into a usage error. They cannot cover this layer, because
+ * they replace the very dep that builds the argv. This is the only place the
+ * production `repairDiff` runs, and the defect it closes was a SILENT CLEAN:
+ * `--repair -3` parsed, git read `-3` as the max-count option, returned
+ * unrelated recent hunks, and the named half's span filter suppressed the
+ * occurrence the run existed to report.
+ */
+describe("a single-dash --repair value cannot become a git option", () => {
+  const DOC = "docs/superpowers/plans/2026-08-20-claim-sweep-after-repair.md";
+
+  it("REFUSES `--repair -3` instead of sweeping against unrelated hunks", () => {
+    const r = cli([DOC, "--claim-about", "arc-documents.json", "--repair", "-3"]);
+    expect(r.code).toBe(2);
+    expect(r.stdout).toBe("");
+    expect(r.stderr).toContain("NOT a clean");
+  });
+
+  it("still sweeps for a REAL revision (one variable: the value)", () => {
+    // Paired positive against the same document and the same identifier, so the
+    // refusal above is attributable to the value rather than to the arm being
+    // unable to run at all.
+    const r = cli([DOC, "--claim-about", "arc-documents.json", "--repair", "HEAD"]);
+    expect(r.code).not.toBe(2);
+    expect(r.stdout).toContain("claimSweep:");
   });
 });

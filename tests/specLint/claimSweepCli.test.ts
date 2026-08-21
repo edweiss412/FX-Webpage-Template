@@ -390,3 +390,59 @@ describe("claim sweep adapter — a real subprocess, asserted as RELATIONS", () 
     T,
   );
 });
+
+/**
+ * A repair whose revision GIT REFUSES is a refusal, never a clean.
+ *
+ * The arity check accepts any value not starting with `--`, so `--repair -3` is
+ * a parseable invocation. Git then read `-3` as the max-count OPTION rather
+ * than as a revision: it SUCCEEDED, returned unrelated recent hunks, and the
+ * named half's touched-line filter suppressed the very occurrence the run was
+ * asked about. Exit 0, empty findings, and a user who declared a repair and was
+ * told there was nothing to re-read. Measured on the live corpus: a real
+ * occurrence at plan line 722 vanished.
+ *
+ * Two layers now, and they fail in opposite directions so neither carries it
+ * alone. The production dep passes `--end-of-options` before the revision, so
+ * git cannot reinterpret the value at all; and the call is wrapped, so a git
+ * refusal joins the USAGE channel the three declaration refusals already use --
+ * exit 2, no report written -- rather than throwing out of `runCli` as an
+ * unhandled exception.
+ *
+ * The cases below cover the wrapper, which is the layer a mutant can reach.
+ * `--end-of-options` lives in the production `repairDiff` implementation that
+ * these injected deps replace, and is covered end to end in
+ * `tests/specLint/cli.test.ts`.
+ */
+describe("claim sweep adapter — a revision git refuses", () => {
+  const bad = "fatal: bad revision '-3'";
+
+  it("REFUSES through the usage channel, naming the revision, and writes NO report", () => {
+    const deps: CliDeps = {
+      ...fixtureDeps("c272ebed3"),
+      repairDiff: () => {
+        throw new Error(bad);
+      },
+    };
+    const out = runCli(["--json", INCIDENT_SPEC, ...NAMED, ...PEERS], deps);
+    expect(out.exitCode).toBe(2);
+    // No report at all: a refusal must not arrive in the same channel as a
+    // claim about the corpus, or a reader cannot tell a swept-and-clean run
+    // from one that never started.
+    expect(out.stdout).toBe("");
+    expect(out.stderr).toContain("c272ebed3");
+    // The reason says what the silence is NOT. An exit code alone is the same
+    // information a clean run carries to anyone reading output rather than
+    // status.
+    expect(out.stderr).toContain("NOT a clean");
+  });
+
+  it("still SWEEPS when the same revision reads (one variable: the git result)", () => {
+    // Paired positive. Without it, an adapter that refused every `--repair`
+    // invocation would pass the case above, and the refusal would be
+    // indistinguishable from the arm being broken.
+    const out = run(["--json", INCIDENT_SPEC, ...NAMED, ...PEERS], fixtureDeps("c272ebed3"));
+    expect(out.exitCode).not.toBe(2);
+    expect(sweepOf(out.result, "CLAIM_SITE_UNSWEPT").length).toBeGreaterThan(0);
+  });
+});
