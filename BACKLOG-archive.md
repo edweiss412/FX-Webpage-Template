@@ -1,3 +1,97 @@
+## BL-PREMISESCAN-FILE-SUITE-EAGER-HOOKS-LOST — at file scope a hook in a registration's eager position reaches no sibling — CLOSED 2026-08-21 (`fix/premisescan-hook-attachment`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-21 · **Effort (as shipped):** M · **Severity (as filed):** MEDIUM (a silent FREE — a sibling suite reads free while the hook genuinely runs for it) · **Class:** guard fidelity · **Effort:** M · **Filed:** 2026-08-19 (`fix/premisescan-nested-hook-sibling-leak`, diff review r9) · **Facing:** process · **Mint-exception:** invariant · **Class-sweep exception:** (c) — the repair changes the top-level SEED's contract, not the nested stop the finding arc ships · **Reachability:** PROBED — same-machine differential on both trees, plus an 84-case sweep.
+
+**Resolution.** REPORTED, not resolved, and the measurement is the whole argument. This row's own
+"first scheduled step" was to probe the live population before choosing, and that probe returned
+**ZERO** — no enrolled suite writes a hook in a file-scope eager position today, across every
+registration in the corpus, with a positive control on constructed input so the zero is a
+measurement rather than a walk that never looked. With a zero population, resolving and reporting
+are indistinguishable on today's tree, so the cheaper and narrower one wins outright. The row's
+filed "shape of the repair" proposed teaching the top-level seed to RESOLVE; that is deliberately
+not what shipped, and the reason is the number.
+
+Producer A reports the construct as `unclassifiable` through the file-level reason channel that
+already exists, so the shipped precedence demotes `environment-free` and leaves a proven environment
+reach intact. **The report replaces a WRONG answer, not a right one:** on `origin/main` the nested
+case gives sibling=environment-free, and with this change it gives sibling=unclassifiable. The
+nested test's own proven verdict is untouched, because `hookBodies` already collects that hook for it.
+
+The walk stops at exactly ONE thing: a nested registration's INLINE SUITE BODY, where `hookBodies` already attaches the hook. It does NOT stop at function-like nodes. A stop at `ts.isFunctionLike` stood there for two rounds and diff review r4 probed it silencing hooks that RUN — an IIFE, an invoked object method, a synchronously invoked callback — which is false certification. It was deleted, and a `.each` datum, an IIFE and an uncalled helper all report. Residue is limit L8.
+
+**Scored:** 1.0000, zero unaccepted survivors, with two `equivalent` ledger rows excluded from the denominator. The DENOMINATOR is deliberately not quoted here: five review rounds each forced a source edit, each retired the score, and each re-measure moved it. A superseded score cited as current is the same defect as quoting a stale one into a review brief, one document over. The final measured figure is in PR #861. **Corpus-neutral:** zero records moved, verdict and detail, under a
+structural record diff with its own positive control. Twelve (eager position x hook registrar) cells,
+each with a one-variable negative twin; the registrar axis is READ OUT OF the shipped
+`HOOK_REGISTRARS` rather than retyped.
+
+The filed 84-case sweep is corrected in the spec: the registration-spelling axis is INFINITE (Vitest
+4.1.5's modifier object is self-similar, so `describe.concurrent.concurrent…` resolves at any depth),
+so the corpus crosses the axes the rule READS and commits an independence proof over structural
+classes for the axis it does not.
+
+A hook written in a registration's EAGER position — a name argument, an options argument, a curried `.each`/`.for` producer — is evaluated while the CURRENT suite is collecting, so Vitest registers it on that suite. Where the parent is a `describe`, `hookBodies` attaches it correctly. Where the parent is the FILE suite there is no such collection: the top-level seed (`tests/mutation/source/premiseScan.ts:1748`) recognizes only direct hook STATEMENTS. The hook is never attached, and a sibling suite reads `environment-free` while it runs for that sibling.
+
+**Incident:** diff review round 9 of `fix/premisescan-nested-hook-sibling-leak`, raised as one ordinary edit from that arc's own AC-8 fixture — lifting the A/B describes out of their outer wrapper. Bracketed against `origin/main` before disposition, the shipped classifier called in memory on both trees:
+
+```
+origin/main   top_name     inA=environment-touching  inB=environment-free
+              nested_name  inA=environment-touching  inB=environment-touching
+this branch   top_name     inA=environment-touching  inB=environment-free
+              nested_name  inA=environment-touching  inB=environment-touching
+```
+
+Identical on both sides. That round's own sweep put the population at **84 cases** — name and options arguments across nine `describe` spellings, plus `.each`, `.for` and `.concurrent.each` producers, crossed with all four hook registrars — every one unchanged by the arc.
+
+**Shape of the repair.** Give the top-level seed the same eager-position reading `hookBodies` now has: collect hooks from a file-scope registration's non-body arguments, not only from direct statements. The nested rule already exists and is tested; this is the same rule applied at one more scope, which is why it is a seed-contract change rather than new analysis. The honest alternative, if the seed is left alone, is to REPORT rather than pass clean.
+
+**First scheduled step:** probe how many enrolled suites write a hook in a file-scope eager position today. The arc that filed this measured 84 constructed cases but not the live population, and zero would make either choice cheap.
+
+## BL-PREMISESCAN-NAMED-SUITE-FACTORY-HOOKS-LOST — a suite registered with a named factory reads free while its hook touches the environment — CLOSED 2026-08-21 (`fix/premisescan-hook-attachment`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-21 · **Effort (as shipped):** M · **Severity (as filed):** MEDIUM (a silent FREE — the direction that does not announce itself; an enrolled test would be told it needs no premise while its hook spawns) · **Class:** guard fidelity · **Effort:** M · **Filed:** 2026-08-19 (`fix/premisescan-nested-hook-sibling-leak`, diff review r7 finding 1) · **Facing:** process · **Mint-exception:** invariant · **Class-sweep exception:** (c) — the repair is a new identifier-resolution path in `hookBodies`, a mechanism the finding arc does not otherwise touch · **Reachability:** PROBED — same-machine differential on both trees, below.
+
+**Resolution.** REPORTED, not resolved, on the same measured zero: no enrolled suite registers a
+suite with a factory this scanner cannot follow today. This row's "first scheduled step" was
+explicitly "decide between resolving and reporting, then probe the population — zero would make
+either choice cheap", and that is what happened.
+
+Producer B is keyed on the FACTORY SLOTS. Vitest's own `SuiteCollectorCallable` supplies the one
+fact the rule needs — slot 0 is always `name`, and `name` may itself be a Function — so it ranges
+over indices >= 1 only; a body test over EVERY argument is satisfiable by the NAME while the real
+factory goes unreported. It answers per REGISTRATION, never per argument: an intermediate
+per-argument rule took the corpus from 1 `unclassifiable` to 398 on one ordinary live registration
+whose named timeout constant is not an inert literal.
+
+Nine reporting cells and seven silent cells, each reporting cell naming the weaker implementation it
+separates. Seven of those weaker implementations were BUILT and proven killed by the cell the table
+names for it; the eighth names no weaker implementation to build. The silent cells are the
+over-firing half, each one ordinary edit from a reporting cell.
+
+**Scored:** 1.0000, zero unaccepted survivors, with two `equivalent` ledger rows excluded from the denominator. The DENOMINATOR is deliberately not quoted here: five review rounds each forced a source edit, each retired the score, and each re-measure moved it. A superseded score cited as current is the same defect as quoting a stale one into a review brief, one document over. The final measured figure is in PR #861. **Corpus-neutral:** zero records moved.
+
+Three limits are recorded in the spec rather than closed here, each with a bracketed differential
+against the shipped baseline: a hook registered by a CALLED HELPER stays invisible at every position
+(pre-existing and uniform, not caused or widened here); both reports are FILE-scoped, which is an
+over-report with a named cause and zero live cost; and a `suite(…)` registration is never recognized,
+because `REGISTRARS` matches identifier TEXT and editing it belongs to the sequential PR 2.
+
+`hookBodies` (`tests/mutation/source/premiseScan.ts`) collects hooks LEXICALLY inside a registration. Vitest also accepts a named factory — `describe("A", suiteA)` where `suiteA` is a module-scope arrow, function expression or declaration — and invokes it with that suite current. The factory's body lives elsewhere in the file, so it is never walked, and every test in that suite reads `environment-free` while its hook genuinely reaches the environment.
+
+**Incident:** diff review round 7 of `fix/premisescan-nested-hook-sibling-leak`, raised as one ordinary refactor from that arc's own fixtures — extracting an inline callback to a named constant is routine authoring, not obfuscation. Bracketed against `origin/main` before disposition, the shipped classifier called in memory on both trees:
+
+```
+origin/main   const-arrow     inA=environment-free      inB=environment-free
+              inline-control  inA=environment-touching  inB=environment-touching
+this branch   const-arrow     inA=environment-free      inB=environment-free
+              inline-control  inA=environment-touching  inB=environment-free
+```
+
+The named-factory rows are IDENTICAL on both sides. The arc that found it neither causes nor widens it; only the inline control moves, which is the sibling leak that arc closes.
+
+**Shape of the repair.** Resolve a factory ARGUMENT that is an identifier to its declaration in the same module and walk that body as the suite's own. The scope machinery to do it already exists — `premiseScan` resolves helper extents innermost-out — so this is a new caller of an existing resolver rather than new resolution. The honest alternative, if resolution is declined, is to REPORT: a registration whose body cannot be located is `unclassifiable` rather than silently free, which satisfies the consequence bound without following the identifier.
+
+**First scheduled step:** decide between resolving and reporting, then probe the population — how many enrolled suites register with a named factory today. Zero would make either choice cheap; a non-trivial count argues for resolving.
+
 ## BL-SPEC-CLAIM-SWEEP-AFTER-REASONING-FINDING — a repair fixes the site the finding named and leaves the document unswept — CLOSED 2026-08-20 (`feat/speclint-claim-sweep-after-repair`, SHIPPED)
 
 **Status:** SHIPPED 2026-08-20 · **Effort (as shipped):** M · **Severity (as filed):** LOW-MEDIUM (no shipped defect; it buys review rounds) · **Class:** review economy / authoring tooling · **Filed:** 2026-08-18 (`fix/control-outline-border-token`, spec review R2 F1 + R4 F3, then R4 F1 + R5 F1) · **Facing:** process · **Reachability:** PROBED at filing, and the incident's own blobs ship as the acceptance fixtures.

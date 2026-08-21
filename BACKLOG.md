@@ -132,6 +132,14 @@ It survives the suite, and is carried as an `accepted-gap` row on the `premiseSc
 
 **Why it is uncovered.** Killing it needs a fixture importing through `@/` from a repo module whose DECLARATION extent reaches provenance, where the specifier itself is not a provenance module — `isProvenanceModule(spec)` short-circuits before resolution ever runs, so `@/scripts/lib/ledger-git` cannot exercise the slice. No module in the corpus satisfies both halves today, and the recognizer's own foil case establishes that a module merely SHARING a file with a provenance importer is deliberately environment-free.
 
+**RE-DERIVED 2026-08-21 (`fix/premisescan-hook-attachment`, AC-10) — two claims above are FALSE today, and the row still stands.** Spec §8 of that arc requires this premise to be re-derived rather than inherited, because an existing `equivalent` or `accepted-gap` row can stop being true once reachability widens. Derived through the shipped enumerator and the shipped `score()`:
+
+- **There is no `accepted-gap` row.** `premiseScan`'s `accepted` array holds exactly two rows, both `equivalent` and both `relational-boundary`, and `EXPECTED_LEDGER_KINDS` declares `{ equivalent: 2 }`. The sentence above asserting this mutant "is carried as an `accepted-gap` row on the `premiseScan` surface" describes a row that does not exist.
+- **The site id is stale.** `spec.slice(2)` is at line 1437, not 326, on this branch AND on `origin/main`; the live key is `integer-literal:1437:59:2>3`. Same column, same expression, same mutation.
+- **It did NOT survive.** That arc's gate run passed 7 of 7 with ZERO unaccepted survivors, so the survivor set was exactly the two ledgered `equivalent` sites and this mutant was killed.
+
+**Not archived, deliberately.** That is ONE run, and a row removed on a single observation is the mistake this repository has already made and reversed once — the correct posture is to record the observation and let a second one adjudicate. What would settle it: this site surviving, or not, in the next independent gate run of `premiseScan`, at which point the row either graduates with two observations behind it or is corrected again. What is settled NOW is that the row's own description of the ledger is wrong, and a falsely-described row recruits work that does not exist.
+
 **First scheduled step:** add a committed two-file fixture under the recognizer's own fixture directory — a module reached via `@/` whose exported helper spawns — and assert `environment-touching`. That kills the mutant and lets the row graduate from `accepted-gap` to killed.
 
 ## BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION — a command substitution inside an ATTACHED redirection target hides an executing psql from both scanners
@@ -1624,48 +1632,6 @@ Main is silently INCOMPLETE; the completion made it silently WRONG. Population o
 **Shape of the repair.** Derive both sets from Vitest's own surface instead of restating it: the installed package exports the hook registrars as globals and the suite modifiers as properties of `describe`, so a startup-time read gives an accept-set that cannot drift. Completing a hand-maintained list by hand is what this arc did twice (`ExpressionWithTypeArguments` at round 6, these three at round 10) and it does not terminate — the next Vitest release adds the next member.
 
 **First scheduled step:** measure what a derived set would ADD beyond today's lists, and run `_metaPremiseContract` against it. If the delta moves declared counts, the row carries an AC-1 amendment and needs the same user decision PR #843's sixteen-test movement did.
-
-## BL-PREMISESCAN-FILE-SUITE-EAGER-HOOKS-LOST — at file scope a hook in a registration's eager position reaches no sibling
-
-**Status:** OPEN · **Severity:** MEDIUM (a silent FREE — a sibling suite reads free while the hook genuinely runs for it) · **Class:** guard fidelity · **Effort:** M · **Filed:** 2026-08-19 (`fix/premisescan-nested-hook-sibling-leak`, diff review r9) · **Facing:** process · **Mint-exception:** invariant · **Class-sweep exception:** (c) — the repair changes the top-level SEED's contract, not the nested stop the finding arc ships · **Reachability:** PROBED — same-machine differential on both trees, plus an 84-case sweep.
-
-A hook written in a registration's EAGER position — a name argument, an options argument, a curried `.each`/`.for` producer — is evaluated while the CURRENT suite is collecting, so Vitest registers it on that suite. Where the parent is a `describe`, `hookBodies` attaches it correctly. Where the parent is the FILE suite there is no such collection: the top-level seed (`tests/mutation/source/premiseScan.ts:1748`) recognizes only direct hook STATEMENTS. The hook is never attached, and a sibling suite reads `environment-free` while it runs for that sibling.
-
-**Incident:** diff review round 9 of `fix/premisescan-nested-hook-sibling-leak`, raised as one ordinary edit from that arc's own AC-8 fixture — lifting the A/B describes out of their outer wrapper. Bracketed against `origin/main` before disposition, the shipped classifier called in memory on both trees:
-
-```
-origin/main   top_name     inA=environment-touching  inB=environment-free
-              nested_name  inA=environment-touching  inB=environment-touching
-this branch   top_name     inA=environment-touching  inB=environment-free
-              nested_name  inA=environment-touching  inB=environment-touching
-```
-
-Identical on both sides. That round's own sweep put the population at **84 cases** — name and options arguments across nine `describe` spellings, plus `.each`, `.for` and `.concurrent.each` producers, crossed with all four hook registrars — every one unchanged by the arc.
-
-**Shape of the repair.** Give the top-level seed the same eager-position reading `hookBodies` now has: collect hooks from a file-scope registration's non-body arguments, not only from direct statements. The nested rule already exists and is tested; this is the same rule applied at one more scope, which is why it is a seed-contract change rather than new analysis. The honest alternative, if the seed is left alone, is to REPORT rather than pass clean.
-
-**First scheduled step:** probe how many enrolled suites write a hook in a file-scope eager position today. The arc that filed this measured 84 constructed cases but not the live population, and zero would make either choice cheap.
-
-## BL-PREMISESCAN-NAMED-SUITE-FACTORY-HOOKS-LOST — a suite registered with a named factory reads free while its hook touches the environment
-
-**Status:** OPEN · **Severity:** MEDIUM (a silent FREE — the direction that does not announce itself; an enrolled test would be told it needs no premise while its hook spawns) · **Class:** guard fidelity · **Effort:** M · **Filed:** 2026-08-19 (`fix/premisescan-nested-hook-sibling-leak`, diff review r7 finding 1) · **Facing:** process · **Mint-exception:** invariant · **Class-sweep exception:** (c) — the repair is a new identifier-resolution path in `hookBodies`, a mechanism the finding arc does not otherwise touch · **Reachability:** PROBED — same-machine differential on both trees, below.
-
-`hookBodies` (`tests/mutation/source/premiseScan.ts`) collects hooks LEXICALLY inside a registration. Vitest also accepts a named factory — `describe("A", suiteA)` where `suiteA` is a module-scope arrow, function expression or declaration — and invokes it with that suite current. The factory's body lives elsewhere in the file, so it is never walked, and every test in that suite reads `environment-free` while its hook genuinely reaches the environment.
-
-**Incident:** diff review round 7 of `fix/premisescan-nested-hook-sibling-leak`, raised as one ordinary refactor from that arc's own fixtures — extracting an inline callback to a named constant is routine authoring, not obfuscation. Bracketed against `origin/main` before disposition, the shipped classifier called in memory on both trees:
-
-```
-origin/main   const-arrow     inA=environment-free      inB=environment-free
-              inline-control  inA=environment-touching  inB=environment-touching
-this branch   const-arrow     inA=environment-free      inB=environment-free
-              inline-control  inA=environment-touching  inB=environment-free
-```
-
-The named-factory rows are IDENTICAL on both sides. The arc that found it neither causes nor widens it; only the inline control moves, which is the sibling leak that arc closes.
-
-**Shape of the repair.** Resolve a factory ARGUMENT that is an identifier to its declaration in the same module and walk that body as the suite's own. The scope machinery to do it already exists — `premiseScan` resolves helper extents innermost-out — so this is a new caller of an existing resolver rather than new resolution. The honest alternative, if resolution is declined, is to REPORT: a registration whose body cannot be located is `unclassifiable` rather than silently free, which satisfies the consequence bound without following the identifier.
-
-**First scheduled step:** decide between resolving and reporting, then probe the population — how many enrolled suites register with a named factory today. Zero would make either choice cheap; a non-trivial count argues for resolving.
 
 ## BL-SPECLINT-ORPHANED-TASK-MARKERS — a plan whose markers sit outside a region lints as `0 hard` while checking nothing
 
