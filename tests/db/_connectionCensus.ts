@@ -670,7 +670,8 @@ type Resolution =
   | { kind: "remote"; host: string }
   | { kind: "unclassifiable"; detail: string };
 
-function flattenChain(expr: ts.Expression): ts.Expression[] {
+/** Non-empty BY TYPE: the base case is one operand and the recursive case concatenates two. */
+function flattenChain(expr: ts.Expression): [ts.Expression, ...ts.Expression[]] {
   const node = unwrap(expr);
   if (
     ts.isBinaryExpression(node) &&
@@ -825,11 +826,18 @@ function resolveChain(
   guards: ReadonlySet<string>,
   seen: Set<string>,
 ): Resolution {
-  const operands = flattenChain(expr).map((operand) => resolveOperand(sf, operand, guards, seen));
-  const [first] = operands;
-  if (first === undefined) {
-    return { kind: "unclassifiable", detail: "an empty argument chain" };
-  }
+  // The empty-chain case is UNREPRESENTABLE rather than guarded: `flattenChain` returns a
+  // non-empty tuple, so a runtime check for an empty operand list is a tautology — and the
+  // killer audit proved it was worse than that. The guard that used to sit here SWALLOWED a
+  // classifier returning nothing, so the totality sweep could not kill that mutant: a
+  // second, more permissive check downstream of the real one is how a defect stays invisible
+  // while both look careful.
+  const [firstExpr, ...restExprs] = flattenChain(expr);
+  const first = resolveOperand(sf, firstExpr, guards, seen);
+  const operands = [
+    first,
+    ...restExprs.map((operand) => resolveOperand(sf, operand, guards, seen)),
+  ];
   if (operands.length === 1) return first;
   if (operands.some((o) => o.kind === "guard")) return { kind: "guard" };
   const names: string[] = [];
