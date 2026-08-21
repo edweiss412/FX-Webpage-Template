@@ -143,8 +143,24 @@ function readsFromSourceFile(sf: ts.SourceFile, row: SendAuthSurface): string[] 
       const name = member.name;
       // Both MethodSignature and PropertySignature: the rule ranges over every
       // member of the declaration, and the live type mixes the two forms.
-      if (name === undefined || !ts.isIdentifier(name)) continue;
-      if (!declared.has(name.text)) reads.push(name.text);
+      //
+      // A QUOTED member is a member. `isStringLiteralLike` is the compiler's own
+      // answer for a statically known name, the same one the element-access key
+      // uses, so `"wire-format"` resolves without this module deciding which node
+      // kinds qualify. It matters more than one entry: THE READ SET IS CONSUMED
+      // AS A COMPLEMENT, so a dropped member is not missing -- it is reclassified
+      // "not a read" and stops being constrained everywhere the set gates.
+      //
+      // An index signature has no name at all and stays out, which is correct:
+      // it names no member.
+      if (name === undefined) continue;
+      const text = ts.isIdentifier(name)
+        ? name.text
+        : ts.isStringLiteralLike(name)
+          ? name.text
+          : null;
+      if (text === null) continue;
+      if (!declared.has(text)) reads.push(text);
     }
   };
 

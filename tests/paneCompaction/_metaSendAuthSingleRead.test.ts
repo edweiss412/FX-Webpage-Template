@@ -709,11 +709,16 @@ describe("Task 8 — holes the mutation gate found, each now pinned", () => {
   it("ignores type members whose names are not identifiers", () => {
     // A quoted key and an index signature are not read names. Admitting them puts
     // `wire-format` into the read set.
+    // MOVED BY `task:read-set-member-name`, ADDITIVELY: the quoted member
+    // `"wire-format"` is a member and now joins the set, in declaration order.
+    // Nothing is removed. The index signature stays out and that is correct --
+    // it names no member at all.
     expect(readsFor(readFixture("exotic-type-members.ts"), CHANNEL_ROW)).toEqual([
       "panes",
       "gauge",
       "memo",
       "claim",
+      "wire-format",
     ]);
   });
 
@@ -1230,6 +1235,12 @@ type ManifestCell = {
 const INHERITED_CORPUS_SIZE = 81;
 
 const MANIFEST: readonly ManifestCell[] = [
+  // --- Task 6 [task:read-set-member-name].
+  {
+    fixture: "quoted-member-read.ts",
+    axis: "receiver shape, once depth is factored out",
+    covers: "AC-U6 — a QUOTED member joins the read set, which is consumed as a COMPLEMENT",
+  },
   // --- Task 5 [task:declaration-name-accept-set].
   {
     fixture: "declaration-name-value-references.ts",
@@ -2354,5 +2365,35 @@ describe("AC-U13 — the declaration-name accept-set defaults to USE", () => {
 
     // PROOF IT CAN FAIL: a kind the spec does not name must be reported.
     expect(stemWords("CallExpression").some((w) => !prose.includes(w))).toBe(true);
+  });
+});
+
+describe("AC-U6 — the read set's member name is a position too", () => {
+  it("counts a doubled read of a QUOTED member, with a bare pair as the control", () => {
+    // The read set gates rules 2 and 3, so it is consumed as a COMPLEMENT: a
+    // dropped member is not one missing entry, it is reclassified "not a read"
+    // and stops being constrained everywhere the set is consulted.
+    //
+    // MEASURED, by reverting the widening: the owed MULTI-READ degrades into two
+    // UNCLASSIFIED-USE records naming the member, while the `panes` control
+    // reports either way -- so the difference is attributable to the member's
+    // SPELLING rather than to the machinery running at all.
+    const f = "quoted-member-read.ts";
+    const q1 = lineOf(f, 'const first = ch["wire-format"]()');
+    const q2 = lineOf(f, 'const second = ch["wire-format"]()');
+    const p1 = lineOf(f, "const p1 = ch.panes()");
+    const p2 = lineOf(f, "const p2 = ch.panes()");
+    expect(scan(f)).toEqual([
+      finding(f, "MULTI-READ", "wire-format", q1, [q1, q2]),
+      finding(f, "MULTI-READ", "panes", p1, [p1, p2]),
+    ]);
+  });
+
+  it("keeps an INDEX SIGNATURE out of the read set — it names no member", () => {
+    // The boundary. Widening to quoted names must not widen to nameless members,
+    // and this is the case that would have gone unnoticed: an index signature has
+    // no `name` at all, so it is excluded for a structural reason rather than by
+    // a kind check somebody has to maintain.
+    expect(readsFor(readFixture("exotic-type-members.ts"), CHANNEL_ROW)).not.toContain("key");
   });
 });
