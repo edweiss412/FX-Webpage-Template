@@ -407,7 +407,10 @@ describe("mutation-harness matrices are pinned to their constants", () => {
    *
    * The margin is a DERIVATION, not a tuned literal. A leg must be able to overrun
    * its entire budget and still finish and report; anything less and the ceiling
-   * decides which breaches are observable. Hence ceiling >= 2x budget. Fitting the
+   * decides which breaches are observable. Hence ceiling >= 2x budget PLUS a reserve
+   * for the reporting steps -- at exactly 2x the reserve is zero and the leg is
+   * cancelled before it can upload the record, which is the same silence in a new
+   * place. Fitting the
    * constant to the worst leg observed today would instead re-break the moment a
    * surface is enrolled -- which is exactly how this arc's own defect surfaced.
    *
@@ -421,28 +424,53 @@ describe("mutation-harness matrices are pinned to their constants", () => {
    * imbalance stays DIAGNOSABLE; it does not claim to remove it.
    */
   it("gives every measured leg a ceiling that cannot silence a budget breach (AC-9)", () => {
-    // A leg must survive overrunning its whole budget, so the ceiling is at least
-    // twice it. Stated as a factor over the shared constant -- never as minutes --
-    // so changing the budget moves the requirement with it.
+    // A leg must survive overrunning its whole budget AND still have time to
+    // report, so the requirement is a factor over the shared constant PLUS a
+    // reserve -- never minutes, so changing the budget moves the requirement.
     const MIN_CEILING_FACTOR = 2;
-    const requiredSeconds = SHARD_BUDGET_SECONDS * MIN_CEILING_FACTOR;
+    // The ceiling bounds the WHOLE JOB; `elapsed.txt` is written and uploaded by
+    // two steps that run AFTER the work, under `if: always()`. At exactly 2x,
+    // a leg whose work fills the overrun allowance has ZERO seconds left to
+    // write and upload that record, so it is cancelled with no artifact and no
+    // annotation -- the precise outcome this pin exists to prevent. The reserve
+    // is what makes "still report" true rather than merely intended; it covers
+    // the post-measurement steps only, since SHARD_START is stamped as the FIRST
+    // step and the measured elapsed therefore already includes checkout+setup.
+    const REPORTING_RESERVE_SECONDS = 5 * 60;
+    const requiredSeconds = SHARD_BUDGET_SECONDS * MIN_CEILING_FACTOR + REPORTING_RESERVE_SECONDS;
 
-    // The legs the budget checker actually measures. `budget` and `notify` are
-    // excluded deliberately: they are not measured against SHARD_BUDGET_SECONDS,
-    // so holding them to it would assert a relation that does not exist.
-    const measured = ["parser-shards", "parser-gates", "source-shards", "source-gates"];
-    // PREMISE, STATED EXECUTABLY: every name above must resolve to a real job, or
-    // this case silently asserts nothing over a typo.
-    premiseHolds(
-      "every measured leg names a job that exists",
-      measured.every((name) => wf.jobs[name] !== undefined),
+    // DERIVED FROM THE WORKFLOW, not from a list of names typed here. A leg is
+    // MEASURED iff it uploads an `elapsed-*` artifact -- that upload is what
+    // puts it in front of the budget checker, so it is the property that makes
+    // the ceiling relate to the budget at all. A hand-written set covers the
+    // legs its author knew about and fails OPEN on the fifth one somebody adds,
+    // which is the same defect class this file's own subject is about.
+    const measured = Object.entries(wf.jobs)
+      .filter(([, job]) =>
+        (job.steps ?? []).some(
+          (st) =>
+            (st.uses ?? "").startsWith("actions/upload-artifact") &&
+            ((st as { with?: { name?: string } }).with?.name ?? "").startsWith("elapsed-"),
+        ),
+      )
+      .map(([name]) => name);
+
+    // PREMISE, STATED EXECUTABLY: the derivation must actually find legs, or
+    // every assertion below ranges over an empty set and passes vacuously.
+    premiseHolds("the workflow declares at least one measured leg", measured.length > 0);
+    // And it must agree with the leg families the budget checker is wired to.
+    // Either side drifting is a failure: a job that uploads an elapsed artifact
+    // nobody expects, or an expected family that uploads nothing.
+    expect([...measured].sort(), "measured legs vs the budget checker's families").toEqual(
+      [...FAMILIES.map((f) => f.job), ...GATES.map((g) => g.job)].sort(),
     );
 
     const offenders = measured
       .map((name) => ({ name, minutes: wf.jobs[name]?.["timeout-minutes"] }))
-      // An ABSENT ceiling is an offender too, and the more dangerous one: it reads
-      // as "no timeout" and defaults to the runner maximum, so a wedged leg burns
-      // hours. `undefined` must never pass by falling through a numeric compare.
+      // An ABSENT ceiling is an offender too, and the more dangerous one: it
+      // reads as "no timeout" and defaults to the runner maximum, so a wedged
+      // leg burns hours. `undefined` must never pass by falling through a
+      // numeric compare.
       .filter((j) => typeof j.minutes !== "number" || j.minutes * 60 < requiredSeconds)
       .map((j) => `${j.name}: ${j.minutes ?? "(absent)"}min < ${requiredSeconds / 60}min required`);
 

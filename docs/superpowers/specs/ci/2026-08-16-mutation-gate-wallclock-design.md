@@ -283,9 +283,19 @@ a 3600 s budget under a 5400 s ceiling — three legs breaching, the worst consu
 about 228 s from censoring a quarter of the source gate.
 
 Adjusting the ceiling to preserve that GAP is therefore permitted, and only in that direction. It
-buys no wall clock: total work is unchanged, no leg runs faster, and the budget is untouched — a
-breaching leg still fails, it merely fails visibly instead of vanishing. The requirement is pinned
-executably as `ceiling >= 2 x SHARD_BUDGET_SECONDS` in `tests/mutation/_metaSourceShardIntegrity.test.ts`,
+buys no wall clock IN THE SENSE THE ROW ABOVE MEANS: total work is unchanged, no leg runs faster, no
+leg that fits today is given room to grow, and the budget is untouched — a breaching leg still
+fails, it merely fails visibly instead of vanishing.
+
+**It does have an operational cost, and the honest statement of it is bounded rather than absent.**
+The ceiling is what a WEDGED leg burns before the runner kills it, so raising it raises that
+worst-case. Four job definitions realise 14 measured legs (8 parser shards + parser-gates + 4 source
+shards + source-gates), and 90 → 125 minutes adds 35 minutes of worst-case exposure each: up to
+**490 additional runner-minutes per fully-wedged run**, and a wedged leg holds its concurrency slot
+35 minutes longer. That is the price of the guarantee, it is paid only when something is already
+broken, and it is bounded — which is the distinction from raising a ceiling to fit growing work,
+where the cost is paid on every healthy run and is unbounded by construction. The requirement is pinned
+executably as `ceiling >= 2 x SHARD_BUDGET_SECONDS + a 300 s reporting reserve` (7500 s = 125 min today) in `tests/mutation/_metaSourceShardIntegrity.test.ts`,
 stated as a factor over the shared constant rather than as minutes, so the two can never drift back
 together and neither can be changed alone. The live value is 120 minutes from
 `fix/mutation-shard-ceiling-pin`; the comparison table's "90 per shard job" is left as the record of
