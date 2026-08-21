@@ -4267,3 +4267,90 @@ describe("AC-5 — `suite` is adopted at the DISPATCH, and `bench` is not adopte
     expect(all.map((t) => t.testName)).toEqual([]);
   });
 });
+
+describe("AC-6 — one predicate, three sites, keyed on the property NAME", () => {
+  // Vitest exposes the hooks as PROPERTIES too -- `test.beforeEach(…)`,
+  // `test.aroundEach(…)` -- and a suite factory receives the API as a parameter,
+  // so `(t) => t.beforeEach(…)` is the ordinary spelling inside one. Every site
+  // required a bare IDENTIFIER callee, so each qualified form was invisible: a
+  // SILENT FREE, the direction §6's bound forbids.
+
+  const hookForm = (hook: string, testSrc: string): string | undefined =>
+    classificationsWithModules(
+      OUTER_HOOK_HELPER,
+      `import { spawnHelper } from "__MODULE_helper__";\n${hook}\n${testSrc}`,
+    ).find((t) => t.testName === "x")?.verdict;
+
+  it("a qualified hook at FILE scope reaches every test in the file", () => {
+    expect(hookForm(`test.beforeEach(() => { spawnHelper(); });`, `it("x", () => {});`)).toBe(
+      "environment-touching",
+    );
+  });
+
+  it("a qualified hook inside a describe reaches that describe's tests", () => {
+    expect(
+      hookForm(
+        "",
+        `describe("d", () => { test.beforeEach(() => { spawnHelper(); }); it("x", () => {}); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("a suite FACTORY's alias is a hook registrar: `(t) => t.beforeEach(…)`", () => {
+    // The parameter is a local binding that peels to nothing, so a rule keyed on
+    // a callee resolving through `registrarRoot` cannot see it -- which is why
+    // the predicate keys on the property NAME (§5 L5).
+    expect(
+      hookForm(
+        "",
+        `describe("d", (t) => { t.beforeEach(() => { spawnHelper(); }); it("x", () => {}); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("`aroundEach` in the qualified form -- the derived set's new member, exercised", () => {
+    expect(hookForm(`test.aroundEach(() => { spawnHelper(); });`, `it("x", () => {});`)).toBe(
+      "environment-touching",
+    );
+  });
+
+  it("§5 L5 -- a hook-named member on an unrelated object REPORTS", () => {
+    // The limit says this over-reports; a limit that is never exercised is a
+    // claim, so the behaviour it describes is pinned. Conservative with a named
+    // cause is what the bound permits.
+    expect(hookForm(`logger.afterAll(() => { spawnHelper(); });`, `it("x", () => {});`)).toBe(
+      "environment-touching",
+    );
+  });
+});
+
+describe("AC-6 — `loadTimePremises` keeps the bare-identifier callee, and that is the POINT", () => {
+  // The same shape at a third site, failing the OPPOSITE way. The two hook
+  // consumers fail toward a silent FREE, so matching more is conservative.
+  // `loadTimePremises` feeds `hasPremise`: matching more means crediting a
+  // registration with a premise it does not have -- FALSE CERTIFICATION, the
+  // direction §6's bound names first. A repair whose safety argument is that it
+  // is syntactically identical to a safe one has not made a safety argument.
+
+  const associated = (premiseCall: string): boolean | undefined =>
+    classificationsWithModules(
+      {},
+      `const rows = [1];\n${premiseCall}\nit.each(rows)("x %s", () => {});`,
+    ).find((t) => t.testName === "x %s")?.hasPremise;
+
+  it("a bare `premise(…)` over the producer IS the associated placement", () => {
+    // The twin. Without it, the two assertions below pass under a scanner that
+    // credits nothing at all.
+    expect(associated(`premise("rows", rows.length, 0);`)).toBe(true);
+  });
+
+  it("`logger.premise(…)` is NOT credited -- crediting it would certify falsely", () => {
+    expect(associated(`logger.premise("rows", rows.length, 0);`)).toBe(false);
+  });
+
+  it("`t.premise(…)` is not seen either, and that stays a documented limit", () => {
+    // Reporting a premise as MISSING when one exists is the conservative
+    // direction. It is the price of not widening the site that certifies.
+    expect(associated(`t.premise("rows", rows.length, 0);`)).toBe(false);
+  });
+});

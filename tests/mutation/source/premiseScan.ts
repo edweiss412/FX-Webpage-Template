@@ -108,6 +108,47 @@ const parse = (path: string, text: string): ts.SourceFile =>
  *  ever SUBTRACT, never add the member nobody thought of. */
 const HOOK_REGISTRARS = /^(afterAll|afterEach|aroundAll|aroundEach|beforeAll|beforeEach)$/;
 
+/** The associated-placement premise calls (spec §3.3.2.2), named beside the
+ *  hook set because `calleeNamed` is parameterised by the set and the two are
+ *  its only arguments. */
+const PREMISE_CALLS = /^premise(Holds)?$/;
+
+/**
+ * Does this callee NAME one of `names`?
+ *
+ * ONE predicate for three sites, parameterised by the name set AND by whether a
+ * PROPERTY ACCESS counts -- and the second parameter is not a convenience. The
+ * three sites share one shape and fail in OPPOSITE directions:
+ *
+ *  - the two hook consumers fail toward a silent FREE. Vitest exposes the hooks
+ *    as properties (`test.beforeEach`) and a suite factory receives the API as a
+ *    parameter (`(t) => t.beforeEach(…)`), so a bare-identifier rule misses both
+ *    and reports a touching test as pure. Matching MORE there means reporting
+ *    more environment-touching, which is conservative.
+ *
+ *  - `loadTimePremises` feeds `hasPremise`. Matching more there means crediting
+ *    a registration with a premise it does not have -- FALSE CERTIFICATION, the
+ *    direction §6's bound names first. `logger.premise("rows", rows.length, 0)`
+ *    sitting before an `.each` registration would satisfy the associated-premise
+ *    requirement outright. So that site keeps requiring a bare identifier, and
+ *    not seeing `t.premise(…)` stays a DOCUMENTED LIMIT: reporting a premise as
+ *    missing when one exists is the conservative direction.
+ *
+ * A class sweep checks each instance's failure DIRECTION, not only its syntax.
+ * A repair whose safety argument is that it is syntactically identical to a safe
+ * one has not made a safety argument.
+ *
+ * The object is not resolved, only its member NAME read, so a hook-named member
+ * on an unrelated object over-reports (§5 L5) -- a conservative report with a
+ * named cause, which the bound permits.
+ */
+function calleeNamed(callee: ts.Expression, names: RegExp, propertyAccessCounts: boolean): boolean {
+  if (ts.isIdentifier(callee)) return names.test(callee.text);
+  if (propertyAccessCounts && ts.isPropertyAccessExpression(callee))
+    return names.test(callee.name.text);
+  return false;
+}
+
 /** Every call in a registration's callee chain, with the registrar it roots at.
  *
  *  ONE traversal, not two rules (spec §3.5). The chain INTERLEAVES calls and
@@ -1828,7 +1869,7 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
     const call = st.expression;
     if (!ts.isCallExpression(call)) continue;
     const callee = call.expression;
-    if (ts.isIdentifier(callee) && HOOK_REGISTRARS.test(callee.text) && call.arguments[0])
+    if (calleeNamed(callee, HOOK_REGISTRARS, true) && call.arguments[0])
       topLevelHooks.push(call.arguments[0]);
   }
   walk(facts.sf, topLevelHooks);
@@ -1922,11 +1963,7 @@ function hookBodies(describeCall: ts.CallExpression): ts.Node[] {
     // HOOK_REGISTRARS, not a second copy of it: the top-level seed already
     // consults that constant, and two matchers where the design assumes one can
     // drift apart silently.
-    if (
-      ts.isCallExpression(n) &&
-      ts.isIdentifier(n.expression) &&
-      HOOK_REGISTRARS.test(n.expression.text)
-    ) {
+    if (ts.isCallExpression(n) && calleeNamed(n.expression, HOOK_REGISTRARS, true)) {
       out.push(n);
     }
     // A nested describe OWNS the hooks in its BODY, and the caller already carries
@@ -2046,10 +2083,11 @@ function loadTimePremises(sf: ts.SourceFile): ts.CallExpression[] {
   if (memo !== undefined) return memo;
   const out: ts.CallExpression[] = [];
   const walk = (n: ts.Node): void => {
+    // propertyAccessCounts FALSE, and that asymmetry is the point: see
+    // `calleeNamed`. This site CERTIFIES, so widening it would certify falsely.
     if (
       ts.isCallExpression(n) &&
-      ts.isIdentifier(n.expression) &&
-      /^premise(Holds)?$/.test(n.expression.text) &&
+      calleeNamed(n.expression, PREMISE_CALLS, false) &&
       runsAtModuleLoad(n)
     ) {
       out.push(n);
