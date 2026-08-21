@@ -446,6 +446,15 @@ rebuilt red is checked against all three rather than against a general feeling o
    rebuilt Task 10 reds on the mint-bar suite, which fails the moment the peer row is filed without
    its `Facing` and `Incident` fields, at that task's own position.)
 
+**The `Files:` rule, stated precisely, because round 2 found it violated three times and a vague
+version cannot be checked.** `Files:` lists every path the task WRITES — including the fixtures and
+suite cases its own red depends on, which is what rounds 1 and 2 both caught it omitting. A
+`red-target=` may name a line the task does NOT write, because it names the line whose BEHAVIOUR
+produces the red rather than the file being edited; the ledger task's target is the mint-bar suite's
+cutoff constant for exactly that reason. **The check is mechanical over the plan** — for every task,
+is every path its red reads or writes present in `Files:` — and it is run before every dispatch
+rather than re-read.
+
 **And on the guard-before-the-change constraint:** round 1 showed Tasks 7 and 8 were not merely
 ordered but IMPOSSIBLE. The correction is that **a guard is not a separate deliverable — it is the
 RED of the change's own cycle.** Two legal shapes exist: ONE TASK (write the guard, observe red,
