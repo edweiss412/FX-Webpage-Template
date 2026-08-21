@@ -37,9 +37,11 @@ in the live file and are NOT part of the restoration). Classes per spec §8.1:
 | resume-refusal-names-RULE; rule-4 names field; singly-claimed not UNOWNED; claimed-by-other BY NAME | 1 — verbatim |
 | AC-13 purview transfer "between observation and send" | 2 — adapted PIN (two-read premise → transferred purview IN the pass; kill target: ownership-check-deleted build) |
 | leaves-roster refuses with THAT reason | 2 — adapted (single-pass framing; lying-refusal pin retained) |
-| AC-17 sessionId-change-preserves-nonce; AC-17 takeover | 2 — adapted PINs (kill targets: nonce-equality-deleted / rule-stop-deleted builds) |
+| AC-17 sessionId-change-preserves-nonce; AC-17 takeover | 2 — adapted PINs (kill target for BOTH: rule-stop-deleted build — rule 5 is the refuser; the nonce-equality-deleted build is killed by the AC-19 mismatch/absent pins, per spec §4) |
 | herdr-null fault; gh-null row; wrong-TYPE marker; unrecognized gh bucket; unparsable corpus timestamp; second target; refused-send fault; re-mint message; corpus tie; AC-4 pair; absent-marker drives; AC-16 pair; no-ESC live spy | 1 — verbatim |
-| checkpoint/resume send-text cases; dry-run byte hex-compare (AC-6) | 2 — adapted (address line; resume deference line) |
+| the seven refusal-naming cases (missing --as after flag; unresolvable target; herdr FAULT not a missing target; resolved-but-not-on-roster; terminal-id-only target; no-target names itself; driving without --as) | 1 — verbatim |
+| `--compact --dry-run` hex-compare (AC-6) | 1 — verbatim (spec §3.6: `/compact` carries no address; bytes stay `/compact\r`) |
+| checkpoint/resume send-text and dry-run byte cases | 2 — adapted (address line; resume deference line; BOTH address forms, live and dry-run, incl. a resume dry-run byte case) |
 | resume-refuses-on-OBSERVATION (blockedOn flip shape) | 2 — adapted PIN (kill target: rule-stop-deleted build) |
 | current fence suite (zero-reads spies) | 3 — retired with the fence |
 | `revalidate.test.ts` "runs immediately before sending" describes (revalidation-callback premises, incl. stale-verdict/purview at lines 104–174) | 3 — retired (§3.2 deletes the second pass); nonce-from-pass and consume-before-send re-target as pins in Task 2 |
@@ -53,7 +55,10 @@ hand; a case moved between classes is stated there with its reason — never sil
 
 <!-- task: red=`pnpm vitest run tests/paneCompaction/authorization.test.ts` red-state=authored red-target=`scripts/lib/pane-compaction-core.ts:647` why=`planSends at that line substitutes only <NONCE>; CHECKPOINT_TEXT/RESUME_TEXT carry no address line and no <SESSION>/<BRANCH> substitution, and no exported authorization predicate over a pass exists in the core - the new suite's cases fail against all three absences` ac=AC-1,AC-5,AC-15 -->
 
-**Files:** `scripts/lib/pane-compaction-core.ts`; tests/paneCompaction/authorization.test.ts (new).
+**Files:** `scripts/lib/pane-compaction-core.ts`, `tests/paneCompaction/driver.test.ts`,
+`scripts/pane-compaction.ts` (call-site argument updates only, behavior-neutral under the
+fence), `tests/mutation/source/registry.ts` (suitePaths), `tests/mutation/_metaPremiseContract.test.ts`
+(per-suite declaration); tests/paneCompaction/authorization.test.ts (new).
 
 RED: author tests/paneCompaction/authorization.test.ts (new) — cases for (a) the pure
 authorization predicate over pass data (ownership, rule 1–8 stop, mode verdict gate, nonce
@@ -67,8 +72,19 @@ NOT an acceptable red; import the shipped symbols so absence surfaces as asserti
 failures on the exported strings, not module-load errors).
 
 GREEN: implement in core. The predicate is pure over injected pass data (no I/O), lives
-inside the enrolled `paneCompactionCore` surface. Keep `runCompact`'s consume-before-send
-ordering; drop its `revalidate` thunk (spec §3.2) — its nonce inputs become pass data.
+inside the enrolled `paneCompactionCore` surface. `planSends` gains the `<SESSION>`/`<BRANCH>`
+substitutions, and EVERY caller updates in this same task (rule: a task whose change
+invalidates sibling expectations repairs them in the same task): the five `planSends` calls
+in `tests/paneCompaction/driver.test.ts` (their byte expectations gain the address line —
+the `\x1b` pins stay pinned), and the three production calls in `scripts/pane-compaction.ts`
+(passing branch/session from the reads `drive()` already holds — behavior-neutral, the fence
+still refuses before any of it runs). `runCompact`'s `revalidate`-thunk removal is TASK 2's
+change, where `revalidate.test.ts` is in scope — Task 1 leaves `runCompact`'s signature
+untouched. ENROLMENT lands here too: the `paneCompactionCore` registry row's `suitePaths`
+gains the new suite's path (tests/paneCompaction/authorization.test.ts, plain text here
+because the file does not exist yet) and `_metaPremiseContract` gains that
+suite's declaration — a deciding suite outside `suitePaths` buys zero score
+(BL-ENROLLED-SUITE-PLACEMENT class), and enrolment precedes the diff review.
 
 ## Task 2 — adapter: fence removal, single-pass drive, restored suite
 
@@ -82,7 +98,18 @@ per the restoration table above; apply the enumerated adaptations (address-line 
 single-read pin premises, §3.6 literal texts in the AC-6 hex compare); ADD the structural
 cover — a spy `Surface` recording every read-member call, asserting at most one call per
 member per sending invocation, `marker` exactly once on an invocation that reaches the
-decision (spec §4 chain 4); ADD the AC-9 zero-post-send-reads spy; re-target
+decision (spec §4 chain 4) — and, per plan review r1: the spy asserts SET EQUALITY
+against each mode's declared expected-read set (not merely at-most-one, which a cached
+zero-read value would satisfy), plus a TWO-INVOCATION case asserting every member is read
+freshly per invocation (no cross-invocation carry — AC-1's second clause); ADD an
+adapter-level AC-2 case (an instrumented `Surface` whose marker read is counted and valued:
+the compact decision matches the pass's single read); ADD the AC-9 zero-post-send-reads
+spy; ADD an adapter-level LIVE-SEND `\x1b` spy through `main()` (the driver suite's spy
+iterates `planSends` arrays and cannot see an adapter-only escape — AC-7); ADD a live-send
+address-prefix spy (first line of every sent prompt matches §3.6's address line — AC-15's
+adapter half); ADD a source pin that the fence's refusal string ("disabled in this
+release") is absent from `scripts/pane-compaction.ts` and no flag gates the sending
+dispatch (AC-10's no-flag clause); re-target
 `revalidate.test.ts`'s surviving cases (nonce compared from the pass's marker copy;
 consume-before-send leaves a refused record reusable) and delete its retired describes,
 each named in the commit message with §3.2 as the reason. Run against the CURRENT tree:
@@ -153,7 +180,8 @@ not a deletion). Existing pins stay green.
 
 ## Task 6 — mutation re-measure and killer audit (measurement)
 
-Acceptance: `pnpm mutation:sites` run BEFORE pushing any enrolled-source change (re-key
+Acceptance: enrolment of the new suite landed in Task 1 (suitePaths + premise-contract
+declaration — verify both present before scoring). `pnpm mutation:sites` run BEFORE pushing any enrolled-source change (re-key
 `paneCompactionCore` accepted rows if lines shifted; re-VALIDATE each re-keyed row by
 reading, never by resolution). Then the scored run, backgrounded under `pnpm heavy`, after
 the LAST source edit of the diff: `paneCompactionCore` at its floor, score derived through
@@ -187,20 +215,20 @@ the whole-diff review approves (the arming window, AGENTS.md invariant 12 ruling
 | AC | Proved by | Producing command |
 | --- | --- | --- |
 | AC-1 (one read-once pass; read-member spy) | Task 2 structural cover | `pnpm vitest run tests/paneCompaction/adapter.test.ts` |
-| AC-2 (nonce from the pass's marker copy) | Task 2 (re-targeted revalidate pins) | `pnpm vitest run tests/paneCompaction/revalidate.test.ts` |
+| AC-2 (nonce from the pass's marker copy) | Task 2 (adapter-level instrumented-marker case; revalidate pins cover the core half) | `pnpm vitest run tests/paneCompaction/adapter.test.ts tests/paneCompaction/revalidate.test.ts` |
 | AC-3 (structural red-then-green; pins PROVEN) | Task 2 red record + Task 4 kill records | task commits carry the outputs |
 | AC-4 (refusals name the condition) | Task 2 (restored verbatim class) | `pnpm vitest run tests/paneCompaction/adapter.test.ts` |
 | AC-5 (resume predicate; mode verdict gates) | Task 1 + Task 2 | both red commands above |
-| AC-6 (dry-run byte-exact, both address forms) | Task 2 (adapted hex-compare) | `pnpm vitest run tests/paneCompaction/adapter.test.ts` |
-| AC-7 (no `\x1b`, both paths) | Task 2 (verbatim class; driver pins untouched) | `pnpm vitest run tests/paneCompaction/driver.test.ts` |
+| AC-6 (dry-run byte-exact: compact verbatim `/compact\r`; checkpoint and resume in BOTH address forms) | Task 2 | `pnpm vitest run tests/paneCompaction/adapter.test.ts` |
+| AC-7 (no `\x1b`, both paths) | Task 2 (adapter-level live-send spy through main(); driver core pins updated in Task 1) | `pnpm vitest run tests/paneCompaction/adapter.test.ts tests/paneCompaction/driver.test.ts` |
 | AC-8 (nonce single-use, consume before send) | Task 2 (re-targeted revalidate pins) | `pnpm vitest run tests/paneCompaction/revalidate.test.ts` |
 | AC-9 (zero post-send reads) | Task 2 (new spy) | `pnpm vitest run tests/paneCompaction/adapter.test.ts` |
-| AC-10 (fence gone, no flag) | Task 2 (send cases execute §3 flows) | `pnpm vitest run tests/paneCompaction/adapter.test.ts` |
+| AC-10 (fence gone, no flag) | Task 2 (send cases execute §3 flows; fence-string-absence and no-flag source pin) | `pnpm vitest run tests/paneCompaction/adapter.test.ts` |
 | AC-11 (pass marker relocated; scan green) | Task 2 | `pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` |
 | AC-12 (score at floor, derived via shipped score()) | Task 6 | `pnpm heavy` mutation run, backgrounded |
 | AC-13 (docs no longer claim the fence) | Task 5 | `pnpm vitest run tests/docs/_metaPaneCompactionContract.test.ts` |
 | AC-14 (checkpoint never commits) | Task 2 (verbatim class) + existing prose pin | adapter suite + meta-test |
-| AC-15 (address line pinned; bounded classes stated) | Task 1 (texts) + Task 5 (prose pins) | both red commands |
+| AC-15 (address line pinned; bounded classes stated) | Task 1 (texts) + Task 2 (adapter live/dry-run address coverage incl. resume dry-run) + Task 5 (prose pins) | the three red commands |
 | AC-16 (mint exhaustion is a named exit-2 fault) | Task 3 | `pnpm vitest run tests/paneCompaction/mintFault.test.ts` |
 
 ## Whole-diff review and closeout ordering
