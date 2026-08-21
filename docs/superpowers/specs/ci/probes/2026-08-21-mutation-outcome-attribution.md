@@ -8,11 +8,20 @@ verbatim below, ahead of each result, so no reading can have been fitted to an o
 
 ## The instrument
 
-Probes 1-4 ran through spec-time instrumentation kept OUT of the tree (so no probe could dirty a
-measured input). It is an ATTRIBUTING mirror of the shipped per-mutant loop: identical control flow to
+Probes 1-4 ran through an ATTRIBUTING mirror of the shipped per-mutant loop: identical control flow to
 `runSuite`/`runAllSuites`/`runSurface` (`tests/mutation/source/runner.ts:87-181`), with a record added
-and **no verdict mapping changed**. Its core, reproduced here so the measurements can be regenerated
-without it:
+and **no verdict mapping changed**.
+
+**The scripts are COMMITTED, not summarised**, in `docs/superpowers/specs/ci/probes/2026-08-21-attribution-scripts/`:
+`instrument.ts` (the mirror plus its drift control), `p1-timeout-attribution.ts`, `p2-distribution.ts`,
+`p2b-mutant-tail.ts`, `p3-single-leg.ts` and `p4-annotations.py`. An earlier draft of this record
+claimed regeneration while reproducing only one function and shipping none of the enumeration,
+iteration, stamping, aggregation, control or history-extraction code — a false claim of the exact kind
+this arc exists to make impossible, and it is fixed by making the claim TRUE rather than by weakening
+it. They typecheck under the repo's strict `tsc` (`pnpm typecheck`, clean) and so are subject to the
+probe mini-review the spec-self-review rules require.
+
+The mirror's core, inline for readers:
 
 ```ts
 // mirrors runner.ts:87-115, plus the record
@@ -33,9 +42,9 @@ export function runSuiteRecorded(root, target, mutantFile, suite, id, sink) {
 }
 ```
 
-Because it is a SECOND DEFINITION of the shipped loop, it carries a drift control: `selfCheck` runs the
-shipped `runSurface` and the mirror over the same real surface and compares survivor SETS and killed
-counts. Probe 3 reports that control green (`spawnBounded`, 12/12, survivors `[]`); a disagreement
+Because it is a SECOND DEFINITION of the shipped loop, it carries a drift control: `selfCheck`
+(`instrument.ts`) runs the shipped `runSurface` and the mirror over the same real surface and compares
+survivor SETS and killed counts. Probe 3 reports that control green (`spawnBounded`, 12/12, survivors `[]`); a disagreement
 aborts the probe rather than reporting numbers. §5.4 of the design productizes this as the shipped
 determinism harness.
 
@@ -343,11 +352,12 @@ timeouts among these runs: 0
 
 ### Reading
 
-**An intra-leg mechanism did NOT REPRODUCE — stated at the strength six trials carry.** If such a
-mechanism flipped the verdict with per-run probability `p`, six identical runs occur with probability
-`p^6 + (1-p)^6`, which drops below 5% only for `p` above **0.393**. So this excludes a HIGH-RATE
-intra-leg mechanism and CANNOT exclude a low-rate one: at `p = 0.1`, six identical runs happen 53% of
-the time. No control here establishes sensitivity to an intermittent flip, and none is claimed.
+**An intra-leg mechanism did NOT REPRODUCE — stated at the strength six trials carry.** Formally: an intra-leg mechanism did NOT reproduce, stated at the strength six trials carry. If such a mechanism flipped the verdict with per-run probability `p`, six identical runs occur with probability `p^6 + (1-p)^6`. That expression is SYMMETRIC about `p = 0.5` and falls below 0.05 only on the interval **`0.4019 < p < 0.5981`** — so the honest statement is bounded on BOTH sides, and the meaningful regime is `p <= 0.5` (a mechanism flipping more than half the time would be trivially visible). Six trials therefore exclude only a mechanism flipping at roughly **40% per run or more**; at `p = 0.1`, six identical runs happen **53%** of the time. No control here establishes sensitivity to an intermittent flip, and none is claimed.
+
+**Arithmetic correction, recorded rather than quietly fixed.** An earlier draft gave the bound as
+`p > 0.393`, solving `(1-p)^6 = 0.05` and dropping the `p^6` term; at `p = 0.393` the correct value is
+`0.0537`, above the threshold. The refuting figure was printed in this probe's own output table and
+mis-read.
 
 What it supports is a WEIGHTING, not an elimination: the remaining space leans toward between-leg
 differences — environment, machine, concurrency across legs, ordering wider than one process — which
@@ -443,7 +453,7 @@ in a ledger row is a test fixture for every future instrument** — a reason to 
 | branch | state | by |
 | --- | --- | --- |
 | co-tenancy / LPT re-pack | RULED OUT | pre-registered experiment, `BACKLOG.md:53` |
-| intra-leg (ordering, env, concurrency inside one process) | NOT REPRODUCED in 6 trials — excludes a per-run flip rate above ~0.39 only | probe 3 |
+| intra-leg (ordering, env, concurrency inside one process) | NOT REPRODUCED in 6 trials — excludes only a flip rate of roughly 40% per run or more (`0.4019 < p < 0.5981`) | probe 3 |
 | duration drives flakiness | UNSUPPORTED, weak counter-indication | probes 2a, 2b, 4 |
 | between-leg (machine, environment, across-leg ordering) | OPEN — the remaining space | — |
 
