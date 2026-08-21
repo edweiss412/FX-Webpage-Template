@@ -30,7 +30,7 @@ Each bullet was settled by a measurement in this document and cites where.
 - **Prose matching `why=` against the observed failure was never in scope.** The row states the
   narrower claim itself.
 - **`probes === null` is NOT a live defect** (§5.3). Unreachable from the shipped CLI, proven at
-  `lib/specLint/run.ts:151`.
+  `lib/specLint/run.ts:152`.
 - **The row's premise about loader death is false** (§5.1), and its zero-case corollary is false in
   both directions (§5.2).
 - **The §1.1 file count is a dated record, deliberately not re-pinned** (§1.1).
@@ -198,7 +198,7 @@ true of all fifteen. Reviving the narrowed form needs a probe showing a false ad
 which §1.1 enumerates precisely so that probe is cheap.
 
 **Reachability, stated because round 2 killed a sibling repair for lacking it.** This path is reached
-only under `--exec-red`: `lib/specLint/run.ts:151` calls `synthesizeCollectionFindings` only when
+only under `--exec-red`: `lib/specLint/run.ts:152` calls `synthesizeCollectionFindings` only when
 probes are non-null, and the adapter builds them only when the flag is active. Any acceptance
 criterion here therefore runs the CLI **with the flag**, or it passes while proving nothing.
 
@@ -301,7 +301,7 @@ the observable does not ship.
 
 **5.3 The row's SECOND blind spot is not a live defect.** It names
 `synthesizeCollectionFindings`'s `probes === null` early return as a silent drop; that is true of the
-function in isolation and false of the pipeline. `lib/specLint/run.ts:151` gates the call, the adapter
+function in isolation and false of the pipeline. `lib/specLint/run.ts:152` gates the call, the adapter
 always builds a non-null `ProbeResults` under `--exec-red` even with zero probes, and the only
 production `runLint` caller is `scripts/spec-lint.ts:761`. The neighbouring per-entry silence is
 deliberate: `probesToSpawn` (`redContract.ts:906`) skips a LIVE entry whose red did not authorize a

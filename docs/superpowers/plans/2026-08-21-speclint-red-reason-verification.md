@@ -29,8 +29,8 @@ begins at the type declarations, not at the drop.
 | `lib/specLint/redContract.ts:721` | `if (derived.kind === "none") continue;` |
 | `lib/specLint/redContract.ts:580` | `const VITEST_SHAPE =` |
 | `lib/specLint/redContract.ts:637` | `export function deriveCollectionProbe(` |
-| `lib/specLint/run.ts:151` | `doc.kind === "plan" && probes !== undefined && probes !== null` |
-| `lib/specLint/taskContract.ts:49` | `const V2_FIELDS = "( red-state=(live\|authored))?…"` |
+| `lib/specLint/run.ts:152` | `doc.kind === "plan" && probes !== undefined && probes !== null` |
+| `lib/specLint/taskContract.ts:49` | `const V2_FIELDS =` |
 | `tests/mutation/source/expectedLedgerKinds.ts:137` | `redContract: { equivalent: 7 },` |
 
 `ProbeDerivation` is declared at `lib/specLint/redContract.ts:605` and `CollectionProbeEntry` at
@@ -107,9 +107,23 @@ rather than confirming it resolves:
 
 Line 580 (`VITEST_SHAPE`) is the only one above 605 and is the only one that survives untouched.
 
-The re-read is a STEP rather than a habit, because the arm being repaired here is the one that would
-otherwise catch it, and because round 4 demonstrated that reasoning about which lines move is exactly
-where this goes wrong.
+**The re-read is a COMMAND, not a habit.** `pnpm probe:citations` parses §0's table out of this plan
+and asserts that every cited line still CONTAINS the content the table claims. It is a command because
+this defect recurred through four review rounds, and because round 4 measured that reasoning about
+which lines move is exactly where it goes wrong. Reasoning is replaced by a read.
+
+It found two stale citations on its first run, both of which had survived every spec and plan round:
+`lib/specLint/run.ts:151` was cited five times across the spec and this plan as holding the gating
+condition, and it holds `const collectionFindings =`; the condition is at 152. The other was a
+markdown artifact, an escaped pipe and an elision in a table cell, which is why a cell now quotes a
+literal substring and never an abbreviated one.
+
+Three mutations demonstrate it can fail: bumping a cited line number, corrupting a claimed content
+string, and pointing it at a document with no table, which trips its parse floor rather than reporting
+a clean run over zero rows.
+
+The table below covers the sites `pnpm probe:citations` cannot read, because they are prose rather
+than table rows. Those stay a manual re-read.
 
 ## 4. The cycle the red-carrying task runs, stated once
 
@@ -158,7 +172,7 @@ continuing, and `synthesizeCollectionFindings` needs no edit at all, because its
 already emits `RED_PROBE_UNVERIFIED`. An implementation that instead adds a `pnpm heavy` recognizer to
 narrow the reach to nine is forbidden by spec §2 and fails the negative half below.
 
-**Reachability.** The path is reached only under `--exec-red`: `lib/specLint/run.ts:151` calls
+**Reachability.** The path is reached only under `--exec-red`: `lib/specLint/run.ts:152` calls
 `synthesizeCollectionFindings` only when probes are non-null. Every case passes the flag, or it
 passes while proving nothing.
 
@@ -254,7 +268,8 @@ could pass without the criterion being satisfied. A criterion nothing runs is a 
 **It is scheduled at three sites.**
 
 1. A package script `probe:reach`, with body `node --import tsx probe/reach.mts`, so the oracle is
-   invocable by name rather than by remembering an interpreter flag.
+   invocable by name rather than by remembering an interpreter flag. Its sibling `probe:citations`
+   (body `node --import tsx probe/citations.mts`) is added in the same commit, per §3.
 2. Two explicit STEPS of Task 1, not closeout decoration. `pnpm probe:reach` passes in default mode
    before the change; `EXPECT_ADVISORY=1 pnpm probe:reach` passes after it. Before the change the
    second must FAIL on all fifteen v2 lines, and observing that failure is how the implementer knows
@@ -293,8 +308,8 @@ acceptance table.
 ## 8. Obligations before dispatch
 
 - Run `pnpm spec:lint` on this plan and report the result. This arc's own arm reads it.
-- Add the `probe:reach` package script in the same commit as Task 1, per §6. Without it the plan cites
-  a criterion no command can invoke, which is the defect round 1 found.
+- Add the `probe:reach` and `probe:citations` package scripts in the same commit as Task 1, per §6 and
+  §3. Without them the plan cites criteria no command can invoke, which is the defect round 1 found.
 - **Verify the COMMITTED tree, not the pre-commit tree.** `simple-git-hooks` runs `lint-staged` on
   every commit, which applies `prettier --write` and `eslint --fix` to staged sources and
   `prettier --write --ignore-unknown` to staged Markdown and JSON. The wiring is the `simple-git-hooks`
@@ -309,8 +324,8 @@ citation on purpose: the bare filename matches three tracked files and the arm r
   1. `pnpm exec prettier --write` and `pnpm exec eslint --fix` over everything the closing commit will
      stage, so the hook has nothing left to change.
   2. Make the closing commit.
-  3. **On the COMMITTED tree**, run `EXPECT_ADVISORY=1 pnpm probe:reach` and RE-READ every citation
-     in §3's table.
+  3. **On the COMMITTED tree**, run `EXPECT_ADVISORY=1 pnpm probe:reach` and `pnpm probe:citations`,
+     then manually re-read the prose sites §3 lists that no table row covers.
   4. If either fails, repair and `--amend`, then return to step 3. It is a fixpoint, not a checklist:
      the obligation is that the tree which lands is the tree that passed, and only a check run after
      the commit can establish that.
