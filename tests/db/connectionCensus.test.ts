@@ -38,7 +38,6 @@ import {
   type ImportResolver,
   type PropagationResult,
   OPTIONS_ACCEPT_SET,
-  OUTER_EXPRESSION_KINDS,
   acquisitionsIn,
   aliasPrefixes,
   classifyFile,
@@ -473,16 +472,17 @@ describe("connection census — outer-expression wrappers (AC-C4)", () => {
     });
   }
 
-  test("the unwrap covers every OuterExpressionKinds bit the compiler defines", () => {
-    // Asserted against the enum, never against a list typed into the test: a wrapper
-    // form added by a TypeScript upgrade is covered or this reds.
-    const bits = Object.entries(ts.OuterExpressionKinds)
-      .filter(([, v]) => typeof v === "number" && v > 0 && (v & (v - 1)) === 0)
-      .map(([name, v]) => [name, v as number] as const);
-    expect(bits.length).toBeGreaterThan(0);
-    for (const [name, bit] of bits) {
-      expect(OUTER_EXPRESSION_KINDS & bit, name).toBe(bit);
-    }
+  test("transparency comes from the ONE shared binding, not from a local copy", () => {
+    // The axis used to be asserted against this module's own `OuterExpressionKinds`
+    // constant. main now ships `tests/_shared/outerExpressions.ts`, so the stronger claim
+    // is that no second binding exists here at all: a copy is what goes stale, and the
+    // shared module asks the COMPILER which wrappers are transparent rather than listing
+    // them. The behavioural coverage above (every wrapper form, on the argument and on a
+    // const initializer) is what proves the import is actually consulted.
+    const source = moduleSource();
+    expect(source).not.toContain("skipOuterExpressions");
+    expect(source).toContain("skipTransparent");
+    expect(source).toContain("isTransparent");
   });
 });
 
@@ -2028,5 +2028,171 @@ describe("connection census — cases authored against SURVIVING MUTANTS", () =>
         { path: "tests/db/sqlComment.test.ts", source: withSqlComment },
       ]),
     ).toEqual(["tests/db/sqlComment.test.ts"]);
+  });
+});
+
+describe("connection census — the second scored run's survivors", () => {
+  const REMOTE_A = `"postgresql://a@aws-1-us-east-2.pooler.supabase.com:5432/postgres"`;
+  const REMOTE_B = `"postgresql://b@aws-9-eu-west-1.pooler.supabase.com:5432/postgres"`;
+
+  test("a driver name in a property VALUE position is still a value reference", () => {
+    // Kills: a key test that suppresses on "the parent is a property assignment" rather
+    // than on "this identifier is its NAME".
+    const rec = classifyFile(
+      P,
+      [IMPORT, `const sql = postgres(${ENV});`, `const bag = { key: postgres };`].join("\n"),
+    );
+    expect(rec.reports.map((r) => [r.kind, r.line])).toEqual([["value-reference", 3]]);
+  });
+
+  test("a NON-literal specifier does not crash the guard-name collector", () => {
+    // Kills: a collector whose skip is inverted, so a null literal reaches isGuardModule.
+    const rec = classifyFile(
+      P,
+      [IMPORT, `import x from bar;`, `const sql = postgres(${ENV});`].join("\n"),
+    );
+    expect(rec.sites.map((s) => s.cls)).toEqual(["validation-env"]);
+  });
+
+  test("two declarations with DIFFERENT remote hosts are unclassifiable", () => {
+    // Kills: a rendering that drops the host, making two different remotes compare equal.
+    const rec = classifyFile(
+      P,
+      [
+        IMPORT,
+        `function a() { const url = ${REMOTE_A}; return url; }`,
+        `function b() { const url = ${REMOTE_B}; return url; }`,
+        `const sql = postgres(url);`,
+      ].join("\n"),
+    );
+    expect(rec.sites.map((s) => s.cls)).toEqual(["unclassifiable"]);
+  });
+
+  test("two declarations unclassifiable for DIFFERENT reasons say so in the detail", () => {
+    // Kills: a rendering that drops the reason, so the disagreement reads as agreement and
+    // the FIRST declaration's detail is reported instead of the disagreement.
+    const rec = classifyFile(
+      P,
+      [
+        IMPORT,
+        `function a() { const url = cfg.a; return url; }`,
+        `function b() { const url = other(); return url; }`,
+        `const sql = postgres(url);`,
+      ].join("\n"),
+    );
+    expect(rec.sites[0]!.detail).toBe("`url` has declarations that classify differently");
+  });
+
+  test("reports are ordered by LINE, not by the order the walk produced them", () => {
+    // Kills: dropping the sort, or inverting its comparator. The acquisition report is
+    // pushed FIRST and belongs LAST.
+    const rec = classifyFile(
+      P,
+      [IMPORT, `const sql = postgres(cfg.url);`, ``, ``, `import "postgres";`].join("\n"),
+    );
+    expect(rec.reports.map((r) => [r.line, r.kind])).toEqual([
+      [2, "unclassifiable"],
+      [5, "acquisition"],
+    ]);
+  });
+
+  test("a helper with exactly ONE consumer names it", () => {
+    // Kills: an off-by-one on the affected-list boundary.
+    const helper = "tests/db/_helper.ts";
+    const result = propagateThroughImports(
+      [
+        { file: helper, sf: parse(`const sql = 1;`, helper), own: ["undisposed"] as FileClass[] },
+        {
+          file: "tests/db/one.test.ts",
+          sf: parse(`import x from "./_helper";`, "tests/db/one.test.ts"),
+          own: [] as FileClass[],
+        },
+      ],
+      (_from, specifier) => (specifier === "./_helper" ? helper : null),
+      "/repo",
+    );
+    expect(result.affected.get(helper)).toEqual(["tests/db/one.test.ts"]);
+  });
+
+  test("a file that reaches nothing is not affected by an undisposed helper", () => {
+    // Kills: an affected list keyed on "every other file" rather than on reachability.
+    const helper = "tests/db/_helper.ts";
+    const result = propagateThroughImports(
+      [
+        { file: helper, sf: parse(`const sql = 1;`, helper), own: ["undisposed"] as FileClass[] },
+        {
+          file: "tests/db/one.test.ts",
+          sf: parse(`import x from "./_helper";`, "tests/db/one.test.ts"),
+          own: [] as FileClass[],
+        },
+        {
+          file: "tests/db/unrelated.test.ts",
+          sf: parse(`const x = 1;`, "tests/db/unrelated.test.ts"),
+          own: [] as FileClass[],
+        },
+      ],
+      (_from, specifier) => (specifier === "./_helper" ? helper : null),
+      "/repo",
+    );
+    expect(result.affected.get(helper)).toEqual(["tests/db/one.test.ts"]);
+  });
+
+  test("a row whose `nth` names no occurrence is STALE, and both sites report", () => {
+    // Kills: dropping the stale push in the wanted-occurrence-missing branch, and dropping
+    // its `continue` (which would consult admissibility with nothing selected).
+    const twice = [1, 2].map((ordinal) => ({
+      file: P,
+      line: ordinal * 10,
+      ordinal,
+      kind: "unclassifiable" as const,
+      site: "resolve()",
+      detail: "",
+      argIsCall: true,
+    }));
+    const result = reconcileDispositions(twice, [
+      { file: P, site: "resolve()", nth: 3, kind: "resolver", reason: "checked by a reviewer" },
+    ]);
+    expect(result.stale.map((r) => r.nth)).toEqual([3]);
+    expect(result.undisposed).toHaveLength(2);
+  });
+
+  test("the join matches a destructive call whose SPAN carries a SQL comment", () => {
+    // Kills: a join that requires BOTH views to match. The comment sits between the
+    // function name and its parenthesis, which the recognizer spans with `\s*` — so the
+    // SQL-stripped view (where the comment becomes SPACES) matches and the JS-stripped view
+    // does not. The first spelling tried here put the comment after `public.`, where the
+    // recognizer allows no whitespace at all and NEITHER view matched: a fixture whose
+    // discriminating premise is false is indistinguishable from a mutant that survives.
+    const marker = "public.prune_sync_log" + "/* note */" + "()";
+    const files = [
+      { path: "tests/db/split.test.ts", source: `await sql.unsafe("select ${marker}");` },
+    ];
+    expect(discoveredByDestructiveGuard(files)).toEqual(["tests/db/split.test.ts"]);
+  });
+
+  test("a rendered report with ONE affected consumer prints the affected line", () => {
+    // Kills: an off-by-one on the render boundary.
+    const rendered = renderReport(
+      [
+        {
+          file: "tests/db/x.test.ts",
+          line: 3,
+          ordinal: 1,
+          kind: "unclassifiable",
+          site: "cfg.url",
+          detail: "",
+          argIsCall: false,
+          affected: ["tests/db/one.test.ts"],
+        },
+      ],
+      {
+        "guard-bound": 0,
+        "validation-env": 0,
+        "loopback-literal": 0,
+        "remote-literal": 0,
+        unclassifiable: 0,
+      },
+    ).split("\n");
+    expect(rendered[1]).toBe("    affected: tests/db/one.test.ts");
   });
 });

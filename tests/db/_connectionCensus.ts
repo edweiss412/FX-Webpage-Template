@@ -27,6 +27,7 @@
 import ts from "typescript";
 
 import { REPO_ALIAS } from "@/vitest.projects";
+import { isTransparent, skipTransparent } from "@/tests/_shared/outerExpressions";
 
 import { stripCommentsForFile, stripSqlComments } from "@/tests/_shared/stripComments";
 
@@ -171,37 +172,15 @@ const STEERING_OPTION_NAMES: ReadonlySet<string> = new Set([
   "socket",
 ]);
 
-export const OUTER_EXPRESSION_KINDS: ts.OuterExpressionKinds = ts.OuterExpressionKinds.All;
-
-type SkipOuterExpressions = (node: ts.Expression, kinds: ts.OuterExpressionKinds) => ts.Expression;
-
 /**
- * PROBED, NOT ASSUMED, and bound exactly as `tests/paneCompaction/sendAuthScan.ts:906-925`
- * binds it: in the pinned TypeScript `skipOuterExpressions` is present at RUNTIME and
- * absent from the public `.d.ts`. This is a second copy of a ten-line BINDING, not of a
- * rule — the rule ("which wrappers change no meaning") stays the compiler's. Extracting
- * the binding to `tests/_shared/` is deferred because the precedent lives in an enrolled
- * surface this arc does not edit.
- *
- * It FAILS LOUD if an upgrade removes it: a silent fallback to a hand-written wrapper
- * list is the defect this shape exists to remove, and it would be invisible.
+ * Wrapper transparency comes from `tests/_shared/outerExpressions.ts`, which main shipped
+ * while this arc was in flight. This module carried its own copy of the binding, justified
+ * at the time by the precedent living in an ENROLLED surface this arc must not edit; the
+ * shared module is not enrolled, so that reason is gone and the copy with it. Four copies of
+ * one normalizer is how three of them go stale on their own schedules.
  */
-const skipOuterExpressions: SkipOuterExpressions = ((): SkipOuterExpressions => {
-  const fn = (ts as unknown as { skipOuterExpressions?: unknown }).skipOuterExpressions;
-  if (typeof fn !== "function") {
-    throw new Error(
-      "_connectionCensus: ts.skipOuterExpressions is unavailable in this TypeScript build. " +
-        "The census resolves wrapper transparency THROUGH THE COMPILER deliberately; a " +
-        "hand-written wrapper list is the defect that choice exists to remove, so this " +
-        "fails rather than degrading to one.",
-    );
-  }
-  return fn as SkipOuterExpressions;
-})();
-
-function unwrap(node: ts.Expression): ts.Expression {
-  return skipOuterExpressions(node, OUTER_EXPRESSION_KINDS);
-}
+/** Every meaning-preserving wrapper removed, through the ONE shared binding. */
+const unwrap = skipTransparent;
 
 function scriptKindFor(filePath: string): ts.ScriptKind {
   if (filePath.endsWith(".tsx")) return ts.ScriptKind.TSX;
@@ -389,10 +368,9 @@ function constBindingFor(start: ts.Node): ts.Identifier | null {
     // An OUTER EXPRESSION is whatever the compiler says is transparent: a node the
     // compiler's own skip moves off, whose operand is the node we came from. Asking the
     // compiler rather than listing the wrapper kinds is the same choice `unwrap` makes.
-    const asExpression = parent as ts.Expression;
     if (
       (parent as unknown as { expression?: ts.Node }).expression === cur &&
-      skipOuterExpressions(asExpression, OUTER_EXPRESSION_KINDS) !== asExpression
+      isTransparent(parent)
     ) {
       cur = parent;
       continue;
@@ -629,8 +607,7 @@ function collectCalls(sf: ts.SourceFile, bindings: readonly DriverBinding[]): Ca
  */
 function isAliasSourceName(id: ts.Identifier): boolean {
   const p = id.parent;
-  if (ts.isBindingElement(p) && p.propertyName === id) return true;
-  return ts.isImportSpecifier(p) && p.propertyName === id;
+  return (ts.isBindingElement(p) || ts.isImportSpecifier(p)) && p.propertyName === id;
 }
 
 /**
@@ -655,9 +632,9 @@ function isInTypePosition(node: ts.Node): boolean {
  */
 function isPropertyNamePosition(id: ts.Identifier): boolean {
   const p = id.parent;
-  if (ts.isPropertyAccessExpression(p) && p.name === id) return true;
-  if (ts.isPropertyAssignment(p) && p.name === id) return true;
-  if (ts.isPropertySignature(p) && p.name === id) return true;
+  if (ts.isPropertyAccessExpression(p) || ts.isPropertyAssignment(p) || ts.isPropertySignature(p)) {
+    return p.name === id;
+  }
   return false;
 }
 
@@ -1042,7 +1019,10 @@ export function classifyFile(filePath: string, source: string): FileRecord {
     });
   }
 
-  reports.sort((a, b) => a.line - b.line || (a.ordinal ?? 0) - (b.ordinal ?? 0));
+  // Stable by line: `Array.prototype.sort` preserves insertion order among equal keys, and
+  // insertion order within a line is already the order the walk found them in. A second
+  // comparison term would only restate that.
+  reports.sort((a, b) => a.line - b.line);
   return { file: filePath, sf, bindings, sites: classified, reports };
 }
 
@@ -1221,9 +1201,10 @@ export function propagateThroughImports(
   while (grew) {
     grew = false;
     for (const input of files) {
-      const mine = classes.get(input.file);
-      const myReach = reaches.get(input.file);
-      if (mine === undefined || myReach === undefined) continue;
+      // Both maps were built from THIS list, one entry per input, so the lookups cannot
+      // miss; a runtime check for that would be unreachable and the gate proved it.
+      const mine = classes.get(input.file)!;
+      const myReach = reaches.get(input.file)!;
       for (const target of edges.get(input.file) ?? []) {
         if (!myReach.has(target)) {
           myReach.add(target);
