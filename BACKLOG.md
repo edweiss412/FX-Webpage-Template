@@ -8,6 +8,38 @@ Last reconciled: 2026-08-17 — `fix/shell-binding-mixed-quoted-value` graduated
 
 ---
 
+## BL-ACCEPTSET-CONSUMER-COVERAGE — an accept-set widened without its consumers is a change that reads as adoption and behaves as nothing
+
+**Status:** OPEN · **Severity:** MEDIUM (silent FREE: a widened set that no consumer ranges over leaves the construct unclassified while the diff shows the widening) · **Class:** guard fidelity · **Effort:** S · **Filed:** 2026-08-21 (`fix/premisescan-registrar-accept-sets`, spec rounds 1-3) · **Facing:** process · **Mint-exception:** invariant · **Reachability:** PROBED — three separate consumers measured below.
+
+A hand-maintained accept-set is only adopted where EVERY consumer of it agrees. `premiseScan` carries
+three, and each has consumers that enumerate their own members rather than ranging over the set, so
+widening the set changes the diff and not the behaviour.
+
+**Incident — three findings, three consecutive spec rounds of one arc, all the same shape:**
+
+- `REGISTRARS` widened to include `suite`; the walk then dispatches on the root BY NAME
+  (`if (root_ === "describe")`, `if (root_ === "it" || root_ === "test")`), so `suite` is recognized
+  and dropped. Measured: `suite("x", …)` loses hook attribution where `describe("x", …)` keeps it.
+- THREE SITES share one bare-identifier-callee shape — the file-scope seed, `hookBodies`,
+  `loadTimePremises`; `HOOK_REGISTRARS` itself has two consumers and the third ranges over a
+  different matcher (corrected at plan time) —
+  each requiring a bare identifier callee. Measured: a bare `beforeEach(spawn)` makes a test
+  `environment-touching`; `test.beforeEach(spawn)` leaves the same test `environment-free`.
+- `eachProducers` reads the immediate curried call only. Measured:
+  `describe.skipIf(process.env.CI).each([1])(…)` collects `[1]` where the chain carries
+  `[1] | process.env.CI`.
+
+**Shape of the repair.** A structural test that, for each accept-set, enumerates its CONSUMERS and
+asserts each ranges over the set rather than over its own copy of some members. The consumer list is
+derived by walking the module for reads of the set's identifier, so a consumer added later is covered
+by default rather than being a fourth instance of this row.
+
+**First scheduled step:** enumerate the consumers of `REGISTRARS`, `MODIFIERS` and `HOOK_REGISTRARS`
+in `tests/mutation/source/premiseScan.ts` and confirm the derived count matches the three, three and
+one this arc found by hand — if a hand count and a derived count disagree, the derivation is the one
+to trust and the disagreement is the row's first finding.
+
 ## BL-SENDAUTH-BINDING-IDENTITY-NAME-KEYED — the binding set is a Set of NAMES, so every consumer asks "is something called X in scope" rather than "is this identifier that binding"
 
 **Status:** OPEN · **Filed:** 2026-08-21 (`fix/sendauth-arm-classifier-unification`, promised as a peer by that arc's spec §4.2 and filed on its diff-r1 reviewer noticing the promise had not been kept) · **Severity:** LOW-MEDIUM (a false advisory, which is the survivable direction; the silent direction is closed) · **Class:** detector fidelity · **Effort:** M · **Facing:** process · **Class-sweep exception:** (c) — resolving an identifier to its DECLARATION is a redesign of the binding-discovery layer the unification arc does not otherwise touch, and it needs the `ts.TypeChecker` that predecessor limits 5 and 8(b) both decline. · **Reachability:** PROBED — the false advisory below was measured in that arc's spec §3.6 against source blob `412cadd3`. · **Incident:** the measured false advisory at §3.6 — a name shadowing a surface binding was classified as the surface, because the consumer asks only whether SOME binding carries that name. That is a cost event that already happened, not a constructed hypothetical.
@@ -1570,33 +1602,6 @@ recoverable from git history on this branch; restore them with the arc rather th
 **Why the wrapper and not a habit.** The habit is already written down and was not followed on this arc by the session that wrote this entry. `codex-guard` is the single choke point every dispatch passes through, which is exactly why the mutation-score check lives there rather than in a checklist.
 
 **First scheduled step:** confirm the lint's exit contract is stable enough to gate on (it currently exits 1 on hard failures and prints a `summary: N hard, M advisory` line), then add the check beside the existing `GUARD SURFACE:` refusal so both live in one place.
-
-## BL-PREMISESCAN-REGISTRAR-ACCEPT-SETS-HAND-MAINTAINED — the scanner's registrar and modifier lists drift from Vitest's actual API
-
-**Status:** OPEN · **Severity:** MEDIUM (drift is silent in the FREE direction: an unrecognised registrar means the test is not classified at all, or its hooks are not collected) · **Class:** guard fidelity · **Effort:** M · **Filed:** 2026-08-19 (`fix/premisescan-nested-hook-sibling-leak`, diff review r10) · **Facing:** process · **Mint-exception:** invariant · **Class-sweep exception:** (c) — the repair derives both sets from Vitest's surface, a change to how the scanner is configured rather than to the nested stop the finding arc ships · **Reachability:** PROBED — one member was LIVE in an enrolled suite, transcript below.
-
-`premiseScan` carries two hand-maintained accept-sets: `MODIFIERS` (`tests/mutation/source/premiseScan.ts:48`) and `HOOK_REGISTRARS` (`:66`). Both drift from the Vitest version actually installed, and the drift is silent in the free direction — an unrecognised registrar means `registrarRoot` does not see a registration at all.
-
-**Incident, and it was live rather than constructed.** Diff review round 10 found `MODIFIERS` missing `shuffle`, `skipIf` and `runIf`. `test.skipIf(...)` is used by an ENROLLED suite — `tests/cross-cutting/psqlStartupFileSuppression.test.ts:1653` — and that test was ABSENT from the scanner's census entirely:
-
-```
-classified tests: 365      rows near line 1653: []      (before the repair)
-```
-
-**That arc completed the three modifiers at its round 10 and REVERTED the completion at its round 12**, which is the measurement this row now rests on. Completing the set made a further shape reachable that had not been before: `registrarRoot` peels callee CALLS and PROPERTIES in separate loops, so a conditional chain resolves by neither. Probed on both trees:
-
-```
-origin/main    test.skipIf(...).each  ->  []                          (not classified)
-with round 10  test.skipIf(...).each  ->  [["<test…>","environment-free"]]
-```
-
-Main is silently INCOMPLETE; the completion made it silently WRONG. Population of chain forms across the whole `tests/` tree: ZERO. The revert restores byte-identical behaviour to `origin/main`.
-
-**So the two halves must ship together, and that is what this row is for.** Completing the accept-sets without fixing the peel loop trades a silent omission for a silent wrong verdict; fixing the loop without completing the sets leaves the enrolled `.skipIf` test uncensused. `aroundAll`/`aroundEach` add a third consideration: zero enrolled call sites today, but adding them changes which tests are classified corpus-wide, which is an AC-1 movement needing the same decision PR #843's sixteen-test movement did.
-
-**Shape of the repair.** Derive both sets from Vitest's own surface instead of restating it: the installed package exports the hook registrars as globals and the suite modifiers as properties of `describe`, so a startup-time read gives an accept-set that cannot drift. Completing a hand-maintained list by hand is what this arc did twice (`ExpressionWithTypeArguments` at round 6, these three at round 10) and it does not terminate — the next Vitest release adds the next member.
-
-**First scheduled step:** measure what a derived set would ADD beyond today's lists, and run `_metaPremiseContract` against it. If the delta moves declared counts, the row carries an AC-1 amendment and needs the same user decision PR #843's sixteen-test movement did.
 
 ## BL-SPECLINT-ORPHANED-TASK-MARKERS — a plan whose markers sit outside a region lints as `0 hard` while checking nothing
 
