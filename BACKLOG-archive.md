@@ -1,3 +1,69 @@
+## BL-DESTRUCTIVE-GUARD-DISCOVERY-BY-CONNECTION — discover destructive-analysis files by connection, not by SQL spelling — CLOSED 2026-08-21
+
+**Status:** SHIPPED 2026-08-21 · **Effort (as shipped):** L · **Severity (as filed):** MEDIUM · **Class:** structural guard · **Facing:** process · **Shipped by:** `feat/destructive-guard-discovery-by-connection`
+
+**THE ROW GRADUATES ON A RE-SCOPE, AND THE RE-SCOPE IS STATED FIRST.** The row's terminating
+framing was "ask whether the file OPENS A DATABASE CONNECTION, then require the loopback guard of
+all of them." The census REFUTES the second half. Of the 179 connection-opening files under
+`tests/`, **99 target the validation project by declared environment variable** (63 directly, 36
+through a helper) — by this repository's ratified posture, not by accident
+(`scripts/preflight-env.mjs:146`, "TEST_DATABASE_URL is DELIBERATELY validation"; the destructive
+guard's own header). Requiring `assertLocalDbUrl` of them is requiring the suite to stop running
+against validation, which is a product decision outside a structural-guard row. What shipped is the
+row's own second paragraph instead: a CLASSIFICATION of every connection-opening file, with a
+validation-target accept-set and per-site dispositions.
+
+**What shipped.** `tests/db/_connectionCensus.ts` walks `tests/`, finds every acquisition of the
+`postgres` driver, classifies every call of it by where its URL argument comes from
+(`guard-bound` / `validation-env` / `loopback-literal` / `remote-literal` / `unclassifiable`),
+propagates classes through the import graph to a fixpoint, and REPORTS anything it cannot classify.
+`tests/db/_metaConnectionCensusGuard.test.ts` runs it over the live tree in `unit-suite-db`;
+`tests/db/_connectionCensusDispositions.ts` carries the per-site rows, keyed on source text so a
+site that moves REDS as stale.
+
+**The probe record, measured through the SHIPPED census rather than a probe script:**
+
+    2560 files walked · 140 hold a driver binding · 175 connect sites · 5 connecting helpers
+    39 files inherit a class through the helper graph · 7 destructive-discovered, 0 off-channel
+    guard-bound 85 / validation-env 79 / loopback-literal 9 / remote-literal 0 / unclassifiable 2
+    8 disposition rows · 0 undisposed · 4855 production edges counted, never red
+
+**Both refutations stay in the row, because a row is a claim and these two were false as filed.**
+
+1. **"Require the loopback guard of all of them" is refuted**, above, and the deliverable is the
+   classification the row's own second paragraph asked for.
+2. **The row's census command over-counted and under-described.** `rg -l 'from "postgres"|require("postgres")' tests/`
+   returns 145: the 139 value default importers, five files whose only import is a TYPE, and one
+   that carries the import as FIXTURE TEXT inside string literals. It misses the dynamic
+   acquisition, and says nothing about the 39 files that never import the driver and still open a
+   connection. The chokepoint is the CALL, not the import, and the helper graph is part of the
+   population — neither is derivable by `rg`.
+
+**The motivating defect is a CONSTRUCTED fixture, and that is recorded rather than smoothed over.**
+Both incident spellings (`select prune_sync_log()`, `select "public"."prune_sync_log"()`) were
+replayed against the shipped recognizer: both confirmed as discovery misses, the positive control
+fires, and the analyzer WOULD reject a constructed file if discovery handed it over. The live
+corpus has **zero executing instances** — 14 textual hits, every one a test title or an assertion
+message. So what this row closes is not the spelling miss but the SILENT PASS: a connection-opening
+file that no recognizer discovers now sits in a named class in a counted population, which nobody
+could enumerate before.
+
+**The documented limit, and its successor.** A `validation-env` file that executes a destructive RPC
+in a spelling `DESTRUCTIVE_STATEMENT_PATTERNS` does not match is still not discovered — unchanged in
+substance, and no longer silent. The terminating answer is DB-side and is filed as
+`BL-VALIDATION-PRUNE-DB-SIDE-GATE` (class-sweep exception (c): a migration plus RPC change on a
+surface this arc does not touch), carrying the eliminations so the next reader does not re-derive
+them.
+
+**What implementation measured that the spec's probes had not**, recorded in the spec's §3.11: a
+driver name in a TYPE position is not a value reference (50+ live files), an edge to a non-source
+file is a decided non-edge (3), NodeNext `.js` specifiers name their `.ts` sources (5), the walk
+includes `__generated__` (2 edges into it), and an unresolvable path-shaped specifier is a class the
+probes never ranged over (1 — the eighth disposition row). Every one of them was a FALSE REPORT
+waiting to happen, which the consequence bound makes a defect exactly as a missed file is.
+
+---
+
 ## BL-SENDAUTH-ARM-CLASSIFIER-UNIFICATION — four arms of one scanner each decide independently what a receiver and a raw binding are — CLOSED 2026-08-21
 
 **Status:** SHIPPED 2026-08-21 · **Effort (as shipped):** M · **Severity (as filed):** MEDIUM (each un-narrowed arm is a SILENT miss, the one outcome the surface's consequence bound forbids) · **Class:** detector fidelity · **Facing:** process · **Shipped by:** `fix/sendauth-arm-classifier-unification`
