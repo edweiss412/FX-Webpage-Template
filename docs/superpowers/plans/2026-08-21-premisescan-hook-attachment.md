@@ -1,0 +1,516 @@
+# Plan — premiseScan reports the two hook-attachment shapes it cannot follow
+
+**Spec:** `docs/superpowers/specs/2026-08-21-premisescan-hook-attachment.md`
+**Branch:** `fix/premisescan-hook-attachment` · **Base:** `origin/main` at `64c40a68e`
+**Closes:** `BL-PREMISESCAN-FILE-SUITE-EAGER-HOOKS-LOST`, `BL-PREMISESCAN-NAMED-SUITE-FACTORY-HOOKS-LOST`
+
+`impeccable-gate: N/A — no UI surface`
+
+---
+
+## 0. Pre-draft code verification
+
+Every symbol this plan names, verified against the live tree at `64c40a68e` before drafting.
+Anchored by symbol; line numbers are drafting-time locators.
+
+| symbol | where | verified shape |
+| --- | --- | --- |
+| `classifyTests(root, suitePath)` | `tests/mutation/source/premiseScan.ts:1510` | `export function`, returns `TestClassification[]` |
+| `TestClassification` | `tests/mutation/source/premiseScan.ts:38` | `{ testName, line, verdict, detail, hasPremise, exemption }` |
+| `Verdict` | `tests/mutation/source/premiseScan.ts:36` | `"environment-touching" \| "environment-free" \| "unclassifiable"` |
+| `topLevelHooks` loop | `tests/mutation/source/premiseScan.ts:1752` | reads `facts.sf.statements`, accepts `ExpressionStatement` only |
+| `fileReports` | `tests/mutation/source/premiseScan.ts:1665` | `[...facts.moduleReports]`, merged into every test's `reasons` |
+| precedence branch | `tests/mutation/source/premiseScan.ts:1725` | `if (ownUnresolved.length > 0) … else if (verdict === "environment-free" && reasons.length > 0)` |
+| `withModule(reason, path)` | `tests/mutation/source/premiseScan.ts:1528` | appends `, in <path>` |
+| `hookBodies(describeCall)` | `tests/mutation/source/premiseScan.ts:1834` | lexical hook collection, prunes nested BODY only |
+| `isSuiteBody(arg)` | `tests/mutation/source/premiseScan.ts:1891` | unwraps 6 outer-expression kinds, then `ArrowFunction \| FunctionExpression` |
+| `registrarRoot(callee)` | `tests/mutation/source/premiseScan.ts:68` | peels calls then properties; `MODIFIERS` gate; returns root or `null` |
+| `HOOK_REGISTRARS` | `tests/mutation/source/premiseScan.ts:66` | `/^(beforeEach\|beforeAll\|afterEach\|afterAll)$/` |
+| `verdict(src)` | `tests/mutation/source/premiseScan.test.ts:18` | writes a temp file, returns the FIRST row's verdict |
+| `verdicts(src)` | `tests/mutation/source/premiseScan.test.ts:1031` | block-scoped inside one `describe`; returns every row's verdict, no `detail` |
+| `premise` / `premiseHolds` | `tests/_shared/premise.ts:26` / `tests/_shared/premise.ts:36` | `premise(desc, actual, mustExceed)`, `premiseHolds(desc, condition)` |
+| `premiseScan` registry row | `tests/mutation/source/registry.ts:168` | `suitePaths` = the scan suite + `_metaPremiseContract`; `operators` = 3; `scoreFloor` 0.95 |
+| `EXPECTED_ENV_TOUCHING` | `tests/mutation/_metaPremiseContract.test.ts:32` | declares `premiseScan.test.ts: 0` at `tests/mutation/_metaPremiseContract.test.ts:94` |
+
+**Gap this plan must close:** no existing helper returns `detail`. `verdict()` returns the first
+row's verdict only, and `verdicts()` is block-scoped to one `describe` and drops `detail`. Task 1
+adds a file-level `rows(src): TestClassification[]`.
+
+## 0.05 Acceptance criteria this plan discharges
+
+Restated here so every `ac=` id resolves inside the plan that claims it, and so a reader can see at a
+glance which task proves what. The normative text is the spec's §6; this is an index, not a second
+definition.
+
+| id | claim | discharged by |
+| --- | --- | --- |
+| **AC-1** | all 12 (eager position × hook registrar) cells report, with a reason naming the hook and its line and NOT naming a suite | Task 1 |
+| **AC-2** | the generated case count equals the declared axis product, and the registrar axis is derived from `HOOK_REGISTRARS` itself | Task 1 |
+| **AC-3** | the rule is indifferent to registration spelling across the four structural classes | Task 1 |
+| **AC-4** | all nine reporting cells report and all seven silent cells stay silent, 16 in total | Task 2 |
+| **AC-5** | a provably `environment-touching` test keeps its verdict under BOTH producers | Tasks 1 and 2 |
+| **AC-6** | every reporting cell has a one-variable negative twin that classifies `environment-free` | Tasks 1 and 2 |
+| **AC-7** | the surface's own `suitePaths` carry no LIVE instance of either shape | Task 3 |
+| **AC-8** | `EXPECTED_ENV_TOUCHING` is unchanged, proved by a field check on the committed diff | Task 4 |
+| **AC-9** | the probe record's zeros still hold at HEAD | Task 4 |
+| **AC-10** | the mutation score is measured at HEAD with an empty unaccepted-survivor set, at or above `scoreFloor` | Task 4 |
+
+## 0.1 Meta-test inventory
+
+- **Creates:** none.
+- **Extends:** `tests/mutation/source/premiseScan.test.ts` (a `suitePath` of the enrolled
+  `premiseScan` surface), with a new self-pollution guard case (Task 4).
+- **Explicitly does NOT touch:** `tests/mutation/_metaPremiseContract.test.ts`. Spec AC-8 makes that
+  a field check on the committed diff, not a suite result.
+
+## 0.2 Mutation-family closure
+
+The closure set is the registry row's declared operators and nothing else:
+`relational-boundary`, `equality-flip`, `integer-literal` (`tests/mutation/source/registry.ts`,
+the `premiseScan` row). `logical-connector` and `statement-removal` are excluded there for wall
+clock, which that row states is a budget rather than a claim about the mutants. A reviewer-proposed
+NEW family is admissible only with a live escaping mutant demonstrated against the shipped guard;
+widening the set is a registry change carrying its own numbers, not a finding on this diff.
+
+---
+
+## 0.3 Design validated empirically BEFORE this plan was written
+
+A prototype of both producers was spliced into a copy of `premiseScan.ts` in a SEPARATE worktree
+(`FX-worktrees/premise-spike`) — separate because a reviewer was live against the arc's tree, and a
+transient mutation under a live read is a contaminated review. The prototype is ~40 lines and is not
+the shipped implementation; it exists to answer "does this design produce the intended verdicts"
+before a reviewer is asked that question.
+
+**The prototype was carried through spec review r1's two findings and re-measured after each
+repair.** Final state, all constructed cases correct:
+
+```
+A1 hook in the NAME argument              -> unclassifiable, both tests, reason names the hook
+A1-twin identical minus the hook          -> environment-free
+A2 hook in a curried .each producer       -> unclassifiable, both tests
+B1 named factory (bare identifier)        -> unclassifiable, both tests
+B-wrapped identifier `(suiteA)`           -> unclassifiable, both tests
+B-twin factory inlined                    -> environment-free
+NEGATIVE ordinary nested describe + hook  -> environment-free, NO report
+NEGATIVE touching test in affected file   -> environment-touching, reason attached, NOT demoted
+NEGATIVE wrapped INLINE bodies            -> environment-free, NO report
+r1-F1a function-valued name hides factory -> unclassifiable  (silent free killed)
+r1-F1b bodyless options registration      -> environment-free (false advisory killed)
+r1-F2  eager hook inside a named factory  -> reason no longer claims a scope
+```
+
+The last three are the ones that would have cost rounds. An ordinary nested `describe` carrying a
+hook is the single most common shape in the corpus and it must NOT report; a provably touching test
+must keep its verdict rather than being demoted; and an inline body reached through one of the six
+transparent wrappers `isSuiteBody` already accepts must not be mistaken for an unlocatable one.
+
+**And the live corpus is untouched under the prototype, checked STRUCTURALLY** (spec §3.4):
+
+```
+$ pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-premisescan-hook-population/record-diff.mts
+records: baseline 2648, prototype 2648
+records only in baseline : 0     records only in prototype: 0
+VERDICT moved            : 0     DETAIL moved             : 0
+POSITIVE CONTROL differs: true
+```
+
+All 2648 classified rows across the 70 enrolled suites are dumped as
+`(suite, line, testName, verdict, detail)` under the SHIPPED baseline and under the prototype and
+diffed as SETS. Detail strings are compared for equality BETWEEN THE TWO RUNS, never against known
+reason strings, and the positive control lives inside the same invocation and throws if a constructed
+named-factory file fails to disagree. The baseline module is the shipped state: `origin/main` and
+this branch carry the same `premiseScan.ts` blob `8289f7291a`, and zero commits on this branch touch
+that file.
+
+So both halves of the consequence bound are MEASURED rather than argued: every constructed instance
+reports, and **zero false advisories on the live corpus**. Note what this does and does not give
+AC-8: no verdict moved, so no declared count can have moved — but a verdict-count comparison ALONE
+could not have established that, because a reason attached to an `environment-touching` test moves no
+count. The record diff is what covers both.
+
+**The prototype is not the implementation and its numbers do not transfer to the shipped diff.** It
+establishes that the design is sound; the tasks below still author their own cases and the score is
+measured against the shipped source.
+
+## 0.4 Red-command validation, run at plan time
+
+Every `red=` in the region below is the SAME command, parse-checked and collection-probed here so a
+red that exits non-zero for a collection reason is named rather than believed:
+
+```
+$ sh -nc 'pnpm exec vitest run tests/mutation/source/premiseScan.test.ts --project parallel'
+PARSE OK
+
+$ pnpm exec vitest list tests/mutation/source/premiseScan.test.ts --project parallel | wc -l
+326
+```
+
+326 collected cases, so the command can express a verdict in both directions. No `-t` name filter is
+used anywhere in the region: one that matches nothing exits 0 and reports green from the moment it
+is written.
+
+Each of Tasks 1-4 is `red-state=authored` — the failing case is written by the task itself, which is
+the ordinary invariant-1 shape — so each names the production line whose absence makes the new case
+fail, verified absent on the live tree, with observed-red landing in the task's own RED step.
+
+---
+
+## 1. Architecture
+
+Two new PRODUCERS of file-level reasons inside `classifyTests`. No new precedence, no new
+resolution, no new traversal, and no edit to `MODIFIERS`, `HOOK_REGISTRARS`, `registrarRoot`,
+`isSuiteBody` or `hookBodies`.
+
+Both producers append to the same local array the existing `fileReports` feeds, so the existing
+precedence branch demotes `environment-free` to `unclassifiable` and leaves `environment-touching`
+intact with no edit.
+
+---
+
+## 1.5 Rule 17 — every named weaker implementation owes a KILLING CHECK that exists and fires
+
+The plan names weaker implementations in two places: Task 1's four pre-dispatch mutants and Task 2's
+kill-target table. A plan can be entirely right about those and the implementation still ship without
+the checks — that gap lives only between plan and implementation, so no plan review and no fixture
+audit catches it.
+
+**Derive the list from the tables above, never from recall**, and for each entry record which of
+three states it is in:
+
+- **ABSENT** — no shipped test would fail if the weaker implementation were substituted. Not
+  acceptable; author the case.
+- **PRESENT BUT UNPROVEN** — a case exists that should kill it, never run against the mutant. That is
+  a claim, not a proof, and it fails in the direction that looks green.
+- **PROVEN** — the weaker implementation was actually built or the mutation applied, the named case
+  observed failing, and the original restored.
+
+Every entry must reach PROVEN before the diff dispatch, and the counts go in the commit. Two of them
+are already PROVEN ahead of implementation, because spec review r1 and r2 built them as findings:
+the raw-node-kind reading (killed by the wrapped-identifier cell) and the any-argument reading
+(killed by the function-valued-name cell). **A finding that became a fixture cannot recur silently.**
+
+## 1.6 Coverage is COMPLETE, and saying so is what stops the guard suite ratcheting
+
+The arc ships four checks — `cell-check`, `record-diff`, `limits-check` and `claims-check`. Each was
+added for a measured reason, and a suite that grows one check per round is the same ratchet this
+repository has paid 20 and 41 rounds for, wearing a guard's clothes instead of a recognizer's. The
+terminating condition, stated so a later round cannot propose a fifth check as an improvement:
+
+> **Coverage is COMPLETE when every claim-site class has a derived cover AND the map itself is
+> derived from the document's own declarations.** A new claim then REDS automatically and no further
+> check is owed.
+
+A fifth check is owed only if a new claim-site CLASS appears — never because a further instance is
+imagined inside a class already covered. An instance found inside a covered class is a defect in
+THAT COVER, and the repair is to fix the cover rather than add a sibling beside it. Same rule the
+spec's §5.4 states for the spelling axis, applied to the guard suite itself.
+
+---
+
+<!-- tasks: depth=2 red-contract -->
+
+## Task 1 — `rows()` helper, and producer A reports an eager-position hook
+
+<!-- task: red=`pnpm exec vitest run tests/mutation/source/premiseScan.test.ts --project parallel` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:1752` why=`the new cases assert verdict "unclassifiable" and a detail naming the hook; today the topLevelHooks loop accepts only ExpressionStatement, so no reason is ever produced and every case reads "environment-free"` ac=AC-1,AC-2,AC-3,AC-5,AC-6 -->
+
+**Files:** `tests/mutation/source/premiseScan.test.ts`, `tests/mutation/source/premiseScan.ts`
+
+**What is red and why.** The new cases assert that a hook in the eager position of a registration
+outside every inline suite body makes every `environment-free` test in that file `unclassifiable`,
+with a `detail` naming the hook and its line — and NOT naming a suite, since spec review r1
+withdrew that claim. The production line whose defect makes them fail is the `topLevelHooks` loop, which today
+`continue`s on any statement that is not an `ExpressionStatement` and therefore never sees a hook in
+an argument position. Verified absent on the live tree, sweep run at plan time:
+
+```
+$ grep -n "eager" tests/mutation/source/premiseScan.ts
+1855:    // `.each`/`.for` producer, and the eager name and options arguments -- so a
+1881: * expression let a wrapped body be walked as if it were an eager argument,
+```
+
+Two hits, both COMMENTS and neither at file scope: 1855 is inside `hookBodies`, describing the
+NESTED case it already handles, and 1881 is `isSuiteBody`'s docblock. No executable eager-position
+reading exists outside `hookBodies`.
+
+RED step authors the cases; GREEN step adds the producer. Same command both times.
+
+**An eager position is EVALUATED, and a nested function body in one is NOT** (spec §3.1, spec review
+r3 finding 1). The walk stops at every FUNCTION-LIKE node, using TypeScript's own `ts.isFunctionLike` predicate
+rather than a hand-listed set of kinds — so `describe.each([() => { beforeEach(…) }])` and
+`describe.each([{ setup() { beforeEach(…) } }])` are both SILENT while
+`describe.each([beforeEach(…)])` still reports. An enumeration of node kinds is a list to be
+completed one kind per review round; it failed exactly once (r4 finding 2 arrived as a
+`MethodDeclaration`) before being replaced. **One cell covers the whole class**, not one per kind,
+because a cell per kind rebuilds the enumeration the predicate deleted.
+
+**Cases — the 12 cells, generated from two declared axis arrays, not hand-written:**
+
+- `POSITIONS` = `["name", "options", "producer"]`
+- `REGISTRARS` — derived from the shipped `HOOK_REGISTRARS` source, never retyped, so a registrar
+  added there without a case fails AC-2 rather than being silently uncovered.
+
+**All 12 cells are realizable and all 12 report under the prototype**, measured at plan time so
+AC-1's largest claim is not left to implementation to discover:
+
+```text
+REPORTS  name     x {beforeEach, beforeAll, afterEach, afterAll}
+REPORTS  options  x {beforeEach, beforeAll, afterEach, afterAll}
+REPORTS  producer x {beforeEach, beforeAll, afterEach, afterAll}
+12 of 12 producer-A cells report
+```
+
+The spelling varies with the position because it must: the curried-producer slot exists only on a
+curried spelling, so that row uses `describe.each([...])(...)` while the name and options rows use a
+bare `describe`. The CELL is (position × registrar); the spelling is whatever makes that position
+exist, and §5.2's independence proof is what establishes the choice does not matter.
+
+Every cell is an **expect-a-REPORT** case: it asserts a `detail` the implementation must PRODUCE,
+never an absence. Each cell carries a one-variable negative twin — identical bytes minus the hook —
+that must classify `environment-free`, which is what makes the report attributable rather than a
+scanner that reports on everything.
+
+**Premise, executable and unconditional relative to what it guards.** Above the assertions, not
+inside any `.each` callback:
+
+```ts
+const HOOK = `beforeEach(() => { spawnHelper(); })`;
+const caseSrc: string = `describe(String(${HOOK}), () => { it("inA", () => {}); });`;
+const twinSrc: string = caseSrc.replace(HOOK, `"x"`);
+
+premise("the generated cell set is non-empty", cells.length, 0);
+premiseHolds(
+  "the twin is the case with exactly the hook text replaced, so the pair differs by ONE variable",
+  twinSrc !== caseSrc && twinSrc === caseSrc.replace(HOOK, `"x"`) && caseSrc.includes(HOOK),
+);
+```
+
+**The weak form of that premise was caught by typechecking the snippet, and it is worth naming.** An
+earlier draft asserted only `twinSrc !== caseSrc`, which proves the pair DIFFERS and says nothing
+about differing by exactly one variable — the property the twin exists to establish. A premise that
+cannot fail for the reason it names is a tautology however it reads, so the condition now pins the
+substitution itself and asserts the hook was present to begin with. Typechecked under
+`--strict --noUncheckedIndexedAccess --exactOptionalPropertyTypes`, exit 0.
+
+**AC-3, the spelling-independence proof, lives HERE rather than in a task of its own — and the
+reason is measured.** The four structurally distinct spelling classes (bare `describe`, depth-1
+plain `describe.skip`, depth-1 curried `describe.each`, depth-2 `describe.concurrent.each`) all
+REPORT the moment this producer lands, probed:
+
+```
+REPORTS  bare describe          REPORTS  depth-1 curried .each
+REPORTS  depth-1 plain .skip    REPORTS  depth-2 concurrent.each
+```
+
+So a separate task for them would carry a red that is PRE-SATISFIED by this one — green from the
+moment it is authored, proving nothing and unable to fail for the reason it names. They are
+assertions ABOUT this producer, so they belong in its cycle, where they are red before it lands and
+green after. An earlier draft of this plan had them as Task 3; the plan's own rule-81 self-check
+caught it.
+
+**The expected reason is built by CALLING the shipped formatter, never by re-typing it — and the
+plan-time attempt to re-type it was already wrong.** `withModule` is
+
+```ts
+const withModule = (reason: string, path: string): string =>
+  reason.includes(" in ") ? reason : `${reason} in ${path}`;
+```
+
+A hand-written expectation with a comma before `in` fails against it; that is exactly what happened
+when this was probed, and the discrepancy was in the MODEL, not in the surface. Rule 84 — compute
+through the shipped implementation, because a reimplementation is a second definition free to drift.
+
+**And that helper carries a trap the tests must pin.** It appends the module path only when the
+reason does NOT already contain `" in "`. So a reason worded `"…cannot be located in this module"`
+would silently ship with no path, and every assertion that checks only the sentence would still
+pass. Probed: neither producer's current wording contains `" in "`, and both emit their path —
+
+```text
+PATH PRESENT  | hook beforeEach at line 1 is registered from an eager argument position, …
+PATH PRESENT  | the registration at line 2 has no inline suite body and carries an argument …
+```
+
+— but that is true of today's wording only, which is a claim with an expiry date. **Both tasks
+therefore assert that the emitted `detail` CONTAINS the suite path**, which catches the drop
+whatever the wording becomes, rather than asserting the wording and inheriting its expiry.
+
+**Four pre-dispatch mutants** (the `detail` assertions are string-presence guards). Run each before
+the diff dispatch and record the result in the commit:
+
+(a) reason string emptied → cases must red;
+(b) reason string plus an appended suffix → must red, because the assertion pins by equality
+    derived from the case's own fields rather than by `toMatch`;
+(c) the reason present but not live — produced into a local that is never merged into `reasons` →
+    must red;
+(d) each discriminating parameter varied in turn — the hook name, the position, the line number.
+
+## Task 2 — producer B reports a factory-slot argument the scanner cannot follow
+
+<!-- task: red=`pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-premisescan-hook-population/cell-check.mts` red-state=live why=`the committed cell check exits 1 with "7 of 16" on the current tree: the seven reporting cells emit no reason because nothing in classifyTests examines a registration's factory slots, while the seven silent cells already pass; the same command exits 0 with "16 of 16" once the producer lands` ac=AC-4,AC-5,AC-6 -->
+
+**Files:** `tests/mutation/source/premiseScan.test.ts`, `tests/mutation/source/premiseScan.ts`
+
+**The rule** (spec §3.2): for a `describe` root ONLY — `suite` is a Vitest alias but the frozen
+`REGISTRARS` matches identifier TEXT, so `registrarRoot` never returns it (§4 L6) — among the
+arguments at index >= 1 —
+slot 0 is always `name` per Vitest's `SuiteCollectorCallable` — accept if one is a locatable inline
+body, or if EVERY one is an inert literal. Otherwise report. Per REGISTRATION, never per argument.
+
+**`it`/`test` roots are excluded, and that is a repair rather than a simplification.** A test
+registration cannot carry a suite factory, and its handler is not lost either way: a test's extent is
+the whole call expression, so the traversal already resolves a named handler to its declaration.
+Bracketed — `test("named", testFn)` with a spawning `testFn` is `environment-touching` on
+`origin/main`. Reporting there was spec review r2 finding 2, a wrong attribution AND a false advisory
+on the ordinary extraction of an inline test callback.
+
+**The red is ALREADY FAILING and was run at plan time**, in both directions:
+
+```
+$ pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-premisescan-hook-population/cell-check.mts        # current tree
+FAIL report  bare identifier factory ... (nine reporting cells)
+PASS silent  bodyless options registration ... (four silent cells)
+7 of 16 cells behave as the spec's §5.2 table claims          exit 1
+
+$ same command, in a worktree carrying the producer
+16 of 16 cells behave as the spec's §5.2 table claims          exit 0
+```
+
+It fails for the ASSERTED reason — a reporting cell emits no reason — rather than on a collection or
+import error, and the script exits 2 if the cell count ever diverges from §5.2's table.
+
+**Nine REPORTING cells, each naming the implementation it kills** (spec §5.2), so a later edit cannot
+silently defang the case:
+
+| cell | kills |
+| --- | --- |
+| bare identifier | the baseline shape |
+| `function` declaration factory | a rule accepting only arrow-initialized factories |
+| property access | a rule keyed on the identifier spelling |
+| **wrapped identifier** `(suiteA)`, `suiteA as never` | a rule reading the RAW argument node kind, which sees a `ParenthesizedExpression` and falls silent — the fail-open direction |
+| call expression | a rule requiring a named BINDING |
+| **function-valued name** `describe(function t() {}, suiteA)` | a rule whose body test ranges over EVERY argument, where the NAME satisfies it and the factory goes unreported |
+| **factory in slot 1 + trailing timeout** `describe("A", f, 5000)` | a LAST-SLOT-ONLY rule, which accepts the numeric timeout as inert and misses the factory |
+| **literal options then factory** `describe("A", { concurrent: true }, f)` | a FIRST-SLOT-ONLY rule, which accepts the object literal as inert and misses the factory |
+
+**Seven SILENT cells**, each one ordinary edit from a reporting cell, so a rule that fires on them is
+over-firing on live authoring:
+
+`describe("A", { skip: true })` — legal bodyless registration, factory is OPTIONAL in both overloads;
+`test("name", fn, WALK_TIMEOUT_MS)` — inline body plus a named timeout constant, LIVE in the corpus;
+`describe("A", opts, () => {})` — slot 2 is a body, so the factory is located whatever `opts` is;
+`describe(NAME_CONST, () => {})` — slot 0 is the name and is never examined;
+`test("named", testFn)` — an `it`/`test` root, which cannot carry a suite factory and whose handler
+the traversal already reaches. That last one is spec review r2 finding 2 turned into a case: without
+it, the claim that producer B is suite-only sits in prose and is checked by nothing.
+
+The two bolded reporting cells and the first two silent cells are spec review r1's findings, now
+fixtures. **A finding that became a fixture cannot recur silently.**
+
+**Also asserts the guard does not misfire** on a body reached through each of the six
+outer-expression wrappers `isSuiteBody` already accepts.
+
+**Registrar-independence for this producer** lives here for the same reason: the four hook
+registrars are indifferent to producer B's rule, and a separate task asserting so would be green
+from birth.
+
+**AC-5, for BOTH producers.** A provably `environment-touching` test in a file either producer has
+reported KEEPS its verdict rather than being demoted to `unclassifiable`. Asserted per producer, not
+once — the precedence branch is shared, but a producer that pushed its reason into `ownUnresolved`
+instead of the file-level array would invert it for its own cases only.
+
+## Task 3 — the surface's own suites carry no live instance
+
+<!-- task: red=`pnpm exec vitest run tests/mutation/source/premiseScan.test.ts --project parallel` red-state=authored red-target=`tests/mutation/source/premiseScan.test.ts:4091` why=`the guard scans the surface's own suitePaths for a live instance of either shape and asserts zero; it is authored against a constructed violation first, so it is observed failing before the violation is removed` ac=AC-7 -->
+
+**Files:** `tests/mutation/source/premiseScan.test.ts`
+
+**Prototyped at plan time, in both directions, so AC-7 is measured rather than promised:**
+
+RECORD of a plan-time prototype run, 2026-08-21, in a scratch worktree. It is deliberately NOT
+printed as a runnable command: the prototype lives outside the tracked tree, and printing a command
+that does not resolve is the defect spec review r2 finding 3 raised against the spec — the sweep unit
+is the artifact PAIR, so the same shape is repaired here rather than only there. Task 3 builds the
+committed version.
+
+```text
+suitePaths derived from the registry row: 2
+DIRECTION 1 (as shipped)            live instances: 0  -> PASS
+DIRECTION 2 (violation constructed) live instances: 1  -> PASS
+      tests/mutation/source/premiseScan.test.ts:4136 live unlocatable suite body
+restored byte-exact: true
+```
+
+An in-process check over the surface's own `suitePaths`, read from the registry row rather than
+retyped, asserting zero LIVE instances of either shape — fixtures are source TEXT, so a live one
+would make this surface a member of the population the probe record measures at zero, and producer
+B would then demote this suite's own `environment-free` tests.
+
+**Proved in BOTH directions**, per the rule that a check which cannot fail is not a check: it reds
+against a constructed live instance and passes once removed. Record both runs in the commit.
+
+<!-- tasks: end -->
+
+---
+
+Tasks 4 and 5 are deliberately OUTSIDE the red-contract region, and the reason was measured rather
+than assumed. Both were drafted with markers and both markers were INVALID, caught by running the
+commands at plan-authoring time:
+
+```
+$ pnpm exec vitest run tests/docs/_metaLedgerInProgress.test.ts --project parallel
+  Test Files  1 passed (1)      Tests  17 passed (17)
+$ pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-premisescan-hook-population/probe-population.mts >/dev/null; echo $?
+  0
+```
+
+A `red-state=live` red must be OBSERVED failing at plan time; both exit 0. Neither task has a
+red-then-green cycle on one command — they VERIFY a state rather than change one — so enrolling them
+would have shipped two markers whose cycle cannot complete. A plan region may be closed and reopened,
+and headings between regions are unchecked, so that is what happens here.
+
+## Task 4 — the closing measurements (verification, no red)
+
+**Files:** `docs/superpowers/specs/ci/probes/2026-08-21-premisescan-hook-population.md`
+
+- **AC-8 field check:** `git diff origin/main...HEAD -- tests/mutation/_metaPremiseContract.test.ts`
+  must show no line of `EXPECTED_ENV_TOUCHING` changed. A green meta-suite cannot prove this.
+- **AC-9:** re-run both population probes; counts unchanged against the record.
+- **The three committed passes, run to a FIXED POINT rather than once**, in a worktree carrying the
+  change: `cell-check.mts` (16 of 16, exit 0), `record-diff.mts` (0 records moved, 0 verdicts moved,
+  0 details moved, positive control differs) and `limits-check.mts` (every L1-L5 and §2-§3 claim
+  prints HOLDS). Each is proven in both directions, so a green from any of them is attributable:
+  `record-diff.mts` ABORTS where there is nothing to measure and `cell-check.mts` reds where the
+  producer is absent. A claim that stops being true prints FALSE rather than being inferred from a
+  passing suite.
+- **AC-10:** `pnpm mutation:guards` in the FOREGROUND under `pnpm heavy`, with a before/after
+  provenance pair stamped INSIDE the measuring invocation over the DERIVED input set — source,
+  registry row, both `suitePaths`, and their transitive local imports, the file count printed beside
+  the digest. Editing any of those retires the score (spec §6 AC-10); say so rather than letting a
+  stale number stand.
+
+## Task 5 — ledger closeout, EARLY and as one commit (verification, no red)
+
+**Files:** `BACKLOG.md`, `BACKLOG-archive.md`
+
+Taken BEFORE whole-diff review, as ONE commit: both rows archived, both IN PROGRESS markers removed,
+peers filed. Absence is then guaranteed rather than maintained. Verify by set arithmetic in both
+directions — union of BL/DEF ids exact, `comm -12` archived-versus-open empty, in-progress marker
+count zero — and re-verify after any subsequent `origin/main` merge.
+
+`_metaLedgerInProgress` passes both BEFORE and AFTER this task (17/17 at plan time, measured above):
+the markers this branch carries are well-formed and name a branch that exists on origin, which is
+exactly what invariant 12 requires while work is in flight. The gate that would catch a STALE marker
+is the same suite run on `main` after the merge, where the branch no longer exists. So this task's
+verification is the set arithmetic and the absent-at-HEAD check, not a suite verdict.
+
+---
+
+## 2. Sequencing note
+
+Tasks 1 and 2 each complete a full red-then-green cycle on the SAME command before the next begins.
+
+**Every task's `why=` was re-checked against what the tasks BEFORE it now guarantee, not against the
+state at authoring time**, and that check is what dissolved the original Task 3: its
+spelling-independence red was pre-satisfied by Task 1, so it would have been green from the moment
+it was written. Task 3 (the self-pollution guard) is unaffected — its red comes from a constructed
+violation the earlier tasks do not create, and it was prototyped failing and passing at plan time.
