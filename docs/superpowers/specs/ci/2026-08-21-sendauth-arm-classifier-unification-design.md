@@ -1092,6 +1092,29 @@ churn proportional to the sites it touches, and that churn is a gate failure unt
 re-keyed. **Re-file when:** the churn is measured to exceed the value, or a keying scheme is found
 that is stable under rename AND does not collapse distinct sites.
 
+### §4.6 A mutation score certifies the DECLARED OPERATORS, not correctness
+
+**Measured on this surface, and it is the strongest available statement of what this gate does not
+certify.** `sendAuthScan` scored **1.0000 with an empty unaccepted-survivor set while the entire
+defect class this arc repairs was LIVE** — the property-receiver silences, the shadow-scope
+fail-open, the wrapper mis-attributions. Not because the suite was strong, but because **no declared
+operator can express those defects**: they are absences and shape assumptions, not mutations of code
+that exists.
+
+So a defect outside the operator set is not reported as a gap. **It is reported as a perfect score.**
+
+**Two consequences, both binding on this arc's plan.** First, the killer audit is owed ALONGSIDE the
+score and is never subsumed by it — a hand-built weaker implementation covers exactly what the
+operators cannot. Second, **never write an acceptance criterion whose RED depends on a survivor
+appearing**, unless a declared operator can express the defect: the gate can legitimately stay green
+while the defect ships, which is why this plan's score task is a MEASUREMENT with a threshold rather
+than a TDD cycle.
+
+**The sibling shape from the other direction** is already in this repo's archive — a surface at 1.00
+with zero unaccepted survivors while a Set member was missing, because an absent member is not a
+mutation of code that exists. That one reached the limit from the SOURCE side; this one reaches it
+from the OPERATOR side. Two directions make it a class rather than an anecdote.
+
 ### §4.2 The removed false advisory is IN SCOPE, and the residual resolver is not
 
 Two different things live here and a reviewer will challenge the first as scope creep, so they are
