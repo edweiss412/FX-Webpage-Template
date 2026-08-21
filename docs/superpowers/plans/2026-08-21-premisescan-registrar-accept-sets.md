@@ -87,7 +87,9 @@ binding `source-shards` leg returns CANCELLED with no annotations, that is the 9
 
 Four census runs and one extractor prototype, all on this tree, all re-runnable.
 
-**1. The census, and what a merge did to it.** `docs/superpowers/specs/ci/probes/2026-08-21-premisescan-registrar-accept-sets/census.mts`
+**1. The census, and what a merge did to it.** These four rows measure the VARIANTS in isolation, on
+a tree with no test-file edits. They are provenance for the design, **not expectations for Task 4** —
+Task 4 asserts no whole-population count at all, for the reason recorded there. `docs/superpowers/specs/ci/probes/2026-08-21-premisescan-registrar-accept-sets/census.mts`
 derives its population from `GUARD_SURFACES` and prints a record per classified test.
 
 ```
@@ -290,13 +292,30 @@ matches, which is the vacuity this prevents. **Prove it, and print the proof:**
 
 ```bash
 # temporarily, in vitestSurface.ts: chainable("ChainableSuiteAPI") -> chainable("ChainableSuiteAPIX")
-pnpm exec vitest run tests/mutation/_metaVitestSurfaceDerivation.test.ts --project parallel 2>&1 | grep -m1 'ChainableSuiteAPIX'
-# expect: derive: ChainableSuiteAPIX yielded no members
+pnpm exec vitest run tests/mutation/_metaVitestSurfaceDerivation.test.ts --project parallel 2>&1 \
+  | grep -q 'derive: ChainableSuiteAPIX yielded no members' \
+  || { echo "FAIL: the perturbed selector did not name ITSELF"; exit 1; }
 ```
 
 The grep is what makes it a proof rather than a red: any broken selector reds the suite, but only the
 right one names ITSELF. Repeat per selector; four perturbations, four distinct messages. Paste them
 in the commit body.
+
+**`grep` MASKS the suite's nonzero exit, so the perturbation run proves nothing about the finished
+state** (plan review r3 finding 2). Restore every perturbation and close the task on a green run of
+BOTH commands, unmasked:
+
+```bash
+git diff --quiet tests/mutation/source/vitestSurface.ts \
+  || { echo "ABORT: a floor perturbation was left in place"; exit 2; }
+pnpm exec vitest run tests/mutation/_metaVitestSurfaceDerivation.test.ts --project parallel   # expect green
+pnpm exec vitest run tests/mutation/source/premiseScan.test.ts --project parallel             # expect green
+```
+
+Without the first of those two, an implementation where the scanner cases pass while the pin still
+carries a failing equality or absence assertion satisfies every other command this task prints —
+AC-2, AC-7 and AC-8 would all read as discharged. **The task's `red=` marker names the scanner suite
+because a marker carries one command; the pin's green run is not optional for that reason.**
 
 **AC-7 is discharged by construction and asserted anyway.** The pin asserts `extend`, `override`,
 `scoped` and `fn` are ABSENT from the derived modifier set — not redundant with the equality check,
@@ -408,43 +427,69 @@ Cases, one per site, because a single case passes with two of three still unrepa
 
 ## Task 4 — the closing corpus measurement (verification, no red)
 
-Three commands, and the third is the one that can fail meaningfully:
-
-1. `pnpm exec vitest run tests/mutation/_metaPremiseContract.test.ts --project parallel` — 11 passed,
-   unchanged. Any per-suite count change contradicts AC-1.
-2. `pnpm exec tsx docs/.../census.mts` — expect `2762 / 101 / 1`.
-3. Diff the records against the baseline:
-
-   ```bash
-   CENSUS=docs/superpowers/specs/ci/probes/2026-08-21-premisescan-registrar-accept-sets/census.mts
-   pnpm exec tsx "$CENSUS" --records | tail -n +7 | sort > /tmp/census-after.txt
-   diff /tmp/census-before.txt /tmp/census-after.txt          # expect: exactly one `>` line, no `<` line
-   diff <(grep '^environment-touching' /tmp/census-before.txt) \
-        <(grep '^environment-touching' /tmp/census-after.txt)  # expect: EMPTY, exit 0
-   ```
-
-   **Expect exactly one added row and ZERO moved rows** in the UNEDITED population, and the
-   environment-touching set byte-identical. The second diff is the load-bearing one: the first passes
-   if a touching row is swapped for a free row, since that is still one `>` and one `<`.
-
 **`tests/mutation/source/premiseScan.test.ts` IS in the census population** — it is one of
-premiseScan's three `suitePaths` — so Tasks 1-3 add cases to a suite the census counts, and a bare
-`2762` is an expectation this plan's own work invalidates (plan review r2 finding 2). The claim is
-therefore PARTITIONED, and the records are name-keyed so that inserting a case does not re-key every
-record below it:
+premiseScan's three `suitePaths` — so Tasks 1-3 add records to the very population this task measures.
+**No whole-population count can be predicted here, and none is asserted** (plan review r2 finding 2;
+an earlier draft appended the partition BESIDE the whole-population numbers it supersedes and left
+both standing, which was r3 finding 1). The claim is partitioned, and records are name-keyed so
+inserting a case does not re-key every record below it.
+
+### Step 0 — the baseline, BEFORE any source edit
+
+Its omission cannot be recovered later without checking out the merge base again.
 
 ```bash
-EDITED='tests/mutation/source/premiseScan.test.ts'
-grep -v -F "$EDITED" /tmp/census-before.txt > /tmp/before-unedited.txt
-grep -v -F "$EDITED" /tmp/census-after.txt  > /tmp/after-unedited.txt
-diff /tmp/before-unedited.txt /tmp/after-unedited.txt   # expect: exactly one `>`, no `<`
-
-# in the EDITED suite: additions only, every addition environment-free, no verdict moved
-diff <(grep -F "$EDITED" /tmp/census-before.txt) <(grep -F "$EDITED" /tmp/census-after.txt) \
-  | grep '^<' && { echo "FAIL: a pre-existing record in the edited suite moved or vanished"; exit 1; }
-diff <(grep -F "$EDITED" /tmp/census-before.txt) <(grep -F "$EDITED" /tmp/census-after.txt) \
-  | grep '^>' | grep -v '^> environment-free' && { echo "FAIL: a new case is not environment-free"; exit 1; }
+git diff --quiet tests/mutation/source/premiseScan.ts tests/mutation/source/premiseScan.test.ts \
+  || { echo "ABORT: a subject file is already modified; this would be a snapshot, not a baseline"; exit 2; }
+CENSUS=docs/superpowers/specs/ci/probes/2026-08-21-premisescan-registrar-accept-sets/census.mts
+pnpm exec tsx "$CENSUS" --records | tail -n +7 | sort > /tmp/census-before.txt
+wc -l < /tmp/census-before.txt    # 2761 on this tree; recorded as provenance, NOT as a later expectation
 ```
+
+The `git diff --quiet` guard is what makes it a baseline rather than a snapshot of whatever was in
+the tree: a "before" captured over a half-applied change is the failure this task exists to detect,
+wearing the baseline's name.
+
+### Step 1 — the third declaration is unmoved
+
+```bash
+pnpm exec vitest run tests/mutation/_metaPremiseContract.test.ts --project parallel   # expect green
+```
+
+`EXPECTED_ENV_TOUCHING` declares per-suite environment-TOUCHING counts. **Any per-suite change
+contradicts AC-1**, and this is also what catches a new case that unexpectedly reads the environment.
+
+### Step 2 — the partitioned record diff
+
+```bash
+CENSUS=docs/superpowers/specs/ci/probes/2026-08-21-premisescan-registrar-accept-sets/census.mts
+EDITED='tests/mutation/source/premiseScan.test.ts'
+pnpm exec tsx "$CENSUS" --records | tail -n +7 | sort > /tmp/census-after.txt
+
+# (a) UNEDITED population: exactly one record added, none removed, none moved.
+diff <(grep -v -F "$EDITED" /tmp/census-before.txt) <(grep -v -F "$EDITED" /tmp/census-after.txt) > /tmp/unedited.diff
+[ "$(grep -c '^>' /tmp/unedited.diff)" = 1 ] || { echo "FAIL: not exactly one addition outside the edited suite"; exit 1; }
+[ "$(grep -c '^<' /tmp/unedited.diff)" = 0 ] || { echo "FAIL: a record outside the edited suite moved or vanished"; exit 1; }
+grep '^>' /tmp/unedited.diff | grep -q '^> environment-free' \
+  || { echo "FAIL: the added record is not environment-free"; exit 1; }
+
+# (b) EDITED suite: additions only, and every addition environment-free.
+diff <(grep -F "$EDITED" /tmp/census-before.txt) <(grep -F "$EDITED" /tmp/census-after.txt) > /tmp/edited.diff
+[ "$(grep -c '^<' /tmp/edited.diff)" = 0 ] || { echo "FAIL: a pre-existing record in the edited suite moved or vanished"; exit 1; }
+! grep '^>' /tmp/edited.diff | grep -qv '^> environment-free' \
+  || { echo "FAIL: a new case is not environment-free"; exit 1; }
+
+# (c) the actual AC-1 claim, over the WHOLE corpus: the touching set is byte-identical.
+diff <(grep '^environment-touching' /tmp/census-before.txt) \
+     <(grep '^environment-touching' /tmp/census-after.txt) || { echo "FAIL: the env-touching set moved"; exit 1; }
+echo "AC-1 holds"
+```
+
+**(c) is the load-bearing one and it IS whole-population** — that is legitimate where a count is not,
+because it asserts a SET is unchanged rather than predicting a size. (a) alone passes if a touching
+record is swapped for a free one, since that is still one `>` and one `<`. **A verdict move inside the
+EDITED suite is caught by (b)'s `^<` check**, because a name-keyed record that changes verdict leaves
+the old line and adds a new one.
 
 **Every new case must be environment-FREE, and that is a requirement on how the cases are written,
 not a prediction.** The fixtures are source STRINGS passed to `classifyTests`; a string literal
@@ -454,22 +499,6 @@ failing — so this is checked, not assumed.
 
 **If any env-touching record moves, AC-1 has moved and a user decision IS owed** (spec §4, and the
 PR #843 escalation shape). Stop and escalate rather than updating `EXPECTED_ENV_TOUCHING`.
-
-**Capture the baseline as step 0, BEFORE any source edit** — a baseline taken after the change proves
-nothing, and this is the one step in the plan whose omission cannot be recovered later without
-checking out the merge base again:
-
-```bash
-git -C . stash list >/dev/null   # no stash needed; the tree must simply be unmodified
-git diff --quiet tests/mutation/source/premiseScan.ts || { echo "ABORT: source already modified"; exit 2; }
-CENSUS=docs/superpowers/specs/ci/probes/2026-08-21-premisescan-registrar-accept-sets/census.mts
-pnpm exec tsx "$CENSUS" --records | tail -n +7 | sort > /tmp/census-before.txt
-wc -l /tmp/census-before.txt    # expect 2761
-```
-
-The `git diff --quiet` guard is what makes it a baseline rather than a snapshot of whatever was in
-the tree: a "before" captured over a half-applied change is the failure this whole task exists to
-detect, wearing the baseline's name.
 
 **AC-1.**
 
@@ -553,16 +582,25 @@ that reaches `main` names a branch the merge just deleted, and
 Verify with commands, not by reading:
 
 ```bash
-grep -c 'BL-PREMISESCAN-REGISTRAR-ACCEPT-SETS-HAND-MAINTAINED' BACKLOG.md          # expect 0
-grep -c 'BL-PREMISESCAN-REGISTRAR-ACCEPT-SETS-HAND-MAINTAINED' BACKLOG-archive.md  # expect >=1
-grep -rn 'IN PROGRESS' BACKLOG.md DEFERRED.md | grep -i premisescan                # expect NO output
-comm -12 <(grep -oE '(BL|DEF)-[A-Z0-9-]+' BACKLOG.md | sort -u) \
-         <(grep -oE '(BL|DEF)-[A-Z0-9-]+' BACKLOG-archive.md | sort -u)            # expect EMPTY
+ROW='BL-PREMISESCAN-REGISTRAR-ACCEPT-SETS-HAND-MAINTAINED'
+grep -q "$ROW" BACKLOG.md          && { echo "FAIL: the row is still open"; exit 1; }
+grep -q "$ROW" BACKLOG-archive.md  || { echo "FAIL: the row was removed but never archived"; exit 1; }
+grep -rn 'IN PROGRESS' BACKLOG.md DEFERRED.md | grep -qi premisescan \
+  && { echo "FAIL: an IN PROGRESS marker would reach main"; exit 1; }
+[ -z "$(comm -12 <(grep -oE '(BL|DEF)-[A-Z0-9-]+' BACKLOG.md | sort -u) \
+                 <(grep -oE '(BL|DEF)-[A-Z0-9-]+' BACKLOG-archive.md | sort -u))" ] \
+  || { echo "FAIL: a row is both open and archived"; exit 1; }
 pnpm exec vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerMintBar.test.ts --project parallel
+echo "ledger closeout verified"
 ```
 
-The `comm -12` is the both-directions half: archived-minus-open alone passes a row that was copied
-rather than moved.
+**Every line FAILS rather than printing a number to be eyeballed.** The first draft used
+`grep -c … # expect 0`, which prints its result and moves on — an expectation stated beside a command
+instead of enforced by it, the same class as plan review r3 finding 2 one artifact over.
+
+The second check is the direction the first cannot see: removed-from-open is satisfied by a row that
+was DELETED rather than archived. The `comm -12` is a third direction again — archived-minus-open
+alone passes a row that was COPIED rather than moved.
 
 `BL-ACCEPTSET-CONSUMER-COVERAGE` (filed during this arc's spec stage) is **not** closed here. Its
 repair is a structural test whose consumer list is DERIVED — walking for reads of each set's
