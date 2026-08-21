@@ -1104,12 +1104,17 @@ function attachedTargetEnd(text: string, start: number): { end: number; undelimi
     if (character === "\\") {
       // The pair, whatever the next character is - including the newline, which
       // is a CONTINUATION and keeps the target going, exactly as bash reads it.
-      // A dangling backslash at end of input escapes nothing and bash keeps it
-      // as a literal character of the word.
-      if (i + 1 >= text.length) {
-        i++;
-        break;
-      }
+      //
+      // A dangling backslash at end of input needs NO special case here, and it
+      // had one until the gate proved it dead. Consuming the pair past the end
+      // leaves `end` one larger, `text.slice` clamps to the same bytes, and the
+      // caller's `i = end - 1` reaches the same place - so the branch could not
+      // change any observable, on any input. Probed across the whole
+      // dangling-backslash-at-EOF family, every case with NO trailing newline
+      // because a battery that all ends in one cannot reach this family at all:
+      // identical sites and hits with the branch present, deleted, and mutated.
+      // Bash keeping the backslash as a literal character of the word is real
+      // and is handled where the slice is LEXED, not where it is delimited.
       i++;
       continue;
     }

@@ -1,3 +1,23 @@
+## BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION — a command substitution inside an ATTACHED redirection target hides an executing psql from both scanners
+
+**Status:** RESOLVED 2026-08-21 (`fix/shell-attached-redirection-target`, PR #873) · **Filed:** 2026-08-20 (`fix/shell-lexer-quoted-value-recall`, spec adversarial round 1 finding 1) · **Facing:** process · **Severity:** MEDIUM · **Class:** guard coverage · **Effort:** M
+
+Closed on the reading this row ratified, and on no other. `lexShellWords` consumed an ATTACHED redirection target with a character-class run and discarded the match, so a target containing a command SUBSTITUTION was never lexed and its body never reached `scanShellText` — zero sites and zero indirection hits for a command bash really runs, which is a missed SITE rather than a missed discovery hit.
+
+**What shipped.** `attachedTargetEnd` delimits the target BY CONSTRUCT, using the handlers the lexer already had, and the slice is handed back to `lexShellWords` so dequoting, ANSI-C decoding, escape handling and nested-body collection come from ONE implementation rather than a second grammar beside it. The bodies are re-anchored into the outer array exactly as the `${…}` branch does; the dequoted target is retained in `targets` for the here-string reader. **Both readings this row REFUSED are still refused**: the target's text never becomes an argv word, and the site path is byte-identical BY CONSTRUCTION because `scanShellText` passes no `targets` array and therefore cannot see it.
+
+**The measurement that decided the design, and it refuted the obvious model.** The old pattern was not a target recognizer, it was a character-run muncher: through the shipped matcher at the base revision, `` >`psql -c 'x'` `` consumed only `` `psql `` and `>$(psql)` consumed only `$`, handing a FRAGMENT to the outer loop which then mis-lexed it. A repair that merely re-lexed the old match would have inherited both, and cases G, H and I exist to kill exactly that.
+
+**Also measured against bash rather than declared.** Ten of the twelve shipped redirection operators expand an attached substitution — `<&` included, which expands the word and only then fails the descriptor check — while `<<` and `<<-` take a here-DOCUMENT delimiter literally and execute nothing. Collecting bodies there would have been a FALSE advisory, so `LITERAL_TARGET_REDIRECTIONS` declines those two over a declared closed set, and `operator-oracle.mts` re-derives the split from the shell on every run.
+
+**Consequence bound held: the guard got stricter without getting louder.** The live-corpus finding set is unchanged — 76 sites, 0 indirections, digest `8ebe8b08d43e6308aa471112d9f086d0118e6238` over every field of every record — and the digest was proven to discriminate on all five fields §5 forbids moving. The three-surface census still reports ZERO substitution-bearing attached targets. The first implementation of the unlexable report DID get louder, firing on nine live JS template literals, and the digest is what caught it.
+
+**Three declared-limit pins retired, two controls held**, in the same commit as the recognizer change: `A3` the attached here-string, `F2` the attached substitution target, and the `F3` block's attached-target-no-override row now report; `F11` is unchanged at 1 site `[false]`, and the overridden here-string sibling still reports nothing, because a later `< /dev/null` on fd 0 means bash makes no binding.
+
+**What remains, narrower, and recorded where the code is READ** (`tests/cross-cutting/psqlStartupFiles/scan.ts`, documented-limits block) rather than only here: an undelimitable target is REPORTED and never resolved; that report is scoped to the surfaces production reads, so shell embedded in a JS string is outside it and carries a re-file trigger; and a here-document delimiter's bodies are deliberately not collected. None is a silent miss — each is a conservative direction with a surfaced signal or a measured shell fact behind it.
+
+Spec `docs/superpowers/specs/ci/2026-08-21-shell-attached-redirection-target-design.md`; plan `docs/superpowers/plans/ci/2026-08-21-shell-attached-redirection-target.md`; probe record `docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-redirection-target-probes.md`.
+
 ## BL-SENDAUTH-ARM-CLASSIFIER-UNIFICATION — four arms of one scanner each decide independently what a receiver and a raw binding are — CLOSED 2026-08-21
 
 **Status:** SHIPPED 2026-08-21 · **Effort (as shipped):** M · **Severity (as filed):** MEDIUM (each un-narrowed arm is a SILENT miss, the one outcome the surface's consequence bound forbids) · **Class:** detector fidelity · **Facing:** process · **Shipped by:** `fix/sendauth-arm-classifier-unification`

@@ -190,22 +190,35 @@ failure below could be the harness rather than the weakening.
 
 | state | rows |
 |---|---|
-| **PROVEN** — variant built, weakening confirmed EXPRESSED, shipped check observed FAILING | W1, W2, W3, W4, W8, W9, W12, W15, W16, W19, W20, W21, W22 |
-| **PRESENT-BUT-UNPROVEN** — a killing check exists and no variant was built for it | W5, W7, W10, W11, W13, W14, W17, W18 |
-| **NOT CAUGHT — killing check ABSENT** | **W6** |
+| **PROVEN** — variant built, weakening confirmed EXPRESSED, shipped check observed FAILING | W1, W2, W3, W4, **W6**, W8, W9, W10, W11, W12, W13, W14, W15, W16, W17, W18, W19, W20, W21, W22 — TWENTY |
+| **COULD NOT BE EXPRESSED**, with the reason stated rather than shrugged | W5, W7 |
+| **NOT CAUGHT** | none — W6 was, and its case now ships |
+
+**W5 and W7 are not "unproven", they are cases I could not build**, which is a different claim and
+is worth stating as one. W5 (recurse only ONE level) turns out to be INERT as a source edit: the
+delimiter decides only the target's END, and the bodies come from handing the slice to
+`lexShellWords`, so making the walk non-recursive changes nothing wherever the closing quote is
+still found. Five candidate separators — a quote nested inside a brace, a `$( )`, a backtick, a
+single-quoted operand, and a plain depth-2 control — all agree between the variant and the shipped
+scanner. W7 (emit a `PsqlSite` instead of an `IndirectionHit`) cannot be built without inventing a
+site factory the module does not expose; the no-site row that would catch it is present and it was
+observed FAILING under W1 and W10, so the check is live even though this particular variant is not
+constructible.
 
 The split is stated rather than rounded up, because "I checked" and "it discriminates" are
 different claims and only one of them was made for eight of these rows.
 
-**W6 is the audit's real yield: no shipped check catches it.** Honouring the escape pair at top
+**W6 was the audit's real yield: no shipped check caught it, and one now does.** Honouring the escape pair at top
 level only leaves 24 of 24 holding, and the killer this plan named — H — does not exercise that
 path at all, because H's escaped backtick is consumed inside `closingBacktick` rather than inside
 the quoted-span walk. The separator was then MEASURED rather than guessed:
 `cat >"a\"b$(psql -c 'select 1')"` is sites 1 / hits 0 shipped and sites 0 / hits 1 under the
-variant, so the weakening converts a real SITE into a mere advisory. That case is owed to the
-deciding suite, and because the suite is a stamped input it was HELD rather than written while a
-measurement was in flight — editing a deciding suite mid-run does not cost the run, it silently
-corrupts it.
+variant, so the weakening converts a real SITE into a mere advisory. That case was HELD while a measurement was
+in flight — editing a deciding suite mid-run does not cost the run, it silently corrupts it — and
+landed the moment the run returned. It is PROVEN to discriminate: shipped reads
+`{sites: 1, nested: [true], unlexableAdvisories: 0}` and the variant reads
+`{sites: 0, nested: [], unlexableAdvisories: 1}`. Both halves are asserted, because "something
+reported" holds either way and is exactly the presence reading this class defeats.
 
 **A variant must be shown to EXPRESS its weakening before its result is read.** Two first drafts
 were inert or wrong-shaped and both would have been recorded as clean: W8's stopped the quoted walk

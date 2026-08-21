@@ -6437,6 +6437,30 @@ describe("an executing psql inside an ATTACHED redirection target", () => {
     ).toHaveLength(1);
   });
 
+  // W6: honour the escape pair at TOP LEVEL only. The plan named case H as its
+  // killer and H does not reach that path at all -- H's escaped backtick is
+  // consumed inside `closingBacktick`, never inside the quoted-span walk -- so
+  // the variant held all 27 shipped checks. Found by BUILDING it, not by
+  // reading. The separator is an escaped DOUBLE QUOTE inside the attached
+  // target: with the escape honoured the target runs to its real close and the
+  // substitution is a nested body; without it the span ends at the escaped
+  // quote, the remainder never closes, and the SITE is lost to an advisory.
+  // Both halves are asserted, because "something reported" holds either way and
+  // is exactly the presence reading this class defeats.
+  test("an escaped double quote inside an attached target does not end it", () => {
+    const source = 'cat >"a\\"b$(psql -c \'select 1\')"\n';
+    premiseHolds(
+      "the same target WITHOUT the escaped quote reports one site, so the pair differs by that escape alone",
+      sitesIn("cat >\"ab$(psql -c 'select 1')\"\n", "x.sh").length === 1,
+    );
+    const sites = sitesIn(source, "x.sh");
+    expect({
+      sites: sites.length,
+      nested: sites.map((s) => s.nested),
+      unlexableAdvisories: scanShellIndirection(source, "x.sh").length,
+    }).toEqual({ sites: 1, nested: [true], unlexableAdvisories: 0 });
+  });
+
   test("mutant (d): every body still reports from a DETACHED position", () => {
     const rows: Array<[label: string, source: string]> = [
       ["A bare backtick", "cat > `psql -c 'select 1'`\n"],

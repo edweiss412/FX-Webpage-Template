@@ -84,16 +84,6 @@ It survives the suite, and is carried as an `accepted-gap` row on the `premiseSc
 
 **First scheduled step:** add a committed two-file fixture under the recognizer's own fixture directory — a module reached via `@/` whose exported helper spawns — and assert `environment-touching`. That kills the mutant and lets the row graduate from `accepted-gap` to killed.
 
-## BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION — a command substitution inside an ATTACHED redirection target hides an executing psql from both scanners
-
-**Status:** IN PROGRESS · **Branch:** fix/shell-attached-redirection-target · **Filed:** 2026-08-20 (`fix/shell-lexer-quoted-value-recall`, spec adversarial round 1 finding 1) · **Facing:** process · **Severity:** MEDIUM (a MISSED SITE for an executing command, not a conservative non-report; zero corpus instances) · **Class:** guard coverage · **Effort:** M · **Incident:** spec round 1 of `fix/shell-lexer-quoted-value-recall` was burned on this gap — the reviewer's BLOCKING finding is the round, corpus row `docs/review-rounds/fix/shell-lexer-quoted-value-recall/`, and the arc withdrew its attached-target scope in response (design §1.1 row 7, §6 item 3). · **Reachability:** PROBED — see below; zero live corpus instances.
-
-`lexShellWords` (`tests/cross-cutting/psqlStartupFiles/scan.ts`) consumes an ATTACHED redirection target with a regex that matches the whole target and discards it, so a target CONTAINING A COMMAND SUBSTITUTION is never lexed and its body is never collected as a nested shell. Bash executes that body. Probed spellings, each reporting **zero sites and zero indirection hits** while the bash oracle confirms the call really runs: a bare backtick target; `$(…)` or a backtick inside an attached DOUBLE-QUOTED target; a locale-quoted `$"…"` target; and a command substitution inside an attached `${…}` target. The plain attached here-string (`read -r PG <<<p'sql'`) is the same family's benign end and is missed for the same reason.
-
-The failure direction is the bad one — a missed SITE for an executing psql, not a missed discovery hit — which is why this is a ledger row rather than only a limits entry. It is nonetheless PRE-EXISTING and not made worse by the arc that filed it.
-
-**What would close it, and what will not:** collecting the attached target's nested bodies into the lexer's `nested` array so `scanShellText` reads them as it reads every other substitution body. The two readings the filing arc REFUSED, recorded so they are not re-proposed: handing the attached slice to `lexShellWords` recursively and exposing the result to the site path (it breaks the by-construction site-path identity that the detached-target arm rests on), and recursive lexing that keeps the bodies private (machinery with the miss still in place). Closing it belongs to an arc that can re-measure the whole site path, not to a recall arc.
-
 ## BL-DESTRUCTIVE-GUARD-DISCOVERY-BY-CONNECTION — discover destructive-analysis files by connection, not by SQL spelling
 
 **Severity:** MEDIUM · **Class:** structural guard · **Effort:** L · **Filed:** 2026-08-14 (`chore/guard-completeness-wave`, spec `docs/superpowers/specs/ci/2026-08-14-guard-completeness-wave-design.md` §2.5)
