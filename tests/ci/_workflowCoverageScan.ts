@@ -1291,7 +1291,11 @@ export const ENV_KEY_ALLOWLIST: EnvKeyAllowlist = {
     values: [{ text: "3600", governs: [] }],
     reason:
       "Per-shard wall-clock budget the checker compares each leg against, in SECONDS against a " +
-      "per-job timeout-minutes: 90. Declared in seconds because an integer-minute record cannot " +
+      "per-job timeout-minutes of 125, pinned by _metaSourceShardIntegrity at >= 2x this value plus " +
+      "a 300 s reporting reserve -- the reserve is load-bearing, since at exactly 2x a leg has " +
+      "no time left to upload elapsed.txt and is cancelled silently anyway -- so " +
+      "a breach FAILS visibly instead of being CANCELLED into silence. Declared in seconds " +
+      "because an integer-minute record cannot " +
       "express 60m59s, so a shard already over budget would be recorded at the threshold and " +
       "evade an 'above' comparison. A wrong value here can only make the budget job wrong, never " +
       "a mutation shard silently green: the shards run and score independently of it.",
