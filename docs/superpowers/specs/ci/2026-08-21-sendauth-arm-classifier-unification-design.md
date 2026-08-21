@@ -99,9 +99,21 @@ the section whose job is to enumerate what remains silent.
 never "the arm." The word "arm" appears in this spec only where a reader cannot resolve it two
 ways, and every narrowing claim below names a symbol.
 
+### §1.1b The shape, named once: AN ENUMERATION WEARING A DERIVATION'S COSTUME
+
+Every defect in §3 — the ones that motivated this arc, the four spec round 1 returned against this
+design, and the two the duplicate sweep found afterwards — is one shape. A predicate that LOOKS
+derived is a hand-maintained list: "the four function-like kinds", "not spelled exactly like the
+surface type", "`parent.name === node` minus two exclusions", "parentheses" where the language has
+six transparent wrappers, "the four declaration kinds".
+
+**A list answers for the members its author thought of and falls silent on the rest**, and silence
+is the direction §0 forbids. That is why the repairs below are derivations and accept-sets rather
+than longer lists, and it is why four review findings are ONE finding.
+
 ### §1.2 The drift is measured, not argued
 
-Four of the five defect classes in §3 are one decision site doing what a sibling does not:
+Most of §3's defect classes are one decision site doing what a sibling does not:
 
 - `walkSinks` and `sendBearingFunctions` unwrap a parenthesized receiver through
   `receiverUnparen`; `analyzePassReads`, `analyzeHandoffs` and `classifyMemberOn` do not.
@@ -200,7 +212,7 @@ list of decision sites contains the sites its author thought of. See §3.7.
 type Receiver =
   | { kind: "surface"; name: string }   // rightmost name resolves to a surface binding
   | { kind: "foreign"; name: string }   // a rightmost name exists and is NOT a binding
-  | { kind: "opaque" };                 // there is no rightmost name at all
+  | { kind: "opaque" };                 // no statically knowable rightmost name
 
 const surfaceReceiverOf = (raw: ts.Expression, bindings: ReadonlySet<string>): Receiver
 ```
@@ -209,12 +221,25 @@ It unwraps parentheses (through the existing `receiverUnparen`) and takes the ri
 (through the existing `receiverRightmostName`). **Narrowing with parts that already ship, not with
 new ones.**
 
-**Parenthesis transparency is symmetric, and BOTH sides are the rule.** Rule A unwraps the receiver
-EXPRESSION; D6 needs the mirror — from an identifier, walk OUT through any run of parentheses
+**Transparency is asked of the COMPILER, never enumerated.** "Which wrappers are transparent" is a
+question TypeScript already answers: `ts.skipOuterExpressions(node, ts.OuterExpressionKinds.All)`
+sees through parentheses, type assertions (`as` and `<T>`), non-null (`!`), `satisfies`,
+partially-emitted expressions and expressions-with-type-arguments. **Probed, not assumed** — the
+`Satisfies` flag is member 32 of that enum in the pinned TypeScript, and all four forms resolve to
+the bare identifier (§3.9). A hand-written wrapper list is the exact defect this arc exists to
+remove, and writing one here would have been the defect committed inside its own repair.
+
+**Transparency is symmetric, and BOTH sides are the rule.** Rule A unwraps the receiver
+EXPRESSION; D6 needs the mirror — from an identifier, walk OUT through every transparent wrapper
 before asking which branch it reaches, on the member-receiver path, the call-argument path and the
 spread path alike. Unwrapping only the outer side leaves `(ch).gauge()` matching no branch in
 `classify`, which is the D6 defect §3.7 measures. **A transparent wrapper must not change what the
 guard sees, in either direction.**
+
+**A STATICALLY KNOWN element access resolves to its key.** `this["ch"].dispatch(...)` and
+`` this[`ch`].dispatch(...) `` name their member in the source text, need neither a checker nor a
+call graph, and are NOT the fenced call-result case. Rule A reads the literal. A non-literal key
+(`ch[name]`) stays `opaque`. §3.9 measures the sink going from fully silent to reported.
 
 **Disposition table — the whole point of the rule is that this table has no empty cells.**
 
@@ -223,6 +248,13 @@ guard sees, in either direction.**
 | `surface` | send-bearing | proceed | classify the member | count the read | report the handoff |
 | `foreign` | not a surface call — silent, and REQUIRED for zero false advisories | silent | silent | silent | silent |
 | `opaque` | DECLARED SILENCE, §1.3 item 4 | DECLARED SILENCE | DECLARED SILENCE | DECLARED SILENCE | DECLARED SILENCE |
+
+**`opaque` means "no statically knowable name", NOT "not a bare identifier".** The distinction is
+load-bearing and the first draft got it wrong: a call-result receiver is genuinely unknowable
+without the machinery §1.3 item 4 fences, while `this["ch"]` names its member in the source text.
+Putting the second in the same bucket as the first left a real surface sink fully silent (§3.9 F3).
+A receiver is `opaque` only when the source text does not name it: a non-literal element key, a call
+result, a conditional expression.
 
 **The boundary that makes zero false advisories possible, stated explicitly because it is where a
 reviewer will press.** DECLINE MEANING REPORT ranges over the **shape** dimension once surface
@@ -248,10 +280,19 @@ is the ratchet signature this arc exists to avoid.
 require a recognizer, find the invariant you can hold without parsing).
 
 > **The derivation exemption for a name is VOID inside a pass that declares that name more than
-> once with a COMPETING declaration.** A declaration competes when it could be a surface binding:
-> its type annotation is a surface reference (`isSurfaceRef`, already shared), or it has no
-> annotation and so cannot be ruled out. A declaration annotated with any other type is provably
-> not the surface and does not compete.
+> once with a COMPETING declaration.** A declaration competes unless it can be ruled out as the
+> surface WITHOUT a checker — that is, unless its annotation is a KEYWORD TYPE that cannot hold an
+> object: `string`, `number`, `boolean`, `bigint`, `symbol`, `void`, `undefined`, `null`, `never`.
+> **Everything else competes**: no annotation, `any`, `unknown`, a reference, a generic wrapper
+> such as `Readonly<Channel>`, an intersection such as `Channel & {}`, a union, a mapped type.
+
+**"Not spelled exactly like the surface type" is NOT "provably not the surface", and the first
+draft of this spec made exactly that mistake** (§3.9 F1). It permitted only an exact `isSurfaceRef`
+match or an absent annotation to compete, so a shadow annotated `any` or `Readonly<Channel>`
+inherited the exemption and SUPPRESSED reads the shipped scanner reports today — a regression, in
+the silence direction, introduced by the repair. The rule above is an **accept-set with the
+complement DEFAULT-DENIED into the reporting direction**: the listed keywords are the only escape,
+and every unlisted form competes.
 
 Three properties, all measured:
 
@@ -264,11 +305,23 @@ Three properties, all measured:
   declarations that could be the surface removes that and removes a **pre-existing** false advisory
   besides (§3.6).
 
-"Is this identifier a declaration name" is likewise **derived, not enumerated**: a name position is
-a declaration name when it IS its parent's `name`, with the two expression forms that also carry a
-`name` (`PropertyAccessExpression`, `QualifiedName`) excluded by name. The four-kind
-`isDeclarationName` list at BASE misses accessor, method and property-assignment names — a second
-enumeration of the same shape, invisible until the first is repaired (§3.4).
+"Is this identifier a declaration name" is an **accept-set of DECLARING PARENTS whose default is
+USE**: parameter, variable declaration, property declaration, binding element, method, get/set
+accessor, property assignment, property/method signature, function, class, enum member, type
+parameter. Anything else carrying a `name` is treated as a USE.
+
+**Choose the default by which error direction SURVIVES BEING WRONG.** This is not "default-deny" —
+deny is not always the safe side, and the two accept-sets in this spec default in OPPOSITE
+directions for exactly this reason. Rule B's competing test defaults to COMPETES; this one defaults
+to USE. What they share is that the default is the direction whose mistake is recoverable.
+Classifying a use as a declaration SKIPS it — the finding is lost forever and silently. Classifying
+a declaration as a use REPORTS — it costs a line somebody reads. So the unlisted case must fall to USE. The first draft of this spec instead defined a
+declaration name as "IS its parent's `name`, excluding `PropertyAccessExpression` and
+`QualifiedName`", which reads as a derivation and is a two-item denylist: `ShorthandPropertyAssignment`
+(`{ ch }`) and `ExportSpecifier` (`export { ch }`) both carry a `name` and are VALUE REFERENCES, so
+both would have been skipped into silence where the shipped scanner reports them (§3.9 F2). The
+four-kind `isDeclarationName` list at BASE misses accessor, method and property-assignment names —
+the same shape, invisible until the shadow walk is repaired (§3.4).
 
 ### §2.4 What the module loses
 
@@ -285,12 +338,14 @@ Deletions, not additions. The healthy direction under review pressure is a shrin
 ### §2.5 The corpus is DERIVED, and it is the same deliverable as the rules
 
 **The deepest measurement in §3 is not any single silent miss. It is that the 81-fixture corpus
-contains ZERO instances of all four shapes** — so the deciding suite was green throughout while
+contains ZERO instances of ANY of §3's shapes** — so the deciding suite was green throughout while
 four consecutive review rounds each contributed one instance. **Review was acting as the
 corpus-authoring mechanism, which is the most expensive authoring tool available.**
 
-Adding eight fixtures for the eight instances of §3 repeats that mistake one notch further out: it
-would make the next round's job to find shape nine. **The corpus is therefore ENUMERATED FROM THE AXES
+Adding one fixture per known instance of §3 repeats that mistake one notch further out: it would
+make the next round's job to find the next shape. **Spec round 1 supplied four of those
+twelve, and three of them were a MISSING AXIS rather than a missing cell** (§3.9) — which is the
+distinction the corpus has to be built on. **The corpus is therefore ENUMERATED FROM THE AXES
 THE SHARED RULES DECIDE ON, and the enumeration is only possible BECAUSE the rules are shared** —
 six hand-written rules have no common axis set to enumerate over. The unified rules and the
 derived corpus are ONE deliverable, and the plan ships them in one arc.
@@ -299,7 +354,11 @@ derived corpus are ONE deliverable, and the plan ships them in one arc.
 unbounded axis as a finite list is the class-sweep failure one level up: an enumerated cover calling
 itself complete. So each axis is classified before it is used.
 
-**Step 1 — for each axis, ask: is it FINITE, and does the rule READ it?**
+**Step 1 — for each axis, ask: is it FINITE, and does the rule READ it?** Three axes below were
+MISSING from the first draft of this table and were supplied by spec round 1 (§3.9): wrapper kind,
+annotation certainty, and static element access as a receiver shape. **A missing axis is the
+highest-value finding this document can receive**, and the table says so in §7's brief guidance for
+exactly that reason.
 
 | axis | finite? | does the rule read it? | treatment |
 | --- | --- | --- | --- |
@@ -308,7 +367,9 @@ itself complete. So each axis is classified before it is used.
 | exemption state — none / declared once / declared twice competing / declared twice non-competing | YES, 4 | YES, it is rule B's input | **cross completely** |
 | **parenthesis depth** | **NO — `((((ch))))` nests without limit** | **NO — rule A unwraps to a fixed point** | **independence proof**, never enumeration |
 | **member-chain depth** | **NO — `a.b.c.d.ch` nests without limit** | **NO — rule A takes the RIGHTMOST name** | **independence proof**, never enumeration |
-| receiver shape, once depth is factored out — bare · property · destructured local · call result | YES, 4 | YES | **cross completely** |
+| receiver shape, once depth is factored out — bare · property · **static element access** · destructured local · call result | YES, 5 | YES | **cross completely** |
+| **wrapper kind** — parentheses · `as` · `<T>` · `!` · `satisfies` · partially-emitted · with-type-arguments | YES, and DERIVED from `ts.OuterExpressionKinds` rather than typed here | YES, rule A skips them | **cross completely, axis read from the compiler's enum** |
+| **annotation certainty** — provably-not-surface keyword · everything else | YES, 2 | YES, rule B reads it | **cross completely** |
 
 **Step 2 — a finite, read axis is crossed completely, and the axis is DERIVED from the shipped
 constant rather than retyped into the manifest.** A retyped axis drifts the moment the constant
@@ -570,6 +631,117 @@ positive control is not a measurement. Re-run through the SHIPPED machinery (`ma
 `derivationsIn`, `surfaceBindings`, `isSurfaceRef`) rather than a re-modelling of it: 1 declared
 pass, and the §4.1 numbers follow from that run.
 
+### §3.9 Spec round 1: four findings, and the class they share
+
+All four were BLOCKING, all four were real, none was refuted or fenced. **Two were REGRESSIONS this
+spec's first draft would have introduced, both in the SILENCE direction**; two were pre-existing
+defects the first draft RATIFIED rather than repaired.
+
+| # | shape | baseline | first draft | after repair |
+| --- | --- | --- | --- | --- |
+| F1 | a shadow annotated `any` / `Readonly<Channel>` / `Channel & {}` | reports both reads | **SILENT — regression** | reports both reads |
+| F2 | `Object.values({ ch })`, `export { ch }` | `UNCLASSIFIED-USE` | **SILENT — regression** | `UNCLASSIFIED-USE` |
+| F3 | `this["ch"].dispatch(...)` | **silent** | silent (ratified as `opaque`) | `UNDECLARED-PASS` |
+| F4 | `ch!` · `ch as Channel` · `<Channel>ch` · `ch satisfies Channel`, doubled read | wrong attribution (`ch`) | wrong attribution | `MULTI-READ:panes` |
+
+**They are ONE shape: an enumeration wearing a derivation's costume.** F1 treated "not spelled
+exactly like the surface type" as "provably not the surface". F2's `parent.name === node` minus a
+two-item denylist reads as a derivation and is not one. F3 put a statically knowable receiver in the
+same bucket as the genuinely unknowable call result. F4 enumerated one wrapper where the language
+has six. That is this arc's own subject arriving on this arc's own design.
+
+**And it recurred INSIDE the repair, which is the part worth keeping.** Repairing F4 first made
+those four forms go from wrong attribution to **fully SILENT** — strictly worse — because the
+helper feeding rules 2 and 3 carried a **THIRD hand-written copy of the rightmost-name rule**,
+written in the very spike built to remove the second, and it saw through parentheses only. Routing
+it through the one rule closed it. **A rule is only shared where every consumer actually calls it**,
+and "I wrote a small helper" is how the third copy gets made.
+
+**Every repair is now a derivation or an accept-set with the complement default-denied**, never a
+list: transparency from `ts.skipOuterExpressions`; competing from a keyword accept-set defaulting to
+COMPETES; declaration-name from a declaring-parent accept-set defaulting to USE; static element keys
+read from the literal.
+
+**Full regression after the repair, because the repair is the next round's most likely defect.**
+Held constant: 81 fixtures, still exactly 2 moved and the same 2; live corpus 0 to 0; all seven
+§3.6 classes still closed; depth independence still byte-identical across 0/1/2/5; every negative
+control still silent, including the `string`-annotated collisions that F1's widening could have
+swept in.
+
+**One reviewer observation recorded as a limit of that round, not as a finding:** the deciding Vitest
+suite could not COLLECT under the read-only review sandbox (`EPERM` creating its temporary SSR
+directory). Every finding probe ran in-process regardless. A probe that could not run is not a probe
+that found nothing, and the reviewer said so rather than reporting a clean run.
+
+### §3.10 The scaffolding carried the duplicate, and a derived sweep found two more
+
+**Repairing F4 first made those four forms go from wrong attribution to fully SILENT** — strictly
+worse. The cause was not the design: the spike helper feeding rules 2 and 3 carried a **THIRD
+hand-written copy of the rightmost-name rule**, written inside the very spike built to remove the
+second, and it saw through parentheses only.
+
+**Scaffolding is code, and it is the code least likely to be reviewed.** Its copy of the rule is
+frequently the one that DECIDES THE MEASUREMENT, so a divergence there does not fail loudly — it
+reports a clean number. **When the work is de-duplication, sweep your own scaffolding for the
+duplicate before declaring the count.**
+
+**Three consecutive events on this arc had the same signature** — a repair introducing the next
+defect: the sixth decision site (§3.7), F4's repair going silent, and the spike's third copy. That
+is not bad luck; it is what a surface looks like when the rule lives in more places than the design
+says. So the count was established by a **DERIVED SWEEP, not by "that was the last one"** — which is
+the claim that had by then been wrong three times.
+
+**The sweep is structural, not lexical.** It parses every file under the surface's tree and the
+live prototype and reports any site that decides a NAME by applying `isIdentifier` AND
+`isPropertyAccessExpression` to the same expression — a copy of the rule whatever it is called. A
+grep is blind to a copy spelled differently, and a confident clean result from an unsound method is
+indistinguishable from a real one.
+
+It returned **5 sites**, and two were copies nobody had named:
+
+| site | verdict |
+| --- | --- |
+| `receiverRightmostName` | the ONE implementation |
+| **`calleeNameOf`** | **a FOURTH copy** — it names the callee of a `RAW-HANDOFF`, which is part of that finding's IDENTITY, and skipped no outer expression. Probed: `(helper as typeof helper)(snap)` reported `name=(anonymous)`, so two wrapped handoffs on one line would have collapsed into one finding. Routed through the one rule: `name=helper`. |
+| **`walkSinks`'s local `unparen`** | **a FIFTH copy** — parentheses only, so a callee wrapped any other way fell out of BOTH sink shapes. Probed: `this.ch.dispatch!(...)` and `(this.ch.dispatch as …)(...)` reported `UNCLASSIFIED-USE` and no `UNDECLARED-PASS`. Routed through the shared unwrap: both now also report `UNDECLARED-PASS`, matching the plain control. |
+| the two shape tests that legitimately ask a DIFFERENT question | not copies |
+
+**The fifth was not silence and is stated precisely, because overclaiming it would be its own
+defect:** before the repair those calls were REPORTED, with a coarser code naming the member rather
+than the pass. Signaled, not silently wrong — a documented limit under §0 rather than a bound
+violation. The repair improves attribution; it does not rescue the construct from silence.
+
+### §3.11 Provenance of the before/after numbers
+
+**Every "baseline" in §3 is read from git, never from the filesystem of the worktree the prototype
+lives in.** A baseline read from disk in that worktree compares the prototype against itself and
+reports the answer you were hoping for — no error, no empty result, no suspicious zero.
+
+Named revs, and all three agree, so the comparison is unambiguous:
+
+```
+HEAD:tests/paneCompaction/sendAuthScan.ts         412cadd3dd4c21513c5cbee6c514f033b7cdb859
+origin/main:tests/paneCompaction/sendAuthScan.ts  412cadd3dd4c21513c5cbee6c514f033b7cdb859
+working tree                                      412cadd3dd4c21513c5cbee6c514f033b7cdb859
+files this branch has changed under that path     0
+```
+
+The prototype itself lives OUTSIDE the repository, so the tracked tree was never modified —
+`git status --porcelain` empty across every run. The comparison was then re-run with the baseline
+rebuilt from `git show origin/main:<path>` and returned **identical numbers**: 81 scanned, 2 moved,
+79 identical; live corpus 0 to 0. Clean by construction AND confirmed by the prescribed method.
+
+### §3.12 Independent reproduction
+
+Two of this spec's claims were reproduced by the round-1 reviewer, working independently:
+
+- **§1.1's ambiguity claim VERIFIED** — predecessor spec §4 limit 8 says "the read arm" fails closed
+  while `analyzePassReads` remains bare-identifier-only.
+- **The live scan independently returned `[]`.**
+
+An independent reproduction of a probe is the strongest form that evidence takes, and it is
+recorded here rather than left in a review transcript.
+
 ---
 
 ## §4 Documented limits
@@ -602,6 +774,15 @@ confinement claim being probed FALSE.
 **Re-file when:** the live corpus acquires a pass in which a DERIVATION's name is declared twice by
 competing declarations (count is 0 today, and the plan pins it), or a contributor reports this
 advisory against code they consider correct.
+
+### §4.1b A wrapped CALLEE is reported with a coarser code, and that is a limit rather than a gap
+
+After §3.10's repair, a sink whose CALLEE is wrapped (`this.ch.dispatch!(...)`) reports both
+`UNDECLARED-PASS` and `UNCLASSIFIED-USE`; before it, only the latter. **Neither state is silence.**
+The scanner does not model a wrapped callee as a distinct construct and does not need to: it is
+signaled either way, and §0 permits a conservative report with a coarser code. **Re-file when:** a
+scanned module calls a sink through a wrapped callee and the coarser code proves to mislead a
+contributor, or the sink-shape test is edited for any other reason.
 
 ### §4.2 The removed false advisory is IN SCOPE, and the residual resolver is not
 
@@ -743,6 +924,11 @@ suite is not proof for AC-U6** — see its row.
 | **AC-U3** | Parenthesized receivers are classified identically to bare ones by ALL of D3, D4, D5. `(ch).gauge()` twice reports `MULTI-READ`; `helper((ch))` reports `RAW-HANDOFF`. Fixture bytes carry `// prettier-ignore` immediately above the line — a normaliser deleting the parentheses would silently convert the case into a duplicate of an existing fixture. **Measured at BASE, and this is work the plan performs rather than a property the tree has:** `.prettierignore` carries NO `tests/paneCompaction/` entry, exactly ONE of the 81 fixtures carries the inline directive, and the deciding suite asserts NOTHING about fixture bytes. The enumerated `.prettierignore` leaves every new fixture directory unprotected by default, so the cover is a DERIVED assertion — every syntax-sensitive cell of the §2.5 manifest is checked to carry its directive — rather than a `.prettierignore` line, which is a shared-file edit in a batch where four arcs are merging around each other. | new fixtures + suite cases; plus a byte-identity assertion over the fixture manifest |
 | **AC-U4** | The derivation exemption is void under a competing double declaration, in EVERY scope kind: constructor, set accessor, nested block with a surface-typed initializer, nested block with an opaque initializer. Four cases, one per spelling. | new fixtures + suite cases |
 | **AC-U5** | A declaration that is provably NOT the surface does not compete. A parameter typed `string` sharing the name leaves the exemption intact and the pass silent. **Expect-a-REPORT pair:** the same fixture with the annotation changed to the surface type REPORTS, so the silent verdict is attributable to the annotation rather than to the scanner never looking. | new fixture PAIR + suite cases |
+| **AC-U12** | An annotation that is not an exact surface reference but COULD hold the surface — `any`, `unknown`, `Readonly<Channel>`, `Channel & {}` — COMPETES, so the exemption is void and the reads report. **Paired one variable away** with a `string`-annotated collision that must stay silent, so the silence is attributable to the keyword accept-set rather than to the scanner not looking. | new fixtures + suite cases |
+| **AC-U13** | A value reference carrying a `name` is classified as a USE, not a declaration: `Object.values({ ch })` and `export { ch }` both report `UNCLASSIFIED-USE`. Paired with a real declaration of each accepted parent kind, which must stay silent. | new fixtures + suite cases |
+| **AC-U14** | A statically known element-access receiver resolves: `this["ch"].dispatch(...)` and `` this[`ch`].dispatch(...) `` report, while a non-literal key `ch[name]` stays `opaque`. The pair is what stops the fix from becoming a blanket report. | new fixtures + suite cases |
+| **AC-U15** | Every transparent wrapper the COMPILER defines is skipped, on BOTH sides: `ch!`, `ch as Channel`, `<Channel>ch`, `ch satisfies Channel` each report `MULTI-READ` naming the doubled READ, not the binding. The wrapper axis is read from `ts.OuterExpressionKinds`, and the suite asserts the axis against that enum rather than against a list typed into the test — so a wrapper kind TypeScript adds is covered by default. | new fixtures + suite cases + an axis-parity assertion |
+| **AC-U16** | The rightmost-name rule has exactly ONE implementation and every consumer calls it. **Proved by a STRUCTURAL sweep asserted by the suite** — it parses the module and fails on any site deciding a name by applying `isIdentifier` and `isPropertyAccessExpression` to the same expression, other than the one implementation. A lexical grep cannot do this: it is blind to a copy spelled differently. This is the check that found copies four (`calleeNameOf`) and five (`walkSinks`'s local unwrap) after three consecutive "that was the last one" claims had each been wrong (§3.10). | a derived check over the module, asserted by the suite, plus a constructed violation proving it FAILS |
 | **AC-U6** | The live corpus scans **0 findings** under the unified rules. | executable: `scanRepo(LIVE_ROOTS, SEND_AUTH_SURFACES)` asserted empty **with its premise stated executably** — the walk visited a non-zero file count and the enrolled module was among them. `0 of 0` and `0 of N` render identically, and a zero over an empty population is not a pass. |
 | **AC-U7** | All 81 pre-existing fixture verdicts are preserved except the two named in §3.6, whose changes are additive only. | the deciding suite's existing cases, unmodified except the two, plus the plan's per-fixture before/after diff run at plan time and pasted |
 | **AC-U8** | `shadowedBetween` no longer exists, and no loop in the module has its termination in a mutable predicate. | grep for the symbol returning 0, plus a module audit for the loop property — a totalisation that moves termination into a predicate turns an off-by-one mutant into a NON-TERMINATING one and takes the whole measurement down |
