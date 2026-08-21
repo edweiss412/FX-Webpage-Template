@@ -300,6 +300,55 @@ is FALSE. **Re-verify the set arithmetic after every subsequent merge from main.
 
 ---
 
+## 3b. Tautology audit — population DERIVED from the instruments this plan ships
+
+Round 1 found this audit missing five instrument groups, and the restructure then dropped it
+entirely — **which is the sweep-population rule landing on the audit itself, twice.** Its population
+was the list I had in mind, not the instruments the plan ships. It is now derived from the tasks:
+**every assertion any task authors**. Each row answers BOTH questions, and a row that cannot say what
+would break it is the next tautology.
+
+- **Q1 — could it fail if the code compiles?**
+- **Q2 — can its two sides EVER disagree, and what event would make them?** If no event moves one
+  without the other, the check is decoration however rigorous it reads.
+
+| task | instrument | Q1 | Q2 — the event that separates the sides |
+| --- | --- | --- | --- |
+| 1 | manifest vs fixture DIRECTORY | yes | a cell added to the derivation with no fixture on disk; the filesystem does not know what the constant says |
+| 1 | directive census | yes | a syntax-sensitive fixture authored without `// prettier-ignore` |
+| 1 | struck-cell coverage | yes | a struck cell with no recorded reason |
+| 1 | depth independence | yes | a rule that reads depth at any position; it FAILED before the §3.7 repair |
+| 2 | wrapper set vs `ts.OuterExpressionKinds` | yes | TypeScript adding a wrapper kind, or a hand-typed list drifting from the enum |
+| 2 | static element key resolves | yes | a key spelling the resolver does not read |
+| 3 | six-site equality assertions | yes | any consumer answering differently from rule A; each compares a whole finding SET |
+| 4 | competing-declaration count | yes | an annotation moved between the keyword accept-set and its complement |
+| 4 | the two moved expectations | yes | a finding added or removed at either fixture |
+| 5 | declaration-name accept-set | yes | a parent kind entering or leaving the set |
+| 6 | read set over a quoted member | yes | the member-name position leaving the rule |
+| 7 | ABSENCE scan | yes | a second copy of the rule; copies three, four and five all compiled and shipped green |
+| 7 | ADOPTION scan | yes | a name-resolution site neither routed nor acknowledged; reports 12 today |
+| 7 | METAMORPHIC scan | yes | a spelling dependence anywhere in the detector; it FAILED at 42 to 44 before the repair |
+| 7 | per-form planted violations | yes | a detector recognizing a strict subset of the API set |
+| 7 | stale-row check | yes | a disposition row whose site is gone; reports 2 today |
+| 7 | ROUTE compliance | yes | a `ROUTE` row whose site is still unrouted; reports 12 today |
+| 7 | `not-a-name` field invalidation | yes | the site repurposed to read a different field |
+| 8 | live scan empty, with its population premise | yes | a walk that visits nothing; `0 of 0` and `0 of 576` are the two sides |
+| 9 | survivor set vs GATE report | yes | a mutant surviving that the row does not accept — the gate is the oracle, and the deciding suite could not be |
+| 9 | input stamps, before and after | yes | any score input moving during the run |
+| 9 | shard integrity, both directions | yes | the temp shard present or absent; proven each way |
+| 9 | `grep -c -F` control uniqueness | yes | a refactor duplicating the keyed line; it was 1 at BASE and this arc moves that code |
+| 9 | killer audit | yes | a weaker implementation no declared operator can express |
+| 10 | ledger set arithmetic | yes | a row in both files, or a marker surviving to HEAD |
+| 10 | mint-bar fields on the peer row | yes | the row filed after the cutoff without `Facing` / `Incident` |
+
+**The row that had to be rewritten rather than confirmed:** an early manifest case compared a
+DERIVATION AGAINST A DERIVATION — axes from the shipped constants on both sides — which fails Q2 by
+construction, since a drift moves both sides together. It would have read as the most rigorous cell
+in the table. The shipped form puts the fixture directory on one side, because **derivation is right
+for a COVER and wrong for BOTH SIDES OF A COMPARISON.**
+
+---
+
 ## 3c. Weaker implementations, and the fixture that kills each
 
 Written down per rule, not per instance: for every rule this plan specifies, the strictly weaker
