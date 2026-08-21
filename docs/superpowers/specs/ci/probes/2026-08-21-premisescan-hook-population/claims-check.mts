@@ -160,7 +160,11 @@ for (const c of uniq) {
   };
   const selectors: { what: string; re: RegExp; want: number; word?: true }[] = [
     { what: "§5.2 heading count (word)", re: /All (\w+) §5\.2 cells/g, want: T, word: true },
-    { what: "pre-change / post-change figures", re: /\*\*7 of (\d+)\*\*|\*\*(\d+) of \2\*\* where the change exists/g, want: T },
+    // Both halves read the TOTAL, never the pass count: the pre-change figure
+    // moves whenever a cell is added, so pinning it here would be a second
+    // literal to keep in step -- exactly what check D exists to stop.
+    { what: "pre-change figure total", re: /\*\*\d+ of (\d+)\*\* — the/g, want: T },
+    { what: "post-change figure", re: /\*\*(\d+) of \d+\*\* where the change exists/g, want: T },
     { what: "AC-4 reporting split", re: /every one of the (\d+) reporting cells/g, want: R },
     { what: "AC-4 silent split", re: /every one of the (\d+) silent cells/g, want: S },
     { what: "AC-4 pin", re: /pins the total at (\d+)/g, want: T },

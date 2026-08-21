@@ -1896,7 +1896,7 @@ function hookBodies(describeCall: ts.CallExpression): ts.Node[] {
  * omitting ExpressionWithTypeArguments made the closure claim FALSE rather
  * than merely incomplete, which is what diff round 6 caught.
  */
-function isSuiteBody(arg: ts.Expression): boolean {
+function unwrapTransparent(arg: ts.Node): ts.Node {
   let node: ts.Node = arg;
   while (
     ts.isParenthesizedExpression(node) ||
@@ -1907,6 +1907,11 @@ function isSuiteBody(arg: ts.Expression): boolean {
     ts.isExpressionWithTypeArguments(node)
   )
     node = node.expression;
+  return node;
+}
+
+function isSuiteBody(arg: ts.Expression): boolean {
+  const node = unwrapTransparent(arg);
   return ts.isArrowFunction(node) || ts.isFunctionExpression(node);
 }
 
@@ -1933,18 +1938,7 @@ function eagerArguments(call: ts.CallExpression): ts.Node[] {
 
 /** The registration argument that IS the suite body, unwrapped to its function. */
 function suiteBodyFunction(arg: ts.Expression): ts.Node | null {
-  if (!isSuiteBody(arg)) return null;
-  let node: ts.Node = arg;
-  while (
-    ts.isParenthesizedExpression(node) ||
-    ts.isAsExpression(node) ||
-    ts.isSatisfiesExpression(node) ||
-    ts.isNonNullExpression(node) ||
-    ts.isTypeAssertionExpression(node) ||
-    ts.isExpressionWithTypeArguments(node)
-  )
-    node = node.expression;
-  return node;
+  return isSuiteBody(arg) ? unwrapTransparent(arg) : null;
 }
 
 /**
@@ -2021,16 +2015,25 @@ function eagerPositionHookReports(facts: ModuleFacts): string[] {
   const sf = facts.sf;
 
   const collect = (n: ts.Node): void => {
-    // An eager position is EVALUATED; a function VALUE sitting in one is NOT
-    // invoked while Vitest collects, so a hook inside it registers on nothing
-    // and reporting it would attribute a hook that does not run.
+    // There is DELIBERATELY no stop at a function-like node here. One stood
+    // here until diff review r4, on the reasoning that a function VALUE in an
+    // eager position is not invoked while Vitest collects. That reasoning reads
+    // LEXICAL SHAPE and calls it execution, which it is not: an IIFE, an invoked
+    // object method, a synchronously invoked callback, an invoked
+    // default-parameter initializer and a computed method/getter/setter name all
+    // sit inside a function-like node and all RUN. The stop silenced every one
+    // of them -- probed at runtime, `runtimeHookCalls=1` against
+    // `scanner=environment-free` -- which is FALSE CERTIFICATION, the direction
+    // the consequence bound forbids, bought in exchange for the wrong
+    // attribution it permits.
     //
-    // `ts.isFunctionLike` is TypeScript's OWN predicate and the `ts.` prefix is
-    // load-bearing: this module declares a local `isFunctionLike` over a
-    // hand-listed seven kinds, and a hand list is a list to be completed one
-    // node kind per review round. The compiler's answer covers methods,
-    // getters, accessors and constructors together.
-    if (ts.isFunctionLike(n)) return;
+    // This is the same defect diff review r3 found in producer B, and the same
+    // subtractive repair: nothing syntactic connects a function body to a call
+    // site, so the scanner cannot decide invocation, and deciding it is the
+    // resolution R1 declines. Reporting both is the conservative direction and
+    // the reason stays TRUE either way, because it says whether the hook
+    // registers cannot be determined rather than asserting that it does. The
+    // residue is limit L8, which now covers BOTH producers.
     if (
       ts.isCallExpression(n) &&
       ts.isIdentifier(n.expression) &&
@@ -2090,13 +2093,22 @@ export function hookAttachmentReports(
  * accepts whatever it did not model.
  */
 function isInertLiteral(arg: ts.Expression): boolean {
+  // Read through the SAME transparent-wrapper closure `isSuiteBody` reads
+  // through. Reading the raw node made `(opts)`, `opts as const` and
+  // `x satisfies T` around a legal inline `SuiteOptions` literal report as
+  // possible factories, when Vitest 4.1.5's own declaration accepts
+  // `(name, options, fn?)` and TypeScript emits all three as the same object
+  // literal. Diff review r4 finding 2: the scanner unwrapped when looking for a
+  // BODY and not when checking inertness, and one pair of parentheses is one
+  // ordinary edit from a committed silent cell.
+  const node = unwrapTransparent(arg);
   return (
-    ts.isStringLiteralLike(arg) ||
-    ts.isNumericLiteral(arg) ||
-    ts.isObjectLiteralExpression(arg) ||
-    ts.isArrayLiteralExpression(arg) ||
-    arg.kind === ts.SyntaxKind.TrueKeyword ||
-    arg.kind === ts.SyntaxKind.FalseKeyword
+    ts.isStringLiteralLike(node) ||
+    ts.isNumericLiteral(node) ||
+    ts.isObjectLiteralExpression(node) ||
+    ts.isArrayLiteralExpression(node) ||
+    node.kind === ts.SyntaxKind.TrueKeyword ||
+    node.kind === ts.SyntaxKind.FalseKeyword
   );
 }
 

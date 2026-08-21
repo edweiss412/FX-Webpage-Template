@@ -72,6 +72,15 @@ results.push(cell("factory in slot 1 with a trailing timeout (kills last-slot-on
 results.push(cell("literal options in slot 1 with the factory in slot 2 (kills first-slot-only)", "report", `const f = () => { it("a", () => {}); };\ndescribe("A", { concurrent: true }, f);`, { kills: "first-slot-only" }));
 
 results.push(cell("registration inside a function value, invoked or not", "report", `const suiteA = () => { it("d", () => {}); };\nfunction register() { describe("A", suiteA); }\nregister();\nit("s", () => {});`, { kills: "execution-shape suppression" }));
+// The two `.each` datum cells were SILENT cells until diff review r4. They are
+// reporting cells now, and their kill target is the suppression that used to
+// make them silent: a stop at `ts.isFunctionLike` inside producer A's collector.
+// That stop read LEXICAL SHAPE and called it execution, so it silenced an IIFE
+// and an invoked function expression too -- hooks that RUN. Deleting it is the
+// same subtractive repair r3 forced in producer B, and these two cells now fail
+// if anything reinstates it in either producer.
+results.push(cell("deferred hook inside a function-valued .each datum", "report", `describe.each([() => { beforeEach(() => {}); }])("A%s", () => { it("a", () => {}); });`, { kills: "function-like suppression in producer A" }));
+results.push(cell("deferred hook inside a method-shorthand .each datum", "report", `describe.each([{ setup() { beforeEach(() => {}); } }])("A%s", () => { it("a", () => {}); });`, { kills: "function-like suppression in producer A" }));
 const reportingCells = results.length;
 console.log("--- cells that must stay SILENT");
 results.push(cell("bodyless options registration", "silent", `describe("A", { skip: true });\nit("s", () => {});`, { input: "per-slot class: inert literal" }));
@@ -83,11 +92,17 @@ results.push(cell("named constant as the NAME", "silent", `const NAME = "A";\nde
 // attribution and a false advisory on the ordinary extraction of an inline test
 // callback. This is spec review r2 finding 2 turned into a case: without it, the
 // claim that the rule is suite-only is asserted in prose and checked by nothing.
+// A legal inline `SuiteOptions` literal under a transparent wrapper. ONE cell
+// for the class -- parentheses, `as`, `satisfies`, a non-null assertion and an
+// angle-bracket assertion all reach the same object literal, and TypeScript
+// emits them identically. `isInertLiteral` read the RAW node until diff review
+// r4, so each of these reported as a possible factory against a declaration
+// (`describe(name, options, fn?)`) that makes them legal bodyless options.
+results.push(cell("inert options under a transparent wrapper", "silent", `describe("A", ({ skip: true }));\ndescribe("B", { skip: true } as const);\ndescribe("C", { skip: true } satisfies { skip: boolean });\nit("s", () => {});`, { kills: "raw-node inert reading" }));
 results.push(cell("named handler on an it/test root", "silent", `function testFn() {}\ntest("named", testFn);\ntest("sibling", () => {});`, { input: "root kind" }));
 // A hook inside a function-valued eager datum is a VALUE, never invoked during
 // registration, so reporting it attributes a hook that does not run — spec review
 // r3 finding 1.
-results.push(cell("deferred hook inside a function-valued .each datum", "silent", `describe.each([() => { beforeEach(() => {}); }])("A%s", () => { it("a", () => {}); });`, { input: "function-like containment" }));
 // ONE cell for the whole function-like class, not one per node kind. The walk
 // stops on TypeScript's own `isFunctionLike`, so a method, a getter, an accessor
 // and a constructor are covered by the same predicate; a cell per kind would be
@@ -99,14 +114,13 @@ results.push(cell("deferred hook inside a function-valued .each datum", "silent"
 // hook there. Vitest never invokes the datum while collecting, so nothing
 // registers. ONE cell for the class -- the walk stops on `ts.isFunctionLike`,
 // and a cell per node kind would rebuild the enumeration that predicate deletes.
-results.push(cell("deferred hook inside a method-shorthand .each datum", "silent", `describe.each([{ setup() { beforeEach(() => {}); } }])("A%s", () => { it("a", () => {}); });`, { input: "function-like containment" }));
 
 const passed = results.filter(Boolean).length;
 console.log(
   `\n${reportingCells} reporting + ${results.length - reportingCells} silent = ${results.length} cells`,
 );
 console.log(`${passed} of ${results.length} cells behave as the spec's §5.2 table claims`);
-if (results.length !== 17) {
+if (results.length !== 18) {
   console.error("cell-check: the cell count moved; §5.2's table and this script must agree");
   process.exit(2);
 }

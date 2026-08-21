@@ -112,6 +112,16 @@ const IMP = `import { spawnSync } from "node:child_process";`;
     [`${IMP}\n${H}\ndescribe(reg(), () => { it("a", () => {}); });`, "eager argument"],
     [`${IMP}\n${H}\ndescribe("A", () => { reg(); it("a", () => {}); });`, "inside an inline body"],
     [`${IMP}\n${H}\nreg();\nit("a", () => {});`, "plain file-scope statement"],
+    // Diff review r4 raised these as producer A defects. They are NOT: the hook
+    // is in a separate declaration reached by CALL, never in the registration's
+    // argument subtree, so they are this row and base-identical. The two shapes
+    // of that round that WERE in-argument -- an arrow and a function-expression
+    // IIFE -- are repaired and probed under L8, and the difference between the
+    // two groups is measured here rather than argued.
+    [`${IMP}\nconst o = { m() { beforeEach(() => { spawnSync("e",[]); }); return "A"; } };\ndescribe(o.m(), () => { it("a", () => {}); });`, "invoked object method"],
+    [`${IMP}\nconst n = [1].map(() => { beforeEach(() => { spawnSync("e",[]); }); return "A"; })[0]!;\ndescribe(n, () => { it("a", () => {}); });`, "synchronously invoked callback"],
+    [`${IMP}\nconst f = (x = (() => { beforeEach(() => { spawnSync("e",[]); }); return 1; })()) => String(x);\ndescribe(f(), () => { it("a", () => {}); });`, "invoked default-parameter initializer"],
+    [`${IMP}\nconst o = { [(() => { beforeEach(() => { spawnSync("e",[]); }); return "k"; })()]() { return 1; } };\ndescribe(String(o), () => { it("a", () => {}); });`, "computed method name"],
   ] as const;
   let uniform = true, detail = "";
   for (const [src, label] of cases) {
@@ -121,7 +131,7 @@ const IMP = `import { spawnSync } from "node:child_process";`;
     if (!same || !free) uniform = false;
     detail += `${label}: base=${b.map((r: Rows[number]) => r.verdict).join(",")} live=${l.map((r: Rows[number]) => r.verdict).join(",")}  `;
   }
-  say("L4", "helper-registered hook invisible at all 3 positions, identical to baseline", uniform, detail);
+  say("L4", "hook reached only by CALL invisible at every probed position, identical to baseline", uniform, detail);
 }
 // L5 — a named OPTIONS object with no body reports; with a body it does not.
 {
@@ -167,9 +177,15 @@ const IMP = `import { spawnSync } from "node:child_process";`;
     invokedHelper: `${F}\nfunction register() { describe("A", suiteA); }\nregister();`,
     iife: `${F}\n(() => { describe("A", suiteA); })();`,
     uncalledHelper: `${F}\nfunction unused() { describe("A", suiteA); }`,
+    // Producer A's half, added at diff review r4: a HOOK inside an IIFE in an
+    // eager position. The stop at `ts.isFunctionLike` silenced these while they
+    // RUN, which is the same false certification r3 found in producer B.
+    hookInArrowIife: `describe((() => { beforeEach(() => {}); return "n"; })(), () => {});\nit("s", () => {});`,
+    hookInFunctionIife: `describe((function () { beforeEach(() => {}); return "n"; })(), () => {});\nit("s", () => {});`,
+    hookInEachDatum: `describe.each([() => { beforeEach(() => {}); }])("A%s", () => { it("a", () => {}); });`,
   };
   const got = Object.entries(shapes).map(([k, src]) => [k, P(src).l.some((r: Rows[number]) => r.detail.length > 0)] as const);
-  say("L8", "a registration inside a function value reports, invoked or not",
+  say("L8", "a registration OR a hook inside a function value reports, invoked or not",
     got.every(([, reported]) => reported),
     got.map(([k, r]) => `${k}=${r ? "REPORTED" : "SILENT"}`).join(" "));
 }

@@ -31,6 +31,16 @@ function verdict(src: string): string {
 }
 
 /**
+ * The hand-written witness for producer A's reason. Deliberately NOT built by
+ * calling the shipped `eagerHookReason`: both sides on one source is how a
+ * reason-emptied and a reason-suffixed mutant survived all twelve cells at diff
+ * round 1. File-scope so producer A's cells and the function-value cells share
+ * ONE witness -- a second copy is a second thing to drift.
+ */
+const expectedEagerReason = (registrar: string, line: number): string =>
+  `hook ${registrar} at line ${line} occupies an eager argument position, so whether it registers, and which suite it would attach to, cannot be determined,`;
+
+/**
  * Every classification for a synthetic suite, with the path it was written to.
  *
  * The path is returned because a file-level reason carries its module, so an
@@ -4233,8 +4243,6 @@ describe("producer A — a hook in an eager argument position reports unclassifi
    * against it once below. A reword now has to be made in two places or it
    * reds, which is what a foil is for.
    */
-  const expectedEagerReason = (registrar: string, line: number): string =>
-    `hook ${registrar} at line ${line} occupies an eager argument position, so whether it registers, and which suite it would attach to, cannot be determined,`;
 
   /**
    * The spelling varies with the POSITION because it must: the curried producer
@@ -4619,7 +4627,7 @@ describe("producer B — an unfollowable factory slot reports unclassifiable", (
   }
 
   /**
-   * The seven SILENT cells. Each is one ordinary edit from a reporting cell, so
+   * The six SILENT cells. Each is one ordinary edit from a reporting cell, so
    * a rule that fires on them is over-firing on live authoring rather than
    * catching anything -- an intermediate per-ARGUMENT rule took the live corpus
    * from 1 `unclassifiable` to 398 on the second of these.
@@ -4630,9 +4638,40 @@ describe("producer B — an unfollowable factory slot reports unclassifiable", (
     "named options + inline body": `const opts = { timeout: 1 };\ndescribe("A", opts, () => { it("a", () => {}); });`,
     "named constant as the NAME": `const NAME = "A";\ndescribe(NAME, () => { it("a", () => {}); });`,
     "named handler on an it/test root": `function testFn() {}\ntest("named", testFn);\ntest("sibling", () => {});`,
-    "deferred hook in a function-valued .each datum": `describe.each([() => { beforeEach(() => {}); }])("A%s", () => { it("a", () => {}); });`,
-    "deferred hook in a method-shorthand .each datum": `describe.each([{ setup() { beforeEach(() => {}); } }])("A%s", () => { it("a", () => {}); });`,
+    // Diff review r4 finding 2. `isInertLiteral` read the RAW argument node, so a
+    // legal inline `SuiteOptions` literal reported as a possible factory the
+    // moment anything transparent wrapped it -- and a pair of parentheses is one
+    // ordinary edit from the bodyless-options cell above. ONE cell for the class:
+    // TypeScript emits all three of these as the same object literal.
+    "inert options under a transparent wrapper": `describe("A", ({ skip: true }));\ndescribe("B", { skip: true } as const);\ndescribe("C", { skip: true } satisfies { skip: boolean });\nit("s", () => {});`,
   };
+
+  /**
+   * Both `.each` datum cells were SILENT until diff review r4, on the reasoning
+   * that Vitest never invokes a datum while collecting. The suppression that
+   * enforced it -- a stop at `ts.isFunctionLike` inside producer A's collector --
+   * read LEXICAL SHAPE and called it execution, so it silenced an IIFE and an
+   * invoked function expression too: hooks that RUN. It is deleted, and these
+   * cells now FAIL if anything reinstates it in either producer.
+   */
+  const FUNCTION_VALUE_HOOK: Record<string, string> = {
+    "hook in a function-valued .each datum": `describe.each([() => { beforeEach(() => {}); }])("A%s", () => { it("a", () => {}); });`,
+    "hook in a method-shorthand .each datum": `describe.each([{ setup() { beforeEach(() => {}); } }])("A%s", () => { it("a", () => {}); });`,
+    "hook in an arrow IIFE in an eager position": `describe((() => { beforeEach(() => {}); return "n"; })(), () => {});\nit("s", () => {});`,
+    "hook in a function-expression IIFE in an eager position": `describe((function () { beforeEach(() => {}); return "n"; })(), () => {});\nit("s", () => {});`,
+  };
+
+  for (const [id, src] of Object.entries(FUNCTION_VALUE_HOOK)) {
+    it(`${id}: reports, naming the hook`, () => {
+      const got = rows(src);
+      expect(got.length, `${id}: no test classified`).toBeGreaterThan(0);
+      const detail = got.map((r) => r.detail).join("");
+      // Asserted against the hand-written foil, never against the shipped
+      // formatter: building both sides from one source is how a reason-emptied
+      // and a reason-suffixed mutant survived twelve cells at round 1.
+      expect(detail, id).toContain(expectedEagerReason("beforeEach", 1));
+    });
+  }
 
   for (const [id, src] of Object.entries(SILENT)) {
     it(`${id}: no reason is emitted`, () => {
