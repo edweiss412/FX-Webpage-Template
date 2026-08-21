@@ -25,9 +25,12 @@ export function settle(ch: Channel): number {
   // send-auth: pass
   const authorizeOnce = (): boolean => {
     const snap: Channel = { ...ch };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the `any`
-    // annotation IS the fixture: AC-U12 is that a type which COULD hold the
-    // surface competes. Changing it to satisfy the rule would delete the case.
+    // The `any` annotation IS the fixture: AC-U12 is that a type which COULD hold
+    // the surface competes, so changing it to satisfy the rule would delete the
+    // case. The directive is ONE line and sits IMMEDIATELY above the code —
+    // a multi-line `--` description makes `next-line` point at the SECOND comment
+    // line, which is a real comment, leaving the code unguarded.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const inner = (snap: any): boolean => String(snap).length > 0;
     void inner;
     const a = snap.panes();
