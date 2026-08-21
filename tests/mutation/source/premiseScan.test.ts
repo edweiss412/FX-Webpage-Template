@@ -3889,7 +3889,7 @@ describe("whole-diff R5 #1 — a memberless namespace of a BARE specifier stays 
  * unresolved import, which goes green when the TEST changes rather than when
  * the implementation lands (docs/agents/writing-plans.md:15).
  */
-function scannerModifiers(): string[] {
+function scannerModifiers(setName = "MODIFIERS"): string[] {
   const src = readFileSync(join(__dirname, "premiseScan.ts"), "utf8");
   const sf = ts.createSourceFile("premiseScan.ts", src, ts.ScriptTarget.Latest, true);
   let names: string[] | null = null;
@@ -3897,7 +3897,7 @@ function scannerModifiers(): string[] {
     if (
       ts.isVariableDeclaration(node) &&
       ts.isIdentifier(node.name) &&
-      node.name.text === "MODIFIERS" &&
+      node.name.text === setName &&
       node.initializer &&
       ts.isNewExpression(node.initializer)
     ) {
@@ -3935,10 +3935,14 @@ function branchA(spelling: string): string {
 }
 
 describe("AC-5 — every describe spelling stops the nested-hook walk", () => {
-  const modifiers = scannerModifiers();
+  // SUITE_MODIFIERS, not the union. `describe.fails` was in this generated
+  // population and Vitest has no such spelling: the union accepted it, so the
+  // cover asserted a behaviour for a registration that cannot exist. A cover
+  // generated from a set wider than its subject tests fiction (diff r2, F3).
+  const modifiers = scannerModifiers("SUITE_MODIFIERS");
   // The premise: a mis-read source yields an empty loop, and an empty loop
   // passes by asserting nothing. This reds loudly instead.
-  premise("the scanner's modifier set was extracted", modifiers.length, 0);
+  premise("the scanner's suite-modifier set was extracted", modifiers.length, 0);
 
   const spellings = [
     "describe",
@@ -5173,5 +5177,63 @@ describe("accept-set consumers reached by the widening (diff r3)", () => {
     // same registration and the claim is that they AGREE.
     expect(verdicts(viaProperty)).toEqual(verdicts(bare));
     expect(verdicts(viaProperty)).not.toContain("environment-free");
+  });
+});
+
+/**
+ * Diff-review round 2 found the deciders themselves incomplete. `calleeName`
+ * accepted an identifier and a dot property access and returned `null` for
+ * everything else - and every caller reads `null` as "this callee bears no
+ * name", so an unrecognised SPELLING became a silent "not a hook". That is
+ * FALSE CERTIFICATION arriving through the very function introduced to stop it.
+ *
+ * The repair is not one branch per spelling. Two different things were conflated
+ * behind one `null`:
+ *
+ *   - spellings whose name is statically DECIDABLE and merely written another
+ *     way - `test["beforeEach"]`, `(test).beforeEach`, `(test as X).beforeEach`.
+ *     These are the same name by any reading and are decided, once.
+ *   - callees whose name is NOT statically decidable - `test[k]`, a computed
+ *     member. These now report UNRECOGNISED, and every caller treats that
+ *     conservatively instead of as "no".
+ *
+ * The second half is what makes a spelling nobody has thought of fail SAFE.
+ */
+describe("the deciders are complete or they decline (diff r2)", () => {
+  const hookIn = (callee: string): string =>
+    `describe("S", () => { ${callee}(() => { void process.env.CI; }); it("a", () => {}); });`;
+
+  // Witnessed against the dot spelling rather than a literal: these are the
+  // same registration and the claim is that they AGREE.
+  it("a hook named through a decidable spelling is not certified free", () => {
+    const dot = verdict(hookIn("beforeEach"));
+    expect(dot).toBe("environment-touching");
+    for (const spelling of [
+      `test["beforeEach"]`,
+      `(beforeEach)`,
+      `(test as typeof test).beforeEach`,
+      `test!.beforeEach`,
+    ]) {
+      expect({ spelling, v: verdict(hookIn(spelling)) }).toEqual({
+        spelling,
+        v: dot,
+      });
+    }
+  });
+
+  // The undecidable case must NOT read as free. It may be conservative; it may
+  // not be silently absent.
+  it("a hook whose name cannot be decided is not certified free", () => {
+    const src = `const k = "beforeEach";\ndescribe("S", () => { (test as never)[k](() => { void process.env.CI; }); it("a", () => {}); });`;
+    expect(verdict(src)).not.toBe("environment-free");
+  });
+
+  // A bracketed modifier mid-chain must not invent a registration nor lose one.
+  it("a bracketed modifier in the callee chain neither invents nor loses a row", () => {
+    const dotEach = rowsWithPath(`test.skipIf(false).each([[1]])("t%s", () => {});`).rows;
+    const brkEach = rowsWithPath(`test.skipIf(false)["each"]([[1]])("t%s", () => {});`).rows;
+    const brkSkip = rowsWithPath(`test["skipIf"](false).each([[1]])("t%s", () => {});`).rows;
+    expect(brkEach.map((r) => r.verdict)).toEqual(dotEach.map((r) => r.verdict));
+    expect(brkSkip.map((r) => r.verdict)).toEqual(dotEach.map((r) => r.verdict));
   });
 });

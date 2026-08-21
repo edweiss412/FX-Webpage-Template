@@ -182,19 +182,37 @@ function conditionalMembers(decls: Declarations): string[] {
   return floor("SuiteAPI/TestAPI conditional members", [...out]);
 }
 
-/** premiseScan's `MODIFIERS`: every chainable key, curried member and
- *  conditional member the declaration names, from BOTH API sides. */
+/** The modifiers ONE side of the API declares.
+ *
+ *  Per side, because the declaration draws a line the union erased:
+ *  `ChainableSuiteAPI` names `shuffle` and `ChainableTestAPI` names `fails`, and
+ *  neither names the other's. Unioning them and applying the result to every
+ *  registrar accepted `test.shuffle(…)` and `suite.fails(…)`, neither of which
+ *  exists - spurious registrations invented by the derivation itself
+ *  (diff review r2, F3).
+ *
+ *  A DERIVATION MUST PRESERVE THE DISTINCTIONS ITS SOURCE OF TRUTH MAKES.
+ *  Deriving from the declaration was the right call; flattening what the
+ *  declaration separates gave back the drift the derivation existed to remove,
+ *  in the FREE direction rather than the strict one.
+ *
+ *  Conditional members (`runIf`, `skipIf`) are declared once for both sides and
+ *  so belong to each. */
+export function deriveModifiersFor(
+  side: "suite" | "test",
+  decls: Declarations = readDeclarations(),
+): string[] {
+  const api = chainableMembers(decls, side === "suite" ? "ChainableSuiteAPI" : "ChainableTestAPI");
+  return [...new Set([...api.chain, ...api.curried, ...conditionalMembers(decls)])].sort();
+}
+
+/** premiseScan's `MODIFIERS`: the union, for the sites that legitimately need
+ *  "is this token a modifier at all" without knowing the root - the chain walk
+ *  peels members BEFORE it learns which registrar it roots at. Sites that DO
+ *  know the root must consult the per-side set instead. */
 export function deriveModifiers(decls: Declarations = readDeclarations()): string[] {
-  const suite = chainableMembers(decls, "ChainableSuiteAPI");
-  const test = chainableMembers(decls, "ChainableTestAPI");
   return [
-    ...new Set([
-      ...suite.chain,
-      ...suite.curried,
-      ...test.chain,
-      ...test.curried,
-      ...conditionalMembers(decls),
-    ]),
+    ...new Set([...deriveModifiersFor("suite", decls), ...deriveModifiersFor("test", decls)]),
   ].sort();
 }
 

@@ -10,6 +10,7 @@ import {
   deriveCurriedModifiers,
   deriveHooks,
   deriveModifiers,
+  deriveModifiersFor,
   deriveRegistrars,
   deriveRegistrarsOfType,
   readDeclarations,
@@ -117,6 +118,33 @@ describe("AC-2 — every committed accept-set equals what Vitest's declaration s
 
   it("MODIFIERS equals the declared chainable, curried and conditional members", () => {
     expect([...committedSet("MODIFIERS")].sort()).toEqual(deriveModifiers(declarations));
+  });
+
+  // The PARTITION, pinned. The union alone cannot catch a side losing a member
+  // to the other, which is exactly what happened: `shuffle` is suite-only and
+  // `fails` is test-only, and a derivation that unioned them accepted
+  // `test.shuffle` and `suite.fails`. Pinning only the union would have stayed
+  // green through that (diff r2, F3).
+  it("SUITE_MODIFIERS equals what the suite side declares", () => {
+    expect([...committedSet("SUITE_MODIFIERS")].sort()).toEqual(
+      deriveModifiersFor("suite", declarations),
+    );
+  });
+
+  it("TEST_MODIFIERS equals what the test side declares", () => {
+    expect([...committedSet("TEST_MODIFIERS")].sort()).toEqual(
+      deriveModifiersFor("test", declarations),
+    );
+  });
+
+  // The two sides must actually DIFFER, or the partition is a distinction the
+  // code draws and the declaration does not - and this pin would be theatre.
+  it("the two sides are not the same set", () => {
+    const suite = new Set(deriveModifiersFor("suite", declarations));
+    const test = new Set(deriveModifiersFor("test", declarations));
+    const onlySuite = [...suite].filter((m) => !test.has(m));
+    const onlyTest = [...test].filter((m) => !suite.has(m));
+    expect({ onlySuite, onlyTest }).toEqual({ onlySuite: ["shuffle"], onlyTest: ["fails"] });
   });
 
   it("CURRIED_MODIFIERS equals the declared curried members", () => {

@@ -92,6 +92,37 @@ const MODIFIERS = new Set([
  *  PRODUCER the associated premise must be about (spec §3.3.2.2). */
 const CURRIED_MODIFIERS = new Set(["each", "for"]);
 
+/** The modifiers each API side actually declares. `shuffle` is suite-only and
+ *  `fails` is test-only; the union accepts `test.shuffle` and `suite.fails`,
+ *  which Vitest does not have. The union is still what the chain PEEL consults,
+ *  because peeling happens before the root is known - these decide validity
+ *  once it is. Derived from the declaration and pinned by
+ *  `_metaVitestSurfaceDerivation`. */
+const SUITE_MODIFIERS = new Set([
+  "concurrent",
+  "each",
+  "for",
+  "only",
+  "runIf",
+  "sequential",
+  "shuffle",
+  "skip",
+  "skipIf",
+  "todo",
+]);
+const TEST_MODIFIERS = new Set([
+  "concurrent",
+  "each",
+  "fails",
+  "for",
+  "only",
+  "runIf",
+  "sequential",
+  "skip",
+  "skipIf",
+  "todo",
+]);
+
 /** Parsed by EXTENSION: a `.tsx` suite read as TS turns `<div>x</div>` into a
  *  type assertion, so the classifier would be reasoning about an AST the file
  *  does not have. No enrolled suite is `.tsx` today; nothing stops the next one
@@ -148,23 +179,92 @@ const PREMISE_CALLS = /^premise(Holds)?$/;
  * named cause, which the bound permits.
  */
 /**
- * The name a callee resolves to, or null when it resolves to none.
+ * What a callee's name resolves to. THREE states, not two.
  *
- * Split out of `calleeNamed` because a consumer sometimes needs the NAME and not
- * just the answer, and the two consumers that needed it had each re-derived it
- * inline instead - which is how `test.beforeEach(…)` stayed invisible to the
- * eager-hook reporter while `calleeNamed` next to it saw it perfectly well.
- * One decider, two shapes of question.
+ * The two-state form returned `null` for both "this callee bears no name" and
+ * "I do not recognise this shape", and every caller read `null` as the first.
+ * So `test["beforeEach"](…)` - an ordinary spelling with a perfectly decidable
+ * name - became "not a hook", and the file it touched was certified
+ * `environment-free` while it read `process.env`. FALSE CERTIFICATION arriving
+ * through the very function introduced to prevent it (diff review r2, F1).
+ *
+ * Centralising the decision proved UNIQUENESS, not COMPLETENESS. One incomplete
+ * chokepoint is a single point of silent-free, which is worse than the scattered
+ * inline reads it replaced. Centralisation is only safe with decline-and-surface
+ * built into it.
  */
-function calleeName(callee: ts.Expression, propertyAccessCounts: boolean): string | null {
-  if (ts.isIdentifier(callee)) return callee.text;
-  if (propertyAccessCounts && ts.isPropertyAccessExpression(callee)) return callee.name.text;
-  return null;
+type CalleeName =
+  | { kind: "named"; name: string }
+  /** A callee that genuinely carries no name - a call, a literal, an arrow. */
+  | { kind: "nameless" }
+  /** A shape whose name is not statically decidable: `test[k]`, a computed
+   *  member. NOT a licence to ignore it - every caller must be conservative. */
+  | { kind: "unrecognized" };
+
+/**
+ * Decidable spellings are decided ONCE, here; the rest decline.
+ *
+ * Peeling parentheses, `as` casts and non-null assertions is not "one branch per
+ * spelling" - they wrap an expression without changing which name it denotes,
+ * so they are the same read written differently. A bracket access with a STRING
+ * LITERAL is likewise the same name as the dot form by any reading. What is left
+ * over - a computed key - is genuinely undecidable, and that is what declines.
+ */
+function calleeName(callee: ts.Expression, propertyAccessCounts: boolean): CalleeName {
+  for (;;) {
+    if (
+      ts.isParenthesizedExpression(callee) ||
+      ts.isAsExpression(callee) ||
+      ts.isNonNullExpression(callee)
+    ) {
+      callee = callee.expression;
+      continue;
+    }
+    break;
+  }
+  if (ts.isIdentifier(callee)) return { kind: "named", name: callee.text };
+  if (propertyAccessCounts && ts.isPropertyAccessExpression(callee))
+    return { kind: "named", name: callee.name.text };
+  if (propertyAccessCounts && ts.isElementAccessExpression(callee)) {
+    const arg = callee.argumentExpression;
+    if (ts.isStringLiteralLike(arg)) return { kind: "named", name: arg.text };
+    return { kind: "unrecognized" };
+  }
+  // A call, a literal, an arrow: these carry no name and never did.
+  if (
+    ts.isCallExpression(callee) ||
+    ts.isFunctionExpression(callee) ||
+    ts.isArrowFunction(callee) ||
+    ts.isLiteralExpression(callee)
+  )
+    return { kind: "nameless" };
+  return { kind: "unrecognized" };
 }
 
 function calleeNamed(callee: ts.Expression, names: RegExp, propertyAccessCounts: boolean): boolean {
-  const name = calleeName(callee, propertyAccessCounts);
-  return name !== null && names.test(name);
+  const r = calleeName(callee, propertyAccessCounts);
+  return r.kind === "named" && names.test(r.name);
+}
+
+/**
+ * "Matches, or might" - for the consumers where a NON-match grants freedom.
+ *
+ * The asymmetry is the whole point and it is not a style choice. A consumer that
+ * treats a non-match as "no hook here" is granting `environment-free`, so an
+ * undecidable callee must be carried as a MAYBE or it becomes a silent free. A
+ * consumer that treats a non-match as "no premise here" is WITHHOLDING credit,
+ * so the same undecidable callee must stay a no or it becomes a false
+ * certification. Same input, opposite conservative directions, decided by what
+ * the caller does with the answer rather than by the answer itself.
+ */
+function calleeMightBeNamed(
+  callee: ts.Expression,
+  names: RegExp,
+  propertyAccessCounts: boolean,
+): boolean {
+  const r = calleeName(callee, propertyAccessCounts);
+  if (r.kind === "unrecognized") return true;
+  return r.kind === "named" && names.test(r.name);
 }
 
 /** Every call in a registration's callee chain, with the registrar it roots at.
@@ -194,25 +294,57 @@ type CalleeChain = { root: string | null; links: ChainLink[] };
 
 function calleeChain(callee: ts.Expression): CalleeChain {
   const links: ChainLink[] = [];
+  /** Member names peeled off the chain, validated against the ROOT's side once
+   *  the root is known - the peel itself cannot know which side applies. */
+  const peeled: string[] = [];
   let node: ts.Expression = callee;
+  // Peel the wrappers that do not change which name an expression denotes, at
+  // EVERY step - not only at the root. `(test).skipIf(c)` and `test.skipIf(c)`
+  // are the same chain.
+  const unwrap = (e: ts.Expression): ts.Expression => {
+    for (;;) {
+      if (ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || ts.isNonNullExpression(e)) {
+        e = e.expression;
+        continue;
+      }
+      return e;
+    }
+  };
   for (;;) {
+    node = unwrap(node);
     if (ts.isCallExpression(node)) {
-      const inner = node.expression;
-      links.push({
-        call: node,
-        modifier: ts.isPropertyAccessExpression(inner) ? inner.name.text : null,
-      });
+      const inner = unwrap(node.expression);
+      // The modifier a call was curried from, through the SAME decider the rest
+      // of the file uses. Reading `inner.name.text` inline accepted only the dot
+      // spelling, so `test.skipIf(c)["each"](rows)` lost its modifier and the
+      // chain invented a registration out of the skip predicate (diff r2, F2).
+      const m = calleeName(inner, true);
+      links.push({ call: node, modifier: m.kind === "named" ? m.name : null });
       node = inner;
       continue;
     }
-    if (ts.isPropertyAccessExpression(node)) {
-      if (!MODIFIERS.has(node.name.text)) return { root: null, links };
-      node = node.expression;
+    if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+      const m = calleeName(node, true);
+      // An UNDECIDABLE member stops the walk with NO root, which is the
+      // conservative end: an unrooted chain registers nothing rather than
+      // registering something under a guessed name.
+      if (m.kind !== "named" || !MODIFIERS.has(m.name)) return { root: null, links };
+      peeled.push(m.name);
+      node = ts.isPropertyAccessExpression(node) ? node.expression : node.expression;
       continue;
     }
     break;
   }
-  const root = ts.isIdentifier(node) && REGISTRARS.has(node.text) ? node.text : null;
+  const rooted = calleeName(unwrap(node), false);
+  const root = rooted.kind === "named" && REGISTRARS.has(rooted.name) ? rooted.name : null;
+  if (root !== null) {
+    // A modifier the ROOT's side does not declare makes this no registration at
+    // all. `test.shuffle(…)` and `suite.fails(…)` parse and peel cleanly against
+    // the union, and Vitest has neither; accepting them invented registrations
+    // the file does not contain.
+    const allowed = SUITE_REGISTRARS.has(root) ? SUITE_MODIFIERS : TEST_MODIFIERS;
+    if (peeled.some((m) => !allowed.has(m))) return { root: null, links };
+  }
   return { root, links };
 }
 
@@ -1908,7 +2040,7 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
     const call = st.expression;
     if (!ts.isCallExpression(call)) continue;
     const callee = call.expression;
-    if (calleeNamed(callee, HOOK_REGISTRARS, true) && call.arguments[0])
+    if (calleeMightBeNamed(callee, HOOK_REGISTRARS, true) && call.arguments[0])
       topLevelHooks.push(call.arguments[0]);
   }
   walk(facts.sf, topLevelHooks);
@@ -2002,7 +2134,7 @@ function hookBodies(describeCall: ts.CallExpression): ts.Node[] {
     // HOOK_REGISTRARS, not a second copy of it: the top-level seed already
     // consults that constant, and two matchers where the design assumes one can
     // drift apart silently.
-    if (ts.isCallExpression(n) && calleeNamed(n.expression, HOOK_REGISTRARS, true)) {
+    if (ts.isCallExpression(n) && calleeMightBeNamed(n.expression, HOOK_REGISTRARS, true)) {
       out.push(n);
     }
     // A nested describe OWNS the hooks in its BODY, and the caller already carries
@@ -2200,10 +2332,17 @@ function eagerPositionHookReports(facts: ModuleFacts): string[] {
     // invisible here, so a sibling test reported `environment-free` - a FALSE
     // CERTIFICATION, and the same widening this arc made to HOOK_REGISTRARS
     // reached every other consumer but not this one.
-    const hookName = ts.isCallExpression(n) ? calleeName(n.expression, true) : null;
-    if (hookName !== null && HOOK_REGISTRARS.test(hookName)) {
-      const line = sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
-      out.push(eagerHookReason(hookName, line));
+    // UNRECOGNIZED is reported, not skipped. A callee whose name cannot be
+    // decided might be a hook, and treating "cannot tell" as "no" is precisely
+    // how a silent free is manufactured. Reporting it is conservative in the
+    // direction the bound requires: the reason says the hook cannot be
+    // determined, which stays TRUE whether or not it is one.
+    if (ts.isCallExpression(n)) {
+      const r = calleeName(n.expression, true);
+      const line = (): number => sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
+      if (r.kind === "named" && HOOK_REGISTRARS.test(r.name))
+        out.push(eagerHookReason(r.name, line()));
+      else if (r.kind === "unrecognized") out.push(eagerHookReason("<undecidable callee>", line()));
     }
     // A NESTED registration's INLINE suite body is the one place descent must
     // stop, and for the same reason the `insideInlineBody` check below stops
@@ -2456,6 +2595,9 @@ function loadTimePremises(sf: ts.SourceFile): ts.CallExpression[] {
     // `calleeNamed`. This site CERTIFIES, so widening it would certify falsely.
     if (
       ts.isCallExpression(n) &&
+      // STRICT, deliberately - `calleeNamed`, never `calleeMightBeNamed`. This
+      // site grants CREDIT, so an undecidable callee must stay a no; carrying it
+      // as a maybe here would certify a premise nobody wrote.
       calleeNamed(n.expression, PREMISE_CALLS, false) &&
       runsAtModuleLoad(n)
     ) {
