@@ -29,14 +29,15 @@ identity; the line is a drafting-time locator. No HEAD column is carried.
 
 ## §0 The bound this arc is held to
 
-**Consequence bound.** Every file under `tests/` that opens a database connection through the
-`postgres` driver is **CLASSIFIED** into exactly one of the four accepted target classes of §2.3, or
-**REPORTED** by name as unclassifiable and made to carry a disposition row — **never silently passed
-over**. The forbidden direction is **silence**: a connection-opening file, a connect site, or a driver
-acquisition that the census neither classifies nor names. A conservative report on a site the census
-has declined to resolve, plus the disposition row it demands, is a **DOCUMENTED LIMIT, not a finding**
-(§4). On the live corpus at BASE the census is green with exactly the disposition rows §2.5 enumerates
-and **zero** others; a report the corpus does not need is a false report and IS a finding.
+**Consequence bound.** Every input is handled correctly OR signaled, **never silently wrong**: every
+file under `tests/` that opens a database connection through the `postgres` driver is **CLASSIFIED**
+into exactly one of the four accepted target classes of §2.3, or **REPORTED** by name as
+unclassifiable and made to carry a disposition row. The forbidden direction is **silence**: a
+connection-opening file, a connect site, or a driver acquisition that the census neither classifies nor
+names. A conservative report on a site the census has declined to resolve, plus the disposition row it
+demands, is a **DOCUMENTED LIMIT, not a finding** (§4). On the live corpus at BASE the census is green
+with exactly the disposition rows §2.5 enumerates and **zero** others; a report the corpus does not need
+is a false report and IS a finding.
 
 **What the bound does NOT say.** It does not say every connection is loopback. The census measured the
 live corpus (§1.1): 78 of 174 connect sites read the validation project by declared environment
