@@ -30,6 +30,21 @@ const ROOT = join(__dirname, "..", "..");
  * Same shape and same reason as EXPECTED_LEDGER_KINDS in source/expectedLedgerKinds.
  */
 const EXPECTED_ENV_TOUCHING: Record<string, number> = {
+  // The claim-sweep suites, enrolled 2026-08-20. Counts are MEASURED, not
+  // guessed: each is what the classifier reports today, declared independently
+  // so a recognizer that silently stops matching drops them to zero and reds
+  // instead of reporting a clean corpus it no longer understands.
+  "tests/specLint/claimSweepNumeric.test.ts": 3,
+  "tests/specLint/claimSweepNamed.test.ts": 0,
+  "tests/specLint/claimSweepNotFound.test.ts": 0,
+  "tests/specLint/claimSweepDocumentSet.test.ts": 0,
+  "tests/specLint/claimSweepIdentity.test.ts": 0,
+  "tests/specLint/claimSweepRefusals.test.ts": 9,
+  // 13 at enrolment, 15 after whole-diff review round 1 added the two
+  // revision-refusal cases. Both carry premises: exit 2 is ALSO what a malformed
+  // declaration returns, so "the adapter reached the repair read" is what makes
+  // the refusal attributable to git rather than to an earlier bail.
+  "tests/specLint/claimSweepCli.test.ts": 15,
   // The declared-limit-pin arm's seven suites, enrolled 2026-08-20. Counts are DERIVED
   // from classifyTests against this tree, not estimated: four suites drive the pure core
   // over in-memory fixtures and touch nothing, while the two that walk the tracked plan
@@ -403,6 +418,20 @@ describe("premise contract — the checker cannot report green on nothing", () =
   it("examined tests at all", () => {
     const all = suites.flatMap((s) => classifiedFor(s));
     expect(all.length, "premise: the scanner found tests to classify").toBeGreaterThan(0);
+  });
+
+  it("examined tests in EVERY suite, not merely in aggregate", () => {
+    // THE AGGREGATE FLOOR ABOVE IS SATISFIED BY ONE SUITE. If the scanner stops
+    // understanding a suite -- a syntax it cannot parse, a rename, a helper that
+    // wraps `it` -- that suite classifies NOTHING, and its declared
+    // environment-touching count is then satisfied vacuously, because `[]`
+    // filtered by any predicate is still `[]`. The two checks agree, both green,
+    // about a file neither of them read. Every suite declaring 0 is exactly the
+    // case that cannot tell the difference on its own, and four of the
+    // claim-sweep suites declare 0 honestly; this is what makes those zeros
+    // attributable rather than merely true.
+    const empty = suites.filter((s) => classifiedFor(s).length === 0);
+    expect(empty, "every enrolled suite must classify at least one test").toEqual([]);
   });
 
   it("classifies the declared number of environment-touching tests per suite", () => {

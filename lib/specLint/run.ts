@@ -1,4 +1,5 @@
 import { checkCitations } from "./citations";
+import { claimSweep } from "./claimSweep";
 import { checkCopy } from "./copyRules";
 import { ambiguousBasenames, basenameOf, checkNumerics, scriptMentionMatcher } from "./numerics";
 import { parseDoc, type DocModel } from "./parse";
@@ -29,6 +30,7 @@ import { checkUniversals } from "./universals";
 import { checkSections } from "./sections";
 import type {
   Check,
+  ClaimSweepInput,
   ExecResults,
   FileResolver,
   Finding,
@@ -47,6 +49,7 @@ const CHECK_ORDER: Record<Check, number> = {
   sections: 4,
   taskContract: 5,
   universals: 6,
+  claimSweep: 7,
 };
 
 // WAIVER_MISSING_REASON is unsuppressible (spec §3 — an empty waiver must not launder itself).
@@ -99,7 +102,14 @@ export function runLint(
   parse?: ParseResults | null,
   probes?: ProbeResults | null,
   fixtures?: FixtureResults | null,
+  // ORDER IS LOAD-BEARING AND WAS DECIDED BY THE MERGE, not by preference.
+  // Both arms appended a parameter to the same slot on their own branch. The
+  // pin arm merged first, so its callers on main pass it positionally HERE; the
+  // claim sweep therefore takes the slot after it, and the arc that had not yet
+  // merged is the one that moves. Reversing this typechecks on this branch and
+  // breaks seven positional call sites that are already on main.
   declaredLimitPins?: DeclaredLimitPinInputs | null,
+  sweep?: ClaimSweepInput | null,
 ): LintResult {
   const model = parseDoc(doc.text);
   // Span-exact exclusion (arms spec §5): a `red-target=` capture IS a citation,
@@ -155,6 +165,16 @@ export function runLint(
       ? synthesizeFixtureFindings(spliceFixturePlan(model, doc.kind), fixtures)
       : [];
 
+  // Claim-sweep findings (claim-sweep spec §3), outcome-injected like the four
+  // above: the adapter resolves the declared documents and the repair's hunk
+  // spans, and the core is a pure map from those to findings. Absent record =
+  // nothing was declared and the arm runs nothing -- and the adapter REFUSES an
+  // undeclared invocation rather than reporting that silence as a clean.
+  //
+  // Runs for BOTH kinds. A repair's superseded claims can survive in a spec or
+  // in a plan, and the incident had 7 of its 9 in the plan.
+  const sweepFindings =
+    sweep === undefined || sweep === null ? [] : claimSweep(sweep.documents, sweep.record);
   // Declared-limit pin advisories (pin-collision spec §3.3, §3.4). Plan-kind only, and
   // a null injected table runs nothing — the same static/injected split the four arms
   // above use, so every existing caller stays byte-identical.
@@ -187,6 +207,7 @@ export function runLint(
     ...execFindings,
     ...collectionFindings,
     ...fixtureFindings,
+    ...sweepFindings,
     ...declaredLimitPinFindings,
   ];
 

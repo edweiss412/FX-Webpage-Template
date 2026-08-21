@@ -1957,6 +1957,10 @@ describe("sheet-link phrase containment (spec §7.10)", () => {
       ".fixture",
       ".snap",
       ".example",
+      // A frozen git diff, committed as a replay fixture by the claim-sweep arm
+      // (tests/specLint/fixtures/claimSweep/<rev>/repair.diff). It is fixture
+      // DATA in its native format, not a build artifact.
+      ".diff",
       // Font binaries, new to the repo at BL-INTER-NUMERAL-DISAMBIGUATION: the
       // self-hosted Inter subset the app loads, and the Google-served binary it
       // replaced, kept as the guard's historical regression fixture. Neither is

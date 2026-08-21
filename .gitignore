@@ -104,6 +104,22 @@ sdd/
 
 tests/.spec-lint-fixtures*/
 
+# Scoped source-mutation shard scratch files. `tests/mutation/_metaSourceShardIntegrity.test.ts`
+# pins the FOUR real shard files byte-for-byte and reds while a fifth exists, so a scoped
+# per-surface run creates one of these, measures, and deletes it. The file is untracked BY
+# DESIGN, which makes `git add -A tests/` exactly the command that captures it -- a sibling
+# arc put four required checks red on a PR that way, and every commit after it carried the
+# file. The control belongs in the tree rather than in a memory of using explicit pathspecs:
+# a habit is not a control, and the one arc that stayed clean without this said outright it
+# had got lucky on commit ordering.
+tests/mutation/guardSurfaces.shardTMP*.test.ts
+
+# Python bytecode from the probe scripts under docs/superpowers/**/scripts. One .pyc
+# was tracked by this arc (622790154) simply because a script had been run before the
+# `git add`, and a tracked build artifact is both noise and a file no extension model
+# covers -- `sheetIconLinkContainment` reds on exactly that.
+__pycache__/
+*.pyc
 # Scoped-shard scratch for the source-mutation harness. `guardSurfaces.shard0..3`
 # are the REAL, committed shards that `_metaSourceShardIntegrity` pins byte-for-byte;
 # anything above that range is a throwaway that scopes a run to one surface and must
