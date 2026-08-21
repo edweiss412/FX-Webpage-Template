@@ -86,7 +86,7 @@ wrapper, so every unprobeable v2 command had been falling through it all along. 
 overclaims were corrected to get here, and both are recorded in §5.4 rather than quietly fixed.
 
 The 16 v1 heavy-wrapped markers are NOT in reach, and **the reason is not the one this section
-originally gave.** It said they exit at `lib/specLint/redContract.ts:742`
+originally gave.** It said they exit at `lib/specLint/redContract.ts:748`
 (`if (state === null) continue; // v1: no declared state to probe against`). Measured at
 implementation, by instrumenting `collectionProbePlan` and running the CLI at each of the sixteen
 lines: **all sixteen are UNOWNED, and not one of them reaches that exit.** They are dropped by
@@ -118,11 +118,13 @@ Every one of the six is genuinely unprobeable: a mutation-checker script, a grep
 itself. None is a vitest command the shape fails to recognize, so the advisory is truthful for all
 fifteen rather than merely conservative for nine of them.
 
-### 1.2 What the CLI emits at those fifteen lines TODAY
+### 1.2 What the CLI emitted at those fifteen lines BEFORE this change
 
 §1.1 says which markers reach the drop. This asks the question the acceptance criteria actually
-depend on: what does the shipped CLI emit at those lines right now, at the CLI boundary, with
-`--exec-red` active. Reproduced by `node --import tsx probe/reach.mts`, which lists the fifteen by
+depend on: what did the shipped CLI emit at those lines BEFORE this change, at the CLI boundary,
+with `--exec-red` active. **Every measurement in this section is the PRE-CHANGE state**, taken
+2026-08-21 against the tree at `e5d1d723d69c`; the whole point of the change is that they no longer
+hold, and §3 records the post-implementation shift. Reproduced by `node --import tsx probe/reach.mts`, which lists the fifteen by
 name rather than re-deriving them, so a drift between this design's list and the corpus surfaces as a
 changed result instead of being absorbed by a fresh derivation.
 
@@ -293,7 +295,8 @@ with, so no oracle over the corpus could ever have done this job.
 the fifteen and PRINTED a table, so moving the v1 exit was invisible, narrowing to nine still exited
 zero, and its own reconciliation compared two tallies incremented in the same loop and therefore
 could not fail. Both named sets are now present and every difference exits non-zero. The three
-mutations that prove it: demanding the post-change state today fails on all fifteen v2 lines, moving
+mutations that prove it, each run against the PRE-CHANGE tree: demanding the post-change state
+fails there on all fifteen v2 lines, moving
 one row's line by one fails as `MARKER_DRIFT`, and deleting one v1 row fails the reconciliation.
 
 **AC-4 asserts a gain, not an equality**, because §1.2 measured three of the fifteen already carrying
@@ -337,7 +340,7 @@ the observable does not ship.
 function in isolation and false of the pipeline. `lib/specLint/run.ts:152` gates the call, the adapter
 always builds a non-null `ProbeResults` under `--exec-red` even with zero probes, and the only
 production `runLint` caller is `scripts/spec-lint.ts:761`. The neighbouring per-entry silence is
-deliberate: `probesToSpawn` (`redContract.ts:930`) skips a LIVE entry whose red did not authorize a
+deliberate: `probesToSpawn` (`redContract.ts:936`) skips a LIVE entry whose red did not authorize a
 probe, because such a red already carries its own `synthesizeExecFindings` finding.
 
 **5.4 The reach was reported as 25, then 10, then 9, and it is 15.** Only the last was derived

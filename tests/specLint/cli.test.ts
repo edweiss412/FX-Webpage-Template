@@ -951,6 +951,12 @@ describe("spec-lint CLI — collection probes under --exec-red (spec §5)", () =
     () => {
       const r = execCli([`${V}/exec-unprobeable-heavy.md`, "--exec-red", "--json"]);
       expect(codesOf(r)).toContain("RED_PROBE_UNVERIFIED");
+      // The advisory must stand ALONE. Both authored fixtures once omitted
+      // `red-target=`, so each also drew `RED_TARGET_MISSING/fail`, and an
+      // implementation that emitted the advisory ONLY alongside that hard
+      // finding passed the whole matrix. Containment cannot see the
+      // difference; this negative can.
+      expect(codesOf(r)).not.toContain("RED_TARGET_MISSING");
     },
     PROBE_T,
   );
@@ -962,6 +968,11 @@ describe("spec-lint CLI — collection probes under --exec-red (spec §5)", () =
       // in reach for the same reason a heavy-wrapped vitest command is.
       const r = execCli([`${V}/exec-unprobeable-authored.md`, "--exec-red", "--json"]);
       expect(codesOf(r)).toContain("RED_PROBE_UNVERIFIED");
+      // Advisory-only here too, and this is the case that carries the point:
+      // a valid non-heavy authored marker with a real `red-target=`. A
+      // `pnpm heavy` recognizer cannot reach it and neither can an
+      // implementation keyed on `RED_TARGET_MISSING`.
+      expect(codesOf(r)).not.toContain("RED_TARGET_MISSING");
     },
     PROBE_T,
   );

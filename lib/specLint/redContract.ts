@@ -720,12 +720,18 @@ function partitionTestArgs(
 }
 
 /**
- * The collection-probe plan (spec §5.2): one entry per OWNED, v2, vitest-shaped
- * marker of a `red-contract` region, in doc order.
+ * The collection-probe plan (spec §5.2): one entry per OWNED, v2 marker of a
+ * `red-contract` region, in doc order.
+ *
+ * NOT only the vitest-shaped ones. A marker whose command cannot yield a probe
+ * still gets an entry, carrying a `skipped` reason instead of probe text, and
+ * that is the whole point of this arm: the reasonless drop it replaced emitted
+ * neither a finding nor an entry, so fifteen live markers went silently
+ * unexamined.
  *
  * `excludeLines` is the parse-failed set (spec §3): executing a command the
  * shell cannot parse observes nothing, and executing one whose parseability was
- * never observed is the same gamble. Ownership binds the declines too — an
+ * never observed is the same gamble. Ownership binds the declines too: an
  * unowned marker draws nothing at all, not an unauthorized advisory.
  */
 export function collectionProbePlan(

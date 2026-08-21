@@ -29,13 +29,13 @@ which lines shift. The measured result is in §3.
 
 | citation | what the line holds |
 | -------- | ------------------- |
-| `lib/specLint/redContract.ts:742` | `if (state === null) continue; // v1: no declared state to probe against` |
+| `lib/specLint/redContract.ts:748` | `if (state === null) continue; // v1: no declared state to probe against` |
 | `lib/specLint/redContract.ts:664` | `skipped: "not-vitest-shaped",` |
 | `lib/specLint/redContract.ts:580` | `const VITEST_SHAPE =` |
 | `lib/specLint/redContract.ts:648` | `export function deriveCollectionProbe(` |
 | `lib/specLint/redContract.ts:613` | `export type ProbeDerivation =` |
 | `lib/specLint/redContract.ts:621` | `export type CollectionProbeEntry =` |
-| `lib/specLint/redContract.ts:930` | `export function probesToSpawn(` |
+| `lib/specLint/redContract.ts:936` | `export function probesToSpawn(` |
 | `lib/specLint/run.ts:152` | `doc.kind === "plan" && probes !== undefined && probes !== null` |
 | `lib/specLint/taskContract.ts:49` | `const V2_FIELDS =` |
 | `tests/mutation/source/expectedLedgerKinds.ts:137` | `redContract: { equivalent: 7 },` |
@@ -221,7 +221,8 @@ belong in one cycle; the split contradicted it.
 **What is red and why.** `if (derived.kind === "none") continue;` drops the entry entirely, so any v2
 marker whose command is not vitest-shaped at the anchor draws neither a FAIL nor an advisory. The new
 cases run the CLI over the new fixture plans with `--exec-red` and assert `RED_PROBE_UNVERIFIED` by
-name in the returned code list. Today that list lacks it, so the failure is on a VALUE the
+name in the returned code list. AT HANDOFF, before this task's implementation, that list lacks it,
+so the failure is on a VALUE the
 implementation must PRODUCE, not on a missing symbol, a bad path, or a collection that found nothing.
 
 **Baseline, so an implementer knows whose failure it is.** Both suites are GREEN at handoff:
@@ -239,11 +240,11 @@ narrow the reach to nine is forbidden by spec §2 and fails the negative half be
 `synthesizeCollectionFindings` only when probes are non-null. Every case passes the flag, or it
 passes while proving nothing.
 
-**Five assertions, all in this one cycle: three red today and two green today.** Both kinds are
+**Five assertions, all in this one cycle: three red AT HANDOFF and two green AT HANDOFF.** Both kinds are
 required. The red ones alone are satisfied by an implementation that emits the advisory
 unconditionally, and the green ones alone are satisfied by changing nothing at all.
 
-| # | fixture | assertion | today |
+| # | fixture | assertion | at handoff |
 | - | ------- | --------- | ----- |
 | 1 | heavy-wrapped v2, `red-state=authored` | code list CONTAINS `RED_PROBE_UNVERIFIED` | **RED** |
 | 2 | non-heavy unprobeable v2 (`sh -c` grep), `red-state=authored` | code list CONTAINS `RED_PROBE_UNVERIFIED` | **RED** |
