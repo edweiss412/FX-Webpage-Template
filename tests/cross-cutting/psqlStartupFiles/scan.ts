@@ -1095,22 +1095,39 @@ function attachedTargetEnd(text: string, start: number): { end: number; undelimi
         continue;
       }
       if (character === '"') return k;
-      const inner = openerEnd(k);
+      const inner = substitutionOpenerEnd(k);
       if (inner === null) continue;
       if (inner === -1) return -1;
       k = inner;
     }
     return -1;
   };
-  /** The last index of the construct opening at `k`; `-1` when that construct
-   *  never closes; `null` when `k` opens no construct at all. */
-  const openerEnd = (k: number): number | null => {
+  /**
+   * The openers that stay ACTIVE inside a double-quoted span: command
+   * substitution, parameter expansion, backticks. Nothing else.
+   *
+   * `'`, `$'` and `$"` are LITERAL text inside double quotes, and treating them
+   * as openers made the walk run to end of chunk, call the target undelimitable
+   * and then emit no advisory either - because the swallowed span carries no
+   * substitution opener. Diff round 2, finding 1: a silent miss on one-edit
+   * spellings, on both declared production surfaces.
+   */
+  const substitutionOpenerEnd = (k: number): number | null => {
     const character = text[k]!;
     if (character === "$" && (text[k + 1] === "{" || text[k + 1] === "(")) {
       const open = text[k + 1] === "{" ? "{" : "(";
       return matchBraceEnd(text, k + 1, open, open === "{" ? "}" : ")");
     }
     if (character === "`") return closingBacktick(text, k);
+    return null;
+  };
+  /** The last index of the construct opening at `k`; `-1` when that construct
+   *  never closes; `null` when `k` opens no construct at all. Used OUTSIDE a
+   *  double-quoted span, where the quote forms are openers rather than text. */
+  const openerEnd = (k: number): number | null => {
+    const substitution = substitutionOpenerEnd(k);
+    if (substitution !== null) return substitution;
+    const character = text[k]!;
     if (character === '"') return closeDoubleQuoted(k + 1);
     if (character === "$" && text[k + 1] === '"') return closeDoubleQuoted(k + 2);
     if (character === "$" && text[k + 1] === "'") return closeAnsiC(k + 2);

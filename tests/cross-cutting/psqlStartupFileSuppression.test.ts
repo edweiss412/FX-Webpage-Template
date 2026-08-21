@@ -6685,6 +6685,30 @@ describe("an executing psql inside an ATTACHED redirection target", () => {
     ).toEqual(rows.map(([label]) => [label, 0, 1]));
   });
 
+  // Diff round 2, finding 1. `closeDoubleQuoted` delegated EVERY character to
+  // `openerEnd`, which knows the quote forms too - so a `'` or `$'` or `$"`
+  // sitting inside a double-quoted target was read as opening a nested span.
+  // In bash those three are LITERAL text inside double quotes. The walk
+  // therefore ran to end of chunk, called the target undelimitable, and then
+  // emitted no advisory either, because the swallowed span carries no
+  // substitution opener. Silent miss on both declared production surfaces, on
+  // one-edit target spellings, which is the forbidden direction.
+  test("a quote character that is LITERAL inside a double-quoted target does not open a span", () => {
+    const rows: Array<[label: string, source: string]> = [
+      ["control, no inner quote", 'cat >"x"\npsql -c "select 1"\n'],
+      ["a literal single quote", 'cat >"x\'"\npsql -c "select 1"\n'],
+      ["a literal ANSI-C opener", 'cat >"x$\'"\npsql -c "select 1"\n'],
+      ["a literal locale opener", 'cat >"x$"\npsql -c "select 1"\n'],
+    ];
+    expect(
+      rows.map(([label, source]) => [
+        label,
+        sitesIn(source, "x.sh").length,
+        scanShellIndirection(source, "x.sh").length,
+      ]),
+    ).toEqual(rows.map(([label]) => [label, 1, 0]));
+  });
+
   // §5a items 4 and 7. Every acceptance fixture is a whole small file whose
   // construct starts at line 1 under LF. Line is a field AC-5's digest covers,
   // so this asserts the COORDINATE and not the presence - the killer audit's
