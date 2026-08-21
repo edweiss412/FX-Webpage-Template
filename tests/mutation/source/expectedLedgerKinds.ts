@@ -234,16 +234,29 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   pgCronSmokes: {},
   popoverOverlayExtract: { equivalent: 2 },
   renderedTextHaystack: {},
-  // W-NEARMISS (2026-08-15). Both rows enrolled with an EMPTY ledger and both are
-  // expected to STAY empty: a row appearing here later is a coverage regression to
-  // explain, not a number to update.
-  // Two rows, both added by 6d6760019 when CI found six survivors on this
-  // surface; the declaration here was never moved with them, so the AC-13
-  // equality has been red on main since. Counted from the registry, which is
-  // the side carrying the arguments: one loop-exit equivalence and one honest
-  // accepted-gap (BL-NEARMISS-EQUAL-SIZE-TOKEN-SUBSET).
+  // W-NEARMISS (2026-08-15). Both surfaces were enrolled with an EMPTY ledger, and
+  // the note that stood here said both were expected to STAY empty. That was
+  // superseded a day later and is DELETED rather than left standing above its own
+  // correction: 6d6760019 added two accepted rows to EACH surface when CI found six
+  // survivors between them, and moved neither declaration.
+  //
+  // d342677e0 then diagnosed exactly that, wrote the explanation, repaired
+  // fieldNearMiss -- and left rowScanOpener, the row immediately below the comment
+  // describing the class, red for five more days. It went unseen because the only
+  // assertion covering it ran inside the nightly sharded gate, where a cancelled leg
+  // carries no verdict and a leg red for a sibling surface masks every other surface
+  // on it.
+  //
+  // Both are now counted from the registry, the side carrying the arguments:
+  // fieldNearMiss holds one loop-exit equivalence and one honest accepted-gap
+  // (BL-NEARMISS-EQUAL-SIZE-TOKEN-SUBSET); rowScanOpener holds two reachability
+  // equivalences -- a `cells.length > 0` guard that the vacuously-true alignment-row
+  // skip makes unreachable, and a redundant `opener` reset. A row appearing here
+  // later is still a coverage regression to explain rather than a number to bump,
+  // but that sentence is now ENFORCED, by _metaLedgerKindsDeclarationParity.test.ts
+  // in the merge-gating suite, instead of trusted.
   fieldNearMiss: { equivalent: 1, "accepted-gap": 1 },
-  rowScanOpener: {},
+  rowScanOpener: { equivalent: 2 },
   // Counted from the surface: 42 reachability / control-flow arguments and NO accepted
   // gap. The triage ran 84 -> 54 -> 45 -> 44 -> 43 -> 42 survivors, repaying 42 of them
   // with tests rather than blessing them. The last TWO came off because whole-diff review

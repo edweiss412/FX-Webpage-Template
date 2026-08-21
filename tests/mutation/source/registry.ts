@@ -1004,52 +1004,87 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // First run: 0.82 with 35 unaccepted survivors. Twenty-six were real gaps and are now
     // killed by fixtures (ak)-(bd); one was DEAD CODE the gate proved dead (an explicit
     // catch-clause branch in declarationsOf that forEachChild already covered) and was
-    // deleted rather than blessed. These seven are reachability arguments.
+    // deleted rather than blessed. These EIGHT are reachability arguments.
+    //
+    // The count said "seven" until 2026-08-21. dddd7158d wrote it when seven was right;
+    // 1d4a715b3 added the eighth row about five hours later and left the prose. Same shape
+    // as the two defects this arc repaired -- a hand-written number sitting beside the
+    // derived data it describes, drifting the moment the data moves.
+    //
+    // The first draft of this comment blamed cdac23ae9, and the way it got that wrong is
+    // worth keeping. `git log -S "logical-connector:370:61:&&>||"` names cdac23ae9 because
+    // that is where the STRING first appears -- but only because cdac23ae9 RE-KEYED the row
+    // from 360:61, which 1d4a715b3 had added. A pickaxe over a line-keyed id dates the KEY,
+    // not the ROW, so the churn class this file is being repaired for corrupted the
+    // archaeology used to repair it. Date a ledger row by the diff that introduced the ROW.
+    //
+    // RE-KEYED 2026-08-21, by EXPRESSION AND SOURCE LINE, never by offset. fbfc04fdf
+    // ("compose EXECUTION_METHODS from the derived core") moved every row: its two hunks
+    // are `@@ -56,6 +56,7 @@` and `@@ -534,13 +535,36 @@`, so rows above the second hunk
+    // shifted by 1 and the single row below BOTH shifted by 24 (602 -> 626). A uniform
+    // shift is the exception, not the rule, and a key written from an assumed offset reads
+    // as a fresh stale row rather than as an error -- silent and self-disguising.
+    //
+    // OPERATOR + COLUMN + MUTATION IS NOT A KEY. It is ambiguous for three of these eight
+    // rows (6, 4 and 2 candidate sites respectively): `&&>||` at column 61 alone matches
+    // four distinct expressions in this file. The source LINE TEXT is what disambiguates,
+    // and with it all eight resolve uniquely, each new line byte-identical to its old one.
+    // Enumerated through the shipped enumerator over both trees: 237 sites before, 237
+    // after -- the commit changed 30 lines (27 added, 3 removed, net +24) and produced not
+    // one new mutation site.
+    //
+    // RE-KEYING IS NOT RE-VALIDATING, so each premise was re-checked rather than carried:
+    // seven of the eight cite code outside both hunks and are untouched by construction
+    // (the hunk headers bound what the commit could reach). The eighth, 388:32, is the one
+    // that cites EXECUTION_METHODS by name -- exactly the set fbfc04fdf rewrote -- so its
+    // premise was PROBED rather than reasoned: the composed set is member-for-member equal
+    // to the hand-typed one it replaced (same 10 names, none added, none removed), and
+    // `begin`, which that argument turns on, is still in it.
     accepted: [
       {
-        siteId: "logical-connector:387:32:&&>||",
+        siteId: "logical-connector:388:32:&&>||",
         kind: "equivalent",
         reason:
           "`receiver !== null && checked.has(receiver)` decides whether a `.begin` callback parameter is checked. Under `||` a callback of an UNCHECKED receiver would also be checked -- but Rule 1 rejects that `.begin(...)` call itself (`begin` is in EXECUTION_METHODS and the receiver is not a checked client), and the call is an ANCESTOR of the callback body, so the walk reaches it first. Both operators produce the same verdict and the same reason; fixture (aj) is the case",
       },
       {
-        siteId: "integer-literal:391:19:0>1",
+        siteId: "integer-literal:392:19:0>1",
         kind: "equivalent",
         reason:
           "the checked-set fixpoint's start index. The loop breaks the first time a pass adds nothing, and each growing pass adds at least one name, so at most `candidates.size` passes can grow; starting at 1 still allows `size` iterations, which is enough to resolve any dependency chain over `size` names",
       },
       {
-        siteId: "relational-boundary:391:27:<><=",
+        siteId: "relational-boundary:392:27:<><=",
         kind: "equivalent",
         reason:
           "same loop: `<=` permits one further iteration that the `!grew` break has already made unreachable",
       },
       {
-        siteId: "integer-literal:391:47:1>2",
+        siteId: "integer-literal:392:47:1>2",
         kind: "equivalent",
         reason:
           "same loop: the bound is `candidates.size + n` for any n >= 1, and the break-on-no-growth condition fires before either bound is reached",
       },
       {
-        siteId: "relational-boundary:396:24:>>>=",
+        siteId: "relational-boundary:397:24:>>>=",
         kind: "equivalent",
         reason:
           "`decls.length > 0` guards `every()` returning true vacuously. A candidate name is only ever added from a VariableDeclaration or a Parameter, and declarationsOf collects both, so a candidate with zero declarations cannot occur -- the `>= 0` mutant admits a case the candidate set cannot contain",
       },
       {
-        siteId: "logical-connector:502:73:&&>||",
+        siteId: "logical-connector:503:73:&&>||",
         kind: "equivalent",
         reason:
           "Rule 3's tag test, `isTaggedTemplateExpression(p) && p.tag === n`. Under `||` the second disjunct alone would admit an identifier whose parent is a tagged template but which is NOT its tag -- and a TaggedTemplateExpression's identifier children are the tag and its type arguments only. A type argument is a type, not a value, so no checked CLIENT identifier can occupy that position",
       },
       {
-        siteId: "relational-boundary:602:29:>>>=",
+        siteId: "relational-boundary:626:29:>>>=",
         kind: "equivalent",
         reason:
           "`d.node.getStart(sf) > connectPos` is the ordering leg: the guard declaration must precede the connection. `>=` additionally rejects a declaration starting at exactly the connection's offset, which two distinct AST nodes in one file cannot do",
       },
       {
-        siteId: "logical-connector:370:61:&&>||",
+        siteId: "logical-connector:371:61:&&>||",
         kind: "equivalent",
         reason:
           "`walkCandidates`'s parameter leg. `&&` binds tighter, so the mutant reads `(isParameter && isIdentifier) || beginParamReceiver(n) !== null` and every identifier-named parameter joins `candidates`. Candidacy confers nothing on its own: `declQualifies` re-derives `.begin`-ness for a parameter independently (`beginParamReceiver(d.node) !== null && checked.has(receiver)`), so a wider CANDIDATE set cannot widen the CHECKED set, and only the checked set gates execution. The second disjunct admits no node either -- `beginParamReceiver` requires its argument to BE `fn.parameters[0]` of an arrow or function expression, which a non-parameter node never is. Probed against 13 inputs spanning both legs, including a plain parameter used as a client: neither the verdict nor the reason differs. This was the ONLY equivalent one of the twelve unaccepted survivors CI's whole-gate run found; the other eleven were real and are killed by fixtures (br)-(bz)",
