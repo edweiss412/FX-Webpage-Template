@@ -17,19 +17,28 @@ restate an approved criterion more weakly than the spec makes it.
 | accepted rows on `psqlStartupScan` | 26, zero STALE | `pnpm mutation:sites` |
 | documented-flaky site present | `relational-boundary:3578:35:<><=`, `ok` | `pnpm mutation:sites` |
 | corpus finding set | 76 sites, 0 indirections, digest `8ebe8b08d43e6308aa471112d9f086d0118e6238` over EVERY field | `baseline-corpus.mts` |
-| live population of the family | 0 across three execution surfaces (57 attached targets at plan HEAD; 53 at base `e5d1d723d`) | `corpus-family3.mts` |
+| live population of the family | 0 across three execution surfaces (53 attached targets at base `e5d1d723d`; the HEAD figure is deliberately not written down, see below) | `corpus-family3.mts` |
 | ledger closeout gate | FAIL for the asserted reasons; PASS on a constructed post-closeout state | `scripts/ci/attached-target-closeout-check.sh` |
 
 **Why the target count moved and the zero did not.** The spec's §2.3 census reports 53 at base
-`e5d1d723d`; this plan's HEAD measures 57 across 6 shell chunks rather than 5. The difference is
-`scripts/ci/attached-target-closeout-check.sh`, which this arc COMMITS and which is therefore a
-`.sh` file inside the corpus the census walks — four ordinary `>` and `2>` redirections, none
-substitution-bearing. **This is the second occurrence of one shape in this arc**: the oracle's
-snippets were base64-encoded for exactly this reason after committing them as a runnable script
-took the shell surface from 19 targets to 28 with 5 substitution-bearing, every one of them the
-arc's own. An artifact this arc commits enters the corpus this arc measures. The load-bearing
-number is the ZERO, which is unmoved and asserted; the target count is a population size and is
-stated per revision, because it is not stable across the arc's own commits.
+`e5d1d723d`, across 5 shell chunks. This arc COMMITS
+`scripts/ci/attached-target-closeout-check.sh`, so a sixth `.sh` chunk enters the very corpus the
+census walks, carrying ordinary `>` and `2>` redirections, none substitution-bearing. **This is the
+second occurrence of one shape in this arc**: the oracle's snippets were base64-encoded for exactly
+this reason after committing them as a runnable script took the shell surface from 19 targets to 28
+with 5 substitution-bearing, every one of them the arc's own. An artifact this arc commits enters
+the corpus this arc measures.
+
+**So the HEAD figure is no longer written down, and that is the repair rather than a newer number.**
+An earlier revision of this row stated 57, naming four redirections in that script. It was true when
+written and false by the time the plan landed: the same commit that landed this plan added a
+`2>/dev/null` to that script, taking the shell surface to 26 and the total to 58. A count whose own
+subject is inside the arc is invalidated by the arc's next commit, so re-minting it just schedules
+the next contradiction. The immovable half stays — 53 at `e5d1d723d`, a revision no later commit
+can move, and independently stated in the spec's §2.3 table — and the HEAD half is a COMMAND:
+`pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/corpus-family3.mts`.
+The load-bearing number was always the ZERO, which is unmoved, asserted, and the only figure AC-8
+reads.
 
 ## 1. Meta-test inventory (mandatory declaration)
 
@@ -454,7 +463,7 @@ varying nothing else. Three separate implementations pass that:
   heuristic on Task 1's; they are one family and the rule closes both.
 
 **The firing condition is narrow and is part of the red:** the report fires only when the
-undelimitable span carries a substitution opener, so the corpus's ordinary attached targets (53 at base `e5d1d723d`, 57 at plan HEAD; see §0)
+undelimitable span carries a substitution opener, so the corpus's ordinary attached targets (53 at base `e5d1d723d`; see §0)
 stay quiet. A case asserting that `cat >"${OUT}"` emits NOTHING is the half that pins it.
 
 **This is the half that makes the bound true rather than aspirational.** Spec §5: *correct or
