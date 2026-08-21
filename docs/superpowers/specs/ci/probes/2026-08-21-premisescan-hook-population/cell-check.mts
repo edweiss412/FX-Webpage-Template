@@ -1,11 +1,14 @@
 /**
- * The eleven §5.2 cells, run against the working tree's `premiseScan`.
+ * The §5.2 cells, run against the working tree's `premiseScan`. The count is
+ * DERIVED from the case list below and printed; writing it down here is what let
+ * this header say "eleven" while the table held seventeen.
  *
- * Nine cells must REPORT (a reason is emitted) and seven must stay SILENT. The
+ * Some cells must REPORT (a reason is emitted) and some must stay SILENT; both
+ * counts are DERIVED and printed, never written down here. The
  * silent cells are each one ordinary edit from a reporting cell, so a rule that
  * fires on them is over-firing on live authoring rather than catching anything.
  *
- * **On `origin/main` this exits non-zero**, and that is its purpose: the nine
+ * **On `origin/main` this exits non-zero**, and that is its purpose: the
  * reporting cells fail because neither producer exists yet. It is therefore a
  * genuine already-failing red for the tasks that add them, failing for the
  * asserted reason — a cell that emits no reason — rather than for a collection
@@ -54,7 +57,7 @@ const cell = (label: string, expect: "report" | "silent", src: string, covers: C
 
 const results: boolean[] = [];
 
-console.log("--- nine cells that must REPORT");
+console.log("--- cells that must REPORT");
 results.push(cell("bare identifier factory", "report", `const suiteA = () => { it("a", () => {}); };\ndescribe("A", suiteA);`, { kills: "baseline shape" }));
 results.push(cell("function declaration factory", "report", `function suiteA() { it("a", () => {}); }\ndescribe("A", suiteA);`, { kills: "arrow-only reading" }));
 results.push(cell("property-access factory", "report", `const suites = { a: () => { it("a", () => {}); } };\ndescribe("A", suites.a);`, { kills: "identifier denylist" }));
@@ -69,7 +72,8 @@ results.push(cell("factory in slot 1 with a trailing timeout (kills last-slot-on
 results.push(cell("literal options in slot 1 with the factory in slot 2 (kills first-slot-only)", "report", `const f = () => { it("a", () => {}); };\ndescribe("A", { concurrent: true }, f);`, { kills: "first-slot-only" }));
 
 results.push(cell("registration inside a function value, invoked or not", "report", `const suiteA = () => { it("d", () => {}); };\nfunction register() { describe("A", suiteA); }\nregister();\nit("s", () => {});`, { kills: "execution-shape suppression" }));
-console.log("--- seven cells that must stay SILENT");
+const reportingCells = results.length;
+console.log("--- cells that must stay SILENT");
 results.push(cell("bodyless options registration", "silent", `describe("A", { skip: true });\nit("s", () => {});`, { input: "per-slot class: inert literal" }));
 results.push(cell("inline body + named timeout constant", "silent", `const T = 30000;\ntest("a", () => {}, T);`, { input: "per-slot class: inline body present" }));
 results.push(cell("named options + inline body", "silent", `const opts = { timeout: 1 };\ndescribe("A", opts, () => { it("a", () => {}); });`, { input: "per-slot class: inline body present" }));
@@ -98,7 +102,10 @@ results.push(cell("deferred hook inside a function-valued .each datum", "silent"
 results.push(cell("deferred hook inside a method-shorthand .each datum", "silent", `describe.each([{ setup() { beforeEach(() => {}); } }])("A%s", () => { it("a", () => {}); });`, { input: "function-like containment" }));
 
 const passed = results.filter(Boolean).length;
-console.log(`\n${passed} of ${results.length} cells behave as the spec's §5.2 table claims`);
+console.log(
+  `\n${reportingCells} reporting + ${results.length - reportingCells} silent = ${results.length} cells`,
+);
+console.log(`${passed} of ${results.length} cells behave as the spec's §5.2 table claims`);
 if (results.length !== 17) {
   console.error("cell-check: the cell count moved; §5.2's table and this script must agree");
   process.exit(2);

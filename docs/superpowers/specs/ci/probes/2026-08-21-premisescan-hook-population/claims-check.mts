@@ -128,5 +128,65 @@ for (const c of uniq) {
   }
 }
 
+// ---- D. every SPLIT the spec states about §5.2, against cell-check's own output --
+//
+// C covers the TOTAL at one declared site. It reported PASS while four other
+// mentions of the same population were stale — "All sixteen §5.2 cells", "7 of
+// 16", "the 9 reporting cells", "pins the total at 16" — and the script's own
+// banner printed "nine" above ten rows while its derived total was right. A check
+// that covers one site of a class is a clean result over the wrong population,
+// which is the defect this file was opened to close.
+//
+// The legal values are not typed here: cell-check is RUN and its derived
+// `R reporting + S silent = T cells` line is the authority. Every selector must
+// match at least once — a selector that matches nothing has rotted, and silently
+// covering zero sites is how this class survives.
+{
+  const out = execFileSync("pnpm", ["exec", "tsx", join(PROBE_DIR, "cell-check.mts")], {
+    cwd: ROOT,
+    encoding: "utf8",
+  });
+  const derived = out.match(/(\d+) reporting \+ (\d+) silent = (\d+) cells/);
+  if (derived === null) {
+    console.error("   claims-check: cell-check no longer prints its derived split");
+    process.exit(2);
+  }
+  const R = Number(derived[1]), S = Number(derived[2]), T = Number(derived[3]);
+  console.log(`\nD. cell-check derives ${R} reporting + ${S} silent = ${T}; every spec split must agree`);
+
+  const WORDS: Record<string, number> = {
+    five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13,
+    fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20,
+  };
+  const selectors: { what: string; re: RegExp; want: number; word?: true }[] = [
+    { what: "§5.2 heading count (word)", re: /All (\w+) §5\.2 cells/g, want: T, word: true },
+    { what: "pre-change / post-change figures", re: /\*\*7 of (\d+)\*\*|\*\*(\d+) of \2\*\* where the change exists/g, want: T },
+    { what: "AC-4 reporting split", re: /every one of the (\d+) reporting cells/g, want: R },
+    { what: "AC-4 silent split", re: /every one of the (\d+) silent cells/g, want: S },
+    { what: "AC-4 pin", re: /pins the total at (\d+)/g, want: T },
+    { what: "§5.2 prose reporting (word)", re: /(\w+) reporting cells and \w+ silent cells/g, want: R, word: true },
+    { what: "§5.2 prose silent (word)", re: /\w+ reporting cells and (\w+) silent cells/g, want: S, word: true },
+    { what: "§5.2 prose total", re: /reporting cells and \w+ silent cells — (\d+) in total/g, want: T },
+    { what: "§3.4 transcript reporting", re: /(\d+) reporting \+ \d+ silent/g, want: R },
+    { what: "§3.4 transcript silent", re: /\d+ reporting \+ (\d+) silent/g, want: S },
+    { what: "§3.4 transcript total", re: /reporting \+ \d+ silent = (\d+) cells/g, want: T },
+    { what: "§3.4 pre-change reporting (word)", re: /the (\w+) reporting cells fail because/g, want: R, word: true },
+  ];
+  for (const sel of selectors) {
+    const hits = [...spec.matchAll(sel.re)];
+    if (hits.length === 0) {
+      console.error(`   claims-check: selector "${sel.what}" matched nothing — it has rotted`);
+      process.exit(2);
+    }
+    for (const h of hits) {
+      const raw = h.slice(1).find((g) => g !== undefined)!;
+      const got = sel.word === true ? WORDS[raw.toLowerCase()] : Number(raw);
+      const ok = got === sel.want;
+      console.log(`   ${ok ? "PASS" : "FAIL"} ${sel.what}: ${raw}`);
+      if (!ok) failed = true;
+    }
+  }
+}
+
 console.log(`\n${failed ? "FAILED" : "PASSED"} — population derived from the spec, not enumerated here`);
 process.exit(failed ? 1 : 0);

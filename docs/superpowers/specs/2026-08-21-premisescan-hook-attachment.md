@@ -371,27 +371,31 @@ zeros mean anything. `record-diff.mts` ABORTS with exit 2 when the working tree'
 byte-identical to the baseline ref, because there a perfect zero would be the baseline compared
 against itself — the answer the author is hoping for, produced by a check with nothing to measure.
 Run on this branch it aborts; run where the change exists it reports the figures above and exits 0.
-`cell-check.mts` exits 1 on `origin/main` with **7 of 16** — the nine reporting cells fail because
+`cell-check.mts` exits 1 on `origin/main` with **7 of 17** — the ten reporting cells fail because
 neither producer exists yet, and they fail for the ASSERTED reason (a cell that emits no reason)
-rather than for a collection or import error — and exits 0 with **16 of 16** where the change exists.
+rather than for a collection or import error — and exits 0 with **17 of 17** where the change exists.
+Both figures are MEASURED, by checking out `origin/main`'s scanner under the current probe and
+restoring it byte-exact, not derived from the table.
 
 Its positive control is structural rather than fixture-based: it perturbs one record of the baseline
 set and requires the identical comparison to report exactly one move. A control built from a
 constructed fixture goes silent whenever the change under test happens not to touch that fixture's
 construct, and a silent control is indistinguishable from a working one.
 
-**All sixteen §5.2 cells are probed, not asserted:**
+**All seventeen §5.2 cells are probed, not asserted:**
 
 ```
 $ pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-premisescan-hook-population/cell-check.mts
---- nine cells that must REPORT   (bare identifier, function declaration, property
+--- cells that must REPORT   (bare identifier, function declaration, property
     access, wrapped identifier ×2, call expression, function-valued name,
-    factory-in-slot-1-with-timeout, literal-options-then-factory)          all PASS
---- seven cells that must stay SILENT  (bodyless options, inline body + named
+    factory-in-slot-1-with-timeout, literal-options-then-factory,
+    registration-inside-a-function-value)                                 all PASS
+--- cells that must stay SILENT  (bodyless options, inline body + named
     timeout constant, named options + inline body, named constant as the NAME,
     it/test root, deferred hook in a function-valued .each datum, deferred hook
     in a method-shorthand datum)                                          all PASS
-16 of 16 cells behave as the spec's table claims
+10 reporting + 7 silent = 17 cells
+17 of 17 cells behave as the spec's §5.2 table claims
 ```
 
 **One measured regression is recorded here rather than smoothed over**, because it is the whole
@@ -610,8 +614,10 @@ reporting case, so a rule that reports on them is over-firing on live authoring:
 | `describe.each([{ setup() { beforeEach(…) } }])(…)` | ONE cell for the whole function-like class. `ts.isFunctionLike` covers methods, getters, accessors and constructors together, so a cell per node kind would be the enumeration that predicate deleted — spec review r4 finding 2 |
 
 **Ten reporting cells and seven silent cells — 17 in total, pinned by `cell-check.mts`, which exits
-2 if that count ever diverges from this table.** Seven of the seventeen exist because a review found
-the defect they now hold fixed, and a finding that became a fixture cannot recur silently.
+2 if that count ever diverges from this table.** The cells that exist because a review found the
+defect they now hold fixed each NAME that finding in their own row, so the provenance is read off the
+table. It is deliberately not also totalled in prose: that total is checked by nothing, it moved every
+time a round added a cell, and §5.5 is this document's own rule against exactly that.
 
 ### 5.3 The sampling rule, stated once
 
@@ -659,7 +665,7 @@ suite is not a proof for AC-7, AC-8 or AC-9 — those name their own field check
 | **AC-1** | For **every one of the 12** (eager position × hook registrar) cells, a hook in that position of a registration outside every inline suite body makes every `environment-free` test in that file `unclassifiable`, with a reason naming the hook and its line — and NOT naming a suite, per R2. | Generated fixtures in `tests/mutation/source/premiseScan.test.ts` driven from two declared axis arrays, asserting verdict AND reason text. Every case is expect-a-REPORT, never expect-clean. |
 | **AC-2** | The generated case count EQUALS the product of the declared axes, and the hook-registrar axis equals `HOOK_REGISTRARS`'s own members. | A count assertion derived from the arrays, plus an assertion that the registrar array is derived from the shipped `HOOK_REGISTRARS` rather than retyped. A missing axis member fails here rather than being invisible. |
 | **AC-3** | The rule is INDIFFERENT to registration spelling across the four structural classes in §5.2. | Four cases at one fixed (position, registrar) cell asserting identical verdicts and reason shapes. |
-| **AC-4** | For **every one of the 9 reporting cells** in §5.2, a registration carrying a factory-slot argument the scanner cannot follow makes every `environment-free` test in that file `unclassifiable`; and for **every one of the 7 silent cells**, no reason is emitted at all. `cell-check.mts` pins the total at 16 and exits 2 if the table and the script ever disagree. | Generated fixtures, same shape. Each reporting cell names the implementation it kills; the wrapped-identifier cell fails under a raw-node-kind reading and the function-valued-name cell fails under an any-argument reading. The silent cells are the over-firing half and each is one ordinary edit from a reporting cell. |
+| **AC-4** | For **every one of the 10 reporting cells** in §5.2, a registration carrying a factory-slot argument the scanner cannot follow makes every `environment-free` test in that file `unclassifiable`; and for **every one of the 7 silent cells**, no reason is emitted at all. `cell-check.mts` pins the total at 17 and exits 2 if the table and the script ever disagree. | Generated fixtures, same shape. Each reporting cell names the implementation it kills; the wrapped-identifier cell fails under a raw-node-kind reading and the function-valued-name cell fails under an any-argument reading. The silent cells are the over-firing half and each is one ordinary edit from a reporting cell. |
 | **AC-5** | A test that is provably `environment-touching` STAYS `environment-touching` in a file affected by either producer. | Fixture pairing a touching test with an affected file, for both producers. Proves the precedence rule at `tests/mutation/source/premiseScan.ts:1725` was not inverted. |
 | **AC-6** | **Negative twins, one variable each.** Identical fixture bytes MINUS the eager hook (producer A) and with the factory inlined (producer B) classify `environment-free`. | One twin per generated case, differing by exactly one thing, so a clean verdict is attributable to "examined and correctly declined" rather than to "never got here". |
 | **AC-7** | **This surface's own suites contain no LIVE instance of either shape.** Every fixture is synthetic source text handed to `classifyTests` through a temp file. | An executable check over the surface's own `suitePaths` (`tests/mutation/source/registry.ts:170-172`), run in-process, asserting zero live instances. Demonstrated in BOTH directions: it fails when a live instance is constructed and passes when it is removed. |
@@ -705,8 +711,14 @@ source TEXT, and AC-7 asserts it executably rather than trusting the convention.
   certification** (a test told it is `environment-free` while a hook reaches the environment for it)
   and **wrong attribution** (a reason naming a construct that is not there, or claiming a scope the
   scanner cannot establish). A conservative `unclassifiable` with a named cause — including the
-  file-scoped over-reports at L2 and L5, and the no-constant-folding over-report at L7 — is a
-  DOCUMENTED LIMIT, not a finding. Usefulness is not the criterion; correct attribution is.
+  file-scoped over-reports at L2 and L5, the no-constant-folding over-report at L7, and the
+  uninvoked-function over-report at L8 — is a DOCUMENTED LIMIT, not a finding. Usefulness is not
+  the criterion; correct attribution is. Every over-report the bound permits is enumerated HERE and
+  carries an `L`-row in §4; a NEW one is a spec edit before it is a defence, because a bound whose
+  enumeration lags its limits table licenses a finding against behaviour the design already ratified.
+  L8 arrived that way, as the residue of diff review r3's repair. The over-report set is exactly
+  {L2, L5, L7, L8}: L1 is an under-determination, and L3, L4 and L6 are under-reports, each
+  bracketed base-identical in its own row.
 - **`PROBE DOMAIN:`** the live tracked test corpus `premiseScan` walks — the suites derived from
   `GUARD_SURFACES.flatMap((s) => s.suitePaths)` — the three population probes committed at
   `docs/superpowers/specs/ci/probes/2026-08-21-premisescan-hook-population/`, the installed
