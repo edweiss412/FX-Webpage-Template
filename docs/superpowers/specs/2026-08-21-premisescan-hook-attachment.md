@@ -35,8 +35,8 @@ this spec reading as a claim to have closed silent frees in general.
 ```
 $ pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-premisescan-hook-population/probe-population.mts
   1a  registration is a DIRECT statement of the file: 0 of 3404 registrations
-  2a  describe/suite with a bare IDENTIFIER in the body position: 0 of 3404 registrations
-  2c  any registration whose body position holds no inline function: 0 of 3404 registrations
+  2a  describe/suite carrying an unfollowable FACTORY SLOT (index >= 1): 0 of 3404 registrations
+  2c  any registration with an unfollowable factory slot, either root: 0 of 3404 registrations
 ```
 
 **The zeros are measurements because the same extractor returns non-zero on constructed input.** A
@@ -163,6 +163,12 @@ resolution, no new traversal.**
 Detect a hook-registrar call sitting in an EAGER position of a registration that is not lexically
 inside an inline suite body, and emit a file-level reason naming it.
 
+- **An eager position is EVALUATED, and a nested function body in one is NOT.** A hook written
+  inside a function VALUE sitting in an eager position — `describe.each([() => { beforeEach(…) }])` —
+  is never invoked while Vitest collects, so reporting it attributes a hook that does not run. The
+  walk therefore stops at every `ArrowFunction`, `FunctionExpression` and `FunctionDeclaration`
+  boundary. A hook written DIRECTLY in that datum, `describe.each([beforeEach(…)])`, still reports.
+  Spec review r3 finding 1.
 - **Eager positions** are exactly the ones `hookBodies` already treats as eager for the nested case,
   so the two readers cannot disagree about what "eager" means: the arguments of a curried callee
   (`ts.isCallExpression(call.expression)` → `call.expression.arguments`), and every argument for
@@ -219,7 +225,11 @@ Two consequences, both load-bearing and both learned from probes rather than ass
   bodyless registration, and a rule that reports whenever no argument is a body emits a reason for a
   body that does not exist — a wrong attribution, which the consequence bound forbids.
 
-**The rule applies to SUITE registrations only** — a `describe` or `suite` root. An `it`/`test`
+**The rule applies to a `describe` root only.** `suite` is a Vitest alias of `describe` — they are
+the same function object — but the shipped `REGISTRARS` is `["it", "test", "describe"]` and matches
+on the identifier TEXT, so `registrarRoot` returns `null` for a `suite(…)` registration and neither
+producer ever sees it. Claiming `suite` here would be a positive claim the frozen accept-set
+contradicts; it is a documented limit at §4 L3 instead. Spec review r3 finding 3. An `it`/`test`
 registration cannot carry a suite factory, and its handler is not lost either way: a test's extent is
 the whole call expression, so the traversal already resolves a named handler to its declaration and
 reaches through it. Bracketed against the shipped baseline, `test("named", testFn)` with a spawning
@@ -278,14 +288,21 @@ the repaired rules above.
 
 ```
 $ pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-premisescan-hook-population/record-diff.mts
-records: baseline 2648, prototype 2648
+POSITIVE CONTROL: perturbing one record moves 1 (expected 1)
+baseline ref             : origin/main
+suites                   : 70
+records: baseline 2648, live 2648
 records only in baseline : 0
-records only in prototype: 0
+records only in live     : 0
 VERDICT moved            : 0
 DETAIL moved             : 0
-
-POSITIVE CONTROL differs: true
 ```
+
+**That transcript is the COMMITTED script's own output.** An earlier draft of this section quoted a
+positive-control line the committed script could not emit, because the control lived in the scratch
+prototype and the committed version had replaced it with the byte-identity abort — spec review r3
+finding 5, and the same false-quotation class as r2 finding 3. The control now lives in the committed
+script and is quoted from a real run of it.
 
 Every one of the 2648 classified rows across the 70 enrolled suites is dumped as the tuple
 `(suite, line, testName, verdict, detail)` under the SHIPPED baseline and under the prototype, and
@@ -331,19 +348,26 @@ zeros mean anything. `record-diff.mts` ABORTS with exit 2 when the working tree'
 byte-identical to the baseline ref, because there a perfect zero would be the baseline compared
 against itself — the answer the author is hoping for, produced by a check with nothing to measure.
 Run on this branch it aborts; run where the change exists it reports the figures above and exits 0.
-`cell-check.mts` exits 1 on `origin/main` with 4 of 11 — the seven reporting cells fail because
+`cell-check.mts` exits 1 on `origin/main` with **6 of 15** — the nine reporting cells fail because
 neither producer exists yet, and they fail for the ASSERTED reason (a cell that emits no reason)
-rather than for a collection or import error — and exits 0 with 11 of 11 where the change exists.
+rather than for a collection or import error — and exits 0 with **15 of 15** where the change exists.
 
-**All eleven §5.2 cells are probed, not asserted:**
+Its positive control is structural rather than fixture-based: it perturbs one record of the baseline
+set and requires the identical comparison to report exactly one move. A control built from a
+constructed fixture goes silent whenever the change under test happens not to touch that fixture's
+construct, and a silent control is indistinguishable from a working one.
+
+**All fifteen §5.2 cells are probed, not asserted:**
 
 ```
 $ pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-premisescan-hook-population/cell-check.mts
---- six REPORTING cells   (bare identifier, function declaration, property access,
-    wrapped identifier ×2, call expression, function-valued name)          all PASS
---- four SILENT cells     (bodyless options, inline body + named timeout constant,
-    named options + inline body, named constant as the NAME)               all PASS
-11 of 11 cells behave as the spec's table claims
+--- nine cells that must REPORT   (bare identifier, function declaration, property
+    access, wrapped identifier ×2, call expression, function-valued name,
+    factory-in-slot-1-with-timeout, literal-options-then-factory)          all PASS
+--- six cells that must stay SILENT  (bodyless options, inline body + named timeout
+    constant, named options + inline body, named constant as the NAME,
+    it/test root, deferred hook in a function-valued .each datum)          all PASS
+15 of 15 cells behave as the spec's table claims
 ```
 
 **One measured regression is recorded here rather than smoothed over**, because it is the whole
@@ -395,6 +419,40 @@ The distinction that matters: a FACT the shipped surface states is a durable inp
 surface built by hand is a second definition that can drift from the first without either being
 obviously wrong. §5.5 records this arc's own paperwork drifting by the same mechanism.
 
+### 3.7 The claim population is DERIVED, and the check set is CLOSED
+
+Two sweeps on this arc reported clean over the wrong population — the second after the first had
+already been corrected. **A table is a convenient population, not a correct one**: its rows are
+already written down and already shaped like a checklist, so a sweep gravitates to them, and a clean
+result over the wrong population is indistinguishable from a clean result over the right one.
+
+The population is therefore read out of this document rather than typed in. `claims-check.mts`
+derives §4's limit-row ids from the spec and asserts `limits-check.mts` probes exactly that set, and
+extracts every fenced `$ …` command naming a probe script and asserts the file exists — which is spec
+review r2 finding 3's class made mechanical. Proven in both directions: against a constructed
+unprobed limit row and a constructed missing script it reports both and exits 1; restored, it exits
+0. It aborts with exit 2 if either selector matches nothing, because a selector that no longer
+matches the document reports a confident zero.
+
+**The check set is CLOSED, and saying so is what stops it ratcheting.** Four checks, each added for a
+measured reason, is exactly how a guard suite grows one member per round:
+
+> **Coverage is COMPLETE when every claim-site class has a derived cover AND the map itself is
+> derived from the document's own declarations.** A new claim then REDS automatically and no further
+> check is owed.
+
+| claim-site class | derived cover | how its population is derived |
+| --- | --- | --- |
+| §4 documented limits | `limits-check.mts` | ids read out of §4 by `claims-check.mts` |
+| §5.2 reporting and silent cells | `cell-check.mts` | pins its own count, exits 2 when it diverges from the table |
+| corpus neutrality | `record-diff.mts` | every enrolled suite from `GUARD_SURFACES.flatMap(s => s.suitePaths)`; aborts when there is nothing to measure |
+| this spec's executable citations | `claims-check.mts` part B | fenced commands EXTRACTED from the spec |
+
+A fifth check is owed only if a new claim-site CLASS appears — never because a further instance is
+imagined inside a class already covered. An instance found inside a covered class is a defect in THAT
+COVER, and the repair is to fix the cover rather than add a sibling beside it. Same rule §5.4 states
+for the spelling axis, applied to the guard suite itself.
+
 ---
 
 ## 4. Documented limits
@@ -406,6 +464,7 @@ obviously wrong. §5.5 records this arc's own paperwork drifting by the same mec
 | **L3** | Neither producer fires on a registration the shipped `registrarRoot` does not recognize. `MODIFIERS` is incomplete on Vitest 4.1.5 — `test.skipIf(...)` is invisible to it, one live instance in `tests/cross-cutting/psqlStartupFileSuppression.test.ts`. | That is `BL-PREMISESCAN-REGISTRAR-ACCEPT-SETS-HAND-MAINTAINED`'s subject and ships in the sequential PR 2. Fixing it here would fold two decisions into one recognizer, which is the bigger target. |
 | **L4** | **A hook registered by a CALLED HELPER is invisible, at every position.** `describe(registerHook(), …)`, where `registerHook()` registers a `beforeEach` and returns a name, is classified `environment-free`. Neither producer fires, because both key on a syntactic `HOOK_REGISTRARS` call and there is none. | **PRE-EXISTING and UNIFORM, bracketed against the shipped baseline rather than asserted.** The same helper is equally invisible inside an inline `describe` body and as a plain file-scope statement — all three classify `environment-free` identically on `origin/main` and under this change. It is `hookBodies`' and the top-level seed's existing LEXICAL contract, which this change neither causes nor widens, and it is the same disposition the filing arc applied to its own four pre-existing gaps. Closing it means following hook registration through a call, which is the resolution R1 declines. Raised as spec review r2 finding 1, whose substance was right and whose attribution to this design was not. |
 | **L5** | Producer B reports a registration whose only non-inert factory-slot argument is in fact OPTIONS rather than a factory — `describe("A", opts, () => {})` is silent because slot 2 is a body, but `describe("A", opts)` reports. | The scanner cannot tell a named options object from a named factory without resolution. The reason says "if that argument is the suite factory", so the report is correctly attributed rather than overclaiming, and the worst case is a conservative demote with a named cause. Zero live instances. |
+| **L6** | A `suite(…)` registration is never recognized, so a named factory passed to it stays silently free. `suite` IS `describe` at runtime, but `REGISTRARS` matches identifier TEXT. | Bracketed: `suite("A", f)` classifies `environment-free` on `origin/main` AND under this change, so it is neither caused nor widened here. Adding `suite` means editing `REGISTRARS`, which is `BL-PREMISESCAN-REGISTRAR-ACCEPT-SETS-HAND-MAINTAINED`'s subject and belongs to the sequential PR 2. Spec review r3 finding 3. |
 
 ---
 
@@ -485,6 +544,8 @@ kill target is recorded is a fixture a later edit cannot silently defang.
 | **wrapped identifier — `describe("A", (suiteA))`, `describe("A", suiteA as never)`** | an implementation reading `isSuiteBody`'s RESULT | an implementation reading the RAW argument node kind (`ts.isIdentifier(arg)`), which sees a `ParenthesizedExpression` / `AsExpression`, decides "not an identifier", and falls silent where a report is owed | the raw-node-kind reading — the fail-open direction |
 | call expression — `describe("A", makeSuite())` | the specified rule | a rule requiring a BINDING | a rule that only follows named references |
 | **function-valued NAME — `describe(function titledSuite() {}, suiteA)`** | a rule ranging over index ≥ 1 only | a rule whose body test ranges over EVERY argument, where the NAME satisfies it and the real factory goes unreported | the any-argument reading — spec review r1 finding 1, and the defect it demonstrated |
+| **factory in slot 1 with a trailing timeout — `describe("A", f, 5000)`** | a rule examining EVERY factory slot | a LAST-SLOT-ONLY rule, which sees the numeric timeout, accepts it as inert, and misses the factory | the last-slot-only reading — spec review r3 finding 2 |
+| **literal options in slot 1, factory in slot 2 — `describe("A", { concurrent: true }, f)`** | a rule examining EVERY factory slot | a FIRST-SLOT-ONLY rule, which sees the object literal, accepts it as inert, and misses the factory | the first-slot-only reading — the same finding's other half |
 
 **Negative cases, which the same corpus must keep SILENT.** Each is one ordinary edit from a
 reporting case, so a rule that reports on them is over-firing on live authoring:
@@ -495,9 +556,12 @@ reporting case, so a rule that reports on them is over-firing on live authoring:
 | `test("name", fn, WALK_TIMEOUT_MS)` | an inline body plus a named timeout constant. Live in the corpus; an intermediate per-ARGUMENT rule reported it and took the corpus from 1 `unclassifiable` to 398 (§3.4) |
 | `describe("A", opts, () => {})` | slot 2 is an inline body, so the factory IS located whatever `opts` is |
 | `describe(NAME_CONST, () => {})` | slot 0 is the name and is never examined |
+| `test("named", testFn)` | an `it`/`test` root cannot carry a suite factory, and the traversal already reaches a named handler — spec review r2 finding 2 |
+| `describe.each([() => { beforeEach(…) }])(…)` | the hook sits inside a function VALUE in an eager position; Vitest never invokes it while collecting, so reporting it would attribute a hook that does not run — spec review r3 finding 1 |
 
-**Producer B: 6 reporting cells and 4 silent cells, plus one negative twin per reporting cell, plus
-4 registrar-independence cells.**
+**Nine reporting cells and six silent cells — 15 in total, pinned by `cell-check.mts`, which exits 2
+if that count ever diverges from this table.** Four of the fifteen exist because a spec review found
+the defect they now hold fixed, and a finding that became a fixture cannot recur silently.
 
 ### 5.3 The sampling rule, stated once
 

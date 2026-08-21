@@ -164,12 +164,25 @@ for (const suite of suites) {
             }
           }
 
-          // PROBE 2 — the body position holds no inline function
-          if (!bodyArg && n.arguments.length >= 2) {
-            const cand = n.arguments[n.arguments.length - 1]!;
-            const hit = { suite, line: lineOf(n), kind: `${r} body=${ts.SyntaxKind[cand.kind]}`, text: brief(n) };
-            acc.bodyAbsent.push(hit);
-            if (ts.isIdentifier(cand)) ((r === "describe" || r === "suite") ? acc.factoryDescribe : acc.factoryTest).push(hit);
+          // PROBE 2 — a FACTORY SLOT (index >= 1) the scanner cannot follow.
+          // Ranging the body test over EVERY argument, as an earlier version did,
+          // is satisfiable by a function-valued NAME in slot 0 and therefore blind
+          // to `describe(function titled(){}, suiteA)` — spec review r3 finding 4.
+          // Slot 0 is always `name` per Vitest's SuiteCollectorCallable.
+          {
+            const inert = (a: ts.Expression): boolean =>
+              ts.isStringLiteralLike(a) ||
+              ts.isNumericLiteral(a) ||
+              ts.isObjectLiteralExpression(a) ||
+              ts.isArrayLiteralExpression(a) ||
+              a.kind === ts.SyntaxKind.TrueKeyword ||
+              a.kind === ts.SyntaxKind.FalseKeyword;
+            const slots = n.arguments.slice(1);
+            if (slots.length > 0 && !slots.some((a) => isBody(a)) && !slots.every((a) => inert(a))) {
+              const hit = { suite, line: lineOf(n), kind: `${r} unfollowable factory slot`, text: brief(n) };
+              acc.bodyAbsent.push(hit);
+              (r === "describe" || r === "suite" ? acc.factoryDescribe : acc.factoryTest).push(hit);
+            }
           }
 
           if ((r === "describe" || r === "suite") && bodyArg) {
@@ -292,7 +305,7 @@ show("  1b  any registration outside a describe body", wide.eagerFileScope, wide
 show("  1a  SHIPPED lower bound", shipped.eagerDirect, shipped.registrations);
 console.log("");
 console.log("--- PROBE 2  named suite factories (instrument: WIDE, independent AST walk)");
-show("  2a  describe/suite with a bare IDENTIFIER in the body position", wide.factoryDescribe, wide.registrations);
-show("  2b  it/test with a bare IDENTIFIER in the body position", wide.factoryTest, wide.registrations);
-show("  2c  any registration whose body position holds no inline function", wide.bodyAbsent, wide.registrations);
+show("  2a  describe/suite carrying an unfollowable FACTORY SLOT (index >= 1)", wide.factoryDescribe, wide.registrations);
+show("  2b  it/test carrying an unfollowable slot (excluded from the shipped rule; measured anyway)", wide.factoryTest, wide.registrations);
+show("  2c  any registration with an unfollowable factory slot, either root", wide.bodyAbsent, wide.registrations);
 show("  2a  SHIPPED lower bound", shipped.factoryDescribe, shipped.registrations);

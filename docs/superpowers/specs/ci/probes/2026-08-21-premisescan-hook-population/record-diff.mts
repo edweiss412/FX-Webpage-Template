@@ -91,6 +91,26 @@ try {
     if (l.detail !== b.detail) detailMoved.push(`${k}\n        base : ${b.detail.slice(0, 100)}\n        live : ${l.detail.slice(0, 100)}`);
   }
 
+  // POSITIVE CONTROL on the COMPARISON itself, not on the change under test.
+  // Perturb one record of the baseline set and require the same diff logic to
+  // report exactly one move. A change that happens not to touch the construct a
+  // constructed fixture uses would make a fixture-based control silent, and a
+  // silent control is indistinguishable from a working one.
+  {
+    const probe = new Map(B);
+    const victim = [...probe.keys()][0];
+    if (victim === undefined) throw new Error("record-diff: no records to perturb — the control cannot run");
+    const was = probe.get(victim)!;
+    probe.set(victim, { verdict: `${was.verdict}-PERTURBED`, detail: `${was.detail}-PERTURBED` });
+    let moved = 0;
+    for (const [k, x] of B) {
+      const y = probe.get(k);
+      if (y && (y.verdict !== x.verdict || y.detail !== x.detail)) moved += 1;
+    }
+    console.log(`POSITIVE CONTROL: perturbing one record moves ${moved} (expected 1)`);
+    if (moved !== 1) throw new Error("record-diff: the comparison cannot see a known difference; its zeros mean nothing");
+  }
+
   console.log(`baseline ref             : ${BASE_REF}`);
   console.log(`suites                   : ${suites.length}`);
   console.log(`records: baseline ${B.size}, live ${L.size}`);

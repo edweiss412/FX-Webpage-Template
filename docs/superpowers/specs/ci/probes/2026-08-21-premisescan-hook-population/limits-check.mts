@@ -16,8 +16,39 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { classifyTests as base } from "../../../../../../tests/mutation/source/premiseScanRecordDiffBaseline";
+import { execFileSync } from "node:child_process";
+import { writeFileSync as wf, unlinkSync } from "node:fs";
+
 import { classifyTests as live } from "../../../../../../tests/mutation/source/premiseScan";
+
+type Rows = { testName: string; verdict: string; detail: string }[];
+type Classify = (root: string, suite: string) => Rows;
+
+// The baseline module is generated here rather than required from the caller, so
+// the check cannot be run against a missing or stale sibling — and it is read
+// through `git show`, never from the working tree, because in a worktree carrying
+// the change the working copy IS the change and a file read would compare it
+// against itself.
+const BASE_REF = process.env.PREMISE_BASE_REF ?? "origin/main";
+const SIBLING = join(process.cwd(), "tests/mutation/source/premiseScanLimitsBaseline.ts");
+wf(
+  SIBLING,
+  execFileSync("git", ["show", `${BASE_REF}:tests/mutation/source/premiseScan.ts`], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    maxBuffer: 32 * 1024 * 1024,
+  }),
+);
+const { classifyTests: base } = (await import(
+  `../../../../../../tests/mutation/source/${"premiseScanLimitsBaseline"}.ts`
+)) as { classifyTests: Classify };
+process.on("exit", () => {
+  try {
+    unlinkSync(SIBLING);
+  } catch {
+    /* already gone */
+  }
+});
 const scratch = mkdtempSync(join(tmpdir(), "lim-"));
 let n = 0;
 const P = (src: string) => {
@@ -30,26 +61,34 @@ const say = (id: string, claim: string, ok: boolean, detail = "") =>
 
 const IMP = `import { spawnSync } from "node:child_process";`;
 
-// L1 — an eager hook is REPORTED, never attached; reason names no suite.
+// L1 — the limit applies to tests OUTSIDE the registration only. A test NESTED
+// inside it is already proven touching by hookBodies and must be UNDISTURBED;
+// the sibling is the silent free being closed.
 {
-  const { l } = P(`${IMP}\ndescribe(String(beforeEach(() => { spawnSync("e",[]); })), () => { it("a", () => {}); });`);
-  const r = l[0]!;
-  say("L1", "eager hook reported, not attached, reason names no suite",
-    r.verdict === "unclassifiable" && r.detail.length > 0 && !/\bsuite [A-Z"']/.test(r.detail),
-    `verdict=${r.verdict} detail=${r.detail.slice(0, 70)}`);
+  const src = `${IMP}\ndescribe(String(beforeEach(() => { spawnSync("e",[]); })), () => { it("nested", () => {}); });\nit("sibling", () => {});`;
+  const { b, l } = P(src);
+  const pick = (rows: readonly { testName: string; verdict: string }[], name: string) =>
+    rows.find((r) => r.testName === name);
+  const ok =
+    pick(b, "nested")?.verdict === "environment-touching" &&
+    pick(b, "sibling")?.verdict === "environment-free" &&
+    pick(l, "nested")?.verdict === "environment-touching" &&
+    pick(l, "sibling")?.verdict === "unclassifiable";
+  say("L1", "nested keeps its proven verdict; only the sibling moves, free -> unclassifiable", ok,
+    `base=${b.map((r: Rows[number]) => `${r.testName}:${r.verdict}`).join(" ")} | live=${l.map((r: Rows[number]) => `${r.testName}:${r.verdict}`).join(" ")}`);
 }
 // L2 — the report is FILE-scoped: a sibling the construct cannot have affected is demoted too.
 {
   const { l } = P(`const suiteA = () => { it("inA", () => {}); };\ndescribe("A", suiteA);\nit("sibling", () => {});`);
   say("L2", "report is FILE-scoped (sibling demoted too)",
-    l.length === 2 && l.every((r) => r.verdict === "unclassifiable"),
-    l.map((r) => `${r.testName}=${r.verdict}`).join(" "));
+    l.length === 2 && l.every((r: Rows[number]) => r.verdict === "unclassifiable"),
+    l.map((r: Rows[number]) => `${r.testName}=${r.verdict}`).join(" "));
 }
 // L3 — neither producer fires on a registration registrarRoot does not recognize.
 {
   const { l } = P(`const suiteA = () => { it("a", () => {}); };\ndescribe.skipIf(false)("A", suiteA);`);
   say("L3", "silent on a registration registrarRoot does not recognize (skipIf)",
-    l.every((r) => r.detail.length === 0), l.map((r) => `${r.testName}=${r.verdict}`).join(" "));
+    l.every((r: Rows[number]) => r.detail.length === 0), l.map((r: Rows[number]) => `${r.testName}=${r.verdict}`).join(" "));
 }
 // L4 — helper-registered hook invisible at EVERY position, identically to baseline.
 {
@@ -62,10 +101,10 @@ const IMP = `import { spawnSync } from "node:child_process";`;
   let uniform = true, detail = "";
   for (const [src, label] of cases) {
     const { b, l } = P(src);
-    const same = JSON.stringify(b.map((r) => r.verdict)) === JSON.stringify(l.map((r) => r.verdict));
-    const free = l.every((r) => r.verdict === "environment-free");
+    const same = JSON.stringify(b.map((r: Rows[number]) => r.verdict)) === JSON.stringify(l.map((r: Rows[number]) => r.verdict));
+    const free = l.every((r: Rows[number]) => r.verdict === "environment-free");
     if (!same || !free) uniform = false;
-    detail += `${label}: base=${b.map((r) => r.verdict).join(",")} live=${l.map((r) => r.verdict).join(",")}  `;
+    detail += `${label}: base=${b.map((r: Rows[number]) => r.verdict).join(",")} live=${l.map((r: Rows[number]) => r.verdict).join(",")}  `;
   }
   say("L4", "helper-registered hook invisible at all 3 positions, identical to baseline", uniform, detail);
 }
@@ -74,22 +113,31 @@ const IMP = `import { spawnSync } from "node:child_process";`;
   const a = P(`const opts = { timeout: 1 };\ndescribe("A", opts);\nit("s", () => {});`);
   const b = P(`const opts = { timeout: 1 };\ndescribe("A", opts, () => { it("a", () => {}); });`);
   say("L5", "named options WITHOUT a body reports; WITH a body it does not",
-    a.l.some((r) => r.detail.length > 0) && b.l.every((r) => r.detail.length === 0),
-    `no-body=${a.l.map((r) => r.verdict).join(",")} with-body=${b.l.map((r) => r.verdict).join(",")}`);
+    a.l.some((r: Rows[number]) => r.detail.length > 0) && b.l.every((r: Rows[number]) => r.detail.length === 0),
+    `no-body=${a.l.map((r: Rows[number]) => r.verdict).join(",")} with-body=${b.l.map((r: Rows[number]) => r.verdict).join(",")}`);
+}
+// L6 — a `suite(...)` registration is never recognized, identically on both trees.
+{
+  const src = `const f = () => { it("a", () => {}); };\nsuite("A", f);`;
+  const { b, l } = P(src);
+  say("L6", "suite alias not recognized, identical to baseline",
+    JSON.stringify(b.map((r: Rows[number]) => r.verdict)) === JSON.stringify(l.map((r: Rows[number]) => r.verdict)) &&
+      l.every((r: Rows[number]) => r.detail.length === 0),
+    `base=${b.map((r: Rows[number]) => r.verdict).join(",")} live=${l.map((r: Rows[number]) => r.verdict).join(",")}`);
 }
 // §3 precedence — a touching test keeps its verdict under BOTH producers.
 {
   const a = P(`${IMP}\ndescribe(String(beforeEach(() => {})), () => { it("a", () => { spawnSync("e",[]); }); });`);
   const b = P(`${IMP}\nconst s = () => { it("a", () => {}); };\ndescribe("A", s);\nit("t", () => { spawnSync("e",[]); });`);
   say("§3", "environment-touching survives BOTH producers",
-    a.l.some((r) => r.verdict === "environment-touching") && b.l.some((r) => r.verdict === "environment-touching"),
-    `A=${a.l.map((r) => r.verdict).join(",")} B=${b.l.map((r) => r.verdict).join(",")}`);
+    a.l.some((r: Rows[number]) => r.verdict === "environment-touching") && b.l.some((r: Rows[number]) => r.verdict === "environment-touching"),
+    `A=${a.l.map((r: Rows[number]) => r.verdict).join(",")} B=${b.l.map((r: Rows[number]) => r.verdict).join(",")}`);
 }
 // §2.1 — a hook in a nested describe's eager position still attaches (hookBodies), unchanged.
 {
   const src = `${IMP}\ndescribe("outer", () => { describe(String(beforeEach(() => { spawnSync("e",[]); })), () => { it("a", () => {}); }); it("sib", () => {}); });`;
   const { b, l } = P(src);
   say("§2.1", "nested eager hook handled by hookBodies, unchanged from baseline",
-    JSON.stringify(b.map((r) => r.verdict)) === JSON.stringify(l.map((r) => r.verdict)),
-    `base=${b.map((r) => r.verdict).join(",")} live=${l.map((r) => r.verdict).join(",")}`);
+    JSON.stringify(b.map((r: Rows[number]) => r.verdict)) === JSON.stringify(l.map((r: Rows[number]) => r.verdict)),
+    `base=${b.map((r: Rows[number]) => r.verdict).join(",")} live=${l.map((r: Rows[number]) => r.verdict).join(",")}`);
 }
