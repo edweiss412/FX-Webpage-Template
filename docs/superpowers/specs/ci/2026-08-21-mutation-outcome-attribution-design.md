@@ -409,6 +409,29 @@ Both branches are pre-staged so the ruling costs one turn. The ruling belongs to
 
 `runner.ts`, `gate.ts`, `surfaceCases.ts` — none enrolled in the mutation registry, so **no enrolled surface's score is retired by this arc**. Plus `.github/workflows/mutation-harness.yml` (the records upload, without which the CI half of the record does not survive its workspace), `.gitignore` (the records directory), the NEW determinism module and its referring Vitest suite (§5.4), the record-writing module and its suite (§5.2), and the repo-root `package.json` scripts block — `pnpm mutation:determinism` does not exist today (the nearest entry is `mutation:guards`), so the script entry is part of this change rather than assumed. `spawnBounded.ts` is deliberately untouched (`registry.ts:2663`, `scoreFloor: 1`, measured 12/12). `oracle.ts` and `ledger.ts` are untouched: the verdict and the score are not this spec's subject.
 
+**One more file, found by enumerating every CALLER of the two changed types rather than by reasoning
+from this section's own list.** `tests/mutation/browser/**` consumes BOTH `MutantOutcome` and
+`GateInput`, and an earlier draft of this section did not mention it. Probed per file, because the
+difference decides whether a score dies:
+
+| file | relationship | enrolled | consequence |
+| --- | --- | --- | --- |
+| `tests/mutation/browser/mutate.ts` | CONSUMES `MutantOutcome` only — a parameter type and a predicate; constructs none | **YES (`browserMutate`, floor 1)** | **no edit, so that score is NOT retired** |
+| `tests/mutation/browser/runner.ts` | CONSTRUCTS `MutantOutcome` | no | takes `children: []` |
+| `tests/mutation/browser/browserSurfaces.gate.test.ts`, and the committed probe scripts under `docs/superpowers/specs/ci/probes/2026-08-21-attribution-scripts/` | construct a `GateInput` | no | unchanged — see the field decision below |
+
+**The field decision, asymmetric on purpose.** `MutantOutcome.children` is REQUIRED: it is the
+deliverable, and an optional field is one a producer can silently omit. `GateInput.outcomes` is
+OPTIONAL and defaults to `[]`: requiring it would break three call sites that cannot supply it
+meaningfully, two of them committed probe scripts whose value is EVIDENTIARY and which must not be
+edited to stay current. In both cases the value at the non-enrolled sites — `children: []`, `outcomes:
+[]` — is the CORRECT one rather than a placeholder, because a browser mutant has no per-suite children
+by construction, and with no children there is no deciding child, so no timeout notice can exist.
+
+The hazard an optional field creates — a producer that stops passing `outcomes`, and notices silently
+vanishing — is covered by AC-6's console half, which drives the REAL `registerSurfaceCases` rather than
+a rendering helper and therefore reds when the wiring is cut.
+
 ---
 
 ## 6. Documented limits
