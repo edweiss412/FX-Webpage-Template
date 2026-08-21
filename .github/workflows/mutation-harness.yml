@@ -16,7 +16,7 @@ name: mutation-harness
 # inside one job redistributes work among the same three workers and cannot go
 # below ~162 min. The binding constraint is total work against a fixed 4-vCPU
 # runner, so the repair has to add CPUs, which on GitHub Actions means jobs.
-# Every leg now carries its own `timeout-minutes: 90` against a 3,600 s budget
+# Every leg now carries its own `timeout-minutes: 120` against a 3,600 s budget
 # the `budget` job enforces, so wall-clock growth is a NAMED failure instead of
 # something discovered by crossing a timeout.
 #
@@ -71,7 +71,7 @@ jobs:
       matrix:
         shard: [0, 1, 2, 3, 4, 5, 6, 7] # == SHARD_COUNT (tests/parser/mutation/shardPartition.ts)
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     # Runs UNTRUSTED code (pnpm install + tests) on PR/feature-branch runs, so it holds NO
     # issues:write — least privilege (Codex #369 R2). All issue mutation is isolated to the
     # separate, gated `notify` job below, which runs no untrusted code.
@@ -118,7 +118,7 @@ jobs:
 
   parser-gates:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     permissions:
       contents: read
     steps:
@@ -151,7 +151,7 @@ jobs:
       matrix:
         shard: [0, 1, 2, 3] # == SOURCE_SHARD_COUNT (tests/mutation/source/shardPartition.ts)
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     permissions:
       contents: read
     steps:
@@ -175,7 +175,7 @@ jobs:
 
   source-gates:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     permissions:
       contents: read
     steps:
