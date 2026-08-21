@@ -143,6 +143,28 @@ count. The record diff is what covers both.
 establishes that the design is sound; the tasks below still author their own cases and the score is
 measured against the shipped source.
 
+## 0.45 What each instrument does on THIS branch versus with the change — measured
+
+Every instrument now exits non-zero when it finds the thing it looks for, so an implementer needs to
+know which non-zero results are EXPECTED before the work lands. Measured on both trees rather than
+predicted:
+
+| instrument | on this branch (no producers) | with the change | what a wrong result means |
+| --- | --- | --- | --- |
+| `claims-check.mts` | **exit 0** — every declared limit has a probe, every named script resolves, spec and script agree on 16 | exit 0 | it checks DOCUMENTS, so the producers do not affect it; any non-zero is a real documentation defect |
+| `cell-check.mts` | **exit 1**, `7 of 16` — the nine reporting cells emit no reason yet | **exit 0**, `16 of 16` | anything other than 7 on the branch means the cell set moved without the table moving |
+| `limits-check.mts` | **exit 1**, L1, L2 and L5 FALSE — those three describe post-change behaviour | **exit 0**, all 8 HOLD | a FOURTH row FALSE on the branch means a limit that should hold today does not |
+| `record-diff.mts` | **exit 2** — baseline and live are the same bytes, so it REFUSES to report | **exit 0**, 0 records moved | exit 1 with the change means the change is not verdict-neutral, which contradicts §3.4 |
+
+Three of the four are red-then-green by construction, and that is the point: a green
+`cell-check` or `limits-check` on this branch would mean the instrument had stopped discriminating,
+not that the work was done. `claims-check` is the exception because its subject is the documents
+rather than the scanner.
+
+This table exists because the question "what exit code does an instrument produce when it finds the
+thing it is looking for" turned up two instruments that produced ZERO — one of them found only after
+the other had been fixed without sweeping its peers.
+
 ## 0.4 Red-command validation, run at plan time
 
 Every `red=` in the region below is the SAME command, parse-checked and collection-probed here so a
