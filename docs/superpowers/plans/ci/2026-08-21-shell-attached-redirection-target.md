@@ -35,7 +35,7 @@ stated per revision, because it is not stable across the arc's own commits.
 
 - **CREATES:** none.
 - **EXTENDS:** `tests/cross-cutting/psqlStartupFileSuppression.test.ts` — the deciding suite, with
-  new cases per Task 1 and Task 2 and two retired declared-limit pins.
+  new cases per Task 1 and Task 2 and THREE retired declared-limit pins (two controls held).
 - **EXTENDS:** `tests/mutation/source/registry.ts` — `psqlStartupScan`'s accepted rows are
   re-derived after the source edit (Step 4).
 - **UNTOUCHED, and named because the change could plausibly reach them:**
@@ -194,8 +194,17 @@ names the statement by its content instead. Verify it by reading the statement, 
 the line resolves: a drifted citation that still lands on real code is a false statement nothing
 surfaces.
 
-Nothing test-local decides the outcome: the probe at `probe-attached.mts` measures all eleven as
-unmet on the current tree with four positive controls reporting.
+Nothing test-local decides the outcome: the probe at `docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/probe-attached.mts` measures all eleven
+as unmet on the current tree with four positive controls reporting — that is the BARE (baseline)
+invocation, which exits 0 while reporting them unmet.
+
+**The green condition is `--expect-report`, and the flag IS the gate.** Bare, the probe is a
+BASELINE check that expects the subjects SILENT; only `--expect-report` exits 1 naming every
+subject still unmet, which is the direction that matters after the edit. Measured today: bare
+exits 0, `--expect-report` exits 1. **This was found by sweeping plan round 1's finding 2 across
+every command this plan names** — that finding was `baseline-corpus.mts` cited without `--expect`,
+and the same shape sat here in the acceptance probe. Two probes in this arc have a mode flag that
+separates reporting from gating; both are now named with it wherever they are cited as a gate.
 
 **RED — the cases.** All ELEVEN subjects from spec §2.2 (A–K), each asserting its own declared
 expectation, plus the four positive controls. **I's expectation is on ATTRIBUTION, not presence** —
@@ -238,7 +247,28 @@ mutant it kills.
    first-body-only walk survives nesting while dying on siblings. A single two-body witness proves
    less than the equality does, and the equality is what makes an added third body covered by
    construction.
-7. The attached target's own text still never becomes an argv word. That is what keeps this
+7. **Four more axes, all found by review at plan rounds 1 and 2, all the same shape.** Each names
+   an implementation that passes every case stated above:
+   - **H asserts ATTRIBUTION, not presence.** A walker that marks a backtick inside an attached
+     double-quoted target as `backtick:false` makes H report while attributing it wrongly, and the
+     separate bare-backtick path still carries I. H therefore takes the same non-empty UNIVERSAL
+     `nestedInBacktick === true` predicate as I, not a presence check.
+   - **J asserts the LINE, not just the report.** A walker that anchors every attached nested body
+     to the operator's line makes J report and passes a presence assertion, while stamping the site
+     with line 1 instead of the physical second line. J requires the psql site to report on the line
+     the psql actually occupies — the multiline axis crossed with the attribution axis, and neither
+     alone catches it.
+   - **Recursion is UNBOUNDED, not capped at case G's depth.** G nests two deep, so an
+     implementation capped at two passes A-K, the operator-derived test and the sibling-body test.
+     `cat >"${OUT:-${OTHER:-$(psql -c 'select 1')}}"` is one edit from G and bash executes it; the
+     assertion is on depth generally rather than on that one fixture.
+   - **Attached-target population within one chunk is unvaried too.** The sibling-body repair varies
+     bodies inside ONE target; a collector that walks every body of the FIRST substitution-bearing
+     attached target and ignores later ones still passes. `cat >"$(true)"` on one line followed by
+     `cat >"$(psql -c 'select 1')"` on the next kills it. Assert over BOTH populations - targets per
+     chunk and bodies per target - because closing one leaves the other open, which is exactly what
+     happened here.
+8. The attached target's own text still never becomes an argv word. That is what keeps this
    outside both readings the filing arc REFUSED (spec §1.1).
 
 **Retire the three pins in this commit** (§2 above), and hold both controls unchanged.
@@ -250,6 +280,13 @@ proving it reads the command word; (c) add `-X` to the body — the site must re
 `suppressesStartupFiles === true` rather than vanish, proving the case reads the verdict and not
 mere presence; (d) move the same body to a DETACHED position — it must still report, proving the
 case is not accidentally passing through the already-working detached arm.
+
+**Mutant (c) is not observable for F, and the procedure says so rather than silently failing.**
+F reports through `scanShellIndirection` as an `IndirectionHit`; it produces no `PsqlSite`, so there
+is no `suppressesStartupFiles` field for the `-X` mutant to move. F takes mutants (a), (b) and (d),
+and its (c) analogue asserts that adding `-X` to the here-string binding leaves the `IndirectionHit`
+PRESENT — a hit records an indirection, not a verdict. A procedure stated for "each of the eleven"
+that cannot execute for one of them is a checklist item nobody can discharge.
 
 **I's mutants are DIFFERENT, and that is the point of giving it its own predicate.** Its assertion
 is `nestedInBacktick === true`, so the presence mutants above cannot discriminate it: (a) emptying
@@ -279,7 +316,7 @@ backtick, brace and quote each get a case asserting a surfaced **`IndirectionHit
 undelimitable target. They fail until the channel exists.
 
 **The firing condition is narrow and is part of the red:** the report fires only when the
-undelimitable span carries a substitution opener, so the corpus's 53 ordinary attached targets
+undelimitable span carries a substitution opener, so the corpus's ordinary attached targets (53 at base `e5d1d723d`, 57 at plan HEAD; see §0)
 stay quiet. A case asserting that `cat >"${OUT}"` emits NOTHING is the half that pins it.
 
 **This is the half that makes the bound true rather than aspirational.** Spec §5: *correct or
@@ -288,6 +325,17 @@ signaled, never silently wrong.* Task 1 supplies "correct"; Task 2 supplies "sig
 **Negative twin, per the both-directions rule.** Each unterminated case is paired with its
 terminated sibling one edit away, asserting NO unlexable report — otherwise a channel that
 reports everything satisfies all three positives while being maximally broken.
+
+**Each unlexable case also asserts ZERO `PsqlSite`s.** An implementation that emits the required
+`IndirectionHit` AND fabricates a `PsqlSite` alongside it passes both the positive and the negative
+twin, and AC-5's digest cannot kill it because the live corpus holds zero members of this family —
+there is no baseline row for a fabricated site to move. The site count is the only assertion that
+discriminates, so it is stated per case rather than left to the corpus gate.
+
+**One unlexable case carries a file-descriptor prefix.** Task 2 varies opener KIND and nothing else,
+so an implementation that delimits K correctly but suppresses the unlexable report whenever a
+descriptor preceded the operator passes every stipulated case. The killer is K with its closing
+quote removed — `cat 2>"$(psql -c 'select 1')` — one edit inside the domain.
 
 <!-- tasks: end -->
 
@@ -327,8 +375,20 @@ true** (spec §6):
 
 - `tests/cross-cutting/psqlStartupFiles/scan.ts:280`–`tests/cross-cutting/psqlStartupFiles/scan.ts:297`, the documented-limits block, which currently calls this family "not read
   at all" and "the sharpest limit in this list";
+- `tests/cross-cutting/psqlStartupFiles/scan.ts:1063`, which describes a redirection the lexer CONSUMED in the attached spelling;
+- `tests/cross-cutting/psqlStartupFiles/scan.ts:1564`, on what each spelling emits from the buffer;
+- `tests/cross-cutting/psqlStartupFiles/scan.ts:2965`, which states the attached here-string spelling is "deliberately NOT read" — the
+  sentence Task 1 makes false via case F;
+- the deciding suite's block-2 comment at `tests/cross-cutting/psqlStartupFileSuppression.test.ts:5921`, which declares the ATTACHED family WITHDRAWN
+  SCOPE; following this plan turns that block's zero into a report while the prose above it still
+  says the target is never read;
 - the deciding suite's note declaring the attached `<<<p'sql'` spelling withdrawn scope
   (`tests/cross-cutting/psqlStartupFileSuppression.test.ts:6171`).
+
+**The sweep is DERIVED, not this list.** Both reviews found a comment this enumeration had missed,
+which is the enumerated-cover failure AGENTS.md names. Before committing Task 1, run
+`rg -n 'ATTACHED|attached' tests/cross-cutting/psqlStartupFiles/scan.ts tests/cross-cutting/psqlStartupFileSuppression.test.ts` and read every hit that makes a claim about what is or is not
+read; the list above is where that sweep landed today, not a substitute for running it.
 
 Re-run the three-surface census after the change and confirm the population is still zero — the
 repair must not have manufactured live instances.
@@ -342,7 +402,7 @@ shape. `pnpm mutation:sites` exits 0 today (26 rows ok, zero stale, verified at 
 
 - every accepted row re-keyed through the shipped enumerator and RE-VALIDATED, not merely re-keyed;
 - `pnpm mutation:sites` reports zero STALE rows for `psqlStartupScan`;
-- `pnpm heavy pnpm mutation:guards` scores at or above the floor with an EMPTY unaccepted-survivor
+- **AC-7:** `pnpm heavy pnpm mutation:guards` scores at or above the floor with an EMPTY unaccepted-survivor
   set, provenance pair stamped inside the measuring invocation, before and after.
 
 **Files:** Modify `tests/mutation/source/registry.ts`.
@@ -364,16 +424,34 @@ report any observation at that site to `bl-orch`.
 Then `pnpm heavy pnpm mutation:guards`, and record the score with an empty unaccepted-survivor set
 plus the provenance pair stamped INSIDE the measuring invocation.
 
-## Step 5 (OUTSIDE the red-contract region) — ledger closeout, EARLY
+## Step 5 (OUTSIDE the red-contract region) — ledger closeout, THE PR'S LAST COMMIT
 
 **Why it carries no task marker.** A ledger move is a docs change; the gate below is a CLOSEOUT
 CHECK, not a red-then-green cycle on production behaviour. Stated acceptance: the gate exits 0.
 
 **Files:** Modify `BACKLOG.md`, `BACKLOG-archive.md`; create `scripts/ci/attached-target-closeout-check.sh`.
 
-**One commit, BEFORE whole-diff review**: archive the graduating row, file any peers, remove the
-in-progress marker. Absence is then guaranteed rather than maintained, and the ledger commit is
-reviewed rather than riding into the merge unreviewed.
+**One commit, and it is the PR's LAST — after whole-diff review and after every review repair.**
+Archive the graduating row, file any peers, remove the in-progress marker. For a graduating entry
+those are necessarily ONE commit: archives categorically reject in-progress entries, so the marker
+cannot ride along into the archive.
+
+**This reverses an earlier draft of this step, and the reason is an invariant, not a preference.**
+The draft ran closeout EARLY, before whole-diff review, reasoning that absence is then guaranteed
+rather than maintained and that the ledger commit gets reviewed instead of riding into the merge
+unseen. Plan round 1 finding 7 caught what that costs: any review repair then lands AFTER the
+ledger commit, so the marker is off while work is still in flight and the PR's last commit is not
+the marker removal. Invariant 12 requires exactly that ordering — the marker comes off in the last
+commit, before the merge, so it never reaches `main`, where the origin-existence rule in
+`tests/docs/_metaLedgerInProgress.test.ts` would fail on a branch the merge had just deleted.
+Invariant 12 is non-negotiable and the early-closeout benefit is a convenience, so the invariant
+wins.
+
+**What is lost, stated rather than glossed.** The ledger commit is no longer covered by whole-diff
+review. The compensation is mechanical rather than human: `scripts/ci/attached-target-closeout-check.sh`
+ships with this plan and is proven in both directions, so the commit that review no longer sees is
+the one commit whose correctness is decided by an executable gate. Run it as the last action before
+pushing that commit, and again after any subsequent `main` merge.
 
 **The gate SHIPS with this plan** at `scripts/ci/attached-target-closeout-check.sh` rather than
 living in a session scratchpad, so the implementer runs the same predicates I proved. Proven in
