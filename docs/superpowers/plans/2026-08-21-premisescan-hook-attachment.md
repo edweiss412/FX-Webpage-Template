@@ -53,13 +53,15 @@ definition.
 | **AC-7** | the surface's own `suitePaths` carry no LIVE instance of either shape | Task 3 |
 | **AC-8** | `EXPECTED_ENV_TOUCHING` is unchanged, proved by a field check on the committed diff | Task 4 |
 | **AC-9** | the probe record's zeros still hold at HEAD | Task 4 |
-| **AC-10** | the mutation score is measured at HEAD with an empty unaccepted-survivor set, at or above `scoreFloor` | Task 4 |
+| **AC-10** | the mutation score is measured at HEAD with an empty unaccepted-survivor set, at or above `scoreFloor` | Tasks 4a and 4b — 4a re-keys and RE-VALIDATES the accepted survivors, without which the gate fails outright; 4b supplies the provenance pair as an executable command, since the harness implements none |
 
 ## 0.1 Meta-test inventory
 
 - **Creates:** none.
 - **Extends:** `tests/mutation/source/premiseScan.test.ts` (a `suitePath` of the enrolled
   `premiseScan` surface), with a new self-pollution guard case (Task 3).
+- **Edits:** `tests/mutation/source/registry.ts`, at Task 4a only, to re-key the accepted survivor
+  whose line the source edits move. No other row and no other field is touched.
 - **Explicitly does NOT touch:** `tests/mutation/_metaPremiseContract.test.ts`. Spec AC-8 makes that
   a field check on the committed diff, not a suite result.
 
@@ -505,6 +507,75 @@ and headings between regions are unchecked, so that is what happens here.
   registry row, both `suitePaths`, and their transitive local imports, the file count printed beside
   the digest. Editing any of those retires the score (spec §6 AC-10); say so rather than letting a
   stale number stand.
+
+### Task 4a — re-key AND re-validate the accepted survivors, BEFORE the gate is run
+
+**Files:** `tests/mutation/source/registry.ts`
+
+`premiseScan` carries two `equivalent` rows and both are LINE-KEYED:
+`relational-boundary:603:29:>>>=` and `relational-boundary:1936:28:<><=`. Tasks 1 and 2 insert lines
+into `premiseScan.ts` at roughly 1669 and 1752, so:
+
+- the **603** row precedes every edit and does not move;
+- the **1936** row sits AFTER them and shifts. Its site id goes stale, and the gate then reports BOTH
+  an unaccepted survivor at the new line AND a stale ledger row at the old one, so **AC-10's command
+  fails outright**. Plan review r3 finding 1.
+
+That row's own reason records eleven previous re-keys (`1752 -> 2061 -> … -> 1936`), so this is a
+known recurring obligation of editing this file rather than a surprise.
+
+**Re-keying is not re-validating, and both are required.** A resolving key proves the site still
+exists, not that the reason still holds.
+
+1. Run the gate once to learn the new site id, or enumerate sites, and re-key by the mutated
+   EXPRESSION and its 1-based column — `n.getStart(facts.sf) < call.getStart(facts.sf)` at column 28
+   — never by the line alone.
+2. **Re-check the premise against the shipped source**, and record the check rather than inheriting
+   it. The premise is that `<` and `<=` differ only when two nodes start at the identical offset,
+   which distinct sibling statements cannot do. What would VOID it: a new caller of
+   `premiseIsAssociated` that compares a node against itself, or any change to that comparison's
+   operands. Neither producer adds one — both append to a file-level reason array and neither touches
+   `premiseIsAssociated` — but that is the statement to verify against the diff, not to assume.
+3. Append the new key to the row's re-key trail so the twelfth move is as legible as the previous
+   eleven.
+
+### Task 4b — the provenance pair, as an executable command
+
+AC-10 requires a before/after stamp taken INSIDE the measuring invocation. **The mutation harness
+implements no such stamping** — `pnpm mutation:guards` derives and prints nothing (plan review r3
+finding 2) — so the plan supplies it rather than naming a proof no step performs:
+
+```bash
+premise_inputs() {
+  pnpm exec tsx -e '
+import { GUARD_SURFACES } from "./tests/mutation/source/registry";
+const row = GUARD_SURFACES.find((s) => s.id === "premiseScan");
+if (!row) { console.error("no premiseScan row"); process.exit(2); }
+console.log([row.sourcePath, ...row.suitePaths,
+  "tests/mutation/source/registry.ts", "tests/mutation/source/operators.ts",
+  "tests/mutation/source/ledger.ts", "tests/mutation/source/expectedLedgerKinds.ts",
+  "tests/_shared/premise.ts", "tests/_shared/stripComments.ts"].join("\n"));
+' | sort -u
+}
+premise_stamp() {
+  local n; n=$(premise_inputs | wc -l | tr -d ' ')
+  [ "$n" -lt 5 ] && { echo "STAMP ABORT: derived only $n inputs, a broken read" >&2; return 2; }
+  echo "$1 stamp over $n inputs: $(premise_inputs | xargs shasum | shasum | cut -c1-12)"
+}
+
+premise_stamp BEFORE && pnpm heavy pnpm mutation:guards; premise_stamp AFTER
+```
+
+Three properties are deliberate. `sourcePath` and `suitePaths` are read OUT OF THE REGISTRY ROW, so a
+suite added there is stamped automatically rather than by remembering. The stamp ABORTS below five
+inputs, because a derivation's failure mode is silently deriving nothing, which renders identically
+to correctly finding nothing. And the pair is taken before AND after: one stamp catches a stale read,
+only the pair catches an input moving DURING a run that queues behind the heavy semaphore.
+
+Verified at plan time — `BEFORE stamp over 9 inputs: 88be6b28818b`, `AFTER` identical.
+
+**Any input moving retires the score** (spec §6 AC-10), including a whitespace-only edit and
+including a test-side one, since the deciding suites are what make a survivor a survivor.
 
 ## Task 5 — ledger closeout, EARLY and as one commit (verification, no red)
 
