@@ -125,7 +125,7 @@ lived in the scratch prototype and the committed version carries a STRUCTURAL on
 baseline record instead. The spec was corrected for this last round and the plan was not, which is
 the artifact-PAIR sweep failing on its own arc. Plan review r1 finding 3.
 
-All 2648 classified rows across the 70 enrolled suites are dumped as
+Every classified row across every enrolled suite is dumped as
 `(suite, line, testName, verdict, detail)` under the SHIPPED baseline and under the prototype and
 diffed as SETS. Detail strings are compared for equality BETWEEN THE TWO RUNS, never against known
 reason strings, and the positive control lives inside the same invocation and throws if a constructed
@@ -517,9 +517,11 @@ instead of the file-level array would invert it for its own cases only.
 
 ## Task 3 — the surface's own suites carry no live instance
 
-<!-- task: red=`pnpm exec vitest run tests/mutation/source/premiseScan.test.ts --project parallel` red-state=authored red-target=`tests/mutation/source/premiseScan.test.ts:4091` why=`the guard scans the surface's own suitePaths for a live instance of either shape and asserts zero; it is authored against a constructed violation first, so it is observed failing before the violation is removed` ac=AC-7 -->
+<!-- task: red=`pnpm exec vitest run tests/mutation/source/premiseScan.test.ts --project parallel` red-state=authored red-target=`tests/mutation/source/premiseScan.test.ts:4643` why=`the guard scans the surface's own suitePaths for a live instance of either shape and asserts zero, in the case titled "zero live instances of either shape"; it is proved against a constructed LIVE violation of each shape, each observed redding exactly that case and nothing else before the violation is removed` ac=AC-7 -->
 
 **Files:** `tests/mutation/source/premiseScan.test.ts`
+
+*Citation note. This task's `red-target` originally named line 4091 of that file, and Tasks 1 and 2 moved it: they insert helpers near the top of it and append their own blocks, so line 4091 still RESOLVED and pointed at unrelated code. A drifted citation that lands on real code is indistinguishable from a correct one, and `RED_TARGET_INVALID` checks only that a line is in range -- so it stays green by design rather than by accident. Re-pointed to line 4643, and the CASE TITLE is now in the `why=`, because a title survives a shift and a number does not. A plan that cites into its own blast radius is citing a moving target, and the re-verification is owed after every task that touches the cited file.*
 
 **Prototyped at plan time, in both directions, so AC-7 is measured rather than promised:**
 

@@ -66,7 +66,7 @@ control is zero, and aborts if WIDE finds FEWER registrations than SHIPPED. `0 o
 
 **The two WIDE-only nodes are one live registration** — the outer call and its `test.skipIf(isRoot)`
 callee both peel to `test`. This independently reproduces the accept-set row's incident on the
-current tree. The row cites that test at `:1653`; it is at **`:1654`** on `64c40a68e`, and the
+current tree. The row cites that test at line 1653; it is at line **1654** on `64c40a68e`, and the
 citation that survives an edit is the content, `test.skipIf(isRoot)("chmod 000 on a directory
 holding a psql site fails the census", …)`.
 
@@ -372,3 +372,60 @@ for(const [s,c] of [...per].sort()) console.log(`      ${c}  ${s}`);
    and would classify a hook registration as a test.
 
 4. **No AC-1 movement, so the batch's one genuine escalation point does not fire on this arc.**
+
+---
+
+## 8. AC-9 — re-derived at HEAD, after the change and after a merge that GREW the corpus
+
+Everything above was measured at base `64c40a68e`. A mid-arc merge of `origin/main` took the base to
+`0820436cf4dd`, and PR #859 enrolled a new surface there, so the corpus this arc walks is **larger
+than every transcript above records**. Both figures are kept: the transcripts stand as the record of
+what the commands printed at the base they were run against, and the re-derivation below is the
+current fact. A record that names only the superseded value is the one that reads as stale.
+
+|  | at `64c40a68e` | at HEAD |
+| --- | --- | --- |
+| enrolled suites | 70 | **77** |
+| registrations scanned | 3404 | **3591** |
+| classified records | 2648 | **2773** |
+| 1a file-scope eager-position hooks | **0** | **0** |
+| 2a/2c unfollowable factory slots | **0** | **0** |
+
+```
+$ pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-premisescan-hook-population/probe-population.mts
+POSITIVE CONTROL (constructed): eagerDirect 2, eagerFileScope 2, factoryDescribe 1, registrations 6
+CORPUS: enrolled suites 77, files read 77
+  1a  registration is a DIRECT statement of the file: 0 of 3591 registrations
+  2a  describe/suite carrying an unfollowable FACTORY SLOT (index >= 1): 0 of 3591 registrations
+  2c  any registration with an unfollowable factory slot, either root: 0 of 3591 registrations
+
+$ pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-premisescan-hook-population/probe-decompose.mts
+CORPUS: 77 enrolled suites
+  C1 control  hook-registrar calls in the corpus, any position: 11
+  P1          hook-registrar calls NOT written as a plain expression statement: 0
+  C2 control  curried .each/.for registrations in the corpus: 303
+  Q2          module-scope function bindings that themselves register or hook: 0
+
+$ pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-premisescan-hook-population/record-diff.mts
+POSITIVE CONTROL: perturbing one record moves 1 (expected 1)
+records: baseline 2773, live 2773
+records only in baseline : 0     records only in live     : 0
+VERDICT moved            : 0     DETAIL moved             : 0
+```
+
+**The zeros survived a corpus that grew by seven suites and 187 registrations**, which is a stronger
+statement than the original measurement could make: the original establishes that no instance existed
+in the corpus as it was, and this establishes that none arrived with 187 new registrations either.
+Every zero still carries its positive control, so it is a measurement rather than a walk that never
+looked — `probe-population` throws rather than printing a corpus zero if either control count is
+zero, and `record-diff` aborts rather than reporting a perfect zero when there is nothing to measure.
+
+### 8.1 What the re-run turned up that the base run did not
+
+`probe-decompose`'s P2b now reports **2** file-scope eager arguments that are not plain string
+literals, where the base run reported the conjunct differently: both are `.map(...)` producers in
+`tests/styles/_metaControlOutlineFill.test.ts`, at lines 115 and 168. Neither is an instance of
+either shape and neither moves a record — P1 is 0, so no hook-registrar call sits in any of them, and
+the record diff moved nothing. They are recorded here because a conjunct that changes value between
+two runs of the same probe deserves its reason written down rather than left for a later reader to
+re-derive.

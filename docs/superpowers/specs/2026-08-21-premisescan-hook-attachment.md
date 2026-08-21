@@ -4,6 +4,8 @@
 **Closes:** `BL-PREMISESCAN-FILE-SUITE-EAGER-HOOKS-LOST`, `BL-PREMISESCAN-NAMED-SUITE-FACTORY-HOOKS-LOST`
 **Probe record:** `docs/superpowers/specs/ci/probes/2026-08-21-premisescan-hook-population.md`
 
+*Line numbers in this document are STAMPED AT THE BASE SHA above and are locators; the SYMBOL is the identity. Producer A, producer B and their accessor land inside `premiseScan.ts`, so every citation below the first hunk shifts the moment the change lands -- and a shifted citation that still resolves is a false statement nothing surfaces, because the checker verifies only that a line is in range. Stamping them beats re-pointing them: the sequential PR 2 edits the same file again, so a re-pointed number would be stale within the day, while a base-stamped one stays true forever and a symbol cannot go out of range.*
+
 ---
 
 ## 1. What this is, and what it is not
@@ -308,7 +310,7 @@ prototype and the committed version had replaced it with the byte-identity abort
 finding 5, and the same false-quotation class as r2 finding 3. The control now lives in the committed
 script and is quoted from a real run of it.
 
-Every one of the 2648 classified rows across the 70 enrolled suites is dumped as the tuple
+Every classified row across every enrolled suite is dumped as the tuple
 `(suite, line, testName, verdict, detail)` under the SHIPPED baseline and under the prototype, and
 the two are diffed as SETS. **Detail strings are compared for equality between the two runs, never
 against known reason strings**, so a change in reason wording cannot blind the check. The positive
@@ -649,7 +651,7 @@ suite is not a proof for AC-7, AC-8 or AC-9 — those name their own field check
 
 ## 7. The rule-21 constraint, stated as a hazard rather than a habit
 
-`premiseScan.test.ts` is a `suitePath` of the `premiseScan` surface AND is one of the 70 suites
+`premiseScan.test.ts` is a `suitePath` of the `premiseScan` surface AND is one of the suites
 `_metaPremiseContract` classifies. **A live instance of either shape written into that file would
 make this surface's own suite a member of the population this spec measures at zero** — and worse,
 producer B's file-level report would then demote that suite's own `environment-free` tests to
@@ -685,7 +687,7 @@ source TEXT, and AC-7 asserts it executably rather than trusting the convention.
   scanner cannot establish). A conservative `unclassifiable` with a named cause — including the
   file-scoped over-reports at L2 and L5 — is a DOCUMENTED LIMIT, not a finding. Usefulness is not
   the criterion; correct attribution is.
-- **`PROBE DOMAIN:`** the live tracked test corpus `premiseScan` walks — the 70 suites derived from
+- **`PROBE DOMAIN:`** the live tracked test corpus `premiseScan` walks — the suites derived from
   `GUARD_SURFACES.flatMap((s) => s.suitePaths)` — the three population probes committed at
   `docs/superpowers/specs/ci/probes/2026-08-21-premisescan-hook-population/`, the installed
   `@vitest/runner` 4.1.5 declarations, the filing arc's constructed sweep (whose 84 is corrected in
