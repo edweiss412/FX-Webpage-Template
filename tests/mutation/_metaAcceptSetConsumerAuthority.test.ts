@@ -205,12 +205,29 @@ function consumers(file: string): { found: Finding[]; members: string[] } {
       const obj = peel(n.expression);
       const direct = isCalleeRead(obj);
       const viaAlias = ts.isIdentifier(obj) && frame.aliases.has(obj.text);
+      // ANY member chain rooted at a callee, not an enumerated member name.
+      // This checked only `.name.text`, so a read through `.argumentExpression`
+      // - how an element-access KEY is reached - was invisible: the exact shape
+      // the scanner had just been repaired for. Enumerating which members lead
+      // to a name is the open-set mistake this file already made once with
+      // spellings; the closed question is whether the chain STARTS at a callee.
+      const rootedAtCallee = (n: ts.Node): boolean => {
+        let cur: ts.Node = n;
+        for (let hops = 0; hops < 8; hops++) {
+          const q = peel(cur as ts.Expression);
+          if (isCalleeRead(q)) return true;
+          if (ts.isIdentifier(q)) return frame.aliases.has(q.text);
+          if (ts.isPropertyAccessExpression(q) || ts.isElementAccessExpression(q)) {
+            cur = q.expression;
+            continue;
+          }
+          return false;
+        }
+        return false;
+      };
       const viaMember =
-        ts.isPropertyAccessExpression(obj) &&
-        obj.name.text === "name" &&
-        (isCalleeRead(peel(obj.expression)) ||
-          (ts.isIdentifier(peel(obj.expression)) &&
-            frame.aliases.has((peel(obj.expression) as ts.Identifier).text)));
+        (ts.isPropertyAccessExpression(obj) || ts.isElementAccessExpression(obj)) &&
+        rootedAtCallee(obj.expression);
       if (direct || viaAlias || viaMember) {
         found.push({ fn: frame.fn, line: at(n), text: n.getText(sf), kind: "text-read" });
       }
