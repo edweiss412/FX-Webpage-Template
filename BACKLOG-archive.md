@@ -43,12 +43,12 @@ replacement.
 **Score.** The measurement history, because a single figure here would describe a tree that no
 longer ships — which is exactly what diff r3 caught this entry doing:
 
-| run | score | survivors | why it was retired |
-| --- | --- | --- | --- |
-| 1 | 0.9895, BELOW floor | 3 unaccepted | repaired: two DELETIONS, one killing pair |
-| 2 | 289/289 | none | retired by the diff-r1 repairs |
-| 3 | 292/292 | none | retired by the diff-r2 repair |
-| 4 | 295/295 | none | retired by the diff-r3 repairs |
+| run | score               | survivors    | why it was retired                        |
+| --- | ------------------- | ------------ | ----------------------------------------- |
+| 1   | 0.9895, BELOW floor | 3 unaccepted | repaired: two DELETIONS, one killing pair |
+| 2   | 289/289             | none         | retired by the diff-r1 repairs            |
+| 3   | 292/292             | none         | retired by the diff-r2 repair             |
+| 4   | 295/295             | none         | retired by the diff-r3 repairs            |
 
 **The FINAL shipping score is taken after merge clearance, deliberately.** `registry.ts` and
 `expectedLedgerKinds.ts` are stamped inputs, so any merge ahead of this branch retires a score taken
