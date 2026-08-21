@@ -28,6 +28,7 @@ import ts from "typescript";
 
 import { REPO_ALIAS } from "@/vitest.projects";
 
+import type { DispositionKind, DispositionRow } from "./_connectionCensusDispositions";
 import { ACCEPTED_HOSTS } from "./_localDbUrl";
 import { isGuardModule } from "./_localDbUrlScan";
 
@@ -45,7 +46,8 @@ export type ReportKind =
   | "acquisition"
   | "value-reference"
   | "unresolved-import"
-  | "loader-call";
+  | "loader-call"
+  | "channel";
 
 export type SpecifierPosition =
   | "import-declaration"
@@ -1214,4 +1216,98 @@ export function propagateThroughImports(
   }
 
   return { classes, reports, productionEdges, affected };
+}
+
+export type InadmissibleRow = {
+  row: DispositionRow;
+  report: Report;
+  reason: string;
+};
+
+export type Reconciliation = {
+  /** Reports no row covers. */
+  undisposed: Report[];
+  /** Rows that match no live report. */
+  stale: DispositionRow[];
+  /** Rows that match more than one report without declaring which. */
+  ambiguous: DispositionRow[];
+  /** Rows whose kind is not admissible for the report they match. */
+  inadmissible: InadmissibleRow[];
+};
+
+/**
+ * Which disposition kinds may excuse THIS report. A `remote-literal` site has none: a
+ * hard-coded remote DSN in a test is repaired, never excused.
+ */
+export function admissibleKindsFor(report: Report): DispositionKind[] {
+  if (report.kind === "remote-literal") return [];
+  if (report.kind === "acquisition" || report.kind === "value-reference") return ["acquisition"];
+  if (report.kind === "channel") return ["channel"];
+  if (report.kind === "unresolved-import" || report.kind === "loader-call") {
+    return ["unclassifiable"];
+  }
+  // A site report. `resolver` claims the argument is a call of a function that resolves
+  // the target through its own accept-set, so it is admissible only where there IS a call.
+  return report.argIsCall ? ["resolver", "unclassifiable"] : ["unclassifiable"];
+}
+
+/**
+ * BOTH DIRECTIONS. A registry checked forward only accumulates dead rows: a row that
+ * matches nothing is STALE and red, which is the mechanism noticing a site that moved
+ * under its text key, and a row that matches more than one report without declaring which
+ * is AMBIGUOUS — it still covers the first occurrence, so the second is reported rather
+ * than silently absorbed.
+ */
+export function reconcileDispositions(
+  reports: readonly Report[],
+  rows: readonly DispositionRow[],
+): Reconciliation {
+  const occurrences = new Map<string, number>();
+  const keyed = reports.map((report) => {
+    const key = `${report.file}\u0000${report.site}`;
+    const nth = (occurrences.get(key) ?? 0) + 1;
+    occurrences.set(key, nth);
+    return { report, nth };
+  });
+
+  const covered = new Set<Report>();
+  const stale: DispositionRow[] = [];
+  const ambiguous: DispositionRow[] = [];
+  const inadmissible: InadmissibleRow[] = [];
+
+  for (const row of rows) {
+    const matches = keyed.filter((k) => k.report.file === row.file && k.report.site === row.site);
+    if (matches.length === 0) {
+      stale.push(row);
+      continue;
+    }
+    if (row.nth === undefined && matches.length > 1) ambiguous.push(row);
+    const wanted = row.nth ?? 1;
+    const selected = matches.find((m) => m.nth === wanted);
+    if (selected === undefined) {
+      stale.push(row);
+      continue;
+    }
+    const admissible = admissibleKindsFor(selected.report);
+    if (!admissible.includes(row.kind)) {
+      inadmissible.push({
+        row,
+        report: selected.report,
+        reason:
+          admissible.length === 0
+            ? `a ${selected.report.kind} report has no admissible disposition kind`
+            : `kind \`${row.kind}\` is not admissible for a ${selected.report.kind} report ` +
+              `(admissible: ${admissible.join(", ")})`,
+      });
+      continue;
+    }
+    covered.add(selected.report);
+  }
+
+  return {
+    undisposed: reports.filter((report) => !covered.has(report)),
+    stale,
+    ambiguous,
+    inadmissible,
+  };
 }

@@ -26,6 +26,10 @@ import ts from "typescript";
 import { stripCommentsForFile } from "@/tests/_shared/stripComments";
 
 import {
+  CONNECTION_CENSUS_DISPOSITIONS,
+  type DispositionRow,
+} from "./_connectionCensusDispositions";
+import {
   type FileClass,
   type ImportResolver,
   type PropagationResult,
@@ -37,7 +41,9 @@ import {
   classifySite,
   moduleSpecifiersIn,
   propagateThroughImports,
+  reconcileDispositions,
   sitesIn,
+  type Report,
 } from "./_connectionCensus";
 
 const P = "tests/db/fixture.test.ts";
@@ -1064,5 +1070,197 @@ describe("connection census — the helper graph, to a fixpoint (AC-C5, AC-C13 e
     const prefixes = aliasPrefixes("/repo");
     expect(prefixes.length).toBeGreaterThan(0);
     expect(prefixes).toContain("@");
+  });
+});
+
+describe("connection census — dispositions, both directions (AC-C7)", () => {
+  const F = "tests/db/subject.test.ts";
+
+  function report(overrides: Partial<Report> & Pick<Report, "kind" | "site">): Report {
+    return {
+      file: F,
+      line: 10,
+      ordinal: 1,
+      detail: "",
+      argIsCall: false,
+      ...overrides,
+    };
+  }
+
+  function row(overrides: Partial<DispositionRow> & Pick<DispositionRow, "kind">): DispositionRow {
+    return { file: F, site: "galleryDatabaseUrl()", reason: "checked by a reviewer", ...overrides };
+  }
+
+  test("a report with no row is undisposed; its disposed twin is not", () => {
+    const r = report({ kind: "unclassifiable", site: "galleryDatabaseUrl()", argIsCall: true });
+    const bare = reconcileDispositions([r], []);
+    expect(bare.undisposed.map((u) => u.site)).toEqual(["galleryDatabaseUrl()"]);
+    expect(bare.stale).toEqual([]);
+
+    const covered = reconcileDispositions([r], [row({ kind: "resolver" })]);
+    expect(covered.undisposed).toEqual([]);
+    expect(covered.stale).toEqual([]);
+    expect(covered.inadmissible).toEqual([]);
+  });
+
+  test("a row matching no live report is STALE; its live twin is not", () => {
+    const stale = reconcileDispositions([], [row({ kind: "resolver" })]);
+    expect(stale.stale.map((s) => s.site)).toEqual(["galleryDatabaseUrl()"]);
+
+    const live = reconcileDispositions(
+      [report({ kind: "unclassifiable", site: "galleryDatabaseUrl()", argIsCall: true })],
+      [row({ kind: "resolver" })],
+    );
+    expect(live.stale).toEqual([]);
+  });
+
+  test("a one-character re-spelling of the site text reds the row as stale", () => {
+    const moved = reconcileDispositions(
+      [report({ kind: "unclassifiable", site: "galleryDatabaseUrl(dsn)", argIsCall: true })],
+      [row({ kind: "resolver" })],
+    );
+    expect(moved.stale.map((s) => s.site)).toEqual(["galleryDatabaseUrl()"]);
+    expect(moved.undisposed.map((u) => u.site)).toEqual(["galleryDatabaseUrl(dsn)"]);
+  });
+
+  test("two identical sites in one file are two keys: `nth: 1` covers the first only", () => {
+    const twice = [
+      report({ kind: "unclassifiable", site: "resolve()", ordinal: 1, line: 10, argIsCall: true }),
+      report({ kind: "unclassifiable", site: "resolve()", ordinal: 2, line: 20, argIsCall: true }),
+    ];
+    const one = reconcileDispositions(twice, [
+      row({ site: "resolve()", nth: 1, kind: "resolver" }),
+    ]);
+    expect(one.undisposed.map((u) => u.line)).toEqual([20]);
+    expect(one.ambiguous).toEqual([]);
+
+    const both = reconcileDispositions(twice, [
+      row({ site: "resolve()", nth: 1, kind: "resolver" }),
+      row({ site: "resolve()", nth: 2, kind: "resolver" }),
+    ]);
+    expect(both.undisposed).toEqual([]);
+    expect(both.stale).toEqual([]);
+    expect(both.ambiguous).toEqual([]);
+  });
+
+  test("a row that OMITS nth against two identical sites is AMBIGUOUS, and the second is undisposed", () => {
+    const twice = [
+      report({ kind: "unclassifiable", site: "resolve()", ordinal: 1, line: 10, argIsCall: true }),
+      report({ kind: "unclassifiable", site: "resolve()", ordinal: 2, line: 20, argIsCall: true }),
+    ];
+    const result = reconcileDispositions(twice, [row({ site: "resolve()", kind: "resolver" })]);
+    expect(result.ambiguous.map((a) => a.site)).toEqual(["resolve()"]);
+    expect(result.undisposed.map((u) => u.line)).toEqual([20]);
+  });
+
+  test("keying is per SITE: a second undisposed site in a disposed file still reports", () => {
+    const reports = [
+      report({ kind: "unclassifiable", site: "galleryDatabaseUrl()", ordinal: 1, argIsCall: true }),
+      report({ kind: "unclassifiable", site: "cfg.url", ordinal: 2, line: 20 }),
+    ];
+    const result = reconcileDispositions(reports, [row({ kind: "resolver" })]);
+    expect(result.undisposed.map((u) => u.site)).toEqual(["cfg.url"]);
+  });
+
+  const KIND_CASES: ReadonlyArray<[string, DispositionRow["kind"], Report, boolean]> = [
+    [
+      "resolver on a call-argument site",
+      "resolver",
+      report({ kind: "unclassifiable", site: "galleryDatabaseUrl()", argIsCall: true }),
+      true,
+    ],
+    [
+      "resolver on a site whose argument is NOT a call",
+      "resolver",
+      report({ kind: "unclassifiable", site: "cfg.url", argIsCall: false }),
+      false,
+    ],
+    [
+      "acquisition on an acquisition report",
+      "acquisition",
+      report({ kind: "acquisition", site: `import "postgres"` }),
+      true,
+    ],
+    [
+      "acquisition on a value-reference report",
+      "acquisition",
+      report({ kind: "value-reference", site: "postgres" }),
+      true,
+    ],
+    [
+      "acquisition on a SITE report",
+      "acquisition",
+      report({ kind: "unclassifiable", site: "cfg.url" }),
+      false,
+    ],
+    [
+      "channel on a join report",
+      "channel",
+      report({ kind: "channel", site: "tests/db/x.test.ts" }),
+      true,
+    ],
+    [
+      "channel on an edge report",
+      "channel",
+      report({ kind: "unresolved-import", site: "path" }),
+      false,
+    ],
+    [
+      "unclassifiable on a site report",
+      "unclassifiable",
+      report({ kind: "unclassifiable", site: "cfg.url" }),
+      true,
+    ],
+    [
+      "unclassifiable on an unresolved-import edge",
+      "unclassifiable",
+      report({ kind: "unresolved-import", site: "pathToFileURL(file).href" }),
+      true,
+    ],
+    [
+      "unclassifiable on a loader-call edge",
+      "unclassifiable",
+      report({ kind: "loader-call", site: "./_helper" }),
+      true,
+    ],
+    [
+      "unclassifiable on an acquisition report",
+      "unclassifiable",
+      report({ kind: "acquisition", site: `import "postgres"` }),
+      false,
+    ],
+  ];
+
+  for (const [label, kind, subject, admissible] of KIND_CASES) {
+    test(`kind admissibility — ${label} is ${admissible ? "admissible" : "INADMISSIBLE"}`, () => {
+      const result = reconcileDispositions([subject], [row({ site: subject.site, kind })]);
+      expect(result.inadmissible.length, label).toBe(admissible ? 0 : 1);
+      expect(result.undisposed.length, label).toBe(admissible ? 0 : 1);
+      expect(result.stale, label).toEqual([]);
+    });
+  }
+
+  test("a remote-literal site has NO admissible kind and stays undisposed", () => {
+    for (const kind of ["resolver", "acquisition", "channel", "unclassifiable"] as const) {
+      const result = reconcileDispositions(
+        [report({ kind: "remote-literal", site: `"postgresql://db.example.invalid/x"` })],
+        [row({ site: `"postgresql://db.example.invalid/x"`, kind })],
+      );
+      expect(result.undisposed.length, kind).toBe(1);
+      expect(result.inadmissible.length, kind).toBe(1);
+    }
+  });
+
+  test("a row for another FILE never covers this file's report", () => {
+    const result = reconcileDispositions(
+      [report({ kind: "unclassifiable", site: "cfg.url" })],
+      [row({ file: "tests/db/other.test.ts", site: "cfg.url", kind: "unclassifiable" })],
+    );
+    expect(result.undisposed).toHaveLength(1);
+    expect(result.stale).toHaveLength(1);
+  });
+
+  test("the shipped registry is a closed union and starts empty", () => {
+    expect(CONNECTION_CENSUS_DISPOSITIONS).toEqual([]);
   });
 });

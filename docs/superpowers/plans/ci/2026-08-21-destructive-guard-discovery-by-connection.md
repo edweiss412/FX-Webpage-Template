@@ -132,7 +132,7 @@ documents — a red there would be asserted, not observed (rule 170).
 
 **Files:** `tests/db/_connectionCensus.ts (new)`, `tests/db/connectionCensus.test.ts (new)`, `tests/db/_localDbUrl.ts`, `tests/db/_localDbUrlScan.ts`
 
-<!-- task: red=`pnpm vitest run tests/db/connectionCensus.test.ts` red-state=authored red-target=`tests/db/_connectionCensus.ts:957` why=`classifySite does not exist, so the suite's first case, which feeds a source with import postgres from "postgres" and postgres(process.env.TEST_DATABASE_URL) and expects one site classified validation-env with envNames [TEST_DATABASE_URL], fails with a value assertion on the returned site list rather than with a collection error, because the suite imports the module through the NAMED exports the task creates first as an empty stub in the same RED step, so the suite collects and the failure is a comparison against the stub's empty array` ac=AC-C1,AC-C2,AC-C3,AC-C4,AC-C11,AC-C13 -->
+<!-- task: red=`pnpm vitest run tests/db/connectionCensus.test.ts` red-state=authored red-target=`tests/db/_connectionCensus.ts:959` why=`classifySite does not exist, so the suite's first case, which feeds a source with import postgres from "postgres" and postgres(process.env.TEST_DATABASE_URL) and expects one site classified validation-env with envNames [TEST_DATABASE_URL], fails with a value assertion on the returned site list rather than with a collection error, because the suite imports the module through the NAMED exports the task creates first as an empty stub in the same RED step, so the suite collects and the failure is a comparison against the stub's empty array` ac=AC-C1,AC-C2,AC-C3,AC-C4,AC-C11,AC-C13 -->
 
 **What is red and why.** The module exists only as a stub exporting `acquisitionsIn`,
 `classifySite`, `classifyFile` that return empty arrays; every value assertion in the suite fails on
@@ -267,7 +267,7 @@ isGuardModule` in `_localDbUrlScan.ts:40`. Both suites that already pin those mo
 
 **Files:** `tests/db/_connectionCensus.ts (new)`, `tests/db/connectionCensus.test.ts (new)`
 
-<!-- task: red=`pnpm vitest run tests/db/connectionCensus.test.ts` red-state=authored red-target=`tests/db/_connectionCensus.ts:1089` why=`propagateThroughImports does not exist, so the suite's constructed three-module cycle, where only the third module calls the driver and the first imports the second which imports the third, expects the first module's inherited class set to equal ["validation-env"] and receives an empty set from the stub` ac=AC-C5,AC-C13 -->
+<!-- task: red=`pnpm vitest run tests/db/connectionCensus.test.ts` red-state=authored red-target=`tests/db/_connectionCensus.ts:1091` why=`propagateThroughImports does not exist, so the suite's constructed three-module cycle, where only the third module calls the driver and the first imports the second which imports the third, expects the first module's inherited class set to equal ["validation-env"] and receives an empty set from the stub` ac=AC-C5,AC-C13 -->
 
 **What is red and why.** `propagateThroughImports(files, resolve)` is stubbed to return each file's
 own class set; the cycle fixture expects inheritance and fails on the value.
@@ -329,7 +329,7 @@ specifier; twin: the same file with a resolvable specifier → zero reports. A b
 
 **Files:** `tests/db/_connectionCensus.ts (new)`, `tests/db/_connectionCensusDispositions.ts (new)`, `tests/db/connectionCensus.test.ts (new)`
 
-<!-- task: red=`pnpm vitest run tests/db/connectionCensus.test.ts` red-state=authored red-target=`tests/db/_connectionCensus.ts` why=`reconcileDispositions does not exist, so the suite's constructed registry with one row naming a site that no constructed source contains expects a stale report naming that row's file and site text, and receives an empty report list from the stub` ac=AC-C7 -->
+<!-- task: red=`pnpm vitest run tests/db/connectionCensus.test.ts` red-state=authored red-target=`tests/db/_connectionCensus.ts:1261` why=`reconcileDispositions does not exist, so the suite's constructed registry with one row naming a site that no constructed source contains expects a stale report naming that row's file and site text, and receives an empty report list from the stub` ac=AC-C7 -->
 
 **What is red and why.** `reconcileDispositions(reports, rows)` is stubbed to return `[]`; the
 stale-row case fails on the value.
