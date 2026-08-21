@@ -212,8 +212,12 @@ export const KILLS = [
     id: "AC-12.k1",
     named: "one averaging an unattributable trial into the bound",
     file: CORE,
-    from: "      if (!r.attributable) {",
-    to: "      if (false) {",
+    // RE-ANCHORED after the round-1 repair renamed this condition: eligibility now
+    // re-derives attributability instead of reading the child's boolean, and the
+    // indentation changed with it. The mutant's INTENT is unchanged — disable the
+    // unattributable exclusion and see whether anything notices.
+    from: "        if (!derivedAttributable) {",
+    to: "        if (false) {",
     filter: "INTERNALLY mismatched stamp pair",
     reason: "a trial whose inputs moved mid-run counts toward the bound",
   },
@@ -332,7 +336,11 @@ export const KILLS = [
     id: "PLAN.k7",
     named: "a PARENT that mints the nonce and passes it in for the child to echo",
     file: CORE,
-    from: "  for (const { channel, text } of spawnChannels(full)) {",
+    // RE-ANCHORED after the round-1 repair added `reportPath` to the swept
+    // channels, which also made prettier wrap the loop header across three lines.
+    // The mutant's INTENT is unchanged: sweep NOTHING, and see whether a
+    // parent-minted nonce still gets caught.
+    from: '  for (const { channel, text } of [\n    ...spawnChannels(full),\n    { channel: "reportPath", text: reportPath },\n  ]) {',
     to: "  for (const { channel, text } of []) {",
     filter: "nonce the parent could have passed through",
     reason: "a pass-through nonce satisfies every remaining check",
