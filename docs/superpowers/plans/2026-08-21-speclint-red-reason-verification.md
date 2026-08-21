@@ -154,7 +154,7 @@ the rest are bare prose references carrying no file, and they stay a manual re-r
 | the `red-target=` in Task 1's marker | the repair line | DERIVED |
 | §0's verification table, all ten rows | every structured citation this plan makes | DERIVED |
 | the spec's §1.1, §2, §3 and §5.3 citations | the v1 exit, `VITEST_SHAPE`, `probesToSpawn` | DERIVED |
-| Task 1's prose after the assertion table | the v1 exit | prose, manual |
+| Task 1's prose after the assertion table | the v1 exit | SYMBOL-named, no line to go stale |
 | Task 2's edit map fenced block | the lines this arc edits | prose, manual |
 | `probe/reach.mts`, the V1 block comment | the v1 exit and the drop | prose, manual |
 
@@ -254,7 +254,11 @@ unconditionally, and the green ones alone are satisfied by changing nothing at a
 
 Row 2 is what fails the narrowed implementation: a fixture set holding only the heavy-wrapped shape is
 satisfied by a `pnpm heavy` recognizer. Row 4 is what fails the over-broad one that also moves the v1
-exit at line 742, cited here in prose rather than in the table itself. Row 3 is what fails an
+exit, the `if (state === null) continue;` guard in `collectionProbePlan`. Named by SYMBOL rather
+than by line, per §3's own rule that a sentence about which lines move should not itself carry
+one. It carried `742` until diff round 2 caught it stale: the sibling scope-A comment repair
+shifted the file six lines, and a bare prose number is exactly what `pnpm probe:citations`
+cannot see. The number is GONE rather than re-pointed, so this site cannot go stale again. Row 3 is what fails an
 implementation that files `none` behind the live gate.
 
 **The advisory is ADDED, never exclusive.** Spec §1.2 measured three of the fifteen live markers

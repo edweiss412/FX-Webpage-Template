@@ -348,7 +348,8 @@ correctly, and the sequence is recorded rather than tidied because both errors h
 reading a subset as the total.
 
 The first three came from counting `pnpm heavy`-wrapped markers by eye. Deriving them mechanically
-gave 9, because 16 of the 25 are v1 and exit at line 717 before the drop. That correction was right
+gave 9, because 16 of the 25 are v1 and exit at the `if (state === null) continue;` guard, above
+the drop. That correction was right
 about the v1 exit and wrong about the reach, because it answered how many HEAVY-WRAPPED markers reach
 the drop when the drop is not keyed on the wrapper at all. The population probe printed `none: 15`
 in its derivation totals; the heavy-wrapped subset was read instead. The repair's reach is every v2
