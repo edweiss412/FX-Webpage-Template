@@ -1004,3 +1004,482 @@ export const DEFAULT_TRIAL_DEPS: TrialDeps = {
     writeRunRecord(record, { dir });
   },
 };
+
+/* ---------------------------------------------------------------- aggregation */
+
+/**
+ * The one-sided confidence level. `(1-p)^N = 0.05` conditioned on the anomalous
+ * direction, matching the parent arc's choice and the question this campaign
+ * asks. Named on every rendered bound, because a bound whose statistic is not
+ * named is a number a reader will assume is the two-sided one.
+ */
+export const ALPHA = 0.05;
+
+/** Arm C's pre-registered margins (spec 5.2). Fixed BEFORE any sample exists. */
+export const LOAD_RATIO_MIN = 2;
+export const LOAD_ABSOLUTE_MIN = 2.0;
+export const MIN_IN_WINDOW_SAMPLES = 2;
+
+/**
+ * What N all-identical INDEPENDENT trials exclude, one-sided.
+ *
+ * Refuses at N = 0 rather than evaluating: the formula returns 1 there, and
+ * `p > 1.0` is impossible — an implementation that evaluates it for every N
+ * emits nonsense with full confidence. A bound over an empty population is the
+ * vacuous zero in numeric costume.
+ */
+export function oneSidedBound(
+  n: number,
+): { ok: true; bound: number } | { ok: false; detail: string } {
+  if (!Number.isSafeInteger(n) || n < 1) {
+    return {
+      ok: false,
+      detail:
+        `no bound is computable over ${n} eligible trials. The formula evaluates to the ` +
+        `impossible p > 1.0 at zero, so an empty population makes NO claim at all.`,
+    };
+  }
+  return { ok: true, bound: 1 - Math.pow(ALPHA, 1 / n) };
+}
+
+export type LoadSample = { at: number; loadAvg1: number };
+
+export type CampaignTrial = {
+  observation: TrialObservation;
+  /** Arm C only: the sampler's timestamped records for this trial's window. */
+  loadSamples?: readonly LoadSample[];
+};
+
+/**
+ * The WHOLE CONDITION a trial's verdict is bound to.
+ *
+ * Derivation rule, stated so the list cannot drift from the deciders: any field
+ * a graduation branch (spec 3) or AC-10 / AC-12 / AC-16 decision READS must live
+ * in this tuple. `REQUIRED_CONDITION_FIELDS` is derived from this builder's own
+ * output rather than typed out again, so a field added here joins the
+ * completeness check by existing.
+ */
+export type ConditionTuple = {
+  arm: Arm;
+  seed: number;
+  index: number;
+  prefix: readonly string[];
+  position: number;
+  parentPid: number;
+  childPid: number;
+  nonce: string;
+  stampBefore: string;
+  stampAfter: string;
+  window: { spawnedAt: number; exitedAt: number };
+  half: "quiet" | "loaded" | null;
+  loadSampleCount: number;
+  verdict: Verdict;
+  children: readonly ChildRecord[];
+};
+
+export function conditionOf(trial: CampaignTrial): ConditionTuple {
+  const { plan, parentPid, report } = trial.observation;
+  const targetStep = report.steps.find((s) => s.role === "target");
+  return {
+    arm: plan.arm,
+    seed: plan.seed,
+    index: plan.index,
+    prefix: plan.prefix,
+    position: plan.position,
+    parentPid,
+    childPid: report.childPid,
+    nonce: report.nonce,
+    stampBefore: report.stampBefore.digest,
+    stampAfter: report.stampAfter.digest,
+    window: report.window,
+    half: plan.half ?? null,
+    loadSampleCount: trial.loadSamples?.length ?? 0,
+    verdict: targetStep?.verdict ?? "SURVIVED",
+    children: targetStep?.children ?? [],
+  };
+}
+
+/** Every field adjudication reads, DERIVED from the builder rather than enumerated. */
+export const REQUIRED_CONDITION_FIELDS: readonly string[] = Object.keys(
+  conditionOf({
+    observation: {
+      plan: {
+        arm: "A",
+        kind: "isolated",
+        seed: 0,
+        index: 0,
+        surfaceId: "",
+        targetSiteId: "",
+        prefix: [],
+        position: 1,
+      },
+      parentPid: 1,
+      report: {
+        plan: {
+          arm: "A",
+          kind: "isolated",
+          seed: 0,
+          index: 0,
+          surfaceId: "",
+          targetSiteId: "",
+          prefix: [],
+          position: 1,
+        },
+        childPid: 1,
+        nonce: "n",
+        steps: [],
+        stampBefore: { digest: "", files: {}, operators: "", count: 0 },
+        stampAfter: { digest: "", files: {}, operators: "", count: 0 },
+        inputsMoved: [],
+        attributable: true,
+        completed: true,
+        infraFaults: [],
+        window: { spawnedAt: 0, exitedAt: 0 },
+      },
+    },
+  }),
+).sort();
+
+/** A serializer that drops a field of the condition is refused, naming it. */
+export function validateCondition(
+  tuple: Readonly<Record<string, unknown>>,
+): { ok: true } | { ok: false; detail: string } {
+  const missing = REQUIRED_CONDITION_FIELDS.filter((f) => !(f in tuple));
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      detail:
+        `the serialized condition is missing ${missing.join(", ")}. Every field adjudication ` +
+        `reads must survive serialization, or a decision is taken against a condition the ` +
+        `record cannot express.`,
+    };
+  }
+  return { ok: true };
+}
+
+export type Exclusion = { trial: string; reason: string };
+
+export type ArmSummary = {
+  arm: Arm;
+  planned: number;
+  produced: number;
+  completed: number;
+  eligible: number;
+  excluded: Exclusion[];
+};
+
+export type LoadAdjudication =
+  | { kind: "adjudicated"; quietMean: number; loadedMean: number; quietN: number; loadedN: number }
+  | { kind: "refused"; detail: string };
+
+export type CampaignAggregate = {
+  kind: "aggregate";
+  anchorDigest: string | null;
+  arms: ArmSummary[];
+  /** Every eligible trial's whole condition, so the render can carry it per trial. */
+  conditions: ConditionTuple[];
+  /** Trials whose TARGET flipped to the anomalous verdict, eligible only. */
+  flips: string[];
+  load: LoadAdjudication;
+};
+
+export type AggregateOutcome = CampaignAggregate | Refusal;
+
+const trialKey = (t: CampaignTrial): string =>
+  `${t.observation.plan.arm}#${t.observation.plan.index}`;
+
+/**
+ * Partition the campaign into eligible and excluded, then compute nothing that
+ * the eligible population does not support.
+ *
+ * Eligible = COMPLETED (no infra fault) AND ATTRIBUTABLE (its own stamp pair
+ * internally identical) AND SAME-STAMP as the campaign anchor. Per-trial
+ * internal stability is not cross-trial identity: an ordinary edit to a deciding
+ * suite between trials leaves every pair internally identical while the trials
+ * measured different programs.
+ */
+export function aggregateCampaign(input: {
+  plannedPerArm: Partial<Record<Arm, number>>;
+  trials: readonly CampaignTrial[];
+}): AggregateOutcome {
+  const { trials } = input;
+
+  const nonces = new Map<string, string>();
+  for (const t of trials) {
+    const key = trialKey(t);
+    const seen = nonces.get(t.observation.report.nonce);
+    if (seen !== undefined) {
+      return refuse(
+        "provenance",
+        `trials ${seen} and ${key} report the SAME nonce ` +
+          `${JSON.stringify(t.observation.report.nonce)}. Distinct processes cannot share one, so ` +
+          `at least one of these trials did not run in the process it claims.`,
+      );
+    }
+    nonces.set(t.observation.report.nonce, key);
+    if (t.observation.parentPid !== t.observation.report.childPid) {
+      return refuse(
+        "provenance",
+        `trial ${key} carries disagreeing pid observations (parent ${t.observation.parentPid}, ` +
+          `child ${t.observation.report.childPid}).`,
+      );
+    }
+    const condition = validateCondition(conditionOf(t) as unknown as Record<string, unknown>);
+    if (!condition.ok) return refuse("record", `trial ${key}: ${condition.detail}`);
+  }
+
+  const completed = trials.filter((t) => t.observation.report.completed);
+  if (trials.length > 0 && completed.length === 0) {
+    return refuse(
+      "population",
+      `all ${trials.length} trials infra-faulted, so there is no completed population to ` +
+        `describe. A distribution over zero completed trials is not a result.`,
+    );
+  }
+
+  const anchor = completed.find((t) => t.observation.report.attributable);
+  const anchorDigest = anchor?.observation.report.stampBefore.digest ?? null;
+
+  const armIds = [...new Set(trials.map((t) => t.observation.plan.arm))].sort();
+  const plannedArms = Object.keys(input.plannedPerArm) as Arm[];
+  const arms: ArmSummary[] = [...new Set([...armIds, ...plannedArms])].sort().map((arm) => {
+    const mine = trials.filter((t) => t.observation.plan.arm === arm);
+    const excluded: Exclusion[] = [];
+    let eligible = 0;
+    for (const t of mine) {
+      const r = t.observation.report;
+      const key = trialKey(t);
+      if (!r.completed) {
+        excluded.push({ trial: key, reason: `infra fault: ${r.infraFaults.join(", ")}` });
+        continue;
+      }
+      if (!r.attributable) {
+        excluded.push({
+          trial: key,
+          reason: `UNATTRIBUTABLE — declared inputs moved mid-trial (${r.inputsMoved.join(", ")})`,
+        });
+        continue;
+      }
+      if (anchorDigest !== null && r.stampBefore.digest !== anchorDigest) {
+        excluded.push({
+          trial: key,
+          reason:
+            `NOT OF THIS CAMPAIGN — stamp ${r.stampBefore.digest} against the anchor ` +
+            `${anchorDigest}; internally stable, but a different program`,
+        });
+        continue;
+      }
+      eligible += 1;
+    }
+    return {
+      arm,
+      planned: input.plannedPerArm[arm] ?? 0,
+      produced: mine.length,
+      completed: mine.filter((t) => t.observation.report.completed).length,
+      eligible,
+      excluded,
+    };
+  });
+
+  const eligibleTrials = trials.filter((t) => {
+    const r = t.observation.report;
+    return (
+      r.completed &&
+      r.attributable &&
+      (anchorDigest === null || r.stampBefore.digest === anchorDigest)
+    );
+  });
+
+  const flips = eligibleTrials
+    .filter((t) => conditionOf(t).verdict === "KILLED")
+    .map((t) => trialKey(t));
+
+  return {
+    kind: "aggregate",
+    anchorDigest,
+    arms,
+    conditions: eligibleTrials.map(conditionOf),
+    flips,
+    // The WHOLE arm-C set, not the eligible subset. Stamp eligibility is
+    // enforced AT THE PAIR: dropping a cross-stamp half upstream would report
+    // the pair "incomplete" and lose the two digests the refusal must name.
+    load: adjudicateLoad(trials.filter((t) => t.observation.plan.arm === "C")),
+  };
+}
+
+/**
+ * Arm C, on the PRE-REGISTERED rule only.
+ *
+ * Every condition was fixed in spec 5.2 before a sample existed, so none of them
+ * is selectable now: in-window samples only, at least two per half, both halves
+ * same-stamp, and both margins. On any shortfall this REFUSES and reports every
+ * condition's truth value rather than adjudicating on the ones that held.
+ */
+export function adjudicateLoad(trials: readonly CampaignTrial[]): LoadAdjudication {
+  const quiet = trials.find((t) => t.observation.plan.half === "quiet");
+  const loaded = trials.find((t) => t.observation.plan.half === "loaded");
+  if (quiet === undefined || loaded === undefined) {
+    return {
+      kind: "refused",
+      detail: `the pair is incomplete: quiet ${quiet ? "present" : "MISSING"}, loaded ${loaded ? "present" : "MISSING"}`,
+    };
+  }
+
+  const inWindow = (t: CampaignTrial): LoadSample[] => {
+    const { spawnedAt, exitedAt } = t.observation.report.window;
+    // Out-of-window samples are DISCARDED BEFORE any arithmetic: a mean over
+    // samples from outside the window adjudicates a load never measured during
+    // the trial.
+    return (t.loadSamples ?? []).filter((s) => s.at >= spawnedAt && s.at <= exitedAt);
+  };
+
+  for (const [label, half] of [
+    ["quiet", quiet],
+    ["loaded", loaded],
+  ] as const) {
+    const r = half.observation.report;
+    if (!r.completed || !r.attributable) {
+      return {
+        kind: "refused",
+        detail:
+          `the ${label} half is not eligible on its own terms (completed ${r.completed}, ` +
+          `attributable ${r.attributable}), so the pair measures nothing`,
+      };
+    }
+  }
+
+  const q = inWindow(quiet);
+  const l = inWindow(loaded);
+  const qDigest = quiet.observation.report.stampBefore.digest;
+  const lDigest = loaded.observation.report.stampBefore.digest;
+
+  if (qDigest !== lDigest) {
+    return {
+      kind: "refused",
+      detail:
+        `the halves carry DIFFERENT stamps (quiet ${qDigest}, loaded ${lDigest}), so they ` +
+        `measured different programs and a margin over them adjudicates nothing`,
+    };
+  }
+  if (q.length < MIN_IN_WINDOW_SAMPLES || l.length < MIN_IN_WINDOW_SAMPLES) {
+    return {
+      kind: "refused",
+      detail:
+        `in-window samples: quiet ${q.length}, loaded ${l.length}; each half needs at least ` +
+        `${MIN_IN_WINDOW_SAMPLES}`,
+    };
+  }
+
+  const mean = (s: LoadSample[]): number => s.reduce((a, b) => a + b.loadAvg1, 0) / s.length;
+  const quietMean = mean(q);
+  const loadedMean = mean(l);
+  const ratioHolds = loadedMean >= LOAD_RATIO_MIN * quietMean;
+  const absoluteHolds = loadedMean - quietMean >= LOAD_ABSOLUTE_MIN;
+  if (!ratioHolds || !absoluteHolds) {
+    return {
+      kind: "refused",
+      detail:
+        `the pre-registered margins do not both hold: ratio >= ${LOAD_RATIO_MIN}x is ` +
+        `${ratioHolds}, absolute >= ${LOAD_ABSOLUTE_MIN} is ${absoluteHolds} ` +
+        `(quiet mean ${quietMean.toFixed(2)} over ${q.length}, loaded mean ` +
+        `${loadedMean.toFixed(2)} over ${l.length})`,
+    };
+  }
+  return { kind: "adjudicated", quietMean, loadedMean, quietN: q.length, loadedN: l.length };
+}
+
+/* -------------------------------------------------------------------- render */
+
+/**
+ * The renderer's own annotation lines, stripped before any prose scan.
+ *
+ * A forbidden-vocabulary check that reads the whole render cannot tell a claim
+ * from an explanation of why the claim is not made — the use-versus-mention
+ * error. Annotations are prefixed and removed; what remains is what the
+ * instrument ASSERTS.
+ */
+export function stripRenderComments(text: string): string {
+  return text
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith("#"))
+    .join("\n");
+}
+
+/**
+ * Render a campaign.
+ *
+ * Every aggregate carries its population size, every bound names its statistic
+ * and its independence condition, and no path emits exclusion vocabulary: a
+ * renderer that upgrades a bound to an exclusion is the overclaim the parent arc
+ * was refuted on, and here it is unrepresentable.
+ */
+export function renderCampaign(outcome: AggregateOutcome): string {
+  if (outcome.kind === "refusal") {
+    return `REFUSED (${outcome.input}): ${outcome.detail}\n`;
+  }
+
+  const lines: string[] = [];
+  lines.push(`ANCHOR STAMP: ${outcome.anchorDigest ?? "none — no attributable completed trial"}`);
+
+  for (const arm of outcome.arms) {
+    lines.push(
+      `ARM ${arm.arm}: ${arm.eligible} eligible of ${arm.planned} planned ` +
+        `(${arm.produced} of ${arm.planned} produced, ${arm.completed} completed)`,
+    );
+    for (const e of arm.excluded) lines.push(`  EXCLUDED ${e.trial}: ${e.reason}`);
+
+    if (arm.arm === "A") {
+      const bound = oneSidedBound(arm.eligible);
+      lines.push(
+        bound.ok
+          ? `  BOUND: p > ${bound.bound.toFixed(4)} one-sided at alpha ${ALPHA}, over ` +
+              `${arm.eligible} eligible trials, CONDITIONAL on cross-process independence`
+          : `  BOUND: REFUSED — ${bound.detail}`,
+      );
+    }
+  }
+
+  for (const c of outcome.conditions) {
+    lines.push(
+      `TRIAL ${c.arm}#${c.index}: seed ${c.seed}, prefix ${c.prefix.length}, position ` +
+        `${c.position}, pid ${c.parentPid}/${c.childPid}, stamps ${c.stampBefore}/${c.stampAfter}, ` +
+        `window [${c.window.spawnedAt}, ${c.window.exitedAt}], half ${c.half ?? "n/a"}, ` +
+        `load samples ${c.loadSampleCount}, verdict ${c.verdict}`,
+    );
+  }
+
+  lines.push(
+    outcome.load.kind === "adjudicated"
+      ? `LOAD: adjudicated — quiet mean ${outcome.load.quietMean.toFixed(2)} over ` +
+          `${outcome.load.quietN} in-window samples, loaded mean ` +
+          `${outcome.load.loadedMean.toFixed(2)} over ${outcome.load.loadedN}; load column advances to two`
+      : `LOAD: load column unchanged at one, pair refused — ${outcome.load.detail}`,
+  );
+
+  // The GRADUATION PRECONDITION. An arm at zero eligible did not run; a campaign
+  // that classifies on the other arms' quiet certifies a bound with nothing
+  // behind it, and every per-claim refusal can be working as specified while it
+  // does. Both directions are asserted by the suite: the refusal present, the
+  // graduation text absent.
+  const starved = outcome.arms.filter((a) => a.eligible === 0);
+  if (starved.length > 0) {
+    lines.push(
+      `GRADUATION: REFUSED — ${starved
+        .map((a) => `arm ${a.arm} at 0 eligible of ${a.planned} planned`)
+        .join("; ")}. An arm at zero eligible DID NOT RUN, so no reading is available ` +
+        `until it is re-run.`,
+    );
+  } else if (outcome.flips.length > 0) {
+    lines.push(
+      `BRANCH POSITIVE: ${outcome.flips.length} eligible trial(s) flipped — ` +
+        `${outcome.flips.join(", ")}. A reproduction with its condition attached, never a mechanism.`,
+    );
+  } else {
+    lines.push(
+      `BRANCH NULL: no eligible trial flipped. The local reproduction is bounded at the figure ` +
+        `each arm's own eligible count supports above.`,
+    );
+  }
+
+  return `${lines.join("\n")}\n`;
+}

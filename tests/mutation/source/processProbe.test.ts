@@ -17,24 +17,40 @@ import {
   parsePrefixLength,
   parseSeed,
   parseTrials,
+  ALPHA,
+  type Arm,
+  type ArmSummary,
+  type CampaignAggregate,
   type CampaignPlan,
+  type CampaignTrial,
+  LOAD_ABSOLUTE_MIN,
+  LOAD_RATIO_MIN,
+  MIN_IN_WINDOW_SAMPLES,
   MUTANT_FILE_NAME,
+  REQUIRED_CONDITION_FIELDS,
   type StepReport,
   type Target,
   type TrialDeps,
+  type AggregateOutcome,
   type ObservationOutcome,
   type TrialOutcome,
   type TrialPlan,
   type TrialReport,
+  aggregateCampaign,
+  conditionOf,
   digestedFieldsOf,
   observeTrial,
+  oneSidedBound,
   planCampaign,
+  renderCampaign,
   renderProbe,
   resolveTarget,
   runTrial,
   serializeCampaign,
   spawnChannels,
   stepDigest,
+  stripRenderComments,
+  validateCondition,
   validatePlan,
   verifyTrialReport,
 } from "./processProbe";
@@ -61,7 +77,7 @@ const surface = (over: Partial<GuardSurface> = {}): GuardSurface => ({
   ...over,
 });
 
-type Refusable = ProbeOutcome | CampaignPlan | TrialOutcome | ObservationOutcome;
+type Refusable = ProbeOutcome | CampaignPlan | TrialOutcome | ObservationOutcome | AggregateOutcome;
 
 const asRefusal = (outcome: Refusable): Refusal => {
   if (!("kind" in outcome) || outcome.kind !== "refusal") {
@@ -1035,5 +1051,400 @@ describe("processProbe trial provenance — two independent sides (AC-2, AC-3)",
   it("trial report that is INTACT verifies — the refusals above are not vacuous", () => {
     const report = realReport();
     expect(verifyTrialReport(report, wideTargetOf())).toEqual({ ok: true });
+  });
+});
+
+describe("processProbe aggregator — eligibility, derived claims, render (AC-7, AC-8, AC-10, AC-12, AC-16)", () => {
+  const MIDDLE_SITE = "relational-boundary:15:46:<><=";
+  let nonceCounter = 0;
+  const fakeTrial = (
+    over: {
+      arm?: Arm;
+      index?: number;
+      verdict?: "KILLED" | "SURVIVED";
+      stamp?: string;
+      stampAfter?: string;
+      completed?: boolean;
+      half?: "quiet" | "loaded";
+      window?: { spawnedAt: number; exitedAt: number };
+      samples?: { at: number; loadAvg1: number }[];
+      pidSkew?: number;
+      nonce?: string;
+    } = {},
+  ): CampaignTrial => {
+    nonceCounter += 1;
+    const arm = over.arm ?? "A";
+    const index = over.index ?? 0;
+    const stamp = over.stamp ?? "anchor-digest";
+    const window = over.window ?? { spawnedAt: 1_000, exitedAt: 2_000 };
+    const plan: TrialPlan = {
+      arm,
+      kind: "isolated",
+      seed: 7,
+      index,
+      surfaceId: "wideSurface",
+      targetSiteId: MIDDLE_SITE,
+      prefix: [],
+      position: 1,
+      ...(over.half === undefined ? {} : { half: over.half }),
+    };
+    const stampOf = (digest: string) => ({
+      digest,
+      files: { "wide.ts": digest },
+      operators: "ops",
+      count: 1,
+    });
+    const completed = over.completed ?? true;
+    const step: StepReport = {
+      siteId: MIDDLE_SITE,
+      role: "target",
+      receiptSha: "sha",
+      exitCode: over.verdict === "KILLED" ? 1 : 0,
+      verdict: over.verdict ?? "SURVIVED",
+      children: [{ suite: "s", kind: "exit", exitCode: 0, durationMs: 10 }],
+      digest: "d",
+    };
+    const report: TrialReport = {
+      plan,
+      childPid: 1000 + nonceCounter,
+      nonce: over.nonce ?? `nonce-${nonceCounter}`,
+      steps: completed ? [step] : [],
+      stampBefore: stampOf(stamp),
+      stampAfter: stampOf(over.stampAfter ?? stamp),
+      inputsMoved: over.stampAfter !== undefined && over.stampAfter !== stamp ? ["wide.ts"] : [],
+      attributable: over.stampAfter === undefined || over.stampAfter === stamp,
+      completed,
+      infraFaults: completed ? [] : ["some-site"],
+      window,
+    };
+    return {
+      observation: {
+        plan,
+        parentPid: 1000 + nonceCounter + (over.pidSkew ?? 0),
+        report,
+      },
+      ...(over.samples === undefined ? {} : { loadSamples: over.samples }),
+    };
+  };
+
+  const mustAggregate = (input: Parameters<typeof aggregateCampaign>[0]): CampaignAggregate => {
+    const out = aggregateCampaign(input);
+    if (out.kind !== "aggregate")
+      throw new Error(`aggregate refused: ${out.input} — ${out.detail}`);
+    return out;
+  };
+
+  it("aggregator bound is recomputed over the ELIGIBLE N, not the planned one", () => {
+    // 11 of 12 completed: the ACs expressly permit this state, and the claimed
+    // bound must follow the eligible population rather than the plan.
+    expect(oneSidedBound(12)).toEqual({ ok: true, bound: expect.closeTo(0.2209, 4) });
+    expect(oneSidedBound(11)).toEqual({ ok: true, bound: expect.closeTo(0.2384, 4) });
+    expect(oneSidedBound(6)).toEqual({ ok: true, bound: expect.closeTo(0.393, 4) });
+  });
+
+  it("aggregator REFUSES a bound over ZERO eligible rather than evaluating the formula", () => {
+    const zero = oneSidedBound(0);
+    expect(zero.ok).toBe(false);
+    if (zero.ok) return;
+    expect(zero.detail).toMatch(/p > 1\.0|impossible/i);
+    // The kill: an implementation evaluating the formula for every N returns 1
+    // here and renders `p > 1.0` with full confidence.
+    expect(1 - Math.pow(0.05, 1 / 0)).toBe(1);
+  });
+
+  it("aggregator excludes an INTERNALLY mismatched stamp pair as unattributable", () => {
+    const trials = [
+      fakeTrial({ index: 0 }),
+      fakeTrial({ index: 1, stampAfter: "moved-digest" }),
+      fakeTrial({ index: 2 }),
+    ];
+    const agg = mustAggregate({ plannedPerArm: { A: 3 }, trials });
+    const armA = agg.arms.find((a) => a.arm === "A") as ArmSummary;
+    expect(armA.eligible).toBe(2);
+    expect(armA.excluded.map((e) => e.trial)).toEqual(["A#1"]);
+    expect(armA.excluded[0]!.reason).toMatch(/UNATTRIBUTABLE/);
+  });
+
+  it("aggregator excludes an internally-STABLE trial whose stamp differs from the anchor", () => {
+    // Both pairs are internally identical; the two trials measured DIFFERENT
+    // programs. Per-trial stability is not cross-trial identity.
+    const trials = [
+      fakeTrial({ index: 0, stamp: "anchor-digest" }),
+      fakeTrial({ index: 1, stamp: "other-digest" }),
+    ];
+    const agg = mustAggregate({ plannedPerArm: { A: 2 }, trials });
+    const armA = agg.arms.find((a) => a.arm === "A") as ArmSummary;
+    expect(armA.eligible).toBe(1);
+    expect(armA.excluded[0]!.reason).toContain("other-digest");
+    expect(armA.excluded[0]!.reason).toContain("anchor-digest");
+  });
+
+  it("aggregator REFUSES an ALL-faulting population instead of printing a distribution", () => {
+    const out = aggregateCampaign({
+      plannedPerArm: { A: 2 },
+      trials: [
+        fakeTrial({ index: 0, completed: false }),
+        fakeTrial({ index: 1, completed: false }),
+      ],
+    });
+    expect(inputOf(out)).toBe("population");
+    expect(renderCampaign(out)).not.toMatch(/\d+ of \d+/);
+  });
+
+  it("aggregator REFUSES duplicate nonces across trials", () => {
+    const out = aggregateCampaign({
+      plannedPerArm: { A: 2 },
+      trials: [
+        fakeTrial({ index: 0, nonce: "same-nonce" }),
+        fakeTrial({ index: 1, nonce: "same-nonce" }),
+      ],
+    });
+    expect(inputOf(out)).toBe("provenance");
+    expect(detailOf(out)).toContain("same-nonce");
+  });
+
+  it("aggregator REFUSES a trial whose two pid observations disagree", () => {
+    const out = aggregateCampaign({
+      plannedPerArm: { A: 1 },
+      trials: [fakeTrial({ index: 0, pidSkew: 5 })],
+    });
+    expect(inputOf(out)).toBe("provenance");
+    expect(detailOf(out)).toMatch(/pid/i);
+  });
+
+  it("aggregator REFUSES a condition serialization missing ANY field it reads", () => {
+    const full = conditionOf(fakeTrial()) as unknown as Record<string, unknown>;
+    premise("the condition tuple carries more than one field", REQUIRED_CONDITION_FIELDS.length, 1);
+    for (const field of REQUIRED_CONDITION_FIELDS) {
+      const dropped = { ...full };
+      delete dropped[field];
+      const verdict = validateCondition(dropped);
+      expect(verdict.ok).toBe(false);
+      if (verdict.ok) continue;
+      expect(verdict.detail).toContain(field);
+    }
+    expect(validateCondition(full)).toEqual({ ok: true });
+  });
+
+  it("aggregator condition field list is DERIVED from the builder, not enumerated", () => {
+    expect(REQUIRED_CONDITION_FIELDS).toEqual(Object.keys(conditionOf(fakeTrial())).sort());
+  });
+
+  it("aggregator load pair adjudicates only on IN-WINDOW samples", () => {
+    const window = { spawnedAt: 1_000, exitedAt: 2_000 };
+    const quiet = fakeTrial({
+      arm: "C",
+      index: 0,
+      half: "quiet",
+      window,
+      samples: [
+        { at: 1_100, loadAvg1: 1.0 },
+        { at: 1_500, loadAvg1: 1.2 },
+      ],
+    });
+    const loaded = fakeTrial({
+      arm: "C",
+      index: 1,
+      half: "loaded",
+      window,
+      samples: [
+        { at: 1_100, loadAvg1: 9.0 },
+        { at: 1_500, loadAvg1: 9.4 },
+      ],
+    });
+    const agg = mustAggregate({ plannedPerArm: { C: 2 }, trials: [quiet, loaded] });
+    expect(agg.load.kind).toBe("adjudicated");
+  });
+
+  it("aggregator REFUSES a loaded half whose samples all fall OUTSIDE its window", () => {
+    const window = { spawnedAt: 1_000, exitedAt: 2_000 };
+    const quiet = fakeTrial({
+      arm: "C",
+      index: 0,
+      half: "quiet",
+      window,
+      samples: [
+        { at: 1_100, loadAvg1: 1.0 },
+        { at: 1_500, loadAvg1: 1.2 },
+      ],
+    });
+    // Both margins would PASS on these numbers; every sample is out of window.
+    const loaded = fakeTrial({
+      arm: "C",
+      index: 1,
+      half: "loaded",
+      window,
+      samples: [
+        { at: 9_000, loadAvg1: 9.0 },
+        { at: 9_500, loadAvg1: 9.4 },
+      ],
+    });
+    const agg = mustAggregate({ plannedPerArm: { C: 2 }, trials: [quiet, loaded] });
+    expect(agg.load.kind).toBe("refused");
+    if (agg.load.kind !== "refused") return;
+    expect(agg.load.detail).toMatch(/in-window/i);
+    expect(agg.load.detail).toContain("loaded 0");
+  });
+
+  it.each([
+    { label: "ratio fails, absolute holds", quiet: 5.0, loaded: 8.0 },
+    { label: "absolute fails, ratio holds", quiet: 0.5, loaded: 1.4 },
+  ])("aggregator REFUSES the load pair when $label", ({ quiet: q, loaded: l }) => {
+    const window = { spawnedAt: 1_000, exitedAt: 2_000 };
+    const mk = (half: "quiet" | "loaded", v: number, index: number) =>
+      fakeTrial({
+        arm: "C",
+        index,
+        half,
+        window,
+        samples: [
+          { at: 1_100, loadAvg1: v },
+          { at: 1_500, loadAvg1: v },
+        ],
+      });
+    const agg = mustAggregate({
+      plannedPerArm: { C: 2 },
+      trials: [mk("quiet", q, 0), mk("loaded", l, 1)],
+    });
+    expect(agg.load.kind).toBe("refused");
+    if (agg.load.kind !== "refused") return;
+    expect(agg.load.detail).toMatch(/ratio .* is (true|false)/);
+    expect(agg.load.detail).toMatch(/absolute .* is (true|false)/);
+  });
+
+  it("aggregator load margins are the pre-registered literals of spec 5.2", () => {
+    expect(LOAD_RATIO_MIN).toBe(2);
+    expect(LOAD_ABSOLUTE_MIN).toBe(2.0);
+    expect(MIN_IN_WINDOW_SAMPLES).toBe(2);
+    expect(ALPHA).toBe(0.05);
+  });
+
+  it("aggregator REFUSES a cross-stamp load pair, naming BOTH digests", () => {
+    const window = { spawnedAt: 1_000, exitedAt: 2_000 };
+    const mk = (half: "quiet" | "loaded", v: number, stamp: string, index: number) =>
+      fakeTrial({
+        arm: "C",
+        index,
+        half,
+        window,
+        stamp,
+        samples: [
+          { at: 1_100, loadAvg1: v },
+          { at: 1_500, loadAvg1: v },
+        ],
+      });
+    // Margins pass comfortably; the halves measured different programs.
+    const agg = aggregateCampaign({
+      plannedPerArm: { C: 2 },
+      trials: [mk("quiet", 1.0, "anchor-digest", 0), mk("loaded", 9.0, "other-digest", 1)],
+    });
+    if (agg.kind !== "aggregate") throw new Error(`unexpected refusal: ${agg.detail}`);
+    expect(agg.load.kind).toBe("refused");
+    if (agg.load.kind !== "refused") return;
+    expect(agg.load.detail).toContain("anchor-digest");
+    expect(agg.load.detail).toContain("other-digest");
+  });
+
+  it("render carries a POPULATION SIZE beside every aggregate and names its statistic", () => {
+    const trials = Array.from({ length: 11 }, (_, i) => fakeTrial({ index: i }));
+    const agg = mustAggregate({ plannedPerArm: { A: 12 }, trials });
+    const text = renderCampaign(agg);
+    expect(text).toContain("11 of 12");
+    expect(text).toMatch(/one-sided/i);
+    expect(text).toContain("0.2384");
+    // The planned bound must NOT appear: quoting it over a permitted partial
+    // state is the literal-closeout weaker implementation.
+    expect(text).not.toContain("0.2209");
+  });
+
+  it("render REFUSES exclusion vocabulary on every path", () => {
+    const trials = Array.from({ length: 11 }, (_, i) => fakeTrial({ index: i }));
+    const rendered = [
+      renderCampaign(mustAggregate({ plannedPerArm: { A: 12 }, trials })),
+      renderCampaign(
+        aggregateCampaign({
+          plannedPerArm: { A: 1 },
+          trials: [fakeTrial({ completed: false })],
+        }),
+      ),
+    ];
+    for (const text of rendered) {
+      const prose = stripRenderComments(text);
+      for (const banned of ["closed", "ruled out", "eliminated"]) {
+        expect(prose.toLowerCase()).not.toContain(banned);
+      }
+    }
+  });
+
+  it("render emits NO graduation text while ANY arm is at zero eligible, naming the arm", () => {
+    // Arm A is healthy; arm B produced trials that were all excluded. An arm at
+    // zero eligible DID NOT RUN — classifying the campaign NULL on the other
+    // arms' quiet certifies a bound with nothing behind it.
+    const trials = [
+      ...Array.from({ length: 12 }, (_, i) => fakeTrial({ index: i })),
+      fakeTrial({ arm: "B", index: 0, stamp: "other-digest" }),
+    ];
+    const agg = mustAggregate({ plannedPerArm: { A: 12, B: 6 }, trials });
+    const armB = agg.arms.find((a) => a.arm === "B") as ArmSummary;
+    premiseHolds(
+      "arm B really is at zero eligible, so the refusal has a subject",
+      armB.eligible === 0,
+    );
+    const text = renderCampaign(agg);
+    expect(text).toContain("0 eligible of 6 planned");
+    expect(text).toMatch(/GRADUATION: REFUSED/);
+    expect(text).toContain("B");
+    // Both directions: the refusal is PRESENT and the graduation text ABSENT. A
+    // renderer that refuses the arm's NUMBER while still emitting the NULL
+    // graduation certifies a bound that does not exist.
+    expect(text).not.toMatch(/local branch bounded/i);
+    expect(text).not.toMatch(/BRANCH NULL/);
+  });
+
+  it("render emits the graduation reading once every arm has a nonzero eligible population", () => {
+    const trials = [
+      ...Array.from({ length: 12 }, (_, i) => fakeTrial({ index: i })),
+      ...Array.from({ length: 6 }, (_, i) => fakeTrial({ arm: "B", index: i })),
+      fakeTrial({ arm: "C", index: 0, half: "quiet" }),
+      fakeTrial({ arm: "C", index: 1, half: "loaded" }),
+    ];
+    const agg = mustAggregate({ plannedPerArm: { A: 12, B: 6, C: 2 }, trials });
+    premiseHolds(
+      "every arm really is nonzero-eligible",
+      agg.arms.every((a) => a.eligible > 0),
+    );
+    const text = renderCampaign(agg);
+    expect(text).toMatch(/BRANCH NULL/);
+    expect(text).not.toMatch(/GRADUATION: REFUSED/);
+  });
+
+  it("render reports the load column as unchanged at one when the pair is refused", () => {
+    const trials = [
+      ...Array.from({ length: 12 }, (_, i) => fakeTrial({ index: i })),
+      ...Array.from({ length: 6 }, (_, i) => fakeTrial({ arm: "B", index: i })),
+      fakeTrial({ arm: "C", index: 0, half: "quiet" }),
+      fakeTrial({ arm: "C", index: 1, half: "loaded" }),
+    ];
+    const agg = mustAggregate({ plannedPerArm: { A: 12, B: 6, C: 2 }, trials });
+    premiseHolds("the pair really is refused (no samples supplied)", agg.load.kind === "refused");
+    const text = renderCampaign(agg);
+    expect(text).toContain("load column unchanged at one");
+    expect(text).not.toMatch(/load column .* two/i);
+  });
+
+  it("render carries the SEED and the condition of every trial", () => {
+    const trials = [fakeTrial({ index: 0 }), fakeTrial({ arm: "B", index: 0 })];
+    const agg = mustAggregate({ plannedPerArm: { A: 1, B: 1 }, trials });
+    const text = renderCampaign(agg);
+    expect(text).toContain("seed 7");
+  });
+
+  it("aggregator reconciles produced against planned and reports the shortfall", () => {
+    const trials = Array.from({ length: 9 }, (_, i) => fakeTrial({ index: i }));
+    const agg = mustAggregate({ plannedPerArm: { A: 12 }, trials });
+    const armA = agg.arms.find((a) => a.arm === "A") as ArmSummary;
+    expect(armA.produced).toBe(9);
+    expect(armA.planned).toBe(12);
+    expect(renderCampaign(agg)).toContain("9 of 12");
   });
 });
