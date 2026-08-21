@@ -17,7 +17,13 @@ import {
   planExecutionsForText,
   probesToSpawn,
 } from "../lib/specLint/redContract";
+import {
+  declarationRefusal,
+  parseRepairSpans,
+  type ClaimSweepDeclaration,
+} from "../lib/specLint/claimSweep";
 import { exitCodeForResult, runLint } from "../lib/specLint/run";
+import { CHECK_ORDER } from "../lib/specLint/types";
 // The adapter may import from tests/ — established by scripts/print-mutation-sites.ts,
 // which imports tests/mutation/source/operators. This is precisely why the registry is
 // read HERE and injected as data: lib/specLint/** imports neither, so the mutation
@@ -29,6 +35,7 @@ import { GUARD_SURFACES } from "../tests/mutation/source/registry";
 import { NOT_A_PIN } from "../tests/specLint/declaredLimitPinDispositions";
 import type { EnrolledSurface } from "../lib/specLint/types";
 import type {
+  ClaimSweepInput,
   ExecOutcome,
   ExecResults,
   FileResolver,
@@ -69,6 +76,17 @@ export interface CliDeps {
    * any test that only recorded the command.
    */
   spawn(command: string, cwd: string, timeoutMs: number, mode: "parse" | "exec"): SpawnResult;
+
+  /**
+   * The claim sweep's git seam (claim-sweep spec §3.0/§4): the UNIFIED-0 diff
+   * of `rev` restricted to `paths`, verbatim.
+   *
+   * Returns raw TEXT rather than parsed spans on purpose. The PARSE is pure and
+   * lives in the core, where it is mutation-scored with the rest of the arm and
+   * where a test-side extractor can reconcile against it; only the SPAWN is
+   * impure, so only the spawn is behind this seam.
+   */
+  repairDiff(rev: string, paths: readonly string[]): string;
 
   /**
    * The fixture splice seam (fixture spec §4.2). Every path below is
@@ -144,20 +162,20 @@ function usage(json: boolean, msg: string): CliOutput {
   };
 }
 
-function renderText(result: LintResult): string {
+export function renderText(result: LintResult): string {
   const out: string[] = [];
   out.push(`spec:lint ${result.doc}`);
   out.push(`kind: ${result.kind} (${result.kindSource})`);
   out.push("");
+  // GROUPS COME FROM THE FINDINGS, order comes from CHECK_ORDER, and anything
+  // unrecognised is appended rather than dropped. The previous form filtered by
+  // a hand-written list and made `claimSweep` invisible in default output for
+  // the whole of its implementation.
+  const present = [...new Set(result.findings.map((f) => f.check))];
   const checks = [
-    "document",
-    "citations",
-    "numerics",
-    "copy",
-    "sections",
-    "taskContract",
-    "universals",
-  ] as const;
+    ...CHECK_ORDER.filter((c) => present.includes(c)),
+    ...present.filter((c) => !(CHECK_ORDER as readonly string[]).includes(c)),
+  ];
   for (const check of checks) {
     const fs = result.findings.filter((f) => f.check === check);
     if (fs.length === 0) continue;
@@ -429,6 +447,16 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
   let json = false;
   let execRed = false;
   let kindFlag: string | null = null;
+  // Claim-sweep declaration (spec §3.0). The author DECLARES the supersession;
+  // the arm never infers it from a diff.
+  const declared: {
+    superseded: string | null;
+    replacement: string | null;
+    claimAbout: string | null;
+    repair: string | null;
+  } = { superseded: null, replacement: null, claimAbout: null, repair: null };
+  /** Declared peers, in argv order. Repeatable; duplicates are collapsed later. */
+  const alsoPaths: string[] = [];
   const positionals: string[] = [];
   const errors: string[] = [];
   for (let i = 0; i < argv.length; i++) {
@@ -448,6 +476,42 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
         kindFlag = next;
         i++;
       }
+    } else if (
+      tok === "--superseded" ||
+      tok === "--replacement" ||
+      tok === "--claim-about" ||
+      tok === "--repair"
+    ) {
+      // Same arity handling as --kind: a flag whose value is missing must NOT
+      // consume the next token, or a following flag is silently eaten.
+      const key = (
+        {
+          "--superseded": "superseded",
+          "--replacement": "replacement",
+          "--claim-about": "claimAbout",
+          "--repair": "repair",
+        } as const
+      )[tok];
+      const next = argv[i + 1];
+      if (next === undefined || next.startsWith("--")) {
+        errors.push(`${tok} requires a value`);
+      } else if (declared[key] !== null) {
+        errors.push(`duplicate ${tok}`);
+      } else {
+        declared[key] = next;
+        i++;
+      }
+    } else if (tok === "--also") {
+      // REPEATABLE, and every repetition is honoured: the swept set is `<doc>`
+      // plus each `--also` and nothing else. Keeping only the last would drop
+      // the peer where 7 of the incident's 9 survivors were.
+      const next = argv[i + 1];
+      if (next === undefined || next.startsWith("--")) {
+        errors.push("--also requires a value (a repo-relative document path)");
+      } else {
+        alsoPaths.push(next);
+        i++;
+      }
     } else if (tok.startsWith("--")) {
       errors.push(`unknown flag: ${tok}`);
     } else {
@@ -460,7 +524,24 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
   if (positionals.length !== 1) {
     errors.push(`expected exactly one document path, got ${positionals.length}`);
   }
+  // ARITY, not one of §3.0's three refusals: a numeric declaration is a PAIR,
+  // and half of one is an unparseable invocation rather than an incoherent
+  // declaration. It joins the pre-existing usage channel for the same reason
+  // `--kind requires a value` does.
+  if (declared.superseded !== null && declared.replacement === null) {
+    errors.push("--superseded requires --replacement (the value it was replaced WITH)");
+  }
+  if (declared.replacement !== null && declared.superseded === null) {
+    errors.push("--replacement requires --superseded (the value it replaced)");
+  }
   if (errors.length > 0) return usage(json, errors.join("; "));
+
+  // The three refusals of spec §3.0, decided by the PURE core so the rule and
+  // the arm cannot disagree about what a well-formed declaration is. Refused
+  // BEFORE any document is read: nothing was swept, so there is nothing to
+  // report about a document.
+  const refusal = declarationRefusal(declared satisfies ClaimSweepDeclaration);
+  if (refusal !== null) return usage(json, refusal);
 
   // The ceiling is validated BEFORE anything is linted or executed: a malformed
   // value must never silently disable or zero the timeout (spec §4.4).
@@ -612,6 +693,62 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
       fixtureResults = runFixtureSplice(spliceFixturePlanForText(text), deps, timeoutMs).results;
     }
 
+    // ---- claim sweep (claim-sweep spec §3.3): the swept set is DECLARED ----
+    // `<doc>` plus each `--also`, DEDUPED so naming the linted document as its
+    // own peer cannot double-count it, and NOTHING else. No inference from
+    // citation, stem or date: all three were measured wrong on the incident's
+    // own arc, each in a different direction.
+    let sweepInput: ClaimSweepInput | null = null;
+    if (declared.superseded !== null || declared.claimAbout !== null) {
+      const seen = new Set<string>([repoRelPath]);
+      const documents = [
+        // The LINTED document's lines come from the text already read, never a
+        // second read: two reads of mutable state can observe different bytes.
+        { path: repoRelPath, lines: splitLines(text) },
+        ...alsoPaths.flatMap((peer) => {
+          if (seen.has(peer)) return [];
+          seen.add(peer);
+          // null passes THROUGH rather than being dropped: an omitted entry is
+          // indistinguishable from a peer nobody declared, and §3.3 requires an
+          // unreadable peer to be REPORTED.
+          return [{ path: peer, lines: resolver.readFileLines(peer) }];
+        }),
+      ];
+      // Read the repair's diff BEFORE building the record, so a git refusal has
+      // somewhere to go. Unguarded, a bad rev threw out of `runCli` as an
+      // unhandled exception; routed here it joins the usage channel the three
+      // refusals already use -- exit 2, no report written -- because a run that
+      // could not read the repair did not happen, and reporting a clean for it
+      // is the same false certificate the refusals exist to prevent.
+      let repairDiffText = "";
+      if (declared.repair !== null) {
+        try {
+          repairDiffText = deps.repairDiff(
+            declared.repair,
+            documents.map((d) => d.path),
+          );
+        } catch (e) {
+          const detail = e instanceof Error ? e.message.split("\n")[0] : String(e);
+          return usage(
+            json,
+            `--repair ${declared.repair} could not be read as a revision: ${detail}. ` +
+              `No document was swept, so this is NOT a clean.`,
+          );
+        }
+      }
+      sweepInput = {
+        documents,
+        record: {
+          superseded: declared.superseded,
+          replacement: declared.replacement,
+          claimAbout: declared.claimAbout,
+          touchedLines:
+            declared.repair === null
+              ? new Map<string, ReadonlySet<number>>()
+              : parseRepairSpans(repairDiffText),
+        },
+      };
+    }
     // PROJECTED, not passed through: the core receives exactly (id, sourcePath,
     // suitePaths) and never sees a registry row, so no registry type crosses the
     // purity boundary.
@@ -632,6 +769,7 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
       // which is what kept that task's authored red reachable; the arm only became
       // sound at this boundary once `prepareSuiteText` shipped.
       { surfaces: enrolledSurfaces, dispositions: NOT_A_PIN, prepareSuite: prepareSuiteText },
+      sweepInput,
     );
     return {
       stdout: json ? JSON.stringify(result) + "\n" : renderText(result),
@@ -703,6 +841,23 @@ export function nodeDeps(root: string): CliDeps {
     },
     readFileBytes: (p) => readFileSync(p),
     realpath: (p) => realpathSync(p),
+    repairDiff: (rev, paths) =>
+      // `--end-of-options` is load-bearing, not tidiness. The arity check accepts
+      // any value not starting with `--`, so `--repair -3` is a parseable
+      // invocation, and git then reads `-3` as the max-count OPTION rather than
+      // as a revision: it succeeds, returns unrelated recent hunks, and those
+      // hunks suppress the very occurrence the run was asked about. A SILENT
+      // CLEAN from an invocation the user believes they declared correctly.
+      // With this, git refuses the value instead, and the refusal is surfaced.
+      execFileSync(
+        "git",
+        ["show", "--format=", "--unified=0", "--end-of-options", rev, "--", ...paths],
+        {
+          cwd: root,
+          encoding: "utf8",
+          maxBuffer: 64 * 1024 * 1024,
+        },
+      ),
     spawn: (command, cwd, timeoutMs, mode) => {
       // `-nc` is the parse check: sh reads the whole command for syntax and
       // executes none of it. `-c` is the ordinary run.
