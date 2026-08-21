@@ -630,13 +630,24 @@ Verify with commands, not by reading:
 
 ```bash
 ROW='BL-PREMISESCAN-REGISTRAR-ACCEPT-SETS-HAND-MAINTAINED'
-grep -q "$ROW" BACKLOG.md          && { echo "FAIL: the row is still open"; exit 1; }
-grep -q "$ROW" BACKLOG-archive.md  || { echo "FAIL: the row was removed but never archived"; exit 1; }
+fail() { echo "FAIL: $1"; exit 1; }
+
+# Preconditions FIRST, so that every absence below can only mean what it says.
+for f in BACKLOG.md BACKLOG-archive.md; do
+  [ -s "$f" ] || fail "$f is missing or empty — every absence below would be meaningless"
+done
+[ "$(grep -cE '^## (BL|DEF)-[A-Z0-9-]+' BACKLOG.md)" -gt 0 ] || fail "BACKLOG.md declares no rows"
+[ "$(grep -cE '^## (BL|DEF)-[A-Z0-9-]+' BACKLOG-archive.md)" -gt 0 ] || fail "archive declares no rows"
+
+grep -qE "^## $ROW( |$|—)" BACKLOG.md         && fail "the row is still DECLARED in BACKLOG.md"
+grep -qE "^## $ROW( |$|—)" BACKLOG-archive.md || fail "removed but never DECLARED in the archive"
 grep -rn 'IN PROGRESS' BACKLOG.md DEFERRED.md | grep -qi premisescan \
-  && { echo "FAIL: an IN PROGRESS marker would reach main"; exit 1; }
-[ -z "$(comm -12 <(grep -oE '(BL|DEF)-[A-Z0-9-]+' BACKLOG.md | sort -u) \
-                 <(grep -oE '(BL|DEF)-[A-Z0-9-]+' BACKLOG-archive.md | sort -u))" ] \
-  || { echo "FAIL: a row is both open and archived"; exit 1; }
+  && fail "an IN PROGRESS marker would reach main"
+both=$(comm -12 \
+  <(grep -oE '^## (BL|DEF)-[A-Z0-9-]+' BACKLOG.md         | sed 's/^## //' | sort -u) \
+  <(grep -oE '^## (BL|DEF)-[A-Z0-9-]+' BACKLOG-archive.md | sed 's/^## //' | sort -u))
+[ -z "$both" ] || fail "declared in BOTH files: $both"
+
 pnpm exec vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerMintBar.test.ts --project parallel
 echo "ledger closeout verified"
 ```
@@ -648,6 +659,25 @@ instead of enforced by it, the same class as plan review r3 finding 2 one artifa
 The second check is the direction the first cannot see: removed-from-open is satisfied by a row that
 was DELETED rather than archived. The `comm -12` is a third direction again — archived-minus-open
 alone passes a row that was COPIED rather than moved.
+
+**EVERY CHECK IS ANCHORED TO `^## <ROW>`, AND THAT WAS BOUGHT BY RUNNING THEM EARLY.** Dry-run against
+the tree BEFORE the closeout edit, an earlier draft of this block keyed each check on
+`grep -q "$ROW" <file>` — which matches a bare cross-REFERENCE in another entry's prose. Measured:
+the "removed but never archived" check PASSED ALREADY, before anything was archived, because this row
+is cited in the prose of a different archive entry; and the `comm -12` over bare ids reported **120
+false overlaps**, since archive entries routinely cite other rows by id. Both predicates ranged over
+MENTIONS where they meant DECLARATIONS. A heading is the declaration.
+
+**The preconditions were bought the same way.** `grep … && fail` passes silently when the FILE is
+missing — the failure mode is good news, so it is the one that survives. With no ledger files at all
+the block still exited 1, but only because the archive check happens to be an absence→fail running
+afterward; that is ordering luck, not design. Proving the files exist and declare rows FIRST is what
+makes every later absence mean what it says.
+
+**Closeout checks are the least-tested code in any plan** — written early, executed once, at the
+moment they are most load-bearing and least convenient to debug. Run them against the current tree
+while there is still time to think: they should fail at the FIRST check, for the asserted reason,
+because the row is still open.
 
 `BL-ACCEPTSET-CONSUMER-COVERAGE` (filed during this arc's spec stage) is **not** closed here. Its
 repair is a structural test whose consumer list is DERIVED — walking for reads of each set's
