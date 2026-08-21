@@ -1025,9 +1025,14 @@ export function authorizeSend(input: AuthorizationInput): AuthorizationDecision 
  * exit with a code the taxonomy assigns to refusals.
  */
 export class NonceMintExhausted extends Error {
+  // No `this.name` assignment. Nothing reads it -- the adapter discriminates by
+  // `instanceof` -- and `SendFailed`, the sibling fault class beside it, does
+  // not set one either. The mutation gate caught its removal as a SURVIVOR,
+  // which is the honest signal that the line has no differing case: deleted
+  // rather than defended with an equivalence row or a test for a property no
+  // caller consumes.
   constructor(readonly attempts: number) {
     super(`mintNonce: the random source returned the marker's nonce ${attempts} times running`);
-    this.name = "NonceMintExhausted";
   }
 }
 

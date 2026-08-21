@@ -252,17 +252,29 @@ describe("authorizeSend — nonce equality, --compact only (spec §3.1 step 4, A
     ).toEqual({ authorized: true });
   });
 
-  const MISMATCHES: ReadonlyArray<readonly [string, string | null, string | null, string]> = [
-    ["the record was never written", null, NONCE, "checkpointNonce"],
-    ["the marker carries none", NONCE, null, "checkpointNonce"],
-    ["they differ", NONCE, OTHER_NONCE, "not the one this command recorded"],
-  ];
+  // The needle is the DISTINGUISHING phrase, not a shared substring. Both
+  // refusals say "checkpointNonce" -- `carries no checkpointNonce` and
+  // `checkpointNonce is not the one this command recorded` -- so a needle of
+  // "checkpointNonce" is satisfied by EITHER. The mutation gate proved that is
+  // not pedantry: flipping the absent-check's `||` to `&&` sends a one-sided
+  // absence down the mismatch branch, where it still refuses with a message the
+  // weak needle accepted, and the mutant survived. Each row now names its own
+  // phrase and denies the other's.
+  const ABSENT = "carries no checkpointNonce";
+  const MISMATCH = "is not the one this command recorded";
+  const MISMATCHES: ReadonlyArray<readonly [string, string | null, string | null, string, string]> =
+    [
+      ["the record was never written", null, NONCE, ABSENT, MISMATCH],
+      ["the marker carries none", NONCE, null, ABSENT, MISMATCH],
+      ["they differ", NONCE, OTHER_NONCE, MISMATCH, ABSENT],
+    ];
 
-  it.each(MISMATCHES)("refuses when %s", (_label, recorded, marker, needle) => {
+  it.each(MISMATCHES)("refuses when %s", (_label, recorded, marker, expected, forbidden) => {
     const message = refusalOf(
       authorizeSend(anInput({ mode: "compact", nonce: { recorded, marker } })),
     );
-    expect(message).toContain(needle);
+    expect(message).toContain(expected);
+    expect(message).not.toContain(forbidden);
   });
 
   it("--checkpoint and --resume do not consult the nonce at all", () => {
