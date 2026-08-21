@@ -64,10 +64,26 @@ before this spec, 1154 after — so no criterion depends on the literal. Measure
 | …of those, other unprobeable commands         | 6        |
 | v1 heavy-wrapped markers exiting at line 717  | 16       |
 
-Reproduced by `pnpm tsx probe/population.mts`, which aborts on a short read.
+Reproduced by `node --import tsx probe/population.mts`, which aborts on a short read. Its derivation
+totals, QUOTED rather than transcribed:
 
-**Fifteen is the repair's reach.** Two separate overclaims were corrected to get here, and both are
-recorded in §5.4 rather than quietly fixed.
+```
+-- by derivation (what the collection arm does with it) --
+  none: 15
+  probe: 147
+  v1-no-state: 317
+```
+
+The quoting is deliberate and it is this arc's most expensive lesson. Four times a count here was
+reported from a subset of an instrument's output instead of the total the instrument printed, and
+after the first the instrument was right every time. A number that has been retyped has left the
+instrument's custody, so the printed line is what appears in this document.
+
+**Fifteen is the repair's reach**, and the correction cuts FOR this change rather than against it.
+Fifteen is larger than nine: the repair covers MORE than the motivation that produced it. The
+`pnpm heavy` blind spot is what made the hole rule-mandated, but the branch was never keyed on the
+wrapper, so every unprobeable v2 command had been falling through it all along. Two separate
+overclaims were corrected to get here, and both are recorded in §5.4 rather than quietly fixed.
 
 The 16 v1 heavy-wrapped markers are NOT in reach: they exit at `lib/specLint/redContract.ts:717`
 (`if (state === null) continue; // v1: no declared state to probe against`), which sits before the
@@ -212,6 +228,14 @@ outside the domain, or more than one ordinary edit from an input in it, files to
 **Threat fence.** Ordinary authoring mistakes by a contributor writing a task's red. Adversarial
 obfuscation is out of scope and files to §6.
 
+**The closed criterion, so it outlives the brief that carried it.** Three statements, none a matter
+of opinion, all machine-checked by `probe/reach.mts` (committed):
+
+1. Each of the fifteen v2 markers §1.1 names GAINS `RED_PROBE_UNVERIFIED`.
+2. The sixteen v1 heavy-wrapped markers §1.1 names do not, because they exit at
+   `lib/specLint/redContract.ts:717` before the drop at 721.
+3. No hard finding is added, asserted over the real population rather than over fixtures.
+
 **Score.** `redContract` is already enrolled. `pnpm mutation:guards` runs before the first
 `--stage diff` dispatch, and its seven `equivalent` rows are re-derived against this arc's source
 change rather than inherited.
@@ -340,29 +364,54 @@ Current standing is **produced by the command, not typed here**:
 pnpm exec tsx scripts/spec-lint.ts --json docs/superpowers/specs/ci/2026-08-21-speclint-red-reason-verification-design.md
 ```
 
-Round 4 found this section describing a standing it no longer had: it named one code and omitted
-fourteen live findings. The description is now itself derived from a run rather than remembered, and
-the two surviving classes are named individually.
+Round 4 found this section describing a standing it no longer had, naming one code while omitting
+fourteen live findings. The repair names the surviving CLASSES and leaves the counting to the command
+above. A count written here invalidates itself: adding this very paragraph moved the
+`NUMERIC_NOUN_MISMATCH` total, which is how the first version went stale.
 
-**Six `NUMERIC_NOUN_MISMATCH`,** over nouns this document uses for genuinely different quantities,
+**`NUMERIC_NOUN_MISMATCH`,** over nouns this document uses for genuinely different quantities,
 plus artifacts of section references where the arm reads the digits of a `§` reference as a number
 against the following noun. These STAND rather than being reworded. Usefulness is not the criterion,
 correct attribution is, and rewording out of a matcher is silencing rather than answering.
 
-**Two `CITATION_SYMBOL_ABSENT`,** at the §1.2 table rows citing
+**`CITATION_SYMBOL_ABSENT`,** at the §1.2 table rows citing
 `2026-08-16-mutation-gate-sharding.md:1237` and `2026-08-16-server-action-origin-sweep.md:235`. Both
 cited lines hold a task marker, which is an HTML comment carrying no identifier the citation arm can
 match. The citation is correct and the arm is right that it cannot verify it. Also STANDS, for the
 same reason.
 
-**Twelve `COPY_UNPAIRED_QUOTE` were REPAIRED, not described.** Every one was a quoted phrase broken
+**`COPY_UNPAIRED_QUOTE` was REPAIRED, not described**, at every occurrence. Every one was a quoted phrase broken
 across a line by a reformat. That is the fourth appearance of this class on this document, and the
 third time it landed inside a sentence describing an earlier instance, so the repair this time was to
 stop quoting short phrases inline where a reformat can split them.
 
 ---
 
-## 8. Review record: what each round could and could not check
+## 8. Disposition: the spec stage closed by RULING, not by an APPROVE verdict
+
+Four counted rounds, twelve findings, **none refuted**. No round returned APPROVE. The orchestrator
+closed the stage DISPOSITIONED-not-CONVERGED at the cap, and the reasoning of record is a
+classification rather than a rate: the finding count did not decay (3, 4, 2, 3), but the last three
+rounds found defects in this document's DESCRIPTION of a repair whose MECHANISM has been stable since
+round 2, and round 4 explicitly confirmed all four design claims it was pointed at.
+
+**Three repairs ship without a review round having read them**, recorded here so nobody mistakes the
+close for coverage:
+
+| repair | what verifies it instead |
+| ------ | ------------------------ |
+| the reach oracle converted from printer to asserter, both named sets, two modes, `MARKER_DRIFT` | three mutations that kill it (§4), which is the convergence criterion this repo already uses for a guard surface |
+| the twelve `COPY_UNPAIRED_QUOTE` repairs and §7's rewrite | `spec:lint` itself, re-run and reported in §7 |
+| §1.1's verbatim instrument quoting and the closed criterion moved into §3 | additive, and neither changes a claim a round examined |
+
+The first is the one that matters, and the argument for accepting it without a fifth round is that a
+guard's soundness is settled by mutation, not by opinion. Each residue TYPE has its terminal verifier:
+the one judgment in the document got its read at round 4, and the instrument that remained is a
+fact-instrument.
+
+---
+
+## 9. Review record: what each round could and could not check
 
 **Round 1 — NEEDS-ATTENTION, 3 findings, all real, all accepted.** Head `712f9d5678`. An AC that never
 exercised the arm; a repair proved unreachable (now §5.3); a file count already stale.
