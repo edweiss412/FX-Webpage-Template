@@ -663,5 +663,92 @@ sequences CI and the score FIRST and holds at readiness if the wall has not lift
 - [ ] Adversarial review (cross-model) — plan stage, to APPROVE
 - [ ] Execution handoff (fresh Opus implementation pane; HANDOFF brief in `_briefs/`)
 
+---
+
+## 6. Execution record
+
+Written after execution, so the evidence the tasks demanded lives in the repository rather than only
+in commit messages and a PR body. Nothing here changes a contract above it.
+
+### 6.1 The live census, measured through the SHIPPED code
+
+    connection census: 2560 files walked, 2560 in the population, 175 connect sites,
+    5 connecting helpers, 39 inheriting files, 7 destructive-discovered, 0 undisposed,
+    8 disposition rows, 4855 production edges
+    guard-bound 85 / validation-env 79 / loopback-literal 9 / remote-literal 0 / unclassifiable 2
+
+Visible under `pnpm vitest run tests/db/_metaConnectionCensusGuard.test.ts --reporter=verbose`; the
+default reporter prints stdout only for failing tests.
+
+### 6.2 Both-directions proof (`task:live-census-gate`)
+
+Fourteen perturbations, each applied to a real file, run, and restored byte-exact (`git status
+--porcelain` empty after every one). A perturbation that produced NO red would be a defect in the
+gate, not in the perturbation.
+
+| perturbation | the red it produced |
+| --- | --- |
+| `row-deleted` | AssertionError: tests/admin/step3StateGallery.test.ts:201 site#1 unclassifiable — add a CONNECTION_CENSUS_DISPOSITIONS… |
+| `row-respelled` | +   "tests/admin/step3StateGallery.test.ts galleryDatabaseUrl( )", |
+| `second-identical-site` | AssertionError: tests/admin/step3StateGallery.test.ts:202 site#2 unclassifiable — add a CONNECTION_CENSUS_DISPOSITIONS… |
+| `planted-remote-literal` | AssertionError: tests/db/__censusRemoteProbe.probe.ts:2 site#1 remote-literal — read the target from TEST_DATABASE_URL… |
+| `premise-destructive-discovered` | Error: premise not met: files the destructive guard discovers. Got 7, which does not exceed 999999. The assertion belo… |
+| `premise-files-walked` | Error: premise not met: files walked under tests/. Got 2560, which does not exceed 999999. The assertion below this li… |
+| `premise-driver-bindings` | Error: premise not met: files holding a driver binding. Got 140, which does not exceed 999999. The assertion below thi… |
+| `premise-connect-sites` | Error: premise not met: connect sites. Got 175, which does not exceed 999999. The assertion below this line proves not… |
+| `premise-helpers` | Error: premise not met: connecting helper modules. Got 5, which does not exceed 999999. The assertion below this line … |
+| `premise-b2-by-name` | Error: premise not met: tests/db/_b2Helpers.ts is one of the connecting helpers. The assertion below this line proves … |
+| `premise-guard-bound` | Error: premise not met: guard-bound sites. Got 85, which does not exceed 999999. The assertion below this line proves … |
+| `premise-validation-env` | Error: premise not met: validation-env sites. Got 79, which does not exceed 999999. The assertion below this line prov… |
+| `premise-loopback` | Error: premise not met: loopback-literal sites. Got 9, which does not exceed 999999. The assertion below this line pro… |
+| `premise-inheriting` | Error: premise not met: files inheriting a class through the helper graph. Got 39, which does not exceed 999999. The a… |
+
+The eight rows were added ONE AT A TIME, each observed to retire exactly one report: undisposed
+8 → 7 → 6 → 5 → 4 → 3 → 2 → 1 → 0, one commit per row.
+
+### 6.3 Killer audit (spec §6, fourth column) — `task:enrol-and-score`
+
+Twenty-two weaker implementations, each APPLIED to the source and RUN against the deciding suite,
+then restored byte-exact. Acceptance requires every row PROVEN.
+
+| # | verdict | weaker implementation |
+| --- | --- | --- |
+| 1 | PROVEN | callee-NAME scanner |
+| 2 | PROVEN | file-wide poison that silently DROPS a shadowed name |
+| 3 | PROVEN | walk keyed on `import … from` |
+| 4 | PROVEN | classifier keyed on the SUBSTRING TEST_DATABASE_URL |
+| 5 | PROVEN | classifier accepting ANY process.env read |
+| 6 | PROVEN | classifier that reads only the FIRST argument |
+| 7 | PROVEN | scanner that reports a dynamic acquisition and DROPS its sites |
+| 8 | PROVEN | resolver filtering to `./` and `@/tests/` |
+| 9 | PROVEN | inheritance that SUPPRESSES the helper's report instead of naming consumers |
+| 10 | PROVEN | parentheses-only unwrap |
+| 11 | PROVEN | one-level import walk |
+| 12 | PROVEN | walk that DROPS unresolvable specifiers |
+| 13 | PROVEN | forward-only registry check (a dead row passes) |
+| 14 | PROVEN | file-keyed dispositions |
+| 15 | PROVEN | join re-implementing the recognizer with `new RegExp` copies |
+| 16 | PROVEN | driver walk that ignores the loader positions |
+| 17 | PROVEN | classifier that RESTRICTS `connection` sub-keys |
+| 18 | PROVEN | guard-bound by trusted import and callee spelling only |
+| 19 | PROVEN after `f30d610f1` (ABSENT before — see below) | a classifier path that returns NOTHING for an unexpected shape |
+| 20 | PROVEN | a SECOND function that reads a specifier position |
+| 21 | PROVEN | edge walk that ignores the loader positions |
+| 22 | PROVEN | a renderer that appends to the rendered line (a superset wording) |
+
+**Row 19 is the one that paid for itself.** "A classifier path that returns NOTHING for an
+unexpected shape" SURVIVED, alone among the twenty-two: `resolveChain` caught the `undefined` first
+and answered `unclassifiable` on the classifier's behalf. That is double-guarding — a second, more
+permissive check downstream of the real one, which makes the outcome right for a reason nobody chose
+and no test can distinguish — and the guard was DEAD besides, since `flattenChain` cannot return an
+empty list. The repair was subtraction plus a type (`[ts.Expression, ...ts.Expression[]]`), which
+makes the empty chain unrepresentable and lets the sweep reach the mutant.
+
+### 6.4 Scratch-shard hygiene
+
+The scoped scratch shard (`guardSurfaces.shardTMP`, beside the four real shard files and gitignored
+by design) is created, measured with, and deleted. `_metaSourceShardIntegrity` REDS while it exists — measured, `1 failed | 21
+passed`, `expected [ Array(5) ] to deeply equal [ Array(4) ]` — and greens once it is gone.
+
 **impeccable-gate: N/A — no UI surface.** No file under `app/`, `components/`, `app/globals.css`,
 `DESIGN.md` or a Tailwind config is touched.
