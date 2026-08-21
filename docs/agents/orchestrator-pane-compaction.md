@@ -36,6 +36,39 @@ text for meaning, which this surface does not do. So the verification is yours:
   at a quota wall accepts the text and cannot act on it. Not detectable from outside; the
   pane read shows the staged text, and the procedure is to compact after the reset.
 
+## What the authorization does and does not close
+
+Every sending invocation authorizes from ONE read-once pass. The pass is not an
+instant, though: its members are read one after another, so a world change
+landing between the first read and the bytes arriving is not seen by that
+invocation. That window is real and is priced per decay class rather than
+claimed away.
+
+- **Wrong recipient** (a takeover swapping the session). Closed by mechanism.
+  Both prose payloads open with an ADDRESS LINE naming the target's branch and,
+  when its marker carries one, its session id, and instructing any other session
+  to ignore the message entirely. A misdirected send self-neutralizes.
+- **Same recipient, `blockedOn` decayed** (a concurrent marker write). Closed by
+  mechanism. The resume payload tells the recipient to re-read its own
+  `.claude/ship-state.json` FIRST and stop if `blockedOn` is non-empty, so the
+  decayed state itself refuses. It is the one decay signal a recipient can read.
+- **Same recipient, verdict or purview decayed.** **BOUNDED, NOT CLOSED.** The
+  recipient cannot see either signal: purview lives in the orchestrator's own
+  registry, and verdicts derive from roster, `gh` and git reads the recipient
+  never performs. An addressed resume landing in this class IS obeyed. The
+  bounded consequence is one resumed-or-stopped turn the recipient's own driver
+  reconciles, never corrupted state, and the `--compact` that would follow
+  refuses on its own fresh pass.
+- **`/compact` specifically** carries no address, because a prefix line would
+  strip it of its status as a slash command. Its worst mis-delivery is a
+  compaction the operator no longer wanted, which is what auto-compaction does
+  on its own schedule anyway.
+
+One ordering detail is load-bearing rather than incidental: target resolution
+happens BEFORE the roster read, so the roster feeding rules 1, 2, 5 and 7 is the
+freshest value the decision can have. A takeover landing after that read is the
+residual above; one landing before it is refused by rule 5.
+
 ## Why this exists
 
 A Claude Code session cannot compact itself. `/compact` is a human-typed slash command, and

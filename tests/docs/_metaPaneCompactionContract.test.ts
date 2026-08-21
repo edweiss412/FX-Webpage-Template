@@ -132,8 +132,41 @@ describe("the bounded decay classes are stated as BOUNDED (AC-15)", () => {
   });
 
   it("the write-up says the same, so the two cannot disagree", () => {
-    expect(WRITEUP.toLowerCase()).toContain("bounded");
-    expect(WRITEUP).toContain("blockedOn");
+    // SENTENCES, not substrings. This asserted `toContain("bounded")` and
+    // `toContain("blockedOn")`, and passed on occurrences that had nothing to
+    // do with decay: "bounded" appears three times in the write-up (position
+    // inference, purview locking) and "blockedOn" twice (a field list, a
+    // timestamp hazard). Probed at diff round 1 — the write-up did not state
+    // the decay split, the address-line mechanism, or the verdict/purview class
+    // AT ALL, and the guard was green throughout. Same weak-substring shape as
+    // the nonce-refusal needle the mutation gate caught a commit earlier.
+    expect(WRITEUP).toContain("**BOUNDED, NOT CLOSED.**");
+    expect(WRITEUP).toContain("verdict or purview decayed");
+    expect(WRITEUP).toContain("ADDRESS LINE naming the target's branch");
+    expect(WRITEUP).toContain("re-read its own");
+  });
+
+  it("every needle this file pins occurs EXACTLY ONCE in its document", () => {
+    // The derived guard behind the case above, and the general form of that
+    // defect: a needle occurring more than once may be matching something else
+    // entirely, which is how a pin goes green while its subject is absent.
+    // Occurrence COUNT is the discriminator here, not needle length.
+    const pinned: ReadonlyArray<readonly [string, string, string]> = [
+      ["write-up", WRITEUP, "**BOUNDED, NOT CLOSED.**"],
+      ["write-up", WRITEUP, "verdict or purview decayed"],
+      ["write-up", WRITEUP, "ADDRESS LINE naming the target's branch"],
+      ["write-up", WRITEUP, "herdr pane read"],
+      // Cased as the document writes it: the sibling assertion above matches
+      // case-insensitively, and a uniqueness count must not silently disagree
+      // with it about what it is counting.
+      ["write-up", WRITEUP, "EMPTY queue"],
+      ["spec", SEND_AUTH_SPEC, "**[bounded], not closed**"],
+      ["spec", SEND_AUTH_SPEC, "the `blockedOn` decay class and NO OTHER"],
+    ];
+    premise("the pin table is populated", pinned.length, 0);
+    for (const [name, doc, needle] of pinned) {
+      expect(doc.split(needle).length - 1, `${name}: ${needle}`).toBe(1);
+    }
   });
 
   it("neither document claims the address line closes every decay class", () => {

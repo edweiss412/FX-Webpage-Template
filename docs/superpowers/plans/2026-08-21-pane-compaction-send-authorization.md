@@ -62,6 +62,30 @@ body-diff can; r4 F1, row below). Classes per spec §8.1:
 The implementer refines this table case-by-case in Task 2's commit message with the diff in
 hand; a case moved between classes is stated there with its reason — never silently.
 
+**CORRECTION, diff round 1 finding 4 (P2), derived rather than patched.** The reviewer
+probed four rows this table calls class 2 and showed their complete test nodes were
+BYTE-IDENTICAL to the baseline at `23599c8fa` — so at that head they were class 1
+verbatim, and the stated reason ("bytes gain §3.6 address line") was false for them: the
+address line lands in `planSends`, and a case that neither renders a payload nor asserts
+its bytes never sees it.
+
+Re-derived over the SHIPPED tree by body hash, and the counts reconcile:
+
+    baseline 65 = verbatim 54 + adapted 10 + retired 1
+
+with one property of the method stated because it changes how the numbers read: TITLE IS
+NOT A STABLE KEY across an adaptation that renames. A title-keyed diff reports six
+renamed-and-adapted cases as "retired" — the AC-13 purview case, both AC-17 halves, the
+leaves-roster case, and the two send-text cases — when each is class 2 under a new name.
+Exactly ONE case is genuinely retired: the `it.each` checkpoint/resume
+revalidates-before-sending pair, whose premise IS the second read §3.2 deletes.
+
+The four rows the reviewer named are class 2 as SHIPPED, but for a reason this table did
+not state and could not have: diff round 1's finding 1 rebuilt their marker fixtures,
+which had been refusing at rule 4 before reaching the nonce, the rule-7 stop, and the live
+send those cases name. Their bodies differ from the baseline because of THAT repair, not
+because of the address line.
+
 <!-- tasks: depth=2 red-contract -->
 
 ## Task 1 — core: authorization predicate, addressed texts, session substitutions
