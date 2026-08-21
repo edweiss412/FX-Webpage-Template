@@ -40,6 +40,7 @@
 import { describe, expect, it } from "vitest";
 
 import { premiseHolds } from "../_shared/premise";
+import { stripCommentsForFile } from "../_shared/stripComments";
 import { EXPECTED_LEDGER_KINDS } from "./source/expectedLedgerKinds";
 import { GUARD_SURFACES } from "./source/registry";
 
@@ -142,9 +143,13 @@ describe("EXPECTED_LEDGER_KINDS is in parity with the registry it describes", ()
 
     // USE vs MENTION: this file documents the hazard it forbids, so a scan of
     // its own source matches its own prose unless comments go first.
-    const stripComments = (src: string): string =>
-      src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-    const ownSrc = stripComments(readFileSync(entry, "utf8"));
+    //
+    // Through the SHARED module, not a local regex. CI caught the local copy
+    // (_metaStripCommentsSingleSource forbids them), and the guard is not
+    // bureaucratic here -- my regex treated any `//` as a comment start, so a
+    // `//` inside a string or regex literal would have been stripped as one.
+    // `stripCommentsForFile` parses instead, which is sound by construction.
+    const ownSrc = stripCommentsForFile(readFileSync(entry, "utf8"), entry);
 
     // EXACT SET, static AND dynamic. This is the guarantee the case rests on and
     // it is total over its domain: every specifier this file can name has to
@@ -161,6 +166,7 @@ describe("EXPECTED_LEDGER_KINDS is in parity with the registry it describes", ()
       "this file's direct imports are pinned (static AND dynamic)",
     ).toEqual([
       "../_shared/premise",
+      "../_shared/stripComments",
       "./source/expectedLedgerKinds",
       "./source/registry",
       "node:fs",
