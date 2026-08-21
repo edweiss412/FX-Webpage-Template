@@ -355,9 +355,23 @@ describe("workflow — a step that uploads a HIDDEN directory must say so (diff 
     expect(String(step!.with?.["include-hidden-files"])).toBe("true");
 
     // ...and `ignore` is what made that silent: an upload that found no files
-    // is the exact false certification this record exists to prevent, so the
-    // empty case must SURFACE.
-    expect(String(step!.with?.["if-no-files-found"] ?? "warn")).not.toBe("ignore");
+    // is the exact false certification this record exists to prevent. It must
+    // RED, because hidden-file exclusion is observable ONLY in a real Actions
+    // run — no local gate can witness the step uploading nothing, so the empty
+    // case has to be loud where it actually happens.
+    expect(String(step!.with?.["if-no-files-found"])).toBe("error");
+  });
+
+  it("is LICENSED to error, because every shard really does run a surface", async () => {
+    // `error` is only correct if a legitimately-green leg cannot produce zero
+    // records. That premise is the PARTITION's, so it is asserted against the
+    // partition rather than assumed: if the registry ever shrank below the shard
+    // count, an empty shard would red a leg that did nothing wrong, and this case
+    // reds first and says so.
+    const { SOURCE_SHARD_COUNT, surfacesForShard } = await import("./shardPartition");
+    for (let shard = 0; shard < SOURCE_SHARD_COUNT; shard += 1) {
+      expect(surfacesForShard(shard).length).toBeGreaterThan(0);
+    }
   });
 });
 

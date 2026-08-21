@@ -190,11 +190,15 @@ jobs:
           # the step is green on all four shards while uploading nothing —
           # the CI-only blind spot §1.0 measures, rebuilt inside its own repair.
           include-hidden-files: true
-          # NOT `ignore`: an upload that found no files is exactly the false
-          # certification the record exists to prevent, so the empty case has to
-          # surface. `warn` reports it without reddening a leg for a shard that
-          # legitimately produced none.
-          if-no-files-found: warn
+          # `error`, not `warn` and certainly not `ignore`: hidden-file exclusion
+          # is only observable in a REAL Actions run, so no local gate can witness
+          # this step uploading nothing. The next silent-empty must RED rather
+          # than be left for someone to notice in an artifact listing. Licensed by
+          # the partition: every shard is assigned at least one surface and every
+          # evaluated surface emits a record, so zero files means the leg produced
+          # nothing — which is a true statement about that leg, whether it died
+          # early or uploaded blind.
+          if-no-files-found: error
 
   source-gates:
     runs-on: ubuntu-latest
