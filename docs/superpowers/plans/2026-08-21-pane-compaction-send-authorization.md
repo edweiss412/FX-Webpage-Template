@@ -38,7 +38,9 @@ red-contract regions deliberately. The heavy phases (full suite, mutation runs) 
 Baseline: `git show 9eaa6d6eb^:tests/paneCompaction/adapter.test.ts` (the fence commit
 `9eaa6d6eb` deleted 581 lines from `adapter.test.ts`; the retained describes — report,
 `--check` aggregation, rule 5, refusal naming, `parseAgentGet`, degraded roster — are still
-in the live file and are NOT part of the restoration). Classes per spec §8.1:
+in the live file and are NOT part of the restoration — with ONE exception: the fence commit
+MODIFIED one retained case in place, and a title-diff sweep cannot see that, only a
+body-diff can; r4 F1, row below). Classes per spec §8.1:
 
 | Historical case (deleted block) | Class |
 | --- | --- |
@@ -53,6 +55,7 @@ in the live file and are NOT part of the restoration). Classes per spec §8.1:
 | checkpoint/resume send-text and dry-run byte cases | 2 — adapted (address line; resume deference line; BOTH address forms, live and dry-run, incl. a resume dry-run byte case) |
 | resume-refuses-on-OBSERVATION — the STATIC rule-vs-banding case at baseline :920 ("not merely when banding says WAIT") | 2 — adapted PIN (kill target: rule-stop-deleted build) |
 | `it.each` checkpoint/resume "revalidates before sending, like --compact does" pair (TWO dynamic instances, baseline :607; r3 F3 — previously unaccounted) | 3 — retired (the case's premise IS the second read §3.2 deletes; its intent — fresh state per sending invocation — is carried by the structural cover's set-equality and two-invocation freshness cases) |
+| "--all is rejected by name rather than silently ignored" — the sole MODIFIED-in-place baseline case (r4 F1): the fence commit swapped its body from `drive(["--compact", "--all", …])` to the non-sending `--all --check` form (live at tests/paneCompaction/adapter.test.ts:390, with a fence-ordering comment) | 2 — adapted: restore the SENDING-mode body (`--compact --all` rejected by name — spec §1.1's requirement); the fence-ordering comment retires with the fence; the `--check` form may remain as a companion case but does not discharge this row |
 | current fence suite (zero-reads spies) | 3 — retired with the fence |
 | `revalidate.test.ts` "runs immediately before sending" describes (revalidation-callback premises, incl. stale-verdict/purview at lines 104–174) | 3 — retired (§3.2 deletes the second pass); nonce-from-pass and consume-before-send re-target as pins in Task 2 |
 
@@ -338,7 +341,7 @@ the whole-diff review approves (the arming window, AGENTS.md invariant 12 ruling
 | AC-11 (pass marker relocated; scan green) | Task 2 | `pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` |
 | AC-12 (score at floor, derived via shipped score()) | Task 6 | `pnpm heavy pnpm mutation:guards`, backgrounded (bare `pnpm heavy` exits 2 — no child command; r2 F4) |
 | AC-13 (docs no longer claim the fence) | Task 5 | `pnpm vitest run tests/docs/_metaPaneCompactionContract.test.ts` |
-| AC-14 (checkpoint never commits) | Task 2 (verbatim class) + existing prose pin | `pnpm vitest run tests/paneCompaction/adapter.test.ts tests/docs/_metaPaneCompactionContract.test.ts` |
+| AC-14 (checkpoint never commits) | Task 2 (verbatim class) + the executable payload pin at tests/paneCompaction/driver.test.ts:72 (`CHECKPOINT_TEXT` contains "do not commit" — the adapter case compares sent bytes to the constant, so it cannot see the constant change; r4 F2) + existing prose pin | `pnpm vitest run tests/paneCompaction/adapter.test.ts tests/paneCompaction/driver.test.ts tests/docs/_metaPaneCompactionContract.test.ts` |
 | AC-15 (address line pinned; bounded classes stated) | Task 1 (texts) + Task 2 (adapter live/dry-run address coverage incl. resume dry-run) + Task 5 (prose pins) | `pnpm vitest run tests/paneCompaction/authorization.test.ts`; `pnpm vitest run tests/paneCompaction/adapter.test.ts`; `pnpm vitest run tests/docs/_metaPaneCompactionContract.test.ts` |
 | AC-16 (mint exhaustion is a named exit-2 fault) | Task 3 | `pnpm vitest run tests/paneCompaction/mintFault.test.ts` |
 
