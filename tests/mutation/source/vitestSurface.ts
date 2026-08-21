@@ -1,0 +1,219 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+
+import ts from "typescript";
+
+/**
+ * Vitest's own declaration, read as the authority for premiseScan's three
+ * accept-sets (spec §3.2).
+ *
+ * The scanner does NOT call any of this at scan time (spec §5 L1) — it carries
+ * committed literals, and `tests/mutation/_metaVitestSurfaceDerivation.test.ts`
+ * is what compares them against what these functions derive. A scanner that
+ * resolved `node_modules` per run would make every classification depend on an
+ * install rather than on the source it is reading.
+ *
+ * The DECLARATION rather than runtime properties, because a runtime read cannot
+ * tell a modifier from a BUILDER: `extend`, `override`, `scoped` and `fn` are
+ * callable own properties of `test` that return a new API instead of
+ * registering anything, and admitting them makes `test.extend({})` peel to
+ * `test` and invent a registration out of a builder call (spec review r1
+ * finding 1). They are not members of `ChainableTestAPI`, so a derivation that
+ * reads the declaration never sees them — excluded BY CONSTRUCTION rather than
+ * by an exception list (AC-7).
+ *
+ * Read with the TypeScript AST rather than with regexes, decided by running it:
+ * a regex prototype's `interface Hooks` selector matched nothing on its very
+ * first run. When a recognizer needs a new grammar corner, the repair direction
+ * is the total reader, not a smarter pattern.
+ */
+
+/** Every selector's floor, so a selector that stops matching names ITSELF.
+ *
+ *  Per SELECTOR, never per module (AC-8): a module-level "did we derive
+ *  anything" check passes as long as one selector still matches, which is
+ *  exactly the vacuity this exists to prevent. */
+function floor(label: string, members: string[]): string[] {
+  if (members.length === 0) throw new Error(`derive: ${label} yielded no members`);
+  return members;
+}
+
+/**
+ * `@vitest/runner`'s dist directory, resolved AS VITEST WOULD.
+ *
+ * Two steps, because the one-step form does not work under plain node:
+ * `require.resolve("@vitest/runner")` from the repo root FAILS — the runner is
+ * a TRANSITIVE dependency and only `vitest` is direct. It happens to work under
+ * `tsx`, which is exactly how a one-step version would have shipped and then
+ * broken elsewhere.
+ */
+function runnerDist(root: string): string {
+  const rootRequire = createRequire(join(root, "package.json"));
+  const vitestRequire = createRequire(rootRequire.resolve("vitest" + "/package.json"));
+  return dirname(vitestRequire.resolve("@vitest/runner"));
+}
+
+type Declarations = {
+  aliases: Map<string, ts.TypeAliasDeclaration>;
+  interfaces: Map<string, ts.InterfaceDeclaration>;
+  consts: { name: string; type: ts.TypeNode }[];
+};
+
+/**
+ * Every `*.d.ts` in the resolved dist, parsed.
+ *
+ * The declaration file's own name carries a CONTENT HASH inside a VERSIONED
+ * store directory (today `tasks.d-Bh0IjN67.d.ts` under `@vitest+runner@4.1.5`).
+ * Both segments move on an upgrade, so NEITHER may be written down — the whole
+ * directory is read instead.
+ */
+export function readDeclarations(root: string = process.cwd()): Declarations {
+  const dist = runnerDist(root);
+  const files = readdirSync(dist).filter((f) => f.endsWith(".d.ts"));
+  const out: Declarations = { aliases: new Map(), interfaces: new Map(), consts: [] };
+  floor("the runner dist's .d.ts files", files);
+  for (const file of files) {
+    const path = join(dist, file);
+    const sf = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true);
+    for (const st of sf.statements) {
+      if (ts.isTypeAliasDeclaration(st)) out.aliases.set(st.name.text, st);
+      else if (ts.isInterfaceDeclaration(st)) out.interfaces.set(st.name.text, st);
+      else if (ts.isVariableStatement(st)) {
+        for (const d of st.declarationList.declarations) {
+          if (ts.isIdentifier(d.name) && d.type)
+            out.consts.push({ name: d.name.text, type: d.type });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/** The property names a type element declares, ignoring anything unnamed. */
+function propertyNames(members: readonly ts.TypeElement[]): string[] {
+  return members
+    .filter((m): m is ts.PropertySignature => ts.isPropertySignature(m))
+    .map((m) => (ts.isIdentifier(m.name) ? m.name.text : null))
+    .filter((n): n is string => n !== null);
+}
+
+/**
+ * `ChainableFunction<"a" | "b", F, { each: …; for: … }>` — the chain keys and
+ * the curried members, both named by the declaration.
+ *
+ * BOTH chainable declarations are read by the caller, not one: `fails` is
+ * declared on `ChainableTestAPI` and not on `ChainableSuiteAPI`, so a
+ * derivation reading only the suite side leaves `test.fails("must fail", fn)`
+ * silently uncensused (spec review r2 finding 1).
+ */
+function chainableMembers(decls: Declarations, typeName: string): string[] {
+  const alias = decls.aliases.get(typeName);
+  const args = alias && ts.isTypeReferenceNode(alias.type) ? alias.type.typeArguments : undefined;
+  const out: string[] = [];
+  const keys = args?.[0];
+  if (keys !== undefined) {
+    const literals = ts.isUnionTypeNode(keys) ? keys.types : [keys];
+    for (const t of literals) {
+      if (ts.isLiteralTypeNode(t) && ts.isStringLiteral(t.literal)) out.push(t.literal.text);
+    }
+  }
+  const curried = args?.[2];
+  if (curried !== undefined && ts.isTypeLiteralNode(curried))
+    out.push(...propertyNames(curried.members));
+  return floor(typeName, out);
+}
+
+/** The members of one intersection arm: an inline literal directly, a named
+ *  reference by looking its declaration up. */
+function armMembers(decls: Declarations, arm: ts.TypeNode): readonly ts.TypeElement[] {
+  if (ts.isTypeLiteralNode(arm)) return arm.members;
+  if (ts.isTypeReferenceNode(arm) && ts.isIdentifier(arm.typeName)) {
+    const name = arm.typeName.text;
+    const iface = decls.interfaces.get(name);
+    if (iface) return iface.members;
+    const alias = decls.aliases.get(name);
+    if (alias && ts.isTypeLiteralNode(alias.type)) return alias.type.members;
+  }
+  return [];
+}
+
+/** Every arm of `A & B & { … }`, or the type itself when it is not an intersection. */
+function intersectionMembers(decls: Declarations, typeName: string): ts.TypeElement[] {
+  const alias = decls.aliases.get(typeName);
+  if (!alias) return [];
+  const arms = ts.isIntersectionTypeNode(alias.type) ? alias.type.types : [alias.type];
+  return arms.flatMap((arm) => [...armMembers(decls, arm)]);
+}
+
+/** The parameter name that identifies a conditional modifier in the declaration. */
+const CONDITION_PARAMETER = "condition";
+
+/**
+ * `skipIf` / `runIf` — the members that take a CONDITION, read through the
+ * whole intersection INCLUDING its named arms.
+ *
+ * `TestAPI = ChainableTestAPI & ExtendedAPI & Hooks & { … }` and `skipIf` is
+ * declared on `interface ExtendedAPI`, not inline. A selector reading only
+ * `SuiteAPI`'s inline object gets the right ANSWER today, because the two
+ * coincide — and would not RED if `ExtendedAPI` gained a member, which
+ * falsifies AC-2's upgrade-red claim while every equality check still passes
+ * (plan review r4 finding 3).
+ */
+function conditionalMembers(decls: Declarations): string[] {
+  const out = new Set<string>();
+  for (const typeName of ["SuiteAPI", "TestAPI"]) {
+    for (const member of intersectionMembers(decls, typeName)) {
+      if (!ts.isPropertySignature(member) || !ts.isIdentifier(member.name)) continue;
+      const type = member.type;
+      if (type === undefined || !ts.isFunctionTypeNode(type)) continue;
+      const takesCondition = type.parameters.some(
+        (p) => ts.isIdentifier(p.name) && p.name.text === CONDITION_PARAMETER,
+      );
+      if (takesCondition) out.add(member.name.text);
+    }
+  }
+  return floor("SuiteAPI/TestAPI conditional members", [...out]);
+}
+
+/** premiseScan's `MODIFIERS`: every chainable key, curried member and
+ *  conditional member the declaration names, from BOTH API sides. */
+export function deriveModifiers(decls: Declarations = readDeclarations()): string[] {
+  return [
+    ...new Set([
+      ...chainableMembers(decls, "ChainableSuiteAPI"),
+      ...chainableMembers(decls, "ChainableTestAPI"),
+      ...conditionalMembers(decls),
+    ]),
+  ].sort();
+}
+
+/** premiseScan's `HOOK_REGISTRARS`: the members of `interface Hooks`.
+ *
+ *  Derived rather than filtered from a hand-written candidate list, because a
+ *  filter can only SUBTRACT — it can never add the member nobody thought of,
+ *  which here is `aroundAll` / `aroundEach`. */
+const HOOKS_INTERFACE = "Hooks";
+export function deriveHooks(decls: Declarations = readDeclarations()): string[] {
+  const iface = decls.interfaces.get(HOOKS_INTERFACE);
+  return floor(HOOKS_INTERFACE, iface ? propertyNames(iface.members) : []).sort();
+}
+
+/** premiseScan's `REGISTRARS`: every constant the runner declares as a
+ *  `SuiteAPI` or a `TestAPI`.
+ *
+ *  `bench` is not among them. Spec §3.1's probe listed it as a registrar
+ *  because it read runtime exports; the declaration does not, so this excludes
+ *  it BY CONSTRUCTION, which a runtime read cannot deliver (AC-7, §5 L3). */
+const REGISTRAR_TYPES = ["SuiteAPI", "TestAPI"];
+export function deriveRegistrars(decls: Declarations = readDeclarations()): string[] {
+  const out = decls.consts
+    .filter(
+      (c) =>
+        ts.isTypeReferenceNode(c.type) &&
+        ts.isIdentifier(c.type.typeName) &&
+        REGISTRAR_TYPES.includes(c.type.typeName.text),
+    )
+    .map((c) => c.name);
+  return floor("registrar constants", [...new Set(out)]).sort();
+}

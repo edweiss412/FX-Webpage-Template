@@ -4131,3 +4131,84 @@ describe("a nested body wrapped in a transparent expression is still a BODY", ()
     });
   }
 });
+
+describe("AC-3/AC-4 — the callee chain is peeled and collected in ONE traversal", () => {
+  // Two sequential loops -- peel every call, THEN peel every property -- resolve
+  // `test.skipIf(c).each(rows)(...)` to nothing, because the chain INTERLEAVES:
+  // call, property, call, property. Adding `skipIf` to the modifier set without
+  // the interleaved peel is worse than adding neither: the outer call still
+  // resolves to nothing while the inner `test.skipIf(c)` now resolves to `test`,
+  // and its first argument is the CONDITION, so the scanner invents a
+  // registration named `<test at line N>` out of a skip predicate.
+
+  it("test.skipIf(c).each(rows) registers ONCE, under the curried name", () => {
+    const all = classificationsWithModules(
+      {},
+      `const rows = [1];
+       const c = true;
+       test.skipIf(c).each(rows)("chain %s", () => {});`,
+    );
+    // The WHOLE list, not a `find`: asserting only that `chain %s` is present
+    // passes while the spurious `<test at line N>` registration is present
+    // beside it, which is the exact half-implementation above.
+    expect(all.map((t) => t.testName)).toEqual(["chain %s"]);
+  });
+
+  it("test.skipIf(c) registers under its own name, with no curried call at all", () => {
+    const all = classificationsWithModules(
+      {},
+      `const c = true;\ntest.skipIf(c)("live", () => {});`,
+    );
+    expect(all.map((t) => t.testName)).toEqual(["live"]);
+  });
+
+  it("test.each(rows) still registers under the curried name (regression)", () => {
+    const all = classificationsWithModules(
+      {},
+      `const rows = [1];\ntest.each(rows)("plain %s", () => {});`,
+    );
+    expect(all.map((t) => t.testName)).toEqual(["plain %s"]);
+  });
+
+  it("EVERY call in the chain contributes its eager arguments, not just the last", () => {
+    // AC-4. A collector reading only the IMMEDIATE curried call sees `[1]` and
+    // leaves the child free; the environment read sits in the `skipIf` call one
+    // link further up, which the same traversal that peels the chain reaches.
+    const all = classificationsWithModules(
+      {},
+      `describe.skipIf(process.env.CI).each([1])(() => { it("x", () => {}); });`,
+    );
+    expect(all.find((t) => t.testName === "x")?.verdict).toBe("environment-touching");
+  });
+
+  it("a single-level describe.each producer is unchanged (regression)", () => {
+    const all = classificationsWithModules(
+      {},
+      `describe.each([process.env.CI])("d%s", () => { it("y", () => {}); });`,
+    );
+    expect(all.find((t) => t.testName === "y")?.verdict).toBe("environment-touching");
+  });
+
+  it("a hook in an EARLIER link of a nested describe's chain still reaches the sibling", () => {
+    // The nested-describe prune walks the eager arguments of the nested
+    // registration's callee, because those are evaluated while the PARENT suite
+    // is current. It walked only the immediate curried call -- correct while a
+    // chain could only be one call long, and a SILENT FREE the moment `skipIf`
+    // makes two-call chains resolvable. The direction is what makes it part of
+    // this commit rather than a later one: before the modifier set widened,
+    // `describe.skipIf(...)` peeled to nothing, the prune never fired, and the
+    // hook was found by the ordinary walk.
+    const all = classificationsWithModules(
+      OUTER_HOOK_HELPER,
+      `import { spawnHelper } from "__MODULE_helper__";
+       describe("outer", () => {
+         describe.skipIf(beforeEach(() => { spawnHelper(); })).each([1])("A%s", () => {
+           it("inA", () => {});
+         });
+         describe("B", () => { it("inB", () => {}); });
+       });`,
+    );
+    expect(all.find((t) => t.testName === "inA")?.verdict).toBe("environment-touching");
+    expect(all.find((t) => t.testName === "inB")?.verdict).toBe("environment-touching");
+  });
+});

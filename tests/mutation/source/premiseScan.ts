@@ -44,8 +44,40 @@ export type TestClassification = {
   exemption: string | null;
 };
 
-const REGISTRARS = new Set(["it", "test", "describe"]);
-const MODIFIERS = new Set(["each", "for", "skip", "only", "concurrent", "sequential", "todo"]);
+/**
+ * The three accept-sets, DERIVED from Vitest's own declaration rather than
+ * maintained by hand (spec §3.2).
+ *
+ * Committed literals rather than a call to the extractor, deliberately: a
+ * classifier that resolved `node_modules` at scan time would make every verdict
+ * depend on an install (§5 L1). `tests/mutation/_metaVitestSurfaceDerivation.test.ts`
+ * is what keeps them honest — it reds when an upgrade moves any of the three.
+ *
+ * Provenance, not data: each set names the extractor call that produced it.
+ */
+/** `deriveRegistrars()` — every constant the runner declares as `SuiteAPI` or
+ *  `TestAPI`. `bench` is not one, which is why this reads the DECLARATION: the
+ *  runtime exports it and admitting it would censusing a benchmark as a test. */
+const REGISTRARS = new Set(["describe", "it", "suite", "test"]);
+/** `deriveModifiers()` — the chainable keys and curried members of BOTH
+ *  `ChainableSuiteAPI` and `ChainableTestAPI`, plus the condition-taking members
+ *  of `SuiteAPI` and `TestAPI`. The BUILDERS (`extend`, `override`, `scoped`,
+ *  `fn`) are absent by construction: they are not members of either chainable
+ *  declaration, so peeling `test.extend({})` to `test` and inventing a
+ *  registration out of a builder call is impossible here rather than excluded. */
+const MODIFIERS = new Set([
+  "concurrent",
+  "each",
+  "fails",
+  "for",
+  "only",
+  "runIf",
+  "sequential",
+  "shuffle",
+  "skip",
+  "skipIf",
+  "todo",
+]);
 
 /** Parsed by EXTENSION: a `.tsx` suite read as TS turns `<div>x</div>` into a
  *  type assertion, so the classifier would be reasoning about an AST the file
@@ -61,19 +93,52 @@ const parse = (path: string, text: string): ts.SourceFile =>
     path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
 
-/** `it`, `test.each`, `describe.skip.each` … → the root identifier, else null. */
-/** The four hook registrars, in the one place both readers of them look. */
-const HOOK_REGISTRARS = /^(beforeEach|beforeAll|afterEach|afterAll)$/;
+/** `deriveHooks()` — the members of the runner's `interface Hooks`, in the one
+ *  place every reader of them looks. `aroundAll` and `aroundEach` have zero
+ *  enrolled call sites today, so accepting them is verdict-neutral now and
+ *  correct later; a hand-written list filtered by runtime presence could only
+ *  ever SUBTRACT, never add the member nobody thought of. */
+const HOOK_REGISTRARS = /^(afterAll|afterEach|aroundAll|aroundEach|beforeAll|beforeEach)$/;
 
-function registrarRoot(callee: ts.Expression): string | null {
+/** Every call in a registration's callee chain, with the registrar it roots at.
+ *
+ *  ONE traversal, not two rules (spec §3.5). The chain INTERLEAVES calls and
+ *  properties -- `test.skipIf(c).each(rows)(...)` is call, property, call,
+ *  property -- so peeling every call and THEN every property resolves it to
+ *  nothing. Worse, it resolves the INNER `test.skipIf(c)` to `test` and reads
+ *  the skip CONDITION as the test's name argument, inventing a registration out
+ *  of a predicate. The two loops were indistinguishable from this one while a
+ *  mid-chain call could only come from `each`/`for` currying, which is always
+ *  the LAST link; `skipIf` and `runIf` are what makes the difference reachable.
+ *
+ *  The calls are collected by the SAME walk that peels, because both consumers
+ *  ask about the same chain: the root decides what is registered, the calls'
+ *  eager arguments decide what that registration consumes. */
+type CalleeChain = { root: string | null; calls: ts.CallExpression[] };
+
+function calleeChain(callee: ts.Expression): CalleeChain {
+  const calls: ts.CallExpression[] = [];
   let node: ts.Expression = callee;
-  // A registration call may itself be the RESULT of a call: test.each(rows)(...)
-  while (ts.isCallExpression(node)) node = node.expression;
-  while (ts.isPropertyAccessExpression(node)) {
-    if (!MODIFIERS.has(node.name.text)) return null;
-    node = node.expression;
+  for (;;) {
+    if (ts.isCallExpression(node)) {
+      calls.push(node);
+      node = node.expression;
+      continue;
+    }
+    if (ts.isPropertyAccessExpression(node)) {
+      if (!MODIFIERS.has(node.name.text)) return { root: null, calls };
+      node = node.expression;
+      continue;
+    }
+    break;
   }
-  return ts.isIdentifier(node) && REGISTRARS.has(node.text) ? node.text : null;
+  const root = ts.isIdentifier(node) && REGISTRARS.has(node.text) ? node.text : null;
+  return { root, calls };
+}
+
+/** `it`, `test.each`, `describe.skip.each` … → the root identifier, else null. */
+function registrarRoot(callee: ts.Expression): string | null {
+  return calleeChain(callee).root;
 }
 
 /**
@@ -1861,7 +1926,10 @@ function hookBodies(describeCall: ts.CallExpression): ts.Node[] {
       ts.isCallExpression(n) &&
       registrarRoot(n.expression) === "describe"
     ) {
-      if (ts.isCallExpression(n.expression)) for (const a of n.expression.arguments) walk(a);
+      // EVERY call in the callee chain, not just the immediate one, and for the
+      // same reason `eachProducers` walks them all: a two-call chain's earlier
+      // link is eager too, so a hook written there registers on US.
+      for (const c of calleeChain(n.expression).calls) for (const a of c.arguments) walk(a);
       for (const a of n.arguments) if (!isSuiteBody(a)) walk(a);
       return;
     }
@@ -1902,10 +1970,17 @@ function isSuiteBody(arg: ts.Expression): boolean {
   return ts.isArrowFunction(node) || ts.isFunctionExpression(node);
 }
 
-/** The producer argument of `describe.each(<producer>)(...)`, if any. */
+/**
+ * The eager arguments of EVERY call in a registration's callee chain.
+ *
+ * Reading only the IMMEDIATE curried call is correct exactly while the chain
+ * holds one call: `describe.skipIf(process.env.CI).each([1])(...)` holds two,
+ * and the environment read sits in the one a single-level collector never
+ * reaches -- a silent free. The chain is the same one `registrarRoot` peels, so
+ * it is walked once (AC-4).
+ */
 function eachProducers(call: ts.CallExpression): ts.Node[] {
-  const callee = call.expression;
-  return ts.isCallExpression(callee) ? [...callee.arguments] : [];
+  return calleeChain(call.expression).calls.flatMap((c) => [...c.arguments]);
 }
 
 /**
