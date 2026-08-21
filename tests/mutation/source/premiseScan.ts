@@ -178,6 +178,14 @@ const PREMISE_CALLS = /^premise(Holds)?$/;
  * on an unrelated object over-reports (§5 L5) -- a conservative report with a
  * named cause, which the bound permits.
  */
+/** Wrappers that change how an expression is written and not which name it
+ *  denotes. A predicate rather than a peeling helper: see `calleeChain`. */
+function isWrapperExpression(
+  e: ts.Expression,
+): e is ts.ParenthesizedExpression | ts.AsExpression | ts.NonNullExpression {
+  return ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || ts.isNonNullExpression(e);
+}
+
 /**
  * What a callee's name resolves to. THREE states, not two.
  *
@@ -211,34 +219,28 @@ type CalleeName =
  * over - a computed key - is genuinely undecidable, and that is what declines.
  */
 function calleeName(callee: ts.Expression, propertyAccessCounts: boolean): CalleeName {
-  for (;;) {
-    if (
-      ts.isParenthesizedExpression(callee) ||
-      ts.isAsExpression(callee) ||
-      ts.isNonNullExpression(callee)
-    ) {
-      callee = callee.expression;
-      continue;
-    }
-    break;
-  }
+  while (isWrapperExpression(callee)) callee = callee.expression;
   if (ts.isIdentifier(callee)) return { kind: "named", name: callee.text };
   if (propertyAccessCounts && ts.isPropertyAccessExpression(callee))
     return { kind: "named", name: callee.name.text };
-  if (propertyAccessCounts && ts.isElementAccessExpression(callee)) {
+  // UNRECOGNIZED IS A SPECIFIC CASE, NOT THE DEFAULT, and getting that backwards
+  // cost three live tests. As the fallback it swallowed `import(…)` and a
+  // binary-expression callee - both of which plainly bear no name and can never
+  // be a hook - and the conservative consumers then carried them as MAYBE,
+  // flipping three tests in `ledgerClaimsCheck` to environment-touching that
+  // touch nothing. A conservative direction is still wrong when it fires on
+  // inputs that were never ambiguous.
+  //
+  // The only genuinely undecidable shape is a member access whose KEY is not
+  // statically readable: `test[k]`. Everything else is a name or is nameless.
+  if (ts.isElementAccessExpression(callee)) {
     const arg = callee.argumentExpression;
-    if (ts.isStringLiteralLike(arg)) return { kind: "named", name: arg.text };
+    if (propertyAccessCounts && ts.isStringLiteralLike(arg))
+      return { kind: "named", name: arg.text };
+    if (ts.isStringLiteralLike(arg)) return { kind: "nameless" };
     return { kind: "unrecognized" };
   }
-  // A call, a literal, an arrow: these carry no name and never did.
-  if (
-    ts.isCallExpression(callee) ||
-    ts.isFunctionExpression(callee) ||
-    ts.isArrowFunction(callee) ||
-    ts.isLiteralExpression(callee)
-  )
-    return { kind: "nameless" };
-  return { kind: "unrecognized" };
+  return { kind: "nameless" };
 }
 
 function calleeNamed(callee: ts.Expression, names: RegExp, propertyAccessCounts: boolean): boolean {
@@ -301,19 +303,17 @@ function calleeChain(callee: ts.Expression): CalleeChain {
   // Peel the wrappers that do not change which name an expression denotes, at
   // EVERY step - not only at the root. `(test).skipIf(c)` and `test.skipIf(c)`
   // are the same chain.
-  const unwrap = (e: ts.Expression): ts.Expression => {
-    for (;;) {
-      if (ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || ts.isNonNullExpression(e)) {
-        e = e.expression;
-        continue;
-      }
-      return e;
-    }
-  };
   for (;;) {
-    node = unwrap(node);
+    // Peeled by ASSIGNMENT, not by a helper call. `node = unwrap(node)` launders
+    // the callee read through a function boundary, and the structural cover that
+    // pins this file's single chain authority tracks aliases by assignment - so
+    // laundering made the authority invisible to the check that exists to find
+    // it. A predicate decides WHETHER to peel; the peel itself stays an
+    // assignment the tracker can follow.
+    while (isWrapperExpression(node)) node = node.expression;
     if (ts.isCallExpression(node)) {
-      const inner = unwrap(node.expression);
+      let inner: ts.Expression = node.expression;
+      while (isWrapperExpression(inner)) inner = inner.expression;
       // The modifier a call was curried from, through the SAME decider the rest
       // of the file uses. Reading `inner.name.text` inline accepted only the dot
       // spelling, so `test.skipIf(c)["each"](rows)` lost its modifier and the
@@ -335,7 +335,8 @@ function calleeChain(callee: ts.Expression): CalleeChain {
     }
     break;
   }
-  const rooted = calleeName(unwrap(node), false);
+  while (isWrapperExpression(node)) node = node.expression;
+  const rooted = calleeName(node, false);
   const root = rooted.kind === "named" && REGISTRARS.has(rooted.name) ? rooted.name : null;
   if (root !== null) {
     // A modifier the ROOT's side does not declare makes this no registration at

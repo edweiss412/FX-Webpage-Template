@@ -52,9 +52,14 @@ const SCANNER = join(__dirname, "source", "premiseScan.ts");
  * name to a STRING and test that, so they are not this shape and correctly do
  * not appear - the check reports inline AST-name decisions, not every consumer.
  */
-const NAME_AUTHORITIES = new Set(["calleeChain"]);
+// ONE name, because after diff-review r2 there is genuinely one decider.
+// `calleeChain` used to read a root name itself and now delegates entirely, so
+// listing it would be an exemption for something the detector no longer finds -
+// an exemption that cannot fire is indistinguishable from a detector that cannot
+// see, which is the property this file exists to keep.
+const NAME_AUTHORITIES = new Set(["calleeName"]);
 
-type Finding = { fn: string; line: number; text: string; kind: "text-read" | "literal" };
+type Finding = { fn: string; line: number; text: string; kind: "text-read" };
 
 function consumers(file: string): { found: Finding[]; members: string[] } {
   const program = ts.createProgram([file], {
@@ -115,63 +120,100 @@ function consumers(file: string): { found: Finding[]; members: string[] } {
   };
 
   const found: Finding[] = [];
-  const inSetDecl = (n: ts.Node): boolean => {
-    for (let p: ts.Node | undefined = n; p !== undefined; p = p.parent) {
-      if (setDecls.has(p)) return true;
+
+  // EXTRACTION, NOT USE - and this replaced two shape detectors rather than
+  // joining them. The first version matched what was DONE with a name (`===`,
+  // `.has`, `.test`), which is an open set of spellings: probing found it blind
+  // to a `switch` over the callee text, an inline regex, an array `.includes`,
+  // and an object lookup, one new corner per probe. Four more detectors would
+  // have made this a bigger target for the fifth.
+  //
+  // Every one of those spellings must first READ the name, and that is ONE
+  // thing. A blanket "no `.text` reads" is not available - the scanner has ~70
+  // of them and only a handful are callee names, the rest being module
+  // specifiers, binding names and export clauses - so CALLEE-NESS is the
+  // discriminator, not the read.
+  //
+  // Aliases are followed because the natural way to write it splits the
+  // extraction across two bindings: `const callee = c.expression;` then
+  // `(callee as ts.Identifier).text`. Unfollowed, that launders straight past.
+  const isCalleeRead = (n: ts.Node): boolean =>
+    ts.isPropertyAccessExpression(n) && n.name.text === "expression";
+  const peel = (n: ts.Expression): ts.Expression => {
+    for (;;) {
+      if (ts.isParenthesizedExpression(n) || ts.isAsExpression(n) || ts.isNonNullExpression(n)) {
+        n = n.expression;
+        continue;
+      }
+      return n;
     }
-    return false;
   };
 
-  const walk = (n: ts.Node, fn: string): void => {
-    const here = nameOf(n);
-    if (here !== null) fn = here;
-    // SHAPE 1 — a name-set membership test whose argument is a SYNTACTIC `.text`
-    // read. That is deciding a name from the AST inline. A consumer that passes
-    // an already-resolved root string (`SUITE_REGISTRARS.has(root)`) is NOT this
-    // shape and is not reported: the authority already decided that name.
-    if (
-      ts.isCallExpression(n) &&
-      ts.isPropertyAccessExpression(n.expression) &&
-      (n.expression.name.text === "test" || n.expression.name.text === "has") &&
-      // The RECEIVER must be a derived name set - a module-level SCREAMING_CASE
-      // constant - or `names`, which is how `calleeNamed` is parameterised BY
-      // those sets. Matching any `.test` receiver flagged `/^[a-z]/.test(id.text)`,
-      // a lowercase-initial check with nothing to do with registrar names: a
-      // false advisory on the live corpus, which is the one thing a detector on
-      // this branch may not do.
-      ts.isIdentifier(n.expression.expression) &&
-      (/^[A-Z][A-Z0-9_]*$/.test(n.expression.expression.text) ||
-        n.expression.expression.text === "names")
-    ) {
-      const arg = n.arguments[0];
-      if (arg !== undefined && ts.isPropertyAccessExpression(arg) && arg.name.text === "text") {
-        found.push({ fn, line: at(n), text: n.getText(sf), kind: "text-read" });
-      }
-    }
+  /** A function WITH a body and parameters. `ts.isFunctionLike` narrows to
+   *  `SignatureDeclaration`, which has neither, and `isFunctionLikeDeclaration`
+   *  is not exported - so the guard is spelled out rather than guessed at. */
+  const isFnWithBody = (
+    n: ts.Node,
+  ): n is
+    | ts.FunctionDeclaration
+    | ts.FunctionExpression
+    | ts.ArrowFunction
+    | ts.MethodDeclaration =>
+    ts.isFunctionDeclaration(n) ||
+    ts.isFunctionExpression(n) ||
+    ts.isArrowFunction(n) ||
+    ts.isMethodDeclaration(n);
 
-    // SHAPE 2 — a comparison against a string literal that IS a member of the
-    // derived sets. The set says which names count; a literal here says
-    // something narrower and does not move when the set does.
-    if (
-      ts.isBinaryExpression(n) &&
-      (n.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken ||
-        n.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken)
-    ) {
-      for (const side of [n.left, n.right]) {
-        if (ts.isStringLiteral(side) && members.has(side.text) && !inSetDecl(side)) {
-          found.push({ fn, line: at(n), text: n.getText(sf), kind: "literal" });
+  type Frame = { fn: string; aliases: Set<string> };
+  const walk = (n: ts.Node, f: Frame): void => {
+    let frame = f;
+    const named = nameOf(n);
+    if (named !== null) frame = { fn: named, aliases: new Set(f.aliases) };
+    else if (isFnWithBody(n)) frame = { fn: f.fn, aliases: new Set(f.aliases) };
+
+    // Bind this function's callee aliases before its body is scanned for reads.
+    if (isFnWithBody(n) && n.body !== undefined) {
+      for (const param of n.parameters) {
+        // A parameter declared as an expression IS a callee at every call site
+        // that matters here; seeding it is what makes `calleeName` - the one
+        // permitted decider - visible to this check at all.
+        if (ts.isIdentifier(param.name) && /^(callee|expr|e)$/.test(param.name.text))
+          frame.aliases.add(param.name.text);
+      }
+      const bind = (b: ts.Node): void => {
+        if (ts.isVariableDeclaration(b) && ts.isIdentifier(b.name) && b.initializer !== undefined) {
+          const init = peel(b.initializer);
+          if (isCalleeRead(init) || (ts.isIdentifier(init) && frame.aliases.has(init.text)))
+            frame.aliases.add(b.name.text);
         }
+        if (!isFnWithBody(b) || b === n) ts.forEachChild(b, bind);
+      };
+      bind(n.body);
+    }
+
+    if (ts.isPropertyAccessExpression(n) && n.name.text === "text") {
+      const obj = peel(n.expression);
+      const direct = isCalleeRead(obj);
+      const viaAlias = ts.isIdentifier(obj) && frame.aliases.has(obj.text);
+      const viaMember =
+        ts.isPropertyAccessExpression(obj) &&
+        obj.name.text === "name" &&
+        (isCalleeRead(peel(obj.expression)) ||
+          (ts.isIdentifier(peel(obj.expression)) &&
+            frame.aliases.has((peel(obj.expression) as ts.Identifier).text)));
+      if (direct || viaAlias || viaMember) {
+        found.push({ fn: frame.fn, line: at(n), text: n.getText(sf), kind: "text-read" });
       }
     }
-    ts.forEachChild(n, (c) => walk(c, fn));
+    ts.forEachChild(n, (c) => walk(c, frame));
   };
-  walk(sf, "<file scope>");
+  walk(sf, { fn: "<file scope>", aliases: new Set() });
   return { found, members: [...members].sort() };
 }
 
 const { found, members } = consumers(SCANNER);
 
-describe("a registrar or hook name is decided in exactly two places", () => {
+describe("a callee name is extracted in exactly one place", () => {
   // The members must come from the source, or shape 2 ranges over nothing and
   // reports a clean file for the same reason an empty list does.
   premise("the set members were read from the scanner", members.length, 0);
@@ -194,30 +236,45 @@ describe("a registrar or hook name is decided in exactly two places", () => {
   // on a live defect. Liveness that depends on a real defect existing evaporates
   // the moment the file is clean, which is exactly when the check matters most:
   // it would then pass for the same reason a broken walker passes.
-  it("both shapes fire on a synthetic consumer", () => {
+  // The detector is proved on SYNTHETIC consumers, not on a live defect.
+  // Liveness that rests on a real defect evaporates the moment the file is
+  // clean, which is exactly when this check matters most.
+  //
+  // Five spellings, deliberately: the first version of this check modelled what
+  // was DONE with a name and was blind to every one of them. They are here so a
+  // future narrowing cannot quietly lose them again.
+  it("fires on every extraction spelling, however the name is then used", () => {
     const fixture = join(tmpdir(), `acceptset-control-${process.pid}.ts`);
+    const bodies: Record<string, string> = {
+      rSwitch: `switch ((c.expression as ts.Identifier).text) { case "describe": return true; default: return false; }`,
+      rRegex: `return /^(describe|suite)$/.test((c.expression as ts.Identifier).text);`,
+      rIncludes: `return ["describe"].includes((c.expression as ts.Identifier).text);`,
+      rLookup: `return M[(c.expression as ts.Identifier).text] === true;`,
+      // The launder: the extraction split across two bindings, which is the
+      // natural way to write it rather than an evasion.
+      rLaunder: `const callee = c.expression; const name = (callee as ts.Identifier).text; return name === "describe";`,
+    };
     writeFileSync(
       fixture,
       [
         "import ts from 'typescript';",
-        "const REGISTRARS = new Set(['describe', 'suite']);",
-        "const HOOKS = /^(beforeEach)$/;",
-        "function rogueTextRead(n: ts.CallExpression): boolean {",
-        "  return HOOKS.test((n.expression as ts.Identifier).text);",
-        "}",
-        "function rogueLiteral(root: string | null): boolean {",
-        "  return root !== 'describe';",
-        "}",
-        "void REGISTRARS; void rogueTextRead; void rogueLiteral;",
+        "const M: Record<string, boolean> = { describe: true };",
+        ...Object.entries(bodies).map(
+          ([n, b]) => `function ${n}(c: ts.CallExpression): boolean { ${b} }`,
+        ),
+        // A comparison against an ALREADY-RESOLVED name is legitimate and must
+        // NOT fire: the authority decided that name, and re-checking it is what
+        // every honest consumer does.
+        `function ok(root: string | null): boolean { return root !== "describe"; }`,
+        `void M; void ok; ${Object.keys(bodies)
+          .map((n) => `void ${n};`)
+          .join(" ")}`,
         "",
       ].join("\n"),
     );
     try {
       const control = consumers(fixture).found;
-      expect(control.map((f) => `${f.fn}:${f.kind}`).sort()).toEqual([
-        "rogueLiteral:literal",
-        "rogueTextRead:text-read",
-      ]);
+      expect([...new Set(control.map((f) => f.fn))].sort()).toEqual(Object.keys(bodies).sort());
     } finally {
       rmSync(fixture, { force: true });
     }
