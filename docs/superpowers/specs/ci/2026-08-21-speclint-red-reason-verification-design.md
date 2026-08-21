@@ -115,14 +115,15 @@ The three that already carry one:
 the implementer.**
 
 The two `RED_TARGET_INVALID` lines are unrelated: a different arm, a stale `red-target=` citation,
-untouched here. They matter only because an acceptance criterion asserting "the finding list at this
-line becomes exactly one advisory" would be false at three of the fifteen. AC-4 asserts the advisory
+untouched here. They matter only because an acceptance criterion demanding that the finding list at
+such a line become exactly one advisory would be false at three of the fifteen. AC-4 asserts the advisory
 is **added**, not that it is alone.
 
 The `RED_ALREADY_GREEN` line is the live `sh -c` grep, and it sits on the exact hazard
-`synthesizeCollectionFindings` warns about in its own comment: a red that exited 0 "already has its
-own finding from `synthesizeExecFindings`, and consulting a probe here would mint a second verdict
-`--exec-red` never earned." **The advisory is still added there, and the comment does not forbid it.**
+`synthesizeCollectionFindings` warns about in its own comment, which says of a red that exited 0 that
+it already has its own finding from `synthesizeExecFindings`, and that consulting a probe here would
+mint a second verdict `--exec-red` never earned.
+**The advisory is still added there, and the comment does not forbid it.**
 What that gate protects against is reading a PROBE RESULT to judge a live red. No probe runs for a
 declined derivation, so there is no result to read and no verdict to mint. The advisory says only that
 collection capability was never checked, which is true independently of the exit code. The shipped
@@ -224,12 +225,19 @@ change rather than inherited.
 | AC-1 | a `pnpm heavy`-wrapped v2 marker draws `RED_PROBE_UNVERIFIED` instead of silence    | fixture plan whose `red=` is heavy-wrapped, run through the CLI **under `--exec-red`**; asserts the code by name |
 | AC-2 | a marker the arm CAN probe is unaffected                                            | the existing `exec-genuine-red.md` and `exec-collects-nothing.md` fixtures re-run unchanged, verdicts identical |
 | AC-3 | the change adds **no hard finding**, over the real population rather than fixtures  | the probe runs the shipped `collectionProbePlan` + `synthesizeCollectionFindings` across the whole tracked corpus and asserts that EVERY finding at a `none`-derived line has severity `advisory`; separately, the count of `fail(` construction sites in `lib/specLint/redContract.ts` is unchanged at 11, derived by `grep -c` rather than stated |
-| AC-4 | the **fifteen** v2 markers each GAIN the advisory, and the sixteen v1 markers do not | `probe/reach.mts` re-run after the change: every one of the fifteen carries `RED_PROBE_UNVERIFIED` where twelve carried nothing, and the three that already held a hard finding hold it STILL, alongside the advisory rather than instead of it (§1.2). The sixteen v1 lines stay as they are, since line 717 exits before line 721. Both halves assert against the NAMED sets in §1.1, not against counts |
-| AC-5 | §1.1 and §1.2 are both reproducible **as dated records**                            | `probe/population.mts` and `probe/reach.mts`, both committed, each aborting on a short read or a count that fails to reconcile. Run them as `node --import tsx <probe>`: `pnpm tsx` needs an IPC socket that a review sandbox may deny |
+| AC-4 | the **fifteen** v2 markers each GAIN the advisory, and the **sixteen** v1 markers do not | `probe/reach.mts` holds BOTH named sets, all thirty-one lines, and ASSERTS rather than prints: `EXPECT_ADVISORY=1` demands the advisory at every v2 line and its absence at every v1 line, and any difference exits non-zero. The three v2 lines already holding a hard finding must hold it STILL, alongside the advisory (§1.2). A named line that stops holding a task marker fails as `MARKER_DRIFT` instead of quietly reading as silent |
+| AC-5 | §1.1 and §1.2 are both reproducible **as dated records**                            | `probe/population.mts` and `probe/reach.mts`, both committed. Run them as `node --import tsx <probe>`: `pnpm tsx` needs an IPC socket a review sandbox may deny, and `reach.mts` uses the same invocation for its CHILD process, since using `pnpm exec tsx` there recreated the denial the outer command avoided. `reach.mts` runs the CLI once per document and takes roughly three minutes; its structural checks report BEFORE that loop, so a drift or reconciliation fault fails in seconds |
 
 **AC-4 is the load-bearing one.** It is the only criterion that would fail under an implementation
 that repaired the drop by moving the v1 exit as well, a wider change that looks like a more thorough
 fix and would emit advisories on 16 markers the design does not claim.
+
+**It became load-bearing at round 4 and was not before.** The first version of the oracle listed only
+the fifteen and PRINTED a table, so moving the v1 exit was invisible, narrowing to nine still exited
+zero, and its own reconciliation compared two tallies incremented in the same loop and therefore
+could not fail. Both named sets are now present and every difference exits non-zero. The three
+mutations that prove it: demanding the post-change state today fails on all fifteen v2 lines, moving
+one row's line by one fails as `MARKER_DRIFT`, and deleting one v1 row fails the reconciliation.
 
 **AC-4 asserts a gain, not an equality**, because §1.2 measured three of the fifteen already carrying
 a hard finding from an unrelated arm. A criterion written as "the line now holds exactly one advisory"
@@ -259,8 +267,8 @@ retired the arm.** The repo had already measured both, one spec over
   assertion ran and failed** (shape P). Hard-failing that is a false finding against an honest red,
   and §2.9 names a LIVE corpus instance at
   `docs/superpowers/plans/2026-08-04-guard-premise-reachability.md:1174`.
-- Conversely a `beforeEach` throw yields **failed test entries whose bodies never executed**, so "at
-  least one case ran" does not imply an assertion was observed either.
+- Conversely a `beforeEach` throw yields **failed test entries whose bodies never executed**, so a
+  count of at least one executed case does not imply an assertion was observed either.
 
 Measured here as well: shape P renders `(0 test)` with its premise error, and shape C renders
 `Tests  no tests` with a module error. **No separation was established between them**, and none is
@@ -281,8 +289,8 @@ reading a subset as the total.
 
 The first three came from counting `pnpm heavy`-wrapped markers by eye. Deriving them mechanically
 gave 9, because 16 of the 25 are v1 and exit at line 717 before the drop. That correction was right
-about the v1 exit and wrong about the reach, because it answered "how many heavy-wrapped markers reach
-the drop" when the drop is not keyed on the wrapper at all. The population probe printed `none: 15`
+about the v1 exit and wrong about the reach, because it answered how many HEAVY-WRAPPED markers reach
+the drop when the drop is not keyed on the wrapper at all. The population probe printed `none: 15`
 in its derivation totals; the heavy-wrapped subset was read instead. The repair's reach is every v2
 marker reaching the branch, which is 15.
 
@@ -306,8 +314,8 @@ will otherwise re-propose it:
 - **Advisory-only, its live population is TWO markers** (§1.1), which is speculative design by the
   round-economy definition.
 - **Keeping it means owning a grammar.** `VITEST_SHAPE` admits `--reporter=json`, under which the
-  default summary line is absent entirely, so the arm would owe a specified branch for "no readable
-  summary" — a parsing surface on the file with the worst round history in the repo.
+  default summary line is absent entirely, so the arm would owe a specified branch for the
+  no-readable-summary case, a parsing surface on the file with the worst round history in the repo.
 - **Retiring it makes those questions UNREPRESENTABLE rather than answered**, which is the narrowing
   direction this repo's repair rule prescribes.
 
@@ -322,8 +330,8 @@ dispatch with the result reported. A plan whose reds fail the arm being built is
 working: the reds get fixed, the arm does not get weakened.
 
 It already fired on this spec repeatedly, and every repair went to the spec: a malformed citation
-committed twice — the second time inside the sentence describing the first — a missing "Resolved
-scope" section, a line-number citation re-pointed to a symbol, and two `COPY_UNPAIRED_QUOTE` defects
+committed twice, the second time inside the sentence describing the first; a missing resolved-scope
+section; a line-number citation re-pointed to a symbol; and `COPY_UNPAIRED_QUOTE` defects
 from quoted phrases split across a line break.
 
 Current standing is **produced by the command, not typed here**:
@@ -332,10 +340,25 @@ Current standing is **produced by the command, not typed here**:
 pnpm exec tsx scripts/spec-lint.ts --json docs/superpowers/specs/ci/2026-08-21-speclint-red-reason-verification-design.md
 ```
 
-Surviving findings are `NUMERIC_NOUN_MISMATCH` over nouns this document uses for genuinely different
-quantities, plus artifacts of section references, where the arm reads the digits of `§5.2` as a
-number against the following noun. They stand rather than being reworded: usefulness is not the
-criterion, correct attribution is, and rewording out of a matcher is silencing rather than answering.
+Round 4 found this section describing a standing it no longer had: it named one code and omitted
+fourteen live findings. The description is now itself derived from a run rather than remembered, and
+the two surviving classes are named individually.
+
+**Six `NUMERIC_NOUN_MISMATCH`,** over nouns this document uses for genuinely different quantities,
+plus artifacts of section references where the arm reads the digits of a `§` reference as a number
+against the following noun. These STAND rather than being reworded. Usefulness is not the criterion,
+correct attribution is, and rewording out of a matcher is silencing rather than answering.
+
+**Two `CITATION_SYMBOL_ABSENT`,** at the §1.2 table rows citing
+`2026-08-16-mutation-gate-sharding.md:1237` and `2026-08-16-server-action-origin-sweep.md:235`. Both
+cited lines hold a task marker, which is an HTML comment carrying no identifier the citation arm can
+match. The citation is correct and the arm is right that it cannot verify it. Also STANDS, for the
+same reason.
+
+**Twelve `COPY_UNPAIRED_QUOTE` were REPAIRED, not described.** Every one was a quoted phrase broken
+across a line by a reformat. That is the fourth appearance of this class on this document, and the
+third time it landed inside a sentence describing an earlier instance, so the repair this time was to
+stop quoting short phrases inline where a reformat can split them.
 
 ---
 
