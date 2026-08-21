@@ -1511,50 +1511,6 @@ mutation-surface registry.
 exemption row, since a rule that starts with a large exemption list is a rule
 nobody trusts.
 
-## BL-PANE-COMPACTION-SEND-AUTHORIZATION — the pane-compaction send path needs its own arc
-
-**Status:** IN PROGRESS · **Branch:** feat/pane-compaction-send-auth · **Effort:** L — an authorization redesign plus its own review arc; five diff
-rounds could not close it as a sub-part of the classifier PR.
-
-`pnpm panes:compact` ships with `--checkpoint`, `--compact` and `--resume` DISABLED. The classifier
-and the read-only surfaces (default report, `--check`, `--json`) ship enabled and mutation-scored.
-The three sending modes refuse before any observation and name this row.
-
-**Which deferral exception applies: (c)** — a redesign of a surface the PR does not otherwise
-settle. Not "same defect, different file": the send path needs an authorization model, and five
-adversarial rounds demonstrated that it does not converge as a sub-part of this diff.
-
-**Reachability: PROBED, repeatedly, by the reviewer.** Every one of these exited 0 and SENT bytes
-before its repair:
-
-- `--compact` authorized against a nonce captured before revalidation (AC-19).
-- Revalidation compared only the verdict, so a purview TRANSFER passed through (AC-13).
-- Revalidation ran against the ORIGINAL roster, freezing rules 1, 2, 5 and 7, so a takeover
-  swapping `agent_session` was invisible (AC-17).
-- The marker was read TWICE per authorization, so a `sessionId` change between the two reads
-  preserved the nonce and passed rule 5 on the stale copy (AC-13/AC-17).
-- `--checkpoint` and `--resume` never revalidated at all: they observed once and then sent, so a
-  marker that changed in between was never seen (§6 guarantee 1).
-- A labelled non-arc was driven and a checkpoint SENT to an orchestrator pane (AC-16).
-
-**Why this is a row and not more rounds.** Findings per diff round were 9, 5, 4, 4, 4 — flat, with
-a P0 in every round, and from round 3 on every P0 was in this path. The round cap is 4. Decisively,
-**two repairs introduced the following round's defect**: one added dead code the mutation gate
-caught, and one made a refusal LIE — roster disappearance encoded as a stale report with a null
-nonce, refusing with "marker carries no checkpointNonce" while a matching nonce sat in the marker,
-which would send an operator to re-checkpoint a pane that no longer exists. That is the ratchet: each
-repair is a bigger target for the next round.
-
-**First scheduled step:** decide the authorization model before writing code — specifically whether
-one atomic snapshot per authorization is sufficient, or whether the target must acknowledge before
-any byte is sent. Every defect above is an instance of "the decision and the send were separated by
-a window", and four incremental repairs narrowed that window without closing it.
-
-**Evidence:** the round-economy filing at
-`docs/review-rounds/feat/orchestrator-pane-compaction/7d332074ec97.md` carries the full round-by-round
-account. The adapter-level tests for the send path were removed when the fence landed and are
-recoverable from git history on this branch; restore them with the arc rather than rewriting them.
-
 ## BL-CODEX-GUARD-SPECLINT-PREDISPATCH-GATE — a dispatch spends reviewer attention on lint the wrapper could have refused
 
 **Status:** OPEN · **Severity:** LOW (no shipped defect; this is review-economy waste) · **Class:** review tooling / dispatch hygiene · **Effort:** S · **Filed:** 2026-08-18 (`fix/control-outline-border-token`, spec review R1 F2 + R2 F5) · **Facing:** process · **Class-sweep exception:** (c) — the repair is a change to `scripts/codex-guard.mjs`, a surface this arc does not otherwise touch · **Reachability:** PROBED — both incidents are committed corpus rows, and the failing lint reproduces on the pre-repair blobs.

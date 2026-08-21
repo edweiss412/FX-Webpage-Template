@@ -284,14 +284,20 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // as eligible, which bands.test.ts asserts IN PROCESS. Run, not merely
     // asserted non-equal to the source.
     control: { from: "export const ELIGIBLE_AT = 5;", to: "export const ELIGIBLE_AT = 0;" },
-    // Eight survivors, every one argued rather than deferred. NO `accepted-gap`
+    // Six survivors, every one argued rather than deferred. NO `accepted-gap`
     // rows: a gap is real coverage debt and owes a BL- ref, and none of these is
     // debt.
     //
-    // SIX are TYPE ANNOTATIONS (`: 0 | 1 | 2`, `exitCode: 1`,
-    // `{ exitCode: 0 | 1 }`). TypeScript erases them and the runner's children
-    // transpile without typechecking, so the emitted JavaScript is byte-identical
-    // and no test could ever kill one.
+    // FOUR are TYPE ANNOTATIONS (`: 0 | 1 | 2`, `exitCode: 1`). TypeScript
+    // erases them and the runner's children transpile without typechecking, so
+    // the emitted JavaScript is byte-identical and no test could ever kill one.
+    //
+    // Eight until 2026-08-21. The send-authorization arc deleted `runCompact`'s
+    // `{ exitCode: 0 | 1; message: string }` return type -- the function no
+    // longer gates, so it returns nothing -- and the two rows keyed to that
+    // annotation went with the code they described. `pnpm mutation:sites`
+    // reported them as `(none -- the site is gone)` rather than as moved, which
+    // is the distinction that separates a re-key from a deletion.
     //
     // TWO are counter details inside `newestVerdictTie`, which reports
     // `count > 1`. Neither the initial value nor the increment SIZE can move that
@@ -320,22 +326,16 @@ export const GUARD_SURFACES: GuardSurface[] = [
         reason: "The `2` of the same `0 | 1 | 2` return-type annotation on `checkExitCode`.",
       },
       {
-        siteId: "integer-literal:700:35:1>2",
+        // Re-keyed 700 -> 801 by the send-authorization arc, and RE-VALIDATED by
+        // reading line 801 rather than by the key resolving: a resolving key
+        // proves the site still exists, never that the reason still holds.
+        // Line 801 reads `export type Refusal = { exitCode: 1; sends: never[];
+        // message: string };`, so it is the same annotation under a new line.
+        siteId: "integer-literal:801:35:1>2",
         kind: "equivalent",
         reason:
           "`export type Refusal = { exitCode: 1; ... }` -- a type alias. The refusal objects that " +
           "carry a real `exitCode: 1` are constructed elsewhere and asserted by cli.test.ts.",
-      },
-      {
-        siteId: "integer-literal:798:17:0>1",
-        kind: "equivalent",
-        reason: "The `0` of the `{ exitCode: 0 | 1; message: string }` return-type annotation.",
-      },
-      {
-        siteId: "integer-literal:798:21:1>2",
-        kind: "equivalent",
-        reason:
-          "The `1` of the same `{ exitCode: 0 | 1; message: string }` return-type annotation.",
       },
       {
         siteId: "integer-literal:386:15:0>1",
