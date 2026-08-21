@@ -32,4 +32,12 @@ export type DispositionRow = {
   reason: string;
 };
 
-export const CONNECTION_CENSUS_DISPOSITIONS: readonly DispositionRow[] = [];
+export const CONNECTION_CENSUS_DISPOSITIONS: readonly DispositionRow[] = [
+  {
+    file: "tests/admin/step3StateGallery.test.ts",
+    site: "galleryDatabaseUrl()",
+    kind: "resolver",
+    reason:
+      "resolvePsqlTarget with requireLocalSupabase and envVars [DATABASE_URL], no remote opt-in (the resolver is devCaptureStaged.ts galleryDatabaseUrl)",
+  },
+];
