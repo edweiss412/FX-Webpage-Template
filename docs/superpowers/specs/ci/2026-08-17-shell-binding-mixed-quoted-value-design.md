@@ -334,6 +334,13 @@ concatenation." Swept across every rule family in `scanShellIndirection`:
    mixed-quoted here-string target (`read PG <<< p'sql'`, ledger-filed) — is not recognized by
    those rule families. Failure direction: a missed report (recall), never a false certification;
    the site path is unaffected because it already reads lexed words.
+
+   **Superseded in part, 2026-08-20** by `docs/superpowers/specs/ci/2026-08-20-shell-lexer-quoted-value-recall-design.md`
+   (`BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE`): the DETACHED here-string target is retained by
+   `lexShellWords` and read through `valueBinds`, so that clause no longer holds. The interpreter
+   positional and `alias`/`function` name clauses stand. The ATTACHED here-string target is a
+   different family, withdrawn there as scope and filed as
+   `BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION`.
 2. A multiword assignment value whose psql command carries no flag-shaped token is declined by
    the flag criterion — the deliberate line between a command binding and prose. This covers
    quoted YAML `run:` scalars read as one word (`- run: "PG=psql; $PG -qAt mydb"`, plain or
@@ -354,7 +361,14 @@ concatenation." Swept across every rule family in `scanShellIndirection`:
    premise (`CMD='sudo psql -X mydb'` reports via the eval reading), never silent-wrong on
    anything the readings claim. Wrapper-aware splitting is out of scope in both directions
    (§1.1).
-7. Quoting or escapes INSIDE a `${…}` expansion operand (`PG=${U:-'psql'}` and its quote/escape
+7. **Superseded in part, 2026-08-20** by `docs/superpowers/specs/ci/2026-08-20-shell-lexer-quoted-value-recall-design.md`
+   (`BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE`): the operand IS read for the six value-supplying
+   operators when the whole value is one such expansion. The complement — pattern, length,
+   indirection, error, subscript, substring, case-modification, transformation — is default-denied
+   and keeps the reading described below, as does any value that COMPOSES an accepted expansion
+   with other text.
+
+   Quoting or escapes INSIDE a `${…}` expansion operand (`PG=${U:-'psql'}` and its quote/escape
    siblings) are not dequoted — the expansion is one verbatim word by design, and only a bare
    `psql` inside it reports (`PG=${U:-psql}` does; probed both instruments). A missed report,
    never a false certification; ledger `BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE`.

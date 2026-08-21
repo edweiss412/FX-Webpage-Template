@@ -120,3 +120,11 @@ tests/mutation/guardSurfaces.shardTMP*.test.ts
 # covers -- `sheetIconLinkContainment` reds on exactly that.
 __pycache__/
 *.pyc
+# Scratch probe scripts for spec/plan calibration (the `.probe/` convention used by
+# this arc's authoring session; `docs/superpowers/plans/ci/2026-08-19-planlint-declared-limit-pin-collision-HANDOFF.md`
+# names `.probe/refresh-filing.py` as a scratch, untracked helper). They are design
+# inputs re-run at implementation time, never shipped source. Ignored rather than
+# merely avoided: a `git add -A` sweeps an unignored scratch dir into a commit, and
+# an author remembering to use explicit pathspecs is the kind of control that fails
+# at hour six.
+.probe/

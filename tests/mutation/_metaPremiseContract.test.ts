@@ -45,6 +45,20 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // declaration returns, so "the adapter reached the repair read" is what makes
   // the refusal attributable to git rather than to an earlier bail.
   "tests/specLint/claimSweepCli.test.ts": 15,
+  // The declared-limit-pin arm's seven suites, enrolled 2026-08-20. Counts are DERIVED
+  // from classifyTests against this tree, not estimated: four suites drive the pure core
+  // over in-memory fixtures and touch nothing, while the two that walk the tracked plan
+  // corpus and read enrolled suites from disk declare what they actually reach. Each
+  // environment-touching case carries its OWN premise naming that case's population --
+  // a premise in a shared helper executes but is not attributable, since the scanner
+  // reads the test BODY.
+  "tests/specLint/declaredLimitPins.test.ts": 0,
+  "tests/specLint/declaredLimitPinsFiles.test.ts": 0,
+  "tests/specLint/declaredLimitPinsObligation.test.ts": 0,
+  "tests/specLint/declaredLimitPinsWiring.test.ts": 0,
+  "tests/specLint/declaredLimitPinsCorpus.test.ts": 3,
+  "tests/specLint/declaredLimitPinsCli.test.ts": 1,
+  "tests/specLint/_metaDeclaredLimitPins.test.ts": 0,
   // The pane-compaction suites, enrolled 2026-08-16. All declare 0 honestly and
   // structurally: ENVIRONMENT_SOURCES.modules is ["node:child_process",
   // "scripts/lib/ledger-git"], and these suites import neither. That holds only

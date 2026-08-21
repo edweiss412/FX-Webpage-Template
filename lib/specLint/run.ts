@@ -15,6 +15,11 @@ import {
   synthesizeParseFindings,
 } from "./redContract";
 import {
+  RAW_SUITE_PREPARER,
+  checkDeclaredLimitPins,
+  type DeclaredLimitPinInputs,
+} from "./declaredLimitPins";
+import {
   checkFixtureContract,
   spliceFixturePlan,
   synthesizeFixtureFindings,
@@ -97,6 +102,13 @@ export function runLint(
   parse?: ParseResults | null,
   probes?: ProbeResults | null,
   fixtures?: FixtureResults | null,
+  // ORDER IS LOAD-BEARING AND WAS DECIDED BY THE MERGE, not by preference.
+  // Both arms appended a parameter to the same slot on their own branch. The
+  // pin arm merged first, so its callers on main pass it positionally HERE; the
+  // claim sweep therefore takes the slot after it, and the arc that had not yet
+  // merged is the one that moves. Reversing this typechecks on this branch and
+  // breaks seven positional call sites that are already on main.
+  declaredLimitPins?: DeclaredLimitPinInputs | null,
   sweep?: ClaimSweepInput | null,
 ): LintResult {
   const model = parseDoc(doc.text);
@@ -163,6 +175,23 @@ export function runLint(
   // in a plan, and the incident had 7 of its 9 in the plan.
   const sweepFindings =
     sweep === undefined || sweep === null ? [] : claimSweep(sweep.documents, sweep.record);
+  // Declared-limit pin advisories (pin-collision spec §3.3, §3.4). Plan-kind only, and
+  // a null injected table runs nothing — the same static/injected split the four arms
+  // above use, so every existing caller stays byte-identical.
+  const declaredLimitPinFindings =
+    doc.kind === "plan" && declaredLimitPins !== undefined && declaredLimitPins !== null
+      ? checkDeclaredLimitPins(
+          model,
+          doc.kind,
+          declaredLimitPins.surfaces,
+          resolver,
+          // Task 5 injects the table only. The adapter passes RAW lines until Task 7b
+          // lands real preparation, and this default is what makes that ordering true
+          // rather than merely intended.
+          declaredLimitPins.prepareSuite ?? RAW_SUITE_PREPARER,
+          declaredLimitPins.dispositions ?? [],
+        )
+      : [];
 
   let findings: Finding[] = [
     ...model.documentFindings,
@@ -179,6 +208,7 @@ export function runLint(
     ...collectionFindings,
     ...fixtureFindings,
     ...sweepFindings,
+    ...declaredLimitPinFindings,
   ];
 
   // ---- ignore-waiver application (spec §3) ----

@@ -89,7 +89,7 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // counted survivor at all: an `accepted-gap` appearing here would be this surface's
   // first, owing its own filing AND a `scoreFloor` edit, and a new equivalent row is a
   // coverage regression to explain.
-  psqlStartupScan: { equivalent: 24 },
+  psqlStartupScan: { equivalent: 26 },
   // The pane-compaction classifier, enrolled with an EMPTY ledger: it is a pure
   // classifier over injected fixtures, so every survivor is repayable by a test
   // rather than blessable. A row appearing here later is a coverage regression
@@ -135,6 +135,14 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // extent-containment equalities a marker line can never occupy. No
   // accepted-gap: every other survivor of the first run was repaid by a test.
   redContract: { equivalent: 7 },
+  // declaredLimitPins: the declared-limit pin arm, enrolled 2026-08-20 BEFORE the
+  // first review dispatch, per the enrolment-precedes-review rule. The empty ledger is
+  // DECLARED HERE AHEAD OF THE FIRST SCORED RUN rather than written to match it, which
+  // is the whole point: if the run produces survivors, each is repaid with a CASE or
+  // argued individually in the registry row, and this number moves deliberately.
+  // A survivor on this surface is the gate reporting that the deciding suites cannot
+  // see a change — suite inadequacy, not harness noise.
+  declaredLimitPins: { equivalent: 5 },
   // fixtureContract: TWO reachability arguments, both the one-past-the-end scan
   // bound redContract already carries three of. The empty ledger was DECLARED
   // before the first scored run per the enrolment-precedes-review rule, and the
