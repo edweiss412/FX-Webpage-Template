@@ -9,7 +9,8 @@
  * is a GREEN-phase regression pin PAIRED one variable apart with a case that
  * reports.
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { premise } from "@/tests/_shared/premise";
@@ -20,6 +21,7 @@ import {
   FEDE_SURVIVORS,
   FEDE_SURVIVORS_INSIDE_OWN_HUNKS,
   FROZEN_FIXTURES,
+  FROZEN_FIXTURE_SHA256,
   INCIDENT_PLAN,
   INCIDENT_SPEC,
   fixturePath,
@@ -66,15 +68,41 @@ describe("claim sweep — the numeric half", () => {
     // `.prettierignore` fences the directory and why this case exists to prove
     // the fence holds rather than to assume it.
     it.each(FROZEN_FIXTURES)("%s/%s.md is byte-identical to its blob", (rev, stem, path) => {
-      const blob = execFileSync("git", ["show", `${rev}:${path}`], {
-        maxBuffer: 64 * 1024 * 1024,
-      });
       const onDisk = readFileSync(fixturePath(rev, stem));
-      // Both reads SUCCEEDED. Two empty buffers compare equal, and a broken
-      // read then renders identically to a match — which is how a check that
-      // cannot fail passes forever.
-      premise(`git show returned bytes for ${rev}:${path}`, blob.length, 1000);
+      // A broken read renders identically to a match: two empty buffers compare
+      // equal, and two empty digests do too. This is what stops a check that
+      // cannot fail from passing forever.
       premise(`the fixture on disk has bytes for ${rev}/${stem}.md`, onDisk.length, 1000);
+
+      // THE TOTAL HALF, and it runs in every clone. The previous form compared
+      // against `git show <rev>:<path>`, which needs the ORIGINAL COMMIT to be
+      // reachable; CI checks out shallow, `git show` exited 128, and the case
+      // threw before its own premise could run. It passed on every local run,
+      // because a development clone has the history — the local-passes-CI-fails
+      // shape exactly.
+      const digest = createHash("sha256").update(onDisk).digest("hex");
+      expect(digest, `${rev}/${stem}.md reflowed`).toBe(FROZEN_FIXTURE_SHA256[`${rev}/${stem}`]);
+
+      // THE STRONGER HALF where it can be made: the bytes are the ones that
+      // commit actually carried, not merely bytes nobody has changed since. Its
+      // premise is REACHABILITY, stated executably rather than skipped in
+      // silence — a check that quietly does nothing on the machine that matters
+      // is the failure this arc is about.
+      const reachable =
+        spawnSync("git", ["cat-file", "-e", `${rev}:${path}`], { encoding: "utf8" }).status === 0;
+      if (!reachable) {
+        // Not a skip: an assertion that the ONLY reason the stronger half did
+        // not run is a shallow clone, so a genuinely missing object still reds.
+        expect(
+          spawnSync("git", ["rev-parse", "--is-shallow-repository"], {
+            encoding: "utf8",
+          }).stdout.trim(),
+          `${rev} unreachable in a COMPLETE clone means the fixture's provenance is gone`,
+        ).toBe("true");
+        return;
+      }
+      const blob = execFileSync("git", ["show", `${rev}:${path}`], { maxBuffer: 64 * 1024 * 1024 });
+      premise(`git show returned bytes for ${rev}:${path}`, blob.length, 1000);
       expect(onDisk.equals(blob)).toBe(true);
     });
   });

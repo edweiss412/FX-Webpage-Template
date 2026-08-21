@@ -46,6 +46,29 @@ export const FROZEN_FIXTURES: readonly [rev: string, stem: string, path: string]
     STEMS.map(([path, stem]) => [rev, stem, path] as [string, string, string]),
   );
 
+/**
+ * The frozen bytes, keyed `<rev>/<stem>`, as a committed SHA-256.
+ *
+ * The freeze check compared the file on disk against `git show <rev>:<path>`,
+ * which requires the ORIGINAL COMMIT to be reachable. CI checks out shallow, so
+ * that object does not exist there and `git show` exits 128 -- the check threw
+ * before its own premise could run, and the whole shard failed. It passed
+ * locally on every run, because a development clone has the history.
+ *
+ * The hash makes the check TOTAL: it pins exactly what the check exists to pin
+ * -- that nothing reflowed these bytes -- in any clone, shallow or complete,
+ * with no history at all. The history comparison is kept as the STRONGER claim
+ * where it can be made, and states when it cannot rather than skipping quietly.
+ */
+export const FROZEN_FIXTURE_SHA256: Readonly<Record<string, string>> = {
+  "c272ebed3/spec": "e6bad3d25eb2249d232fecd94d4f54cb6ceb7b301f1e02a7cc875f5785e32193",
+  "c272ebed3/plan": "83e08878100cfeb8010bfc272148c6c3e16d4fe8e0d4777d1e442946d7fb4a5d",
+  "c272ebed3/probe": "314b59896fba12d4ecd3e04cf9847210ac65a2f47672e15f53b66e6702f35a49",
+  "fede5f084/spec": "dd79b85324041df7a6b4a3459c966ff7a297dbbbd11b11b53ff70bb41d5f9426",
+  "fede5f084/plan": "d73af051a323d7fd6f79d27dee835354289143cfa5495a30226a84db55e6aea0",
+  "fede5f084/probe": "818ce0388ee09d1cbeed7bf6a1cd06a088c590826224fd39ae6e5a68cf63be8d",
+};
+
 /** Absolute path of one frozen fixture on disk. */
 export function fixturePath(rev: string, stem: string): string {
   return join(FIXTURE_ROOT, rev, `${stem}.md`);

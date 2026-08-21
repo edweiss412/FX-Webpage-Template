@@ -1179,12 +1179,23 @@ describe("a single-dash --repair value cannot become a git option", () => {
     expect(r.stderr).toContain("NOT a clean");
   });
 
-  it("still sweeps for a REAL revision (one variable: the value)", () => {
+  it("ACCEPTS a real revision (one variable: the value)", () => {
     // Paired positive against the same document and the same identifier, so the
-    // refusal above is attributable to the value rather than to the arm being
+    // refusal above is attributable to the VALUE rather than to the arm being
     // unable to run at all.
+    //
+    // It asserts acceptance and NOT rendered findings, and the first version of
+    // it made exactly that mistake: it required `claimSweep:` in the output and
+    // passed locally, where `HEAD` is one small commit. On CI `HEAD` is the
+    // merge commit for the whole PR, so every occurrence of the identifier sits
+    // INSIDE the repair's hunks and is correctly suppressed -- the arm working
+    // as designed, failing a test that had quietly pinned the shape of this
+    // repository's history. What this layer exists to prove is that the value
+    // reached git as a REVISION rather than as an option; that the findings
+    // render is pinned by the `renderText` cases above, where it does not
+    // depend on anything outside the test.
     const r = cli([DOC, "--claim-about", "arc-documents.json", "--repair", "HEAD"]);
     expect(r.code).not.toBe(2);
-    expect(r.stdout).toContain("claimSweep:");
+    expect(r.stderr).not.toContain("could not be read as a revision");
   });
 });
