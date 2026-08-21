@@ -200,17 +200,36 @@ describe("declared-limit pins — §2.6 corpus regression (AC-6)", () => {
         "docs/superpowers/plans/2026-08-04-review-round-economy.md | tests/docs/_metaReviewRoundEconomy.test.ts | PASSES a stale none followed by candidate lines - documented limit §5.7",
         "docs/superpowers/plans/2026-08-04-review-round-economy.md | tests/docs/_metaReviewRoundEconomy.test.ts | does NOT resolve an id defined only as a body sub-item - the documented limit",
         "docs/superpowers/plans/2026-08-09-m-wave-2/plan.md | tests/docs/interactionTimingScan.test.ts | a COMPUTED key is a documented limit, not a site",
+        // EIGHT rows for ONE pin, and the fan-out is the arm working as designed.
+        // `fix/premisescan-registrar-accept-sets` added a genuine declared-limit pin
+        // to premiseScan's suite -- a test asserting the ZERO that `t.premise(...)` is
+        // not credited, which spec section 3.4 calls a documented limit -- and the
+        // advisory is keyed (plan, suitePath, title), so it fires once per plan that
+        // names that suite. Eight plans do.
+        //
+        // Recorded rather than dispositioned or reworded, deliberately. A disposition
+        // row is for a phrase-bearing title that is NOT a pin, and this one is; and
+        // rewording the title to dodge the accept-set would make a real pin INVISIBLE,
+        // which the module names as the weaker state.
+        "docs/superpowers/plans/2026-08-04-guard-premise-reachability.md | tests/mutation/source/premiseScan.test.ts | `t.premise(…)` is not seen either, and that stays a documented limit",
+        "docs/superpowers/plans/2026-08-15-spec-lint-intent-red-arms.md | tests/mutation/source/premiseScan.test.ts | `t.premise(…)` is not seen either, and that stays a documented limit",
+        "docs/superpowers/plans/2026-08-16-execution-methods-driver-derived.md | tests/mutation/source/premiseScan.test.ts | `t.premise(…)` is not seen either, and that stays a documented limit",
+        "docs/superpowers/plans/2026-08-16-premisescan-import-edge-fidelity.md | tests/mutation/source/premiseScan.test.ts | `t.premise(…)` is not seen either, and that stays a documented limit",
+        "docs/superpowers/plans/2026-08-19-premisescan-nested-hook-sibling-leak.md | tests/mutation/source/premiseScan.test.ts | `t.premise(…)` is not seen either, and that stays a documented limit",
+        "docs/superpowers/plans/2026-08-21-premisescan-registrar-accept-sets.md | tests/mutation/source/premiseScan.test.ts | `t.premise(…)` is not seen either, and that stays a documented limit",
+        "docs/superpowers/plans/ci/2026-08-16-modal-wait-boundary-helper-adoption.md | tests/mutation/source/premiseScan.test.ts | `t.premise(…)` is not seen either, and that stays a documented limit",
+        "docs/superpowers/plans/ci/2026-08-17-modal-wait-skeleton-tolerant-sites.md | tests/mutation/source/premiseScan.test.ts | `t.premise(…)` is not seen either, and that stays a documented limit",
       ].sort(),
     );
   });
 
-  it("draws advisories on exactly THREE distinct plans", () => {
+  it("draws advisories on exactly ELEVEN distinct plans", () => {
     // Derived from the same scan, so it needs the same population floor: over an empty
     // advisory set `.size` is 0, and 0-vs-3 would read as a cardinality regression
-    // rather than as a scan that never ran.
+    // rather than as a cardinality regression.
     premise("corpus advisories to group by plan", corpusAdvisories().length, 0);
     // A companion to the set, not a substitute for it: this is derived FROM the set
     // above rather than typed as an independent cardinality.
-    expect(new Set(corpusAdvisories().map((row) => row.split(" | ")[0])).size).toBe(3);
+    expect(new Set(corpusAdvisories().map((row) => row.split(" | ")[0])).size).toBe(11);
   });
 });
