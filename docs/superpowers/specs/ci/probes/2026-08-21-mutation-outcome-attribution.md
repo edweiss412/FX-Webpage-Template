@@ -369,6 +369,15 @@ timeouts among these runs: 0
 `0.0537`, above the threshold. The refuting figure was printed in this probe's own output table and
 mis-read.
 
+**And it is not fixable with more trials.** Under a CORRELATED intra-leg mechanism, additional runs in
+the SAME process carry no further information — six or six hundred identical results are equally likely
+under perfect correlation. **Probe 3 cannot exclude a correlated intra-leg mechanism at ANY sample
+size.** Separating correlated from independent behaviour requires varying the process boundary and the
+ordering across trials, not repeating within one. So the branch stays OPEN, with the structural reason
+it is hard to close now stated — which is an argument FOR the attribution deliverable, since a record
+of which evidence produced each verdict is what a future occurrence can be diagnosed from whether or
+not any probe isolates the mechanism.
+
 What it supports is a WEIGHTING, not an elimination: the remaining space leans toward between-leg
 differences — environment, machine, concurrency across legs, ordering wider than one process — which
 is where both original observations sit (local vs CI; nightly vs PR).
@@ -463,7 +472,7 @@ in a ledger row is a test fixture for every future instrument** — a reason to 
 | branch | state | by |
 | --- | --- | --- |
 | co-tenancy / LPT re-pack | RULED OUT | pre-registered experiment, `BACKLOG.md:53` |
-| intra-leg (ordering, env, concurrency inside one process) | NOT REPRODUCED in 6 trials — excludes only a flip rate of roughly 40% per run or more (`0.4019 < p < 0.5981`) | probe 3 |
+| intra-leg (ordering, env, concurrency inside one process) | **OPEN.** Not reproduced in 6 serial trials; excludes only a high INDEPENDENT flip rate (~40%/run or more), and excludes a CORRELATED mechanism at no sample size at all | probe 3 |
 | duration drives flakiness | UNSUPPORTED, weak counter-indication | probes 2a, 2b, 4 |
 | between-leg (machine, environment, across-leg ordering) | OPEN — the remaining space | — |
 
