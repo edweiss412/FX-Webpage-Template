@@ -849,11 +849,15 @@ export function nodeDeps(root: string): CliDeps {
       // hunks suppress the very occurrence the run was asked about. A SILENT
       // CLEAN from an invocation the user believes they declared correctly.
       // With this, git refuses the value instead, and the refusal is surfaced.
-      execFileSync("git", ["show", "--format=", "--unified=0", "--end-of-options", rev, "--", ...paths], {
-        cwd: root,
-        encoding: "utf8",
-        maxBuffer: 64 * 1024 * 1024,
-      }),
+      execFileSync(
+        "git",
+        ["show", "--format=", "--unified=0", "--end-of-options", rev, "--", ...paths],
+        {
+          cwd: root,
+          encoding: "utf8",
+          maxBuffer: 64 * 1024 * 1024,
+        },
+      ),
     spawn: (command, cwd, timeoutMs, mode) => {
       // `-nc` is the parse check: sh reads the whole command for syntax and
       // executes none of it. `-c` is the ordinary run.
