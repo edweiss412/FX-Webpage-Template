@@ -996,9 +996,14 @@ const outwardTransparent = (n: ts.Expression): ts.Expression => {
   let cur: ts.Expression = n;
   for (;;) {
     const p: ts.Node | undefined = cur.parent;
-    if (p === undefined || !ts.isExpression(p)) return cur;
-    if (skipTransparent(p) !== n) return cur;
-    cur = p;
+    if (p === undefined) return cur;
+    // The `ts.isExpression(p)` guard that stood here was REDUNDANT and the gate
+    // proved it: no case could kill a mutant of that disjunction, because
+    // `skipOuterExpressions` returns a non-expression node UNCHANGED, so the
+    // comparison below already declines it. Deleted per rule 20's first rung --
+    // a site whose only differing case is unreachable is removed, not argued.
+    if (skipTransparent(p as ts.Expression) !== n) return cur;
+    cur = p as ts.Expression;
   }
 };
 
@@ -1269,35 +1274,31 @@ export function scanModule(file: string, row: SendAuthSurface): Finding[] {
   // A count needs no notion of scope AT ALL, so it is total over constructors, set
   // accessors, nested blocks and forms nobody has thought of, without naming any
   // of them. It also cannot be argued with.
-  const exemptionVoidCache = new Map<string, boolean>();
-  const exemptionVoid = (passFn: ts.Node, passIndex: number, name: string): boolean => {
-    const key = `${passIndex}\u0000${name}`;
-    const cached = exemptionVoidCache.get(key);
-    if (cached !== undefined) return cached;
-    const voided = competingDeclarationCount(passFn, name) > 1;
-    exemptionVoidCache.set(key, voided);
-    return voided;
-  };
+  // No memo. It was an optimisation this corpus does not need, and its cache
+  // write was an UNKILLABLE site -- removing it changed no result, only work.
+  // An equivalence row would have been a standing claim that a later refactor
+  // could silently falsify; a deleted site cannot rot.
+  const exemptionVoid = (passFn: ts.Node, name: string): boolean =>
+    competingDeclarationCount(passFn, name) > 1;
 
   const derivedAt = (name: string, at: ts.Node): boolean =>
     passes.some(
-      (p, i) =>
+      (p) =>
         p.derivations.some((d) => d.name === name) &&
         lexicallyWithin(p.fn, at, sf) &&
-        !exemptionVoid(p.fn, i, name),
+        !exemptionVoid(p.fn, name),
     );
 
   const topLevel = topLevelFunctions(sf);
   const classified = sendBearingFunctions(row, bindings, topLevel);
   const findings: Finding[] = classifyUses(sf, file, row, bindings, reads, derivedAt);
   findings.push(...unreachedOccurrences(sf, file, row, bindings, classified));
-  for (const [passIndex, { fn, derivations }] of passes.entries()) {
+  for (const { fn, derivations } of passes) {
     // Per-pass, for the same reason: inside THIS pass, only THIS pass's derivations
     // are derived. Another pass's names are ordinary raw bindings here.
     // Raw HERE means: a surface binding, and not derived AT THIS USE by THIS pass.
     const rawHere = (name: string): boolean =>
-      bindings.has(name) &&
-      (exemptionVoid(fn, passIndex, name) || !derivations.some((d) => d.name === name));
+      bindings.has(name) && (exemptionVoid(fn, name) || !derivations.some((d) => d.name === name));
     findings.push(...analyzePassReads(sf, file, rawHere, reads, fn, derivations));
     findings.push(...analyzeDerivations(sf, file, fn, derivations));
     // The name-only view was NOT the right one: it subtracted a shadowing parameter

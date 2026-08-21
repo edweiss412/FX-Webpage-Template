@@ -1235,6 +1235,25 @@ type ManifestCell = {
 const INHERITED_CORPUS_SIZE = 81;
 
 const MANIFEST: readonly ManifestCell[] = [
+  // --- Task 9 [task:score-measure]: fixtures the mutation gate demanded.
+  {
+    fixture: "shadow-annotation-null.ts",
+    axis: "annotation certainty",
+    covers:
+      "AC-U12 — `null` is a LiteralType wrapping the keyword and needs its own arm; kills the flip from the silent side",
+  },
+  {
+    fixture: "shadow-annotation-string-literal.ts",
+    axis: "annotation certainty",
+    covers:
+      "AC-U12 — a literal type that is NOT null COMPETES; kills the same flip from the reporting side",
+  },
+  {
+    fixture: "element-key-wrapped.ts",
+    axis: "wrapper kind",
+    covers: "rule A's unwrap applies to the element KEY as a second name position",
+    syntaxSensitive: ['this[("ch")].dispatch("p1", "/compact");'],
+  },
   // --- Task 6 [task:read-set-member-name].
   {
     fixture: "quoted-member-read.ts",
@@ -3101,5 +3120,120 @@ describe("AC-U7 — whole-corpus preservation against a committed BASE baseline"
     expect(baseline[pick]).toEqual([]);
     // The live scan agrees today; a baseline claiming otherwise must not match.
     expect(verdictOf(pick)).not.toEqual(["MULTI-READ:panes:1,2"]);
+  });
+});
+
+describe("Task 9 — what the mutation gate demanded, and the killer audit's two gaps", () => {
+  it("kills the `null`-arm equality flip FROM BOTH SIDES", () => {
+    // The gate found this arm unexercised: an equality flip on it survived,
+    // because no fixture reached it from either direction. `null` is the one
+    // accept-set member that is NOT a keyword node -- the compiler models it as
+    // a LiteralType WRAPPING the keyword -- so it needs its own arm and its own
+    // pair.
+    //
+    // MEASURED under the mutant: the null case REPORTS and the literal case
+    // falls SILENT. Each alone would have left the other direction open.
+    expect(scan("shadow-annotation-null.ts")).toEqual([]);
+
+    const f = "shadow-annotation-string-literal.ts";
+    const a = lineOf(f, "const a = snap.panes();");
+    const b = lineOf(f, "const b = snap.panes();");
+    expect(scan(f)).toEqual([
+      finding(f, "RAW-HANDOFF", "String", lineOf(f, "String(snap)")),
+      finding(f, "MULTI-READ", "panes", a, [a, b]),
+    ]);
+  });
+
+  it("unwraps a WRAPPED element KEY — the key is a second name position", () => {
+    // §3c's weaker implementation: "resolves `this[\"ch\"]` but not
+    // `this[(\"ch\")]`". It passes every other element-access case in the corpus
+    // and falls silent here.
+    const f = "element-key-wrapped.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "UNDECLARED-PASS", "settle", lineOf(f, 'this[("ch")].dispatch')),
+    ]);
+  });
+
+  it("rule B carries NO SCOPE ENUMERATION — the structural killer, not another fixture", () => {
+    // §3c is explicit that fixtures alone cannot kill this class: a competing
+    // declaration in a `while` body defeats a five-item list, and a six-item
+    // list defeats that fixture. That is the enumeration treadmill in miniature.
+    // A COUNT needs no notion of scope, so the checkable claim is that rule B's
+    // own functions contain none.
+    //
+    // Scoped DELIBERATELY to rule B. `isFunctionLike` survives elsewhere in the
+    // module for unrelated purposes -- pass discovery, marker attachment,
+    // straight-line blocking -- so "no `isFunctionLike` anywhere" would be the
+    // wrong assertion and would red for the wrong reason.
+    const source = readFileSync(SCANNER_PATH, "utf8");
+    const sf = scannerSource();
+
+    const bodyOf = (name: string): string => {
+      let found: string | undefined;
+      const walk = (n: ts.Node): void => {
+        if (
+          ts.isVariableDeclaration(n) &&
+          ts.isIdentifier(n.name) &&
+          n.name.text === name &&
+          n.initializer !== undefined
+        ) {
+          found = n.initializer.getText(sf);
+        }
+        ts.forEachChild(n, walk);
+      };
+      walk(sf);
+      if (found === undefined)
+        throw new Error(`rule B function ${name} not found — the audit is naming nothing`);
+      return found;
+    };
+
+    const RULE_B = [
+      "competingDeclarationCount",
+      "declaresName",
+      "competesAsSurface",
+      "exemptionVoid",
+    ];
+    premiseHolds("the scanner source was read", source.length > 1000);
+
+    const offenders = RULE_B.flatMap((name) => {
+      const body = bodyOf(name);
+      const problems: string[] = [];
+      if (body.includes("isFunctionLike")) problems.push("references isFunctionLike");
+      // An UPWARD ancestor WALK is what a scope model needs; rule B walks DOWN.
+      // The walk shape is a variable reassigned from ITS OWN parent -- a single
+      // `const parent = id.parent` read is one hop and is NOT a walk, which the
+      // first version of this predicate conflated and reported for `declaresName`.
+      if (/(\w+)\s*=\s*\1\.parent\b/.test(body)) problems.push("walks ancestors");
+      return problems.map((p) => `${name}: ${p}`);
+    });
+    expect(offenders).toEqual([]);
+
+    // PROVEN TO DISCRIMINATE: the predicates DO fire on a body that has them.
+    expect(/(\w+)\s*=\s*\1\.parent\b/.test("for (let cur = n; cur; cur = cur.parent) {}")).toBe(
+      true,
+    );
+    // ...and does NOT fire on a single-hop parent read, which is not a walk.
+    expect(/(\w+)\s*=\s*\1\.parent\b/.test("const parent = id.parent;")).toBe(false);
+    expect("if (isFunctionLike(cur)) return true;".includes("isFunctionLike")).toBe(true);
+  });
+
+  it("AC-U9 — the registry control keys on a line occurring EXACTLY ONCE", () => {
+    // A control keyed by text is only as good as that text's uniqueness, and a
+    // uniqueness claim in a COMMENT cannot fail. This arc moved the code the
+    // control keys on, so the claim is asserted BY THE SUITE instead: a refactor
+    // that duplicates the line lands the control edit on a site no case reaches,
+    // and the suite stays green while the harness stops discriminating.
+    const source = readFileSync(SCANNER_PATH, "utf8");
+    const registry = readFileSync("tests/mutation/source/registry.ts", "utf8");
+
+    const row = registry.slice(registry.indexOf('id: "sendAuthScan"'));
+    const from = /control: \{\s*\n\s*from: "([^"]+)"/.exec(row);
+    premiseHolds("the sendAuthScan control was read out of the registry", from !== null);
+
+    const needle = from![1]!;
+    premiseHolds("the control text is substantial", needle.length > 20);
+
+    const occurrences = source.split(needle).length - 1;
+    expect(occurrences).toBe(1);
   });
 });
