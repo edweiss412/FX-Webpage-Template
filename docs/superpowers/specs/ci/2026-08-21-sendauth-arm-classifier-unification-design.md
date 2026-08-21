@@ -398,8 +398,18 @@ one token for both would put a durable fact and a perishable one in the same aud
 
 | token | claim | decays? |
 | --- | --- | --- |
-| `// name-position: grammar — <reason>` | the TypeScript grammar forbids this spelling from varying: a `FunctionDeclaration`'s name will not gain an element-access form | **NO.** Safe to write once. |
-| `// name-position: not-a-name — <what it actually resolves>` | this position does not resolve a surface name at all — a module specifier, a diagnostic label | **YES.** It is a claim about the CURRENT CODE, and code gets repurposed. |
+| `// name-position: grammar — <reason>` | **the FIELD'S DECLARED TYPE admits only `Identifier`** — a `FunctionDeclaration`'s name will not gain an element-access form | **NO.** Safe to write once. |
+| `// name-position: narrowed — <consequence> · re-file when <trigger>` | the field's declared type ADMITS SIBLING SPELLINGS and this code declines them behind an `isIdentifier` prefilter. A declared limit, owing a consequence and a trigger | **YES**, and it is the kind most likely to hide a real miss. |
+| `// name-position: not-a-name — <what it actually resolves>` | this position does not resolve a surface name at all — a module specifier, a diagnostic label | **YES.** A claim about the CURRENT CODE, and code gets repurposed. |
+
+**`grammar` is a claim about the FIELD, never about the access, and spec round 3 caught this spec
+making it about the access** (§3.14 F2). `TypeReferenceNode.typeName` and `QualifiedName.left` are
+`EntityName = Identifier | QualifiedName`; `VariableDeclaration.name` is
+`BindingName = Identifier | BindingPattern`. Code that prefilters with `isIdentifier` and then reads
+`.text` LOOKS grammar-fixed at the access while the field admits a sibling the prefilter silently
+DISCARDS. Three of this spec's nine `grammar` rows were exactly that and are now `narrowed`.
+**A `grammar` claim is validated against the compiler's declared field type, not by reading the
+call site.**
 
 **The `not-a-name` token names WHAT the site resolves**, so a repurposing makes the comment visibly
 FALSE rather than merely stale — a diagnostic label someone later feeds a surface name into would
@@ -840,11 +850,17 @@ not what merges.
 
 | | shipped scanner (`origin/main`) | prototype |
 | --- | --- | --- |
-| name-resolution sites not routed | **42** | **26** |
+| name-resolution sites not routed | **46** | **28** |
 | ROUTE — genuine variable position, **the refactor size** | **14** | **12** |
-| GRAMMAR — durable acknowledgement | 9 | 9 |
+| UNFULFILLED ROUTE — reds until routed | 14 | **12** |
+| GRAMMAR — durable acknowledgement | 6 | 6 |
+| NARROWED — declared limit, owes a trigger | 3 | 3 |
 | NOT-A-NAME — decaying acknowledgement | 5 | 5 |
-| UNDISPOSED — would RED the gate | 14 | **0** |
+| UNDISPOSED — would RED the gate | 18 | 2 |
+
+**These figures SUPERSEDE the 42 / 26 an earlier draft carried, and the reason is the point:** that
+instrument exempted sites by IDENTIFIER SPELLING, so its counts depended on local variable names
+(§3.14 F1). Both numbers moved when the exemption was deleted.
 
 **The 42-to-26 gap is itself informative: it is exactly what the prototype has already routed** —
 `calleeNameOf`, `receiverRightmostName`'s internals, the read arm's receiver test, the sink walk's
@@ -867,6 +883,68 @@ their safe sides; round-1 F1–F4 produce the recorded reports; `calleeNameOf` a
 attribution match §3.10. **What it FENCED:** wrapping a derivation SOURCE produces a surfaced
 `MULTI-READ` plus `MISSING-DERIVATION` rather than silence; the four §4.3 inherited fences are
 unchanged.
+
+### §3.14 Spec round 3: two findings, both against the INSTRUMENT, and one of them a real silent miss
+
+Breakdown: **2 real / 0 refuted / 0 fenced.** Reviewed at `2d32a0fb0`, stated by the reviewer.
+Findings fell from 4 to 4 to 2, and **both r3 findings are against the SCAN rather than the design**
+— which is what the brief made admissible and is the shape a converging stage has.
+
+**F1 — the adoption scan's own exemption was LEXICAL, and it hid a real defect.** The scan skipped
+`.text` sites whose expression began with one of eight identifier spellings. **That is an
+enumeration wearing a derivation's costume INSIDE the instrument built to detect that shape.** The
+reviewer proved it rather than arguing it: a semantics-neutral rename of a local from `name` to
+`candidate` moved the shipped count from 42 to 44. The exemption is DELETED — every `.text` site is
+dispositioned instead, which costs rows and removes the spelling dependence entirely.
+
+**And it was hiding a silent miss in the DESIGN, not only in the instrument.** `readsFromSourceFile`
+required an identifier member name, so a QUOTED member — `"panes"(): string[]`, ordinary TypeScript
+and one ordinary edit from the live declaration — was DROPPED from the read set. **The read set is
+the COMPLEMENT, so a dropped member is not a read, and every read through it went unconstrained.**
+
+```
+readsFor(...)   plain declaration      quoted declaration
+baseline        [panes, gauge]         [gauge]          <- panes silently not a read
+prototype       [panes, gauge]         [panes, gauge]
+```
+
+The surface type's MEMBER NAME was the one position still outside the rule. It now routes through
+`resolveName` like every other.
+
+**F2 — three of nine `grammar` acknowledgements were not grammar invariants.** `grammar` must be a
+claim about the FIELD'S DECLARED TYPE; this spec had made it a claim about the ACCESS. The three
+sites prefilter with `isIdentifier` and then read `.text`, which looks fixed at the call site while
+the field admits a sibling the prefilter DISCARDS:
+
+| site | field's declared type | admits |
+| --- | --- | --- |
+| `isSurfaceRef` — `t.typeName` | `EntityName` | `Identifier \| QualifiedName` |
+| `look` — `n.left` | `EntityName` | `Identifier \| QualifiedName` |
+| `passNameOf` — `parent.name` | `BindingName` | `Identifier \| BindingPattern` |
+
+**A durable token granted to a perishable claim greens exactly the omission it exists to catch**, so
+the three are reclassified `narrowed`, which owes a consequence and a re-file trigger. The remaining
+six `grammar` rows are genuinely fixed, and the reviewer separately confirmed the five `not-a-name`
+rows resolve diagnostic labels or module specifiers and that the reverse check does report the
+prototype's two stale rows.
+
+**Both findings are the same shape as everything else in §3, arriving on the INSTRUMENT: classify by
+what is locally visible rather than by the derivation available.** F1 exempted by spelling instead
+of by structure; F2 classified by the narrowed access instead of by the declared field type.
+
+**Full regression after both repairs**: 81 fixtures, still exactly 2 moved and the same 2; live
+corpus 0 to 0.
+
+**One thing round 3 did NOT find, recorded because its absence is informative.** Between the dispatch
+and the verdict, the disposition table gained a THIRD assertion — that a `ROUTE` row's site is
+ACTUALLY routed — after the orchestrator asked whether "every site is dispositioned" and "every
+`ROUTE` row complies" were the same claim. They are not: twelve rows reading `ROUTE` beside twelve
+unrouted sites satisfies a presence check completely and reports zero. **That is this spec's own F4
+one layer up** — a de-duplication sweep proves ABSENCE, a disposition table proves DISPOSITION, and
+neither proves COMPLIANCE. The round was left running rather than killed, because the edit made an
+existing check STRONGER while every claim in the artifact stayed true, and incomplete-and-still-true
+does not invalidate a live round. **The reviewer did not raise it**, which is why it is recorded here
+as prompted-and-repaired rather than as independently confirmed.
 
 ---
 
