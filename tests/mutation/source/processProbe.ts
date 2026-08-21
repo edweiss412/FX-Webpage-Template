@@ -214,3 +214,222 @@ export function renderProbe(outcome: ProbeOutcome): string {
     `POSITION: ${t.position} of ${t.mutants.length} in generation order\n`
   );
 }
+
+/* ------------------------------------------------------------------ planning */
+
+/**
+ * mulberry32 — a named, committed 32-bit PRNG.
+ *
+ * The algorithm is written out rather than pulled from `Math.random` because a
+ * campaign nobody can re-run is not a campaign: every plan carries its seed, and
+ * the seed plus this function is the whole reproduction recipe (AC-11).
+ */
+export function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Fisher-Yates over a copy, driven entirely by `next`. */
+export function shuffle<T>(items: readonly T[], next: () => number): T[] {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(next() * (i + 1));
+    const a = out[i] as T;
+    out[i] = out[j] as T;
+    out[j] = a;
+  }
+  return out;
+}
+
+/**
+ * What produced this trial's prefix.
+ *
+ * `gate-order` is the replay of the target's generation-order predecessors — the
+ * condition the real gate produces — and is distinct from a shuffle that merely
+ * happens to be that long.
+ */
+export type TrialKind = "isolated" | "shuffled" | "gate-order";
+
+export type TrialPlan = {
+  arm: Arm;
+  kind: TrialKind;
+  /** The campaign seed, on EVERY plan: a plan that cannot name its seed cannot be re-run. */
+  seed: number;
+  /** Zero-based index within the arm. */
+  index: number;
+  surfaceId: string;
+  targetSiteId: string;
+  /** OTHER mutants of the same surface, in execution order (spec 5.1). */
+  prefix: readonly string[];
+  /**
+   * One-based slot of the target in the EXECUTED sequence.
+   *
+   * DERIVED from the prefix, never carried as a free field: a planner returning
+   * a constant here passes reproducibility and target-exclusion while binding
+   * every verdict to the wrong condition. `validatePlan` re-derives it at
+   * consumption so a tampered serialization cannot smuggle one past.
+   */
+  position: number;
+  /** Arm C only: which half of the single pre-registered load pair this is. */
+  half?: "quiet" | "loaded";
+};
+
+export type CampaignPlan = {
+  seed: number;
+  surfaceId: string;
+  targetSiteId: string;
+  trials: readonly TrialPlan[];
+};
+
+/** The pre-registered arm-B shuffled prefix lengths (spec 5.2): three at 8, two at 24. */
+export const ARM_B_PREFIX_LENGTHS = [8, 8, 8, 24, 24] as const;
+
+export type PlanInput = {
+  target: Target;
+  seed: number;
+  /** Arm A's trial count. Spec 5.2 pre-registers 12; the campaign passes it explicitly. */
+  armATrials: number;
+  /** Arm B's shuffled prefix lengths. Defaults to the pre-registered set. */
+  prefixLengths?: readonly number[];
+};
+
+/**
+ * Build the campaign plan.
+ *
+ * Pure and total: same seed in, byte-identical plan out. The only failure is a
+ * prefix the surface cannot supply, which REFUSES rather than truncating — a
+ * silently shortened prefix reports a condition that never ran.
+ */
+export function planCampaign(input: PlanInput): CampaignPlan | Refusal {
+  const { target, seed, armATrials } = input;
+  const prefixLengths = input.prefixLengths ?? ARM_B_PREFIX_LENGTHS;
+  const targetId = target.siteId;
+  const available = target.mutants.map((m) => siteId(m.site)).filter((id) => id !== targetId);
+
+  for (const length of prefixLengths) {
+    if (length > available.length) {
+      return refuse(
+        "prefix",
+        `--prefix ${length} exceeds what surface ${JSON.stringify(target.surface.id)} can ` +
+          `supply: ${available.length} mutants are available once the target ` +
+          `${JSON.stringify(targetId)} is excluded. Truncating would report a prefix ` +
+          `condition that never ran.`,
+      );
+    }
+  }
+
+  const trials: TrialPlan[] = [];
+  const base = {
+    seed,
+    surfaceId: target.surface.id,
+    targetSiteId: targetId,
+  } as const;
+
+  for (let i = 0; i < armATrials; i += 1) {
+    trials.push({ ...base, arm: "A", kind: "isolated", index: i, prefix: [], position: 1 });
+  }
+
+  prefixLengths.forEach((length, i) => {
+    // A DISTINCT stream per trial, derived from the campaign seed, so the three
+    // prefix-8 trials are three orderings rather than one ordering repeated —
+    // and the whole set still reproduces from the single printed seed.
+    const prefix = shuffle(available, mulberry32(seed + i + 1)).slice(0, length);
+    trials.push({
+      ...base,
+      arm: "B",
+      kind: "shuffled",
+      index: i,
+      prefix,
+      position: prefix.length + 1,
+    });
+  });
+
+  // The GATE-ORDER replay: the mutants that PRECEDE the target in generation
+  // order, in generation order. The 4 the real gate runs AFTER the target are
+  // deliberately absent — putting them before it binds the observation to a
+  // condition the gate never produces, which is wrong attribution.
+  const predecessors = target.mutants.slice(0, target.position - 1).map((m) => siteId(m.site));
+  trials.push({
+    ...base,
+    arm: "B",
+    kind: "gate-order",
+    index: prefixLengths.length,
+    prefix: predecessors,
+    position: predecessors.length + 1,
+  });
+
+  (["quiet", "loaded"] as const).forEach((half, i) => {
+    trials.push({ ...base, arm: "C", kind: "isolated", index: i, prefix: [], position: 1, half });
+  });
+
+  return { seed, surfaceId: target.surface.id, targetSiteId: targetId, trials };
+}
+
+/**
+ * Canonical serialization, with an EXPLICIT key order.
+ *
+ * `JSON.stringify` over an object literal preserves insertion order, so two
+ * structurally equal plans built by different code paths serialize to different
+ * bytes and a byte comparison would report a difference that is not one. The
+ * reproducibility claim is about what gets written down, so the bytes are what
+ * the property compares.
+ */
+export function serializeTrial(plan: TrialPlan): string {
+  return JSON.stringify([
+    plan.arm,
+    plan.kind,
+    plan.seed,
+    plan.index,
+    plan.surfaceId,
+    plan.targetSiteId,
+    [...plan.prefix],
+    plan.position,
+    plan.half ?? null,
+  ]);
+}
+
+export function serializeCampaign(plan: CampaignPlan): string {
+  return JSON.stringify([
+    plan.seed,
+    plan.surfaceId,
+    plan.targetSiteId,
+    plan.trials.map(serializeTrial),
+  ]);
+}
+
+/**
+ * Validate a plan AT CONSUMPTION.
+ *
+ * Producer-side properties only ever see planner-generated plans; a plan reaches
+ * `runTrial` through a serialization boundary, and a consumer that COPIES the
+ * serialized `position` adjudicates a tampered one while a consumer that
+ * RE-DERIVES it refuses. Both invariants are re-derived here, never trusted.
+ */
+export function validatePlan(plan: TrialPlan): { ok: true } | { ok: false; detail: string } {
+  if (plan.prefix.includes(plan.targetSiteId)) {
+    return {
+      ok: false,
+      detail:
+        `plan prefix contains the TARGET ${JSON.stringify(plan.targetSiteId)}. A prefix is ` +
+        `OTHER mutants (spec 5.1); running the target twice binds its verdict to a condition ` +
+        `the design never defines.`,
+    };
+  }
+  const derived = plan.prefix.length + 1;
+  if (plan.position !== derived) {
+    return {
+      ok: false,
+      detail:
+        `plan position ${plan.position} disagrees with the derivation: a prefix of ` +
+        `${plan.prefix.length} puts the target at ${derived}. Position is DERIVED, never ` +
+        `trusted from the serialization.`,
+    };
+  }
+  return { ok: true };
+}

@@ -4,17 +4,23 @@ import { join } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
 
-import { premiseHolds } from "../../_shared/premise";
+import { premise, premiseHolds } from "../../_shared/premise";
+import { siteId as siteIdOf } from "./operators";
 import type { GuardSurface } from "./registry";
 import {
   type ProbeOutcome,
   type ProbeRefusedInput,
+  type Refusal,
   parseArm,
   parsePrefixLength,
   parseSeed,
   parseTrials,
+  type CampaignPlan,
+  planCampaign,
   renderProbe,
   resolveTarget,
+  serializeCampaign,
+  validatePlan,
 } from "./processProbe";
 
 /**
@@ -39,14 +45,18 @@ const surface = (over: Partial<GuardSurface> = {}): GuardSurface => ({
   ...over,
 });
 
-const detailOf = (outcome: ProbeOutcome): string => {
-  if (outcome.kind !== "refusal") throw new Error(`expected a refusal, got ${outcome.kind}`);
-  return outcome.detail;
+type Refusable = ProbeOutcome | CampaignPlan;
+
+const asRefusal = (outcome: Refusable): Refusal => {
+  if (!("kind" in outcome) || outcome.kind !== "refusal") {
+    throw new Error(
+      `expected a refusal, got ${"kind" in outcome ? outcome.kind : "a campaign plan"}`,
+    );
+  }
+  return outcome;
 };
-const inputOf = (outcome: ProbeOutcome): ProbeRefusedInput => {
-  if (outcome.kind !== "refusal") throw new Error(`expected a refusal, got ${outcome.kind}`);
-  return outcome.input;
-};
+const detailOf = (outcome: Refusable): string => asRefusal(outcome).detail;
+const inputOf = (outcome: Refusable): ProbeRefusedInput => asRefusal(outcome).input;
 
 /**
  * Vocabulary a RESULT render carries and a refusal render must not: the AC-1
@@ -275,5 +285,220 @@ describe("processProbe accept-sets — every complement member refuses by name (
     );
     expect(text).toContain("surface");
     expect(text).toContain("noSuchSurface");
+  });
+});
+
+/**
+ * A wider fixture surface: enough relational sites that a shuffle has a domain
+ * to move in. The planner properties below are vacuous on a one-mutant surface
+ * — every ordering is the same ordering — so the domain is stated executably
+ * rather than assumed.
+ */
+const WIDE_REL = "wide.ts";
+writeFileSync(
+  join(root, WIDE_REL),
+  Array.from(
+    { length: 30 },
+    (_, i) => `export const c${i} = (n: number): boolean => n < ${i};`,
+  ).join("\n") + "\n",
+);
+const wideSurface = (over: Partial<GuardSurface> = {}): GuardSurface =>
+  surface({ id: "wideSurface", sourcePath: WIDE_REL, ...over });
+
+describe("processProbe planner — seeded, reproducible, position derived (AC-11)", () => {
+  const targetOf = (surfaces: readonly GuardSurface[], siteIdWanted: string) => {
+    const outcome = resolveTarget({
+      root,
+      surfaceId: "wideSurface",
+      site: siteIdWanted,
+      surfaces,
+    });
+    if (outcome.kind === "refusal") {
+      throw new Error(`fixture target did not resolve: ${outcome.input} — ${outcome.detail}`);
+    }
+    return outcome.target;
+  };
+
+  /** The middle site, so both a non-empty predecessor set and successors exist. */
+  const MIDDLE_SITE = "relational-boundary:15:46:<><=";
+
+  /** `planCampaign` returns a refusal in one case; every property below needs a plan. */
+  const mustPlan = (input: Parameters<typeof planCampaign>[0]): CampaignPlan => {
+    const planned = planCampaign(input);
+    if ("kind" in planned) throw new Error(`planner refused: ${planned.input} — ${planned.detail}`);
+    return planned;
+  };
+
+  it("planner produces byte-identical plans for the same seed", () => {
+    const target = targetOf([wideSurface()], MIDDLE_SITE);
+    const a = mustPlan({ target, seed: 4242, armATrials: 12 });
+    const b = mustPlan({ target, seed: 4242, armATrials: 12 });
+    // BYTE comparison, not deepStrictEqual: two objects with the same entries in
+    // different key-insertion order are deep-equal and serialize to different
+    // bytes, and the reproducibility claim is about what gets written down.
+    expect(serializeCampaign(a)).toBe(serializeCampaign(b));
+  });
+
+  it("planner produces different shuffles for different seeds", () => {
+    const target = targetOf([wideSurface()], MIDDLE_SITE);
+    premise(
+      "the prefix domain admits more than one ordering, so a differing shuffle is a real signal",
+      target.mutants.length - 1,
+      1,
+    );
+    const a = mustPlan({ target, seed: 1, armATrials: 12 });
+    const b = mustPlan({ target, seed: 2, armATrials: 12 });
+    expect(serializeCampaign(a)).not.toBe(serializeCampaign(b));
+  });
+
+  it("planner carries the seed in EVERY trial plan, across every arm", () => {
+    const target = targetOf([wideSurface()], MIDDLE_SITE);
+    const campaign = mustPlan({ target, seed: 99, armATrials: 12 });
+    premiseHolds(
+      "the campaign really spans every arm",
+      new Set(campaign.trials.map((t) => t.arm)).size === 3,
+    );
+    for (const trial of campaign.trials) expect(trial.seed).toBe(99);
+    expect(campaign.seed).toBe(99);
+  });
+
+  it("planner derives POSITION as prefix length + 1 across a seed sweep and every arm", () => {
+    const target = targetOf([wideSurface()], MIDDLE_SITE);
+    let checked = 0;
+    const prefixLengths = new Set<number>();
+    for (const seed of [0, 1, 7, 4242, 65535]) {
+      for (const trial of mustPlan({ target, seed, armATrials: 12 }).trials) {
+        expect(trial.position).toBe(trial.prefix.length + 1);
+        prefixLengths.add(trial.prefix.length);
+        checked += 1;
+      }
+    }
+    // A constant-position planner passes reproducibility and target-exclusion
+    // while binding every verdict to the wrong condition. It is only killed if
+    // the sweep actually spans MORE THAN ONE prefix length — otherwise the
+    // constant is the correct answer everywhere the assertion looks.
+    premise("the sweep spans more than one distinct prefix length", prefixLengths.size, 1);
+    premise("the sweep checked a non-empty population of trials", checked, 0);
+  });
+
+  it("planner never places the TARGET in its own prefix, across the same sweep", () => {
+    const target = targetOf([wideSurface()], MIDDLE_SITE);
+    let withPrefix = 0;
+    for (const seed of [0, 1, 7, 4242, 65535]) {
+      for (const trial of mustPlan({ target, seed, armATrials: 12 }).trials) {
+        expect(trial.prefix).not.toContain(trial.targetSiteId);
+        if (trial.prefix.length > 0) withPrefix += 1;
+      }
+    }
+    // `shuffle(allMutants).slice(0, n)` passes reproducibility while running the
+    // target twice; it is only killed where a prefix is actually drawn.
+    premise("the sweep produced trials carrying a non-empty prefix", withPrefix, 0);
+  });
+
+  it("the gate-order-prefix trial replays the target's generation-order predecessors", () => {
+    const target = targetOf([wideSurface()], MIDDLE_SITE);
+    const campaign = mustPlan({ target, seed: 5, armATrials: 12 });
+    const gateOrder = campaign.trials.find((t) => t.kind === "gate-order");
+    if (gateOrder === undefined) throw new Error("no gate-order trial in the campaign");
+    const predecessors = target.mutants.slice(0, target.position - 1).map((m) => siteIdOf(m.site));
+    expect(gateOrder.prefix).toEqual(predecessors);
+    expect(gateOrder.position).toBe(target.position);
+    // The mutants the real gate runs AFTER the target are deliberately absent:
+    // putting them before it binds the observation to a condition the gate never
+    // produces, which is the wrong-attribution direction the bound forbids.
+    const successors = target.mutants.slice(target.position).map((m) => siteIdOf(m.site));
+    premise("the target really has successors that must NOT appear", successors.length, 0);
+    for (const s of successors) expect(gateOrder.prefix).not.toContain(s);
+  });
+
+  it("planner arms match the pre-registered campaign shape of spec 5.2", () => {
+    const target = targetOf([wideSurface()], MIDDLE_SITE);
+    const campaign = mustPlan({ target, seed: 5, armATrials: 12 });
+    const byArm = (arm: string) => campaign.trials.filter((t) => t.arm === arm);
+    expect(byArm("A")).toHaveLength(12);
+    expect(byArm("A").every((t) => t.prefix.length === 0)).toBe(true);
+    expect(byArm("B")).toHaveLength(6);
+    expect(byArm("B").filter((t) => t.prefix.length === 8)).toHaveLength(3);
+    expect(byArm("B").filter((t) => t.prefix.length === 24)).toHaveLength(2);
+    expect(byArm("B").filter((t) => t.kind === "gate-order")).toHaveLength(1);
+    expect(byArm("C")).toHaveLength(2);
+    expect(
+      byArm("C")
+        .map((t) => t.half)
+        .sort(),
+    ).toEqual(["loaded", "quiet"]);
+    expect(byArm("C").every((t) => t.prefix.length === 0)).toBe(true);
+  });
+
+  it("the three prefix-8 shuffles are DISTINCT orderings, not one ordering repeated", () => {
+    const target = targetOf([wideSurface()], MIDDLE_SITE);
+    const eights = mustPlan({ target, seed: 5, armATrials: 12 }).trials.filter(
+      (t) => t.arm === "B" && t.prefix.length === 8,
+    );
+    premiseHolds("there really are three prefix-8 trials to compare", eights.length === 3);
+    const serialized = new Set(eights.map((t) => t.prefix.join(",")));
+    expect(serialized.size).toBe(3);
+  });
+
+  it("planner REFUSES a prefix length the surface cannot supply", () => {
+    const target = targetOf([wideSurface()], MIDDLE_SITE);
+    // 30 mutants means 29 available once the target is excluded; a prefix of 24
+    // fits and a prefix of 40 does not. Silently truncating would report a
+    // condition that never ran.
+    premiseHolds(
+      "the fixture population is genuinely smaller than the requested prefix",
+      target.mutants.length - 1 < 40,
+    );
+    const refusal = planCampaign({ target, seed: 5, armATrials: 12, prefixLengths: [40] });
+    expect(inputOf(refusal)).toBe("prefix");
+    expect(detailOf(refusal)).toContain("40");
+    expect(detailOf(refusal)).toContain(String(target.mutants.length - 1));
+  });
+
+  it("validatePlan REFUSES a plan whose prefix contains the target, by name", () => {
+    const target = targetOf([wideSurface()], MIDDLE_SITE);
+    const good = mustPlan({ target, seed: 5, armATrials: 12 }).trials.find(
+      (t) => t.prefix.length === 8,
+    );
+    if (good === undefined) throw new Error("no prefix-bearing trial to tamper with");
+    const tampered = { ...good, prefix: [...good.prefix.slice(0, 7), good.targetSiteId] };
+    const verdict = validatePlan(tampered);
+    expect(verdict.ok).toBe(false);
+    if (verdict.ok) return;
+    expect(verdict.detail).toContain(good.targetSiteId);
+    expect(verdict.detail).toMatch(/prefix/i);
+  });
+
+  it("validatePlan REFUSES a plan whose POSITION disagrees with the derivation", () => {
+    const target = targetOf([wideSurface()], MIDDLE_SITE);
+    const good = mustPlan({ target, seed: 5, armATrials: 12 }).trials.find(
+      (t) => t.prefix.length === 8,
+    );
+    if (good === undefined) throw new Error("no prefix-bearing trial to tamper with");
+    // A VALID plan with position tampered after serialization: a consumer that
+    // copies the serialized field adjudicates it, a consumer that derives from
+    // the prefix refuses. Producer-side properties cannot reach this — they only
+    // ever see planner-generated plans.
+    const tampered = { ...good, position: good.position + 1 };
+    premiseHolds("the tampered plan is otherwise valid", validatePlan(good).ok);
+    const verdict = validatePlan(tampered);
+    expect(verdict.ok).toBe(false);
+    if (verdict.ok) return;
+    expect(verdict.detail).toMatch(/position/i);
+    expect(verdict.detail).toContain(String(good.prefix.length + 1));
+  });
+
+  it("validatePlan accepts every plan the planner produces, in every arm", () => {
+    const target = targetOf([wideSurface()], MIDDLE_SITE);
+    let checked = 0;
+    for (const seed of [0, 3, 4242]) {
+      for (const trial of mustPlan({ target, seed, armATrials: 12 }).trials) {
+        const verdict = validatePlan(trial);
+        if (!verdict.ok)
+          throw new Error(`planner produced a plan its own validator refuses: ${verdict.detail}`);
+        checked += 1;
+      }
+    }
+    premise("the acceptance sweep saw a non-empty population", checked, 0);
   });
 });
