@@ -189,6 +189,10 @@ describe("declared-limit pins — §2.6 corpus regression (AC-6)", () => {
   });
 
   it("relints to exactly the §2.6 SET of (plan, suitePath, title)", () => {
+    // The population this SET ranges over. A checkout whose glob returned nothing would
+    // compare [] against the five rows below and fail for the wrong reason -- a corpus
+    // that vanished reads as a recognizer regression.
+    premise("tracked plans the relint ranges over", trackedPlans().length, 100);
     expect(corpusAdvisories()).toEqual(
       [
         "docs/superpowers/plans/2026-07-19-spec-lint.md | tests/specLint/numerics.test.ts | an irregular plural is NOT singularized — documented limit, not a wrong flag",
@@ -201,6 +205,10 @@ describe("declared-limit pins — §2.6 corpus regression (AC-6)", () => {
   });
 
   it("draws advisories on exactly THREE distinct plans", () => {
+    // Derived from the same scan, so it needs the same population floor: over an empty
+    // advisory set `.size` is 0, and 0-vs-3 would read as a cardinality regression
+    // rather than as a scan that never ran.
+    premise("corpus advisories to group by plan", corpusAdvisories().length, 0);
     // A companion to the set, not a substitute for it: this is derived FROM the set
     // above rather than typed as an independent cardinality.
     expect(new Set(corpusAdvisories().map((row) => row.split(" | ")[0])).size).toBe(3);

@@ -61,6 +61,31 @@ export type StandingRow = { file: string; family: string; marker: string; reason
  *  still fails. This list is EXACTLY the plan-time simulation's offender set. */
 export const STANDING_ALLOWLIST: StandingRow[] = [
   ...(["/*", "*/"] as const).map((marker) => ({
+    file: "tests/specLint/declaredLimitPins.test.ts",
+    family: "two-char-literal" as const,
+    marker,
+    reason:
+      "NOT comment handling. Both markers are FIXTURE DATA. The arm must parse a " +
+      "suite's RAW text BEFORE blanking it, and the only way to assert that ordering " +
+      "is to feed it script text carrying a real block comment whose interior line is " +
+      "test-SHAPED: a pin title inside `/* ... */` must NOT read as a live pin. " +
+      "Removing the markers removes the input under test. The stripping itself is done " +
+      "by the shared module -- scripts/spec-lint.ts calls stripCommentsSafely -- so " +
+      "this suite implements none of its own.",
+  })),
+  ...(["/*", "*/"] as const).map((marker) => ({
+    file: "tests/specLint/declaredLimitPinsCli.test.ts",
+    family: "two-char-literal" as const,
+    marker,
+    reason:
+      "NOT comment handling. Both markers are FIXTURE DATA for the adapter's " +
+      "parse-before-blank proof (AC-10 step 1). One case feeds a terminated block " +
+      "comment; the other feeds an UNTERMINATED `/*`, which is the load-bearing one -- " +
+      "a generic syntax error passes under either ordering, while an unterminated " +
+      "comment is diagnosable ONLY if diagnostics were taken from the raw text. The " +
+      "adapter delegates the actual stripping to the shared module.",
+  })),
+  ...(["/*", "*/"] as const).map((marker) => ({
     file: "tests/ci/_metaModalWaitHelper.test.ts",
     family: "two-char-literal" as const,
     marker,
