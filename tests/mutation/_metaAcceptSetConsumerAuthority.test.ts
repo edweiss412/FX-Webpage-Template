@@ -38,6 +38,16 @@ import { premise, premiseHolds } from "../_shared/premise";
  * it finds, and a consumer written tomorrow reds by default rather than being
  * silently exempt.
  *
+ * **PARENT POINTERS ARE NOT POPULATED HERE, AND THE FAILURE IS SILENT.** A
+ * program-built AST has no `.parent` links unless something runs a binder pass -
+ * the sibling check only has them as a side effect of calling
+ * `getTypeChecker()`, which nobody declared load-bearing. An upward `.parent`
+ * walk therefore returns immediately and reports NOTHING, which reads exactly
+ * like a clean file. It cost three strikes in one session: every finding here
+ * resolving to `<file scope>`, an alias prototype reporting every probe clean,
+ * and a dead branch inside the fix for the first. Scope is threaded DOWN the
+ * descent for that reason, and depends on no side effect.
+ *
  * The permitted deciders are named here and NOWHERE ELSE, and each is proved
  * LIVE rather than vacuous: an authority must be DETECTED before it is excused,
  * or an exemption that has stopped matching is indistinguishable from a detector

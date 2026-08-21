@@ -541,31 +541,44 @@ diff <(grep -v -F -f /tmp/edited-suites.txt /tmp/census-before.txt) \
 ! grep '^>' /tmp/unedited.diff | grep -qv '^> environment-free' \
   || { echo "FAIL: an addition outside the edited suites is not environment-free"; exit 1; }
 
-# (b) EDITED suites: additions AND RENAMES. A rename is a remove plus an add at
-# the SAME verdict, so a blanket zero-removals rule rejects one -- and rejects it
-# on this very branch, where a CI repair renamed a test in an edited suite. What
-# must actually hold is that no verdict LOSES records: per verdict, after >= before.
+# (b) EDITED suites: additions AND RENAMES, keyed by (VERDICT, SUITE).
+# A rename is a remove plus an add at the SAME verdict IN THE SAME SUITE, so a
+# blanket zero-removals rule rejects one - and rejects it on this very branch.
+# But keying by verdict ALONE across all edited suites lets one suite's deletion
+# be paid for by another suite's unrelated addition: applying that arithmetic to
+# one deleted free record in suite A and one added free record in suite B yields
+# before=2, after=2, lost=[], success. The same masking works inside one suite
+# whenever any same-verdict addition accompanies a deletion. The key must be the
+# pair (diff review r2, F4).
 pnpm exec tsx --eval '
 import { readFileSync } from "node:fs";
 const edited = readFileSync("/tmp/edited-suites.txt", "utf8").split("\n").filter(Boolean);
+const suiteOf = (line: string): string | null => edited.find((e) => line.includes(e)) ?? null;
 const counts = (p: string): Map<string, number> => {
   const m = new Map<string, number>();
   for (const line of readFileSync(p, "utf8").split("\n")) {
-    if (line && edited.some((e) => line.includes(e))) {
-      const v = line.split(" | ")[0].trim();
-      m.set(v, (m.get(v) ?? 0) + 1);
-    }
+    const suite = line ? suiteOf(line) : null;
+    if (suite === null) continue;
+    // (verdict, suite) - NOT verdict alone. A pair cannot be cross-subsidised.
+    const key = `${line.split(" | ")[0].trim()} @ ${suite}`;
+    m.set(key, (m.get(key) ?? 0) + 1);
   }
   return m;
 };
 const before = counts("/tmp/census-before.txt");
 const after = counts("/tmp/census-after.txt");
-const lost = [...before].filter(([v, n]) => (after.get(v) ?? 0) < n);
+const lost = [...before].filter(([k, n]) => (after.get(k) ?? 0) < n);
+// Print removals BESIDE their matching additions, so a reader can see the
+// rename rather than trust that one happened - the prose claimed this and the
+// commands did not do it.
+const gained = [...after].filter(([k, n]) => n > (before.get(k) ?? 0));
+console.log(`per (verdict, suite): ${before.size} keys before, ${after.size} after`);
+for (const [k, n] of lost) console.log(`  LOST    ${k}: ${before.get(k)} -> ${n === undefined ? 0 : after.get(k) ?? 0}`);
+for (const [k, n] of gained) console.log(`  GAINED  ${k}: ${before.get(k) ?? 0} -> ${n}`);
 if (lost.length > 0) {
-  console.error(`FAIL: a verdict lost records in an edited suite: ${JSON.stringify(lost)}`);
+  console.error(`FAIL: a (verdict, suite) pair lost records: ${JSON.stringify(lost)}`);
   process.exit(1);
 }
-console.log(`edited suites hold: per-verdict before=${JSON.stringify([...before])} after=${JSON.stringify([...after])}`);
 ' || exit 1
 
 # (c) AC-1, over the UNEDITED population. Restricted deliberately: an edited
@@ -719,11 +732,18 @@ both=$(comm -12 \
   <(grep -oE '^#{2,3} (BL|DEF)-[A-Z0-9-]+' BACKLOG-archive.md | sed -E 's/^#+ //' | sort -u))
 [ -z "$both" ] || fail "declared in BOTH files: $both"
 
-pnpm exec vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerMintBar.test.ts --project parallel
+pnpm exec vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerMintBar.test.ts --project parallel \
+  || { echo "FAIL: a ledger guard is red"; exit 1; }
 echo "ledger closeout verified"
 ```
 
-**Every line FAILS rather than printing a number to be eyeballed.** The first draft used
+**Every line FAILS rather than printing a number to be eyeballed** — and the last line had to be
+repaired to make that true of itself. The block carries no `set -e`, so the Vitest run above sat
+unguarded and `echo "ledger closeout verified"` printed on its heels whether the guards were green or
+red; a shell probe of a failing command followed by that echo exits `0`. The claim in this very
+paragraph was false about the one command that could most cheaply make the whole closeout a lie
+(diff review r2, F5). Explicit `|| { …; exit 1; }` rather than `set -e`, because the block is meant to
+be pasted line by line and `set -e` does not survive that. The first draft used
 `grep -c … # expect 0`, which prints its result and moves on — an expectation stated beside a command
 instead of enforced by it, the same class as plan review r3 finding 2 one artifact over.
 

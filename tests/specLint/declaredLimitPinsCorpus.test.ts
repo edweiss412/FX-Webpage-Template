@@ -200,12 +200,13 @@ describe("declared-limit pins — §2.6 corpus regression (AC-6)", () => {
         "docs/superpowers/plans/2026-08-04-review-round-economy.md | tests/docs/_metaReviewRoundEconomy.test.ts | PASSES a stale none followed by candidate lines - documented limit §5.7",
         "docs/superpowers/plans/2026-08-04-review-round-economy.md | tests/docs/_metaReviewRoundEconomy.test.ts | does NOT resolve an id defined only as a body sub-item - the documented limit",
         "docs/superpowers/plans/2026-08-09-m-wave-2/plan.md | tests/docs/interactionTimingScan.test.ts | a COMPUTED key is a documented limit, not a site",
-        // EIGHT rows for ONE pin, and the fan-out is the arm working as designed.
+        // NINE rows for ONE pin, and the fan-out is the arm working as designed.
         // `fix/premisescan-registrar-accept-sets` added a genuine declared-limit pin
         // to premiseScan's suite -- a test asserting the ZERO that `t.premise(...)` is
         // not credited, which spec section 3.4 calls a documented limit -- and the
         // advisory is keyed (plan, suitePath, title), so it fires once per plan that
-        // names that suite. Eight plans do.
+        // names that suite. Nine plans do -- eight when this pin landed, and a ninth
+        // when merging main brought the sibling arc's plan, which carries the same pin.
         //
         // Recorded rather than dispositioned or reworded, deliberately. A disposition
         // row is for a phrase-bearing title that is NOT a pin, and this one is; and
@@ -224,10 +225,10 @@ describe("declared-limit pins — §2.6 corpus regression (AC-6)", () => {
     );
   });
 
-  it("draws advisories on exactly ELEVEN distinct plans", () => {
+  it("draws advisories on exactly TWELVE distinct plans", () => {
     // Derived from the same scan, so it needs the same population floor: over an empty
-    // advisory set `.size` is 0, and 0-vs-3 would read as a cardinality regression
-    // rather than as a cardinality regression.
+    // advisory set `.size` is 0, and 0-vs-12 would read as a cardinality regression
+    // rather than as the scan having produced nothing at all.
     premise("corpus advisories to group by plan", corpusAdvisories().length, 0);
     // A companion to the set, not a substitute for it: this is derived FROM the set
     // above rather than typed as an independent cardinality.

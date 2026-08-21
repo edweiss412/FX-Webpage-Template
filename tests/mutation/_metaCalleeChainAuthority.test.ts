@@ -26,6 +26,16 @@ import { premise, premiseHolds } from "../_shared/premise";
  * the file and reports whatever it finds — a site added tomorrow reds by
  * default rather than being silently exempt.
  *
+ * **THIS CHECK IMPOSES A DESIGN CONSTRAINT ON THE CODE, AND THAT IS WHAT IT IS
+ * FOR.** Aliases are tracked by ASSIGNMENT, so a chain peel written as
+ * `node = unwrap(node)` launders the callee read across a function boundary and
+ * the authority goes invisible to the check that exists to find it. That is not
+ * a limitation to work around: it is the check requiring the peel to stay
+ * something a reader - and a tracker - can follow. `calleeChain` therefore uses
+ * a PREDICATE to decide whether to peel and keeps the peel an assignment. When
+ * this premise fails after a refactor, the question is whether the refactor
+ * hid the authority, not whether the check needs another exemption.
+ *
  * The one permitted reader is named here and NOWHERE ELSE, and the test proves
  * the exemption is live rather than vacuous: `calleeChain` must itself be
  * detected before it is excused.
