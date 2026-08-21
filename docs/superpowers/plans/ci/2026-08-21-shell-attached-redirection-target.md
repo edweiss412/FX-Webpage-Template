@@ -183,7 +183,7 @@ ATTRIBUTION predicate**, plus Task 2's opening-line and zero-site assertions, wh
 mid-construct stop breaks by handing the remainder to top-level text.
 
 The general point is the one rule 17 makes: a killer NAMED in a plan is a claim until the variant
-is built and the check is observed failing. Three of the four killers this row named were wrong,
+is built and the check is observed failing. Two of the three killers this row named were wrong,
 and reading the plan a second time would not have found it.
 
 ### 2b-bis. The killer audit, run at implementation time — ABSENT, PRESENT-BUT-UNPROVEN, PROVEN
@@ -325,7 +325,7 @@ recorded item 3 as covered while the likeliest off-by-one walked straight throug
 ## 2c. Why Tasks 1 and 2 are two tasks, and why this order
 
 **The split is legitimate under the can-each-half-reach-red-then-green test.** Task 1's eleven
-subjects (A–K) are all DELIMITABLE spellings; Task 2's three cases are the UNTERMINATED ones. The
+subjects (A–K) are all DELIMITABLE spellings; Task 2's cases are the UNTERMINATED ones, and the shipped table carries SEVEN positives - one per opener in the accept-set table - not the three an earlier draft named. The
 two case sets are disjoint, so each task reaches its own red and its own green at its own commit
 boundary. Neither is a guard whose acceptance condition is that the suite stays red.
 
@@ -451,7 +451,7 @@ mutant it kills.
      claim of unboundedness. G nests two deep, so an
      implementation capped at two passes A-K, the operator-derived test and the sibling-body test.
      `cat >"${OUT:-${OTHER:-$(psql -c 'select 1')}}"` is one edit from G and bash executes it; the
-     assertion is on depth generally rather than on that one fixture.
+     assertion covers depths 2, 3 and 4 rather than on that one fixture.
    - **Attached-target population within one chunk is unvaried too.** The sibling-body repair varies
      bodies inside ONE target; a collector that walks every body of the FIRST substitution-bearing
      attached target and ignores later ones still passes. `cat >"$(true)"` on one line followed by
@@ -469,7 +469,7 @@ mutant it kills.
 
 **Retire the three pins in this commit** (§2 above), and hold both controls unchanged.
 
-**Four pre-dispatch mutants, per the string-presence discipline.** For each of the eleven firing
+**Four pre-dispatch mutant FAMILIES, per the string-presence discipline, each covering a SUBSET of the firing cases rather than all eleven** — (a) omits D, F, H, I and J; (b) omits H and I; (c) omits H; (d) omits C, D, G, H, I and J. For the cases each family does cover, and NOT for all eleven firing
 cases: (a) empty the body so the target carries no command — the case must go quiet, proving it
 tracks the nested body and not the presence of a target; (b) replace `psql` with `notpsql` — quiet,
 proving it reads the command word; (c) add `-X` to the body — the site must report with
@@ -501,7 +501,7 @@ H as taking the universal predicate in its subject row, which the implementation
 between the operator and the target — because a case whose fixture drifted to a detached spelling
 would pass through the arm that already works and prove nothing about this one.
 
-## Task 2 — a target the machinery cannot delimit is REPORTED, not discarded
+## Task 2 — a target the machinery cannot delimit, and which carries a substitution opener, is REPORTED, not discarded
 
 <!-- task: red=`pnpm exec vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:3050` why=`cases derived from the accept-set opener table assert that an attached target carrying an unterminated construct yields an IndirectionHit naming it; the production surface is scanShellIndirection, which emits no such hit for any undelimitable target, so all three cases read an empty hit array until the channel exists` ac=AC-3 -->
 
@@ -548,7 +548,7 @@ signaled, never silently wrong.* Task 1 supplies "correct"; Task 2 supplies "sig
 
 **Negative twin, per the both-directions rule.** Each unterminated case is paired with its
 terminated sibling one edit away, asserting NO unlexable report — otherwise a channel that
-reports everything satisfies all three positives while being maximally broken.
+reports everything satisfies every positive in the table while being maximally broken - which is why the block pairs each opener with its TERMINATED twin rather than resting on the positives alone.
 
 **Each unlexable case also asserts ZERO `PsqlSite`s.** An implementation that emits the required
 `IndirectionHit` AND fabricates a `PsqlSite` alongside it passes both the positive and the negative
@@ -690,7 +690,7 @@ both ledger files and can reintroduce a row or a marker.
 |---|---|---|
 | AC-1 | all eleven acceptance-set subjects meet their expectation | Task 1 |
 | AC-2 | four positive controls still report | Task 1 |
-| AC-3 | undelimitable target REPORTED as unlexable | Task 2 |
+| AC-3 | undelimitable target CARRYING A SUBSTITUTION OPENER reported as unlexable; one without stays quiet | Task 2 |
 | AC-4 | `F11` control unchanged | Task 1 |
 | AC-5 | corpus finding set unchanged, digest held (`--expect`, not the bare reporter) | Step 3 |
 | AC-5b | the digest still DISCRIMINATES on every field §5 forbids moving | Step 3 |

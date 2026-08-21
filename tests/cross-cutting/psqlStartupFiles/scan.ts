@@ -291,10 +291,21 @@
  *    never becomes an argv word, and the site path stays byte-identical BY
  *    CONSTRUCTION because `scanShellText` passes no `targets` array.
  *    What REMAINS a limit, and is narrower:
- *      * An UNDELIMITABLE target - a construct opened and never closed - is
- *        REPORTED as an `IndirectionHit` naming it, never resolved. The report
- *        says the target is unreadable; it does not say what it would have
- *        evaluated to. Conservative-and-loud is the permitted direction.
+ *      * An UNDELIMITABLE target - a construct opened and never closed -
+ *        CARRYING A SUBSTITUTION OPENER is REPORTED as an `IndirectionHit`
+ *        naming it, never resolved. The report says the target is unreadable;
+ *        it does not say what it would have evaluated to.
+ *        Conservative-and-loud is the permitted direction.
+ *      * An undelimitable target carrying NONE of the three openers stays
+ *        SILENT, and that is a documented limit rather than a miss. Nothing in
+ *        such a span can execute, so there is no call site to miss; and firing
+ *        there would turn the live corpus's ordinary attached targets into
+ *        advisories, which the consequence bound forbids in the other
+ *        direction. `SUBSTITUTION_OPENER` is that firing condition. Recorded
+ *        here, in the surface's own limits record, because prose narrowed
+ *        elsewhere is prose a reader of this file never sees (diff round 3
+ *        found the universal claim standing at seventeen sites, this one
+ *        included).
  *      * That report is scoped to the surfaces production READS. Shell text
  *        embedded in a JS string is not one of them: there, `<` is a
  *        comparison, a JSX tag or a regex, and the ungated report fired on nine

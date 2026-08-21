@@ -235,7 +235,7 @@ drift detector: the repair must leave it unchanged apart from this arc's own con
 
 **Delimit the attached target with the construct-aware machinery the lexer already ships; RETAIN
 the dequoted target for the callers that ask for one; collect its nested bodies into `nested`; and
-REPORT anything the machinery cannot delimit.**
+REPORT anything the machinery cannot delimit THAT CARRIES A SUBSTITUTION OPENER.**
 
 Four parts, no new grammar. Part 2 is new at spec round 1 — the three-part design could not
 satisfy case F at all, and finding 1 is why.
@@ -367,7 +367,12 @@ record would otherwise read a finished document as a ratified one.
 ## 5. Convergence criterion
 
 - **Consequence bound.** Every attached-target form is either lexed and its nested bodies scanned,
-  or REPORTED as unlexable: **correct or signaled, never silently wrong.** A worst case of
+  or REPORTED as unlexable: **correct or signaled, never silently wrong.** The report's firing
+  condition is narrower than "undelimitable", and stating it as the universal was wrong: it fires
+  only on an undelimitable span CARRYING A SUBSTITUTION OPENER (`SUBSTITUTION_OPENER` in
+  `tests/cross-cutting/psqlStartupFiles/scan.ts`). An undelimitable span carrying none of the three
+  is unreadable AND harmless - nothing in it can execute - so silence there is correct rather than a
+  miss, and reporting it would have made advisories of the live corpus's ordinary attached targets. A worst case of
   conservative-over-report-plus-surfaced-signal is a DOCUMENTED LIMIT, not a finding; silent
   discard and wrong attribution are the two forbidden directions. Zero false advisories on the live
   corpus: it holds ZERO instances of this family today (§2.3), so a corpus scan before and after
@@ -446,8 +451,10 @@ survive. A repair that reported BOTH rows would be loud in a direction the shell
    operationally — any movement there fails the digest — but it is not separately censused, and
    that is stated rather than implied.
 
-2. **A target whose construct the accept-set cannot delimit is REPORTED, not resolved.** The
+2. **A target whose construct the accept-set cannot delimit AND which carries a substitution
+   opener is REPORTED, not resolved.** The
    report names the target as unlexable; it does not say what the target would have evaluated to.
+   Without a substitution opener the span can execute nothing, and it stays deliberately quiet.
    Conservative-and-loud is the permitted direction; wrongly-silent is not.
 
 2b. **That report is scoped to the surfaces production READS, and shell inside JS is not one.**

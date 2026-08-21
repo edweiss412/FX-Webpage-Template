@@ -6371,7 +6371,11 @@ describe("an executing psql inside an ATTACHED redirection target", () => {
     );
   });
 
-  // The string-presence discipline: for each firing case, four mutants that a
+  // The string-presence discipline. Each family below covers a SUBSET of the
+  // firing cases, not all eleven: (a) omits D, F, H, I and J; (b) omits H and I;
+  // (c) omits H; (d) omits C, D, G, H, I and J. Diff round 3 found this header
+  // claiming four mutants for EVERY case, which the tables do not carry.
+  // For the cases each family does cover, mutants that a
   // presence assertion cannot tell apart from the real thing. (a) an EMPTY body
   // proves the case tracks the nested body rather than the presence of a
   // target; (b) `notpsql` proves it reads the command word; (c) `-X` proves it
@@ -6464,7 +6468,7 @@ describe("an executing psql inside an ATTACHED redirection target", () => {
     }).toEqual({ sites: 1, nested: [true], unlexableAdvisories: 0 });
   });
 
-  test("mutant (d): every body still reports from a DETACHED position", () => {
+  test("mutant (d): each covered body still reports from a DETACHED position", () => {
     const rows: Array<[label: string, source: string]> = [
       ["A bare backtick", "cat > `psql -c 'select 1'`\n"],
       ["B dollar-paren", "cat > \"$(psql -c 'select 1')\"\n"],
@@ -6730,7 +6734,7 @@ describe("an executing psql inside an ATTACHED redirection target", () => {
   });
 
   // W5: G nests two deep, so an implementation capped at two passes A-K, the
-  // operator-derived test and the sibling-body test. This asserts three concrete
+  // operator-derived test and the sibling-body test. This asserts THREE concrete
   // depths rather than depth generally, so it kills a cap at TWO or THREE and a
   // cap at FOUR would survive it. Stated as the limit it is: diff round 2 found
   // both the plan and this name claiming "unbounded", which the fixture list
@@ -6817,7 +6821,7 @@ describe("an executing psql inside an ATTACHED redirection target", () => {
 // `${` exactly as a plain double quote is from the locale form.
 // ---------------------------------------------------------------------------
 
-describe("an ATTACHED target the accept-set cannot delimit is REPORTED, not discarded", () => {
+describe("an ATTACHED target the accept-set cannot delimit, carrying a substitution opener, is REPORTED", () => {
   /** One row per opener in the accept-set table, each with the TERMINATED twin
    *  that is one edit away. Without the twin a channel that reports EVERY
    *  attached target satisfies all seven positives while being maximally
