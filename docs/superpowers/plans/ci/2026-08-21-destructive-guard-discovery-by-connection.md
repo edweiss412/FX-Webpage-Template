@@ -640,6 +640,18 @@ live tree that is green the moment its rows exist, the second measures, the thir
 
 ---
 
+## 4b. Review state at handover — DISPOSITIONED, not converged
+
+Plan round 1 (BLOCKING, 5) and round 2 (BLOCKING, 8) were accepted in full and repaired; round 3
+returned `no_verdict` because the Codex weekly usage limit was reached (three 10 s attempts, reset
+2026-08-25 17:47), recorded as the corpus row it is. The orchestrator's ruling (2026-08-21): the plan
+closes DISPOSITIONED on two repaired BLOCKING rounds, the implementation proceeds now, and the
+implementation's whole-diff review — which was always the plan residue's re-reader — lands after the
+reset on the FINAL tree, so implementation time and the wall overlap rather than stack. The thirteen
+repairs after round 2 were reviewed by nobody at this stage; the diff stage reads them. **The
+whole-diff review is WALL-GATED until 2026-08-25 17:47 or alternate Codex auth**: the implementer
+sequences CI and the score FIRST and holds at readiness if the wall has not lifted.
+
 ## 5. Checklist
 
 - [ ] five red-contract tasks (`task:acquisition-and-sites` … `task:report-shape`), each
