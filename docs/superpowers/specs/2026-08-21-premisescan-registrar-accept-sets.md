@@ -230,6 +230,41 @@ With every level collected, depth genuinely stops being one, and the limit says 
 the case rather than because it was assumed.
 
 
+### 3.6 The hook set is DERIVED too, from `interface Hooks`
+
+An earlier draft derived the modifiers from the declaration and left the hooks as a hand-written
+candidate array filtered by runtime presence — which relocates `HOOK_REGISTRARS` rather than deriving
+it, so a seventh installed hook outside the array stays invisible and the non-empty floor still
+passes. Spec review r4 finding 2, and the same partial-derivation defect as r2 finding 1, one set
+over.
+
+The declaration names them:
+
+```
+interface Hooks declares (6): beforeAll, afterAll, aroundAll, beforeEach, afterEach, aroundEach
+ADDS : aroundAll, aroundEach
+DROPS: (none)
+```
+
+Extracted from `interface Hooks<ExtraContext>`, with the same abort-on-empty floor the modifier
+extractor carries. **All three sets now derive from the same authority by the same method**, which is
+what makes R2 a property of the design rather than a claim about two of its three sets.
+
+### 3.7 A hook called on ANY object reports — the alias case
+
+`describe("outer", (t) => { t.beforeEach(…); })` is a valid suite factory: the declaration permits
+`(test: TestAPI) => …` with any parameter name, so the object is a local binding that peels to
+nothing. Requiring the object to resolve through `registrarRoot` leaves it silently free — spec
+review r4 finding 1.
+
+**The rule therefore keys on the PROPERTY NAME alone: `<anything>.beforeEach(…)` is a hook call.**
+Resolving the object would mean deciding what a local parameter is bound to, which is the binding
+analysis this surface does not do. Keying on the name is total, needs no resolution, and its worst
+case is an over-report on an unrelated object that happens to expose a member with a hook's name —
+a conservative report with a named cause, which §6's bound permits, against a silent free, which it
+forbids. Recorded as §5 L5.
+
+
 ---
 
 ## 4. AC-1 does not move
@@ -258,6 +293,7 @@ required does not arise here.
 | --- | --- | --- |
 | **L1** | The derived sets are read from the INSTALLED package at authoring time, not at scan time. A Vitest upgrade that adds a modifier does not take effect until the sets are re-derived. | Reading them at scan time would make the scanner's verdicts depend on `node_modules`, which is not tracked. The repair is a re-derivation step, and a structural test pins the derived set against the installed surface so an upgrade REDS rather than drifting silently. |
 | **L2** | A chain form deeper than the ones measured is resolved by the interleaved peel and every level's eager arguments are collected, so it is not separately fixtured. | Depth is not a decision input — but only BECAUSE §3.5 collects the whole chain. An earlier draft made this claim while the collector read one level, which made it false and cost spec review r3 finding 1. The peel and the collector are one traversal. |
+| **L5** | A hook-named member called on an unrelated object — `logger.afterAll(…)` — is reported. | The rule keys on the property NAME because resolving the object means binding analysis this surface does not do. A conservative over-report with a named cause is what §6's bound permits; a silent free on the valid `(t) => t.beforeEach(…)` factory alias is what it forbids. Zero enrolled instances of either shape. |
 | **L4** | **A modifier call whose result is BOUND before invocation invents a registration and misses the real one.** `const p = test.each(rows); p("real", fn)` records `<test at line N>` and never sees `p("real", fn)`. | **PRE-EXISTING and bracketed, not caused or widened here.** Measured on `origin/main`'s unmodified scanner, which already carries `each` in `MODIFIERS`: that fixture yields `<test at line 3>: environment-free` today. The declaration-derived set adds no new builder to this class — §3.2's exclusion of `extend`, `override` and `scoped` is precisely what stops this change widening it. Closing it means deciding a registration by whether its result is invoked, which is execution reasoning this surface does not do. Raised as spec review r1 finding 1, whose widening half is fixed and whose pre-existing half is documented here. |
 | **L3** | `bench(…)` registrations are not censused. | The declaration types `bench` as a benchmark API rather than a `SuiteAPI` or `TestAPI`, so a derivation that reads the declaration never admits it — the exclusion is derived, not excepted. A benchmark is not a test and carries no premise obligation. Zero enrolled call sites. |
 
