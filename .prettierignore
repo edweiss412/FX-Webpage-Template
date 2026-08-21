@@ -73,6 +73,15 @@ docs/
 # so a reformat does not silently trip that gate.
 DESIGN.md
 
+# declared-limit-pin arm fixtures: these plan documents ARE the recognizer's input,
+# and the arm reads structure prettier normalizes — `**Files:**` block shape, the
+# blank line after a header that makes a declaration DECLINE, list markers, and
+# indentation. Measured, not assumed: a prettier pass over plan-pre-step3b.md made
+# the PRE plan draw 0 advisories where the corpus test requires exactly 1
+# (tests/specLint/declaredLimitPinsCorpus.test.ts). Same posture as the parser and
+# cross-cutting fixture corpora above.
+tests/specLint/__fixtures__/declaredLimitPins/
+
 # Editor / OS
 .DS_Store
 

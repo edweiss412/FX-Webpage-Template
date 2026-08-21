@@ -38,6 +38,19 @@ export interface LintResult {
   findings: Finding[];
   inventory: InventoryGroup[];
 }
+/**
+ * One enrolled guard surface, INJECTED as plain data (spec §4). `lib/` never imports
+ * `tests/mutation/source/registry.ts`: the adapter reads `GUARD_SURFACES` and passes
+ * this projection, so the mutation harness scores the LOGIC while the registry stays
+ * the registry. A null injected table means the arm runs nothing, which keeps every
+ * existing `runLint` caller compiling and byte-identical in behavior.
+ */
+export interface EnrolledSurface {
+  id: string;
+  sourcePath: string;
+  suitePaths: readonly string[];
+}
+
 export interface FileResolver {
   /** null = tracked but unreadable OR tracked symlink (spec §7); throw = infra fault (adapter exits 2) */
   readFileLines(path: string): string[] | null;
