@@ -7,7 +7,7 @@ this one; a figure typed by hand from memory is the next stale vector.
 
 - Gate: **GREEN**
 - Tests: `7 passed (7)`
-- Duration: `231.10s`
+- Duration: `197.08s`
 - Run exit: `0`
 - Unaccepted survivors: **0** (the gate reported none)
 
@@ -33,7 +33,7 @@ row itself, and fixtures are expanded by the same command that stamps them.
 | suite | `1ba84c533fb4` | `tests/specLint/declaredLimitPinsFiles.test.ts` |
 | suite | `caf533c7ee25` | `tests/specLint/declaredLimitPinsObligation.test.ts` |
 | suite | `1c144ba16ade` | `tests/specLint/declaredLimitPinsWiring.test.ts` |
-| suite | `1b56b2d3c6ae` | `tests/specLint/declaredLimitPinsCorpus.test.ts` |
+| suite | `c9aef4b65343` | `tests/specLint/declaredLimitPinsCorpus.test.ts` |
 | suite | `b244adebed0d` | `tests/specLint/declaredLimitPinsCli.test.ts` |
 | suite | `c5d6edb86073` | `tests/specLint/_metaDeclaredLimitPins.test.ts` |
 | fixture | `addfb8795142` | `tests/specLint/__fixtures__/declaredLimitPins/plan-post-step3b.md` |
