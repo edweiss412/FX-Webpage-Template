@@ -60,13 +60,18 @@ export function evaluateSurface(
   // the environment — WHEN a record is written and WHETHER it survives are
   // independent requirements, and this module owns only the first. A write
   // failure reports on stderr and never reaches the gate (AC-14).
-  emitRunRecord({
+  // The return is deliberately NOT re-reported here: `writeRunRecord` already
+  // writes the failure to stderr, and a second message on one failure is noise
+  // that reads like two failures. What matters at this call site is that a
+  // typed failure NEVER becomes a throw — proved on this path, not the helper's.
+  void emitRunRecord({
     surfaceId: surface.id,
     passed: result.passed,
     score: result.score.value,
     outcomes: run.outcomes,
     ...(options.recordDir === undefined ? {} : { dir: options.recordDir }),
   });
+
 
   return { run, result };
 }

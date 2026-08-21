@@ -53,6 +53,7 @@ vi.mock("node:child_process", async (importOriginal) => {
   };
 });
 
+const { premiseHolds } = await import("../../_shared/premise");
 const { evaluateSurface, registerSurfaceCases } = await import("./surfaceCases");
 const { OPERATOR_NAMES } = await import("./operators");
 
@@ -185,7 +186,7 @@ describe("surfaceCases — the record lands on ALL FOUR cells of outcome x envir
         timeoutEveryNth = cell.everyNth;
         mutantCalls = 0;
         const id = `matrix-${cell.name.replace(/[^a-z]+/gi, "-")}`;
-        const { result } = evaluateSurface(fixture(id), { write: () => {}, recordDir: dir });
+        const { run, result } = evaluateSurface(fixture(id), { write: () => {}, recordDir: dir });
 
         // The cell is what it claims to be. Without this, all four cells could be
         // the SAME cell and the matrix would prove one thing four times.
@@ -193,11 +194,20 @@ describe("surfaceCases — the record lands on ALL FOUR cells of outcome x envir
 
         const files = listRecords(dir, id);
         expect(files).toHaveLength(1);
-        // Entry count, not existence: a writer that creates the file and
-        // serializes nothing satisfies an existence check.
         const back = readRunRecord(join(dir, files[0] as string));
-        expect(back?.outcomes.length).toBeGreaterThan(0);
         expect(back?.surfaceId).toBe(id);
+
+        // CONTENT-BOUND, derived from the run that produced it. Counts and ids
+        // alone are satisfied by a writer persisting CONSTANTS — a record that
+        // reports a failing run as passing, or binds a verdict to the wrong
+        // mutant, is exactly the wrong-attribution direction the bound forbids.
+        expect(back?.passed).toBe(result.passed);
+        expect(back?.score).toBe(result.score.value);
+        expect(back?.outcomes.map((o) => o.siteId)).toEqual(run.outcomes.map((o) => o.siteId));
+        expect(back?.outcomes.map((o) => o.verdict)).toEqual(run.outcomes.map((o) => o.verdict));
+        expect(back?.outcomes.map((o) => (o.children ?? []).map((c) => c.kind))).toEqual(
+          run.outcomes.map((o) => (o.children ?? []).map((c) => c.kind)),
+        );
       } finally {
         if (priorCi === undefined) delete process.env.CI;
         else process.env.CI = priorCi;
@@ -205,5 +215,81 @@ describe("surfaceCases — the record lands on ALL FOUR cells of outcome x envir
       }
     });
   }
+});
+
+describe("surfaceCases — an unwritable sink NEVER moves the gate (AC-14, diff R2 S2)", () => {
+  it("does not throw, and returns the same verdict it would with a writable dir", async () => {
+    const { mkdtempSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+
+    timeoutEveryNth = 1;
+    mutantCalls = 0;
+    const writable = mkdtempSync(join(tmpdir(), "fx-sc-ok-"));
+    let reference: { passed: boolean; score: number };
+    try {
+      const { result } = evaluateSurface(fixture("sink-ok"), { write: () => {}, recordDir: writable });
+      reference = { passed: result.passed, score: result.score.value };
+    } finally {
+      rmSync(writable, { recursive: true, force: true });
+    }
+
+    // `/dev/null/child` cannot be created: mkdir returns ENOTDIR. The FAILURE is
+    // proved on the production path, not on the helper — `writeRunRecord`
+    // returning a typed failure says nothing about what `emitRunRecord` does with
+    // it, and an implementation that throws there passes every helper-level case.
+    timeoutEveryNth = 1;
+    mutantCalls = 0;
+    // The real channel is `process.stderr.write` — a console.error spy observes
+    // nothing and its empty result would read as "reported nothing" rather than
+    // as "watched the wrong pipe".
+    const errs: string[] = [];
+    const priorErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      errs.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      const { result } = evaluateSurface(fixture("sink-ok"), {
+        write: () => {},
+        recordDir: "/dev/null/child",
+      });
+      // Same verdict, same score: the sink is not permitted to move either.
+      expect(result.passed).toBe(reference.passed);
+      expect(result.score.value).toBe(reference.score);
+      // ...and it is not permitted to be silent about it either: AC-14 has two
+      // halves and a sink that swallows the failure satisfies only one.
+      expect(errs.join("")).toMatch(/could not write/i);
+      expect(errs.join("")).toMatch(/does not change the gate/i);
+    } finally {
+      process.stderr.write = priorErr as typeof process.stderr.write;
+    }
+  });
+});
+
+describe("surfaceCases — the console notice carries THIS run's values (diff R2 S5)", () => {
+  it("prints the site, suite and duration the gate actually produced", () => {
+    timeoutEveryNth = 1;
+    mutantCalls = 0;
+    const out: string[] = [];
+    const { result } = evaluateSurface(fixture("notice-attribution"), {
+      write: (s) => {
+        out.push(s);
+      },
+    });
+    const notices = result.notices.filter((n) => n.kind === "timeout-kill");
+    premiseHolds("this fixture really produced timeout notices", notices.length > 0);
+
+    const text = out.join("");
+    for (const n of notices) {
+      // DERIVED from the notice, never a shape: a site-shaped token, the
+      // fixture's only suite name and any integer duration are all satisfied by a
+      // constant fabricated line, which is wrong attribution that reads correct.
+      expect(text).toContain(n.site);
+      expect(text).toContain(String(n.durationMs));
+    }
+    // ...and the durations are not all one constant the fixture makes trivial.
+    expect(notices.every((n) => Number.isFinite(n.durationMs))).toBe(true);
+  });
 });
 

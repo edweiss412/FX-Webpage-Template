@@ -286,7 +286,14 @@ describe("workflow — the source-shards JOB uploads the records directory (AC-1
     const wf = parseYaml(readFileSync(".github/workflows/mutation-harness.yml", "utf8")) as {
       jobs: Record<
         string,
-        { steps?: { uses?: string; if?: string; with?: Record<string, string> }[] }
+        {
+          steps?: {
+            uses?: string;
+            if?: string;
+            "continue-on-error"?: boolean;
+            with?: Record<string, string>;
+          }[];
+        }
       >;
     };
     const job = wf.jobs["source-shards"];
@@ -297,7 +304,12 @@ describe("workflow — the source-shards JOB uploads the records directory (AC-1
     const uploads = steps.filter(
       (s) => typeof s.uses === "string" && s.uses.startsWith("actions/upload-artifact"),
     );
-    const records = uploads.filter((s) => String(s.with?.path ?? "").includes(DEFAULT_RECORD_DIR));
+    // EXACT, not `includes`: `.mutation-records-missing/` contains the constant
+    // and uploads nothing, which is the already-repaired hidden-file defect
+    // reached by an ordinary typo instead.
+    const records = uploads.filter(
+      (s) => String(s.with?.path ?? "").replace(/\/+$/, "") === DEFAULT_RECORD_DIR,
+    );
     // The surfaces run in the `source-shards` MATRIX, so a correct step under
     // `source-gates` uploads nothing and all four shard workspaces are still
     // discarded — which a file-scoped existence check cannot distinguish from a
@@ -307,14 +319,19 @@ describe("workflow — the source-shards JOB uploads the records directory (AC-1
     // `if: always()` is load-bearing: conditioned on success it reproduces the
     // failure-only defect, conditioned on failure it reproduces it inverted.
     expect(step.if).toBe("always()");
-    expect(step.with?.path).toContain(DEFAULT_RECORD_DIR);
+    expect(String(step.with?.path ?? "").replace(/\/+$/, "")).toBe(DEFAULT_RECORD_DIR);
     // Shard-scoped, so four matrix jobs cannot collide on one constant name.
     expect(step.with?.name).toContain("${{ matrix.shard }}");
   });
 
   it("is NOT satisfied by the same step living under another job", () => {
     const wf = parseYaml(readFileSync(".github/workflows/mutation-harness.yml", "utf8")) as {
-      jobs: Record<string, { steps?: { uses?: string; with?: Record<string, string> }[] }>;
+      jobs: Record<
+        string,
+        {
+          steps?: { uses?: string; "continue-on-error"?: boolean; with?: Record<string, string> }[];
+        }
+      >;
     };
     const elsewhere = Object.entries(wf.jobs)
       .filter(([name]) => name !== "source-shards")
@@ -332,13 +349,18 @@ describe("workflow — the source-shards JOB uploads the records directory (AC-1
 describe("workflow — a step that uploads a HIDDEN directory must say so (diff R1 F1)", () => {
   it("declares include-hidden-files because the record dir is dot-prefixed", () => {
     const wf = parseYaml(readFileSync(".github/workflows/mutation-harness.yml", "utf8")) as {
-      jobs: Record<string, { steps?: { uses?: string; with?: Record<string, string> }[] }>;
+      jobs: Record<
+        string,
+        {
+          steps?: { uses?: string; "continue-on-error"?: boolean; with?: Record<string, string> }[];
+        }
+      >;
     };
     const step = (wf.jobs["source-shards"]?.steps ?? []).find(
       (s) =>
         typeof s.uses === "string" &&
         s.uses.startsWith("actions/upload-artifact") &&
-        String(s.with?.path ?? "").includes(DEFAULT_RECORD_DIR),
+        String(s.with?.path ?? "").replace(/\/+$/, "") === DEFAULT_RECORD_DIR,
     );
     premiseHolds("the records upload step still exists", step !== undefined);
 
@@ -360,6 +382,30 @@ describe("workflow — a step that uploads a HIDDEN directory must say so (diff 
     // run — no local gate can witness the step uploading nothing, so the empty
     // case has to be loud where it actually happens.
     expect(String(step!.with?.["if-no-files-found"])).toBe("error");
+    // ...and `error` ALONE would violate AC-14: an allowed record-write failure
+    // leaves the directory empty, and a leg that reds for it has moved the gate's
+    // verdict for a reason that is not the gate. The two requirements are only
+    // jointly satisfiable with the step opting out of failing its job.
+    expect(step!["continue-on-error"]).toBe(true);
+  });
+
+  it("keeps the JOB's verdict a function of the gate alone", () => {
+    // The pair above, asserted from the other side so neither half can be
+    // dropped quietly: whatever the empty-file policy says, the step must not be
+    // able to fail the job.
+    const wf = parseYaml(readFileSync(".github/workflows/mutation-harness.yml", "utf8")) as {
+      jobs: Record<
+        string,
+        { steps?: { uses?: string; with?: Record<string, string>; "continue-on-error"?: boolean }[] }
+      >;
+    };
+    const step = (wf.jobs["source-shards"]?.steps ?? []).find(
+      (s) => String(s.with?.path ?? "").replace(/\/+$/, "") === DEFAULT_RECORD_DIR,
+    );
+    premiseHolds("the records upload step still exists", step !== undefined);
+    const policy = String(step!.with?.["if-no-files-found"] ?? "warn");
+    if (policy === "error") expect(step!["continue-on-error"]).toBe(true);
+    else expect(["warn", "error"]).toContain(policy);
   });
 
   it("is LICENSED to error, because every shard really does run a surface", async () => {

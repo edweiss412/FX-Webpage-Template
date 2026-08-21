@@ -361,6 +361,15 @@ export function renderDeterminism(outcome: DeterminismOutcome): string {
     for (const f of outcome.infraFaults) lines.push(`  ${f}`);
   }
   lines.push(`stamp after: ${outcome.stampAfter.digest} over ${outcome.stampAfter.count} input(s)`);
+  // COVERAGE, stated on every run rather than left to be inferred from an empty
+  // list. A deciding suite may read inputs the registry does not declare — a
+  // corpus walk is the measured case — so "no declared input moved" is the
+  // claim this stamp can support, and it is strictly weaker than "nothing moved".
+  lines.push(
+    `stamp coverage: DECLARED inputs only (source, deciding suites, declared operators). ` +
+      `A suite that reads undeclared inputs — a corpus walk, a fixture tree — can change a ` +
+      `child's exit with both stamps identical. See spec §6 limit 10.`,
+  );
   if (outcome.inputsMoved.length > 0) {
     lines.push(
       `INPUTS MOVED DURING THE RUN — this distribution is NOT attributable to any current tree:`,

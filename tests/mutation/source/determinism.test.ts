@@ -818,3 +818,132 @@ describe("determinism — a TIMEOUT reaches the kind distribution as a timeout (
   });
 });
 
+describe("determinism — the rendering spells each child's KIND, not just its suite (diff R2 S6)", () => {
+  it("prints a timeout child AS a timeout, with the null exit code", () => {
+    const out = renderDeterminism({
+      kind: "result",
+      surfaceId: "s",
+      siteId: "op:1:1:x",
+      runs: 1,
+      observations: [
+        {
+          run: 1,
+          verdict: "KILLED",
+          exitCode: 124,
+          children: [{ suite: "a.test.ts", kind: "timeout", exitCode: null, durationMs: 180_000 }],
+        },
+      ],
+      verdicts: { KILLED: 1 },
+      kinds: { timeout: 1 },
+      infraFaults: [],
+      stampBefore: { digest: "a", files: {}, operators: "o", count: 0 },
+      stampAfter: { digest: "a", files: {}, operators: "o", count: 0 },
+      inputsMoved: [],
+    });
+    // A renderer printing `kind=exit exitCode=0` for this child satisfies every
+    // suite/duration assertion while retaining the unrelated aggregate line — so
+    // the operator-facing channel spells a TIMEOUT as an assertion kill, which is
+    // the exact ambiguity this arc exists to remove.
+    expect(out).toMatch(/a\.test\.ts kind=timeout/);
+    expect(out).toMatch(/kind=timeout exitCode=null/);
+    expect(out).not.toMatch(/a\.test\.ts kind=exit/);
+  });
+
+  it("prints an exit child AS an exit, so the line above is not constant", () => {
+    const out = renderDeterminism({
+      kind: "result",
+      surfaceId: "s",
+      siteId: "op:1:1:x",
+      runs: 1,
+      observations: [
+        {
+          run: 1,
+          verdict: "KILLED",
+          exitCode: 1,
+          children: [{ suite: "a.test.ts", kind: "exit", exitCode: 1, durationMs: 5 }],
+        },
+      ],
+      verdicts: { KILLED: 1 },
+      kinds: { exit: 1 },
+      infraFaults: [],
+      stampBefore: { digest: "a", files: {}, operators: "o", count: 0 },
+      stampAfter: { digest: "a", files: {}, operators: "o", count: 0 },
+      inputsMoved: [],
+    });
+    expect(out).toMatch(/a\.test\.ts kind=exit exitCode=1/);
+    expect(out).not.toMatch(/kind=timeout/);
+  });
+});
+
+describe("determinism adapter — EVERY refusal exits 2, not just the one (diff R2 S7)", () => {
+  // The complement, enumerated from the core's own refusal inputs rather than
+  // from a list typed here: an adapter returning 2 only for `runs` passed the
+  // shipped case, and the plan claimed the whole complement was covered.
+  const REFUSALS = ["runs", "surface", "site", "baseline", "population"] as const;
+
+  for (const input of REFUSALS) {
+    it(`exits REFUSED for a ${input} refusal`, () => {
+      const code = main(["--surface", "x", "--site", "y", "--runs", "1"], {
+        run: () => ({ kind: "refusal", input, detail: `refused: ${input}` }) as DeterminismOutcome,
+        render: renderDeterminism,
+        write: () => {},
+      });
+      expect(code).toBe(EXIT_REFUSED);
+    });
+  }
+
+  it("covers every refusal input the core can actually produce", () => {
+    // The list above is only a complement if it IS the complement. This case is
+    // what makes a new refusal kind fail here rather than pass unnoticed.
+    const produced = new Set<string>();
+    const surface = surfaceOf("psqlStartupScan");
+    reset(allGreen());
+    produced.add((runDeterminism({ surface: surface.id, site: "nope", runs: "1" }) as { input?: string }).input ?? "");
+    produced.add((runDeterminism({ surface: "nope", site: "x", runs: "1" }) as { input?: string }).input ?? "");
+    produced.add((runDeterminism({ surface: surface.id, site: "x", runs: "2.5" }) as { input?: string }).input ?? "");
+    reset({ ...allGreen(), [surface.suitePaths[0] as string]: 1 });
+    produced.add((runDeterminism({ surface: surface.id, site: firstSiteOf(surface.id), runs: "1" }) as { input?: string }).input ?? "");
+    for (const p of produced) expect(REFUSALS as readonly string[]).toContain(p);
+  });
+});
+
+describe("determinism — the rendering states WHAT THE STAMP COVERS (spec §6 limit 10)", () => {
+  const result = (): DeterminismOutcome => ({
+    kind: "result",
+    surfaceId: "psqlStartupScan",
+    siteId: "op:1:1:x",
+    runs: 1,
+    observations: [
+      {
+        run: 1,
+        verdict: "SURVIVED",
+        exitCode: 0,
+        children: [{ suite: "a.test.ts", kind: "exit", exitCode: 0, durationMs: 5 }],
+      },
+    ],
+    verdicts: { SURVIVED: 1 },
+    kinds: { exit: 1 },
+    infraFaults: [],
+    stampBefore: { digest: "a", files: { "x.ts": "1" }, operators: "o", count: 1 },
+    stampAfter: { digest: "a", files: { "x.ts": "1" }, operators: "o", count: 1 },
+    inputsMoved: [],
+  });
+
+  it("says DECLARED inputs only, on a run where nothing moved", () => {
+    // The case that matters is precisely the clean one: `inputsMoved: []` is
+    // where a reader is most likely to read "nothing moved" from a claim that
+    // only supports "no DECLARED input moved". A suite that reads a corpus walk
+    // can change a child's exit with both stamps byte-identical.
+    const out = renderDeterminism(result());
+    expect(out).toContain("DECLARED inputs only");
+    expect(out).toContain("§6 limit 10");
+  });
+
+  it("does not claim coverage on a REFUSAL, which stamped nothing", () => {
+    // The positive control: a renderer printing the coverage line unconditionally
+    // would state a boundary for a run that never took a stamp at all.
+    const out = renderDeterminism({ kind: "refusal", input: "runs", detail: "no" });
+    expect(out).not.toContain("stamp coverage");
+  });
+});
+

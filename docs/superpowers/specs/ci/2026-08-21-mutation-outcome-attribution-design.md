@@ -465,7 +465,13 @@ a rendering helper and therefore reds when the wiring is cut.
 6. **`durationMs` is wall clock**, so it includes time the child spent queued behind machine load. It answers "how long did this take" and not "how much work was done".
 7. **A `kind: "exit"` record cannot say WHY the child exited nonzero.** Child stdio is discarded (`tests/mutation/source/spawnBounded.ts:139`), so an assertion rejection, a compile failure and a collection failure are one category. Separating them needs captured output and is out of scope; §1.2's consequence bound is worded to certify only what the record delivers.
 8. **Probe 3's rate exclusion assumes INDEPENDENT trials**, which six serial runs in one process cannot establish — and correlated within-process state is exactly what an intra-leg mechanism would be (§2.4).
-7. **The 1.4x run-to-run spread measured in §2.4 is from six runs on one site.** It establishes that per-child duration is not stable; it does not characterize the distribution's tail.
+9. **The 1.4x run-to-run spread measured in §2.4 is from six runs on one site.** It establishes that per-child duration is not stable; it does not characterize the distribution's tail.
+
+10. **The provenance stamp covers the surface's DECLARED inputs only — its source, its deciding suites and its declared operators — and a deciding suite may read more than the registry declares.** `psqlStartupScan`'s suite walks the repository (3,544 files at the round-2 probe), so an ordinary edit to a scanned file can change a child's exit while both stamps are byte-identical and `inputsMoved` stays empty.
+
+    **The repair is NARROWING, not widening, and that is a deliberate choice against the alternative.** What a suite reads is not statically knowable — it is any path any transitively-imported module opens at runtime — so a stamp that tried to cover it would grow one input family per round and be a bigger target each time. Instead the CLAIM is narrowed to what the evidence supports: the rendering names its own coverage on every run, and `inputsMoved: []` reads as "no DECLARED input moved" rather than "nothing that could change the outcome moved". A conservative report plus a surfaced boundary is this spec's stated shape for exactly this case.
+
+    **Re-file trigger:** if a verdict is ever observed moving on a surface whose declared inputs are byte-identical across the two runs AND whose deciding suites read undeclared inputs, that is the incident this limit currently lacks — file it then, with the record pair as evidence, and the candidate repair is a per-surface DECLARED extra-input list rather than a discovered one.
 
 ---
 
