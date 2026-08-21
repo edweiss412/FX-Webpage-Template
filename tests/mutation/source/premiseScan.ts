@@ -2,6 +2,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
 
 import ts from "typescript";
+import {
+  isTransparent,
+  skipTransparent,
+  skipTransparentNode,
+} from "../../_shared/outerExpressions";
 
 /**
  * Classify each test in a suite by whether it can reach environment state
@@ -44,8 +49,84 @@ export type TestClassification = {
   exemption: string | null;
 };
 
-const REGISTRARS = new Set(["it", "test", "describe"]);
-const MODIFIERS = new Set(["each", "for", "skip", "only", "concurrent", "sequential", "todo"]);
+/**
+ * The three accept-sets, DERIVED from Vitest's own declaration rather than
+ * maintained by hand (spec §3.2).
+ *
+ * Committed literals rather than a call to the extractor, deliberately: a
+ * classifier that resolved `node_modules` at scan time would make every verdict
+ * depend on an install (§5 L1). `tests/mutation/_metaVitestSurfaceDerivation.test.ts`
+ * is what keeps them honest — it reds when an upgrade moves any of the three.
+ *
+ * Provenance, not data: each set names the extractor call that produced it.
+ */
+/** `deriveRegistrarsOfType("SuiteAPI")` — the registrars that open a SUITE, and
+ *  the set the walk's suite branch and the nested-suite prune both dispatch on.
+ *  Partitioned rather than hand-split at the two call sites: a registrar the
+ *  declaration adds on the suite side must reach the suite branch, and a
+ *  hand-written pair beside a derived union would put the accept-set defect one
+ *  level down where the upgrade-red cannot see it. */
+const SUITE_REGISTRARS = new Set(["describe", "suite"]);
+/** `deriveRegistrarsOfType("TestAPI")` — the registrars that register a TEST. */
+const TEST_REGISTRARS = new Set(["it", "test"]);
+/** Their union. `bench` is in neither, which is why this reads the DECLARATION:
+ *  the runtime exports it and admitting it would census a benchmark as a test. */
+const REGISTRARS = new Set([...SUITE_REGISTRARS, ...TEST_REGISTRARS]);
+/** `deriveModifiers()` — the chainable keys and curried members of BOTH
+ *  `ChainableSuiteAPI` and `ChainableTestAPI`, plus the condition-taking members
+ *  of `SuiteAPI` and `TestAPI`. The BUILDERS (`extend`, `override`, `scoped`,
+ *  `fn`) are absent by construction: they are not members of either chainable
+ *  declaration, so peeling `test.extend({})` to `test` and inventing a
+ *  registration out of a builder call is impossible here rather than excluded. */
+const MODIFIERS = new Set([
+  "concurrent",
+  "each",
+  "fails",
+  "for",
+  "only",
+  "runIf",
+  "sequential",
+  "shuffle",
+  "skip",
+  "skipIf",
+  "todo",
+]);
+/** `deriveCurriedModifiers()` — the modifiers whose CALL returns the
+ *  registration function rather than registering. A proper subset of
+ *  `MODIFIERS`, and the distinction decides which link of a chain holds the
+ *  PRODUCER the associated premise must be about (spec §3.3.2.2). */
+const CURRIED_MODIFIERS = new Set(["each", "for"]);
+
+/** The modifiers each API side actually declares. `shuffle` is suite-only and
+ *  `fails` is test-only; the union accepts `test.shuffle` and `suite.fails`,
+ *  which Vitest does not have. The union is still what the chain PEEL consults,
+ *  because peeling happens before the root is known - these decide validity
+ *  once it is. Derived from the declaration and pinned by
+ *  `_metaVitestSurfaceDerivation`. */
+const SUITE_MODIFIERS = new Set([
+  "concurrent",
+  "each",
+  "for",
+  "only",
+  "runIf",
+  "sequential",
+  "shuffle",
+  "skip",
+  "skipIf",
+  "todo",
+]);
+const TEST_MODIFIERS = new Set([
+  "concurrent",
+  "each",
+  "fails",
+  "for",
+  "only",
+  "runIf",
+  "sequential",
+  "skip",
+  "skipIf",
+  "todo",
+]);
 
 /** Parsed by EXTENSION: a `.tsx` suite read as TS turns `<div>x</div>` into a
  *  type assertion, so the classifier would be reasoning about an AST the file
@@ -61,19 +142,329 @@ const parse = (path: string, text: string): ts.SourceFile =>
     path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
 
-/** `it`, `test.each`, `describe.skip.each` … → the root identifier, else null. */
-/** The four hook registrars, in the one place both readers of them look. */
-const HOOK_REGISTRARS = /^(beforeEach|beforeAll|afterEach|afterAll)$/;
+/** `deriveHooks()` — the members of the runner's `interface Hooks`, in the one
+ *  place every reader of them looks. `aroundAll` and `aroundEach` have zero
+ *  enrolled call sites today, so accepting them is verdict-neutral now and
+ *  correct later; a hand-written list filtered by runtime presence could only
+ *  ever SUBTRACT, never add the member nobody thought of. */
+const HOOK_REGISTRARS = /^(afterAll|afterEach|aroundAll|aroundEach|beforeAll|beforeEach)$/;
 
-function registrarRoot(callee: ts.Expression): string | null {
-  let node: ts.Expression = callee;
-  // A registration call may itself be the RESULT of a call: test.each(rows)(...)
-  while (ts.isCallExpression(node)) node = node.expression;
-  while (ts.isPropertyAccessExpression(node)) {
-    if (!MODIFIERS.has(node.name.text)) return null;
-    node = node.expression;
+/** The associated-placement premise calls (spec §3.3.2.2), named beside the
+ *  hook set because `calleeNamed` is parameterised by the set and the two are
+ *  its only arguments. */
+const PREMISE_CALLS = /^premise(Holds)?$/;
+
+/**
+ * Does this callee NAME one of `names`?
+ *
+ * ONE predicate for three sites, parameterised by the name set AND by whether a
+ * PROPERTY ACCESS counts -- and the second parameter is not a convenience. The
+ * three sites share one shape and fail in OPPOSITE directions:
+ *
+ *  - the two hook consumers fail toward a silent FREE. Vitest exposes the hooks
+ *    as properties (`test.beforeEach`) and a suite factory receives the API as a
+ *    parameter (`(t) => t.beforeEach(…)`), so a bare-identifier rule misses both
+ *    and reports a touching test as pure. Matching MORE there means reporting
+ *    more environment-touching, which is conservative.
+ *
+ *  - `loadTimePremises` feeds `hasPremise`. Matching more there means crediting
+ *    a registration with a premise it does not have -- FALSE CERTIFICATION, the
+ *    direction §6's bound names first. `logger.premise("rows", rows.length, 0)`
+ *    sitting before an `.each` registration would satisfy the associated-premise
+ *    requirement outright. So that site keeps requiring a bare identifier, and
+ *    not seeing `t.premise(…)` stays a DOCUMENTED LIMIT: reporting a premise as
+ *    missing when one exists is the conservative direction.
+ *
+ * A class sweep checks each instance's failure DIRECTION, not only its syntax.
+ * A repair whose safety argument is that it is syntactically identical to a safe
+ * one has not made a safety argument.
+ *
+ * The object is not resolved, only its member NAME read, so a hook-named member
+ * on an unrelated object over-reports (§5 L5) -- a conservative report with a
+ * named cause, which the bound permits.
+ */
+/**
+ * DELETED, NOT NARROWED: the hand-written wrapper list this file used to carry.
+ *
+ * It named parentheses, `as` and `!`, which is three of the SIX kinds
+ * TypeScript itself calls outer expressions -- `satisfies` and the angle-bracket
+ * assertion were simply absent, and nothing in the file could notice, because an
+ * enumeration is a completeness claim that no test can falsify without already
+ * knowing the missing member. Whole-diff review round 1 supplied the one it
+ * knew: `(test.beforeEach satisfies any)(envHook)` left the sibling test
+ * `environment-free` while that hook read `process.env`. FALSE CERTIFICATION,
+ * the direction the bound names first, arriving through a list rather than
+ * through logic.
+ *
+ * The repair is SUBTRACTIVE and it is the same move this arc has now made three
+ * times: replace "which members are transparent" -- an open set of spellings --
+ * with the closed question "does the compiler consider this transparent". The
+ * answer lives in `tests/_shared/outerExpressions.ts`, which fails loud rather
+ * than degrading to a list. Widening the list by two kinds would have shipped
+ * the same defect one round later.
+ */
+
+/**
+ * What a callee's name resolves to. THREE states, not two.
+ *
+ * The two-state form returned `null` for both "this callee bears no name" and
+ * "I do not recognise this shape", and every caller read `null` as the first.
+ * So `test["beforeEach"](…)` - an ordinary spelling with a perfectly decidable
+ * name - became "not a hook", and the file it touched was certified
+ * `environment-free` while it read `process.env`. FALSE CERTIFICATION arriving
+ * through the very function introduced to prevent it (diff review r2, F1).
+ *
+ * Centralising the decision proved UNIQUENESS, not COMPLETENESS. One incomplete
+ * chokepoint is a single point of silent-free, which is worse than the scattered
+ * inline reads it replaced. Centralisation is only safe with decline-and-surface
+ * built into it.
+ */
+type CalleeName =
+  | { kind: "named"; name: string }
+  /** A callee that genuinely carries no name - a call, a literal, an arrow. */
+  | { kind: "nameless" }
+  /** A shape whose name is not statically decidable: `test[k]`, a computed
+   *  member. NOT a licence to ignore it - every caller must be conservative. */
+  | { kind: "unrecognized" };
+
+/**
+ * Decidable spellings are decided ONCE, here; the rest decline.
+ *
+ * Peeling parentheses, `as` casts and non-null assertions is not "one branch per
+ * spelling" - they wrap an expression without changing which name it denotes,
+ * so they are the same read written differently. A bracket access with a STRING
+ * LITERAL is likewise the same name as the dot form by any reading. What is left
+ * over - a computed key - is genuinely undecidable, and that is what declines.
+ */
+function calleeName(callee: ts.Expression, propertyAccessCounts: boolean): CalleeName {
+  callee = skipTransparent(callee);
+  if (ts.isIdentifier(callee)) return { kind: "named", name: callee.text };
+  if (propertyAccessCounts && ts.isPropertyAccessExpression(callee))
+    return { kind: "named", name: callee.name.text };
+  // UNRECOGNIZED IS A SPECIFIC CASE, NOT THE DEFAULT, and getting that backwards
+  // cost three live tests. As the fallback it swallowed `import(…)` and a
+  // binary-expression callee - both of which plainly bear no name and can never
+  // be a hook - and the conservative consumers then carried them as MAYBE,
+  // flipping three tests in `ledgerClaimsCheck` to environment-touching that
+  // touch nothing. A conservative direction is still wrong when it fires on
+  // inputs that were never ambiguous.
+  //
+  // The only genuinely undecidable shape is a member access whose KEY is not
+  // statically readable: `test[k]`. Everything else is a name or is nameless.
+  if (ts.isElementAccessExpression(callee)) {
+    // THE KEY IS UNWRAPPED TOO. Peeling the callee and not its key left
+    // `test[("beforeEach")]` and `test["beforeEach" as string]` reading as
+    // undecidable - names this scanner could read perfectly well. It was
+    // invisible from every verdict, because `unrecognized` is carried
+    // conservatively by the consumers that grant freedom, so the outcome looked
+    // right while the reason was wrong. Found via a sibling arc's fixture
+    // (`computed-key-competing-declaration.ts` on the sendauth branch), which
+    // kills exactly this: an unwrap applied to the callee and not to the key.
+    let arg: ts.Expression = callee.argumentExpression;
+    arg = skipTransparent(arg);
+    if (propertyAccessCounts && ts.isStringLiteralLike(arg))
+      return { kind: "named", name: arg.text };
+    if (ts.isStringLiteralLike(arg)) return { kind: "nameless" };
+    // A STATICALLY DECIDABLE key that is not a string is NAMELESS, not
+    // undecidable. `handlers[0](cb)` and `flags[true](cb)` read a member whose
+    // name the compiler knows exactly, and it is a name no registrar and no
+    // hook has ever borne -- there is nothing here to be unsure about.
+    //
+    // Filing them under `unrecognized` was over-broad in the direction that
+    // COSTS: `calleeMightBeNamed` carries `unrecognized` as MAYBE, so
+    // `handlers[0](() => process.env.CI)` had its callback attached to every
+    // sibling test in the enclosing suite, reporting them touching with NO
+    // named cause. A conservative verdict reached by inventing a hook is not a
+    // documented limit, it is a wrong attribution wearing one's clothes (diff
+    // round 1 at base e5d1d723d69c, F3).
+    //
+    // This is the SAME narrowing already applied once in this function, at one
+    // remove: `unrecognized` had been the default for everything unfamiliar,
+    // was narrowed to element-access keys, and was STILL a bucket holding keys
+    // that are perfectly decidable. It means exactly one thing -- the source
+    // does not say which member this is -- and every widening of it is a
+    // widening of MAYBE.
+    if (isDecidableNonStringKey(arg)) return { kind: "nameless" };
+    return { kind: "unrecognized" };
   }
-  return ts.isIdentifier(node) && REGISTRARS.has(node.text) ? node.text : null;
+  return { kind: "nameless" };
+}
+
+/**
+ * A key whose member name the compiler can read off the source, and which is
+ * not a string. Deliberately a SMALL closed set of literal forms rather than
+ * "anything that is not an identifier": the question this answers is "can this
+ * be decided", and for a call, a template with substitutions, or a bare
+ * identifier the honest answer is no.
+ *
+ * `-1` is included because `a[-1]` is a prefix-unary over a numeric literal and
+ * is exactly as decidable as `a[1]`; excluding it would have left a decidable
+ * form in the MAYBE bucket for no reason a reader could reconstruct.
+ */
+function isDecidableNonStringKey(arg: ts.Expression): boolean {
+  if (ts.isNumericLiteral(arg) || ts.isBigIntLiteral(arg)) return true;
+  if (
+    arg.kind === ts.SyntaxKind.TrueKeyword ||
+    arg.kind === ts.SyntaxKind.FalseKeyword ||
+    arg.kind === ts.SyntaxKind.NullKeyword
+  )
+    return true;
+  if (
+    ts.isPrefixUnaryExpression(arg) &&
+    (arg.operator === ts.SyntaxKind.MinusToken || arg.operator === ts.SyntaxKind.PlusToken)
+  )
+    return ts.isNumericLiteral(arg.operand) || ts.isBigIntLiteral(arg.operand);
+  return false;
+}
+
+function calleeNamed(callee: ts.Expression, names: RegExp, propertyAccessCounts: boolean): boolean {
+  const r = calleeName(callee, propertyAccessCounts);
+  return r.kind === "named" && names.test(r.name);
+}
+
+/**
+ * "Matches, or might" - for the consumers where a NON-match grants freedom.
+ *
+ * The asymmetry is the whole point and it is not a style choice. A consumer that
+ * treats a non-match as "no hook here" is granting `environment-free`, so an
+ * undecidable callee must be carried as a MAYBE or it becomes a silent free. A
+ * consumer that treats a non-match as "no premise here" is WITHHOLDING credit,
+ * so the same undecidable callee must stay a no or it becomes a false
+ * certification. Same input, opposite conservative directions, decided by what
+ * the caller does with the answer rather than by the answer itself.
+ */
+function calleeMightBeNamed(
+  callee: ts.Expression,
+  names: RegExp,
+  propertyAccessCounts: boolean,
+): boolean {
+  const r = calleeName(callee, propertyAccessCounts);
+  if (r.kind === "unrecognized") return true;
+  return r.kind === "named" && names.test(r.name);
+}
+
+/** Every call in a registration's callee chain, with the registrar it roots at.
+ *
+ *  ONE traversal, not two rules (spec §3.5). The chain INTERLEAVES calls and
+ *  properties -- `test.skipIf(c).each(rows)(...)` is call, property, call,
+ *  property -- so peeling every call and THEN every property resolves it to
+ *  nothing. Worse, it resolves the INNER `test.skipIf(c)` to `test` and reads
+ *  the skip CONDITION as the test's name argument, inventing a registration out
+ *  of a predicate. The two loops were indistinguishable from this one while a
+ *  mid-chain call could only come from `each`/`for` currying, which is always
+ *  the LAST link; `skipIf` and `runIf` are what makes the difference reachable.
+ *
+ *  The calls are collected by the SAME walk that peels, because both consumers
+ *  ask about the same chain: the root decides what is registered, the calls'
+ *  eager arguments decide what that registration consumes. */
+type ChainLink = {
+  call: ts.CallExpression;
+  /** The modifier this call was curried FROM -- `each` for `test.each(rows)`,
+   *  `skipIf` for `test.skipIf(c)` -- or null when the callee is not a property
+   *  access. Recorded here because it is the only place that knows it, and
+   *  recovering it later means walking the chain a second time. */
+  modifier: string | null;
+};
+
+/**
+ * `undecidable` is the chain's REASON for a null root, and it exists because
+ * `root: null` conflated the same two situations `calleeName`'s old two-state
+ * return did, one level up: "this is not a registration" and "this may well be
+ * one and the source does not say which". The scanner has now been bitten by
+ * that exact conflation at three different heights (diff r2 F1, diff r3 F1 and
+ * F2), which is the argument for making the reason travel WITH the answer
+ * rather than being re-derived by each caller.
+ *
+ * `root` stays null when it is set: an undecidable chain must not be
+ * classified. It carries the registrar the chain would have rooted at, which
+ * is what makes the report nameable and what keeps `TEMPLATES[position]`
+ * silent.
+ */
+type CalleeChain = {
+  root: string | null;
+  links: ChainLink[];
+  undecidable: { registrar: string } | null;
+};
+
+function calleeChain(callee: ts.Expression): CalleeChain {
+  const links: ChainLink[] = [];
+  /** Member names peeled off the chain, validated against the ROOT's side once
+   *  the root is known - the peel itself cannot know which side applies. */
+  const peeled: string[] = [];
+  /** Did any member on the way down have a key this scanner cannot read? */
+  let undecidableSeen = false;
+  let node: ts.Expression = callee;
+  // Peel the wrappers that do not change which name an expression denotes, at
+  // EVERY step - not only at the root. `(test).skipIf(c)` and `test.skipIf(c)`
+  // are the same chain.
+  for (;;) {
+    // Peeled by ASSIGNMENT, not by a helper call. `node = unwrap(node)` launders
+    // the callee read through a function boundary, and the structural cover that
+    // pins this file's single chain authority tracks aliases by assignment - so
+    // laundering made the authority invisible to the check that exists to find
+    // it. A predicate decides WHETHER to peel; the peel itself stays an
+    // assignment the tracker can follow.
+    node = skipTransparent(node);
+    if (ts.isCallExpression(node)) {
+      let inner: ts.Expression = node.expression;
+      inner = skipTransparent(inner);
+      // The modifier a call was curried from, through the SAME decider the rest
+      // of the file uses. Reading `inner.name.text` inline accepted only the dot
+      // spelling, so `test.skipIf(c)["each"](rows)` lost its modifier and the
+      // chain invented a registration out of the skip predicate (diff r2, F2).
+      const m = calleeName(inner, true);
+      links.push({ call: node, modifier: m.kind === "named" ? m.name : null });
+      node = inner;
+      continue;
+    }
+    if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+      const m = calleeName(node, true);
+      // AN UNDECIDABLE MEMBER DOES NOT STOP THE WALK, it marks it. Stopping was
+      // the round-3 defect: `describe[k].only(…)` peels `.only` and then meets
+      // an undecidable member, and returning here lost both the fact that this
+      // is a registration and the registrar it belongs to -- so the reporter,
+      // which only ever inspected an IMMEDIATE element-access callee, never saw
+      // it either. Descending to learn the root costs one more hop and answers
+      // both questions at once.
+      if (m.kind === "unrecognized") {
+        undecidableSeen = true;
+        node = node.expression;
+        continue;
+      }
+      // An UNDECIDABLE member stops the walk with NO root, which is the
+      // conservative end: an unrooted chain registers nothing rather than
+      // registering something under a guessed name.
+      if (m.kind !== "named" || !MODIFIERS.has(m.name))
+        return { root: null, links, undecidable: null };
+      peeled.push(m.name);
+      node = ts.isPropertyAccessExpression(node) ? node.expression : node.expression;
+      continue;
+    }
+    break;
+  }
+  node = skipTransparent(node);
+  const rooted = calleeName(node, false);
+  const root = rooted.kind === "named" && REGISTRARS.has(rooted.name) ? rooted.name : null;
+  // Resolved LAST, because the registrar is only known here. A chain with an
+  // undecidable member roots at nothing -- classifying it is the false
+  // certification the bound forbids -- but it is REPORTABLE precisely when the
+  // root is a registrar, which is what keeps a non-registrar receiver silent.
+  if (undecidableSeen)
+    return { root: null, links, undecidable: root === null ? null : { registrar: root } };
+  if (root !== null) {
+    // A modifier the ROOT's side does not declare makes this no registration at
+    // all. `test.shuffle(…)` and `suite.fails(…)` parse and peel cleanly against
+    // the union, and Vitest has neither; accepting them invented registrations
+    // the file does not contain.
+    const allowed = SUITE_REGISTRARS.has(root) ? SUITE_MODIFIERS : TEST_MODIFIERS;
+    if (peeled.some((m) => !allowed.has(m))) return { root: null, links, undecidable: null };
+  }
+  return { root, links, undecidable: null };
+}
+
+/** `it`, `test.each`, `describe.skip.each` … → the root identifier, else null. */
+function registrarRoot(callee: ts.Expression): string | null {
+  return calleeChain(callee).root;
 }
 
 /**
@@ -742,8 +1133,9 @@ function bindPatternIsModelled(name: ts.BindingName): boolean {
 
 function modelledDynamicDeclaration(call: ts.CallExpression): ts.VariableDeclaration | null {
   let p: ts.Node = call;
-  while (p.parent && (ts.isAwaitExpression(p.parent) || ts.isParenthesizedExpression(p.parent)))
-    p = p.parent;
+  // `await` is NOT transparent in TypeScript's sense — it changes the value —
+  // so it stays named here. The wrapper half is the derived question.
+  while (p.parent && (ts.isAwaitExpression(p.parent) || isTransparent(p.parent))) p = p.parent;
   const parent = p.parent;
   if (parent && ts.isVariableDeclaration(parent) && parent.initializer === p)
     return bindPatternIsModelled(parent.name) ? parent : null;
@@ -1318,17 +1710,15 @@ function moduleFacts(path: string): ModuleFacts | null {
   };
 }
 
-/** Strip parentheses and `as` casts, which otherwise hide the real callee. */
+/** Strip the wrappers that otherwise hide the real callee.
+ *
+ *  A PEER of the callee-chain defect, found by the guard written for that one
+ *  rather than by the review that reported it: this list named four of the six
+ *  kinds and was missing the same angle-bracket assertion. Delegating rather
+ *  than widening, for the reason the shared module states — a normalizer with
+ *  four copies in one file drifts, and here it had. */
 function unwrap(node: ts.Expression): ts.Expression {
-  let n: ts.Expression = node;
-  while (
-    ts.isParenthesizedExpression(n) ||
-    ts.isAsExpression(n) ||
-    ts.isNonNullExpression(n) ||
-    ts.isSatisfiesExpression(n)
-  )
-    n = n.expression;
-  return n;
+  return skipTransparent(node);
 }
 
 /** Does this binding pattern or assignment pattern extract a property named `env`? */
@@ -1361,13 +1751,10 @@ function bindsEnv(target: ts.Node): boolean {
 function extractsEnvFrom(node: ts.Node): boolean {
   let cur: ts.Node = node;
   let p: ts.Node | undefined = cur.parent;
-  while (
-    p !== undefined &&
-    (ts.isParenthesizedExpression(p) ||
-      ts.isAsExpression(p) ||
-      ts.isNonNullExpression(p) ||
-      ts.isSatisfiesExpression(p))
-  ) {
+  // Peer instance, same missing kinds. This walk climbs PARENTS, so it asks
+  // the one-node question rather than the skip — `isTransparent` is derived
+  // from the same skip precisely so this site cannot become a second list.
+  while (p !== undefined && isTransparent(p)) {
     cur = p;
     p = p.parent;
   }
@@ -1670,6 +2057,7 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
     ...facts.moduleReports,
     ...eagerPositionHookReports(facts).map((r) => withModule(r, abs)),
     ...unfollowableFactoryReports(facts).map((r) => withModule(r, abs)),
+    ...undecidableRegistrarReports(facts).map((r) => withModule(r, abs)),
   ];
 
   const suiteText = facts.sf.getFullText();
@@ -1677,7 +2065,7 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
   const walk = (node: ts.Node, hooks: ts.Node[]): void => {
     if (ts.isCallExpression(node)) {
       const root_ = registrarRoot(node.expression);
-      if (root_ === "describe") {
+      if (root_ !== null && SUITE_REGISTRARS.has(root_)) {
         // A describe.each producer and the describe's hooks both attach to
         // every test nested inside it: that is where the value those tests
         // consume comes from, so a premise must dominate them (spec §3.3.2.2).
@@ -1685,7 +2073,7 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
         ts.forEachChild(node, (c) => walk(c, nested));
         return;
       }
-      if (root_ === "it" || root_ === "test") {
+      if (root_ !== null && TEST_REGISTRARS.has(root_)) {
         const line = facts.sf.getLineAndCharacterOfPosition(node.getStart(facts.sf)).line + 1;
         const nameArg = node.arguments[0];
         const testName =
@@ -1763,10 +2151,35 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
     const call = st.expression;
     if (!ts.isCallExpression(call)) continue;
     const callee = call.expression;
-    if (ts.isIdentifier(callee) && HOOK_REGISTRARS.test(callee.text) && call.arguments[0])
+    if (calleeMightBeNamed(callee, HOOK_REGISTRARS, true) && call.arguments[0])
       topLevelHooks.push(call.arguments[0]);
   }
   walk(facts.sf, topLevelHooks);
+  // A FILE WHOSE ONLY REGISTRATION IS UNFOLLOWABLE MUST NOT RETURN NOTHING.
+  //
+  // File-level reasons are carried by DEMOTING the classifications the walk
+  // produced, which is exactly right when there are some and silent when there
+  // are none: `test[k]("computed", () => {})` alone in a file returned `[]`,
+  // and a census cannot distinguish that from a file with no tests (diff r3
+  // F1). Worse, the regression test for the reporter put an ordinary sibling
+  // beside the undecidable spelling to serve as a positive control, and the
+  // control MASKED the case it was controlling for -- the sibling supplied the
+  // record the reasons then demoted.
+  //
+  // One record, not one per reason: the reasons all name their own line, so the
+  // detail carries every registration while the census carries the fact that
+  // this file holds something unclassifiable. Emitted only when the walk found
+  // nothing, so no existing file's record set moves.
+  if (out.length === 0 && fileReports.length > 0) {
+    out.push({
+      testName: "<unclassifiable registration>",
+      line: 1,
+      verdict: "unclassifiable",
+      detail: fileReports.join("; "),
+      hasPremise: false,
+      exemption: null,
+    });
+  }
   return out;
 }
 
@@ -1838,6 +2251,18 @@ function unclassifiableWithin(node: ts.Node, facts: ModuleFacts): string[] {
   return out;
 }
 
+/** Is this node a SUITE registration -- `describe(...)`, `suite.each(rows)(...)`?
+ *
+ *  A type predicate, so the two readers of it -- the walk's dispatch and the
+ *  nested-suite prune -- ask ONE question and cannot drift about what a suite
+ *  is. `suite` reaching only the first would leave the prune treating a nested
+ *  suite as ordinary content and attaching its hooks to its siblings. */
+function isSuiteRegistration(n: ts.Node): n is ts.CallExpression {
+  if (!ts.isCallExpression(n)) return false;
+  const root = registrarRoot(n.expression);
+  return root !== null && SUITE_REGISTRARS.has(root);
+}
+
 /** Bodies of beforeEach/beforeAll declared directly inside a describe call. */
 function hookBodies(describeCall: ts.CallExpression): ts.Node[] {
   const out: ts.Node[] = [];
@@ -1845,11 +2270,7 @@ function hookBodies(describeCall: ts.CallExpression): ts.Node[] {
     // HOOK_REGISTRARS, not a second copy of it: the top-level seed already
     // consults that constant, and two matchers where the design assumes one can
     // drift apart silently.
-    if (
-      ts.isCallExpression(n) &&
-      ts.isIdentifier(n.expression) &&
-      HOOK_REGISTRARS.test(n.expression.text)
-    ) {
+    if (ts.isCallExpression(n) && calleeMightBeNamed(n.expression, HOOK_REGISTRARS, true)) {
       out.push(n);
     }
     // A nested describe OWNS the hooks in its BODY, and the caller already carries
@@ -1864,13 +2285,12 @@ function hookBodies(describeCall: ts.CallExpression): ts.Node[] {
     // hook written there registers on US and runs for our other tests. Pruning
     // the call whole read those as the nested branch's and turned a touching
     // sibling free, which is a silent free rather than a conservative report.
-    if (
-      n !== describeCall &&
-      ts.isCallExpression(n) &&
-      registrarRoot(n.expression) === "describe"
-    ) {
-      if (ts.isCallExpression(n.expression)) for (const a of n.expression.arguments) walk(a);
-      for (const a of n.arguments) if (!isSuiteBody(a)) walk(a);
+    if (n !== describeCall && isSuiteRegistration(n)) {
+      // EVERY call in the callee chain, not just the immediate one, and for the
+      // same reason `eachProducers` walks them all: a two-call chain's earlier
+      // link is eager too, so a hook written there registers on US.
+      // `eagerArguments` is THE reader of what a registration evaluates eagerly.
+      for (const a of eagerArguments(n)) walk(a);
       return;
     }
     ts.forEachChild(n, walk);
@@ -1897,17 +2317,12 @@ function hookBodies(describeCall: ts.CallExpression): ts.Node[] {
  * than merely incomplete, which is what diff round 6 caught.
  */
 function unwrapTransparent(arg: ts.Node): ts.Node {
-  let node: ts.Node = arg;
-  while (
-    ts.isParenthesizedExpression(node) ||
-    ts.isAsExpression(node) ||
-    ts.isSatisfiesExpression(node) ||
-    ts.isNonNullExpression(node) ||
-    ts.isTypeAssertionExpression(node) ||
-    ts.isExpressionWithTypeArguments(node)
-  )
-    node = node.expression;
-  return node;
+  // This copy was the COMPLETE one — diff round 6 had already paid for the
+  // missing `ExpressionWithTypeArguments` here. That is the whole argument
+  // against keeping copies: the same fact had to be learned separately at each
+  // one, and three of the four never learned it. Delegating means the next kind
+  // arrives everywhere at once.
+  return skipTransparentNode(arg);
 }
 
 function isSuiteBody(arg: ts.Expression): boolean {
@@ -1915,10 +2330,17 @@ function isSuiteBody(arg: ts.Expression): boolean {
   return ts.isArrowFunction(node) || ts.isFunctionExpression(node);
 }
 
-/** The producer argument of `describe.each(<producer>)(...)`, if any. */
+/**
+ * The eager arguments of EVERY call in a registration's callee chain.
+ *
+ * Reading only the IMMEDIATE curried call is correct exactly while the chain
+ * holds one call: `describe.skipIf(process.env.CI).each([1])(...)` holds two,
+ * and the environment read sits in the one a single-level collector never
+ * reaches -- a silent free. The chain is the same one `registrarRoot` peels, so
+ * it is walked once (AC-4).
+ */
 function eachProducers(call: ts.CallExpression): ts.Node[] {
-  const callee = call.expression;
-  return ts.isCallExpression(callee) ? [...callee.arguments] : [];
+  return calleeChain(call.expression).links.flatMap((l) => [...l.call.arguments]);
 }
 
 /**
@@ -1931,7 +2353,8 @@ function eachProducers(call: ts.CallExpression): ts.Node[] {
  */
 function eagerArguments(call: ts.CallExpression): ts.Node[] {
   const out: ts.Node[] = [];
-  if (ts.isCallExpression(call.expression)) out.push(...call.expression.arguments);
+  // EVERY call in the callee chain, not just the immediate one.
+  for (const l of calleeChain(call.expression).links) out.push(...l.call.arguments);
   for (const a of call.arguments) if (!isSuiteBody(a)) out.push(a);
   return out;
 }
@@ -1980,8 +2403,9 @@ function forEachRegistration(
   const visit = (node: ts.Node, insideInlineBody: boolean): void => {
     if (ts.isCallExpression(node) && registrarRoot(node.expression) !== null) {
       fn(node, { insideInlineBody });
-      if (ts.isCallExpression(node.expression))
-        for (const a of node.expression.arguments) visit(a, insideInlineBody);
+      // Same chain, same reason as `eagerArguments`.
+      for (const l of calleeChain(node.expression).links)
+        for (const a of l.call.arguments) visit(a, insideInlineBody);
       node.arguments.forEach((a, i) => {
         // SLOT 0 IS THE NAME, and Vitest FORMATS a function-valued name rather
         // than invoking it, so a registration written inside one is not inside
@@ -2034,13 +2458,22 @@ function eagerPositionHookReports(facts: ModuleFacts): string[] {
     // the reason stays TRUE either way, because it says whether the hook
     // registers cannot be determined rather than asserting that it does. The
     // residue is limit L8, which now covers BOTH producers.
-    if (
-      ts.isCallExpression(n) &&
-      ts.isIdentifier(n.expression) &&
-      HOOK_REGISTRARS.test(n.expression.text)
-    ) {
-      const line = sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
-      out.push(eagerHookReason(n.expression.text, line));
+    // Through the decider, NOT `ts.isIdentifier` inline: a property receiver is a
+    // hook call too. `test.beforeEach(…)` in a file-suite eager position was
+    // invisible here, so a sibling test reported `environment-free` - a FALSE
+    // CERTIFICATION, and the same widening this arc made to HOOK_REGISTRARS
+    // reached every other consumer but not this one.
+    // UNRECOGNIZED is reported, not skipped. A callee whose name cannot be
+    // decided might be a hook, and treating "cannot tell" as "no" is precisely
+    // how a silent free is manufactured. Reporting it is conservative in the
+    // direction the bound requires: the reason says the hook cannot be
+    // determined, which stays TRUE whether or not it is one.
+    if (ts.isCallExpression(n)) {
+      const r = calleeName(n.expression, true);
+      const line = (): number => sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
+      if (r.kind === "named" && HOOK_REGISTRARS.test(r.name))
+        out.push(eagerHookReason(r.name, line()));
+      else if (r.kind === "unrecognized") out.push(eagerHookReason("<undecidable callee>", line()));
     }
     // A NESTED registration's INLINE suite body is the one place descent must
     // stop, and for the same reason the `insideInlineBody` check below stops
@@ -2072,7 +2505,8 @@ function eagerPositionHookReports(facts: ModuleFacts): string[] {
     // reporting it is a wrong attribution. Found by the closeout killer audit,
     // as a surviving mutant that dropped the exemption and broke nothing.
     if (ts.isCallExpression(n) && registrarRoot(n.expression) !== null) {
-      if (ts.isCallExpression(n.expression)) for (const a of n.expression.arguments) collect(a);
+      // Same chain, same reason as `eagerArguments`.
+      for (const l of calleeChain(n.expression).links) for (const a of l.call.arguments) collect(a);
       for (const a of n.arguments) {
         if (suiteBodyFunction(a) !== null) continue;
         collect(a);
@@ -2174,6 +2608,68 @@ function isInertLiteral(arg: ts.Expression): boolean {
  * the live corpus from 1 `unclassifiable` to 398 on one ordinary registration
  * whose named timeout constant is not an inert literal.
  */
+/**
+ * Reason wording for an UNDECIDABLE REGISTRAR KEY, exported so a test asserts
+ * against the shipped formatter rather than a second copy of the sentence.
+ *
+ * It names the receiver, because the receiver is the whole reason this is
+ * reportable: `test[k](...)` is a registration whose registrar the source does
+ * not say, and `TEMPLATES[position](...)` is not a registration at all.
+ */
+export function undecidableRegistrarKeyReason(receiver: string, line: number): string {
+  return `the call at line ${line} reads a member of \`${receiver}\` through a key this scanner cannot decide, so whether it registers a test or a suite, and under which spelling, is unknown,`;
+}
+
+/**
+ * Producer: a registration whose REGISTRAR is undecidable is reported, not
+ * dropped.
+ *
+ * `registrarRoot` answers `null` for two situations a caller cannot tell apart
+ * -- "this call is not a registration" and "this call may well be one and the
+ * source does not say" -- and every caller read it as the first. So
+ * `test[k]("computed", () => process.env.CI)` produced NO RECORD AT ALL: not a
+ * wrong verdict, no verdict, a test absent from the census with nothing
+ * anywhere saying so. The bound this arc ships under permits a conservative
+ * verdict with a named cause and forbids silence, and a dropped registration is
+ * the purest silence available (diff round 1 at base e5d1d723d69c, F2).
+ *
+ * SCOPED BY THE RECEIVER, and the scope was measured before it was chosen. The
+ * wide form -- report every undecidable element-access callee -- was rejected
+ * against the live corpus: 77 suites contain exactly ONE element-access callee,
+ * `TEMPLATES[position]` in this arc's own suite, a fixture-template lookup that
+ * registers nothing. The wide rule would have flipped that file to
+ * `unclassifiable` for a construct that is not a registration, which is the
+ * over-report the bound calls a cost rather than a virtue. Asking whether the
+ * RECEIVER is a registrar is the same closed question the rest of this file
+ * settles on: not what the member is, but where the chain starts. It fires on
+ * zero live-corpus sites today, which is the point -- it is a tripwire for a
+ * spelling nobody currently writes, and the arc's own history says those arrive.
+ */
+function undecidableRegistrarReports(facts: ModuleFacts): string[] {
+  const out: string[] = [];
+  const sf = facts.sf;
+  const walk = (n: ts.Node): void => {
+    if (ts.isCallExpression(n)) {
+      // THE CHAIN ANSWERS, NOT THE IMMEDIATE CALLEE. Inspecting only a callee
+      // that IS an element access missed every suffix: in `describe[k].only(…)`
+      // the outer callee is a property access and the element access is never
+      // itself a call's callee, so nothing here ever visited it. The reviewer
+      // swept the shape and it was the whole of it -- dot and bracket suffixes,
+      // conditional and curried calls, a second key, a key after an earlier
+      // modifier (diff r3 F2). Asking the chain covers all of them without
+      // naming one.
+      const chain = calleeChain(skipTransparent(n.expression));
+      if (chain.undecidable !== null) {
+        const line = sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
+        out.push(undecidableRegistrarKeyReason(chain.undecidable.registrar, line));
+      }
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(sf);
+  return out;
+}
+
 function unfollowableFactoryReports(facts: ModuleFacts): string[] {
   const out: string[] = [];
   const sf = facts.sf;
@@ -2183,7 +2679,13 @@ function unfollowableFactoryReports(facts: ModuleFacts): string[] {
     // itself reported, so the file is already flagged" -- was FALSE, and diff
     // review r3 refuted it: nothing connects a function body to a call site, so
     // the enclosing invocation is invisible and the file was flagged by nothing.
-    if (registrarRoot(call.expression) !== "describe") return;
+    // The SET decides which roots are suites, not a literal. This read
+    // `!== "describe"` and so returned early for `suite("S", factory)`, whose
+    // non-inline factory then went unreported: the file read `environment-free`
+    // while the factory's hook read `process.env`. Widening SUITE_REGISTRARS
+    // helped every consumer that consults it and silently missed this one.
+    const suiteRoot = registrarRoot(call.expression);
+    if (suiteRoot === null || !SUITE_REGISTRARS.has(suiteRoot)) return;
     const slots = call.arguments.slice(1);
     const located = slots.some((a) => isSuiteBody(a));
     // Vacuously true for a registration with no slots past the name, which is
@@ -2237,9 +2739,16 @@ export function unfollowableFactoryReason(line: number): string {
  * consumes, sitting between that binding and the call.
  */
 function premiseIsAssociated(call: ts.CallExpression, facts: ModuleFacts): boolean {
-  const callee: ts.Expression = call.expression;
-  if (!ts.isCallExpression(callee)) return false;
-  const producer = callee.arguments[0];
+  // The producer is the argument of the CURRIED call, identified by the
+  // modifier it is curried from -- never "the immediate callee if it happens to
+  // be a call". That weaker rule is right for `test.each(rows)(…)` and wrong for
+  // `test.skipIf(c)(…)`, where it reads the skip CONDITION as a producer and a
+  // premise about the condition then certifies a registration that has no
+  // producer at all: FALSE CERTIFICATION, which §6's bound forbids outright.
+  const curried = calleeChain(call.expression).links.find(
+    (l) => l.modifier !== null && CURRIED_MODIFIERS.has(l.modifier),
+  );
+  const producer = curried?.call.arguments[0];
   if (!producer || !ts.isIdentifier(producer)) return false;
   const binding = producer.text;
 
@@ -2275,10 +2784,14 @@ function loadTimePremises(sf: ts.SourceFile): ts.CallExpression[] {
   if (memo !== undefined) return memo;
   const out: ts.CallExpression[] = [];
   const walk = (n: ts.Node): void => {
+    // propertyAccessCounts FALSE, and that asymmetry is the point: see
+    // `calleeNamed`. This site CERTIFIES, so widening it would certify falsely.
     if (
       ts.isCallExpression(n) &&
-      ts.isIdentifier(n.expression) &&
-      /^premise(Holds)?$/.test(n.expression.text) &&
+      // STRICT, deliberately - `calleeNamed`, never `calleeMightBeNamed`. This
+      // site grants CREDIT, so an undecidable callee must stay a no; carrying it
+      // as a maybe here would certify a premise nobody wrote.
+      calleeNamed(n.expression, PREMISE_CALLS, false) &&
       runsAtModuleLoad(n)
     ) {
       out.push(n);
@@ -2345,7 +2858,9 @@ function runsAtModuleLoad(node: ts.Node): boolean {
       const invoked =
         caller !== undefined &&
         ((ts.isCallExpression(caller) && caller.expression === p) ||
-          (ts.isParenthesizedExpression(caller) &&
+          // `(f)()` was handled and `(f as any)()` was not — the same partial
+          // list, in the one place it decides whether a function is INVOKED.
+          (isTransparent(caller) &&
             caller.parent !== undefined &&
             ts.isCallExpression(caller.parent) &&
             caller.parent.expression === caller));
