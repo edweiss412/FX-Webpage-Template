@@ -604,6 +604,18 @@ for (const r of removed) {
   // A declared rename must name a replacement that ACTUALLY ARRIVED. Otherwise
   // the declaration is a way to delete a record by writing a sentence.
   if (to === undefined) { undeclared.push(`${r}  (no declaration)`); continue; }
+  // A RENAME CHANGES THE NAME. It does not change the verdict, and the check
+  // has to say so, because the declaration is otherwise a way to launder one:
+  // declaring `environment-free X` renamed to `unclassifiable Y` passed (b),
+  // passed the per-suite touching count because both counts stay zero, and
+  // passed (c) because edited suites are excluded from it -- three gates and
+  // no fourth (diff round 2, F2). A balanced touching/free swap inside one
+  // suite passed the same way.
+  const verdictOf = (line: string): string => line.split(" | ")[0].trim();
+  if (verdictOf(to) !== verdictOf(r)) {
+    undeclared.push(`${r}  (declared -> ${to}, which CHANGES the verdict ${verdictOf(r)} -> ${verdictOf(to)}; that is a reclassification, not a rename)`);
+    continue;
+  }
   const idx = added.indexOf(to);
   if (idx === -1) { undeclared.push(`${r}  (declared -> ${to}, which is NOT among the additions)`); continue; }
   added.splice(idx, 1);
@@ -668,7 +680,12 @@ So (b) takes a multiset difference over the census's own record lines — `verdi
 #ordinal`, the key it was already emitting and the check was already discarding — prints every
 addition and every removal, and FAILS on any removal that is not DECLARED, by hand, alongside the
 addition that replaces it. A declared rename whose replacement never arrived also fails, so the
-declaration cannot become a way to delete a record by writing a sentence. Intent is not derivable
+declaration cannot become a way to delete a record by writing a sentence — and a declared rename that
+changes the VERDICT fails too, so it cannot become a way to launder a reclassification either. That
+second hole was live and three-gates-deep: `environment-free X` declared as renamed to
+`unclassifiable Y` passed (b) because the replacement existed, passed the per-suite touching count
+because both counts stay zero, and passed (c) because edited suites are excluded from it. A rename
+changes the name; anything else is a different claim and must be argued as one. Intent is not derivable
 from a diff; writing it down is the only honest form, and it is what this prose has claimed since the
 first refutation while the commands counted.
 

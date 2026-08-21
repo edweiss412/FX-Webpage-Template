@@ -2590,12 +2590,26 @@ function undecidableRegistrarReports(facts: ModuleFacts): string[] {
       if (ts.isElementAccessExpression(callee)) {
         const key = calleeName(callee, true);
         if (key.kind === "unrecognized") {
-          // The receiver is resolved through the SAME name authority, so a
-          // wrapped or bracketed receiver is read exactly as a bare one.
-          const recv = calleeName(skipTransparent(callee.expression), true);
-          if (recv.kind === "named" && REGISTRARS.has(recv.name)) {
+          // THE RECEIVER IS RESOLVED BY CHAIN, NOT BY ITS OWN NAME.
+          //
+          // Reading the immediate receiver's name asked the wrong question and
+          // answered it correctly: for `test.only[k]` the name is `only`, and
+          // for `test.each(rows)[k]` the receiver is a CALL and has no name at
+          // all, so neither was reported (diff round 2, F1). Every undecidable
+          // key behind ANY modifier vanished silently -- and `it.each` and
+          // `describe.runIf` are ordinary live spellings, so that is one edit
+          // from the corpus rather than a corner.
+          //
+          // The right question is the one the rest of this file already asks
+          // and already has machinery for: does this chain ROOT at a registrar.
+          // `calleeChain` peels modifier members and modifier CALLS alike and
+          // validates them against the root's side, so it answers for
+          // `test.only`, `test.each(rows)` and `describe.runIf(true)` with no
+          // new spellings enumerated anywhere.
+          const recv = calleeChain(skipTransparent(callee.expression));
+          if (recv.root !== null) {
             const line = sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
-            out.push(undecidableRegistrarKeyReason(recv.name, line));
+            out.push(undecidableRegistrarKeyReason(recv.root, line));
           }
         }
       }

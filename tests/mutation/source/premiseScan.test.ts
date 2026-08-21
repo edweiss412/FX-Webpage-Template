@@ -4187,6 +4187,65 @@ describe("an undecidable registrar key is REPORTED, never dropped (diff r1 F2)",
     expect(all.find((t) => t.testName === "sibling")?.verdict).toBe("environment-free");
   });
 
+  // THE RECEIVER IS A CHAIN, AND THE FIRST VERSION ASKED ONLY ABOUT ITS LAST
+  // LINK. Reading the immediate receiver's NAME meant `test.only[k]` asked
+  // about `only` and `test.each(rows)[k]` asked about a call that has no name,
+  // so every undecidable key behind ANY modifier vanished exactly as before
+  // (diff round 2, F1). `it.each` and `describe.runIf` are ordinary live
+  // spellings, so that was one edit from the corpus, not a corner.
+  //
+  // Registrars and modifiers are DERIVED from the scanner's own declarations.
+  // The receiver SHAPES are enumerated because they are the closed set of chain
+  // forms — bare, a member modifier, a curried modifier call — and that closure
+  // is the file's own design, not a guess about spellings.
+  describe("...through any modifier chain, not only the bare root", () => {
+    const registrars = [
+      ...scannerModifiers("SUITE_REGISTRARS"),
+      ...scannerModifiers("TEST_REGISTRARS"),
+    ];
+    const suiteMods = scannerModifiers("SUITE_MODIFIERS");
+    const testMods = scannerModifiers("TEST_MODIFIERS");
+    premise("the scanner declares registrars", registrars.length, 0);
+
+    for (const registrar of registrars) {
+      const isSuite = scannerModifiers("SUITE_REGISTRARS").includes(registrar);
+      const mods = isSuite ? suiteMods : testMods;
+      // One member modifier and one CURRIED modifier call, both drawn from the
+      // side's own set, so a modifier renamed upstream re-keys these by itself.
+      const member = mods.find((m) => m !== "each" && m !== "for");
+      const curried = mods.find((m) => m === "each") ?? mods[0];
+      premise(
+        `the ${registrar} side declares a non-curried modifier`,
+        member === undefined ? 0 : 1,
+        0,
+      );
+
+      for (const [shape, receiver] of [
+        ["bare", registrar],
+        ["member modifier", `${registrar}.${String(member)}`],
+        ["curried modifier call", `${registrar}.${curried}([1])`],
+      ] as const)
+        it(`${registrar} via ${shape}: an undecidable key is reported`, () => {
+          const c = classificationWithModules(
+            {},
+            `const k = "only";\n${receiver}[k]("computed", () => {});\nit("sibling", () => {});`,
+          );
+          expect(c?.verdict).toBe("unclassifiable");
+          expect(c?.detail).toContain(undecidableRegistrarKeyReason(registrar, 2));
+        });
+    }
+
+    it("a valid curried registration is NOT reported (the twin)", () => {
+      // Without this, every case above passes under a reporter that fires on
+      // any chain at all — which would flag the live corpus's own `it.each`.
+      const all = classificationsWithModules(
+        {},
+        `const rows = [1];\nit.each(rows)("x %s", () => {});\nit("sibling", () => {});`,
+      );
+      expect(all.find((t) => t.testName === "sibling")?.verdict).toBe("environment-free");
+    });
+  });
+
   it("a NON-registrar receiver is silent, which is why the corpus survives it", () => {
     // The scope was measured before it was chosen: 77 live-corpus suites hold
     // exactly ONE element-access callee, `TEMPLATES[position]` in this file,
