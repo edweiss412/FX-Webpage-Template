@@ -52,4 +52,5 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-08-20-browser-child-lifetime-design.md`](./2026-08-20-browser-child-lifetime-design.md) | 2026-08-20 |
 | [`2026-08-20-claim-sweep-after-repair.md`](./2026-08-20-claim-sweep-after-repair.md) | 2026-08-20 |
 | [`2026-08-20-shell-lexer-quoted-value-recall-design.md`](./2026-08-20-shell-lexer-quoted-value-recall-design.md) | 2026-08-20 |
+| [`2026-08-21-mutation-outcome-attribution-design.md`](./2026-08-21-mutation-outcome-attribution-design.md) | 2026-08-21 |
 | [`probes`](./probes) | 2026-08-04 |

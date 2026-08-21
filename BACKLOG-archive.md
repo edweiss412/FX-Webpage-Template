@@ -1,3 +1,83 @@
+## BL-MUTATION-SCORE-NONDETERMINISM — a source-mutation surface's verdict moves with byte-identical inputs, and the score contract assumes that cannot happen — RESOLVED 2026-08-21 (`fix/mutation-score-nondeterminism`, SHIPPED)
+
+**Status:** RESOLVED 2026-08-21 (`fix/mutation-score-nondeterminism`) — **on a RE-SCOPED close condition, and the ORIGINAL one is NOT met.** · **Filed:** 2026-08-20 (`fix/shell-lexer-quoted-value-recall`, from CI triage on PR #856) · **Severity (as filed):** MEDIUM · **Class:** mutation harness fidelity · **Facing:** process · **Reachability:** PROBED — four observations of one site disagreeing with itself on byte-identical inputs.
+
+**READ THIS FIRST, because this row's own close condition was "an explanation" and this arc did not produce one.** The row said, in bold, that what would close it is an explanation rather than another eliminated candidate. It is archived anyway, on a condition the spec re-scoped and which this entry states rather than leaves to be inferred: the deliverable is ATTRIBUTION — the next occurrence is self-diagnosing — and the mechanism remains unknown. The unmet original condition is re-filed as `BL-MUTATION-VERDICT-MECHANISM-INTRA-LEG`, carrying the full eliminated set, so nothing is dropped by the graduation.
+
+**IF YOU ARE HERE BECAUSE A VERDICT MOVED, THE INSTRUMENT NOW EXISTS — here is how to point it at your case.** Stated before the history, so the graduation does not absorb its discoverability.
+
+| you want to know | where it now is |
+| --- | --- |
+| was this kill an assertion/compile rejection, or a wall-clock TIMEOUT? | `MutantOutcome.children[].kind` is `exit` or `timeout`, one record per suite ACTUALLY RUN, in execution order. The deciding child is the LAST one, because `runMutantRecorded` short-circuits. A timeout kill also prints a `TIMEOUT-KILL` line in the leg's output on a PASSING run, which previously printed nothing at all. |
+| what happened on the run that flipped? | `.mutation-records/<surfaceId>.<runId>.json`, written on SUCCESS as well as failure and in LOCAL runs as well as CI, one file PER RUN so a re-run never overwrites its predecessor. In CI the `source-shards` job uploads it as `mutation-records-source-shards-<shard>` with `if: always()`. |
+| do two runs of ONE site agree? | `pnpm mutation:determinism --surface <id> --site <siteId> --runs <n>` — the verdict distribution, the kind distribution, per-suite child records, and a provenance stamp DERIVED from that run's actual inputs taken before AND after, so a distribution cannot be bound to bytes that did not run. |
+| is the record trustworthy on an unhappy path? | A record-write failure prints to stderr and NEVER reds the gate; a run that faults is EXCLUDED from the distribution rather than scored `KILLED`, and reported in an `infraFaults` list; every refusal exits 2 and emits NO distribution, so a swept-and-clean run cannot read as a run that never started. |
+
+**AC-7 — the measured timeout count: ZERO of 93 kills on `ledgerGit`,** at the exact surface, site and bytes where the anomaly was observed, in three separate runs. That is the number §5.5's deferred decision turns on: because it is zero today, a fail-closed arm would be dormant on arrival, and the repo is not currently scoring timeouts as earned kills on that surface. It is one surface, measured three times.
+
+**THE ELIMINATED SET IS SIX DEEP AND IT IS THE MOST EXPENSIVE THING THIS ARC PRODUCED.** It is repeated on the successor row so a future investigator does not re-run work already done. Co-tenancy, by pre-registered experiment; and five separate measurements that declined to support the duration hypothesis — zero timeouts at the locus, the headroom correlation stuck at n=2, probe 4's advance prediction unconfirmed, duration moving 2x while the survivor set did not move at all, and the bimodal tail failing to reproduce.
+
+**VERDICT STABLE, DURATION UNSTABLE, SAME BYTES — the arc's sharpest statement of its own subject.** Across three controlled local runs of `ledgerGit` the survivor set returned identical every time (93 killed, 6 survivors, the same six sites) while the mutant-duration maximum swung 19.8 s to 39.1 s. Headroom there is a RANGE, 4.6x-9.1x, and the range is a PROPERTY OF THE SURFACE rather than measurement error — a point estimate of an unstable quantity is not a thing that exists.
+
+**The honest statement of the subject, which replaces "the anomaly stands, unexplained":** observed historically across CI and local, **NOT reproduced in three controlled local runs**, on a surface whose duration is wildly unstable across those same runs.
+
+**AND EVERY CLEAN RUN MAKES THE CASE FOR THE INSTRUMENT STRONGER RATHER THAN WEAKER.** The historical record of verdict movement in this repo is CI-ONLY and FAILURE-ONLY, measured: `psqlStartupScan`, the surface with the cleanest reproduction in the corpus, appears ZERO times across 19 failing `mutation-harness` runs, because its flips happened in LOCAL gate runs and an annotation fires only when a surface FAILS THE GATE. A mechanism that resists reproduction under deliberately favourable conditions is precisely why the only channel that could catch the next occurrence had to exist. The clean runs do not show there is nothing to catch; they show the EXISTING channels cannot catch it.
+
+**No enrolled surface's verdict moved, and that is measured rather than argued.** A before/after comparison over `spawnBounded`, `ledgerGit`, `premiseScan` and `psqlStartupScan` — 342 sites — with the base captured TWICE first, because under this arc's own thesis a single pair cannot attribute a difference to the change. All three comparisons agree with zero verdicts moved. The two baselines also differ in measured machine load (base-2 100% co-tenanted over 61 samples against base-1's >=49% floor) with every verdict identical: ONE paired observation against the load mechanism, taken on the least-headroom surface where it predicts its largest effect.
+
+**THE OPERATOR INSTRUCTION FROM THE OPEN ROW SURVIVES AND IS NOT SOFTENED BY THE GRADUATION:** `psqlStartupScan`'s gate verdict is flaky at `relational-boundary:3578:35:<><=`, so a red `source-shards` leg naming it is not necessarily a regression, `mutation-harness` is not a required check, and **you must NOT remove a ledger row on a single stale-row report — RE-RUN FIRST.** That mistake was made on this exact mechanism and had to be reversed after three further observations. The site survived in both of this arc's captures, taking the record to 11 of 12.
+
+---
+
+### The evidence, preserved verbatim from the open row
+
+**The incident in full.** PR #856's `source-shards (0)` leg (run `32375262145`, job `96445004668`) failed with `unaccepted-survivor: 1 survivor(s) with no ledger row: logical-connector:259:20:&&>||` on the `ledgerGit` surface. Main's own nightly the same day (run `32344648722`, base `03953337388b`, job `96350700409`) reported that leg failing on `rowScanOpener` ALONE — `ledgerGit` was green. The cost is a triage that reads as an inherited red and is not one: three surfaces on that PR did map verbatim onto `BL-MUTATION-HARNESS-MAIN-RED`, so the fourth was one glance away from being waved through with them.
+
+**The anomaly is established; the mechanism is not.** `scripts/lib/ledger-git.ts` and both deciding suites named in the surface's registry row (`tests/scripts/ledgerClaimsCheck.test.ts`, `tests/scripts/ledgerGitSpawnSeam.test.ts`) are BYTE-IDENTICAL between `03953337388b` and #856's HEAD, verified by blob hash; that PR's diff touches none of the three, and its only `tests/mutation/source/registry.ts` edit is confined to the `psqlStartupScan` row. A mutation score is documented as a pure function of (source, operators, deciding suites). All three were unchanged and the verdict moved. **Second instance:** the `ledgerGit` registry row already records a killed-locally / survived-CI divergence for the `diffHunks` count pair on 2026-08-08, and re-establishes it with a constructed case — so this is the second time this surface's verdict has depended on something outside its declared inputs.
+
+**Co-tenancy is RULED OUT as the mechanism, by a pre-registered experiment.** The candidate was that
+re-weighting the LPT partition changes a surface's neighbours and thereby its verdict — this arc moved
+`psqlStartupScan` from 63 to 75 and then 74 mutants, and main's over-budget legs differed from this PR's, so the
+packing demonstrably changed. `feat/send-auth-single-read-lint` tested it directly at roughly thirty
+times that perturbation: run `32391432379` (head `4dfd01465`) enrolled `sendAuthScan` and returned
+**ZERO surface flips across all 38 pre-existing surfaces**. The decisive datum is one mover:
+**`ledgerGit` itself changed shards, 0 to 1, and STAYED GREEN** — the surface at the centre of this
+row, given exactly the co-tenancy change the hypothesis blames, with no flip.
+
+**Why that is evidence AGAINST rather than a null result**, stated here so no reviewer re-derives it:
+the negative branch was PRE-REGISTERED, so the reading could not be fitted after the fact; the
+background surface-flip rate was MEASURED at zero across five consecutive main nightlies from 08-18 to
+08-20, so there is no noise floor for a real flip to hide under; and reconciliation ran BEFORE
+interpretation — four predicted placements (`sendAuthScan` 3, `destructiveFileAnalysis` 2→1,
+`rowScanOpener` 0→3, `shardBudget` 2→3) all matched the observed annotation titles, confirming CI
+computed the same partition the blob-derived map predicted, so the null is over the right population.
+A null over the wrong population would be worth nothing.
+
+**SECOND SURFACE, and it is a cleaner reproduction than the one this row was filed on.** On
+`psqlStartupScan` — this arc's own surface — the mutant `relational-boundary:3578:35:<><=` was observed
+FOUR times against BYTE-IDENTICAL inputs (`scan.ts` `a1f9db0c`, deciding suite `cb45f9ea`, verified by
+the derived stamp on both ends of each run):
+
+| observation                             | ledger state | verdict for that site                          |
+| --------------------------------------- | ------------ | ---------------------------------------------- |
+| discovery run                           | 27 rows      | SURVIVOR                                       |
+| confirming run                          | 26 rows      | STALE — "site no longer survives", i.e. KILLED |
+| re-run after the row was removed        | 25 rows      | UNACCEPTED SURVIVOR — i.e. SURVIVES            |
+| hand-applied `depth <= 32`, three times | n/a          | survives 3/3                                   |
+
+Three of four say it survives; the row is restored and carries this record. **Why this is better
+evidence than the `ledgerGit` observations:** there, the comparison was across DIFFERENT runs on
+different revisions and the mechanism candidate was co-tenancy. Here two runs of the RUNNER ITSELF
+disagree about the same site with identical declared inputs, so no third-party instrument and no
+external-validity argument is needed — the subject contradicts itself. An earlier refusal to claim this
+was correct at the time: the only instruments then available (a hand probe on raw file lines, and a
+local `enumerateSites` that reproduces none of the runner's site IDs) could not adjudicate what a site
+even is. "I cannot substantiate this" was a statement about those instruments, not about the world.
+
+**Not a duplicate of `BL-MUTATION-HARNESS-MAIN-RED`.** That row names `shardBudget`, `destructiveFileAnalysis` and `rowScanOpener` as main's standing failure set. `ledgerGit` is a fourth surface and is GREEN on main, which is the entire point: this row is about a verdict that MOVES, not about one that is stuck red.
+
+---
+
 ## BL-SPEC-CLAIM-SWEEP-AFTER-REASONING-FINDING — a repair fixes the site the finding named and leaves the document unswept — CLOSED 2026-08-20 (`feat/speclint-claim-sweep-after-repair`, SHIPPED)
 
 **Status:** SHIPPED 2026-08-20 · **Effort (as shipped):** M · **Severity (as filed):** LOW-MEDIUM (no shipped defect; it buys review rounds) · **Class:** review economy / authoring tooling · **Filed:** 2026-08-18 (`fix/control-outline-border-token`, spec review R2 F1 + R4 F3, then R4 F1 + R5 F1) · **Facing:** process · **Reachability:** PROBED at filing, and the incident's own blobs ship as the acceptance fixtures.
