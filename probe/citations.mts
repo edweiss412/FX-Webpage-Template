@@ -52,9 +52,53 @@ for (const r of rows) {
     failures.push(`${r.file}:${r.line}\n      claims: ${r.want}\n      holds : ${actual.trim()}`);
 }
 
+// COMPLETENESS. The check above proves every LISTED citation still holds. It
+// cannot prove the list is complete, which is a different claim and the one that
+// went wrong: §3's earlier site list covered the plan and this directory and
+// omitted the SPEC entirely, including the only citation of line 906.
+//
+// So the list is DERIVED rather than enumerated. Every `redContract.ts:<line>`
+// occurrence across the arc's documents must appear as a row above, and every row
+// must be cited somewhere. A new citation to an unlisted line fails here instead
+// of being noticed three rounds later.
+const SCANNED = [
+  PLAN,
+  "docs/superpowers/specs/ci/2026-08-21-speclint-red-reason-verification-design.md",
+  "probe/reach.mts",
+  "probe/citations.mts",
+  "probe/population.mts",
+];
+const TARGET = "lib/specLint/redContract.ts";
+const declared = new Set(rows.filter((r) => r.file === TARGET).map((r) => r.line));
+const cited = new Map<number, string[]>();
+for (const f of SCANNED) {
+  for (const raw of readFileSync(f, "utf8").split("\n")) {
+    // A table row is itself an occurrence of the citation it declares, so
+    // counting it would make every declared row look cited and the DEAD-row
+    // check could never fire. Skipping the rows is what keeps that half honest.
+    if (ROW.test(raw.trim())) continue;
+    for (const m of raw.matchAll(/redContract\.ts:(\d+)/g)) {
+      const line = Number(m[1]);
+      cited.set(line, [...(cited.get(line) ?? []), f]);
+    }
+  }
+}
+for (const [line, where] of [...cited].sort((a, b) => a[0] - b[0]))
+  if (!declared.has(line))
+    failures.push(
+      `UNACCOUNTED citation ${TARGET}:${line}, cited in ${[...new Set(where)].join(", ")}, is not a row in the plan's table`,
+    );
+// The converse is deliberately NOT checked. A row that no prose cites is not
+// stale: the table is the closeout's list of lines to re-read, and a line can
+// earn a row by being EDITED (605, 610) rather than by being quoted. A DEAD-row
+// check was written here first, fired on exactly those rows, and was removed
+// rather than worked around, because it asserted a claim the table never made.
+
 if (failures.length > 0) {
-  console.error(`citation oracle FAILED (${failures.length} of ${rows.length} rows):`);
+  console.error(`citation oracle FAILED (${failures.length} problem(s) over ${rows.length} rows):`);
   for (const f of failures) console.error(`  ${f}`);
   process.exit(1);
 }
-console.log(`citation oracle OK: ${rows.length} cited lines still hold what the plan says`);
+console.log(
+  `citation oracle OK: ${rows.length} rows hold, and every ${TARGET} citation across ${SCANNED.length} files is accounted for`,
+);

@@ -29,12 +29,16 @@ begins at the type declarations, not at the drop.
 | `lib/specLint/redContract.ts:721` | `if (derived.kind === "none") continue;` |
 | `lib/specLint/redContract.ts:580` | `const VITEST_SHAPE =` |
 | `lib/specLint/redContract.ts:637` | `export function deriveCollectionProbe(` |
+| `lib/specLint/redContract.ts:605` | `export type ProbeDerivation =` |
+| `lib/specLint/redContract.ts:610` | `export type CollectionProbeEntry =` |
+| `lib/specLint/redContract.ts:906` | `export function probesToSpawn(` |
 | `lib/specLint/run.ts:152` | `doc.kind === "plan" && probes !== undefined && probes !== null` |
 | `lib/specLint/taskContract.ts:49` | `const V2_FIELDS =` |
 | `tests/mutation/source/expectedLedgerKinds.ts:137` | `redContract: { equivalent: 7 },` |
 
-`ProbeDerivation` is declared at `lib/specLint/redContract.ts:605` and `CollectionProbeEntry` at
-`lib/specLint/redContract.ts:610`. The `skipped` reason union is
+The last three rows are the ones round 5 added: `ProbeDerivation` and `CollectionProbeEntry` are the
+lines this arc EDITS, and `probesToSpawn` is cited only in the spec, which is why the earlier site
+list missed it entirely. The `skipped` reason union is
 `"compound-command" | "unstrippable-filter"` in both, so a third reason is a two-site type change,
 not one. The two lines are named individually rather than as a range: on an arc whose subject is
 citation accuracy, "around" is the wrong register.
@@ -122,8 +126,16 @@ Three mutations demonstrate it can fail: bumping a cited line number, corrupting
 string, and pointing it at a document with no table, which trips its parse floor rather than reporting
 a clean run over zero rows.
 
-The table below covers the sites `pnpm probe:citations` cannot read, because they are prose rather
-than table rows. Those stay a manual re-read.
+**Completeness is DERIVED, not enumerated.** The probe also scans this plan, the spec, and
+`probe/*.mts` for every path-and-line citation into `redContract.ts` and fails on any that is not a row in §0's
+table. That is what closes round 5's question mechanically for the structured citation form: an
+earlier hand-written site list covered this plan and `probe/reach.mts` and omitted the SPEC entirely,
+including the only citation of line 906. A hand list gets it wrong again the next time someone adds a
+citation; a derivation does not.
+
+**What the derivation does NOT cover, stated so nobody reads the command as total:** bare prose
+references of the form "line 717", which carry no file and cannot be resolved mechanically. §3's table
+below lists those sites and they stay a manual re-read.
 
 ## 4. The cycle the red-carrying task runs, stated once
 
@@ -305,7 +317,36 @@ oversight even when it is not.
 splitting the criteria across tasks would only recreate the ordering defect at the level of the
 acceptance table.
 
-## 8. Obligations before dispatch
+## 8. Disposition: the plan stage closed by RULING, and one residue is NAMED not closed
+
+Four counted rounds, nine findings, **none refuted**. No round returned APPROVE. The orchestrator
+closed the stage DISPOSITIONED at the cap. **Not CONVERGED**, and the distinction is recorded rather
+than smoothed over: a fifth confirming round was authorized and never ran, because the Codex API hit
+its weekly limit before it could be dispatched.
+
+**The design was settled at round 1** and confirmed by every round after it. What kept moving was
+whether the plan's promises would actually reach the tree that lands, asked one layer deeper each
+round: the oracle was named and never scheduled (R1), scheduling it before the commit was not enough
+because `lint-staged` rewrites the tree (R3), and the citation list was under-scoped because the edit
+begins above every cited line (R4).
+
+**NAMED RESIDUE, for the implementation's whole-diff review to attack when the wall lifts.** This was
+round 5's closed set and it did not get its read:
+
+1. **Is §3's site list complete for the PROSE form?** The structured form, a path with a line
+   number, is now derived and checked by `pnpm probe:citations`. Bare references
+   like "line 717" carry no file and cannot be resolved mechanically, so §3's table lists them by
+   hand, and a hand list is what was wrong before.
+2. **Is §8's closing fixpoint actually closed?** Is there an ordering in which the tree that lands is
+   not the tree that passed?
+
+**Two repairs ship without a review round having read them:** the citation probe with its completeness
+derivation, and the five corrected `run.ts:151` citations. What verifies them is mutation rather than
+opinion, the same standard the reach oracle was held to. The probe's own first draft carried a
+DEAD-row check that could never fire, because a table row is itself an occurrence of the citation it
+declares; that half was removed rather than worked around.
+
+## 9. Obligations before dispatch
 
 - Run `pnpm spec:lint` on this plan and report the result. This arc's own arm reads it.
 - Add the `probe:reach` and `probe:citations` package scripts in the same commit as Task 1, per §6 and
