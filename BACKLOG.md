@@ -1275,12 +1275,19 @@ for (const s of GUARD_SURFACES) { const k = s.accepted.reduce((a,r)=>{a[r.kind]=
 
 The series, each surface count produced by the command below it:
 
-| revision                                  | surfaces | binding leg | % of 3600 s budget | `budget` job          |
-| ----------------------------------------- | -------- | ----------- | ------------------ | --------------------- |
-| `c5518dfab` (wallclock row's measurement) | 29       | 3356 s      | 93.2%              | pass, 2 warnings      |
-| `59a9ef25a` (08-17 nightly head)          | 31       | 3404 s      | 94.6%              | pass, 1 warning       |
-| `b24e3ac5f` (08-18 nightly head)          | 36       | 4562 s      | 126.7%             | **FAIL, 3 legs over** |
-| `4e074d3bc` (08-19 nightly head)          | 38       | 5210 s      | **144.7%**         | **FAIL, 1 leg over**  |
+| revision                                  | surfaces | binding leg | % of 3600 s budget | `budget` job                                |
+| ----------------------------------------- | -------- | ----------- | ------------------ | ------------------------------------------- |
+| `c5518dfab` (wallclock row's measurement) | 29       | 3356 s      | 93.2%              | pass, 2 warnings                            |
+| `59a9ef25a` (08-17 nightly head)          | 31       | 3404 s      | 94.6%              | pass, 1 warning                             |
+| `b24e3ac5f` (08-18 nightly head)          | 36       | 4562 s      | 126.7%             | **FAIL, 3 legs over**                       |
+| `4e074d3bc` (08-19 nightly head)          | 38       | 5210 s      | **144.7%**         | **FAIL, 1 leg over**                        |
+| `50d68dd6d` (08-21, PR #859)              | 40       | **>5400 s** | **>150%**          | **leg CANCELLED at the 90 min job timeout** |
+
+**THE PREDICTED CONSEQUENCE HAS NOW HAPPENED, and this row called it in advance.** Its severity line reads "the same growth censors a quarter of the source gate's annotations at the next enrolment". PR #859 is that next enrolment -- it adds `claimSweep` as surface 40 -- and on 2026-08-21 `source-shards (1)` ran 90 min 17 s from `05:11:10Z` to `06:41:27Z` and was CANCELLED at the job timeout with its single step `Run source-mutation shard 1` cancelled. Exactly one of four legs, and it produced NO annotations: not a red, not a green, silence. A quarter of the gate's output, censored, as written.
+
+**The arriving surface is the MARGINAL cause and not the underlying one, which matters for the repair.** `sourceShardAssignment` is weight-balanced, so `claimSweep`'s 155 units do not land on one leg: measured on the branch, all four shards sit at 1078-1084 units against 1042 before, so every leg got about 4% heavier. The binding leg was already at 144.7% of a 3600 s budget one arc earlier. A 4% increase does not create a breach at 144.7%; it moves the binding leg across the 90-minute JOB timeout, which is a different and harder ceiling than the budget warning, because a budget breach reports and a timeout is silent.
+
+**Consequence for the arc that hit it:** #859's own enrolment was validated locally across several scored runs with paired in-run provenance stamps, and has NO CI evidence, because the leg carrying it never reported. The three legs that did report are `(0)` SUCCESS, `(3)` SUCCESS, and `(2)` FAILURE naming `rowScanOpener` -- an inherited main-red that reproduces identically on `origin/main` and that the PR does not touch. `source-shards` is not a required check, so this did not block the merge; it removed evidence somebody wanted.
 
 ```
 git show <rev>:tests/mutation/source/registry.ts | grep -cE '^\s+id: "'
