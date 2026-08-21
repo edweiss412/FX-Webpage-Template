@@ -23,8 +23,8 @@ stale from the moment `task:score-measure`'s inputs move.
 
 **Second ordering constraint:** a guard is not a separate deliverable — **it is the RED of the
 change's own cycle**. Plan round 1 showed that splitting the scans from the routing they demand is
-not merely an ordering choice but an IMPOSSIBLE cycle: a scan asserting twelve outstanding
-obligations is red by construction until they are discharged, so it can never commit green. **`task:scans-and-routing`
+not merely an ordering choice but an IMPOSSIBLE cycle: a scan asserting the outstanding
+obligations (twelve when measured against the prototype, SIX at HEAD — the population moved, because Tasks 2-6 both added name sites and removed others) is red by construction until they are discharged, so it can never commit green. **`task:scans-and-routing`
 therefore holds both**, and §3d records the shrinking-allowlist alternative and why it was declined.
 
 ---
@@ -258,10 +258,10 @@ reclassified "not a read" and rules 2 and 3 stop constraining it everywhere the 
 
 **Files:** `tests/paneCompaction/sendAuthScan.ts`, `tests/paneCompaction/_metaSendAuthSingleRead.test.ts`, `tests/paneCompaction/fixtures/sendAuth/`
 
-<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/sendAuthScan.ts:632` why=`calleeNameOf and the remaining name-resolution sites resolve a name without routing through resolveName and carry no acknowledgement token, so the adoption scan authored here reports twelve unfulfilled ROUTE obligations and the assert-empty fails on that list` ac=AC-U16a,AC-U16b,AC-U16c -->
+<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/sendAuthScan.ts:632` why=`calleeNameOf and the remaining name-resolution sites resolve a name without routing through resolveName and carry no acknowledgement token, so the adoption scan authored here reports every unfulfilled ROUTE obligation and the assert-empty fails on that list (twelve when measured against the prototype, six as shipped)` ac=AC-U16a,AC-U16b,AC-U16c -->
 
 **Scans and routing are ONE task because splitting them makes the cycle impossible**: a scan whose
-whole purpose is to report twelve outstanding obligations is red by construction until they are
+whole purpose is to report the outstanding obligations (twelve when measured against the prototype, SIX at HEAD — the population moved, because Tasks 2-6 both added name sites and removed others) is red by construction until they are
 discharged, so it can never commit green on its own. The ordering the pair existed to protect —
 **a guard built after the thing it guards means the thing shipped ungated** — is preserved WITHIN the
 task by TDD order: author the scans, observe the red, then route.
@@ -456,14 +456,14 @@ would break it is the next tautology.
 | `declaration-name-accept-set` | declaration-name accept-set | yes | a parent kind entering or leaving the set |
 | `read-set-member-name` | read set over a quoted member | yes | the member-name position leaving the rule |
 | `scans-and-routing` | ABSENCE scan | yes | a second copy of the rule; copies three, four and five all compiled and shipped green |
-| `scans-and-routing` | ADOPTION scan | yes | a name-resolution site neither routed nor acknowledged; reports 12 today |
+| `scans-and-routing` | ADOPTION scan | yes | a name-resolution site neither routed nor acknowledged; reported 12 against the prototype, 0 at HEAD once all six routed |
 | `scans-and-routing` | METAMORPHIC scan | yes | a spelling dependence anywhere in the detector; it FAILED at 42 to 44 before the repair |
 | `scans-and-routing` | per-form planted violations | yes | a detector recognizing a strict subset of the API set |
 | `scans-and-routing` | derived API REQUIREMENT vs authored fixture DIRECTORY | yes | a member of the API set with no hand-authored violation on disk — a DIFFERENT event from a detector recognizing a subset, and the two must not share a row |
 | `score-measure` | `shadowedBetween` grep returns zero | yes | the symbol surviving the refactor anywhere in the module |
 | `score-measure` | no loop's termination rests on a mutable predicate | yes | a totalisation that moves termination into a predicate, which turns an off-by-one mutant into a NON-TERMINATING one and takes the whole measurement down |
 | `scans-and-routing` | stale-row check | yes | a disposition row whose site is gone; reports 2 today |
-| `scans-and-routing` | ROUTE compliance | yes | a `ROUTE` row whose site is still unrouted; reports 12 today |
+| `scans-and-routing` | ROUTE compliance | yes | a `ROUTE` row whose site is still unrouted; reported 12 against the prototype, 6 at HEAD |
 | `scans-and-routing` | `not-a-name` field invalidation | yes | the site repurposed to read a different field |
 | `scans-and-routing` | `grammar` validated against DECLARED FIELD TYPES | yes | a field whose type admits a sibling spelling being granted the durable token — three of nine were, and an access-shaped claim is unfalsifiable by construction |
 | `scans-and-routing` | `narrowed` syntax carries consequence AND trigger | yes | a `narrowed` row written without either, which is a shrug wearing a token's name |
@@ -537,7 +537,7 @@ ordered but IMPOSSIBLE. The correction is that **a guard is not a separate deliv
 RED of the change's own cycle.** Two legal shapes exist: ONE TASK (write the guard, observe red,
 route, green), or TWO with a SHRINKING ALLOWLIST where the guard ships green against a declared
 baseline of known-unfulfilled sites. **`task:scans-and-routing` takes the first**; the allowlist was considered and
-declined because twelve routings are one mechanical class and an allowlist would outlive them.
+declined because the routings (twelve when measured against the prototype, SIX at HEAD — the population moved, because Tasks 2-6 both added name sites and removed others) are one mechanical class and an allowlist would outlive them.
 
 ---
 
