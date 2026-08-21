@@ -3,10 +3,70 @@ import { evaluateGate } from "../../../../../../tests/mutation/source/gate";
 import { enumerateSites, siteId } from "../../../../../../tests/mutation/source/operators";
 import { MUTANT_TIMEOUT_MS } from "../../../../../../tests/mutation/source/spawnBounded";
 import type { GuardSurface } from "../../../../../../tests/mutation/source/registry";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 const root = process.cwd();
+
+/**
+ * The synthetic surfaces are WRITTEN BY THIS SCRIPT rather than committed, so the
+ * probe is self-contained and regenerable (round-4 review: the committed script
+ * required four files that were not in the tree). They are removed in the finally
+ * below; `tests/_probe_nondet/` is git-ignored so an interrupted run cannot leak
+ * them into a commit.
+ *
+ * hangSource's `i = i - 1;` removal is the SYNCHRONOUS non-terminating mutant —
+ * vitest's own testTimeout is a timer and cannot fire on a blocked worker thread,
+ * so the spawnBounded ceiling is what stops it. assertSource keeps the advance in
+ * the for-header, so no statement-removal mutant of it hangs.
+ */
+const FIXTURE_DIR = join(root, "tests/_probe_nondet");
+const FIXTURES: Record<string, string> = {
+  "hangSource.ts": `export function countDown(n: number): number {
+  let i = n;
+  let steps = 0;
+  while (i > 0) {
+    steps = steps + 1;
+    i = i - 1;
+  }
+  return steps;
+}
+`,
+  "hangSource.probe.test.ts": `import { describe, expect, it } from "vitest";
+import { countDown } from "./hangSource";
+
+describe("countDown", () => {
+  it("counts one step per unit", () => {
+    expect(countDown(3)).toBe(3);
+  });
+});
+`,
+  "assertSource.ts": `export function countDown(n: number): number {
+  let steps = 0;
+  for (let i = n; i > 0; i = i - 1) {
+    steps = steps + 1;
+  }
+  return steps;
+}
+`,
+  "assertSource.probe.test.ts": `import { describe, expect, it } from "vitest";
+import { countDown } from "./assertSource";
+
+describe("countDown", () => {
+  it("counts one step per unit", () => {
+    expect(countDown(3)).toBe(3);
+  });
+});
+`,
+};
+
+function writeFixtures(): void {
+  mkdirSync(FIXTURE_DIR, { recursive: true });
+  for (const [name, body] of Object.entries(FIXTURES)) {
+    writeFileSync(join(FIXTURE_DIR, name), body, "utf8");
+  }
+}
+
 
 const surfaceFor = (stem: string): GuardSurface =>
   ({
@@ -53,8 +113,16 @@ const runArm = (stem: string) => {
   return { run, gate, elapsedMs };
 };
 
-const hang = runArm("hangSource");
-const assertArm = runArm("assertSource");
+writeFixtures();
+let hang: ReturnType<typeof runArm>;
+let assertArm: ReturnType<typeof runArm>;
+try {
+  hang = runArm("hangSource");
+  assertArm = runArm("assertSource");
+} finally {
+  // Rule 69: the tree deliberately holds no scratch. Removed even on failure.
+  rmSync(FIXTURE_DIR, { recursive: true, force: true });
+}
 
 console.log("\n================ PRE-REGISTERED READING ================");
 const overlayLive = hang.run.survivors.length === 0 && hang.run.killed > 0;

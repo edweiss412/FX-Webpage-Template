@@ -23,6 +23,14 @@ this arc exists to make impossible, and it is fixed by making the claim TRUE rat
 it. They typecheck under the repo's strict `tsc` (`pnpm typecheck`, clean) and so are subject to the
 probe mini-review the spec-self-review rules require.
 
+**Two regeneration gaps found in round 4 and closed, because "committed" is not the same as
+"runnable".** `p1-e2e.ts` needed four synthetic fixture files that were not in the tree; it now WRITES
+them itself at run time and removes them in a `finally`, with `tests/_probe_nondet/` git-ignored so an
+interrupted run cannot leak scratch into a commit. And `p4-annotations.py` derived its population from
+"the latest 60 workflow runs", which drifts under ordinary CI activity; it now carries the **19 pinned
+run ids** the published counts were computed over, with `--refresh` as the opt-in live path. A probe
+whose population moves under you cannot support a fixed number.
+
 The mirror's core, inline for readers:
 
 ```ts

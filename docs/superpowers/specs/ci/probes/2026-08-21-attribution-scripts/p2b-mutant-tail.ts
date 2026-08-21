@@ -51,5 +51,16 @@ console.log(`killed=${run.killed} survivors=${run.survivors.length}`);
 console.log(`child duration (s): min ${(d[0]! / 1000).toFixed(1)}  median ${(d[Math.floor(d.length / 2)]! / 1000).toFixed(1)}  max ${(d[d.length - 1]! / 1000).toFixed(1)}`);
 console.log(`ceiling ${MUTANT_TIMEOUT_MS / 1000}s — headroom at the measured MUTANT max: ${(MUTANT_TIMEOUT_MS / d[d.length - 1]!).toFixed(1)}x`);
 console.log(`TIMEOUTS AMONG THESE KILLS: ${timeouts.length} of ${run.killed}`);
-console.log(`slowest 10 children (s): ${d.slice(-10).map((x) => (x / 1000).toFixed(1)).join(", ")}`);
+// Rule 162: record IDENTITY beside every value. A duration distribution with no
+// per-item attribution cannot be acted on — which is this arc's own subject, and
+// the first version of this probe committed exactly that defect.
+const byDuration = [...mutantRecords].sort((a, b) => a.durationMs - b.durationMs);
+console.log("slowest 12 children, WITH IDENTITY:");
+for (const r of byDuration.slice(-12)) {
+  console.log(`  ${(r.durationMs / 1000).toFixed(1)}s  ${r.siteId}  [${r.suite}]`);
+}
+console.log("fastest 3, for contrast:");
+for (const r of byDuration.slice(0, 3)) {
+  console.log(`  ${(r.durationMs / 1000).toFixed(1)}s  ${r.siteId}  [${r.suite}]`);
+}
 console.log(`survivors: ${JSON.stringify(run.survivors)}`);

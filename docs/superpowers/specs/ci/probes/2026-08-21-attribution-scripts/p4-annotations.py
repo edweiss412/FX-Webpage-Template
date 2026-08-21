@@ -17,7 +17,24 @@ def _failing_runs():
         raise RuntimeError("ABORT: empty run population — a zero over nothing is not a result.")
     return [[str(r["databaseId"]), r["createdAt"][:16], r["event"], r["headBranch"]] for r in rows]
 
-RUNS = _failing_runs()
+# The asserted population, PINNED so the reported figures are reproducible.
+# Deriving it live (--refresh) re-queries the latest 60 runs, which changes under
+# ordinary subsequent CI activity — so the committed evidence carries the ids the
+# published counts were computed over (round-4 review).
+PINNED_RUN_IDS = [
+    "32438070949", "32435053058", "32419289706", "32419020826", "32418259954",
+    "32396235721", "32391432379", "32375262145", "32364921651", "32361907861",
+    "32344648722", "32325314388", "32228276600", "32206321430", "32201405076",
+    "32190894382", "32170800395", "32158489519", "32153884807",
+]
+WINDOW = "2026-08-18 to 2026-08-21"
+
+if "--refresh" in sys.argv:
+    RUNS = _failing_runs()
+    print(f"population: DERIVED live ({len(RUNS)} failing runs) — not the pinned set")
+else:
+    RUNS = [[rid, "", "", ""] for rid in PINNED_RUN_IDS]
+    print(f"population: PINNED {len(RUNS)} failing runs, {WINDOW}")
 
 def api(path):
     p = subprocess.run(["gh", "api", path], capture_output=True, text=True)
@@ -60,7 +77,7 @@ for r in RUNS:
         tally[x] = tally.get(x, 0) + 1
     print(f"{rid} {when} {branch[:34]:<34} annotations={n:<3} :: {' '.join(sorted(s)) or 'NONE'}")
 
-print(f"\npopulation: {len(rows)} failing mutation-harness runs, 2026-08-18 to 2026-08-21")
+print(f"\npopulation: {len(rows)} failing mutation-harness runs, {WINDOW}")
 print("surface appearance counts:")
 for k, v in sorted(tally.items(), key=lambda kv: -kv[1]):
     print(f"  {v:>2}x  {k}")

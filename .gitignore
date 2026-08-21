@@ -125,3 +125,9 @@ tests/mutation/guardSurfaces.shard[4-9].test.ts
 # an author remembering to use explicit pathspecs is the kind of control that fails
 # at hour six.
 .probe/
+
+# spec-time probe fixtures, written and removed by p1-e2e.ts (never committed)
+tests/_probe_nondet/
+
+# per-run mutation outcome records (design 5.2)
+.mutation-records/
