@@ -82,6 +82,7 @@ schedule for an outcome already inside the bound.
 **The load-bearing lesson, unchanged from the filing and now confirmed twice.** Failing arms closed
 produced ZERO false advisories on the live corpus. Silence was not buying correctness; it was buying
 nothing.
+
 ## BL-PREMISESCAN-FILE-SUITE-EAGER-HOOKS-LOST — at file scope a hook in a registration's eager position reaches no sibling — CLOSED 2026-08-21 (`fix/premisescan-hook-attachment`, SHIPPED)
 
 **Status:** SHIPPED 2026-08-21 · **Effort (as shipped):** M · **Severity (as filed):** MEDIUM (a silent FREE — a sibling suite reads free while the hook genuinely runs for it) · **Class:** guard fidelity · **Effort:** M · **Filed:** 2026-08-19 (`fix/premisescan-nested-hook-sibling-leak`, diff review r9) · **Facing:** process · **Mint-exception:** invariant · **Class-sweep exception:** (c) — the repair changes the top-level SEED's contract, not the nested stop the finding arc ships · **Reachability:** PROBED — same-machine differential on both trees, plus an 84-case sweep.

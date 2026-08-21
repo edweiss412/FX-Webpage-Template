@@ -1283,6 +1283,26 @@ const MANIFEST: readonly ManifestCell[] = [
     covers: "rule A's unwrap applies to the element KEY as a second name position",
     syntaxSensitive: ['this[("ch")].dispatch("p1", "/compact");'],
   },
+  {
+    fixture: "selector-key-wrapped.ts",
+    axis: "wrapper kind",
+    covers:
+      "rule A's unwrap applies to the element key in the SELECTOR position, the second of the two positions",
+    syntaxSensitive: ['ch[("dispatch")]("p1", "/compact");'],
+  },
+  {
+    fixture: "callee-wrapped.ts",
+    axis: "wrapper kind",
+    covers: "rule A's unwrap applies to the WHOLE CALLEE, not only to the receiver inside it",
+    syntaxSensitive: ['(ch.dispatch)("p1", "/compact");'],
+  },
+  {
+    fixture: "computed-key-competing-declaration.ts",
+    axis: "wrapper kind",
+    covers:
+      "rule A's unwrap applies inside a COMPUTED DECLARATION NAME, so a wrapped key still competes under rule B",
+    syntaxSensitive: ['const competing = { [("snap")]: 1 };'],
+  },
   // --- Task 6 [task:read-set-member-name].
   {
     fixture: "quoted-member-read.ts",
@@ -2919,6 +2939,31 @@ describe("Task 9 — what the mutation gate demanded, and the killer audit's two
       finding(f, "RAW-HANDOFF", "String", lineOf(f, "String(snap)")),
       finding(f, "MULTI-READ", "panes", a, [a, b]),
     ]);
+  });
+
+  it("unwraps a WRAPPED element key in the SELECTOR position — the second position", () => {
+    // The corpus pinned the RECEIVER key and not the selector key, so an
+    // implementation that unwrapped one and not the other passed everything.
+    // Found by the killer audit, not by review.
+    const f = "selector-key-wrapped.ts";
+    expect(scan(f)).toEqual([finding(f, "UNDECLARED-PASS", "settle", fnLine(f))]);
+  });
+
+  it("unwraps the WHOLE CALLEE, not only the receiver inside it", () => {
+    // `(ch.dispatch)(...)` wraps a different node than `(ch).dispatch(...)`, so
+    // every wrapped-RECEIVER fixture in the corpus leaves this one unexercised.
+    const f = "callee-wrapped.ts";
+    expect(scan(f)).toEqual([finding(f, "UNDECLARED-PASS", "settle", fnLine(f))]);
+  });
+
+  it("unwraps inside a COMPUTED DECLARATION NAME, so a wrapped key still competes", () => {
+    // Rule B's count is the consumer: a computed key that does not resolve is a
+    // competing declaration NOT COUNTED, which keeps the derivation exemption and
+    // silences the pass.
+    const f = "computed-key-competing-declaration.ts";
+    const a = lineOf(f, "const a = snap.panes();");
+    const b = lineOf(f, "const b = snap.panes();");
+    expect(scan(f)).toEqual([finding(f, "MULTI-READ", "panes", a, [a, b])]);
   });
 
   it("unwraps a WRAPPED element KEY — the key is a second name position", () => {

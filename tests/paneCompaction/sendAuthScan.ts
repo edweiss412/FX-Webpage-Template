@@ -427,14 +427,22 @@ const classifyUses = (
     const selected = memberCallOf(outer);
     if (selected === null || selected.receiver !== receiver) return;
     const member = selected.member;
-    const call = outer.parent;
-    if (ts.isCallExpression(call) && call.expression === outer) {
+    // TRANSPARENCY IS SYMMETRIC HERE TOO. `classify` already walks OUT before
+    // matching a branch; this site asked `outer.parent` directly, so a callee
+    // wrapped as a WHOLE -- `(ch.dispatch)(...)`, where the member access's parent
+    // is the wrapper and not the call -- matched neither the call branch nor
+    // `handedOn`, and a SINK CALL degraded to UNCLASSIFIED-USE naming the member.
+    // That is the wrong-attribution direction this arc exists to remove, surviving
+    // at the one position no fixture covered. Found by the killer audit.
+    const outward = outwardTransparent(outer);
+    const call = outward.parent;
+    if (ts.isCallExpression(call) && call.expression === outward) {
       if (!known.has(member)) report(outer, member);
       return;
     }
     const handedOn =
-      (ts.isPropertyAssignment(call) && call.initializer === outer) ||
-      (ts.isCallExpression(call) && call.arguments.includes(outer));
+      (ts.isPropertyAssignment(call) && call.initializer === outward) ||
+      (ts.isCallExpression(call) && call.arguments.includes(outward));
     if (ambient.has(member) && handedOn) return;
     report(outer, member);
   };
@@ -1162,7 +1170,13 @@ const unreachedOccurrences = (
       // reader. Inspecting the node without unwrapping made both the sink walk and the
       // default-deny arm miss it, and the module reported NOTHING (diff r2 F2). A
       // wrapper that changes no semantics must not change what the guard sees.
-      const bare = skipTransparent(callee);
+      // NOT unwrapped here: `surfaceReceiverOf` unwraps its own argument (rule A's
+      // one entry point), and `skipTransparent` is idempotent, so a second unwrap
+      // at this call site could never change the result. The killer audit found it
+      // by removing it and observing that NOTHING in the corpus noticed -- which
+      // for a load-bearing unwrap would be a coverage gap, and for this one is the
+      // proof it was dead. A fixture pinning dead code would pin the wrong thing.
+      const bare = callee;
       const memberCall = memberCallOf(callee);
       const isMemberSink =
         memberCall !== null &&
