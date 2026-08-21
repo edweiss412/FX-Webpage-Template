@@ -40,4 +40,11 @@ export const CONNECTION_CENSUS_DISPOSITIONS: readonly DispositionRow[] = [
     reason:
       "resolvePsqlTarget with requireLocalSupabase and envVars [DATABASE_URL], no remote opt-in (the resolver is devCaptureStaged.ts galleryDatabaseUrl)",
   },
+  {
+    file: "tests/e2e/helpers/devCaptureStaged.ts",
+    site: "galleryDatabaseUrl(dsn)",
+    kind: "resolver",
+    reason:
+      "resolvePsqlTarget with requireLocalSupabase and envVars [DATABASE_URL], no remote opt-in; the three consumers of this helper inherit `dispositioned` and owe nothing",
+  },
 ];
