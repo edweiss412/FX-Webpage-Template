@@ -2851,4 +2851,41 @@ export const GUARD_SURFACES: GuardSurface[] = [
     },
     accepted: [],
   },
+  /**
+   * The send-authorization single-read lint
+   * (BL-SEND-AUTH-SINGLE-READ-LINT, spec
+   * docs/superpowers/specs/ci/2026-08-19-send-auth-single-read-lint-design.md §5).
+   *
+   * Enrolled BEFORE this arc's first diff-review round, per the AGENTS.md
+   * convergence contract: the mutation score plus an EMPTY unaccepted-survivor
+   * set IS this arc's closable convergence criterion, and it is the acceptance
+   * test for the one class four plan rounds bounded without proving empty —
+   * "a weaker implementation passes my fixtures".
+   *
+   * A SURVIVING MUTANT OF THAT SHAPE IS BLOCKING AND MAY NOT BE ACCEPTED. The
+   * `accepted-gap` mechanism is legitimate for a mutant whose kill would need
+   * machinery out of proportion to the risk; it is NOT available here. If a
+   * survivor demonstrates that a weaker implementation passes the suite — a node
+   * kind unexamined, a comment syntax unrecognized, an import form unfollowed, an
+   * exemption reaching past its rule — the repair is a fixture and a code change.
+   * `equivalent` is likewise unavailable for that shape: a mutant that changes
+   * which inputs the scanner classifies is not behaviour-preserving by
+   * definition.
+   */
+  {
+    id: "sendAuthScan",
+    sourcePath: "tests/paneCompaction/sendAuthScan.ts",
+    suitePaths: ["tests/paneCompaction/_metaSendAuthSingleRead.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 1,
+    // Widens the ambient exemption from "an AMBIENT member handed on as a
+    // callback" to "anything handed on", which is precisely the hole the AC-2
+    // triple exists to close: `read-callback-reports` must report and would fall
+    // silent. Verified unique on the current source (grep -c -F = 1).
+    control: {
+      from: "if (ambient.has(member) && handedOn) return;",
+      to: "if (handedOn) return;",
+    },
+    accepted: [],
+  },
 ];

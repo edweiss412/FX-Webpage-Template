@@ -359,4 +359,16 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // choice -- phantomGapExecuted above records that the combined shape scored
   // 0.27, with 18 of 19 survivors in code no import can reach.
   shardBudget: {},
+  // sendAuthScan, enrolled 2026-08-20 BEFORE this arc's first diff-review round.
+  // EMPTY, and that is a hard acceptance condition rather than a hopeful default:
+  // the arc's convergence criterion is the score plus an EMPTY unaccepted-survivor
+  // set, and a survivor of the WEAKER-IMPLEMENTATION shape — a node kind
+  // unexamined, a comment syntax unrecognized, an import form unfollowed, an
+  // exemption reaching past its rule — is BLOCKING and must end up KILLED. Neither
+  // `accepted-gap` nor `equivalent` is available for that shape: an accepted gap
+  // would re-open, wearing a machine-checked veneer, the class four plan rounds
+  // spent bounding, and a mutant that changes which inputs the scanner classifies
+  // is not behaviour-preserving by definition. Any row appearing here later is
+  // this surface's first and owes its own written argument.
+  sendAuthScan: {},
 };
