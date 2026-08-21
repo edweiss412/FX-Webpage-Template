@@ -65,8 +65,12 @@ session takes the branch from here.
    `+153` within one change. Offset arithmetic is never valid — re-derive every accepted row
    through `pnpm mutation:sites`, and RE-VALIDATE rather than merely re-key.
 4. **W1 in plan §2b is the weaker implementation that passes A–F by accident.** The naive re-lex of
-   `attached[0]` makes case A green for a reason unrelated to construct-aware delimiting. G, H and I
-   are the three cases that separate the specified implementation from the accidental one.
+   `attached[0]` makes case A green for a reason unrelated to construct-aware delimiting. This handover named G, H and I as the three separating
+   cases and the implementation-time killer audit REFUTED two thirds of it: `"[^"]*"` matches G's
+   target whole, and H's escaped backtick never reaches that path, so neither discriminates. Case
+   I's ATTRIBUTION predicate is what separates the specified implementation from the accidental
+   one. Corrected in place rather than left standing, because a wrong killer column reads as
+   coverage.
 5. **AC-5's digest covers EVERY field, and that is load-bearing.** The first version hashed only
    key, file, line and text — and every one of the 76 live sites carries
    `suppressesStartupFiles: true`, `nested: false`, `nestedInBacktick: false`, so flipping any of

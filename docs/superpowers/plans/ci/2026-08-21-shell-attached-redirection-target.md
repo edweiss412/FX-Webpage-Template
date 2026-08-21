@@ -142,10 +142,10 @@ by exhaustion.
 | W2 | delimit by construct, but do NOT retain the target | the substitution family is the visible half of the ledger row | **F** — an attached here-string has no nested body at all |
 | W3 | retain the target, but do NOT collect nested bodies | retention alone makes the here-string case pass | **A–E** — every substitution spelling stays silent |
 | W4 | fire the unlexable report on ANY attached target | "never silently discarded", read maximally | **AC-5's digest** — the corpus's 53 ordinary targets become advisories |
-| W5 | recurse only ONE level into the attached slice | depth 1 covers B, C and D, which look like the whole family | **G** — a brace inside a quoted target is depth 2 |
-| W6 | honour the escape pair at top level only | escapes read as a lexer-entry concern | **H** — its escape sits inside the attached double-quoted target |
-| W7 | treat the report as a `PsqlSite` rather than an `IndirectionHit` | a site is the more familiar result type | **AC-5's digest** — a fabricated site moves the finding set |
-| W8 | delimit within ONE physical line, ending the region at any newline | a redirection and its target look like a same-line construct, and every case A–I is one | **J** — a backslash continuation inside a quoted target crosses the newline and bash executes it |
+| W5 | recurse only ONE level into the attached slice | depth 1 covers B, C and D, which look like the whole family | **the depth-general recursion case** — G is depth 2 and an implementation capped there passes it; §2b-bis records W5 as could-not-be-built, so the shipped killer is the unbounded-depth assertion, not G |
+| W6 | honour the escape pair at top level only | escapes read as a lexer-entry concern | **the escaped-double-quote case** — §2b-bis found H does NOT reach this path and no shipped check caught W6 at all; the case that kills it was measured and added on this arc |
+| W7 | treat the report as a `PsqlSite` rather than an `IndirectionHit` | a site is the more familiar result type | **the zero-PsqlSite assertion on an unlexable target** — §2b-bis records W7 as could-not-be-built (it needs a site factory) and the live corpus has no applicable row, so the digest is NOT the discriminator |
+| W8 | delimit within ONE physical line, ending the region at any newline | a redirection and its target look like a same-line construct, and every case A–I is one | **the body COORDINATE cases** — §2b-bis measured J's presence assertion SURVIVING this weakening; only the line-and-offset assertions kill it |
 | W9 | handle an attached target only when the operator has no file-descriptor prefix | the prefix reads as a separate token, so `2>` looks like a different construct | **K** — `cat 2>"$(psql -c 'select 1')"` executes once and both scanners return zero |
 | W10 | ADD a correctly attributed record and leave the wrongly attributed one | additive repairs feel safer than replacing a record something else may read | **I** — its predicate is universal over every site the snippet produces, so `[wrong, correct]` fails |
 | W11 | delimit construct-aware after `>` and `<<<`, fall back to the old character run for the other ten operators | those two are what every acceptance case uses, so the gate goes green | **the derived operator row**, which iterates the SHIPPED array — plus `operator-oracle.mts` (spec §2.2b), which measures the expected split against bash rather than against the constant |
@@ -400,9 +400,13 @@ mutant it kills.
    implementation that exploits that and no §2.2 case kills it. **The task's own test iterates the
    shipped array** — importing it, not retyping it — and asserts the attached-target behaviour for
    each operator the array declares, so an operator added later is covered by construction instead
-   of silently exempt. Operators whose grammar makes an attached substitution meaningless (`>&`,
-   `<&` take a descriptor) assert the CONSERVATIVE outcome explicitly rather than being skipped:
-   a skip is indistinguishable from a miss.
+   of silently exempt. `>&` and `<&` are NOT exempt and the earlier draft calling
+   them meaningless was refuted by measurement: bash expands the word FIRST and only then fails
+   the descriptor check, so an attached substitution there really executes (spec §2.2b's operator
+   table, and the executable assertion in the deciding suite). The two operators that genuinely
+   execute nothing are `<<` and `<<-`, which take a here-DOCUMENT delimiter literally. Every
+   operator asserts its outcome explicitly rather than being skipped: a skip is indistinguishable
+   from a miss.
 6. **Cross the nested-body POPULATION axis, and assert the count rather than a witness.** Every
    §2.2 case carries AT MOST ONE substitution body, so W12 — collect the first body and stop —
    passes the whole acceptance set. `cat >"$(true)$(psql -c 'select 1')"` is one ordinary edit from
@@ -482,7 +486,10 @@ psql OUT of the backtick body must flip `nestedInBacktick` to false while the si
 that is the mutant only an attribution assertion kills, and it is the one that would have passed
 against the round-1 fixture. **A third mutant is now required and is round 4's:** leave the existing
 wrongly top-level site in place and ADD a correct one. The predicate is universal over every site
-the snippet produces, so `[wrong, correct]` must FAIL — an existential reading passed it. H takes the ordinary set, since its expectation is presence.
+the snippet produces, so `[wrong, correct]` must FAIL — an existential reading passed it. **H's subject row
+takes the ordinary presence expectation AND H carries its own separate attribution assertion**; the two
+are distinct assertions on one subject, which is how the suite ships it. An earlier passage described
+H as taking the universal predicate in its subject row, which the implementation does not do.
 
 **Premise (executable, on each case's OWN inputs).** Immediately above each assertion,
 `premiseHolds("this case's attached target really is attached", …)` asserting no whitespace sits

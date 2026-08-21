@@ -316,7 +316,13 @@ STRUCTURE rather than spelling:
   sits inside a backtick body — WRONG ATTRIBUTION, which §5 forbids outright. The escape pair
   taking precedence is what stops a `\`` from terminating anything.
 
-**Everything outside this set is REPORTED through part 4, by default rather than by enumeration.**
+**Everything outside this set that the walk cannot DELIMIT is REPORTED through part 4, by default
+rather than by enumeration.** The default ranges over spellings that leave a construct open. A
+character that simply TERMINATES an attached target is a different case and is correctly silent:
+`<(` and `>(` end the target exactly as the character-run regex did, and bash executes nothing at
+that spelling, so silence agrees with the shell rather than under-reporting it (see the process
+substitution row in the documented limits below). Reporting is the default for the undelimitable,
+not for everything outside the accept set.
 A later finding INSIDE the accept set is a bug in scope this spec promised to handle. A spelling
 OUTSIDE it is a documented limit by construction and is not an admissible finding — which is what
 makes the axis closable rather than an open grammar to chase.
@@ -337,7 +343,7 @@ nothing, and an AC citing prose is decoration.
 | AC-5b | That digest DISCRIMINATES on the fields §5 forbids moving — a flipped `suppressesStartupFiles`, `nested`, `nestedInBacktick`, `exemptReason` or `hasDynamicTokens` must change it. | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/digest-sensitivity.mts` — exits 1 naming any field the digest is blind to |
 | AC-6 | Every declared-limit pin in §6 moves deliberately, and none moves silently. | the same suite: each retired row is re-pinned at its NEW value, and each held row at its old one, so a recognizer change that moves an unlisted pin reds |
 | AC-7 | `psqlStartupScan` scores at or above its floor with an empty unaccepted-survivor set. | `pnpm heavy pnpm mutation:guards` |
-| AC-8 | The three-surface census still finds ZERO substitution-bearing attached targets, so the repair manufactured no live instance. | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/corpus-family3.mts` — ASSERTS the zero and exits 1 listing witnesses otherwise; ABORTS exit 2 if any of its thirteen controls fails, so the zero can never rest on a scan that cannot see the family |
+| AC-8 | The three-surface census still finds ZERO substitution-bearing attached targets, so the repair manufactured no live instance. | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/corpus-family3.mts` — ASSERTS the zero and exits 1 listing witnesses otherwise; ABORTS exit 2 if any control in its `CONTROL` table fails, so the zero can never rest on a scan that cannot see the family |
 
 **The digest did NOT move when round 3 repaired the serialisation, and that is correct.** Every
 live `exemptReason` is `null`, so distinguishing `null` from `undefined` from ABSENT changes what
@@ -480,7 +486,10 @@ survive. A repair that reported BOTH rows would be loud in a direction the shell
 5. **Confirmed by adversarial review, recorded so a later round does not re-derive them.** Each was
    settled by a reviewer's own probe rather than asserted here:
    - **Target retention stays off the site path.** `scanShellText` supplies no `targets` array
-     while `scanShellIndirection` does, and `hereStringBindingLines` is its only consumer.
+     while `scanShellIndirection` does. It has TWO consumers, not one:
+     `hereStringBindingLines` reads the dequoted text, and `scanShellIndirection`
+     iterates the array itself to emit the unlexable advisories part 4 requires.
+     Neither is on the site path, which is the property this row actually claims.
    - **The §6 declared-limit inventory is complete** — both attached-family pin blocks and their
      two controls, with no third block.
    - **No §2.2 subject is unreachable** under §3's four-part design.
