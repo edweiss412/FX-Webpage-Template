@@ -25,7 +25,55 @@ export { MUTANT_TIMEOUT_MS, WATCHDOG_ARGV } from "./spawnBounded";
  * the overlay's `load` hook. The tracked source file is never written, so a
  * crashed or killed run cannot leave a mutant on disk.
  */
-export type MutantOutcome = { siteId: string; verdict: Verdict };
+/**
+ * One record per suite-child ACTUALLY EXECUTED, in execution order.
+ *
+ * Kinds are named for what was OBSERVED, never for what it was interpreted to
+ * mean: `exit` and `timeout` mirror `SpawnOutcome`. An `infra` kind does not
+ * appear because that path THROWS and is fatal to the run.
+ *
+ * A `kind: "exit"` record certifies THAT the child exited non-zero and cannot
+ * certify WHY — child stdio is discarded by design against a 1 MB `maxBuffer`
+ * cliff, so an assertion rejection, a compile failure and a collection failure
+ * are ONE category (design §6 limit 7).
+ */
+export type ChildRecord = {
+  suite: string;
+  kind: "exit" | "timeout";
+  /** `null` iff `kind === "timeout"` — a timed-out child produced no status. */
+  exitCode: number | null;
+  durationMs: number;
+};
+
+/**
+ * EVERY child, not a `decidedBy` summary.
+ *
+ * `runMutantRecorded` short-circuits on the first non-zero, so the deciding
+ * child is DERIVABLE — it is the last one — while the reverse is not true.
+ * Recording all of them also makes a SURVIVOR attributable (every suite returned
+ * 0, and here is how long each took), which a summary field cannot express.
+ */
+export type MutantOutcome = {
+  siteId: string;
+  verdict: Verdict;
+  /**
+   * OPTIONAL, and the reason is a measured constraint rather than a preference.
+   *
+   * Making it required forces an edit to `tests/mutation/browser/mutate.test.ts`,
+   * which constructs `MutantOutcome` fixtures and is the SOLE deciding suite of
+   * the enrolled `browserMutate` surface (floor 1) — so a required field would
+   * RETIRE that surface's score, which rule 27 grants no test-side exception to,
+   * and would falsify this design's claim that no enrolled score is retired.
+   *
+   * The strength a required field would buy is bought instead by ASSERTION:
+   * AC-4 pins `runSurface`'s children by deep equality over the whole array, so
+   * a producer that silently omitted them fails a test rather than a type check.
+   * The browser runner genuinely has no per-suite children — it drives Playwright
+   * directly rather than spawning one vitest child per declared suite — so
+   * absence there is the honest value, not an omission.
+   */
+  children?: readonly ChildRecord[];
+};
 
 export type RunResult = {
   surfaceId: string;
@@ -84,13 +132,23 @@ export class MutantRunInfraError extends Error {
  * Returns the numeric exit code, or throws `MutantRunInfraError` when the child
  * died without one.
  */
-export function runSuite(
+export function runSuiteRecorded(
   root: string,
   target: string,
   mutantFile: string,
   suite: string,
   context: string,
-): number {
+  /**
+   * The wall-clock ceiling for THIS child, defaulting to the shared constant so
+   * every existing call site is unchanged BY CONSTRUCTION.
+   *
+   * It is a parameter rather than the constant it defaults to, and that is the
+   * whole reason the timeout arm is testable: with the ceiling hardcoded, no
+   * test could reach that branch without a real 180-second hang, so the arm read
+   * as protection while being unreachable code.
+   */
+  timeoutMs: number = MUTANT_TIMEOUT_MS,
+): { code: number; record: ChildRecord } {
   const env = {
     ...process.env,
     MUTATION_ROOT: root,
@@ -104,14 +162,34 @@ export function runSuite(
   // would have finished, and folding it into KILLED would score a kill the suite
   // never earned; a timeout is the mutant's own doing (see MUTANT_TIMEOUT_EXIT).
   // The group reap on the timeout and infra arms runs inside `spawnBounded`.
-  const { outcome } = spawnBounded(["pnpm", ...CHILD_ARGS], {
-    cwd: root,
-    env,
-    timeoutMs: MUTANT_TIMEOUT_MS,
-  });
-  if (outcome.kind === "timeout") return MUTANT_TIMEOUT_EXIT;
-  if (outcome.kind === "exit") return outcome.code;
+  const startedAt = Date.now();
+  const { outcome } = spawnBounded(["pnpm", ...CHILD_ARGS], { cwd: root, env, timeoutMs });
+  const durationMs = Date.now() - startedAt;
+  if (outcome.kind === "timeout") {
+    return {
+      code: MUTANT_TIMEOUT_EXIT,
+      record: { suite, kind: "timeout", exitCode: null, durationMs },
+    };
+  }
+  if (outcome.kind === "exit") {
+    return {
+      code: outcome.code,
+      record: { suite, kind: "exit", exitCode: outcome.code, durationMs },
+    };
+  }
   throw new MutantRunInfraError(`${context} [${suite}]`, outcome.signal, outcome.code);
+}
+
+/** The exit code alone, for callers that record nothing (`runControl`). */
+export function runSuite(
+  root: string,
+  target: string,
+  mutantFile: string,
+  suite: string,
+  context: string,
+  timeoutMs: number = MUTANT_TIMEOUT_MS,
+): number {
+  return runSuiteRecorded(root, target, mutantFile, suite, context, timeoutMs).code;
 }
 
 const CHILD_ARGS = ["exec", "vitest", "run", "--config", CONFIG] as const;
@@ -123,19 +201,26 @@ const CHILD_ARGS = ["exec", "vitest", "run", "--config", CONFIG] as const;
  * and each costs a full vitest boot. Running only `suitePaths[0]` would report a
  * mutant killed solely by a later suite as SURVIVED — a wrong verdict, and a
  * silent contradiction of the plural registry contract in spec §3.7.
+ *
+ * The short-circuit is also what makes `children.at(-1)` THE DECIDING CHILD. A
+ * version that ran on after a kill would record children AFTER the deciding
+ * event and could attach a later timeout to a verdict already settled.
  */
-function runAllSuites(
+export function runMutantRecorded(
   root: string,
   target: string,
   mutantFile: string,
   suites: readonly string[],
   context: string,
-): number {
+  timeoutMs: number = MUTANT_TIMEOUT_MS,
+): { code: number; children: ChildRecord[] } {
+  const children: ChildRecord[] = [];
   for (const suite of suites) {
-    const code = runSuite(root, target, mutantFile, suite, context);
-    if (code !== 0) return code;
+    const { code, record } = runSuiteRecorded(root, target, mutantFile, suite, context, timeoutMs);
+    children.push(record);
+    if (code !== 0) return { code, children };
   }
-  return 0;
+  return { code: 0, children };
 }
 
 export function runSurface(root: string, surface: GuardSurface): RunResult {
@@ -149,7 +234,8 @@ export function runSurface(root: string, surface: GuardSurface): RunResult {
     // mutant scores KILLED and the run would report a meaningless perfect score.
     writeFileSync(mutantFile, text);
     assertCleanBaseline(
-      runAllSuites(root, target, mutantFile, surface.suitePaths, `${surface.id} baseline`),
+      runMutantRecorded(root, target, mutantFile, surface.suitePaths, `${surface.id} baseline`)
+        .code,
       surface.suitePaths.join(", "),
     );
 
@@ -160,10 +246,14 @@ export function runSurface(root: string, surface: GuardSurface): RunResult {
     for (const m of mutants) {
       const id = siteId(m.site);
       writeFileSync(mutantFile, m.text);
-      outcomes.push({
-        siteId: id,
-        verdict: classify(runAllSuites(root, target, mutantFile, surface.suitePaths, id)),
-      });
+      const { code, children } = runMutantRecorded(
+        root,
+        target,
+        mutantFile,
+        surface.suitePaths,
+        id,
+      );
+      outcomes.push({ siteId: id, verdict: classify(code), children });
     }
 
     return {

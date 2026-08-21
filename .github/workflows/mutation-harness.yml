@@ -172,6 +172,42 @@ jobs:
         with:
           name: elapsed-source-shards-${{ matrix.shard }}
           path: elapsed.txt
+      # The per-run attribution records (design §5.2). WITHOUT THIS THE FILE DIES
+      # WITH THE WORKSPACE and the CI half of the record does not survive —
+      # rebuilding the CI-only, failure-only blind spot §1.0 measures, in a new
+      # place. `if: always()` is load-bearing in BOTH directions: conditioned on
+      # success it reproduces the failure-only defect, conditioned on failure it
+      # reproduces it inverted. The artifact name carries the matrix shard so the
+      # four workspaces cannot collide on one constant.
+      - name: Upload mutation records
+        uses: actions/upload-artifact@v4
+        if: always()
+        # LOUD, BUT NOT GATING — the two requirements are both real and they pull
+        # opposite ways. `if-no-files-found: error` below makes a silent-empty
+        # upload visible, since hidden-file exclusion is observable ONLY in a real
+        # Actions run. But AC-14 says a record-write failure must NEVER move the
+        # gate's verdict, and an empty directory is exactly what an allowed write
+        # failure leaves behind. `continue-on-error` keeps the step's failure on
+        # the run — a red step and an annotation — while the JOB's pass/fail stays
+        # a function of the gate alone.
+        continue-on-error: true
+        with:
+          name: mutation-records-source-shards-${{ matrix.shard }}
+          path: .mutation-records/
+          # THE DIRECTORY IS DOT-PREFIXED AND upload-artifact@v4 TREATS EVERY
+          # FILE INSIDE ONE AS HIDDEN, excluding them by default. Without this
+          # the step is green on all four shards while uploading nothing —
+          # the CI-only blind spot §1.0 measures, rebuilt inside its own repair.
+          include-hidden-files: true
+          # `error`, not `warn` and certainly not `ignore`: hidden-file exclusion
+          # is only observable in a REAL Actions run, so no local gate can witness
+          # this step uploading nothing. The next silent-empty must RED rather
+          # than be left for someone to notice in an artifact listing. Licensed by
+          # the partition: every shard is assigned at least one surface and every
+          # evaluated surface emits a record, so zero files means the leg produced
+          # nothing — which is a true statement about that leg, whether it died
+          # early or uploaded blind.
+          if-no-files-found: error
 
   source-gates:
     runs-on: ubuntu-latest
