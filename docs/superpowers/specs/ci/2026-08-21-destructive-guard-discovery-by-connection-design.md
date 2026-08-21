@@ -211,7 +211,7 @@ Each with its ratification.
    call result (`galleryDatabaseUrl()`), a parameter, a property read, a conditional, or anything the
    `const`-chain walk of §2.3 does not resolve is `unclassifiable` and REPORTS. Making the walk
    smarter is the recognizer ratchet; the disposition row is the terminating answer, and at BASE the
-   whole corpus needs two of them.
+   whole corpus needs two of them for SITES (plus five for non-literal import edges, §2.4).
 
 ### §1.4 Convergence criterion
 
@@ -311,18 +311,26 @@ target.** `postgres()` with NO argument connects wherever libpq's `PG*` environm
 in addition to the first argument classifying: there IS a first argument; the second argument is
 absent or is an object literal whose every property is a plain `name: value` pair (no spread, no
 computed key, no shorthand from an outer binding) with a name in the OPTIONS ACCEPT-SET — `max`,
-`prepare`, `idle_timeout`, `connect_timeout`, `statement_timeout`, `max_lifetime`, `onnotice`,
-`debug`, `transform`, `types`, `fetch_types`, and `connection` whose value is itself an object literal
-with keys in `{ application_name }` — and there is no third argument. Any other shape — a steering key
-(`host`, `hostname`, `port`, `path`, `database`, `db`, `user`, `username`, `password`, `pass`, `ssl`,
-`socket`), an unknown key, an identifier as options, a spread — makes the site `unclassifiable`
-(default-deny over option names, the same posture `resolvePsqlTarget` takes over DSN query
-parameters). Measured on the corpus at BASE: the option names in use are exactly `max` (182 sites),
-`prepare` (114), `idle_timeout` (31), `connect_timeout` (21), `statement_timeout` (1), `connection`
-(1), no spreads, no identifier options, and no zero-argument call outside comments
-(`rg -o --pcre2 '(?<![\w.])postgres\([^,)]+,\s*\{[^}]*\}' tests/` for the keys; the zero-argument
-and spread probes returned only comments and the analyzer's own fixture file). This was found by the
-pre-round-3 re-analysis (§3.8), not by a reviewer.
+`prepare`, `idle_timeout`, `connect_timeout`, `max_lifetime`, `onnotice`, `debug`, `transform`,
+`types`, `fetch_types`, and `connection` — and there is no third argument. `connection`'s value must
+itself be an object literal of plain `identifier: <string | number | boolean literal>` pairs; its KEYS
+are unrestricted, because they are server-side runtime parameters (GUCs such as `statement_timeout`
+or `application_name`) that postgres.js sends AFTER the socket is open and that cannot redirect the
+connection — a fact spec round 3 F3 verified with a driver probe on the live site
+`tests/db/watchActivationRace.db.test.ts:35` (`connection: { statement_timeout: 5000 }`, target
+unchanged). Any other shape — a steering key at the outer level (`host`, `hostname`, `port`, `path`,
+`database`, `db`, `user`, `username`, `password`, `pass`, `ssl`, `socket`), an unknown outer key, an
+identifier as options, a spread, a computed key, a non-literal `connection` value — makes the site
+`unclassifiable` (default-deny over outer option names, the same posture `resolvePsqlTarget` takes
+over DSN query parameters). Measured on the corpus at BASE BY AST, not by regex
+(`probe-loaders-options.mts`, committed output beside it): 175 sites, arity `2` at 174 and `1` at 1;
+outer keys `max` 173, `prepare` 168, `idle_timeout` 79, `connect_timeout` 69, `connection` 1;
+`connection` sub-keys `statement_timeout` 1; non-plain shapes 0; zero-argument calls 0. **The
+round-2 draft of this paragraph carried regex-derived counts (`max` 182, and a `statement_timeout` at
+the OUTER level that is really the one `connection` sub-key) — spec round 3 F3 found them wrong, and
+they are replaced rather than corrected in place.** The zero-argument and steering-option shapes were
+found by the pre-round-3 re-analysis (§3.8); the live `connection` sub-key and the AST census are
+round 3's.
 
 The accept-set is stated as what it ACCEPTS, keyed on structure, and everything else is reported by
 class name. Two things are deliberately NOT modelled: the VALUE of any env var (the census is static
@@ -364,10 +372,25 @@ per consumer, so the remedy is one row. The fixpoint runs over:
   `validation-schema-parity.test.ts:402-404`; the analyzer's whole-diff r9 recorded the template form),
   and the string-literal-like argument of `require(...)`. **A NON-literal specifier in any of these
   positions** (`import(pathToFileURL(file).href)`, a template with substitutions) is an edge the census
-  cannot follow and is reported as `unresolved-import` on the importing file — never dropped. Two live
-  at BASE, both outside `tests/` in their targets (`tests/help/render.test.ts:41` imports a help page
-  by computed URL; `tests/parser/fieldNearMiss.test.ts:180` imports a parser block by template), both
+  cannot follow and is reported as `unresolved-import` on the importing file — never dropped. FIVE
+  live at BASE by AST census (`probe-loaders-options.mts` (a); the round-2 draft said two, from an
+  `rg` that did not see a `/* @vite-ignore */` comment before the argument — spec round 3 F2):
+  `tests/e2e/helpers/useServerDirectivePlugin.test.ts:153`, `tests/help/render.test.ts:41`,
+  `tests/parser/_metaKnownSectionsWalker.test.ts:142`, `tests/parser/_metaTransformSitesWalker.test.ts:67`,
+  `tests/parser/fieldNearMiss.test.ts:180` — every target outside `tests/` and non-connecting, each
   carrying an `unclassifiable` row (§2.5);
+- **vitest's module loaders are specifier positions too** (spec round 3 F1: `vi.importActual` is
+  ordinary authoring, 15 live calls with a literal argument, and `await vi.importActual("@/tests/db/_b2Helpers")`
+  inside an existing mock factory would have loaded a connecting helper with no edge). The loader
+  accept-set is the members of `vi` that LOAD the named module: `importActual` and `importMock`
+  always; `mock` and `doMock` when called WITHOUT a factory (automocking evaluates the original);
+  `mock`/`doMock` WITH a factory replace the module and are not edges (an `importActual` inside the
+  factory is its own call and is caught); `unmock`/`doUnmock` load nothing. Any OTHER `vi.<member>`
+  call whose first argument is a PATH-SHAPED literal is reported as `loader-call` — default-deny over
+  loaders, so a member added to vitest later reports rather than passes; `stubGlobal`/`stubEnv` take
+  bare names and never trigger it. At BASE: `importActual` 15 (11 production, 4 bare), `mock` 1136
+  (834 production, 301 bare, 1 under `tests/` — `../source/spawnBounded`, with a factory), `doMock` 64
+  (49 production, 15 bare); ZERO loader edges reach a connecting helper, ZERO `loader-call` reports;
 - type-only imports (`import type … from`, `import { type X } from`) are edges too. Executing nothing at
   runtime makes them over-inclusive, and over-inclusion can only ADD an inherited class or a
   disposition obligation, never remove a report; the conservative direction costs a row, the other
@@ -396,7 +419,7 @@ acquisition expression's text for `acquisition` rows) and `kind` is a CLOSED UNI
 | `resolver` | a site whose argument is a call of a function that itself resolves the target through an accept-set (`resolvePsqlTarget` family); the reason names the resolver and its accept-set | 2 — `tests/admin/step3StateGallery.test.ts` `galleryDatabaseUrl()`, `tests/e2e/helpers/devCaptureStaged.ts` `galleryDatabaseUrl(dsn)` |
 | `acquisition` | a driver acquisition the census cannot follow to a `const`/import-equals binding (§2.2, residual row); the reason states what the site would have classified as | 0 — `validation-schema-parity.test.ts`'s dynamic import IS followed to its `const` since round 2, and its site classifies `validation-env` on its own |
 | `channel` | a file the DESTRUCTIVE guard discovers that the census population does not contain (§2.7) | 0 at BASE — every destructive-discovered file calls the driver; `resetValidationDataPostgrest.test.ts` wipes over REST AND connects, so it is in the population |
-| `unclassifiable` | any other reported site or edge, with a reason a reviewer can check | 2 at BASE — the two non-literal dynamic-import edges named in §2.4 (`tests/help/render.test.ts` `pathToFileURL(file).href`, `tests/parser/fieldNearMiss.test.ts` the parser-block template); both resolve outside `tests/` to non-connecting modules, which the row's reason states and a reviewer can check by reading the two lines |
+| `unclassifiable` | any other reported site or edge, with a reason a reviewer can check | 5 at BASE — the five non-literal dynamic-import edges named in §2.4; every target resolves outside `tests/` to a non-connecting module (a help page, a Vite plugin fixture output, two walker targets, a parser block), which each row's reason states and a reviewer can check by reading the line |
 
 Three assertions, in the meta-test:
 
@@ -536,10 +559,10 @@ correct file.
 
 ### §3.5 What the census would have reported at BASE, before any disposition
 
-Derived from §3.1-§3.2 and §3.8: 2 `unclassifiable` sites (one function, in `devCaptureStaged` and in
-`step3StateGallery`), 2 `unresolved-import` edges (non-literal dynamic specifiers), 0 `acquisition`,
-0 `remote-literal`, 0 `channel`, 0 `shadowed-driver`, 0 option-set violations. Four disposition rows,
-all named in §2.5; the three consumers of `devCaptureStaged` inherit `dispositioned` and owe nothing
+Derived from §3.1-§3.2, §3.8 and the round-3 AST census: 2 `unclassifiable` sites (one function, in
+`devCaptureStaged` and in `step3StateGallery`), 5 `unresolved-import` edges (non-literal dynamic
+specifiers), 0 `acquisition`, 0 `remote-literal`, 0 `channel`, 0 `shadowed-driver`, 0 `loader-call`,
+0 option-set violations. Seven disposition rows, all named in §2.5; the three consumers of `devCaptureStaged` inherit `dispositioned` and owe nothing
 (§2.4). A census that reports anything else at BASE has a
 false report, which §0 makes a finding.
 
@@ -604,16 +627,47 @@ at which the census DECLINES to follow something was enumerated and each was che
 | walk: file extensions | 0 non-TS files name the driver | walk widened to the JavaScript extensions anyway (§1.1); cost nothing |
 | acquisition: specifier spelling | 0 deep imports (a `postgres` sub-path); 0 template-literal `import(\`postgres\`)` outside the analyzer's fixture | specifier match is `isStringLiteralLike` on exactly `"postgres"`; a deep import is a bare package specifier that is NOT the driver and is not followed (documented: the driver has one entry point) |
 | site: ZERO arguments | 0 outside comments | `unclassifiable` — libpq `PG*` env decides the target (§2.3) |
-| site: the OPTIONS object steering the host | 0 steering keys in 6 option names live | options accept-set with default-deny (§2.3) |
+| site: the OPTIONS object steering the host | 0 steering keys; 5 outer names and 1 `connection` sub-key live (AST census) | options accept-set with default-deny over outer names; `connection` sub-keys unrestricted by driver probe (§2.3) |
 | site: a third argument, a spread, identifier options | 0 | `unclassifiable` (§2.3) |
-| edge: non-literal dynamic specifier | 2 live (`render.test.ts:41`, `fieldNearMiss.test.ts:180`) | `unresolved-import` report + `unclassifiable` rows (§2.4, §2.5) |
+| edge: non-literal dynamic specifier | 5 live by AST (the round-2 count of 2 was an `rg` miss — round 3 F2) | `unresolved-import` report + `unclassifiable` rows (§2.4, §2.5) |
+| edge: a FRAMEWORK loader (`vi.importActual`, automock) | 15 `importActual` calls, none reaching a connecting helper (round 3 F1) | loader accept-set as specifier positions; unknown `vi` member with a path-shaped literal → `loader-call` report (§2.4) |
 | edge: path-shaped specifier outside `tests/` | production edges, counted | §4.2 channel, tallied in the gate's printed block |
 | edge: type-only import | edges, over-inclusive | §2.4 |
 | class: site classes after dispositions | `dispositioned` inherits | §2.4 (round 2 F2) |
 | join: destructive file off-channel | 0 | `channel` report (§2.7) |
 
-Three of the ten were new (zero-argument call, options steering, non-literal specifier); all three
-are now reports, two of them with live rows. The probe commands are in §2.3 and §2.4.
+Three of the ten were new at the re-analysis (zero-argument call, options steering, non-literal
+specifier); round 3 added an eleventh (framework loaders) and corrected two counts the re-analysis
+had taken from `rg` instead of from the AST. Every number in this table now comes from the three
+committed probe scripts.
+
+### §3.9 Spec round 3: four findings, all admissible, all repaired — two of them against the author's own instruments
+
+Dispatch `dbconn-spec-r3-20260821-124846`, read at `d17287a25`, verdict NEEDS-ATTENTION, `FINDINGS: 4`.
+Breakdown: two design gaps (F1 loaders, F4 a weaker implementation AC-C3 did not kill), two
+measurement defects in the re-analysis's evidence (F2, F3). Zero refuted.
+
+- **F1 (P1) — `vi.importActual` loads a connecting helper with no edge.** Repaired by adding
+  vitest's loader members to the specifier-position derivation with an accept-set and a
+  `loader-call` report for unknown members (§2.4), measured by AST: 15 live `importActual`, none
+  reaching a helper.
+- **F2 (P2) — five non-literal dynamic specifiers, not two.** The re-analysis counted by `rg`,
+  which did not see `/* @vite-ignore */` between `import(` and its argument. Repaired by an AST
+  census (`probe-loaders-options.mts` (a)); §2.4, §2.5, §3.5, §3.8 and AC-C6 now carry five rows.
+- **F3 (P1) — a live `connection: { statement_timeout }` would have been `unclassifiable`.** The
+  re-analysis's regex census mis-attributed that sub-key to the outer level and over-counted `max`
+  (182 vs 173). Repaired: `connection` sub-keys are unrestricted (server GUCs cannot redirect a
+  socket, verified by the reviewer's driver probe), the outer set dropped the phantom entry, and the
+  counts are the AST census's (§2.3).
+- **F4 (P1) — a first-argument-only classifier survived AC-C3.** The plan draft already carried the
+  options fixtures; the SPEC's AC did not. Repaired in AC-C3 with nine options fixtures, the first
+  argument held fixed, and the weaker implementation named in the fourth column.
+
+**The instrument lesson, recorded because it cost two findings in one round:** every count in this
+document that was produced by `rg` over a language with comments, templates and nesting was wrong
+at least once (type-only default import, `.spec.` helpers, non-literal specifiers, option keys). The
+three committed probes are now the only source for every number in §1, §2.3, §2.4, §3 and §3.8, and
+the plan's pre-draft pass re-runs them rather than re-grepping.
 
 ## §4 Documented limits
 
@@ -654,8 +708,8 @@ Call results, parameters, property reads, conditionals, element accesses, templa
 substitutions, `let`/`var` bindings, import bindings, and mixed `??` chains are `unclassifiable` and
 REPORT; a driver or guard name declared twice in a file is `shadowed-driver` / `unclassifiable` and
 REPORTS at every call. The walk is not extended for any of them and no scope is resolved (§1.3 item
-8). Two live at BASE, one function, one disposition kind; zero live shadowings (the three files that
-spell `postgres` twice do so in comments).
+8). Two live SITES at BASE, one function, one disposition kind, plus five non-literal import edges
+(§2.4); zero live shadowings (the three files that spell `postgres` twice do so in comments).
 
 ### §4.4 Env VALUES are not read
 
@@ -758,10 +812,10 @@ AC-C6 or AC-C9; see their rows.
 | --- | --- | --- | --- |
 | **AC-C1** | Every static VALUE default import of `postgres` yields a driver binding (a type-only default import yields none), and every CALL of a binding whose name is declared nowhere else in the file is a connect site with a source-order ordinal. A binding whose name is ALSO declared elsewhere — parameter, variable, named function or class expression, another import — makes EVERY call of that name a `shadowed-driver` REPORT, including a real top-level call outside the shadowing scope. | unit suite: constructed sources; for each shadow form, a file carrying a real top-level `postgres(process.env.TEST_DATABASE_URL)` AND the shadowing declaration in an unrelated function, asserting ONE `shadowed-driver` report at the top-level call's line and ZERO `validation-env` sites; twin without the declaration → one `validation-env` site, zero reports | a scanner keyed on the callee NAME `postgres` (passes a file importing the driver as `pg`); **a file-wide poison that silently DROPS a shadowed name** (spec round 1 F1: erases `tests/admin/extractAgenda.test.ts:76` and line 563 with no report when one parameter is named `postgres`) |
 | **AC-C2** | A `const` or import-equals binding initialized from an acquisition expression (`(await import("postgres")).default`, `require("postgres")`, with the §2.2 unwrap) is a DRIVER BINDING whose calls are connect sites classified exactly as a default import's — asserted by a fixture that is `validation-schema-parity.test.ts`'s shape (dynamic import, `const`, call with an env-bound `raw`) expecting ONE `validation-env` site and ZERO acquisition reports, and its twin with the argument changed to a remote literal expecting ONE `remote-literal` report at the CALL line. A `ns.default(...)` call through a namespace import is a site. Every acquisition the census cannot follow to such a binding — a named value import of `default`, a non-const binding, a value-position reference — is reported as `acquisition`; a type-only import is ignored. | unit suite, one case per form plus twins | a scanner that reports the acquisition and DROPS the sites it produces (spec round 2 F1: `validation-schema-parity.test.ts:407` absent from the census, a remote literal there invisible); a scanner keyed on default imports only; a scanner that reports type-only imports |
-| **AC-C3** | Site classification is the accept-set of §2.3 over ALL arguments: the first argument classifies to `guard-bound`, `validation-env` (exact env-name sets, in order, default-deny on any other name), `loopback-literal` (host set imported from `_localDbUrl`), `remote-literal`, `unclassifiable`. For each class, a fixture that lands in it AND a fixture one ordinary edit away that lands elsewhere. | unit suite | a classifier keyed on the substring `TEST_DATABASE_URL` (passes `PROD_TEST_DATABASE_URL`; passes `DATABASE_URL ?? TEST_DATABASE_URL` reversed); a classifier that accepts any `process.env.*` read |
+| **AC-C3** | Site classification is the accept-set of §2.3 over ALL arguments: the first argument classifies to `guard-bound`, `validation-env` (exact env-name sets, in order, default-deny on any other name), `loopback-literal` (host set imported from `_localDbUrl`), `remote-literal`, `unclassifiable`. For each class, a fixture that lands in it AND a fixture one ordinary edit away that lands elsewhere. **And the options axis, each fixture holding the first argument FIXED at an accepted `validation-env` chain so only the later arguments can decide the observation:** `postgres()` → `unclassifiable`; `postgres(u, { max: 1 })` → `validation-env`; `postgres(u, { host: "db.example.invalid", max: 1 })` → `unclassifiable` naming `host` (one ordinary edit from `tests/db/backfill-email-deliveries-context.test.ts:17`, spec round 3 F4, where postgres.js connects to the overridden host while the URL says loopback); `postgres(u, { unknown_key: 1 })` → `unclassifiable`; `postgres(u, opts)` → `unclassifiable`; `postgres(u, { ...base })` → `unclassifiable`; `postgres(u, { max: 1 }, extra)` → `unclassifiable`; `postgres(u, { connection: { statement_timeout: 5000 } })` → `validation-env` (the live `watchActivationRace.db.test.ts:35` shape); `postgres(u, { connection: opts })` → `unclassifiable`. | unit suite | a classifier keyed on the substring `TEST_DATABASE_URL` (passes `PROD_TEST_DATABASE_URL`; passes `DATABASE_URL ?? TEST_DATABASE_URL` reversed); a classifier that accepts any `process.env.*` read; **a classifier that reads only the FIRST argument** (spec round 3 F4 — passes every first-argument fixture and AC-C6, and is silent while the driver connects to `db.example.invalid`); a classifier that rejects `connection` sub-keys it has not listed (reds the live `statement_timeout` site) |
 | **AC-C4** | Every outer-expression wrapper the compiler defines is skipped on the argument AND on each `const` initializer: `url!`, `url as string`, `<string>url`, `url satisfies string`, `(url)`. The axis is asserted against `ts.OuterExpressionKinds`, not a list typed into the test. | unit suite + axis-parity assertion | a classifier unwrapping parentheses only |
-| **AC-C5** | The helper graph reaches a fixpoint over EVERY module-specifier position the parser has — import with a clause, **import WITHOUT a clause** (`import "./_b2Helpers"`), `export … from`, `import x = require(…)`, `import("…")`, `require("…")` — for every PATH-SHAPED specifier: `./`, `../`, root-relative (a leading slash, Vite's project-root form), and `<key>/` for each key of the imported `REPO_ALIAS` — on a constructed 3-module cycle; a path-shaped specifier that resolves to no file reports `unresolved-import`; a bare specifier is not an edge. One fixture per specifier position AND one per specifier shape, each asserting the consumer inherits the helper's RESOLVED class; the side-effect-import fixture is one ordinary edit from `tests/db/_b2Helpers.ts:25` (spec round 1 F2); the root-relative fixture is one ordinary edit from `tests/api/show-unpublish-route.realdb.test.ts`'s `@/tests/db/_b2Helpers` (spec round 2 F3). A consumer of a helper whose only site is DISPOSITIONED inherits `dispositioned` and is absent from every report; a consumer of a helper with an UNDISPOSED site appears as AFFECTED under the helper's single report (spec round 2 F2). | unit suite with an injected resolver | a one-level import walk (passes a helper-of-a-helper); a walk that drops unresolvable specifiers; **a walk keyed on `import … from` that never sees `import "x"`**; **a resolver that filters to `./` and `@/tests/` and silently ignores the root-relative form**; an inheritance that propagates the helper's RAW report to every consumer (three false obligations at BASE) or that suppresses it (three silent files) |
-| **AC-C6** | The live census at HEAD reports exactly the disposition rows of §2.5 (four: two `resolver`, two `unclassifiable` edges) and nothing else: 0 undisposed, 0 stale, 0 ambiguous, 0 `remote-literal`, 0 `channel`, 0 `shadowed-driver`, 0 `acquisition`, 0 `unresolved-import`; the three `devCaptureStaged` consumers inherit `dispositioned` and appear in no report. **Not proved by green alone:** every population premise of §2.9 must hold and is asserted unconditionally above the report assertions; the suite prints the per-class site counts so `0 of 0` cannot render as a pass. | meta-test; counts printed and pasted into the PR body | a census whose walk matches nothing (premises red); a census that routes every site to `validation-env` (per-class floors red) |
+| **AC-C5** | The helper graph reaches a fixpoint over EVERY module-specifier position the parser has — import with a clause, **import WITHOUT a clause** (`import "./_b2Helpers"`), `export … from`, `import x = require(…)`, `import("…")`, `require("…")` — for every PATH-SHAPED specifier: `./`, `../`, root-relative (a leading slash, Vite's project-root form), and `<key>/` for each key of the imported `REPO_ALIAS` — on a constructed 3-module cycle; a path-shaped specifier that resolves to no file reports `unresolved-import`; a bare specifier is not an edge. One fixture per specifier position AND one per specifier shape, each asserting the consumer inherits the helper's RESOLVED class; the side-effect-import fixture is one ordinary edit from `tests/db/_b2Helpers.ts:25` (spec round 1 F2); the root-relative fixture is one ordinary edit from `tests/api/show-unpublish-route.realdb.test.ts`'s `@/tests/db/_b2Helpers` (spec round 2 F3). One fixture per LOADER form: `await vi.importActual("./_helper")` inside a `vi.mock` factory → edge (one ordinary edit from `tests/app/admin/setDeveloperAction.test.ts:42`, spec round 3 F1); `vi.mock("./_helper")` without a factory → edge; `vi.mock("./_helper", () => ({}))` → no edge; `vi.unmock("./_helper")` → no edge; `vi.somethingElse("./_helper")` → one `loader-call` report; `vi.stubEnv("X", "y")` → nothing. A consumer of a helper whose only site is DISPOSITIONED inherits `dispositioned` and is absent from every report; a consumer of a helper with an UNDISPOSED site appears as AFFECTED under the helper's single report (spec round 2 F2). | unit suite with an injected resolver | a one-level import walk (passes a helper-of-a-helper); a walk that drops unresolvable specifiers; **a walk keyed on `import … from` that never sees `import "x"`**; **a resolver that filters to `./` and `@/tests/` and silently ignores the root-relative form**; **an edge walk that sees only the parser's own specifier positions and never a `vi.importActual` argument** (spec round 3 F1); an inheritance that propagates the helper's RAW report to every consumer (three false obligations at BASE) or that suppresses it (three silent files) |
+| **AC-C6** | The live census at HEAD reports exactly the disposition rows of §2.5 (seven: two `resolver`, five `unclassifiable` edges) and nothing else: 0 undisposed, 0 stale, 0 ambiguous, 0 `remote-literal`, 0 `channel`, 0 `shadowed-driver`, 0 `acquisition`, 0 `unresolved-import`; the three `devCaptureStaged` consumers inherit `dispositioned` and appear in no report. **Not proved by green alone:** every population premise of §2.9 must hold and is asserted unconditionally above the report assertions; the suite prints the per-class site counts so `0 of 0` cannot render as a pass. | meta-test; counts printed and pasted into the PR body | a census whose walk matches nothing (premises red); a census that routes every site to `validation-env` (per-class floors red) |
 | **AC-C7** | A disposition row matching no live site is red (stale); a row matching two is red (ambiguous); a report with no row is red (undisposed); a `remote-literal` site is red regardless of rows. Each proved on a constructed registry + constructed sources, both directions. | unit suite | a forward-only registry check (passes a dead row) |
 | **AC-C8** | The §2.7 join: the set of files the destructive guard discovers — computed by calling `stripCommentsForFile` then the shared `DESTRUCTIVE_STATEMENT_PATTERNS`, minus `GUARD_OWN_FILES` — is a subset of the census population, with a premise that the discovered set has ≥ 4 members. A constructed destructive file that acquires no driver is reported `channel`. | meta-test (live) + unit suite (constructed) | a join that re-implements the recognizer or the stripper (drift) — killed by a structural assertion that the join module imports `DESTRUCTIVE_STATEMENT_PATTERNS` and `stripCommentsForFile` and declares no regex literal of its own, plus the four-file anti-vacuity premise |
 | **AC-C9** | `connectionCensus` is enrolled with a control line occurring exactly once, asserted by the suite; `EXPECTED_LEDGER_KINDS` carries its row; the first measured score is derived through the shipped `score()` and stated in the PR body with provenance stamped inside the measuring invocation over the §5.1 input set. **Not proved by green:** the number is READ from the score function's return, not from the gate log. | `pnpm mutation:guards` on a scoped scratch shard (deleted after; `_metaSourceShardIntegrity` proven red with it present and green without) | — (measurement, not a behaviour) |
