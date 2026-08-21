@@ -183,3 +183,63 @@ recording because the in-process tier had every opportunity to see them:
 | `AC-9.k1` — a CLI-shaped surface the runner cannot overlay | ABSENT | The core is an importable module with a referring in-process suite (151 cases), and both adapters are thin `main(argv, deps)` entries holding no decision. A CLI-shaped surface would score as if untested; this one is imported directly by its suite. |
 
 **Tally.** 41 PROVEN, 4 ABSENT — 45 obligations.
+
+## Closeout
+
+The two `AC-13` rows above are dispositioned ABSENT and both cite this section,
+so this is the evidence rather than a pointer to it.
+
+**`AC-13.k1` — the widening §1.1 forbids, arriving as an "innocent" helper edit.**
+Checked mechanically. The arc composes the shipped instruments and edits none of
+them, and the freeze diff is empty at the merge base:
+
+```
+$ BASE=$(git merge-base origin/main HEAD); echo "$BASE"
+c9c71b947a8558fc235f94472e7a30a1e3e0ae28
+$ git diff "$BASE"...HEAD -- tests/mutation/source/determinism.ts \
+    tests/mutation/source/runner.ts tests/mutation/source/gate.ts \
+    tests/mutation/source/records.ts tests/mutation/source/registry.ts \
+    'tests/mutation/guardSurfaces.*' .github/workflows/ | wc -l
+0
+```
+
+The path list is not retyped here: `scripts/intraleg-closeout-check.sh:26-34`
+holds it, the gate runs the same diff as its last check, and the spec's AC-13 row
+is byte-identical to that list.
+
+**`AC-13.k2` — a closeout check that reports without gating.** Watched failing,
+twice, on inputs constructed for the purpose, and then watched passing:
+
+```
+$ bash scripts/intraleg-closeout-check.sh; echo "EXIT=$?"      # before the archive move
+CLOSEOUT FAILED: ROW STILL OPEN — BL-MUTATION-VERDICT-MECHANISM-INTRA-LEG is
+still declared as a heading in the open ledger. The archive move has not been made.
+EXIT=1
+
+$ # with the branch name put back into the archived entry
+$ bash scripts/intraleg-closeout-check.sh; echo "EXIT=$?"
+CLOSEOUT FAILED: the in-progress marker for feat/mutation-verdict-intraleg-probe
+still appears 1 time(s) in the ledgers. It comes off in this commit, so it never
+reaches main — where the origin-existence rule would fail on a branch the merge
+deleted.
+EXIT=1
+
+$ bash scripts/intraleg-closeout-check.sh; echo "EXIT=$?"      # after the move
+ledger population: 89 open, 408 archived
+CLOSEOUT OK: row archived with its re-scope and methods, set arithmetic clean,
+marker off, freeze diff empty
+EXIT=0
+```
+
+**A LIMIT OF THAT GATE, found by probing it and recorded rather than left
+implied.** A third constructed input DELETED the six-row eliminated table from
+the archived entry, and the gate still exited 0. The table check asks whether the
+entry carries an eliminated/bounded table with a column naming how each item was
+established, and this entry carries TWO — the six carried-forward rows and the two
+bounds this arc adds — so removing one leaves the other satisfying the check. The
+gate pins that SOME such table exists; it does not pin that the predecessor's
+evidence was carried forward. Anyone relying on it to protect a carry-forward
+should read the entry.
+
+Recorded here because the alternative was to write "exits non-zero on every
+failure branch" on the strength of two branches that do.
