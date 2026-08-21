@@ -42,8 +42,8 @@ The record this repo keeps of its own verdict movement cannot see most of it, an
 | **The verdict mapping is UNCHANGED by this spec.** A timeout still scores `KILLED`. Reclassifying it would move every enrolled surface's score while four arcs are mid-measurement against those numbers; that is an orchestrator decision, not an in-branch one. §5.5 files it with its blast radius. | This spec §4, §5.5 |
 | **An infra fault is already NOT folded into `KILLED`.** A child that produced no exit status throws `MutantRunInfraError` (`tests/mutation/source/runner.ts:114`, class at `tests/mutation/source/runner.ts:65`) and is fatal to the run. That is correct and is not a gap. | `tests/mutation/source/runner.ts:53-79` |
 | **`childRun` mapping a timeout to an infra error is CORRECT and is not an inconsistency.** `tests/mutation/source/childRun.ts:44-46` deliberately differs from `runSuite`: there a timeout is the mutant's own doing, here it is an authoring or infrastructure defect. One mechanism, two caller-owned interpretations, documented at `childRun.ts:25-28`. | `tests/mutation/source/childRun.ts:25-28` |
-| **`BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH` and `BL-MUTATION-HARNESS-MAIN-RED` are filed peers, not this arc's work.** The first is the `budget` job; the second is main's standing coverage failure set (`shardBudget`, `destructiveFileAnalysis`, `rowScanOpener`). Neither is repaired here. | `BACKLOG.md:1190`, `BACKLOG.md:1266` |
-| **The intra-leg branch is CLOSED, not unexamined.** §2.4 ran the known-flaky site six times inside one process varying only run index: no flip. | This spec §2.4 |
+| **`BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH` and `BL-MUTATION-HARNESS-MAIN-RED` are filed peers, not this arc's work.** The first is the `budget` job; the second is main's standing coverage failure set (`shardBudget`, `destructiveFileAnalysis`, `rowScanOpener`). Neither is repaired here. | `BL-MUTATION-HARNESS-MAIN-RED` at `BACKLOG.md:1190`, `BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH` at `BACKLOG.md:1266` — named per line rather than positionally, because the bare pair read in prose order and was reversed |
+| **The intra-leg branch was PROBED and did not reproduce**, at a stated rate bound — six runs in one process varying only run index, no flip. Not "closed": six trials bound a high-rate mechanism, not a low-rate one, and §2.4 states the arithmetic. | This spec §2.4 |
 | **`spawnBounded.ts` is deliberately NOT touched.** It is enrolled (`tests/mutation/source/registry.ts:2663`) at `scoreFloor: 1` with a measured 12/12, so editing it would retire that score for no gain. Every change here lands in unenrolled modules. | §5.6 |
 
 ### 1.2 Convergence bound — what closes this design
@@ -135,9 +135,11 @@ The remaining 36 range from 29x to 164x.
 
 **Scope, and the decline stated as a decision rather than left as a gap.** The full tail-4 per-mutant sweep (`ledgerGit`, `ledgerClaimsCore`, `premiseScan`, `psqlStartupScan`) costs ~238 minutes worst case — computed as sites x suites x measured baseline — on a two-slot machine-wide semaphore with four other arcs live. It was DECLINED. `ledgerGit` alone carries the argument because it is the worst-placed surface in the population; the other three have more room, not less.
 
-**The reading is stated here, before the number lands.** If `ledgerGit`'s per-mutant maximum sits far from 180 s, that does not merely weaken the timeout mechanism — it comes close to closing it for **the other 36 surfaces, which have 3.9x to 22x more headroom** (29.0x-163.6x against `ledgerGit`'s 7.4x). It does NOT strongly cover the three remaining tail surfaces: `ledgerClaimsCore`, `premiseScan` and `psqlStartupScan` sit at 7.9x-11.8x, only 1.1x to 1.6x more room than `ledgerGit` itself, so for those three a `ledgerGit` result generalises weakly and is not a substitute for measuring them. If instead some mutant child approaches the ceiling, the mechanism is live and §5.5's decision becomes urgent rather than dormant.
+**The reading is stated here, before the number lands.** A per-mutant maximum far from 180 s weakens the timeout mechanism ON THIS SURFACE. **It does not bound any other surface**, and the spec does not claim it does: a different surface's mutation-induced slowdown is not bounded by `ledgerGit`'s mutant/baseline ratio, so for the other 39 the baseline figure remains a lower bound (§6 limit 2) and nothing here supersedes it. What the other surfaces' larger headroom supports is a PLAUSIBILITY argument — 36 of them sit at 29.0x-163.6x against `ledgerGit`'s 7.4x, so a timeout there requires a proportionally larger anomaly — and a plausibility argument is not a measurement. The three remaining tail peers (`ledgerClaimsCore` 7.9x, `premiseScan` 10.4x, `psqlStartupScan` 11.8x) sit within 1.1x-1.6x of `ledgerGit` and are the ones a further per-mutant run would have to cover.
 
-### 2.4 Probe 3 — the intra-leg branch, CLOSED
+**A corrected figure, flagged so a reviewer who recomputes does not think they found something.** An earlier draft wrote "every other surface has 4x to 22x more headroom". Measured, three surfaces have only 1.07x-1.59x more. Caught by this spec's own numeric sweep before the first review dispatch and corrected in both artifacts. If instead some mutant child approaches the ceiling, the mechanism is live and §5.5's decision becomes urgent rather than dormant.
+
+### 2.4 Probe 3 — the intra-leg branch, PROBED AND NOT REPRODUCED
 
 **Method.** The one known-flaky site — `relational-boundary:3578:35:<><=` on `psqlStartupScan`, `depth < 32` becoming `depth <= 32` at `tests/cross-cutting/psqlStartupFiles/scan.ts:3578` — run six times inside a SINGLE process, serial, varying exactly one thing: run index.
 
@@ -150,7 +152,9 @@ The remaining 36 range from 29x to 164x.
 
 **Result: 6/6 SURVIVED.** Zero flips, zero timeouts, durations 14.8 / 15.7 / 15.8 / 17.8 / 17.8 / 20.8 s against a 180 s ceiling.
 
-**Reading, as pre-registered.** The intra-leg branch is CLOSED, which is a result rather than an absence: whatever moves this verdict differs BETWEEN legs — environment, machine, concurrency across legs, or ordering at a scope wider than one process. Both original observations straddle exactly that axis (local versus CI; nightly versus PR). Closing a branch is what makes the remaining space small enough to attack next.
+**Reading, as pre-registered — and stated at the strength six trials actually carry.** An intra-leg mechanism did NOT reproduce. Six identical outcomes are not proof of absence: if such a mechanism flipped the verdict with per-run probability `p`, the chance of six identical runs is `p^6 + (1-p)^6`, which falls below 5% only for `p` above **0.393**. So this excludes a HIGH-RATE intra-leg mechanism and cannot exclude a low-rate one — at `p = 0.1` six identical runs happen 53% of the time. No control here establishes sensitivity to an intermittent flip, and none is claimed.
+
+What that supports: the remaining space is weighted toward BETWEEN-leg differences — environment, machine, concurrency across legs, or ordering wider than one process — which is where both original observations sit (local versus CI; nightly versus PR). It is a narrowing of the search, not the elimination of a branch.
 
 **It does not resurrect co-tenancy** (§1.1) and it is not an explanation. Ruling out a location is not a mechanism.
 
@@ -259,6 +263,19 @@ One notice per mutant whose deciding child timed out, naming the site, the suite
 1. **Console**, from `surfaceCases.ts` at module scope after the run (`tests/mutation/source/surfaceCases.ts:28`), so notices appear in the leg's output whether the gate passed or failed. A passing gate otherwise prints nothing at all, which is the condition probe 1 measured.
 2. **A durable per-surface run record**, written unconditionally — on success as well as failure, in LOCAL runs as well as CI — carrying every mutant's `siteId`, `verdict` and `children`. Console output in a passing CI leg is discarded with the log; the record is what makes the NEXT flip attributable after the fact.
 
+**The sink is specified, not implied.** A record with no durable destination is the diagnosed blind spot wearing a new name, so the destination is part of this design rather than an implementation detail:
+
+| property | value |
+| --- | --- |
+| path | directory `.mutation-records/` at the repo root, created on demand; one file per surface, named for the surface id with a `.json` suffix |
+| override | `MUTATION_RECORD_DIR`, so a determinism run can direct records elsewhere without colliding with a gate run |
+| naming / collision | one file per surface id. A surface runs at most once per leg, so within a run there is no collision; a re-run OVERWRITES, because the record describes the latest run of that surface and a monotonically growing directory in CI has no reader |
+| retention (local) | until deleted; the directory is git-ignored, so it never enters a commit (`.gitignore` is in the touched set, §5.6) |
+| retention (CI) | uploaded by the `source-shards` job with `actions/upload-artifact@v4`, `if: always()`, name `mutation-records-source-shards-${{ matrix.shard }}` — mirroring the `elapsed.txt` upload already at `.github/workflows/mutation-harness.yml:170`. `if: always()` is load-bearing: an upload conditioned on success would reproduce the failure-only defect, and one conditioned on failure would reproduce it inverted |
+| absent directory | created; a write failure is reported on stderr and does NOT fail the gate — the record is additive and must not become a new way for a green surface to red |
+
+Without the upload the file dies with the CI workspace, which is why `.github/workflows/mutation-harness.yml` is in the touched set (§5.6) and why AC-11 asserts the workflow step exists rather than only that the file was written.
+
 **This is not a nicety, it is the §1.0 defect not being rebuilt.** The existing record of verdict movement is CI-only and failure-only, which is precisely why the best-documented instance of the phenomenon is invisible to it. A new record inheriting either property would be no better than what it replaces. Emission is therefore unconditional on the verdict, unconditional on the gate outcome, and unconditional on the environment.
 
 ### 5.3 `runSuite` accepts an injectable ceiling
@@ -273,7 +290,26 @@ This is what makes §7's timeout-path acceptance criteria executable in seconds 
 
 Reports, per run: verdict, outcome kind, exit code, duration; then the verdict distribution, the kind distribution, and the input pair stamp taken before and after. Authored as an IMPORTABLE MODULE with a referring Vitest suite, never a terminal CLI script, so the runner can overlay it and so its assertions decide in-process.
 
-**Guard conditions.** `--runs 0` or a negative value: refuse with a usage error, exit 2, run nothing — a zero-run distribution is a clean zero over an empty population. An unknown `--surface` or a `--site` that resolves in no generated set: refuse by name, exit 2, and say which of the two failed rather than reporting an empty distribution. A red baseline: refuse, because against a red baseline every mutant scores `KILLED`. Every refusal exits non-zero and emits no distribution, so a swept-and-clean run can never read as a run that never started.
+**Guard conditions — an ACCEPT-SET with the complement default-denied.**
+
+`--runs` is ACCEPTED only if it parses as an integer with value >= 1. Everything else is refused, which
+is a closed statement rather than a list of known-bad forms: missing, empty string, non-numeric, `NaN`,
+`Infinity`/`-Infinity`, fractional (`2.5`), zero, negative, and anything else the complement contains.
+The accept-set is the specification; enumerating rejects would be a denylist, and a denylist accepts
+whatever it did not model.
+
+| input | behaviour |
+| --- | --- |
+| `--runs` outside the accept-set | refuse by name, exit 2, emit NO distribution |
+| unknown `--surface` | refuse naming the surface, exit 2 |
+| `--site` resolving in no generated set | refuse naming the site, exit 2 — and say which of surface/site failed, never a bare "not found" |
+| baseline red | refuse, exit 2 — against a red baseline every mutant scores `KILLED` |
+| all valid, zero runs completed | ABORT rather than print a distribution over an empty population |
+
+Every refusal exits non-zero and emits NO distribution, so a swept-and-clean run can never read as a
+run that never started. **The last row is the abort-when-vacuous rule:** a positive control proves the
+instrument CAN fire, an abort proves it REFUSES TO REPORT when it cannot, and the abort is a
+precondition of every run rather than a step that can drift away.
 
 ### 5.5 The one decision this spec does NOT take
 
@@ -288,7 +324,7 @@ Both branches are pre-staged so the ruling costs one turn. The ruling belongs to
 
 ### 5.6 What is touched
 
-`runner.ts`, `gate.ts`, `surfaceCases.ts` — none enrolled in the mutation registry, so **no enrolled surface's score is retired by this arc**. `spawnBounded.ts` is deliberately untouched (`registry.ts:2663`, `scoreFloor: 1`, measured 12/12). `oracle.ts` and `ledger.ts` are untouched: the verdict and the score are not this spec's subject.
+`runner.ts`, `gate.ts`, `surfaceCases.ts` — none enrolled in the mutation registry, so **no enrolled surface's score is retired by this arc**. Plus `.github/workflows/mutation-harness.yml` (the records upload, without which the CI half of the record does not survive its workspace) and `.gitignore` (the records directory). `spawnBounded.ts` is deliberately untouched (`registry.ts:2663`, `scoreFloor: 1`, measured 12/12). `oracle.ts` and `ledger.ts` are untouched: the verdict and the score are not this spec's subject.
 
 ---
 
@@ -308,23 +344,23 @@ Both branches are pre-staged so the ruling costs one turn. The ruling belongs to
 
 Every row names the executable step that proves it and the channel the proof arrives on. A green suite is not proof for any row here unless the row says so.
 
-| id | criterion | proved by |
-| --- | --- | --- |
-| AC-1 | A timed-out child produces `kind: "timeout"`, `exitCode: null`, and a `durationMs` at or above the injected ceiling. | A test injecting a small ceiling per §5.3 against a deliberately hanging fixture; asserts the record's fields BY EQUALITY, not by presence. |
-| AC-2 | An assertion-killed child produces `kind: "exit"` with the child's real non-zero code. | Same suite, paired fixture differing in ONE variable — the fixture hangs or fails, ceiling identical. |
-| AC-3 | The verdict for both AC-1 and AC-2 is still `KILLED`. | The same two cases assert `verdict === "KILLED"`. This is the no-blast-radius guarantee and it is asserted, not assumed. |
-| AC-4 | A SURVIVED mutant records one child per declared suite, all `kind: "exit"`, all `exitCode: 0`. | A surviving-mutant case asserting `children.length === suitePaths.length`. |
-| AC-5 | A KILLED mutant on a multi-suite surface records only the children actually run (short-circuit preserved). | A case with a mutant killed by suite 1 of 2, asserting `children.length === 1`. Kills the weaker implementation that runs all suites and reports the first failure. |
-| AC-6 | `evaluateGate` emits exactly one `timeout-kill` notice per timed-out mutant and `passed` is unchanged. | A gate case fed two synthetic runs identical but for one child's `kind`; asserts `notices` differ and `passed`/`score` are equal. |
-| AC-7 | The count of timeout-scored kills across the measured population is RECORDED, whatever it is. | **Measured: 0 of 93 kills on `ledgerGit`** (§2.3), the worst-placed surface. Recorded in the probe record and the ledger row. Zero is a result; a future non-zero routes to §5.5. |
-| AC-8 | The determinism harness reports a verdict distribution for a named site, and REFUSES rather than reporting an empty one. | Run it against the §2.4 site; then against `--runs 0`, an unknown surface, and an unresolvable site — each exits 2 with a named reason and no distribution. Both directions. |
-| AC-9 | The harness's assertions decide IN-PROCESS. | Its suite imports the module directly; no assertion's verdict is carried by a spawned child's exit code. |
-| AC-10 | No enrolled surface's score moves. | `spawnBounded`'s blob unchanged across the diff, plus its gate case green. |
-| AC-11 | The durable run record is written on a PASSING run. | A gate run over a surface with zero failures; assert the record exists and holds one entry per mutant. This is §1.0's defect not being rebuilt, and a failure-only record passes every other row in this table. |
-| AC-12 | The durable run record is written in a LOCAL run, with no CI environment present. | Same assertion with CI env vars unset. The three documented `psqlStartupScan` flips happened locally and left no trace; a CI-only record would miss them again. |
-| AC-13 | A record entry survives being read back — `children` round-trips through serialization with `kind`, `exitCode` and `durationMs` intact. | Write, re-read, assert BY EQUALITY. A record whose evidence is lost in serialization is the same defect one layer out. |
+| id | criterion | proved by | the weaker implementation it kills |
+| --- | --- | --- | --- |
+| AC-1 | A timed-out child records `kind: "timeout"`, `exitCode: null`, `durationMs` >= the injected ceiling. | Injected small ceiling (§5.3) against a hanging fixture; assert the record BY EQUALITY. | One that records a timeout as an ordinary non-zero exit. |
+| AC-2 | An assertion-killed child records `kind: "exit"` with the child's real non-zero code. | Paired fixture differing in ONE variable — hangs or fails, ceiling identical. | One that hard-codes `kind` from the verdict rather than from the observed outcome. |
+| AC-3 | The verdict for AC-1 and AC-2 is still `KILLED`. | Both cases assert `verdict === "KILLED"`. | Any change that reclassifies a timeout — the no-blast-radius guarantee, asserted rather than assumed. |
+| AC-4 | `children[].suite` EQUALS `suitePaths` in execution order for a survivor, element by element. | Multi-suite surface, surviving mutant; assert the suite array by deep equality against the registry row's `suitePaths`, not by length or membership. | One that hard-codes suite names, reverses them, or reports a correct COUNT of wrong suites. |
+| AC-5 | A killed mutant on a multi-suite surface does not SPAWN the later suites. | Spy the spawn seam and assert it was invoked exactly once with suite 1. Asserting `children.length === 1` is NOT sufficient — an implementation that runs both suites and discards suite 2's record satisfies it while destroying the short-circuit at `tests/mutation/source/runner.ts:134`. | The run-both-and-discard implementation, which the count-only assertion admits. |
+| AC-6 | Exactly ONE `timeout-kill` notice per timed-out mutant, its site, suite and duration equal to that mutant's record; `passed` and `score` unchanged. | Two synthetic runs identical but for one child's `kind`; assert notice COUNT, then each field by equality against the originating record; assert `passed`/`score` equal. | One emitting duplicate notices, or one notice carrying invented or transposed details — both satisfy "the arrays differ". |
+| AC-7 | The count of timeout-scored kills on the measured surface is recorded in the probe record, and the ledger row is UPDATED to carry it. | Measured: **0 of 93 kills on `ledgerGit`** (§2.3). The probe record carries it today; adding it to `BACKLOG.md:53` is an obligation this arc's closeout discharges, not a fact the spec may assert in advance. | A closeout that reports the number only in the spec, leaving the row that recruits the next reader unchanged. |
+| AC-8 | The determinism harness reports a distribution for a named site, and REFUSES rather than reporting an empty or misleading one. | Run against the §2.4 site; then against every invalid `--runs` form — missing, empty, non-numeric, `NaN`, `Infinity`, fractional, zero, negative — plus an unknown surface, an unresolvable site, and a red baseline. Each exits 2, names which input failed, and emits NO distribution. | One that coerces `NaN` or a fraction into a loop bound and prints a confident distribution over zero or truncated runs. |
+| AC-9 | The harness's assertions decide IN-PROCESS. | Its suite imports the module directly; no assertion's verdict is carried by a spawned child's exit code. | A CLI-shaped surface whose branches the runner cannot overlay, scoring as if untested. |
+| AC-10 | No enrolled surface's verdict or score moves. | `runner.ts` is shared by all 40 surfaces, so `spawnBounded`'s blob being unchanged proves nothing about the other 39. The proof is a BEFORE/AFTER comparison of the full outcome set — `siteId` to `verdict` — across a set covering both single-suite and multi-suite shapes, captured on the base commit and re-captured after the change, asserted EQUAL. | A runner edit that preserves `spawnBounded`'s verdicts while perturbing a multi-suite surface's short-circuit or ordering. |
+| AC-11 | The durable record exists after a PASSING run in a CI environment, AND the workflow uploads it. | Passing run with CI env set; assert the file exists and holds one entry per mutant. Separately assert the `upload-artifact` step for the records directory exists in `.github/workflows/mutation-harness.yml` with `if: always()`. | One writing to a path nothing uploads — the file dies with the workspace and the blind spot is rebuilt. |
+| AC-12 | The record is written for all four cells of {passing, failing} x {CI, local}. | Four cases, one per cell, each asserting the file exists with the expected entry count. | `passed && !CI` — which satisfies a passing-local case and a passing-case-with-CI-unset while omitting passing CI runs entirely. This is the matrix, not two points on it. |
+| AC-13 | A record round-trips with values DERIVED from the run that produced it. | Write, re-read, assert each `children` entry equals the in-memory outcome it came from. Asserting only that some `kind`/`exitCode`/`durationMs` survive serialization proves that WRONG values serialize faithfully. | One that serializes a placeholder or a default-filled record with the right shape and the wrong contents. |
 
----
+**How this table was derived.** Round-1 review found five ACs that a strictly weaker implementation satisfied. Rather than patch the five, every row was re-derived with its killing implementation named in the fourth column — the class, not the instances. A row whose fourth column is empty is an unfinished row.
 
 ## 8. Mutation enrolment — stated, not enrolled symbolically
 

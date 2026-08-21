@@ -6,6 +6,53 @@ Row: `BL-MUTATION-SCORE-NONDETERMINISM` (`BACKLOG.md:53`).
 Every probe declared its negative branch in writing BEFORE it ran. Pre-registrations are reproduced
 verbatim below, ahead of each result, so no reading can have been fitted to an outcome.
 
+## The instrument
+
+Probes 1-4 ran through spec-time instrumentation kept OUT of the tree (so no probe could dirty a
+measured input). It is an ATTRIBUTING mirror of the shipped per-mutant loop: identical control flow to
+`runSuite`/`runAllSuites`/`runSurface` (`tests/mutation/source/runner.ts:87-181`), with a record added
+and **no verdict mapping changed**. Its core, reproduced here so the measurements can be regenerated
+without it:
+
+```ts
+// mirrors runner.ts:87-115, plus the record
+export function runSuiteRecorded(root, target, mutantFile, suite, id, sink) {
+  const env = { ...process.env, MUTATION_ROOT: root, MUTATION_TARGET: target,
+                MUTATION_MUTANT: mutantFile, MUTATION_SUITE: suite };
+  const t0 = Date.now();
+  const { outcome } = spawnBounded(["pnpm", "exec", "vitest", "run", "--config",
+                        "tests/mutation/source/mutantOverlay.config.ts"],
+                      { cwd: root, env, timeoutMs: MUTANT_TIMEOUT_MS });
+  const durationMs = Date.now() - t0;
+  if (outcome.kind === "timeout") { sink.push({ siteId: id, suite, kind: "timeout", code: null, durationMs });
+                                    return MUTANT_TIMEOUT_EXIT; }
+  if (outcome.kind === "exit")    { sink.push({ siteId: id, suite, kind: "exit", code: outcome.code, durationMs });
+                                    return outcome.code; }
+  sink.push({ siteId: id, suite, kind: "infra", code: null, durationMs });
+  throw new Error(`infra fault for ${id} [${suite}]`);
+}
+```
+
+Because it is a SECOND DEFINITION of the shipped loop, it carries a drift control: `selfCheck` runs the
+shipped `runSurface` and the mirror over the same real surface and compares survivor SETS and killed
+counts. Probe 3 reports that control green (`spawnBounded`, 12/12, survivors `[]`); a disagreement
+aborts the probe rather than reporting numbers. §5.4 of the design productizes this as the shipped
+determinism harness.
+
+**Commands.** Each probe ran as `pnpm heavy pnpm exec tsx <script>` from the worktree root, which takes
+one slot of the machine-wide two-slot semaphore. `pnpm heavy` is required for these by the AGENTS.md
+transitive-shape rule: each spawns real vitest children serially.
+
+| probe | command |
+| --- | --- |
+| 1 | `pnpm heavy pnpm exec tsx p1-e2e.ts` (ad-hoc surfaces over a synthetic hanging module) |
+| 2a | `pnpm heavy pnpm exec tsx p2-distribution.ts` (one unmutated child per surface x suite) |
+| 2b | `PROBE_SURFACE=ledgerGit pnpm heavy pnpm exec tsx p2b-mutant-tail.ts` |
+| 3 | `PROBE_N=6 pnpm heavy pnpm exec tsx p3-single-leg.ts` |
+| 4 | `python3 p4-annotations.py` (reads `gh api` — no semaphore slot, spawns no children) |
+
+Derived figures were produced by the command printed beside them in the section that reports them.
+
 **Standing method notes.**
 - All runs are on one developer machine, under `pnpm heavy` (the machine-wide two-slot semaphore).
 - Score inputs are stamped by blob hash inside the measuring invocation, before AND after.
@@ -113,6 +160,31 @@ not assumed.
 
 ## Probe 2a — healthy per-child wall clock, whole enrolled population
 
+### Pre-registration (written before the run)
+
+> **Question.** How close does a HEALTHY child get to the 180 s ceiling, across the whole enrolled
+> population rather than a sample?
+>
+> **Method.** One unmutated child per (surface, suite), every enrolled surface. Full population at one
+> child each, instead of a sample at one child per mutant.
+>
+> **PREDICTED.** If the timeout mechanism is live, at least some surfaces sit close enough to the
+> ceiling that an ordinary slowdown could cross it.
+>
+> **NEGATIVE BRANCH.** Every surface sits far below the ceiling. Then the timeout mechanism requires a
+> large multiple rather than a small one, and the question becomes how large — reported as a
+> DISTRIBUTION with its tail named, never as a mean or a single margin.
+>
+> **THE LIMIT, DECLARED IN ADVANCE.** A baseline child is a HEALTHY child. This is a LOWER BOUND on
+> healthy duration and NOT a distance to the ceiling; a mutant that makes a suite spin rather than hang
+> is exactly the case the hypothesis is about, and no baseline measurement can see it. The figure will
+> be reported with that limit attached wherever it appears, and probe 2b measures mutant children
+> directly for that reason.
+>
+> **What it does NOT establish.** Anything about which surfaces actually flip.
+
+### Result
+
 One unmutated child per (surface, suite). **n = 81 children over all 40 surfaces**, every baseline
 green, zero children at or past the ceiling.
 
@@ -157,12 +229,12 @@ every label was wrong. Re-derived against `$3`.
 **Scope decision.** The full tail-4 sweep costs ~238 min worst case on a two-slot semaphore with four
 arcs live, and was DECLINED; `ledgerGit` alone carries the argument as the worst-placed surface.
 
-**Reading stated before the number landed:** a per-mutant maximum far from 180 s does not merely
-weaken the timeout mechanism, it comes close to closing it for the whole population, since every other
-36 surfaces have 3.9x to 22x more room again (29.0x-163.6x vs 7.4x). It does NOT strongly cover the
-other three tail surfaces at 7.9x-11.8x — only 1.1x to 1.6x more room than `ledgerGit` — so for those
-three it generalises weakly. A mutant child approaching the ceiling makes the mechanism live
-and §5.5's decision urgent.
+**Reading stated before the number landed:** a per-mutant maximum far from 180 s weakens the timeout
+mechanism ON THIS SURFACE and bounds no other — a different surface's mutation-induced slowdown is not
+bounded by `ledgerGit`'s ratio. The other 36 sitting at 29.0x-163.6x against 7.4x supports a
+PLAUSIBILITY argument, not a measurement; the three tail peers at 7.9x-11.8x (1.1x-1.6x more room) are
+the ones a further per-mutant run would have to cover. A mutant child approaching the ceiling makes the
+mechanism live and §5.5's decision urgent.
 
 ### Result
 
@@ -183,8 +255,9 @@ survivors: ["logical-connector:66:12:||>&&","logical-connector:142:18:||>&&","lo
 is 25.3 s against a 180 s ceiling. The worst mutant child is **1.04x** the worst baseline child
 (24.4 s), so on this surface mutant children are NOT materially slower than baseline — the specific
 concern that makes a baseline measurement a mere lower bound does not materialise here. Per the
-pre-stated reading this comes close to closing the timeout mechanism for the other 36 surfaces
-(3.9x-22x more headroom) and covers the three remaining tail peers only weakly (1.1x-1.6x more).
+pre-stated reading this weakens the timeout mechanism ON THIS SURFACE. It bounds no other: the other
+39 remain baseline-bounded, and the larger headroom elsewhere is a plausibility argument, not a
+measurement.
 
 ### A FIFTH observation of the `ledgerGit` anomaly, on byte-identical declared inputs
 
@@ -229,9 +302,12 @@ different and slower environment, and history cannot be re-run.
 >
 > **PREDICTED, per hypothesis H-runner.** The N exit codes are NOT all equal.
 >
-> **NEGATIVE BRANCH.** All N identical. Then the mechanism is localized OUTSIDE a single leg — machine,
-> environment, or across-leg state. It does NOT resurrect co-tenancy, which is RULED OUT. It does NOT
-> make the anomaly unreal. Ruling out a location is not an explanation, and I will say so.
+> **NEGATIVE BRANCH.** All N identical. Then an intra-leg mechanism did not reproduce, WEIGHTING the
+> remaining space toward machine, environment or across-leg state. It does NOT resurrect co-tenancy,
+> which is RULED OUT. It does NOT make the anomaly unreal. Ruling out a location is not an explanation,
+> and I will say so. (This pre-registration said "localized OUTSIDE a single leg". Six trials do not
+> support that strength; the rate bound they DO support is computed in the Reading below, and the
+> stronger wording is not claimed. The pre-registration is preserved as written rather than edited.)
 >
 > **Secondary reading, declared now so it cannot be fitted later.** If any run approaches the ceiling,
 > the timeout mechanism gains direct support at this site; if every run sits far below it, the
@@ -267,9 +343,15 @@ timeouts among these runs: 0
 
 ### Reading
 
-**The intra-leg branch is CLOSED** — a result, not an absence. Whatever moves this verdict differs
-BETWEEN legs: environment, machine, concurrency across legs, or ordering wider than one process. Both
-original observations straddle exactly that axis (local vs CI; nightly vs PR).
+**An intra-leg mechanism did NOT REPRODUCE — stated at the strength six trials carry.** If such a
+mechanism flipped the verdict with per-run probability `p`, six identical runs occur with probability
+`p^6 + (1-p)^6`, which drops below 5% only for `p` above **0.393**. So this excludes a HIGH-RATE
+intra-leg mechanism and CANNOT exclude a low-rate one: at `p = 0.1`, six identical runs happen 53% of
+the time. No control here establishes sensitivity to an intermittent flip, and none is claimed.
+
+What it supports is a WEIGHTING, not an elimination: the remaining space leans toward between-leg
+differences — environment, machine, concurrency across legs, ordering wider than one process — which
+is where both original observations sit (local vs CI; nightly vs PR).
 
 Three controls carried it. The second is the one an earlier session could not satisfy: its local
 `enumerateSites` reproduced none of the runner's site IDs, so neither of its instruments could
@@ -361,7 +443,7 @@ in a ledger row is a test fixture for every future instrument** — a reason to 
 | branch | state | by |
 | --- | --- | --- |
 | co-tenancy / LPT re-pack | RULED OUT | pre-registered experiment, `BACKLOG.md:53` |
-| intra-leg (ordering, env, concurrency inside one process) | CLOSED | probe 3 |
+| intra-leg (ordering, env, concurrency inside one process) | NOT REPRODUCED in 6 trials — excludes a per-run flip rate above ~0.39 only | probe 3 |
 | duration drives flakiness | UNSUPPORTED, weak counter-indication | probes 2a, 2b, 4 |
 | between-leg (machine, environment, across-leg ordering) | OPEN — the remaining space | — |
 
