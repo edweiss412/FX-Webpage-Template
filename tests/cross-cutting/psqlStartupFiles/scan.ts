@@ -972,6 +972,144 @@ function matchBrace(text: string, start: number, open: string, close: string): n
   return text.length - 1;
 }
 
+/**
+ * Index of the closing delimiter for the opener at `start`, or `-1` when it
+ * never closes.
+ *
+ * `matchBrace` answers the same question by returning the LAST index either
+ * way, which cannot distinguish a span that closed on the final character from
+ * one that ran out of input - and that distinction is the whole of the
+ * unlexable report (design section 3, part 4). This asks the shipped walk and
+ * then reads what it landed on, rather than duplicating the brace walk: a
+ * second copy of one rule is two things that drift.
+ */
+function matchBraceEnd(text: string, start: number, open: string, close: string): number {
+  const at = matchBrace(text, start, open, close);
+  return text[at] === close ? at : -1;
+}
+
+/**
+ * Index of the backtick that CLOSES the span opened at `start`, or `-1` when it
+ * never closes.
+ *
+ * An ESCAPED backtick does not close it. Both shipped backtick paths used a
+ * bare `indexOf`, so `` `echo \` ; psql -c "x"` `` ended at the escaped
+ * backtick and the remainder - including an executing psql - was attributed to
+ * whatever text followed: the outcome right and the reason wrong, which is the
+ * wrong-attribution direction the consequence bound forbids outright. Spec
+ * section 3.1's escape-binds-tightest precedence, applied at the ONE place both
+ * paths already shared a defect rather than at each of them.
+ */
+function closingBacktick(text: string, start: number): number {
+  for (let i = start + 1; i < text.length; i++) {
+    if (text[i] === "\\") {
+      i++;
+      continue;
+    }
+    if (text[i] === "`") return i;
+  }
+  return -1;
+}
+
+/** The characters that END an unquoted attached redirection target. Identical
+ *  to the negated class of the character-run regex this walk replaces, so the
+ *  repair changes WHERE a construct ends and never WHICH characters terminate
+ *  an ordinary one. */
+const ATTACHED_TARGET_TERMINATOR = /[\s;&|()<>]/;
+
+/**
+ * The end of an ATTACHED redirection target, delimited BY CONSTRUCT.
+ *
+ * The regex this replaces was not a target recognizer, it was a character-run
+ * muncher: it neither respected construct boundaries nor reported when it could
+ * not delimit one. Measured through the shipped pattern, `` >`psql -c 'x'` ``
+ * consumed only ``  `psql `` and `>$(psql)` consumed only `$`, handing a
+ * FRAGMENT to the outer loop which then mis-lexed it - so a repair that merely
+ * re-lexed the old match would inherit both.
+ *
+ * Returns the index one PAST the target, and whether the walk opened a
+ * construct it never closed. The accept-set is spec section 3.1's opener table,
+ * keyed on STRUCTURE rather than spelling and applied RECURSIVELY at every
+ * depth INCLUDING inside quotes - uniform recursion is what makes the set mean
+ * inside a quoted target what it means outside one. The escape pair binds
+ * TIGHTEST, ahead of every other opener. Everything outside the set terminates
+ * the target by DEFAULT rather than by enumeration, so a spelling nobody listed
+ * is answered already.
+ */
+function attachedTargetEnd(text: string, start: number): { end: number; undelimitable: boolean } {
+  /** The last index of the ANSI-C span whose body starts at `from`, or -1. A
+   *  `\'` does not close it. */
+  const closeAnsiC = (from: number): number => {
+    for (let k = from; k < text.length; k++) {
+      if (text[k] === "\\") {
+        k++;
+        continue;
+      }
+      if (text[k] === "'") return k;
+    }
+    return -1;
+  };
+  /** The index of the quote closing the double-quoted span whose body starts at
+   *  `from`, or -1. The accept-set again, at this depth: this is the recursion
+   *  spec section 3.1 makes normative, and `${…}` is the member the shipped
+   *  double-quote scanner never had. */
+  const closeDoubleQuoted = (from: number): number => {
+    for (let k = from; k < text.length; k++) {
+      const character = text[k]!;
+      if (character === "\\") {
+        k++;
+        continue;
+      }
+      if (character === '"') return k;
+      const inner = openerEnd(k);
+      if (inner === null) continue;
+      if (inner === -1) return -1;
+      k = inner;
+    }
+    return -1;
+  };
+  /** The last index of the construct opening at `k`; `-1` when that construct
+   *  never closes; `null` when `k` opens no construct at all. */
+  const openerEnd = (k: number): number | null => {
+    const character = text[k]!;
+    if (character === "$" && (text[k + 1] === "{" || text[k + 1] === "(")) {
+      const open = text[k + 1] === "{" ? "{" : "(";
+      return matchBraceEnd(text, k + 1, open, open === "{" ? "}" : ")");
+    }
+    if (character === "`") return closingBacktick(text, k);
+    if (character === '"') return closeDoubleQuoted(k + 1);
+    if (character === "$" && text[k + 1] === '"') return closeDoubleQuoted(k + 2);
+    if (character === "$" && text[k + 1] === "'") return closeAnsiC(k + 2);
+    if (character === "'") return text.indexOf("'", k + 1);
+    return null;
+  };
+
+  let i = start;
+  for (; i < text.length; i++) {
+    const character = text[i]!;
+    if (character === "\\") {
+      // The pair, whatever the next character is - including the newline, which
+      // is a CONTINUATION and keeps the target going, exactly as bash reads it.
+      // A dangling backslash at end of input escapes nothing and bash keeps it
+      // as a literal character of the word.
+      if (i + 1 >= text.length) {
+        i++;
+        break;
+      }
+      i++;
+      continue;
+    }
+    const opener = openerEnd(i);
+    if (opener !== null) {
+      if (opener === -1) return { end: text.length, undelimitable: true };
+      i = opener;
+      continue;
+    }
+    if (ATTACHED_TARGET_TERMINATOR.test(character)) break;
+  }
+  return { end: i, undelimitable: false };
+}
+
 type NestedShell = { text: string; line: number; offset: number; backtick: boolean };
 
 /**
@@ -1057,14 +1195,21 @@ type RedirectionTarget = {
    * candidate an assignment value carries. Not a second mechanism - the same
    * predicate at another call site. */
   expandedCandidate: { operand: string; at: number } | null;
+  /** The RAW slice when the accept-set could NOT delimit this target - a
+   *  construct opened and never closed - and `null` in every other case. When
+   *  it is set, `text` is meaningless and no consumer may read it: an
+   *  undelimitable span is a "something here I cannot read" signal, which is
+   *  what `scanShellIndirection` surfaces it as. Never set on a DETACHED
+   *  target, which is built by the ordinary loop and cannot fail to delimit. */
+  unlexable: string | null;
 };
 
 /**
  * A redirection the lexer CONSUMED - the attached spelling (`</dev/null`) and
- * the detached one (`< /dev/null`) alike. `targets` cannot answer this: it holds
- * only DETACHED targets, because an attached target is eaten by the lexer's own
- * regex and never becomes a word, so a reading built on `targets` is blind to
- * exactly the override an attached redirection performs.
+ * the detached one (`< /dev/null`) alike. `targets` holds BOTH spellings now,
+ * so a reading built on it sees the override an attached redirection performs;
+ * this record is still what carries the operator's own fd prefix, which the
+ * target does not.
  */
 type Redirection = {
   /** The operator as matched, WITHOUT any fd prefix: `<<<`, `<`, `>&`. */
@@ -1116,10 +1261,26 @@ const INPUT_REDIRECTIONS: ReadonlySet<string> = new Set(["<", "<<", "<<-", "<<<"
  *  deciding suite rather than defaulting to output. */
 const OUTPUT_REDIRECTIONS: ReadonlySet<string> = new Set(["&>>", "&>", ">>", ">&", ">|", ">"]);
 
+/** The operators whose ATTACHED target bash takes LITERALLY. A here-DOCUMENT
+ *  delimiter is not expanded: `cat <<"$(psql -c 'select 1')"` runs nothing and
+ *  warns about an unterminated here-document, so collecting bodies out of it
+ *  would be a FALSE advisory rather than a conservative one - and the
+ *  consequence bound permits a conservative over-report, never a wrong one.
+ *
+ *  Probed against bash, all twelve operators, one script each with a fake psql
+ *  on PATH: TEN execute the substitution (`&>>` `&>` `<<<` `>>` `>&` `<&` `<>`
+ *  `>|` `<` `>`, including `<&`, which expands the word and only then fails the
+ *  descriptor check) and exactly these two do not. DECLARED rather than
+ *  inferred, so an operator added to `REDIRECTION_OPERATORS` fails the
+ *  deciding suite's totality row instead of defaulting into either half. */
+const LITERAL_TARGET_REDIRECTIONS: ReadonlySet<string> = new Set(["<<", "<<-"]);
+
 export const REDIRECTION_PARTITION = {
   all: REDIRECTION_OPERATORS,
   input: INPUT_REDIRECTIONS,
   output: OUTPUT_REDIRECTIONS,
+  /** The complement of the operators whose attached target is EXPANDED. */
+  literalTarget: LITERAL_TARGET_REDIRECTIONS,
 } as const;
 
 /**
@@ -1249,6 +1410,7 @@ function lexShellWords(
           offset: startOffset,
           operatorOffset: pendingTargetOffset,
           expandedCandidate,
+          unlexable: null,
         });
       pendingTarget = null;
       pendingTargetOffset = -1;
@@ -1367,10 +1529,14 @@ function lexShellWords(
     ) {
       const isBacktick = character === "`";
       const open = isBacktick ? i : i + 1;
+      // ESCAPE-AWARE, through the one shared closer: `\`` is a literal backtick
+      // inside a substitution and does not end it, so a bare `indexOf` ended
+      // the span early and handed the remainder to top-level text.
+      const backtickClose = isBacktick ? closingBacktick(text, i) : -1;
       const close = isBacktick
-        ? text.indexOf("`", i + 1) === -1
+        ? backtickClose === -1
           ? text.length
-          : text.indexOf("`", i + 1)
+          : backtickClose
         : matchBrace(text, open, "(", ")");
       nested.push({
         text: text.slice(open + 1, close),
@@ -1480,7 +1646,7 @@ function lexShellWords(
           continue;
         }
         if (text[i] === "`") {
-          const close = text.indexOf("`", i + 1);
+          const close = closingBacktick(text, i);
           const end = close === -1 ? text.length : close;
           nested.push({ text: text.slice(i + 1, end), line, offset: i + 1, backtick: true });
           line += (text.slice(i, end + 1).match(/\n/g) ?? []).length;
@@ -1576,11 +1742,70 @@ function lexShellWords(
           started = false;
           i += redirection[0].length - 1;
           // An attached target follows immediately; otherwise the next word is
-          // the target and is dropped when it is flushed.
-          const rest = text.slice(i + 1);
-          const attached = /^(?:\$\{[^}]*\}|"[^"]*"|'[^']*'|\\.|[^\s;&|()<>])+/.exec(rest);
-          if (attached) i += attached[0].length;
-          else {
+          // the target and is built by the ordinary loop.
+          //
+          // The attached spelling is DELIMITED BY CONSTRUCT (design section 3),
+          // then handed to this same lexer so that dequoting, ANSI-C decoding,
+          // escape handling and nested-body collection all come from ONE
+          // implementation rather than a second grammar beside it. The bodies
+          // are re-anchored into the OUTER array exactly as the `${…}` branch
+          // does; the target's own text goes to `targets` and never to `words`,
+          // which is what keeps the site path byte-identical BY CONSTRUCTION -
+          // `scanShellText` passes no `targets` array and so cannot see it,
+          // while `scanShellIndirection` does. Ledger:
+          // BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION.
+          const targetStart = i + 1;
+          const { end, undelimitable } = attachedTargetEnd(text, targetStart);
+          if (end > targetStart) {
+            const slice = text.slice(targetStart, end);
+            const operatorOffset = targetStart - redirection[0].length;
+            if (undelimitable) {
+              // A construct opened and never closed. Bash reads the rest of the
+              // input as part of that word and then fails on the unexpected
+              // EOF, so nothing in it runs and collecting bodies from it would
+              // report a command the shell never executes. The slice is
+              // RETAINED for the surfaced report and nothing else.
+              targets.push({
+                operator: redirection[0],
+                text: "",
+                line,
+                offset: targetStart,
+                operatorOffset,
+                expandedCandidate: null,
+                unlexable: slice,
+              });
+            } else {
+              const inner: NestedShell[] = [];
+              const innerWords = lexShellWords(slice, inner);
+              // A here-DOCUMENT delimiter is not expanded, so its bodies go
+              // nowhere: reporting them would be the wrong direction, not the
+              // conservative one. Narrowed over a DECLARED closed set rather
+              // than by a per-operator predicate.
+              if (!LITERAL_TARGET_REDIRECTIONS.has(redirection[0]))
+                for (const entry of inner)
+                  nested.push({
+                    text: entry.text,
+                    line: line + entry.line,
+                    offset: targetStart + entry.offset,
+                    backtick: entry.backtick,
+                  });
+              targets.push({
+                operator: redirection[0],
+                text: innerWords.map((word) => word.text).join(""),
+                line,
+                offset: targetStart,
+                operatorOffset,
+                // Only a target that lexed to exactly ONE word can carry a
+                // whole-value candidate; anything else is a composition and
+                // `expandedCandidate` is a claim about a whole value.
+                expandedCandidate:
+                  innerWords.length === 1 ? (innerWords[0]?.expandedCandidate ?? null) : null,
+                unlexable: null,
+              });
+            }
+            line += (slice.match(/\n/g) ?? []).length;
+            i = end - 1;
+          } else {
             pendingTarget = redirection[0];
             pendingTargetOffset = i - (redirection[0].length - 1);
           }
@@ -2998,6 +3223,10 @@ function hereStringBindingLines(
     const effective = effectiveHereString(words, redirections, index, to);
     if (effective === null) continue;
     for (const target of targets) {
+      // A target the accept-set could not delimit carries no readable text -
+      // bash fails on the unexpected EOF and binds nothing - so it is skipped
+      // here and surfaced by `scanShellIndirection` instead.
+      if (target.unlexable !== null) continue;
       // The operator is load-bearing, not decoration: with `<` the shell hands
       // `read` the FILE'S CONTENT, so an operator-blind reading reports a
       // binding bash does not make.
