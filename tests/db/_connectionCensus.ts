@@ -383,7 +383,13 @@ function constBindingFor(start: ts.Node): ts.Identifier | null {
       cur = parent;
       continue;
     }
-    if (ts.isVariableDeclaration(parent) && parent.initializer === cur) {
+    // `cur` only ever moves to an EXPRESSION above, and a variable declaration's one
+    // expression child is its initializer — so an `initializer === cur` conjunct here
+    // could not be falsified by any input. The other direction is dead too: reaching the
+    // `const` branch needs a parent whose own parent is a VariableDeclarationList, and
+    // nothing but a VariableDeclaration is one. Deleted rather than blessed with an
+    // equivalence row, as `isAliasSourceName`'s unreachable branches were.
+    if (ts.isVariableDeclaration(parent)) {
       const list = parent.parent;
       const isConst = ts.isVariableDeclarationList(list) && (list.flags & ts.NodeFlags.Const) !== 0;
       if (!isConst || !ts.isIdentifier(parent.name)) return null;

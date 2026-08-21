@@ -39,6 +39,7 @@ import {
   type PropagationResult,
   OPTIONS_ACCEPT_SET,
   acquisitionsIn,
+  admissibleKindsFor,
   aliasPrefixes,
   classifyFile,
   classifySite,
@@ -268,6 +269,25 @@ describe("connection census — acquisitions and connect sites (AC-C1, AC-C2)", 
   test("a driver binding used as a VALUE is a value-reference report", () => {
     const rec = classifyFile(P, [IMPORT, `const pg = postgres;`].join("\n"));
     expect(rec.reports.map((r) => r.kind)).toEqual(["value-reference"]);
+  });
+
+  test("a driver binding RE-EXPORTED under an alias is a value-reference report", () => {
+    // Kills: an alias-source test widened to any node carrying `propertyName`. An export
+    // specifier's `propertyName` IS the local binding — a real reference that hands the
+    // driver to another module — while an import specifier's names a symbol in the module it imports from. Reading
+    // both as alias sources drops the re-export from the census entirely, which is the
+    // silence direction the consequence bound forbids.
+    const rec = classifyFile(P, [IMPORT, `export { postgres as pg };`].join("\n"));
+    expect(rec.reports.map((r) => r.kind)).toEqual(["value-reference"]);
+  });
+
+  test("twin — an IMPORT alias source is not a reference", () => {
+    // The named import reports as an `acquisition` the census cannot follow to a const
+    // binding; what matters here is what is ABSENT — no `value-reference` for the `postgres`
+    // occurrence, because on an import specifier that occurrence names the exporting
+    // module's symbol rather than a local binding being read.
+    const rec = classifyFile(P, [`import { postgres as pg } from "postgres";`].join("\n"));
+    expect(rec.reports.map((r) => r.kind)).toEqual(["acquisition"]);
   });
 
   test("twin — the same binding CALLED is a site and reports nothing", () => {
@@ -1114,6 +1134,19 @@ describe("connection census — dispositions, both directions (AC-C7)", () => {
     };
   }
 
+  test("an edge report is excusable only as `unclassifiable`, and both spellings are", () => {
+    // Kills: a disjunction narrowed to a conjunction. No report carries two kinds, so a
+    // conjunction is never true and BOTH edge kinds fall through to the site logic below,
+    // which answers for a site rather than an edge. Asserting only one of the two spellings
+    // leaves the other's branch unpinned, so both are named here.
+    expect(admissibleKindsFor(report({ kind: "unresolved-import", site: "./_helper" }))).toEqual([
+      "unclassifiable",
+    ]);
+    expect(admissibleKindsFor(report({ kind: "loader-call", site: "./_helper" }))).toEqual([
+      "unclassifiable",
+    ]);
+  });
+
   function row(overrides: Partial<DispositionRow> & Pick<DispositionRow, "kind">): DispositionRow {
     return { file: F, site: "galleryDatabaseUrl()", reason: "checked by a reviewer", ...overrides };
   }
@@ -1945,6 +1978,65 @@ describe("connection census — cases authored against SURVIVING MUTANTS", () =>
       "/repo",
     );
     expect(result.affected.size).toBe(0);
+  });
+
+  /** Resolver over a literal map, for the multi-hop propagation fixtures below. */
+  function chainResolver(map: Record<string, string>): ImportResolver {
+    return (_from, specifier) => map[specifier] ?? null;
+  }
+
+  function chainFiles(tree: Record<string, { source: string; own?: FileClass[] }>) {
+    return Object.entries(tree).map(([file, entry]) => ({
+      file,
+      sf: parse(entry.source, file),
+      own: entry.own ?? ([] as FileClass[]),
+    }));
+  }
+
+  test("a helper two hops away names its far consumer as affected", () => {
+    // Kills: a fixpoint whose DIRECT-edge growth does not re-trigger a pass. Every direct
+    // edge lands in the first pass, so a first pass that grows only direct edges and does
+    // not signal it leaves the transitive pass unrun — and the far consumer unnamed. File
+    // order is load-bearing: the consumer is listed BEFORE the helper it reaches.
+    const result = propagateThroughImports(
+      chainFiles({
+        "tests/db/far.test.ts": { source: `import "./_mid.js";` },
+        "tests/db/_mid.ts": { source: `import "./_deep.js";` },
+        "tests/db/_deep.ts": { source: `const sql = 1;`, own: ["undisposed"] as FileClass[] },
+      }),
+      chainResolver({ "./_mid.js": "tests/db/_mid.ts", "./_deep.js": "tests/db/_deep.ts" }),
+      "/repo",
+    );
+    expect(result.affected.get("tests/db/_deep.ts")).toEqual([
+      "tests/db/_mid.ts",
+      "tests/db/far.test.ts",
+    ]);
+  });
+
+  test("a helper three hops away names its farthest consumer as affected", () => {
+    // Kills: a fixpoint whose TRANSITIVE-reach growth does not re-trigger a pass. Two hops
+    // is not enough to catch it — the second pass completes the two-hop reach and stops,
+    // which is the right answer there. At three hops the third pass is the one that never
+    // runs, so the head of the chain silently drops out of the affected list.
+    const result = propagateThroughImports(
+      chainFiles({
+        "tests/db/head.test.ts": { source: `import "./_one.js";` },
+        "tests/db/_one.ts": { source: `import "./_two.js";` },
+        "tests/db/_two.ts": { source: `import "./_three.js";` },
+        "tests/db/_three.ts": { source: `const sql = 1;`, own: ["undisposed"] as FileClass[] },
+      }),
+      chainResolver({
+        "./_one.js": "tests/db/_one.ts",
+        "./_two.js": "tests/db/_two.ts",
+        "./_three.js": "tests/db/_three.ts",
+      }),
+      "/repo",
+    );
+    expect(result.affected.get("tests/db/_three.ts")).toEqual([
+      "tests/db/_one.ts",
+      "tests/db/_two.ts",
+      "tests/db/head.test.ts",
+    ]);
   });
 
   test("a rendered report with an EMPTY affected list prints no affected line", () => {
