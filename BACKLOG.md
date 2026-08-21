@@ -1203,7 +1203,7 @@ for (const s of GUARD_SURFACES) { const k = s.accepted.reduce((a,r)=>{a[r.kind]=
 
 ## BL-SPECLINT-RED-REASON-VERIFICATION — the red-contract arm checks that a command fails, never that it failed for the reason the task named
 
-**Status:** OPEN. · **Filed:** 2026-08-20 (`fix/mutation-browser-child-lifetime`, from that arc's plan rounds 1 and 2) · **Facing:** process · **Severity:** MEDIUM (it does not fail anything; it lets a task ship a RED that no later edit can make fail) · **Class:** spec-lint arm · **Effort:** M
+**Status:** IN PROGRESS · **Branch:** feat/speclint-red-reason-verification · **Filed:** 2026-08-20 (`fix/mutation-browser-child-lifetime`, from that arc's plan rounds 1 and 2) · **Facing:** process · **Severity:** MEDIUM (it does not fail anything; it lets a task ship a RED that no later edit can make fail) · **Class:** spec-lint arm · **Effort:** M
 
 **Incident:** two of four plan rounds on `fix/mutation-browser-child-lifetime` were spent on ONE shape, and it recurred after being named. Round 1 rejected Task 1's red — an unresolved import, which fails before any assertion runs. Round 2 rejected Task 2's red for the same shape in a different costume: `runChild` is private, so a suite calling it fails on missing ACCESS rather than on the defect. Both rows are in the corpus at `docs/review-rounds/fix/mutation-browser-child-lifetime/03953337388b.jsonl` (`plan` rounds 1 and 2, `findingCount` 7 and 2). The plan carried a section rejecting exactly this shape two headings above the task that committed it, so authoring discipline had already been applied and did not hold.
 
