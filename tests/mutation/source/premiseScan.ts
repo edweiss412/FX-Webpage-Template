@@ -1669,6 +1669,7 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
   const fileReports = [
     ...facts.moduleReports,
     ...eagerPositionHookReports(facts).map((r) => withModule(r, abs)),
+    ...unfollowableFactoryReports(facts).map((r) => withModule(r, abs)),
   ];
 
   const suiteText = facts.sf.getFullText();
@@ -1984,6 +1985,73 @@ function eagerPositionHookReports(facts: ModuleFacts): string[] {
     ts.forEachChild(node, (c) => visit(c, insideInlineBody));
   };
   visit(sf, false);
+  return out;
+}
+
+/**
+ * A literal the scanner can see through, so it cannot be hiding a suite factory.
+ *
+ * This is the ACCEPT half of an accept-set whose complement is default-denied:
+ * anything not listed here and not a locatable inline body is a reference the
+ * scanner cannot follow. Deliberately not keyed on "the argument is an
+ * identifier" -- a property access, an element access and a call are equally
+ * unfollowable, and a rule keyed on the identifier spelling is a denylist that
+ * accepts whatever it did not model.
+ */
+function isInertLiteral(arg: ts.Expression): boolean {
+  return (
+    ts.isStringLiteralLike(arg) ||
+    ts.isNumericLiteral(arg) ||
+    ts.isObjectLiteralExpression(arg) ||
+    ts.isArrayLiteralExpression(arg) ||
+    arg.kind === ts.SyntaxKind.TrueKeyword ||
+    arg.kind === ts.SyntaxKind.FalseKeyword
+  );
+}
+
+/**
+ * Producer B (spec §3.2) — a registration carrying a factory-slot argument the
+ * scanner cannot follow.
+ *
+ * `hookBodies` collects hooks LEXICALLY inside a registration, so a named
+ * factory's body is never walked, while the tests written inside it ARE reached
+ * by the outer walk over the SourceFile and classified without its hooks.
+ *
+ * Vitest's own `SuiteCollectorCallable` supplies the one fact this rule needs:
+ * slot 0 is always `name`, and `name` may itself be a Function. So it ranges
+ * over indices >= 1 ONLY -- a body test over EVERY argument is satisfiable by
+ * the NAME, and the real factory then goes unreported. The factory is OPTIONAL
+ * in both overloads, so a registration whose remaining slots are all inert
+ * literals is a legal bodyless one and reporting it would name a body that does
+ * not exist.
+ *
+ * `describe` root only: a test registration cannot carry a suite factory, and
+ * its handler is not lost either way, because a test's extent is the whole call
+ * expression and the traversal already resolves a named handler.
+ *
+ * The answer is per REGISTRATION, never per argument. Asking it per argument
+ * answers "is every argument followable", which nothing here needs, and took
+ * the live corpus from 1 `unclassifiable` to 398 on one ordinary registration
+ * whose named timeout constant is not an inert literal.
+ */
+function unfollowableFactoryReports(facts: ModuleFacts): string[] {
+  const out: string[] = [];
+  const sf = facts.sf;
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && registrarRoot(node.expression) === "describe") {
+      const slots = node.arguments.slice(1);
+      const located = slots.some((a) => isSuiteBody(a));
+      // Vacuously true for a registration with no slots past the name, which is
+      // what keeps the inner call of a curried `describe.each(rows)(...)` silent.
+      const allInert = slots.every((a) => isInertLiteral(a));
+      if (!located && !allInert) {
+        const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+        out.push(unfollowableFactoryReason(line));
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
   return out;
 }
 
