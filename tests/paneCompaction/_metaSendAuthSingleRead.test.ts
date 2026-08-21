@@ -19,7 +19,7 @@
 // rules are driven by the registry row, the live tree proves the shipped row is
 // correct.
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -1114,5 +1114,706 @@ describe("Task 8 — second repair pass, from the re-measure at 0.9259", () => {
     const f = "stacked-markers.ts";
     const decl = lineOf(f, "const authorizeOnce");
     expect(scan(f)).toEqual([finding(f, "AMBIGUOUS-PASS", "settle", fnLine(f), [decl, decl])]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-U16a / AC-U16b groundwork — THE DERIVED FIXTURE MANIFEST AND THE
+// DIRECTIVE CENSUS (spec §2.5)
+//
+// The deepest measurement in the spec's §3 is not any single silent miss: it is
+// that this 81-fixture corpus contained ZERO instances of ANY of §3's shapes,
+// so the suite was GREEN throughout while four consecutive review rounds each
+// contributed one instance. Review was acting as the corpus-authoring
+// mechanism. A suite cannot fail on a shape its corpus does not contain, so a
+// green run over it is evidence about COVERAGE and nothing about correctness.
+//
+// The manifest is the bound on that. Every fixture names the RULE-ELEMENT it
+// exists for and an unmapped fixture REDS, so the corpus has no independent
+// growth channel: it can only grow when the RULE gains a decision input, and
+// rule changes are what the round cap already governs.
+//
+// THE COMPARISON HAS AN INDEPENDENT WITNESS ON ONE SIDE. Axes are checked
+// against the spec's own §2.5 table ON DISK and the fixture set against the
+// DIRECTORY ON DISK. Derivation is right for a COVER and wrong for BOTH SIDES
+// of a comparison -- two derivations from one constant cannot disagree, because
+// a drift moves them together. The filesystem does not know what the constant
+// says, and neither does the spec.
+//
+// WHAT THIS TASK DELIBERATELY DOES NOT REACH FOR. The `Receiver` union and the
+// wrapper enum do not exist yet; their parity assertions belong to the task
+// that INTRODUCES each constant. Importing a symbol a later task creates would
+// turn this cycle's red into a COLLECTION failure, which goes green when the
+// test file changes rather than when the implementation lands. Those axes are
+// declared OWED below, naming their owning task, so the gap is a checked
+// baseline rather than a silent exemption.
+// ---------------------------------------------------------------------------
+
+const SPEC_PATH =
+  "docs/superpowers/specs/ci/2026-08-21-sendauth-arm-classifier-unification-design.md";
+const PLAN_PATH = "docs/superpowers/plans/ci/2026-08-21-sendauth-arm-classifier-unification.md";
+
+/**
+ * The axes of spec §2.5's classification table. A closed union, so a cell
+ * naming an axis that does not exist DOES NOT COMPILE -- the bound is the TYPE,
+ * and the runtime assertions below check only what a type cannot express.
+ */
+type AxisId =
+  | "binding kind"
+  | "position"
+  | "exemption state"
+  | "parenthesis depth"
+  | "member-chain depth"
+  | "receiver shape, once depth is factored out"
+  | "wrapper kind"
+  | "annotation certainty";
+
+const AXIS_IDS: readonly AxisId[] = [
+  "binding kind",
+  "position",
+  "exemption state",
+  "parenthesis depth",
+  "member-chain depth",
+  "receiver shape, once depth is factored out",
+  "wrapper kind",
+  "annotation certainty",
+];
+
+type ManifestCell = {
+  /** File name under FIXTURE_ROOT. */
+  fixture: string;
+  /**
+   * A §2.5 axis, or `inherited` for a fixture predating this arc. `inherited`
+   * is FROZEN at the BASE corpus size below, so a new fixture cannot hide in it.
+   */
+  axis: AxisId | "inherited";
+  /** The rule-element this fixture exists for. Never a shrug; asserted non-trivial. */
+  covers: string;
+  /**
+   * Set when the fixture's BYTES are the subject: the exact source line a
+   * normaliser would rewrite. A formatter's whole job is erasing syntactic
+   * distinctions that do not change semantics -- which is precisely the set of
+   * things a scanner-under-test is asked to handle.
+   */
+  syntaxSensitive?: string;
+};
+
+/**
+ * The corpus size at this arc's BASE. `inherited` is a declared baseline, not an
+ * open category: an 82nd inherited cell REDS, so a NEW fixture must name a §2.5
+ * axis rather than being absorbed as pre-existing.
+ */
+const INHERITED_CORPUS_SIZE = 81;
+
+const MANIFEST: readonly ManifestCell[] = [
+  { fixture: "alias-read.ts", axis: "inherited", covers: "AC-1 — an ALIAS of a read member" },
+  {
+    fixture: "aliased-importer.ts",
+    axis: "inherited",
+    covers: "AC-9 — discovery follows the SYMBOL, not the local name",
+  },
+  { fixture: "ambient-alias.ts", axis: "inherited", covers: "AC-1 — a BARE AMBIENT ALIAS" },
+  {
+    fixture: "ambient-callback-clean.ts",
+    axis: "inherited",
+    covers: "AC-2 — false-positive guard",
+  },
+  {
+    fixture: "ambiguous-pass.ts",
+    axis: "inherited",
+    covers: "AC-5 — two declared passes in one send-bearing function is AMBIGUOUS-PASS",
+  },
+  {
+    fixture: "anonymous-pass.ts",
+    axis: "inherited",
+    covers: "AC-5 — an UNNAMED pass declaration must be named (anonymous), not skipped",
+  },
+  {
+    fixture: "anonymous-toplevel-send.ts",
+    axis: "inherited",
+    covers: "AC-14 — discovery covers an UNNAMED module-level function",
+  },
+  {
+    fixture: "assigned-to-plain-variable.ts",
+    axis: "inherited",
+    covers: "AC-1 — the surface assigned to a plain variable is an unclassifiable use",
+  },
+  {
+    fixture: "bare-mention-in-array.ts",
+    axis: "inherited",
+    covers: "AC-1 — the classifier's FINAL FALLTHROUGH",
+  },
+  {
+    fixture: "bare-mention.ts",
+    axis: "inherited",
+    covers:
+      "AC-1 — a BARE MENTION — the surface held in another binding, from which anything may be called",
+  },
+  {
+    fixture: "binding-in-comparison.ts",
+    axis: "inherited",
+    covers: "AC-1 — a surface binding in a COMPARISON is unclassifiable",
+  },
+  {
+    fixture: "class-field-sink.ts",
+    axis: "inherited",
+    covers: "rule 28 — a class field holding the surface reaches the sink",
+  },
+  { fixture: "computed-member.ts", axis: "inherited", covers: "AC-1 — a COMPUTED member access" },
+  {
+    fixture: "conditional-pass-no-marker.ts",
+    axis: "inherited",
+    covers: "AC-15 control — the positive pair for conditional-pass",
+  },
+  {
+    fixture: "conditional-pass.ts",
+    axis: "inherited",
+    covers: "AC-15 / §4 limit 1 — a conditionally-called pass scans CLEAN, by fence",
+  },
+  {
+    fixture: "derivation-clean.ts",
+    axis: "inherited",
+    covers: "AC-7b false-positive guard — a derivation ON the straight-line path",
+  },
+  {
+    fixture: "derivation-in-loop-in-callback.ts",
+    axis: "inherited",
+    covers: "AC-7b — a derivation under TWO blocking ancestors reports ONCE",
+  },
+  {
+    fixture: "derivation-in-loop.ts",
+    axis: "inherited",
+    covers: "AC-7b — the round-3 F1 shape — the DERIVATION DECLARATION under a two-iteration loop",
+  },
+  {
+    fixture: "derivation-in-named-callback.ts",
+    axis: "inherited",
+    covers:
+      "AC-7b — the round-3 F1 second shape — the DERIVATION DECLARATION inside a named callback invoked more than once",
+  },
+  {
+    fixture: "derivation-leaks-handoff.ts",
+    axis: "inherited",
+    covers:
+      "AC-8 — a derivation exempts the READS taken through it; it does not exempt its whole INITIALIZER SUBTREE",
+  },
+  {
+    fixture: "derivation-name-collision-control.ts",
+    axis: "inherited",
+    covers: "diff r1 F1 control — one variable apart, must stay silent",
+  },
+  {
+    fixture: "derivation-name-collision.ts",
+    axis: "inherited",
+    covers: "diff r1 F1 — a derivation name must not exempt a raw binding in another pass",
+  },
+  {
+    fixture: "derived-mention-module-binding.ts",
+    axis: "inherited",
+    covers: "AC-8 — a MODULE-LEVEL binding is outside the derivation exemption's scope",
+  },
+  {
+    fixture: "derived-name-used-outside-its-pass.ts",
+    axis: "inherited",
+    covers: "AC-8 — a derivation name does not exempt uses outside its own pass",
+  },
+  {
+    fixture: "destructure-outside-pass.ts",
+    axis: "inherited",
+    covers: "AC-1 — a DESTRUCTURE in a branch outside the pass",
+  },
+  {
+    fixture: "destructured-param-sink.ts",
+    axis: "inherited",
+    covers: "diff r1 F2 — the surface DESTRUCTURED in a parameter position",
+  },
+  {
+    fixture: "detached-marker.ts",
+    axis: "inherited",
+    covers: "T2 — a marker attached to a non-function does not declare a pass",
+  },
+  {
+    fixture: "effects-only-no-pass.ts",
+    axis: "inherited",
+    covers: "AC-14 — discovery is anchored on SINKS, not effects",
+  },
+  {
+    fixture: "exempt-empty-reason.ts",
+    axis: "inherited",
+    covers: "AC-5 — an EMPTY exempt reason does not suppress",
+  },
+  {
+    fixture: "exempt-with-reason.ts",
+    axis: "inherited",
+    covers: "AC-5 — an exempt marker with a NON-EMPTY reason suppresses UNDECLARED-PASS",
+  },
+  {
+    fixture: "exotic-type-members.ts",
+    axis: "inherited",
+    covers: "AC-4 — type members whose names are NOT identifiers",
+  },
+  {
+    fixture: "generic-arrow-scriptkind.ts",
+    axis: "inherited",
+    covers: "the ScriptKind discriminator — the parse kind must be chosen by extension",
+    syntaxSensitive: "const identity = <T>(x: T): T => x;",
+  },
+  {
+    fixture: "helper-derivation.ts",
+    axis: "inherited",
+    covers: "AC-8 — a DECLARED derivation helper as the initializer",
+  },
+  {
+    fixture: "helper-other-argument.ts",
+    axis: "inherited",
+    covers: "AC-8 — a declared helper called with a non-surface argument",
+  },
+  {
+    fixture: "injection-outside-pass.ts",
+    axis: "inherited",
+    covers: "AC-3 — the same handoff shape OUTSIDE a pass is ordinary injection",
+  },
+  {
+    fixture: "interface-surface.ts",
+    axis: "inherited",
+    covers: "AC-4 — the surface type declared as an INTERFACE",
+  },
+  {
+    fixture: "js-specifier-importer.ts",
+    axis: "inherited",
+    covers: "diff r2 F3 — an unregistered importer using a .js specifier",
+  },
+  { fixture: "loop-do-while.ts", axis: "inherited", covers: "AC-6 — , iteration kind 4 of 4" },
+  { fixture: "loop-for-of.ts", axis: "inherited", covers: "AC-6 — , iteration kind 2 of 4" },
+  { fixture: "loop-for.ts", axis: "inherited", covers: "AC-6 — , iteration kind 1 of 4" },
+  { fixture: "loop-while.ts", axis: "inherited", covers: "AC-6 — , iteration kind 3 of 4" },
+  {
+    fixture: "marker-in-jsx.tsx",
+    axis: "inherited",
+    covers: "AC-5 — a marker token inside JSX TEXT is not a declaration",
+  },
+  {
+    fixture: "marker-in-string.ts",
+    axis: "inherited",
+    covers: "AC-5 — a marker token inside a STRING LITERAL is not a declaration",
+  },
+  {
+    fixture: "marker-then-comment-detached.ts",
+    axis: "inherited",
+    covers: "AC-5 control — one delta apart, the comment run is followed by something else",
+  },
+  {
+    fixture: "marker-then-comment.ts",
+    axis: "inherited",
+    covers: "AC-5 — the marker skips a following COMMENT RUN to reach its declaration",
+  },
+  {
+    fixture: "marker-with-trailing-text.ts",
+    axis: "inherited",
+    covers: "AC-5 — the marker grammar is LITERAL, not containment",
+  },
+  {
+    fixture: "member-receiver-unclassified.ts",
+    axis: "inherited",
+    covers: "diff r4 F1 — a member receiver reported as UNCLASSIFIED-USE",
+  },
+  {
+    fixture: "module-level-sink.ts",
+    axis: "inherited",
+    covers: "a sink at MODULE scope is a documented limit, not a pass",
+  },
+  {
+    fixture: "multi-derivation.ts",
+    axis: "inherited",
+    covers: "AC-8 — TWO derivations in one pass",
+  },
+  {
+    fixture: "multi-read.ts",
+    axis: "inherited",
+    covers: "AC-7 — TWO straight-line reads of the SAME method report MULTI-READ naming BOTH lines",
+  },
+  {
+    fixture: "named-callback.ts",
+    axis: "inherited",
+    covers: "AC-6 — the round-2 F2 shape — a NAMED callback invoked twice inside the pass",
+  },
+  {
+    fixture: "namespace-importer-unused.ts",
+    axis: "inherited",
+    covers: "AC-9 — the negative pair: a namespace import that never reaches the surface",
+  },
+  {
+    fixture: "namespace-importer.ts",
+    axis: "inherited",
+    covers: "AC-9 — a NAMESPACE import of a registered module is an import edge",
+  },
+  { fixture: "nested-arrow.ts", axis: "inherited", covers: "AC-6 — , function-like kind 2 of 4" },
+  {
+    fixture: "nested-function-declaration.ts",
+    axis: "inherited",
+    covers: "AC-6 — , function-like kind 1 of 4",
+  },
+  {
+    fixture: "nested-function-expression.ts",
+    axis: "inherited",
+    covers: "AC-6 — , function-like kind 4 of 4",
+  },
+  {
+    fixture: "nested-named-function-sink.ts",
+    axis: "inherited",
+    covers: "AC-6 — a sink reached from a NAMED function nested in a class method",
+  },
+  {
+    fixture: "nested-object-method.ts",
+    axis: "inherited",
+    covers: "AC-6 — , function-like kind 3 of 4",
+  },
+  {
+    fixture: "parenthesized-receiver.ts",
+    axis: "inherited",
+    covers: "diff r2 F2 — a PARENTHESIZED receiver is a transparent wrapper",
+    syntaxSensitive: '(this.ch).dispatch("p1", "/compact");',
+  },
+  {
+    fixture: "pass-is-toplevel-function.ts",
+    axis: "inherited",
+    covers: "T2 — the marker may attach to the send-bearing function ITSELF",
+  },
+  {
+    fixture: "read-as-call-argument.ts",
+    axis: "inherited",
+    covers: "AC-2 — a READ member handed on as a bare CALL ARGUMENT, not as a property value",
+  },
+  {
+    fixture: "read-callback-reports.ts",
+    axis: "inherited",
+    covers: "AC-2 discriminator — the same handoff shape with a READ member REPORTS",
+  },
+  {
+    fixture: "registered-channel.ts",
+    axis: "inherited",
+    covers: "T6 — a REGISTERED module exporting the surface type",
+  },
+  {
+    fixture: "registered-importer.ts",
+    axis: "inherited",
+    covers: "AC-9 false-positive guard — a registered importer must not report",
+  },
+  {
+    fixture: "round4-raw-handoff.ts",
+    axis: "inherited",
+    covers: "AC-8 regression pin — two raw handoffs on ONE line, distinguished by callee",
+  },
+  {
+    fixture: "same-pass-shadowed-derivation.ts",
+    axis: "inherited",
+    covers: "diff r2 F1 — a RAW parameter shadowing a derived name in the same pass",
+  },
+  {
+    fixture: "second-registered-channel.ts",
+    axis: "inherited",
+    covers: "T6 — a SECOND registered module in one run",
+  },
+  {
+    fixture: "shadowed-param-handoff.ts",
+    axis: "inherited",
+    covers: "diff r4 F2 — diff r2 F1's defect, one arm over",
+  },
+  {
+    fixture: "single-read-clean.ts",
+    axis: "inherited",
+    covers: "AC-6/AC-7 false-positive guard — one straight-line read scans CLEAN",
+  },
+  {
+    fixture: "sink-in-class-property.ts",
+    axis: "inherited",
+    covers: "AC-14 — a sink in a CLASS PROPERTY INITIALIZER",
+  },
+  {
+    fixture: "sink-name-on-other-object.ts",
+    axis: "inherited",
+    covers: "AC-14 — a sink's NAME on an object that is not the surface",
+  },
+  {
+    fixture: "sink-not-called-row-driven.ts",
+    axis: "inherited",
+    covers: "T2 — the row's declared sink drives discovery, not a hardcoded name",
+  },
+  {
+    fixture: "spread-derivation.ts",
+    axis: "inherited",
+    covers:
+      "AC-8 — a SPREAD is a derivation, and reads THROUGH the derived binding are unconstrained",
+  },
+  {
+    fixture: "stacked-markers.ts",
+    axis: "inherited",
+    covers: "rule 21.1 — TWO markers stacked above ONE declaration",
+  },
+  {
+    fixture: "surface-type-extra-member.ts",
+    axis: "inherited",
+    covers: "AC-4 — the surface type whose read set is derived",
+  },
+  {
+    fixture: "two-sends-one-marker.ts",
+    axis: "inherited",
+    covers: "T2 — two send-bearing functions, one correctly-scoped marker",
+  },
+  {
+    fixture: "unclassified-beside-a-derivation.ts",
+    axis: "inherited",
+    covers: "AC-8 — an unclassifiable RAW use beside a derivation in one pass",
+  },
+  {
+    fixture: "undeclared-pass.ts",
+    axis: "inherited",
+    covers: "AC-5 — a send-bearing function with no declared pass is UNDECLARED-PASS",
+  },
+  {
+    fixture: "unregistered-importer.ts",
+    axis: "inherited",
+    covers: "AC-9 — a module that imports a REGISTERED surface type and has NO row",
+  },
+  {
+    fixture: "wrapped-class-field-sink.ts",
+    axis: "inherited",
+    covers: "diff r3 F6 — a WRAPPED class-field receiver reaching a sink",
+  },
+  {
+    fixture: "zero-derivations.ts",
+    axis: "inherited",
+    covers: "AC-8 — ZERO derivations violates 'exactly one' just as two do",
+  },
+];
+
+/**
+ * Cells the cross-product generates and no fixture can occupy. A struck cell
+ * carries its REASON, so a later reader meets the argument rather than an
+ * absence -- an exemption with no consequence is a shrug wearing a token's name.
+ */
+const STRUCK: readonly { axis: AxisId; cell: string; reason: string }[] = [
+  {
+    axis: "binding kind",
+    cell: "opaque × any resolvable receiver shape",
+    reason:
+      "`opaque` IS rule A's output when no receiver shape resolves, so the two cannot co-occur by construction rather than by omission",
+  },
+  {
+    axis: "parenthesis depth",
+    cell: "destructured local × depth > 0",
+    reason:
+      "a destructured local has no receiver expression, so there is nothing to parenthesize; the depth axis is undefined here rather than untested",
+  },
+  {
+    axis: "member-chain depth",
+    cell: "destructured local × depth > 0",
+    reason: "same absence of a receiver expression: a chain needs a receiver to hang from",
+  },
+];
+
+/**
+ * Axes whose SHIPPED CONSTANT does not exist at this task's position. Each names
+ * the task that introduces the constant and therefore owes the parity assertion.
+ *
+ * This is a DECLARED BASELINE that shrinks, not an exemption: the owner must be
+ * a task slug that exists in the plan, asserted below against the plan ON DISK,
+ * so an owed cell cannot name a task nobody is going to run.
+ */
+const OWED: readonly { axis: AxisId; cell: string; owner: string }[] = [
+  {
+    axis: "binding kind",
+    cell: "the three-way Receiver union, crossed completely",
+    owner: "task:resolve-name",
+  },
+  {
+    axis: "wrapper kind",
+    cell: "axis read from ts.OuterExpressionKinds, crossed completely",
+    owner: "task:resolve-name",
+  },
+  {
+    axis: "receiver shape, once depth is factored out",
+    cell: "bare · property · static element access · destructured local · call result",
+    owner: "task:sites-consume-rule-a",
+  },
+  {
+    axis: "exemption state",
+    cell: "none · declared once · declared twice competing · declared twice non-competing",
+    owner: "task:rule-b-count",
+  },
+  {
+    axis: "annotation certainty",
+    cell: "provably-not-surface keyword · everything else",
+    owner: "task:rule-b-count",
+  },
+  {
+    axis: "position",
+    cell: "D1 … D6, derived by the ADOPTION SCAN rather than listed",
+    owner: "task:scans-and-routing",
+  },
+  {
+    axis: "parenthesis depth",
+    cell: "independence proof over 0, 1, 2 and a deep case",
+    owner: "task:scans-and-routing",
+  },
+  {
+    axis: "member-chain depth",
+    cell: "independence proof over structurally distinct chain depths",
+    owner: "task:scans-and-routing",
+  },
+];
+
+/** The directive a normaliser-sensitive cell must carry, immediately above its line. */
+const PRETTIER_DIRECTIVE = "// prettier-ignore";
+
+/**
+ * Does `text` carry PRETTIER_DIRECTIVE on the line IMMEDIATELY above the single
+ * occurrence of `line`? Exported as a predicate so the census can be run against
+ * a CONSTRUCTED VIOLATION and observed to fail -- a check never seen to fail is
+ * a claim, not a proof, and it fails in the direction that looks green.
+ */
+const directiveImmediatelyAbove = (
+  text: string,
+  line: string,
+): { ok: boolean; occurrences: number; reason: string } => {
+  const lines = text.split("\n");
+  const at = lines.reduce<number[]>(
+    (acc, l, i) => (l.trim() === line.trim() ? [...acc, i] : acc),
+    [],
+  );
+  if (at.length !== 1) {
+    return {
+      ok: false,
+      occurrences: at.length,
+      reason:
+        at.length === 0
+          ? "the declared line is ABSENT — the fixture moved and this cell now names nothing"
+          : `the declared line occurs ${at.length} times, so "immediately above" names no single site`,
+    };
+  }
+  const idx = at[0]!;
+  const above = idx > 0 ? lines[idx - 1]!.trim() : "";
+  return above === PRETTIER_DIRECTIVE
+    ? { ok: true, occurrences: 1, reason: "" }
+    : {
+        ok: false,
+        occurrences: 1,
+        reason: `the line above is ${JSON.stringify(above)}, not ${JSON.stringify(PRETTIER_DIRECTIVE)} — anything in between DETACHES the directive`,
+      };
+};
+
+describe("AC-U16 groundwork — the fixture manifest is DERIVED and the corpus cannot grow silently", () => {
+  it("declares every axis the spec's §2.5 table declares, and no others", () => {
+    // The independent witness: the SPEC on disk. A drift in either side moves one
+    // and not the other, which is the only arrangement in which a comparison can
+    // disagree at all.
+    const spec = readFileSync(SPEC_PATH, "utf8");
+    const table = spec.split("\n").filter((l) => /^\| /.test(l));
+    const rows = table
+      .map((l) => l.split("|")[1] ?? "")
+      .map((c) => c.replace(/\*\*/g, "").trim())
+      .map((c) => c.split(" — ")[0]!.trim())
+      .filter((c) => c && c !== "axis" && !/^-+$/.test(c));
+
+    premiseHolds(
+      "the spec's §2.5 axis table was READ, not merely opened",
+      rows.length >= AXIS_IDS.length,
+    );
+
+    const fromSpec = [...new Set(rows)].sort();
+    const declared = [...AXIS_IDS].sort();
+    // Every declared axis must appear in the spec. The spec carries other tables,
+    // so the spec side is a SUPERSET and the assertion is one-directional by
+    // design -- stated rather than left as an accident of the filter.
+    expect(declared.filter((a) => !fromSpec.includes(a))).toEqual([]);
+  });
+
+  it("accounts for EVERY fixture on disk, and every cell names a file that exists", () => {
+    // Both directions. A forward-only check ("every fixture has a cell") silently
+    // accumulates dead cells, and a dead cell is a claim about a file that no
+    // longer exists.
+    const onDisk = readdirSync(FIXTURE_ROOT).sort();
+    const inManifest = MANIFEST.map((c) => c.fixture).sort();
+
+    premiseHolds("the fixture directory was read", onDisk.length > 0);
+
+    expect(inManifest).toEqual(onDisk);
+    expect(new Set(inManifest).size).toBe(inManifest.length);
+  });
+
+  it("freezes `inherited` at the BASE corpus size, so a new fixture must name an axis", () => {
+    // Without this, every future fixture can be absorbed as pre-existing and the
+    // manifest stops bounding anything -- an exemption keyed coarser than what it
+    // exempts absorbs the future.
+    expect(MANIFEST.filter((c) => c.axis === "inherited")).toHaveLength(INHERITED_CORPUS_SIZE);
+  });
+
+  it("gives every cell a rule-element, and no cell a shrug", () => {
+    const shrugs = MANIFEST.filter((c) => c.covers.trim().length < 12).map((c) => c.fixture);
+    expect(shrugs).toEqual([]);
+  });
+
+  it("gives every STRUCK cell a reason and every OWED cell a task that exists in the plan", () => {
+    expect(STRUCK.filter((s) => s.reason.trim().length < 20).map((s) => s.cell)).toEqual([]);
+
+    const plan = readFileSync(PLAN_PATH, "utf8");
+    premiseHolds("the plan was read", plan.length > 0);
+    // Positive control: a slug that IS in the plan must be found, so a zero here
+    // is attributable to the owners rather than to a broken read.
+    premiseHolds("the plan's own slugs are findable", plan.includes("[task:corpus-manifest]"));
+
+    const missing = OWED.filter((o) => !plan.includes(`[${o.owner}]`)).map((o) => o.owner);
+    expect(missing).toEqual([]);
+  });
+
+  it("carries the prettier directive on EVERY syntax-sensitive cell, immediately above its line", () => {
+    // A formatter is a silent input mutation for any fixture that is PARSED
+    // rather than read, and both of these are parsed. Measured on this corpus:
+    // stripping the directive and running prettier rewrites
+    // `(this.ch).dispatch(...)` to `this.ch.dispatch(...)`, converting that
+    // fixture into a duplicate of `class-field-sink`; and rewrites
+    // `<T>(x: T)` to `<T,>(x: T)`, whose trailing comma disambiguates the
+    // generic from a JSX open tag and therefore retires the ONLY coverage of the
+    // ScriptKind selection. The second was UNPROTECTED until this cell landed.
+    const sensitive = MANIFEST.filter((c) => c.syntaxSensitive);
+    premiseHolds("the corpus contains syntax-sensitive cells to check", sensitive.length > 0);
+
+    const bad = sensitive
+      .map((c) => ({ c, r: directiveImmediatelyAbove(readFixture(c.fixture), c.syntaxSensitive!) }))
+      .filter((x) => !x.r.ok)
+      .map((x) => `${x.c.fixture}: ${x.r.reason}`);
+    expect(bad).toEqual([]);
+  });
+
+  it("declares every directive the corpus actually carries — no undeclared directive", () => {
+    // The reverse direction. A directive present but undeclared means somebody
+    // protected a construct without recording WHY, and the reason is what a
+    // future author needs; a directive declared but absent is the census failing
+    // open. Both are caught here.
+    const declared = new Set(MANIFEST.filter((c) => c.syntaxSensitive).map((c) => c.fixture));
+    const carrying = readdirSync(FIXTURE_ROOT).filter((f) =>
+      readFixture(f).includes(PRETTIER_DIRECTIVE),
+    );
+    expect(carrying.sort()).toEqual([...declared].sort());
+  });
+
+  it("PROVES the census can fail — a detached directive and an absent line both red", () => {
+    // A check that cannot fail is not a check, and the failure direction here is
+    // the dangerous one: a census that silently passes reads exactly like a
+    // protected corpus.
+    const line = "const identity = <T>(x: T): T => x;";
+    const attached = `${PRETTIER_DIRECTIVE}\n${line}\n`;
+    const detached = `${PRETTIER_DIRECTIVE}\n// an intervening comment DETACHES it\n${line}\n`;
+    const bare = `${line}\n`;
+    const twice = `${PRETTIER_DIRECTIVE}\n${line}\n${line}\n`;
+
+    expect(directiveImmediatelyAbove(attached, line).ok).toBe(true);
+    expect(directiveImmediatelyAbove(detached, line).ok).toBe(false);
+    expect(directiveImmediatelyAbove(bare, line).ok).toBe(false);
+    // An absent line is a cell naming nothing, and it must not render as a pass.
+    expect(directiveImmediatelyAbove("", line)).toMatchObject({ ok: false, occurrences: 0 });
+    // Two occurrences make "immediately above" ambiguous, so it reds rather than
+    // silently checking the first.
+    expect(directiveImmediatelyAbove(twice, line)).toMatchObject({ ok: false, occurrences: 2 });
   });
 });
