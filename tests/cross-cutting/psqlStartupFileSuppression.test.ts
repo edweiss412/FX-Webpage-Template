@@ -6654,6 +6654,34 @@ describe("an executing psql inside an ATTACHED redirection target", () => {
     ).toEqual(rows.map(([label, , sites, advisories]) => [label, sites, advisories]));
   });
 
+  // Diff round 1, finding 1. `matchBraceEnd` asked whether the character it
+  // LANDED on equals the closing delimiter. `matchBrace` returns the final index
+  // when it runs out of input, so a span whose last character merely IS that
+  // delimiter - escaped, inside an unclosed quote, or closing a NESTED opener -
+  // read as closed. The target was then resolved and its bodies collected, and
+  // the unlexable channel it exists to feed was bypassed entirely.
+  //
+  // Bash exits 2 on every one of these and runs NOTHING, so a resolved site is
+  // wrong auto-correction, not a conservative over-report. Both delimiter pairs
+  // crossed with all three ways a final delimiter can fail to close.
+  test("a construct whose LAST character is its delimiter without closing is REPORTED, not resolved", () => {
+    const rows: Array<[label: string, source: string]> = [
+      ["$() final ) is escaped", "cat >$(psql -c 'x'\\)"],
+      ["$() final ) is inside an unclosed single quote", "cat >$(psql -c 'x)"],
+      ["$() final ) closes only a NESTED opener", "cat >$(psql -c 'x' $(echo)"],
+      ["${} final } is escaped", "cat >${OUT:-$(psql -c 'x')\\}"],
+      ["${} final } is inside an unclosed single quote", "cat >${OUT:-$(psql -c 'x')'}"],
+      ["${} final } closes only a NESTED opener", "cat >${OUT:-$(psql -c 'x') ${A}"],
+    ];
+    expect(
+      rows.map(([label, source]) => [
+        label,
+        sitesIn(source, "x.sh").length,
+        scanShellIndirection(source, "x.sh").length,
+      ]),
+    ).toEqual(rows.map(([label]) => [label, 0, 1]));
+  });
+
   // §5a items 4 and 7. Every acceptance fixture is a whole small file whose
   // construct starts at line 1 under LF. Line is a field AC-5's digest covers,
   // so this asserts the COORDINATE and not the presence - the killer audit's

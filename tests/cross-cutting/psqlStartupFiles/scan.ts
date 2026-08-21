@@ -950,8 +950,21 @@ export const OPERATOR_STARTS = new Set([";", "&", "|", "(", ")", "\n"]);
  * Neither reaches argv. */
 const FD_PREFIX = /^(?:\d+|\{[A-Za-z_]\w*\})$/;
 
-/** Index of the closing delimiter matching the opener at `start`. */
-function matchBrace(text: string, start: number, open: string, close: string): number {
+/**
+ * The closing delimiter's index AND whether the span actually closed.
+ *
+ * The walk has always known the difference - it returns on `depth === 0` and
+ * falls out of the loop otherwise - but the old return threw that away and left
+ * callers to re-derive it from the character it landed on. That re-derivation is
+ * wrong whenever the final character merely IS the delimiter without closing
+ * anything (diff round 1, finding 1), so the fact is reported instead of inferred.
+ */
+function matchBraceSpan(
+  text: string,
+  start: number,
+  open: string,
+  close: string,
+): { index: number; closed: boolean } {
   let depth = 0;
   let quote: string | null = null;
   for (let i = start; i < text.length; i++) {
@@ -974,10 +987,16 @@ function matchBrace(text: string, start: number, open: string, close: string): n
     if (character === open) depth++;
     else if (character === close) {
       depth--;
-      if (depth === 0) return i;
+      if (depth === 0) return { index: i, closed: true };
     }
   }
-  return text.length - 1;
+  return { index: text.length - 1, closed: false };
+}
+
+/** Index of the closing delimiter matching the opener at `start`. Preserved
+ * verbatim for the four callers that only ever wanted the index. */
+function matchBrace(text: string, start: number, open: string, close: string): number {
+  return matchBraceSpan(text, start, open, close).index;
 }
 
 /**
@@ -987,13 +1006,14 @@ function matchBrace(text: string, start: number, open: string, close: string): n
  * `matchBrace` answers the same question by returning the LAST index either
  * way, which cannot distinguish a span that closed on the final character from
  * one that ran out of input - and that distinction is the whole of the
- * unlexable report (design section 3, part 4). This asks the shipped walk and
- * then reads what it landed on, rather than duplicating the brace walk: a
- * second copy of one rule is two things that drift.
+ * unlexable report (design section 3, part 4). This reads the walk's OWN
+ * `closed` flag rather than duplicating the brace walk or re-deriving closure
+ * from the character it landed on; the latter is what diff round 1 found, and
+ * it fails on every span whose last character merely IS the delimiter.
  */
 function matchBraceEnd(text: string, start: number, open: string, close: string): number {
-  const at = matchBrace(text, start, open, close);
-  return text[at] === close ? at : -1;
+  const span = matchBraceSpan(text, start, open, close);
+  return span.closed ? span.index : -1;
 }
 
 /**
