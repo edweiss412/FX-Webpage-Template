@@ -247,7 +247,11 @@ PLAUSIBILITY argument, not a measurement; the three tail peers at 7.9x-11.8x (1.
 the ones a further per-mutant run would have to cover. A mutant child approaching the ceiling makes the
 mechanism live and §5.5's decision urgent.
 
-### Result
+### First run — CONTAMINATED, preserved as a record and NOT a current claim
+
+Its `max`, `median` and headroom are computed over mutant AND baseline children together, so the
+`7.1x` below is RETIRED. It is kept verbatim rather than edited because it is the evidence for what the
+defect looked like, and because the survivor set it reports is what the filtered re-run reproduced.
 
 ```
 STAMP AFTER identical: true
@@ -262,18 +266,44 @@ survivors: ["logical-connector:66:12:||>&&","logical-connector:142:18:||>&&","lo
             "integer-literal:259:17:1>2","statement-removal:320:11:continue;>(removed)","logical-connector:365:14:||>&&"]
 ```
 
-**Reading, against the pre-stated branch — with one claim RETRACTED.** Zero of 93 kills are timeouts.
-No child in the run exceeded **25.3 s** against a 180 s ceiling, so the 7.1x headroom stands: a maximum
-over a superset bounds the maximum over any subset, and the figure is conservative rather than wrong.
+### Filtered re-measurement (the reported result)
 
-**RETRACTED: the 1.04x mutant-versus-baseline ratio, and the claim that 25.3 s was the worst MUTANT
-child.** Round-3 review found that `runSurfaceRecorded` pushes the BASELINE children into the same
-records array the distribution is computed over (`instrument.ts`), and this probe did not filter them.
-`ledgerGit`'s baseline `ledgerClaimsCheck` child measured 24.4 s in probe 2a, so the 25.3 s maximum may
-itself have been a baseline child. **The ratio therefore cannot be computed from that run and is
-withdrawn rather than defended.** The script now filters on `siteId`, reports the two populations
-separately, and ABORTS if the mutant population is empty; the surviving figures are the ones that do
-not depend on the partition. Per the
+```
+partition: 116 mutant children, 2 baseline children (baseline durations: 1.1, 18.3s)
+
+=== ledgerGit: 99 mutants, 118 children, 29.0 min ===
+killed=93 survivors=6
+child duration (s): min 0.6  median 17.8  max 39.1
+ceiling 180s — headroom at the measured MUTANT max: 4.6x
+TIMEOUTS AMONG THESE KILLS: 0 of 93
+slowest 10 children (s): 19.3, 19.3, 19.3, 19.4, 19.8, 19.8, 19.8, 20.8, 38.0, 39.1
+STAMP AFTER identical: true
+```
+
+**Reading — and the retracted claim was wrong in DIRECTION, not merely unsupported.** Zero of 93 kills
+are timeouts. The worst MUTANT child is **39.1 s**, against a worst BASELINE child of **18.3 s**: a
+ratio of **2.14x**, where the contaminated run had suggested 1.04x. **Mutant children ARE materially
+slower than baseline on this surface**, so the baseline-is-a-lower-bound limit is real and understates
+the tail by roughly a factor of two here.
+
+Headroom at the mutant maximum is **4.6x, not the 7.1x previously reported** — less room than this
+record earlier claimed. The tail is also not smooth: two children at 38.0 and 39.1 s stand clear of the
+next-slowest 20.8 s by ~1.8x, which any mean or median would have hidden.
+
+**Duration is itself unstable run to run.** Same surface, byte-identical inputs: an all-children maximum
+of 25.3 s in the first run, a mutant maximum of 39.1 s in this one. Consistent with probe 3's 1.4x
+intra-run spread.
+
+**What the earlier run still establishes**, since both are recorded: the survivor set is IDENTICAL
+across the two runs (same six sites), so the verdict result reproduced exactly even while the duration
+distribution moved.
+
+**How the earlier figures were wrong.** `runSurfaceRecorded` pushes the BASELINE children into the same
+records array the distribution is computed over (`instrument.ts`), and the first version of this probe
+did not filter them — found by round-3 review. The script now filters on `siteId`, reports both
+populations, and ABORTS if the mutant population is empty. The re-measurement above is the reported
+result; the contaminated figures (25.3 s max, 1.04x ratio, 7.1x headroom) are RETIRED and are not
+quoted anywhere as current. Per the
 pre-stated reading this weakens the timeout mechanism ON THIS SURFACE. It bounds no other: the other
 39 remain baseline-bounded, and the larger headroom elsewhere is a plausibility argument, not a
 measurement.
