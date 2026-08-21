@@ -143,15 +143,15 @@ The repair is to RE-POINT, never to waive (Task 9), and two rules make the re-po
 ```
 | Task | red-target at BASE (plan time)                          | What the why= names, by symbol or content        | HEAD (Task 9) |
 | ---- | ------------------------------------------------------- | ------------------------------------------------ | -------------- |
-| 1    | lib/specLint/claimSweep.ts (untracked)                  | the module itself — created by this task         | n/a            |
-| 2    | lib/specLint/claimSweep.ts                              | "no refusal branch"                              |                |
-| 3    | lib/specLint/claimSweep.ts                              | "the named half is not implemented"              |                |
-| 4    | lib/specLint/claimSweep.ts                              | CLAIM_IDENTIFIER_NOT_FOUND                       |                |
-| 5    | lib/specLint/claimSweep.ts                              | "sweeps only the document it lints"              |                |
-| 6    | lib/specLint/claimSweep.ts                              | CLAIM_SWEEP_CODES                                |                |
-| 7    | scripts/spec-lint.ts:363 (tracked)                      | the flag loop's final else-if, "unknown flag"    |                |
+| 1    | lib/specLint/claimSweep.ts (untracked)                  | `numericHalf`, the half this task creates        | :313           |
+| 2    | lib/specLint/claimSweep.ts                              | `declarationRefusal`                             | :187           |
+| 3    | lib/specLint/claimSweep.ts                              | `namedHalf`                                      | :376           |
+| 4    | lib/specLint/claimSweep.ts                              | `code: "CLAIM_IDENTIFIER_NOT_FOUND"`             | :423           |
+| 5    | lib/specLint/claimSweep.ts                              | `code: "SWEEP_DOCUMENT_UNREADABLE"`              | :462           |
+| 6    | lib/specLint/claimSweep.ts                              | `CLAIM_SWEEP_CODES`                              | :117           |
+| 7    | scripts/spec-lint.ts:397 (tracked, and STALE)           | the flag loop's final else-if, "unknown flag"    | :426           |
 | 8    | tests/mutation/source/expectedLedgerKinds.ts:24 (tracked)| EXPECTED_LEDGER_KINDS                            |                |
-| 9    | lib/specLint/claimSweep.ts                              | the module tracked by Task 1                     |                |
+| 9    | lib/specLint/claimSweep.ts                              | the §5 DOCUMENTED LIMITS header block            | :19            |
 ```
 
 <!-- spec-lint: ignore — the path is the SUBJECT of this sentence; Task 1 creates it and Task 9 re-points every citation to it -->
@@ -247,7 +247,7 @@ regression pins asserted in the GREEN phase, each paired one variable apart with
 
 ## Task 1 — the numeric half: sentence scoping, co-occurrence, and the incident replay
 
-<!-- task: red=`pnpm vitest run tests/specLint/claimSweepNumeric.test.ts` red-state=authored red-target=`lib/specLint/claimSweep.ts` why=`the module does not exist, so the suite cannot collect and the nine-survivor replay assertion never runs` ac=AC-1,AC-4,AC-6 -->
+<!-- task: red=`pnpm vitest run tests/specLint/claimSweepNumeric.test.ts` red-state=authored red-target=`lib/specLint/claimSweep.ts:313` why=`the module does not exist, so the suite cannot collect and the nine-survivor replay assertion never runs` ac=AC-1,AC-4,AC-6 -->
 
 **Files** (fenced: several do not exist yet, and a citation to an absent file is a hard failure):
 
@@ -292,7 +292,7 @@ suite cannot notice. Task 9 verifies it, and by COMPARISON rather than by prefix
 
 ## Task 2 — the three refusals, and their channel
 
-<!-- task: red=`pnpm vitest run tests/specLint/claimSweepRefusals.test.ts` red-state=authored red-target=`lib/specLint/claimSweep.ts` why=`no refusal branch exists, so the run's stderr says "unknown flag: --superseded" where the case asserts a reason naming BOTH declared values and the offending equality` ac=AC-3 -->
+<!-- task: red=`pnpm vitest run tests/specLint/claimSweepRefusals.test.ts` red-state=authored red-target=`lib/specLint/claimSweep.ts:187` why=`no refusal branch exists, so the run's stderr says "unknown flag: --superseded" where the case asserts a reason naming BOTH declared values and the offending equality` ac=AC-3 -->
 
 **Files** (fenced: several do not exist yet, and a citation to an absent file is a hard failure):
 
@@ -323,7 +323,7 @@ findings, which is what keeps a usage mistake out of the channel that makes clai
 
 ## Task 3 — the named-claim half: exact identity, span exclusion, and the incident replay
 
-<!-- task: red=`pnpm vitest run tests/specLint/claimSweepNamed.test.ts` red-state=authored red-target=`lib/specLint/claimSweep.ts` why=`the named half is not implemented, so a declared identifier produces ZERO findings where the replay case asserts the four sites outside the repair's spans` ac=AC-2,AC-4 -->
+<!-- task: red=`pnpm vitest run tests/specLint/claimSweepNamed.test.ts` red-state=authored red-target=`lib/specLint/claimSweep.ts:376` why=`the named half is not implemented, so a declared identifier produces ZERO findings where the replay case asserts the four sites outside the repair's spans` ac=AC-2,AC-4 -->
 
 **Files** (fenced: several do not exist yet, and a citation to an absent file is a hard failure):
 
@@ -355,7 +355,7 @@ sites outside the repair's spans, being the nine occurrences minus the five insi
 
 ## Task 4 — the fourth code: a declared identifier that is not there
 
-<!-- task: red=`pnpm vitest run tests/specLint/claimSweepNotFound.test.ts` red-state=authored red-target=`lib/specLint/claimSweep.ts` why=`no branch emits CLAIM_IDENTIFIER_NOT_FOUND, so a declared identifier with zero exact occurrences produces an empty result where the case asserts exactly one not-found finding` ac=AC-2 -->
+<!-- task: red=`pnpm vitest run tests/specLint/claimSweepNotFound.test.ts` red-state=authored red-target=`lib/specLint/claimSweep.ts:423` why=`no branch emits CLAIM_IDENTIFIER_NOT_FOUND, so a declared identifier with zero exact occurrences produces an empty result where the case asserts exactly one not-found finding` ac=AC-2 -->
 
 **Files** (fenced: several do not exist yet, and a citation to an absent file is a hard failure):
 
@@ -373,7 +373,7 @@ not-found and its occurrences instead. **The pair is what makes the clean half a
 
 ## Task 5 — the swept set is declared, and an unreadable peer is reported
 
-<!-- task: red=`pnpm vitest run tests/specLint/claimSweepDocumentSet.test.ts` red-state=authored red-target=`lib/specLint/claimSweep.ts` why=`no branch emits SWEEP_DOCUMENT_UNREADABLE, so a declared peer whose read returns null contributes nothing and the case's assertion of exactly one unreadable finding reads an empty result` ac=AC-5 -->
+<!-- task: red=`pnpm vitest run tests/specLint/claimSweepDocumentSet.test.ts` red-state=authored red-target=`lib/specLint/claimSweep.ts:462` why=`no branch emits SWEEP_DOCUMENT_UNREADABLE, so a declared peer whose read returns null contributes nothing and the case's assertion of exactly one unreadable finding reads an empty result` ac=AC-5 -->
 
 **Files** (fenced: several do not exist yet, and a citation to an absent file is a hard failure):
 
@@ -407,7 +407,7 @@ each in a different direction (probes §8.2).
 
 ## Task 6 — identity, severity, the closed code set, and the inventory reconciliation
 
-<!-- task: red=`pnpm vitest run tests/specLint/claimSweepIdentity.test.ts` red-state=authored red-target=`lib/specLint/claimSweep.ts` why=`CLAIM_SWEEP_CODES is not exported, so the namespace import reads undefined and the four-member emitted-set assertion fails on a value comparison` ac=AC-3 -->
+<!-- task: red=`pnpm vitest run tests/specLint/claimSweepIdentity.test.ts` red-state=authored red-target=`lib/specLint/claimSweep.ts:117` why=`CLAIM_SWEEP_CODES is not exported, so the namespace import reads undefined and the four-member emitted-set assertion fails on a value comparison` ac=AC-3 -->
 
 **Files** (fenced: several do not exist yet, and a citation to an absent file is a hard failure):
 
@@ -441,7 +441,7 @@ as Task 1's alone.
 
 ## Task 7 — the adapter: flags, hunk spans, peers, and the injection
 
-<!-- task: red=`pnpm vitest run tests/specLint/claimSweepCli.test.ts` red-state=authored red-target=`scripts/spec-lint.ts:397` why=`the flag loop's final else-if branch pushes "unknown flag: --also", so the end-to-end invocation exits 2 on a usage error where the case asserts the incident's four named-half findings` ac=AC-2,AC-5,AC-9 -->
+<!-- task: red=`pnpm vitest run tests/specLint/claimSweepCli.test.ts` red-state=authored red-target=`scripts/spec-lint.ts:426` why=`the flag loop's final else-if branch pushes "unknown flag: --also", so the end-to-end invocation exits 2 on a usage error where the case asserts the incident's four named-half findings` ac=AC-2,AC-5,AC-9 -->
 
 **Files** (fenced: several do not exist yet, and a citation to an absent file is a hard failure):
 
@@ -710,7 +710,7 @@ and this one had already decayed from three to twelve before anyone read it.
 
 ## Task 9 — closeout: the killer audit, one ARC_DOCUMENTS authority, citations, wiring, and the ledger
 
-<!-- task: red=`pnpm spec:lint docs/superpowers/plans/2026-08-20-claim-sweep-after-repair.md` red-state=authored red-target=`lib/specLint/claimSweep.ts` why=`Task 1 tracks the module named by the path-only red-target citations above, so each becomes RED_TARGET_INVALID and this command exits 1 naming them` ac=AC-9 -->
+<!-- task: red=`pnpm spec:lint docs/superpowers/plans/2026-08-20-claim-sweep-after-repair.md` red-state=authored red-target=`lib/specLint/claimSweep.ts:19` why=`Task 1 tracks the module named by the path-only red-target citations above, so each becomes RED_TARGET_INVALID and this command exits 1 naming them` ac=AC-9 -->
 
 **Files** (fenced: several do not exist yet, and a citation to an absent file is a hard failure):
 
