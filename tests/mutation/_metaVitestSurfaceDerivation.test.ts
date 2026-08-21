@@ -10,6 +10,7 @@ import {
   deriveHooks,
   deriveModifiers,
   deriveRegistrars,
+  deriveRegistrarsOfType,
   readDeclarations,
 } from "./source/vitestSurface";
 
@@ -109,6 +110,8 @@ describe("AC-2 — every committed accept-set equals what Vitest's declaration s
   premise("the modifier set derives", deriveModifiers(declarations).length, 0);
   premise("the hook set derives", deriveHooks(declarations).length, 0);
   premise("the registrar set derives", deriveRegistrars(declarations).length, 0);
+  premise("the suite half derives", deriveRegistrarsOfType("SuiteAPI", declarations).length, 0);
+  premise("the test half derives", deriveRegistrarsOfType("TestAPI", declarations).length, 0);
 
   it("MODIFIERS equals the declared chainable, curried and conditional members", () => {
     expect([...committedSet("MODIFIERS")].sort()).toEqual(deriveModifiers(declarations));
@@ -118,8 +121,27 @@ describe("AC-2 — every committed accept-set equals what Vitest's declaration s
     expect([...committedAlternation("HOOK_REGISTRARS")].sort()).toEqual(deriveHooks(declarations));
   });
 
-  it("REGISTRARS equals the constants declared as SuiteAPI or TestAPI", () => {
-    expect([...committedSet("REGISTRARS")].sort()).toEqual(deriveRegistrars(declarations));
+  // The PARTITION is pinned, not only the union. `REGISTRARS` in the scanner is
+  // the union of the two committed halves, so a union-only assertion passes
+  // while a registrar sits on the wrong side of the dispatch -- recognized and
+  // then dropped, which is strictly worse than not recognized.
+  it("SUITE_REGISTRARS equals the constants declared as SuiteAPI", () => {
+    expect([...committedSet("SUITE_REGISTRARS")].sort()).toEqual(
+      deriveRegistrarsOfType("SuiteAPI", declarations),
+    );
+  });
+
+  it("TEST_REGISTRARS equals the constants declared as TestAPI", () => {
+    expect([...committedSet("TEST_REGISTRARS")].sort()).toEqual(
+      deriveRegistrarsOfType("TestAPI", declarations),
+    );
+  });
+
+  it("the two halves together are every registrar the declaration names", () => {
+    const committed = [
+      ...new Set([...committedSet("SUITE_REGISTRARS"), ...committedSet("TEST_REGISTRARS")]),
+    ].sort();
+    expect(committed).toEqual(deriveRegistrars(declarations));
   });
 });
 

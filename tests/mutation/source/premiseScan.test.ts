@@ -4212,3 +4212,58 @@ describe("AC-3/AC-4 — the callee chain is peeled and collected in ONE traversa
     expect(all.find((t) => t.testName === "inB")?.verdict).toBe("environment-touching");
   });
 });
+
+describe("AC-5 — `suite` is adopted at the DISPATCH, and `bench` is not adopted at all", () => {
+  // Widening the registrar set alone is adoption that behaves as nothing:
+  // `registrarRoot` returns "suite" and the walk then DISPATCHES on the root by
+  // name, so an unwidened dispatch recognizes the registration and drops it --
+  // strictly worse than not recognizing it, because the body is no longer
+  // walked as ordinary content either.
+  //
+  // TWO cases, because there are two sites and the first passes with the second
+  // unrepaired (plan review r2 finding 1 demonstrated exactly that).
+
+  it("the dispatch twin: the same body under `suite` classifies as it does under `describe`", () => {
+    const body = `(() => { beforeEach(() => { spawnHelper(); }); it("y", () => {}); })`;
+    const under = (registrar: string): string | undefined =>
+      classificationsWithModules(
+        OUTER_HOOK_HELPER,
+        `import { spawnHelper } from "__MODULE_helper__";
+         ${registrar}("x", ${body});`,
+      ).find((t) => t.testName === "y")?.verdict;
+    // A twin, not a constant: the describe half is what makes the suite half
+    // impossible to satisfy by asserting a fixed string.
+    expect(under("describe")).toBe("environment-touching");
+    expect(under("suite")).toBe(under("describe"));
+  });
+
+  it("the nested-prune site: a nested `suite` owns its own hooks", () => {
+    // The ONLY case that reaches the prune. With it still keyed on "describe"
+    // alone, the nested `suite` is not recognized as a suite, its hook is
+    // treated as ordinary content of the OUTER describe, and the sibling is
+    // wrongly reported touching.
+    const all = classificationsWithModules(
+      OUTER_HOOK_HELPER,
+      `import { spawnHelper } from "__MODULE_helper__";
+       describe("outer", () => {
+         suite("inner", () => {
+           beforeEach(() => { spawnHelper(); });
+           it("inner child", () => {});
+         });
+         it("outer sibling", () => {});
+       });`,
+    );
+    // The SIBLING is the whole case: `inner child` is touching under every
+    // implementation, so asserting it alone passes either way.
+    expect(all.find((t) => t.testName === "inner child")?.verdict).toBe("environment-touching");
+    expect(all.find((t) => t.testName === "outer sibling")?.verdict).toBe("environment-free");
+  });
+
+  it("`bench` registers nothing (§5 L3)", () => {
+    // The declaration does not name `bench` as a `SuiteAPI` or a `TestAPI`, so
+    // it is excluded by construction. Asserted anyway, because "excluded by
+    // construction" is a claim about a derivation and this is the behaviour.
+    const all = classificationsWithModules({}, `bench("b", () => {});`);
+    expect(all.map((t) => t.testName)).toEqual([]);
+  });
+});

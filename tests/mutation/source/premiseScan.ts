@@ -55,10 +55,18 @@ export type TestClassification = {
  *
  * Provenance, not data: each set names the extractor call that produced it.
  */
-/** `deriveRegistrars()` — every constant the runner declares as `SuiteAPI` or
- *  `TestAPI`. `bench` is not one, which is why this reads the DECLARATION: the
- *  runtime exports it and admitting it would censusing a benchmark as a test. */
-const REGISTRARS = new Set(["describe", "it", "suite", "test"]);
+/** `deriveRegistrarsOfType("SuiteAPI")` — the registrars that open a SUITE, and
+ *  the set the walk's suite branch and the nested-suite prune both dispatch on.
+ *  Partitioned rather than hand-split at the two call sites: a registrar the
+ *  declaration adds on the suite side must reach the suite branch, and a
+ *  hand-written pair beside a derived union would put the accept-set defect one
+ *  level down where the upgrade-red cannot see it. */
+const SUITE_REGISTRARS = new Set(["describe", "suite"]);
+/** `deriveRegistrarsOfType("TestAPI")` — the registrars that register a TEST. */
+const TEST_REGISTRARS = new Set(["it", "test"]);
+/** Their union. `bench` is in neither, which is why this reads the DECLARATION:
+ *  the runtime exports it and admitting it would census a benchmark as a test. */
+const REGISTRARS = new Set([...SUITE_REGISTRARS, ...TEST_REGISTRARS]);
 /** `deriveModifiers()` — the chainable keys and curried members of BOTH
  *  `ChainableSuiteAPI` and `ChainableTestAPI`, plus the condition-taking members
  *  of `SuiteAPI` and `TestAPI`. The BUILDERS (`extend`, `override`, `scoped`,
@@ -1734,7 +1742,7 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
   const walk = (node: ts.Node, hooks: ts.Node[]): void => {
     if (ts.isCallExpression(node)) {
       const root_ = registrarRoot(node.expression);
-      if (root_ === "describe") {
+      if (root_ !== null && SUITE_REGISTRARS.has(root_)) {
         // A describe.each producer and the describe's hooks both attach to
         // every test nested inside it: that is where the value those tests
         // consume comes from, so a premise must dominate them (spec §3.3.2.2).
@@ -1742,7 +1750,7 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
         ts.forEachChild(node, (c) => walk(c, nested));
         return;
       }
-      if (root_ === "it" || root_ === "test") {
+      if (root_ !== null && TEST_REGISTRARS.has(root_)) {
         const line = facts.sf.getLineAndCharacterOfPosition(node.getStart(facts.sf)).line + 1;
         const nameArg = node.arguments[0];
         const testName =
@@ -1895,6 +1903,18 @@ function unclassifiableWithin(node: ts.Node, facts: ModuleFacts): string[] {
   return out;
 }
 
+/** Is this node a SUITE registration -- `describe(...)`, `suite.each(rows)(...)`?
+ *
+ *  A type predicate, so the two readers of it -- the walk's dispatch and the
+ *  nested-suite prune -- ask ONE question and cannot drift about what a suite
+ *  is. `suite` reaching only the first would leave the prune treating a nested
+ *  suite as ordinary content and attaching its hooks to its siblings. */
+function isSuiteRegistration(n: ts.Node): n is ts.CallExpression {
+  if (!ts.isCallExpression(n)) return false;
+  const root = registrarRoot(n.expression);
+  return root !== null && SUITE_REGISTRARS.has(root);
+}
+
 /** Bodies of beforeEach/beforeAll declared directly inside a describe call. */
 function hookBodies(describeCall: ts.CallExpression): ts.Node[] {
   const out: ts.Node[] = [];
@@ -1921,11 +1941,7 @@ function hookBodies(describeCall: ts.CallExpression): ts.Node[] {
     // hook written there registers on US and runs for our other tests. Pruning
     // the call whole read those as the nested branch's and turned a touching
     // sibling free, which is a silent free rather than a conservative report.
-    if (
-      n !== describeCall &&
-      ts.isCallExpression(n) &&
-      registrarRoot(n.expression) === "describe"
-    ) {
+    if (n !== describeCall && isSuiteRegistration(n)) {
       // EVERY call in the callee chain, not just the immediate one, and for the
       // same reason `eachProducers` walks them all: a two-call chain's earlier
       // link is eager too, so a hook written there registers on US.

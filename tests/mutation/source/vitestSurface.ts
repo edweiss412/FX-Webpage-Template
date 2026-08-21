@@ -206,14 +206,32 @@ export function deriveHooks(decls: Declarations = readDeclarations()): string[] 
  *  because it read runtime exports; the declaration does not, so this excludes
  *  it BY CONSTRUCTION, which a runtime read cannot deliver (AC-7, §5 L3). */
 const REGISTRAR_TYPES = ["SuiteAPI", "TestAPI"];
-export function deriveRegistrars(decls: Declarations = readDeclarations()): string[] {
+
+/**
+ * The constants declared as ONE of the registrar APIs.
+ *
+ * The partition is derived rather than hand-written for the same reason the
+ * union is: the walk DISPATCHES on which kind a root is, so a registrar the
+ * declaration adds on the suite side has to reach the suite branch. A
+ * hand-written `{describe, suite}` beside a derived `REGISTRARS` would put the
+ * accept-set defect back one level down, where AC-2's upgrade-red cannot see
+ * it.
+ */
+export function deriveRegistrarsOfType(
+  api: string,
+  decls: Declarations = readDeclarations(),
+): string[] {
   const out = decls.consts
     .filter(
       (c) =>
         ts.isTypeReferenceNode(c.type) &&
         ts.isIdentifier(c.type.typeName) &&
-        REGISTRAR_TYPES.includes(c.type.typeName.text),
+        c.type.typeName.text === api,
     )
     .map((c) => c.name);
-  return floor("registrar constants", [...new Set(out)]).sort();
+  return floor(`constants declared as ${api}`, [...new Set(out)]).sort();
+}
+
+export function deriveRegistrars(decls: Declarations = readDeclarations()): string[] {
+  return [...new Set(REGISTRAR_TYPES.flatMap((api) => deriveRegistrarsOfType(api, decls)))].sort();
 }
