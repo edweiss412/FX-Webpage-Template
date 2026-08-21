@@ -276,6 +276,23 @@ own point, that an axis no fixture varies is certified by nothing.
 | 1, end of file | nine rows: closed is RESOLVED, unterminated is REPORTED | `w21` |
 | 4 and 7, position and line endings | function body, after a here-document, case arm, CRLF — on the COORDINATE | `w20`, `w22` |
 
+**The oracle caught five fixtures that asserted a site for a command bash never runs**, which is
+why §4 item 6 exists and why skipping it would have been the round this section is meant to save.
+`>"$(true)"` expands to an EMPTY filename and bash aborts the command AT that redirection, before
+expanding the next one, so "payload in the LAST" and "payload in the MIDDLE of three" pinned a
+resolved site for a psql the shell never reached. The other three were a function defined and never
+called, a `case` arm testing unset `$x` against pattern `a`, and the first spelling of the
+payload-first row. All five now execute. **The pre-existing across-line rows are NOT the same
+defect** and are deliberately left alone: W16's targets sit on separate lines, so a failed
+redirection aborts only its own command. The abort is confined to one command, which is exactly why
+the same-command axis was worth adding and also why it was the one that could go quietly wrong.
+
+**Both directions are measured on the interpreter rather than argued.** Every row the scanner
+resolves to a SITE executes, 7 of 7. Every row it reports an ADVISORY on executes NOTHING, 4 of 4,
+because bash dies on the unexpected EOF — so a site there would be a false report, and the advisory
+is the correct conservative signal. That is §4's consequence bound demonstrated at EOF instead of
+asserted.
+
 **Load-bearing by proof rather than by claim**, on rule 17.1's standard, with a no-defect baseline
 first (4/4 against the shipped scanner). `w21` forces an unterminated construct to report as closed.
 `w20` is an off-by-one resume (`i = end`). `w23` walks the whole chunk but collects bodies only from
