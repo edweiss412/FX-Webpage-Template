@@ -42,10 +42,13 @@ against `scripts/pane-compaction.ts`, which is a passing instance today.
 **Resolution — a structural lint, its gate, and ONE comment line.** The scanner is
 `tests/paneCompaction/sendAuthScan.ts`, an importable module with a referring suite
 from the start because it is a guard surface; the gate is
-`tests/paneCompaction/_metaSendAuthSingleRead.test.ts`; the corpus is 75 fixtures
-authored against a deliberately different registry row (`Channel` / `ch` /
-`dispatch` / `settle` / `snapshotOf`) with NO live spelling anywhere, so a scanner
-hardcoded to the live vocabulary fails every one of them. The live instance is
+`tests/paneCompaction/_metaSendAuthSingleRead.test.ts`; the corpus is the fixture
+tree under `tests/paneCompaction/fixtures/sendAuth`, 78 files as shipped — stated
+against the tree rather than as a bare count, because a count over a growing corpus
+goes stale through ADDITION alone. Every fixture is authored against a deliberately
+different registry row (`Channel` / `ch` / `dispatch` / `settle` / `snapshotOf`) with
+NO live spelling anywhere, so a scanner hardcoded to the live vocabulary fails every
+one of them. The live instance is
 covered by exactly one case, and `scripts/pane-compaction.ts` changed by exactly
 one line — `git diff --numstat` reports `1 0`.
 
@@ -80,8 +83,16 @@ passed the ENTIRE fixture corpus, and no declared operator produces that edit, s
 score however perfect would have surfaced it. Only building the weaker version by
 hand found it.
 
-- **MUTATION SCORE — 1.0000 (254/254), zero survivors, zero accepted ledger rows.**
-  Measured LOCALLY, foreground, 06:45-07:09 on 2026-08-20, 1425.96s, NO CI run id.
+- **MUTATION SCORE — 1.0000 (262/262), zero survivors, zero accepted ledger rows.**
+  Re-measured LOCALLY, foreground, 19:52-20:09 on 2026-08-20, 1013.69s, NO CI run id,
+  at `f176661bd` with the worktree CLEAN before and after — a sha over a clean tree
+  pins source, registry row, deciding suite and fixture tree TOGETHER, which is the
+  guarantee the arc's earlier four-input digest was built to give; that digest is left
+  in the PR record as the provenance of ITS run rather than restated here. The count
+  is DERIVED from the shipped generator against the registry row (262 sites, 0 no-ops),
+  because a green gate prints none. Every assertion the score rests on runs IN-PROCESS: the
+  deciding suite spawns no child, so no branch of this surface is reachable only
+  through a process the runner's in-memory overlay cannot reach.
   The empty ledger is the dividend of deleting survivors rather than arguing them
   equivalent: nothing excused means nothing to re-validate when the surrounding code
   moves, and an equivalence row cannot silently inflate the score.
