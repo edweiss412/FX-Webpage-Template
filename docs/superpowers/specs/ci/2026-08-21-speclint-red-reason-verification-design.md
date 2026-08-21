@@ -178,11 +178,17 @@ The §3 repairs are the volume half of this arc: 25 markers, measured, silently 
 
 ## 5. Convergence criterion
 
-**Consequence bound.** On the LIVE tracked spec+plan corpus, **ZERO false hard findings**. A `red=`
-the arm cannot classify is reported as unverified or passes clean **by declared choice, never
-hard-failed on a guess** — non-vitest-shaped commands pass clean with a stated no-claim (§2), and
-`pnpm heavy`-wrapped commands report `RED_PROBE_UNVERIFIED` (§3.1). A conservative non-report plus a
-surfaced advisory is a DOCUMENTED LIMIT, not a finding.
+**Consequence bound.** Every `red=` the arm examines is **classified correctly or signaled, never
+silently wrong**, and on the LIVE tracked spec+plan corpus the arm draws **ZERO false hard findings**.
+A `red=` the arm cannot classify is reported as unverified or passes clean **by declared choice,
+never hard-failed on a guess** — non-vitest-shaped commands pass clean with a stated no-claim (§2),
+and `pnpm heavy`-wrapped commands report `RED_PROBE_UNVERIFIED` (§3.1). A conservative non-report
+plus a surfaced advisory is a DOCUMENTED LIMIT, not a finding.
+
+The two forbidden directions, named so neither is traded for the other: **false certification** (a
+red accepted as observed when no assertion ran) and **wrong attribution** (a hard finding on a red
+that did execute its case). A conservative over-report is permitted only through the advisory
+channel, never as a hard code.
 
 **`PROBE DOMAIN:`** `git ls-files 'docs/superpowers/specs' 'docs/superpowers/plans'`, `.md` only —
 the 1153 files and 479 markers of §1.1 — plus the two `fix/mutation-browser-child-lifetime` plan-round
