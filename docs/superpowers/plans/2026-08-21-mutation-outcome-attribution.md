@@ -149,11 +149,11 @@ Discharges **AC-11**'s workflow half; Task 5 discharges the record-exists half, 
 
 ## Task 8: no enrolled surface moved (measurement, no red)
 
-Re-capture the Task 1 comparison set on the CHANGED tree and assert the `siteId -> verdict` projections are EQUAL. `runner.ts` is shared by all 40 surfaces, so `spawnBounded`'s blob being unchanged proves nothing about the other 39.
+Re-capture the Task 1 comparison set on the CHANGED tree and assert the `siteId -> verdict` projections are EQUAL. `runner.ts` is shared by EVERY enrolled surface, so `spawnBounded`'s blob being unchanged proves nothing about any of the others.
 
 **No red, and deliberately so.** This is the same measurement as Task 1 taken on the other side of the change; an authored red here would be pre-satisfied by Task 2 (a `siteId -> verdict` projection ignores `children` and is green the moment the field exists) and has no implementation that could legitimately turn it green. It is a GATE on the diff, not a TDD cycle.
 
-**Two limits stated rather than papered over.** The remaining 36 surfaces are covered by ARGUMENT — the change is in a shared path exercised identically by all of them — not by measurement. And a base-vs-base disagreement in Task 1 voids AC-10 rather than being averaged in.
+**Two limits stated rather than papered over.** Every enrolled surface OUTSIDE the named comparison set is covered by ARGUMENT — the change is in a shared path exercised identically by all of them — not by measurement. And a base-vs-base disagreement in Task 1 voids AC-10 rather than being averaged in.
 
 Discharges **AC-10**.
 
