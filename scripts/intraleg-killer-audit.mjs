@@ -323,7 +323,7 @@ export const KILLS = [
     id: "PLAN.k5",
     named: "an implementation taking BOTH stamps consecutively before execution",
     file: CORE,
-    from: '  const exitedAt = deps.now();\n  const stampAfter = deps.stamp(target.sourceAbs.replace(/[^/]*$/, ""), target.surface);',
+    from: "  const exitedAt = deps.now();\n  const stampAfter = deps.stamp(target.root, target.surface);",
     to: "  const exitedAt = deps.now();\n  const stampAfter = stampBefore;",
     filter: "MID-TRIAL edit",
     reason: "a declared input moving mid-trial is invisible",
@@ -446,8 +446,20 @@ export const KILLS = [
     id: "PLAN.k12",
     named: "skip-prefix-writes AND planned-text receipts together (both seams switched)",
     file: CORE,
-    from: "    const readBack = deps.readBack(mutantFile);\n    const receiptSha = sha256(readBack);",
-    to: '    const readBack = step.role === "prefix" ? Buffer.from(step.text, "utf8") : deps.readBack(mutantFile);\n    const receiptSha = sha256(readBack);',
+    from:
+      "    deps.writeMutant(mutantFile, step.text);\n" +
+      "    const readBack = deps.readBack(mutantFile);\n" +
+      "    const receiptSha = sha256(readBack);",
+    // BOTH seams switched together, which is what the plan names: the writer is
+    // elided for prefix steps AND the receipt is fed planned bytes. Switching
+    // only the receipt source leaves the prefix mutant WRITTEN, so the
+    // behavioural case stays green and the mutant proves nothing — measured, it
+    // came back 0 failed of 1 matched.
+    to:
+      '    if (step.role !== "prefix") deps.writeMutant(mutantFile, step.text);\n' +
+      "    const readBack =\n" +
+      '      step.role === "prefix" ? Buffer.from(step.text, "utf8") : deps.readBack(mutantFile);\n' +
+      "    const receiptSha = sha256(readBack);",
     filter: "PREFIX-BEARING",
     reason:
       "every sha check passes while the prefix executes stale bytes; DISTINCT from the " +
