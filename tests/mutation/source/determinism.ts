@@ -59,6 +59,9 @@ export type DeterminismInput = {
   site: string;
   runs: unknown;
   root?: string;
+  /** The enrolled set to resolve against. Defaults to the live registry; a seam so
+   *  the REFUSAL paths for a malformed row are provable on the production path. */
+  surfaces?: readonly GuardSurface[];
 };
 
 export type RefusedInput = "runs" | "surface" | "site" | "baseline" | "population";
@@ -189,6 +192,56 @@ export function findSurface(id: string): GuardSurface | undefined {
 }
 
 /**
+ * Resolve a surface id to exactly ONE row that can actually decide a verdict.
+ *
+ * `.find` answers "is there such a row", which is a weaker question than the one
+ * this command needs, and the two come apart on ordinary registry edits:
+ *
+ * - **A DUPLICATE id** makes `.find` pick whichever row is first and say nothing.
+ *   The corpus contains overlapping site ids across surfaces, so the run would
+ *   bind a real distribution to the wrong source and certify it.
+ * - **A row with NO deciding suites** runs no child at all: `runMutantRecorded`
+ *   returns `{ code: 0, children: [] }`, every requested run becomes a completed
+ *   `SURVIVED` observation, and the zero-population refusal never fires because
+ *   the population is not zero — it is full of observations that observed
+ *   nothing. That is the closed criterion's "distribution printed over zero
+ *   completed runs", reached from the side where the count looks healthy.
+ *
+ * Both are REFUSED rather than repaired-around: an outcome the harness cannot
+ * attribute is reported, never scored.
+ */
+export function resolveSurface(
+  id: string,
+  surfaces: readonly GuardSurface[] = GUARD_SURFACES,
+): { ok: true; surface: GuardSurface } | { ok: false; detail: string } {
+  const matches = surfaces.filter((s) => s.id === id);
+  if (matches.length === 0) {
+    return { ok: false, detail: `no enrolled surface with id ${JSON.stringify(id)}` };
+  }
+  if (matches.length > 1) {
+    return {
+      ok: false,
+      detail:
+        `surface id ${JSON.stringify(id)} resolves to ${matches.length} enrolled rows ` +
+        `(${matches.map((m) => m.sourcePath).join(", ")}). An id that names more than one row ` +
+        `names none of them: picking the first would bind this distribution to a source the ` +
+        `operator did not ask for.`,
+    };
+  }
+  const surface = matches[0] as GuardSurface;
+  if (surface.suitePaths.length === 0) {
+    return {
+      ok: false,
+      detail:
+        `surface ${JSON.stringify(id)} declares NO deciding suites, so no child would run and ` +
+        `every mutant would score SURVIVED without being tested. The distribution would be ` +
+        `full of observations that observed nothing.`,
+    };
+  }
+  return { ok: true, surface };
+}
+
+/**
  * Run ONE named site `runs` times and report the distribution.
  *
  * Every refusal returns a `refusal` outcome naming WHICH input failed and emits
@@ -202,14 +255,11 @@ export function runDeterminism(input: DeterminismInput): DeterminismOutcome {
   if (!runsParsed.ok) return { kind: "refusal", input: "runs", detail: runsParsed.detail };
   const runs = runsParsed.runs;
 
-  const surface = findSurface(input.surface);
-  if (surface === undefined) {
-    return {
-      kind: "refusal",
-      input: "surface",
-      detail: `no enrolled surface with id ${JSON.stringify(input.surface)}`,
-    };
+  const resolved = resolveSurface(input.surface, input.surfaces);
+  if (!resolved.ok) {
+    return { kind: "refusal", input: "surface", detail: resolved.detail };
   }
+  const { surface } = resolved;
 
   const target = resolve(root, surface.sourcePath);
   const text = readFileSync(target, "utf8");

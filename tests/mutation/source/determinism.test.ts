@@ -44,7 +44,8 @@ const { GUARD_SURFACES } = await import("./registry");
 const { enumerateSites, siteId } = await import("./operators");
 const { generateMutants } = await import("./generate");
 const { premiseHolds } = await import("../../_shared/premise");
-const { parseRuns, runDeterminism, stampInputs, renderDeterminism } = await import("./determinism");
+const { parseRuns, runDeterminism, stampInputs, renderDeterminism, resolveSurface } =
+  await import("./determinism");
 const { main, parseArgv, DEFAULT_DEPS, EXIT_OK, EXIT_REFUSED, EXIT_UNATTRIBUTABLE } =
   await import("../../../scripts/mutation-determinism");
 type DeterminismOutcome = Awaited<ReturnType<typeof runDeterminism>>;
@@ -1070,6 +1071,74 @@ describe("determinism — a declared input that moved AND CAME BACK is still rep
   });
 });
 
+describe("determinism — EVERY run boundary is stamped, not just the first (diff R4 S1)", () => {
+  const rootFor = (id: string) => {
+    const surface = surfaceOf(id);
+    const root = mkdtempSync(join(tmpdir(), "fx-late-"));
+    for (const rel of [surface.sourcePath, ...surface.suitePaths]) {
+      mkdirSync(dirname(join(root, rel)), { recursive: true });
+      writeFileSync(join(root, rel), readFileSync(join(process.cwd(), rel), "utf8"), "utf8");
+    }
+    return { surface, root };
+  };
+
+  it("catches an A -> B -> A edit between the LAST two runs of three", () => {
+    const { surface, root } = rootFor("psqlStartupScan");
+    const suiteRel = surface.suitePaths[0] as string;
+    const abs = join(root, suiteRel);
+    const original = readFileSync(abs, "utf8");
+    try {
+      // calls: 1 baseline, 2 run 1, 3 run 2 (write B), 4 run 3 (revert). Only the
+      // stamp taken before run 3 ever sees B — so an implementation sampling the
+      // two endpoints plus the FIRST interior boundary passes the one-run and
+      // two-run cases above and misses this one entirely.
+      reset({
+        [suiteRel]: (call) => {
+          if (call === 3) writeFileSync(abs, "it('B', () => {});\n", "utf8");
+          if (call === 4) writeFileSync(abs, original, "utf8");
+          return 0;
+        },
+      });
+      const out = runDeterminism({
+        surface: surface.id,
+        site: firstSiteOf(surface.id),
+        runs: "3",
+        root,
+      });
+      expect(out.kind).toBe("result");
+      if (out.kind !== "result") return;
+      expect(out.observations).toHaveLength(3);
+      expect(out.stampAfter.digest).toBe(out.stampBefore.digest);
+      expect(out.inputsMoved).toContain(suiteRel);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("determinism — each refusal RENDERS as itself (diff R4 S2)", () => {
+  const REFUSALS = ["runs", "surface", "site", "baseline", "population"] as const;
+
+  for (const input of REFUSALS) {
+    it(`names ${input} in the rendered text, not just in the exit code`, () => {
+      const text = renderDeterminism({
+        kind: "refusal",
+        input,
+        detail: `detail for ${input}`,
+      } as DeterminismOutcome);
+      // A renderer that spelled every refusal as `runs` passed the whole exit-code
+      // complement, because those cases discard the text. An unknown surface or
+      // site is one typo away from an enrolled input, and labelling it a `runs`
+      // failure sends the reader to the wrong half of their own command.
+      expect(text).toContain(`REFUSED (${input})`);
+      expect(text).toContain(`detail for ${input}`);
+      for (const other of REFUSALS) {
+        if (other !== input) expect(text).not.toContain(`REFUSED (${other})`);
+      }
+    });
+  }
+});
+
 describe("determinism adapter — the process entry must not truncate its own output (diff R3 C2)", () => {
   it("sets process.exitCode instead of calling process.exit", async () => {
     const { readFileSync: read } = await import("node:fs");
@@ -1089,5 +1158,83 @@ describe("determinism adapter — the process entry must not truncate its own ou
     // Positive control that the scanner reads this file at all, and that
     // stripping did not empty it.
     expect(code).toContain("EXIT_UNATTRIBUTABLE");
+  });
+});
+
+describe("determinism — a malformed registry row REFUSES rather than certifying (diff R4 C1)", () => {
+  const row = (over: Record<string, unknown> = {}) =>
+    ({
+      id: "synthetic",
+      sourcePath: "src/thing.ts",
+      suitePaths: ["tests/one.test.ts"],
+      operators: ["relational-boundary"],
+      scoreFloor: 1,
+      control: { from: "1", to: "2" },
+      accepted: [],
+      ...over,
+    }) as unknown as (typeof GUARD_SURFACES)[number];
+
+  it("refuses a DUPLICATE id instead of silently taking the first row", () => {
+    const out = resolveSurface("synthetic", [row(), row({ sourcePath: "src/other.ts" })]);
+    expect(out.ok).toBe(false);
+    // BOTH candidates named: an operator whose registry has two rows for one id
+    // cannot act on "ambiguous" without being told which two.
+    if (out.ok) return;
+    expect(out.detail).toContain("src/thing.ts");
+    expect(out.detail).toContain("src/other.ts");
+  });
+
+  it("refuses a row with NO deciding suites", () => {
+    const out = resolveSurface("synthetic", [row({ suitePaths: [] })]);
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.detail).toMatch(/NO deciding suites/);
+  });
+
+  it("resolves a clean row, so the two refusals above are not constant", () => {
+    const out = resolveSurface("synthetic", [row()]);
+    expect(out.ok).toBe(true);
+  });
+
+  it("REFUSES on the production path, emitting no distribution at all", () => {
+    // The wiring, not the helper: the reviewer's probe drove `runDeterminism`
+    // itself and got two completed SURVIVED observations and exit 0 from a row
+    // that ran no child. A distribution whose population is full of observations
+    // that observed nothing is the worst shape available — the count looks healthy.
+    reset(allGreen());
+    const out = runDeterminism({
+      surface: "synthetic",
+      site: "op:1:1:x",
+      runs: "2",
+      surfaces: [row({ suitePaths: [] })],
+    });
+    expect(out.kind).toBe("refusal");
+    // KEYS, quoted — the refusal's own prose explains what WOULD have happened and
+    // names `SURVIVED`, so a bare substring check tests this message rather than
+    // the shape it is asserting about.
+    expect(JSON.stringify(out)).not.toContain('"verdicts"');
+    expect(JSON.stringify(out)).not.toContain('"observations"');
+  });
+
+  it("REFUSES a duplicate id on the production path too", () => {
+    reset(allGreen());
+    const out = runDeterminism({
+      surface: "synthetic",
+      site: "op:1:1:x",
+      runs: "2",
+      surfaces: [row(), row({ sourcePath: "src/other.ts" })],
+    });
+    expect(out.kind).toBe("refusal");
+    expect(JSON.stringify(out)).not.toContain('"verdicts"');
+    expect(JSON.stringify(out)).not.toContain('"observations"');
+  });
+
+  it("still refuses an UNKNOWN id, with the message it always had", () => {
+    // The pre-existing behaviour must survive the rewrite: this is the case that
+    // catches a resolver that answers only the two NEW questions.
+    const out = resolveSurface("nope", [row()]);
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.detail).toContain("no enrolled surface with id");
   });
 });
