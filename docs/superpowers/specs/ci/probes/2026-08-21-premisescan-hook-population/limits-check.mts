@@ -62,7 +62,11 @@ const P = (src: string) => {
 // on this arc: which of my runtime assertions could still fail if the code
 // compiles? This one had none at all.
 const failures: string[] = [];
+// DERIVED, not hand-maintained: the total printed below was a literal, and a
+// literal beside a growing list is the next stale claim.
+let claims = 0;
 const say = (id: string, claim: string, ok: boolean, detail = "") => {
+  claims += 1;
   if (!ok) failures.push(`${id}: ${claim}`);
   console.log(`${ok ? "HOLDS " : "FALSE "} ${id}  ${claim}${detail ? "\n         " + detail : ""}`);
 };
@@ -136,6 +140,23 @@ const IMP = `import { spawnSync } from "node:child_process";`;
       l.every((r: Rows[number]) => r.detail.length === 0),
     `base=${b.map((r: Rows[number]) => r.verdict).join(",")} live=${l.map((r: Rows[number]) => r.verdict).join(",")}`);
 }
+// L7 — no constant folding: a hook in a statically DEAD operand is reported
+// conservatively, and the reason is worded so that report is not a false claim.
+// Diff review r1 F1. The scanner cannot tell `false &&` from `someFlag &&`, and
+// going silent on the second would be a silent free -- so it reports on both,
+// and the wording says the hook OCCUPIES the position rather than asserting it
+// registers. The NEGATIVE half is the load-bearing one.
+{
+  const dead = [`false && beforeEach(() => {})`, `true || afterEach(() => {})`, `true ? "x" : beforeAll(() => {})`];
+  const results = dead.map((expr) => P(`describe(String(${expr}), () => { it("a", () => {}); });\nit("s", () => {});`).l);
+  const reports = results.every((rows: Rows) => rows.some((r: Rows[number]) => r.detail.length > 0));
+  const noFalseClaim = results.every((rows: Rows) =>
+    rows.every((r: Rows[number]) => !r.detail.includes("is registered from")),
+  );
+  say("L7", "statically dead operand reports, and the reason does NOT assert registration",
+    reports && noFalseClaim,
+    `reports=${reports} noFalseClaim=${noFalseClaim} over ${dead.length} dead operands`);
+}
 // §3 precedence — a touching test keeps its verdict under BOTH producers.
 {
   const a = P(`${IMP}\ndescribe(String(beforeEach(() => {})), () => { it("a", () => { spawnSync("e",[]); }); });`);
@@ -158,5 +179,5 @@ if (failures.length > 0) {
   for (const f of failures) console.error(`      ${f}`);
   process.exitCode = 1;
 } else {
-  console.log(`\nall ${8} claims HOLD`);
+  console.log(`\nall ${claims} claims HOLD`);
 }

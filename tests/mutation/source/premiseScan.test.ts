@@ -4234,7 +4234,7 @@ describe("producer A — a hook in an eager argument position reports unclassifi
    * reds, which is what a foil is for.
    */
   const expectedEagerReason = (registrar: string, line: number): string =>
-    `hook ${registrar} at line ${line} is registered from an eager argument position, so the suite it attaches to cannot be determined,`;
+    `hook ${registrar} at line ${line} occupies an eager argument position, so whether it registers, and which suite it would attach to, cannot be determined,`;
 
   /**
    * The spelling varies with the POSITION because it must: the curried producer
@@ -4383,6 +4383,64 @@ it("free", () => {});`,
       const sibling = got.find((r) => r.testName === "sibling");
       expect(sibling?.verdict, form).toBe("unclassifiable");
       expect(sibling?.detail, form).toBe(`${expectedEagerReason("beforeEach", 2)} in ${path}`);
+    }
+  });
+
+  it("a registration inside a DEFERRED datum is silent, for BOTH producers", () => {
+    // Diff review r1 F2. The function-like boundary existed only inside the
+    // hook `collect`; the outer walk crossed a deferred function to find a
+    // nested registration and reported there. Vitest never invokes a `.each`
+    // datum or an uncalled helper while collecting, so nothing registers and
+    // the reason named a hook that does not run.
+    //
+    // ONE case for the class rather than one per node kind: the walk stops on
+    // `ts.isFunctionLike`, so a cell per kind would rebuild the enumeration
+    // that predicate was adopted to delete.
+    const DEFERRED: Record<string, string> = {
+      arrowDatum: `describe.each([() => { describe(String(beforeEach(() => {})), () => { it("d", () => {}); }); }])("A%s", () => { it("a", () => {}); });`,
+      methodDatum: `describe.each([{ setup() { describe(String(beforeEach(() => {})), () => { it("d", () => {}); }); } }])("A%s", () => { it("a", () => {}); });`,
+      uncalledHelper: `const suiteA = () => { it("d", () => {}); };\nfunction unused() { describe("A", suiteA); }`,
+      deferredFactory: `const suiteA = () => { it("d", () => {}); };\ndescribe.each([() => { describe("A", suiteA); }])("B%s", () => { it("a", () => {}); });`,
+    };
+    for (const [form, registration] of Object.entries(DEFERRED)) {
+      const got = rows(`// ${form}\n${registration}\nit("sibling", () => {});\n`);
+      expect(got.find((r) => r.testName === "sibling")?.detail, form).toBe("");
+      expect(got.find((r) => r.testName === "sibling")?.verdict, form).toBe("environment-free");
+    }
+  });
+
+  it("a suite body reached through a wrapper is still EVALUATED, not deferred", () => {
+    // The pair that makes the case above attributable. Both are function values;
+    // the discriminator is that Vitest INVOKES a suite body and never invokes a
+    // datum. Without this, "deferred" could be read as "stop at every function"
+    // and the nested-registration case would go silent for the wrong reason.
+    const got = rows(
+      `const suiteA = () => { it("d", () => {}); };\ndescribe("outer", ((() => { describe("A", suiteA); }) as () => void));\nit("sibling", () => {});\n`,
+    );
+    expect(got.find((r) => r.testName === "sibling")?.verdict).toBe("unclassifiable");
+    expect(got.find((r) => r.testName === "sibling")?.detail).toContain("has no inline suite body");
+  });
+
+  it("a hook in a statically dead operand reports CONSERVATIVELY, and the wording is why", () => {
+    // Diff review r1 F1. The old wording said the hook "is registered", which is
+    // a false statement when the operand never evaluates. This scanner does not
+    // fold constants -- spec §4 L7 -- so it cannot tell `false &&` from
+    // `someFlag &&`, and going silent on the second would be a silent free.
+    //
+    // So it still reports, and the REASON is what changed: it now says the hook
+    // OCCUPIES an eager position and that whether it registers cannot be
+    // determined, which is true of every member of the class.
+    for (const expr of [
+      `false && beforeEach(() => {})`,
+      `true || afterEach(() => {})`,
+      `true ? "x" : beforeAll(() => {})`,
+    ]) {
+      const got = rows(
+        `// dead operand\ndescribe(String(${expr}), () => { it("a", () => {}); });\nit("sibling", () => {});\n`,
+      );
+      const detail = got.find((r) => r.testName === "sibling")?.detail ?? "";
+      expect(detail, expr).toContain("occupies an eager argument position");
+      expect(detail, expr).not.toContain("is registered from");
     }
   });
 
@@ -4688,7 +4746,13 @@ describe("AC-7 — no live instance of either hook-attachment shape in this surf
     );
     expect(got.eager.length - base.eager.length).toBe(1);
     expect(got.factory.length - base.factory.length).toBe(0);
-    expect(got.eager.at(-1)).toContain("registered from an eager argument position");
+    // Keyed on the HOOK NAME the reason carries by contract, never on the
+    // reason's wording. The r1 repair reworded producer A and this line -- a
+    // control written twenty minutes earlier -- broke on it while the delta
+    // assertions above held. A detector keyed on the output text of the thing it
+    // watches is blind in exactly the run where that output changed, which is
+    // the only run anyone is asking it about.
+    expect(got.eager.at(-1)).toContain("afterAll");
   });
 
   it("fires on a constructed UNFOLLOWABLE FACTORY, and only that arm", () => {
@@ -4702,6 +4766,8 @@ describe("AC-7 — no live instance of either hook-attachment shape in this surf
     );
     expect(got.factory.length - base.factory.length).toBe(1);
     expect(got.eager.length - base.eager.length).toBe(0);
-    expect(got.factory.at(-1)).toContain("has no inline suite body");
+    // The ARM is the discriminator, and the line is the one fact the reason
+    // carries by contract. Same reasoning as the eager control above.
+    expect(got.factory.at(-1)).toContain("at line");
   });
 });

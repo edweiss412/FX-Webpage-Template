@@ -175,14 +175,26 @@ inside an inline suite body, and emit a file-level reason naming it.
   arrow and r4 finding 2 as a `MethodDeclaration`, which is the enumeration failing exactly once
   before it was replaced. A hook written DIRECTLY in the datum, `describe.each([beforeEach(…)])`,
   still reports.
-- **Eager positions** are exactly the ones `hookBodies` already treats as eager for the nested case,
-  so the two readers cannot disagree about what "eager" means: the arguments of a curried callee
-  (`ts.isCallExpression(call.expression)` → `call.expression.arguments`), and every argument for
-  which `isSuiteBody` is false.
-- **Which registrations.** Only those NOT lexically inside an inline suite body. Where the parent
-  is an inline `describe` body, `hookBodies` already walks the nested registration's eager positions
-  and attaches the hook correctly, so reporting there would be a false advisory on the single most
-  common shape in the corpus.
+- **Eager positions** are the ones `hookBodies` already treats as eager for the nested case: the
+  arguments of a curried callee (`ts.isCallExpression(call.expression)` → `call.expression.arguments`),
+  and every argument for which `isSuiteBody` is false. The two readers agree on WHICH POSITIONS are
+  eager, and an earlier draft went further and claimed they cannot disagree at all. **That was
+  refuted.** `hookBodies` carries no function-like stop, so it also attaches a hook written inside a
+  DEFERRED datum — `describe.each([() => { beforeEach(…) }])` inside an inline describe classifies
+  `environment-touching` — while this producer declines to report there. Bracketed on both trees, that
+  behaviour is IDENTICAL on `origin/main` and under this change, so it is pre-existing rather than
+  introduced here, and `hookBodies` is fenced from edit by §3.3. The producers are the NARROWER of
+  the two readers, deliberately: this one reports only what the runner evaluates.
+- **Which registrations.** Only those NOT lexically inside an inline suite body, and only those the
+  runner EVALUATES. Where the parent is an inline `describe` body, `hookBodies` already walks the
+  nested registration's eager positions and attaches the hook correctly, so reporting there would be
+  a false advisory on the single most common shape in the corpus. And a registration sitting inside a
+  function value Vitest never invokes — a `.each` datum, an uncalled helper — registers nothing at
+  all, so naming a hook there is an attribution to a hook that does not run (diff review r1 finding
+  2). A SUITE BODY is the exception that makes this more than "stop at every function": Vitest DOES
+  invoke it, with that suite current. Both producers share ONE walker that carries these two facts,
+  because the finding was a traversal gap and independent traversals are how only one of them came to
+  carry the boundary.
 - **Recognized by the same predicates the scanner already ships.** `registrarRoot` answers
   "is this a registration", `isSuiteBody` answers "is this the body", and `HOOK_REGISTRARS`
   answers "is this a hook". No second matcher is introduced. The comment at
@@ -462,11 +474,11 @@ declaration is a closed union, so **a cell that names neither does not compile**
 is unrepresentable rather than merely checked. Derived and printed by `cell-check.mts`:
 
 ```
-cell budget, derived: 8 decision-input cells (over 5 distinct inputs)
-                    + 8 weaker-implementation cells (over 7 distinct implementations) = 16
+cell budget, derived: 9 decision-input cells (over 5 distinct inputs)
+                    + 8 weaker-implementation cells (over 7 distinct implementations) = 17
 ```
 
-Note the units: **8 and 8 are CELL counts and sum to the total; 5 and 7 are DISTINCT-reason counts
+Note the units: **9 and 8 are CELL counts and sum to the total; 5 and 7 are DISTINCT-reason counts
 and do not.** Both render as bare numbers in prose, which is exactly how a reader lands on 5 + 7 = 12
 and files a finding against arithmetic that was never wrong. `claims-check.mts` part C asserts the
 total this spec declares against the total `cell-check.mts` actually pins, across the two files.
@@ -494,6 +506,7 @@ for the spelling axis, applied to the guard suite itself.
 | **L4** | **A hook registered by a CALLED HELPER is invisible, at every position.** `describe(registerHook(), …)`, where `registerHook()` registers a `beforeEach` and returns a name, is classified `environment-free`. Neither producer fires, because both key on a syntactic `HOOK_REGISTRARS` call and there is none. | **PRE-EXISTING and UNIFORM, bracketed against the shipped baseline rather than asserted.** The same helper is equally invisible inside an inline `describe` body and as a plain file-scope statement — all three classify `environment-free` identically on `origin/main` and under this change. It is `hookBodies`' and the top-level seed's existing LEXICAL contract, which this change neither causes nor widens, and it is the same disposition the filing arc applied to its own four pre-existing gaps. Closing it means following hook registration through a call, which is the resolution R1 declines. Raised as spec review r2 finding 1, whose substance was right and whose attribution to this design was not. |
 | **L5** | Producer B reports a registration whose only non-inert factory-slot argument is in fact OPTIONS rather than a factory — `describe("A", opts, () => {})` is silent because slot 2 is a body, but `describe("A", opts)` reports. | The scanner cannot tell a named options object from a named factory without resolution. The reason says "if that argument is the suite factory", so the report is correctly attributed rather than overclaiming, and the worst case is a conservative demote with a named cause. Zero live instances. |
 | **L6** | A `suite(…)` registration is never recognized, so a named factory passed to it stays silently free. `suite` IS `describe` at runtime, but `REGISTRARS` matches identifier TEXT. | Bracketed: `suite("A", f)` classifies `environment-free` on `origin/main` AND under this change, so it is neither caused nor widened here. Adding `suite` means editing `REGISTRARS`, which is `BL-PREMISESCAN-REGISTRAR-ACCEPT-SETS-HAND-MAINTAINED`'s subject and belongs to the sequential PR 2. Spec review r3 finding 3. |
+| **L7** | **This scanner does not fold constants.** A hook in a statically DEAD operand — `describe(String(false && beforeEach(…)), …)`, an unselected `?:` arm, a logical-assignment or optional-call argument — is REPORTED, though it can never run. | The scanner cannot tell `false &&` from `someFlag &&`, and going silent on the second is a silent free, the direction the bound forbids. So it reports on both, and the REASON is worded so the report is not a false claim: it says the hook OCCUPIES an eager position and that whether it registers cannot be determined, rather than asserting it is registered. Diff review r1 finding 1, where the old wording made this a wrong attribution rather than a conservative report. Probed by `limits-check.mts` in both halves, the negative one being load-bearing. |
 
 ---
 
@@ -588,9 +601,10 @@ reporting case, so a rule that reports on them is over-firing on live authoring:
 | `test("named", testFn)` | an `it`/`test` root cannot carry a suite factory, and the traversal already reaches a named handler — spec review r2 finding 2 |
 | `describe.each([() => { beforeEach(…) }])(…)` | the hook sits inside a function VALUE in an eager position; Vitest never invokes it while collecting, so reporting it would attribute a hook that does not run — spec review r3 finding 1 |
 | `describe.each([{ setup() { beforeEach(…) } }])(…)` | ONE cell for the whole function-like class. `ts.isFunctionLike` covers methods, getters, accessors and constructors together, so a cell per node kind would be the enumeration that predicate deleted — spec review r4 finding 2 |
+| `describe.each([() => { describe(String(beforeEach(…)), …) }])(…)` | a REGISTRATION nested inside a deferred datum. The function-like boundary existed only inside the hook collector, so the outer walk crossed the datum to reach this registration and reported there — diff review r1 finding 2 |
 
-**Nine reporting cells and seven silent cells — 16 in total, pinned by `cell-check.mts`, which exits
-2 if that count ever diverges from this table.** Six of the sixteen exist because a spec review found
+**Nine reporting cells and eight silent cells — 17 in total, pinned by `cell-check.mts`, which exits
+2 if that count ever diverges from this table.** Seven of the seventeen exist because a review found
 the defect they now hold fixed, and a finding that became a fixture cannot recur silently.
 
 ### 5.3 The sampling rule, stated once

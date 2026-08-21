@@ -1931,6 +1931,69 @@ function eagerArguments(call: ts.CallExpression): ts.Node[] {
   return out;
 }
 
+/** The registration argument that IS the suite body, unwrapped to its function. */
+function suiteBodyFunction(arg: ts.Expression): ts.Node | null {
+  if (!isSuiteBody(arg)) return null;
+  let node: ts.Node = arg;
+  while (
+    ts.isParenthesizedExpression(node) ||
+    ts.isAsExpression(node) ||
+    ts.isSatisfiesExpression(node) ||
+    ts.isNonNullExpression(node) ||
+    ts.isTypeAssertionExpression(node) ||
+    ts.isExpressionWithTypeArguments(node)
+  )
+    node = node.expression;
+  return node;
+}
+
+/**
+ * Every registration in the file, with the two facts BOTH producers need.
+ *
+ * `deferred` is the one diff review r1 found missing. The function-like boundary
+ * existed only inside `collect`, so the outer walk crossed a deferred function
+ * to find a nested registration and reported a hook there -- and Vitest never
+ * invokes a `.each` datum or an uncalled helper while collecting, so nothing
+ * registers and the reason named a hook that does not run. A registration the
+ * runner never evaluates cannot lose a hook.
+ *
+ * A SUITE BODY is the exception and it is why this is not simply "stop at every
+ * function": Vitest DOES invoke it, with that suite current, so registrations
+ * inside it are evaluated. It is walked through rather than visited, so the
+ * function-like test below never sees it -- which also keeps a body reached
+ * through one of the six transparent wrappers from being mistaken for data.
+ *
+ * Sharing one walker is the other half of the same finding: the two producers
+ * had independent traversals, and only one of them carried the boundary.
+ */
+function forEachRegistration(
+  sf: ts.SourceFile,
+  fn: (call: ts.CallExpression, ctx: { insideInlineBody: boolean; deferred: boolean }) => void,
+): void {
+  const walkInto = (n: ts.Node, insideInlineBody: boolean, deferred: boolean): void => {
+    ts.forEachChild(n, (c) => visit(c, insideInlineBody, deferred));
+  };
+  const visit = (node: ts.Node, insideInlineBody: boolean, deferred: boolean): void => {
+    if (ts.isCallExpression(node) && registrarRoot(node.expression) !== null) {
+      fn(node, { insideInlineBody, deferred });
+      if (ts.isCallExpression(node.expression))
+        for (const a of node.expression.arguments) visit(a, insideInlineBody, deferred);
+      for (const a of node.arguments) {
+        const body = suiteBodyFunction(a);
+        if (body !== null) walkInto(body, true, deferred);
+        else visit(a, insideInlineBody, deferred);
+      }
+      return;
+    }
+    if (ts.isFunctionLike(node)) {
+      walkInto(node, insideInlineBody, true);
+      return;
+    }
+    walkInto(node, insideInlineBody, deferred);
+  };
+  walkInto(sf, false, false);
+}
+
 /**
  * Producer A (spec §3.1) — a hook in an eager argument position of a
  * registration that is not lexically inside an inline suite body.
@@ -1968,23 +2031,18 @@ function eagerPositionHookReports(facts: ModuleFacts): string[] {
     ts.forEachChild(n, collect);
   };
 
-  const visit = (node: ts.Node, insideInlineBody: boolean): void => {
-    if (ts.isCallExpression(node) && registrarRoot(node.expression) !== null) {
-      // Inside an inline suite body `hookBodies` already walks the nested
-      // registration's eager positions and attaches the hook to the right
-      // tests, so a reason there would be a false advisory on the single most
-      // common shape in the corpus.
-      if (!insideInlineBody) for (const arg of eagerArguments(node)) collect(arg);
-      if (ts.isCallExpression(node.expression))
-        for (const a of node.expression.arguments) visit(a, insideInlineBody);
-      // The BODY argument is what puts a registration "inside an inline suite
-      // body"; every other position stays outside one.
-      for (const a of node.arguments) visit(a, insideInlineBody || isSuiteBody(a));
-      return;
-    }
-    ts.forEachChild(node, (c) => visit(c, insideInlineBody));
-  };
-  visit(sf, false);
+  forEachRegistration(sf, (call, { insideInlineBody, deferred }) => {
+    // Inside an inline suite body `hookBodies` already walks the nested
+    // registration's eager positions and attaches the hook to the right tests,
+    // so a reason there would be a false advisory on the single most common
+    // shape in the corpus.
+    //
+    // DEFERRED is the r1 repair: a registration Vitest never evaluates while
+    // collecting registers nothing, so naming a hook there is an attribution to
+    // a hook that does not run.
+    if (insideInlineBody || deferred) return;
+    for (const arg of eagerArguments(call)) collect(arg);
+  });
   return out;
 }
 
@@ -2061,21 +2119,24 @@ function isInertLiteral(arg: ts.Expression): boolean {
 function unfollowableFactoryReports(facts: ModuleFacts): string[] {
   const out: string[] = [];
   const sf = facts.sf;
-  const visit = (node: ts.Node): void => {
-    if (ts.isCallExpression(node) && registrarRoot(node.expression) === "describe") {
-      const slots = node.arguments.slice(1);
-      const located = slots.some((a) => isSuiteBody(a));
-      // Vacuously true for a registration with no slots past the name, which is
-      // what keeps the inner call of a curried `describe.each(rows)(...)` silent.
-      const allInert = slots.every((a) => isInertLiteral(a));
-      if (!located && !allInert) {
-        const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
-        out.push(unfollowableFactoryReason(line));
-      }
+  forEachRegistration(sf, (call, { deferred }) => {
+    // Swept with producer A rather than left as a peer: the finding named a
+    // TRAVERSAL gap, and this producer used the same traversal. A registration
+    // the runner never evaluates cannot lose a factory's hooks, and the signal
+    // is not lost either -- an unfollowable registration that DOES invoke the
+    // enclosing function is itself reported, so the file is already flagged.
+    if (deferred) return;
+    if (registrarRoot(call.expression) !== "describe") return;
+    const slots = call.arguments.slice(1);
+    const located = slots.some((a) => isSuiteBody(a));
+    // Vacuously true for a registration with no slots past the name, which is
+    // what keeps the inner call of a curried `describe.each(rows)(...)` silent.
+    const allInert = slots.every((a) => isInertLiteral(a));
+    if (!located && !allInert) {
+      const line = sf.getLineAndCharacterOfPosition(call.getStart(sf)).line + 1;
+      out.push(unfollowableFactoryReason(line));
     }
-    ts.forEachChild(node, visit);
-  };
-  visit(sf);
+  });
   return out;
 }
 
@@ -2095,7 +2156,7 @@ function unfollowableFactoryReports(facts: ModuleFacts): string[] {
  * producers' cases assert the emitted detail carries the suite path.
  */
 export function eagerHookReason(hook: string, line: number): string {
-  return `hook ${hook} at line ${line} is registered from an eager argument position, so the suite it attaches to cannot be determined,`;
+  return `hook ${hook} at line ${line} occupies an eager argument position, so whether it registers, and which suite it would attach to, cannot be determined,`;
 }
 
 /**

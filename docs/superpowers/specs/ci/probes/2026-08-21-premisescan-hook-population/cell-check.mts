@@ -88,11 +88,18 @@ results.push(cell("deferred hook inside a function-valued .each datum", "silent"
 // and a constructor are covered by the same predicate; a cell per kind would be
 // the enumeration that predicate was adopted to delete. Spec review r4 finding 2
 // arrived as a MethodDeclaration, which is why this cell uses one.
+// A REGISTRATION nested inside a deferred datum. Diff review r1 F2: the
+// function-like boundary existed only inside the hook collector, so the outer
+// walk crossed a deferred function to reach this registration and reported a
+// hook there. Vitest never invokes the datum while collecting, so nothing
+// registers. ONE cell for the class -- the walk stops on `ts.isFunctionLike`,
+// and a cell per node kind would rebuild the enumeration that predicate deletes.
+results.push(cell("registration nested inside a deferred .each datum", "silent", `describe.each([() => { describe(String(beforeEach(() => {})), () => { it("d", () => {}); }); }])("A%s", () => { it("a", () => {}); });\nit("s", () => {});`, { input: "function-like containment" }));
 results.push(cell("deferred hook inside a method-shorthand .each datum", "silent", `describe.each([{ setup() { beforeEach(() => {}); } }])("A%s", () => { it("a", () => {}); });`, { input: "function-like containment" }));
 
 const passed = results.filter(Boolean).length;
 console.log(`\n${passed} of ${results.length} cells behave as the spec's §5.2 table claims`);
-if (results.length !== 16) {
+if (results.length !== 17) {
   console.error("cell-check: the cell count moved; §5.2's table and this script must agree");
   process.exit(2);
 }
