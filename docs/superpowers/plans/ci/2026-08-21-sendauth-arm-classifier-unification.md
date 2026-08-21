@@ -19,12 +19,12 @@ deciding suites and fixtures. So **the score is measured ONCE, in TASK 9, after 
 edit** — not per task, and never quoted from an earlier run.
 
 The same applies to the `GUARD SURFACE:` line of any diff-stage review brief: a score cited there is
-stale from the moment Task 9's inputs move.
+stale from the moment `task:score-measure`'s inputs move.
 
 **Second ordering constraint:** a guard is not a separate deliverable — **it is the RED of the
 change's own cycle**. Plan round 1 showed that splitting the scans from the routing they demand is
 not merely an ordering choice but an IMPOSSIBLE cycle: a scan asserting twelve outstanding
-obligations is red by construction until they are discharged, so it can never commit green. **Task 7
+obligations is red by construction until they are discharged, so it can never commit green. **`task:scans-and-routing`
 therefore holds both**, and §3d records the shrinking-allowlist alternative and why it was declined.
 
 ---
@@ -40,7 +40,7 @@ therefore holds both**, and §3d records the shrinking-allowlist alternative and
 green.
 
 **Does NOT extend:** `tests/mutation/source/registry.ts` gains no ROW — `sendAuthScan` is already
-enrolled; its `control` is EDITED by **Task 9**. `paneCompactionCore` is untouched.
+enrolled; its `control` is EDITED by **`task:score-measure`**. `paneCompactionCore` is untouched.
 `EXPECTED_LEDGER_KINDS` and `EXPECTED_ENV_TOUCHING` already carry `sendAuthScan` and change only if
 the accepted-survivor set does.
 
@@ -73,7 +73,7 @@ deciding suite assertions over fixture BYTES = 0
 
 **Two of those are load-bearing and easy to misread.** `.prettierignore` does NOT cover this fixture
 tree, and exactly ONE fixture carries an inline directive — so the corpus's byte fidelity is
-currently unprotected, which Task 1 fixes by a derived assertion rather than by a shared-file edit.
+currently unprotected, which `task:corpus-manifest` fixes by a derived assertion rather than by a shared-file edit.
 
 ---
 
@@ -108,6 +108,37 @@ copies, adoption of the shared rule, and independence from spelling.
 
 ---
 
+## 2c. AC-U7's per-fixture verdict diff — RUN at plan time, pasted
+
+The spec requires the before/after diff to be measured and pasted here rather than described as a
+check to perform later. **Baseline read through `git show origin/main:<path>`, never from the
+worktree the prototype lives in** — a baseline read from disk there compares the prototype against
+itself and reports exactly the answer you were hoping for.
+
+```
+PER-FIXTURE VERDICT DIFF over 81 fixtures
+  identical: 79
+  moved:     2
+
+  same-pass-shadowed-derivation.ts
+    before: NON-STRAIGHT-LINE-READ@31:panes  NON-STRAIGHT-LINE-READ@32:panes
+    after:  NON-STRAIGHT-LINE-READ@31:panes  NON-STRAIGHT-LINE-READ@32:panes  RAW-HANDOFF@35:inner
+    added:   RAW-HANDOFF@35:inner
+    removed: (none)
+
+  shadowed-param-handoff.ts
+    before: RAW-HANDOFF@35:leak
+    after:  RAW-HANDOFF@35:leak  RAW-HANDOFF@38:inner
+    added:   RAW-HANDOFF@38:inner
+    removed: (none)
+```
+
+**`removed: (none)` on both is the load-bearing half** — it is what makes the change ADDITIVE rather
+than merely small, and it is the per-fixture output the AC's proof channel requires. 79 fixtures are
+byte-identical in verdict.
+
+---
+
 ## 3. Tasks
 
 **Every task carries a STABLE SLUG, and the number is presentation only.** An ordinal is a
@@ -118,9 +149,9 @@ perfectly good sentences. **A renumber is a RENAME.** With slugs it is a formatt
 cross-reference sweep becomes mechanical.
 
 **Restructured after plan round 1.** Four findings were one shape: **tasks whose cycle cannot
-complete.** Tasks 2-6 required fixtures their `Files:` denied; Task 7's scan was deliberately red
-until Task 8 edited production code, so it could never commit green; Task 4 broke two expectations
-Task 9 deferred; and three authored REDs were not entailed. **A task owns every file its own red
+complete.** the rule tasks required fixtures their `Files:` denied; `task:scans-and-routing`'s scan was deliberately red
+until `task:corpus-preservation` edited production code, so it could never commit green; `task:rule-b-count` broke two expectations
+`task:score-measure` deferred; and three authored REDs were not entailed. **A task owns every file its own red
 needs, and every cycle goes green on its own command before the next task starts.**
 
 <!-- tasks: depth=2 red-contract -->
@@ -136,10 +167,10 @@ the suite imports turns its own absence into a COLLECTION failure, and a collect
 red for the asserted reason — it goes green when the test file changes rather than when the
 implementation lands. The manifest is data in the suite; its red is a value mismatch.
 
-**Task 1 derives ONLY from constants that exist at its own sequence position** — the six decision
+**`task:corpus-manifest` derives ONLY from constants that exist at its own sequence position** — the six decision
 sites, the finding codes, the surface registry, and the receiver spellings the corpus already
 contains. **The `Receiver` union and the wrapper enum do not exist yet**, so their parity assertions
-are authored by the task that INTRODUCES each constant (Task 2), not here: importing a symbol a later
+are authored by the task that INTRODUCES each constant (`task:resolve-name`), not here: importing a symbol a later
 task creates turns this cycle's red into a collection failure, and retyping it into the suite is the
 retyped axis the design forbids. **Each task adds the parity assertion for the constant it
 introduces**, which is why no task has to reach forward.
@@ -252,11 +283,19 @@ both sides from one source cannot disagree. So:
 Two independent sides, so they CAN disagree; the gap is closed without the comparison going vacuous.
 **The same shape applies to rule B's scope recognizer** (§3c).
 
-## Task 8 — the live-corpus premise, and fixture preservation  `[task:corpus-preservation]`
+
+<!-- tasks: end -->
+
+## Task 8 — fixture preservation, as a MEASUREMENT  `[task:corpus-preservation]`
 
 **Files:** `tests/paneCompaction/_metaSendAuthSingleRead.test.ts`
 
-<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/_metaSendAuthSingleRead.test.ts:444` why=`no case compares the whole 81-fixture verdict corpus against a committed baseline, so the preservation case authored here reports the two fixtures Task 4 moved as differences against a baseline captured at BASE and fails on those two records` ac=AC-U7 -->
+**OUTSIDE the red-contract region, deliberately.** Round 3 was right that its earlier marker was a
+TEST-ORACLE red: the command failed on the two differences `task:rule-b-count` deliberately creates,
+and green came from editing the suite's own baseline — **no production line whose repair makes it
+pass**, which is the test-local red the contract forbids. Manufacturing a marker for it would assert
+a red rather than observe one. Its acceptance is the plan-time MEASUREMENT the spec requires, run and
+pasted in §2c, plus a committed baseline the suite compares against thereafter.
 
 **The population premise ALREADY SHIPS** — `premiseHolds("an enrolled module is among the walked
 files", …)` is live in the deciding suite, and it already proves both a non-empty walk and the
@@ -265,11 +304,9 @@ red that passes the moment it is written. **Probed, not assumed**: the reviewer 
 lines back.
 
 So this task's real instrument is the one that does NOT exist: **AC-U7's whole-corpus preservation
-check** — every fixture's verdict compared against a baseline captured at BASE, so the two Task 4
+check** — every fixture's verdict compared against a baseline captured at BASE, so the two `task:rule-b-count`
 moved are the only differences and any third is a regression. That is a value comparison with an
 independent witness on each side: a committed baseline against a live scan.
-
-<!-- tasks: end -->
 
 ## Task 9 — the score, the derived control, and the killer audit  `[task:score-measure]`
 
@@ -316,13 +353,15 @@ mutant it targets is a claim, not a proof, and it fails in the direction that lo
 surface scored **1.0000 with an empty survivor set while the target defect class was live**, because
 no declared operator could express it.
 
-<!-- tasks: depth=2 red-contract -->
-
 ## Task 10 — ledger closeout, EARLY, as ONE commit before whole-diff review  `[task:ledger-closeout]`
 
 **Files:** `BACKLOG.md`, `BACKLOG-archive.md`, `docs/superpowers/specs/ci/2026-08-19-send-auth-single-read-lint-design.md`
 
-<!-- task: red=`pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerMintBar.test.ts` red-state=authored red-target=`tests/docs/_metaLedgerMintBar.test.ts:58` why=`the peer row this task files carries a Filed date after the 2026-08-19 mint-bar cutoff, so until it also carries Facing and Incident fields the mint-bar suite fails naming that row, which is a value failure on the row's own fields` ac=AC-U10,AC-U11 -->
+**OUTSIDE the red-contract region, for the same reason:** a documentation task has no production
+surface, so its `red-target` could only name an already-correct gate constant whose failure the task
+itself manufactures. **Acceptance:** `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts
+tests/docs/_metaLedgerMintBar.test.ts` passes, the set arithmetic below verifies in BOTH directions,
+and the marker is absent at HEAD. (AC-U10, AC-U11.)
 
 Absence is GUARANTEED rather than maintained: gone at commit N is gone at every commit after N, and a
 ledger commit placed after whole-diff review is unreviewed code riding into the merge.
@@ -350,7 +389,6 @@ for the handoff instance, and the ambiguous "read arm" naming two different func
 apart. The predecessor spec's §4 limit 8 preamble is corrected, since under one of its two readings it
 is FALSE. **Re-verify the set arithmetic after every subsequent merge from main.**
 
-<!-- tasks: end -->
 
 ---
 
@@ -387,12 +425,15 @@ would break it is the next tautology.
 | 7 | ADOPTION scan | yes | a name-resolution site neither routed nor acknowledged; reports 12 today |
 | 7 | METAMORPHIC scan | yes | a spelling dependence anywhere in the detector; it FAILED at 42 to 44 before the repair |
 | 7 | per-form planted violations | yes | a detector recognizing a strict subset of the API set |
+| 7 | derived API REQUIREMENT vs authored fixture DIRECTORY | yes | a member of the API set with no hand-authored violation on disk — a DIFFERENT event from a detector recognizing a subset, and the two must not share a row |
+| 9 | `shadowedBetween` grep returns zero | yes | the symbol surviving the refactor anywhere in the module |
+| 9 | no loop's termination rests on a mutable predicate | yes | a totalisation that moves termination into a predicate, which turns an off-by-one mutant into a NON-TERMINATING one and takes the whole measurement down |
 | 7 | stale-row check | yes | a disposition row whose site is gone; reports 2 today |
 | 7 | ROUTE compliance | yes | a `ROUTE` row whose site is still unrouted; reports 12 today |
 | 7 | `not-a-name` field invalidation | yes | the site repurposed to read a different field |
 | 7 | `grammar` validated against DECLARED FIELD TYPES | yes | a field whose type admits a sibling spelling being granted the durable token — three of nine were, and an access-shaped claim is unfalsifiable by construction |
 | 7 | `narrowed` syntax carries consequence AND trigger | yes | a `narrowed` row written without either, which is a shrug wearing a token's name |
-| 8 | whole-corpus verdict preservation (AC-U7) | yes | any fixture's verdict differing from the committed baseline beyond the two Task 4 moves; a committed baseline against a live scan is two independent sides |
+| 8 | whole-corpus verdict preservation (AC-U7) | yes | any fixture's verdict differing from the committed baseline beyond the two `task:rule-b-count` moves; a committed baseline against a live scan is two independent sides |
 | 8 | live scan empty, with its population premise | **already ships** | recorded here NOT as a new instrument but because round 2 caught this task claiming to author it — the premise is live in the suite today, so authoring it would have been a red that passes on write |
 | 9 | survivor set vs GATE report | yes | a mutant surviving that the row does not accept — the gate is the oracle, and the deciding suite could not be |
 | 9 | input stamps, before and after | yes | any score input moving during the run |
@@ -438,12 +479,12 @@ rebuilt red is checked against all three rather than against a general feeling o
    assertion passed the moment it was written.)
 2. **Is there an ORACLE THAT CAN DIFFER?** (Round 1's Task 11: `accepted` was `[]` and might remain
    `[]`, and its command ran a suite that does not import the registry it edits — no oracle at all,
-   and rule 96 twice over. The rebuilt Task 9 runs THE GATE, which is the only thing that knows a
+   and rule 96 twice over. The rebuilt `task:score-measure` runs THE GATE, which is the only thing that knows a
    survivor set.)
 3. **Can it fail AT ITS OWN SEQUENCE POSITION?** (Round 1's Task 12: the marker's branch still exists
    on origin, so the ledger suite could only fail after a branch deletion that happens AFTER the task
    removes the marker — a temporal impossibility, red in a future the task itself creates. The
-   rebuilt Task 10 reds on the mint-bar suite, which fails the moment the peer row is filed without
+   rebuilt `task:ledger-closeout` reds on the mint-bar suite, which fails the moment the peer row is filed without
    its `Facing` and `Incident` fields, at that task's own position.)
 
 **The `Files:` rule, stated precisely, because round 2 found it violated three times and a vague
@@ -451,15 +492,16 @@ version cannot be checked.** `Files:` lists every path the task WRITES — inclu
 suite cases its own red depends on, which is what rounds 1 and 2 both caught it omitting. A
 `red-target=` may name a line the task does NOT write, because it names the line whose BEHAVIOUR
 produces the red rather than the file being edited; the ledger task's target is the mint-bar suite's
-cutoff constant for exactly that reason. **The check is mechanical over the plan** — for every task,
-is every path its red reads or writes present in `Files:` — and it is run before every dispatch
-rather than re-read.
+cutoff constant for exactly that reason. **The check, stated once and without a second reading:** for every task, every path the task
+WRITES appears in `Files:`. A path the red merely READS — a gate suite the task does not edit — is
+NOT required to appear, which is why the ledger task's command runs two `tests/docs/**` suites that
+are absent from its inventory. Run mechanically over the plan before every dispatch, never re-read.
 
 **And on the guard-before-the-change constraint:** round 1 showed Tasks 7 and 8 were not merely
 ordered but IMPOSSIBLE. The correction is that **a guard is not a separate deliverable — it is the
 RED of the change's own cycle.** Two legal shapes exist: ONE TASK (write the guard, observe red,
 route, green), or TWO with a SHRINKING ALLOWLIST where the guard ships green against a declared
-baseline of known-unfulfilled sites. **Task 7 takes the first**; the allowlist was considered and
+baseline of known-unfulfilled sites. **`task:scans-and-routing` takes the first**; the allowlist was considered and
 declined because twelve routings are one mechanical class and an allowlist would outlive them.
 
 ---
@@ -479,7 +521,7 @@ creates — so the restructure carries no live reds at all rather than carrying 
 
 ## 5. Checklist
 
-- [ ] Tasks 1-10, each red-then-green on the SAME command, committed per task
+- [ ] every task, each red-then-green on the SAME command, committed per task
 - [ ] Self-review
 - [ ] Adversarial review (cross-model) — plan stage, to APPROVE
 - [ ] Execution handoff
