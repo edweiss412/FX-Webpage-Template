@@ -384,4 +384,11 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // is not behaviour-preserving by definition. Any row appearing here later is
   // this surface's first and owes its own written argument.
   sendAuthScan: {},
+  // The connection census, enrolled 2026-08-21. EMPTY, and measured rather than hoped for:
+  // the arc's convergence criterion is the score plus an EMPTY unaccepted-survivor set, and
+  // every survivor of the weaker-implementation shape — an argument form unresolved, a
+  // specifier position unread, a disposition kind mis-admitted — is repaired with a case or
+  // by DELETING the code, never blessed. A row appearing here later is this surface's first
+  // and owes its own written argument.
+  connectionCensus: {},
 };

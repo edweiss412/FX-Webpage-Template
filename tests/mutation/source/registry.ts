@@ -2934,4 +2934,33 @@ export const GUARD_SURFACES: GuardSurface[] = [
     },
     accepted: [],
   },
+  /**
+   * The connection census (BL-DESTRUCTIVE-GUARD-DISCOVERY-BY-CONNECTION). Pure AST over a
+   * source string plus an INJECTED import resolver, DB-free and subprocess-free, with a
+   * deciding suite that is entirely constructed sources — the shape the registry can
+   * express, enrolled BEFORE the first diff-review round because "the guard does not pin
+   * what it claims" is exactly the finding class a score plus an empty survivor set
+   * settles mechanically.
+   *
+   * The LIVE gate (`_metaConnectionCensusGuard.test.ts`) is deliberately NOT a deciding
+   * suite: it reads the whole `tests/` tree, and a score whose input set includes the
+   * repository is not closable. What it proves — that the corpus needs exactly the
+   * disposition rows it carries — is a measurement, not a behaviour.
+   */
+  {
+    id: "connectionCensus",
+    sourcePath: "tests/db/_connectionCensus.ts",
+    suitePaths: ["tests/db/connectionCensus.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.8,
+    // Inverts the exact-match that decides `validation-env`: under `!==` no environment
+    // chain matches its accept-set entry, so every validation-env fixture — the largest
+    // class in the suite — reds. Verified unique on the current source (grep -c -F = 1),
+    // and the deciding suite asserts that uniqueness executably rather than in prose.
+    control: {
+      from: "chain.every((n, i) => n === r.names[i])",
+      to: "chain.every((n, i) => n !== r.names[i])",
+    },
+    accepted: [],
+  },
 ];
