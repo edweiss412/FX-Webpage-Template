@@ -1,12 +1,46 @@
 import { readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const SOURCE = "lib/specLint/taskContract.ts";
 const PRISTINE = readFileSync(SOURCE, "utf8");
 
-type Outcome = number | { status: null; signal?: string; code?: string };
+type Outcome =
+  | number
+  | { status: null; signal?: string; code?: string; hang?: boolean }
+  | { code: number; sleepMs: number };
+
+/**
+ * A VIRTUAL clock, armed only for the timeout cases.
+ *
+ * The shipped `runSuite` hardcodes 180_000, so the ONLY observation separating
+ * it from a version honouring an injected 2_000 ceiling is the recorded
+ * duration — and a real 180-second hang cannot run in a unit suite. When a
+ * fixture declares `hang`, the mock advances this clock by whatever ceiling the
+ * CALLER passed, which is exactly the quantity under test.
+ *
+ * AC-15 deliberately does NOT use it. Under a controlled clock a measured value
+ * and a fabricated one are the same bytes — the fake IS the fabrication that AC
+ * exists to detect — so that case runs a real sleep on the real clock.
+ */
+let virtualNow = 0;
+let clockSpy: { mockRestore: () => void } | null = null;
+const armVirtualClock = () => {
+  virtualNow = 1_000_000;
+  clockSpy = vi.spyOn(Date, "now").mockImplementation(() => virtualNow);
+};
+const disarmVirtualClock = () => {
+  clockSpy?.mockRestore();
+  clockSpy = null;
+};
+/** Block the calling thread for real, so AC-15 measures a real interval. */
+const sleepSync = (ms: number) => {
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    /* spin — synchronous by necessity: spawnSync's caller cannot await */
+  }
+};
 /** Per-suite outcome; a function receives whether this call is the BASELINE. */
 type Behaviour = Record<string, Outcome | ((isBaseline: boolean) => Outcome)>;
 
@@ -53,6 +87,23 @@ vi.mock("node:child_process", async (importOriginal) => {
       if (typeof b === "number") {
         return { pid: FIXTURE_PID, status: b, signal: null, stdout: "", stderr: "", output: [] };
       }
+      if ("sleepMs" in b) {
+        sleepSync(b.sleepMs);
+        return {
+          pid: FIXTURE_PID,
+          status: b.code,
+          signal: null,
+          stdout: "",
+          stderr: "",
+          output: [],
+        };
+      }
+      if (b.hang === true) {
+        // A child that never terminates consumes the WHOLE ceiling the caller
+        // passed. That is the quantity AC-1 discriminates on: the shipped code
+        // burns its hardcoded 180_000 here, a repaired one burns the injected value.
+        virtualNow += opts.timeout ?? 0;
+      }
       return {
         pid: FIXTURE_PID,
         status: null,
@@ -75,8 +126,16 @@ vi.mock("node:child_process", async (importOriginal) => {
  */
 const FIXTURE_PID = 2_147_483_646;
 
-const { WATCHDOG_ARGV, MUTANT_TIMEOUT_EXIT, MutantRunInfraError, runSuite, runSurface } =
-  await import("./runner");
+const {
+  WATCHDOG_ARGV,
+  MUTANT_TIMEOUT_EXIT,
+  MUTANT_TIMEOUT_MS,
+  MutantRunInfraError,
+  runSuite,
+  runSuiteRecorded,
+  runMutantRecorded,
+  runSurface,
+} = await import("./runner");
 
 const { premiseHolds } = await import("../../_shared/premise");
 
@@ -426,5 +485,86 @@ describe("runner — no suite AFTER the deciding one is spawned (AC-5)", () => {
         "c.test.ts",
       ]);
     }
+  });
+});
+
+describe("runner — a timed-out child records a TIMEOUT, and the ceiling is injectable (AC-1, AC-3)", () => {
+  afterEach(() => disarmVirtualClock());
+
+  it("honours an INJECTED ceiling, and the DURATION is the discriminator", () => {
+    armVirtualClock();
+    reset({ "a.test.ts": { status: null, signal: "SIGKILL", code: "ETIMEDOUT", hang: true } });
+    const { code, record } = runSuiteRecorded("/root", "/t.ts", SOURCE, "a.test.ts", "site", 2_000);
+
+    // AC-1 requires the whole tuple, so a correctly TIMED but wrongly SPELLED
+    // record must fail. `kind` is NOT the discriminator — a hanging child reports
+    // `timeout` under the shipped code too.
+    expect(record.kind).toBe("timeout");
+    expect(record.exitCode).toBeNull();
+    expect(record.suite).toBe("a.test.ts");
+    expect(record.durationMs).toBeGreaterThanOrEqual(2_000);
+    // THE DISCRIMINATING BOUND. Only the duration separates a runner honouring
+    // the injected ceiling from one ignoring it and burning the hardcoded 180_000.
+    expect(record.durationMs).toBeLessThan(10_000);
+
+    // AC-3, the no-blast-radius guarantee, ASSERTED rather than assumed.
+    expect(code).toBe(MUTANT_TIMEOUT_EXIT);
+    expect(classify(code)).toBe("KILLED");
+  });
+
+  it("defaults to MUTANT_TIMEOUT_MS when no ceiling is passed, so every existing call site is unchanged", () => {
+    reset({ "a.test.ts": 0 });
+    runSuiteRecorded("/root", "/t.ts", SOURCE, "a.test.ts", "site");
+    expect(calls[0]!.timeout).toBe(MUTANT_TIMEOUT_MS);
+  });
+});
+
+describe("runner — an assertion-killed child records its OWN exit code (AC-2, AC-3)", () => {
+  it.each([
+    ["a.test.ts", 1],
+    ["b.test.ts", 42],
+  ])("%s exits %i and the record carries THAT code", (suite, expected) => {
+    // TWO fixtures with DIFFERENT non-zero codes. A single fixture admits an
+    // implementation hard-coding whichever value that one fixture produced, and
+    // one hard-coding `kind` from the verdict — which AC-1's timeout case, also
+    // a KILLED verdict, then separates.
+    reset({ [suite]: expected });
+    const { code, record } = runSuiteRecorded("/root", "/t.ts", SOURCE, suite, "site");
+    expect(record.kind).toBe("exit");
+    expect(record.exitCode).toBe(expected);
+    expect(record.suite).toBe(suite);
+    expect(code).toBe(expected);
+    expect(classify(code)).toBe("KILLED");
+  });
+});
+
+describe("runner — an ordinary child's durationMs is MEASURED, not fabricated (AC-15)", () => {
+  it("tracks TWO DIFFERENT intervals, which is what kills a CONSTANT implementation", () => {
+    // On the REAL clock, deliberately: under the virtual one a measured value and
+    // a fabricated one are the same bytes.
+    //
+    // And TWO intervals, because one cannot prove measurement. A single fixture
+    // asserting ~120ms lands in a generous range kills `durationMs: 0` and
+    // NOTHING ELSE — a constant 5000 passes it comfortably. Requiring the longer
+    // child to exceed the shorter kills every constant, whatever it picks.
+    const SHORT_MS = 40;
+    const LONG_MS = 300;
+    reset({
+      "a.test.ts": { code: 0, sleepMs: SHORT_MS },
+      "b.test.ts": { code: 0, sleepMs: LONG_MS },
+    });
+    const { children } = runMutantRecorded(
+      "/root",
+      "/t.ts",
+      SOURCE,
+      ["a.test.ts", "b.test.ts"],
+      "site",
+    );
+    const [short_, long_] = children;
+    expect(short_!.suite).toBe("a.test.ts");
+    expect(long_!.suite).toBe("b.test.ts");
+    expect(short_!.durationMs).toBeGreaterThanOrEqual(SHORT_MS - 10);
+    expect(long_!.durationMs).toBeGreaterThanOrEqual(LONG_MS - 10);
+    expect(long_!.durationMs).toBeGreaterThan(short_!.durationMs);
   });
 });

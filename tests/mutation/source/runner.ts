@@ -138,6 +138,16 @@ export function runSuiteRecorded(
   mutantFile: string,
   suite: string,
   context: string,
+  /**
+   * The wall-clock ceiling for THIS child, defaulting to the shared constant so
+   * every existing call site is unchanged BY CONSTRUCTION.
+   *
+   * It is a parameter rather than the constant it defaults to, and that is the
+   * whole reason the timeout arm is testable: with the ceiling hardcoded, no
+   * test could reach that branch without a real 180-second hang, so the arm read
+   * as protection while being unreachable code.
+   */
+  timeoutMs: number = MUTANT_TIMEOUT_MS,
 ): { code: number; record: ChildRecord } {
   const env = {
     ...process.env,
@@ -153,11 +163,7 @@ export function runSuiteRecorded(
   // never earned; a timeout is the mutant's own doing (see MUTANT_TIMEOUT_EXIT).
   // The group reap on the timeout and infra arms runs inside `spawnBounded`.
   const startedAt = Date.now();
-  const { outcome } = spawnBounded(["pnpm", ...CHILD_ARGS], {
-    cwd: root,
-    env,
-    timeoutMs: MUTANT_TIMEOUT_MS,
-  });
+  const { outcome } = spawnBounded(["pnpm", ...CHILD_ARGS], { cwd: root, env, timeoutMs });
   const durationMs = Date.now() - startedAt;
   if (outcome.kind === "timeout") {
     return {
@@ -181,8 +187,9 @@ export function runSuite(
   mutantFile: string,
   suite: string,
   context: string,
+  timeoutMs: number = MUTANT_TIMEOUT_MS,
 ): number {
-  return runSuiteRecorded(root, target, mutantFile, suite, context).code;
+  return runSuiteRecorded(root, target, mutantFile, suite, context, timeoutMs).code;
 }
 
 const CHILD_ARGS = ["exec", "vitest", "run", "--config", CONFIG] as const;
@@ -205,10 +212,11 @@ export function runMutantRecorded(
   mutantFile: string,
   suites: readonly string[],
   context: string,
+  timeoutMs: number = MUTANT_TIMEOUT_MS,
 ): { code: number; children: ChildRecord[] } {
   const children: ChildRecord[] = [];
   for (const suite of suites) {
-    const { code, record } = runSuiteRecorded(root, target, mutantFile, suite, context);
+    const { code, record } = runSuiteRecorded(root, target, mutantFile, suite, context, timeoutMs);
     children.push(record);
     if (code !== 0) return { code, children };
   }
