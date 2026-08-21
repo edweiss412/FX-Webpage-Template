@@ -29,6 +29,7 @@ type Step = {
   with?: { script?: string };
 };
 type Job = {
+  "timeout-minutes"?: number;
   strategy?: { matrix?: Record<string, unknown>; "fail-fast"?: boolean };
   needs?: string[];
   steps?: Step[];
@@ -382,5 +383,97 @@ describe("mutation-harness matrices are pinned to their constants", () => {
       wf.jobs["budget"]?.outputs?.["report"],
       "the budget job does not republish its verdict",
     ).toBe("${{ steps.budget-check.outputs.report }}");
+  });
+
+  /**
+   * The job ceiling and the shard budget are two constants that MUST RELATE, and
+   * until this case they did not relate at all.
+   *
+   * They fail in opposite ways on purpose. A leg that exceeds SHARD_BUDGET_SECONDS
+   * is supposed to FAIL the budget job -- loudly, having uploaded its elapsed.txt,
+   * leaving a verdict a reader can act on. A leg that hits `timeout-minutes` is
+   * CANCELLED, which uploads nothing and carries no verdict at all: it is not
+   * "red", it is SILENT. So the ceiling sitting too close above the budget quietly
+   * converts the diagnostic outcome into the undiagnosable one.
+   *
+   * Measured on main 2026-08-21, which is why this case exists: source legs ran
+   * 3310 / 3812 / 4180 / 5172 s against a 3600 s budget under a 5400 s ceiling.
+   * Three legs breached, and the worst consumed 87% of the gap to the ceiling --
+   * roughly 228 s from converting a reported failure into a silent cancellation.
+   * Cancelled legs were already routine, and they are why a stale ledger row went
+   * unattributed for five days and a surface's failure was misdated by three
+   * commits: every other defect on this harness is diagnosed THROUGH this
+   * instrument.
+   *
+   * The margin is a DERIVATION, not a tuned literal. A leg must be able to overrun
+   * its entire budget and still finish and report; anything less and the ceiling
+   * decides which breaches are observable. Hence ceiling >= 2x budget PLUS a reserve
+   * for the reporting steps -- at exactly 2x the reserve is zero and the leg is
+   * cancelled before it can upload the record, which is the same silence in a new
+   * place. Fitting the
+   * constant to the worst leg observed today would instead re-break the moment a
+   * surface is enrolled -- which is exactly how this arc's own defect surfaced.
+   *
+   * This does NOT fix the imbalance producing those times. `weightOf` prices child
+   * boots at a flat rate while measured per-mutant rates span roughly 1.19 s to
+   * 23.45 s, so the partition balances the wrong quantity by up to ~30x per
+   * surface, which is how a 1.006x load spread yields a 1.56x wall-clock spread.
+   * That is filed as BL-MUTATION-WEIGHT-MODEL-BOOT-COUNT-ONLY. Repairing it
+   * repartitions every surface and invalidates every in-flight arc's assignment at
+   * once, so it is deliberately NOT bundled here. This case guarantees the
+   * imbalance stays DIAGNOSABLE; it does not claim to remove it.
+   */
+  it("gives every measured leg a ceiling that cannot silence a budget breach (AC-9)", () => {
+    // A leg must survive overrunning its whole budget AND still have time to
+    // report, so the requirement is a factor over the shared constant PLUS a
+    // reserve -- never minutes, so changing the budget moves the requirement.
+    const MIN_CEILING_FACTOR = 2;
+    // The ceiling bounds the WHOLE JOB; `elapsed.txt` is written and uploaded by
+    // two steps that run AFTER the work, under `if: always()`. At exactly 2x,
+    // a leg whose work fills the overrun allowance has ZERO seconds left to
+    // write and upload that record, so it is cancelled with no artifact and no
+    // annotation -- the precise outcome this pin exists to prevent. The reserve
+    // is what makes "still report" true rather than merely intended; it covers
+    // the post-measurement steps only, since SHARD_START is stamped as the FIRST
+    // step and the measured elapsed therefore already includes checkout+setup.
+    const REPORTING_RESERVE_SECONDS = 5 * 60;
+    const requiredSeconds = SHARD_BUDGET_SECONDS * MIN_CEILING_FACTOR + REPORTING_RESERVE_SECONDS;
+
+    // DERIVED FROM THE WORKFLOW, not from a list of names typed here. A leg is
+    // MEASURED iff it uploads an `elapsed-*` artifact -- that upload is what
+    // puts it in front of the budget checker, so it is the property that makes
+    // the ceiling relate to the budget at all. A hand-written set covers the
+    // legs its author knew about and fails OPEN on the fifth one somebody adds,
+    // which is the same defect class this file's own subject is about.
+    const measured = Object.entries(wf.jobs)
+      .filter(([, job]) =>
+        (job.steps ?? []).some(
+          (st) =>
+            (st.uses ?? "").startsWith("actions/upload-artifact") &&
+            ((st as { with?: { name?: string } }).with?.name ?? "").startsWith("elapsed-"),
+        ),
+      )
+      .map(([name]) => name);
+
+    // PREMISE, STATED EXECUTABLY: the derivation must actually find legs, or
+    // every assertion below ranges over an empty set and passes vacuously.
+    premiseHolds("the workflow declares at least one measured leg", measured.length > 0);
+    // And it must agree with the leg families the budget checker is wired to.
+    // Either side drifting is a failure: a job that uploads an elapsed artifact
+    // nobody expects, or an expected family that uploads nothing.
+    expect([...measured].sort(), "measured legs vs the budget checker's families").toEqual(
+      [...FAMILIES.map((f) => f.job), ...GATES.map((g) => g.job)].sort(),
+    );
+
+    const offenders = measured
+      .map((name) => ({ name, minutes: wf.jobs[name]?.["timeout-minutes"] }))
+      // An ABSENT ceiling is an offender too, and the more dangerous one: it
+      // reads as "no timeout" and defaults to the runner maximum, so a wedged
+      // leg burns hours. `undefined` must never pass by falling through a
+      // numeric compare.
+      .filter((j) => typeof j.minutes !== "number" || j.minutes * 60 < requiredSeconds)
+      .map((j) => `${j.name}: ${j.minutes ?? "(absent)"}min < ${requiredSeconds / 60}min required`);
+
+    expect(offenders.join("\n"), "legs whose ceiling can cancel a budget breach").toBe("");
   });
 });

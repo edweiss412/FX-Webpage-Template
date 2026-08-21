@@ -31,7 +31,7 @@ So the binding constraint is **total work against a fixed 4-vCPU runner**, not t
 |---|---|
 | The browser-mutant mode is **out of scope**. It is a separate gate file with its own workflow, its own 60-min budget, and a schedule deliberately offset from this one ("08:17 UTC nightly, offset from mutation-harness.yml’s 07:00 so the two never contend", `.github/workflows/mutation-browser.yml:15`; `timeout-minutes: 60` at `.github/workflows/mutation-browser.yml:60`). It does **not** run in `mutation-harness`, which names its subjects explicitly (`.github/workflows/mutation-harness.yml:76`) precisely so a bare `--project mutation` cannot sweep it in (`.github/workflows/mutation-harness.yml:66-72`). | `.github/workflows/mutation-browser.yml:15`, `.github/workflows/mutation-harness.yml:76` |
 | `browserRegistry` and `browserMutate` are **ordinary vitest source surfaces**, not browser mutants. They mutate the browser mode's own two modules (`tests/mutation/source/registry.ts:1165-1167` and `tests/mutation/source/registry.ts:1180-1182`) and cost 97 mutants between them (§2.3). They shard like any other surface. | `tests/mutation/source/registry.ts:1164-1184` |
-| Raising `timeout-minutes` again is **not** a candidate. The entry is explicit and 300 is already the second raise. | `BACKLOG.md` (entry); `.github/workflows/mutation-harness.yml:45-56` |
+| Raising `timeout-minutes` again is **not** a candidate **as a way to buy wall clock**. The entry is explicit and 300 is already the second raise. **Narrowed 2026-08-21 — see §1.2a; the ceiling's RELATION to the budget is a separate axis this row did not rule on.** | `BACKLOG.md` (entry); `.github/workflows/mutation-harness.yml:45-56`; §1.2a |
 | Serial per-mutant execution *within* a surface is unchanged. This spec partitions across surfaces, not within one. Sub-surface partitioning is a documented limit with a stated trigger (§6, L-2). | §3.1, §6 |
 | The gate stays **non-gating** (not a required check). Nothing here puts mutation results on the merge path. | `.github/workflows/mutation-harness.yml:13-14` |
 | `MUTANT_TIMEOUT_MS = 180_000` and its `MUTANT_TIMEOUT_EXIT = 124` KILLED verdict are ratified and unchanged (`tests/mutation/source/runner.ts:49` and `tests/mutation/source/runner.ts:60`). | `tests/mutation/source/runner.ts:49-60` |
@@ -251,6 +251,63 @@ A NEW file, tests/mutation/guardSurfaces.gates.test.ts, created by this arc — 
 This is the one failure mode of this change that is both silent at authoring time and severe, so it is pinned rather than remembered. `tests/cross-cutting/vitest-projects-partition.test.ts` already asserts that every discovered test file is admitted by exactly one default project unless it matches `NIGHTLY_ONLY_EXCLUDES` (`tests/cross-cutting/vitest-projects-partition.test.ts:212-227` and `tests/cross-cutting/vitest-projects-partition.test.ts:243-262`), and that every `NIGHTLY_ONLY_EXCLUDES` glob appears in both `serial.exclude` and `parallel.exclude` (`tests/cross-cutting/vitest-projects-partition.test.ts:383-390` and `tests/cross-cutting/vitest-projects-partition.test.ts:471-476`). Those assertions already cover the new files the moment they exist — the task is to add all five to BOTH lists and let the existing guard prove it, not to write a new one.
 
 That suite also carries a hard count — `expect(nightlyCount, "exactly the 11 nightly files …").toBe(11)` (`tests/cross-cutting/vitest-projects-partition.test.ts:265-268`) — which becomes 15 (9 parser + 4 source shards + source gates + browser gate), and whose message text is stale on its face once it changes. Updating that literal and its message is a task step, not an incidental edit.
+
+### 1.2a Amendment (2026-08-21) — the ceiling row ruled on an axis, and there is a second one
+
+The row above stays in force **for the question it was asked**. It is narrowed, not overturned: it
+was correct about wall clock and silent about diagnosability, and the distinction is what keeps it
+authoritative.
+
+**Why the narrowing is legitimate rather than convenient, from this document's own text.** The row's
+"300" ties it unambiguously to the MONOLITHIC job's ceiling — §1 records that "`timeout-minutes` has
+been raised twice and now stands at 300". This same spec then SHIPS `timeout-minutes: 90` per shard
+job in §3.4, and its own comparison table contrasts the two directly: `| timeout-minutes on the
+harness | 300 | 90 per shard job |`. A ratified row cannot have frozen a value the same document
+introduces two hundred lines later, and the table exists precisely to mark them as different
+quantities. Read literally the row makes this spec self-contradictory; read as scoped to the
+monolith it makes it coherent.
+
+**What stays declined, on any job, with no exception.** Raising a ceiling to BUY WALL CLOCK — to let
+a job that does not fit simply run longer — remains rejected, and §1.1 gives the reason that has not
+changed: the binding constraint is total work against a fixed 4-vCPU runner, so the repair adds CPUs
+by adding jobs. A future arc that wants more minutes because a leg outgrew its budget is asking the
+question this row already answered, and the answer is still no.
+
+**What the row did not consider, and what is now permitted.** The ceiling and `SHARD_BUDGET_SECONDS`
+are two constants that RELATE, and nothing related them. They fail in OPPOSITE ways: a leg over the
+budget FAILS the budget job, having uploaded its `elapsed.txt` and left a verdict; a leg over the
+ceiling is CANCELLED, which uploads nothing and carries no verdict for any surface it holds. So a
+ceiling sitting close above the budget silently converts the diagnosable outcome into the
+undiagnosable one. Measured on `main` 2026-08-21: source legs at 3310 / 3812 / 4180 / 5172 s against
+a 3600 s budget under a 5400 s ceiling — three legs breaching, the worst consuming 87% of the gap,
+about 228 s from censoring a quarter of the source gate.
+
+Adjusting the ceiling to preserve that GAP is therefore permitted, and only in that direction. It
+buys no wall clock IN THE SENSE THE ROW ABOVE MEANS: total work is unchanged, no leg runs faster, no
+leg that fits today is given room to grow, and the budget is untouched — a breaching leg still
+fails, it merely fails visibly instead of vanishing.
+
+**It does have an operational cost, and the honest statement of it is bounded rather than absent.**
+The ceiling is what a WEDGED leg burns before the runner kills it, so raising it raises that
+worst-case. Four job definitions realise 14 measured legs (8 parser shards + parser-gates + 4 source
+shards + source-gates), and 90 → 125 minutes adds 35 minutes of worst-case exposure each: up to
+**490 additional runner-minutes per fully-wedged run**, and a wedged leg holds its concurrency slot
+35 minutes longer. That is the price of the guarantee, it is paid only when something is already
+broken, and it is bounded — which is the distinction from raising a ceiling to fit growing work,
+where the cost is paid on every healthy run and is unbounded by construction. The requirement is pinned
+executably as `ceiling >= 2 x SHARD_BUDGET_SECONDS + a 300 s reporting reserve` (7500 s = 125 min today) in `tests/mutation/_metaSourceShardIntegrity.test.ts`,
+stated as a factor over the shared constant rather than as minutes, so the two can never drift back
+together. Precisely: neither can be moved in the UNSAFE direction alone — probed, raising the budget
+to 3601 s alone FAILS and lowering the ceiling to 124 min alone FAILS, while the safe directions
+(raising the ceiling, lowering the budget) pass in isolation, which is the intended asymmetry rather
+than a hole. A fifth measured job with no ceiling also fails. The live value is 125 minutes from
+`fix/mutation-shard-ceiling-pin`; the comparison table's "90 per shard job" is left as the record of
+what THIS design shipped, not as a current reading.
+
+The underlying imbalance producing those times is NOT repaired by any of this and is filed as
+`BL-MUTATION-WEIGHT-MODEL-BOOT-COUNT-ONLY`: `weightOf` prices child boots at a flat rate while
+measured per-mutant rates span roughly 1.19 s to 23.45 s. The pin does not remove the imbalance; it
+guarantees the imbalance stays diagnosable.
 
 ### 3.4 Workflow: a matrix of jobs, which is the part that buys the wall clock
 
