@@ -83,19 +83,29 @@ passed the ENTIRE fixture corpus, and no declared operator produces that edit, s
 score however perfect would have surfaced it. Only building the weaker version by
 hand found it.
 
-- **MUTATION SCORE — 1.0000 (262/262), zero survivors, zero accepted ledger rows.**
-  Re-measured LOCALLY, foreground, 19:52-20:09 on 2026-08-20, 1013.69s, NO CI run id,
-  at `f176661bd` with the worktree CLEAN before and after — a sha over a clean tree
-  pins source, registry row, deciding suite and fixture tree TOGETHER, which is the
-  guarantee the arc's earlier four-input digest was built to give; that digest is left
-  in the PR record as the provenance of ITS run rather than restated here. The count
-  is DERIVED from the shipped generator against the registry row (262 sites, 0 no-ops),
-  because a green gate prints none. Every assertion the score rests on runs IN-PROCESS: the
-  deciding suite spawns no child, so no branch of this surface is reachable only
-  through a process the runner's in-memory overlay cannot reach.
+- **MUTATION SCORE — 1.0000 (261/261), zero survivors, zero accepted ledger rows.**
+  Re-measured LOCALLY, foreground, 1022.82s, NO CI run id, at `1cdf31465` with every
+  score input CLEAN before and after — source, registry row, deciding suite and
+  fixture tree, checked as a set rather than assumed. That is the guarantee the arc's
+  earlier four-input digest was built to give; the digest stays in the PR record as
+  the provenance of ITS run rather than being restated here, because a record of what
+  was observed is not improved by being made current. The count is DERIVED from the
+  shipped generator against the registry row (261 sites, 0 no-ops), because a green
+  gate prints none.
+
+  Measured THREE times on this arc, and each re-measure was forced by a commit that
+  touched a score input — 254/254, then 262/262, then this. A score is a claim about a
+  tree, so it retires when the tree moves, and the discipline is to say so in the
+  commit that moves it rather than to let the number age in place.
+
+  Every assertion the score rests on runs IN-PROCESS: the deciding suite spawns no
+  child at all, so no branch of this surface is reachable only through a process the
+  runner's in-memory overlay cannot reach, and no survivor here could be a
+  spawned-child coverage artifact. Checked, not assumed.
   The empty ledger is the dividend of deleting survivors rather than arguing them
   equivalent: nothing excused means nothing to re-validate when the surrounding code
   moves, and an equivalence row cannot silently inflate the score.
+
 - **KILLER AUDIT — 35 PROVEN, 0 present-but-unproven, 0 absent, 0 skipped.** Every
   weaker implementation the plan's table names, built as a source mutation and run
   against the suite, source restored byte-identical afterwards. A killing check that
