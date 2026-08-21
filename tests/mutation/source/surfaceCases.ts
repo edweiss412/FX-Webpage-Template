@@ -4,9 +4,9 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { EXPECTED_LEDGER_KINDS } from "./expectedLedgerKinds";
-import { evaluateGate } from "./gate";
+import { type GateResult, evaluateGate } from "./gate";
 import type { GuardSurface } from "./registry";
-import { runControl, runSurface } from "./runner";
+import { type RunResult, runControl, runSurface } from "./runner";
 
 const root = process.cwd();
 
@@ -20,22 +20,53 @@ const root = process.cwd();
  * shard must filter BEFORE calling this: a `describe.skip` or a filtered `it`
  * would still pay the full run during collection.
  */
-export function registerSurfaceCases(surfaces: readonly GuardSurface[]): void {
+/**
+ * Run one surface, evaluate its gate, and EMIT its notices.
+ *
+ * Extracted so the emission is drivable in-process without registering a whole
+ * generated gate suite, and so the emit rides on a call `registerSurfaceCases`
+ * CANNOT FUNCTION WITHOUT — every one of its cases consumes the `run` and
+ * `result` returned here, so deleting the call breaks them all rather than
+ * silently dropping the channel. That is what makes this WIRING rather than
+ * rendering: a helper the registrar could stop calling would prove nothing.
+ */
+export function evaluateSurface(
+  surface: GuardSurface,
+  options: { write?: (text: string) => void; root?: string } = {},
+): { run: RunResult; result: GateResult } {
+  const write = options.write ?? ((text: string) => process.stdout.write(text));
+  const run = runSurface(options.root ?? root, surface);
+  const result = evaluateGate({
+    surfaceId: surface.id,
+    mutantCount: run.mutantCount,
+    noOps: run.noOps,
+    baselineGreen: run.baselineGreen,
+    killed: run.killed,
+    survivors: run.survivors,
+    ledger: surface.accepted,
+    scoreFloor: surface.scoreFloor,
+    outcomes: run.outcomes,
+  });
+
+  // Emitted at MODULE SCOPE, before any `it`, so notices appear in the leg's
+  // output whether the gate passed or failed. A passing gate otherwise prints
+  // NOTHING AT ALL — measured in probe 1, where a passing surface's output is
+  // the empty string — and emitting only on failure would rebuild exactly the
+  // CI-only, failure-only blind spot design §1.0 measures.
+  for (const notice of result.notices) write(`${notice.detail}\n`);
+
+  return { run, result };
+}
+
+export function registerSurfaceCases(
+  surfaces: readonly GuardSurface[],
+  options: { write?: (text: string) => void } = {},
+): void {
   describe.each(surfaces.map((s) => [s.id, s] as const))(
     "source-mutation gate — %s",
     (_id, surface) => {
       const before = readFileSync(surface.sourcePath);
-      const run = runSurface(root, surface);
-      const result = evaluateGate({
-        surfaceId: surface.id,
-        mutantCount: run.mutantCount,
-        noOps: run.noOps,
-        baselineGreen: run.baselineGreen,
-        killed: run.killed,
-        survivors: run.survivors,
-        ledger: surface.accepted,
-        scoreFloor: surface.scoreFloor,
-      });
+      const { run, result } = evaluateSurface(surface, options);
 
       it("passes every gate condition", () => {
         expect(
