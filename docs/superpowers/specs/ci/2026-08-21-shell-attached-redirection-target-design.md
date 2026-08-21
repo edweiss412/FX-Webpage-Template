@@ -483,6 +483,13 @@ survive. A repair that reported BOTH rows would be loud in a direction the shell
    - **Counting `<(…)` process substitutions as candidate targets is conservative
      over-reporting**, permitted by the bound and fenced.
    - **The repaired census detects its own multiline controls**, so round 3's repair holds.
+   - **A process substitution is not an accept-set opener, and its silence is CORRECT rather than
+     conservative.** `<(` and `>(` TERMINATE an attached target, exactly as the character-run regex
+     did, so `cat >>(psql -c 'select 1')` scans silent. Probed against bash before calling that a
+     miss: it executes NOTHING there — the spelling is a syntax error — so the scanner agrees with
+     the shell rather than under-reporting. The input spelling `cat <(psql -c 'select 1')` still
+     reports through the existing process-substitution branch with `nested: true`, which is what
+     makes the zero attributable rather than a scanner that stopped looking.
 
 ---
 

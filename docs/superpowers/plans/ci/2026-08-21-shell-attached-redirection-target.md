@@ -129,7 +129,7 @@ by exhaustion.
 
 | # | weaker implementation | why it is tempting | killed by |
 |---|---|---|---|
-| W1 | re-lex `attached[0]` as-is, keeping the character-run boundary | it is the one-line reading of "collect the nested bodies" | **G, H and I** — the boundary never reaches a brace inside a quoted target, nor past an escape, nor a mid-construct stop |
+| W1 | re-lex `attached[0]` as-is, keeping the character-run boundary | it is the one-line reading of "collect the nested bodies" | **I, plus Task 2's line and no-site assertions** — CORRECTED at implementation time by BUILDING the variant and running the shipped checks against it: G and H do NOT discriminate it, because `"[^"]*"` consumes G's whole target and enough of H's for the re-lex to find the body. The mid-construct stop is what survives, and only the ATTRIBUTION predicate sees it |
 | W2 | delimit by construct, but do NOT retain the target | the substitution family is the visible half of the ledger row | **F** — an attached here-string has no nested body at all |
 | W3 | retain the target, but do NOT collect nested bodies | retention alone makes the here-string case pass | **A–E** — every substitution spelling stays silent |
 | W4 | fire the unlexable report on ANY attached target | "never silently discarded", read maximally | **AC-5's digest** — the corpus's 53 ordinary targets become advisories |
@@ -159,11 +159,55 @@ and a bare `>` after the command word. W10 was invisible because the attribution
 existential. Adding J and K did not lengthen a list; it crossed two axes, which is the only thing
 that moves this class.
 
-**W1 is the one to watch, and it is why G, H and I exist.** The naive re-lex passes A–F by accident:
-the bare-backtick slice `` `psql `` re-lexes to an unterminated backtick whose body is `psql `, so
-case A goes green for a reason that has nothing to do with construct-aware delimiting. A corpus of
-A–F alone would certify it. G, H and I are the three cases that separate the specified
-implementation from the accidental one.
+**W1 is the one to watch, and MEASURING it corrected this section.** The naive re-lex passes A–F by
+accident: the bare-backtick slice `` `psql `` re-lexes to an unterminated backtick whose body is
+`psql `, so case A goes green for a reason that has nothing to do with construct-aware delimiting.
+A corpus of A–F alone would certify it.
+
+**But G and H do not separate it either, and this plan claimed they did.** Built as a variant at
+implementation time — the character-run boundary restored, everything downstream untouched, and
+`undelimitable` still taken from the real walk so the unlexable channel is not a second missing
+feature — 21 of 24 shipped checks still hold. G holds because `"[^"]*"` matches G's target
+WHOLE (it carries single quotes, not double), so the re-lex finds the body; H holds because the
+alternation consumes enough of it for the same reason. What actually catches W1 is **case I's
+ATTRIBUTION predicate**, plus Task 2's opening-line and zero-site assertions, which the
+mid-construct stop breaks by handing the remainder to top-level text.
+
+The general point is the one rule 17 makes: a killer NAMED in a plan is a claim until the variant
+is built and the check is observed failing. Three of the four killers this row named were wrong,
+and reading the plan a second time would not have found it.
+
+### 2b-bis. The killer audit, run at implementation time — ABSENT, PRESENT-BUT-UNPROVEN, PROVEN
+
+Rule 17's obligation is not "a killer is named", it is "the killing check EXISTS IN THE SHIPPED
+TESTS and fails when you break it". A killer never run against the mutant it targets is a CLAIM,
+and it fails in the direction that looks green. The list below is derived from the table above
+rather than from recall, and the variants were built as COPIES outside the repo so this could run
+beside a live measurement without touching a tracked byte.
+
+**No-defect baseline first:** 24 of 24 checks hold against an unmodified copy. Without that, a
+failure below could be the harness rather than the weakening.
+
+| state | rows |
+|---|---|
+| **PROVEN** — variant built, shipped check observed FAILING | W1, W4, W12, W16, W20, W21, W22 |
+| **PRESENT-BUT-UNPROVEN** — a killing check exists and was not run against a built variant | W2, W3, W5, W6, W7, W8, W9, W10, W11, W13, W14, W15, W17, W18, W19 |
+| **ABSENT** | none |
+
+The split is stated rather than rounded up, because "I checked" and "it discriminates" are
+different claims and only one of them was made for fifteen of these rows.
+
+**What the audit changed, and it is the reason to run one.** W1's killer set as this plan first
+stated it — G, H and I — is WRONG in three of four parts, and no amount of re-reading would have
+shown it. See the corrected row above. W16's proof is the other useful one: the variant is caught
+by the payload-in-the-LAST-target row and NOT by the payload-in-the-first row, which is exactly
+why the case is stated in both orders.
+
+**One construction defect, recorded because it is the shape rule 240a names.** The first W4 variant
+dereferenced a null and THREW. A crash is a red for the wrong reason and proves nothing about the
+check under audit — it would go green the moment the field merely EXISTS. Rebuilt so the variant
+reports every retained target instead, and it then fails exactly one check: the ordinary attached
+target drawing no advisory.
 
 ---
 
