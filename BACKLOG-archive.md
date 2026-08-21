@@ -43,9 +43,12 @@ against `scripts/pane-compaction.ts`, which is a passing instance today.
 `tests/paneCompaction/sendAuthScan.ts`, an importable module with a referring suite
 from the start because it is a guard surface; the gate is
 `tests/paneCompaction/_metaSendAuthSingleRead.test.ts`; the corpus is the fixture
-tree under `tests/paneCompaction/fixtures/sendAuth`, 78 files as shipped — stated
-against the tree rather than as a bare count, because a count over a growing corpus
-goes stale through ADDITION alone. Every fixture is authored against a deliberately
+tree under `tests/paneCompaction/fixtures/sendAuth`, which the gate WALKS FROM DISK
+rather than reading off a list. No count is stated here, deliberately. This line has
+now gone stale four times — 62, 75, 78, and 78-while-the-tree-held-79 — every time by
+ADDITION alone, twice costing a review round, and the last time within the very commit
+that claimed to have fixed it by "stating it against the tree" while still carrying a
+number. A number is the defect; the tree is the claim. Every fixture is authored against a deliberately
 different registry row (`Channel` / `ch` / `dispatch` / `settle` / `snapshotOf`) with
 NO live spelling anywhere, so a scanner hardcoded to the live vocabulary fails every
 one of them. The live instance is
@@ -111,6 +114,40 @@ hand found it.
   against the suite, source restored byte-identical afterwards. A killing check that
   is never run against the mutant it targets is a claim, not a proof, and it fails in
   the direction that looks green.
+
+## BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE — a mixed-quoted here-string target is not read as a binding — CLOSED 2026-08-20 (`fix/shell-lexer-quoted-value-recall`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-20 · **Effort (as shipped):** M for the arc, S for arm 1's repair · **Severity (as filed):** LOW (guard recall) · **Class:** guard coverage · **Filed:** 2026-08-17 (`fix/shell-binding-mixed-quoted-value`, class sweep of the mixed-quoted-value repair) · **Reachability:** PROBED at filing and re-probed at implementation.
+
+**Resolution.** `lexShellWords` gained an optional third out-parameter and now hands a DETACHED redirection target to it at flush instead of discarding it. The target is built by the ordinary loop, so it carries the lexer's own quote removal, ANSI-C decoding and escape handling for free — there is no second dequoting path that can drift from the first, which is the defect shape the 2026-08-17 arc retired when it deleted the per-delimiter pattern family.
+
+The here-string family became a UNION rather than a replacement. `READ_HERE_STRING` is kept in full for two reasons that are both regressions if ignored: it is the only reading that sees inside a `$(…)` body, and it is stricter-in-reverse on prose (`read -r MSG <<< 'psql failed to connect'` reports today and must keep reporting, while `valueBinds` alone declines it for carrying no flag-shaped token). The new word route matches the IDENTICAL `read` grammar with the value portion removed — one shared source string, so the two cannot drift — plus a `<<<` target belonging to the same LOGICAL line.
+
+**Association is by logical line, and getting it wrong would have been a FALSE CERTIFICATION**, not a miss: requiring the target on the `read`'s own physical line fails for both ordinary continuation positions, so the arm would have announced the family closed while a continuation still hid one.
+
+**The site path is unchanged BY CONSTRUCTION, not by care.** Targets never enter the returned word array and `scanShellText` passes no array, so it receives a byte-identical `ShellWord[]`. The diff shows no code line touching `scanShellText` or the attached-target regex, and the suite asserts the behaviour as well — a retained target is invisible to the site path AND to the assignment route, which is a second consumer a `scanShellText`-only filter would have left exposed.
+
+**What was NOT closed, and why.** The ATTACHED redirection family is withdrawn scope, filed as `BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION` with both closing readings recorded as REFUSED. It is a MISSED SITE for an executing psql rather than a missed discovery hit, it is PRE-EXISTING, and the only readings that would close it either break the by-construction site-path identity this arm rests on or add machinery with the miss still in place.
+
+## BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE — quoting inside a `${…}` operand hides a psql default — CLOSED 2026-08-20 (`fix/shell-lexer-quoted-value-recall`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-20 · **Effort (as shipped):** M · **Severity (as filed):** LOW (guard recall) · **Class:** guard coverage · **Filed:** 2026-08-17 (`fix/shell-binding-mixed-quoted-value`, plan adversarial round 2) · **Reachability:** PROBED at filing and re-probed at implementation.
+
+**Resolution, and it is NARROWER than the filing imagined.** The lexer still consumes a `${…}` expansion whole and still appends the raw slice as one opaque word — the property that stops brace-protected whitespace from splitting a redirection target into a phantom argv word. What was added is a DECISION recorded alongside it: when the whole value is one expansion drawn from a six-member ACCEPT-SET (`:-` `-` `:=` `=` `:+` `+`), its dequoted operand becomes an ADDITIONAL string tested by the SAME `valueBinds` predicate. The verbatim text is still tested, so every existing verdict is bit-for-bit what it was.
+
+**Three properties are structural rather than guarded**, which is what makes the complement's default-deny true by construction instead of by promise: the candidate is recorded in the `${…}` BRANCH, which is unreachable inside double quotes (so `PG="${U:-'psql'}"` stays 0, where bash really binds the literal `'psql'` and the zero is CORRECT); the span's position is recorded and the CONSUMER compares it to where its own value starts, so the lexer stays ignorant of the assignment grammar while composition remains unreadable; and an expansion the accept-set does not contain is never opened, whether it stands alone or WRAPS one that is.
+
+**The withdrawn wider model is the reason for the narrowness.** A substitution model was tried at spec round 3 and withdrawn at round 4: it read an accepted child inside a NON-accepted parent, so `U=xpsql; PG=${U#${V:-'psql'}}` yielded the candidate `${U#psql}` and REPORTED while bash binds `xpsql`. Wrongly-loud is the one direction the consequence bound forbids, and whole-value-only removes the mechanism that generated it rather than adding care around it. Composition returned to being a documented limit (spec §6 item 9), which is where it sat before the arc and outside what either row named.
+
+**An ACCEPT-SET WITH DEFAULT-DENY is what closed the axis.** Spec rounds 1 and 2 each spent a finding on an operator a list had failed to name. A list over a grammar admits one more round indefinitely; a six-member accept-set plus a complement default cannot. It also yields a decision rule needing no orchestrator: a later finding INSIDE the accept set is a bug in promised scope, and OUTSIDE it is a documented limit by construction.
+
+**The mutation ledger was RE-DERIVED, not inherited, and that is where the arc's sharpest find was.** All 24 equivalence rows re-keyed and a 25th added (63 mutants → 67) AT THE TIME THIS ROW WAS ARCHIVED; two diff-review rounds then moved every site again and added two more rows, and the shipped vector is **74 mutants, 26 `equivalent`, 48 counted, 48 killed, score 1.0000** — see the plan's §12 close-out, which is canonical for the numbers. Re-reading each ARGUMENT at its new site found one that had genuinely STOPPED being true: the split reading's `part.length > 0` filter rested on every caller trimming the value's IFS edges, and arm 2 had added a caller that did not. Probed: `PG=${U:-" /tmp/O'Reilly/psql -X"}` reported 1 shipped and 0 under that mutant — a separating input. Repaired by trimming the candidate where it is produced, with the separating input recorded on the registry row and pinned in the deciding suite. Re-keying alone would have shipped a false equivalence claim.
+
+**The gate's first run is part of the record, not a draft.** It scored 0.9545 with two unaccepted survivors, and both were dispositioned rather than accepted: the line loop in the function arm 1 added is genuinely equivalent and carries the 25th row, and a `depth > 8` recursion counter was DELETED rather than covered, because an operand is strictly shorter than the span it came from and the descent terminates on length alone. Narrowing, per the standing repair direction: remove the site rather than add a fixture for machinery that does no work. Final: 42/42 AT THE BRANCH POINT (superseded: 48/48 over 74 mutants as shipped, after diff rounds 1-3) = 1.0000 with an EMPTY unaccepted-survivor set.
+
+**The fleet 17/17.1 check found one gap in the shipped tests**, run over the plan's own weaker-implementation table rather than from recall, in three states rather than two. Six of seven weaker implementations were already PROVEN. **Superseded:** the audit was RE-DERIVED for diff rounds 2 and 3 rather than carried over and stands at NINE cases, 9 of 9 PROVEN. The seventh was PRESENT-BUT-UNPROVEN: killer 4's `read -r PG < ${U:-psql}` is decided by the read-grammar PREFIX, which requires `<<<`, so that line never reaches the per-target operator check and stays 0 under an operator-blind implementation too. `read -r PG <<< notpsql > ${U:-psql}` discriminates (0 shipped, 1 operator-blind) and is now pinned. **Superseded count:** the audit was RE-DERIVED for diff round 2's rules rather than carried over, and stands at **9 of 9 PROVEN** — each built on the real surface and the source blob-verified after every case.
+
+**Spec and plan stages were closed by ORCHESTRATOR SHIP-AND-FENCE at the round cap**, not by an APPROVE verdict: spec 5 dispatches (findings 2/4/2/5/1), plan 4 dispatches (6/4/3/2, decreasing every round, both final findings fully repaired). All 28 findings were accepted; none was refuted. Recorded here because a stage with no APPROVE and no explanation is indistinguishable on disk from a skipped gate.
 
 ## BL-MUTATION-BROWSER-CHILD-LIFETIME — the browser mutation gate spawns Playwright children with no lifetime bound — CLOSED 2026-08-20 (`fix/mutation-browser-child-lifetime`, SHIPPED)
 

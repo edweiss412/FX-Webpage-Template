@@ -48,6 +48,7 @@ import {
   scanShellIndirection,
   argvSuppressesStartupFiles,
   collectPsqlUsage,
+  REDIRECTION_PARTITION,
   rootSkipNamesFromGitignore,
   scanBinaryIndirection,
   scanSource,
@@ -5156,6 +5157,1001 @@ describe("mixed-quoted assignment values (BL-SHELL-BINDING-MIXED-QUOTED-VALUE)",
   });
 });
 
+describe("arm 1 - a DETACHED here-string target is read from the lexer's retained word", () => {
+  // Ledger: BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE. Design:
+  // docs/superpowers/specs/ci/2026-08-20-shell-lexer-quoted-value-recall-design.md
+  // sections 3.1-3.2. `lexShellWords` gains an optional third out-parameter and
+  // pushes the DETACHED redirection target there instead of discarding it, so
+  // the target carries the lexer's OWN quote removal, ANSI-C decoding and
+  // escape handling - there is no second dequoting path that can drift from the
+  // first, which is the defect shape the 2026-08-17 arc retired when it deleted
+  // the per-delimiter pattern family. The here-string rule then becomes a
+  // UNION: the existing READ_HERE_STRING pattern (kept - it is the only reading
+  // that sees inside a `$(...)` body, and it is stricter-in-reverse on prose)
+  // plus a `read`-grammar PREFIX match with a `<<<` target belonging to the same
+  // LOGICAL line.
+  //
+  // EVERY fixture below sits ALONE on its own line. `scanShellIndirection` has
+  // TWO emission routes, and the coalesced LINE route emits at most ONE hit per
+  // line (`hit = assigned ?? aliased ?? functionDef ?? githubEnvWrite ??
+  // positionalBinding`), so a here-string sharing its line with an assignment
+  // binding could not fail whatever this rule does.
+  test.each([
+    ["A1 a mixed-quoted target", "read -r PG <<< p'sql'\n", "read -r PG <<< psql\n"],
+    ["A6 an ANSI-C target", "read -r PG <<< $'p\\163ql'\n", "read -r PG <<< psql\n"],
+    [
+      "H4 a quoted DIRECTORY component",
+      "read -r PG <<< /usr/'bin'/psql\n",
+      "read -r PG <<< /usr/bin/psql\n",
+    ],
+    [
+      "N1 a continuation BEFORE the operator",
+      "read -r PG \\\n <<< p'sql'\n",
+      "read -r PG \\\n <<< psql\n",
+    ],
+    [
+      "N2 a continuation BETWEEN the operator and its target",
+      "read -r PG <<< \\\n p'sql'\n",
+      "read -r PG <<< \\\n psql\n",
+    ],
+  ])("%s binds psql from the here-string", (label, mixed, plain) => {
+    // The premise is computed on THIS row's own plain sibling, which differs
+    // from the fixture by exactly one variable - the quoting of the target -
+    // so the flip is attributable to the target's dequoting and not to the
+    // rule never having been reached.
+    premise(
+      `${label}: the PLAIN spelling of this same fixture already reaches the here-string rule`,
+      scanShellIndirection(plain, "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection(mixed, "x.sh"), label).toHaveLength(1);
+  });
+
+  // A7 sits inside a `$(...)` body, where `visitBody` emits INDEPENDENTLY of and
+  // BEFORE the coalesced line route: `X=$(read -r PG <<< psql)` reports TWICE
+  // today, once per route. So a count assertion here would be satisfied by
+  // nested DISCOVERY rather than by the here-string route under test. Both the
+  // premise and the assertion are therefore on hit TEXT: route B can only ever
+  // emit the BODY's text, so a hit carrying the OUTER line is the here-string
+  // route and nothing else.
+  test("A7 a mixed-quoted target inside a command substitution binds psql", () => {
+    const mixed = "X=$(read -r PG <<< p'sql')\n";
+    const plain = "X=$(read -r PG <<< psql)\n";
+    premiseHolds(
+      "A7: the plain spelling's here-string route already emits a hit carrying the OUTER line, distinguishable from visitBody's body-text hit",
+      scanShellIndirection(plain, "x.sh").some((hit) => hit.text === "X=$(read -r PG <<< psql)"),
+    );
+    expect(scanShellIndirection(mixed, "x.sh").map((hit) => hit.text)).toContain(
+      "X=$(read -r PG <<< p'sql')",
+    );
+  });
+
+  // ── Killers: each rule against the strictly weaker implementation that would
+  // pass a naive fixture set. Every expect-CLEAN case below is PAIRED with a
+  // reporting twin differing by exactly ONE variable on the SAME machinery,
+  // because a fixture expecting clean is satisfied by any implementation that
+  // fails to look at all - a broken parse, a wrong operator, an empty target
+  // list. The pair is what makes the zero attributable.
+
+  // Killer 3 - association is by LOGICAL line, not "any `<<<` target anywhere
+  // in the file". The single variable between the two fixtures is WHICH LINE
+  // carries the psql-bearing target; everything else is byte-identical.
+  test("killer 3: a `<<<` target on ANOTHER logical line does not bind the read", () => {
+    const elsewhere = "read -r PG <<< notpsql\ncat x <<< psql\n";
+    const ownLine = "read -r PG <<< psql\ncat x <<< notpsql\n";
+    premise(
+      "the one-variable twin, with the psql target on the READ's own logical line, reports",
+      scanShellIndirection(ownLine, "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection(elsewhere, "x.sh")).toHaveLength(0);
+  });
+
+  // Killer 4 - the whole-value rule applies to a `<<<` target SPECIFICALLY. An
+  // operator-blind implementation that keeps the read-prefix and logical-line
+  // checks but ignores WHICH redirection the target belongs to reports here,
+  // because with `<` the shell hands `read` the FILE'S CONTENT (bash binds
+  // `psql-file-content`, probed) rather than the word. The single variable is
+  // the operator. `cat x > ${U:-psql}` would NOT be a valid killer: it carries
+  // no `read`, so the prefix check alone rejects it and it cannot discriminate.
+  // Killer 4-prime, and it is the one that actually exercises the per-target
+  // operator check. The fixture below is decided by a DIFFERENT rule: the
+  // read-grammar PREFIX requires `<<<`, so a line carrying only a `<` never
+  // reaches the target loop at all and stays 0 under an operator-blind
+  // implementation too. This one puts a `<<<` read AND a second, non-`<<<`
+  // target on the same logical line, so the prefix matches and the operator
+  // check is the only thing between the `>` target and the predicate. Probed:
+  // 0 shipped, 1 with the operator check removed.
+  test("killer 4: a NON-here-string target on a read's own line is not read", () => {
+    const otherOperator = "read -r PG <<< notpsql > ${U:-psql}\n";
+    const onTheHereString = "read -r PG <<< ${U:-psql} > notpsql\n";
+    premise(
+      "the one-variable twin, the same psql value moved onto the `<<<` target, reports",
+      scanShellIndirection(onTheHereString, "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection(otherOperator, "x.sh")).toHaveLength(0);
+  });
+
+  // Killer 4 - a `<` target is not a here-string. NOTE what decides this one:
+  // the read-grammar PREFIX requires `<<<`, so this line never reaches the
+  // target loop. It pins the PREFIX rule, not the per-target operator check;
+  // the fixture above is the one for that.
+  test("killer 4: a `<` target that is not a here-string does not bind the read", () => {
+    const notHereString = "read -r PG < ${U:-psql}\n";
+    const hereString = "read -r PG <<< ${U:-psql}\n";
+    premise(
+      "the one-variable twin, with `<<<` in place of `<` and the same target text, reports",
+      scanShellIndirection(hereString, "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection(notHereString, "x.sh")).toHaveLength(0);
+  });
+
+  // Killer 5 - retained targets must never reach argv, and the ASSIGNMENT route
+  // is a SECOND consumer of the word array. An implementation that adds targets
+  // to the words and filters them at the `scanShellText` consumer only leaves
+  // the retained `PG=psql` visible to `assignmentBindingLines`, which reports.
+  // The single variable is the `cat x > ` redirection prefix.
+  test("killer 5: a retained target is invisible to the ASSIGNMENT route", () => {
+    const asTarget = "cat x > PG=psql\n";
+    const asAssignment = "PG=psql\n";
+    premise(
+      "the one-variable twin, the same `PG=psql` word with no redirection in front of it, reports through the assignment route",
+      scanShellIndirection(asAssignment, "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection(asTarget, "x.sh")).toHaveLength(0);
+  });
+
+  // The other half of killer 5, and the executable half of AC-3: the SITE path
+  // must be byte-identical in behavior. `scanShellText` passes no targets array,
+  // so it receives the same `ShellWord[]` it does today - a property of the
+  // signature rather than of careful editing at each consumer.
+  test("killer 5: a retained target is invisible to the SITE path", () => {
+    expect(sitesIn("cat x > psql\n", "x.sh")).toHaveLength(0);
+    const sites = sitesIn("psql -X -qAt mydb > out.sql\n", "x.sh");
+    expect(sites).toHaveLength(1);
+    expect(sites[0]!.tokens).toEqual(["-X", "-qAt", "mydb"]);
+    expect(sites[0]!.suppressesStartupFiles).toBe(true);
+  });
+});
+
+describe("arm 2 - a WHOLE-VALUE accepted expansion has its operand decided", () => {
+  // Ledger: BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE. Design:
+  // docs/superpowers/specs/ci/2026-08-20-shell-lexer-quoted-value-recall-design.md
+  // section 3.3. The lexer consumes a `${...}` expansion whole and appends the
+  // raw slice as ONE opaque word - the property that stops brace-protected
+  // whitespace from splitting a redirection target into a phantom argv word,
+  // and it is PRESERVED. Arm 2 adds a DECISION alongside that word: when the
+  // whole value is one expansion drawn from a six-member ACCEPT-SET, its
+  // dequoted operand becomes an ADDITIONAL string tested by the SAME
+  // `valueBinds` predicate. The verbatim text is still tested, unchanged.
+  //
+  // Every fixture sits ALONE on its own line, and every premise below is that
+  // row's OWN plain sibling - the identical spelling with the operand's quoting
+  // removed - so each flip is attributable to the operand's dequoting and to
+  // nothing else. Each was measured at 1 on this branch before the arm landed.
+  test.each([
+    ["C1 a single-quoted operand", "PG=${U:-'psql'}\n", "PG=${U:-psql}\n"],
+    ["C2 a mixed double-quoted operand", 'PG=${U:-p"sql"}\n', "PG=${U:-psql}\n"],
+    ["C3 an ANSI-C operand", "PG=${U:-$'p\\163ql'}\n", "PG=${U:-psql}\n"],
+    ["C5 the assign-default operator", "PG=${U:='psql'}\n", "PG=${U:=psql}\n"],
+    ["C6 the alternate operator", "PG=${U:+'psql'}\n", "PG=${U:+psql}\n"],
+    ["C7 the unset-only default operator", "PG=${U-'psql'}\n", "PG=${U-psql}\n"],
+    ["C9 a NESTED accepted operand", "PG=${U:-${V:-'psql'}}\n", "PG=${U:-${V:-psql}}\n"],
+    ["K1 the bare assign operator", "PG=${U='psql'}\n", "PG=${U=psql}\n"],
+    ["K2 the bare alternate operator", "PG=${U+'psql'}\n", "PG=${U+psql}\n"],
+    ["L1 a MULTIWORD bare operand", "PG=${U:-psql -X}\n", "PG=${U:-psql}\n"],
+    ["L2 a multiword operand, quoted command", "PG=${U:-'psql' -X}\n", "PG=${U:-psql}\n"],
+    ["L3 a multiword operand, wholly quoted", "PG=${U:-'psql -X'}\n", "PG=${U:-psql}\n"],
+  ])("%s binds psql", (label, value, plain) => {
+    premise(
+      `${label}: this row's own plain sibling already reports through the expansion route`,
+      scanShellIndirection(plain, "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection(value, "x.sh"), label).toHaveLength(1);
+  });
+
+  // The SECOND site: a here-string TARGET whose entire text is one accepted
+  // expansion gets the identical rule, which is what makes the two arms
+  // compose. Arm 1's retention is what makes this site exist at all - before
+  // it there was no target to decide. Same predicate, second call site, not a
+  // second mechanism.
+  test.each([
+    ["R1 a single-quoted operand", "read -r PG <<< ${U:-'psql'}\n", "read -r PG <<< ${U:-psql}\n"],
+    [
+      "R2 a mixed double-quoted operand",
+      'read -r PG <<< ${U:-p"sql"}\n',
+      "read -r PG <<< ${U:-psql}\n",
+    ],
+    [
+      "R3 the assign-default operator",
+      "read -r PG <<< ${U:='psql'}\n",
+      "read -r PG <<< ${U:=psql}\n",
+    ],
+    ["R4 the alternate operator", "read -r PG <<< ${U:+'psql'}\n", "read -r PG <<< ${U:+psql}\n"],
+    [
+      "R5 the unset-only default operator",
+      "read -r PG <<< ${U-'psql'}\n",
+      "read -r PG <<< ${U-psql}\n",
+    ],
+    ["R6 the bare assign operator", "read -r PG <<< ${U='psql'}\n", "read -r PG <<< ${U=psql}\n"],
+    [
+      "R7 the bare alternate operator",
+      "read -r PG <<< ${U+'psql'}\n",
+      "read -r PG <<< ${U+psql}\n",
+    ],
+    [
+      "R8 a NESTED accepted operand",
+      "read -r PG <<< ${U:-${V:-'psql'}}\n",
+      "read -r PG <<< ${U:-${V:-psql}}\n",
+    ],
+  ])("%s binds psql through a here-string target", (label, value, plain) => {
+    premise(
+      `${label}: this row's own plain sibling already reports through the here-string target`,
+      scanShellIndirection(plain, "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection(value, "x.sh"), label).toHaveLength(1);
+  });
+
+  // The candidate is TRIMMED on its default-IFS edges, like every other value
+  // `valueBinds` sees. Pinned because that trim is load-bearing for a mutation
+  // equivalence claim, not merely tidy: the SPLIT reading decides this value
+  // (the eval reading takes the pathname apostrophe as syntax and declines),
+  // and an untrimmed operand puts an empty string at argv[0], which silently
+  // declines it. bash binds ` /tmp/O'Reilly/psql -X` here and word-splits it at
+  // the use site, so the report is correct.
+  test("a candidate is trimmed on its IFS edges, so the split reading still sees argv[0]", () => {
+    const leading = 'PG=${U:-" /tmp/O\'Reilly/psql -X"}\n';
+    const flush = 'PG=${U:-"/tmp/O\'Reilly/psql -X"}\n';
+    premise(
+      "the one-variable twin, the same operand with no leading space, reports",
+      scanShellIndirection(flush, "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection(leading, "x.sh")).toHaveLength(1);
+  });
+
+  // Killer 1 - the candidate exists ONLY when the WHOLE value is one accepted
+  // expansion. The strictly weaker implementation is the SUBSTITUTION model the
+  // round-3 spec draft carried, which read the operand of any accepted `${...}`
+  // appearing ANYWHERE in the value. It was withdrawn because it produced a
+  // FALSE REPORT across a complement boundary, and wrongly-loud is the one
+  // direction the consequence bound does not permit.
+  test("killer 1: an accepted expansion COMPOSED with literal text is not read", () => {
+    // bash binds `ppsql` here, so the zero is CORRECT, not merely conservative.
+    const composed = 'PG=p${U:-"psql"}\n';
+    const alone = 'PG=${U:-"psql"}\n';
+    premise(
+      "the one-variable twin, the same operand with no literal text before the span, reports",
+      scanShellIndirection(alone, "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection(composed, "x.sh")).toHaveLength(0);
+  });
+
+  test("killer 1: an accepted expansion INSIDE a complement member is not read", () => {
+    // The substitution model yielded the candidate `${U#psql}` here and
+    // reported, while bash binds `xpsql`. This is the exact false report the
+    // whole-value fence removes by construction rather than by care.
+    const wrapped = "U=xpsql\nPG=${U#${V:-'psql'}}\n";
+    const unwrapped = "U=xpsql\nPG=${V:-'psql'}\n";
+    premise(
+      "the one-variable twin, the same accepted span with no complement member around it, reports",
+      scanShellIndirection(unwrapped, "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection(wrapped, "x.sh")).toHaveLength(0);
+  });
+
+  // Killer 2 - the accept-set is exactly six operators and the whole complement
+  // is DEFAULT-DENIED. The strictly weaker implementation is a DENYLIST ("any
+  // operator except `#`, `%`, `/`"), which silently accepts the error-word,
+  // substring, case-modification and transformation forms. `${U:?word}` is
+  // outside such a denylist, so a denylist reads its operand `psql` and REPORTS
+  // - while bash binds NOTHING there, because the expansion errors and the
+  // shell exits. `${U:1}` is NOT a killer: a denylist reading it extracts the
+  // operand `1`, which the predicate rejects anyway, so both implementations
+  // agree and the fixture cannot discriminate.
+  test("killer 2: the error-word operator is outside the accept-set and is not read", () => {
+    const errorWord = "PG=${U:?'psql'}\n";
+    const accepted = "PG=${U:-'psql'}\n";
+    premise(
+      "the one-variable twin, the same operand under an ACCEPTED operator, reports",
+      scanShellIndirection(accepted, "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection(errorWord, "x.sh")).toHaveLength(0);
+  });
+
+  // The DEFAULT-DENY complement, made EXECUTABLE rather than merely asserted.
+  // Every row carries the value it holds TODAY, measured on this branch, and
+  // the case asserts the WHOLE table at once - so a change that starts reading
+  // ANY complement operand moves at least one row and fails here.
+  //
+  // The mixed directions are the point, and they are what make this table a
+  // real check rather than an absence-asserting one: the rows at 1 report
+  // through the VERBATIM text for a pre-existing reason (a bare `psql` survives
+  // in the word), and a candidate that started reading them would not change
+  // those. So the zeros carry the discriminating weight while the ones are the
+  // must-be-PRESENT control that proves the machinery ran at all.
+  //
+  // Recorded because it contradicts the plan's transcribed table: the
+  // case-modification and transformation rows are 0 STANDALONE. Section 4's `1`
+  // for them belongs to the `U=psql;` prefix in the probe spelling, where the
+  // ASSIGNMENT route decides the observation - a different rule from the one
+  // under test - so the standalone spelling is what is pinned here.
+  test("every DEFAULT-DENIED complement operator keeps exactly today's reading", () => {
+    const rows: Array<[label: string, source: string]> = [
+      ["pattern # quoted", "PG=${U#'psql'}\n"],
+      ["pattern % quoted", "PG=${U%'psql'}\n"],
+      ["pattern / quoted", "PG=${U/'psql'/x}\n"],
+      ["length", "PG=${#psql}\n"],
+      ["pattern # bare", "PG=${U#psql}\n"],
+      ["error word quoted", "PG=${U:?'psql'}\n"],
+      ["indirection", "PG=${!psql}\n"],
+      ["subscript", "PG=${A[psql]}\n"],
+      ["substring offset", "PG=${U:1}\n"],
+      ["substring offset and length", "PG=${U:1:4}\n"],
+      ["substring negative offset", "PG=${U: -4}\n"],
+      ["case modification ^", "PG=${U^}\n"],
+      ["case modification ,,", "PG=${U,,}\n"],
+      ["transformation @Q", "PG=${U@Q}\n"],
+      ["transformation @U", "PG=${U@U}\n"],
+      ["target, pattern #", "read -r PG <<< ${U#'psql'}\n"],
+      ["target, substring", "read -r PG <<< ${U:1}\n"],
+    ];
+    const measured = rows.map(([label, source]) => [
+      label,
+      scanShellIndirection(source, "x.sh").length,
+    ]);
+    expect(measured).toEqual([
+      ["pattern # quoted", 0],
+      ["pattern % quoted", 0],
+      ["pattern / quoted", 0],
+      ["length", 1],
+      ["pattern # bare", 1],
+      ["error word quoted", 0],
+      ["indirection", 1],
+      ["subscript", 1],
+      ["substring offset", 0],
+      ["substring offset and length", 0],
+      ["substring negative offset", 0],
+      ["case modification ^", 0],
+      ["case modification ,,", 0],
+      ["transformation @Q", 0],
+      ["transformation @U", 0],
+      ["target, pattern #", 0],
+      ["target, substring", 0],
+    ]);
+  });
+
+  // The remaining section 4 "unchanged" rows, pinned at the value measured on
+  // this branch. Pinning ALL of them is what makes AC-2 true as written;
+  // leaving a subset would require arguing which rows are "plausibly" movable,
+  // which is exactly the judgment a reviewer would relitigate. Sites and hits
+  // are asserted in ONE table so a change that moves any of them fails here.
+  test("every remaining section 4 unchanged row holds its probed value", () => {
+    const hitRows: Array<[label: string, source: string]> = [
+      ["A3 the ATTACHED here-string, withdrawn scope", "read -r PG <<<p'sql'\n"],
+      ["A5 a fully quoted target", "read -r PG <<< 'psql'\n"],
+      ["A10 a notpsql target", "read -r PG <<< notpsql\n"],
+      ["F1 a DETACHED substitution target", "cat x > $(command -v psql)\n"],
+      ["F2 the ATTACHED substitution target", "cat x >$(command -v psql)\n"],
+      ["E2 a notpsql operand", "PG=${U:-'notpsql'}\n"],
+      ["E5 a double-quoted WHOLE expansion", "PG=\"${U:-'psql'}\"\n"],
+      ["Q2 a composed value inside double quotes", 'PG="p${U:-sql}"\n'],
+    ];
+    expect(
+      hitRows.map(([label, source]) => [label, scanShellIndirection(source, "x.sh").length]),
+    ).toEqual([
+      ["A3 the ATTACHED here-string, withdrawn scope", 0],
+      ["A5 a fully quoted target", 1],
+      ["A10 a notpsql target", 0],
+      ["F1 a DETACHED substitution target", 1],
+      ["F2 the ATTACHED substitution target", 0],
+      ["E2 a notpsql operand", 0],
+      ["E5 a double-quoted WHOLE expansion", 0],
+      ["Q2 a composed value inside double quotes", 0],
+    ]);
+
+    const siteRows: Array<[label: string, source: string]> = [
+      ["A9 a here-DOC body", "read -r PG <<EOF\npsql\nEOF\n"],
+      ["B2 a redirection target NAMED psql, quoted", "cat x > 'psql'\n"],
+      ["B4 a psql call carrying a redirection", "psql -qAt mydb > out.sql\n"],
+      ["F10 a psql call carrying an INPUT redirection", "psql -X -qAt mydb < in.sql\n"],
+      ["F11 a psql call, ATTACHED output redirection", "psql -qAt mydb>out.sql\n"],
+      ["G1 an unquoted here-DOC body", "cat <<EOF\npsql -qAt mydb\nEOF\n"],
+      ["G2 a quoted here-DOC body", "cat <<'EOF'\npsql -qAt mydb\nEOF\n"],
+    ];
+    expect(
+      siteRows.map(([label, source]) => {
+        const sites = sitesIn(source, "x.sh");
+        return [label, sites.length, sites.map((s) => s.suppressesStartupFiles)];
+      }),
+    ).toEqual([
+      ["A9 a here-DOC body", 1, [false]],
+      ["B2 a redirection target NAMED psql, quoted", 0, []],
+      ["B4 a psql call carrying a redirection", 1, [false]],
+      ["F10 a psql call carrying an INPUT redirection", 1, [true]],
+      ["F11 a psql call, ATTACHED output redirection", 1, [false]],
+      ["G1 an unquoted here-DOC body", 1, [false]],
+      ["G2 a quoted here-DOC body", 1, [false]],
+    ]);
+  });
+});
+
+describe("diff review round 1 - the four findings, each pinned", () => {
+  // F1. `read NAME` binds the FIRST LINE of its input with default-IFS edges
+  // stripped, not the whole here-string. Reading the entire target both MISSED
+  // bindings bash makes and REPORTED one it does not, so the two directions are
+  // pinned together - a fixture set carrying only the misses would go green on
+  // an implementation that reads the whole target and merely got luckier.
+  test("F1: a here-string target is read as `read` reads it - first line, IFS-trimmed", () => {
+    const rows: Array<[label: string, source: string, hits: number]> = [
+      ["a trailing line is not part of the binding", "read -r PG <<< $'psql\\nignored'\n", 1],
+      ["IFS edges are stripped", "read -r PG <<< $'\\tpsql '\n", 1],
+      ["the psql is on a line `read` never binds", "read -r PG <<< $'other\\npsql -X'\n", 0],
+    ];
+    premise(
+      "the single-line sibling of all three reaches the rule and reports",
+      scanShellIndirection("read -r PG <<< $'psql'\n", "x.sh").length,
+      0,
+    );
+    expect(rows.map(([l, s]) => [l, scanShellIndirection(s, "x.sh").length])).toEqual(
+      rows.map(([l, , h]) => [l, h]),
+    );
+  });
+
+  // F2. Membership of a LOGICAL LINE is not membership of a COMMAND. Both
+  // orders are pinned because the defect is symmetric, and the one-variable
+  // twin keeps the same two targets on the same line with the separator
+  // removed, so the zero is attributable to the separator and not to the
+  // machinery having stopped looking.
+  test("F2: a target belonging to ANOTHER command on the same line does not bind the read", () => {
+    const after = 'read -r PG <<< notpsql; cat <<< p"sql"\n';
+    const before = 'cat <<< p"sql"; read -r PG <<< notpsql\n';
+    const oneCommand = "read -r PG <<< p'sql'\n";
+    premise(
+      "the one-variable twin, a single command on the line, reports",
+      scanShellIndirection(oneCommand, "x.sh").length,
+      0,
+    );
+    expect([
+      ["separator after the read", scanShellIndirection(after, "x.sh").length],
+      ["separator before the read", scanShellIndirection(before, "x.sh").length],
+    ]).toEqual([
+      ["separator after the read", 0],
+      ["separator before the read", 0],
+    ]);
+  });
+
+  // F3. The accept-set is about the OPERATOR, and a positional or special
+  // parameter takes the same value-supplying operators an identifier does. An
+  // identifier-only name reading default-denied spellings the accept-set had
+  // already promised, which is a defect INSIDE promised scope rather than a
+  // request to widen it.
+  test.each([
+    ["a positional parameter, default", "PG=${1:-'psql'}\n", "PG=${U:-'psql'}\n"],
+    ["a positional parameter, alternate", "PG=${1:+'psql'}\n", "PG=${U:+'psql'}\n"],
+  ])("F3: %s binds psql", (label, positional, identifier) => {
+    premise(
+      `${label}: the identifier-named twin, differing only in the PARAMETER, reports`,
+      scanShellIndirection(identifier, "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection(positional, "x.sh"), label).toHaveLength(1);
+  });
+
+  // F3, the other direction: widening the NAME must not widen the ACCEPT-SET.
+  // `${#psql}` and `${!psql}` now parse a name where they did not before, and
+  // must still find no accepted operator after it.
+  test("F3: a widened parameter name does not admit a complement operator", () => {
+    expect([
+      ["length", scanShellIndirection("PG=${#psql}\n", "x.sh").length],
+      ["indirection", scanShellIndirection("PG=${!psql}\n", "x.sh").length],
+      ["quoted length operand", scanShellIndirection("PG=${#'psql'}\n", "x.sh").length],
+      ["quoted indirection operand", scanShellIndirection("PG=${!'psql'}\n", "x.sh").length],
+    ]).toEqual([
+      // The first two report through the VERBATIM text for a pre-existing
+      // reason and are ratified out of scope in both directions. The quoted
+      // spellings are the ones a candidate would have to read, and they stay 0.
+      ["length", 1],
+      ["indirection", 1],
+      ["quoted length operand", 0],
+      ["quoted indirection operand", 0],
+    ]);
+  });
+
+  // F4. Quote removal turns `'${V:-psql}'` into text that LOOKS like an
+  // expansion and is not one - bash binds that literal string. Recursing on the
+  // DEQUOTED operand reinterpreted data as syntax, which is the withdrawn
+  // substitution model's defect one level down. Nesting is now decided on the
+  // RAW operand.
+  test("F4: a QUOTED literal that looks like an expansion is not resolved as one", () => {
+    const quotedLiteral = "PG=${U:-'${V:-p\"sql\"}'}\n";
+    const liveNesting = "PG=${U:-${V:-'psql'}}\n";
+    premise(
+      "the one-variable twin, the same shape with the inner expansion UNQUOTED and therefore live, reports",
+      scanShellIndirection(liveNesting, "x.sh").length,
+      0,
+    );
+    // Probed: 1 before the repair, 0 after, while the live-nesting twin holds at
+    // 1 - which is what separates the mechanism repair from a blanket decline.
+    expect(scanShellIndirection(quotedLiteral, "x.sh")).toHaveLength(0);
+  });
+
+  // F4's RESIDUAL, pinned as the documented limit it is rather than left
+  // unstated. With a BARE inner operand the dequoted literal still carries a
+  // word-boundaried `psql` and no rejected character, so it reports through
+  // `valueBinds`'s pre-existing fallback - the same conservative over-report
+  // `PG=${U#psql}` has always made. bash binds the literal `${V:-psql}`, so the
+  // report is LOUD rather than wrong-silent, which the consequence bound
+  // permits and section 1.1 row 6 ratifies out of scope in both directions.
+  test("F4 residual: a bare inner operand still over-reports through the verbatim fallback", () => {
+    expect([
+      ["single-quoted literal", scanShellIndirection("PG=${U:-'${V:-psql}'}\n", "x.sh").length],
+      ["ANSI-C literal", scanShellIndirection("PG=${U:-$'${V:-p\\163ql}'}\n", "x.sh").length],
+    ]).toEqual([
+      ["single-quoted literal", 1],
+      ["ANSI-C literal", 1],
+    ]);
+  });
+});
+
+describe("diff review round 2 - the two behavioural findings, each pinned", () => {
+  // F2. The parameter-name grammar CLAIMS special-parameter support and then
+  // omitted bash's `-`, so all six accept-set operators default-denied on it -
+  // twelve missed forms across the two consumers. This is a defect INSIDE the
+  // six-member accept-set, not a request to widen it, so the accept-set's own
+  // decision rule makes it a repair.
+  //
+  // All six are pinned, not only the two bash truly binds. `${-:+word}` and
+  // `${-+word}` yield `psql` because `$-` is always set and non-null (probed:
+  // `[X]`), while the four unset-branch spellings yield `$-` itself (probed:
+  // `[hBc]`). Reporting those four is the ratified MAY-BIND posture of §7.4 -
+  // the identical treatment `${U:-psql}` gets when `U` is set - and a
+  // conservative over-report is a documented limit, not a defect. Pinning only
+  // the two true binds would go green on an implementation that read the
+  // operator rather than the accept-set.
+  test.each([
+    ["alternate, colon form", "PG=${-:+'psql'}\n"],
+    ["alternate, bare form", "PG=${-+'psql'}\n"],
+    ["default, colon form", "PG=${-:-'psql'}\n"],
+    ["default, bare form", "PG=${--'psql'}\n"],
+    ["assign, bare form", "PG=${-='psql'}\n"],
+    ["assign, colon form", "PG=${-:='psql'}\n"],
+  ])("F2: the `-` special parameter takes the accept-set - %s", (label, source) => {
+    premise(
+      `${label}: the special-parameter twin already in the class reports, so the class is reached`,
+      scanShellIndirection("PG=${@:+'psql'}\n", "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection(source, "x.sh"), label).toHaveLength(1);
+  });
+
+  // The SECOND consumer, because the finding counted both sites: the operand
+  // rule is applied at the here-string target exactly as at an assignment
+  // value, so a repair reaching only `assignmentBindingLines` is not a repair.
+  test("F2: the `-` special parameter reaches the here-string target too", () => {
+    premise(
+      "the identifier-named twin at the SAME site reports, so the site is reached",
+      scanShellIndirection("read -r PG <<< ${U:+'psql'}\n", "x.sh").length,
+      0,
+    );
+    expect(scanShellIndirection("read -r PG <<< ${-:+'psql'}\n", "x.sh")).toHaveLength(1);
+  });
+
+  // F2, the other direction: widening the NAME must not widen the ACCEPT-SET.
+  // `-` now parses as a parameter where it did not before, so the complement
+  // spellings that begin with it must still find no accepted operator.
+  test("F2: `-` as a name does not admit a complement operator", () => {
+    expect([
+      ["substring", scanShellIndirection("PG=${-:1}\n", "x.sh").length],
+      ["quoted pattern operand", scanShellIndirection("PG=${-#'psql'}\n", "x.sh").length],
+      ["quoted suffix operand", scanShellIndirection("PG=${-%'psql'}\n", "x.sh").length],
+      ["quoted replacement operand", scanShellIndirection("PG=${-/x/'psql'}\n", "x.sh").length],
+    ]).toEqual([
+      ["substring", 0],
+      ["quoted pattern operand", 0],
+      ["quoted suffix operand", 0],
+      ["quoted replacement operand", 0],
+    ]);
+  });
+
+  // F3. `hereStringBindingLines` accepted ANY psql-bearing `<<<` target on the
+  // logical line rather than the EFFECTIVE final stdin redirection, so a
+  // here-string bash had already overridden was still read - a MIS-READ of
+  // statically-decided redirection precedence, which §7.4 separates from the
+  // ratified may-bind posture: may-bind covers what a static reader CANNOT
+  // know (is `U` set at expansion time), never what the shell decides on the
+  // page. That is the same class as round 1's F2, whose repair took the
+  // command boundary but left the redirection sequence unread.
+  //
+  // Both directions are pinned in one table. The override rows must go to 0 and
+  // the last-wins row must STAY 1: a repair that merely declined every line
+  // carrying two redirections would satisfy the zeros alone, and it is exactly
+  // the strictly-weaker implementation this fixture set has to kill.
+  // F3, THE NARROWING'S OWN FAILURE MODE. A narrowing that removes a false
+  // positive can MANUFACTURE a silent miss in the same edit, and the first
+  // shape of this repair did exactly that: pinning the text regex to the last
+  // `<<<` ON THE LINE let another command's target win, so
+  // `read -r PG <<< psql; cat <<< notpsql` went from a CORRECT report to zero
+  // while bash binds `psql`. The whole suite stayed green through it - these
+  // rows are the ones that would not have.
+  //
+  // Every row states what bash binds, so a zero is readable as "there is no
+  // binding" rather than as "the scanner declined". The psql-FIRST orderings
+  // are the load-bearing ones: they are real bindings, and any reach rule that
+  // can see past a separator silences them.
+  test("F3: declining a wrong attribution never silences a real binding", () => {
+    const rows: Array<[label: string, source: string, hits: number]> = [
+      // Real bindings across a command boundary - bash binds psql in both.
+      ["psql-bearing read, another command AFTER", "read -r PG <<< psql; cat <<< notpsql\n", 1],
+      ["psql-bearing read, another command BEFORE", "cat <<< notpsql; read -r PG <<< psql\n", 1],
+      // Not a binding - the psql target belongs to the OTHER command.
+      ["the psql target belongs to another command", "read -r PG <<< notpsql; cat <<< psql\n", 0],
+      // Not a binding - overridden inside the read's own command.
+      ["overridden within one command", "read -r PG <<< psql < /dev/null\n", 0],
+      // A real binding whose separator is DATA. The text route's reach is
+      // textual and cuts here; the WORD route reads the lexer's operator words,
+      // where a quoted `;` is data, and covers it. The union is the point.
+      ["a separator inside a quoted target is data", 'read -r PG <<< "a;b" <<< psql\n', 1],
+      // A DECLARED over-report, not silence: on a multi-command line the text
+      // route does not read redirection precedence, so this reports though bash
+      // binds empty. Over-report is the permitted arm.
+      [
+        "precedence is unread on a multi-command line",
+        "read -r PG <<< psql < /dev/null; cat x\n",
+        1,
+      ],
+    ];
+    premise(
+      "the single-command sibling of the psql-first rows reports, so the rule is reached",
+      scanShellIndirection("read -r PG <<< psql\n", "x.sh").length,
+      0,
+    );
+    expect(rows.map(([l, s]) => [l, scanShellIndirection(s, "x.sh").length])).toEqual(
+      rows.map(([l, , h]) => [l, h]),
+    );
+  });
+
+  // ROUND 3 F1. `read` binds the FIRST LINE of its input with default-IFS edges
+  // stripped, and round 1 established that for the target's own text. The
+  // EXPANSION candidate skipped it: the raw target `${U:-$'psql\nignored'}` is
+  // a single line, so the "nothing was truncated" guard passed on the RAW span
+  // while the DECODED operand it hands to `valueBinds` still carried its
+  // newline. Both directions were wrong, which is why both are pinned.
+  test("R3 F1: an expansion candidate is read as `read` reads it, not whole", () => {
+    const rows: Array<[label: string, source: string, hits: number]> = [
+      ["a trailing line is not part of the binding", "read -r PG <<< ${U:-$'psql\\nignored'}\n", 1],
+      ["the psql is on a line `read` never binds", "read -r PG <<< ${U:-$'other\\npsql -X'}\n", 0],
+      // OVER-report, declared. `read` binds the empty first line, but the raw
+      // span still carries a word-boundaried psql and the VERBATIM reading -
+      // which the candidate supplements rather than replaces (arm 2's ratified
+      // contract) - reports it. Wrongly-loud on an input bash binds empty is the
+      // permitted arm of the bound; the two rows above are the ones that had to
+      // move. Pinned at 1 so a later change to the verbatim posture is visible.
+      ["a leading newline is a declared over-report", "read -r PG <<< ${U:-$'\\npsql'}\n", 1],
+      ["IFS edges are stripped from the operand too", "read -r PG <<< ${U:-$'\\tpsql '}\n", 1],
+      // The same three through an assignment, where no `read` truncates and the
+      // whole operand binds -- so these must NOT move with the rows above.
+      // PRE-EXISTING zero, verified against the committed parent rather than
+      // assumed: a multiline expansion value in an ASSIGNMENT reported 0 before
+      // this change too, so it pins that the here-string repair did not reach
+      // the assignment route.
+      ["an assignment value is unchanged by this repair", "PG=${U:-$'psql\\nignored'}\n", 0],
+    ];
+    premise(
+      "the single-line expansion sibling reaches the candidate route and reports",
+      scanShellIndirection("read -r PG <<< ${U:-'psql'}\n", "x.sh").length,
+      0,
+    );
+    expect(rows.map(([l, s]) => [l, scanShellIndirection(s, "x.sh").length])).toEqual(
+      rows.map(([l, , h]) => [l, h]),
+    );
+  });
+
+  // ROUND 3 F2. Position after the effective operator is NECESSARY and not
+  // SUFFICIENT. A here-string on an explicit NON-ZERO fd sits after the
+  // effective stdin operator and was admitted by an ordering test alone, so
+  // `read -r PG <<< notpsql 2<<< psql` reported while bash binds `notpsql`.
+  // The target now carries the OFFSET of the operator that produced it, so the
+  // match is identity rather than inference.
+  test("R3 F2: a target belongs to the redirection that produced it", () => {
+    const rows: Array<[label: string, source: string, hits: number]> = [
+      ["an explicit fd 2 here-string is not stdin", "read -r PG <<< notpsql 2<<< p'sql'\n", 0],
+      ["a dynamic fd here-string is not stdin", "read -r PG <<< notpsql {v}<<< p'sql'\n", 0],
+      ["an explicit fd 9 here-string is not stdin", "read -r PG <<< notpsql 9<<< p'sql'\n", 0],
+      // The control the class is one edit from: remove the fd and it binds.
+      ["the same ordering WITHOUT an fd still binds", "read -r PG <<< notpsql <<< p'sql'\n", 1],
+      // And an explicit `0<<<` IS stdin, spelled the long way.
+      ["an explicit `0<<<` is stdin and binds", "read -r PG <<< notpsql 0<<< p'sql'\n", 1],
+      // The psql-bearing here-string on fd 0 with a NON-stdin one after it is
+      // still the effective one, so it must keep binding.
+      [
+        "a later non-stdin here-string does not override",
+        "read -r PG <<< p'sql' 2<<< notpsql\n",
+        1,
+      ],
+    ];
+    premise(
+      "the fd-less twin of the first row reports, so the difference is the fd",
+      scanShellIndirection("read -r PG <<< notpsql <<< p'sql'\n", "x.sh").length,
+      0,
+    );
+    expect(rows.map(([l, s]) => [l, scanShellIndirection(s, "x.sh").length])).toEqual(
+      rows.map(([l, , h]) => [l, h]),
+    );
+  });
+
+  // F3, DERIVED COVER. `INPUT_REDIRECTIONS` is a six-member list, and a list
+  // restated beside the grammar it claims to cover is the EXACT shape of this
+  // round's F2 - a class asserting full coverage while enumerating a subset.
+  // Shipping that shape inside F3's repair would have been the repair becoming
+  // the next round's defect, so the partition is asserted TOTAL over the one
+  // list the matching regex is itself built from: an operator added to
+  // `REDIRECTION_OPERATORS` and classified into neither half fails HERE rather
+  // than being silently read as output. This cannot be satisfied by a scanner
+  // that hardcodes today's twelve, because the expected side is computed from
+  // the shipped array rather than typed in.
+  test("F3: every redirection operator the lexer matches is explicitly classified", () => {
+    const { all, input, output } = REDIRECTION_PARTITION;
+    const unclassified = all.filter((op) => !input.has(op) && !output.has(op));
+    const doubleClassified = all.filter((op) => input.has(op) && output.has(op));
+    const strays = [...input, ...output].filter((op) => !(all as readonly string[]).includes(op));
+    expect({
+      unclassified,
+      doubleClassified,
+      strays,
+      total: input.size + output.size,
+      operators: all.length,
+    }).toEqual({
+      unclassified: [],
+      doubleClassified: [],
+      strays: [],
+      total: all.length,
+      operators: 12,
+    });
+  });
+
+  // The ATTACHED redirection family is WITHDRAWN SCOPE (spec section 6 item 3),
+  // and the F3 repair now records an attached redirection's OPERATOR in the
+  // lexer's ledger. Those two facts are easy to confuse, so the boundary is
+  // pinned: recording the operator is what lets an attached `</dev/null`
+  // OVERRIDE a here-string, while the attached TARGET is still never read as a
+  // binding. The zero below is the withdrawn family, unchanged by this arc.
+  test("F3: recording an attached operator does not read an attached TARGET", () => {
+    premise(
+      "the DETACHED spelling of the same binding reports, so the difference is attachment",
+      scanShellIndirection("read -r PG <<< p'sql'\n", "x.sh").length,
+      0,
+    );
+    expect([
+      [
+        "attached target, no override",
+        scanShellIndirection("read -r PG <<<p'sql'\n", "x.sh").length,
+      ],
+      [
+        "attached target, overridden",
+        scanShellIndirection("read -r PG <<<p'sql' < /dev/null\n", "x.sh").length,
+      ],
+    ]).toEqual([
+      ["attached target, no override", 0],
+      ["attached target, overridden", 0],
+    ]);
+  });
+
+  // F3, CLASS SWEEP. The here-string family is a UNION of a line-text reading
+  // (`READ_HERE_STRING`) and a lexed-word reading (`hereStringBindingLines`),
+  // and BOTH of round 1's F2 and round 2's F3 were repaired in the word route
+  // only - so the identical mis-attributions survived in the text route, which
+  // is a route and not a file and is therefore the "same defect, different
+  // site" the class-sweep rule refuses as a deferral. The word route's own
+  // fixtures could not see it: every one of them spells psql with an embedded
+  // quote (`p'sql'`), which the text route's value pattern rejects for an
+  // unrelated reason, so the two routes were never both live on one case.
+  // These rows spell it PLAINLY, which is what puts the text route in play.
+  test("F3 sweep: the text route obeys the same command and redirection gate", () => {
+    const rows: Array<[label: string, source: string, hits: number]> = [
+      [
+        "another command's target does not bind the read",
+        "read -r PG <<< notpsql; cat <<< psql\n",
+        0,
+      ],
+      ["a later detached `<` overrides it", "read -r PG <<< psql < /dev/null\n", 0],
+      ["a later here-string overrides it", "read -r PG <<< psql <<< notpsql\n", 0],
+      ["a later ATTACHED `<` overrides it", "read -r PG <<< psql </dev/null\n", 0],
+      // The prose reading is the text route's OWN contribution to the union -
+      // `valueBinds` declines it for carrying no flag-shaped token - so it is
+      // the row that proves the gate reached the text route rather than the
+      // word route having quietly covered these.
+      [
+        "a prose target is overridden too",
+        "read -r MSG <<< 'psql failed to connect' < /dev/null\n",
+        0,
+      ],
+      // The zeros above must not be bought by declining every line that carries
+      // two redirections: an EARLIER override that the here-string then replaces
+      // still binds, and so does a non-stdin descriptor.
+      [
+        "an earlier `<` is itself overridden by the here-string",
+        "read -r PG < /dev/null <<< psql\n",
+        1,
+      ],
+      ["an explicit non-zero fd does not touch stdin", "read -r PG <<< psql 2< /dev/null\n", 1],
+      ["the prose baseline still reports", "read -r MSG <<< 'psql failed to connect'\n", 1],
+      ["the plain baseline still reports", "read -r PG <<< psql\n", 1],
+      // The text route is the only reading that sees INSIDE a substitution body,
+      // so a gate that declined on the body's own punctuation would silently
+      // retire that contribution.
+      // The outer lex replaces a substitution body with an opaque word, so the
+      // ledger records no redirection within it and the gate does not apply
+      // there. TWO is the pre-existing union double-count for a plainly-spelled
+      // psql in a body, probed IDENTICAL at the committed parent, so this row
+      // pins that the sweep left the text route's unique contribution intact
+      // rather than pinning a number the repair chose.
+      ["a body the word route cannot see still reports", "X=$(read -r PG <<< psql)\n", 2],
+      // The same body WITH an override is the documented limit that boundary
+      // buys: the word route reads the body's own ledger and declines, the text
+      // route cannot see it, and the residue is a conservative over-report.
+      [
+        "an override INSIDE a body is a documented limit",
+        "X=$(read -r PG <<< psql < /dev/null)\n",
+        2,
+      ],
+    ];
+    premise(
+      "the plain single-redirection sibling reaches the text route and reports",
+      scanShellIndirection("read -r PG <<< psql\n", "x.sh").length,
+      0,
+    );
+    expect(rows.map(([l, s]) => [l, scanShellIndirection(s, "x.sh").length])).toEqual(
+      rows.map(([l, , h]) => [l, h]),
+    );
+  });
+
+  test("F3: the EFFECTIVE final fd-0 redirection decides, not any target on the line", () => {
+    const rows: Array<[label: string, source: string, hits: number]> = [
+      ["a later here-string overrides the psql one", "read -r PG <<< p'sql' <<< notpsql\n", 0],
+      ["a later detached `<` overrides it", "read -r PG <<< p'sql' < /dev/null\n", 0],
+      ["a later ATTACHED `<` overrides it", "read -r PG <<< p'sql' </dev/null\n", 0],
+      ["a later heredoc overrides it", "read -r PG <<< p'sql' << EOF\n", 0],
+      ["a later fd dup overrides it", "read -r PG <<< p'sql' <&3\n", 0],
+      ["a later read-write open overrides it", "read -r PG <<< p'sql' <> /tmp/f\n", 0],
+      // The psql here-string is itself the effective one, so it still binds.
+      ["the LAST here-string is the psql one", "read -r PG <<< notpsql <<< p'sql'\n", 1],
+      // `2<` opens fd 2, never stdin (probed: bash binds `psql`), so an
+      // fd-blind reading would take this to 0 and lose a real binding.
+      ["an explicit non-zero fd does not touch stdin", "read -r PG <<< p'sql' 2< /dev/null\n", 1],
+      // `{fd}<` assigns a FRESH descriptor, so it is not stdin either.
+      ["a dynamic fd does not touch stdin", "read -r PG <<< p'sql' {v}< /dev/null\n", 1],
+      // An explicit `0<` IS stdin, spelled the long way.
+      ["an explicit `0<` does override", "read -r PG <<< p'sql' 0< /dev/null\n", 0],
+      // An OUTPUT redirection after the here-string leaves stdin alone.
+      ["a later output redirection is not stdin", "read -r PG <<< p'sql' > notpsql\n", 1],
+    ];
+    premise(
+      "the single-redirection sibling of every row reaches the rule and reports",
+      scanShellIndirection("read -r PG <<< p'sql'\n", "x.sh").length,
+      0,
+    );
+    expect(rows.map(([l, s]) => [l, scanShellIndirection(s, "x.sh").length])).toEqual(
+      rows.map(([l, , h]) => [l, h]),
+    );
+  });
+});
+
+describe("arm 2 precision - the zeros that must STAY zero", () => {
+  // Every case here is a non-regression pin, and a pin against correct code
+  // cannot red on its own. Its red is authored against NAMED MUTANTS in
+  // `valueBinds` -- the separator rejection, the trailing-backslash rejection
+  // and the flag requirement -- applied and reverted inside the task that
+  // introduced this block, never committed. That makes the red SCANNER
+  // behaviour rather than a test-local edit.
+  //
+  // Each premise is computed from THAT ROW'S OWN fixture text. An adjacent
+  // case is explicitly NOT a premise: a sibling can hold while this row's own
+  // input never reaches the machinery at all, and a suite of zeros guarded by
+  // a neighbour's success is green about the neighbour.
+
+  /** A reading of the FIXTURE'S OWN BYTES, never of the scanner. It answers one
+   * structural question about the row: is this assignment's value, in its
+   * entirety, a single `${...}` span? Brace-matched rather than
+   * `startsWith`/`endsWith`, because `${U#x}${V:-"psql"}` satisfies both ends
+   * while being two spans. */
+  const wholeValueSpan = (source: string): string | null => {
+    const value = source
+      .trim()
+      .split("\n")
+      .at(-1)!
+      .replace(/^[A-Za-z_]\w*=/, "");
+    if (!value.startsWith("${") || !value.endsWith("}")) return null;
+    let depth = 0;
+    for (let i = 1; i < value.length; i++) {
+      if (value[i] === "{") depth++;
+      else if (value[i] === "}") {
+        depth--;
+        if (depth === 0) return i === value.length - 1 ? value.slice(2, i) : null;
+      }
+    }
+    return null;
+  };
+  /** The six-member accept-set, read off the fixture's own interior. */
+  const ACCEPTED = /^[A-Za-z_]\w*(?:\[[^\]]*\])?(?::-|:=|:\+|-|=|\+)/;
+
+  // CLASS A -- the candidate EXISTS and the PREDICATE declines it. The premise
+  // is the exact condition under which a candidate is built, computed on this
+  // row's own text, so the zero is attributable to the predicate rejecting the
+  // candidate rather than to no candidate having been built.
+  test.each([
+    ["a separator in the operand", "PG=${U:-'psql;x'}\n"],
+    ["a trailing backslash in the operand", "PG=${U:-'psql\\'}\n"],
+    ["a multiword operand carrying no flag", "PG=${M:-'psql failed to connect'}\n"],
+  ])("%s reaches the predicate and is declined", (label, source) => {
+    const interior = wholeValueSpan(source);
+    premiseHolds(
+      `${label}: this fixture's own value IS one accept-set span whose operand carries psql, which is exactly when a candidate is built`,
+      interior !== null && ACCEPTED.test(interior) && /psql/.test(interior),
+    );
+    expect(scanShellIndirection(source, "x.sh"), label).toHaveLength(0);
+  });
+
+  // CLASS B -- NO candidate exists, by construction. The premise is the
+  // complement of class A's: the value is not a single accept-set span, or the
+  // span sits inside a double-quoted value where the recording branch is
+  // unreachable. A REPORTING sibling would prove the opposite boundary and is
+  // deliberately not used.
+  //
+  // bash binds `psql` in the composition spellings, so these are DOCUMENTED
+  // LIMITS rather than correct silence -- except the double-quoted ones, where
+  // bash binds `p'sql'` and the zero is right. Both directions of the same
+  // structural boundary, which is why they sit together.
+  test.each([
+    ["P1 literal before, :-", 'PG=p${U:-"sql"}\n'],
+    ["P2 literal before, -", 'PG=p${U-"sql"}\n'],
+    ["P3 literal before, :=", 'PG=p${U:="sql"}\n'],
+    ["P4 literal before, =", 'PG=p${U="sql"}\n'],
+    ["P5 literal before, :+", 'PG=p${U:+"sql"}\n'],
+    ["P6 literal before, +", 'PG=p${U+"sql"}\n'],
+    ["P7 literal AFTER the span", 'PG=${U:-"p"}sql\n'],
+    ["P10 a BARE operand composed", "PG=p${U:-sql}\n"],
+    ["S4 accepted ADJACENT to a complement member", 'U=xy\nPG=${U#x}${V:-"psql"}\n'],
+    ["S5 accepted INSIDE a complement member", "U=xpsql\nPG=${U#${V:-'psql'}}\n"],
+    ["Q3 composed inside DOUBLE QUOTES, quoted operand", "PG=\"p${U:-'sql'}\"\n"],
+    ["Q5 a composed value that is not psql", 'PG=p${U:-"gcli"}\n'],
+    ["Q6 a composed value that is prose", 'MSG=p${M:-"sql failed to connect"}\n'],
+    ["Q7 a composed value carrying a separator", 'PG=p${U:-"sql;x"}\n'],
+  ])("%s builds no candidate at all", (label, source) => {
+    const interior = wholeValueSpan(source);
+    premiseHolds(
+      `${label}: this fixture's own value is NOT a single accept-set span, which is exactly when no candidate is built`,
+      interior === null || !ACCEPTED.test(interior),
+    );
+    expect(scanShellIndirection(source, "x.sh"), label).toHaveLength(0);
+  });
+
+  // CLASS C -- a candidate IS built and carries no psql-shaped word. These two
+  // are the composition cases the class B premise cannot claim, because their
+  // value really is a single accept-set span; what composes is the OPERAND.
+  // Stating that separately is the point: a premise that quietly covered them
+  // with class B's would be false on this row's own inputs.
+  test.each([
+    ["P8 a nested expansion supplying a SUFFIX", "PG=${U:-${V:-p}sql}\n"],
+    ["P9 a nested expansion supplying the MIDDLE", "PG=${U:-p${V:-s}ql}\n"],
+  ])("%s builds a candidate that carries no psql", (label, source) => {
+    const interior = wholeValueSpan(source);
+    premiseHolds(
+      `${label}: this fixture's own value IS one accept-set span, so a candidate is built, and its interior carries no psql`,
+      interior !== null && ACCEPTED.test(interior) && !/psql/.test(interior),
+    );
+    expect(scanShellIndirection(source, "x.sh"), label).toHaveLength(0);
+  });
+});
+
 describe("documented limits - quote-concatenated spellings outside the assignment family", () => {
   // Spec §6: these families still read their KEYWORD or operand through a
   // per-line pattern, so a quote-concatenated spelling of it is missed. The
@@ -5166,9 +6162,14 @@ describe("documented limits - quote-concatenated spellings outside the assignmen
   // finding 5).
   test("each quote-concatenated keyword/operand spelling is a declared miss", () => {
     const rows: Array<[label: string, missed: string, plain: string]> = [
-      // ledger: BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE - the here-string
-      // target is a redirection operand the lexer drops before words exist.
-      ["a mixed-quoted here-string", "read -r PG <<< p'sql'\n", "read -r PG <<< psql\n"],
+      // The mixed-quoted here-string row RETIRED 2026-08-20. Arm 1 of
+      // BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE retains the DETACHED redirection
+      // target in the lexer and reads it through `valueBinds`, so the spelling
+      // is a HIT now and is re-pinned as one - together with its ANSI-C,
+      // quoted-directory, continuation and nested-body siblings - by the "arm 1
+      // - a DETACHED here-string target is read from the lexer's retained word"
+      // block above. The ATTACHED spelling (`<<<p'sql'`) is withdrawn scope and
+      // lives in scan.ts's documented-limits block, not here.
       // The alias row's BODY deliberately binds something OTHER than psql. An
       // alias definition is an assignment-SHAPED word, so `alias p'sql'='psql
       // -F'` dequotes to the candidate `psql=psql -F` and the assignment route
@@ -5197,10 +6198,14 @@ describe("documented limits - quote-concatenated spellings outside the assignmen
       // multiword branch, where a flagless path is declined - spec 6 item 5
       // (round-4 fallout, pinned so the zero is declared).
       ["a whitespace directory component", "PG='/tmp/x y/psql'\n", "PG='/tmp/xy/psql'\n"],
-      // ledger: BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE - the ${...} word is
-      // kept verbatim by design, so operand-INTERNAL quoting is data (plan
-      // round-2 finding 1; bash binds psql for every quoted-operand sibling).
-      ["a quoted expansion operand", "PG=${U:-'psql'}\n", "PG=${U:-psql}\n"],
+      // The quoted-expansion-operand row RETIRED 2026-08-20. Arm 2 of
+      // BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE decides the operand of a
+      // WHOLE-VALUE accepted expansion and tests it with the same `valueBinds`,
+      // so the spelling is a HIT now and is re-pinned as one - with its
+      // operator, nesting, multiword and here-string-target siblings - by the
+      // "arm 2 - a WHOLE-VALUE accepted expansion has its operand decided"
+      // block above. The DEFAULT-DENIED complement and the composition family
+      // stay at 0 and are pinned there in the same block.
     ];
     for (const [label, missed, plain] of rows) {
       premiseHolds(
