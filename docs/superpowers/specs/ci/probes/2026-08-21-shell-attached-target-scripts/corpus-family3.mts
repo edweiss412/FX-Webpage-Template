@@ -7,6 +7,10 @@
 // substitution-bearing: sound but UNDERCOUNTING, because shell text also lives
 // in workflow `run:` blocks and package.json scripts.
 //
+// ROUND 3 finding 1 changed the SCAN SHAPE: it reads the whole chunk rather
+// than physical lines, so quote state and backslash continuations survive a
+// newline as they do in bash. Three multiline controls pin it.
+//
 // THREE THINGS CHANGED AT SPEC ROUND 2, all from finding 1:
 //
 //  1. The detector no longer extracts the lexer's attached-target REGEX. That
@@ -85,7 +89,7 @@ function attachedRegion(line: string, idx: number, op: string): string | null {
       if (i + 1 < line.length) out.push(line[++i]!);
       continue;
     }
-    if (/\s/.test(c) || c === ";" || c === "|" || c === "&") break;
+    if (/\s/.test(c) || c === ";" || c === "|" || c === "&") break; // includes an UNQUOTED newline
     out.push(c);
   }
   return out.join("");
@@ -98,24 +102,47 @@ type Hit = { where: string; target: string; subst: boolean };
 
 function attachedTargets(chunk: Chunk): Hit[] {
   const out: Hit[] = [];
-  const lines = chunk.text.split("\n");
-  for (let ln = 0; ln < lines.length; ln++) {
-    const line = lines[ln]!;
-    if (/^\s*#/.test(line)) continue;
-    for (const op of OPS) {
-      let at = 0;
-      for (;;) {
-        const idx = line.indexOf(op, at);
-        if (idx === -1) break;
-        at = idx + 1;
-        const region = attachedRegion(line, idx, op);
-        if (region === null || region === "") continue;
-        out.push({
-          where: `${chunk.origin}:${ln + 1}`,
-          target: `${op}${region}`,
-          subst: SUBST.test(region),
-        });
-      }
+  const text = chunk.text;
+
+  // SCANNED OVER THE WHOLE CHUNK, not per physical line. Spec round 3 finding 1:
+  // splitting first ended quote state at every newline, so a backslash
+  // continuation inside a quoted target —
+  //
+  //     cat >"/dev/null\
+  //     $(psql)"
+  //
+  // — which bash executes (oracle: 1 execution) read as the region
+  // `"/dev/null\` with subst false. Every control was single-line, so none of
+  // them could see it. The escape-pair branch consumes a backslash-newline and
+  // the quote branch consumes newlines inside quotes, so scanning the whole text
+  // is what makes both behave as bash does.
+  const lineOf = (i: number) => {
+    let n = 1;
+    for (let k = 0; k < i && k < text.length; k++) if (text[k] === "\n") n++;
+    return n;
+  };
+
+  // A whole-line comment still suppresses, but it is decided per line START.
+  const commentLines = new Set<number>();
+  text.split("\n").forEach((l, i) => {
+    if (/^\s*#/.test(l)) commentLines.add(i + 1);
+  });
+
+  for (const op of OPS) {
+    let at = 0;
+    for (;;) {
+      const idx = text.indexOf(op, at);
+      if (idx === -1) break;
+      at = idx + 1;
+      const ln = lineOf(idx);
+      if (commentLines.has(ln)) continue;
+      const region = attachedRegion(text, idx, op);
+      if (region === null || region === "") continue;
+      out.push({
+        where: `${chunk.origin}:${ln}`,
+        target: `${op}${region}`,
+        subst: SUBST.test(region),
+      });
     }
   }
   return out;
@@ -132,6 +159,11 @@ const CONTROL: Array<[id: string, line: string, wantSubst: boolean]> = [
   ["bare $( ) — the spelling the OLD census missed", "cat >$(command -v psql)", true],
   ["a plain path must NOT count", "cat >/dev/null", false],
   ["a DETACHED substitution must NOT count as attached", "cat > $(command -v psql)", false],
+  // Round 3 finding 1: every control above is single-line, which is exactly why
+  // none of them saw the continuation case. These two cross a newline.
+  ['MULTILINE: continuation inside a quoted target', 'cat >"/dev/null\\\n$(psql)"', true],
+  ['MULTILINE: substitution spanning a newline inside quotes', 'cat >"\n$(psql)"', true],
+  ["an UNQUOTED newline must END the region", "cat >out\n$(psql)\n", false],
 ];
 let controlFailures = 0;
 console.log("POSITIVE CONTROL — the acceptance set must be detected:");

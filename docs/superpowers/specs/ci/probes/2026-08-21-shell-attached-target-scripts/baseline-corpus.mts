@@ -45,9 +45,18 @@ for (const k of keys) {
     // blindness this spec diagnosed for case H, in the check written to be the
     // consequence bound. Deriving the field set also means a field added to
     // PsqlSite later is covered by default rather than silently omitted.
+    // `?? null` COLLAPSED `undefined` into `null` — spec round 3 finding 2. They
+    // are behaviourally different here: `dropSharedExemptions` branches on
+    // `site.exemptReason === null`, and `undefined === null` is false, so an
+    // `undefined` takes the other path while digesting identically. A field that
+    // is ABSENT is a third state again, and each gets its own token.
     const fields = Object.keys(e)
       .sort()
-      .map((f) => `${f}=${JSON.stringify(e[f] ?? null)}`)
+      .map((f) => {
+        if (!(f in e)) return `${f}=<absent>`;
+        if (e[f] === undefined) return `${f}=<undefined>`;
+        return `${f}=${JSON.stringify(e[f])}`;
+      })
       .join("\t");
     rows.push(`${k}\t${fields}`);
   }

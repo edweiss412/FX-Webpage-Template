@@ -118,7 +118,8 @@ Census by EXECUTION SURFACE rather than by extension, with witnesses printed per
 lexer's attached-target regex — the very thing §3 replaces — and that regex consumes `>$(psql)`
 as only `>$`, so it classified an in-domain spelling as non-substitution-bearing. The census now
 reads the target region with its own quote-aware scan, which is why the target counts here are
-HIGHER than the 46 an earlier draft reported: it also sees `<(…)` process substitutions the
+HIGHER than the 46 an earlier draft reported (a historical comparison, kept deliberately): it
+also sees `<(…)` process substitutions the
 regex missed. The load-bearing number, zero, is unchanged and is now asserted rather than
 printed.
 
@@ -128,7 +129,7 @@ character**, so no redirection — attached or detached — can exist there. The
 than reporting a clean zero if a surface holds redirection characters and yields no targets.
 
 An earlier census of this family reported 123865 attached targets over raw file bytes; **that
-number is retracted and replaced by the 46 above**, because it scanned markdown prose and so
+number is retracted and replaced by the 53 above**, because it scanned markdown prose and so
 measured mentions rather than shell text.
 
 ### 2.4 Corpus baseline, digest-pinned
@@ -248,6 +249,11 @@ nothing, and an AC citing prose is decoration.
 | AC-6 | Every declared-limit pin in §6 moves deliberately, and none moves silently. | the same suite: each retired row is re-pinned at its NEW value, and each held row at its old one, so a recognizer change that moves an unlisted pin reds |
 | AC-7 | `psqlStartupScan` scores at or above its floor with an empty unaccepted-survivor set. | `pnpm heavy pnpm mutation:guards` |
 | AC-8 | The three-surface census still finds ZERO substitution-bearing attached targets, so the repair manufactured no live instance. | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/corpus-family3.mts` — ASSERTS the zero and exits 1 listing witnesses otherwise; ABORTS exit 2 if any of its nine controls fails, so the zero can never rest on a scan that cannot see the family |
+
+**The digest did NOT move when round 3 repaired the serialisation, and that is correct.** Every
+live `exemptReason` is `null`, so distinguishing `null` from `undefined` from ABSENT changes what
+the digest DISCRIMINATES rather than what it currently reads. `digest-sensitivity.mts` is what
+proves the repair landed; an unchanged digest is not evidence that it did not.
 
 **AC-5 is the consequence bound made executable.** It distinguishes a guard that got stricter from
 one that merely got louder, and it is the one check no reading of the diff can substitute for.

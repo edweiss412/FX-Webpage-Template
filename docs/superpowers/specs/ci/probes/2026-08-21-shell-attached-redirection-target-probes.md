@@ -9,7 +9,7 @@ Evidence for `docs/superpowers/specs/ci/2026-08-21-shell-attached-redirection-ta
 pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/<probe>.mts
 ```
 
-Measured at `e5d1d723d`. Six probes: `slice-shape`, `probe-attached`, `oracle`, `corpus-family3`,
+Measured at `e5d1d723d`. Six probes, all re-run after the round-3 repairs: `slice-shape`, `probe-attached`, `oracle`, `corpus-family3`,
 `baseline-corpus`, `digest-sensitivity`.
 
 > **Sandbox note.** A reviewer running under a read-only sandbox could not create the IPC socket
@@ -134,15 +134,18 @@ POSITIVE CONTROL — the acceptance set must be detected:
   ok    bare $( ) — the spelling the OLD census missed
   ok    a plain path must NOT count
   ok    a DETACHED substitution must NOT count as attached
+  ok    MULTILINE: continuation inside a quoted target
+  ok    MULTILINE: substitution spanning a newline inside quotes
+  ok    an UNQUOTED newline must END the region
 
 === whole-file shell (.sh/.bash) — 5 chunks
 attached targets: 21
   ...substitution-bearing: 0
   witnesses (proves the scan fires here):
     scripts/ci/assert-pnpm-sources-clean.sh:33  >&2
-    scripts/ci/assert-pnpm-sources-clean.sh:39  >/dev/null
     scripts/ci/assert-pnpm-sources-clean.sh:105  <(printf
     scripts/ci/assert-pnpm-sources-clean.sh:119  <(env)
+    scripts/ci/assert-pnpm-sources-clean.sh:39  >/dev/null
     scripts/ci/supabase-local-bootstrap.sh:92  >&2
     scripts/ci/supabase-local-bootstrap.sh:95  >&2
 
@@ -167,7 +170,13 @@ TOTAL substitution-bearing attached targets: 0
 PASS: zero substitution-bearing attached targets across all three surfaces.
 ```
 
-**Three properties, each bought by a round-2 finding.** The scan is INDEPENDENT of the
+**Round 3 finding 1 changed the scan SHAPE.** It reads the whole chunk rather than physical
+lines, so quote state and backslash continuations survive a newline as they do in bash. The
+continuation case `cat >"/dev/null\` + newline + `$(psql)"` executes psql (oracle: 1 execution)
+and previously read as `"/dev/null\` with `subst: false`. Every control was single-line, which is
+precisely why none of them saw it; three multiline controls now pin it.
+
+**Three further properties, each bought by a round-2 finding.** The scan is INDEPENDENT of the
 attached-target regex §3 replaces — a census keyed on the instrument under repair stops meaning
 anything the moment the repair lands. It is quote-aware, so it sees `>$(psql)`, which that regex
 consumes as only `>$`. And it ASSERTS its zero rather than printing it.
@@ -208,10 +217,19 @@ flip sites[0].nested                   DETECTED
 flip sites[0].nestedInBacktick         DETECTED
 flip sites[0].exemptReason             DETECTED
 flip sites[0].hasDynamicTokens         DETECTED
+exemptReason null->undefined           DETECTED
+exemptReason null->ABSENT              DETECTED
 
-5/5 perturbations detected
+7/7 perturbations detected
 PASS: the digest discriminates on every field section 5 cares about.
 ```
+
+**Round 3 finding 2 added the last two rows.** `?? null` collapsed `undefined` into `null`, and
+those are behaviourally different — `dropSharedExemptions` branches on `exemptReason === null`, and
+`undefined === null` is false — so an `undefined` could suppress an advisory with the digest
+unchanged. ABSENT is a third state and gets its own token. **The digest did NOT move**, because
+every live `exemptReason` is `null`: the repair changed what the digest DISCRIMINATES, not what it
+reads, and this probe is what proves it landed.
 
 **Round 2 finding 2 is why this probe exists.** The original digest hashed only collection key,
 file, line and text-or-form. Every one of the 76 live sites carries `suppressesStartupFiles: true`,

@@ -26,7 +26,11 @@ function digest(usage: Record<string, unknown>): string {
     for (const e of v as Array<Record<string, unknown>>) {
       const fields = Object.keys(e)
         .sort()
-        .map((f) => `${f}=${JSON.stringify(e[f] ?? null)}`)
+        .map((f) => {
+          if (!(f in e)) return `${f}=<absent>`;
+          if (e[f] === undefined) return `${f}=<undefined>`;
+          return `${f}=${JSON.stringify(e[f])}`;
+        })
         .join("\t");
       rows.push(`${k}\t${fields}`);
     }
@@ -66,7 +70,25 @@ for (const field of FIELDS) {
   console.log(`flip sites[0].${field.padEnd(24)} ${detected ? "DETECTED" : "*** BLIND ***"}`);
 }
 
-console.log(`\n${FIELDS.length - blind}/${FIELDS.length} perturbations detected`);
+// Round 3 finding 2: `null` -> `undefined` is the perturbation the earlier probe
+// could NOT see, because it only tested `null` -> "MUTATED". The two states are
+// behaviourally different — `dropSharedExemptions` branches on
+// `exemptReason === null` and `undefined === null` is false — so a digest that
+// collapses them lets an advisory be suppressed silently.
+for (const [label, mutate] of [
+  ["exemptReason null->undefined", (o: Record<string, unknown>) => { o["exemptReason"] = undefined; }],
+  ["exemptReason null->ABSENT", (o: Record<string, unknown>) => { delete o["exemptReason"]; }],
+] as Array<[string, (o: Record<string, unknown>) => void]>) {
+  const m = clone() as { sites: Array<Record<string, unknown>> };
+  mutate(m.sites[0]!);
+  const d = digest(m);
+  const detected = d !== base;
+  if (!detected) blind++;
+  console.log(`${label.padEnd(38)} ${detected ? "DETECTED" : "*** BLIND ***"}`);
+}
+
+const TOTAL = FIELDS.length + 2;
+console.log(`\n${TOTAL - blind}/${TOTAL} perturbations detected`);
 if (blind > 0) {
   console.error(`FAIL: the digest is blind to ${blind} field(s) it claims to pin.`);
   process.exit(1);
