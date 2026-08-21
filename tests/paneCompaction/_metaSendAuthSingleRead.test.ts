@@ -1235,6 +1235,19 @@ type ManifestCell = {
 const INHERITED_CORPUS_SIZE = 81;
 
 const MANIFEST: readonly ManifestCell[] = [
+  // --- diff r1 repairs: the ENTRY-point class, distinct from name RESOLUTION.
+  {
+    fixture: "element-receiver-unknown-member.ts",
+    axis: "receiver shape, once depth is factored out",
+    covers:
+      "diff r1 F1 — an unknown member through a static element-access receiver, paired with its dotted control",
+  },
+  {
+    fixture: "private-identifier-field.ts",
+    axis: "binding kind",
+    covers:
+      "diff r1 F2 — a #ch field must JOIN the binding set, paired with a public field control",
+  },
   // --- Task 9 [task:score-measure]: fixtures the mutation gate demanded.
   {
     fixture: "shadow-annotation-null.ts",
@@ -2515,7 +2528,7 @@ const NAME_POSITION_DISPOSITIONS: readonly DispositionRow[] = [
     ordinal: 1,
     text: "name.text",
     disposition: "narrowed",
-    why: "TypeElement.name is PropertyName, which admits ComputedPropertyName; this code declines a computed member",
+    why: "same field, the string-literal arm",
     refileWhen: "a computed member name must resolve",
   },
   {
@@ -2531,7 +2544,7 @@ const NAME_POSITION_DISPOSITIONS: readonly DispositionRow[] = [
     ordinal: 1,
     text: "node.name.text",
     disposition: "grammar",
-    why: "TypeAliasDeclaration.name is declared Identifier",
+    why: "InterfaceDeclaration.name is declared Identifier",
   },
   {
     fn: "visit",
@@ -2547,14 +2560,6 @@ const NAME_POSITION_DISPOSITIONS: readonly DispositionRow[] = [
     disposition: "not-a-name",
     why: "TypeReferenceNode.typeName — a TYPE name, never a receiver",
     refileWhen: "this site is asked to resolve a value name",
-  },
-  {
-    fn: "visit",
-    ordinal: 3,
-    text: "n.name.text",
-    disposition: "narrowed",
-    why: "BindingName admits BindingPattern; guarded by isIdentifier, so a destructured surface declaration is not collected here",
-    refileWhen: "a destructured binding must join the binding set here",
   },
   {
     fn: "topLevelFunctions",
@@ -2603,6 +2608,13 @@ const NAME_POSITION_DISPOSITIONS: readonly DispositionRow[] = [
   },
   {
     fn: "visit",
+    ordinal: 3,
+    text: "node.text",
+    disposition: "grammar",
+    why: "narrowed to Identifier by the walk head's isIdentifier",
+  },
+  {
+    fn: "visit",
     ordinal: 4,
     text: "node.text",
     disposition: "grammar",
@@ -2625,13 +2637,6 @@ const NAME_POSITION_DISPOSITIONS: readonly DispositionRow[] = [
   {
     fn: "visit",
     ordinal: 7,
-    text: "node.text",
-    disposition: "grammar",
-    why: "narrowed to Identifier by the walk head's isIdentifier",
-  },
-  {
-    fn: "visit",
-    ordinal: 8,
     text: "n.name.text",
     disposition: "narrowed",
     why: "VariableDeclaration.name is BindingName and this site does not guard it; a destructured derivation would be named by its pattern text",
@@ -2654,8 +2659,10 @@ const NAME_POSITION_DISPOSITIONS: readonly DispositionRow[] = [
     refileWhen: "this label is used to resolve a binding",
   },
   { fn: "receiverRightmostName", ordinal: 1, text: "e.text", disposition: "implementation" },
-  { fn: "receiverRightmostName", ordinal: 2, text: "e.name.text", disposition: "implementation" },
-  { fn: "receiverRightmostName", ordinal: 3, text: "key.text", disposition: "implementation" },
+  { fn: "receiverRightmostName", ordinal: 2, text: "key.text", disposition: "implementation" },
+  { fn: "declaredNameText", ordinal: 1, text: "name.text", disposition: "implementation" },
+  { fn: "declaredNameText", ordinal: 2, text: "name.text", disposition: "implementation" },
+  { fn: "declaredNameText", ordinal: 3, text: "key.text", disposition: "implementation" },
   { fn: "memberCallOf", ordinal: 1, text: "c.name.text", disposition: "implementation" },
   { fn: "memberCallOf", ordinal: 2, text: "key.text", disposition: "implementation" },
   {
@@ -2667,19 +2674,11 @@ const NAME_POSITION_DISPOSITIONS: readonly DispositionRow[] = [
     refileWhen: "a computed bound member must resolve",
   },
   {
-    fn: "walkDestructures",
-    ordinal: 2,
-    text: "element.name.text",
-    disposition: "narrowed",
-    why: "BindingElement.name is BindingName; guarded by isIdentifier, so a nested pattern is not collected",
-    refileWhen: "a nested destructure must join the destructured set",
-  },
-  {
     fn: "enclosingName",
     ordinal: 1,
     text: "cur.name.text",
     disposition: "not-a-name",
-    why: "MethodDeclaration.name — the finding LABEL",
+    why: "VariableDeclaration.name — the finding LABEL",
     refileWhen: "this label is used to resolve a binding",
   },
   {
@@ -2687,7 +2686,7 @@ const NAME_POSITION_DISPOSITIONS: readonly DispositionRow[] = [
     ordinal: 2,
     text: "cur.name.text",
     disposition: "not-a-name",
-    why: "FunctionDeclaration.name — the finding LABEL",
+    why: "VariableDeclaration.name — the finding LABEL",
     refileWhen: "this label is used to resolve a binding",
   },
   {
@@ -2695,7 +2694,7 @@ const NAME_POSITION_DISPOSITIONS: readonly DispositionRow[] = [
     ordinal: 3,
     text: "cur.name.text",
     disposition: "not-a-name",
-    why: "PropertyAssignment.name — the finding LABEL",
+    why: "VariableDeclaration.name — the finding LABEL",
     refileWhen: "this label is used to resolve a binding",
   },
   {
@@ -2831,7 +2830,11 @@ describe("AC-U16b — ADOPTION: three assertions, and none implies another", () 
     const owners = new Set(
       NAME_POSITION_DISPOSITIONS.filter((r) => r.disposition === "implementation").map((r) => r.fn),
     );
-    expect([...owners].sort()).toEqual(["memberCallOf", "receiverRightmostName"]);
+    expect([...owners].sort()).toEqual([
+      "declaredNameText",
+      "memberCallOf",
+      "receiverRightmostName",
+    ]);
   });
 });
 
@@ -3235,5 +3238,31 @@ describe("Task 9 — what the mutation gate demanded, and the killer audit's two
 
     const occurrences = source.split(needle).length - 1;
     expect(occurrences).toBe(1);
+  });
+});
+
+describe("diff r1 — RESOLVING a name and ENTERING on one are different jobs", () => {
+  it("reaches an unknown member through a STATIC ELEMENT-ACCESS receiver", () => {
+    // The dotted form in the SAME module is the control: it reported before the
+    // repair, so the bracketed form's finding is attributable to the ENTRY point
+    // rather than to the scanner having run at all. Before the repair the two
+    // disagreed — dotted reported, bracketed was SILENT.
+    const f = "element-receiver-unknown-member.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "UNCLASSIFIED-USE", "typo", lineOf(f, "this.ch.typo();")),
+      finding(f, "UNCLASSIFIED-USE", "typo", lineOf(f, 'this["ch"].typo();')),
+    ]);
+  });
+
+  it("admits a PRIVATE IDENTIFIER field into the binding set", () => {
+    // The binding-COLLECTION side was keyed on `isIdentifier` while resolution
+    // had been unified, so `#ch` never became a binding and every use of it
+    // resolved FOREIGN — silent before rule A ever ran. The public field is the
+    // control and reported throughout.
+    const f = "private-identifier-field.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "UNDECLARED-PASS", "hidden", lineOf(f, 'this.#ch.dispatch("p1"')),
+      finding(f, "UNDECLARED-PASS", "exposed", lineOf(f, 'this.open.dispatch("p2"')),
+    ]);
   });
 });

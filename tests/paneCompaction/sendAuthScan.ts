@@ -339,9 +339,9 @@ const surfaceBindings = (sf: ts.SourceFile, row: SendAuthSurface): Set<string> =
       // inside the threat fence, and omitting it made `this.ch.send(...)` silent.
       (ts.isParameter(n) || ts.isVariableDeclaration(n) || ts.isPropertyDeclaration(n)) &&
       isSurfaceRef2(n.type) &&
-      ts.isIdentifier(n.name)
+      declaredNameText(n.name) !== null
     ) {
-      names.add(n.name.text);
+      names.add(declaredNameText(n.name)!);
     }
     ts.forEachChild(n, visit);
   };
@@ -521,6 +521,16 @@ const classifyUses = (
   };
 
   const visit = (node: ts.Node): void => {
+    // A STATIC ELEMENT-ACCESS RECEIVER names its binding in the source text but
+    // contains no identifier to enter on, so the identifier-keyed walk below
+    // never reached the member classification and an unknown member through it
+    // was SILENT while its dotted twin reported.
+    if (ts.isElementAccessExpression(node)) {
+      const receiver = surfaceReceiverOf(node, (name) => bindings.has(name));
+      if (receiver.kind === "surface" && !derivedAt(receiver.name, node)) {
+        classifyMemberOn(node);
+      }
+    }
     if (ts.isIdentifier(node) && bindings.has(node.text)) {
       const parent = node.parent;
       // ONE accept-set, shared with rule B's declaration count. The four-kind
@@ -923,7 +933,7 @@ const skipTransparent = (e: ts.Expression): ts.Expression =>
 const receiverRightmostName = (raw: ts.Expression): string | null => {
   const e = skipTransparent(raw);
   if (ts.isIdentifier(e)) return e.text;
-  if (ts.isPropertyAccessExpression(e)) return e.name.text;
+  if (ts.isPropertyAccessExpression(e)) return declaredNameText(e.name);
   if (ts.isElementAccessExpression(e)) {
     const key = skipTransparent(e.argumentExpression);
     // `isStringLiteralLike` is the compiler's own answer for "a literal whose
@@ -942,6 +952,31 @@ const receiverRightmostName = (raw: ts.Expression): string | null => {
  * the distinction is load-bearing, and collapsing the two is what silenced a
  * real sink.
  */
+/**
+ * The TEXT of a declared or accessed NAME, whatever spelling it carries.
+ *
+ * The class diff round 1 found: resolving a name and ENTERING on one are
+ * different jobs, and every ENTRY point was keyed on `isIdentifier` alone. So a
+ * `#ch` field never joined the binding set and a `this["ch"]` receiver was never
+ * reached at all -- both SILENT, the direction the consequence bound forbids,
+ * while the dotted forms reported. Rule A was unified and the sites that FEED it
+ * were not.
+ *
+ * `PrivateIdentifier.text` carries the `#`, and the declaration and the use both
+ * read it through here, so the two sides agree by construction rather than by
+ * coincidence.
+ */
+const declaredNameText = (name: ts.Node | undefined): string | null => {
+  if (name === undefined) return null;
+  if (ts.isIdentifier(name) || ts.isPrivateIdentifier(name)) return name.text;
+  if (ts.isStringLiteralLike(name)) return name.text;
+  if (ts.isComputedPropertyName(name)) {
+    const key = skipTransparent(name.expression);
+    return ts.isStringLiteralLike(key) ? key.text : null;
+  }
+  return null;
+};
+
 export const surfaceReceiverOf = (
   raw: ts.Expression,
   // A PREDICATE, not a set. Whether a name is a surface binding is position-
@@ -1066,7 +1101,8 @@ const unreachedOccurrences = (
       for (const element of n.name.elements) {
         const named = element.propertyName ?? element.name;
         const member = ts.isIdentifier(named) ? named.text : "(computed)";
-        if (ts.isIdentifier(element.name)) destructured.add(element.name.text);
+        const bound = declaredNameText(element.name);
+        if (bound !== null) destructured.add(bound);
         const line = at(element);
         out.push({ code: "UNCLASSIFIED-USE", file, line, name: member, lines: [line] });
       }
