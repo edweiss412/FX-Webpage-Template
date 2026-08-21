@@ -207,8 +207,14 @@ status was the restore check's and discarded the vitest verdict — a surviving 
     after=$(git hash-object scripts/lib/pane-compaction-core.ts scripts/pane-compaction.ts | tr '\n' ' ')
     test "$before" = "$after" || { echo RESTORE-FAILED; exit 1; }
     test "$vexit" -ne 0 || { echo "SURVIVED: build not killed"; exit 1; }
-    grep -E "(×|✗|FAIL).*" "$LOG" | grep -qF "$PIN_TITLE" || { echo "WRONG-KILL: no failure names the pin"; exit 1; }
+    grep -E "(×|✗|FAIL).*" "$LOG" | grep -qF -- "$PIN_TITLE" || { echo "WRONG-KILL: no failure names the pin"; exit 1; }
     echo "KILLED: $PIN_TITLE"
+
+The `--` before `"$PIN_TITLE"` is load-bearing and was added at execution time:
+several pin titles begin with `--checkpoint`, which grep parses as an option, and
+the template then reports WRONG-KILL on a build it actually killed. A false
+WRONG-KILL is the safe direction, but it is still a wrong answer, and without the
+`--` the template can never pass on the modes it exists to check.
 
 Then read the log by hand and record the failing ASSERTION line — a collection or
 module-load crash is a red the template cannot distinguish from an assertion failure, and
