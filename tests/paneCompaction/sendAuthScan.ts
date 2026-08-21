@@ -815,15 +815,91 @@ const analyzeHandoffs = (
  * Suppressed by one arm, skipped by the other, reported by neither (diff r3 F6).
  * A shared rule cannot drift apart the way two hand-written ones did.
  */
+export type Receiver =
+  /** the rightmost name resolves to a surface binding */
+  | { kind: "surface"; name: string }
+  /** a rightmost name exists and is NOT a binding */
+  | { kind: "foreign"; name: string }
+  /** no statically knowable rightmost name */
+  | { kind: "opaque" };
+
+/**
+ * TRANSPARENCY IS ASKED OF THE COMPILER, NEVER ENUMERATED.
+ *
+ * "Which wrappers change no meaning" is a question TypeScript already answers:
+ * `OuterExpressionKinds.All` covers parentheses, type assertions (`as` and the
+ * angle form), non-null (`!`), `satisfies`, partially-emitted expressions and
+ * expressions-with-type-arguments. A hand-written wrapper list is the exact
+ * defect this arc exists to remove, so writing one HERE would have been the
+ * defect committed inside its own repair.
+ */
+type SkipOuterExpressions = (node: ts.Expression, kinds: ts.OuterExpressionKinds) => ts.Expression;
+
+/**
+ * PROBED, NOT ASSUMED. In the pinned TypeScript (5.9.3) `skipOuterExpressions`
+ * is present at RUNTIME and absent from the public `.d.ts`; `OuterExpressionKinds`
+ * IS public and `All` is 63. So it is bound through a narrow declared shape
+ * rather than reached for as a public export.
+ *
+ * It FAILS LOUD if an upgrade removes it. A silent fallback to a hand-written
+ * wrapper list would re-open precisely the class this rule closes, and it would
+ * do so invisibly -- the suite would stay green while the guard quietly stopped
+ * seeing three of the four wrapper forms.
+ */
+const skipOuterExpressions: SkipOuterExpressions = ((): SkipOuterExpressions => {
+  const fn = (ts as unknown as { skipOuterExpressions?: unknown }).skipOuterExpressions;
+  if (typeof fn !== "function") {
+    throw new Error(
+      "sendAuthScan: ts.skipOuterExpressions is unavailable in this TypeScript build. " +
+        "Rule A resolves receiver transparency THROUGH THE COMPILER deliberately; " +
+        "a hand-written wrapper list is the defect this rule exists to remove, so " +
+        "this fails rather than degrading to one.",
+    );
+  }
+  return fn as SkipOuterExpressions;
+})();
+
+/** Rule A's unwrap. Both sides of the rule use this one function. */
+const skipTransparent = (e: ts.Expression): ts.Expression =>
+  skipOuterExpressions(e, ts.OuterExpressionKinds.All);
+
+/**
+ * The RIGHTMOST NAME of a receiver, or null when the source text does not name
+ * it.
+ *
+ * A STATICALLY KNOWN element access resolves to its key: `this["ch"]` and
+ * `` this[`ch`] `` name their member IN THE BYTES and need neither a checker nor
+ * a call graph, so they are NOT the fenced call-result case. Treating them as
+ * one left a real surface sink fully silent, which is the fail-open direction.
+ * A non-literal key (`ch[name]`) has no name to resolve and stays opaque.
+ */
 const receiverRightmostName = (raw: ts.Expression): string | null => {
-  const e = ts.isParenthesizedExpression(raw) ? receiverUnparen(raw.expression) : raw;
-  return ts.isIdentifier(e) ? e.text : ts.isPropertyAccessExpression(e) ? e.name.text : null;
+  const e = skipTransparent(raw);
+  if (ts.isIdentifier(e)) return e.text;
+  if (ts.isPropertyAccessExpression(e)) return e.name.text;
+  if (ts.isElementAccessExpression(e)) {
+    const key = skipTransparent(e.argumentExpression);
+    // `isStringLiteralLike` is the compiler's own answer for "a literal whose
+    // text is known statically", covering both `"ch"` and `` `ch` `` without
+    // this module deciding which node kinds qualify.
+    return ts.isStringLiteralLike(key) ? key.text : null;
+  }
+  return null;
 };
 
-/** Transparent-wrapper unwrap, shared for the same reason (diff r2 F2). */
-function receiverUnparen(e: ts.Expression): ts.Expression {
-  return ts.isParenthesizedExpression(e) ? receiverUnparen(e.expression) : e;
-}
+/**
+ * RULE A. Total and three-way, so every consumer disposes of every case
+ * explicitly and the disposition table has no empty cells.
+ *
+ * `opaque` means "no statically knowable name", NOT "not a bare identifier" —
+ * the distinction is load-bearing, and collapsing the two is what silenced a
+ * real sink.
+ */
+export const surfaceReceiverOf = (raw: ts.Expression, bindings: ReadonlySet<string>): Receiver => {
+  const name = receiverRightmostName(raw);
+  if (name === null) return { kind: "opaque" };
+  return bindings.has(name) ? { kind: "surface", name } : { kind: "foreign", name };
+};
 
 /**
  * The top-level functions primary discovery CLASSIFIES as send-bearing: the subtree
@@ -845,12 +921,10 @@ const sendBearingFunctions = (
     let sendBearing = false;
     const look = (n: ts.Node): void => {
       if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)) {
-        const receiver = receiverRightmostName(n.expression.expression);
-        if (
-          receiver !== null &&
-          bindings.has(receiver) &&
-          row.sinks.includes(n.expression.name.text)
-        ) {
+        const receiver = surfaceReceiverOf(n.expression.expression, bindings);
+        // `foreign` is silent and REQUIRED for zero false advisories; `opaque` is
+        // DECLARED SILENCE under the no-call-graph fence. Only `surface` proceeds.
+        if (receiver.kind === "surface" && row.sinks.includes(n.expression.name.text)) {
           sendBearing = true;
         }
       }
@@ -917,17 +991,11 @@ const unreachedOccurrences = (
       // reader. Inspecting the node without unwrapping made both the sink walk and the
       // default-deny arm miss it, and the module reported NOTHING (diff r2 F2). A
       // wrapper that changes no semantics must not change what the guard sees.
-      const unparen = (e: ts.Expression): ts.Expression =>
-        ts.isParenthesizedExpression(e) ? unparen(e.expression) : e;
-      const receiverName = receiverRightmostName;
-      const bare = unparen(callee);
+      const bare = skipTransparent(callee);
       const isMemberSink =
         ts.isPropertyAccessExpression(bare) &&
         row.sinks.includes(bare.name.text) &&
-        (() => {
-          const name = receiverName(bare.expression);
-          return name !== null && bindings.has(name);
-        })();
+        surfaceReceiverOf(bare.expression, bindings).kind === "surface";
       // A sink reached through a destructured local: no property access exists to
       // inspect, so the local's own name is the whole signal.
       const isBareSink = ts.isIdentifier(bare) && destructured.has(bare.text);

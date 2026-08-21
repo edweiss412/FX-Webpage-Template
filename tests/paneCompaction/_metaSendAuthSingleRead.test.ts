@@ -24,6 +24,8 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import ts from "typescript";
+
 import { walkSourceFiles } from "@/lib/messages/__internal__/walkSourceFiles";
 
 import { premise, premiseHolds } from "../_shared/premise";
@@ -1206,6 +1208,40 @@ type ManifestCell = {
 const INHERITED_CORPUS_SIZE = 81;
 
 const MANIFEST: readonly ManifestCell[] = [
+  // --- Task 2 [task:resolve-name]. These name a §2.5 AXIS rather than
+  // `inherited`, which the frozen BASE size forces: a new fixture cannot be
+  // absorbed as pre-existing.
+  {
+    fixture: "element-access-receiver.ts",
+    axis: "receiver shape, once depth is factored out",
+    covers: "AC-U14 — a statically known element-access receiver resolves from its literal key",
+  },
+  {
+    fixture: "element-access-opaque-key.ts",
+    axis: "binding kind",
+    covers:
+      "AC-U14 — a non-literal element key stays opaque, paired with an in-module reporting control",
+  },
+  {
+    fixture: "wrapper-nonnull-sink.ts",
+    axis: "wrapper kind",
+    covers: "AC-U15 — a non-null assertion wrapping a sink receiver",
+  },
+  {
+    fixture: "wrapper-as-sink.ts",
+    axis: "wrapper kind",
+    covers: "AC-U15 — an `as` type assertion wrapping a sink receiver",
+  },
+  {
+    fixture: "wrapper-angle-sink.ts",
+    axis: "wrapper kind",
+    covers: "AC-U15 — an angle-bracket type assertion wrapping a sink receiver",
+  },
+  {
+    fixture: "wrapper-satisfies-sink.ts",
+    axis: "wrapper kind",
+    covers: "AC-U15 — a `satisfies` expression wrapping a sink receiver",
+  },
   { fixture: "alias-read.ts", axis: "inherited", covers: "AC-1 — an ALIAS of a read member" },
   {
     fixture: "aliased-importer.ts",
@@ -1815,5 +1851,90 @@ describe("AC-U16 groundwork — the fixture manifest is DERIVED and the corpus c
     // Two occurrences make "immediately above" ambiguous, so it reds rather than
     // silently checking the first.
     expect(directiveImmediatelyAbove(twice, line)).toMatchObject({ ok: false, occurrences: 2 });
+  });
+});
+
+describe("AC-U14/AC-U15 — rule A resolves a receiver ONCE, for every position", () => {
+  it("resolves a STATICALLY KNOWN element-access receiver, string key and template key alike", () => {
+    // `this["ch"]` names its member IN THE SOURCE TEXT. It needs neither a
+    // checker nor a call graph, so it is not the fenced call-result case, and
+    // treating it as one left a real surface sink FULLY SILENT — the fail-open
+    // direction the consequence bound forbids.
+    const f = "element-access-receiver.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "UNDECLARED-PASS", "settle", lineOf(f, 'this["ch"].dispatch')),
+      finding(f, "UNDECLARED-PASS", "settleTemplate", lineOf(f, "this[`ch`].dispatch")),
+    ]);
+  });
+
+  it("leaves a NON-LITERAL element key opaque, and the silence is ATTRIBUTABLE", () => {
+    // The pair is ONE VARIABLE away: literal key versus variable key. The
+    // control lives IN THIS MODULE, so a clean verdict for the opaque receiver
+    // cannot be produced by the scanner failing to look — `settleBare` reports
+    // through the ordinary route and exactly one finding is owed.
+    const f = "element-access-opaque-key.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "UNDECLARED-PASS", "settleBare", lineOf(f, "this.ch.dispatch")),
+    ]);
+  });
+
+  // ONE fixture per wrapper KIND, not one representative: a scanner unwrapping
+  // parentheses only passes a single representative while silently missing the
+  // other three.
+  it.each([
+    ["wrapper-nonnull-sink.ts", 'ch!.dispatch("p1"'],
+    ["wrapper-as-sink.ts", "(ch as Channel).dispatch"],
+    ["wrapper-angle-sink.ts", "(<Channel>ch).dispatch"],
+    ["wrapper-satisfies-sink.ts", "(ch satisfies Channel).dispatch"],
+  ])("%s — a transparent wrapper does not change what the guard sees", (f, needle) => {
+    // TWO findings, and the second is a DECLARED BASELINE THAT SHRINKS rather
+    // than an expectation being accommodated.
+    //
+    // UNDECLARED-PASS is rule A working: D1 now resolves the wrapped receiver,
+    // so the module is discovered as send-bearing where it previously reported
+    // NOTHING AT ALL.
+    //
+    // UNCLASSIFIED-USE naming the BINDING is D3/D6 still answering for
+    // themselves. It is the wrong-attribution direction -- the binding named
+    // where the member is owed -- and `task:sites-consume-rule-a` removes it
+    // when those sites consume rule A. It is asserted HERE, by equality, so
+    // that removal is a visible change to this expectation rather than a
+    // silent one: a presence check would have been satisfied by either state.
+    expect(scan(f)).toEqual([
+      finding(f, "UNDECLARED-PASS", "settle", fnLine(f)),
+      finding(f, "UNCLASSIFIED-USE", "ch", lineOf(f, needle)),
+    ]);
+  });
+
+  it("reads the wrapper axis from ts.OuterExpressionKinds, not from a list typed here", () => {
+    // The axis-parity half of AC-U15. "Which wrappers are transparent" is a
+    // question TypeScript already answers, so a wrapper kind TypeScript ADDS is
+    // covered by default rather than by somebody remembering to extend a list —
+    // a hand-written wrapper list being the exact defect this arc removes.
+    //
+    // The independent witness is the COMPILER's own enum, which does not know
+    // what this suite says.
+    const all = ts.OuterExpressionKinds.All;
+    premiseHolds("the compiler exposes a non-empty OuterExpressionKinds.All", all > 0);
+
+    // Every kind this arc names must be a member of All. Asserted against the
+    // enum rather than against its numeric value, so a renumbering in a
+    // TypeScript upgrade cannot silently pass.
+    const named = [
+      ts.OuterExpressionKinds.Parentheses,
+      ts.OuterExpressionKinds.TypeAssertions,
+      ts.OuterExpressionKinds.NonNullAssertions,
+      ts.OuterExpressionKinds.ExpressionsWithTypeArguments,
+    ];
+    expect(named.filter((k) => (all & k) !== k)).toEqual([]);
+
+    // `satisfies` is folded into TypeAssertions by the compiler rather than
+    // carrying its own flag, and the fixture proves the behaviour regardless of
+    // which flag owns it -- which is why the fixture is the proof and this
+    // assertion is only the axis check.
+    expect(scan("wrapper-satisfies-sink.ts").map((x) => x.code)).toEqual([
+      "UNDECLARED-PASS",
+      "UNCLASSIFIED-USE",
+    ]);
   });
 });
