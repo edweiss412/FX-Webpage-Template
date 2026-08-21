@@ -107,273 +107,241 @@ copies, adoption of the shared rule, and independence from spelling.
 
 ## 3. Tasks
 
+**Restructured after plan round 1.** Four findings were one shape: **tasks whose cycle cannot
+complete.** Tasks 2-6 required fixtures their `Files:` denied; Task 7's scan was deliberately red
+until Task 8 edited production code, so it could never commit green; Task 4 broke two expectations
+Task 9 deferred; and three authored REDs were not entailed. **A task owns every file its own red
+needs, and every cycle goes green on its own command before the next task starts.**
+
 <!-- tasks: depth=2 red-contract -->
 
 ## Task 1 — the corpus manifest, its axes, and the directive census
 
-**Files:** `tests/paneCompaction/_metaSendAuthSingleRead.test.ts`,
-a new manifest module beside the fixture corpus (created by this task, so it is
-untracked at plan time and is deliberately not cited as a path)
+**Files:** `tests/paneCompaction/_metaSendAuthSingleRead.test.ts`, `tests/paneCompaction/fixtures/sendAuth/`
 
-<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/_metaSendAuthSingleRead.test.ts:42` why=`the manifest module does not exist, so the case asserting the fixture directory equals the enumerated cross-product reports the directory's 81 entries against an empty expected set and fails on a VALUE` ac=AC-U16a,AC-U16b -->
+<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/_metaSendAuthSingleRead.test.ts:42` why=`the manifest case compares the fixture DIRECTORY read from disk against the cross-product derived from the shipped constants, and the corpus has no fixture for the element-access, wrapper or annotation-certainty cells, so the assertion fails on a VALUE - the missing cell names - not on an unresolved import` ac=AC-U16a,AC-U16b -->
 
-Ships §2.5 whole, and it ships FIRST because the corpus is what makes a diff-stage round closable.
+**The manifest is authored INSIDE the deciding suite, not as a separate module.** A new module that
+the suite imports turns its own absence into a COLLECTION failure, and a collection failure is not a
+red for the asserted reason — it goes green when the test file changes rather than when the
+implementation lands. The manifest is data in the suite; its red is a value mismatch.
 
-**Two mechanisms, not one.** Finite-and-read axes are crossed completely, each axis DERIVED from the
-shipped constant — binding kind from the `Receiver` union, position from the exported consumer list,
-wrapper kind from `ts.OuterExpressionKinds`, exemption state and the depth-factored receiver shapes.
-**Never retyped into the manifest:** a retyped axis drifts the moment the constant gains a member and
-nothing says it did.
+**The comparison has an independent witness on one side.** Axes are DERIVED from the shipped
+constants; the other side is the fixture DIRECTORY ON DISK. **Derivation is right for a COVER and
+wrong for BOTH SIDES OF A COMPARISON** — two derivations from one constant cannot disagree, because a
+drift moves them together. The filesystem does not know what the constant says.
 
-Unbounded axes — paren depth, member-chain depth — get an INDEPENDENCE PROOF over structurally
-distinct classes (0, 1, 2, deep), asserting the finding set is IDENTICAL, not that four depths were
-tried. **This is the case that found the sixth decision site (§3.7), so it is a first-class suite
-case rather than a probe transcript.**
+Unbounded axes get an INDEPENDENCE PROOF over structurally distinct classes (0, 1, 2, deep),
+asserting the finding set is IDENTICAL. Struck cells carry their reason.
 
-**Struck cells carry their reason in the manifest**, so a later reader meets the argument rather than
-an absence.
+**The directive census** asserts every syntax-sensitive cell carries `// prettier-ignore` immediately
+above its line, by a walk derived from the manifest — not a shared-file ignore entry.
 
-**The directive census.** Every syntax-sensitive cell is asserted to carry `// prettier-ignore`
-immediately above its line, by a walk DERIVED from the manifest. **Not a `.prettierignore` entry:**
-that is a shared file and four arcs are merging around each other this batch, and a derived
-assertion fails by default for a fixture added without the directive where a directory fence does
-not.
+## Task 2 — `resolveName`, rule A, and the fixtures that exercise them
 
-**Anti-tautology:** the red is a VALUE assertion — the manifest names cells with no fixture — never
-"a symbol is absent". Expect-a-REPORT everywhere it can be: an expect-CLEAN fixture is satisfied by
-any implementation that fails to look.
+**Files:** `tests/paneCompaction/sendAuthScan.ts`, `tests/paneCompaction/fixtures/sendAuth/`, `tests/paneCompaction/_metaSendAuthSingleRead.test.ts`
 
-## Task 2 — `resolveName`, and rule A on top of it
+<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/sendAuthScan.ts:818` why=`receiverRightmostName sees through parentheses only and returns null for an element access, so this task's static-element-key fixture reports an empty findings array where UNDECLARED-PASS naming the enclosing function is expected` ac=AC-U14,AC-U15 -->
 
-**Files:** `tests/paneCompaction/sendAuthScan.ts`
-
-<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/sendAuthScan.ts:818` why=`receiverRightmostName sees through parentheses only and returns null for an element access, so the static-element-key fixture this task adds reports an empty findings array where UNDECLARED-PASS is expected` ac=AC-U14,AC-U15 -->
-
-One name resolution for every position (§2.2). It unwraps through `ts.skipOuterExpressions(node,
-ts.OuterExpressionKinds.All)` — **asked of the compiler, never enumerated**, and that enum is where
-`Satisfies` comes from — and resolves a statically known element key from its literal.
-
-`surfaceReceiverOf` returns the three-way `Receiver`, and **it is the entry point the arms call**;
-a type declared and never consumed is decorative, which spec round 2 F4 measured against this
-design's own prototype.
-
-**Transparency is symmetric.** Rule A unwraps the receiver EXPRESSION; the identifier side needs the
-mirror — walk OUT through every transparent wrapper before asking which branch an identifier reaches,
-on the member-receiver, call-argument and spread paths alike.
+One name resolution for every position, unwrapping through `ts.skipOuterExpressions(node,
+ts.OuterExpressionKinds.All)` — asked of the compiler — and resolving a static element key from its
+literal. `surfaceReceiverOf` returns the three-way `Receiver` **and is the entry point the arms
+call**; a type declared and never consumed is decorative. Transparency is symmetric: the identifier
+side walks OUT through every transparent wrapper.
 
 ## Task 3 — the six decision sites consume rule A
 
-**Files:** `tests/paneCompaction/sendAuthScan.ts`
+**Files:** `tests/paneCompaction/sendAuthScan.ts`, `tests/paneCompaction/fixtures/sendAuth/`, `tests/paneCompaction/_metaSendAuthSingleRead.test.ts`
 
-<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/sendAuthScan.ts:579` why=`analyzePassReads requires ts.isIdentifier on the receiver and analyzeHandoffs on the argument, so the property-receiver double-read fixture reports no MULTI-READ and the property-receiver handoff fixture reports no RAW-HANDOFF while their bare controls in the same function do report` ac=AC-U1,AC-U2,AC-U3 -->
+<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/sendAuthScan.ts:579` why=`analyzePassReads requires ts.isIdentifier on the receiver, so this task's property-receiver double-read fixture reports no MULTI-READ naming panes while its bare control in the SAME function does report, and the equality assertion fails on the missing record` ac=AC-U1,AC-U2,AC-U3 -->
 
-D1 through D6 (§2.1) each stop answering for themselves. The member SELECTOR is accepted in either
-form, so `this["ch"]["dispatch"]()` is a sink and `ch["panes"]()` doubled is a `MULTI-READ` naming
-`panes` rather than the binding.
+D1 through D6 stop answering for themselves; the member SELECTOR is accepted in either form. **Every
+assertion is an EQUALITY over the whole finding set** — a presence check is satisfied by every
+superset, and the defect being removed is a report naming the BINDING where the member is owed.
 
-**Every assertion is an EQUALITY over the whole finding set, never a presence check** — a presence
-check is satisfied by every superset, and the defect this task removes is a report naming the
-BINDING where the member is owed.
+## Task 4 — rule B, and the two expectations it moves
 
-## Task 4 — rule B: delete the shadow walk, hold a competing-declaration count
+**Files:** `tests/paneCompaction/sendAuthScan.ts`, `tests/paneCompaction/fixtures/sendAuth/`, `tests/paneCompaction/_metaSendAuthSingleRead.test.ts`
 
-**Files:** `tests/paneCompaction/sendAuthScan.ts`
+<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/sendAuthScan.ts:994` why=`shadowedBetween enumerates four function-like kinds, so this task's constructor-scope and set-accessor-scope shadow fixtures report an empty findings array where RAW-HANDOFF naming the callee is expected, while the arrow-scope control does report` ac=AC-U4,AC-U5,AC-U12 -->
 
-<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/sendAuthScan.ts:994` why=`shadowedBetween enumerates four function-like kinds, so the constructor-scope and set-accessor-scope shadow fixtures report an empty findings array where RAW-HANDOFF is expected, while the arrow-scope control fixture does report` ac=AC-U4,AC-U5,AC-U12 -->
+`shadowedBetween` is DELETED and a COUNT replaces it. The exemption for a name is VOID inside a pass
+declaring it more than once with a COMPETING declaration; a declaration competes unless its
+annotation is a keyword type that cannot hold an object, **with the complement DEFAULT-DENIED into
+the reporting direction**.
 
-`shadowedBetween` is DELETED (§2.3). A predicate that must enumerate the scopes which can shadow
-falls silent — fail-OPEN, into the forbidden direction — on every kind it does not list, and it has
-already been measured missing three.
-
-**A COUNT replaces it, and a count cannot be argued with.** The exemption for a name is VOID inside a
-pass declaring that name more than once with a COMPETING declaration, and a declaration competes
-unless its annotation is a keyword type that cannot hold an object. **The accept-set is the escape;
-the complement is DEFAULT-DENIED into the reporting direction** — `any`, `unknown`,
-`Readonly<Channel>`, `Channel & {}` and every unlisted form all compete.
-
-AC-U5's pair is one variable apart and is what makes the silent verdict attributable rather than
-"never got here".
+**The two moved expectations are updated HERE, in the same task**, because rule B moves them the
+moment it lands and a task cannot reach green while leaving its own suite red.
+`shadowed-param-handoff.ts` and `same-pass-shadowed-derivation.ts` each gain exactly one ADDITIVE
+`RAW-HANDOFF` naming `inner` at their closing `return inner(snap);`. Nothing is removed; both already
+report; both declare `snap` twice with competing surface-typed declarations, so every use of `snap`
+in that pass is RAW. **The update lands with its reason, because a silently updated expectation is
+indistinguishable from a regression somebody accommodated.**
 
 ## Task 5 — the declaration-name accept-set, defaulting to USE
 
-**Files:** `tests/paneCompaction/sendAuthScan.ts`
+**Files:** `tests/paneCompaction/sendAuthScan.ts`, `tests/paneCompaction/fixtures/sendAuth/`, `tests/paneCompaction/_metaSendAuthSingleRead.test.ts`
 
-<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/sendAuthScan.ts:491` why=`isDeclarationName enumerates four declaration kinds and misses accessor, method and property-assignment names, so the set-accessor fixture emits a spurious UNCLASSIFIED-USE naming the accessor's own name and the equality assertion fails on that extra record` ac=AC-U13 -->
+<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/sendAuthScan.ts:491` why=`isDeclarationName enumerates four declaration kinds and misses accessor names, so this task's set-accessor fixture emits a spurious UNCLASSIFIED-USE naming the accessor's own name and the equality assertion fails on that extra record` ac=AC-U13 -->
 
-An accept-set of DECLARING PARENTS whose default is USE.
-
-**The default direction is the design, and it is chosen by which error survives being wrong.** This
-is NOT "default-deny" — the two accept-sets in this arc default in OPPOSITE directions. Classifying a
-USE as a declaration SKIPS it and the finding is lost forever, silently. Classifying a DECLARATION as
-a use REPORTS, and costs a line somebody reads. `ShorthandPropertyAssignment` and `ExportSpecifier`
-carry a `name` and are value references; a `parent.name === node` rule alone reads them as
-declarations.
+**The default is chosen by which error survives being wrong**, and the two accept-sets in this arc
+default in OPPOSITE directions. Classifying a USE as a declaration SKIPS it and the finding is lost
+silently and forever; classifying a DECLARATION as a use REPORTS and costs a line somebody reads.
 
 ## Task 6 — the read set's member name is a position too
 
-**Files:** `tests/paneCompaction/sendAuthScan.ts`
+**Files:** `tests/paneCompaction/sendAuthScan.ts`, `tests/paneCompaction/fixtures/sendAuth/`, `tests/paneCompaction/_metaSendAuthSingleRead.test.ts`
 
-<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/sendAuthScan.ts:146` why=`readsFromSourceFile requires ts.isIdentifier on the member name, so readsFor over a surface declaring a QUOTED member returns a read set missing that member and the equality assertion fails on the returned array` ac=AC-U6 -->
+<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/sendAuthScan.ts:146` why=`readsFromSourceFile requires ts.isIdentifier on the member name, so readsFor over this task's surface fixture declaring a QUOTED member returns a read set missing that member and the equality assertion fails on the returned array` ac=AC-U6 -->
 
-`"panes"(): string[]` is ordinary TypeScript and one ordinary edit from the live declaration, and it
-was DROPPED from the read set.
+**The read set is consumed as a COMPLEMENT**, so a dropped member is not one missing entry — it is
+reclassified "not a read" and rules 2 and 3 stop constraining it everywhere the set gates.
 
-**Why a drop from THIS set costs more than from any other: the read set is consumed as a
-COMPLEMENT.** A drop from a positively-consumed set costs one false negative at that member; a drop
-from a complement costs a false negative **everywhere the set gates**, silently, in the permissive
-direction — the member is reclassified "not a read" and rules 2 and 3 stop constraining it entirely.
+## Task 7 — the three scans AND the routing they demand, as ONE cycle
 
-## Task 7 — the three scans, each proven able to FAIL
+**Files:** `tests/paneCompaction/sendAuthScan.ts`, `tests/paneCompaction/_metaSendAuthSingleRead.test.ts`
 
-**Files:** `tests/paneCompaction/_metaSendAuthSingleRead.test.ts`
+<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/sendAuthScan.ts:632` why=`calleeNameOf and the remaining name-resolution sites resolve a name without routing through resolveName and carry no acknowledgement token, so the adoption scan authored here reports twelve unfulfilled ROUTE obligations and the assert-empty fails on that list` ac=AC-U16a,AC-U16b,AC-U16c -->
 
-<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/sendAuthScan.ts:632` why=`twelve name-resolution sites in the module resolve a name without routing through resolveName and carry no acknowledgement token, so the adoption scan reports twelve unfulfilled obligations and the assert-empty fails on that list` ac=AC-U16a,AC-U16b,AC-U16c -->
+**Scans and routing are ONE task because splitting them makes the cycle impossible**: a scan whose
+whole purpose is to report twelve outstanding obligations is red by construction until they are
+discharged, so it can never commit green on its own. The ordering the pair existed to protect —
+**a guard built after the thing it guards means the thing shipped ungated** — is preserved WITHIN the
+task by TDD order: author the scans, observe the red, then route.
 
-Three scans, and they are **three genuinely different claims** — this is the task where that
-distinction is load-bearing:
+Three scans, three different claims, none implying another:
 
-1. **ABSENCE** (AC-U16a) — no site RE-IMPLEMENTS the rule. Structural, not lexical: a grep is blind
-   to a copy spelled differently, which is how copies three, four and five survived earlier greps.
-2. **ADOPTION** (AC-U16b) — every site that RESOLVES A NAME routes through the rule or carries one of
-   the three tokens. **Absence does not imply adoption**: every duplicate can be gone while nothing
-   calls the replacement. Its detector's accept-set is DERIVED from the TypeScript API surface for
-   materializing a name — `text`, `escapedText`, `getText`, `getFullText`, and the destructured form
-   — because naming only `.text` left three ordinary equivalents able to evade it.
-3. **METAMORPHIC INVARIANCE** (AC-U16c) — the detected site SET is identical under rename and
-   reformat, compared under a STRUCTURAL identity carrying no identifier spelling.
+1. **ABSENCE** — no site RE-IMPLEMENTS the rule. Structural, not lexical.
+2. **ADOPTION** — every site that RESOLVES A NAME routes or carries one of the three tokens. Its
+   detector's accept-set is DERIVED from the TypeScript API surface for materializing a name.
+3. **METAMORPHIC** — the detected site SET is identical under rename and reformat, compared under a
+   STRUCTURAL identity carrying no identifier spelling. **Cardinality is not the criterion.**
 
-   **Comparing SETS requires a stable ELEMENT IDENTITY, and this is where the implementation will
-   quietly degrade back into a count.** `28 → 28` is not set equality: one missed site and one
-   spurious site CANCEL, the count is identical and the sets are not — a count is a lossy projection
-   of a set and the loss is exactly the information the criterion needs. The identity is the AST
-   child-index path plus the materializer name, proven identical across a rename. **Reordering
-   independent declarations is DECLARED OUT of the invariant**, because a child-index path is not
-   stable under reorder and no transformation-stable identity is claimed for it — stating that is the
-   honest half of the criterion.
+**Each scan is run against a CONSTRUCTED VIOLATION and observed to fail**, one per accepted form
+rather than one representative: a detector recognizing only `.text` and `getText()` passes a single
+materializer mutant while silently missing `.escapedText`, `getFullText()` and the destructured
+`{ text }`.
 
-**Each is run against a CONSTRUCTED VIOLATION and observed to fail**, because a guard whose premise
-is false where it runs passes unconditionally and would forever. The violations: a hand-written
-second copy of the rule; a site switched to `getText()`; a site whose disposition row is removed.
+**DERIVE THE REQUIREMENT, AUTHOR THE WITNESS, ASSERT THE COVERAGE** — the shape that satisfies both
+standing rules at once, and the obvious repair violates one of them. Deriving the planted violations
+from the same API-surface set the detector uses would trade a weak fixture set for a VACUOUS one:
+both sides from one source cannot disagree. So:
 
-## Task 8 — route the twelve, and write the acknowledgements
+1. **Derived** — the REQUIREMENT that every member of the API set needs a planted violation.
+2. **Authored** — each violation fixture, by hand, independently.
+3. **Asserted** — the derived requirement list against the hand-authored fixture directory.
 
-**Files:** `tests/paneCompaction/sendAuthScan.ts`
+Two independent sides, so they CAN disagree; the gap is closed without the comparison going vacuous.
+**The same shape applies to rule B's scope recognizer** (§3c).
 
-<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=live why=`Task 7's adoption scan is live and reports twelve unfulfilled ROUTE obligations plus the undisposed sites, so the suite fails until each site either routes or carries a token` ac=AC-U16b -->
-
-**ALL TWELVE route in this PR.** The class-sweep disposition default is that every instance of one
-shape is repaired in the same commit, and "same defect, different site" is precisely the case that
-default covers. A deferral of any of the twelve needs exception (a), (b) or (c) named on a ledger
-row; twelve mechanical routings through one function should not need one.
-
-The acknowledgements use the three tokens of §2.5, and **a `narrowed` row without its consequence and
-its re-file trigger is a shrug wearing a token's name** — §3.14's table carries all three.
-
-## Task 9 — the live-corpus premise, and the two moved fixtures
+## Task 8 — the live-corpus premise, and fixture preservation
 
 **Files:** `tests/paneCompaction/_metaSendAuthSingleRead.test.ts`
 
-<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/_metaSendAuthSingleRead.test.ts:444` why=`the two shadow fixtures gain one additive RAW-HANDOFF naming inner, so their existing equality assertions fail on the extra record until the expectations are updated in the same commit that states why the record is correct` ac=AC-U7 -->
+<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/_metaSendAuthSingleRead.test.ts:597` why=`the existing live-tree case asserts an empty findings array with no population premise, so the premise assertion authored here - that the walk visited a non-zero file count and the enrolled module was among them - has no value to read and fails on the absent count` ac=AC-U6,AC-U7 -->
 
-The live scan asserts empty **with its premise stated executably**: the walk visited a non-zero file
-count (576 at BASE) and the enrolled module was among them. `0 of 0` and `0 of N` render identically
-and mean opposite things.
+`0 of 0` and `0 of N` render identically and mean opposite things, so the live scan's empty result is
+asserted WITH its population: 576 files walked at BASE, the enrolled module among them.
 
-**The two moved fixtures are owned here, not edited incidentally.** `shadowed-param-handoff.ts` and
-`same-pass-shadowed-derivation.ts` each gain exactly one ADDITIVE `RAW-HANDOFF` naming `inner` at
-their closing `return inner(snap);`. Both already report, so neither goes silent-to-noisy, and both
-declare `snap` twice with competing surface-typed declarations, so every use of `snap` in that pass
-is RAW by §2.3 — including the one a human resolves to the derivation. **A silently updated
-expectation is indistinguishable from a regression somebody accommodated**, which is why the update
-lands with its reason.
-
-## Task 10 — the registry control, derived rather than claimed
-
-**Files:** `tests/mutation/source/registry.ts`, `tests/paneCompaction/_metaSendAuthSingleRead.test.ts`
-
-<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/mutation/source/registry.ts:2712` why=`the sendAuthScan row's control keys on a source line whose uniqueness is asserted only in a comment, so the case asserting that line occurs exactly once in the shipped source has nothing to read it from and fails on the absent derivation` ac=AC-U9 -->
-
-The row's comment reads *"Verified unique on the current source (`grep -c -F` = 1)"*. **True when
-written, and this arc moves the code it keys on.** Baseline recorded BEFORE any consolidation
-existed, because it becomes unrecoverable afterwards: **1**, at `7159c2a4e`, source blob
-`412cadd3dd4c21513c5cbee6c514f033b7cdb859`.
-
-Two obligations: re-verify `grep -c -F` = 1 after every refactor commit that touches the file, and
-**replace the prose claim with a suite-asserted one** — a comment cannot fail.
-
-## Task 11 — the score, ONCE, after the last input edit
+## Task 9 — the score, the derived control, and the killer audit
 
 **Files:** `tests/mutation/source/registry.ts`
 
-<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/mutation/source/registry.ts:2719` why=`the accepted-survivor set recorded in the row is the one from the predecessor arc's measurement, so the case asserting the row's accepted list matches this arc's measured survivor set fails on the stale list` ac=AC-U8 -->
+<!-- task: red=`pnpm heavy pnpm vitest run --project mutation tests/mutation/guardSurfaces.shard0.test.ts` red-state=authored red-target=`tests/mutation/source/registry.ts:2719` why=`the row's accepted list is the predecessor arc's, and this arc's repairs move every arm, so the scoped gate run reports unaccepted survivors against a stale accepted set and exits non-zero on the survivor list rather than on a collection error` ac=AC-U8,AC-U9 -->
 
-Mechanics, verified rather than recalled:
+**The RED command is the GATE, not the deciding suite** — the deciding suite does not import the
+registry, so it can express no verdict about a survivor set. The gate is the only oracle that knows
+which mutants survived.
 
-- Temp shard **numbered 9**, NOT one named `shardTMP` — the repository's ignore file already covers the scoped-shard scratch glob for shard
-  numbers four through nine ONLY, and an uncovered scratch shard is the incident that turned
-  four required checks red on this very arc family. Stage by path; `git ls-files | grep shard` before
-  every push; verify with `git ls-tree` across EVERY commit on the branch, since `ls-files` reports
-  only the current index.
-- Run under `pnpm heavy`, **backgrounded** — a foreground Bash call dies at the documented 600s cap.
-- **Stamp the input set DERIVED from the contract, before AND after**: source, registry row and
-  `expectedLedgerKinds` (the operators and the floor), suite paths read OUT of the registry row,
-  fixtures expanded by the same command that stamps them. One stamp catches a stale read; only the
-  PAIR catches an input moving during the run.
-- Delete the shard and **prove the deletion load-bearing** by running `_metaSourceShardIntegrity`
-  BOTH ways — it fails with the file present and passes once removed.
-- **The killer audit is owed ALONGSIDE the score, not subsumed by it.** A perfect score covers what
-  the declared operators can express; a hand-built weaker implementation covers what they cannot.
-  Neither dominates.
-- Any survivor: **DELETE the site, else totalise, else kill with a case, and only then argue
-  equivalence** — and a totalisation must not move termination into a mutable predicate, which turns
-  an off-by-one mutant into a non-terminating one and takes the whole measurement down.
+Mechanics, verified rather than recalled: a temp shard **numbered 9**, since the repository's ignore
+file covers the scoped-shard scratch glob for shard numbers four through nine ONLY and an uncovered
+scratch shard is the incident that turned four required checks red on this arc family; staged by
+path; `git ls-tree` across EVERY commit on the branch, since `ls-files` reports only the current
+index; run under `pnpm heavy`, **backgrounded**, because a foreground Bash call dies at the
+documented 600s cap; **input set stamped DERIVED from the contract, before AND after** — one stamp
+catches a stale read, only the PAIR catches an input moving during the run; the shard deleted and the
+deletion **proven load-bearing in BOTH directions**.
 
-## Task 12 — ledger closeout, EARLY, as ONE commit before whole-diff review
+**The derived control lands here**, not in a task of its own, because this is where its
+discrimination is exercised: a control keyed by text is only as good as that text's uniqueness, the
+baseline was **1** at `7159c2a4e`, and this arc moves the code it keys on.
 
-**Files:** `BACKLOG.md`, `BACKLOG-archive.md`,
-`docs/superpowers/specs/ci/2026-08-19-send-auth-single-read-lint-design.md`
+**The killer audit is owed ALONGSIDE the score.** A perfect score covers what the declared operators
+can express; a hand-built weaker implementation covers what they cannot. **It names the two
+weakenings §3c lists** rather than being a generic instruction.
 
-<!-- task: red=`pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts` red-state=live why=`the branch's IN PROGRESS marker is still on the row, and the meta-test requires an in-progress entry to carry a resolvable Branch that exists on origin, so the suite fails once the branch is deleted at merge and passes only when the marker is removed here` ac=AC-U10,AC-U11 -->
+## Task 10 — ledger closeout, EARLY, as ONE commit before whole-diff review
 
-Absence is then GUARANTEED rather than maintained: gone at commit N is gone at every commit after N.
-A ledger commit placed after whole-diff review is unreviewed code riding into the merge.
+**Files:** `BACKLOG.md`, `BACKLOG-archive.md`, `docs/superpowers/specs/ci/2026-08-19-send-auth-single-read-lint-design.md`
 
-The whole change, in one commit: the graduating row archived; **its three defects corrected** — the
-stale summary sentence, the stale "probed silent" claim for the handoff instance, and the ambiguous
-"read arm" that names two different functions fifteen lines apart; the predecessor spec's §4 limit 8
-preamble corrected, since under one of its two readings it is FALSE; the peer row of §4.2 filed with
-`**Facing:** process` and an `**Incident:**`, because the mint-bar cutoff is 2026-08-19 and this row
-is filed after it; and the IN PROGRESS marker removed.
+<!-- task: red=`pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerMintBar.test.ts` red-state=authored red-target=`tests/docs/_metaLedgerMintBar.test.ts:58` why=`the peer row this task files carries a Filed date after the 2026-08-19 mint-bar cutoff, so until it also carries Facing and Incident fields the mint-bar suite fails naming that row, which is a value failure on the row's own fields` ac=AC-U10,AC-U11 -->
 
-**Verify by SET ARITHMETIC in both directions** — union of `BL-`/`DEF-` ids exact, `comm -12`
-archived-versus-open EMPTY, in-progress marker count zero — and **re-verify after every subsequent
-merge from main**, since a later merge can reintroduce a row or a marker.
+Absence is GUARANTEED rather than maintained: gone at commit N is gone at every commit after N, and a
+ledger commit placed after whole-diff review is unreviewed code riding into the merge.
+
+**The reconciliation sweeps are authored AND RUN here, with their exact commands, their output at
+authoring time, and a per-hit disposition** — a described sweep is the shape that cost another plan
+six consecutive rounds:
+
+```
+comm -12 <(grep -oE '^## (BL|DEF)-[A-Z0-9-]+' BACKLOG.md | sort) \
+         <(grep -oE '^## (BL|DEF)-[A-Z0-9-]+' BACKLOG-archive.md | sort)   -> must be EMPTY
+grep -c 'Status:\*\* IN PROGRESS' BACKLOG.md BACKLOG-archive.md            -> must be 0 at HEAD
+grep -rn 'the read arm' BACKLOG.md docs/superpowers/specs/ci/2026-08-19-*   -> 3 hits at BASE, each
+                                                                              resolved to ONE function
+```
+
+The row's three defects are corrected: the stale summary sentence, the stale "probed silent" claim
+for the handoff instance, and the ambiguous "read arm" naming two different functions fifteen lines
+apart. The predecessor spec's §4 limit 8 preamble is corrected, since under one of its two readings it
+is FALSE. **Re-verify the set arithmetic after every subsequent merge from main.**
 
 <!-- tasks: end -->
 
 ---
 
-## 3b. Tautology audit — run over every instrument this plan ships
+## 3c. Weaker implementations, and the fixture that kills each
 
-For each runtime assertion: **which of these could still fail if the code compiles?** Those that
-could not are tautologies. Run before dispatch, on the plan's own instruments.
+Written down per rule, not per instance: for every rule this plan specifies, the strictly weaker
+implementation that would satisfy its fixtures, and the case that kills it.
 
-| assertion | can it fail on compiling code? | what makes it discriminate |
+| rule | weaker implementation that passes the naive fixture set | killing case |
 | --- | --- | --- |
-| ABSENCE — no site re-implements the rule | **yes** | a duplicate compiles fine; three, four and five all did, and all shipped green |
-| ADOPTION — every site routes or is acknowledged | **yes** | reports 12 unfulfilled obligations on the current design |
-| METAMORPHIC — site set identical under rename | **yes** | it FAILED before the repair (42 to 44 under a rename); it is the check that caught the spelling dependence |
-| detector accept-set covers `getText()` | **yes** | proven at the reviewer's own position: widened gives 30 / 4 and names the site, `.text`-only gives 28 / 2 and is blind |
-| manifest equals the fixture DIRECTORY | **yes** | one side is read from DISK and the other is derived from the shipped constants, so they are independent sources |
-| live corpus scans empty | **yes** | it is `0 of 576`, and the premise asserts the 576 so an empty walk cannot masquerade as a clean one |
-| `grep -c -F` on the control line = 1 | **yes** | it was 1 at BASE and this arc moves that code |
-| the two moved fixtures' equality expectations | **yes** | they compare whole finding SETS by equality, so an extra or missing record fails |
+| rule A, unwrap | unwraps parentheses only | a receiver wrapped in `as`, `<T>`, `!` and `satisfies` — one fixture each, since one representative leaves the other three unexercised |
+| rule A, element key | resolves `this["ch"]` but not `this[("ch")]` | a WRAPPED key, which is the same unwrap applied to a second position |
+| rule B, scope | a scope recognizer enumerating exactly constructor, set accessor and the two named block shapes | a declaration in an ORDINARY scope none of those name — a `for`-statement initializer and a `catch` binding — which a count handles and an enumeration does not |
+| rule B, competing | treats any annotation that is not the surface type as non-competing | `any`, `Readonly<Channel>`, `Channel & {}`, paired with a `string` that must stay silent |
+| declaration-name | `parent.name === node` minus a two-item denylist | `Object.values({ ch })` and `export { ch }`, which carry a `name` and are references |
+| adoption detector | recognizes `.text` and `getText()` only | one planted violation per accepted form: `.escapedText`, `getFullText()`, destructured `{ text }` |
+| metamorphic check | compares CARDINALITY | a transformation that removes one site and adds another, which cancels in a count and not in a set |
+| read set | identifier member names only | a QUOTED member, whose loss is a complement loss and therefore everywhere |
 
-**The one that needed rewriting rather than confirming:** an early form of the manifest case compared
-a derivation against a derivation — axes derived from the shipped constants on BOTH sides — which is
-vacuous by construction, since a drift in the constant moves both sides together. **The shipped form
-compares the fixture DIRECTORY ON DISK against the derivation**, which is the only pairing where the
-two sides can disagree.
+---
+
+## 3d. Every red, checked against the three ways an authored red fails
+
+Plan round 1 returned three unentailed reds and they were **three different failures**, so each
+rebuilt red is checked against all three rather than against a general feeling of validity:
+
+1. **Does it fail on BEHAVIOUR?** Adding an assertion that would pass is not a red — the absence of a
+   check is a coverage gap. (Round 1's Task 10: the control line already occurred once, so the new
+   assertion passed the moment it was written.)
+2. **Is there an ORACLE THAT CAN DIFFER?** (Round 1's Task 11: `accepted` was `[]` and might remain
+   `[]`, and its command ran a suite that does not import the registry it edits — no oracle at all,
+   and rule 96 twice over. The rebuilt Task 9 runs THE GATE, which is the only thing that knows a
+   survivor set.)
+3. **Can it fail AT ITS OWN SEQUENCE POSITION?** (Round 1's Task 12: the marker's branch still exists
+   on origin, so the ledger suite could only fail after a branch deletion that happens AFTER the task
+   removes the marker — a temporal impossibility, red in a future the task itself creates. The
+   rebuilt Task 10 reds on the mint-bar suite, which fails the moment the peer row is filed without
+   its `Facing` and `Incident` fields, at that task's own position.)
+
+**And on the guard-before-the-change constraint:** round 1 showed Tasks 7 and 8 were not merely
+ordered but IMPOSSIBLE. The correction is that **a guard is not a separate deliverable — it is the
+RED of the change's own cycle.** Two legal shapes exist: ONE TASK (write the guard, observe red,
+route, green), or TWO with a SHRINKING ALLOWLIST where the guard ships green against a declared
+baseline of known-unfulfilled sites. **Task 7 takes the first**; the allowlist was considered and
+declined because twelve routings are one mechanical class and an allowlist would outlive them.
 
 ---
 
