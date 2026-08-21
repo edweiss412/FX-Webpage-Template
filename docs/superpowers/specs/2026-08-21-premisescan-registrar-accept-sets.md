@@ -26,7 +26,7 @@ measurement that says so.**
 | R2 | **Derived, never completed by hand.** A hand-completion is what the filing arc did twice and it does not terminate. | §3 |
 | R3 | **The modifier set is derived from Vitest's DECLARATION, not from runtime property enumeration.** A property read over-accepts: it admits the hook registrars, and it admits BUILDERS (`extend`, `override`, `scoped`) whose call returns a new API rather than registering. The declaration names the chainable set directly. | §3.2 |
 | R4 | **`aroundAll`/`aroundEach` are in scope at zero call sites; `suite` is adopted by routing it through the `describe` branch; `bench` is NOT adopted, derived from its declaration as a benchmark API rather than excepted by hand.** | §3.3, §5 L3 |
-| R5 | **AC-1 does not move.** Measured: environment-touching holds at 74 and unclassifiable at 1; the only delta is one previously uncensused test entering the census, classified environment-FREE. | §4 |
+| R5 | **AC-1 does not move.** Measured at RECORD level, not by totals: the environment-touching set is byte-identical across the shipped scanner and both variants, and the only delta is one previously uncensused test entering the census, classified environment-FREE. | §4 |
 
 ---
 
@@ -269,21 +269,58 @@ forbids. Recorded as §5 L5.
 
 ## 4. AC-1 does not move
 
+Produced by `docs/superpowers/specs/ci/probes/2026-08-21-premisescan-registrar-accept-sets/census.mts`,
+whose population is DERIVED — `GUARD_SURFACES.flatMap((s) => s.suitePaths)`, deduped and sorted, the
+same derivation `tests/mutation/_metaPremiseContract.test.ts:373` uses to build its own `suites`.
+
 ```
-A shipped        classified 2648  env-touching 74  unclassifiable 1
-B derived        classified 2649  env-touching 74  unclassifiable 1
-C derived+peel   classified 2649  env-touching 74  unclassifiable 1
+$ pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-premisescan-registrar-accept-sets/census.mts
+
+                 suites  classified  env-touching  env-free  unclassifiable
+A shipped            77        2761           101      2659               1
+B derived            77        2762           101      2660               1
+C derived+peel       77        2762           101      2660               1
 ```
 
-`EXPECTED_ENV_TOUCHING` (`tests/mutation/_metaPremiseContract.test.ts:32`) declares
-environment-TOUCHING counts. **That number does not move for any suite.** The only delta is
-`tests/cross-cutting/psqlStartupFileSuppression.test.ts` going 399 → 400 as the previously uncensused
-`test.skipIf(isRoot)` test enters the census, classified environment-FREE and therefore carrying no
-declaration obligation. `_metaPremiseContract` passes 10 of 10 under both A and C, and perturbing one
-declared count 2 → 3 reds it by name, so that green is load-bearing.
+**The claim is the RECORD diff, not the totals.** Three equal integers are satisfied by any
+permutation that keeps the counts, so `--records` emits one `verdict | suite | line | name` row per
+classified test and the comparison is a diff of those rows:
+
+```
+$ diff <(A --records) <(C --records)
+> environment-free | tests/cross-cutting/psqlStartupFileSuppression.test.ts | 1654 | chmod 000 on a directory holding a psql site fails the census
+```
+
+**One record added, zero records moved.** The environment-touching set — all 101 rows — is
+byte-identical between A and C. The added row is a named test whose `test.skipIf(cond)` registration
+the shipped `MODIFIERS` cannot resolve, so it was never censused at all; it enters classified
+environment-FREE and therefore carries no declaration obligation. `EXPECTED_ENV_TOUCHING`
+(`tests/mutation/_metaPremiseContract.test.ts:32`) declares environment-TOUCHING counts, and **that
+number does not move for any suite.**
+
+**B and C are identical on this corpus.** The interleaved peel changes no classification here, which
+is §5 L2's point as a measurement rather than an argument: chain depth is not a decision input on the
+live corpus, and the peel earns its place by what it makes RESOLVABLE, not by what it moves today.
 
 **No AC-1 movement, so no user decision is owed** — the escalation PR #843's sixteen-test movement
 required does not arise here.
+
+### These numbers were re-measured, and the first set did not survive
+
+An earlier draft of this section recorded `2648 / 74 / 1` against merge-base `c80f844278bd`. Merging
+`origin/main` enrolled seven claim-sweep suites, and every one of those figures moved (+113
+classified, +27 environment-touching) while the CLAIM — one record added, none moved — held
+unchanged. Two things follow, and both are why the producer above is committed rather than the
+numbers being quoted from a transcript. A corpus figure is only true against a stated tree, so it is
+re-derived by ONE command at any later seam instead of being re-argued. And **the shape of the claim
+outlived the numbers in it**: had this section asserted only the triple, the merge would have
+falsified a statement that was true.
+
+The record channel itself has a failure this arc hit. The first census read `t.name`, a field
+`TestClassification` does not have, so all 2761 records printed an empty name and the A/B/C diff
+silently degraded to suite-level multiplicity **while still exiting 0**. The script now exits 2 when
+no record carries a name, and that abort is proved by severing the channel rather than asserted — it
+fires.
 
 ---
 
