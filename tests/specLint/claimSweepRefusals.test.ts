@@ -20,6 +20,10 @@
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { premise } from "@/tests/_shared/premise";
+import { declarationRefusal } from "../../lib/specLint/claimSweep";
+import type { ClaimSweepDeclaration } from "../../lib/specLint/claimSweep";
+import { INCIDENT_IDENTIFIER } from "./claimSweepFixtures";
 
 const ROOT = process.cwd();
 // .bin/tsx is a shell wrapper and is not node-executable.
@@ -32,6 +36,16 @@ function cli(args: string[]) {
     cwd: ROOT,
     encoding: "utf8",
   });
+  // THE PREMISE, stated once for every case in this suite: the child actually
+  // RAN and said something. A tsx that fails to launch, a missing fixture
+  // document or a truncated pipe all produce an empty result whose assertions
+  // about a reason line would then pass or fail for reasons that have nothing
+  // to do with the refusal under test.
+  premise(
+    `the CLI child ran and produced output for: ${args.join(" ")}`,
+    (r.stdout ?? "").length + (r.stderr ?? "").length,
+    0,
+  );
   return { code: r.status, stdout: r.stdout, stderr: r.stderr };
 }
 
@@ -50,6 +64,15 @@ describe("claim sweep — the three refusals (spec §3.0)", () => {
         // a silent clean. The declaration is well-formed by every other test,
         // so nothing else catches it.
         const r = cli([DOC, "--superseded", "58", "--replacement", "58"]);
+        premise(
+
+          "the CLI child wrote to a channel",
+
+          r.stdout.length + r.stderr.length,
+
+          0,
+
+        );
         expect(r.code).toBe(2);
         // The REASON is the assertion. It names both declared values and says
         // they are equal — not merely that a flag was wrong.
@@ -71,6 +94,15 @@ describe("claim sweep — the three refusals (spec §3.0)", () => {
         // refusal above is satisfied by an implementation that refuses every
         // declaration, which would be the silent clean wearing another costume.
         const r = cli([DOC, "--superseded", "58", "--replacement", "57"]);
+        premise(
+
+          "the CLI child wrote to a channel",
+
+          r.stdout.length + r.stderr.length,
+
+          0,
+
+        );
         expect(r.code).not.toBe(2);
         expect(r.stderr).toBe("");
       },
@@ -87,6 +119,15 @@ describe("claim sweep — the three refusals (spec §3.0)", () => {
         // would report all nine of the incident's occurrences, including the
         // five the repair itself wrote — a wrong advisory.
         const r = cli([DOC, "--claim-about", "PublishedReviewModal.tsx:964"]);
+        premise(
+
+          "the CLI child wrote to a channel",
+
+          r.stdout.length + r.stderr.length,
+
+          0,
+
+        );
         expect(r.code).toBe(2);
         expect(r.stderr).toMatch(/--repair/);
         expect(r.stderr).toMatch(/--claim-about/);
@@ -106,6 +147,15 @@ describe("claim sweep — the three refusals (spec §3.0)", () => {
           "--repair",
           "c272ebed3",
         ]);
+        premise(
+
+          "the CLI child wrote to a channel",
+
+          r.stdout.length + r.stderr.length,
+
+          0,
+
+        );
         expect(r.code).not.toBe(2);
         expect(r.stderr).toBe("");
       },
@@ -124,6 +174,15 @@ describe("claim sweep — the three refusals (spec §3.0)", () => {
         // undeclared invocation is not a certificate, so the arm refuses rather
         // than running nothing and reporting clean.
         const r = cli([DOC, "--repair", "c272ebed3"]);
+        premise(
+
+          "the CLI child wrote to a channel",
+
+          r.stdout.length + r.stderr.length,
+
+          0,
+
+        );
         expect(r.code).toBe(2);
         expect(r.stderr).toMatch(/--repair/);
         expect(r.stderr).toMatch(/--superseded|--claim-about/);
@@ -137,6 +196,15 @@ describe("claim sweep — the three refusals (spec §3.0)", () => {
       "does NOT refuse the same invocation plus a declaration (one variable apart)",
       () => {
         const r = cli([DOC, "--repair", "c272ebed3", "--superseded", "58", "--replacement", "57"]);
+        premise(
+
+          "the CLI child wrote to a channel",
+
+          r.stdout.length + r.stderr.length,
+
+          0,
+
+        );
         expect(r.code).not.toBe(2);
         expect(r.stderr).toBe("");
       },
@@ -151,9 +219,9 @@ describe("claim sweep — the three refusals (spec §3.0)", () => {
         const equal = cli([DOC, "--superseded", "58", "--replacement", "58"]).stderr;
         const noRepair = cli([DOC, "--claim-about", "X.tsx:1"]).stderr;
         const noDecl = cli([DOC, "--repair", "c272ebed3"]).stderr;
-        // Premise: all three produced a reason at all.
-        for (const s of [equal, noRepair, noDecl]) expect(s.length).toBeGreaterThan(0);
-        expect(new Set([equal, noRepair, noDecl]).size).toBe(3);
+        for (const s of [equal, noRepair, noDecl]) {
+          premise("each refusal produced a reason line", s.length, 0);
+        }        expect(new Set([equal, noRepair, noDecl]).size).toBe(3);
       },
       T,
     );
@@ -164,6 +232,15 @@ describe("claim sweep — the three refusals (spec §3.0)", () => {
       "an unrecognised --token is a usage error naming it",
       () => {
         const r = cli([DOC, "--supersedes", "58"]);
+        premise(
+
+          "the CLI child wrote to a channel",
+
+          r.stdout.length + r.stderr.length,
+
+          0,
+
+        );
         expect(r.code).toBe(2);
         expect(r.stderr).toMatch(/unknown flag: --supersedes/);
       },
@@ -174,13 +251,106 @@ describe("claim sweep — the three refusals (spec §3.0)", () => {
       "a declaration missing its counterpart is refused, both directions",
       () => {
         const onlyOld = cli([DOC, "--superseded", "58"]);
+        premise(
+
+          "the CLI child wrote to a channel",
+
+          onlyOld.stdout.length + onlyOld.stderr.length,
+
+          0,
+
+        );
         expect(onlyOld.code).toBe(2);
         expect(onlyOld.stderr).toMatch(/--replacement/);
         const onlyNew = cli([DOC, "--replacement", "57"]);
+        premise(
+
+          "the CLI child wrote to a channel",
+
+          onlyNew.stdout.length + onlyNew.stderr.length,
+
+          0,
+
+        );
         expect(onlyNew.code).toBe(2);
         expect(onlyNew.stderr).toMatch(/--superseded/);
       },
       T,
     );
+  });
+});
+
+/**
+ * The three refusals as a PURE predicate, called IN THIS PROCESS.
+ *
+ * Every assertion above spawns `tsx` and reads the child's exit code and
+ * stderr. That is the right shape for the CHANNEL claim -- exit 2, no report
+ * written -- and it is structurally unable to decide anything about this
+ * module's own branches, because a child process reads
+ * `lib/specLint/claimSweep.ts` FROM DISK and the source-mutation runner's
+ * overlay lives in the PARENT's module registry. Three mutants survived the
+ * whole CLI suite for exactly that reason: the two null tests of the
+ * equal-values guard, and the `claimAbout === null` conjunct of the
+ * nothing-declared guard. The subprocess kept answering from the unmutated
+ * file, so the suite could not tell the mutant from the original.
+ *
+ * The failure mode each case below catches, concretely: a guard conjunct
+ * inverted so its branch becomes UNSATISFIABLE (the refusal silently stops
+ * being issued and the run proceeds on an incoherent declaration), or inverted
+ * so the branch fires on a WELL-FORMED invocation (an ordinary run refused).
+ * Both directions are pinned, one case apart.
+ */
+describe("declarationRefusal -- the predicate itself, in the test process", () => {
+  const decl = (over: Partial<ClaimSweepDeclaration>): ClaimSweepDeclaration => ({
+    superseded: null,
+    replacement: null,
+    claimAbout: null,
+    repair: null,
+    ...over,
+  });
+
+  describe("--superseded equal to --replacement", () => {
+    it("REFUSES, naming the value standing on both sides", () => {
+      const reason = declarationRefusal(decl({ superseded: "58", replacement: "58" }));
+      expect(reason).not.toBeNull();
+      expect(reason).toContain("--superseded and --replacement are both 58");
+    });
+
+    it("does NOT refuse when the two DIFFER, which is the ordinary invocation", () => {
+      expect(declarationRefusal(decl({ superseded: "58", replacement: "63" }))).toBeNull();
+    });
+
+    it("does NOT refuse a lone --superseded: that ARITY error belongs to the adapter", () => {
+      expect(declarationRefusal(decl({ superseded: "58" }))).toBeNull();
+    });
+  });
+
+  describe("--claim-about without --repair", () => {
+    it("REFUSES, naming the identifier rather than the flag alone", () => {
+      const reason = declarationRefusal(decl({ claimAbout: INCIDENT_IDENTIFIER }));
+      expect(reason).not.toBeNull();
+      expect(reason).toContain(INCIDENT_IDENTIFIER);
+      expect(reason).toContain("requires --repair");
+    });
+  });
+
+  describe("--repair with nothing DECLARED", () => {
+    it("REFUSES, naming the rev", () => {
+      const reason = declarationRefusal(decl({ repair: "c272ebed3" }));
+      expect(reason).not.toBeNull();
+      expect(reason).toContain("--repair c272ebed3 was given with nothing DECLARED");
+    });
+
+    it("does NOT refuse once --claim-about accompanies it", () => {
+      expect(
+        declarationRefusal(decl({ repair: "c272ebed3", claimAbout: INCIDENT_IDENTIFIER })),
+      ).toBeNull();
+    });
+
+    it("does NOT refuse once the numeric pair accompanies it", () => {
+      expect(
+        declarationRefusal(decl({ repair: "c272ebed3", superseded: "58", replacement: "63" })),
+      ).toBeNull();
+    });
   });
 });

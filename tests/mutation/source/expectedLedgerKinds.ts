@@ -108,6 +108,27 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // to explain, not a number to bump.
   // citationIntent swept clean: 21/21 killed, no blessed survivor, so a row
   // appearing here later is a coverage regression to repair.
+  // The claim sweep, enrolled 2026-08-20 BEFORE its first diff dispatch. Its
+  // defect class is exactly "reports OK while the output moved", which is what
+  // the source-mutation gate is for.
+  //
+  // The discovery run left 25 survivors. EIGHTEEN were killed with cases, all
+  // of them in the SUITES -- `lib/specLint/claimSweep.ts` is byte-identical
+  // across the discovery and confirming runs, so no site was made
+  // unrepresentable and no number was bought by reshaping. Three of the
+  // eighteen were survivors of a structural blind spot worth naming: the
+  // refusal and CLI suites assert through a spawned `tsx` child, and a child
+  // reads the module FROM DISK, so the runner's in-memory overlay is invisible
+  // to it. A subprocess assertion decides the CHANNEL and can decide nothing
+  // about a branch.
+  //
+  // The remaining SEVEN are argued, under three derived covers stated on the
+  // registry row: five are loop ceilings no input can reach, one is a counter
+  // whose only reader is a zero test, one is a `continue` whose fall-through is
+  // itself a continue. Rule 20's order puts equivalence LAST and these reached
+  // it, so this number going UP is a decision someone has to make explicitly
+  // rather than a default.
+  claimSweep: { equivalent: 7 },
   citationIntent: {},
   // redContract: SEVEN reachability arguments — the GATE bound that only ever
   // runs on GATE_ANY hits, three one-past-the-end scan bounds, and the two

@@ -30,6 +30,17 @@ const ROOT = join(__dirname, "..", "..");
  * Same shape and same reason as EXPECTED_LEDGER_KINDS in source/expectedLedgerKinds.
  */
 const EXPECTED_ENV_TOUCHING: Record<string, number> = {
+  // The claim-sweep suites, enrolled 2026-08-20. Counts are MEASURED, not
+  // guessed: each is what the classifier reports today, declared independently
+  // so a recognizer that silently stops matching drops them to zero and reds
+  // instead of reporting a clean corpus it no longer understands.
+  "tests/specLint/claimSweepNumeric.test.ts": 3,
+  "tests/specLint/claimSweepNamed.test.ts": 0,
+  "tests/specLint/claimSweepNotFound.test.ts": 0,
+  "tests/specLint/claimSweepDocumentSet.test.ts": 0,
+  "tests/specLint/claimSweepIdentity.test.ts": 0,
+  "tests/specLint/claimSweepRefusals.test.ts": 9,
+  "tests/specLint/claimSweepCli.test.ts": 13,
   // The pane-compaction suites, enrolled 2026-08-16. All declare 0 honestly and
   // structurally: ENVIRONMENT_SOURCES.modules is ["node:child_process",
   // "scripts/lib/ledger-git"], and these suites import neither. That holds only

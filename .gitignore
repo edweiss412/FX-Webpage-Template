@@ -103,3 +103,13 @@ sdd/
 .review/
 
 tests/.spec-lint-fixtures*/
+
+# Scoped source-mutation shard scratch files. `tests/mutation/_metaSourceShardIntegrity.test.ts`
+# pins the FOUR real shard files byte-for-byte and reds while a fifth exists, so a scoped
+# per-surface run creates one of these, measures, and deletes it. The file is untracked BY
+# DESIGN, which makes `git add -A tests/` exactly the command that captures it -- a sibling
+# arc put four required checks red on a PR that way, and every commit after it carried the
+# file. The control belongs in the tree rather than in a memory of using explicit pathspecs:
+# a habit is not a control, and the one arc that stayed clean without this said outright it
+# had got lucky on commit ordering.
+tests/mutation/guardSurfaces.shardTMP*.test.ts

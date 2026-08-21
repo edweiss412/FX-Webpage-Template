@@ -12,7 +12,8 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { claimSweep, sentenceSpans } from "../../lib/specLint/claimSweep";
+import { premise } from "@/tests/_shared/premise";
+import { boundedOccurrences, claimSweep, sentenceSpans } from "../../lib/specLint/claimSweep";
 import type { RepairRecord } from "../../lib/specLint/types";
 import {
   FEDE_EXCLUDED,
@@ -72,8 +73,8 @@ describe("claim sweep — the numeric half", () => {
       // Both reads SUCCEEDED. Two empty buffers compare equal, and a broken
       // read then renders identically to a match — which is how a check that
       // cannot fail passes forever.
-      expect(blob.length).toBeGreaterThan(1000);
-      expect(onDisk.length).toBeGreaterThan(1000);
+      premise(`git show returned bytes for ${rev}:${path}`, blob.length, 1000);
+      premise(`the fixture on disk has bytes for ${rev}/${stem}.md`, onDisk.length, 1000);
       expect(onDisk.equals(blob)).toBe(true);
     });
   });
@@ -268,7 +269,7 @@ describe("claim sweep — the numeric half", () => {
     it("enumerates a non-empty corpus (floor on the derivation's own output)", () => {
       // A zero-length derivation is a BROKEN READ, not a corpus with no
       // documents, and the two render identically in every count below.
-      expect(tracked.length).toBeGreaterThan(100);
+      premise("git ls-files enumerated docs/superpowers markdown", tracked.length, 100);
     });
 
     const docs = tracked.map((path) => {
@@ -311,13 +312,134 @@ describe("claim sweep — the numeric half", () => {
     // and pinning one is how a corpus that grows turns a correct arm red.
     it(`excludes every co-occurring sentence [reported: ${tracked.length} files, ${bothSites.size} occurrences excluded, ${corpusFindings.length} not excluded]`, () => {
       // The read SUCCEEDED, rather than the walk merely having run.
-      expect(readable.length).toBeGreaterThan(100);
-      // Floor: the corpus genuinely contains transition sentences carrying both,
-      // so the clean verdict below is attributable rather than vacuous.
-      expect(bothSites.size).toBeGreaterThan(0);
+      premise("the corpus files were readable", readable.length, 100);
+      // The corpus genuinely contains transition sentences carrying both, so the
+      // clean verdict below is attributable rather than vacuous.
+      premise("the corpus contains co-occurring sentences", bothSites.size, 0);
 
       const reported = new Set(keys(corpusFindings));
       expect([...bothSites].filter((s) => reported.has(s))).toEqual([]);
+    });
+  });
+});
+
+/**
+ * The scanning primitives, called DIRECTLY, and the two preconditions the
+ * numeric half applies before it reads a single line.
+ *
+ * The half above exercises these through `claimSweep`, which is the right grain
+ * for a behavioural claim and the wrong one for the primitives' own boundaries:
+ * a corpus-shaped line never puts a token at offset zero, never repeats it at
+ * adjacent offsets, and never starts an occurrence at a sentence break, so
+ * mutants on exactly those edges survived a suite that is otherwise thorough.
+ *
+ * The failure mode each case catches: an off-by-one in the scan that DROPS an
+ * occurrence (a stale claim goes unreported and the run reads as clean), or one
+ * that INVENTS an occurrence whose neighbours should have excluded it (a false
+ * advisory against a value that is not a claim at all).
+ */
+describe("claim sweep -- the scanning primitives, called directly", () => {
+  // Deliberately NOT the module's own NUMERIC_BOUNDARY. A boundary of digits
+  // lets a fixture use letters as the token, so the token can fill the line
+  // without its own characters excluding every occurrence of it.
+  const DIGIT = /[0-9]/;
+
+  describe("boundedOccurrences", () => {
+    it("finds the single interior occurrence of a one-character token", () => {
+      expect(boundedOccurrences("x5x", "5", DIGIT)).toEqual([1]);
+    });
+
+    it("finds an occurrence at offset ZERO, where there is no preceding character", () => {
+      expect(boundedOccurrences("5x", "5", DIGIT)).toEqual([0]);
+    });
+
+    it("finds ADJACENT occurrences, one position apart", () => {
+      expect(boundedOccurrences("aa", "a", DIGIT)).toEqual([0, 1]);
+    });
+
+    it("finds EVERY position of a token that fills the line", () => {
+      expect(boundedOccurrences("aaa", "a", DIGIT)).toEqual([0, 1, 2]);
+    });
+
+    it("EXCLUDES an occurrence whose PRECEDING character is inside the boundary", () => {
+      // Both offsets are rejected: offset 0 by its following digit, offset 1 by
+      // its preceding one. An implementation that reads the wrong neighbour for
+      // the second reports it.
+      expect(boundedOccurrences("55", "5", DIGIT)).toEqual([]);
+    });
+
+    it("returns nothing for an EMPTY token rather than matching every position", () => {
+      expect(boundedOccurrences("aaa", "", DIGIT)).toEqual([]);
+    });
+  });
+
+  describe("the numeric half runs only on a COMPLETE pair", () => {
+    const doc = synthetic("docs/superpowers/specs/half.md", [STALE_SENTENCE]);
+
+    it("runs NOTHING when only the SUPERSEDED value is declared", () => {
+      const half: RepairRecord = {
+        superseded: "8811",
+        replacement: null,
+        claimAbout: null,
+        touchedLines: NO_SPANS,
+      };
+      expect(() => claimSweep([doc], half)).not.toThrow();
+      expect(claimSweep([doc], half)).toEqual([]);
+    });
+
+    it("runs NOTHING when only the REPLACEMENT is declared", () => {
+      const half: RepairRecord = {
+        superseded: null,
+        replacement: "9900",
+        claimAbout: null,
+        touchedLines: NO_SPANS,
+      };
+      expect(() => claimSweep([doc], half)).not.toThrow();
+      expect(claimSweep([doc], half)).toEqual([]);
+    });
+
+    it("REPORTS on that same document once BOTH sides are declared", () => {
+      // One variable apart from each case above: an implementation that returns
+      // early on every record satisfies both of them and fails this.
+      expect(keys(claimSweep([doc], record("8811", "9900")))).toEqual([
+        `docs/superpowers/specs/half.md:1:${STALE_SENTENCE.indexOf("8811") + 1}`,
+      ]);
+    });
+  });
+
+  describe("the sentence lookup is what SCOPES the co-occurrence test", () => {
+    it("scopes to the sentence the occurrence STARTS, never widening to the line", () => {
+      // The occurrence sits at its sentence's FIRST offset, the only position at
+      // which `span.start <= at` and `span.start < at` disagree. Under the
+      // strict form no span matches, the scope falls back to the whole LINE, the
+      // line carries the replacement, and a live stale claim is suppressed.
+      const line = "now 63. 58 is stale.";
+      const doc = synthetic("docs/superpowers/specs/scope.md", [line]);
+      expect(keys(claimSweep([doc], record("58", "63")))).toEqual([
+        `docs/superpowers/specs/scope.md:1:${line.indexOf("58") + 1}`,
+      ]);
+    });
+
+    it("finds NO span for an occurrence beginning AT a sentence break, and uses the line", () => {
+      // A declared token may begin with whitespace: `--superseded " 63"` is a
+      // parseable invocation, and such a token starts exactly at a span's END
+      // offset, because a span ends where the break's whitespace run begins.
+      // That offset is the only position at which `at < span.end` and
+      // `at <= span.end` disagree. The loose form attributes the occurrence to
+      // the sentence BEFORE the break, which does not carry the replacement, and
+      // reports a claim the line itself already restates.
+      const doc = synthetic("docs/superpowers/specs/break.md", ["stale. 63"]);
+      expect(claimSweep([doc], record(" 63", "63"))).toEqual([]);
+    });
+
+    it("REPORTS that same occurrence when the LINE does not carry the replacement", () => {
+      // One variable apart from the case above: the fallback-to-line scope is
+      // doing real work here, so a fixture that reports for the wrong reason
+      // cannot satisfy both.
+      const doc = synthetic("docs/superpowers/specs/break.md", ["stale. 63"]);
+      expect(keys(claimSweep([doc], record(" 63", "99")))).toEqual([
+        "docs/superpowers/specs/break.md:1:7",
+      ]);
     });
   });
 });

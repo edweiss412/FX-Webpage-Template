@@ -21,6 +21,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { premise, premiseHolds } from "@/tests/_shared/premise";
 import { runCli, type CliDeps, type SpawnResult } from "../../scripts/spec-lint";
 import type { LintResult } from "../../lib/specLint/types";
 import {
@@ -106,6 +107,11 @@ function run(argv: string[], deps: CliDeps) {
   const out = runCli(argv, deps);
   const result: LintResult | null =
     out.stdout === "" ? null : (JSON.parse(out.stdout) as LintResult);
+  // THE PREMISE, stated once for every injected-deps case below: the invocation
+  // produced something. Exit 2 writes NO report, and a run that refused before
+  // reading a document is indistinguishable from one that swept and found
+  // nothing -- which is exactly the shape several of these cases assert.
+  premiseHolds(`the invocation produced output for: ${argv.join(" ")}`, out.stdout.length > 0);
   return { ...out, result };
 }
 
@@ -122,6 +128,7 @@ const PEERS = ["--also", INCIDENT_PLAN, "--also", INCIDENT_PROBE];
 describe("claim sweep adapter — hunk spans are EXACT", () => {
   it("yields the four sites outside the repair's spans, end to end", () => {
     const out = run(["--json", INCIDENT_SPEC, ...NAMED, ...PEERS], fixtureDeps("c272ebed3"));
+    premiseHolds("the invocation produced a parseable report", out.result !== null);
     // NOT 2. The exit code reflects the LINT of the document -- the incident
     // spec blob draws hard findings of its own under a fake tracked list -- and
     // every claim-sweep finding is advisory, so it contributes nothing to it.
@@ -138,6 +145,7 @@ describe("claim sweep adapter — hunk spans are EXACT", () => {
       ["--json", INCIDENT_SPEC, ...NAMED, ...PEERS],
       fixtureDeps("c272ebed3", { diff: "" }),
     );
+    premiseHolds("the invocation produced a parseable report", out.result !== null);
     expect(keysOf(out.result, "CLAIM_SITE_UNSWEPT")).toEqual(
       [...C272_OUTSIDE_SPANS, ...C272_INSIDE_SPANS].sort(),
     );
@@ -151,6 +159,7 @@ describe("claim sweep adapter — hunk spans are EXACT", () => {
       ["--json", INCIDENT_SPEC, ...NAMED, ...PEERS],
       fixtureDeps("c272ebed3", { diff: whole }),
     );
+    premiseHolds("the invocation produced a parseable report", out.result !== null);
     expect(sweepOf(out.result, "CLAIM_SITE_UNSWEPT")).toEqual([]);
     // Premise: the run happened at all. Without this, "zero" is satisfied by an
     // adapter that never swept -- and a usage error (exit 2) writes no report,
@@ -174,6 +183,7 @@ describe("claim sweep adapter — the git seam is asked for exactly the swept pa
       ["--json", INCIDENT_SPEC, ...NAMED, ...PEERS],
       fixtureDeps("c272ebed3", { spy }),
     );
+    premiseHolds("the invocation produced a parseable report", out.result !== null);
     expect(out.result).not.toBeNull(); // premise: the run reached the seam
     expect(spy.repairDiffCalls).toHaveLength(1);
     expect(spy.repairDiffCalls[0]!.rev).toBe("c272ebed3");
@@ -192,6 +202,7 @@ describe("claim sweep adapter — the git seam is asked for exactly the swept pa
       ["--json", INCIDENT_SPEC, "--superseded", "58", "--replacement", "57", ...PEERS],
       fixtureDeps("c272ebed3", { spy }),
     );
+    premiseHolds("the invocation produced a parseable report", out.result !== null);
     // Premise: the run happened and DID sweep, so the empty call list is
     // attributable to the missing flag rather than to a refusal.
     expect(out.exitCode).not.toBe(2);
@@ -207,6 +218,7 @@ describe("claim sweep adapter — EVERY repeated --also is honoured", () => {
     // fixture rather than typed: it is the set of outside-span sites whose
     // document is one of the declared ones.
     const out = run(["--json", INCIDENT_SPEC, ...NAMED, ...PEERS], fixtureDeps("c272ebed3"));
+    premiseHolds("the invocation produced a parseable report", out.result !== null);
     const docs = new Set(sweepOf(out.result, "CLAIM_SITE_UNSWEPT").map((f) => f.docPath));
     expect([...docs].sort()).toEqual([INCIDENT_PLAN, INCIDENT_PROBE, INCIDENT_SPEC].sort());
   });
@@ -215,6 +227,7 @@ describe("claim sweep adapter — EVERY repeated --also is honoured", () => {
     // One variable: the peers. So the multi-document result above is
     // attributable to `--also` rather than to the adapter sweeping a tree.
     const out = run(["--json", INCIDENT_SPEC, ...NAMED], fixtureDeps("c272ebed3"));
+    premiseHolds("the invocation produced a parseable report", out.result !== null);
     const docs = new Set(sweepOf(out.result, "CLAIM_SITE_UNSWEPT").map((f) => f.docPath));
     expect([...docs]).toEqual([INCIDENT_SPEC]);
   });
@@ -228,6 +241,7 @@ describe("claim sweep adapter — an unreadable peer PROPAGATES rather than bein
       ["--json", INCIDENT_SPEC, ...NAMED, ...PEERS],
       fixtureDeps("c272ebed3", { unreadable: [INCIDENT_PLAN] }),
     );
+    premiseHolds("the invocation produced a parseable report", out.result !== null);
     expect(sweepOf(out.result, "SWEEP_DOCUMENT_UNREADABLE").map((f) => f.docPath)).toEqual([
       INCIDENT_PLAN,
     ]);
@@ -252,6 +266,7 @@ describe("claim sweep adapter — peers are SWEPT, not LINTED", () => {
     // checks, so "only claimSweep" above is attributable to peer status rather
     // than to the blob being uninteresting.
     const asLinted = run(["--json", INCIDENT_PLAN, "--kind", "plan"], fixtureDeps("c272ebed3"));
+    premiseHolds("the paired linted run produced a report", asLinted.result !== null);
     const otherChecks = new Set(
       (asLinted.result?.findings ?? []).map((f) => f.check).filter((c) => c !== "claimSweep"),
     );
@@ -264,6 +279,7 @@ describe("claim sweep adapter — peers are SWEPT, not LINTED", () => {
       ["--json", INCIDENT_SPEC, ...NAMED, "--also", INCIDENT_SPEC, ...PEERS],
       fixtureDeps("c272ebed3"),
     );
+    premiseHolds("the invocation produced a parseable report", out.result !== null);
     expect(keysOf(out.result, "CLAIM_SITE_UNSWEPT")).toEqual([...C272_OUTSIDE_SPANS].sort());
   });
 });
@@ -279,6 +295,7 @@ describe("claim sweep adapter — THE ARM NEVER REWRITES A DOCUMENT (AC-3)", () 
       ["--json", INCIDENT_SPEC, ...NAMED, ...PEERS],
       fixtureDeps("c272ebed3", { spy }),
     );
+    premiseHolds("the invocation produced a parseable report", out.result !== null);
     expect(sweepOf(out.result, "CLAIM_SITE_UNSWEPT").length).toBeGreaterThan(0);
     expect(spy.writes).toEqual([]);
     expect(spy.mkdirs).toEqual([]);
@@ -294,6 +311,10 @@ describe("claim sweep adapter — a real subprocess, asserted as RELATIONS", () 
       encoding: "utf8",
       maxBuffer: 64 * 1024 * 1024,
     });
+    // The child ran and wrote a report. A tsx that fails to launch, or a usage
+    // error that writes nothing to stdout, would otherwise arrive as a JSON
+    // parse failure whose message says nothing about the arm.
+    premise(`the CLI child wrote a report for: ${args.join(" ")}`, r.length, 0);
     return JSON.parse(r) as LintResult;
   }
 
@@ -318,8 +339,12 @@ describe("claim sweep adapter — a real subprocess, asserted as RELATIONS", () 
         "--also",
         INCIDENT_PROBE,
       ]);
+      // The live documents still carry the identifier, so the arm has something
+      // to report. If a future edit removed every occurrence, this fails as a
+      // PREMISE -- the environment stopped reaching the boundary -- rather than
+      // as a claim that the arm is broken.
       const sweep = result.findings.filter((f) => f.check === "claimSweep");
-      expect(sweep.length).toBeGreaterThan(0);
+      premise("the live incident documents still draw claim-sweep findings", sweep.length, 0);
       expect(sweep.every((f) => f.severity === "advisory")).toBe(true);
       const peerFindings = result.findings.filter(
         (f) => f.docPath === INCIDENT_PLAN || f.docPath === INCIDENT_PROBE,
@@ -336,6 +361,9 @@ describe("claim sweep adapter — a real subprocess, asserted as RELATIONS", () 
       const before = [INCIDENT_SPEC, INCIDENT_PLAN, INCIDENT_PROBE].map((p) =>
         readFileSync(join(process.cwd(), p)),
       );
+      // The documents exist and were read. Comparing two empty buffers is the
+      // default success case of every naive diff.
+      for (const b of before) premise("a swept document was read before the run", b.length, 1000);
       const result = cli([
         "--json",
         INCIDENT_SPEC,
@@ -355,7 +383,7 @@ describe("claim sweep adapter — a real subprocess, asserted as RELATIONS", () 
         readFileSync(join(process.cwd(), p)),
       );
       for (let i = 0; i < before.length; i += 1) {
-        expect(before[i]!.length).toBeGreaterThan(1000); // the read succeeded
+        premise("a swept document was read after the run", after[i]!.length, 1000);
         expect(after[i]!.equals(before[i]!)).toBe(true);
       }
     },

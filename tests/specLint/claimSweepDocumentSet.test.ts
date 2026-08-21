@@ -98,6 +98,19 @@ describe("claim sweep — the declared swept set", () => {
       );
     });
 
+    it("carries line 1 column 1, the only position a finding about a DOCUMENT has", () => {
+      // This code is the one finding in the set that is NOT about a position in
+      // a file -- the file was never read, so there is no position to carry.
+      // The pair is a sentinel, and a sentinel nobody asserts is free to drift
+      // to any other constant while every message and code assertion still
+      // passes, putting a fabricated location in a report a human reads as one.
+      const f = unreadable(claimSweep(withNullPeer, numeric("58", "57")))[0]!;
+      expect(f.docLine).toBe(1);
+      expect(f.column).toBe(1);
+      // It also carries no token: there is no content to have found one in.
+      expect(f.token).toBeUndefined();
+    });
+
     it("still reports the readable peers' occurrences alongside it", () => {
       // An implementation that BAILS on the first unreadable document would
       // report the code and nothing else, which is a different defect from the

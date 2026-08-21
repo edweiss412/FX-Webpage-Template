@@ -15,7 +15,7 @@
  * cannot kill a wrong attribution — the occurrences are right either way.
  */
 import { describe, expect, it } from "vitest";
-import { claimSweep } from "../../lib/specLint/claimSweep";
+import { claimSweep, parseRepairSpans } from "../../lib/specLint/claimSweep";
 import type { RepairRecord } from "../../lib/specLint/types";
 import {
   C272_COLLATERAL_OUTSIDE,
@@ -236,6 +236,68 @@ describe("claim sweep — the named-claim half", () => {
       const paths = new Set(both.map((f) => f.docPath));
       expect(paths.has(INCIDENT_SPEC)).toBe(true);
       expect(paths.has(INCIDENT_PLAN)).toBe(true);
+    });
+  });
+});
+
+/**
+ * The named half's WALK, and the hunk arithmetic its exclusion is keyed on.
+ *
+ * `parseRepairSpans` had no in-process assertion anywhere in the suite: the
+ * spans are built from a real `git show` in the fixtures and consumed through
+ * `claimSweep`, so every claim about the arithmetic was made by a corpus whose
+ * hunks all carry an explicit count and none of whose exclusions sit at the
+ * line past a hunk's end.
+ *
+ * The failure mode each case catches: an exclusion span one line too LONG
+ * (a live unswept claim on the line after the repair is silently treated as the
+ * repair's own new claim and never reported), or a walk that starts past line 1
+ * (an occurrence on a document's first line is missed, and because the miss
+ * happens BEFORE the exact-occurrence counter, the run reports the identifier
+ * as occurring nowhere rather than reporting the site).
+ */
+describe("claim sweep -- the named half's walk and the spans it excludes on", () => {
+  const NO_TOUCHED = new Map<string, ReadonlySet<number>>();
+
+  describe("the walk starts at the FIRST line of every document", () => {
+    it("REPORTS an occurrence on line 1", () => {
+      const doc = {
+        path: "docs/superpowers/specs/first.md",
+        lines: [`${INCIDENT_IDENTIFIER} was re-classified`, "no mention on this line"],
+      };
+      const findings = claimSweep([doc], named(INCIDENT_IDENTIFIER, NO_TOUCHED));
+      expect(keys(unswept(findings))).toEqual(["docs/superpowers/specs/first.md:1:1"]);
+      // A walk that skips line 1 does not merely lose the site: the counter it
+      // feeds stays at zero and the run declares the identifier ABSENT, which is
+      // the opposite claim about the corpus.
+      expect(findings.some((f) => f.code === "CLAIM_IDENTIFIER_NOT_FOUND")).toBe(false);
+    });
+  });
+
+  describe("parseRepairSpans -- the hunk arithmetic", () => {
+    const diff = (...lines: string[]) => parseRepairSpans(lines.join("\n"));
+    const linesOf = (spans: ReturnType<typeof parseRepairSpans>, path: string) =>
+      [...(spans.get(path) ?? [])].sort((a, b) => a - b);
+
+    it("treats a hunk header carrying NO count as exactly ONE line", () => {
+      const spans = diff("+++ b/docs/a.md", "@@ -3 +7 @@", " context");
+      expect(linesOf(spans, "docs/a.md")).toEqual([7]);
+    });
+
+    it("covers exactly `count` lines from the start, and NOT the line past the end", () => {
+      const spans = diff("+++ b/docs/a.md", "@@ -3,2 +7,2 @@", " context");
+      expect(linesOf(spans, "docs/a.md")).toEqual([7, 8]);
+    });
+
+    it("keys each hunk to the file header above it", () => {
+      const spans = diff(
+        "+++ b/docs/a.md",
+        "@@ -1,1 +1,1 @@",
+        "+++ b/docs/b.md",
+        "@@ -4,2 +9,2 @@",
+      );
+      expect(linesOf(spans, "docs/a.md")).toEqual([1]);
+      expect(linesOf(spans, "docs/b.md")).toEqual([9, 10]);
     });
   });
 });

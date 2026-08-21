@@ -1016,6 +1016,170 @@ export const GUARD_SURFACES: GuardSurface[] = [
     accepted: [],
   },
   /**
+   * The claim sweep (`BL-SPEC-CLAIM-SWEEP-AFTER-REASONING-FINDING`), enrolled
+   * 2026-08-20 BEFORE the first diff dispatch, because its defect class is
+   * exactly "reports OK while the output moved".
+   *
+   * `suitePaths` is DERIVED, not typed: every `tests/specLint/claimSweep*.test.ts`.
+   * The derivation is asserted in BOTH directions by
+   * `tests/specLint/claimSweepIdentity.test.ts` — every file matching the glob
+   * is here, AND every file that directly imports the module matches the glob —
+   * so a suite added under either rule fails rather than silently buying zero
+   * score. Eight further suites reach the module TRANSITIVELY through
+   * `run.ts`/`spec-lint.ts` and are deliberately absent: they never declare a
+   * repair, so they decide nothing about this surface and would buy wall clock
+   * at no score. That is a declared choice, not an oversight.
+   */
+  {
+    id: "claimSweep",
+    sourcePath: "lib/specLint/claimSweep.ts",
+    suitePaths: [
+      "tests/specLint/claimSweepNumeric.test.ts",
+      "tests/specLint/claimSweepNamed.test.ts",
+      "tests/specLint/claimSweepNotFound.test.ts",
+      "tests/specLint/claimSweepDocumentSet.test.ts",
+      "tests/specLint/claimSweepIdentity.test.ts",
+      "tests/specLint/claimSweepRefusals.test.ts",
+      "tests/specLint/claimSweepCli.test.ts",
+    ],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.95,
+    // Inverts the whole numeric discriminator: with the co-occurrence test
+    // flipped, a transition sentence naming BOTH values reports and a stale
+    // claim naming only the superseded one is suppressed. The incident replay
+    // asserts both directions as a SET (nine survivors, three excluded), so the
+    // suite cannot miss it. Verified unique on the current source:
+    // `grep -c -F 'if (carries(sentence, replacement, NUMERIC_BOUNDARY)) continue;'` = 1.
+    control: {
+      from: "if (carries(sentence, replacement, NUMERIC_BOUNDARY)) continue;",
+      to: "if (!carries(sentence, replacement, NUMERIC_BOUNDARY)) continue;",
+    },
+    /**
+     * SEVEN rows under THREE derived covers, not seven independent stories.
+     *
+     * PROPERTY (d) CANNOT BE MET AND IS NOT CLAIMED. These arguments were
+     * composed AFTER the discovery run named the survivors, so each is written
+     * as a PREDICTION with a falsifier rather than as a proof that was on
+     * record first: if the confirming run KILLS any site below, that row's
+     * argument is wrong and the row comes out. Reconciliation reports a killed
+     * accepted site as STALE, so the run adjudicates this without anyone
+     * remembering to check.
+     *
+     * Rungs 1-3 were refused for each, with the reason stated per cover. Every
+     * repair for this surface landed in the SUITES, never in the source: the
+     * eighteen other survivors of the discovery run were killed with cases, and
+     * `lib/specLint/claimSweep.ts` is byte-identical across the two runs. That
+     * is the direction evidence rule 26 asks for -- no site was made
+     * unrepresentable, because no site moved.
+     */
+    accepted: [
+      // ---- COVER A: the loop ceiling is UNREACHABLE ------------------------
+      //
+      // ONE invariant, five rows. Both scanning loops carry a counter whose
+      // ceiling is EXTERNAL to the predicate, exactly so that no mutant can lift
+      // it into a hang -- the plan's own totalisation rule. The loops exit on
+      // their OWN condition (`re.exec` returning null, `indexOf` returning -1),
+      // and the iteration that does so pushes nothing: its whole body is the
+      // break. So for `k` items found, `k + 1` iterations are consumed and any
+      // ceiling `>= k` produces byte-identical output.
+      //
+      // The bound that closes it: `k <= line.length` for BOTH loops.
+      // `boundedOccurrences` advances `from` by one per success, so `k` is at
+      // most one success per offset, `k <= L`. `sentenceSpans` matches `\s+`
+      // preceded by one of `.;:`; the punctuation is not part of the match and
+      // precedes at most one match, so each match accounts for two distinct
+      // offsets and `k <= floor(L / 2)`.
+      //
+      // Every mutated ceiling below is `>= k` for every input, so none can
+      // change the output. Rung 1 (delete) and rung 2 (totalise) are BOTH
+      // refused for the same reason and it is not tidiness: deleting the guard
+      // or folding termination into the predicate is precisely the reshaping
+      // that converts a visible survivor into a HANG, and a hang scores as a
+      // KILL. Rung 3 (kill with a case) is refused because no input can reach
+      // the ceiling -- a case that killed one of these would falsify the bound
+      // above, which is what makes these rows testable rather than merely
+      // argued.
+      //
+      // WHAT VOIDS ALL FIVE AT ONCE: either loop losing its own exit (the
+      // `break`), the final iteration gaining a side effect, or a ceiling
+      // written in terms of anything other than `line.length`.
+      {
+        siteId: "integer-literal:264:20:0>1",
+        kind: "equivalent",
+        reason:
+          "`sentenceSpans`' guard initialiser. Starting at 1 costs the loop its LAST available " +
+          "iteration, and the last iteration is the one that only breaks: matches k <= floor(L/2) " +
+          "< L for every line, so L iterations still find all k. Cover A.",
+      },
+      {
+        siteId: "relational-boundary:264:29:<=><",
+        kind: "equivalent",
+        reason:
+          "`sentenceSpans`' guard ceiling, L+1 iterations to L. Same bound as the row above: " +
+          "k <= floor(L/2), so L iterations are never fewer than the k+1 the loop consumes, and " +
+          "the empty line (L=0, k=0, zero iterations either way) reaches the trailing push " +
+          "identically. Cover A.",
+      },
+      {
+        siteId: "integer-literal:264:54:1>2",
+        kind: "equivalent",
+        reason:
+          "`sentenceSpans`' guard step, halving the ceiling to floor(L/2)+1 iterations. This is " +
+          "the tight case of cover A and the reason the bound is stated as floor(L/2) rather than " +
+          "L: SENTENCE_BREAK is `(?<=[.;:])\\s+`, each match consumes at least one whitespace " +
+          "character and is preceded by a punctuation character that belongs to no match, so " +
+          "2k <= L. floor(L/2)+1 >= k+1 holds with no slack, and a fixture denser than `. . .` " +
+          "does not exist. Cover A.",
+      },
+      {
+        siteId: "integer-literal:283:20:0>1",
+        kind: "equivalent",
+        reason:
+          "`boundedOccurrences`' guard initialiser, L+1 iterations to L. `from` advances by one " +
+          "per success so k <= L; the dropped iteration is the failing `indexOf` that only " +
+          "breaks. Measured at the tight end: `boundedOccurrences(\"aaa\", \"a\", /[0-9]/)` has " +
+          "k = L = 3 and returns [0,1,2] under both the original and this mutant. Cover A.",
+      },
+      {
+        siteId: "relational-boundary:283:29:<=><",
+        kind: "equivalent",
+        reason:
+          "`boundedOccurrences`' guard ceiling, the same L+1 to L as the row above and killed or " +
+          "spared by the same input. Cover A.",
+      },
+      // ---- COVER B: a counter whose ONLY consumer is a zero test -----------
+      {
+        siteId: "integer-literal:391:29:1>2",
+        kind: "equivalent",
+        reason:
+          "`exactOccurrences += 1` in `namedHalf`. The counter has exactly one reader, " +
+          "`if (exactOccurrences === 0)` at the foot of the same function, and no other " +
+          "expression in the module names it (`rg -n exactOccurrences lib/specLint/claimSweep.ts` " +
+          "= 3 hits: the declaration, this increment, the zero test). Any strictly positive step " +
+          "gives the same answer to `=== 0`, so 2k and k are indistinguishable at the only place " +
+          "the value is observed. Rung 1 (delete the site) is REFUSED deliberately: replacing the " +
+          "counter with a boolean would remove the mutation site by reshaping the source, which " +
+          "is rule 26 exactly. VOIDED BY: any second reader of `exactOccurrences` -- a count in a " +
+          "message, a threshold, a comparison against the reported list -- at which point this " +
+          "row must come out and the site must be killed with a case.",
+      },
+      // ---- COVER C: two recognisers anchored on DISJOINT prefixes ----------
+      {
+        siteId: "statement-removal:499:7:continue;>(removed)",
+        kind: "equivalent",
+        reason:
+          "The `continue` after a `+++ b/<path>` header in `parseRepairSpans`. Removing it lets " +
+          "the header line fall through to the hunk recogniser, which is `/^@@ -\\d+.../` -- " +
+          "anchored on a prefix that `+++ b/` cannot also carry, so the match is null and the " +
+          "very next line is `if (hunk === null || current === null) continue;`. The fall-through " +
+          "path IS a continue, reached one statement later with nothing in between. Rung 3 is " +
+          "refused because no diff line can match both anchors, which is the same fact the " +
+          "argument rests on. VOIDED BY: either recogniser losing its `^` anchor, or any " +
+          "statement appearing between the two.",
+      },
+    ],
+  },
+  /**
    * The review-round economy gate's two sources, enrolled as TWO rows because
    * `sourcePath` is singular and the harness mutates exactly that file. A single
    * row naming count.ts would leave every structural decision in corpus.ts
