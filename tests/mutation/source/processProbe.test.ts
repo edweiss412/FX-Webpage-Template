@@ -14,6 +14,7 @@ import {
   observeRun,
 } from "./fixtures/processProbe/state";
 import { generateMutants } from "./generate";
+import { campaignVerdict } from "../../../scripts/intraleg-campaign";
 import {
   CLI_DEFAULT_DEPS,
   CLI_EXIT_OK,
@@ -34,7 +35,10 @@ import {
   parseSeed,
   parseTrials,
   ALPHA,
+  ARM_B_PREFIX_LENGTHS,
+  ARMS,
   type Arm,
+  BASELINE_STEP,
   type ArmSummary,
   type CampaignAggregate,
   type CampaignPlan,
@@ -1339,6 +1343,21 @@ describe("processProbe aggregator — eligibility, derived claims, render (AC-7,
     expect(ALPHA).toBe(0.05);
   });
 
+  it("aggregator arm-B prefix lengths are the pre-registered set of spec 5.2", () => {
+    // Three at 8 and two at 24, fixed before any trial ran, exactly as the load
+    // margins are. A pre-registered quantity with nothing pinning it is a
+    // quantity that can move between the design and the run without anyone
+    // noticing — the same hole the margins would have had.
+    expect([...ARM_B_PREFIX_LENGTHS]).toEqual([8, 8, 8, 24, 24]);
+    expect(ARM_B_PREFIX_LENGTHS.filter((n) => n === 8)).toHaveLength(3);
+    expect(ARM_B_PREFIX_LENGTHS.filter((n) => n === 24)).toHaveLength(2);
+  });
+
+  it("aggregator arm set is exactly the four the design declares", () => {
+    expect([...ARMS]).toEqual(["A", "B", "C", "control"]);
+    expect(BASELINE_STEP).toBe("<baseline>");
+  });
+
   it("aggregator REFUSES a cross-stamp load pair, naming BOTH digests", () => {
     const window = { spawnedAt: 1_000, exitedAt: 2_000 };
     const mk = (half: "quiet" | "loaded", v: number, stamp: string, index: number) =>
@@ -1870,5 +1889,60 @@ describe("processProbe aggregator trial-level binding — rotation among REPORTS
                 : { ...(value as object), moved: true };
       expect(reportDigest({ ...report, [field]: moved } as TrialReport)).not.toBe(report.digest);
     }
+  });
+});
+
+describe("campaign driver verdict — every gate probed against a constructed failing input", () => {
+  const clean = {
+    aggregateKind: "aggregate" as const,
+    starvedArms: [] as string[],
+    refusedTrials: 0,
+    defaultChannelIdentical: true,
+    campaignRecordCount: 20,
+  };
+
+  it("campaign verdict is 0 only on a complete run — the green control", () => {
+    expect(campaignVerdict(clean)).toEqual({ code: 0, detail: "CAMPAIGN COMPLETE" });
+  });
+
+  it.each([
+    {
+      label: "the aggregate refused",
+      over: { aggregateKind: "refusal" as const },
+      names: "REFUSED",
+    },
+    { label: "a trial was refused", over: { refusedTrials: 2 }, names: "2 refused" },
+    { label: "an arm is starved", over: { starvedArms: ["B"] }, names: "ZERO eligible" },
+    {
+      label: "the default channel moved",
+      over: { defaultChannelIdentical: false },
+      names: "DEFAULT record channel",
+    },
+    { label: "the campaign channel is empty", over: { campaignRecordCount: 0 }, names: "EMPTY" },
+  ])("campaign verdict is 1 when $label, naming it", ({ over, names }) => {
+    const verdict = campaignVerdict({ ...clean, ...over });
+    expect(verdict.code).toBe(1);
+    expect(verdict.detail).toContain(names);
+  });
+
+  it("campaign verdict reports EVERY failing condition, not just the first", () => {
+    const verdict = campaignVerdict({
+      ...clean,
+      refusedTrials: 1,
+      starvedArms: ["A", "C"],
+      defaultChannelIdentical: false,
+    });
+    expect(verdict.detail).toContain("1 refused");
+    expect(verdict.detail).toContain("A, C");
+    expect(verdict.detail).toContain("DEFAULT record channel");
+  });
+
+  it("campaign verdict does not let an empty channel mask a REAL failure", () => {
+    // The empty-channel branch is checked last and only when nothing else
+    // failed: reporting "the directory is empty" for a run whose arm was starved
+    // would name the symptom and hide the cause.
+    const verdict = campaignVerdict({ ...clean, campaignRecordCount: 0, starvedArms: ["B"] });
+    expect(verdict.code).toBe(1);
+    expect(verdict.detail).toContain("ZERO eligible");
   });
 });

@@ -1568,6 +1568,15 @@ export function makeParentDeps(options: {
   scratchDir: string;
   surfaceId: string;
   siteId: string;
+  /**
+   * The surface ROW, for a surface the live registry does not carry.
+   *
+   * The control surface of spec §5.3 is deliberately UNENROLLED — it is
+   * apparatus, not a guard — so a child that resolves only against
+   * `GUARD_SURFACES` can never reach it and refuses every control trial. The row
+   * travels in the invocation rather than being looked up.
+   */
+  surface?: GuardSurface;
   env?: Readonly<Record<string, string>>;
   timeoutMs?: number;
   spawn?: typeof spawnSync;
@@ -1587,6 +1596,7 @@ export function makeParentDeps(options: {
           surfaceId: options.surfaceId,
           siteId: options.siteId,
           reportPath,
+          ...(options.surface === undefined ? {} : { surface: options.surface }),
         }),
         "utf8",
       );

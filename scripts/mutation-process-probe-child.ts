@@ -2,6 +2,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
+import type { GuardSurface } from "../tests/mutation/source/registry";
 import {
   DEFAULT_TRIAL_DEPS,
   type TrialDeps,
@@ -27,6 +28,12 @@ export type ChildInvocation = {
   surfaceId: string;
   siteId: string;
   reportPath: string;
+  /**
+   * An explicit surface row, for a surface the live registry does not carry.
+   * Absent for every enrolled surface, which resolves through the registry as
+   * the gate does.
+   */
+  surface?: GuardSurface;
 };
 
 export type ChildDeps = {
@@ -57,6 +64,7 @@ export function main(argv: readonly string[], deps: ChildDeps = DEFAULT_CHILD_DE
     root: invocation.root,
     surfaceId: invocation.surfaceId,
     site: invocation.siteId,
+    ...(invocation.surface === undefined ? {} : { surfaces: [invocation.surface] }),
   });
   if (resolved.kind === "refusal") {
     deps.writeReport(invocation.reportPath, `${JSON.stringify(resolved, null, 2)}\n`);

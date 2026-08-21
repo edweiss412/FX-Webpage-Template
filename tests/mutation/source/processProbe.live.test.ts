@@ -39,7 +39,24 @@ import { type TrialPlan, makeParentDeps, observeTrial, resolveTarget } from "./p
 const RUN = process.env.RUN_PROCESS_PROBE_LIVE === "1";
 
 const REPO_ROOT = resolve(__dirname, "../../..");
-const CHILD = ["pnpm", "exec", "tsx", "scripts/mutation-process-probe-child.ts", "--invocation"];
+/**
+ * `node --import tsx <script>`, NOT `pnpm exec tsx`.
+ *
+ * MEASURED, because the two-sided pid check found it: `pnpm exec` spawns a
+ * wrapper and the trial runs in a grandchild, so the parent's spawn handle
+ * reports the WRAPPER's pid while the child self-reports its own — parent 31881
+ * against child 31909, a disagreement on every single trial. `node --import tsx`
+ * runs the script in the spawned process itself: parent 31944, child 31944. The
+ * parent must observe the process that actually ran the trial, or its
+ * "independent second side" is an observation of something else.
+ */
+const CHILD = [
+  process.execPath,
+  "--import",
+  "tsx",
+  "scripts/mutation-process-probe-child.ts",
+  "--invocation",
+];
 
 const scratchRoot = RUN ? mkdtempSync(join(tmpdir(), "fx-probe-live-")) : "";
 afterAll(() => {
