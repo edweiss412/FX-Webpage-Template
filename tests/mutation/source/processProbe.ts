@@ -1483,3 +1483,26 @@ export function renderCampaign(outcome: AggregateOutcome): string {
 
   return `${lines.join("\n")}\n`;
 }
+
+/**
+ * Render a campaign PLAN — what will run, before anything has.
+ *
+ * The seed is on the first line because it is the whole reproduction recipe:
+ * a tool that prints one seed and plans with another produces a campaign nobody
+ * can re-run from its own output.
+ */
+export function renderCampaignPlan(plan: CampaignPlan): string {
+  const lines = [
+    `SEED: ${plan.seed}`,
+    `SURFACE: ${plan.surfaceId}`,
+    `TARGET: ${plan.targetSiteId}`,
+    `PLANNED TRIALS: ${plan.trials.length}`,
+  ];
+  for (const t of plan.trials) {
+    lines.push(
+      `  ${t.arm}#${t.index} ${t.kind}: prefix ${t.prefix.length}, position ${t.position}` +
+        (t.half === undefined ? "" : `, half ${t.half}`),
+    );
+  }
+  return `${lines.join("\n")}\n`;
+}

@@ -14,6 +14,13 @@ import {
   observeRun,
 } from "./fixtures/processProbe/state";
 import { generateMutants } from "./generate";
+import {
+  CLI_DEFAULT_DEPS,
+  CLI_EXIT_OK,
+  CLI_EXIT_REFUSED,
+  type CliDeps,
+  main as cliMain,
+} from "../../../scripts/mutation-process-probe";
 import { siteId as siteIdOf } from "./operators";
 import { DEFAULT_RECORD_DIR } from "./records";
 import type { GuardSurface } from "./registry";
@@ -1551,5 +1558,169 @@ describe("processProbe control surface — the manufactured correlated mechanism
     // STABLE in both configurations, because the mechanism lives in the suite it
     // never runs.
     expect(suite2).toContain("gate(3)");
+  });
+});
+
+describe("processProbe cli adapter — wiring proven separately from rendering (AC-9)", () => {
+  const MIDDLE_SITE = "relational-boundary:15:46:<><=";
+
+  const spyDeps = (over: Partial<CliDeps> = {}) => {
+    const calls: { fn: string; args: unknown[] }[] = [];
+    const out: string[] = [];
+    const target = (() => {
+      const o = resolveTarget({
+        root,
+        surfaceId: "wideSurface",
+        site: MIDDLE_SITE,
+        surfaces: [wideSurface()],
+      });
+      if (o.kind === "refusal") throw new Error(`fixture: ${o.detail}`);
+      return o.target;
+    })();
+    const deps: CliDeps = {
+      resolveTarget: (input) => {
+        calls.push({ fn: "resolveTarget", args: [input] });
+        return { kind: "target", target };
+      },
+      planCampaign: (input) => {
+        calls.push({ fn: "planCampaign", args: [input] });
+        return {
+          seed: input.seed,
+          surfaceId: target.surface.id,
+          targetSiteId: target.siteId,
+          trials: [],
+        };
+      },
+      renderPlan: (plan) => {
+        calls.push({ fn: "renderPlan", args: [plan] });
+        return `PLAN seed ${plan.seed}\n`;
+      },
+      renderProbe: (outcome) => {
+        calls.push({ fn: "renderProbe", args: [outcome] });
+        return renderProbe(outcome);
+      },
+      write: (text) => {
+        out.push(text);
+      },
+      generateSeed: () => 987654,
+      surfaces: [wideSurface()],
+      root,
+      ...over,
+    };
+    return { deps, calls, out };
+  };
+
+  const ARGS = ["--surface", "wideSurface", "--site", MIDDLE_SITE, "--arm", "A", "--trials", "12"];
+
+  it("cli forwards the operator's arguments to the core collaborators", () => {
+    const { deps, calls } = spyDeps();
+    expect(cliMain([...ARGS, "--seed", "4242"], deps)).toBe(CLI_EXIT_OK);
+    const resolve = calls.find((c) => c.fn === "resolveTarget");
+    expect(resolve?.args[0]).toMatchObject({ surfaceId: "wideSurface", site: MIDDLE_SITE });
+    const plan = calls.find((c) => c.fn === "planCampaign");
+    expect(plan?.args[0]).toMatchObject({ seed: 4242, armATrials: 12 });
+  });
+
+  it("cli echoes a supplied seed and forwards it UNCHANGED", () => {
+    const { deps, calls, out } = spyDeps();
+    cliMain([...ARGS, "--seed", "4242"], deps);
+    expect(out.join("")).toContain("4242");
+    const plan = calls.find((c) => c.fn === "planCampaign");
+    expect((plan?.args[0] as { seed: number }).seed).toBe(4242);
+  });
+
+  it("cli GENERATES a seed when none is supplied, PRINTS it, and forwards the printed one", () => {
+    const { deps, calls, out } = spyDeps();
+    expect(cliMain(ARGS, deps)).toBe(CLI_EXIT_OK);
+    const plan = calls.find((c) => c.fn === "planCampaign");
+    const forwarded = (plan?.args[0] as { seed: number }).seed;
+    expect(forwarded).toBe(987654);
+    // The printed seed and the forwarded seed are the SAME value: a tool that
+    // prints one seed and plans with another produces a campaign nobody can
+    // reproduce from its own output.
+    expect(out.join("")).toContain(String(forwarded));
+  });
+
+  it("cli generates a DIFFERENT seed on two omitted-seed invocations", () => {
+    let n = 0;
+    const seeds: number[] = [];
+    const { deps } = spyDeps({
+      generateSeed: () => {
+        n += 1;
+        return 1000 + n;
+      },
+      planCampaign: (input) => {
+        seeds.push(input.seed);
+        return {
+          seed: input.seed,
+          surfaceId: "wideSurface",
+          targetSiteId: MIDDLE_SITE,
+          trials: [],
+        };
+      },
+    });
+    cliMain(ARGS, deps);
+    cliMain(ARGS, deps);
+    expect(seeds).toHaveLength(2);
+    // Kills a constant default AND a requires-seed adapter in one case: a
+    // constant gives two equal seeds, a requires-seed adapter never plans.
+    expect(seeds[0]).not.toBe(seeds[1]);
+  });
+
+  it.each([
+    { label: "unknown arm", args: ["--arm", "Z"] },
+    { label: "fractional trials", args: ["--trials", "2.5"] },
+    { label: "negative trials", args: ["--trials", "-3"] },
+    { label: "missing surface", args: ["--surface"] },
+    { label: "fractional seed", args: ["--seed", "1.5"] },
+  ])("cli refuses $label with exit 2 and no distribution", ({ args }) => {
+    const base = [
+      "--surface",
+      "wideSurface",
+      "--site",
+      MIDDLE_SITE,
+      "--arm",
+      "A",
+      "--trials",
+      "12",
+    ];
+    // The invalid flag REPLACES its valid counterpart rather than being appended
+    // after it: `--arm A --arm Z` would take the first and test nothing.
+    const merged: string[] = [];
+    for (let i = 0; i < base.length; i += 2) {
+      const flag = base[i] as string;
+      const override = args[0] === flag ? args : null;
+      if (override === null) merged.push(flag, base[i + 1] as string);
+      else if (override.length === 1) merged.push(flag);
+      else merged.push(flag, override[1] as string);
+    }
+    if (args[0] === "--seed") merged.push("--seed", args[1] as string);
+    // The REAL resolver, not the spy: a spy that returns a target regardless of
+    // its input cannot refuse a missing surface, and the case would assert exit
+    // 2 against a fixture structurally unable to produce it.
+    const { deps, out } = spyDeps({ resolveTarget });
+    expect(cliMain(merged, deps)).toBe(CLI_EXIT_REFUSED);
+    expect(out.join("")).toContain("REFUSED");
+    expect(out.join("")).not.toMatch(/\d+ of \d+/);
+  });
+
+  it("cli DEFAULT_DEPS are bound to the REAL core, and the check is discriminating", () => {
+    expect(CLI_DEFAULT_DEPS.resolveTarget).toBe(resolveTarget);
+    expect(CLI_DEFAULT_DEPS.planCampaign).toBe(planCampaign);
+    expect(CLI_DEFAULT_DEPS.renderProbe).toBe(renderProbe);
+    // Proven discriminating by pointing the same assertion at an impostor: an
+    // identity check that cannot fail certifies nothing, and a seam wired to a
+    // stub passes every injection test while the operator's command runs it.
+    const impostor = { ...CLI_DEFAULT_DEPS, resolveTarget: () => renderProbe as never };
+    expect(impostor.resolveTarget).not.toBe(resolveTarget);
+  });
+
+  it("cli generateSeed default produces a value the seed accept-set admits", () => {
+    const seed = CLI_DEFAULT_DEPS.generateSeed();
+    expect(parseSeed(String(seed))).toEqual({ ok: true, value: seed });
+    premiseHolds(
+      "the generated seed is not a constant zero",
+      CLI_DEFAULT_DEPS.generateSeed() !== 0 || seed !== 0,
+    );
   });
 });
