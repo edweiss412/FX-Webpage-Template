@@ -109,11 +109,53 @@ conditional ones. Derived from them:
 chainable keys : concurrent, sequential, only, skip, todo, shuffle
 curried members: each, for
 conditional    : skipIf, runIf
-DERIVED SET (10): concurrent, each, for, only, runIf, sequential, shuffle, skip, skipIf, todo
-ADDS  : runIf, shuffle, skipIf
+DERIVED SET, suite declaration alone (10): concurrent, each, for, only, runIf, sequential, shuffle, skip, skipIf, todo
+ADDS  : runIf, shuffle, skipIf   <- INCOMPLETE: see below, `fails` is declared on the TEST API
 DROPS : (none)
 builders EXCLUDED: extend, override, scoped, fn, fails
 ```
+
+
+**Both chainable declarations are read, not one.** `fails` is declared on `ChainableTestAPI` and not
+on `ChainableSuiteAPI`, so a derivation reading only the suite declaration excludes a genuine test
+modifier and leaves `test.fails("must fail", fn)` silently uncensused — spec review r2 finding 1, and
+a defect in the derivation rather than in the idea of deriving. The union of both:
+
+```
+ChainableSuiteAPI chain : concurrent, sequential, only, skip, todo, shuffle | curried: each, for
+ChainableTestAPI  chain : concurrent, sequential, only, skip, todo, fails   | curried: each, for
+SuiteAPI conditional    : skipIf, runIf
+UNION (11): concurrent, each, fails, for, only, runIf, sequential, shuffle, skip, skipIf, todo
+ADDS : fails, runIf, shuffle, skipIf
+DROPS: (none)
+builders still excluded: extend, override, scoped, fn
+```
+
+The extractor ABORTS with exit 2 if either chainable declaration matches nothing, because a selector
+that stops matching reports a confident empty set. That floor fired during authoring, on a shell
+quoting error that made both declarations return empty — the check caught its own broken run.
+
+### 3.4 The hook set has THREE consumers, and all three must range over it
+
+`HOOK_REGISTRARS` is consulted at `tests/mutation/source/premiseScan.ts:1758` (the file-scope seed),
+`tests/mutation/source/premiseScan.ts:1842` (`hookBodies`) and `tests/mutation/source/premiseScan.ts:1960` (`loadTimePremises`), and **each requires a bare IDENTIFIER
+callee.** Vitest also exposes the hooks as properties — `test.beforeEach(…)`, `test.aroundEach(…)` —
+and every one of those is invisible to all three. Measured:
+
+```
+bare      beforeEach(spawn) inside a describe   -> pure body: environment-touching
+qualified test.beforeEach(spawn) inside a describe -> pure body: environment-FREE
+```
+
+That is a silent free, and widening the hook NAMES does not touch it — spec review r2 finding 2, and
+**§3.3's own rule arriving one section later on this spec's own change**: an accept-set is only
+adopted where every consumer of it agrees.
+
+The repair is ONE shared predicate — a callee is a hook registrar when it is a bare identifier in the
+set, OR a property access whose name is in the set and whose object peels to a registrar root — used
+by all three consumers. One predicate rather than three, because three copies of a rule are three
+things that drift, which is the same defect one level down from the accept-set itself.
+
 
 **The builders are excluded BY CONSTRUCTION rather than by exception.** They are not in
 `ChainableSuiteAPI`, so a derivation that reads the declaration never sees them — which is what makes
