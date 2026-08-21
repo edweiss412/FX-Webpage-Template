@@ -26,12 +26,17 @@ import ts from "typescript";
 import { stripCommentsForFile } from "@/tests/_shared/stripComments";
 
 import {
+  type FileClass,
+  type ImportResolver,
+  type PropagationResult,
   OPTIONS_ACCEPT_SET,
   OUTER_EXPRESSION_KINDS,
   acquisitionsIn,
+  aliasPrefixes,
   classifyFile,
   classifySite,
   moduleSpecifiersIn,
+  propagateThroughImports,
   sitesIn,
 } from "./_connectionCensus";
 
@@ -789,3 +794,275 @@ function createSourceFileCallsWithoutParents(source: string): string[] {
   ts.forEachChild(sf, walk);
   return out;
 }
+
+describe("connection census — the helper graph, to a fixpoint (AC-C5, AC-C13 edges arm)", () => {
+  type TreeEntry = { source: string; own?: FileClass[] };
+  type Tree = Record<string, TreeEntry>;
+
+  function propagate(
+    tree: Tree,
+    resolveMap: Record<string, string> = {},
+    root = "/repo",
+  ): PropagationResult & { asked: string[] } {
+    const asked: string[] = [];
+    const resolve: ImportResolver = (_from, specifier) => {
+      asked.push(specifier);
+      return resolveMap[specifier] ?? null;
+    };
+    const files = Object.entries(tree).map(([file, entry]) => ({
+      file,
+      sf: parse(entry.source, file),
+      own: entry.own ?? [],
+    }));
+    return { ...propagateThroughImports(files, resolve, root), asked };
+  }
+
+  /** The WEAKER implementation, run beside the real one so the fixture is proven to discriminate. */
+  function oneLevelClasses(
+    tree: Tree,
+    resolveMap: Record<string, string>,
+  ): Map<string, Set<string>> {
+    const own = new Map(
+      Object.entries(tree).map(([file, e]) => [file, new Set<string>(e.own ?? [])]),
+    );
+    const out = new Map<string, Set<string>>();
+    for (const [file, entry] of Object.entries(tree)) {
+      const set = new Set<string>(entry.own ?? []);
+      for (const ref of moduleSpecifiersIn(parse(entry.source, file))) {
+        const target = ref.literal === null ? null : (resolveMap[ref.literal] ?? null);
+        if (target === null) continue;
+        for (const cls of own.get(target) ?? []) set.add(cls);
+      }
+      out.set(file, set);
+    }
+    return out;
+  }
+
+  const CYCLE: Tree = {
+    "tests/db/_a.ts": { source: `import "./_b";` },
+    "tests/db/_b.ts": { source: `import "./_c";` },
+    "tests/db/_c.ts": { source: `import "./_a";`, own: ["validation-env"] },
+  };
+  const CYCLE_RESOLVE = {
+    "./_a": "tests/db/_a.ts",
+    "./_b": "tests/db/_b.ts",
+    "./_c": "tests/db/_c.ts",
+  };
+
+  test("a three-module cycle reaches a fixpoint and every member inherits", () => {
+    const { classes, reports } = propagate(CYCLE, CYCLE_RESOLVE);
+    expect([...(classes.get("tests/db/_a.ts") ?? [])]).toEqual(["validation-env"]);
+    expect([...(classes.get("tests/db/_b.ts") ?? [])]).toEqual(["validation-env"]);
+    expect(reports).toEqual([]);
+  });
+
+  test("the one-level variant DISAGREES on the cycle's head, so the fixture discriminates", () => {
+    const real = propagate(CYCLE, CYCLE_RESOLVE).classes;
+    const weak = oneLevelClasses(CYCLE, CYCLE_RESOLVE);
+    expect([...(weak.get("tests/db/_a.ts") ?? [])]).toEqual([]);
+    expect([...(real.get("tests/db/_a.ts") ?? [])]).not.toEqual([
+      ...(weak.get("tests/db/_a.ts") ?? []),
+    ]);
+  });
+
+  const HELPER: TreeEntry = { source: `const sql = 1;`, own: ["validation-env"] };
+  const HELPER_PATH = "tests/db/_helper.ts";
+
+  const POSITION_FIXTURES: ReadonlyArray<[string, string]> = [
+    ["import with a clause", `import x from "./_helper";`],
+    ["import WITHOUT a clause", `import "./_helper";`],
+    ["export … from", `export { x } from "./_helper";`],
+    ["import-equals", `import x = require("./_helper");`],
+    ["dynamic import", `const x = await import("./_helper");`],
+    ["require", `const x = require("./_helper");`],
+  ];
+
+  for (const [label, source] of POSITION_FIXTURES) {
+    test(`a consumer reaching the helper through ${label} inherits its class`, () => {
+      const { classes, reports } = propagate(
+        { [HELPER_PATH]: HELPER, "tests/db/consumer.test.ts": { source } },
+        { "./_helper": HELPER_PATH },
+      );
+      expect([...(classes.get("tests/db/consumer.test.ts") ?? [])], label).toEqual([
+        "validation-env",
+      ]);
+      expect(reports, label).toEqual([]);
+    });
+  }
+
+  const LOADER_FIXTURES: ReadonlyArray<[string, string, string[], number]> = [
+    [
+      "vi.importActual inside a mock factory",
+      `vi.mock("./_other", async () => ({ ...(await vi.importActual("./_helper")) }));`,
+      ["validation-env"],
+      0,
+    ],
+    ["vi.importMock", `const m = await vi.importMock("./_helper");`, ["validation-env"], 0],
+    ["vi.mock without a factory", `vi.mock("./_helper");`, ["validation-env"], 0],
+    ["vi.doMock without a factory", `vi.doMock("./_helper");`, ["validation-env"], 0],
+    ["vi.mock WITH a factory", `vi.mock("./_helper", () => ({}));`, [], 0],
+    ["vi.doMock WITH a factory", `vi.doMock("./_helper", () => ({}));`, [], 0],
+    ["vi.unmock", `vi.unmock("./_helper");`, [], 0],
+    ["vi.doUnmock", `vi.doUnmock("./_helper");`, [], 0],
+    ["an unrecognised vi member", `vi.somethingElse("./_helper");`, [], 1],
+    ["vi.stubEnv", `vi.stubEnv("X", "y");`, [], 0],
+  ];
+
+  for (const [label, source, expectedClasses, expectedReports] of LOADER_FIXTURES) {
+    test(`loader form — ${label}`, () => {
+      const { classes, reports } = propagate(
+        { [HELPER_PATH]: HELPER, "tests/db/consumer.test.ts": { source } },
+        { "./_helper": HELPER_PATH, "./_other": "tests/db/_other.ts" },
+      );
+      expect([...(classes.get("tests/db/consumer.test.ts") ?? [])], label).toEqual(expectedClasses);
+      expect(reports.length, `${label}: ${reports.map((r) => r.kind).join(",")}`).toBe(
+        expectedReports,
+      );
+      if (expectedReports > 0) expect(reports[0]!.kind, label).toBe("loader-call");
+    });
+  }
+
+  const PATH_SHAPES: ReadonlyArray<[string, string]> = [
+    ["module-relative", "./_helper"],
+    ["parent-relative", "../db/_helper"],
+    ["root-relative", "/tests/db/_helper"],
+    ["repo alias", "@/tests/db/_helper"],
+  ];
+
+  for (const [label, specifier] of PATH_SHAPES) {
+    test(`a ${label} specifier is offered to the resolver and inherits`, () => {
+      const { classes, asked } = propagate(
+        {
+          [HELPER_PATH]: HELPER,
+          "tests/db/consumer.test.ts": { source: `import x from "${specifier}";` },
+        },
+        { [specifier]: HELPER_PATH },
+      );
+      expect(asked, label).toContain(specifier);
+      expect([...(classes.get("tests/db/consumer.test.ts") ?? [])], label).toEqual([
+        "validation-env",
+      ]);
+    });
+  }
+
+  test("a BARE package specifier is never offered to the resolver and is not an edge", () => {
+    const { classes, reports, asked } = propagate({
+      "tests/db/consumer.test.ts": {
+        source: `import fs from "node:fs";\nimport pg from "postgres";`,
+      },
+    });
+    expect(asked).toEqual([]);
+    expect(reports).toEqual([]);
+    expect([...(classes.get("tests/db/consumer.test.ts") ?? [])]).toEqual([]);
+  });
+
+  test("a path-shaped specifier the resolver cannot map REPORTS, and its twin does not", () => {
+    const missing = propagate({
+      "tests/db/consumer.test.ts": { source: `import x from "./_gone";` },
+    });
+    expect(missing.reports.map((r) => [r.kind, r.site])).toEqual([
+      ["unresolved-import", "./_gone"],
+    ]);
+    const present = propagate(
+      {
+        [HELPER_PATH]: HELPER,
+        "tests/db/consumer.test.ts": { source: `import x from "./_helper";` },
+      },
+      { "./_helper": HELPER_PATH },
+    );
+    expect(present.reports).toEqual([]);
+  });
+
+  const NON_LITERAL_POSITIONS: ReadonlyArray<[string, string]> = [
+    ["import declaration", `import x from bar;`],
+    ["export declaration", `export { c } from bar;`],
+    ["import-equals", `import d = require(bar);`],
+    ["dynamic import", `const e = await import(bar);`],
+    ["require call", `const f = require(bar);`],
+    ["loader call", `const g = await vi.importActual(bar);`],
+  ];
+
+  for (const [label, source] of NON_LITERAL_POSITIONS) {
+    test(`a NON-literal specifier in the ${label} position reports unresolved-import`, () => {
+      const { reports } = propagate({ "tests/db/consumer.test.ts": { source } });
+      expect(
+        reports.map((r) => r.kind),
+        label,
+      ).toEqual(["unresolved-import"]);
+    });
+  }
+
+  test("a path-shaped edge leaving tests/ is a counted production edge, never a report", () => {
+    const { reports, productionEdges } = propagate(
+      { "tests/db/consumer.test.ts": { source: `import { parse } from "@/lib/parser/block";` } },
+      { "@/lib/parser/block": "lib/parser/block.ts" },
+    );
+    expect(reports).toEqual([]);
+    expect(productionEdges.get("tests/db/consumer.test.ts")).toBe(1);
+  });
+
+  const CONSUMERS = ["tests/admin/one.test.ts", "tests/e2e/two.spec.ts", "tests/e2e/three.spec.ts"];
+
+  function helperTree(own: FileClass[]): Tree {
+    const tree: Tree = { [HELPER_PATH]: { source: `const sql = 1;`, own } };
+    for (const consumer of CONSUMERS) {
+      tree[consumer] = { source: `import x from "@/tests/db/_helper";` };
+    }
+    return tree;
+  }
+
+  test("consumers of a DISPOSITIONED helper inherit `dispositioned` and owe nothing", () => {
+    const { classes, reports, affected } = propagate(helperTree(["dispositioned"]), {
+      "@/tests/db/_helper": HELPER_PATH,
+    });
+    for (const consumer of CONSUMERS) {
+      expect([...(classes.get(consumer) ?? [])], consumer).toEqual(["dispositioned"]);
+    }
+    expect(reports).toEqual([]);
+    expect(affected.size).toBe(0);
+  });
+
+  test("an UNDISPOSED helper names its consumers as affected — one report, at the helper", () => {
+    const { classes, reports, affected } = propagate(helperTree(["undisposed"]), {
+      "@/tests/db/_helper": HELPER_PATH,
+    });
+    for (const consumer of CONSUMERS) {
+      expect([...(classes.get(consumer) ?? [])], consumer).toEqual(["undisposed"]);
+    }
+    // Kills BOTH weaker implementations: propagating the helper's raw report to every
+    // consumer (three false obligations) and suppressing it (three silent files).
+    expect(reports).toEqual([]);
+    expect(affected.get(HELPER_PATH)).toEqual([...CONSUMERS].sort());
+  });
+
+  test("inheritance is module-grain: any edge carries the whole class set", () => {
+    const { classes } = propagate(
+      {
+        [HELPER_PATH]: { source: `const sql = 1;`, own: ["validation-env", "dispositioned"] },
+        "tests/db/consumer.test.ts": { source: `import { UNRELATED } from "./_helper";` },
+      },
+      { "./_helper": HELPER_PATH },
+    );
+    expect([...(classes.get("tests/db/consumer.test.ts") ?? [])].sort()).toEqual([
+      "dispositioned",
+      "validation-env",
+    ]);
+  });
+
+  test("a type-only import is an edge too — over-inclusion can only ADD an obligation", () => {
+    const { classes } = propagate(
+      {
+        [HELPER_PATH]: HELPER,
+        "tests/db/consumer.test.ts": { source: `import type { X } from "./_helper";` },
+      },
+      { "./_helper": HELPER_PATH },
+    );
+    expect([...(classes.get("tests/db/consumer.test.ts") ?? [])]).toEqual(["validation-env"]);
+  });
+
+  test("the alias prefixes are READ from REPO_ALIAS called with the root, never retyped", () => {
+    const prefixes = aliasPrefixes("/repo");
+    expect(prefixes.length).toBeGreaterThan(0);
+    expect(prefixes).toContain("@");
+  });
+});

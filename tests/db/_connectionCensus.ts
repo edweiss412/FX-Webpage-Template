@@ -26,6 +26,8 @@
  */
 import ts from "typescript";
 
+import { REPO_ALIAS } from "@/vitest.projects";
+
 import { ACCEPTED_HOSTS } from "./_localDbUrl";
 import { isGuardModule } from "./_localDbUrlScan";
 
@@ -41,7 +43,9 @@ export type ReportKind =
   | "remote-literal"
   | "shadowed-driver"
   | "acquisition"
-  | "value-reference";
+  | "value-reference"
+  | "unresolved-import"
+  | "loader-call";
 
 export type SpecifierPosition =
   | "import-declaration"
@@ -1005,4 +1009,209 @@ export function classifyFile(filePath: string, source: string): FileRecord {
 
   reports.sort((a, b) => a.line - b.line || (a.ordinal ?? 0) - (b.ordinal ?? 0));
   return { file: filePath, bindings, sites: classified, reports };
+}
+
+/** A file's class after dispositions are applied to its reported sites. */
+export type FileClass = SiteClass | "dispositioned" | "undisposed";
+
+export type CensusFileInput = {
+  file: string;
+  sf: ts.SourceFile;
+  /** The file's OWN resolved classes, before anything is inherited. */
+  own: readonly FileClass[];
+};
+
+/** Injected so the suite drives constructed modules and the gate stats the real tree. */
+export type ImportResolver = (fromFile: string, specifier: string) => string | null;
+
+export type PropagationResult = {
+  classes: Map<string, Set<FileClass>>;
+  reports: Report[];
+  /** Path-shaped edges leaving `tests/`, counted per file and never red. */
+  productionEdges: Map<string, number>;
+  /** For a helper whose own set is `undisposed`: every consumer that reaches it. */
+  affected: Map<string, string[]>;
+};
+
+/**
+ * The specifier PREFIXES that are path-shaped through the repo alias. `REPO_ALIAS` is a
+ * FUNCTION of the root, so it is CALLED with the root and the KEYS of the returned map are
+ * read; `Object.keys(REPO_ALIAS)` would yield none, and a second alias added to that map is
+ * then covered without a census edit.
+ */
+export function aliasPrefixes(root: string): string[] {
+  return Object.keys(REPO_ALIAS(root));
+}
+
+/** The walk root: the destructive guard's root, and the census's. */
+export const TESTS_ROOT_PREFIX = "tests/";
+
+/**
+ * PATH-SHAPED is derived from the module system's own forms plus the repo alias map:
+ * `./`, `../`, a leading `/` (Vite's project-root form), and `<key>/` for every key of
+ * `REPO_ALIAS(root)`. Anything else is a bare package specifier and is not followed.
+ */
+export function isPathShaped(specifier: string, root: string): boolean {
+  if (specifier.startsWith("./") || specifier.startsWith("../") || specifier.startsWith("/")) {
+    return true;
+  }
+  return aliasPrefixes(root).some((key) => specifier.startsWith(`${key}/`));
+}
+
+function edgeReport(
+  input: CensusFileInput,
+  ref: ModuleSpecifierRef,
+  kind: ReportKind,
+  detail: string,
+): Report {
+  return {
+    file: input.file,
+    line: lineOf(input.sf, ref.node),
+    ordinal: null,
+    kind,
+    site: ref.literal ?? ref.node.getText(input.sf),
+    detail,
+    argIsCall: false,
+  };
+}
+
+/**
+ * The helper graph to a FIXPOINT: a file with no site of its own that imports a
+ * connecting module inherits that module's resolved class set, transitively and through
+ * cycles. A one-level walk passes a helper-of-a-helper silently, which is why the
+ * deciding suite runs one beside this and asserts they disagree.
+ *
+ * Every specifier the walk declines to follow leaves a trace: a non-literal specifier and
+ * an unresolvable path-shaped one REPORT, a path-shaped edge leaving `tests/` is COUNTED
+ * as a production edge, and a bare package specifier is not an edge at all. A dropped
+ * edge is the silent direction and does not exist here.
+ */
+export function propagateThroughImports(
+  files: readonly CensusFileInput[],
+  resolve: ImportResolver,
+  root: string = process.cwd(),
+): PropagationResult {
+  const classes = new Map<string, Set<FileClass>>();
+  const reports: Report[] = [];
+  const productionEdges = new Map<string, number>();
+  const edges = new Map<string, string[]>();
+  const known = new Set(files.map((f) => f.file));
+
+  for (const input of files) {
+    classes.set(input.file, new Set<FileClass>(input.own));
+    const targets: string[] = [];
+    let production = 0;
+
+    for (const ref of moduleSpecifiersIn(input.sf)) {
+      if (ref.position === "loader-call") {
+        const loader = ref.loader;
+        if (loader === undefined) continue;
+        if (!loaderLoads(loader)) {
+          const pathShaped = ref.literal !== null && isPathShaped(ref.literal, root);
+          if (!loaderKnown(loader.member) && pathShaped) {
+            reports.push(
+              edgeReport(
+                input,
+                ref,
+                "loader-call",
+                `an unrecognised vitest loader member (\`vi.${loader.member}\`) naming a ` +
+                  "path-shaped module: the census cannot decide whether it evaluates it",
+              ),
+            );
+          }
+          continue;
+        }
+      }
+
+      if (ref.literal === null) {
+        reports.push(
+          edgeReport(
+            input,
+            ref,
+            "unresolved-import",
+            "a module specifier the census cannot read statically; add an `unclassifiable` " +
+              "disposition row naming this specifier",
+          ),
+        );
+        continue;
+      }
+      if (!isPathShaped(ref.literal, root)) continue;
+
+      const target = resolve(input.file, ref.literal);
+      if (target === null) {
+        reports.push(
+          edgeReport(
+            input,
+            ref,
+            "unresolved-import",
+            "a path-shaped specifier that resolves to no file",
+          ),
+        );
+        continue;
+      }
+      if (!target.startsWith(TESTS_ROOT_PREFIX)) {
+        production += 1;
+        continue;
+      }
+      if (!known.has(target)) {
+        reports.push(
+          edgeReport(
+            input,
+            ref,
+            "unresolved-import",
+            `resolves to \`${target}\`, which is under ${TESTS_ROOT_PREFIX} and not in the ` +
+              "census population",
+          ),
+        );
+        continue;
+      }
+      targets.push(target);
+    }
+
+    edges.set(input.file, targets);
+    if (production > 0) productionEdges.set(input.file, production);
+  }
+
+  const reaches = new Map<string, Set<string>>(files.map((f) => [f.file, new Set<string>()]));
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const input of files) {
+      const mine = classes.get(input.file);
+      const myReach = reaches.get(input.file);
+      if (mine === undefined || myReach === undefined) continue;
+      for (const target of edges.get(input.file) ?? []) {
+        if (!myReach.has(target)) {
+          myReach.add(target);
+          grew = true;
+        }
+        for (const reached of reaches.get(target) ?? []) {
+          if (!myReach.has(reached)) {
+            myReach.add(reached);
+            grew = true;
+          }
+        }
+        for (const cls of classes.get(target) ?? []) {
+          if (!mine.has(cls)) {
+            mine.add(cls);
+            grew = true;
+          }
+        }
+      }
+    }
+  }
+
+  // The obligation for an undisposed helper is ONE row where the SITE lives, so its
+  // consumers are named as affected rather than each owing a row of their own.
+  const affected = new Map<string, string[]>();
+  for (const input of files) {
+    if (!input.own.includes("undisposed")) continue;
+    const consumers = files
+      .filter((f) => f.file !== input.file && (reaches.get(f.file)?.has(input.file) ?? false))
+      .map((f) => f.file)
+      .sort();
+    if (consumers.length > 0) affected.set(input.file, consumers);
+  }
+
+  return { classes, reports, productionEdges, affected };
 }
