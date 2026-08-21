@@ -128,10 +128,29 @@ describe("EXPECTED_LEDGER_KINDS is in parity with the registry it describes", ()
     // cost is a CALL -- and strengthening the guard is what exposed it.
     const FORBIDDEN = ["tests/mutation/source/surfaceCases"];
 
+    // USE vs MENTION, in one place because BOTH scans below need it. A guard
+    // that reads source and also DOCUMENTS the hazard it forbids will match its
+    // own documentation unless comments are removed first -- which is exactly
+    // what happened twice here: the import walk flagged the aliased example
+    // quoted in a comment, and the call scan flagged `runSurface(` written in
+    // prose explaining the call scan.
+    const stripComments = (src: string): string =>
+      src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
     const entry = new URL(import.meta.url).pathname;
     const resolveSpec = (from: string, spec: string): string | null => {
-      if (!spec.startsWith(".")) return null; // package imports cannot reach these
-      const base = resolve(dirname(from), spec);
+      // `@/...` is the repo alias (vitest.projects.ts:176, `{ "@": root }`). The
+      // first version discarded every non-relative specifier as "a package", so
+      // `export * from "@/tests/mutation/source/surfaceCases"` reached the
+      // forbidden module and PASSED. An alias is a repo path wearing a package's
+      // shape; a resolver that models only one of the two spellings covers only
+      // the imports its author happened to write.
+      const base = spec.startsWith("@/")
+        ? resolve(ROOT, spec.slice(2))
+        : spec.startsWith(".")
+          ? resolve(dirname(from), spec)
+          : null;
+      if (base === null) return null; // a real package cannot reach repo modules
       for (const c of [base, `${base}.ts`, `${base}.tsx`, join(base, "index.ts")]) {
         if (existsSync(c) && statSync(c).isFile()) return c;
       }
@@ -141,7 +160,7 @@ describe("EXPECTED_LEDGER_KINDS is in parity with the registry it describes", ()
     const queue = [entry];
     while (queue.length > 0) {
       const file = queue.shift()!;
-      const src = readFileSync(file, "utf8");
+      const src = stripComments(readFileSync(file, "utf8"));
       // Both quote styles, static and dynamic, `import` and `export ... from`.
       for (const m of src.matchAll(/(?:from|import)\s*\(?\s*["']([^"']+)["']/g)) {
         const next = resolveSpec(file, m[1]!);
@@ -166,16 +185,41 @@ describe("EXPECTED_LEDGER_KINDS is in parity with the registry it describes", ()
     // never CALL a mutant-spawning entry point. An import is cheap; an invocation
     // is not, and only the invocation turns this file back into the nightly job
     // it was written to escape.
-    //
-    // STRING LITERALS ARE BLANKED FIRST, and that is not incidental: the version
-    // without it matched its OWN needle list and failed on a file containing no
-    // call at all. A scanner that reads its own source has to exclude the place
-    // it writes the pattern down -- the same self-reference that makes a
-    // `pgrep`-style check match the shell command running it.
-    const own = readFileSync(entry, "utf8").replace(/"[^"\n]*"|'[^'\n]*'|`[^`]*`/g, '""');
-    const calls = ["runSurface", "runControl", "registerSurfaceCases"].filter((c) =>
-      new RegExp(`\\b${c}\\s*\\(`).test(own),
-    );
+    // THE REAL GUARANTEE IS THE IMPORT ALLOWLIST, not the call scan below.
+    // Round 2 showed the call scan missing renamed indirection, optional calls
+    // and template interpolation, and chasing those turns a guard into a
+    // recognizer -- each round adds one more invocation spelling and the next
+    // round finds the next. The narrowing that is STRICTLY STRONGER: pin this
+    // file's DIRECT imports to an exact set. None of the hazard identifiers is
+    // then in lexical scope at all, so there is nothing to rename, interpolate
+    // or optional-call, and a transitive helper cannot be introduced without
+    // failing here first. Set equality, so an addition AND a removal both fail.
+    const ownSrc = readFileSync(entry, "utf8");
+    const directImports = [...ownSrc.matchAll(/^\s*import\s[^;]*?from\s+["']([^"']+)["']/gm)]
+      .map((m) => m[1]!)
+      .sort();
+    expect(directImports, "this file's direct imports are pinned").toEqual([
+      "../_shared/premise",
+      "./source/expectedLedgerKinds",
+      "./source/registry",
+      "vitest",
+    ]);
+
+    // Belt and braces, and deliberately NOT extended past what an ordinary edit
+    // looks like. Single- and double-quoted strings are blanked so the needle
+    // list cannot match itself; TEMPLATE literals are left intact, because
+    // `${runSurface(...)}` is a real call and blanking backticks hid it. `?.(`
+    // is covered. A renamed indirect call (`const f = runSurface; f(...)`) is a
+    // DOCUMENTED LIMIT of this scan -- it is adversarial rather than an ordinary
+    // authoring mistake, which this file's threat fence puts out of scope, and
+    // the allowlist above makes it unreachable in any case.
+    const HAZARDS = ["runSurface", "runControl", "registerSurfaceCases"];
+    const scanned = stripComments(ownSrc)
+      .split("\n")
+      .filter((l) => !l.includes("const HAZARDS ="))
+      .join("\n")
+      .replace(/"[^"\n]*"|'[^'\n]*'/g, '""');
+    const calls = HAZARDS.filter((c) => new RegExp(`\\b${c}\\s*(?:\\?\\.)?\\s*\\(`).test(scanned));
     expect(calls, "mutant-spawning calls in this file").toEqual([]);
   });
 });
