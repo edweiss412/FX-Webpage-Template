@@ -165,6 +165,15 @@ This table exists because the question "what exit code does an instrument produc
 thing it is looking for" turned up two instruments that produced ZERO — one of them found only after
 the other had been fixed without sweeping its peers.
 
+**A repair that changes what an instrument DOES changes what a clean tree looks like.** This table
+exists only because making `limits-check` GATE rather than print — itself a repair, for an instrument
+that reported findings under exit 0 — changed its result on the pre-change branch from green to red.
+Nobody anticipated that, and it was found by RUNNING the gates rather than by reasoning about them.
+The general form: when a repair alters an instrument's exit behaviour, the expected profile of every
+tree it runs on moves with it, and the profile is part of what the repair owes.
+
+
+
 ## 0.46 Each r4 repair carries a both-directions proof, because a repair is a task
 
 Repairs are authored faster, under more pressure, and with less review than original work, and they
