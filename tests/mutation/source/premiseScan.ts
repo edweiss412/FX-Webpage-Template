@@ -234,7 +234,16 @@ function calleeName(callee: ts.Expression, propertyAccessCounts: boolean): Calle
   // The only genuinely undecidable shape is a member access whose KEY is not
   // statically readable: `test[k]`. Everything else is a name or is nameless.
   if (ts.isElementAccessExpression(callee)) {
-    const arg = callee.argumentExpression;
+    // THE KEY IS UNWRAPPED TOO. Peeling the callee and not its key left
+    // `test[("beforeEach")]` and `test["beforeEach" as string]` reading as
+    // undecidable - names this scanner could read perfectly well. It was
+    // invisible from every verdict, because `unrecognized` is carried
+    // conservatively by the consumers that grant freedom, so the outcome looked
+    // right while the reason was wrong. Found via a sibling arc's fixture
+    // (`computed-key-competing-declaration.ts` on the sendauth branch), which
+    // kills exactly this: an unwrap applied to the callee and not to the key.
+    let arg: ts.Expression = callee.argumentExpression;
+    while (isWrapperExpression(arg)) arg = arg.expression;
     if (propertyAccessCounts && ts.isStringLiteralLike(arg))
       return { kind: "named", name: arg.text };
     if (ts.isStringLiteralLike(arg)) return { kind: "nameless" };

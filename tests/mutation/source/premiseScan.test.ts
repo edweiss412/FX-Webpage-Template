@@ -5237,3 +5237,60 @@ describe("the deciders are complete or they decline (diff r2)", () => {
     expect(brkSkip.map((r) => r.verdict)).toEqual(dotEach.map((r) => r.verdict));
   });
 });
+
+/**
+ * A decidable element-access KEY is decided, not declined.
+ *
+ * Led to by a sibling arc's fixture rather than by review: `computed-key-
+ * competing-declaration.ts` on `fix/sendauth-arm-classifier-unification` kills
+ * an implementation that unwraps the callee but not the KEY, so `[("snap")]`
+ * reads as no name at all. This scanner had exactly that gap - it peeled
+ * parentheses and casts off the callee and never off the argument, so
+ * `test[("beforeEach")]` and `test["beforeEach" as string]` fell to
+ * `unrecognized`.
+ *
+ * IT WAS INVISIBLE FROM THE VERDICT. Both forms already classified correctly,
+ * because `unrecognized` is carried conservatively by the consumers that grant
+ * freedom - so the outcome looked right while the reason was wrong. That is the
+ * same error corrected earlier for `import(...)`: a conservative answer on a
+ * decidable input is still a wrong answer, and here it hid behind a correct
+ * result rather than announcing itself.
+ */
+describe("a decidable element-access key is decided (sendauth fixture lead)", () => {
+  // The EAGER position, deliberately. In a suite body both spellings already
+  // classify identically, because `unrecognized` is carried conservatively by
+  // the consumers that grant freedom - so a test written there passes with the
+  // defect present and proves nothing. The eager reporter is the one path where
+  // the two decisions produce DIFFERENT observable output: it names the hook it
+  // resolved, or says it could not resolve one.
+  const eager = (callee: string): string =>
+    `describe(String(${callee}(() => { void process.env.CI; })), () => { it("inA", () => {}); });\nit("sib", () => {});\n`;
+
+  // A file-level reason carries its MODULE, and each case is written to its own
+  // temp file, so an equality on the raw `detail` compares paths that differ by
+  // construction. The path is stripped; the reason is what is being witnessed.
+  const reasonOf = (src: string): string => {
+    const { path, rows } = rowsWithPath(src);
+    return String(rows[0]?.detail ?? "").replace(`, in ${path}`, "");
+  };
+
+  it("a wrapped string key resolves to the same NAME as the bare form", () => {
+    const bareDetail = reasonOf(eager(`test["beforeEach"]`));
+    expect(bareDetail).toContain("hook beforeEach at line");
+
+    for (const spelling of [
+      `test[("beforeEach")]`,
+      `test["beforeEach" as string]`,
+      "test[`beforeEach`]",
+      `test[("beforeEach") as string]`,
+    ]) {
+      const detail = reasonOf(eager(spelling));
+      // Witnessed against the bare spelling: same registration, same name.
+      expect({ spelling, detail }).toEqual({ spelling, detail: bareDetail });
+      expect({ spelling, undecidable: detail.includes("<undecidable callee>") }).toEqual({
+        spelling,
+        undecidable: false,
+      });
+    }
+  });
+});
