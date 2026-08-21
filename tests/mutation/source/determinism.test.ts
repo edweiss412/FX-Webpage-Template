@@ -45,6 +45,10 @@ const { enumerateSites, siteId } = await import("./operators");
 const { generateMutants } = await import("./generate");
 const { premiseHolds } = await import("../../_shared/premise");
 const { parseRuns, runDeterminism, stampInputs, renderDeterminism } = await import("./determinism");
+const { main, parseArgv, DEFAULT_DEPS, EXIT_OK, EXIT_REFUSED } =
+  await import("../../../scripts/mutation-determinism");
+type DeterminismOutcome = Awaited<ReturnType<typeof runDeterminism>>;
+type DeterminismInput = Parameters<typeof runDeterminism>[0];
 
 /**
  * The determinism harness core (spec §5.4), AC-8 and AC-9.
@@ -440,5 +444,144 @@ describe("determinism — the rendering carries what the core produced", () => {
     expect(text).toContain("REFUSED (runs)");
     expect(text).toContain("2.5");
     expect(text).not.toContain("verdicts:");
+  });
+});
+
+describe("mutation:determinism adapter — WIRING and RENDERING, proved separately", () => {
+  const FIXED: DeterminismOutcome = {
+    kind: "result",
+    surfaceId: "ledgerGit",
+    siteId: "relational-boundary:259:20:<><=",
+    // THREE requested, TWO completed — so the fixture is internally coherent AND
+    // it exercises the case that matters: a distribution over 2 of 3 runs is a
+    // different claim from one over 3, and the rendering has to say so.
+    runs: 3,
+    observations: [
+      {
+        run: 1,
+        verdict: "SURVIVED",
+        exitCode: 0,
+        children: [
+          { suite: "a.test.ts", kind: "exit", exitCode: 0, durationMs: 1234 },
+          { suite: "b.test.ts", kind: "exit", exitCode: 0, durationMs: 5678 },
+        ],
+      },
+      {
+        run: 2,
+        verdict: "KILLED",
+        exitCode: 124,
+        children: [{ suite: "a.test.ts", kind: "timeout", exitCode: null, durationMs: 180_000 }],
+      },
+    ],
+    verdicts: { SURVIVED: 1, KILLED: 1 },
+    kinds: { exit: 2, timeout: 1 },
+    stampBefore: {
+      digest: "aaaaaaaaaaaa",
+      files: { "x.ts": "1" },
+      operators: "op|floor=1",
+      count: 1,
+    },
+    stampAfter: {
+      digest: "aaaaaaaaaaaa",
+      files: { "x.ts": "1" },
+      operators: "op|floor=1",
+      count: 1,
+    },
+    infraFaults: ["run 3: mutation run produced no exit status for fixture [b.test.ts]"],
+  };
+
+  it("CALLS the core with the operator's arguments (wiring)", () => {
+    // A correct renderer in front of an entry that never invokes the core — or
+    // that prints fabricated output — passes every rendering assertion while
+    // `pnpm mutation:determinism` reports nothing the core produced.
+    const seen: DeterminismInput[] = [];
+    const written: string[] = [];
+    const code = main(["--surface", "ledgerGit", "--site", "op:1:1:a", "--runs", "2"], {
+      run: (input) => {
+        seen.push(input);
+        return FIXED;
+      },
+      render: renderDeterminism,
+      write: (t) => written.push(t),
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toEqual({ surface: "ledgerGit", site: "op:1:1:a", runs: "2" });
+    expect(code).toBe(EXIT_OK);
+  });
+
+  it("is bound to the REAL core in production, not only in the injected seam", () => {
+    // Without this the injectable seam certifies a path that could be wired to
+    // anything at all.
+    expect(DEFAULT_DEPS.run).toBe(runDeterminism);
+    expect(DEFAULT_DEPS.render).toBe(renderDeterminism);
+  });
+
+  it("renders the FIXED result the core returned, field by field (rendering)", () => {
+    // Compared against THAT SAME OBJECT — deliberately NOT against a second
+    // invocation of the core. `durationMs` is the quantity this arc measured
+    // swinging 19.8 s to 39.1 s on byte-identical inputs, so a field-equality
+    // assertion across two runs would be flaky by construction and would demand
+    // the negation of this arc's own central finding.
+    const written: string[] = [];
+    main(["--surface", "ledgerGit", "--site", "op:1:1:a", "--runs", "2"], {
+      run: () => FIXED,
+      render: renderDeterminism,
+      write: (t) => written.push(t),
+    });
+    const out = written.join("");
+    expect(out).toContain(FIXED.surfaceId);
+    expect(out).toContain((FIXED as { siteId: string }).siteId);
+    // NARROWED, not cast: the union already carries these fields on the result
+    // arm, and a cast would assert a shape rather than establish it.
+    if (FIXED.kind !== "result") throw new Error("FIXED must be a result");
+    for (const o of FIXED.observations) {
+      expect(out).toContain(o.verdict);
+      for (const c of o.children) {
+        expect(out).toContain(c.suite);
+        expect(out).toContain(String(c.durationMs));
+      }
+    }
+    expect(out).toContain("SURVIVED=1");
+    expect(out).toContain("KILLED=1");
+    expect(out).toContain("timeout=1");
+    expect(out).toContain("aaaaaaaaaaaa");
+    // A run that did not COMPLETE must survive the rendering. Silently dropping
+    // it would make a distribution over 1 of 2 runs read as a distribution over
+    // 2 — the population misreported by the very channel built for attribution.
+    expect(out).toMatch(/infra fault/i);
+    expect(out).toContain("no exit status");
+  });
+
+  it("the fixture itself is COHERENT — completed plus faulted equals requested", () => {
+    // A fixture asserting on a self-contradictory object proves nothing about the
+    // program, and this one contradicted itself for one revision: it declared two
+    // requested runs, two completed observations, AND a fault on run 2, so a run
+    // both completed and failed to. Pinned so it cannot drift back.
+    if (FIXED.kind !== "result") throw new Error("FIXED must be a result");
+    expect(FIXED.observations.length + FIXED.infraFaults.length).toBe(FIXED.runs);
+    const completedRuns = new Set(FIXED.observations.map((o) => o.run));
+    for (const fault of FIXED.infraFaults) {
+      const n = Number(/run (\d+)/.exec(fault)?.[1]);
+      expect(completedRuns.has(n), `run ${n} is BOTH completed and faulted`).toBe(false);
+    }
+  });
+
+  it("exits 2 on an invalid --runs, through the adapter", () => {
+    const written: string[] = [];
+    const code = main(["--surface", "ledgerGit", "--site", "op:1:1:a", "--runs", "2.5"], {
+      run: runDeterminism,
+      render: renderDeterminism,
+      write: (t) => written.push(t),
+    });
+    expect(code).toBe(EXIT_REFUSED);
+    expect(written.join("")).toContain("REFUSED (runs)");
+  });
+
+  it("reads a missing flag value as ABSENT rather than as the next flag", () => {
+    expect(parseArgv(["--runs", "--surface", "x"])).toEqual({
+      surface: "x",
+      site: undefined,
+      runs: undefined,
+    });
   });
 });
