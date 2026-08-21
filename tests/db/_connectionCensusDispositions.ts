@@ -75,4 +75,11 @@ export const CONNECTION_CENSUS_DISPOSITIONS: readonly DispositionRow[] = [
     reason:
       "non-literal dynamic import of a parser module by a computed path under lib/parser; opens no connection",
   },
+  {
+    file: "tests/parser/_metaTransformSitesWalker.test.ts",
+    site: "path",
+    kind: "unclassifiable",
+    reason:
+      "non-literal dynamic import of a parser block by a computed path under lib/parser; opens no connection",
+  },
 ];
