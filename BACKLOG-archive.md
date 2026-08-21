@@ -1,3 +1,71 @@
+## BL-SENDAUTH-ARM-CLASSIFIER-UNIFICATION — four arms of one scanner each decide independently what a receiver and a raw binding are — CLOSED 2026-08-21
+
+**Status:** SHIPPED 2026-08-21 · **Effort (as shipped):** M · **Severity (as filed):** MEDIUM (each un-narrowed arm is a SILENT miss, the one outcome the surface's consequence bound forbids) · **Class:** detector fidelity · **Facing:** process · **Shipped by:** `fix/sendauth-arm-classifier-unification`
+
+**Resolution.** One shared receiver rule (`surfaceReceiverOf`, total and three-way over
+`surface`/`foreign`/`opaque`) and one shared raw-binding predicate (a COUNT of competing
+declarations), consumed by every decision site. `receiverUnparen`, a local `unparen` copy, the
+four-kind `isDeclarationName` list and the ancestor-walk shadow predicate are all DELETED rather
+than left agreeing with the new rule by coincidence.
+
+**THREE DEFECTS IN THIS ROW'S OWN TEXT ARE CORRECTED HERE, and naming them is the point of the
+graduation.** A row is a claim, and these three were false when the arc opened:
+
+1. **The ambiguous "read arm".** Two functions answered to that name. The predecessor's diff-r4
+   bullet narrowed `classifyUses`; the axis paragraph meant `analyzePassReads`, which was NEVER
+   TOUCHED at r4 and still required a bare identifier receiver. A NARROWED claim is only as precise
+   as the name it is recorded against, so every such claim now names ONE FUNCTION. The predecessor
+   spec's §4 limit 8 preamble carried the same false sentence and is corrected in the same commit.
+2. **The stale "probed silent" claim for the handoff instance.** The row recorded the shadowed-
+   parameter handoff as returning 0 findings. It REPORTS, and had begun reporting before this arc
+   opened — the probe was a claim that had gone stale with no mechanism to notice.
+3. **The stale summary "two of the four arms are now narrowed".** The count described a population
+   that had already moved.
+
+**What the unification bought, measured rather than predicted.** Six name-resolution sites now route
+through the shared rule; the population went 42 sites to 36. Routing was not merely tidying —
+`calleeNameOf` gained the wrapper and element-access forms for free, so `(helper)(x)` and
+`h["leak"](x)` name the callee instead of falling to the anonymous label.
+
+**The corpus is the other half of the deliverable, and it is why the finding rate was flat.** The
+81-fixture corpus contained ZERO instances of any shape the four predecessor rounds found, so the
+suite was green throughout while REVIEW acted as the corpus-authoring mechanism — the most expensive
+authoring tool available. The corpus is now derived from the axes the rules decide on, every fixture
+names the rule-element it exists for, an unmapped fixture REDS, and `inherited` is frozen at the BASE
+size so a new fixture must name an axis instead of being absorbed as pre-existing.
+
+**Preservation, with an independent witness on each side:** every BASE verdict compared against a
+baseline built by running the BASE scanner (blob `412cadd3`) over the fixture list read from
+`git ls-tree` AT BASE — 79 identical, 2 moved, **`removed: (none)` on both**. The empty removal set
+is what makes the change additive; a count of two moved does not distinguish an addition from a
+replacement.
+
+**Score: 1.0000, floor 1 met, unaccepted-survivor set EMPTY and `accepted: []` EMPTY** — all seven
+gate conditions green in 1392.65s, with the stamp pair IDENTICAL across the run (source
+`78b22540`, suite `a0d277d4`, registry `db82d1a8`, `expectedLedgerKinds` `a65d1ca6`, 112 fixtures,
+digest `61ff83da`). **No k/t denominator is quoted, because a GREEN gate prints no counts** and
+inventing one would be a recalled number wearing a measurement's clothes.
+
+**The empty accepted ledger is the result, not an omission.** The first scored run was 0.9895 with
+three unaccepted survivors; two were DEAD CODE the gate exposed (a redundant guard whose mutant no
+case could kill because the next comparison already declined it, and an unkillable memo write) and
+were DELETED, and the third was a genuinely unexercised arm killed by a pair that flips it in
+opposite directions. Nothing was argued as equivalent, so there is no standing claim about
+unreachability for a later refactor to silently falsify. Killer audit reported separately, because a perfect score does not subsume it:
+THIS SURFACE once scored 1.0000 with an empty unaccepted-survivor set WHILE THE TARGET DEFECT CLASS
+WAS LIVE, since no declared operator could express it.
+
+**A finding that did NOT become a row, and the reasoning is the reusable part.** A surface member
+declared as a PROPERTY rather than a method, read twice in a pass, reports `UNCLASSIFIED-USE` twice
+where rule 2 would owe `MULTI-READ`. Probed, not reasoned about. The direction is the permitted one —
+signalled with a coarser code, never silent — so it is a DOCUMENTED LIMIT in the owning spec (§4.1c)
+with a re-file trigger, not an open-queue entry. Filing it would have asserted work someone should
+schedule for an outcome already inside the bound.
+
+**The load-bearing lesson, unchanged from the filing and now confirmed twice.** Failing arms closed
+produced ZERO false advisories on the live corpus. Silence was not buying correctness; it was buying
+nothing.
+
 ## BL-SPEC-CLAIM-SWEEP-AFTER-REASONING-FINDING — a repair fixes the site the finding named and leaves the document unswept — CLOSED 2026-08-20 (`feat/speclint-claim-sweep-after-repair`, SHIPPED)
 
 **Status:** SHIPPED 2026-08-20 · **Effort (as shipped):** M · **Severity (as filed):** LOW-MEDIUM (no shipped defect; it buys review rounds) · **Class:** review economy / authoring tooling · **Filed:** 2026-08-18 (`fix/control-outline-border-token`, spec review R2 F1 + R4 F3, then R4 F1 + R5 F1) · **Facing:** process · **Reachability:** PROBED at filing, and the incident's own blobs ship as the acceptance fixtures.

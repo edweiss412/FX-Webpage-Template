@@ -1056,6 +1056,28 @@ confinement claim being probed FALSE.
 competing declarations (count is 0 today, and the plan pins it), or a contributor reports this
 advisory against code they consider correct.
 
+### §4.1c A PROPERTY member read is reported with a coarser code, same shape as §4.1b
+
+Measured during `task:read-set-member-name`, probed rather than reasoned about. Rule 2 counts CALL
+reads, because `analyzePassReads` keys on a `CallExpression`. So a surface member declared as a
+PROPERTY rather than a method — `stamp: string` — read twice in a pass yields
+
+```
+UNCLASSIFIED-USE:stamp  UNCLASSIFIED-USE:stamp
+```
+
+where `MULTI-READ:stamp` is the finding rule 2 would owe. **The direction is the permitted one:** the
+uses are REPORTED, naming the member, so the pass is not silent and nothing is silently wrong. What
+is coarser is the CODE and therefore the attribution of WHY.
+
+**This is a documented limit, not an open-queue row**, and the filing bar is why: a worst case of
+conservative behaviour plus a surfaced signal belongs in the owning surface's limits record. Filing
+it as a `BL-` entry would assert work someone should schedule for an outcome that is already within
+the bound.
+
+**Re-file when:** an enrolled surface type declares a non-method member that a pass reads more than
+once, or `analyzePassReads` is edited to key on anything other than a `CallExpression`.
+
 ### §4.1b A wrapped CALLEE is reported with a coarser code, and that is a limit rather than a gap
 
 After §3.10's repair, a sink whose CALLEE is wrapped (`this.ch.dispatch!(...)`) reports both
