@@ -105,6 +105,9 @@ const liveTrial = (options: LiveOptions) => {
     scratchDir: scratch,
     surfaceId: options.surfaceId,
     siteId: options.site,
+    // The control surface is UNENROLLED apparatus, so its row travels to the
+    // child; enrolled surfaces resolve through the registry as the gate does.
+    ...(options.surfaces === undefined ? {} : { surface: options.surfaces[0] as GuardSurface }),
   });
   const outcome = observeTrial(plan, resolved.target, deps, {
     argv: CHILD,
@@ -121,7 +124,7 @@ describe.skipIf(!RUN)("processProbe LIVE — real children (AC-2, AC-4, AC-5, AC
     () => {
       const pids: number[] = [];
       for (let i = 0; i < 3; i += 1) {
-        const { outcome } = liveTrial({
+        const { outcome, deps } = liveTrial({
           surfaceId: CONTROL_SURFACE.id,
           site: controlSite("gate"),
           surfaces: [CONTROL_SURFACE],
@@ -129,7 +132,9 @@ describe.skipIf(!RUN)("processProbe LIVE — real children (AC-2, AC-4, AC-5, AC
           label: "pid",
         });
         if (outcome.kind === "refusal") {
-          throw new Error(`trial refused: ${outcome.input} — ${outcome.detail}`);
+          throw new Error(
+            `trial refused: ${outcome.input} — ${outcome.detail}\nCHILD STDERR:\n${deps.lastStderr()}`,
+          );
         }
         expect(outcome.observation.parentPid).toBe(outcome.observation.report.childPid);
         pids.push(outcome.observation.parentPid);
@@ -147,7 +152,7 @@ describe.skipIf(!RUN)("processProbe LIVE — real children (AC-2, AC-4, AC-5, AC
       const verdicts: string[] = [];
       const decidingSuites: string[] = [];
       for (let trial = 0; trial < 3; trial += 1) {
-        const { outcome } = liveTrial({
+        const { outcome, deps } = liveTrial({
           surfaceId: CONTROL_SURFACE.id,
           site: controlSite("gate"),
           surfaces: [CONTROL_SURFACE],
@@ -155,7 +160,9 @@ describe.skipIf(!RUN)("processProbe LIVE — real children (AC-2, AC-4, AC-5, AC
           label: "shared",
         });
         if (outcome.kind === "refusal") {
-          throw new Error(`trial refused: ${outcome.input} — ${outcome.detail}`);
+          throw new Error(
+            `trial refused: ${outcome.input} — ${outcome.detail}\nCHILD STDERR:\n${deps.lastStderr()}`,
+          );
         }
         const target = outcome.observation.report.steps.find((s) => s.role === "target");
         if (target === undefined) throw new Error("no target step in the report");
@@ -185,7 +192,7 @@ describe.skipIf(!RUN)("processProbe LIVE — real children (AC-2, AC-4, AC-5, AC
     () => {
       const verdicts: string[] = [];
       for (let trial = 0; trial < 3; trial += 1) {
-        const { outcome } = liveTrial({
+        const { outcome, deps } = liveTrial({
           surfaceId: CONTROL_SURFACE.id,
           site: controlSite("gate"),
           surfaces: [CONTROL_SURFACE],
@@ -193,7 +200,9 @@ describe.skipIf(!RUN)("processProbe LIVE — real children (AC-2, AC-4, AC-5, AC
           label: "fresh",
         });
         if (outcome.kind === "refusal") {
-          throw new Error(`trial refused: ${outcome.input} — ${outcome.detail}`);
+          throw new Error(
+            `trial refused: ${outcome.input} — ${outcome.detail}\nCHILD STDERR:\n${deps.lastStderr()}`,
+          );
         }
         verdicts.push(
           outcome.observation.report.steps.find((s) => s.role === "target")?.verdict ?? "none",
@@ -216,7 +225,7 @@ describe.skipIf(!RUN)("processProbe LIVE — real children (AC-2, AC-4, AC-5, AC
       // and emits planned-text receipts passes every sha check and reports this
       // SURVIVED — no receipt check can catch that, and this behavioural
       // assertion is what does.
-      const { outcome } = liveTrial({
+      const { outcome, deps } = liveTrial({
         surfaceId: CONTROL_SURFACE.id,
         site: controlSite("gate"),
         surfaces: [CONTROL_SURFACE],
@@ -225,7 +234,9 @@ describe.skipIf(!RUN)("processProbe LIVE — real children (AC-2, AC-4, AC-5, AC
         label: "prefix",
       });
       if (outcome.kind === "refusal") {
-        throw new Error(`trial refused: ${outcome.input} — ${outcome.detail}`);
+        throw new Error(
+          `trial refused: ${outcome.input} — ${outcome.detail}\nCHILD STDERR:\n${deps.lastStderr()}`,
+        );
       }
       const prefixStep = outcome.observation.report.steps.find((s) => s.role === "prefix");
       if (prefixStep === undefined) throw new Error("no prefix step in the report");
@@ -245,13 +256,15 @@ describe.skipIf(!RUN)("processProbe LIVE — real children (AC-2, AC-4, AC-5, AC
       premise("the shipped run produced outcomes to agree with", shipped.outcomes.length, 0);
       const first = shipped.outcomes[0];
       if (first === undefined) throw new Error("no outcome to compare");
-      const { outcome } = liveTrial({
+      const { outcome, deps } = liveTrial({
         surfaceId: surface.id,
         site: first.siteId,
         label: "agree-spawnBounded",
       });
       if (outcome.kind === "refusal") {
-        throw new Error(`trial refused: ${outcome.input} — ${outcome.detail}`);
+        throw new Error(
+          `trial refused: ${outcome.input} — ${outcome.detail}\nCHILD STDERR:\n${deps.lastStderr()}`,
+        );
       }
       const target = outcome.observation.report.steps.find((s) => s.role === "target");
       expect(target?.verdict).toBe(first.verdict);
@@ -297,9 +310,15 @@ describe.skipIf(!RUN)("processProbe LIVE — real children (AC-2, AC-4, AC-5, AC
         site,
       );
 
-      const { outcome } = liveTrial({ surfaceId: surface.id, site, label: "agree-premiseScan" });
+      const { outcome, deps } = liveTrial({
+        surfaceId: surface.id,
+        site,
+        label: "agree-premiseScan",
+      });
       if (outcome.kind === "refusal") {
-        throw new Error(`trial refused: ${outcome.input} — ${outcome.detail}`);
+        throw new Error(
+          `trial refused: ${outcome.input} — ${outcome.detail}\nCHILD STDERR:\n${deps.lastStderr()}`,
+        );
       }
       const target = outcome.observation.report.steps.find((s) => s.role === "target");
       expect(target?.exitCode).toBe(shipped.code);
@@ -320,7 +339,7 @@ describe.skipIf(!RUN)("processProbe LIVE — real children (AC-2, AC-4, AC-5, AC
     () => {
       const before = existsSync(DEFAULT_RECORD_DIR) ? readdirSync(DEFAULT_RECORD_DIR).sort() : [];
       const redirect = nextScratch("records");
-      const { outcome } = liveTrial({
+      const { outcome, deps } = liveTrial({
         surfaceId: CONTROL_SURFACE.id,
         site: controlSite("gate"),
         surfaces: [CONTROL_SURFACE],
@@ -328,7 +347,9 @@ describe.skipIf(!RUN)("processProbe LIVE — real children (AC-2, AC-4, AC-5, AC
         label: "records",
       });
       if (outcome.kind === "refusal") {
-        throw new Error(`trial refused: ${outcome.input} — ${outcome.detail}`);
+        throw new Error(
+          `trial refused: ${outcome.input} — ${outcome.detail}\nCHILD STDERR:\n${deps.lastStderr()}`,
+        );
       }
       // `recordDir` reads the CHILD's environment, so a spawner that omits the
       // override from the child env writes PRODUCTION records into the gate's
