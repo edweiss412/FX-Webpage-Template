@@ -66,11 +66,16 @@ pass itself takes time, so two DIFFERENT members are still read at two instants,
 change landing between the pass's first read and the send is not observed by that invocation
 (**intra-pass skew — §7 limit 1**). No reachable mechanism closes that residual — an
 acknowledgment read moves it (§1.3), and the shipped two-pass code has the identical residual
-inside its own revalidation pass. What prices it is the benign-sends property, already
-ratified: the only bytes ever sent are a checkpoint prompt, `/compact`, and a resume prompt,
-each of which queues if the target is busy and interrupts nothing, so a send that races a
-state change is a wasted prompt or a measured near no-op, never damage (2026-08-16 design
-§5.5; per-send worst cases enumerated in §7 limit 1).
+inside its own revalidation pass. What prices it is two properties together. The QUEUE
+property is inherited: every send queues if the target is busy and interrupts nothing
+(2026-08-16 design §5.5). The CONTENT property is this spec's addition (§3.6), because the
+queue property alone is not enough — the shipped prompt texts carry no addressee, so a
+takeover landing inside the window would deliver actionable stop/resume instructions to a
+session they were never authorized for. Both prompts therefore open with an ADDRESS LINE
+naming the branch and, when the pass's marker carries one, the session id, with an explicit
+instruction that any other session ignore the message entirely — so a mis-delivered prompt
+is self-neutralizing, and the residual's per-send worst cases (§7 limit 1) are benign with
+the addressing as the mechanism, not as an assumption.
 
 The shipped-but-fenced code already contains the fourth repair's partial form of this — the
 `authorize()` closure in `scripts/pane-compaction.ts` memoizes the marker and derives the
@@ -311,35 +316,88 @@ fence and retires with it.
   runs before any push that edits the enrolled source (accepted-row keys shift with the
   source).
 
+### 3.6 Addressed payloads
+
+Both prompt texts open with an address line, and the substitutions come from the pass: the
+target's branch (its agent name, already resolved by classification) always; the target's
+marker `sessionId` when the pass's marker copy carries one (a marker-less or session-less
+target is addressed by branch alone — rule 5 already governs the mismatch cases the id would
+catch). `/compact` cannot carry an address — it is a slash command — and needs none: its
+worst mis-delivery is a compaction, the same outcome auto-compaction produces on its own
+schedule, and a near no-op on an already-compacted session (measured, 2026-08-16 design
+§5.2).
+
+The literal texts, so the byte-for-byte dry-run assertion has an authoritative expected
+value. `<NONCE>`, `<SESSION>` and `<BRANCH>` are the only substitutions; when the pass's
+marker carries no `sessionId`, the address line's parenthetical `(session <SESSION>)` is
+omitted whole:
+
+```
+CHECKPOINT_TEXT:
+For the session driving <BRANCH> (session <SESSION>) ONLY -- any other session must ignore
+this message entirely. Checkpoint before compaction. Do not commit. Update
+.claude/ship-state.json in your worktree: set `stage` to where you actually are, set `next`
+to the literal command or action that resumes this work, and set `checkpointNonce` to
+exactly <NONCE>. Leave the working tree exactly as it is. Then stop.
+
+RESUME_TEXT:
+For the session driving <BRANCH> (session <SESSION>) ONLY -- any other session must ignore
+this message entirely. Run `date` first; the shell clock is the only source of truth.
+Discard any stale blocked or standing-down framing. Re-read .claude/ship-state.json in your
+worktree and resume its `next` action immediately, in this turn. You were compacted by the
+orchestrator; approval already given, do not re-ask.
+```
+
+A session can always answer "am I driving this branch" (its worktree) and, per this repo's
+Stage 0 contract, knows its own session id, so the ignore instruction is executable by any
+recipient. The address line defends against ACCIDENTAL misdirection — the fence's subject; a
+session that disobeys an ignore instruction it can read is outside the fence and files
+to §7.
+
 ---
 
 ## 4. Acceptance floor — the six chains as executable reds
 
-Each chain becomes a red that fails against the shipped (unfenced-for-test) code or against a
-deliberately weakened build, and goes green under §3. None of the six is unrepresentable
-under the pass model; chain 4's red converts from behavioral to structural, which is the
-model working as evidence, not a gap.
+The arc brief pre-authorized the honest reading and this section takes it: **chains 1–5 are
+UNREPRESENTABLE under the pass model, and that is evidence FOR the model, said here rather
+than discovered.** Every historical fixture for chains 1, 2, 3 and 5 encodes a TWO-READ
+premise — its constructed `Surface` returns one value on the first read and a mutated value
+on the second, which is how "changed between observation and send" was injected — and under
+one read-once pass there is no second read for the mutation to ride on. Those two-read
+premises RETIRE with the two-pass code they tested; they are not "preserved", and an earlier
+draft's claim that every historical behavioral kill is preserved was wrong and is withdrawn.
 
-**Every historical behavioral kill is PRESERVED, not replaced by structure.** The restored
-suite's cases assert that the state read by THIS invocation's pass decides: a purview
-transfer, a marker-session change, a takeover, or a `blockedOn` flip that has landed by the
-time the pass reads it refuses, having sent nothing. The fixtures mutate the world before
-the invocation (or between invocations), which is the inter-pass class the chains name — the
-adapter cases the fence deleted (purview transfer; checkpoint/resume marker changes;
-marker-session change; roster takeover) and the stale-nonce case in
-`tests/paneCompaction/revalidate.test.ts` all retain their kills under §8.1's adaptation.
-The intra-pass variant — the same mutation landing between two DIFFERENT member reads of the
-single pass — is not one of the six chains, exists identically inside the shipped code's
-revalidation pass, and files to §7 limit 1, where its per-send worst case is priced.
+Each chain's protection is instead established by TWO covers, each with its own proof
+obligation:
 
-| # | Chain | Red (restored or adapted case) | What kills it under §3 |
+- **The structural cover** — a spy over every `Surface` read member asserting at most one
+  call per member per sending invocation and no input carried from outside the invocation.
+  This red is GENUINE against the shipped unfenced code: `drive()` reads the marker at entry
+  AND inside `authorize()`, and `authorize()` re-reads the roster after the preliminary
+  observe, so the spy fails on the shipped structure and passes under §3. One red, killing
+  the whole inter-pass class at once.
+- **The behavioral pins** — the historical cases adapted to a single-read premise: the
+  transferred purview, swapped session, flipped `blockedOn`, or mismatched nonce is IN the
+  pass's own reads, and the mode refuses having sent nothing. These are deliberately green
+  on the shipped code too (its preliminary observe also sees a pre-invocation mutation); they
+  are regression pins, and their discriminating power is PROVEN per the killer-audit
+  standard, not assumed: each pin is shown to kill a NAMED weakened build — the ownership
+  check deleted, the rule 1–8 stop deleted, the verdict gate deleted, the nonce equality
+  deleted — with the kill demonstrated and recorded (ABSENT / PRESENT-BUT-UNPROVEN /
+  PROVEN: all PROVEN).
+
+The intra-pass variant — a mutation landing between two DIFFERENT member reads of the single
+pass — is not one of the six chains, exists identically inside the shipped code's
+revalidation pass, and files to §7 limit 1, where §3.6's addressing prices it.
+
+| # | Chain | Covers (structural red is shared; pin names its proven weakened-build kill) | Why the chain cannot recur |
 | --- | --- | --- | --- |
-| 1 | Nonce captured before revalidation | Restored AC-19 set: absent nonce refuses; mismatched nonce refuses; consumed record refuses a second `--compact`; dry-run does not consume | Nonce equality derived from the snapshot marker; store read/consume inside the pass |
-| 2 | Verdict-only comparison let a purview transfer through | Restored "purview transfer … refuses, having sent nothing" (AC-13) | Ownership derived from the snapshot's purview read; not a comparison against an earlier pass |
-| 3 | Revalidation against the ORIGINAL roster | Restored takeover case (AC-17): `agent_session` swap between invocations refuses via rule 5 | The pass's roster read is its only roster; no earlier pass exists for the swap to hide behind |
-| 4 | Marker read twice; mutation between reads preserved the nonce | **Structural**: spy asserts `marker` is read exactly once on an invocation that reaches the decision (and never more than once on any path) — red against shipped `drive()` (entry read + `authorize()` read), green after | Read-once memo; sendAuthScan MULTI-READ arm |
-| 5 | `--checkpoint`/`--resume` observed once, then sent, never revalidated | Restored round-5 case: a rule 1–8 condition present at invocation time refuses each mode by RULE name; plus the `blockedOn`-flip shape asserted per mode | Every mode derives its stop from the fresh snapshot of THIS invocation |
-| 6 | A labelled non-arc was driven; checkpoint sent to an orchestrator pane | Restored AC-16 pair: label resolving to no worktree branch is NOT-AN-ARC and never driven | Classification and authorization share one snapshot; rule 1 fires before any send |
+| 1 | Nonce captured before revalidation | Pin: adapted AC-19 set — mismatched/absent nonce IN the pass refuses; consumed record refuses a second `--compact`; dry-run does not consume. Proven kill: nonce-equality-deleted build | Nonce equality derived from the pass's marker copy; no earlier capture exists |
+| 2 | Verdict-only comparison let a purview transfer through | Pin: adapted AC-13 — transferred purview in the pass refuses, nothing sent. Proven kill: ownership-check-deleted build | Ownership derived from the pass's purview read; there is no cross-pass comparison to be incomplete |
+| 3 | Revalidation against the ORIGINAL roster | Pin: adapted AC-17 — swapped `agent_session` in the pass refuses via rule 5. Proven kill: rule-stop-deleted build | The pass's roster read is its only roster; no earlier pass exists for the swap to hide behind |
+| 4 | Marker read twice; mutation between reads preserved the nonce | **Structural cover** (shared by all of 1–5): read-member spy, red against shipped `drive()` (marker at entry + in `authorize()`; roster in both passes), green under §3 | Same-member re-reads unrepresentable; sendAuthScan MULTI-READ arm gates it |
+| 5 | `--checkpoint`/`--resume` observed once, then sent, never revalidated | Pin: adapted round-5 case — a rule 1–8 condition (incl. flipped `blockedOn`) in the pass refuses each mode BY RULE name. Proven kill: rule-stop-deleted / verdict-gate-deleted builds | Every mode derives its stop from THIS invocation's pass; there is no earlier observation to go stale |
+| 6 | A labelled non-arc was driven; checkpoint sent to an orchestrator pane | Restored AC-16 pair, UNCHANGED (single-read premise already): non-arc label is NOT-AN-ARC and never driven. Proven kill: rule-1-deleted build | Classification and authorization share one pass; rule 1 fires before any send |
 
 Floor extensions carried with the restoration: the lying-refusal pin ("leaves the roster
 refuses with THAT reason, not a nonce reason"), the no-ESC live-path spy (AC-18), the
@@ -353,7 +411,9 @@ byte-exact dry-run (AC-6), and the refused-send-is-a-named-fault case.
 scripts/pane-compaction.ts                       # fence removed; drive() rebuilt on one
                                                  #   read-once pass; pass marker
 scripts/lib/pane-compaction-core.ts              # authorization predicate (pure, enrolled);
-                                                 #   runCompact loses its revalidate thunk
+                                                 #   runCompact loses its revalidate thunk;
+                                                 #   CHECKPOINT_TEXT/RESUME_TEXT gain the
+                                                 #   address line (§3.6)
 tests/paneCompaction/adapter.test.ts             # pre-fence suite RESTORED from
                                                  #   9eaa6d6eb^, then adapted per §8.1
 tests/paneCompaction/revalidate.test.ts          # re-targeted to single-pass semantics
@@ -384,7 +444,8 @@ comes from that invocation's own single read-once pass — no member read more t
 input carried from any earlier pass, command, or invocation — or refuses naming the
 condition that fired, and it never emits a refusal citing a condition other than the one
 that fired. The interval from the pass's first read to the send is the declared residual
-(§7 limit 1), priced by the benign-sends property, not forbidden by this bound. A
+(§7 limit 1), priced by the queue property plus §3.6's addressed payloads, not forbidden by
+this bound. A
 conservative refusal plus a surfaced reason is a documented limit, not a finding.
 
 **Probe domain.** The live `herdr agent list` roster on this machine; the fixture corpus and
@@ -402,8 +463,9 @@ score, and the round-1 diff brief states the re-measured score plus an empty
 unaccepted-survivor set on its `GUARD SURFACE:` line, measured after the last source edit
 of the diff under review.
 
-**Closed criterion.** The six §4 reds red-then-green, the restored suite green, the no-ESC
-pins green, and the mutation score above — all machine-checked. A finding claiming the
+**Closed criterion.** The §4 structural cover red-then-green against the shipped structure;
+every §4 behavioral pin PROVEN against its named weakened build; the restored suite green;
+the no-ESC pins green; and the mutation score above — all machine-checked. A finding claiming the
 authorization can skew needs a probe from the domain showing a decision input read more than
 once, an input carried from outside the invocation's own pass, or a send after a refusal. A
 probe showing a world change landing between two DIFFERENT member reads of the single pass
@@ -423,14 +485,18 @@ bounded, not surfaced at the moment it occurs; **[residual]** accepted gap.
    invocation, and a send can proceed that a later pass would have refused. No reachable
    mechanism closes this: an acknowledgment read moves the window (§1.3), and the shipped
    two-pass code carries the identical window inside its own revalidation pass. What prices
-   it is the per-send worst case, each benign by prior measurement and design: a
-   **checkpoint prompt** to a pane that changed underneath is queued text asking a session
-   to update its own marker — the target's own contract governs, nothing executes; a
-   **`/compact`** to a pane that changed is at worst a compaction the operator no longer
-   wanted, the same outcome auto-compaction produces on its own schedule, and a near no-op
-   on an already-compacted session; a **resume prompt** tells a session to re-read its own
-   marker and resume — a superseded or foreign session's own supersession check governs.
-   None interrupts anything (no `\x1b`, pinned).
+   it is the per-send worst case, each benign BY MECHANISM: a **checkpoint prompt** or
+   **resume prompt** delivered to a session other than its addressee opens by telling that
+   session to ignore it (§3.6's address line — round-2 review established that unaddressed
+   prompts carry actionable stop/resume instructions to the wrong session, so the addressing
+   is the mechanism this pricing rests on, not an assumption); a **`/compact`** to a pane
+   that changed is at worst a compaction the operator no longer wanted, the same outcome
+   auto-compaction produces on its own schedule, and a near no-op on an already-compacted
+   session. None interrupts anything (no `\x1b`, pinned). The narrow residue inside the
+   residue: a takeover where the successor drives the SAME branch and the marker carried no
+   `sessionId` is addressed by branch alone and would act on the prompt — the marker-less
+   soft tier the ship gate already prices, conservative in outcome (a checkpoint asks it to
+   record state; a resume asks it to do its own marker's `next`).
 2. **[bounded] A `/compact` queued behind other pending input can merge into prose** and not
    execute as a command (field note, §2.3). Consequence: no compaction; the nonce is already
    consumed, so the operator re-checkpoints. Surfaced by the operator's post-send pane read
@@ -460,14 +526,24 @@ bounded, not surfaced at the moment it occurs; **[residual]** accepted gap.
 
 ### 8.1 Restoration first, adaptation second
 
-The baseline is the pre-fence suite, restored verbatim from
+The baseline is the pre-fence suite, restored from
 `git show 9eaa6d6eb^:tests/paneCompaction/adapter.test.ts` — it is the accumulated kill set
-of five adversarial rounds and is not re-authored. Adaptation is then minimal and enumerated:
-a restored case is edited only where §3.2's deletions change an observable (a `stale-verdict`
-"was/now" message that no longer exists; a spy sequence that asserted the preliminary pass),
-and every such edit is justified in the plan against the chain it kills — the edit preserves
-the kill, retargeting the mechanism. The current fence suite (zero-reads spies) retires with
-the fence.
+of five adversarial rounds and is not re-authored. Adaptation is then enumerated per case in
+the plan, in exactly three classes, honestly labelled:
+
+1. **Single-read cases restore VERBATIM** — refusal naming, dry-run byte-exactness (address
+   line added per §3.6), AC-16, AC-18, the fault taxonomy: their premises survive the model.
+2. **Two-read cases adapt to single-read PINS** (§4): the mutation moves into the pass's own
+   reads, the historical two-read premise is recorded as retired with the two-pass code, and
+   each pin's discriminating power is proven against its named weakened build. An adapted
+   pin is not claimed as a red against the shipped code — it is deliberately green there.
+3. **Two-pass-structure cases retire** — `stale-verdict` "was/now" messages, spy sequences
+   asserting the preliminary pass, `revalidate.test.ts`'s revalidation-callback premises —
+   each named in the plan with its §3.2 deletion as the reason, none silently dropped.
+
+The current fence suite (zero-reads spies) retires with the fence. The account of every
+restored, adapted and retired case — with the class it falls in — is a table in the plan, so
+"restored, not rewritten" is checkable rather than asserted.
 
 ### 8.2 Suite discipline
 
@@ -496,15 +572,18 @@ the fence.
 - **AC-2** `--compact`'s nonce comparison uses the pass's marker copy (`checkpointNonce`); a
   marker mutated after the pass's marker read is not re-read (spy) and cannot alter the
   decision.
-- **AC-3** Each of the six §4 reds is demonstrated red (against shipped or weakened code)
-  then green, with failure output recorded in the plan's task bodies.
+- **AC-3** The §4 structural cover is demonstrated red against the shipped two-pass
+  structure and green under §3, with failure output recorded; each §4 behavioral pin is
+  demonstrated to kill its NAMED weakened build (kill output recorded) — no pin ships
+  PRESENT-BUT-UNPROVEN.
 - **AC-4** Every refusal names the condition that fired; the roster-disappearance case names
   disappearance, never a nonce reason. (Restored lying-refusal pin.)
 - **AC-5** `--resume` refuses on any rule 1–8 observation and does not require
   `COMPACT`/`FORCE`; `--checkpoint`/`--compact` additionally require `COMPACT`/`FORCE` —
   all derived from the invocation's own pass.
 - **AC-6** `--dry-run` on each mode runs the identical gate, prints that command's bytes
-  byte-exactly, sends nothing, writes nothing, consumes nothing.
+  byte-exactly — §3.6's literal texts with `<NONCE>`, `<SESSION>` and `<BRANCH>` substituted,
+  both address-line forms covered — sends nothing, writes nothing, consumes nothing.
 - **AC-7** No `\x1b` byte on the dry-run path or the live send path (spy), across every
   command.
 - **AC-8** The nonce stays single-use: consume precedes send; an immediate re-run of
@@ -524,6 +603,9 @@ the fence.
   still pass.
 - **AC-14** The checkpoint text still instructs against committing, and the driver never
   commits.
+- **AC-15** Both prompt payloads open with §3.6's address line on every live and dry-run
+  path; the with-session and branch-only forms are each pinned byte-exactly; no payload
+  ships unaddressed.
 
 ---
 
