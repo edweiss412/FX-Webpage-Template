@@ -170,3 +170,32 @@ ONE commit, BEFORE whole-diff review (invariant 12 as ruled): file any peer rows
 - Real CI green, read sha-keyed with `(.check_runs|length) == .total_count` asserted.
 - `impeccable-gate: N/A — no UI surface`.
 - Round-economy filing if any stage reaches four counted rounds. **The spec stage reached five** (11, 9, 7, 4, 1), so the arc's round-corpus filing at `docs/review-rounds/fix/mutation-score-nondeterminism/c80f844278bd.md` is owed a `## spec — 5 rounds` heading with `**Examined:**` and at least one of `**Mechanizable:** / **Judgment:** / **Infra:**`.
+
+### 12.1 Close-out record — how this arc actually ended
+
+**It merges DISPOSITIONED, not CONVERGED, and the distinction is the point.** The diff stage ran four
+paired rounds (two scoped reviewers per round at base `0820436cf4dd`, dispatched together) producing
+**28 findings with ZERO refutations** — 8, 9, 7, 4 by round, of which 4 / 2 / 2 / 1 changed shipped
+behaviour. The cap round still returned a real deliverable finding. Stopping was an orchestrator
+disposition on the reasoning that rounds 3 and 4 each opened a NEW axis rather than dripping one, that
+the r4 finding took the default branch (finite, cheap, repaired in-branch), and that the remaining axes
+are documented limits 10 and 11, fenced in both directions. It is not a claim that the next round would
+have found nothing.
+
+**The sink proof is a real CI run, because no local gate can produce one.** The hidden-file defect —
+`.mutation-records/` is dot-prefixed and `upload-artifact@v4` excludes hidden files by default, so all
+four shards uploaded nothing while the step stayed green — is observable only inside GitHub Actions. The
+local case asserts the YAML; the proof is `mutation-harness` run **32480795498** on this branch, whose
+`mutation-records-source-shards-*` artifacts must be non-empty and must match what the shards emitted.
+A local red cannot witness that repair, and a green local gate never could have caught it.
+
+**The empty case is `if-no-files-found: error` PLUS `continue-on-error: true`.** Both halves are
+required and pull opposite ways: the next silent-empty must be loud, and AC-14 says a record-write
+failure must never move the gate's verdict. Each half is asserted from the other's side.
+
+**Round-economy filing** for the diff stage is at
+`docs/review-rounds/fix/mutation-score-nondeterminism/0820436cf4dd.md`, with its `**Mechanizable:**`
+entry DECLINED rather than minted — two of this arc's own kill-probes were no-ops that read exactly like
+passing tests, and the durable rule for that is the premise rule already in the repo, applied one level
+up: to the probe rather than to the guard.
+
