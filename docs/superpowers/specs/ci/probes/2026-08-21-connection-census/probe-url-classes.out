@@ -26,3 +26,5 @@ files with MIXED site classes: 0
 env-chain shapes:
     44  env:DATABASE_URL|TEST_DATABASE_URL
     35  env:TEST_DATABASE_URL
+
+per-FILE class of the 140 direct-calling files: guard-bound=70 validation-env=63 loopback-literal=5 unclassifiable=2

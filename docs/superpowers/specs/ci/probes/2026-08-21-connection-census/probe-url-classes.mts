@@ -38,7 +38,7 @@ function isDriverAcquisitionExpr(e0: ts.Expression): boolean {
   if (!ts.isCallExpression(e) || e.arguments.length !== 1) return false;
   const a = e.arguments[0];
   if (!a || !ts.isStringLiteral(a) || a.text !== "postgres") return false;
-  return ts.isImportKeyword(e.expression) || (ts.isIdentifier(e.expression) && e.expression.text === "require");
+  return (e.expression.kind === ts.SyntaxKind.ImportKeyword) || (ts.isIdentifier(e.expression) && e.expression.text === "require");
 }
 
 for (const file of walk(join(ROOT, "tests")).sort()) {
@@ -83,7 +83,7 @@ for (const file of walk(join(ROOT, "tests")).sort()) {
       decls.set(n.name.text, arr);
     }
     if (ts.isParameter(n) && ts.isIdentifier(n.name)) params.add(n.name.text);
-    if (ts.isCallExpression(n) && ts.isImportKeyword(n.expression) && n.arguments[0] && ts.isStringLiteral(n.arguments[0]) && n.arguments[0].text === "postgres") acquisition.dynamicImport.push(rel);
+    if (ts.isCallExpression(n) && (n.expression.kind === ts.SyntaxKind.ImportKeyword) && n.arguments[0] && ts.isStringLiteral(n.arguments[0]) && n.arguments[0].text === "postgres") acquisition.dynamicImport.push(rel);
     if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === "require" && n.arguments[0] && ts.isStringLiteral(n.arguments[0]) && n.arguments[0].text === "postgres") acquisition.require.push(rel);
     ts.forEachChild(n, v);
   };
@@ -153,3 +153,11 @@ const envNames = new Map<string, number>();
 for (const s of sites) if (s.cls.startsWith("env:")) envNames.set(s.cls, (envNames.get(s.cls) ?? 0) + 1);
 console.log(`\nenv-chain shapes:`);
 for (const [k, n] of [...envNames].sort((a, b) => b[1] - a[1])) console.log(`  ${String(n).padStart(4)}  ${k}`);
+
+// Plan round 2 F5: a per-FILE class tally, so "targets validation" is counted by site class, not by
+// the absence of a guard call. A direct file's class is its (single, at BASE) site class.
+const perFile = new Map<string, string>();
+for (const s of sites) perFile.set(s.file, s.cls.startsWith("env:") ? "validation-env" : s.cls === "guard" ? "guard-bound" : s.cls === "literal" ? "loopback-literal" : "unclassifiable");
+const fileTally = new Map<string, number>();
+for (const c of perFile.values()) fileTally.set(c, (fileTally.get(c) ?? 0) + 1);
+console.log(`\nper-FILE class of the ${perFile.size} direct-calling files: ${[...fileTally].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}=${v}`).join(" ")}`);

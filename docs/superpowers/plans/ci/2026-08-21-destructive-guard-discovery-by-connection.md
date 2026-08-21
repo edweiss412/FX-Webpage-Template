@@ -149,11 +149,16 @@ setParentNodes: true, ScriptKind by extension)`):
   specifier (string or no-substitution template count as literal). ONE extractor, consumed by both
   the driver walk and the edge walk.
 - `acquisitionsIn(sf)` → every specifier position whose literal is exactly `"postgres"`, classified:
-  a VALUE default import → driver binding; a `const` / `ImportEqualsDeclaration` whose initializer,
+  a VALUE default import → driver binding; a `const` whose initializer,
   unwrapped through parentheses, `await`, `as`, `!` and a trailing `.default`, is `import("postgres")`
   or `require("postgres")` or a vitest loader call on `"postgres"` (`vi.importActual`, `vi.importMock`,
   `vi.mock`/`vi.doMock` without a factory — the same loader accept-set the edge walk reads, spec
-  round 4 F1) → driver binding (spec §2.2 row 2, rounds 2 and 4); a namespace import →
+  round 4 F1) → driver binding (spec §2.2 row 2, rounds 2 and 4); an `ImportEqualsDeclaration` whose
+  `moduleReference` is an `ExternalModuleReference` with expression `"postgres"` (`import x =
+  require("postgres")` — the node has NO `initializer`; plan round 2 F7) → driver binding; `import(...)`
+  is recognized by `expression.kind === ts.SyntaxKind.ImportKeyword` — `ts.isImportKeyword` exists at
+  runtime but not in the public type declarations, and `pnpm typecheck` rejects it (found on this arc's own
+  probes); a namespace import →
   `ns.default(...)` calls are sites; anything else that yields a value the census cannot follow to a
   binding → an `acquisition` REPORT; a type-only import (`isTypeOnly` on the clause or the element)
   → nothing. A `value-reference` report is any identifier reference to a driver binding that is not
@@ -212,7 +217,11 @@ negative alone is satisfied by a scanner that classifies nothing — rule 234 co
 - AC-C2: one case per acquisition form, each asserting exactly one acquisition of the expected
   kind; `import { type Sql } from "postgres"` and `import type postgres from "postgres"` → zero;
   `const pg = postgres;` → one `value-reference`; twin: the same file with a static default import
-  call → zero reports.
+  call → zero reports. The const-bound dynamic acquisition PAIR (spec AC-C2): `const postgres =
+  (await import("postgres")).default; postgres(raw)` with `raw` env-bound → one `validation-env` site,
+  zero acquisition reports; the SAME file with the argument changed to the validation pooler literal →
+  one `remote-literal` report at the CALL line (the twin the plan's first draft omitted, plan round 2
+  F8).
 - AC-C3: one fixture per class plus the one-edit-away neighbour, and for the options axis:
   `postgres()` → unclassifiable; `postgres(u, { max: 1 })` → classifies by `u`; `postgres(u, { host: "x" })`
   → unclassifiable naming `host`; `postgres(u, opts)` → unclassifiable; `postgres(u, { ...base })` →
@@ -274,7 +283,10 @@ two cannot enumerate differently. A `./`/`../` or `@/tests/` specifier the resol
 file yields an `unresolved-import` report on the importing file (never a dropped edge); a NON-literal
 specifier in any position (`literal: null`) is likewise an `unresolved-import` report (five live at
 BASE by the committed AST probe, all dispositioned in Task 6). PATH-SHAPED is derived: `./`, `../`, a leading `/`, or `<key>/`
-for every key of `REPO_ALIAS` imported from `vitest.projects.ts` (round 2 F3); anything else is a
+for every key of `REPO_ALIAS(root)` — `REPO_ALIAS` is a FUNCTION `(root) => ({ "@": root })`
+(`vitest.projects.ts:176`), so it is imported and CALLED with the repository root, and the keys of the
+returned map are the prefixes; `Object.keys(REPO_ALIAS)` would yield none (plan round 2 F7); the suite
+asserts the derived prefix set is non-empty and contains `@` (round 2 F3); anything else is a
 bare package specifier and not an edge. A path-shaped specifier resolving OUTSIDE `tests/` is a
 `production-edge` tally on the file (printed, never red — spec §4.2), not an edge followed.
 Inheritance propagates RESOLVED classes: `propagateThroughImports` takes each file's class set AFTER
@@ -292,7 +304,9 @@ Module-grain: any edge to a connecting module inherits its whole class set (spec
 `dispositioned`, zero reports; the same with the row removed → ONE report at the helper naming the
 three as affected (kills the propagate-raw-report and the suppress implementations). A
 root-relative `/tests/db/_helper` specifier and an `@/tests/db/_helper` specifier resolve to the same
-edge (`REPO_ALIAS` read, not retyped); a non-literal `import(x)` → one `unresolved-import`. One
+edge (`REPO_ALIAS(root)` called, its keys read, never retyped); a `../` specifier from a nested
+directory resolves to the helper (kills a resolver that drops `../`, plan round 2 F8); a non-literal
+`import(x)` → one `unresolved-import`. One
 fixture per LOADER form, each a consumer reaching a connecting helper only through that form (spec
 AC-C5): `await vi.importActual("./_helper")` inside a `vi.mock` factory → inherits the helper's class
 (one ordinary edit from `tests/app/admin/setDeveloperAction.test.ts:42`); `vi.importMock("./_helper")`
@@ -322,8 +336,13 @@ stale-row case fails on the value.
 
 **Contract.** `DispositionKind = "resolver" | "acquisition" | "channel" | "unclassifiable"` (closed
 union). `reconcileDispositions(reports, rows)` returns `{ undisposed, stale, ambiguous, inadmissible }`:
-a report with no row whose `(file, site)` text-equals it is `undisposed`; a row matching zero
-reports is `stale`; a row matching two or more is `ambiguous`; a row whose kind is not admissible
+a row's key is `(file, site, nth)` where `nth` (1-based, default 1) is the occurrence ordinal of that
+exact `site` text among the file's reports in source order, so two identical sites in one file are
+two distinct keys (`nth: 1`, `nth: 2`); a report with no row whose key equals its own
+`(file, site, occurrence)` is `undisposed`; a row matching zero reports is `stale`; a row matching two
+or more is `ambiguous` (reachable only if a row omits `nth` while two identical sites exist — the
+default `1` then matches the first and the second is `undisposed`, never silently covered — plan
+round 2 F1 showed the earlier text-only key could not reach green on that pair); a row whose kind is not admissible
 for the report it matches is `inadmissible` (`resolver` only for a site whose argument is a call;
 `acquisition` only for an acquisition report; `channel` only for a join report; `unclassifiable` for
 any site report OR any edge report — `unresolved-import` and `loader-call` are edge reports, and
@@ -332,7 +351,8 @@ exports `CONNECTION_CENSUS_DISPOSITIONS` EMPTY in this task; the seven BASE rows
 `task:live-census-gate`, where they are observed to turn seven live reports green one at a time.
 
 **Cases,** each proven in both directions on constructed registries: undisposed / disposed twin;
-stale / live twin; ambiguous (two identical sites in one file, one row) / two rows twin; each
+stale / live twin; two identical sites in one file with one `nth: 1` row → the second `undisposed`,
+with rows `nth: 1` and `nth: 2` → zero reports (the pair the text-only key could not satisfy); each
 inadmissible kind pairing / its admissible twin; a `remote-literal` with a matching
 `unclassifiable` row still `undisposed`. Keying is per SITE: a file with one disposed site and a
 second undisposed site reports the second (rule 16).
@@ -416,8 +436,12 @@ exactly one report:
 site as `undisposed`; change a row's `site` text by one character → reds as `stale`; duplicate the
 `step3StateGallery` call in a scratch copy of that file → reds as `undisposed` for site#2 (keying
 per site); plant `postgres("postgresql://x@aws-1-us-east-2.pooler.supabase.com:5432/postgres")` in a
-scratch file → reds as `remote-literal`; lower a §2.9 premise floor to a value above the live count →
-the premise reds naming the real count (rule 104). Each perturbation's red line is quoted in the
+scratch file → reds as `remote-literal`; for EVERY premise of spec §2.9 — files walked, files with
+a driver binding, connect sites, connecting helpers, `_b2Helpers` present by name, each of the three
+accepted classes non-empty, the destructive-discovered set ≥ 4 — raise its floor above the live count
+(or, for the by-name premise, rename the expected name) and observe THAT premise red naming the real
+count, one at a time, restored between (rule 104; plan round 2 F2: one perturbation proves one
+premise, and the live gate is outside the mutation score so nothing else proves the rest). Each perturbation's red line is quoted in the
 commit message.
 
 **Placement:** `tests/db/` runs in the SERIAL project (`vitest.projects.ts:8-16`), which is
@@ -444,13 +468,24 @@ and stated with provenance.
 2. Scratch shard (an untracked `guardSurfaces.shardTMP` test file beside the four real shards) filtering `GUARD_SURFACES` to this
    id, run under `pnpm heavy` (under ten minutes expected — the deciding suite is constructed-source
    only; if it exceeds 600 s, background it). Provenance stamp INSIDE the invocation, before and
-   after, over the §5.1 input set DERIVED from the registry row's `sourcePath` + `suitePaths` and
-   their transitive local imports (`tsx` one-liner; abort if fewer than 6 inputs).
+   after, over the §5.1 input set: DERIVED from the registry row's `sourcePath` + `suitePaths` and
+   their transitive local imports (`tsx` one-liner), UNIONED with the normative members the contract
+   names outside the import graph — `tests/mutation/source/registry.ts`,
+   `tests/mutation/source/expectedLedgerKinds.ts`, `tests/mutation/source/operators.ts`, and
+   `tests/mutation/_metaPremiseContract.test.ts` — and the stamp ABORTS unless the derived set
+   CONTAINS every one of those four by name AND the deciding suite AND the source (an asymmetric
+   premise: a missing member is the failure, an extra one is benign), with a floor of ten files
+   (plan round 2 F3: a set of "at least six" is satisfied by ordinary imports while omitting the
+   ledger-kinds row).
 3. Survivors: kill with a case, or DELETE the code, before any `equivalent` row (rule 223). Re-run.
 4. Set `scoreFloor` to measured minus 0.05. Record `killed/total` derived through `score()`.
 5. Killer audit over spec §6's fourth column: for each named weaker implementation, apply it (or
    the nearest source edit that produces it), run the deciding suite, record ABSENT /
-   PRESENT-BUT-UNPROVEN / PROVEN (rule 17.1), restore byte-exact. Paste the table into the PR body.
+   PRESENT-BUT-UNPROVEN / PROVEN (rule 17.1), restore byte-exact. **Acceptance requires every row
+   PROVEN**: an ABSENT row means a fixture is missing and the task authors it (then the score is
+   retired and re-measured, rule 27); a PRESENT-BUT-UNPROVEN row means the killing check has never
+   been run against its mutant and the task runs it. Neither status may stand in the PR body (plan
+   round 2 F8). Paste the table into the PR body.
 6. Delete the scratch shard; prove `_metaSourceShardIntegrity` reds with it present and greens
    without; `git ls-tree` every commit for the shard name.
 7. `pnpm mutation:sites` last before push.
@@ -464,16 +499,41 @@ tests/docs/_metaLedgerMintBar.test.ts tests/docs/_metaReviewRoundEconomy.test.ts
 arithmetic below verifies in both directions; the marker is absent at HEAD; AC-C10's byte-identity
 check is empty.
 
+**Ratification, stated inline because the tracked `AGENTS.md` text and the operative ruling
+diverge** (plan round 2 F4 read the tracked sentence; the sendauth-unification plan drew the same
+finding for the same reason). `AGENTS.md` invariant 12 says the marker "comes off in the PR's last
+commit"; that is the MECHANISM, and the PROPERTY it serves is "so it never reaches main". The
+fleet ruling of 2026-08-18 (recorded in `docs/superpowers/plans/ci/2026-08-21-sendauth-arm-classifier-unification.md`,
+`task:ledger-closeout`, and applied by every arc of this batch) is that the whole ledger change lands
+as ONE commit BEFORE whole-diff review, because (a) a ledger commit after the final review round is
+unreviewed code in the merge, which `docs/agents/writing-plans.md`'s final-diff-ordering rule
+forbids, and (b) the hazard the last-commit wording guards against, a marker reaching main, is
+covered by the ARMING WINDOW: auto-merge is armed only after the closeout commit is pushed AND the
+review has approved (incident: PR #838 shipped a marker to main because `--auto` was armed at push
+time, not because the ledger commit sat early). Absence is then GUARANTEED rather than maintained:
+gone at commit N is gone at every commit after N. **What this task owes for the window between
+closeout and merge:** after EVERY post-review repair commit, re-run
+`pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts` and the set arithmetic below, and the
+merge is taken only when HEAD's ledger carries no marker, so a repair cannot reintroduce it
+unnoticed. The `AGENTS.md` wording is the orchestrator's to reconcile; this plan follows the ruling
+and says so rather than editing the invariant mid-arc.
+
 **The archive entry opens with the re-scope** (spec §1.3 item 1, rule 195): the row graduated on a
 CLASSIFICATION of every connection-opening file with a validation accept-set and per-site
-dispositions, NOT on loopback-everywhere, because the census measured 108 of 179 connection-opening
-files targeting validation by ratified posture. The census numbers and the zero-live-incident
+dispositions, NOT on loopback-everywhere, because the census measured 99 of 179 connection-opening
+files targeting validation by declared env (63 directly, 36 through a helper; a further 5 are
+loopback literals, 2 resolver sites, 3 dispositioned consumers, 70 guard-bound — the per-FILE tally
+in `probe-url-classes.out`; "108 with no guard call" is a different quantity and is not the claim). The census numbers and the zero-live-incident
 replay are the probe record. Both refutations stay in the entry.
 
-**The peer row** (spec §7): `BL-VALIDATION-PRUNE-DB-SIDE-GATE` — `**Facing:** product`,
-`**Class-sweep exception:** (c)`, `**Reachability:** INFERRED, NOT PROBED` naming the probe,
-`**Severity:** MEDIUM`, `**Effort:** M`, filed 2026-08-21 from this branch. Text drafted in the
-implementer's commit from the spec §4.1/§7 paragraphs.
+**The peer row** (spec §7): `BL-VALIDATION-PRUNE-DB-SIDE-GATE` is ALREADY FILED in `BACKLOG.md` by
+this branch (the commit after plan round 2; `**Facing:** product`, `**Class-sweep exception:** (c)`,
+`**Reachability:** INFERRED, NOT PROBED` naming the probe, eliminations carried), because a plan
+citing an unfiled id fails `tests/docs/_metaLedgerReferentialIntegrity.test.ts`, and because the row
+text belongs in the ledger rather than in a plan for an implementer to transcribe (plan round 2 F6).
+This task does NOT touch it: it archives the graduating row and removes the marker. The same ledger
+commit appended the cross-arc typecheck incident to `BL-CODEX-GUARD-SPECLINT-PREDISPATCH-GATE` on the
+orchestrator's instruction.
 
 **Reconciliation, authored AND RUN at plan time (BASE + this branch's marker):**
 

@@ -108,6 +108,16 @@ The terminating framing is the same one that closed acquisition: stop asking how
 
 ---
 
+## BL-VALIDATION-PRUNE-DB-SIDE-GATE — gate prune_sync_log / prune_app_events on the validation project at the database, not the client
+
+**Status:** OPEN · **Filed:** 2026-08-21 (`feat/destructive-guard-discovery-by-connection`, spec `docs/superpowers/specs/ci/2026-08-21-destructive-guard-discovery-by-connection-design.md` §4.1 / §7) · **Facing:** product · **Severity:** MEDIUM · **Class:** DB safety posture · **Effort:** M · **Class-sweep exception:** (c) — a migration plus RPC change on a surface the filing arc does not touch · **Reachability:** INFERRED, NOT PROBED — the settling probe is a live `select public.prune_sync_log()` against the validation project from an unguarded client, observing rows deleted; that probe is the first scheduled step, not this row.
+
+Every client-side guard on the validation wipe/prune surface keys on something a test AUTHORS — a SQL spelling (`tests/db/_destructiveStatements.ts`), a connection's URL provenance (the connection census the filing spec designs) — and the census's documented limit §4.1 is exactly the file that executes a prune under a spelling no recognizer matches. `reset_validation_data()` already has the terminating answer at the DATABASE: `destructive_reset_gate` refuses the wipe unless enabled (`tests/db/destructiveResetGate.test.ts` header). `prune_sync_log()` and `prune_app_events()` have no such gate on validation, so a test that reaches them through ANY client, any spelling, any channel, deletes rows by time window. A gate there closes the class regardless of spelling and regardless of client, which no guard in `tests/` can reach.
+
+**Eliminated on the way here** (so the next reader does not re-derive them): widening the SQL recognizer — the spelling axis is open and `_metaDestructiveDbTargetGuard.test.ts`'s r15/r16 history is the ratchet; discovery by connection — ships as the census, and its §4.1 limit is this row; a psql-side or REST-side guard — different channels, same spelling problem.
+
+---
+
 ## BL-PRIVATE-IMAGE-POSTMERGE-PROBE — the private-image-pipeline shipped without its post-merge validation evidence
 
 **Status:** OPEN — owed close-out evidence, not speculative work · **Severity:** medium · **Class:** VERIFICATION DEBT · **Effort:** XS
@@ -1562,6 +1572,8 @@ recoverable from git history on this branch; restore them with the arc rather th
 `node scripts/codex-guard.mjs review` already refuses a round-1 `--stage diff` brief whose `GUARD SURFACE:` line carries no mutation score, exiting 2 before any dispatch. It makes no equivalent check on the ARTIFACT under review. So a spec or plan carrying hard `pnpm spec:lint` failures dispatches normally, and the reviewer spends a finding — and the arc spends a round — on a class the repo already detects mechanically in under a minute.
 
 **Incident.** This arc, twice. Spec review R1 F2 reported **18 hard citation failures** (all the empty-path `` `:213` `` form) against `docs/superpowers/specs/2026-08-18-control-outline-border-token-design.md`; R2 F5 reported **13 more** in the sibling probe record. Both were `CITATION_MALFORMED`, both are what `pnpm spec:lint` prints, and neither needed a reviewer to find. Corpus rows: `docs/review-rounds/fix/control-outline-border-token/2ddbf038bdf4.jsonl`, rounds 1 and 2. Two findings out of sixteen across four rounds — roughly an eighth of the arc's total reviewer attention — spent on a mechanical class.
+
+**Incident, second class (2026-08-21, cross-arc).** `pnpm typecheck` is a SECOND mechanical gate the same refusal could cover. Three arcs in one day (`feat/speclint-red-reason-verification`, `fix/shell-attached-redirection-target`, `feat/destructive-guard-discovery-by-connection`) independently committed probe scripts that import with a `.ts` extension (TS5097) or call `ts.isImportKeyword` (runtime-only, TS2339); `tsx` resolves both, so every local run passed, and the third arc's probes survived twelve commits and four adversarial rounds — because reviewers run sandboxed and read-only and never execute the gates, so a round is BLIND to a gate-red by construction. Caught only by `pnpm typecheck`, which docs-stage work rarely runs. Same wrapper, same exit-2 refusal, one more gate in the list.
 
 **Shape of the repair.** In `review`, when `--stage` is `spec` or `plan`, resolve the artifact path(s) the brief cites, run the existing lint, and exit 2 naming the failing file and count if any HARD failure is present. Advisory failures do not block — the probe-record artifacts show advisory noise is normal and blocking on it would be its own waste. The escape hatch matches the existing ones in that script (an explicit flag), because a brief may legitimately review an artifact that is mid-repair.
 

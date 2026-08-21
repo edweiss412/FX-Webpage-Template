@@ -10,9 +10,9 @@
 import ts from "typescript";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
-import { DESTRUCTIVE_STATEMENT_PATTERNS } from "../../../../../../tests/db/_destructiveStatements.ts";
-import { analyseDestructiveFile } from "../../../../../../tests/db/_destructiveFileAnalysis.ts";
-import { stripCommentsForFile, stripSqlComments } from "../../../../../../tests/_shared/stripComments.ts";
+import { DESTRUCTIVE_STATEMENT_PATTERNS } from "../../../../../../tests/db/_destructiveStatements";
+import { analyseDestructiveFile } from "../../../../../../tests/db/_destructiveFileAnalysis";
+import { stripCommentsForFile, stripSqlComments } from "../../../../../../tests/_shared/stripComments";
 
 const ROOT = process.cwd();
 const TESTS = join(ROOT, "tests");
@@ -53,7 +53,7 @@ function isDriverAcquisitionExpr(e0: ts.Expression): boolean {
   if (!ts.isCallExpression(e) || e.arguments.length !== 1) return false;
   const a = e.arguments[0];
   if (!a || !ts.isStringLiteral(a) || a.text !== "postgres") return false;
-  return ts.isImportKeyword(e.expression) || (ts.isIdentifier(e.expression) && e.expression.text === "require");
+  return (e.expression.kind === ts.SyntaxKind.ImportKeyword) || (ts.isIdentifier(e.expression) && e.expression.text === "require");
 }
 
 function analyse(file: string): Row {
@@ -96,7 +96,7 @@ function analyse(file: string): Row {
       if (drv.has(c)) row.connects++;
       if (c === "assertLocalDbUrl" || c === "assertLocalDbUrlIfSet") row.guardCalls++;
     }
-    if (ts.isCallExpression(n) && ts.isImportKeyword(n.expression) && n.arguments[0] && ts.isStringLiteral(n.arguments[0]) && n.arguments[0].text === "postgres") row.driverOtherImport = true;
+    if (ts.isCallExpression(n) && (n.expression.kind === ts.SyntaxKind.ImportKeyword) && n.arguments[0] && ts.isStringLiteral(n.arguments[0]) && n.arguments[0].text === "postgres") row.driverOtherImport = true;
     if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === "require" && n.arguments[0] && ts.isStringLiteral(n.arguments[0]) && n.arguments[0].text === "postgres") row.driverOtherImport = true;
     if (ts.isPropertyAccessExpression(n) && ts.isPropertyAccessExpression(n.expression) && ts.isIdentifier(n.expression.expression) && n.expression.expression.text === "process" && n.expression.name.text === "env") env.add(n.name.text);
     if (ts.isElementAccessExpression(n) && ts.isPropertyAccessExpression(n.expression) && ts.isIdentifier(n.expression.expression) && n.expression.expression.text === "process" && n.expression.name.text === "env" && ts.isStringLiteral(n.argumentExpression)) env.add(n.argumentExpression.text);

@@ -33,7 +33,7 @@ function isDriverAcquisitionExpr(e0: ts.Expression): boolean {
   if (!ts.isCallExpression(e) || e.arguments.length !== 1) return false;
   const a = e.arguments[0];
   if (!a || !ts.isStringLiteralLike(a) || a.text !== "postgres") return false;
-  return ts.isImportKeyword(e.expression) || (ts.isIdentifier(e.expression) && e.expression.text === "require");
+  return (e.expression.kind === ts.SyntaxKind.ImportKeyword) || (ts.isIdentifier(e.expression) && e.expression.text === "require");
 }
 
 // Connecting helpers at BASE, from probe-population.out (re-stated here so this probe is self-contained).
@@ -83,7 +83,7 @@ for (const file of walk(join(ROOT, "tests")).sort()) {
     if (ts.isCallExpression(n)) {
       const a0 = n.arguments[0];
       // (a) non-literal specifier in import()/require()
-      const isLoaderPos = ts.isImportKeyword(n.expression) || (ts.isIdentifier(n.expression) && n.expression.text === "require");
+      const isLoaderPos = (n.expression.kind === ts.SyntaxKind.ImportKeyword) || (ts.isIdentifier(n.expression) && n.expression.text === "require");
       if (isLoaderPos && a0 && !ts.isStringLiteralLike(a0)) nonLiteral.push(`${rel}:${line(n)}:${n.getText(sf).replace(/\s+/g, " ").slice(0, 70)}`);
       // (b) options at connect sites
       if (ts.isIdentifier(n.expression) && drv.has(n.expression.text)) {

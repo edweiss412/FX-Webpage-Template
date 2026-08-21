@@ -41,7 +41,7 @@ with exactly the disposition rows §2.5 enumerates and **zero** others; a report
 is a false report and IS a finding.
 
 **What the bound does NOT say.** It does not say every connection is loopback. The census measured the
-live corpus (§1.1): 79 of 175 connect sites read the validation project by declared environment
+live corpus (§1.1): 79 of 175 connect sites, and 99 of 179 files, read the validation project by declared environment
 variable, by this repository's ratified posture (`scripts/preflight-env.mjs:146`, "TEST_DATABASE_URL is DELIBERATELY validation"; the destructive
 guard's own header, `_metaDestructiveDbTargetGuard.test.ts:7`). The row's phrase "require the loopback
 guard of all of them" is **refuted by the census** and re-scoped in §1.3 item 1; the census requires a
@@ -125,8 +125,13 @@ per-FILE class well-defined (§2.4).
 helper); 71 call a loopback guard, **108 do not**. Of the 108, 43 read no env var in-file (they reach a
 helper that does), 62 read `TEST_DATABASE_URL` (37 of them with the `DATABASE_URL` fallback), 2 read
 it alongside Supabase REST variables, and 1 (`validation-schema-parity.test.ts`) reads it alongside
-`SCHEMA_MANIFEST_DB_URL`. None is a defect. They are the validation-targeting half of the
-suite, and they are why "loopback of all of them" is not a design.
+`SCHEMA_MANIFEST_DB_URL`. **"No guard call" is not "targets validation"** (plan round 2 F5 caught the
+conflation): BY SITE CLASS, the 179 files are 70 `guard-bound` (direct), **99 `validation-env`** (63
+direct + 36 through `_b2Helpers`/`_holdsHelpers`/`_mi11Helpers`), 5 `loopback-literal`, 2 `resolver`
+(direct, dispositioned) and 3 `dispositioned` through `devCaptureStaged` — `probe-url-classes.out`,
+per-FILE tally, with the 39 helper-only files from `probe-population.out`. The 99 are the
+validation-targeting files, none is a defect, and they are why "loopback of all of them" is not a
+design.
 
 ### §1.2 The incident replay: the spelling miss is real and has ZERO live instances
 
@@ -169,8 +174,8 @@ and no report. That is the thing this design closes.
 Each with its ratification.
 
 1. **The row's phrase "require the loopback guard of all of them" is RE-SCOPED, and the re-scope is
-   stated here first** (rule 195). 108 of 179 connection-opening files target the validation project
-   by declared environment variable and by ratified posture (`scripts/preflight-env.mjs:146`;
+   stated here first** (rule 195). 99 of 179 connection-opening files target the validation project
+   by declared environment variable — 63 directly, 36 through a helper — and by ratified posture (`scripts/preflight-env.mjs:146`;
    `_metaDestructiveDbTargetGuard.test.ts:7`). Requiring `assertLocalDbUrl` of them is
    requiring the suite to stop running against validation, which is a product/infra decision outside a
    structural-guard row. The deliverable is a **classification** of all of them with an accept-set for
@@ -370,8 +375,10 @@ per consumer, so the remedy is one row. The fixpoint runs over:
   whose string is PATH-SHAPED: it starts with `./` or `../` (module-relative), with `/` (root-relative,
   which Vite resolves against the project root and spec round 2 F3 showed is one ordinary edit from
   `tests/api/show-unpublish-route.realdb.test.ts`'s `@/tests/db/_b2Helpers`), or with `<key>/` for a
-  key of `REPO_ALIAS` (`vitest.projects.ts:176`, IMPORTED — the shipped alias authority, `{ "@": root }`
-  today, so a second alias added there is covered without a census edit). Anything else is a bare
+  key of `REPO_ALIAS(root)` (`vitest.projects.ts:176` — a FUNCTION of the root, `(root) => ({ "@": root })`,
+  IMPORTED and CALLED with the repository root to obtain the alias map, whose keys are the prefixes;
+  reading keys off the function itself would yield none, plan round 2 F7; `{ "@": root }` today, so a
+  second alias added there is covered without a census edit). Anything else is a bare
   package specifier and is not followed. A path-shaped specifier that resolves OUTSIDE `tests/`
   (an `@/lib` or `@/app` path) is a PRODUCTION edge, counted and reported in §4.2 as a documented channel,
   not followed (the walk root is `tests/`, the destructive guard's own root): `ImportDeclaration.moduleSpecifier` **with or without an import
@@ -651,7 +658,7 @@ Breakdown: two SILENT-PASS defects in the design, one internal inconsistency. Ze
   once at the helper with consumers listed as affected) — §2.4, §3.5, §4.5, AC-C5, AC-C6.
 - **F3 (P1) — root-relative specifiers (a leading slash) were outside the edge accept-set.** Vite
   resolves them; the draft listed `./` and `@/tests/` only. Repaired by deriving PATH-SHAPED from the
-  module system's two forms plus every key of the imported `REPO_ALIAS` (§2.4), with the residual
+  module system's two forms plus every key of the imported `REPO_ALIAS(root)` map (§2.4), with the residual
   (`@/lib`, `@/app` production edges) counted and recorded as a channel in §4.2 rather than dropped.
 
 ### §3.8 Pre-round-3 re-analysis of the silent-pass vector (same-vector rule, applied before the third round)
