@@ -1601,33 +1601,6 @@ recoverable from git history on this branch; restore them with the arc rather th
 
 **First scheduled step:** confirm the lint's exit contract is stable enough to gate on (it currently exits 1 on hard failures and prints a `summary: N hard, M advisory` line), then add the check beside the existing `GUARD SURFACE:` refusal so both live in one place.
 
-## BL-PREMISESCAN-REGISTRAR-ACCEPT-SETS-HAND-MAINTAINED — the scanner's registrar and modifier lists drift from Vitest's actual API
-
-**Status:** IN PROGRESS · **Branch:** fix/premisescan-registrar-accept-sets · **Severity:** MEDIUM (drift is silent in the FREE direction: an unrecognised registrar means the test is not classified at all, or its hooks are not collected) · **Class:** guard fidelity · **Effort:** M · **Filed:** 2026-08-19 (`fix/premisescan-nested-hook-sibling-leak`, diff review r10) · **Facing:** process · **Mint-exception:** invariant · **Class-sweep exception:** (c) — the repair derives both sets from Vitest's surface, a change to how the scanner is configured rather than to the nested stop the finding arc ships · **Reachability:** PROBED — one member was LIVE in an enrolled suite, transcript below.
-
-`premiseScan` carries two hand-maintained accept-sets: `MODIFIERS` (`tests/mutation/source/premiseScan.ts:48`) and `HOOK_REGISTRARS` (`:66`). Both drift from the Vitest version actually installed, and the drift is silent in the free direction — an unrecognised registrar means `registrarRoot` does not see a registration at all.
-
-**Incident, and it was live rather than constructed.** Diff review round 10 found `MODIFIERS` missing `shuffle`, `skipIf` and `runIf`. `test.skipIf(...)` is used by an ENROLLED suite — `tests/cross-cutting/psqlStartupFileSuppression.test.ts:1653` — and that test was ABSENT from the scanner's census entirely:
-
-```
-classified tests: 365      rows near line 1653: []      (before the repair)
-```
-
-**That arc completed the three modifiers at its round 10 and REVERTED the completion at its round 12**, which is the measurement this row now rests on. Completing the set made a further shape reachable that had not been before: `registrarRoot` peels callee CALLS and PROPERTIES in separate loops, so a conditional chain resolves by neither. Probed on both trees:
-
-```
-origin/main    test.skipIf(...).each  ->  []                          (not classified)
-with round 10  test.skipIf(...).each  ->  [["<test…>","environment-free"]]
-```
-
-Main is silently INCOMPLETE; the completion made it silently WRONG. Population of chain forms across the whole `tests/` tree: ZERO. The revert restores byte-identical behaviour to `origin/main`.
-
-**So the two halves must ship together, and that is what this row is for.** Completing the accept-sets without fixing the peel loop trades a silent omission for a silent wrong verdict; fixing the loop without completing the sets leaves the enrolled `.skipIf` test uncensused. `aroundAll`/`aroundEach` add a third consideration: zero enrolled call sites today, but adding them changes which tests are classified corpus-wide, which is an AC-1 movement needing the same decision PR #843's sixteen-test movement did.
-
-**Shape of the repair.** Derive both sets from Vitest's own surface instead of restating it: the installed package exports the hook registrars as globals and the suite modifiers as properties of `describe`, so a startup-time read gives an accept-set that cannot drift. Completing a hand-maintained list by hand is what this arc did twice (`ExpressionWithTypeArguments` at round 6, these three at round 10) and it does not terminate — the next Vitest release adds the next member.
-
-**First scheduled step:** measure what a derived set would ADD beyond today's lists, and run `_metaPremiseContract` against it. If the delta moves declared counts, the row carries an AC-1 amendment and needs the same user decision PR #843's sixteen-test movement did.
-
 ## BL-SPECLINT-ORPHANED-TASK-MARKERS — a plan whose markers sit outside a region lints as `0 hard` while checking nothing
 
 **Status:** OPEN · **Severity:** MEDIUM (no shipped defect; the gate reports a pass over an empty set, which is the failure mode `spec:lint` exists to prevent) · **Class:** spec-lint grammar / review tooling · **Effort:** S · **Filed:** 2026-08-19 (`fix/premisescan-nested-hook-sibling-leak`, spec review R2 F1) · **Facing:** process · **Class-sweep exception:** (c) — the repair is an arm inside `lib/specLint/`, a surface this arc does not otherwise touch · **Reachability:** PROBED — the reviewer's own probe reproduces, and both figures come from data the linter already computes.
