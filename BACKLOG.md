@@ -8,6 +8,78 @@ Last reconciled: 2026-08-17 — `fix/shell-binding-mixed-quoted-value` graduated
 
 ---
 
+## BL-MUTATION-SCORE-NONDETERMINISM — a source-mutation surface's verdict moves with byte-identical inputs, and the score contract assumes that cannot happen
+
+**Renamed away from an id naming a MECHANISM, and away from a count.** This shipped as
+`…-CO-TENANCY-DETERMINISM` with "twice" in the title, and within hours the count reached three and the
+mechanism was RULED OUT (below). Both were the fastest-staling facts in the row — the same lesson
+`BL-MUTATION-HARNESS-MAIN-RED` recorded when it dropped its own count — and an id naming an excluded
+candidate is worse than one naming a number, because it tells the next reader to look where the
+evidence says not to. The id now names the OBSERVATION, which is the part that has not moved. Nothing
+else in the corpus cited the old id; this heading was its only occurrence.
+
+**Status:** OPEN · **Filed:** 2026-08-20 (`fix/shell-lexer-quoted-value-recall`, from CI triage on PR #856) · **Severity:** MEDIUM (if a score is not reproducible from its declared inputs, every "0 unaccepted survivors" claim in the convergence criterion is a measurement of something the criterion does not name) · **Class:** mutation harness fidelity · **Effort:** M · **Facing:** process · **Class-sweep exception:** (c) — the repair is a determinism investigation of the runner, a surface this PR does not otherwise touch. · **Reachability:** PROBED — see the two instances below. · **Incident:** PR #856's `source-shards (0)` leg was triaged as an inherited main-red and is not one — run <https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32375262145> (job `96445004668`) against main's same-day nightly <https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32344648722> (job `96350700409`), where the same surface is green.
+
+**The incident in full.** PR #856's `source-shards (0)` leg (run `32375262145`, job `96445004668`) failed with `unaccepted-survivor: 1 survivor(s) with no ledger row: logical-connector:259:20:&&>||` on the `ledgerGit` surface. Main's own nightly the same day (run `32344648722`, base `03953337388b`, job `96350700409`) reported that leg failing on `rowScanOpener` ALONE — `ledgerGit` was green. The cost is a triage that reads as an inherited red and is not one: three surfaces on that PR did map verbatim onto `BL-MUTATION-HARNESS-MAIN-RED`, so the fourth was one glance away from being waved through with them.
+
+**The anomaly is established; the mechanism is not.** `scripts/lib/ledger-git.ts` and both deciding suites named in the surface's registry row (`tests/scripts/ledgerClaimsCheck.test.ts`, `tests/scripts/ledgerGitSpawnSeam.test.ts`) are BYTE-IDENTICAL between `03953337388b` and #856's HEAD, verified by blob hash; that PR's diff touches none of the three, and its only `tests/mutation/source/registry.ts` edit is confined to the `psqlStartupScan` row. A mutation score is documented as a pure function of (source, operators, deciding suites). All three were unchanged and the verdict moved. **Second instance:** the `ledgerGit` registry row already records a killed-locally / survived-CI divergence for the `diffHunks` count pair on 2026-08-08, and re-establishes it with a constructed case — so this is the second time this surface's verdict has depended on something outside its declared inputs.
+
+**Co-tenancy is RULED OUT as the mechanism, by a pre-registered experiment.** The candidate was that
+re-weighting the LPT partition changes a surface's neighbours and thereby its verdict — this arc moved
+`psqlStartupScan` from 63 to 75 and then 74 mutants, and main's over-budget legs differed from this PR's, so the
+packing demonstrably changed. `feat/send-auth-single-read-lint` tested it directly at roughly thirty
+times that perturbation: run `32391432379` (head `4dfd01465`) enrolled `sendAuthScan` and returned
+**ZERO surface flips across all 38 pre-existing surfaces**. The decisive datum is one mover:
+**`ledgerGit` itself changed shards, 0 to 1, and STAYED GREEN** — the surface at the centre of this
+row, given exactly the co-tenancy change the hypothesis blames, with no flip.
+
+**Why that is evidence AGAINST rather than a null result**, stated here so no reviewer re-derives it:
+the negative branch was PRE-REGISTERED, so the reading could not be fitted after the fact; the
+background surface-flip rate was MEASURED at zero across five consecutive main nightlies from 08-18 to
+08-20, so there is no noise floor for a real flip to hide under; and reconciliation ran BEFORE
+interpretation — four predicted placements (`sendAuthScan` 3, `destructiveFileAnalysis` 2→1,
+`rowScanOpener` 0→3, `shardBudget` 2→3) all matched the observed annotation titles, confirming CI
+computed the same partition the blob-derived map predicted, so the null is over the right population.
+A null over the wrong population would be worth nothing.
+
+**SECOND SURFACE, and it is a cleaner reproduction than the one this row was filed on.** On
+`psqlStartupScan` — this arc's own surface — the mutant `relational-boundary:3578:35:<><=` was observed
+FOUR times against BYTE-IDENTICAL inputs (`scan.ts` `a1f9db0c`, deciding suite `cb45f9ea`, verified by
+the derived stamp on both ends of each run):
+
+| observation                             | ledger state | verdict for that site                          |
+| --------------------------------------- | ------------ | ---------------------------------------------- |
+| discovery run                           | 27 rows      | SURVIVOR                                       |
+| confirming run                          | 26 rows      | STALE — "site no longer survives", i.e. KILLED |
+| re-run after the row was removed        | 25 rows      | UNACCEPTED SURVIVOR — i.e. SURVIVES            |
+| hand-applied `depth <= 32`, three times | n/a          | survives 3/3                                   |
+
+Three of four say it survives; the row is restored and carries this record. **Why this is better
+evidence than the `ledgerGit` observations:** there, the comparison was across DIFFERENT runs on
+different revisions and the mechanism candidate was co-tenancy. Here two runs of the RUNNER ITSELF
+disagree about the same site with identical declared inputs, so no third-party instrument and no
+external-validity argument is needed — the subject contradicts itself. An earlier refusal to claim this
+was correct at the time: the only instruments then available (a hand probe on raw file lines, and a
+local `enumerateSites` that reproduces none of the runner's site IDs) could not adjudicate what a site
+even is. "I cannot substantiate this" was a statement about those instruments, not about the world.
+
+**Consequence for anyone reading a red leg:** `psqlStartupScan`'s gate verdict is flaky at that one
+site, so a red `source-shards` leg naming it is not necessarily a regression, and `mutation-harness` is
+not a required check. Do NOT remove a ledger row on a single stale-row report — re-run first. That is
+exactly the mistake this arc made and then had to reverse.
+
+**THE ANOMALY STANDS, UNEXPLAINED, and ruling out the leading candidate is not an explanation.** A
+surface's verdict has now moved three times with byte-identical inputs — green on main's nightly, red
+on this PR at `adafcd8ad`, green again at `0f98a31c5` — while `scripts/lib/ledger-git.ts` and both
+deciding suites stayed byte-identical throughout and no branch touched them. What produces that is
+still unknown. The 2026-08-08 killed-locally / survived-CI divergence recorded on the surface's own
+registry row is a fourth instance of the same shape and also unexplained. **What would close this row
+is an explanation, not another eliminated candidate** — the next probe should attack determinism
+inside a single leg (ordering, environment, or concurrency within the runner) rather than the
+partition, which the experiment above has now covered.
+
+**Not a duplicate of `BL-MUTATION-HARNESS-MAIN-RED`.** That row names `shardBudget`, `destructiveFileAnalysis` and `rowScanOpener` as main's standing failure set. `ledgerGit` is a fourth surface and is GREEN on main, which is the entire point: this row is about a verdict that MOVES, not about one that is stuck red.
+
 ## BL-PREMISESCAN-ALIAS-SLICE-UNCOVERED — the `@/` specifier slice has no killing test
 
 **Status:** OPEN · **Filed:** 2026-08-16 (`fix/scanner-scope-totality`, from the premiseScan mutation-gate enrolment) · **Class:** guard coverage · **Effort:** S · **Class-sweep exception:** (c) — closing it needs a corpus module this PR does not otherwise touch. · **Reachability:** PROBED — a declared mutant that survives the shipped suite.
@@ -26,17 +98,15 @@ It survives the suite, and is carried as an `accepted-gap` row on the `premiseSc
 
 A declared-limit pin is a test that asserts a ZERO which the surface's own documentation calls a known miss. A plan that changes the recognizer under it flips the pin from a record to a false assertion, and nothing checks for the collision — the plan reads as complete, the pin reds only at implementation time, and the repair arrives as an unplanned extra task. The domain is CLOSED, which is what separates this from the argument-shape lint declined beside it: `tests/mutation/source/registry.ts` already names each enrolled surface's `suitePaths`, so for a plan whose Files list touches an enrolled surface, the pins to check are enumerable from disk. **What would close it:** a plan-lint rule that, for each enrolled surface a plan's Files list names, greps that surface's `suitePaths` for declared-limit pins (`KNOWN miss`, `documented limit`, `is a declared miss`) and requires the plan to name each one it does not leave alone — the same shape as the existing red-contract markers, reported as an advisory rather than a hard finding until the corpus rate is measured.
 
-## BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE — a mixed-quoted here-string target is not read as a binding
+## BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION — a command substitution inside an ATTACHED redirection target hides an executing psql from both scanners
 
-**Status:** OPEN · **Filed:** 2026-08-17 (`fix/shell-binding-mixed-quoted-value`, class sweep of the mixed-quoted-value repair). **Severity:** LOW (guard recall; needs `read` + a here-string + a quote-concatenated value). **Class:** guard coverage. **Effort:** M. **Class-sweep exception:** (c) — the repair requires retaining redirection TARGETS in `lexShellWords`, a lexer surface the assignment-binding repair does not otherwise touch, with ripple into every redirection consumer. **Reachability:** PROBED — `read -r PG <<< p'sql'` binds `psql` (bash oracle) and `scanShellIndirection` reports 0 (probe record `docs/superpowers/specs/ci/probes/2026-08-17-shell-binding-mixed-quoted-probes.md`, instruments 1–2); zero live corpus instances.
+**Status:** OPEN · **Filed:** 2026-08-20 (`fix/shell-lexer-quoted-value-recall`, spec adversarial round 1 finding 1) · **Facing:** process · **Severity:** MEDIUM (a MISSED SITE for an executing command, not a conservative non-report; zero corpus instances) · **Class:** guard coverage · **Effort:** M · **Incident:** spec round 1 of `fix/shell-lexer-quoted-value-recall` was burned on this gap — the reviewer's BLOCKING finding is the round, corpus row `docs/review-rounds/fix/shell-lexer-quoted-value-recall/`, and the arc withdrew its attached-target scope in response (design §1.1 row 7, §6 item 3). · **Reachability:** PROBED — see below; zero live corpus instances.
 
-`READ_HERE_STRING` (`tests/cross-cutting/psqlStartupFiles/scan.ts`) reads the here-string value through the single-delimiter `["']?` + `PSQL_VALUE` shape the assignment family retired in the 2026-08-17 mixed-quoted-value repair; the lexer cannot supply the dequoted value because a redirection target is dropped before words exist (`dropWord`). The deciding suite declares the miss ("documented limits — quote-concatenated spellings outside the assignment family"). **What would close it:** retain redirection targets as non-argv words (flagged, not certified) so `READ_HERE_STRING`'s value can be read dequoted, and re-pin the declared miss as a hit; the flag criterion and the `read` grammar stay unchanged.
+`lexShellWords` (`tests/cross-cutting/psqlStartupFiles/scan.ts`) consumes an ATTACHED redirection target with a regex that matches the whole target and discards it, so a target CONTAINING A COMMAND SUBSTITUTION is never lexed and its body is never collected as a nested shell. Bash executes that body. Probed spellings, each reporting **zero sites and zero indirection hits** while the bash oracle confirms the call really runs: a bare backtick target; `$(…)` or a backtick inside an attached DOUBLE-QUOTED target; a locale-quoted `$"…"` target; and a command substitution inside an attached `${…}` target. The plain attached here-string (`read -r PG <<<p'sql'`) is the same family's benign end and is missed for the same reason.
 
-## BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE — quoting inside a `${…}` operand hides a psql default
+The failure direction is the bad one — a missed SITE for an executing psql, not a missed discovery hit — which is why this is a ledger row rather than only a limits entry. It is nonetheless PRE-EXISTING and not made worse by the arc that filed it.
 
-**Status:** OPEN · **Filed:** 2026-08-17 (`fix/shell-binding-mixed-quoted-value`, plan adversarial round 2). **Severity:** LOW (guard recall; needs a parameter-expansion default whose operand is itself quoted or escaped). **Class:** guard coverage. **Effort:** M. **Class-sweep exception:** (c) — reading operand-internal quoting requires operand-aware expansion parsing (operator grammar, nested expansions), a redesign of the deliberate keep-`${…}`-verbatim lexer contract that the assignment-binding repair does not otherwise touch. **Reachability:** PROBED — `PG=${U:-'psql'}`, `${U:-p"sql"}`, `${U:-$'p\163ql'}` all bind `psql` (bash oracle) and `scanShellIndirection` reports 0 for each, before and after the 2026-08-17 repair (probe record, round-2 supplement); the bare-operand `PG=${U:-psql}` reports 1. Zero live corpus instances.
-
-The lexer keeps a `${…}` expansion as ONE verbatim word by design (the whole-consumption exists so brace-protected whitespace cannot split argv), so quoting inside the operand is data to the binding predicate and only a bare `psql` in the operand reports. The deciding suite declares the miss (the documented-limits test's quoted-expansion-operand row). **What would close it:** parse the operand after the expansion operator with the lexer's own quote rules (nested expansions included) and decide the reassembled default word; the outer predicate stays unchanged.
+**What would close it, and what will not:** collecting the attached target's nested bodies into the lexer's `nested` array so `scanShellText` reads them as it reads every other substitution body. The two readings the filing arc REFUSED, recorded so they are not re-proposed: handing the attached slice to `lexShellWords` recursively and exposing the result to the site path (it breaks the by-construction site-path identity that the detached-target arm rests on), and recursive lexing that keeps the bodies private (machinery with the miss still in place). Closing it belongs to an arc that can re-measure the whole site path, not to a recall arc.
 
 ## BL-DESTRUCTIVE-GUARD-DISCOVERY-BY-CONNECTION — discover destructive-analysis files by connection, not by SQL spelling
 
