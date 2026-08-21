@@ -327,11 +327,12 @@ impeccable-gate: N/A — no UI surface
 
 ## 6. Convergence criterion
 
-**Consequence bound.** Every invocation of a sending mode either sends under an authorization
-derived entirely from one snapshot, or refuses naming the condition that fired — it never
-sends on a decision assembled from more than one read instant, and it never emits a refusal
-citing a condition other than the one that fired. A conservative refusal plus a surfaced
-reason is a documented limit, not a finding.
+**Consequence bound.** Every invocation of a sending mode is authorized correctly or
+signaled, never silently wrong: it either sends under an authorization derived entirely from
+one snapshot, or refuses naming the condition that fired. It never sends on a decision
+assembled from more than one read instant, and it never emits a refusal citing a condition
+other than the one that fired. A conservative refusal plus a surfaced reason is a documented
+limit, not a finding.
 
 **Probe domain.** The live `herdr agent list` roster on this machine; the fixture corpus and
 constructed `Surface` doubles under `tests/paneCompaction/`; and the six probe chains of §2.2.
