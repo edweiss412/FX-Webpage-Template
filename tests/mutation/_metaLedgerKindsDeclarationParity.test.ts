@@ -145,11 +145,19 @@ describe("EXPECTED_LEDGER_KINDS is in parity with the registry it describes", ()
       // forbidden module and PASSED. An alias is a repo path wearing a package's
       // shape; a resolver that models only one of the two spellings covers only
       // the imports its author happened to write.
+      // THREE spellings reach a repo module, not one: relative, the `@/` alias
+      // (vitest.projects.ts:176), and Vite's ROOT-RELATIVE `/tests/...`. Each
+      // round of this review found the resolver modelling exactly the spellings
+      // its author had in mind, so they are enumerated here rather than
+      // discovered one per round -- and anything else is a real package, which
+      // cannot reach repo modules.
       const base = spec.startsWith("@/")
         ? resolve(ROOT, spec.slice(2))
-        : spec.startsWith(".")
-          ? resolve(dirname(from), spec)
-          : null;
+        : spec.startsWith("/")
+          ? resolve(ROOT, spec.slice(1))
+          : spec.startsWith(".")
+            ? resolve(dirname(from), spec)
+            : null;
       if (base === null) return null; // a real package cannot reach repo modules
       for (const c of [base, `${base}.ts`, `${base}.tsx`, join(base, "index.ts")]) {
         if (existsSync(c) && statSync(c).isFile()) return c;
@@ -194,14 +202,26 @@ describe("EXPECTED_LEDGER_KINDS is in parity with the registry it describes", ()
     // then in lexical scope at all, so there is nothing to rename, interpolate
     // or optional-call, and a transitive helper cannot be introduced without
     // failing here first. Set equality, so an addition AND a removal both fail.
-    const ownSrc = readFileSync(entry, "utf8");
-    const directImports = [...ownSrc.matchAll(/^\s*import\s[^;]*?from\s+["']([^"']+)["']/gm)]
-      .map((m) => m[1]!)
-      .sort();
-    expect(directImports, "this file's direct imports are pinned").toEqual([
+    // STATIC **AND** DYNAMIC. The first version matched only `import ... from`,
+    // so `await import("./source/runner")` bypassed the allowlist entirely --
+    // and the allowlist is what makes the narrowed call scan sound, so the hole
+    // was underneath the argument rather than beside it. This file uses dynamic
+    // import deliberately (node:fs, node:path), so banning the form is not
+    // available; covering it is.
+    const ownSrc = stripComments(readFileSync(entry, "utf8"));
+    const staticSpecs = [
+      ...ownSrc.matchAll(/^\s*(?:import|export)\s[^;]*?from\s+["']([^"']+)["']/gm),
+    ].map((m) => m[1]!);
+    const dynamicSpecs = [...ownSrc.matchAll(/\bimport\s*\(\s*["']([^"']+)["']/g)].map(
+      (m) => m[1]!,
+    );
+    const directImports = [...staticSpecs, ...dynamicSpecs].sort();
+    expect(directImports, "this file's direct imports are pinned (static AND dynamic)").toEqual([
       "../_shared/premise",
       "./source/expectedLedgerKinds",
       "./source/registry",
+      "node:fs",
+      "node:path",
       "vitest",
     ]);
 
@@ -214,7 +234,7 @@ describe("EXPECTED_LEDGER_KINDS is in parity with the registry it describes", ()
     // authoring mistake, which this file's threat fence puts out of scope, and
     // the allowlist above makes it unreachable in any case.
     const HAZARDS = ["runSurface", "runControl", "registerSurfaceCases"];
-    const scanned = stripComments(ownSrc)
+    const scanned = ownSrc
       .split("\n")
       .filter((l) => !l.includes("const HAZARDS ="))
       .join("\n")
