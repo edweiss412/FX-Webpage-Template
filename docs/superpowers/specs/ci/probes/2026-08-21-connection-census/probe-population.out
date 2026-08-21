@@ -1,5 +1,5 @@
 files scanned under tests/: 2542
-default-imports postgres: 140
+default-imports postgres (value, not type-only): 139
 non-default import of postgres (named/ns/dynamic/require): 51
    other-import: tests/api/show-unpublish-route.realdb.test.ts
    other-import: tests/db/_b2Helpers.ts
@@ -53,19 +53,14 @@ non-default import of postgres (named/ns/dynamic/require): 51
    other-import: tests/sync/writeChangeLog.autoApply.test.ts
    other-import: tests/sync/writeMi11Holds.test.ts
 CALLS the driver directly (connection sites): 139  (total connect calls 174)
-connecting HELPER modules (non-test, direct or transitive): 9
+connecting HELPER modules (non-test, direct or transitive): 5
    helper: tests/db/_b2Helpers
    helper: tests/db/_holdsHelpers
    helper: tests/db/_mi11Helpers
    helper: tests/db/_remediationHelpers
-   helper: tests/e2e/admin-lifecycle-layout.spec
-   helper: tests/e2e/admin-lifecycle-transitions.spec
-   helper: tests/e2e/dev-capture.spec
    helper: tests/e2e/helpers/devCaptureStaged
-   helper: tests/e2e/tap-target-inline-controls.layout.spec
 files connecting ONLY via a helper: 39
-import driver but never call it nor a connecting helper: 1
-   import-only: tests/db/_censusRunner.ts
+import driver but never call it nor a connecting helper: 0
 
 CONNECTION-OPENING files (direct or via helper): 178
   call a loopback guard: 71

@@ -31,7 +31,8 @@ identity; the line is a drafting-time locator. No HEAD column is carried.
 
 **Consequence bound.** Every input is handled correctly OR signaled, **never silently wrong**: every
 file under `tests/` that opens a database connection through the `postgres` driver is **CLASSIFIED**
-into exactly one of the four accepted target classes of §2.3, or **REPORTED** by name as
+into exactly one of the three accepted target classes of §2.3 (`guard-bound`, `validation-env`,
+`loopback-literal`), or **REPORTED** by name as
 unclassifiable and made to carry a disposition row. The forbidden direction is **silence**: a
 connection-opening file, a connect site, or a driver acquisition that the census neither classifies nor
 names. A conservative report on a site the census has declined to resolve, plus the disposition row it
@@ -52,7 +53,7 @@ human resolves by reading is still correctly reported if the AST cannot resolve 
 so.
 
 **`PROBE DOMAIN:`** the live tracked `tests/**` tree at BASE (2542 `.ts`/`.mts`/`.cts`/`.tsx` files,
-of which 140 default-import the driver and 139 call it — §3.1), the five connecting helper modules
+of which 139 default-import the driver as a value and 139 call it — §3.1), the five connecting helper modules
 named in §3.1, the two incident spellings named in the ledger row (`select prune_sync_log()`,
 `select "public"."prune_sync_log"()`), and the dispositioned sites of §2.5. A constructed input more
 than one ordinary edit away from that set files to documented limits, not to a finding.
@@ -85,21 +86,23 @@ copied from those outputs, not re-derived by hand.
 | quantity | value | extractor |
 | --- | --- | --- |
 | files walked under `tests/` | 2542 | `walk()` over TypeScript sources (`.ts`, `.mts`, `.cts`, `.tsx`), `node_modules` and `__generated__` skipped |
-| files that default-import `postgres` | 140 | `import postgres from "postgres"` — default binding only |
+| files that default-import `postgres` as a VALUE | 139 | `import postgres from "postgres"` — default binding, `importClause.isTypeOnly` false |
+| files whose default import is TYPE-ONLY | 1 | `tests/db/_censusRunner.ts:13`, `import type postgres from "postgres"` — not an acquisition |
 | files that CALL a default driver binding | 139 | a `CallExpression` whose callee identifier is one of the file's default bindings |
 | connect call sites | 174 | same, counted per call |
 | non-default imports of `postgres` | 51 | 50 are TYPE-ONLY named imports (`type Sql`); 1 is `(await import("postgres")).default` in `tests/db/validation-schema-parity.test.ts:401` |
 | namespace / `require` acquisitions | 0 / 0 | — |
 | connecting helper modules (non-test, call the driver directly or transitively) | 5 | `tests/db/_b2Helpers.ts`, `tests/db/_holdsHelpers.ts`, `tests/db/_mi11Helpers.ts`, `tests/db/_remediationHelpers.ts`, `tests/e2e/helpers/devCaptureStaged.ts` |
 | test files connecting ONLY through a helper | 39 | import fixpoint over `./` and `@/tests/` specifiers |
-| files that import the driver and neither call it nor reach a helper | 1 | `tests/db/_censusRunner.ts` (receives a client) |
+| files that import the driver as a value and neither call it nor reach a helper | 0 | — |
 
 **The row's census command over-counted and under-described.** `rg -l 'from "postgres"|require\("postgres"\)' tests/`
-returns 145 at BASE: the 140 default importers plus FIVE files whose only import from the module is
-a TYPE (`_censusRunner.ts`, `_holdAwareTestkit.ts`, `_roleVocabDriftApplyKit.ts`,
-`acknowledge-changes.test.ts`, `readShowChangeFeed.staleness.test.ts`) counted as acquisitions; it
-misses the dynamic import, and says nothing about the 39 files that never import the driver and
-still open a connection. The
+returns 145 at BASE: the 139 value default importers, plus FIVE files whose only import from the
+module is a TYPE (`_censusRunner.ts`, `_holdAwareTestkit.ts`, `_roleVocabDriftApplyKit.ts`,
+`acknowledge-changes.test.ts`, `readShowChangeFeed.staleness.test.ts`), plus
+`tests/db/destructiveFileAnalysis.test.ts`, which carries the import as FIXTURE TEXT inside string
+literals; it misses the dynamic import, and says nothing about the 39 files that never import the
+driver and still open a connection. The
 chokepoint is the **CALL**, not the import (rule 272: importing a thing is not invoking it), and the
 helper graph is part of the population. `rg` cannot derive either; the committed probe does.
 
@@ -247,17 +250,31 @@ specifier `"postgres"`** in a position that can yield a value:
 
 | acquisition form | census treatment at BASE | live count |
 | --- | --- | --- |
-| `import postgres from "postgres"` (default binding) | the ONLY form whose calls are classified as connect sites | 140 files |
+| `import postgres from "postgres"` (value default binding) | the ONLY form whose calls are classified as connect sites | 139 files |
 | `import { type Sql } from "postgres"` / `import type … from "postgres"` | a type — not an acquisition; ignored | 50 |
 | `import { default as x } from "postgres"`, `import * as ns from "postgres"`, `require("postgres")`, `await import("postgres")` | **ACQUISITION-UNCLASSIFIABLE**: the file enters the population and REPORTS until a disposition row of kind `acquisition` names it | 0 / 0 / 0 / 1 (`validation-schema-parity.test.ts:401`) |
 | a default binding re-bound to another name (`const pg = postgres`) or passed as a value | the re-binding is reported as `acquisition` too: any identifier reference to a default driver binding that is not the callee of a call | 0 |
+| a default binding whose NAME is also declared anywhere in the file — a parameter, a variable, a named function or class expression, another import | **`shadowed-driver`**: every call of that name, in every scope, is REPORTED (disposition kind `unclassifiable`), never silently dropped and never resolved by scope. The census does no scope resolution (§1.3 item 8), so it cannot tell the outer real call from the inner shadowed one, and declining to classify is the only answer that is not a guess | 0 — three files name `postgres` again only in comments, which the stripper removes |
+| `import "postgres"` (side-effect form) and `import x = require("postgres")` | `acquisition`, reported | 0 / 0 |
 
-The fourth row is what makes the chokepoint COMPLETE rather than merely unique (rule 332a): a client
-obtained by aliasing the binding is not silently "not a connect site", it is a reported acquisition.
-The unrecognized bucket is a SPECIFIC case — a value-position reference to the driver that is not a
-direct call — never the default; a type-only import is decided (ignored) because `isTypeOnly` says so,
-and a named value import is decided (reported) because the driver's default export is the only
-constructor.
+The fourth and fifth rows are what make the chokepoint COMPLETE rather than merely unique (rule
+332a): a client obtained by aliasing the binding is not silently "not a connect site", it is a
+reported acquisition; and a binding whose name is ambiguous in the file is not silently "not a
+driver", it is a reported `shadowed-driver` at every call. **Spec round 1 found the earlier wording
+("a shadowed binding is NOT a driver") to be a silent pass**: `tests/admin/extractAgenda.test.ts`
+with an unrelated parameter named `postgres` appended to one function would have had both of its real
+top-level connections erased from the census with no report. The analyzer's file-wide poison rule is
+correct FOR THE ANALYZER because the analyzer REJECTS on a poisoned name; a census that merely
+classifies must REPORT instead. The unrecognized bucket is a SPECIFIC case — a value-position
+reference that is not a direct call, a name declared twice — never the default; a type-only import is
+decided (ignored) because `isTypeOnly` says so, and a named value import is decided (reported)
+because the driver's default export is the only constructor.
+
+All rows are derived from one rule: **every module-specifier position the parser has** —
+`ImportDeclaration.moduleSpecifier` (with or without an import clause), `ExportDeclaration.moduleSpecifier`,
+`ExternalModuleReference.expression`, the argument of `import(...)`, the argument of `require(...)` —
+is examined for the exact string `"postgres"`, and the binding it introduces (if any) is classified by
+the row it matches. The table enumerates the CONSEQUENCES of that rule; it is not the rule.
 
 Module-specifier matching is exact-string on `"postgres"`. A re-export of the driver from a `tests/`
 module (`export { default } from "postgres"`) is an acquisition by that module and REPORTS there
@@ -269,7 +286,8 @@ deciding suite asserts the module never names `createProgram` or `getTypeChecker
 
 ### §2.3 Site classification: an accept-set over URL provenance, default-deny
 
-For each connect site — a `CallExpression` whose callee is an unshadowed default driver binding — the
+For each connect site — a `CallExpression` whose callee is a default driver binding whose name is
+declared nowhere else in the file (a name declared twice is `shadowed-driver`, §2.2) — the
 census resolves the FIRST argument through a walk that unwraps parentheses, `as`, `!`, `satisfies`
 (the compiler's `OuterExpressionKinds`, read from the enum), follows an identifier to EVERY
 declaration of that name in the file (any-declaration rule, no scope resolution — the same conservative
@@ -278,7 +296,7 @@ one of:
 
 | class | accepted iff | failure direction if the classifier is wrong |
 | --- | --- | --- |
-| `guard-bound` | the expression is a call of a guard name imported from `tests/db/_localDbUrl` (resolved by repo path, exactly as `_localDbUrlScan.isGuardModule`), or every declaration of the identifier is a `const` initialized from one | over-acceptance would mislabel a non-guarded site as guarded — **but no safety conclusion rests on this label** (§1.3 item 4); the destructive guard still decides effectiveness |
+| `guard-bound` | the expression is a call of a guard name imported from `tests/db/_localDbUrl` (resolved by repo path, exactly as `_localDbUrlScan.isGuardModule`) and declared nowhere else in the file, or every declaration of the identifier is a `const` initialized from one; a guard NAME declared twice makes the site `unclassifiable`, by the same rule as `shadowed-driver` | over-acceptance would mislabel a non-guarded site as guarded — **but no safety conclusion rests on this label** (§1.3 item 4); the destructive guard still decides effectiveness |
 | `validation-env` | the `??`/`||` chain's env reads are EXACTLY `[TEST_DATABASE_URL]` or `[TEST_DATABASE_URL, DATABASE_URL]` in that order, every other operand is a loopback literal, and no guard call appears | a chain with any other env NAME or ORDER is `unclassifiable` — default-deny over env names, so `PROD_DATABASE_URL` reports rather than passes |
 | `loopback-literal` | a string or no-substitution template literal whose `new URL(...).hostname` is in the loopback host set shared with `assertLocalDbUrl` (`ACCEPTED_HOSTS`, imported — not copied) | a literal with any other host is **`remote-literal`**, which no disposition kind accepts: a hard-coded remote DSN in a test is repaired, never excused |
 | `unclassifiable` | anything else: a call result, a parameter, a property read, a conditional, an element access, a template with substitutions, a `let`/`var` binding, an IMPORT binding (an imported URL constant is a declaration the walk does not follow across files — `_destructiveFileAnalysis.ts` whole-diff r14 counts imports as declarations for the same reason), an identifier with no declaration, a mixed chain | REPORTS; carries a disposition row of kind `resolver` or `unclassifiable` or the suite is red |
@@ -297,16 +315,24 @@ A file's class is the SET of its site classes. At BASE no file is mixed (§1.1);
 and reports each site on its own. A file with zero sites of its own that imports a connecting module
 INHERITS that module's class set through the import graph, computed as a fixpoint over:
 
-- static `import … from "<spec>"` and `export … from "<spec>"` where `<spec>` resolves under `tests/`
-  (relative `./`, `../`, or the `@/tests/` alias — the two forms live in the corpus; a bare specifier
-  is a package and is not followed);
-- `await import("<spec>")` with a string-literal specifier under `tests/` (the corpus uses this form,
-  `validation-schema-parity.test.ts:402-404`).
+- **every module-specifier position the parser has** — the same derivation §2.2 uses for the driver —
+  whose string resolves under `tests/` (relative `./`, `../`, or the `@/tests/` alias; a bare specifier
+  is a package and is not followed): `ImportDeclaration.moduleSpecifier` **with or without an import
+  clause** (`import "./_b2Helpers"` is the side-effect form, and it executes the helper's top-level
+  `postgres(...)` exactly as a named import does — spec round 1 found it missing from the earlier
+  enumeration, one ordinary edit from `tests/db/_b2Helpers.ts:25`), `ExportDeclaration.moduleSpecifier`,
+  `ExternalModuleReference.expression` (`import x = require("…")`), the string-literal argument of
+  `import(...)` (the corpus uses this form, `validation-schema-parity.test.ts:402-404`), and the
+  string-literal argument of `require(...)`;
+- type-only imports (`import type … from`, `import { type X } from`) are edges too. Executing nothing at
+  runtime makes them over-inclusive, and over-inclusion can only ADD an inherited class or a
+  disposition obligation, never remove a report; the conservative direction costs a row, the other
+  direction is the silent one.
 
 Edges carry no information about WHICH export is used: a file that imports anything from a connecting
 helper is treated as connecting through it. Conservative and stated; the alternative is export-level
 flow, which is the call-graph §1.3 item 8 declines. Cycles terminate because the fixpoint is over a
-finite set of classes. An import whose specifier cannot be resolved to a tracked file under `tests/`
+finite set of classes. A specifier in any of those positions that cannot be resolved to a file under `tests/`
 is reported as `unresolved-import` (0 live) rather than dropped — a dropped edge is the silent
 direction.
 
@@ -391,7 +417,8 @@ census alone cannot see: a destructive statement reaching the database through s
 
 A red names the file, line, site ordinal, class, and the one-line remedy for that class:
 `validation-env` needs nothing; `guard-bound` needs nothing; `loopback-literal` needs nothing;
-`remote-literal` → "read the target from `TEST_DATABASE_URL` or guard it"; `unclassifiable` → "add a
+`remote-literal` → "read the target from `TEST_DATABASE_URL` or guard it"; `shadowed-driver` → "rename the
+local declaration that reuses the driver binding's name"; `unclassifiable` → "add a
 `CONNECTION_CENSUS_DISPOSITIONS` row of kind `resolver` or `unclassifiable` naming this site";
 `acquisition` → "use a static default import, or add an `acquisition` row"; stale row → "delete the
 row or re-key it to the site's current text". The unrecognized bucket is the specific case and the
@@ -404,7 +431,7 @@ Every assertion that ranges over the population states its premise executably, v
 unconditionally relative to it:
 
 - files walked ≥ 1000 (2542 at BASE);
-- files acquiring the driver ≥ 100 (141 at BASE: 140 default + 1 dynamic);
+- files acquiring the driver ≥ 100 (140 at BASE: 139 value default + 1 dynamic);
 - connect sites ≥ 100 (174 at BASE);
 - connecting helpers ≥ 3 (5 at BASE), and `tests/db/_b2Helpers` among them by name;
 - each accepted class has ≥ 1 live member (`guard-bound` 85 sites, `validation-env` 78,
@@ -421,12 +448,17 @@ the live corpus is not the only place a branch is reached.
 
 All probes are committed under `docs/superpowers/specs/ci/probes/2026-08-21-connection-census/`
 with their outputs, and the probe directory is the first `.prettierignore` candidate for the plan
-(the outputs are evidence and must not be reflowed — rule 79). Probe scripts got their own mini-
-review before their numbers entered this document: the population probe's helper label was
-filename-shaped (`!*.test.*`) and over-counted four `tests/e2e/*.spec.ts` files as "helpers" — those
-are consumers of `_b2Helpers`/`devCaptureStaged`, and the corrected helper count (5) is what §1.1
-states; the `other-import` count (51) includes the 50 type-only imports, separated by the second
-probe.
+(the outputs are evidence and must not be reflowed — rule 79). **Spec round 1 (F3) found the population probe wrong in two places and the prose describing a
+correction the committed output did not carry**: its helper label was filename-shaped (`!*.test.*`) and
+counted four `tests/e2e/*.spec.ts` consumers as helpers (committed output said 9, prose said 5), and it
+counted a type-only default import as an acquisition (140 where the value count is 139). Both are
+REPAIRED IN THE SCRIPT — `isSuiteFile` excludes `.spec.` as well as `.test.`, and the default binding
+is collected only when `importClause.isTypeOnly` is false — and the committed `.out` was regenerated
+from the repaired script at this branch's HEAD, so every number in §1.1 is now copied from a committed
+output the committed script reproduces. A probe is a spec input and rots like one; prose that
+describes a correction the artifact does not carry is the claim-without-its-evidence shape, and it
+is recorded here rather than deleted so a reviewer re-running the old output understands the
+difference.
 
 ### §3.1 Population (`probe-population.mts`)
 
@@ -463,6 +495,30 @@ anything else at BASE has a false report, which §0 makes a finding.
 
 ---
 
+### §3.6 Spec round 1: three findings, all admissible, all repaired
+
+Dispatch `dbconn-spec-r1-20260821-121043`, read at `13e9ee6ad`, verdict NEEDS-ATTENTION, `FINDINGS: 3`.
+Breakdown: two real SILENT-PASS defects in the design, one real defect in the probe. Zero refuted.
+
+- **F1 (P1) — file-wide shadowing erased real driver calls silently.** The draft said a shadowed
+  binding "is NOT a driver"; the analyzer's file-wide poison is safe there only because the analyzer
+  REJECTS. Probed on `tests/admin/extractAgenda.test.ts` with one appended parameter named
+  `postgres`: both real connections (lines 76 and 563) vanished with no report. Repaired by the
+  `shadowed-driver` row of §2.2 — every call of a twice-declared name REPORTS — and the same rule
+  applied to a twice-declared GUARD name in §2.3. Class-swept: the only other "silently not X"
+  decision in the design is the type-only import, which is decided by `isTypeOnly` and stays.
+- **F2 (P1) — the side-effect import `import "./_b2Helpers"` was not an edge.** The draft
+  enumerated `import … from`, `export … from` and `import()`; the clause-less form executes the
+  helper's top-level `postgres(...)` and was one ordinary edit away. Repaired by deriving edges from
+  EVERY module-specifier position the parser has (§2.4), and applying the same derivation to the
+  driver's acquisition forms (§2.2), so the two enumerations share one rule.
+- **F3 (P2) — the committed probe did not produce the numbers the spec claimed.** Two defects: a
+  type-only default import counted as an acquisition (140 vs 139), and Playwright spec consumers counted
+  as helpers (9 vs 5), with prose describing a correction the output did not carry. Repaired in the
+  script, output regenerated, numbers re-copied (§3).
+
+The review's offered dispositions for the 18 lint advisories were accepted by the reviewer.
+
 ## §4 Documented limits
 
 Each is conservative-plus-loud or explicitly out of the row's channel; none is silent.
@@ -498,8 +554,11 @@ driver; it does not catch a non-destructive file's channel, and does not claim t
 ### §4.3 Shapes the classifier declines, by design
 
 Call results, parameters, property reads, conditionals, element accesses, templates with
-substitutions, `let`/`var` bindings, and mixed `??` chains are `unclassifiable` and REPORT. The walk is
-not extended for any of them (§1.3 item 8). Two live at BASE, one function, one disposition kind.
+substitutions, `let`/`var` bindings, import bindings, and mixed `??` chains are `unclassifiable` and
+REPORT; a driver or guard name declared twice in a file is `shadowed-driver` / `unclassifiable` and
+REPORTS at every call. The walk is not extended for any of them and no scope is resolved (§1.3 item
+8). Two live at BASE, one function, one disposition kind; zero live shadowings (the three files that
+spell `postgres` twice do so in comments).
 
 ### §4.4 Env VALUES are not read
 
@@ -598,11 +657,11 @@ AC-C6 or AC-C9; see their rows.
 
 | id | claim | proved by | weaker implementation killed |
 | --- | --- | --- | --- |
-| **AC-C1** | Every static default import of `postgres` yields a driver binding, and every CALL of an unshadowed binding is a connect site with a source-order ordinal. A shadowed binding (parameter, local `const`, named function expression) is NOT a driver. | unit suite: constructed sources, each shadow form one variable away from an accepted call | a scanner keyed on the callee NAME `postgres` (passes a file importing the driver as `pg`; passes a local `function postgres()`) |
+| **AC-C1** | Every static VALUE default import of `postgres` yields a driver binding (a type-only default import yields none), and every CALL of a binding whose name is declared nowhere else in the file is a connect site with a source-order ordinal. A binding whose name is ALSO declared elsewhere — parameter, variable, named function or class expression, another import — makes EVERY call of that name a `shadowed-driver` REPORT, including a real top-level call outside the shadowing scope. | unit suite: constructed sources; for each shadow form, a file carrying a real top-level `postgres(process.env.TEST_DATABASE_URL)` AND the shadowing declaration in an unrelated function, asserting ONE `shadowed-driver` report at the top-level call's line and ZERO `validation-env` sites; twin without the declaration → one `validation-env` site, zero reports | a scanner keyed on the callee NAME `postgres` (passes a file importing the driver as `pg`); **a file-wide poison that silently DROPS a shadowed name** (spec round 1 F1: erases `tests/admin/extractAgenda.test.ts:76` and line 563 with no report when one parameter is named `postgres`) |
 | **AC-C2** | Every non-default acquisition — named value import, namespace import, `require`, dynamic import, and a value-position reference to a default binding that is not a direct callee — is reported as `acquisition`; a type-only import is ignored. Positive twin: the same file with the acquisition replaced by a static default import reports nothing. | unit suite, one case per form plus the twin | a scanner that reports only dynamic import (passes `import * as ns`) ; a scanner that reports type-only imports (false report) |
 | **AC-C3** | Site classification is the accept-set of §2.3: `guard-bound`, `validation-env` (exact env-name sets, in order, default-deny on any other name), `loopback-literal` (host set imported from `_localDbUrl`), `remote-literal`, `unclassifiable`. For each class, a fixture that lands in it AND a fixture one ordinary edit away that lands elsewhere. | unit suite | a classifier keyed on the substring `TEST_DATABASE_URL` (passes `PROD_TEST_DATABASE_URL`; passes `DATABASE_URL ?? TEST_DATABASE_URL` reversed); a classifier that accepts any `process.env.*` read |
 | **AC-C4** | Every outer-expression wrapper the compiler defines is skipped on the argument AND on each `const` initializer: `url!`, `url as string`, `<string>url`, `url satisfies string`, `(url)`. The axis is asserted against `ts.OuterExpressionKinds`, not a list typed into the test. | unit suite + axis-parity assertion | a classifier unwrapping parentheses only |
-| **AC-C5** | The helper graph reaches a fixpoint over static imports, re-exports, and string-literal dynamic imports under `tests/`, through `./` and `@/tests/` specifiers, on a constructed 3-module cycle; a specifier that resolves to no tracked file reports `unresolved-import`. | unit suite with an injected resolver | a one-level import walk (passes a helper-of-a-helper); a walk that drops unresolvable specifiers |
+| **AC-C5** | The helper graph reaches a fixpoint over EVERY module-specifier position the parser has — import with a clause, **import WITHOUT a clause** (`import "./_b2Helpers"`), `export … from`, `import x = require(…)`, `import("…")`, `require("…")` — under `tests/`, through `./` and `@/tests/` specifiers, on a constructed 3-module cycle; a specifier that resolves to no file reports `unresolved-import`. One fixture per specifier position, each asserting the consumer inherits the helper's class; the side-effect-import fixture is one ordinary edit from `tests/db/_b2Helpers.ts:25` (spec round 1 F2). | unit suite with an injected resolver | a one-level import walk (passes a helper-of-a-helper); a walk that drops unresolvable specifiers; **a walk keyed on `import … from` that never sees `import "x"`** |
 | **AC-C6** | The live census at HEAD reports exactly the disposition rows of §2.5 and nothing else: 0 undisposed, 0 stale, 0 ambiguous, 0 `remote-literal`, 0 `channel`. **Not proved by green alone:** every population premise of §2.9 must hold and is asserted unconditionally above the report assertions; the suite prints the per-class site counts so `0 of 0` cannot render as a pass. | meta-test; counts printed and pasted into the PR body | a census whose walk matches nothing (premises red); a census that routes every site to `validation-env` (per-class floors red) |
 | **AC-C7** | A disposition row matching no live site is red (stale); a row matching two is red (ambiguous); a report with no row is red (undisposed); a `remote-literal` site is red regardless of rows. Each proved on a constructed registry + constructed sources, both directions. | unit suite | a forward-only registry check (passes a dead row) |
 | **AC-C8** | The §2.7 join: the set of files the destructive guard discovers — computed by calling `stripCommentsForFile` then the shared `DESTRUCTIVE_STATEMENT_PATTERNS`, minus `GUARD_OWN_FILES` — is a subset of the census population, with a premise that the discovered set has ≥ 4 members. A constructed destructive file that acquires no driver is reported `channel`. | meta-test (live) + unit suite (constructed) | a join that re-implements the recognizer or the stripper (drift) — killed by a structural assertion that the join module imports `DESTRUCTIVE_STATEMENT_PATTERNS` and `stripCommentsForFile` and declares no regex literal of its own, plus the four-file anti-vacuity premise |

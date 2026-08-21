@@ -60,7 +60,8 @@ function analyse(file: string): Row {
     if (ts.isImportDeclaration(st) && ts.isStringLiteral(st.moduleSpecifier)) {
       const spec = st.moduleSpecifier.text;
       if (spec === "postgres") {
-        if (st.importClause?.name) row.driverDefault.push(st.importClause.name.text);
+        // r1 F3: a `import type postgres from "postgres"` clause is a TYPE, not an acquisition.
+        if (st.importClause?.name && !st.importClause.isTypeOnly) row.driverDefault.push(st.importClause.name.text);
         if (st.importClause?.namedBindings) row.driverOtherImport = true;
       }
       let resolved: string | null = null;
@@ -103,13 +104,15 @@ const byRel = new Map(rows.map((r) => [r.rel.replace(/\.(ts|mts|tsx)$/, ""), r])
 // helper graph: a module is a CONNECTING HELPER if it is not a *.test.* file and connects>0,
 // or transitively imports one (fixpoint).
 const connectingHelpers = new Set<string>();
-for (const r of rows) if (r.connects > 0 && !/\.test\.(ts|mts|tsx)$/.test(r.rel)) connectingHelpers.add(r.rel.replace(/\.(ts|mts|tsx)$/, ""));
+// r1 F3: a HELPER is a non-test, non-spec module; `.spec.ts` files are Playwright consumers.
+const isSuiteFile = (rel: string): boolean => /\.(test|spec)\.(ts|mts|tsx)$/.test(rel);
+for (const r of rows) if (r.connects > 0 && !isSuiteFile(r.rel)) connectingHelpers.add(r.rel.replace(/\.(ts|mts|tsx)$/, ""));
 let changed = true;
 while (changed) {
   changed = false;
   for (const r of rows) {
     const key = r.rel.replace(/\.(ts|mts|tsx)$/, "");
-    if (connectingHelpers.has(key) || /\.test\.(ts|mts|tsx)$/.test(r.rel)) continue;
+    if (connectingHelpers.has(key) || isSuiteFile(r.rel)) continue;
     if (r.helperImports.some((h) => connectingHelpers.has(h))) { connectingHelpers.add(key); changed = true; }
   }
 }
@@ -120,7 +123,7 @@ const importOnly = rows.filter((r) => r.driverDefault.length > 0 && r.connects =
 const otherImport = rows.filter((r) => r.driverOtherImport);
 
 console.log(`files scanned under tests/: ${rows.length}`);
-console.log(`default-imports postgres: ${rows.filter((r) => r.driverDefault.length > 0).length}`);
+console.log(`default-imports postgres (value, not type-only): ${rows.filter((r) => r.driverDefault.length > 0).length}`);
 console.log(`non-default import of postgres (named/ns/dynamic/require): ${otherImport.length}`);
 for (const r of otherImport) console.log(`   other-import: ${r.rel}`);
 console.log(`CALLS the driver directly (connection sites): ${direct.length}  (total connect calls ${direct.reduce((a, r) => a + r.connects, 0)})`);
