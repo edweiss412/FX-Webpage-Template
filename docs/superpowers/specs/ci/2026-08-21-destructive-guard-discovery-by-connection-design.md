@@ -227,7 +227,10 @@ Stated in every review brief; every admissibility clause cites the fence and the
    this diff.
 
 A probe that shows a connection-opening file the census passes SILENTLY — no class, no report — is
-the admissible finding shape. A probe that shows a site the census REPORTS and a human could have
+the admissible finding shape. **After round 4 that shape can only arise in DISCOVERY** (§2.10): the
+classification layer is total with REPORT as its fall-through, so the question a further round can
+ask is whether the walk treats something as an input, and the answer is the one derived extractor
+of §2.2. A probe that shows a site the census REPORTS and a human could have
 resolved is §4 by construction.
 
 ---
@@ -253,7 +256,7 @@ specifier `"postgres"`** in a position that can yield a value:
 | acquisition form | census treatment at BASE | live count |
 | --- | --- | --- |
 | `import postgres from "postgres"` (value default binding) | a DRIVER BINDING: its calls are connect sites | 139 files |
-| `const x = (await import("postgres")).default`, `const x = require("postgres")` (with or without `.default`), `import x = require("postgres")` — a `const` or import-equals binding whose initializer, unwrapped through parentheses, `await`, `as`, `!` and a trailing `.default`, is an acquisition expression | a DRIVER BINDING too, subject to the same shadow rule: its calls are connect sites, classified exactly as a default import's. **Spec round 2 F1: the earlier design reported the acquisition and then lost every site it produced** — `validation-schema-parity.test.ts:407` was absent from the 174-site census, and changing its argument to a remote literal would have left the line-401 acquisition row green while the site went unreported | 1 file, 1 site |
+| `const x = (await import("postgres")).default`, `const x = require("postgres")` (with or without `.default`), `import x = require("postgres")` — a `const` or import-equals binding whose initializer, unwrapped through parentheses, `await`, `as`, `!` and a trailing `.default`, is an acquisition expression (`import("postgres")`, `require("postgres")`, or a vitest loader call on `"postgres"` — the same positions the edge walk reads) | a DRIVER BINDING too, subject to the same shadow rule: its calls are connect sites, classified exactly as a default import's. **Spec round 2 F1: the earlier design reported the acquisition and then lost every site it produced** — `validation-schema-parity.test.ts:407` was absent from the 174-site census, and changing its argument to a remote literal would have left the line-401 acquisition row green while the site went unreported | 1 file, 1 site |
 | `import * as ns from "postgres"` | `ns.default(...)` is a connect site whose callee is the namespace binding's `default` member; any other use of `ns` is a `value-reference` acquisition report | 0 |
 | `import { type Sql } from "postgres"` / `import type … from "postgres"` | a type — not an acquisition; ignored | 50 |
 | `import { default as x } from "postgres"` (a named value import of `default`) — and any acquisition expression NOT bound by a `const`/import-equals: a `let`, a destructuring, an argument, a bare statement | **ACQUISITION-UNCLASSIFIABLE**: the file enters the population and REPORTS until a disposition row of kind `acquisition` names it — this is the residual bucket for acquisitions the census cannot follow to a binding, and it is EMPTY at BASE | 0 |
@@ -274,11 +277,19 @@ reference that is not a direct call, a name declared twice — never the default
 decided (ignored) because `isTypeOnly` says so, and a named value import is decided (reported)
 because the driver's default export is the only constructor.
 
-All rows are derived from one rule: **every module-specifier position the parser has** —
-`ImportDeclaration.moduleSpecifier` (with or without an import clause), `ExportDeclaration.moduleSpecifier`,
-`ExternalModuleReference.expression`, the argument of `import(...)`, the argument of `require(...)` —
-is examined for the exact string `"postgres"`, and the binding it introduces (if any) is classified by
-the row it matches. The table enumerates the CONSEQUENCES of that rule; it is not the rule.
+All rows are derived from one rule: **every specifier position the census knows** — the parser's
+(`ImportDeclaration.moduleSpecifier` with or without an import clause, `ExportDeclaration.moduleSpecifier`,
+`ExternalModuleReference.expression`, the argument of `import(...)`, the argument of `require(...)`)
+AND the vitest loader positions of §2.4 (`vi.importActual(...)`, `vi.importMock(...)`, and `vi.mock`
+/ `vi.doMock` without a factory) — is examined for the exact string `"postgres"`; an ACQUISITION
+EXPRESSION is any such position's call, and the binding it introduces (if any) is classified by the
+row it matches. ONE extractor, `moduleSpecifiersIn`, serves the driver walk and the edge walk, so the
+two cannot know different positions. **Spec round 4 F1 found the two walks knowing different
+positions**: the loader positions were edges for the helper graph but not acquisition positions for
+the driver, so `const postgres = await vi.importActual("postgres")` — one ordinary refactor of
+`validation-schema-parity.test.ts:401` — bound the driver with no binding, no report, and a
+connection call the census did not see. The table enumerates the CONSEQUENCES of the rule; it is not
+the rule.
 
 Module-specifier matching is exact-string on `"postgres"`. A re-export of the driver from a `tests/`
 module (`export { default } from "postgres"`) is an acquisition by that module and REPORTS there
@@ -512,6 +523,34 @@ the live corpus is not the only place a branch is reached.
 
 ---
 
+### §2.10 Totality: REPORT is the only fall-through, so the silent class is unrepresentable and only DISCOVERY stays open
+
+Every decision the census makes is a TOTAL function whose default branch is a REPORT, never a
+pass. Concretely: `classifySite` returns one of the closed union `guard-bound | validation-env |
+loopback-literal | remote-literal | unclassifiable` and the `unclassifiable` branch is the
+structural `else` of every shape test in it — there is no code path that returns "not a site" for
+an argument shape; `acquisitionsIn` returns a binding or an `acquisition` report for every specifier
+position naming the driver, never nothing; the edge walk returns an edge, an `unresolved-import`,
+a `loader-call`, or a `production-edge` tally for every path-shaped or loader-positioned specifier,
+never nothing. The consequence: the class "neither classified nor reported" is UNREPRESENTABLE in
+the classification layer, and any residual silent pass can live only in DISCOVERY — what the walk
+treats as an input (file extensions, specifier positions, driver-binding forms). That is the
+smaller, closable question §2.2 answers with a derived cover (every module-specifier position the
+parser has, plus the vitest loader accept-set), and it is where every one of rounds 1-3's seven
+design findings lived: shadowing, side-effect imports, const-bound acquisitions, root-relative
+specifiers, non-literal specifiers, framework loaders. None was a classification error; each was an
+input the walk had not treated as one.
+
+Proof shape (AC-C13): the deciding suite feeds `classifySite` a synthesized argument of EVERY
+`ts.SyntaxKind` that can occur as an expression (the enum read at test time, parenthesised into a
+call) and asserts the result is a member of the union and never throws; feeds the edge walk every
+specifier position with a non-literal argument and asserts a report; and a structural assertion over
+the module's own source proves no function in it has a reachable `return undefined` / bare `return`
+on the classification paths. Killed weaker implementation: any classifier with an implicit
+"not a site" path (returns nothing for an unexpected shape).
+
+---
+
 ## §3 Probes
 
 All probes are committed under `docs/superpowers/specs/ci/probes/2026-08-21-connection-census/`
@@ -669,6 +708,36 @@ at least once (type-only default import, `.spec.` helpers, non-literal specifier
 three committed probes are now the only source for every number in §1, §2.3, §2.4, §3 and §3.8, and
 the plan's pre-draft pass re-runs them rather than re-grepping.
 
+### §3.10 Spec round 4 — the cap: two findings, both repaired, and the stage DISPOSITIONED rather than converged
+
+Dispatch `dbconn-spec-r4-20260821-130335`, read at `f3e4281eb`, verdict NEEDS-ATTENTION, `FINDINGS: 2`.
+Zero refuted.
+
+- **F1 (P1) — `vi.importActual("postgres")` bound the driver with no binding and no report.** The
+  driver walk read the parser's specifier positions while the edge walk additionally read the
+  vitest loader positions; the two walks knew different positions. Repaired by making the ONE
+  extractor serve both (§2.2): an acquisition expression is any known position's call on
+  `"postgres"`. Discovery, not classification — the shape the orchestrator's pre-staged disposition
+  predicted.
+- **F2 (P1) — AC-C8's fourth column did not kill a `new RegExp` copy.** A literal-only structural
+  check is satisfied by a constructor copy. Repaired by injecting the recognizer and the stripper
+  with the default asserted BY IDENTITY to the imported objects and a metamorphic sentinel injection
+  that a copy cannot pass.
+
+**Disposition at the cap (rule 294: stated so the record distinguishes it from convergence).** Four
+rounds, twelve findings, all accepted, zero refuted, and nine of the twelve on one vector: an input
+the census neither classifies nor reports. The orchestrator pre-staged the answer to a fourth
+round on that vector before it returned: not a fifth enumeration but the TOTALITY ARM — §2.10 makes
+REPORT the structural fall-through of every classification, so the class "neither classified nor
+reported" is unrepresentable there and any residual lives in DISCOVERY, which is one derived
+extractor (§2.2) and is closable. Round 4's F1 is exactly a discovery gap and is closed by
+consolidating the two walks onto that extractor. **The spec stage therefore closes DISPOSITIONED,
+not CONVERGED: the last verdict is round 4 NEEDS-ATTENTION, the two repairs and §2.10/AC-C13 landed
+after it and are reviewed by no one at this stage.** The plan stage's round 1 reads the spec as
+repaired, and the implementation's round-1 diff brief carries the enrolment score over a surface
+whose totality is an executable assertion (AC-C13), which is the mechanical closure the
+enumeration could not reach.
+
 ## §4 Documented limits
 
 Each is conservative-plus-loud or explicitly out of the row's channel; none is silent.
@@ -811,17 +880,18 @@ AC-C6 or AC-C9; see their rows.
 | id | claim | proved by | weaker implementation killed |
 | --- | --- | --- | --- |
 | **AC-C1** | Every static VALUE default import of `postgres` yields a driver binding (a type-only default import yields none), and every CALL of a binding whose name is declared nowhere else in the file is a connect site with a source-order ordinal. A binding whose name is ALSO declared elsewhere — parameter, variable, named function or class expression, another import — makes EVERY call of that name a `shadowed-driver` REPORT, including a real top-level call outside the shadowing scope. | unit suite: constructed sources; for each shadow form, a file carrying a real top-level `postgres(process.env.TEST_DATABASE_URL)` AND the shadowing declaration in an unrelated function, asserting ONE `shadowed-driver` report at the top-level call's line and ZERO `validation-env` sites; twin without the declaration → one `validation-env` site, zero reports | a scanner keyed on the callee NAME `postgres` (passes a file importing the driver as `pg`); **a file-wide poison that silently DROPS a shadowed name** (spec round 1 F1: erases `tests/admin/extractAgenda.test.ts:76` and line 563 with no report when one parameter is named `postgres`) |
-| **AC-C2** | A `const` or import-equals binding initialized from an acquisition expression (`(await import("postgres")).default`, `require("postgres")`, with the §2.2 unwrap) is a DRIVER BINDING whose calls are connect sites classified exactly as a default import's — asserted by a fixture that is `validation-schema-parity.test.ts`'s shape (dynamic import, `const`, call with an env-bound `raw`) expecting ONE `validation-env` site and ZERO acquisition reports, and its twin with the argument changed to a remote literal expecting ONE `remote-literal` report at the CALL line. A `ns.default(...)` call through a namespace import is a site. Every acquisition the census cannot follow to such a binding — a named value import of `default`, a non-const binding, a value-position reference — is reported as `acquisition`; a type-only import is ignored. | unit suite, one case per form plus twins | a scanner that reports the acquisition and DROPS the sites it produces (spec round 2 F1: `validation-schema-parity.test.ts:407` absent from the census, a remote literal there invisible); a scanner keyed on default imports only; a scanner that reports type-only imports |
+| **AC-C2** | A `const` or import-equals binding initialized from an acquisition expression (`(await import("postgres")).default`, `require("postgres")`, `await vi.importActual("postgres")` — every specifier position the edge walk reads, with the §2.2 unwrap) is a DRIVER BINDING whose calls are connect sites classified exactly as a default import's — asserted by a fixture that is `validation-schema-parity.test.ts`'s shape (dynamic import, `const`, call with an env-bound `raw`) expecting ONE `validation-env` site and ZERO acquisition reports, and its twin with the argument changed to a remote literal expecting ONE `remote-literal` report at the CALL line. A `ns.default(...)` call through a namespace import is a site. Every acquisition the census cannot follow to such a binding — a named value import of `default`, a non-const binding, a value-position reference — is reported as `acquisition`; a type-only import is ignored. | unit suite, one case per form plus twins | a scanner that reports the acquisition and DROPS the sites it produces (spec round 2 F1: `validation-schema-parity.test.ts:407` absent from the census, a remote literal there invisible); a scanner keyed on default imports only; a scanner that reports type-only imports |
 | **AC-C3** | Site classification is the accept-set of §2.3 over ALL arguments: the first argument classifies to `guard-bound`, `validation-env` (exact env-name sets, in order, default-deny on any other name), `loopback-literal` (host set imported from `_localDbUrl`), `remote-literal`, `unclassifiable`. For each class, a fixture that lands in it AND a fixture one ordinary edit away that lands elsewhere. **And the options axis, each fixture holding the first argument FIXED at an accepted `validation-env` chain so only the later arguments can decide the observation:** `postgres()` → `unclassifiable`; `postgres(u, { max: 1 })` → `validation-env`; `postgres(u, { host: "db.example.invalid", max: 1 })` → `unclassifiable` naming `host` (one ordinary edit from `tests/db/backfill-email-deliveries-context.test.ts:17`, spec round 3 F4, where postgres.js connects to the overridden host while the URL says loopback); `postgres(u, { unknown_key: 1 })` → `unclassifiable`; `postgres(u, opts)` → `unclassifiable`; `postgres(u, { ...base })` → `unclassifiable`; `postgres(u, { max: 1 }, extra)` → `unclassifiable`; `postgres(u, { connection: { statement_timeout: 5000 } })` → `validation-env` (the live `watchActivationRace.db.test.ts:35` shape); `postgres(u, { connection: opts })` → `unclassifiable`. | unit suite | a classifier keyed on the substring `TEST_DATABASE_URL` (passes `PROD_TEST_DATABASE_URL`; passes `DATABASE_URL ?? TEST_DATABASE_URL` reversed); a classifier that accepts any `process.env.*` read; **a classifier that reads only the FIRST argument** (spec round 3 F4 — passes every first-argument fixture and AC-C6, and is silent while the driver connects to `db.example.invalid`); a classifier that rejects `connection` sub-keys it has not listed (reds the live `statement_timeout` site) |
 | **AC-C4** | Every outer-expression wrapper the compiler defines is skipped on the argument AND on each `const` initializer: `url!`, `url as string`, `<string>url`, `url satisfies string`, `(url)`. The axis is asserted against `ts.OuterExpressionKinds`, not a list typed into the test. | unit suite + axis-parity assertion | a classifier unwrapping parentheses only |
 | **AC-C5** | The helper graph reaches a fixpoint over EVERY module-specifier position the parser has — import with a clause, **import WITHOUT a clause** (`import "./_b2Helpers"`), `export … from`, `import x = require(…)`, `import("…")`, `require("…")` — for every PATH-SHAPED specifier: `./`, `../`, root-relative (a leading slash, Vite's project-root form), and `<key>/` for each key of the imported `REPO_ALIAS` — on a constructed 3-module cycle; a path-shaped specifier that resolves to no file reports `unresolved-import`; a bare specifier is not an edge. One fixture per specifier position AND one per specifier shape, each asserting the consumer inherits the helper's RESOLVED class; the side-effect-import fixture is one ordinary edit from `tests/db/_b2Helpers.ts:25` (spec round 1 F2); the root-relative fixture is one ordinary edit from `tests/api/show-unpublish-route.realdb.test.ts`'s `@/tests/db/_b2Helpers` (spec round 2 F3). One fixture per LOADER form: `await vi.importActual("./_helper")` inside a `vi.mock` factory → edge (one ordinary edit from `tests/app/admin/setDeveloperAction.test.ts:42`, spec round 3 F1); `vi.mock("./_helper")` without a factory → edge; `vi.mock("./_helper", () => ({}))` → no edge; `vi.unmock("./_helper")` → no edge; `vi.somethingElse("./_helper")` → one `loader-call` report; `vi.stubEnv("X", "y")` → nothing. A consumer of a helper whose only site is DISPOSITIONED inherits `dispositioned` and is absent from every report; a consumer of a helper with an UNDISPOSED site appears as AFFECTED under the helper's single report (spec round 2 F2). | unit suite with an injected resolver | a one-level import walk (passes a helper-of-a-helper); a walk that drops unresolvable specifiers; **a walk keyed on `import … from` that never sees `import "x"`**; **a resolver that filters to `./` and `@/tests/` and silently ignores the root-relative form**; **an edge walk that sees only the parser's own specifier positions and never a `vi.importActual` argument** (spec round 3 F1); an inheritance that propagates the helper's RAW report to every consumer (three false obligations at BASE) or that suppresses it (three silent files) |
 | **AC-C6** | The live census at HEAD reports exactly the disposition rows of §2.5 (seven: two `resolver`, five `unclassifiable` edges) and nothing else: 0 undisposed, 0 stale, 0 ambiguous, 0 `remote-literal`, 0 `channel`, 0 `shadowed-driver`, 0 `acquisition`, 0 `unresolved-import`; the three `devCaptureStaged` consumers inherit `dispositioned` and appear in no report. **Not proved by green alone:** every population premise of §2.9 must hold and is asserted unconditionally above the report assertions; the suite prints the per-class site counts so `0 of 0` cannot render as a pass. | meta-test; counts printed and pasted into the PR body | a census whose walk matches nothing (premises red); a census that routes every site to `validation-env` (per-class floors red) |
 | **AC-C7** | A disposition row matching no live site is red (stale); a row matching two is red (ambiguous); a report with no row is red (undisposed); a `remote-literal` site is red regardless of rows. Each proved on a constructed registry + constructed sources, both directions. | unit suite | a forward-only registry check (passes a dead row) |
-| **AC-C8** | The §2.7 join: the set of files the destructive guard discovers — computed by calling `stripCommentsForFile` then the shared `DESTRUCTIVE_STATEMENT_PATTERNS`, minus `GUARD_OWN_FILES` — is a subset of the census population, with a premise that the discovered set has ≥ 4 members. A constructed destructive file that acquires no driver is reported `channel`. | meta-test (live) + unit suite (constructed) | a join that re-implements the recognizer or the stripper (drift) — killed by a structural assertion that the join module imports `DESTRUCTIVE_STATEMENT_PATTERNS` and `stripCommentsForFile` and declares no regex literal of its own, plus the four-file anti-vacuity premise |
+| **AC-C8** | The §2.7 join: the set of files the destructive guard discovers — computed by calling `stripCommentsForFile` then the shared `DESTRUCTIVE_STATEMENT_PATTERNS`, minus `GUARD_OWN_FILES` — is a subset of the census population, with a premise that the discovered set has ≥ 4 members. A constructed destructive file that acquires no driver is reported `channel`. **The recognizer and the stripper are INJECTED**: `discoveredByDestructiveGuard(files, { patterns, strip })` defaults to the imported objects, the suite asserts the defaults ARE the imported objects by identity (rule 193: an injectable seam certifies a path production never takes unless the default binding is asserted), and a METAMORPHIC case injects a pattern set matching a sentinel string and asserts the discovered set MOVES to exactly the sentinel file — a join deciding membership with a private copy does not respond to the injection. | meta-test (live) + unit suite (constructed) | a join that re-implements the recognizer with `new RegExp(...)` copies while importing the shared objects for show (spec round 4 F2 — declares no regex LITERAL, imports both symbols, reproduces the live seven, and passes a literal-only structural check); killed by the identity assertion on the default plus the injected-sentinel case, which a copy cannot pass |
 | **AC-C9** | `connectionCensus` is enrolled with a control line occurring exactly once, asserted by the suite; `EXPECTED_LEDGER_KINDS` carries its row; the first measured score is derived through the shipped `score()` and stated in the PR body with provenance stamped inside the measuring invocation over the §5.1 input set. **Not proved by green:** the number is READ from the score function's return, not from the gate log. | `pnpm mutation:guards` on a scoped scratch shard (deleted after; `_metaSourceShardIntegrity` proven red with it present and green without) | — (measurement, not a behaviour) |
 | **AC-C10** | `_destructiveFileAnalysis.ts`, `_destructiveStatements.ts`, `_metaDestructiveDbTargetGuard.test.ts` are byte-identical to `origin/main` at merge. | `git diff origin/main...HEAD --stat -- <three paths>` empty, run at closeout | — |
 | **AC-C11** | No binder dependence: the module never names `createProgram` or `getTypeChecker`, and every `createSourceFile` call passes `setParentNodes` true. | a structural assertion in the deciding suite over the module's own source (comment-stripped via the shared stripper), plus a positive control that the assertion reds on a constructed source containing `getTypeChecker(` | a module whose upward walks silently no-op on an unparented tree (rule 333) |
 | **AC-C12** | The ledger row graduates with the §1.3 item 1 re-scope stated FIRST in the archive entry, the census numbers as its probe record, and the §4.1 peer filed with its exception named. | the closeout commit; set arithmetic over both ledger files (open = union(open) − union(archived); archive union; body-level three-way with `matches-NEITHER` 0) | — |
+| **AC-C13** | **Totality (§2.10).** `classifySite` returns a member of its closed union for a synthesized argument of EVERY expression-capable `ts.SyntaxKind` (the enum read at test time), never throws and never returns nothing; the edge walk returns an edge or a report for every specifier position fed a non-literal; a structural assertion over the module's own source proves no classification path has a bare `return` or `return undefined`. | unit suite: an enum-driven sweep plus the structural assertion, with a positive control that the structural assertion reds on a constructed function carrying a bare `return` | any classifier or walk with an implicit "not mine" path that returns nothing for an unexpected shape — the class every one of rounds 1-4's design findings belonged to |
 
 ---
 
