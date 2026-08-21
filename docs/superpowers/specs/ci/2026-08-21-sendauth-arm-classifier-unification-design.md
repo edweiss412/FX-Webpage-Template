@@ -34,9 +34,9 @@ goes stale within the hour while every entry still resolves.
 
 ## §0 The bound this arc is held to
 
-**Consequence bound.** On the live tracked pane-compaction source and send-path corpus, **zero
-false advisories**, and every construct the shared rules cannot classify **REPORTS** rather than
-falling silent. The forbidden directions are **silence** and **wrong attribution**. A conservative
+**Consequence bound.** Every input is handled correctly OR signaled, **never silently wrong**. A worst case of conservative over-report plus a surfaced signal is a **DOCUMENTED LIMIT, not a finding**. On the live tracked pane-compaction
+source and send-path corpus: **zero false advisories**, and every construct the shared rules cannot
+classify **REPORTS** rather than falling silent. The forbidden directions are **silence** and **wrong attribution**. A conservative
 over-report on a construct the scanner has declined to resolve is a **documented limit**, not a
 finding — and it is the whole point of decline-means-report, so it is stated in §4 rather than
 apologised for.
