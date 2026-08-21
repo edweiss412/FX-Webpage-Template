@@ -165,6 +165,24 @@ This table exists because the question "what exit code does an instrument produc
 thing it is looking for" turned up two instruments that produced ZERO — one of them found only after
 the other had been fixed without sweeping its peers.
 
+## 0.46 Each r4 repair carries a both-directions proof, because a repair is a task
+
+Repairs are authored faster, under more pressure, and with less review than original work, and they
+inherit the full acceptance burden anyway — which is how three of plan review r4's four findings came
+to be defects in this arc's own repairs. So each repair below was proven the way the original work
+was, rather than reasoned about:
+
+| repair | proven to WORK | proven to FAIL when it should |
+| --- | --- | --- |
+| `record-diff` gates on movement | 0 records moved, exit 0 | a constructed unconditional reason moves 5221 records, **exit 1**. The FIRST perturbation moved zero and was refused rather than accepted — an ineffective patch renders identically to a real null |
+| Task 4b enforces gate status and stamp equality | healthy path **exit 0** | failing gate → **exit 7** (the gate's own status, not swallowed); differing stamps → **exit 1** |
+| Task 4b's input set is a derived closure | derives **12**, matching an independent walk | a 3-input set trips the floor → **exit 2**, "the closure walk is broken" |
+| the twin premise runs per cell | a correct one-variable twin satisfies it | an unrelated hook-free twin is **REJECTED** — the premise discriminates rather than merely executing |
+
+The `probe-*` scripts are deliberately NOT in this table: they are measurement instruments whose job
+is to produce a figure, so report-only is correct for them, and the discriminator is recorded in
+§0.45 so a later sweep does not re-raise them as missing gates.
+
 ## 0.4 Red-command validation, run at plan time
 
 Every `red=` in the region below is the SAME command, parse-checked and collection-probed here so a
