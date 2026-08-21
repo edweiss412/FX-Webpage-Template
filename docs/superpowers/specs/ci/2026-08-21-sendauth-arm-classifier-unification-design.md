@@ -393,14 +393,22 @@ discovered by a reviewer.
 registry-plus-inline-exemption pattern with the same fail-by-default property. A reviewer can check
 the convention rather than judge a novel proposal.
 
-**TWO acknowledgement tokens, because the two exemption kinds have different DECAY RATES.** Writing
-one token for both would put a durable fact and a perishable one in the same audit set.
+**THREE acknowledgement tokens.** Two kinds have different DECAY RATES, and a third exists because
+spec round 3 found that one category's membership was wrong rather than merely perishable (§3.14 F2).
+Writing one token for all three would put a durable fact and two perishable ones in one audit set.
 
 | token | claim | decays? |
 | --- | --- | --- |
 | `// name-position: grammar — <reason>` | **the FIELD'S DECLARED TYPE admits only `Identifier`** — a `FunctionDeclaration`'s name will not gain an element-access form | **NO.** Safe to write once. |
 | `// name-position: narrowed — <consequence> · re-file when <trigger>` | the field's declared type ADMITS SIBLING SPELLINGS and this code declines them behind an `isIdentifier` prefilter. A declared limit, owing a consequence and a trigger | **YES**, and it is the kind most likely to hide a real miss. |
-| `// name-position: not-a-name — <what it actually resolves>` | this position does not resolve a surface name at all — a module specifier, a diagnostic label | **YES.** A claim about the CURRENT CODE, and code gets repurposed. |
+| `// name-position: not-a-name — resolves <field> · re-file when <trigger>` | this position does not resolve a surface name at all — a module specifier, a diagnostic label | **YES.** A claim about the CURRENT CODE, and code gets repurposed. |
+
+**`not-a-name` carries a trigger AND a mechanical invalidation, because "re-read it when the
+surrounding code changes" is an intention, not an acceptance criterion.** The token NAMES THE FIELD
+it resolves, and **the scan asserts that field is still the one the site reads**. A repurposing that
+points the site at a different field breaks the assertion and reds; one that keeps the same field is
+not a repurposing. Without that, a repurposed site keeps its token, keeps its key, and the scan stays
+green — the expiry-with-no-notice shape this spec has already met twice.
 
 **`grammar` is a claim about the FIELD, never about the access, and spec round 3 caught this spec
 making it about the access** (§3.14 F2). `TypeReferenceNode.typeName` and `QualifiedName.left` are
@@ -937,6 +945,15 @@ the field admits a sibling the prefilter DISCARDS:
 | `look` — `n.left` | `EntityName` | `Identifier \| QualifiedName` |
 | `passNameOf` — `parent.name` | `BindingName` | `Identifier \| BindingPattern` |
 
+**Each `narrowed` row's consequence and re-file trigger, recorded rather than implied** — a
+`narrowed` token without them is a shrug:
+
+| site | consequence of the declined sibling | re-file when |
+| --- | --- | --- |
+| `isSurfaceRef` — `t.typeName` | a surface annotated through a QUALIFIED name (`ns.Channel`) is not recognized, so the binding is not discovered and every arm is silent on it | any scanned module annotates a surface binding with a qualified type name, or `isSurfaceRef` is edited |
+| `look` — `n.left` | a namespace import reached through a nested qualified name is not matched, so an unregistered importer is not reported | any scanned module reaches a registered surface type through a nested qualified name, or `importEdgeFindings` is edited |
+| `passNameOf` — `parent.name` | a pass declared into a DESTRUCTURING binding is named `(anonymous)` in findings, which is a labelling loss, not a silence — the pass is still analyzed | any scanned module declares a pass into a binding pattern, or `passNameOf` is edited |
+
 **An ACCESS-SHAPED CLAIM IS UNFALSIFIABLE BY CONSTRUCTION, because the code that narrowed the access
 is the same code the exemption excuses.** Reading the call site can only ever confirm it. That is
 why the `grammar` claim must be checked against the compiler's declared field type, and it is a
@@ -965,6 +982,46 @@ neither proves COMPLIANCE. The round was left running rather than killed, becaus
 existing check STRONGER while every claim in the artifact stayed true, and incomplete-and-still-true
 does not invalidate a live round. **The reviewer did not raise it**, which is why it is recorded here
 as prompted-and-repaired rather than as independently confirmed.
+
+### §3.15 Spec round 4: three findings, all against the INSTRUMENT and the CONTRACT
+
+Breakdown: **3 real / 0 refuted / 0 fenced.** Reviewed at `217fbbe2f`. **No finding on the design's
+applicability domain**, which is the signal the raw count does not carry: design findings across the
+stage ran **4, 4, 0, 0**.
+
+**F1 — the detector had ONE shape, so its accept-set was undefined.** AC-U16b advertised
+fail-by-default while the scan recognized only `.text`. Three ordinary equivalents evaded it:
+`node.name.getText(sf)`, `node.name.escapedText`, and a `{ text }` destructure. The accept-set is now
+DERIVED FROM THE TypeScript API SURFACE for materializing a name — `text`, `escapedText`, `getText`,
+`getFullText`, plus the destructured form — and **proven both directions** at the exact position the
+reviewer named:
+
+```
+substituting getText() at the read-set position
+  widened detector : 30 sites, 4 UNDISPOSED, names `member.name.getText()` at :151
+  .text-only       : 28 sites, 2 UNDISPOSED — blind to it
+```
+
+**F2 — AC-U16c claimed SET equality while §4.5 measured CARDINALITY.** `28 → 28` permits one missed
+site and one spurious site to cancel, and the only documented identity (`owner|expression` text)
+necessarily fails on rename, so the stated evidence could not prove the criterion either way. The
+scan now carries a STRUCTURAL identity — the AST child-index path plus the materializer name, with no
+identifier spelling in it — and the metamorphic check compares SETS: **identical across the rename**.
+Reorder is declared out of the invariant rather than silently assumed.
+
+**F3 — the round-3 three-token repair was not propagated through the governing contract.** Four
+residues, all repaired: §2.5 still read "TWO acknowledgement tokens" directly above three; AC-U16b
+authorized only an acknowledgement of why a spelling "cannot vary", which describes `grammar` and
+excludes the other two, so the counts included categories the normative criterion did not admit; the
+three `narrowed` rows named a field and a type but recorded no consequence and no re-file trigger,
+which is a shrug wearing a token's name; and `not-a-name` carried no trigger syntax at all.
+
+**F3 is this spec's own sweep discipline failing on this spec.** A repair that changes a CONTRACT
+owes the contract's every consumer, and "the token set changed" is exactly the shape whose consumers
+are scattered — a count in prose, a normative AC clause, a per-row obligation, a token grammar.
+`not-a-name` now also carries a MECHANICAL invalidation rather than an intention: it names the field
+it resolves and the scan asserts that field is still read there, so a repurposing reds instead of
+keeping a true-looking comment over changed code.
 
 ---
 
@@ -1015,7 +1072,7 @@ A semantics-neutral rename of a local (`member` to `candidateMember`, 35 occurre
 
 | | before rename | after rename |
 | --- | --- | --- |
-| detected name-resolution sites | **28** | **28** — invariant, so the SCAN is spelling-independent |
+| detected name-resolution sites | **28** | **28**, and identical AS A SET under the structural identity of §3.15 F2 — cardinality alone would not have shown this |
 | UNDISPOSED (reds the gate) | **0** | **3** |
 | ROUTE / UNFULFILLED | 12 | 11 |
 
@@ -1180,8 +1237,8 @@ suite is not proof for AC-U6** — see its row.
 | **AC-U14** | A statically known element-access receiver resolves: `this["ch"].dispatch(...)` and `` this[`ch`].dispatch(...) `` report, while a non-literal key `ch[name]` stays `opaque`. The pair is what stops the fix from becoming a blanket report. | new fixtures + suite cases |
 | **AC-U15** | Every transparent wrapper the COMPILER defines is skipped, on BOTH sides: `ch!`, `ch as Channel`, `<Channel>ch`, `ch satisfies Channel` each report `MULTI-READ` naming the doubled READ, not the binding. The wrapper axis is read from `ts.OuterExpressionKinds`, and the suite asserts the axis against that enum rather than against a list typed into the test — so a wrapper kind TypeScript adds is covered by default. | new fixtures + suite cases + an axis-parity assertion |
 | **AC-U16a** | **ABSENCE** — no site re-implements the rule. A STRUCTURAL sweep parses the module and fails on any site deciding a name by applying `isIdentifier` and `isPropertyAccessExpression` to the same expression, other than the one implementation. A lexical grep is blind to a copy spelled differently, which is how copies three, four and five survived earlier greps (§3.10). | a derived check over the module, asserted by the suite, plus a constructed violation proving it FAILS |
-| **AC-U16c** | **METAMORPHIC INVARIANCE of the scan's DETECTED SITE SET** — the set of name-resolution sites the scan finds is unchanged under a semantics-neutral transformation of the source: rename a local, reorder independent declarations, reformat. **This is the check that caught the scan enumerating** (§3.14 F1): a rename from `name` to `candidate` moved its count 42 to 44, settling by experiment what reading could not. Scoped to the DETECTED SET deliberately — see §4.5, which measures why the DISPOSITION MAPPING is deliberately not invariant. | the scan run twice, before and after a mechanical rename, asserting an identical site set |
-| **AC-U16b** | **ADOPTION** — every site that RESOLVES A NAME routes through the one rule, or carries an inline acknowledgement of why that position's spelling cannot vary; an UNACKNOWLEDGED site REDS, and a `ROUTE` row whose site is still unrouted REDS as an UNFULFILLED OBLIGATION (12 today). **Absence and adoption are different scans and absence does not imply adoption**: every duplicate can be gone while nothing calls the replacement (§3.13 F4). This scan is also the derived cover for the POSITION axis (§2.5 step 1b), so one mechanism discharges both. | a derived check over the module, asserted by the suite, plus a constructed violation proving it FAILS |
+| **AC-U16c** | **METAMORPHIC INVARIANCE of the scan's DETECTED SITE SET, compared AS A SET** — under a semantics-neutral RENAME or REFORMAT, the site set is identical under a STRUCTURAL identity: the AST child-index path plus the materializer name, which contains no identifier spelling. **Cardinality is explicitly NOT the criterion** — one missed site and one spurious site cancel, and a count says nothing (§3.15 F2). **Reordering independent declarations is OUT of the invariant** and stated as such, because a child-index path is not stable under reorder; no transformation-stable identity is claimed for it. **This is the check that caught the scan enumerating** (§3.14 F1): a rename from `name` to `candidate` moved its count 42 to 44, settling by experiment what reading could not. Scoped to the DETECTED SET deliberately — see §4.5, which measures why the DISPOSITION MAPPING is deliberately not invariant. | the scan run twice, before and after a mechanical rename, asserting an identical site set |
+| **AC-U16b** | **ADOPTION** — every site that RESOLVES A NAME routes through the one rule, or carries **one of the three acknowledgement tokens of §2.5** — `grammar` (the field's declared type admits only `Identifier`), `narrowed` (the field admits siblings this code declines; owes a consequence and a re-file trigger), or `not-a-name` (names the field it resolves; owes a trigger, and the scan asserts that field is still read there). An UNACKNOWLEDGED site REDS, and a `ROUTE` row whose site is still unrouted REDS as an UNFULFILLED OBLIGATION (12 today). **The earlier wording admitted only "why the spelling cannot vary", which describes `grammar` and excludes the other two, so the counts included categories the criterion did not authorize** (§3.15 F3). **Absence and adoption are different scans and absence does not imply adoption**: every duplicate can be gone while nothing calls the replacement (§3.13 F4). This scan is also the derived cover for the POSITION axis (§2.5 step 1b), so one mechanism discharges both. | a derived check over the module, asserted by the suite, plus a constructed violation proving it FAILS |
 | **AC-U6** | The live corpus scans **0 findings** under the unified rules. | executable: `scanRepo(LIVE_ROOTS, SEND_AUTH_SURFACES)` asserted empty **with its premise stated executably** — the walk visited a non-zero file count and the enrolled module was among them. `0 of 0` and `0 of N` render identically, and a zero over an empty population is not a pass. |
 | **AC-U7** | All 81 pre-existing fixture verdicts are preserved except the two named in §3.6, whose changes are additive only. | the deciding suite's existing cases, unmodified except the two, plus the plan's per-fixture before/after diff run at plan time and pasted |
 | **AC-U8** | `shadowedBetween` no longer exists, and no loop in the module has its termination in a mutable predicate. | grep for the symbol returning 0, plus a module audit for the loop property — a totalisation that moves termination into a predicate turns an off-by-one mutant into a NON-TERMINATING one and takes the whole measurement down |
