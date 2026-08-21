@@ -6,9 +6,18 @@
 `feat/pane-compaction-send-auth`. **Implementer:** a fresh Opus pane (this plan is part of
 its handover; the spec+plan session does not implement).
 
-Every task obeys the plan-wide invariants: TDD per task, one commit per task, conventional
-commits, no work outside this worktree. The heavy phases (full suite, mutation runs) go
-under `pnpm heavy`; scoped vitest runs stay unwrapped. Bash-tool foreground calls cap at
+Plan-wide invariants bind every task: one commit per task, conventional commits, no work
+outside this worktree. The TDD invariant binds per task KIND, stated here so the plan and
+its tasks cannot disagree (plan review r2 F2): Tasks 1, 2, 3, and 5 are code/prose-pin TDD
+cycles and carry red-contract markers; Tasks 4 and 6 are measurement tasks — their
+deliverable is recorded evidence (a weakened build failing a named pin; a score derived via
+the shipped `score()`), the red-then-green shape appearing as each check proven able to
+fail before it is trusted, and a red-contract marker would be tautological because their
+commands flip red/green per applied build, not once per task; Task 7 is a ledger/docs
+commit whose gates are the shipped ledger meta-tests plus its own authored PASS/FAIL
+sweeps (run at plan time, transcripts in the task body). Tasks 4, 6, and 7 sit outside
+red-contract regions deliberately. The heavy phases (full suite, mutation runs) go under
+`pnpm heavy <cmd>`; scoped vitest runs stay unwrapped. Bash-tool foreground calls cap at
 600 s — the mutation re-measure runs backgrounded.
 
 ## Meta-test inventory (declared before tasks)
@@ -76,21 +85,36 @@ inside the enrolled `paneCompactionCore` surface. `planSends` gains the `<SESSIO
 substitutions, and EVERY caller updates in this same task (rule: a task whose change
 invalidates sibling expectations repairs them in the same task): the five `planSends` calls
 in `tests/paneCompaction/driver.test.ts` (their byte expectations gain the address line —
-the `\x1b` pins stay pinned), and the three production calls in `scripts/pane-compaction.ts`
-(passing branch/session from the reads `drive()` already holds — behavior-neutral, the fence
-still refuses before any of it runs). `runCompact`'s `revalidate`-thunk removal is TASK 2's
-change, where `revalidate.test.ts` is in scope — Task 1 leaves `runCompact`'s signature
-untouched. ENROLMENT lands here too: the `paneCompactionCore` registry row's `suitePaths`
-gains the new suite's path (tests/paneCompaction/authorization.test.ts, plain text here
-because the file does not exist yet) and `_metaPremiseContract` gains that
-suite's declaration — a deciding suite outside `suitePaths` buys zero score
-(BL-ENROLLED-SUITE-PLACEMENT class), and enrolment precedes the diff review.
+the `\x1b` pins stay pinned), and the two production calls in the adapter
+(`scripts/pane-compaction.ts:852` checkpoint, `scripts/pane-compaction.ts:871` resume —
+passing branch/session from the reads `drive()` already holds; behavior-neutral, the fence
+still refuses before any of it runs). The THIRD
+production caller — `planSends({ command: "compact" })` inside `runCompact` at
+`scripts/lib/pane-compaction-core.ts:815` — needs no argument change by construction:
+`/compact` carries no address line (spec §3.6; AC-6 pins its bytes verbatim `/compact\r`),
+so that call compiles unchanged and the driver suite's compact byte pin staying green is
+the proof. (Plan review r2 F3: r1's "three calls in the adapter" miscounted — two live in
+the adapter, the third in the core, and it is address-exempt.) `runCompact`'s
+`revalidate`-thunk removal is TASK 2's change, where `revalidate.test.ts` is in scope —
+Task 1 leaves `runCompact`'s signature untouched. ENROLMENT lands here too: the
+`paneCompactionCore` registry row's `suitePaths` gains the new suite's path
+(tests/paneCompaction/authorization.test.ts, plain text here because the file does not
+exist yet) and `_metaPremiseContract` gains that suite's declaration — a deciding suite
+outside `suitePaths` buys zero score (BL-ENROLLED-SUITE-PLACEMENT class), and enrolment
+precedes the diff review. Registry reconciliation, run at plan time:
+`paneCompactionCore.suitePaths` currently holds 10 entries (bands, precedence, acceptSet,
+position, purview, cli, driver, ruleIdentity, mutantKills, revalidate —
+`tests/mutation/source/registry.ts:234-253`); this task adds exactly one and removes none —
+post-task count 11.
 
 ## Task 2 — adapter: fence removal, single-pass drive, restored suite
 
 <!-- task: red=`pnpm vitest run tests/paneCompaction/adapter.test.ts tests/paneCompaction/revalidate.test.ts` red-state=authored red-target=`scripts/pane-compaction.ts:587` why=`the SENDING fence block at that line refuses every sending mode with exit 2 before observation, and drive() below it reads the marker at entry (:733) and again inside authorize() - the restored-and-adapted suite fails against the fence (every send case refuses) and the read-member spy fails against the two-pass structure (marker recorded twice, roster twice)` ac=AC-1,AC-2,AC-3,AC-4,AC-5,AC-6,AC-7,AC-8,AC-9,AC-10,AC-11,AC-15 -->
 
-**Files:** `scripts/pane-compaction.ts`, `tests/paneCompaction/adapter.test.ts`,
+**Files:** `scripts/pane-compaction.ts`, `scripts/lib/pane-compaction-core.ts`
+(`runCompact` thunk deletion and signature; `mintNonce`'s collision compare against the
+pass's marker copy — plan review r2 F3: r1's file list omitted the core file even though
+this task's GREEN already edited it), `tests/paneCompaction/adapter.test.ts`,
 `tests/paneCompaction/revalidate.test.ts`.
 
 RED: restore the deleted suite from `git show 9eaa6d6eb^:tests/paneCompaction/adapter.test.ts`
@@ -122,7 +146,9 @@ GREEN: delete the fence block whole (no flag); rebuild `drive()` on one read-onc
 wrap the live `Surface` in the read-once memo derived from the `SEND_AUTH_SURFACES` row's
 complement (spec §3.1), derive every predicate via Task 1's core function, then effects
 (checkpoint: nonce write → sends; compact: consume → sends; resume: sends), nothing read
-after the sink; `mintNonce`'s collision compare reads the pass's marker copy. Move the
+after the sink; delete `runCompact`'s `revalidate` thunk and re-shape its signature to take
+the pass's data (`scripts/lib/pane-compaction-core.ts:780`), consume-before-send preserved;
+`mintNonce`'s collision compare reads the pass's marker copy. Move the
 `// send-auth: pass` marker to the new single authorization function. Delete the fence
 suite. `pnpm vitest run tests/paneCompaction/` green;
 `pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` green (the live-tree
@@ -147,14 +173,26 @@ condition (spec §3.7).
 
 ## Task 4 — weakened-build kill demonstrations (measurement, not a TDD cycle)
 
-Acceptance: for each §4 pin, its NAMED weakened build is applied to a COPY of the source
-(never the live tree while anything reads it), the suite run, at least one failure recorded
-naming the pin, source restored byte-exact (blob-hash pair printed inside the same
-invocation). Builds, derived from spec §4's table: ownership-check-deleted;
-rule-1–8-stop-deleted; verdict-gate-deleted; nonce-equality-deleted; rule-1(NOT-AN-ARC)
--deleted. Record ABSENT / PRESENT-BUT-UNPROVEN / PROVEN per pin — all must end PROVEN
-(AC-3). Paste each kill's failing assertion line into the commit message. No pin may be
-proven by a crash red (spec §8.2).
+Acceptance: for each §4 pin, its NAMED weakened build is applied to the source in place,
+run, and restored byte-exact inside ONE invocation (the deciding suites import the shipped
+paths, so the weakened bytes must sit at the real path; the worktree is frozen — no live
+review dispatch — for the whole task; r2 F4 made the command concrete, which retired r1's
+"copy of the source" phrasing: a copy is never imported by the suites). At least one
+failure is recorded naming the pin. Builds, derived from spec §4's table:
+ownership-check-deleted; rule-1–8-stop-deleted; verdict-gate-deleted;
+nonce-equality-deleted; rule-1(NOT-AN-ARC)-deleted. Record ABSENT /
+PRESENT-BUT-UNPROVEN / PROVEN per pin — all must end PROVEN (AC-3). Paste each kill's
+failing assertion line into the commit message. No pin may be proven by a crash red (spec
+§8.2). Per-build invocation template (expected: non-zero vitest exit AND a failure line
+naming the pin's test title; anything else is NOT a kill):
+
+    before=$(git hash-object scripts/lib/pane-compaction-core.ts scripts/pane-compaction.ts | tr '\n' ' ')
+    # apply ONE named weakened edit
+    pnpm vitest run tests/paneCompaction/adapter.test.ts tests/paneCompaction/authorization.test.ts
+    # record: exit code + the failing assertion line naming the pin
+    git checkout -- scripts/lib/pane-compaction-core.ts scripts/pane-compaction.ts
+    after=$(git hash-object scripts/lib/pane-compaction-core.ts scripts/pane-compaction.ts | tr '\n' ' ')
+    test "$before" = "$after" && echo RESTORED || { echo RESTORE-FAILED; exit 1; }
 
 <!-- tasks: depth=2 red-contract -->
 
@@ -183,8 +221,9 @@ not a deletion). Existing pins stay green.
 Acceptance: enrolment of the new suite landed in Task 1 (suitePaths + premise-contract
 declaration — verify both present before scoring). `pnpm mutation:sites` run BEFORE pushing any enrolled-source change (re-key
 `paneCompactionCore` accepted rows if lines shifted; re-VALIDATE each re-keyed row by
-reading, never by resolution). Then the scored run, backgrounded under `pnpm heavy`, after
-the LAST source edit of the diff: `paneCompactionCore` at its floor, score derived through
+reading, never by resolution). Then the scored run, backgrounded, as
+`pnpm heavy pnpm mutation:guards` (the bare alias takes no slot — `with-heavy-slot.py`
+exits 2 with no child command; r2 F4), after the LAST source edit of the diff: `paneCompactionCore` at its floor, score derived through
 the shipped `score()` (a green gate prints no counts), stamp pair identical across the run.
 Killer audit derived from spec §4's fourth column plus Task 4's table — derive the
 obligation list from the documents, not recall. The round-1 diff brief carries
@@ -194,18 +233,65 @@ run RETIRES the number — say so and re-run rather than quoting it.
 
 ## Task 7 — ledger closeout, early (one commit, before whole-diff review)
 
+Ordering is the ratified one, recorded here so it is not relitigated (r2 F1 read invariant
+12's "PR's last commit" sentence without its graduating-entry clause): AGENTS.md invariant
+12 states that a graduating entry's marker comes off in the same commit that archives it,
+because archives categorically reject in-progress entries; the fleet ruling on top of it
+(lessons file, the #838 post-incident ruling) is that the whole ledger change — peer rows,
+archive move, marker removal — is ONE commit taken BEFORE whole-diff review, so review and
+CI cover exactly the bytes that merge and absence is guaranteed rather than maintained.
+The window in which the row looks unclaimed to `pnpm ledger:claims` is the priced cost of
+that ruling: the branch stays live on origin holding the archive entry (a done state, not
+an open one), and the arming window below keeps auto-merge disarmed until review approves —
+#838 shipped a marker to main because `--auto` was armed at push time, not because the
+ledger commit sat early.
+
 Acceptance (each check anchored to DECLARATIONS, `^## <ID>` — mentions are not
-declarations; every check prints PASS/FAIL, exits non-zero on failure, and is proven able
-to fail against a constructed violation before use):
+declarations; every check prints PASS/FAIL, exits non-zero on failure, and was proven able
+to fail against a constructed violation at plan time — transcripts below, per the
+writing-plans authored-AND-RUN rule; r2 F5):
 
 1. Graduate `BL-PANE-COMPACTION-SEND-AUTHORIZATION` to `BACKLOG-archive.md` (archive entry
    opens with the disposition: shipped by this arc, spec DISPOSITIONED-or-CONVERGED as the
    record states, six chains closed by the two-cover account).
 2. Strip the `**Status:** IN PROGRESS · **Branch:**` marker in the same commit.
-3. Set-arithmetic verify: union of `^## (BL|DEF)-` declarations exact against both parents,
-   `comm -12` of archived-vs-open EMPTY, in-progress marker count 0 — plus a body-level
-   check on any entry both sides touched (a doubled body passes id arithmetic; rule 176).
-4. Re-verify after every subsequent `origin/main` merge.
+3. Check A — in-progress marker count is 0 after this commit:
+
+       test -z "$(rg -n 'Status:\*\* IN PROGRESS' BACKLOG.md)" && echo PASS || { echo FAIL; exit 1; }
+
+   Plan-time output (pre-closeout tree, expected): FAIL — exactly one hit,
+   `BACKLOG.md:1516`, this arc's own marker (`**Status:** IN PROGRESS · **Branch:**
+   feat/pane-compaction-send-auth`). Disposition: that hit is the line item 2 strips; the
+   check flips to PASS inside this task and is re-run in its commit.
+4. Check B — archived-vs-open intersection empty:
+
+       test -z "$(comm -12 <(rg -o '^## (BL|DEF)-[A-Z0-9-]+' BACKLOG.md | sort -u) <(rg -o '^## (BL|DEF)-[A-Z0-9-]+' BACKLOG-archive.md | sort -u))" && echo PASS || { echo FAIL; exit 1; }
+
+   Plan-time output: PASS (intersection empty). Constructed-failure proof, run at plan
+   time: the same pipeline over two fixture files each declaring `## BL-FAKE-DUP` printed
+   `FAIL: ## BL-FAKE-DUP` and exited 1.
+5. Check C — the graduating id is declared exactly once across both files (rule 176's
+   doubled-body guard, applied to every entry this closeout touches):
+
+       test "$(rg -c '^## BL-PANE-COMPACTION-SEND-AUTHORIZATION' BACKLOG.md BACKLOG-archive.md | awk -F: '{s+=$2} END {print s}')" = 1 && echo PASS || { echo FAIL; exit 1; }
+
+   Plan-time output: PASS (BACKLOG.md: 1, archive: 0). After this task's commit the same
+   command must still print PASS with the declaration moved (archive: 1, open: 0).
+   Constructed-failure proof, run at plan time: a fixture declaring the id twice printed
+   `FAIL: count=2` and exited 1.
+6. Check D — post-merge union, run after EVERY subsequent `origin/main` merge (HEAD is
+   then a merge commit):
+
+       u() { git show "$1":BACKLOG.md | rg -o '^## (BL|DEF)-[A-Z0-9-]+' | sort -u; }
+       comm -3 <(sort -u <(u HEAD^1) <(u HEAD^2)) <(u HEAD)
+
+   Every emitted line gets a per-hit disposition: the graduating row (must then sit in the
+   archive at HEAD — re-run Checks B and C), or a row a parent deliberately archived
+   (named in that merge's message); anything else is a merge defect — stop and reconcile.
+   Not runnable at plan time: HEAD is not a merge commit, and the degenerate self-form is
+   empty by construction, proving only plumbing. Its failure modes — a reintroduced row, a
+   doubled declaration — are exactly the constructed violations Checks B and C were proven
+   to catch.
 
 Arming note for the implementer: auto-merge is armed only after this commit is pushed AND
 the whole-diff review approves (the arming window, AGENTS.md invariant 12 ruling).
@@ -216,7 +302,7 @@ the whole-diff review approves (the arming window, AGENTS.md invariant 12 ruling
 | --- | --- | --- |
 | AC-1 (one read-once pass; read-member spy) | Task 2 structural cover | `pnpm vitest run tests/paneCompaction/adapter.test.ts` |
 | AC-2 (nonce from the pass's marker copy) | Task 2 (adapter-level instrumented-marker case; revalidate pins cover the core half) | `pnpm vitest run tests/paneCompaction/adapter.test.ts tests/paneCompaction/revalidate.test.ts` |
-| AC-3 (structural red-then-green; pins PROVEN) | Task 2 red record + Task 4 kill records | task commits carry the outputs |
+| AC-3 (structural red-then-green; pins PROVEN) | Task 2 red record + Task 4 kill records | `pnpm vitest run tests/paneCompaction/adapter.test.ts tests/paneCompaction/authorization.test.ts` — once as Task 2's recorded red against the fenced tree, once per weakened build under Task 4's template (non-zero exit + failure line naming the pin) |
 | AC-4 (refusals name the condition) | Task 2 (restored verbatim class) | `pnpm vitest run tests/paneCompaction/adapter.test.ts` |
 | AC-5 (resume predicate; mode verdict gates) | Task 1 + Task 2 | both red commands above |
 | AC-6 (dry-run byte-exact: compact verbatim `/compact\r`; checkpoint and resume in BOTH address forms) | Task 2 | `pnpm vitest run tests/paneCompaction/adapter.test.ts` |
@@ -225,10 +311,10 @@ the whole-diff review approves (the arming window, AGENTS.md invariant 12 ruling
 | AC-9 (zero post-send reads) | Task 2 (new spy) | `pnpm vitest run tests/paneCompaction/adapter.test.ts` |
 | AC-10 (fence gone, no flag) | Task 2 (send cases execute §3 flows; fence-string-absence and no-flag source pin) | `pnpm vitest run tests/paneCompaction/adapter.test.ts` |
 | AC-11 (pass marker relocated; scan green) | Task 2 | `pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` |
-| AC-12 (score at floor, derived via shipped score()) | Task 6 | `pnpm heavy` mutation run, backgrounded |
+| AC-12 (score at floor, derived via shipped score()) | Task 6 | `pnpm heavy pnpm mutation:guards`, backgrounded (bare `pnpm heavy` exits 2 — no child command; r2 F4) |
 | AC-13 (docs no longer claim the fence) | Task 5 | `pnpm vitest run tests/docs/_metaPaneCompactionContract.test.ts` |
-| AC-14 (checkpoint never commits) | Task 2 (verbatim class) + existing prose pin | adapter suite + meta-test |
-| AC-15 (address line pinned; bounded classes stated) | Task 1 (texts) + Task 2 (adapter live/dry-run address coverage incl. resume dry-run) + Task 5 (prose pins) | the three red commands |
+| AC-14 (checkpoint never commits) | Task 2 (verbatim class) + existing prose pin | `pnpm vitest run tests/paneCompaction/adapter.test.ts tests/docs/_metaPaneCompactionContract.test.ts` |
+| AC-15 (address line pinned; bounded classes stated) | Task 1 (texts) + Task 2 (adapter live/dry-run address coverage incl. resume dry-run) + Task 5 (prose pins) | `pnpm vitest run tests/paneCompaction/authorization.test.ts`; `pnpm vitest run tests/paneCompaction/adapter.test.ts`; `pnpm vitest run tests/docs/_metaPaneCompactionContract.test.ts` |
 | AC-16 (mint exhaustion is a named exit-2 fault) | Task 3 | `pnpm vitest run tests/paneCompaction/mintFault.test.ts` |
 
 ## Whole-diff review and closeout ordering
