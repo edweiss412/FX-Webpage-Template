@@ -21,7 +21,9 @@ widening the set changes the diff and not the behaviour.
 - `REGISTRARS` widened to include `suite`; the walk then dispatches on the root BY NAME
   (`if (root_ === "describe")`, `if (root_ === "it" || root_ === "test")`), so `suite` is recognized
   and dropped. Measured: `suite("x", …)` loses hook attribution where `describe("x", …)` keeps it.
-- `HOOK_REGISTRARS` has THREE consumers — the file-scope seed, `hookBodies`, `loadTimePremises` —
+- THREE SITES share one bare-identifier-callee shape — the file-scope seed, `hookBodies`,
+  `loadTimePremises`; `HOOK_REGISTRARS` itself has two consumers and the third ranges over a
+  different matcher (corrected at plan time) —
   each requiring a bare identifier callee. Measured: a bare `beforeEach(spawn)` makes a test
   `environment-touching`; `test.beforeEach(spawn)` leaves the same test `environment-free`.
 - `eachProducers` reads the immediate curried call only. Measured:

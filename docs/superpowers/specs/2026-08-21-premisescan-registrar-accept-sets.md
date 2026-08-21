@@ -135,11 +135,24 @@ The extractor ABORTS with exit 2 if either chainable declaration matches nothing
 that stops matching reports a confident empty set. That floor fired during authoring, on a shell
 quoting error that made both declarations return empty — the check caught its own broken run.
 
-### 3.4 The hook set has THREE consumers, and all three must range over it
+### 3.4 The hook set has TWO consumers, and a third site carries the same shape
 
-`HOOK_REGISTRARS` is consulted at `tests/mutation/source/premiseScan.ts:1758` (the file-scope seed),
-`tests/mutation/source/premiseScan.ts:1842` (`hookBodies`) and `tests/mutation/source/premiseScan.ts:1960` (`loadTimePremises`), and **each requires a bare IDENTIFIER
-callee.** Vitest also exposes the hooks as properties — `test.beforeEach(…)`, `test.aroundEach(…)` —
+`HOOK_REGISTRARS` is consulted at exactly two sites — `tests/mutation/source/premiseScan.ts:1758`
+(the file-scope seed) and `tests/mutation/source/premiseScan.ts:1843` (`hookBodies`) — and **each
+requires a bare IDENTIFIER callee.** A third site, `loadTimePremises`
+(`tests/mutation/source/premiseScan.ts:1953`), carries the identical bare-identifier-callee shape
+over a DIFFERENT matcher, `/^premise(Holds)?$/`.
+
+**Corrected at plan time.** Spec review r2 finding 2 and an earlier draft of this section both said
+`HOOK_REGISTRARS` has three consumers and named `loadTimePremises` as the third. It is not one:
+`grep -n HOOK_REGISTRARS tests/mutation/source/premiseScan.ts` returns the declaration and two uses.
+The finding's SUBSTANCE stands — three sites share one defect shape — but the set and the shape are
+different claims, and conflating them mis-states the repair. **The directions also differ**, which is
+why the distinction is worth keeping: the two hook consumers fail toward a silent FREE, while
+`loadTimePremises` failing to see `t.premise(…)` reports a premise as missing when one exists, which
+is conservative. The repair is one predicate parameterised by the name set, applied at all three —
+the two hook sites because they must be, the third because the marginal cost of the same one-line
+call is zero and the class-sweep default is to repair every instance in the same change. Vitest also exposes the hooks as properties — `test.beforeEach(…)`, `test.aroundEach(…)` —
 and every one of those is invisible to all three. Measured:
 
 ```
@@ -151,10 +164,13 @@ That is a silent free, and widening the hook NAMES does not touch it — spec re
 **§3.3's own rule arriving one section later on this spec's own change**: an accept-set is only
 adopted where every consumer of it agrees.
 
-The repair is ONE shared predicate — a callee is a hook registrar when it is a bare identifier in the
-set, OR a property access whose name is in the set and whose object peels to a registrar root — used
-by all three consumers. One predicate rather than three, because three copies of a rule are three
-things that drift, which is the same defect one level down from the accept-set itself.
+The repair is ONE shared predicate, PARAMETERISED BY THE NAME SET — a callee matches when its
+property name is in the set, whether it is a bare identifier or a property access on any object —
+applied at all three SITES. Parameterised rather than hook-specific precisely because the third site
+ranges over a different set: a predicate hard-coded to `HOOK_REGISTRARS` could not serve it, and
+leaving it behind would leave one instance of a three-instance shape unrepaired. One predicate rather
+than three, because three copies of a rule are three things that drift, which is the same defect one
+level down from the accept-set itself.
 
 
 **The builders are excluded BY CONSTRUCTION rather than by exception.** They are not in
