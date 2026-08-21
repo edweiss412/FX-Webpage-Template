@@ -1948,56 +1948,61 @@ function suiteBodyFunction(arg: ts.Expression): ts.Node | null {
 }
 
 /**
- * Every registration in the file, with the two facts BOTH producers need.
+ * Every registration in the file, with the one fact both producers need.
  *
- * `deferred` is the one diff review r1 found missing. The function-like boundary
- * existed only inside `collect`, so the outer walk crossed a deferred function
- * to find a nested registration and reported a hook there -- and Vitest never
- * invokes a `.each` datum or an uncalled helper while collecting, so nothing
- * registers and the reason named a hook that does not run. A registration the
- * runner never evaluates cannot lose a hook.
+ * THERE IS NO `deferred` FLAG, and its removal is the point. Diff review r1
+ * added one -- suppress a registration sitting inside a function value, because
+ * Vitest never invokes a `.each` datum while collecting. Diff review r3 showed
+ * that flag was set from LEXICAL SHAPE ALONE, so it also suppressed registrations
+ * inside functions that ARE invoked:
  *
- * A SUITE BODY is the exception and it is why this is not simply "stop at every
- * function": Vitest DOES invoke it, with that suite current, so registrations
- * inside it are evaluated. It is walked through rather than visited, so the
- * function-like test below never sees it -- which also keeps a body reached
- * through one of the six transparent wrappers from being mistaken for data.
+ *     function register() { describe("A", suiteA); }
+ *     register();
  *
- * Sharing one walker is the other half of the same finding: the two producers
- * had independent traversals, and only one of them carried the boundary.
+ * Nothing in a syntactic scanner connects a function body to a call site, so the
+ * suppression could not tell the two apart and silently dropped the second --
+ * FALSE CERTIFICATION, which the consequence bound forbids outright, traded for
+ * a wrong attribution it permits. Three ordinary extractions of the committed
+ * fixture reproduced it: a named helper, an IIFE, and a synchronously invoked
+ * callback, at both file and inline-suite scope.
+ *
+ * The flag was never needed once r1's OTHER repair landed. Producer A's reason
+ * says a hook OCCUPIES an eager position and that whether it registers cannot be
+ * determined; producer B's says IF the argument is the suite factory its hooks
+ * cannot be located. Both are TRUE of a construct inside a function that may or
+ * may not be invoked, so reporting there is the conservative direction the bound
+ * permits and the suppression bought nothing but the false negative.
+ *
+ * Sharing one walker is the surviving half of r1's finding: the two producers
+ * had independent traversals, and only one carried the inline-body rule.
  */
 function forEachRegistration(
   sf: ts.SourceFile,
-  fn: (call: ts.CallExpression, ctx: { insideInlineBody: boolean; deferred: boolean }) => void,
+  fn: (call: ts.CallExpression, ctx: { insideInlineBody: boolean }) => void,
 ): void {
-  const walkInto = (n: ts.Node, insideInlineBody: boolean, deferred: boolean): void => {
-    ts.forEachChild(n, (c) => visit(c, insideInlineBody, deferred));
+  const walkInto = (n: ts.Node, insideInlineBody: boolean): void => {
+    ts.forEachChild(n, (c) => visit(c, insideInlineBody));
   };
-  const visit = (node: ts.Node, insideInlineBody: boolean, deferred: boolean): void => {
+  const visit = (node: ts.Node, insideInlineBody: boolean): void => {
     if (ts.isCallExpression(node) && registrarRoot(node.expression) !== null) {
-      fn(node, { insideInlineBody, deferred });
+      fn(node, { insideInlineBody });
       if (ts.isCallExpression(node.expression))
-        for (const a of node.expression.arguments) visit(a, insideInlineBody, deferred);
+        for (const a of node.expression.arguments) visit(a, insideInlineBody);
       node.arguments.forEach((a, i) => {
         // SLOT 0 IS THE NAME, and Vitest FORMATS a function-valued name rather
-        // than invoking it, so a registration written inside one never runs.
-        // The same fact §3.2 uses to range producer B over indices >= 1: a
-        // function in slot 0 is a name that happens to be a function, never a
-        // body. Reading it as a body walked into it as EVALUATED code and
-        // reported there (diff review r2 finding 1).
+        // than invoking it, so a registration written inside one is not inside
+        // a SUITE. The same fact §3.2 uses to range producer B over indices
+        // >= 1: a function in slot 0 is a name that happens to be a function,
+        // never a body (diff review r2 finding 1).
         const body = i === 0 ? null : suiteBodyFunction(a);
-        if (body !== null) walkInto(body, true, deferred);
-        else visit(a, insideInlineBody, deferred);
+        if (body !== null) walkInto(body, true);
+        else visit(a, insideInlineBody);
       });
       return;
     }
-    if (ts.isFunctionLike(node)) {
-      walkInto(node, insideInlineBody, true);
-      return;
-    }
-    walkInto(node, insideInlineBody, deferred);
+    walkInto(node, insideInlineBody);
   };
-  walkInto(sf, false, false);
+  walkInto(sf, false);
 }
 
 /**
@@ -2037,16 +2042,14 @@ function eagerPositionHookReports(facts: ModuleFacts): string[] {
     ts.forEachChild(n, collect);
   };
 
-  forEachRegistration(sf, (call, { insideInlineBody, deferred }) => {
+  forEachRegistration(sf, (call, { insideInlineBody }) => {
     // Inside an inline suite body `hookBodies` already walks the nested
     // registration's eager positions and attaches the hook to the right tests,
     // so a reason there would be a false advisory on the single most common
-    // shape in the corpus.
-    //
-    // DEFERRED is the r1 repair: a registration Vitest never evaluates while
-    // collecting registers nothing, so naming a hook there is an attribution to
-    // a hook that does not run.
-    if (insideInlineBody || deferred) return;
+    // shape in the corpus. That is the ONLY suppression, and it is safe because
+    // the hook is genuinely attached elsewhere rather than merely assumed not
+    // to run.
+    if (insideInlineBody) return;
     for (const arg of eagerArguments(call)) collect(arg);
   });
   return out;
@@ -2125,13 +2128,12 @@ function isInertLiteral(arg: ts.Expression): boolean {
 function unfollowableFactoryReports(facts: ModuleFacts): string[] {
   const out: string[] = [];
   const sf = facts.sf;
-  forEachRegistration(sf, (call, { deferred }) => {
-    // Swept with producer A rather than left as a peer: the finding named a
-    // TRAVERSAL gap, and this producer used the same traversal. A registration
-    // the runner never evaluates cannot lose a factory's hooks, and the signal
-    // is not lost either -- an unfollowable registration that DOES invoke the
-    // enclosing function is itself reported, so the file is already flagged.
-    if (deferred) return;
+  forEachRegistration(sf, (call) => {
+    // NO execution suppression here either. The claim that once justified it --
+    // "an unfollowable registration that DOES invoke the enclosing function is
+    // itself reported, so the file is already flagged" -- was FALSE, and diff
+    // review r3 refuted it: nothing connects a function body to a call site, so
+    // the enclosing invocation is invisible and the file was flagged by nothing.
     if (registrarRoot(call.expression) !== "describe") return;
     const slots = call.arguments.slice(1);
     const located = slots.some((a) => isSuiteBody(a));

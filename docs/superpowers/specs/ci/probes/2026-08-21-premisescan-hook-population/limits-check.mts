@@ -157,6 +157,22 @@ const IMP = `import { spawnSync } from "node:child_process";`;
     reports && noFalseClaim,
     `reports=${reports} noFalseClaim=${noFalseClaim} over ${dead.length} dead operands`);
 }
+// L8 — a registration inside a FUNCTION VALUE reports whether or not that
+// function is invoked. Diff review r3: suppressing on execution SHAPE silenced
+// the INVOKED case too, which is false certification. The INVOKED half is the
+// load-bearing one; the uninvoked half records the accepted over-report.
+{
+  const F = `const suiteA = () => { it("d", () => {}); };`;
+  const shapes: Record<string, string> = {
+    invokedHelper: `${F}\nfunction register() { describe("A", suiteA); }\nregister();`,
+    iife: `${F}\n(() => { describe("A", suiteA); })();`,
+    uncalledHelper: `${F}\nfunction unused() { describe("A", suiteA); }`,
+  };
+  const got = Object.entries(shapes).map(([k, src]) => [k, P(src).l.some((r: Rows[number]) => r.detail.length > 0)] as const);
+  say("L8", "a registration inside a function value reports, invoked or not",
+    got.every(([, reported]) => reported),
+    got.map(([k, r]) => `${k}=${r ? "REPORTED" : "SILENT"}`).join(" "));
+}
 // §3 precedence — a touching test keeps its verdict under BOTH producers.
 {
   const a = P(`${IMP}\ndescribe(String(beforeEach(() => {})), () => { it("a", () => { spawnSync("e",[]); }); });`);

@@ -186,15 +186,16 @@ inside an inline suite body, and emit a file-level reason naming it.
   introduced here, and `hookBodies` is fenced from edit by §3.3. The producers are the NARROWER of
   the two readers, deliberately: this one reports only what the runner evaluates.
 - **Which registrations.** Only those NOT lexically inside an inline suite body, and only those the
-  runner EVALUATES. Where the parent is an inline `describe` body, `hookBodies` already walks the
-  nested registration's eager positions and attaches the hook correctly, so reporting there would be
-  a false advisory on the single most common shape in the corpus. And a registration sitting inside a
-  function value Vitest never invokes — a `.each` datum, an uncalled helper — registers nothing at
-  all, so naming a hook there is an attribution to a hook that does not run (diff review r1 finding
-  2). A SUITE BODY is the exception that makes this more than "stop at every function": Vitest DOES
-  invoke it, with that suite current. Both producers share ONE walker that carries these two facts,
-  because the finding was a traversal gap and independent traversals are how only one of them came to
-  carry the boundary.
+  lexically inside an inline suite body. Where the parent is an inline `describe` body, `hookBodies`
+  already walks the nested registration's eager positions and attaches the hook correctly, so
+  reporting there would be a false advisory on the single most common shape in the corpus — and it is
+  safe to suppress precisely because the hook IS attached elsewhere, not because it is assumed not to
+  run. **There is no execution-shape suppression, and there was one for two rounds.** Diff review r1
+  added one so a `.each` datum would go silent; diff review r3 showed it was set from LEXICAL SHAPE
+  and therefore also silenced registrations inside INVOKED functions, which is false certification.
+  Nothing syntactic connects a function body to a call site. It is deleted rather than refined, and
+  the residue is limit L8. Both producers share ONE walker, which is the surviving half of r1's
+  finding: independent traversals are how only one of them carried the inline-body rule.
 - **Recognized by the same predicates the scanner already ships.** `registrarRoot` answers
   "is this a registration", `isSuiteBody` answers "is this the body", and `HOOK_REGISTRARS`
   answers "is this a hook". No second matcher is introduced. The comment at
@@ -478,11 +479,11 @@ declaration is a closed union, so **a cell that names neither does not compile**
 is unrepresentable rather than merely checked. Derived and printed by `cell-check.mts`:
 
 ```
-cell budget, derived: 9 decision-input cells (over 5 distinct inputs)
-                    + 8 weaker-implementation cells (over 7 distinct implementations) = 17
+cell budget, derived: 8 decision-input cells (over 5 distinct inputs)
+                    + 9 weaker-implementation cells (over 8 distinct implementations) = 17
 ```
 
-Note the units: **9 and 8 are CELL counts and sum to the total; 5 and 7 are DISTINCT-reason counts
+Note the units: **8 and 9 are CELL counts and sum to the total; 5 and 8 are DISTINCT-reason counts
 and do not.** Both render as bare numbers in prose, which is exactly how a reader lands on 5 + 7 = 12
 and files a finding against arithmetic that was never wrong. `claims-check.mts` part C asserts the
 total this spec declares against the total `cell-check.mts` actually pins, across the two files.
@@ -511,6 +512,7 @@ for the spelling axis, applied to the guard suite itself.
 | **L5** | Producer B reports a registration whose only non-inert factory-slot argument is in fact OPTIONS rather than a factory — `describe("A", opts, () => {})` is silent because slot 2 is a body, but `describe("A", opts)` reports. | The scanner cannot tell a named options object from a named factory without resolution. The reason says "if that argument is the suite factory", so the report is correctly attributed rather than overclaiming, and the worst case is a conservative demote with a named cause. Zero live instances. |
 | **L6** | A `suite(…)` registration is never recognized, so a named factory passed to it stays silently free. `suite` IS `describe` at runtime, but `REGISTRARS` matches identifier TEXT. | Bracketed: `suite("A", f)` classifies `environment-free` on `origin/main` AND under this change, so it is neither caused nor widened here. Adding `suite` means editing `REGISTRARS`, which is `BL-PREMISESCAN-REGISTRAR-ACCEPT-SETS-HAND-MAINTAINED`'s subject and belongs to the sequential PR 2. Spec review r3 finding 3. |
 | **L7** | **This scanner does not fold constants.** A hook in a statically DEAD operand — `describe(String(false && beforeEach(…)), …)`, an unselected `?:` arm, a logical-assignment or optional-call argument — is REPORTED, though it can never run. | The scanner cannot tell `false &&` from `someFlag &&`, and going silent on the second is a silent free, the direction the bound forbids. So it reports on both, and the REASON is worded so the report is not a false claim: it says the hook OCCUPIES an eager position and that whether it registers cannot be determined, rather than asserting it is registered. Diff review r1 finding 1, where the old wording made this a wrong attribution rather than a conservative report. Probed by `limits-check.mts` in both halves, the negative one being load-bearing. |
+| **L8** | A registration inside a FUNCTION VALUE is reported whether or not that function is ever invoked — a `.each` datum and an uncalled helper are reported exactly as an invoked helper is. | The scanner is syntactic and nothing connects a function body to a call site, so the two are indistinguishable to it. The rejected alternative was suppressing on execution SHAPE, which diff review r3 showed silences the INVOKED case too — false certification, which the bound forbids, traded for a wrong attribution it permits. Reporting both is the conservative direction, and both reasons stay TRUE: producer A says whether the hook registers cannot be determined, producer B says IF the argument is the factory its hooks cannot be located. Zero live instances. |
 
 ---
 
@@ -592,6 +594,7 @@ kill target is recorded is a fixture a later edit cannot silently defang.
 | **function-valued NAME — `describe(function titledSuite() {}, suiteA)`** | a rule ranging over index ≥ 1 only | a rule whose body test ranges over EVERY argument, where the NAME satisfies it and the real factory goes unreported | the any-argument reading — spec review r1 finding 1, and the defect it demonstrated |
 | **factory in slot 1 with a trailing timeout — `describe("A", f, 5000)`** | a rule examining EVERY factory slot | a LAST-SLOT-ONLY rule, which sees the numeric timeout, accepts it as inert, and misses the factory | the last-slot-only reading — spec review r3 finding 2 |
 | **literal options in slot 1, factory in slot 2 — `describe("A", { concurrent: true }, f)`** | a rule examining EVERY factory slot | a FIRST-SLOT-ONLY rule, which sees the object literal, accepts it as inert, and misses the factory | the first-slot-only reading — the same finding's other half |
+| **registration inside a FUNCTION VALUE — `function register() { describe("A", suiteA); } register();`** | the specified rule, which suppresses on nothing but inline-body nesting | an implementation that suppresses on EXECUTION SHAPE, silencing a registration inside any function because a `.each` datum is never invoked — and silencing an INVOKED helper with it | the execution-shape suppression — diff review r3, false certification |
 
 **Negative cases, which the same corpus must keep SILENT.** Each is one ordinary edit from a
 reporting case, so a rule that reports on them is over-firing on live authoring:
@@ -605,9 +608,8 @@ reporting case, so a rule that reports on them is over-firing on live authoring:
 | `test("named", testFn)` | an `it`/`test` root cannot carry a suite factory, and the traversal already reaches a named handler — spec review r2 finding 2 |
 | `describe.each([() => { beforeEach(…) }])(…)` | the hook sits inside a function VALUE in an eager position; Vitest never invokes it while collecting, so reporting it would attribute a hook that does not run — spec review r3 finding 1 |
 | `describe.each([{ setup() { beforeEach(…) } }])(…)` | ONE cell for the whole function-like class. `ts.isFunctionLike` covers methods, getters, accessors and constructors together, so a cell per node kind would be the enumeration that predicate deleted — spec review r4 finding 2 |
-| `describe.each([() => { describe(String(beforeEach(…)), …) }])(…)` | a REGISTRATION nested inside a deferred datum. The function-like boundary existed only inside the hook collector, so the outer walk crossed the datum to reach this registration and reported there — diff review r1 finding 2 |
 
-**Nine reporting cells and eight silent cells — 17 in total, pinned by `cell-check.mts`, which exits
+**Ten reporting cells and seven silent cells — 17 in total, pinned by `cell-check.mts`, which exits
 2 if that count ever diverges from this table.** Seven of the seventeen exist because a review found
 the defect they now hold fixed, and a finding that became a fixture cannot recur silently.
 

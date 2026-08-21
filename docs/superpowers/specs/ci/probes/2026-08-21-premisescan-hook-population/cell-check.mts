@@ -68,6 +68,7 @@ results.push(cell("function-valued NAME hiding a factory", "report", `const suit
 results.push(cell("factory in slot 1 with a trailing timeout (kills last-slot-only)", "report", `const f = () => { it("a", () => {}); };\ndescribe("A", f, 5000);`, { kills: "last-slot-only" }));
 results.push(cell("literal options in slot 1 with the factory in slot 2 (kills first-slot-only)", "report", `const f = () => { it("a", () => {}); };\ndescribe("A", { concurrent: true }, f);`, { kills: "first-slot-only" }));
 
+results.push(cell("registration inside a function value, invoked or not", "report", `const suiteA = () => { it("d", () => {}); };\nfunction register() { describe("A", suiteA); }\nregister();\nit("s", () => {});`, { kills: "execution-shape suppression" }));
 console.log("--- seven cells that must stay SILENT");
 results.push(cell("bodyless options registration", "silent", `describe("A", { skip: true });\nit("s", () => {});`, { input: "per-slot class: inert literal" }));
 results.push(cell("inline body + named timeout constant", "silent", `const T = 30000;\ntest("a", () => {}, T);`, { input: "per-slot class: inline body present" }));
@@ -94,7 +95,6 @@ results.push(cell("deferred hook inside a function-valued .each datum", "silent"
 // hook there. Vitest never invokes the datum while collecting, so nothing
 // registers. ONE cell for the class -- the walk stops on `ts.isFunctionLike`,
 // and a cell per node kind would rebuild the enumeration that predicate deletes.
-results.push(cell("registration nested inside a deferred .each datum", "silent", `describe.each([() => { describe(String(beforeEach(() => {})), () => { it("d", () => {}); }); }])("A%s", () => { it("a", () => {}); });\nit("s", () => {});`, { input: "function-like containment" }));
 results.push(cell("deferred hook inside a method-shorthand .each datum", "silent", `describe.each([{ setup() { beforeEach(() => {}); } }])("A%s", () => { it("a", () => {}); });`, { input: "function-like containment" }));
 
 const passed = results.filter(Boolean).length;

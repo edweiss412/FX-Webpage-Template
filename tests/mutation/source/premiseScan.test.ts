@@ -4386,26 +4386,33 @@ it("free", () => {});`,
     }
   });
 
-  it("a registration inside a DEFERRED datum is silent, for BOTH producers", () => {
-    // Diff review r1 F2. The function-like boundary existed only inside the
-    // hook `collect`; the outer walk crossed a deferred function to find a
-    // nested registration and reported there. Vitest never invokes a `.each`
-    // datum or an uncalled helper while collecting, so nothing registers and
-    // the reason named a hook that does not run.
+  it("a registration inside a function value REPORTS, invoked or not", () => {
+    // Diff review r3, BLOCKING. r1 added a `deferred` suppression so a
+    // registration inside a `.each` datum went silent. It was set from LEXICAL
+    // SHAPE, so it also silenced registrations inside functions that ARE
+    // invoked -- a named helper, an IIFE, a synchronously invoked callback --
+    // which is FALSE CERTIFICATION, the direction the bound forbids outright.
+    // Nothing in a syntactic scanner connects a function body to a call site,
+    // so the suppression could not tell the two apart.
     //
-    // ONE case for the class rather than one per node kind: the walk stops on
-    // `ts.isFunctionLike`, so a cell per kind would rebuild the enumeration
-    // that predicate was adopted to delete.
-    const DEFERRED: Record<string, string> = {
-      arrowDatum: `describe.each([() => { describe(String(beforeEach(() => {})), () => { it("d", () => {}); }); }])("A%s", () => { it("a", () => {}); });`,
-      methodDatum: `describe.each([{ setup() { describe(String(beforeEach(() => {})), () => { it("d", () => {}); }); } }])("A%s", () => { it("a", () => {}); });`,
-      uncalledHelper: `const suiteA = () => { it("d", () => {}); };\nfunction unused() { describe("A", suiteA); }`,
-      deferredFactory: `const suiteA = () => { it("d", () => {}); };\ndescribe.each([() => { describe("A", suiteA); }])("B%s", () => { it("a", () => {}); });`,
+    // The suppression is DELETED rather than made smarter. Both reasons are
+    // true of a construct inside a function that may or may not run: producer A
+    // says whether the hook registers cannot be determined, producer B says IF
+    // the argument is the factory its hooks cannot be located. Reporting is the
+    // conservative direction; suppressing bought only the false negative.
+    const FACTORY = `const suiteA = () => { beforeEach(() => {}); it("inner", () => {}); };`;
+    const WRAPPED: Record<string, string> = {
+      invokedHelper: `function register() { describe("A", suiteA); }\nregister();`,
+      iife: `(() => { describe("A", suiteA); })();`,
+      invokedCallback: `[1].forEach(() => { describe("A", suiteA); });`,
+      deferredDatum: `describe.each([() => { describe("A", suiteA); }])("B%s", () => { it("b", () => {}); });`,
+      uncalledHelper: `function unused() { describe("A", suiteA); }`,
     };
-    for (const [form, registration] of Object.entries(DEFERRED)) {
-      const got = rows(`// ${form}\n${registration}\nit("sibling", () => {});\n`);
-      expect(got.find((r) => r.testName === "sibling")?.detail, form).toBe("");
-      expect(got.find((r) => r.testName === "sibling")?.verdict, form).toBe("environment-free");
+    for (const [form, registration] of Object.entries(WRAPPED)) {
+      const got = rows(`// ${form}\n${FACTORY}\n${registration}\n`);
+      const inner = got.find((r) => r.testName === "inner");
+      expect(inner?.detail, form).not.toBe("");
+      expect(inner?.verdict, form).toBe("unclassifiable");
     }
   });
 
