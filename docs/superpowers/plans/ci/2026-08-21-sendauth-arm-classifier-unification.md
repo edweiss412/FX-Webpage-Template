@@ -351,7 +351,7 @@ tsx -e 'import {SEND_AUTH_SURFACES} from "./tests/paneCompaction/sendAuthScan"; 
                      tests/mutation/source/expectedLedgerKinds.ts \
   && find tests/paneCompaction/fixtures -type f | sort | xargs shasum | shasum
 
-# 2. the scoped run itself — BACKGROUNDED, because a foreground Bash call dies at 600s
+# 2. the scoped run itself: BACKGROUNDED, because a foreground Bash call dies at 600s
 VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy pnpm vitest run --project mutation \
   tests/mutation/guardSurfaces.shard9.test.ts
 
