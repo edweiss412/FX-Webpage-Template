@@ -1,0 +1,1008 @@
+/**
+ * tests/db/_connectionCensus.ts
+ *
+ * The connection census: every file under `tests/` that opens a database connection
+ * through the `postgres` driver is CLASSIFIED into one of the accepted target classes,
+ * or REPORTED by name. Spec:
+ * `docs/superpowers/specs/ci/2026-08-21-destructive-guard-discovery-by-connection-design.md`.
+ *
+ * THE FORBIDDEN DIRECTION IS SILENCE. Every decision below is a total function whose
+ * default branch is a REPORT, never a pass, so "neither classified nor reported" is
+ * unrepresentable in the classification layer and any residual silent pass can live only
+ * in DISCOVERY — what the walk treats as an input. Discovery is therefore ONE derived
+ * extractor (`moduleSpecifiersIn`), consumed by both the driver walk and the edge walk;
+ * seven of the twelve spec-round findings were two walks knowing different positions.
+ *
+ * NO BINDER, NO PROGRAM, NO TYPE CHECKER. Every tree comes from `ts.createSourceFile`
+ * with `setParentNodes` true, which is the one configuration in which `.parent` is
+ * populated by the PARSER. An upward `.parent` walk over a program-built tree without a
+ * binder pass silently no-ops in the direction that looks like success.
+ *
+ * WHAT THIS MODULE DOES NOT DECIDE. It never reads SQL and never extends
+ * `DESTRUCTIVE_STATEMENT_PATTERNS`; it says nothing about the VALUE of an environment
+ * variable; and `guard-bound` is a LABEL for a site whose argument resolves to a guard
+ * call, never a claim that the guard is EFFECTIVE — that question is
+ * `_destructiveFileAnalysis.checkConnection`'s and stays there.
+ */
+import ts from "typescript";
+
+import { ACCEPTED_HOSTS } from "./_localDbUrl";
+import { isGuardModule } from "./_localDbUrlScan";
+
+export type SiteClass =
+  | "guard-bound"
+  | "validation-env"
+  | "loopback-literal"
+  | "remote-literal"
+  | "unclassifiable";
+
+export type ReportKind =
+  | "unclassifiable"
+  | "remote-literal"
+  | "shadowed-driver"
+  | "acquisition"
+  | "value-reference";
+
+export type SpecifierPosition =
+  | "import-declaration"
+  | "export-declaration"
+  | "import-equals"
+  | "dynamic-import"
+  | "require-call"
+  | "loader-call";
+
+export type ModuleSpecifierRef = {
+  position: SpecifierPosition;
+  /** Null for a specifier the census cannot read statically — never dropped. */
+  literal: string | null;
+  /** The specifier node itself, or the call when the specifier is absent. */
+  node: ts.Node;
+  /** The declaration or call the specifier belongs to. */
+  declaration: ts.Node;
+  loader?: { member: string; hasFactory: boolean };
+};
+
+export type DriverBinding = {
+  name: string;
+  form: "default-import" | "namespace-import" | "const-acquisition" | "import-equals";
+  /** The identifier node that DECLARES the binding. */
+  node: ts.Node;
+  shadowed: boolean;
+};
+
+export type ConnectSite = {
+  ordinal: number;
+  line: number;
+  call: ts.CallExpression;
+  callee: string;
+};
+
+export type SiteClassification = {
+  cls: SiteClass;
+  envNames: string[];
+  argText: string;
+  detail: string;
+  argIsCall: boolean;
+};
+
+export type ClassifiedSite = ConnectSite & SiteClassification;
+
+export type Report = {
+  file: string;
+  line: number;
+  /** The site ordinal, or null for a report that is not a connect site. */
+  ordinal: number | null;
+  kind: ReportKind;
+  /** The disposition key: the argument's source text, or the acquisition's. */
+  site: string;
+  detail: string;
+  argIsCall: boolean;
+};
+
+export type FileRecord = {
+  file: string;
+  bindings: DriverBinding[];
+  sites: ClassifiedSite[];
+  reports: Report[];
+};
+
+/** The module specifier the census keys the population on. */
+export const DRIVER_SPECIFIER = "postgres";
+
+/**
+ * The options postgres.js accepts BESIDE the URL that cannot steer the target.
+ * Default-deny: an outer key outside this set makes the site `unclassifiable`, so
+ * `postgres(url, { host: "…" })` — which connects to the overridden host while the URL
+ * says loopback — reports rather than passing on its first argument.
+ */
+export const OPTIONS_ACCEPT_SET: ReadonlySet<string> = new Set([
+  "max",
+  "prepare",
+  "idle_timeout",
+  "connect_timeout",
+  "max_lifetime",
+  "onnotice",
+  "debug",
+  "transform",
+  "types",
+  "fetch_types",
+  "connection",
+]);
+
+/** vitest loader members that EVALUATE the named module, so they yield its value. */
+export const LOADER_MEMBERS_LOAD: ReadonlySet<string> = new Set(["importActual", "importMock"]);
+/** Members that load only when called WITHOUT a factory (automocking evaluates the original). */
+export const LOADER_MEMBERS_CONDITIONAL: ReadonlySet<string> = new Set(["mock", "doMock"]);
+/** Members that load nothing. */
+export const LOADER_MEMBERS_INERT: ReadonlySet<string> = new Set(["unmock", "doUnmock"]);
+
+/** The accepted environment-name sequences, in order. Anything else reports. */
+const ACCEPTED_ENV_CHAINS: ReadonlyArray<readonly string[]> = [
+  ["TEST_DATABASE_URL"],
+  ["TEST_DATABASE_URL", "DATABASE_URL"],
+];
+
+/** Outer option names that CAN redirect the connection, listed for the report text. */
+const STEERING_OPTION_NAMES: ReadonlySet<string> = new Set([
+  "host",
+  "hostname",
+  "port",
+  "path",
+  "database",
+  "db",
+  "user",
+  "username",
+  "password",
+  "pass",
+  "ssl",
+  "socket",
+]);
+
+export const OUTER_EXPRESSION_KINDS: ts.OuterExpressionKinds = ts.OuterExpressionKinds.All;
+
+type SkipOuterExpressions = (node: ts.Expression, kinds: ts.OuterExpressionKinds) => ts.Expression;
+
+/**
+ * PROBED, NOT ASSUMED, and bound exactly as `tests/paneCompaction/sendAuthScan.ts:906-925`
+ * binds it: in the pinned TypeScript `skipOuterExpressions` is present at RUNTIME and
+ * absent from the public `.d.ts`. This is a second copy of a ten-line BINDING, not of a
+ * rule — the rule ("which wrappers change no meaning") stays the compiler's. Extracting
+ * the binding to `tests/_shared/` is deferred because the precedent lives in an enrolled
+ * surface this arc does not edit.
+ *
+ * It FAILS LOUD if an upgrade removes it: a silent fallback to a hand-written wrapper
+ * list is the defect this shape exists to remove, and it would be invisible.
+ */
+const skipOuterExpressions: SkipOuterExpressions = ((): SkipOuterExpressions => {
+  const fn = (ts as unknown as { skipOuterExpressions?: unknown }).skipOuterExpressions;
+  if (typeof fn !== "function") {
+    throw new Error(
+      "_connectionCensus: ts.skipOuterExpressions is unavailable in this TypeScript build. " +
+        "The census resolves wrapper transparency THROUGH THE COMPILER deliberately; a " +
+        "hand-written wrapper list is the defect that choice exists to remove, so this " +
+        "fails rather than degrading to one.",
+    );
+  }
+  return fn as SkipOuterExpressions;
+})();
+
+function unwrap(node: ts.Expression): ts.Expression {
+  return skipOuterExpressions(node, OUTER_EXPRESSION_KINDS);
+}
+
+function scriptKindFor(filePath: string): ts.ScriptKind {
+  if (filePath.endsWith(".tsx")) return ts.ScriptKind.TSX;
+  if (filePath.endsWith(".jsx")) return ts.ScriptKind.JSX;
+  if (/\.(js|mjs|cjs)$/.test(filePath)) return ts.ScriptKind.JS;
+  return ts.ScriptKind.TS;
+}
+
+export function parseSource(filePath: string, source: string): ts.SourceFile {
+  return ts.createSourceFile(
+    filePath,
+    source,
+    ts.ScriptTarget.Latest,
+    /* setParentNodes */ true,
+    scriptKindFor(filePath),
+  );
+}
+
+function lineOf(sf: ts.SourceFile, node: ts.Node): number {
+  return sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+}
+
+function literalTextOf(node: ts.Node | undefined): string | null {
+  if (node === undefined) return null;
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
+  return null;
+}
+
+/**
+ * EVERY module-specifier position the parser has, plus vitest's loader positions.
+ *
+ * This is the ONE extractor: the driver walk and the edge walk both consume it, and the
+ * deciding suite asserts no other function in this module reads a specifier position.
+ * The alternative — two walks each enumerating positions — is exactly the shape that
+ * produced spec rounds 1, 3 and 4 (a side-effect import, `vi.importActual`, a
+ * root-relative specifier), one position per round.
+ */
+export function moduleSpecifiersIn(sf: ts.SourceFile): ModuleSpecifierRef[] {
+  const out: ModuleSpecifierRef[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isImportDeclaration(node)) {
+      out.push({
+        position: "import-declaration",
+        literal: literalTextOf(node.moduleSpecifier),
+        node: node.moduleSpecifier,
+        declaration: node,
+      });
+    } else if (ts.isExportDeclaration(node) && node.moduleSpecifier !== undefined) {
+      out.push({
+        position: "export-declaration",
+        literal: literalTextOf(node.moduleSpecifier),
+        node: node.moduleSpecifier,
+        declaration: node,
+      });
+    } else if (
+      ts.isImportEqualsDeclaration(node) &&
+      ts.isExternalModuleReference(node.moduleReference)
+    ) {
+      // An ImportEqualsDeclaration carries `moduleReference`, never `initializer`.
+      out.push({
+        position: "import-equals",
+        literal: literalTextOf(node.moduleReference.expression),
+        node: node.moduleReference.expression,
+        declaration: node,
+      });
+    } else if (ts.isCallExpression(node)) {
+      const callee = node.expression;
+      const first = node.arguments[0];
+      if (callee.kind === ts.SyntaxKind.ImportKeyword) {
+        // `ts.isImportKeyword` exists at runtime but not in the public typings.
+        out.push({
+          position: "dynamic-import",
+          literal: literalTextOf(first),
+          node: first ?? node,
+          declaration: node,
+        });
+      } else if (ts.isIdentifier(callee) && callee.text === "require") {
+        out.push({
+          position: "require-call",
+          literal: literalTextOf(first),
+          node: first ?? node,
+          declaration: node,
+        });
+      } else if (
+        ts.isPropertyAccessExpression(callee) &&
+        ts.isIdentifier(callee.expression) &&
+        callee.expression.text === "vi"
+      ) {
+        out.push({
+          position: "loader-call",
+          literal: literalTextOf(first),
+          node: first ?? node,
+          declaration: node,
+          loader: { member: callee.name.text, hasFactory: node.arguments.length > 1 },
+        });
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sf, visit);
+  return out;
+}
+
+/** True when this loader position EVALUATES the module it names. */
+export function loaderLoads(loader: { member: string; hasFactory: boolean }): boolean {
+  if (LOADER_MEMBERS_LOAD.has(loader.member)) return true;
+  return LOADER_MEMBERS_CONDITIONAL.has(loader.member) && !loader.hasFactory;
+}
+
+/** True when the member is one the census has a decided answer for. */
+export function loaderKnown(member: string): boolean {
+  return (
+    LOADER_MEMBERS_LOAD.has(member) ||
+    LOADER_MEMBERS_CONDITIONAL.has(member) ||
+    LOADER_MEMBERS_INERT.has(member)
+  );
+}
+
+/**
+ * Every declaration of `name` in the file, in every scope. The census resolves no
+ * scope, so "declared twice" is answered by counting, not by reasoning about which
+ * declaration a call would bind to — the same conservative answer `checkConnection`
+ * and `_localDbUrlScan` give, arrived at from the same evidence.
+ */
+export function declarationsOf(sf: ts.SourceFile, name: string): ts.Node[] {
+  const out: ts.Node[] = [];
+  const fromBindingName = (bn: ts.BindingName, node: ts.Node): void => {
+    if (ts.isIdentifier(bn)) {
+      if (bn.text === name) out.push(node);
+      return;
+    }
+    for (const el of bn.elements) {
+      if (ts.isBindingElement(el)) fromBindingName(el.name, el);
+    }
+  };
+  const walk = (n: ts.Node): void => {
+    if (ts.isVariableDeclaration(n)) fromBindingName(n.name, n);
+    else if (ts.isParameter(n)) fromBindingName(n.name, n);
+    else if (
+      (ts.isFunctionDeclaration(n) ||
+        ts.isFunctionExpression(n) ||
+        ts.isClassDeclaration(n) ||
+        ts.isClassExpression(n)) &&
+      n.name !== undefined &&
+      ts.isIdentifier(n.name) &&
+      n.name.text === name
+    ) {
+      out.push(n);
+    } else if (ts.isImportDeclaration(n) && n.importClause) {
+      const clause = n.importClause;
+      if (clause.name && clause.name.text === name) out.push(clause.name);
+      const nb = clause.namedBindings;
+      if (nb !== undefined) {
+        if (ts.isNamespaceImport(nb)) {
+          if (nb.name.text === name) out.push(nb.name);
+        } else {
+          for (const el of nb.elements) if (el.name.text === name) out.push(el.name);
+        }
+      }
+    } else if (ts.isImportEqualsDeclaration(n) && n.name.text === name) {
+      out.push(n.name);
+    }
+    ts.forEachChild(n, walk);
+  };
+  ts.forEachChild(sf, walk);
+  return out;
+}
+
+/**
+ * The `const` (or import-equals) binding an acquisition expression flows into, unwrapped
+ * through parentheses, `await`, the compiler's outer expressions and a trailing
+ * `.default`. A `let`, a destructuring or a bare statement yields null — the residual
+ * `acquisition` report, never a dropped site (spec round 2 F1: reporting the acquisition
+ * and losing the sites it produces left a live connect call in no census at all).
+ */
+function constBindingFor(start: ts.Node): ts.Identifier | null {
+  let cur: ts.Node = start;
+  for (;;) {
+    const parent: ts.Node | undefined = cur.parent;
+    if (parent === undefined) return null;
+    if (ts.isAwaitExpression(parent) && parent.expression === cur) {
+      cur = parent;
+      continue;
+    }
+    // An OUTER EXPRESSION is whatever the compiler says is transparent: a node the
+    // compiler's own skip moves off, whose operand is the node we came from. Asking the
+    // compiler rather than listing the wrapper kinds is the same choice `unwrap` makes.
+    const asExpression = parent as ts.Expression;
+    if (
+      (parent as unknown as { expression?: ts.Node }).expression === cur &&
+      skipOuterExpressions(asExpression, OUTER_EXPRESSION_KINDS) !== asExpression
+    ) {
+      cur = parent;
+      continue;
+    }
+    if (
+      ts.isPropertyAccessExpression(parent) &&
+      parent.expression === cur &&
+      parent.name.text === "default"
+    ) {
+      cur = parent;
+      continue;
+    }
+    if (ts.isVariableDeclaration(parent) && parent.initializer === cur) {
+      const list = parent.parent;
+      const isConst = ts.isVariableDeclarationList(list) && (list.flags & ts.NodeFlags.Const) !== 0;
+      if (!isConst || !ts.isIdentifier(parent.name)) return null;
+      return parent.name;
+    }
+    return null;
+  }
+}
+
+function acquisitionReport(
+  sf: ts.SourceFile,
+  node: ts.Node,
+  detail: string,
+  kind: ReportKind = "acquisition",
+): Report {
+  return {
+    file: sf.fileName,
+    line: lineOf(sf, node),
+    ordinal: null,
+    kind,
+    site: node.getText(sf),
+    detail,
+    argIsCall: false,
+  };
+}
+
+/**
+ * Every acquisition of the driver, classified into a BINDING or a REPORT. There is no
+ * third answer: a specifier position naming `"postgres"` that the census cannot follow
+ * to a binding reports, so a client obtained by a route the walk does not model is never
+ * silently "not a connect site".
+ */
+export function acquisitionsIn(sf: ts.SourceFile): {
+  bindings: DriverBinding[];
+  reports: Report[];
+} {
+  const bindings: DriverBinding[] = [];
+  const reports: Report[] = [];
+  const bind = (name: ts.Identifier, form: DriverBinding["form"]): void => {
+    bindings.push({
+      name: name.text,
+      form,
+      node: name,
+      shadowed: declarationsOf(sf, name.text).length > 1,
+    });
+  };
+
+  for (const ref of moduleSpecifiersIn(sf)) {
+    if (ref.literal !== DRIVER_SPECIFIER) continue;
+
+    if (ref.position === "import-declaration") {
+      const decl = ref.declaration as ts.ImportDeclaration;
+      const clause = decl.importClause;
+      if (clause === undefined) {
+        reports.push(
+          acquisitionReport(
+            sf,
+            decl,
+            "a side-effect import of the driver: it evaluates the module and binds nothing",
+          ),
+        );
+        continue;
+      }
+      if (clause.isTypeOnly) continue;
+      if (clause.name) bind(clause.name, "default-import");
+      const nb = clause.namedBindings;
+      if (nb !== undefined) {
+        if (ts.isNamespaceImport(nb)) {
+          bind(nb.name, "namespace-import");
+        } else {
+          for (const el of nb.elements) {
+            if (el.isTypeOnly) continue;
+            reports.push(
+              acquisitionReport(
+                sf,
+                el,
+                `a named VALUE import of the driver (\`${el.name.text}\`): the default export is ` +
+                  "the only constructor, so the census cannot follow this to a connect site",
+              ),
+            );
+          }
+        }
+      }
+      continue;
+    }
+
+    if (ref.position === "export-declaration") {
+      reports.push(
+        acquisitionReport(sf, ref.declaration, "a re-export of the driver from a tests/ module"),
+      );
+      continue;
+    }
+
+    if (ref.position === "import-equals") {
+      bind((ref.declaration as ts.ImportEqualsDeclaration).name, "import-equals");
+      continue;
+    }
+
+    // dynamic-import / require-call / loader-call: an acquisition EXPRESSION.
+    if (ref.position === "loader-call") {
+      const loader = ref.loader;
+      if (loader === undefined || !loaderLoads(loader)) {
+        if (loader !== undefined && !loaderKnown(loader.member)) {
+          reports.push(
+            acquisitionReport(
+              sf,
+              ref.declaration,
+              `an unrecognised vitest loader member (\`vi.${loader.member}\`) naming the driver: ` +
+                "the census cannot decide whether it evaluates the module",
+            ),
+          );
+        }
+        continue;
+      }
+    }
+    const bound = constBindingFor(ref.declaration);
+    if (bound === null) {
+      reports.push(
+        acquisitionReport(
+          sf,
+          ref.declaration,
+          "a driver acquisition the census cannot follow to a `const` or import-equals binding; " +
+            "use a static default import, or add an `acquisition` disposition row",
+        ),
+      );
+      continue;
+    }
+    bind(bound, "const-acquisition");
+  }
+
+  return { bindings, reports };
+}
+
+type CallCollection = {
+  sites: ConnectSite[];
+  shadowedCalls: ts.CallExpression[];
+  valueReferences: ts.Identifier[];
+};
+
+function collectCalls(sf: ts.SourceFile, bindings: readonly DriverBinding[]): CallCollection {
+  const byName = new Map<string, DriverBinding>();
+  for (const b of bindings) byName.set(b.name, b);
+  const declarationNodes = new Set<ts.Node>(bindings.map((b) => b.node));
+
+  const siteCalls: ts.CallExpression[] = [];
+  const shadowedCalls: ts.CallExpression[] = [];
+  const calleeNodes = new Set<ts.Node>();
+  const valueReferences: ts.Identifier[] = [];
+
+  const visitCalls = (n: ts.Node): void => {
+    if (ts.isCallExpression(n)) {
+      const callee = unwrap(n.expression);
+      if (ts.isIdentifier(callee)) {
+        const binding = byName.get(callee.text);
+        if (binding !== undefined && binding.form !== "namespace-import") {
+          calleeNodes.add(callee);
+          (binding.shadowed ? shadowedCalls : siteCalls).push(n);
+        }
+      } else if (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression)) {
+        const binding = byName.get(callee.expression.text);
+        if (
+          binding !== undefined &&
+          binding.form === "namespace-import" &&
+          callee.name.text === "default"
+        ) {
+          calleeNodes.add(callee.expression);
+          (binding.shadowed ? shadowedCalls : siteCalls).push(n);
+        }
+      }
+    }
+    ts.forEachChild(n, visitCalls);
+  };
+  ts.forEachChild(sf, visitCalls);
+
+  const visitReferences = (n: ts.Node): void => {
+    if (ts.isIdentifier(n)) {
+      const binding = byName.get(n.text);
+      const isReference =
+        binding !== undefined &&
+        // A SHADOWED name's non-call references are deliberately not reported: the
+        // census resolves no scope, so it cannot tell the local declaration's uses from
+        // the driver's, and every CALL — the only reference that can open a connection —
+        // already reports as `shadowed-driver`.
+        !binding.shadowed &&
+        !declarationNodes.has(n) &&
+        !calleeNodes.has(n) &&
+        !isDeclarationPosition(n) &&
+        !isPropertyNamePosition(n);
+      if (isReference) valueReferences.push(n);
+    }
+    ts.forEachChild(n, visitReferences);
+  };
+  ts.forEachChild(sf, visitReferences);
+
+  const sites = siteCalls
+    .slice()
+    .sort((a, b) => a.getStart(sf) - b.getStart(sf))
+    .map((call, index) => ({
+      ordinal: index + 1,
+      line: lineOf(sf, call),
+      call,
+      callee: unwrap(call.expression).getText(sf),
+    }));
+
+  return { sites, shadowedCalls, valueReferences };
+}
+
+function isDeclarationPosition(id: ts.Identifier): boolean {
+  const p = id.parent;
+  if (p === undefined) return false;
+  if (ts.isVariableDeclaration(p) && p.name === id) return true;
+  if (ts.isParameter(p) && p.name === id) return true;
+  if (ts.isBindingElement(p) && (p.name === id || p.propertyName === id)) return true;
+  if (ts.isImportSpecifier(p) || ts.isImportClause(p) || ts.isNamespaceImport(p)) return true;
+  if (ts.isImportEqualsDeclaration(p) && p.name === id) return true;
+  if (
+    (ts.isFunctionDeclaration(p) ||
+      ts.isFunctionExpression(p) ||
+      ts.isClassDeclaration(p) ||
+      ts.isClassExpression(p)) &&
+    p.name === id
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function isPropertyNamePosition(id: ts.Identifier): boolean {
+  const p = id.parent;
+  if (p === undefined) return false;
+  if (ts.isPropertyAccessExpression(p) && p.name === id) return true;
+  if (ts.isPropertyAssignment(p) && p.name === id) return true;
+  if (ts.isPropertySignature(p) && p.name === id) return true;
+  return false;
+}
+
+/** Connect sites: a call of a driver binding whose name is declared nowhere else. */
+export function sitesIn(sf: ts.SourceFile): ConnectSite[] {
+  return collectCalls(sf, acquisitionsIn(sf).bindings).sites;
+}
+
+type Resolution =
+  | { kind: "guard" }
+  | { kind: "env"; names: string[] }
+  | { kind: "loopback" }
+  | { kind: "remote"; host: string }
+  | { kind: "unclassifiable"; detail: string };
+
+function flattenChain(expr: ts.Expression): ts.Expression[] {
+  const node = unwrap(expr);
+  if (
+    ts.isBinaryExpression(node) &&
+    (node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken ||
+      node.operatorToken.kind === ts.SyntaxKind.BarBarToken)
+  ) {
+    return [...flattenChain(node.left), ...flattenChain(node.right)];
+  }
+  return [node];
+}
+
+/** `process.env.NAME` / `process.env["NAME"]`, or null. */
+function envNameOf(expr: ts.Expression): string | null {
+  if (!ts.isPropertyAccessExpression(expr) && !ts.isElementAccessExpression(expr)) return null;
+  const receiver = unwrap(expr.expression);
+  const receiverIsEnv =
+    ts.isPropertyAccessExpression(receiver) &&
+    ts.isIdentifier(receiver.expression) &&
+    receiver.expression.text === "process" &&
+    receiver.name.text === "env";
+  if (!receiverIsEnv) return null;
+  if (ts.isPropertyAccessExpression(expr)) return expr.name.text;
+  const key = unwrap(expr.argumentExpression);
+  return literalTextOf(key);
+}
+
+function hostResolution(text: string): Resolution {
+  let host: string;
+  try {
+    host = new URL(text).hostname;
+  } catch {
+    return {
+      kind: "unclassifiable",
+      detail: "a string literal that does not parse as a URL",
+    };
+  }
+  return ACCEPTED_HOSTS.has(host) ? { kind: "loopback" } : { kind: "remote", host };
+}
+
+function guardNamesIn(sf: ts.SourceFile): Set<string> {
+  const out = new Set<string>();
+  for (const ref of moduleSpecifiersIn(sf)) {
+    if (ref.position !== "import-declaration" || ref.literal === null) continue;
+    if (!isGuardModule(ref.literal, sf.fileName)) continue;
+    const clause = (ref.declaration as ts.ImportDeclaration).importClause;
+    if (clause === undefined || clause.isTypeOnly) continue;
+    if (clause.name) out.add(clause.name.text);
+    const nb = clause.namedBindings;
+    if (nb !== undefined && !ts.isNamespaceImport(nb)) {
+      for (const el of nb.elements) if (!el.isTypeOnly) out.add(el.name.text);
+    }
+  }
+  return out;
+}
+
+function resolveOperand(
+  sf: ts.SourceFile,
+  expr: ts.Expression,
+  guards: ReadonlySet<string>,
+  seen: Set<string>,
+): Resolution {
+  const node = unwrap(expr);
+
+  if (ts.isCallExpression(node)) {
+    const callee = unwrap(node.expression);
+    if (ts.isIdentifier(callee) && guards.has(callee.text)) {
+      // A guard NAME declared twice is ambiguous by the same any-declaration rule the
+      // driver gets: the census cannot tell the imported guard from a local of the same
+      // name, and declining is the only answer that is not a guess.
+      if (declarationsOf(sf, callee.text).length > 1) {
+        return {
+          kind: "unclassifiable",
+          detail: `the guard name \`${callee.text}\` is declared more than once in this file`,
+        };
+      }
+      return { kind: "guard" };
+    }
+    return { kind: "unclassifiable", detail: "a call result the census does not follow" };
+  }
+
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+    return hostResolution(node.text);
+  }
+
+  const envName = envNameOf(node);
+  if (envName !== null) return { kind: "env", names: [envName] };
+
+  if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+    return { kind: "unclassifiable", detail: "a property read the census does not follow" };
+  }
+
+  if (ts.isIdentifier(node)) {
+    if (seen.has(node.text)) {
+      return { kind: "unclassifiable", detail: "a self-referential binding" };
+    }
+    const declarations = declarationsOf(sf, node.text);
+    if (declarations.length === 0) {
+      return { kind: "unclassifiable", detail: `\`${node.text}\` has no declaration in this file` };
+    }
+    const resolutions: Resolution[] = [];
+    for (const declaration of declarations) {
+      if (!ts.isVariableDeclaration(declaration)) {
+        return {
+          kind: "unclassifiable",
+          detail: `\`${node.text}\` is declared by something other than a const initializer`,
+        };
+      }
+      const list = declaration.parent;
+      const isConst = ts.isVariableDeclarationList(list) && (list.flags & ts.NodeFlags.Const) !== 0;
+      if (!isConst || declaration.initializer === undefined) {
+        return {
+          kind: "unclassifiable",
+          detail: `\`${node.text}\` is not a const with an initializer`,
+        };
+      }
+      const next = new Set(seen);
+      next.add(node.text);
+      resolutions.push(resolveChain(sf, declaration.initializer, guards, next));
+    }
+    const [first, ...rest] = resolutions;
+    if (first === undefined) {
+      return { kind: "unclassifiable", detail: `\`${node.text}\` resolves to nothing` };
+    }
+    for (const other of rest) {
+      if (renderResolution(other) !== renderResolution(first)) {
+        return {
+          kind: "unclassifiable",
+          detail: `\`${node.text}\` has declarations that classify differently`,
+        };
+      }
+    }
+    return first;
+  }
+
+  return {
+    kind: "unclassifiable",
+    detail: `an argument shape the census does not resolve (${ts.SyntaxKind[node.kind]})`,
+  };
+}
+
+/** A stable rendering, used only to compare two resolutions for equality. */
+function renderResolution(r: Resolution): string {
+  if (r.kind === "env") return `env:${r.names.join(",")}`;
+  if (r.kind === "remote") return `remote:${r.host}`;
+  if (r.kind === "unclassifiable") return `unclassifiable:${r.detail}`;
+  return r.kind;
+}
+
+function resolveChain(
+  sf: ts.SourceFile,
+  expr: ts.Expression,
+  guards: ReadonlySet<string>,
+  seen: Set<string>,
+): Resolution {
+  const operands = flattenChain(expr).map((operand) => resolveOperand(sf, operand, guards, seen));
+  const [first] = operands;
+  if (first === undefined) {
+    return { kind: "unclassifiable", detail: "an empty argument chain" };
+  }
+  if (operands.length === 1) return first;
+  if (operands.some((o) => o.kind === "guard")) return { kind: "guard" };
+  const names: string[] = [];
+  for (const operand of operands) {
+    if (operand.kind === "env") names.push(...operand.names);
+    else if (operand.kind !== "loopback") {
+      return {
+        kind: "unclassifiable",
+        detail:
+          operand.kind === "unclassifiable"
+            ? `a mixed chain: ${operand.detail}`
+            : "a chain mixing an accepted source with a non-loopback literal",
+      };
+    }
+  }
+  return names.length === 0 ? { kind: "loopback" } : { kind: "env", names };
+}
+
+function classOfResolution(r: Resolution): { cls: SiteClass; envNames: string[]; detail: string } {
+  if (r.kind === "guard") return { cls: "guard-bound", envNames: [], detail: "" };
+  if (r.kind === "loopback") return { cls: "loopback-literal", envNames: [], detail: "" };
+  if (r.kind === "remote") {
+    return {
+      cls: "remote-literal",
+      envNames: [],
+      detail: `a hard-coded non-loopback host \`${r.host}\``,
+    };
+  }
+  if (r.kind === "unclassifiable") return { cls: "unclassifiable", envNames: [], detail: r.detail };
+  const accepted = ACCEPTED_ENV_CHAINS.some(
+    (chain) => chain.length === r.names.length && chain.every((n, i) => n === r.names[i]),
+  );
+  return accepted
+    ? { cls: "validation-env", envNames: r.names, detail: "" }
+    : {
+        cls: "unclassifiable",
+        envNames: r.names,
+        detail: `environment names outside the accept-set, in this order: ${r.names.join(", ")}`,
+      };
+}
+
+/**
+ * Why the arguments AFTER the URL are part of the accept-set: `postgres()` with no
+ * argument connects wherever libpq's `PG*` environment points, and
+ * `postgres(url, { host: "…" })` overrides the URL's host — so a classifier that reads
+ * only the first argument is silent while the driver connects somewhere else.
+ *
+ * `connection`'s KEYS are unrestricted: they are server-side runtime parameters that
+ * postgres.js sends AFTER the socket is open (a driver probe on the live
+ * `connection: { statement_timeout: 5000 }` site confirmed the target is unchanged), so
+ * restricting them would red a correct file.
+ */
+function optionsProblem(sf: ts.SourceFile, options: ts.Expression): string | null {
+  const node = unwrap(options);
+  if (!ts.isObjectLiteralExpression(node)) {
+    return "the options argument is not an object literal, so its keys cannot be read";
+  }
+  for (const property of node.properties) {
+    if (ts.isSpreadAssignment(property)) return "a spread in the options object";
+    if (ts.isShorthandPropertyAssignment(property)) {
+      return `a shorthand option (\`${property.name.text}\`) bound outside the call`;
+    }
+    if (!ts.isPropertyAssignment(property)) {
+      return "an options member that is not a plain `name: value` pair";
+    }
+    if (!ts.isIdentifier(property.name)) return "a computed or non-identifier option key";
+    const key = property.name.text;
+    if (!OPTIONS_ACCEPT_SET.has(key)) {
+      return STEERING_OPTION_NAMES.has(key)
+        ? `an option that can steer the target: ${key}`
+        : `an option outside the accept-set: ${key}`;
+    }
+    if (key === "connection") {
+      const value = unwrap(property.initializer);
+      if (!ts.isObjectLiteralExpression(value)) {
+        return "a `connection` value that is not an object literal";
+      }
+      for (const sub of value.properties) {
+        if (!ts.isPropertyAssignment(sub) || !ts.isIdentifier(sub.name)) {
+          return "a `connection` member that is not a plain `name: value` pair";
+        }
+        const literal = unwrap(sub.initializer);
+        const isLiteral =
+          ts.isStringLiteral(literal) ||
+          ts.isNoSubstitutionTemplateLiteral(literal) ||
+          ts.isNumericLiteral(literal) ||
+          literal.kind === ts.SyntaxKind.TrueKeyword ||
+          literal.kind === ts.SyntaxKind.FalseKeyword;
+        if (!isLiteral) {
+          return `a \`connection.${sub.name.text}\` value that is not a literal`;
+        }
+      }
+    }
+  }
+  void sf;
+  return null;
+}
+
+/** Total: every argument shape lands in the closed union, and the default is a REPORT. */
+export function classifySite(sf: ts.SourceFile, site: ConnectSite): SiteClassification {
+  const args = site.call.arguments;
+  const firstArg = args[0];
+  const argText = firstArg === undefined ? site.call.getText(sf) : firstArg.getText(sf);
+  const argIsCall = firstArg !== undefined && ts.isCallExpression(unwrap(firstArg));
+
+  if (firstArg === undefined) {
+    return {
+      cls: "unclassifiable",
+      envNames: [],
+      argText,
+      argIsCall,
+      detail:
+        "postgres() with no argument: libpq's PG* environment decides the target, and the " +
+        "census cannot read it",
+    };
+  }
+  if (args.length > 2) {
+    return {
+      cls: "unclassifiable",
+      envNames: [],
+      argText,
+      argIsCall,
+      detail: "a third argument the census does not model",
+    };
+  }
+
+  const guards = guardNamesIn(sf);
+  const resolved = classOfResolution(resolveChain(sf, firstArg, guards, new Set()));
+  const secondArg = args[1];
+  const problem = secondArg === undefined ? null : optionsProblem(sf, secondArg);
+  if (problem !== null) {
+    return {
+      cls: "unclassifiable",
+      envNames: resolved.envNames,
+      argText,
+      argIsCall,
+      detail: problem,
+    };
+  }
+  return {
+    cls: resolved.cls,
+    envNames: resolved.envNames,
+    argText,
+    argIsCall,
+    detail: resolved.detail,
+  };
+}
+
+/** The per-file record: bindings, classified sites, and every report the file owes. */
+export function classifyFile(filePath: string, source: string): FileRecord {
+  const sf = parseSource(filePath, source);
+  const { bindings, reports: acquisitionReports } = acquisitionsIn(sf);
+  const { sites, shadowedCalls, valueReferences } = collectCalls(sf, bindings);
+
+  const classified: ClassifiedSite[] = sites.map((site) => ({
+    ...site,
+    ...classifySite(sf, site),
+  }));
+
+  const reports: Report[] = [...acquisitionReports];
+
+  for (const call of shadowedCalls) {
+    reports.push({
+      file: filePath,
+      line: lineOf(sf, call),
+      ordinal: null,
+      kind: "shadowed-driver",
+      site: call.arguments[0]?.getText(sf) ?? call.getText(sf),
+      detail:
+        "the driver binding's name is declared more than once in this file; rename the local " +
+        "declaration that reuses it",
+      argIsCall: false,
+    });
+  }
+
+  for (const reference of valueReferences) {
+    reports.push({
+      file: filePath,
+      line: lineOf(sf, reference),
+      ordinal: null,
+      kind: "value-reference",
+      site: reference.getText(sf),
+      detail:
+        "the driver binding is used as a VALUE rather than called, so the census cannot see " +
+        "where the connection it produces points",
+      argIsCall: false,
+    });
+  }
+
+  for (const site of classified) {
+    if (site.cls !== "unclassifiable" && site.cls !== "remote-literal") continue;
+    reports.push({
+      file: filePath,
+      line: site.line,
+      ordinal: site.ordinal,
+      kind: site.cls,
+      site: site.argText,
+      detail: site.detail,
+      argIsCall: site.argIsCall,
+    });
+  }
+
+  reports.sort((a, b) => a.line - b.line || (a.ordinal ?? 0) - (b.ordinal ?? 0));
+  return { file: filePath, bindings, sites: classified, reports };
+}
