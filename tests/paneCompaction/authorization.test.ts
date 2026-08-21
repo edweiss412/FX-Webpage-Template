@@ -8,6 +8,7 @@ import {
   type PaneReport,
   RESUME_TEXT,
   planSends,
+  readOnce,
 } from "@/scripts/lib/pane-compaction-core";
 import { premiseHolds } from "@/tests/_shared/premise";
 
@@ -383,5 +384,119 @@ describe("planSends — <BRANCH>/<SESSION> substitution (AC-6, AC-15)", () => {
       /branch/,
     );
     expect(() => planSends({ command: "resume", session: SESSION })).toThrow(/branch/);
+  });
+});
+
+describe("readOnce — the pass itself (spec §3.1)", () => {
+  /** A surface-shaped double whose every member counts its own calls. */
+  type Calls = { marker: number; screen: number; send: number; now: number };
+
+  function counted(): { world: Record<string, unknown>; calls: Calls } {
+    const calls: Calls = { marker: 0, screen: 0, send: 0, now: 0 };
+    const world = {
+      marker: (cwd: string) => {
+        calls.marker += 1;
+        return { cwd, at: calls.marker };
+      },
+      screen: (paneId: string) => {
+        calls.screen += 1;
+        return `${paneId}#${calls.screen}`;
+      },
+      send: (text: string) => {
+        calls.send += 1;
+        return text;
+      },
+      now: () => {
+        calls.now += 1;
+        return calls.now;
+      },
+      notAFunction: 7,
+    };
+    return { world, calls };
+  }
+
+  const NON_READ = new Set(["send", "now"]);
+
+  it("a read member answers from its FIRST call for the rest of the pass", () => {
+    const { world, calls } = counted();
+    const pass = readOnce(world, NON_READ);
+    const first = (pass.marker as (c: string) => unknown)("/w/alpha");
+    const second = (pass.marker as (c: string) => unknown)("/w/alpha");
+    premiseHolds("the underlying reader would have answered differently", calls.marker === 1);
+    expect(calls.marker).toBe(1);
+    expect(second).toBe(first);
+    expect(first).toEqual({ cwd: "/w/alpha", at: 1 });
+  });
+
+  it("different arguments are different questions, not one asked twice", () => {
+    // `marker(cwd)` for two worktrees must not collapse: the memo is keyed by
+    // member AND arguments. A member-only key would hand the second worktree
+    // the first one's marker, which is a wrong answer rather than a stale one.
+    const { world, calls } = counted();
+    const pass = readOnce(world, NON_READ);
+    const a = (pass.marker as (c: string) => unknown)("/w/alpha");
+    const b = (pass.marker as (c: string) => unknown)("/w/beta");
+    expect(calls.marker).toBe(2);
+    expect(a).not.toEqual(b);
+  });
+
+  it("a NON-read member is not memoized — the sink and the ambient sources pass through", () => {
+    // The positive twin. A wrapper that memoized everything would satisfy every
+    // at-most-once assertion above while making `send` fire once and `now`
+    // freeze, which is a different tool.
+    const { world, calls } = counted();
+    const pass = readOnce(world, NON_READ);
+    (pass.send as (t: string) => unknown)("hello");
+    (pass.send as (t: string) => unknown)("hello");
+    (pass.now as () => unknown)();
+    (pass.now as () => unknown)();
+    expect(calls.send).toBe(2);
+    expect(calls.now).toBe(2);
+  });
+
+  it("the exclusion is the ONLY way out — an unlisted member is memoized by default", () => {
+    // Totality. With `screen` absent from the exclusion set it is a read, so it
+    // memoizes without anyone having listed it. That is the direction that
+    // fails safe: a member added to the surface joins the pass rather than
+    // sitting outside it silently.
+    const { world, calls } = counted();
+    const pass = readOnce(world, NON_READ);
+    premiseHolds("screen is not in the exclusion set", !NON_READ.has("screen"));
+    (pass.screen as (p: string) => unknown)("wP:pC");
+    (pass.screen as (p: string) => unknown)("wP:pC");
+    expect(calls.screen).toBe(1);
+  });
+
+  it("non-function members survive the wrap untouched", () => {
+    const { world } = counted();
+    const pass = readOnce(world, NON_READ);
+    expect(pass.notAFunction).toBe(7);
+  });
+
+  it("a member whose answer is undefined is still read only once", () => {
+    // `marker` returns null for a worktree with no marker, and a memo keyed on
+    // a truthiness test would re-read on every call for exactly those panes --
+    // silently reintroducing the second read on the case the six chains were
+    // about.
+    let calls = 0;
+    const pass = readOnce(
+      {
+        marker: () => {
+          calls += 1;
+          return undefined;
+        },
+      },
+      new Set<string>(),
+    );
+    expect((pass.marker as () => unknown)()).toBeUndefined();
+    expect((pass.marker as () => unknown)()).toBeUndefined();
+    expect(calls).toBe(1);
+  });
+
+  it("each pass is its own — nothing carries from one invocation to the next", () => {
+    const { world, calls } = counted();
+    (readOnce(world, NON_READ).marker as (c: string) => unknown)("/w/alpha");
+    (readOnce(world, NON_READ).marker as (c: string) => unknown)("/w/alpha");
+    expect(calls.marker).toBe(2);
   });
 });

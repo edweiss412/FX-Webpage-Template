@@ -41,7 +41,10 @@ import {
   corpusHasMalformedRow,
   MALFORMED_CORPUS_STATUS,
   GH_BUCKETS,
+  type SendMode,
+  authorizeSend,
   planSends,
+  readOnce,
   positionFor,
   refuse,
   renderRow,
@@ -550,6 +553,31 @@ export function parseArgv(argv: string[]): Parsed {
 const SENDING = new Set(["checkpoint", "compact", "resume"]);
 
 /**
+ * The `Surface` members that are NOT reads: the sink, the effects, and the
+ * ambient generators.
+ *
+ * Stated as the EXCLUSION rather than as a list of reads, so the core's
+ * `readOnce` is total over the surface: a member added to `Surface` is
+ * memoized by default, and only a deliberate edit here can take it out of the
+ * pass. A hand-list of reads would fail the other way, leaving the new member
+ * outside the pass silently.
+ *
+ * It mirrors the enrolled send-auth row's `sinks` + `effects` + `ambient`
+ * (`tests/paneCompaction/sendAuthScan.ts`), and the adapter suite asserts the
+ * two agree, so the runtime pass and the static scanner cannot disagree about
+ * what counts as a read.
+ */
+export const NON_READ_MEMBERS: ReadonlySet<string> = new Set([
+  "send",
+  "out",
+  "outRaw",
+  "nonceWrite",
+  "nonceConsume",
+  "now",
+  "random",
+]);
+
+/**
  * The whole program, as a function of argv and its world.
  *
  * Returns the exit code rather than calling `process.exit`, so every mode is
@@ -558,44 +586,6 @@ const SENDING = new Set(["checkpoint", "compact", "resume"]);
  */
 export function main(argv: string[], s: Surface): number {
   const opts = parseArgv(argv);
-
-  // ---------------------------------------------------------------------------
-  // FENCE: the three sending modes are DISABLED in this release.
-  // ---------------------------------------------------------------------------
-  //
-  // Placed here, before argv is validated any further and before ANY observation,
-  // and the position is the point rather than an implementation convenience.
-  //
-  // Five adversarial rounds produced findings at a flat rate (9, 5, 4, 4, 4) with
-  // a P0 in every one, and from round 3 onward EVERY P0 was in this send path.
-  // Two of the repairs introduced the next round's defect. One of those made a
-  // refusal LIE: roster disappearance was encoded as a stale report with a null
-  // nonce, so the command refused with "marker carries no checkpointNonce" while
-  // a matching nonce sat in the marker, and an operator reading it would go
-  // re-checkpoint a pane that no longer exists.
-  //
-  // That is exactly the failure a careless fence would reproduce. If this check
-  // ran AFTER observation, the tool could refuse a disabled mode by naming
-  // whatever pane condition it happened to find -- a true-sounding sentence about
-  // the wrong subject. Refusing before anything is observed means the only reason
-  // available is the real one.
-  //
-  // The classifier and the read-only surfaces (the default report, `--check`,
-  // `--json`) ship: they carry the same five rounds of repairs and are pinned by
-  // a mutation score rather than by reviewer opinion. Authorization gets its own
-  // arc; see BL-PANE-COMPACTION-SEND-AUTHORIZATION.
-  if (SENDING.has(opts.mode)) {
-    s.out(
-      "refusing: --checkpoint, --compact and --resume are disabled in this release. " +
-        "The classifier and the read-only report ship; the send path is deferred to its own arc " +
-        "(BL-PANE-COMPACTION-SEND-AUTHORIZATION). This refusal is about the COMMAND, not about " +
-        "this pane -- nothing was observed and no pane state was consulted.",
-    );
-    // 2, not 1. A refusal (1) means "asked and answered: not now"; this is
-    // "cannot answer", which is what the untrusted code has always meant, and
-    // `--check`'s contract already gives 2 that reading.
-    return 2;
-  }
 
   if (opts.all) {
     s.out(refuse({ kind: "all-rejected" }).message);
@@ -634,7 +624,9 @@ export function main(argv: string[], s: Surface): number {
     return 2;
   }
 
-  if (SENDING.has(opts.mode)) {
+  // The disjunction rather than `SENDING.has`, because it NARROWS: `drive`
+  // takes a `SendMode`, and a Set membership test tells the compiler nothing.
+  if (opts.mode !== "report" && opts.mode !== "check") {
     const target = opts.target;
     if (target === null) {
       // ABSENT is not UNRESOLVABLE, and neither is a missing `--as`. Routing
@@ -670,7 +662,7 @@ export function main(argv: string[], s: Surface): number {
     // for an operator to do something about. Caught here so it cannot escape
     // `main` as an unhandled throw, which is what the round-1 probe observed.
     try {
-      return drive(opts, pane, roster, s);
+      return drive(opts, opts.mode, pane, roster, s);
     } catch (e) {
       if (e instanceof SendFailed) {
         s.out(`refusing: ${e.message}`);
@@ -696,8 +688,25 @@ export function main(argv: string[], s: Surface): number {
   return opts.mode === "check" ? checkExitCode(panes) : 0;
 }
 
-/** The three one-shot commands, each revalidating on its own predicate (§5.2). */
-function drive(opts: Parsed, pane: RosterPane, roster: RosterPane[], s: Surface): number {
+/**
+ * The three one-shot commands, each authorized from ONE read-once pass (§3.1).
+ *
+ * There is no preliminary observation, no stale-versus-fresh comparison and no
+ * second revalidation inside the send. Those were the four incremental repairs
+ * of one class -- r1 froze the nonce, r2 compared only the verdict, r3 froze the
+ * roster, r4 read the marker twice -- and each was a decision assembled across
+ * instants. The FIRST act here is `readOnce`, so every value below comes from
+ * this invocation's own pass, `s` is not consulted again after that line, and
+ * nothing is read between the decision and the send.
+ */
+// send-auth: pass
+function drive(
+  opts: Parsed,
+  mode: SendMode,
+  pane: RosterPane,
+  roster: RosterPane[],
+  s: Surface,
+): number {
   // NOT `opts.as ?? ""`. Every sending mode is refused with `missing-as` before
   // drive() is reachable (the guard above, on mode), so the null branch is dead
   // — and defaulting it to empty would be the wrong death: an empty `as` yields
@@ -705,32 +714,28 @@ function drive(opts: Parsed, pane: RosterPane, roster: RosterPane[], s: Surface)
   // than failing. Narrow on the established guarantee, so a future edit that
   // breaks it fails here instead of quietly driving an unowned pane.
   const as = opts.as!;
-  const cache = cacheOf(s);
-  const report = observe(pane, roster, as, s, cache);
+  // THE PASS. Established as the first act of the authorization, before any
+  // read it will decide on, so every value below is this invocation's own.
+  // `s` is not touched again after this line.
+  const pass = readOnce(s, NON_READ_MEMBERS);
+  const cache = cacheOf(pass);
+  const report = observe(pane, roster, as, pass, cache);
 
-  // OWNERSHIP BY THIS CALLER, asked here rather than by rule 3.
+  // OWNERSHIP BY THIS CALLER, which rule 3 deliberately does not answer.
   //
-  // Rule 3 now answers spec §4.2's question -- is the pane claimed AT ALL --
-  // because the report has no caller and must not label other people's panes
-  // unclaimed. That correction would otherwise open a hole in the other
-  // direction: a pane validly claimed by ANOTHER orchestrator passes rule 3 and
-  // would be drivable. It is refused here, before any send, and named as its own
-  // condition rather than folded into `not-drivable`.
+  // Rule 3 answers spec §4.2's question -- is the pane claimed AT ALL -- because
+  // the report has no caller and must not label other people's panes unclaimed.
+  // That correction would otherwise open a hole in the other direction: a pane
+  // validly claimed by ANOTHER orchestrator passes rule 3. The predicate refuses
+  // it by its own name.
   const ownership = resolveOwnership(
     pane.paneId,
     pane.agentName !== null && cache.branches.has(pane.agentName) ? pane.agentName : null,
     cache.purview,
     as,
   );
-  if (ownership.kind === "owned-by-other") {
-    s.out(`refusing: ${pane.paneId} is claimed by ${ownership.sessionId}, not by ${as}`);
-    return 1;
-  }
-  if (ownership.kind === "unowned") {
-    s.out(`refusing: ${pane.paneId} is not in your purview: ${ownership.reason}`);
-    return 1;
-  }
-  const marker = s.marker(pane.cwd);
+
+  const marker = pass.marker(pane.cwd);
   const markerNonce =
     typeof marker?.["checkpointNonce"] === "string" ? marker["checkpointNonce"] : null;
   // The addressee, when the marker names one. A marker-less or session-less
@@ -739,33 +744,20 @@ function drive(opts: Parsed, pane: RosterPane, roster: RosterPane[], s: Surface)
   // address rather than an absent one.
   const markerSessionId = typeof marker?.["sessionId"] === "string" ? marker["sessionId"] : null;
 
-  // "An observation says stop" is RULES 1-8, and it has to be read off the rule
-  // number rather than the verdict. `WAIT` is produced by rule 7 (blocked or
-  // unknown status) and rule 8 (a HardWait position) — both observations — AND
-  // by rules 11 and 12, which are banding. Testing the verdict cannot tell those
-  // apart, so a verdict-based gate would let `--resume` drive a pane that rule 7
-  // had stopped. §6's first guarantee is that no pane is driven, `--resume`
-  // included, while any rule 1-8 condition holds.
-  const OBSERVATION_RULES = 8;
-  if (report.rule <= OBSERVATION_RULES) {
-    // Named by RULE, not by verdict. The old message said "which is not COMPACT
-    // or FORCE" for every stop, which is false for an observation and wrong for
-    // `--resume`, which requires neither verdict (diff round 1, finding 7).
-    s.out(
-      refuse({
-        kind: "observation-stop",
-        rule: report.rule,
-        verdict: report.verdict,
-        detail: report.rejectedField,
-      }).message,
-    );
-    return 1;
-  }
-  // `--resume` stops there, deliberately: a successful compaction makes
-  // COMPACT/FORCE false exactly when resuming is the correct next act, so
-  // requiring them would refuse in precisely the case the command exists for.
-  if (opts.mode !== "resume" && report.verdict !== "COMPACT" && report.verdict !== "FORCE") {
-    s.out(refuse({ kind: "not-drivable", verdict: report.verdict }).message);
+  const decision = authorizeSend({
+    mode,
+    paneId: pane.paneId,
+    as,
+    ownership,
+    report,
+    // Read for `--compact` alone, because only `--compact` compares it. Reading
+    // it for every mode would put a member in the pass that no decision uses.
+    ...(mode === "compact"
+      ? { nonce: { recorded: pass.nonceRead(as, pane.paneId), marker: markerNonce } }
+      : {}),
+  });
+  if (!decision.authorized) {
+    pass.out(decision.message);
     return 1;
   }
 
@@ -777,91 +769,9 @@ function drive(opts: Parsed, pane: RosterPane, roster: RosterPane[], s: Surface)
   const branch = pane.agentName;
   if (branch === null) throw new Error("unreachable: rule 1 stops a pane with no agent label");
 
-  // ONE ATOMIC AUTHORIZATION READ, and this is the FOURTH repair of one class.
-  //
-  // r1: the marker was re-read but the NONCE came from an earlier capture.
-  // r2: the pane was re-observed but only the VERDICT was compared.
-  // r3: the comparison was complete but ran against the ORIGINAL roster.
-  // r4: everything above was fixed and the marker was still read TWICE -- once
-  //     inside revalidation's observe, once by the nonce thunk. A takeover that
-  //     changed `sessionId` between those two reads preserved the nonce, so rule
-  //     5 held on the stale copy and `/compact` was sent (AC-13/AC-17).
-  //
-  // Three rounds of adding another field or another re-read did not close it,
-  // because the defect is not WHICH inputs are refreshed -- it is that the
-  // decision was assembled from SEVERAL reads taken at different instants. So
-  // authorization now takes exactly one snapshot: the marker is read once per
-  // pass and both the classification and the nonce are derived from that same
-  // copy. Two reads cannot disagree if there is only one.
-  type Authz = { gone: true } | { gone: false; report: PaneReport; nonce: string | null };
-  let pass: Authz | null = null;
-  // send-auth: pass
-  const authorize = (): Authz => {
-    const freshRoster = s.roster();
-    const freshPane = freshRoster.find((r) => r.paneId === pane.paneId);
-    // EXPLICIT, not encoded as a stale report with a null nonce. That encoding
-    // was my own round-4 repair and it was wrong twice over: the caller compared
-    // `fresh.paneId` against the pane it already had, so the "left the roster"
-    // branch was unreachable, and the null nonce then refused with
-    // "marker carries no checkpointNonce" -- a reason that is FALSE while a
-    // matching nonce sits in the marker (diff round 5, finding 4). A refusal
-    // that names the wrong condition sends an operator to fix the wrong thing.
-    if (freshPane === undefined) return { gone: true };
-    let markerOnce: Record<string, unknown> | null | undefined;
-    const snapshot: Surface = {
-      ...s,
-      marker: (cwd) => {
-        if (markerOnce === undefined) markerOnce = s.marker(cwd);
-        return markerOnce;
-      },
-    };
-    const fresh = observe(freshPane, freshRoster, as, snapshot, cacheOf(snapshot));
-    const m = snapshot.marker(freshPane.cwd);
-    const nonce = typeof m?.["checkpointNonce"] === "string" ? m["checkpointNonce"] : null;
-    return { gone: false, report: fresh, nonce };
-  };
-
-  /**
-   * The freshness check EVERY sending mode runs, not just `--compact`.
-   *
-   * `--checkpoint` and `--resume` observed once and then sent, so a marker that
-   * changed in between was never seen: a probe flipped `blockedOn` on the second
-   * read and both commands exited 0 having sent (diff round 5, finding 1). §6's
-   * first guarantee is that no pane is driven while any rule 1-8 condition
-   * holds, and "held when we looked" is not that guarantee.
-   */
-  const revalidateNow = (): { ok: true } | { ok: false; message: string } => {
-    pass = authorize();
-    if (pass.gone) {
-      return { ok: false, message: `refusing: ${pane.paneId} left the roster before sending` };
-    }
-    const fresh = pass.report;
-    if (fresh.verdict !== report.verdict) {
-      return {
-        ok: false,
-        message: refuse({ kind: "stale-verdict", was: report.verdict, now: fresh.verdict }).message,
-      };
-    }
-    if (fresh.rule !== report.rule) {
-      return {
-        ok: false,
-        message: `refusing: the deciding rule changed from ${report.rule} to ${fresh.rule} before sending`,
-      };
-    }
-    if (!fresh.inPurview) {
-      return { ok: false, message: `refusing: ${pane.paneId} left ${as}'s purview before sending` };
-    }
-    return { ok: true };
-  };
-
-  if (opts.mode === "checkpoint") {
-    // Revalidate first: observing once and then sending is not §6's guarantee.
-    const freshOk = revalidateNow();
-    if (!freshOk.ok) {
-      s.out(freshOk.message);
-      return 1;
-    }
-    const nonce = mintNonce({ markerNonce, random: s.random });
+  // The effects, with NOTHING read between the decision and the send.
+  if (mode === "checkpoint") {
+    const nonce = mintNonce({ markerNonce, random: pass.random });
     const sends = planSends({
       command: "checkpoint",
       nonce,
@@ -869,58 +779,35 @@ function drive(opts: Parsed, pane: RosterPane, roster: RosterPane[], s: Surface)
       session: markerSessionId,
     }).sends;
     if (opts.dryRun) {
-      for (const line of sends) s.outRaw(line);
+      for (const line of sends) pass.outRaw(line);
       return 0;
     }
-    s.nonceWrite(as, pane.paneId, nonce);
-    for (const line of sends) s.send(pane.paneId, line);
+    pass.nonceWrite(as, pane.paneId, nonce);
+    for (const line of sends) pass.send(pane.paneId, line);
     return 0;
   }
 
-  if (opts.mode === "resume") {
-    // `--resume` has its own PREDICATE (it deliberately does not require
-    // COMPACT/FORCE), but it has the same freshness obligation as every other
-    // sending mode: rules 1-8 must still be quiet at the moment of the send.
-    const freshOk = revalidateNow();
-    if (!freshOk.ok) {
-      s.out(freshOk.message);
-      return 1;
-    }
+  if (mode === "resume") {
     const sends = planSends({ command: "resume", branch, session: markerSessionId }).sends;
     for (const line of sends) {
-      if (opts.dryRun) s.outRaw(line);
-      else s.send(pane.paneId, line);
+      if (opts.dryRun) pass.outRaw(line);
+      else pass.send(pane.paneId, line);
     }
     return 0;
   }
 
-  // `--dry-run` goes through the SAME gate rather than around it. Printing
-  // `/compact` unconditionally would tell an operator the command is ready when
-  // the real one would refuse — an absent or mismatched nonce exits 1 and sends
-  // nothing (AC-19), and a dry run that cannot show that refusal is worse than
-  // no dry run at all. What it must not do is CONSUME: reading and comparing
-  // the record is the gate, spending it is the side effect, so the dry run gets
-  // a no-op consume and a send that prints.
-
-  const result = runCompact({
-    store: {
-      read: () => s.nonceRead(as, pane.paneId),
-      consume: opts.dryRun ? (): void => {} : (): void => s.nonceConsume(as, pane.paneId),
-    },
-    // From the SAME snapshot the revalidation classified, never a second read.
-    markerNonce: () => {
-      const p = pass ?? authorize();
-      return p.gone ? null : p.nonce;
-    },
+  // `--dry-run` went through the SAME gate above rather than around it, so it
+  // shows the refusal the real command would hit. What it must not do is SPEND:
+  // reading and comparing the record is the gate, consuming it is the side
+  // effect, so the dry run gets a no-op consume and a send that prints.
+  runCompact({
+    consume: opts.dryRun ? (): void => {} : (): void => pass.nonceConsume(as, pane.paneId),
     send: (text) => {
-      if (opts.dryRun) s.outRaw(text);
-      else s.send(pane.paneId, text);
+      if (opts.dryRun) pass.outRaw(text);
+      else pass.send(pane.paneId, text);
     },
-    // Revalidated a second time at the moment of the send, per §5.2.
-    revalidate: revalidateNow,
   });
-  if (result.message !== "") s.out(result.message);
-  return result.exitCode;
+  return 0;
 }
 
 // ---------------------------------------------------------------------------

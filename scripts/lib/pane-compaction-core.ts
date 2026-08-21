@@ -769,7 +769,6 @@ export type RefusalCause =
   | { kind: "observation-stop"; rule: number; verdict: Verdict; detail: string | null }
   | { kind: "nonce-absent" }
   | { kind: "nonce-mismatch" }
-  | { kind: "stale-verdict"; was: Verdict; now: Verdict }
   /**
    * A VALID, uncontested claim held by a different session.
    *
@@ -829,8 +828,6 @@ export function refuse(cause: RefusalCause): Refusal {
         return "refusing: the target's marker carries no checkpointNonce";
       case "nonce-mismatch":
         return "refusing: the target's checkpointNonce is not the one this command recorded";
-      case "stale-verdict":
-        return `refusing: verdict changed from ${cause.was} to ${cause.now} before sending`;
       case "owned-by-other":
         return `refusing: ${cause.paneId} is claimed by ${cause.sessionId}, not by ${cause.as}`;
       case "not-in-purview":
@@ -840,6 +837,59 @@ export function refuse(cause: RefusalCause): Refusal {
     }
   })();
   return { exitCode: 1, sends: [], message };
+}
+
+// ---------------------------------------------------------------------------
+// §3.1 — the read-once pass
+// ---------------------------------------------------------------------------
+
+/**
+ * ONE read-once pass over an injected surface.
+ *
+ * Every read member answers from its FIRST call for the remainder of the pass,
+ * so "the same member read twice at two instants" stops being expressible.
+ * That is the whole repair: six shipped defects were inter-pass skew, and four
+ * incremental repairs narrowed the window by comparing MORE FIELDS rather than
+ * by removing the second read. A comparison that exists can be incomplete; a
+ * comparison that does not exist cannot.
+ *
+ * The read set is the COMPLEMENT of `nonRead`, never a list of reads, so the
+ * wrapper is TOTAL over the surface: a member added later is memoized by
+ * default and only a deliberate edit to the exclusion set can take it out of
+ * the pass. A hand-list of reads would fail the other way -- the new member
+ * would sit outside the pass silently, which is the shape this whole arc is
+ * about.
+ *
+ * Keyed by member AND arguments, because `marker(cwd)` for two different
+ * worktrees is two questions rather than one asked twice.
+ *
+ * It is NOT an instant, and nothing here claims it is: members are called
+ * sequentially, so a change landing between two DIFFERENT calls is unobserved
+ * by this pass. That residual is spec §7 limit 1, priced there by the queue
+ * property and the addressed payloads rather than claimed closed.
+ *
+ * Generic over the surface's shape and free of I/O, so it lives here rather
+ * than in the adapter: the mutation gate can attack it, and the send-auth
+ * scanner -- which reasons about MEMBER ACCESSES on a surface binding -- cannot
+ * classify a wrapper that iterates members reflectively. In the adapter it is a
+ * declared derivation helper, which is exactly what it is.
+ */
+export function readOnce<T extends object>(surface: T, nonRead: ReadonlySet<string>): T {
+  const memo = new Map<string, unknown>();
+  const pass: Record<string, unknown> = { ...(surface as unknown as Record<string, unknown>) };
+  for (const [member, value] of Object.entries(surface as unknown as Record<string, unknown>)) {
+    if (nonRead.has(member) || typeof value !== "function") continue;
+    const read = value as (...args: unknown[]) => unknown;
+    pass[member] = (...args: unknown[]): unknown => {
+      const key = `${member}(${JSON.stringify(args)})`;
+      const hit = memo.get(key);
+      if (hit !== undefined || memo.has(key)) return hit;
+      const answer = read.apply(surface, args);
+      memo.set(key, answer);
+      return answer;
+    };
+  }
+  return pass as unknown as T;
 }
 
 // ---------------------------------------------------------------------------
@@ -956,12 +1006,6 @@ export function authorizeSend(input: AuthorizationInput): AuthorizationDecision 
 // §5.2 / §5.5 — the nonce, and per-command revalidation
 // ---------------------------------------------------------------------------
 
-/** The outstanding-nonce record for one target. Injected, so no test needs a real file. */
-export type NonceStore = {
-  read(): string | null;
-  consume(): void;
-};
-
 /**
  * Mint a nonce that is not the one already in the target's marker.
  *
@@ -970,6 +1014,15 @@ export type NonceStore = {
  * had executed. Spec round 7's finding: "128-bit random, therefore different"
  * is a probability argument, not a proof. One local comparison, not a return of
  * the cross-orchestrator machinery round 6 removed.
+ *
+ * `markerNonce` comes from the PASS's marker copy, not from an entry-time read
+ * (spec §3.2): a collision compare against a stale copy could re-mint against a
+ * nonce the target had already replaced.
+ *
+ * It THROWS when the budget is exhausted, which is reachable exactly when
+ * `random()` is broken -- a tool fault, not a refusal. The adapter catches it
+ * and exits 2 naming the condition (spec §3.7); letting it escape `main` would
+ * exit with a code the taxonomy assigns to refusals.
  */
 export function mintNonce(opts: { markerNonce: string | null; random: () => string }): string {
   for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -979,55 +1032,29 @@ export function mintNonce(opts: { markerNonce: string | null; random: () => stri
   throw new Error("mintNonce: generator kept colliding with the marker's nonce");
 }
 
-export type Revalidation = { ok: true } | { ok: false; message: string };
-
 /**
- * `--compact`: revalidate, verify the nonce, consume, then send.
+ * `--compact`: consume the outstanding record, then send.
  *
  * ORDER MATTERS AND IS ASSERTED FROM INSIDE THE SEND. Consuming before the send
  * means a crash costs a re-checkpoint; consuming after would leave a replayable
  * record on every failure path. `try { send() } finally { consume() }` produces
- * identical POST-HOC observations — both end with the record gone — so only an
+ * identical POST-HOC observations -- both end with the record gone -- so only an
  * observation taken while the send executes can tell them apart.
  *
- * Revalidation precedes consumption so a refusal does not burn the checkpoint:
- * the orchestrator can fix the condition and retry without re-checkpointing.
+ * It no longer GATES. Under the single-pass model the whole decision, nonce
+ * equality included, is `authorizeSend`'s (spec §3.1 step 4), and this runs only
+ * once that has authorized. The revalidation thunk, the record read and the
+ * comparison are deleted rather than kept as belt-and-braces: two checks of one
+ * condition means one of them is dead, and a dead check is exactly the survivor
+ * class the mutation gate already caught once on this surface. The refusal rows
+ * `nonce-absent` and `nonce-mismatch` are unchanged -- they are emitted from the
+ * catalog by the predicate instead of from here.
+ *
+ * A refusal therefore cannot burn the checkpoint, and that is now structural
+ * rather than an ordering to maintain: nothing reaches this function unless the
+ * authorization already passed.
  */
-export function runCompact(opts: {
-  store: NonceStore;
-  /**
-   * A THUNK, not a value, and that is the whole point (AC-19).
-   *
-   * Taking the marker's nonce as a value meant it was read BEFORE
-   * `revalidate()`, so the revalidation re-read the marker, compared only the
-   * verdict, and then authorized the send against a nonce that could already
-   * have changed underneath it. Diff round 1 probed exactly that: three marker
-   * reads returning `recorded`, `recorded`, `changed-before-revalidation`, and
-   * the command still exited 0 having sent `/compact`.
-   *
-   * Read AFTER revalidation, so the value compared is the one true at the
-   * moment of the send rather than at the moment the command started.
-   */
-  markerNonce: () => string | null;
-  send: (s: string) => void;
-  revalidate: () => Revalidation;
-}): { exitCode: 0 | 1; message: string } {
-  const fresh = opts.revalidate();
-  if (!fresh.ok) return { exitCode: 1, message: fresh.message };
-
-  const recorded = opts.store.read();
-  if (recorded === null) {
-    return { exitCode: 1, message: refuse({ kind: "nonce-absent" }).message };
-  }
-  const current = opts.markerNonce();
-  if (current === null) {
-    return { exitCode: 1, message: refuse({ kind: "nonce-absent" }).message };
-  }
-  if (current !== recorded) {
-    return { exitCode: 1, message: refuse({ kind: "nonce-mismatch" }).message };
-  }
-
-  opts.store.consume(); // BEFORE the send, deliberately
+export function runCompact(opts: { consume: () => void; send: (s: string) => void }): void {
+  opts.consume(); // BEFORE the send, deliberately
   for (const s of planSends({ command: "compact" }).sends) opts.send(s);
-  return { exitCode: 0, message: "" };
 }
