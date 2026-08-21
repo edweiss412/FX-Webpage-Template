@@ -31,6 +31,22 @@ const TSX = join(ROOT, "node_modules/tsx/dist/cli.mjs");
 const DOC = "tests/specLint/fixtures/docs/superpowers/specs/clean.md";
 const T = 30000;
 
+/**
+ * A revision reachable in ANY clone, for the cases that actually reach git.
+ *
+ * The three refusal cases below quote `c272ebed3` and never read it: they refuse
+ * on the DECLARATION, before any git call, so an unreachable revision is
+ * immaterial to them. Their PAIRED positives are the opposite -- a well-formed
+ * invocation must proceed, which means it reads the repair's diff for real.
+ *
+ * CI checks out shallow, so `c272ebed3` does not exist there, and once a git
+ * refusal correctly became a usage error those two cases started exiting 2 on
+ * CI while passing on every development clone. The pair is about the
+ * DECLARATION being well formed; pinning the shape of this repository's history
+ * as well is a second claim nobody meant to make, and it is the one that broke.
+ */
+const REACHABLE_REV = "HEAD";
+
 function cli(args: string[]) {
   const r = spawnSync(process.execPath, [TSX, "scripts/spec-lint.ts", ...args], {
     cwd: ROOT,
@@ -139,7 +155,7 @@ describe("claim sweep — the three refusals (spec §3.0)", () => {
           "--claim-about",
           "PublishedReviewModal.tsx:964",
           "--repair",
-          "c272ebed3",
+          REACHABLE_REV,
         ]);
         premise(
           "the CLI child wrote to a channel",
@@ -185,7 +201,15 @@ describe("claim sweep — the three refusals (spec §3.0)", () => {
     it(
       "does NOT refuse the same invocation plus a declaration (one variable apart)",
       () => {
-        const r = cli([DOC, "--repair", "c272ebed3", "--superseded", "58", "--replacement", "57"]);
+        const r = cli([
+          DOC,
+          "--repair",
+          REACHABLE_REV,
+          "--superseded",
+          "58",
+          "--replacement",
+          "57",
+        ]);
         premise(
           "the CLI child wrote to a channel",
 

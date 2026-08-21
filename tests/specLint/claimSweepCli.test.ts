@@ -17,7 +17,7 @@
  * adapter minus the OS boundary, and a real subprocess case asserts the
  * RELATIONS that survive the corpus growing.
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -305,6 +305,35 @@ describe("claim sweep adapter — THE ARM NEVER REWRITES A DOCUMENT (AC-3)", () 
 
 describe("claim sweep adapter — a real subprocess, asserted as RELATIONS", () => {
   const T = 60000;
+
+  /**
+   * These two cases are the only ones in the arc that need the INCIDENT COMMIT
+   * itself: they run the real binary against the live documents with
+   * `--repair c272ebed3`, so the adapter reads that revision's diff for real.
+   *
+   * CI checks out shallow and the object does not exist there. Before the
+   * revision-refusal repair that surfaced as an unhandled throw; after it, as a
+   * correct usage error — either way these cases cannot run, and the honest
+   * response is to say so rather than to swap in a revision that exists but
+   * replays nothing. The relations they assert are covered independently by the
+   * injected-deps cases above, which read COMMITTED fixture blobs and need no
+   * history at all.
+   *
+   * This is a PREMISE, not a skip: when the object is unreachable the case
+   * requires the repository to be genuinely shallow, so an object missing from
+   * a COMPLETE clone still reds rather than quietly doing nothing.
+   */
+  const incidentReachable =
+    spawnSync("git", ["cat-file", "-e", `${"c272ebed3"}^{commit}`], { encoding: "utf8" }).status ===
+    0;
+  const requireShallowIfUnreachable = () => {
+    expect(
+      spawnSync("git", ["rev-parse", "--is-shallow-repository"], {
+        encoding: "utf8",
+      }).stdout.trim(),
+      "c272ebed3 unreachable in a COMPLETE clone means the incident replay is gone, not deferred",
+    ).toBe("true");
+  };
   function cli(args: string[]) {
     const r = execFileSync(process.execPath, [TSX, "scripts/spec-lint.ts", ...args], {
       cwd: process.cwd(),
@@ -327,6 +356,7 @@ describe("claim sweep adapter — a real subprocess, asserted as RELATIONS", () 
       // them. What is asserted is the relation: the run produces claim-sweep
       // findings, every one of them carries a code the module exports, and the
       // peers contribute nothing but claim-sweep findings.
+      if (!incidentReachable) return requireShallowIfUnreachable();
       const result = cli([
         "--json",
         INCIDENT_SPEC,
@@ -364,6 +394,7 @@ describe("claim sweep adapter — a real subprocess, asserted as RELATIONS", () 
       // The documents exist and were read. Comparing two empty buffers is the
       // default success case of every naive diff.
       for (const b of before) premise("a swept document was read before the run", b.length, 1000);
+      if (!incidentReachable) return requireShallowIfUnreachable();
       const result = cli([
         "--json",
         INCIDENT_SPEC,
