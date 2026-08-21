@@ -442,11 +442,18 @@ committed version.
 
 ```text
 suitePaths derived from the registry row: 2
-DIRECTION 1 (as shipped)            live instances: 0  -> PASS
-DIRECTION 2 (violation constructed) live instances: 1  -> PASS
+DIRECTION 1 (as shipped)  live instances: 0  -> PASS
+DIRECTION 2 (unlocatable suite body) matching instances: 1  -> PASS
       tests/mutation/source/premiseScan.test.ts:4136 live unlocatable suite body
+DIRECTION 2 (eager-position hook) matching instances: 1  -> PASS
+      tests/mutation/source/premiseScan.test.ts:4135 live eager hook
 restored byte-exact: true
 ```
+
+**One constructed violation PER SHAPE, each required to be detected on its own, and each matched by
+the reason it should produce rather than by any hit.** A single named-factory violation is passed by
+a weaker guard that recognizes unlocatable suite bodies and ignores eager-position hooks entirely, so
+a guard claiming "either shape" needs one probe per shape to prove it. Plan review r2 finding 1.
 
 An in-process check over the surface's own `suitePaths`, read from the registry row rather than
 retyped, asserting zero LIVE instances of either shape — fixtures are source TEXT, so a live one
@@ -507,6 +514,25 @@ Taken BEFORE whole-diff review, as ONE commit: both rows archived, both IN PROGR
 peers filed. Absence is then guaranteed rather than maintained. Verify by set arithmetic in both
 directions — union of BL/DEF ids exact, `comm -12` archived-versus-open empty, in-progress marker
 count zero — and re-verify after any subsequent `origin/main` merge.
+**Why this is EARLY and not the PR's last commit, ratified — do not relitigate.** `AGENTS.md`
+invariant 12 says the marker comes off in the PR's last commit. That ordering was **corrected** and
+the correction is the operative rule: the whole ledger change — peer rows filed, graduating rows
+archived, markers removed — is ONE commit taken BEFORE whole-diff review. Two reasons, both from the
+ruling: absence is then GUARANTEED rather than maintained, since gone at commit N is gone at every
+commit after N; and a ledger commit placed after whole-diff review is unreviewed code riding into the
+merge, which `writing-plans` forbids.
+
+The objection that this leaves the work unclaimed during review is the trade-off the ruling
+considered and accepted. It is covered by the ARMING WINDOW instead: `--auto` is never armed until
+CI is green AND review approves, so the window in which an unclaimed row could matter is the window
+in which the PR cannot merge anyway. PR #838 shipped a stale marker to main because auto-merge was
+armed at push time, not because a ledger commit sat in the wrong position.
+
+The residual hazard the ruling names is a different one and it IS this plan's obligation: a mid-arc
+merge of `origin/main` AFTER the closeout commit can reintroduce a row or a marker. Hence the
+set-arithmetic re-verify below, run again after every subsequent main merge, plus an absent-at-HEAD
+check immediately before merge.
+
 
 `_metaLedgerInProgress` passes both BEFORE and AFTER this task (17/17 at plan time, measured above):
 the markers this branch carries are well-formed and name a branch that exists on origin, which is
