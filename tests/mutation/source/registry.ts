@@ -186,7 +186,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     },
     accepted: [
       {
-        siteId: "relational-boundary:603:29:>>>=",
+        siteId: "relational-boundary:735:29:>>>=",
         kind: "equivalent",
         reason:
           "`here.length > 0` versus `>= 0` agree on every reachable input: an extents entry is " +
@@ -194,19 +194,23 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "so the array is never empty. The guard reads as belt-and-braces and is exactly that. " +
           "Re-keyed by the mutated EXPRESSION, not by line: the import-edge repair moved every line " +
           "below its first hunk, the round-1 repairs moved it again, and the round-2 withdrawal moved " +
-          "it back and the round-3 repairs nudged it once more (601 -> 721 -> 604 -> 603). The expression and its 1-based column are byte-identical at " +
+          "it back, the round-3 repairs nudged it once more, and the accept-set derivation moved it again " +
+          "(601 -> 721 -> 604 -> 603 -> 735). The expression and its 1-based column are byte-identical at " +
           "every key, which is what " +
-          "makes this a re-key rather than a new acceptance.",
+          "makes this a re-key rather than a new acceptance. The fifth key was re-checked by INSPECTION rather " +
+          "than re-measured: an extents entry is still written only by `addExtentIn` or the write pass, both " +
+          "still spread-and-append a node before storing, and the derivation change touched neither writer, so " +
+          "the array is still never empty.",
       },
       {
-        siteId: "relational-boundary:1936:28:<><=",
+        siteId: "relational-boundary:2089:28:<><=",
         kind: "equivalent",
         reason:
           "The premise-placement test asks whether the premise call starts BEFORE the registration " +
           "call. `<` and `<=` differ only when the two nodes start at the identical offset, which " +
           "two distinct sibling statements cannot do — equality there would mean they are the same " +
           "node, and the walk never compares a node against itself. Re-keyed by the mutated " +
-          "EXPRESSION (1752 -> 2061 -> 1864 -> 1872 -> 1881 -> 1891 -> 1906 -> 1932 -> 1936 -> 1955 -> 1936), byte-identical at every key. Keys six through ELEVEN were bought by ONE arc that never touched this function -- its stop in `hookBodies` seventy lines above, then four review-driven repairs of that stop and its neighbours, and finally a REVERT of one of them. SIX full gate cycles, roughly forty-eight minutes of pure measurement, for an expression nobody edited. Two facts fall out that no earlier key could show: the tenth moved the OTHER accepted row as well (603 -> 622) because reformatting one `Set` literal to multi-line pushed every site below it down nineteen lines, so the churn is proportional to LINES MOVED rather than to semantic change; and the eleventh moved both BACK (622 -> 603, 1955 -> 1936), because an UNDO costs exactly what the change did. A key that tracks position rather than identity charges for motion in either direction. Every key is a re-run, so it taxes wall clock and not just attention. This is the measured case for BL-MUTATION-SITEID-LINE-KEYED-CHURN.",
+          "EXPRESSION (1752 -> 2061 -> 1864 -> 1872 -> 1881 -> 1891 -> 1906 -> 1932 -> 1936 -> 1955 -> 1936), byte-identical at every key. Keys six through ELEVEN were bought by ONE arc that never touched this function -- its stop in `hookBodies` seventy lines above, then four review-driven repairs of that stop and its neighbours, and finally a REVERT of one of them. SIX full gate cycles, roughly forty-eight minutes of pure measurement, for an expression nobody edited. Two facts fall out that no earlier key could show: the tenth moved the OTHER accepted row as well (603 -> 622) because reformatting one `Set` literal to multi-line pushed every site below it down nineteen lines, so the churn is proportional to LINES MOVED rather than to semantic change; and the eleventh moved both BACK (622 -> 603, 1955 -> 1936), because an UNDO costs exactly what the change did. A key that tracks position rather than identity charges for motion in either direction. Every key is a re-run, so it taxes wall clock and not just attention. This is the measured case for BL-MUTATION-SITEID-LINE-KEYED-CHURN. The TWELFTH key (1936 -> 2089) adds the sharpest datum yet, because it moved BESIDE the other row rather than alone: on ONE change the two accepted rows shifted by +153 and +132 lines respectively. A re-key computed as a uniform offset would therefore have written a WRONG key for exactly one of them, and a wrong key reads as a fresh stale row rather than as an error in the repair. Both were taken from the run artifact's own survivor ids and then verified by reading the expression and its 1-based column at each new site.",
       },
     ],
   },
