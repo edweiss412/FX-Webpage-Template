@@ -581,7 +581,7 @@ const analyzePassReads = (
   // used. A parameter shadowing a derived name inside the same pass is raw at its own
   // uses and derived nowhere (diff r2 F1), and a set keyed on the name alone cannot
   // say that.
-  isRaw: (name: string, at: ts.Node) => boolean,
+  isRaw: (name: string) => boolean,
   reads: readonly string[],
   passFn: ts.Node,
   derivations: readonly Derivation[],
@@ -596,7 +596,7 @@ const analyzePassReads = (
     if (
       readCall !== null &&
       readSet.has(readCall.member) &&
-      surfaceReceiverOf(readCall.receiver, (name) => isRaw(name, n)).kind === "surface"
+      surfaceReceiverOf(readCall.receiver, isRaw).kind === "surface"
     ) {
       const member = readCall.member;
       // Raw reads inside a derivation's OWN initializer are exempt from this
@@ -775,7 +775,7 @@ const analyzeDerivations = (
 const analyzeHandoffs = (
   sf: ts.SourceFile,
   file: string,
-  isRaw: (name: string, at: ts.Node) => boolean,
+  isRaw: (name: string) => boolean,
   passFn: ts.Node,
   derivations: readonly Derivation[],
 ): Finding[] => {
@@ -791,7 +791,7 @@ const analyzeHandoffs = (
         // The ARGUMENT is the surface reference, so rule A resolves it exactly as
         // it resolves a receiver: `helper(this.ch)` and `helper((ch))` hand on the
         // same binding a bare `helper(ch)` does. `foreign` and `opaque` are silent.
-        if (surfaceReceiverOf(argument, (name) => isRaw(name, argument)).kind !== "surface") {
+        if (surfaceReceiverOf(argument, isRaw).kind !== "surface") {
           continue;
         }
         const line = sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
@@ -1101,6 +1101,99 @@ const unreachedOccurrences = (
   return out;
 };
 
+/**
+ * The accept-set of DECLARING PARENTS. Its default is USE, and that direction is
+ * chosen by which error SURVIVES BEING WRONG: classifying a use as a declaration
+ * SKIPS it and the finding is lost forever and silently, while classifying a
+ * declaration as a use REPORTS and costs a line somebody reads.
+ *
+ * Note this arc's two accept-sets default in OPPOSITE directions on purpose --
+ * rule B's competing test defaults to COMPETES. What they share is that the
+ * default is the direction whose mistake is recoverable.
+ */
+const DECLARING_PARENT_KINDS: ReadonlySet<ts.SyntaxKind> = new Set([
+  ts.SyntaxKind.Parameter,
+  ts.SyntaxKind.VariableDeclaration,
+  ts.SyntaxKind.PropertyDeclaration,
+  ts.SyntaxKind.BindingElement,
+  ts.SyntaxKind.MethodDeclaration,
+  ts.SyntaxKind.GetAccessor,
+  ts.SyntaxKind.SetAccessor,
+  ts.SyntaxKind.PropertyAssignment,
+  ts.SyntaxKind.PropertySignature,
+  ts.SyntaxKind.MethodSignature,
+  ts.SyntaxKind.FunctionDeclaration,
+  ts.SyntaxKind.FunctionExpression,
+  ts.SyntaxKind.ClassDeclaration,
+  ts.SyntaxKind.ClassExpression,
+  ts.SyntaxKind.EnumMember,
+  ts.SyntaxKind.TypeParameter,
+]);
+
+const declaresName = (id: ts.Identifier): boolean => {
+  const parent: ts.Node | undefined = id.parent;
+  if (parent === undefined || !DECLARING_PARENT_KINDS.has(parent.kind)) return false;
+  return (parent as { name?: ts.Node }).name === id;
+};
+
+/**
+ * The KEYWORD TYPES that cannot hold an object. This is the ONLY escape from
+ * competing, and the complement is DEFAULT-DENIED into the reporting direction.
+ *
+ * "Not spelled exactly like the surface type" is NOT "provably not the surface":
+ * permitting only an exact reference or an absent annotation to compete let a
+ * shadow annotated `any` or `Readonly<Channel>` INHERIT the exemption and
+ * suppress reads the scanner reports today -- a regression in the silence
+ * direction, introduced by the repair.
+ */
+const CANNOT_HOLD_AN_OBJECT: ReadonlySet<ts.SyntaxKind> = new Set([
+  ts.SyntaxKind.StringKeyword,
+  ts.SyntaxKind.NumberKeyword,
+  ts.SyntaxKind.BooleanKeyword,
+  ts.SyntaxKind.BigIntKeyword,
+  ts.SyntaxKind.SymbolKeyword,
+  ts.SyntaxKind.VoidKeyword,
+  ts.SyntaxKind.UndefinedKeyword,
+  ts.SyntaxKind.NeverKeyword,
+]);
+
+const competesAsSurface = (declaration: ts.Node): boolean => {
+  const annotation = (declaration as { type?: ts.TypeNode }).type;
+  // NO ANNOTATION COMPETES: it cannot be ruled out without a checker.
+  if (annotation === undefined) return true;
+  if (CANNOT_HOLD_AN_OBJECT.has(annotation.kind)) return false;
+  // `null` is a LiteralType wrapping the keyword rather than a keyword node.
+  if (ts.isLiteralTypeNode(annotation) && annotation.literal.kind === ts.SyntaxKind.NullKeyword) {
+    return false;
+  }
+  return true;
+};
+
+/**
+ * How many COMPETING declarations of `name` the pass contains. More than one and
+ * the derivation exemption for that name is VOID, so every use of it in the pass
+ * is RAW and the pass REPORTS instead of falling silent.
+ *
+ * A bounded tree walk: a mutant to the predicate can only visit fewer nodes,
+ * never fail to terminate.
+ */
+const competingDeclarationCount = (passFn: ts.Node, name: string): number => {
+  let count = 0;
+  const walk = (node: ts.Node): void => {
+    if (
+      ts.isIdentifier(node) &&
+      node.text === name &&
+      declaresName(node) &&
+      competesAsSurface(node.parent)
+    ) {
+      count += 1;
+    }
+    ts.forEachChild(node, walk);
+  };
+  walk(passFn);
+  return count;
+};
+
 /** Scan one enrolled module against its row. */
 export function scanModule(file: string, row: SendAuthSurface): Finding[] {
   const text = readFileSync(file, "utf8");
@@ -1138,40 +1231,45 @@ export function scanModule(file: string, row: SendAuthSurface): Finding[] {
   // parameter, the use is treated as RAW. A shadow the scanner cannot resolve
   // therefore REPORTS rather than falling silent, which is the only direction the
   // consequence bound allows.
-  const shadowedBetween = (name: string, at: ts.Node, declaration: ts.Node): boolean => {
-    for (let cur: ts.Node | undefined = at; cur !== undefined; cur = cur.parent) {
-      if (cur === declaration) return false;
-      if (isFunctionLike(cur)) {
-        const shadows = (cur as ts.SignatureDeclaration).parameters.some(
-          (param) => ts.isIdentifier(param.name) && param.name.text === name,
-        );
-        if (shadows) return true;
-      }
-    }
-    return false;
+  // RULE B, as a COUNT. The ancestor-walk shadow predicate this replaces is
+  // DELETED OUTRIGHT -- named in the commit that removed it rather than here, so
+  // AC-U8's grep for the symbol can return a clean zero. It had to ENUMERATE the
+  // scopes able to shadow, and it fell silent -- fail-open, into the forbidden
+  // direction -- on every scope kind it did not list. It was already measured
+  // missing three, and widening it one scope per round is the ratchet.
+  //
+  // A count needs no notion of scope AT ALL, so it is total over constructors, set
+  // accessors, nested blocks and forms nobody has thought of, without naming any
+  // of them. It also cannot be argued with.
+  const exemptionVoidCache = new Map<string, boolean>();
+  const exemptionVoid = (passFn: ts.Node, passIndex: number, name: string): boolean => {
+    const key = `${passIndex}\u0000${name}`;
+    const cached = exemptionVoidCache.get(key);
+    if (cached !== undefined) return cached;
+    const voided = competingDeclarationCount(passFn, name) > 1;
+    exemptionVoidCache.set(key, voided);
+    return voided;
   };
 
   const derivedAt = (name: string, at: ts.Node): boolean =>
-    passes.some((p) =>
-      p.derivations.some(
-        (d) =>
-          d.name === name &&
-          lexicallyWithin(p.fn, at, sf) &&
-          !shadowedBetween(name, at, d.declaration),
-      ),
+    passes.some(
+      (p, i) =>
+        p.derivations.some((d) => d.name === name) &&
+        lexicallyWithin(p.fn, at, sf) &&
+        !exemptionVoid(p.fn, i, name),
     );
 
   const topLevel = topLevelFunctions(sf);
   const classified = sendBearingFunctions(row, bindings, topLevel);
   const findings: Finding[] = classifyUses(sf, file, row, bindings, reads, derivedAt);
   findings.push(...unreachedOccurrences(sf, file, row, bindings, classified));
-  for (const { fn, derivations } of passes) {
+  for (const [passIndex, { fn, derivations }] of passes.entries()) {
     // Per-pass, for the same reason: inside THIS pass, only THIS pass's derivations
     // are derived. Another pass's names are ordinary raw bindings here.
     // Raw HERE means: a surface binding, and not derived AT THIS USE by THIS pass.
-    const rawHere = (name: string, at: ts.Node): boolean =>
+    const rawHere = (name: string): boolean =>
       bindings.has(name) &&
-      !derivations.some((d) => d.name === name && !shadowedBetween(name, at, d.declaration));
+      (exemptionVoid(fn, passIndex, name) || !derivations.some((d) => d.name === name));
     findings.push(...analyzePassReads(sf, file, rawHere, reads, fn, derivations));
     findings.push(...analyzeDerivations(sf, file, fn, derivations));
     // The name-only view was NOT the right one: it subtracted a shadowing parameter

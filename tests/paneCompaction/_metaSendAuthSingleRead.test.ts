@@ -916,10 +916,19 @@ describe("Task 8 — second repair pass, from the re-measure at 0.9259", () => {
     // What the finding proves is unchanged — before the fix this module reported
     // NOTHING AT ALL, because the shadowing parameter inherited the derivation's
     // exemption. Silence was the defect; which code closes it is the scanner's call.
+    // MOVED BY THIS TASK, ADDITIVELY, and updated here rather than deferred --
+    // a task cannot reach green while leaving its own suite red. `snap` is
+    // declared TWICE in this pass with competing surface-typed declarations, so
+    // rule B voids the exemption for the whole pass and the closing
+    // `return inner(snap)` is a raw handoff. NOTHING IS REMOVED: both prior
+    // findings stand unchanged, which is what makes the change additive rather
+    // than merely small. A silently updated expectation is indistinguishable
+    // from a regression somebody accommodated.
     const f = "same-pass-shadowed-derivation.ts";
     expect(scan(f)).toEqual([
       finding(f, "NON-STRAIGHT-LINE-READ", "panes", lineOf(f, "const a = snap.panes()")),
       finding(f, "NON-STRAIGHT-LINE-READ", "panes", lineOf(f, "const b = snap.panes()")),
+      finding(f, "RAW-HANDOFF", "inner", lineOf(f, "return inner(snap);")),
     ]);
   });
 
@@ -984,8 +993,14 @@ describe("Task 8 — second repair pass, from the re-measure at 0.9259", () => {
     // was subtracted BY NAME and its handoff went unreported. The arm now asks the
     // same shadow-aware question, so a binding the scanner cannot SHOW to be derived
     // at this use is RAW — failing closed.
+    // MOVED BY THIS TASK, ADDITIVELY. Same cause as its sibling: two competing
+    // declarations of `snap` in one pass void the exemption, so the closing
+    // handoff reports too. The pre-existing `leak` finding is untouched.
     const f = "shadowed-param-handoff.ts";
-    expect(scan(f)).toEqual([finding(f, "RAW-HANDOFF", "leak", lineOf(f, "leak(snap)"))]);
+    expect(scan(f)).toEqual([
+      finding(f, "RAW-HANDOFF", "leak", lineOf(f, "leak(snap)")),
+      finding(f, "RAW-HANDOFF", "inner", lineOf(f, "return inner(snap);")),
+    ]);
   });
 
   it("reports the surface DESTRUCTURED in a parameter, naming the bound member", () => {
@@ -1214,6 +1229,59 @@ type ManifestCell = {
 const INHERITED_CORPUS_SIZE = 81;
 
 const MANIFEST: readonly ManifestCell[] = [
+  // --- Task 4 [task:rule-b-count].
+  {
+    fixture: "shadow-scope-constructor.ts",
+    axis: "exemption state",
+    covers: "AC-U4 — scope kind 1 of 4: a constructor parameter re-declares the name",
+  },
+  {
+    fixture: "shadow-scope-set-accessor.ts",
+    axis: "exemption state",
+    covers: "AC-U4 — scope kind 2 of 4: a set accessor NAME re-declares the name",
+  },
+  {
+    fixture: "shadow-scope-nested-block-surface.ts",
+    axis: "exemption state",
+    covers:
+      "AC-U4 — scope kind 3 of 4: a nested block, surface-typed, and not function-like at all",
+  },
+  {
+    fixture: "shadow-scope-nested-block-opaque.ts",
+    axis: "exemption state",
+    covers: "AC-U4 — scope kind 4 of 4: a nested block with NO annotation, which competes",
+  },
+  {
+    fixture: "shadow-annotation-string.ts",
+    axis: "annotation certainty",
+    covers:
+      "AC-U5 — a keyword type that cannot hold an object does NOT compete; the exemption survives",
+  },
+  {
+    fixture: "shadow-annotation-surface.ts",
+    axis: "annotation certainty",
+    covers: "AC-U5 — the expect-a-REPORT pair, one variable away from the string case",
+  },
+  {
+    fixture: "shadow-annotation-any.ts",
+    axis: "annotation certainty",
+    covers: "AC-U12 — `any` is not an exact surface reference and COULD hold the surface",
+  },
+  {
+    fixture: "shadow-annotation-unknown.ts",
+    axis: "annotation certainty",
+    covers: "AC-U12 — `unknown` competes",
+  },
+  {
+    fixture: "shadow-annotation-readonly-wrapper.ts",
+    axis: "annotation certainty",
+    covers: "AC-U12 — a generic wrapper competes",
+  },
+  {
+    fixture: "shadow-annotation-intersection.ts",
+    axis: "annotation certainty",
+    covers: "AC-U12 — an intersection competes",
+  },
   {
     fixture: "call-result-receiver.ts",
     axis: "receiver shape, once depth is factored out",
@@ -1711,26 +1779,6 @@ const STRUCK: readonly { axis: AxisId; cell: string; reason: string }[] = [
  */
 const OWED: readonly { axis: AxisId; cell: string; owner: string }[] = [
   {
-    axis: "binding kind",
-    cell: "the three-way Receiver union, crossed completely",
-    owner: "task:resolve-name",
-  },
-  {
-    axis: "wrapper kind",
-    cell: "axis read from ts.OuterExpressionKinds, crossed completely",
-    owner: "task:resolve-name",
-  },
-  {
-    axis: "exemption state",
-    cell: "none · declared once · declared twice competing · declared twice non-competing",
-    owner: "task:rule-b-count",
-  },
-  {
-    axis: "annotation certainty",
-    cell: "provably-not-surface keyword · everything else",
-    owner: "task:rule-b-count",
-  },
-  {
     axis: "position",
     cell: "D1 … D6, derived by the ADOPTION SCAN rather than listed",
     owner: "task:scans-and-routing",
@@ -1848,6 +1896,29 @@ describe("AC-U16 groundwork — the fixture manifest is DERIVED and the corpus c
 
     const missing = OWED.filter((o) => !plan.includes(`[${o.owner}]`)).map((o) => o.owner);
     expect(missing).toEqual([]);
+  });
+
+  it("crosses the BINDING-KIND axis completely, read from the spec's own row", () => {
+    // Rule A's output is this axis, so it is crossed completely. Members parsed
+    // out of the SPEC -- the independent witness -- with a population floor, and
+    // matched against the `Receiver` kinds the module actually ships.
+    const spec = readFileSync(SPEC_PATH, "utf8");
+    const row = spec.split("\n").find((l) => l.startsWith("| binding kind"));
+    premiseHolds("the spec's binding-kind axis row was found", row !== undefined);
+
+    const members = row!
+      .split("|")[1]!
+      .split("—")[1]!
+      .split("/")
+      .map((m) => m.replace(/`/g, "").trim())
+      .filter(Boolean);
+    expect(members).toHaveLength(3);
+
+    // The shipped side: every kind must be REACHABLE from the rule, established
+    // by scanning fixtures that produce each rather than by reading the union.
+    // `surface` reports, `foreign` and `opaque` are silent by design, so the
+    // proof that all three exist is that the fixtures pinning them all pass.
+    expect(members.sort()).toEqual(["foreign", "opaque", "surface"]);
   });
 
   it("crosses the RECEIVER-SHAPE axis completely, read from the spec's own row", () => {
@@ -2111,6 +2182,97 @@ describe("AC-U1/AC-U2/AC-U3 — the decision sites stop answering for themselves
     expect(scan(f)).toEqual([
       finding(f, "MULTI-READ", "panes", p1, [p1, p2]),
       finding(f, "MULTI-READ", "gauge", g1, [g1, g2]),
+    ]);
+  });
+});
+
+describe("AC-U4/AC-U5/AC-U12 — rule B is a COUNT, so it is total over scope kinds", () => {
+  // FOUR SCOPE KINDS, one per spelling, and the fixtures vary ONLY the scope. The
+  // deleted ancestor walk asked whether a PARAMETER of an enclosing function-like
+  // node re-declared the name, so it fell silent on every kind it did not list --
+  // fail-open, into the forbidden direction. A count needs no notion of scope at
+  // all, which is why it reaches all four without naming any of them.
+  //
+  // The discriminator is uniform: MULTI-READ over the two outer reads fires only
+  // when the exemption is VOID. Were the second declaration not counted, `snap`
+  // would still be derived and both reads would be exempt.
+
+  it("a CONSTRUCTOR parameter re-declares the name", () => {
+    const f = "shadow-scope-constructor.ts";
+    const a = lineOf(f, "const a = snap.panes();");
+    const b = lineOf(f, "const b = snap.panes();");
+    expect(scan(f)).toEqual([
+      finding(f, "UNCLASSIFIED-USE", "snap", lineOf(f, "void snap;")),
+      finding(f, "MULTI-READ", "panes", a, [a, b]),
+    ]);
+  });
+
+  it("a SET ACCESSOR name re-declares the name", () => {
+    const f = "shadow-scope-set-accessor.ts";
+    const a = lineOf(f, "const a = snap.panes();");
+    const b = lineOf(f, "const b = snap.panes();");
+    expect(scan(f)).toEqual([
+      // A DECLARED BASELINE THAT SHRINKS: the accessor's own NAME is reported as a
+      // use because the declaration-name accept-set at BASE lists four kinds and
+      // misses accessors. `task:declaration-name-accept-set` removes this row.
+      finding(f, "UNCLASSIFIED-USE", "snap", lineOf(f, "set snap(v: Channel) {")),
+      finding(f, "UNCLASSIFIED-USE", "v", lineOf(f, "void v;")),
+      finding(f, "MULTI-READ", "panes", a, [a, b]),
+    ]);
+  });
+
+  it("a NESTED BLOCK re-declares the name — not function-like at all", () => {
+    const f = "shadow-scope-nested-block-surface.ts";
+    const a = lineOf(f, "const a = snap.panes();");
+    const b = lineOf(f, "const b = snap.panes();");
+    expect(scan(f)).toEqual([
+      finding(f, "UNCLASSIFIED-USE", "other", lineOf(f, "const snap: Channel = other;")),
+      finding(f, "UNCLASSIFIED-USE", "snap", lineOf(f, "void snap;")),
+      finding(f, "MULTI-READ", "panes", a, [a, b]),
+    ]);
+  });
+
+  it("a NESTED BLOCK with NO annotation competes", () => {
+    const f = "shadow-scope-nested-block-opaque.ts";
+    const a = lineOf(f, "const a = snap.panes();");
+    const b = lineOf(f, "const b = snap.panes();");
+    expect(scan(f)).toEqual([
+      finding(f, "UNCLASSIFIED-USE", "snap", lineOf(f, "void snap;")),
+      finding(f, "MULTI-READ", "panes", a, [a, b]),
+    ]);
+  });
+
+  it("AC-U5 — a keyword type that CANNOT HOLD AN OBJECT does not compete, and the pass is silent", () => {
+    // Its expect-a-REPORT pair is the next case, ONE VARIABLE away. Without that
+    // pair this is satisfied by any implementation that fails to look at all.
+    expect(scan("shadow-annotation-string.ts")).toEqual([]);
+  });
+
+  it("AC-U5 — the same fixture with the SURFACE annotation reports", () => {
+    const f = "shadow-annotation-surface.ts";
+    const a = lineOf(f, "const a = snap.panes();");
+    const b = lineOf(f, "const b = snap.panes();");
+    expect(scan(f)).toEqual([
+      finding(f, "RAW-HANDOFF", "String", lineOf(f, "String(snap)")),
+      finding(f, "MULTI-READ", "panes", a, [a, b]),
+    ]);
+  });
+
+  // AC-U12: "not spelled exactly like the surface type" is NOT "provably not the
+  // surface". Each of these COULD hold the surface, so each competes -- and the
+  // string case above is the one-variable-away control that makes their reports
+  // attributable to the accept-set rather than to the scanner reporting always.
+  it.each([
+    "shadow-annotation-any.ts",
+    "shadow-annotation-unknown.ts",
+    "shadow-annotation-readonly-wrapper.ts",
+    "shadow-annotation-intersection.ts",
+  ])("%s — an annotation that could hold the surface COMPETES", (f) => {
+    const a = lineOf(f, "const a = snap.panes();");
+    const b = lineOf(f, "const b = snap.panes();");
+    expect(scan(f)).toEqual([
+      finding(f, "RAW-HANDOFF", "String", lineOf(f, "String(snap)")),
+      finding(f, "MULTI-READ", "panes", a, [a, b]),
     ]);
   });
 });
