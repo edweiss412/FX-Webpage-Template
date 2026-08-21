@@ -1007,9 +1007,16 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // deleted rather than blessed. These EIGHT are reachability arguments.
     //
     // The count said "seven" until 2026-08-21. dddd7158d wrote it when seven was right;
-    // cdac23ae9 added the eighth row six hours later and left the prose. Same shape as the
-    // two defects this arc repaired -- a hand-written number sitting beside the derived
-    // data it describes, drifting the moment the data moves.
+    // 1d4a715b3 added the eighth row about five hours later and left the prose. Same shape
+    // as the two defects this arc repaired -- a hand-written number sitting beside the
+    // derived data it describes, drifting the moment the data moves.
+    //
+    // The first draft of this comment blamed cdac23ae9, and the way it got that wrong is
+    // worth keeping. `git log -S "logical-connector:370:61:&&>||"` names cdac23ae9 because
+    // that is where the STRING first appears -- but only because cdac23ae9 RE-KEYED the row
+    // from 360:61, which 1d4a715b3 had added. A pickaxe over a line-keyed id dates the KEY,
+    // not the ROW, so the churn class this file is being repaired for corrupted the
+    // archaeology used to repair it. Date a ledger row by the diff that introduced the ROW.
     //
     // RE-KEYED 2026-08-21, by EXPRESSION AND SOURCE LINE, never by offset. fbfc04fdf
     // ("compose EXECUTION_METHODS from the derived core") moved every row: its two hunks
@@ -1023,7 +1030,8 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // four distinct expressions in this file. The source LINE TEXT is what disambiguates,
     // and with it all eight resolve uniquely, each new line byte-identical to its old one.
     // Enumerated through the shipped enumerator over both trees: 237 sites before, 237
-    // after -- the commit added 30 lines and not one mutation site.
+    // after -- the commit changed 30 lines (27 added, 3 removed, net +24) and produced not
+    // one new mutation site.
     //
     // RE-KEYING IS NOT RE-VALIDATING, so each premise was re-checked rather than carried:
     // seven of the eight cite code outside both hunks and are untouched by construction
