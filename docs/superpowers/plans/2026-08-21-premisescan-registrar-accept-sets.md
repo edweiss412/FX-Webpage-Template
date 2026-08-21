@@ -659,16 +659,17 @@ fail() { echo "FAIL: $1"; exit 1; }
 for f in BACKLOG.md BACKLOG-archive.md; do
   [ -s "$f" ] || fail "$f is missing or empty — every absence below would be meaningless"
 done
-[ "$(grep -cE '^## (BL|DEF)-[A-Z0-9-]+' BACKLOG.md)" -gt 0 ] || fail "BACKLOG.md declares no rows"
-[ "$(grep -cE '^## (BL|DEF)-[A-Z0-9-]+' BACKLOG-archive.md)" -gt 0 ] || fail "archive declares no rows"
+# A row is declared at `##` OR `###` — 66/24 in BACKLOG.md, 303/99 in the archive.
+[ "$(grep -cE '^#{2,3} (BL|DEF)-[A-Z0-9-]+' BACKLOG.md)" -gt 0 ] || fail "BACKLOG.md declares no rows"
+[ "$(grep -cE '^#{2,3} (BL|DEF)-[A-Z0-9-]+' BACKLOG-archive.md)" -gt 0 ] || fail "archive declares no rows"
 
-grep -qE "^## $ROW( |$|—)" BACKLOG.md         && fail "the row is still DECLARED in BACKLOG.md"
-grep -qE "^## $ROW( |$|—)" BACKLOG-archive.md || fail "removed but never DECLARED in the archive"
+grep -qE "^#{2,3} $ROW( |$|—)" BACKLOG.md         && fail "the row is still DECLARED in BACKLOG.md"
+grep -qE "^#{2,3} $ROW( |$|—)" BACKLOG-archive.md || fail "removed but never DECLARED in the archive"
 grep -rn 'IN PROGRESS' BACKLOG.md DEFERRED.md | grep -qi premisescan \
   && fail "an IN PROGRESS marker would reach main"
 both=$(comm -12 \
-  <(grep -oE '^## (BL|DEF)-[A-Z0-9-]+' BACKLOG.md         | sed 's/^## //' | sort -u) \
-  <(grep -oE '^## (BL|DEF)-[A-Z0-9-]+' BACKLOG-archive.md | sed 's/^## //' | sort -u))
+  <(grep -oE '^#{2,3} (BL|DEF)-[A-Z0-9-]+' BACKLOG.md         | sed -E 's/^#+ //' | sort -u) \
+  <(grep -oE '^#{2,3} (BL|DEF)-[A-Z0-9-]+' BACKLOG-archive.md | sed -E 's/^#+ //' | sort -u))
 [ -z "$both" ] || fail "declared in BOTH files: $both"
 
 pnpm exec vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerMintBar.test.ts --project parallel
@@ -690,6 +691,14 @@ the "removed but never archived" check PASSED ALREADY, before anything was archi
 is cited in the prose of a different archive entry; and the `comm -12` over bare ids reported **120
 false overlaps**, since archive entries routinely cite other rows by id. Both predicates ranged over
 MENTIONS where they meant DECLARATIONS. A heading is the declaration.
+
+**AND THE HEADING LEVEL WAS BOUGHT A THIRD TIME.** The repair above anchored on `^## ` alone, which
+fixed *ranges over MENTIONS* and introduced *ranges over ONE HEADING LEVEL*. Measured on this tree:
+`BACKLOG.md` declares 66 rows at `##` and **24 at `###`**; the archive 303 and **99**. The
+both-declared check was therefore structurally blind to 123 rows and would have passed forever for
+every one of them — a repaired predicate inheriting a fresh blind spot from the side nobody was
+looking at. Both levels are matched now; the check still returns 0 on this tree, so the widening
+costs nothing and covers 123 more rows.
 
 **The preconditions were bought the same way.** `grep … && fail` passes silently when the FILE is
 missing — the failure mode is good news, so it is the one that survives. With no ledger files at all
