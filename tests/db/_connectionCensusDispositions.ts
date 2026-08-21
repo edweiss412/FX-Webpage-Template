@@ -82,4 +82,11 @@ export const CONNECTION_CENSUS_DISPOSITIONS: readonly DispositionRow[] = [
     reason:
       "non-literal dynamic import of a parser block by a computed path under lib/parser; opens no connection",
   },
+  {
+    file: "tests/cross-cutting/fixtures/no-global-cursor/bad-aliased.ts",
+    site: "./state",
+    kind: "unclassifiable",
+    reason:
+      "a fixture for tests/cross-cutting/no-global-cursor.test.ts, which reads it with readFileSync and never imports it; `./state` names no file in that directory, so the census cannot follow the edge, and the fixture opens no connection",
+  },
 ];
