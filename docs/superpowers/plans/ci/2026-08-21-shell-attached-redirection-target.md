@@ -255,6 +255,38 @@ check under audit — it would go green the moment the field merely EXISTS. Rebu
 reports every retained target instead, and it then fails exactly one check: the ordinary attached
 target drawing no advisory.
 
+### 2b-ter. The acceptance-set sweep — four axes closed, none of them a repair
+
+The handover's §5a inventory names seven axes the acceptance set varies in NO fixture and ranks
+items 1, 3 and 5 first. Item 5 was already crossed on arrival: the unlexable table's `'` and `$'`
+rows carry terminated twins, which is the false-advisory direction §5a calls the interesting one.
+Items 1, 3, 4 and 7 were open and are now closed.
+
+**Not one of them was a repair, and that is worth stating plainly.** Fourteen spellings were probed
+against the shipped delimiter before a line of test was written, and thirteen matched the predicted
+value. The fourteenth disagreement was mine: I wrote a fixture whose double quote never closes while
+meaning one that does, and the scanner's zero-sites-plus-one-advisory was the consequence bound
+behaving exactly as §4 specifies. Re-probed across seven EOF spellings, terminated and unterminated,
+and the split holds on all seven. So the sweep buys the PIN and not a fix — which is the inventory's
+own point, that an axis no fixture varies is certified by nothing.
+
+| axis | what it now crosses | killed by |
+|---|---|---|
+| 3, same-command resume | five rows, both which-target-carries-it orders, plus a coordinate row | `w23`, `w22` |
+| 1, end of file | nine rows: closed is RESOLVED, unterminated is REPORTED | `w21` |
+| 4 and 7, position and line endings | function body, after a here-document, case arm, CRLF — on the COORDINATE | `w20`, `w22` |
+
+**Load-bearing by proof rather than by claim**, on rule 17.1's standard, with a no-defect baseline
+first (4/4 against the shipped scanner). `w21` forces an unterminated construct to report as closed.
+`w20` is an off-by-one resume (`i = end`). `w23` walks the whole chunk but collects bodies only from
+the first target, and it is the decisive one: it kills BOTH item-3 checks while leaving the EOF and
+coordinate rows quiet, so the four tests discriminate independently rather than as a bundle.
+
+**`w20` escapes item 3's counts and dies to the coordinate row.** That is §2b-bis's one general
+finding surfacing a third time on its own evidence: a presence-or-count assertion does not
+discriminate a delimiting weakening, and a coordinate assertion does. The count row alone would have
+recorded item 3 as covered while the likeliest off-by-one walked straight through it.
+
 ---
 
 ## 2c. Why Tasks 1 and 2 are two tasks, and why this order
