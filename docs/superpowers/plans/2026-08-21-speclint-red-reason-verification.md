@@ -31,9 +31,11 @@ name lines this plan's own execution will move.
 | `lib/specLint/taskContract.ts:49` | `const V2_FIELDS = "( red-state=(live\|authored))?…"` |
 | `tests/mutation/source/expectedLedgerKinds.ts:137` | `redContract: { equivalent: 7 },` |
 
-`ProbeDerivation` and `CollectionProbeEntry` are declared together at `lib/specLint/redContract.ts`
-around lines 608 to 625; the `skipped` reason union is `"compound-command" | "unstrippable-filter"`
-in both, so a third reason is a two-site type change, not one.
+`ProbeDerivation` is declared at `lib/specLint/redContract.ts:605` and `CollectionProbeEntry` at
+`lib/specLint/redContract.ts:610`. The `skipped` reason union is
+`"compound-command" | "unstrippable-filter"` in both, so a third reason is a two-site type change,
+not one. The two lines are named individually rather than as a range: on an arc whose subject is
+citation accuracy, "around" is the wrong register.
 
 **Two helpers this plan deliberately does NOT use.** `ownedContractLines` and `wellFormedMarkers` are
 not exported. Any probe reconstructing the guard sequence around them would be a MODEL of
@@ -42,10 +44,17 @@ instead.
 
 ## 1. Meta-test inventory
 
-- **EXTENDS** `tests/specLint/redExec.test.ts` (core synthesis) and the `redVerdict` fixture plan
-  corpus.
-- **EXTENDS** `probe/reach.mts`, which becomes the executable form of AC-3 and AC-4 rather than a
-  one-off measurement.
+- **EXTENDS** `tests/specLint/cli.test.ts`, specifically the collection-probe describe block opened at
+  `tests/specLint/cli.test.ts:837`. The block's title is not quoted here: it carries an em-dash, and
+  `COPY_EM_DASH` is a hard finding this arm raises against quoted copy, so a verbatim source title in
+  prose reds the very lint this plan is checked by. **This is the declared consumer of the fixture plans**, and it is
+  where every claim in this plan is asserted, because every claim is about the CLI path under
+  `--exec-red`. Round 1 found the fixtures had no declared consumer; that block is it. Its `execCli`
+  helper spawns the real `scripts/spec-lint.ts` and its `codesOf` helper reads the emitted code list,
+  which is the VALUE every assertion below is written against.
+- **EXTENDS** `tests/specLint/redExec.test.ts` (core synthesis) for the unit-level half.
+- **EXTENDS** the `redVerdict` fixture plan corpus.
+- **EXTENDS** `probe/reach.mts`, and §6 states when it runs and why it is deliberately not a CI gate.
 - **UNCHANGED and load-bearing:** `tests/specLint/_metaPureCore.test.ts`. It walks `lib/specLint/`
   recursively with a walker floor and pins that no core file imports `node:fs`,
   `node:child_process`, or `node:process`. Nothing here needs raw output, so it stays green; if a
@@ -87,68 +96,70 @@ that no one will ever watch fail again.
 
 <!-- tasks: depth=2 red-contract -->
 
-## Task 1 — the unprobeable drop reports instead of vanishing
+## Task 1 — the unprobeable drop reports, and only where the design says it does
 
-<!-- task: red=`pnpm vitest run tests/specLint/redExec.test.ts` red-state=authored red-target=`lib/specLint/redContract.ts:721` why=`collectionProbePlan continues past a kind none derivation, so an unprobeable v2 marker produces no plan entry and the new case's finding list comes back empty where it requires RED_PROBE_UNVERIFIED` ac=AC-1,AC-2,AC-3 -->
+<!-- task: red=`pnpm vitest run tests/specLint/cli.test.ts tests/specLint/redExec.test.ts` red-state=authored red-target=`lib/specLint/redContract.ts:721` why=`collectionProbePlan continues past a kind none derivation, so the three new unprobeable fixture plans produce no plan entry and the CLI returns a code list with no RED_PROBE_UNVERIFIED where the new cases require it by name` ac=AC-1,AC-2,AC-3,AC-4 -->
+
+**Round 1 collapsed this from two tasks into one, and the reason is invariant 1.** The earlier draft
+made the partition assertion its own task. But the repair is indivisible: once the `none` derivation
+routes to the decline path, the fifteen gain the advisory AND the sixteen stay silent in the same
+change. A second task authored afterwards would be GREEN the moment it was written, which is a task
+whose acceptance condition is that it cannot fail. The plan's own §4 already said both directions
+belong in one cycle; the split contradicted it.
 
 **What is red and why.** `if (derived.kind === "none") continue;` drops the entry entirely, so any v2
 marker whose command is not vitest-shaped at the anchor draws neither a FAIL nor an advisory. The new
-case asserts the advisory by name on such a fixture marker. Today the list is empty, so the assertion
-fails on a VALUE, the produced finding list, and not on a missing symbol.
+cases run the CLI over the new fixture plans with `--exec-red` and assert `RED_PROBE_UNVERIFIED` by
+name in the returned code list. Today that list lacks it, so the failure is on a VALUE the
+implementation must PRODUCE, not on a missing symbol, a bad path, or a collection that found nothing.
+
+**Baseline, so an implementer knows whose failure it is.** Both suites are GREEN at handoff:
+`tests/specLint/redExec.test.ts` reports 87 passing and `tests/specLint/cli.test.ts` is green. A red
+in either on arrival is yours, not inherited.
 
 **Mechanism, fixed by the spec rather than left open.** `none` gains a third `skipped` reason
 (`"not-vitest-shaped"`) and rides the decline path that already ships: `ProbeDerivation` and
 `CollectionProbeEntry` each gain the union member, `collectionProbePlan` pushes instead of
-continuing, and `synthesizeCollectionFindings` needs no edit at all because its `skipped` branch
-already emits `RED_PROBE_UNVERIFIED`. An implementation that instead adds a `pnpm heavy` recognizer
-to narrow the reach to nine is forbidden by spec §2 and fails Task 2.
+continuing, and `synthesizeCollectionFindings` needs no edit at all, because its `skipped` branch
+already emits `RED_PROBE_UNVERIFIED`. An implementation that instead adds a `pnpm heavy` recognizer to
+narrow the reach to nine is forbidden by spec §2 and fails the negative half below.
 
-**Reachability, stated because round 2 killed a sibling repair for lacking it.** The path is reached
-only under `--exec-red`: `lib/specLint/run.ts:151` calls `synthesizeCollectionFindings` only when
-probes are non-null. The case exercises it WITH the flag, or it passes while proving nothing.
+**Reachability.** The path is reached only under `--exec-red`: `lib/specLint/run.ts:151` calls
+`synthesizeCollectionFindings` only when probes are non-null. Every case passes the flag, or it
+passes while proving nothing.
 
-**Both directions in ONE cycle.** The same task asserts that a marker the arm CAN probe is
-unaffected: `exec-genuine-red.md` and `exec-collects-nothing.md` re-run with identical verdicts.
-Without that half, an implementation emitting the advisory unconditionally passes every assertion
-here.
+**The four assertions, all in this one cycle.** Three are red today and one is green today; both kinds
+are required, because an implementation emitting the advisory unconditionally satisfies the red ones
+alone.
 
-**The advisory is ADDED, never exclusive.** Spec §1.2 measured three of the fifteen already carrying
-a hard finding from an unrelated arm. The case asserts containment, not list equality. Equality would
-be false at three live markers and would push the implementation toward suppressing findings this
-change has nothing to do with.
+| # | fixture | assertion | today |
+| - | ------- | --------- | ----- |
+| 1 | heavy-wrapped v2, `red-state=authored` | code list CONTAINS `RED_PROBE_UNVERIFIED` | **RED** |
+| 2 | non-heavy unprobeable v2 (`sh -c` grep), `red-state=authored` | code list CONTAINS `RED_PROBE_UNVERIFIED` | **RED** |
+| 3 | live unprobeable v2 whose red exits 0 | code list contains BOTH `RED_ALREADY_GREEN` and `RED_PROBE_UNVERIFIED` | **RED** |
+| 4 | heavy-wrapped v1 (no `red-state=`) | code list does NOT contain `RED_PROBE_UNVERIFIED` | green, and must STAY green |
+| 5 | `exec-genuine-red.md`, `exec-collects-nothing.md` | verdicts unchanged, byte for byte | green, and must STAY green |
 
-**The live marker gets it too, and the task pins that.** The live `sh -c` grep marker already draws
-`RED_ALREADY_GREEN`. It still gains the advisory, because the live gate in
-`synthesizeCollectionFindings` guards against reading a probe RESULT and a declined derivation
-produces none. An implementation that files `none` behind the live gate would drop it, so the case
-carries a fixture of that shape: `red-state=live`, unprobeable command, red exits 0.
+Row 2 is what fails the narrowed implementation: a fixture set holding only the heavy-wrapped shape is
+satisfied by a `pnpm heavy` recognizer. Row 4 is what fails the over-broad one that also moves the v1
+exit at line 717. Row 3 is what fails an implementation that files `none` behind the live gate.
 
-**Severity is proved over the POPULATION, not the fixtures** (spec AC-3). `probe/reach.mts` gains an
-assertion that every finding at a `none`-derived line has severity `advisory`, plus a derived count of
-`fail(` construction sites in the module. A fixture corpus cannot exclude a hard branch on a command
-shape the fixtures never contain, which is exactly what round 3 found.
+**The advisory is ADDED, never exclusive.** Spec §1.2 measured three of the fifteen live markers
+already carrying a hard finding from an unrelated arm. Every assertion above is CONTAINMENT, never
+list equality. Equality would be false at three live markers and would push the implementation toward
+suppressing findings this change has nothing to do with. Row 3 makes that explicit rather than
+implicit.
 
 **No new code is minted.** `RED_PROBE_UNVERIFIED` already exists and already means collection
 capability unverified.
 
-## Task 2 — the fifteen draw it, the sixteen do not
-
-<!-- task: red=`pnpm vitest run tests/specLint/redExec.test.ts` red-state=authored red-target=`lib/specLint/redContract.ts:717` why=`no case asserts that a v1 marker stays silent, so an implementation that also moves the v1 exit passes every other assertion while emitting sixteen advisories the design does not claim` ac=AC-4 -->
-
-**What is red and why.** The v1 exit at line 717 sits BEFORE the drop at 721, so v1 markers are out of
-reach by construction. Nothing today asserts they stay that way. The case pins both halves of the
-partition against the NAMED sets in spec §1.1, the fifteen and the sixteen, rather than against
-counts. Before the change it fails on the fifteen-half.
-
-**This is the load-bearing task**, and it catches two wrong implementations rather than one. It fails
-under one that "repairs" the drop by also moving the v1 exit, a wider change that reads as more
-thorough and would emit sixteen advisories the spec does not claim. It also fails under one that
-narrows the reach to the nine heavy-wrapped markers with a wrapper recognizer, because the other six
-would then draw nothing. Task 1 alone sees neither.
+**This task is not done until the corpus-level oracle passes.** See §6. `pnpm probe:reach` must pass
+in default mode before the change and in `EXPECT_ADVISORY=1` mode after it, and both invocations are
+steps of this task, not closeout decoration.
 
 <!-- tasks: end -->
 
-## Task 3 — the score (OUTSIDE the red-contract region, no marker, stated acceptance)
+## Task 2 — the score (OUTSIDE the red-contract region, no marker, stated acceptance)
 
 **It carries no `red=` deliberately, and the reason was measured rather than assumed.** An earlier
 draft had a re-key task whose red was the gate reporting an unaccepted survivor at the new key
@@ -199,22 +210,56 @@ by the narrowed implementation.
 **The broken-by-design fixture fan-out does not apply.** No syntactically invalid file is added, so
 nothing needs excluding from `tsconfig.json`, the eslint ignore list, or `.prettierignore`.
 
-## 6. Acceptance criteria → the task that PROVES each
+## 6. The corpus oracle: when it runs, and why it is deliberately NOT a CI gate
+
+Round 1's second blocking finding was that `probe/reach.mts` was cited as the closed criterion and
+then never scheduled: no task command and no package script invoked it, so every declared command
+could pass without the criterion being satisfied. A criterion nothing runs is a description.
+
+**It is scheduled at three sites.**
+
+1. A package script `probe:reach`, with body `node --import tsx probe/reach.mts`, so the oracle is
+   invocable by name rather than by remembering an interpreter flag.
+2. Two explicit STEPS of Task 1, not closeout decoration. `pnpm probe:reach` passes in default mode
+   before the change; `EXPECT_ADVISORY=1 pnpm probe:reach` passes after it. Before the change the
+   second must FAIL on all fifteen v2 lines, and observing that failure is how the implementer knows
+   the corpus-level red is real rather than assumed.
+3. A closeout obligation in §8, re-run after the last source edit.
+
+**It is NOT a CI gate, and that is a decision rather than an omission.** The oracle asserts against a
+DATED corpus snapshot: thirty-one named `file:line` pairs. Any ordinary edit to one of those
+thirty-one documents moves a line and fires `MARKER_DRIFT` — which is exactly the behaviour that makes
+it a good acceptance instrument and a terrible standing gate. As CI it would fail on edits that have
+nothing to do with this arm, and the repair would be to re-pin it, which trains everyone to re-pin it,
+which is how a gate stops meaning anything.
+
+**What protects the behaviour permanently is the fixture set, which DOES run in CI.** The division is
+deliberate: the oracle proves the corpus-level claim ONCE, at implementation time, over real
+documents; the five fixture assertions in Task 1 pin the behaviour forever, over documents this repo
+controls. Neither substitutes for the other, and saying so here is cheaper than a reviewer deriving it.
+
+## 7. Acceptance criteria → the task that PROVES each
 
 | AC | claimed by | note |
 | -- | ---------- | ---- |
-| AC-1 | Task 1 | the advisory fires on an unprobeable v2 marker |
-| AC-2 | Task 1 | probeable markers unaffected, verdicts identical |
-| AC-3 | Task 1 | no hard finding added, asserted over the real population via `probe/reach.mts` |
-| AC-4 | Task 2 | the fifteen/sixteen partition, against named sets, asserted as a GAIN |
+| AC-1 | Task 1, row 1 and row 2 | the advisory fires on an unprobeable v2 marker, in both shapes |
+| AC-2 | Task 1, row 5 | probeable markers unaffected, verdicts identical |
+| AC-3 | Task 1, §6 step 2 | no hard finding added, asserted over the real population by the oracle |
+| AC-4 | Task 1, row 4 + §6 step 2 | the fifteen/sixteen partition. The fixture half pins it in CI; the oracle half asserts it over the real thirty-one |
 | AC-5 | **no task, stated not omitted** | satisfied by `probe/population.mts` and `probe/reach.mts`, both committed with the spec |
 
 Every AC is claimed by a marker or carries a written reason for not being. An unclaimed AC reads as an
 oversight even when it is not.
 
-## 7. Obligations before dispatch
+**All four ACs land on one task on purpose.** Round 1 established that the repair is indivisible, so
+splitting the criteria across tasks would only recreate the ordering defect at the level of the
+acceptance table.
+
+## 8. Obligations before dispatch
 
 - Run `pnpm spec:lint` on this plan and report the result. This arc's own arm reads it.
+- Add the `probe:reach` package script in the same commit as Task 1, per §6. Without it the plan cites
+  a criterion no command can invoke, which is the defect round 1 found.
 - Neither `red=` is `pnpm heavy`-wrapped, and both are vitest-shaped at the anchor, so the plan's own
   reds sit inside the arm's sighted domain rather than demonstrating the blind spot. Stated because a
   reviewer will check.
