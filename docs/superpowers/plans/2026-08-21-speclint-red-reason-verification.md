@@ -312,11 +312,11 @@ acceptance table.
   §3. Without them the plan cites criteria no command can invoke, which is the defect round 1 found.
 - **Verify the COMMITTED tree, not the pre-commit tree.** `simple-git-hooks` runs `lint-staged` on
   every commit, which applies `prettier --write` and `eslint --fix` to staged sources and
-  `prettier --write --ignore-unknown` to staged Markdown and JSON. The wiring is the `simple-git-hooks`
-and `lint-staged` blocks of the repository-root package manifest, which is named without a line
-citation on purpose: the bare filename matches three tracked files and the arm reads it as
-`CITATION_AMBIGUOUS`, while a `./` prefix is an illegal path. So a commit can MUTATE the
-  tree after any check that ran before it, and round 3 found both closing obligations open to exactly
+  `prettier --write --ignore-unknown` to staged Markdown and JSON. The wiring is the
+  `simple-git-hooks` and `lint-staged` blocks of the repository-root package manifest, named without a
+  line citation on purpose: the bare filename matches three tracked files and the arm reads it as
+  `CITATION_AMBIGUOUS`, while a `./` prefix is an illegal path. So a commit can MUTATE the tree after
+  any check that ran before it, and round 3 found both closing obligations open to exactly
   that: the tree that passed the oracle need not be the tree that landed, and a formatter-induced line
   shift can invalidate a `red-target=` that was corrected moments earlier. The closing sequence is
   therefore ordered so the hook cannot invalidate it:
@@ -326,7 +326,7 @@ citation on purpose: the bare filename matches three tracked files and the arm r
   2. Make the closing commit.
   3. **On the COMMITTED tree**, run `EXPECT_ADVISORY=1 pnpm probe:reach` and `pnpm probe:citations`,
      then manually re-read the prose sites §3 lists that no table row covers.
-  4. If either fails, repair and `--amend`, then return to step 3. It is a fixpoint, not a checklist:
+  4. If ANY of the three fails, repair and `--amend`, then return to step 3. It is a fixpoint, not a checklist:
      the obligation is that the tree which lands is the tree that passed, and only a check run after
      the commit can establish that.
 
