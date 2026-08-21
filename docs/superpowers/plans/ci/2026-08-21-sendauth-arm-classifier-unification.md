@@ -377,11 +377,48 @@ deletion **proven load-bearing in BOTH directions**.
 discrimination is exercised: a control keyed by text is only as good as that text's uniqueness, the
 baseline was **1** at `7159c2a4e`, and this arc moves the code it keys on.
 
-**The killer audit is owed ALONGSIDE the score, and it audits ALL EIGHT rows of §3c** — not "the
+**The killer audit is owed ALONGSIDE the score, and it audits ALL NINE rows of §3c** — not "the
 two", which was this plan's own miscount and would have let an executor audit any two and silently
-leave six rules unchecked. Each row is built by hand as the weaker implementation, run against the
+leave seven rules unchecked. The count is DERIVED FROM THE TABLE, not restated in prose: the
+correction above read "eight" while the table held nine, so a prose count corrected once was still
+wrong. Count the rows. Each row is built by hand as the weaker implementation, run against the
 corpus, and recorded ABSENT / PRESENT-BUT-UNPROVEN / PROVEN. A killing check never run against the
 mutant it targets is a claim, not a proof, and it fails in the direction that looks green.
+
+### Killer audit — RESULT (run 2026-08-21, against the repaired scanner)
+
+All nine rows, each weaker implementation built by hand and run against the corpus:
+
+| row | verdict | killed by |
+| --- | --- | --- |
+| rule A, unwrap | PROVEN | the four wrapper-kind sinks |
+| rule A, element key — RECEIVER | PROVEN | `element-key-wrapped.ts` |
+| rule A, element key — SELECTOR | PROVEN | `selector-key-wrapped.ts` (**authored by this audit**) |
+| member SELECTOR | PROVEN | the element-access selector trio |
+| rule B, scope | PROVEN (structural) | rule B carries no scope enumeration; it is a count |
+| rule B, competing | PROVEN | the four annotation-certainty shadows |
+| declaration-name | PROVEN | the value-reference-carrying-a-name case |
+| adoption detector | PROVEN | the per-form witness case |
+| metamorphic check | PROVEN | the cancelling-pair case, one level down (see below) |
+| read set | PROVEN | the element-access receiver and private-identifier cases |
+
+**The audit found a real gap and the class sweep widened it from one to four.** Rule A's element
+key came back ABSENT. Sweeping the whole unwrap axis — by DISCOVERING every `skipTransparent` call
+site from source rather than listing them — found four unpinned sites, not one. Three were
+load-bearing and uncovered (wrapped CALLEE, SELECTOR key, COMPUTED declaration key) and now have one
+fixture each. The fourth was dead code and was DELETED; restoring it changes nothing, which is the
+proof it was dead rather than merely unpinned. The callee fixture then exposed a behavioural defect,
+not just a missing test: `classifyMemberOn` asked `outer.parent` for the call while the member
+access's parent was the wrapper, so a wrapped callee degraded to `UNCLASSIFIED-USE`. Repaired.
+
+**Two limits recorded rather than manufactured into findings.** The metamorphic row's cardinality
+mutant is EQUIVALENT at the reflow assertion: its input is a meaning-preserving reformat, which
+cannot produce a cancelling pair, so no reachable input distinguishes set from count there. The
+discrimination that matters is proven one level down, where the cancelling transformation is
+actually constructible, in both directions. And a harness that restores with `git checkout` requires
+a COMMITTED baseline — an uncommitted one is destroyed on the first iteration, after which every
+mutant runs against an already-red suite and scores as killed. That happened once here; the sweep
+now refuses to start without a clean tree and a green baseline.
 
 **A perfect score does not subsume it, and this surface is the proof.** See spec §4.6: this exact
 surface scored **1.0000 with an empty survivor set while the target defect class was live**, because
