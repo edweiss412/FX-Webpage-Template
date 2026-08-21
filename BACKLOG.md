@@ -8,6 +8,27 @@ Last reconciled: 2026-08-17 — `fix/shell-binding-mixed-quoted-value` graduated
 
 ---
 
+## BL-SENDAUTH-BINDING-IDENTITY-NAME-KEYED — the binding set is a Set of NAMES, so every consumer asks "is something called X in scope" rather than "is this identifier that binding"
+
+**Status:** OPEN · **Filed:** 2026-08-21 (`fix/sendauth-arm-classifier-unification`, promised as a peer by that arc's spec §4.2 and filed on its diff-r1 reviewer noticing the promise had not been kept) · **Severity:** LOW-MEDIUM (a false advisory, which is the survivable direction; the silent direction is closed) · **Class:** detector fidelity · **Effort:** M · **Facing:** process · **Class-sweep exception:** (c) — resolving an identifier to its DECLARATION is a redesign of the binding-discovery layer the unification arc does not otherwise touch, and it needs the `ts.TypeChecker` that predecessor limits 5 and 8(b) both decline. · **Reachability:** PROBED — the false advisory below was measured in that arc's spec §3.6 against source blob `412cadd3`. · **Incident:** the measured false advisory at §3.6 — a name shadowing a surface binding was classified as the surface, because the consumer asks only whether SOME binding carries that name. That is a cost event that already happened, not a constructed hypothetical.
+
+**The residue, stated precisely.** `surfaceBindings` returns a `Set<string>`. Rule A resolves a
+receiver to its rightmost NAME and every consumer then asks `bindings.has(name)`. So a local that
+merely SHARES a surface binding's name is treated as the surface wherever it appears in the module.
+
+**Why this is the survivable direction, and why it is still worth a row.** The failure is a FALSE
+ADVISORY — a report against code that is not the surface — which the consequence bound permits as a
+documented over-report. The forbidden direction is silence, and the unification arc closed that one.
+So this is filed rather than fenced: it is real, it is reachable, and it is not urgent.
+
+**What a repair needs.** Identifier-to-declaration resolution, which means either a
+`ts.TypeChecker` or a scope model. Both are the machinery the predecessor limits decline, so this is
+a design decision rather than a patch — which is what exception (c) records.
+
+**Do not "fix" this by narrowing the name match.** A tighter string rule trades a permitted false
+advisory for a silent miss, which is the direction the bound forbids. The only correct repair
+resolves identity; anything else moves the error to the wrong side.
+
 ## BL-MUTATION-SCORE-NONDETERMINISM — a source-mutation surface's verdict moves with byte-identical inputs, and the score contract assumes that cannot happen
 
 **Renamed away from an id naming a MECHANISM, and away from a count.** This shipped as
