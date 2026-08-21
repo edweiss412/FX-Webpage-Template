@@ -78,8 +78,10 @@ delivery self-neutralizes. And because an authorization can also decay with the 
 UNCHANGED (round 3's probe: a concurrent marker write flips `blockedOn` after the pass read
 it), the resume prompt additionally defers to the recipient's own marker at execution time
 (§3.6) — the one payload whose content could override safety state now re-checks that state
-where it is freshest. §7 limit 1 prices every decay class on these mechanisms, not on an
-assumption.
+where it is freshest. These mechanisms cover exactly two decay classes — wrong recipient,
+and `blockedOn` decay; the remaining same-recipient classes (a verdict or purview change the
+recipient cannot see) are priced as bounded consequences in §7 limit 1, not claimed closed
+(round 4's correction).
 
 The shipped-but-fenced code already contains the fourth repair's partial form of this — the
 `authorize()` closure in `scripts/pane-compaction.ts` memoizes the marker and derives the
@@ -360,10 +362,14 @@ neutralize a SAME-recipient authorization decay — a `blockedOn` written by a c
 marker update after the pass read it, with branch and session unchanged. The earlier resume
 text told exactly that recipient to discard its blocked framing, which OVERRODE the one
 piece of state that would have refused the send. The repaired text makes the recipient's own
-marker — the freshest authorization state that exists anywhere, read at the recipient's own
-execution instant — the final gate, so for the resume path the residual window's endpoint
-moves from the orchestrator's send to the recipient's execution, where it is zero. The
-checkpoint payload needs no such line: its ask is a truthful self-record plus a stop at the
+marker the gate for the ONE decay signal the recipient can read — its own `blockedOn` — at
+its own execution instant. Said precisely, because round 4 caught an earlier draft claiming
+more: the deference closes the `blockedOn` decay class and NO OTHER. A verdict or purview
+change with branch, session and `blockedOn` unchanged is invisible to the recipient by
+construction — purview lives in the orchestrator's registry, and verdicts derive from
+roster, gh and git reads the recipient never performs — so those classes are not closed by
+any payload content and are priced as bounded consequences in §7 limit 1. The checkpoint
+payload needs no deference line: its ask is a truthful self-record plus a stop at the
 recipient's own turn boundary, benign under any decay (§7 limit 1).
 
 A session can always answer "am I driving this branch" (its worktree) and, per this repo's
@@ -473,8 +479,9 @@ comes from that invocation's own single read-once pass — no member read more t
 input carried from any earlier pass, command, or invocation — or refuses naming the
 condition that fired, and it never emits a refusal citing a condition other than the one
 that fired. The interval from the pass's first read to the send is the declared residual
-(§7 limit 1), priced per decay class by the queue property, §3.6's addressed payloads, and
-the resume payload's deference to the recipient's own marker, not forbidden by this bound. A
+(§7 limit 1), priced there per decay class — closed by mechanism where a mechanism exists
+(the queue property, §3.6's addressed payloads, the resume payload's `blockedOn` deference),
+and stated as a bounded consequence where none does — not forbidden by this bound. A
 conservative refusal plus a surfaced reason is a documented limit, not a finding.
 
 **Probe domain.** The live `herdr agent list` roster on this machine; the fixture corpus and
@@ -519,14 +526,21 @@ bounded, not surfaced at the moment it occurs; **[residual]** accepted gap.
    mechanisms):
    - **Wrong recipient** (takeover swapping the session): both prompts open with §3.6's
      address line telling any non-addressee to ignore the message — self-neutralizing.
-   - **Same recipient, authorization decayed** (a concurrent marker write flipping
-     `blockedOn`, a verdict decaying, a purview transfer with the session unchanged): the
-     **resume prompt** defers to the recipient's own marker read at execution time (§3.6),
-     so the decayed state itself refuses; the **checkpoint prompt**'s ask is a truthful
-     self-record plus a stop at the recipient's own turn boundary — benign under any decay,
-     and the `--compact` that would follow refuses on its OWN fresh pass (a transferred
-     purview or changed session fails revalidation there). Cost of the stray checkpoint: one
-     recorded marker and one stopped turn, surfaced to the recipient's own driver.
+   - **Same recipient, `blockedOn` decayed** (a concurrent marker write): the **resume
+     prompt** defers to the recipient's own marker read at execution time (§3.6), so the
+     decayed state itself refuses — this is the one same-recipient class a payload can
+     close, because `blockedOn` is the one decay signal the recipient can read.
+   - **Same recipient, verdict or purview decayed** (pressure/position moved, or a purview
+     transfer with the session unchanged) — **[bounded], not closed** (round 4's
+     correction): the recipient cannot see these signals (purview is the orchestrator's
+     registry; verdicts derive from roster/gh/git reads the recipient never performs), so an
+     addressed resume landing in this class IS obeyed. The bounded consequence: the
+     recipient executes its own marker's `next` — the same act its own driver would
+     instruct, overriding no safety state — and a checkpoint's ask stays a truthful
+     self-record plus a stop, with the `--compact` that would follow refusing on its OWN
+     fresh pass (a transferred purview or changed session fails revalidation there). Cost
+     of the stray send: one resumed-or-stopped turn the recipient's own driver reconciles,
+     never a corrupted state.
    - **`/compact`**: at worst a compaction the operator no longer wanted — the same outcome
      auto-compaction produces on its own schedule — and a near no-op on an already-compacted
      session; a mis-timed compaction of a blocked session loses nothing durable (the marker
@@ -645,7 +659,9 @@ restored, adapted and retired case — with the class it falls in — is a table
 - **AC-15** Both prompt payloads open with §3.6's address line on every live and dry-run
   path; the with-session and branch-only forms are each pinned byte-exactly; no payload
   ships unaddressed; the resume payload carries the marker-outranks-this-message deference
-  line.
+  line. The deference closes the `blockedOn` decay class only — the prose-pin meta-test
+  (§10) asserts the spec and write-up state the bounded classes as bounded, so the round-4
+  overclaim cannot silently return.
 - **AC-16** Nonce-mint exhaustion is a named fault: a `Surface` whose `random()` always
   collides with the marker's nonce yields exit 2 naming the broken random source — never an
   uncaught throw (§3.7).
