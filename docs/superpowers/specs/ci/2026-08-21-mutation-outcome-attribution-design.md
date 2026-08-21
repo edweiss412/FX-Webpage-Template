@@ -127,7 +127,11 @@ The remaining 36 range from 29x to 164x.
 
 ### 2.3 Probe 2b — per-mutant children on the worst-placed surface
 
-`ledgerGit`, the 7.4x surface, measured per mutant with a five-input pair stamp emitted inside the measuring invocation. **Result recorded in §2.6.**
+`ledgerGit`, the 7.4x surface, measured per mutant with a five-input pair stamp emitted inside the measuring invocation.
+
+**Result: 99 mutants, 118 children, 31.6 min. ZERO timeouts among 93 kills.** Child duration min 1.1 s, median 18.7 s, **max 25.3 s** — headroom at the measured MUTANT maximum **7.1x**. Stamp pair identical before and after.
+
+**The number that matters most is the comparison to baseline.** The worst MUTANT child (25.3 s) is 1.04x the worst BASELINE child (24.4 s). The concern that mutant children could be materially slower than baseline — the case the timeout hypothesis is about — is measured on this surface and does not hold: the baseline-derived distribution in §2.2 is a good estimator here, not merely a lower bound. That is one surface, not a population claim.
 
 **Scope, and the decline stated as a decision rather than left as a gap.** The full tail-4 per-mutant sweep (`ledgerGit`, `ledgerClaimsCore`, `premiseScan`, `psqlStartupScan`) costs ~238 minutes worst case — computed as sites x suites x measured baseline — on a two-slot machine-wide semaphore with four other arcs live. It was DECLINED. `ledgerGit` alone carries the argument because it is the worst-placed surface in the population; the other three have more room, not less.
 
@@ -312,7 +316,7 @@ Every row names the executable step that proves it and the channel the proof arr
 | AC-4 | A SURVIVED mutant records one child per declared suite, all `kind: "exit"`, all `exitCode: 0`. | A surviving-mutant case asserting `children.length === suitePaths.length`. |
 | AC-5 | A KILLED mutant on a multi-suite surface records only the children actually run (short-circuit preserved). | A case with a mutant killed by suite 1 of 2, asserting `children.length === 1`. Kills the weaker implementation that runs all suites and reports the first failure. |
 | AC-6 | `evaluateGate` emits exactly one `timeout-kill` notice per timed-out mutant and `passed` is unchanged. | A gate case fed two synthetic runs identical but for one child's `kind`; asserts `notices` differ and `passed`/`score` are equal. |
-| AC-7 | The count of timeout-scored kills across the measured population is RECORDED, whatever it is. | The number from §2.3 written into the probe record and the ledger row. Zero is a result; non-zero routes to §5.5. |
+| AC-7 | The count of timeout-scored kills across the measured population is RECORDED, whatever it is. | **Measured: 0 of 93 kills on `ledgerGit`** (§2.3), the worst-placed surface. Recorded in the probe record and the ledger row. Zero is a result; a future non-zero routes to §5.5. |
 | AC-8 | The determinism harness reports a verdict distribution for a named site, and REFUSES rather than reporting an empty one. | Run it against the §2.4 site; then against `--runs 0`, an unknown surface, and an unresolvable site — each exits 2 with a named reason and no distribution. Both directions. |
 | AC-9 | The harness's assertions decide IN-PROCESS. | Its suite imports the module directly; no assertion's verdict is carried by a spawned child's exit code. |
 | AC-10 | No enrolled surface's score moves. | `spawnBounded`'s blob unchanged across the diff, plus its gate case green. |

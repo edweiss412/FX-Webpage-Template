@@ -9,6 +9,26 @@ verbatim below, ahead of each result, so no reading can have been fitted to an o
 **Standing method notes.**
 - All runs are on one developer machine, under `pnpm heavy` (the machine-wide two-slot semaphore).
 - Score inputs are stamped by blob hash inside the measuring invocation, before AND after.
+- **Baseline provenance, stated rather than assumed.** The harness reads the surface from the FILESYSTEM
+  (`readFileSync`, mirroring `runner.ts:143`) while the pair stamp reads GIT (`git rev-parse HEAD:<path>`).
+  Those are two different sources, so the stamp alone cannot see a dirty working tree — a modified
+  working copy would be measured while the stamp reported the committed blob. Closed by an explicit
+  three-way equality on every measured input, working tree vs `HEAD` vs `origin/main`:
+
+  | input | working tree | `HEAD` | `origin/main` |
+  | --- | --- | --- | --- |
+  | `scripts/lib/ledger-git.ts` | `5e4119f5f1` | `5e4119f5f1` | `5e4119f5f1` |
+  | `tests/scripts/ledgerClaimsCheck.test.ts` | `ce5457b41a` | `ce5457b41a` | `ce5457b41a` |
+  | `tests/scripts/ledgerGitSpawnSeam.test.ts` | `4784247462` | `4784247462` | `4784247462` |
+  | `tests/cross-cutting/psqlStartupFiles/scan.ts` | `a1f9db0c3c` | `a1f9db0c3c` | `a1f9db0c3c` |
+  | `tests/cross-cutting/psqlStartupFileSuppression.test.ts` | `cb45f9ea03` | `cb45f9ea03` | `cb45f9ea03` |
+  | `tests/mutation/source/registry.ts` | `266c7b223c` | `266c7b223c` | `266c7b223c` |
+  | `tests/mutation/source/operators.ts` | `165bf99d49` | `165bf99d49` | `165bf99d49` |
+
+  All three agree for all seven, so every measurement here is against SHIPPED bytes. The mutant itself
+  is served from a temp file through the overlay and the tracked source is never written, so no probe
+  could have compared a prototype against itself — but that is verified above rather than argued from
+  construction.
 - Every figure is derived by the command printed beside it. No figure is read from a source comment
   or from memory — §2.0 of the design records the two stale numbers that rule caught.
 
@@ -144,7 +164,56 @@ other three tail surfaces at 7.9x-11.8x — only 1.1x to 1.6x more room than `le
 three it generalises weakly. A mutant child approaching the ceiling makes the mechanism live
 and §5.5's decision urgent.
 
-RESULT: see `p2b` section appended below.
+### Result
+
+```
+STAMP AFTER identical: true
+
+=== ledgerGit: 99 mutants, 118 children, 31.6 min ===
+killed=93 survivors=6
+child duration (s): min 1.1  median 18.7  max 25.3
+ceiling 180s — headroom at the measured MUTANT max: 7.1x
+TIMEOUTS AMONG THESE KILLS: 0 of 93
+slowest 10 children (s): 22.3, 22.8, 22.8, 22.8, 22.8, 22.9, 23.3, 23.3, 23.8, 25.3
+survivors: ["logical-connector:66:12:||>&&","logical-connector:142:18:||>&&","logical-connector:232:32:||>&&",
+            "integer-literal:259:17:1>2","statement-removal:320:11:continue;>(removed)","logical-connector:365:14:||>&&"]
+```
+
+**Reading, against the pre-stated branch.** Zero of 93 kills are timeouts, and the slowest mutant child
+is 25.3 s against a 180 s ceiling. The worst mutant child is **1.04x** the worst baseline child
+(24.4 s), so on this surface mutant children are NOT materially slower than baseline — the specific
+concern that makes a baseline measurement a mere lower bound does not materialise here. Per the
+pre-stated reading this comes close to closing the timeout mechanism for the other 36 surfaces
+(3.9x-22x more headroom) and covers the three remaining tail peers only weakly (1.1x-1.6x more).
+
+### A FIFTH observation of the `ledgerGit` anomaly, on byte-identical declared inputs
+
+The survivor set reconciles EXACTLY with the surface's 6 ledger rows — **zero unaccepted survivors,
+zero stale rows**. In particular `logical-connector:259:20:&&>||` — the exact site that was an
+UNACCEPTED SURVIVOR on PR #856's `source-shards (0)` leg — still exists in the generated set (99
+mutants, confirmed) and was **KILLED** here.
+
+Input identity verified across every sha the ledger row names:
+
+| sha | `scripts/lib/ledger-git.ts` | `ledgerClaimsCheck.test.ts` | `ledgerGitSpawnSeam.test.ts` |
+| --- | --- | --- | --- |
+| `03953337388b` (main nightly, GREEN) | `5e4119f5f1` | `ce5457b41a` | `4784247462` |
+| `adafcd8ad` (arc-shell, RED) | `5e4119f5f1` | `ce5457b41a` | `4784247462` |
+| `0f98a31c5` (arc-shell, GREEN) | `5e4119f5f1` | `ce5457b41a` | `4784247462` |
+| this run's HEAD (KILLED, green) | `5e4119f5f1` | `ce5457b41a` | `4784247462` |
+
+All four identical, and they match this run's before/after stamp. So the tally for that site on
+byte-identical declared inputs is now **3 killed, 1 survived**.
+
+**What this is and is not.** It is one more observation of INSTABILITY, which is what the row already
+documents. **A verdict that moves back is not evidence for a mechanism** — an unstable verdict moves in
+both directions by construction, so agreeing with the majority is what instability looks like, not a
+diagnosis. No ledger row is added or removed on the strength of it.
+
+**What it does bear on:** the timeout mechanism produced ZERO timeouts on the very surface, the very
+site and the very bytes where the anomaly was observed. That is directly on point and it is the
+strongest single datum against timeouts explaining the `ledgerGit` flip. It is not conclusive — CI is a
+different and slower environment, and history cannot be re-run.
 
 ---
 
