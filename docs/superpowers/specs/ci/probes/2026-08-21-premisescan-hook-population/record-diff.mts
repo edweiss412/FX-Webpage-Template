@@ -119,6 +119,21 @@ try {
   console.log(`VERDICT moved            : ${verdictMoved.length}`);
   console.log(`DETAIL moved             : ${detailMoved.length}`);
   for (const r of [...verdictMoved, ...detailMoved].slice(0, 12)) console.log(`      ${r}`);
+
+  // A movement is the thing this script exists to find, so finding one must FAIL
+  // the command. Printing it under exit 0 puts a finding where nobody looks: the
+  // exit code is the signal a task, a hook and CI all read, and the body of a
+  // green command's output is read by none of them. An earlier version only
+  // printed (plan review r4 finding 3), and it is the same defect already fixed in
+  // limits-check one round earlier — found there and not swept to its peers, which
+  // is the class-sweep rule failing on this arc's own instruments.
+  const moved = onlyBase.length + onlyLive.length + verdictMoved.length + detailMoved.length;
+  if (moved > 0) {
+    console.error(`\nrecord-diff: ${moved} record(s) moved — the change is NOT verdict-neutral`);
+    process.exitCode = 1;
+  } else {
+    console.log(`\nno record moved: the change is verdict-neutral over ${B.size} records`);
+  }
 } finally {
   unlinkSync(BASE_SIBLING);
 }
