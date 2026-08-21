@@ -439,6 +439,42 @@ it. AC-15 pins that in both directions and AC-7b pins this one.
    analyzed statically. When the send path ships under `BL-PANE-COMPACTION-SEND-AUTHORIZATION`, nothing
    about this gate changes.
 
+8. **Four shapes are SILENT, each named with its probe and its re-file trigger.** Diff rounds 3 and 4
+   returned twelve findings between them; two were silent defects and are REPAIRED (the read arm and the
+   handoff arm now fail closed, §2.5). The four below remain silent, and they are fenced here rather than
+   repaired because each needs a recognizer this scanner has declined to grow — the repair-direction rule
+   under same-axis recurrence. A documented limit with a re-file trigger is a decision; without one it is
+   an excuse, so every entry carries one.
+
+   Each was probed in-process against the shipped scanner at `f88690111`, each returned **0 findings**,
+   and each has **0 occurrences in the live corpus** (`SEND_AUTH_SURFACES` = `scripts/pane-compaction.ts`,
+   which scans clean — measured, not assumed). **The direction of every miss is the same: a MISS, never a
+   false advisory.** The gate does not fire wrongly on any of them; it says nothing.
+
+   - **(a) A parenthesized TYPE annotation** — `settle(ch: (Channel))`. `isSurfaceRef` inspects the type
+     node without unwrapping, so the parameter is not a surface binding and the whole module scans as
+     `[]`. **Re-file when:** any file under a scanned root is authored with a parenthesized type
+     annotation on a surface binding, or `isSurfaceRef` is edited for any other reason.
+   - **(b) A sink or read reached through a member of an object TYPE** — `type Holder = { ch: Channel }`,
+     then `h.ch.dispatch(...)`. `ch` is a member of an alias, not a binding, and resolving it needs a
+     checker — the same one limit 5 declines. **Re-file when:** a scanned module introduces a holder type
+     around an enrolled surface, or the scanner acquires a `ts.TypeChecker` for any reason.
+   - **(c) An accessor-shaped function-like** — a `get`ter or a constructor whose body holds a declared
+     pass. The function-like predicate is hand-written and enumerates declarations, so an accessor body is
+     read as straight-line. **Re-file when:** any scanned module declares a pass inside an accessor or a
+     constructor, or the predicate is edited.
+   - **(d) A type-position `import()` edge** — `type Local = import("./m").Channel`. Import-edge discovery
+     visits `ImportDeclaration` only, so an importer written this way is not registered. **Re-file when:**
+     any file under a scanned root imports an enrolled surface type in type position, or
+     `importEdgeFindings` is edited.
+
+   **What makes this fence honest rather than convenient:** the two shapes that were SILENT AND ORDINARY —
+   an unclassified member through a property receiver, and a raw handoff of a name-shadowing parameter —
+   were NOT fenced. They were repaired, because a silent miss is not the conservative behaviour this
+   spec's bound permits, and fencing them would have been one notch weaker than the bound this gate is
+   held to. The unification that would close all four is filed as
+   `BL-SENDAUTH-ARM-CLASSIFIER-UNIFICATION`.
+
 ### Dimensional Invariants
 
 N/A — no UI surface. No component, no fixed-dimension parent.

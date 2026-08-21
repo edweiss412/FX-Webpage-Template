@@ -956,6 +956,36 @@ describe("Task 8 — second repair pass, from the re-measure at 0.9259", () => {
     ]);
   });
 
+  it("reports an unclassified member reached through a PROPERTY-ACCESS receiver", () => {
+    // Diff r4 F1. The bare form already reported; the property-receiver form was
+    // SILENT, because the classifier walks IDENTIFIERS and `ch` inside `this.ch` is a
+    // property NAME it skips. Probed side by side before the repair: `ch.typo()` -> 1,
+    // `this.ch.typo()` -> 0.
+    //
+    // The repair is that asymmetry and nothing wider. `ch.panes()` and
+    // `this.ch.panes()` both scan clean outside a pass, and they AGREE — a read
+    // outside a declared pass is unconstrained by rule 2 — so a blanket report on
+    // member reads would have fired on correct code.
+    const f = "member-receiver-unclassified.ts";
+    expect(scan(f)).toEqual([
+      // Anchored on the INDENTED call, not the bare text: the header comment names
+      // the construct it explains, so the looser anchor resolves to line 4. Same trap
+      // the r2 parenthesized-receiver case hit.
+      finding(f, "UNCLASSIFIED-USE", "typo", lineOf(f, "    this.ch.typo();")),
+    ]);
+  });
+
+  it("reports a RAW HANDOFF of a parameter that shadows a derivation name", () => {
+    // Diff r4 F2 — diff r2 F1's defect still live ONE ARM OVER. The read path learned
+    // to resolve the shadow; the handoff path was still handed a set of raw NAMES,
+    // every binding minus every name a derivation declares, so the shadowing parameter
+    // was subtracted BY NAME and its handoff went unreported. The arm now asks the
+    // same shadow-aware question, so a binding the scanner cannot SHOW to be derived
+    // at this use is RAW — failing closed.
+    const f = "shadowed-param-handoff.ts";
+    expect(scan(f)).toEqual([finding(f, "RAW-HANDOFF", "leak", lineOf(f, "leak(snap)"))]);
+  });
+
   it("reports the surface DESTRUCTURED in a parameter, naming the bound member", () => {
     // Diff r1 F2, and the case the arm shipped WITHOUT. `settle({ dispatch }: Channel)`
     // calls the sink through a bare local, so no property access on a binding exists

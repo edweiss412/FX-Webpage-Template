@@ -396,6 +396,28 @@ const classifyUses = (
     out.push({ code: "UNCLASSIFIED-USE", file, line, name, lines: [line] });
   };
 
+  /**
+   * Classify the member reached THROUGH `receiver`, whatever shape the receiver has.
+   * One definition for the bare path and the property-receiver path, because the two
+   * answering differently is what made `this.ch.typo()` silent while `ch.typo()`
+   * reported (diff r4 F1).
+   */
+  const classifyMemberOn = (receiver: ts.PropertyAccessExpression | ts.Expression): void => {
+    const outer = receiver.parent;
+    if (!ts.isPropertyAccessExpression(outer) || outer.expression !== receiver) return;
+    const member = outer.name.text;
+    const call = outer.parent;
+    if (ts.isCallExpression(call) && call.expression === outer) {
+      if (!known.has(member)) report(outer, member);
+      return;
+    }
+    const handedOn =
+      (ts.isPropertyAssignment(call) && call.initializer === outer) ||
+      (ts.isCallExpression(call) && call.arguments.includes(outer));
+    if (ambient.has(member) && handedOn) return;
+    report(outer, member);
+  };
+
   const classify = (id: ts.Identifier): void => {
     const parent = id.parent;
 
@@ -481,6 +503,19 @@ const classifyUses = (
           ts.isBindingElement(parent)) &&
         parent.name === node;
       const isPropertyName = ts.isPropertyAccessExpression(parent) && parent.name === node;
+      // A property NAME is not a binding reference — EXCEPT when the property itself
+      // is a surface binding, which is what a class field is. `this.ch.typo()` was
+      // dropped here and caught by no later arm, while the bare `ch.typo()` reported
+      // (diff r4 F1). The skip stays; the surface-binding case is handed to the same
+      // member classification the bare path uses, so DECLINE THROUGH A PROPERTY
+      // RECEIVER REPORTS EXACTLY WHERE DECLINE THROUGH A BARE IDENTIFIER ALREADY DID.
+      // Deliberately not a blanket report on member reads: `ch.panes()` and
+      // `this.ch.panes()` both scan clean outside a pass and they AGREE, because a
+      // read outside a declared pass is unconstrained by rule 2.
+      if (isPropertyName && bindings.has(node.text) && !derivedAt(node.text, node)) {
+        classifyMemberOn(parent as ts.PropertyAccessExpression);
+        return;
+      }
       // Derived AT THIS USE, not anywhere in the module: reads through a snapshot
       // are unconstrained inside the pass that took it, and nowhere else.
       if (!isDeclarationName && !isPropertyName && !derivedAt(node.text, node)) classify(node);
@@ -730,7 +765,7 @@ const analyzeDerivations = (
 const analyzeHandoffs = (
   sf: ts.SourceFile,
   file: string,
-  bindings: ReadonlySet<string>,
+  isRaw: (name: string, at: ts.Node) => boolean,
   passFn: ts.Node,
   derivations: readonly Derivation[],
 ): Finding[] => {
@@ -738,7 +773,12 @@ const analyzeHandoffs = (
   const visit = (n: ts.Node): void => {
     if (ts.isCallExpression(n) && !derivations.some((d) => d.initializer === n)) {
       for (const argument of n.arguments) {
-        if (!ts.isIdentifier(argument) || !bindings.has(argument.text)) continue;
+        // Asked AT THE USE, not against a set of raw NAMES. The name-keyed set
+        // subtracted every binding sharing a derivation's name, so a parameter
+        // SHADOWING a derived name was subtracted with it and its handoff went
+        // unreported — diff r2 F1's defect, still live one arm over at diff r4 F2.
+        // A binding the scanner cannot SHOW to be derived here is RAW: fail closed.
+        if (!ts.isIdentifier(argument) || !isRaw(argument.text, argument)) continue;
         const line = sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
         // Named by CALLEE: two handoffs can share a code, a file AND a line and
         // differ only here, so the callee is part of the finding's IDENTITY.
@@ -992,12 +1032,10 @@ export function scanModule(file: string, row: SendAuthSurface): Finding[] {
       !derivations.some((d) => d.name === name && !shadowedBetween(name, at, d.declaration));
     findings.push(...analyzePassReads(sf, file, rawHere, reads, fn, derivations));
     findings.push(...analyzeDerivations(sf, file, fn, derivations));
-    // `analyzeHandoffs` asks WHICH binding is handed on, not where it is read, so the
-    // name-only view is the right one for it and the predicate would say nothing extra.
-    const rawNames = new Set<string>(
-      [...bindings].filter((b) => !derivations.some((d) => d.name === b)),
-    );
-    findings.push(...analyzeHandoffs(sf, file, rawNames, fn, derivations));
+    // The name-only view was NOT the right one: it subtracted a shadowing parameter
+    // along with the derivation whose name it borrowed (diff r4 F2). Same predicate
+    // as the read arm, asked at the use.
+    findings.push(...analyzeHandoffs(sf, file, rawHere, fn, derivations));
   }
 
   for (const fn of classified) {

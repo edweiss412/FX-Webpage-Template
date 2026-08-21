@@ -23,13 +23,32 @@ found the next arm that had not been narrowed yet, which is why the rate does no
 - a raw READ through a property receiver — `this.ch.panes()` outside any declared pass — returns 0 findings.
 - a raw HANDOFF of a parameter that SHADOWS a derivation name, inside the pass, returns 0 findings; this is diff r2 F1's defect still live one arm over.
 
-**The repair is a narrowing, not another arm.** One shared receiver rule and one shared
-raw-binding predicate, consumed by every arm, with DECLINE MEANING REPORT — the shape diff r3
-already installed for the sink walk and discovery (`sendBearingFunctions`). The alternative, if
-the unification is judged too large for this arc, is to DECLARE each remaining arm's forms as
-documented limits by name, each with its probe, its corpus count, the direction of the miss, and
-a re-file trigger. What is NOT acceptable is leaving them silent and unstated, because silence is
-what the bound forbids.
+**Two of the four arms are now narrowed; this row carries the other two.** Ruled at the round
+cap: repair what is silent AND ordinary, fence what needs a recognizer the scanner has declined
+to grow, ship, and keep the unification here.
+
+- **NARROWED — the sink walk and primary discovery** (diff r3), which now share one
+  classification (`sendBearingFunctions`), so suppression may rest only on a classification that
+  actually happened.
+- **NARROWED — the read arm and the handoff arm** (diff r4). The read arm dropped a property
+  NAME that was itself a surface binding, so `this.ch.typo()` was silent while the bare
+  `ch.typo()` reported; it now hands that receiver to the same member classification. The handoff
+  arm received a set of raw NAMES and subtracted a shadowing parameter along with the derivation
+  whose name it borrowed; it now asks the shadow-aware predicate AT THE USE. Both fail closed.
+- **STILL SILENT, fenced as documented limits with re-file triggers** at spec §4 limit 8, each
+  probed at `f88690111` returning 0 findings with 0 occurrences in the live corpus: a
+  parenthesized TYPE annotation; a sink or read through a member of an object TYPE; an
+  accessor-shaped function-like holding a pass; a type-position `import()` edge. Every miss is a
+  MISS, never a false advisory.
+
+**What the unification is.** One shared receiver rule and one shared raw-binding predicate,
+consumed by every arm, with DECLINE MEANING REPORT. Not attempted in the originating arc because
+a redesign of the classification layer at diff round 4 is the recognizer ratchet the
+repair-direction rule refuses; the measured trajectory elsewhere is 20 and 41 rounds.
+
+**The load-bearing lesson for whoever takes this.** Failing two arms closed produced ZERO false
+advisories on the live corpus — measured, not predicted. Silence was not buying correctness; it
+was buying nothing.
 
 ## BL-MUTATION-SCORE-NONDETERMINISM — a source-mutation surface's verdict moves with byte-identical inputs, and the score contract assumes that cannot happen
 
