@@ -1462,23 +1462,6 @@ recoverable from git history on this branch; restore them with the arc rather th
 
 **First scheduled step:** confirm the lint's exit contract is stable enough to gate on (it currently exits 1 on hard failures and prints a `summary: N hard, M advisory` line), then add the check beside the existing `GUARD SURFACE:` refusal so both live in one place.
 
-## BL-SPEC-CLAIM-SWEEP-AFTER-REASONING-FINDING — a repair fixes the site the finding named and leaves the document unswept
-
-**Status:** IN PROGRESS · **Branch:** feat/speclint-claim-sweep-after-repair · **Severity:** LOW-MEDIUM (no shipped defect; it buys review rounds) · **Class:** review economy / authoring tooling · **Effort:** M · **Filed:** 2026-08-18 (`fix/control-outline-border-token`, spec review R2 F1 + R4 F3, then R4 F1 + R5 F1) · **Facing:** process · **Class-sweep exception:** (c) — the repair is a new lint arm or derived helper, a surface this arc does not otherwise touch · **Reachability:** PROBED — all four findings are committed corpus rows and the unswept claims reproduce on the pre-repair blobs.
-
-AGENTS.md already says to class-sweep a finding's SHAPE across the code before patching the named instance. It does not say the same about the DOCUMENT, and that gap is measurable.
-
-**Incident, twice on one arc.** Spec review R2 F1 found the hover classification reasoning over `allStrings(element)` — the union of every render alternative — where the question is per render path. The repair fixed that section and swept the hover sites. **Two rounds later R4 F3 found the identical reasoning still standing in the §6 tinted-plate claim**, where it produced a false statement that a swapped control joins `BL-CONTROL-OUTLINE-ON-TINTED-PLATES`. Separately, R4 F1 corrected a census count from 58 to 57; the repair fixed the cited claims and **R5 F1 found four more built on the old number**, with five further occurrences caught only because the next brief's bound was diffed against the spec. Corpus: `docs/review-rounds/fix/control-outline-border-token/2ddbf038bdf4.jsonl`, rounds 2, 4 and 5. Two of that arc's five spec rounds are attributable to this shape.
-
-**Why scrutiny does not close it.** Both instances survived a careful author and a probing reviewer. The union-versus-per-path error is invisible at the sentence level — each sentence is locally plausible, and only the relationship between a claim and the scanner's data model is wrong. The arithmetic version is worse, because a corrected number reads as settled.
-
-**Two mechanical forms, either of which would have caught an instance.**
-
-1. **A derived per-path helper**, so a spec or test author answering "does this element carry X" cannot reach for the union when the question is per-path. `element.paths` already exists; what is missing is an obvious, named way to ask the per-path question, which is why `allStrings` gets used by default.
-2. **A stale-predecessor check at the document level:** when a numeric literal or named claim changes in a spec or plan, fail if occurrences of the superseded value survive elsewhere in the same arc's documents. This is the cheaper of the two and generalises past this arc — it is the same defect class the self-consistency sweep in `docs/agents/spec-self-review.md` already targets by hand.
-
-**First scheduled step:** decide which of the two forms to build, then confirm against this arc's own history — replay the R2 and R4 repairs and check that the proposed mechanism flags the claims R4 F3 and R5 F1 later found. A mechanism that does not flag those two is not worth building.
-
 ## BL-PREMISESCAN-REGISTRAR-ACCEPT-SETS-HAND-MAINTAINED — the scanner's registrar and modifier lists drift from Vitest's actual API
 
 **Status:** OPEN · **Severity:** MEDIUM (drift is silent in the FREE direction: an unrecognised registrar means the test is not classified at all, or its hooks are not collected) · **Class:** guard fidelity · **Effort:** M · **Filed:** 2026-08-19 (`fix/premisescan-nested-hook-sibling-leak`, diff review r10) · **Facing:** process · **Mint-exception:** invariant · **Class-sweep exception:** (c) — the repair derives both sets from Vitest's surface, a change to how the scanner is configured rather than to the nested stop the finding arc ships · **Reachability:** PROBED — one member was LIVE in an enrolled suite, transcript below.
