@@ -422,21 +422,13 @@ const classifyUses = (
     const parent = id.parent;
 
     if (ts.isPropertyAccessExpression(parent) && parent.expression === id) {
-      const member = parent.name.text;
-      const grand = parent.parent;
-      if (ts.isCallExpression(grand) && grand.expression === parent) {
-        // A direct member call. A member absent from the type entirely cannot be
-        // classified, and silence is never a certificate.
-        if (!known.has(member)) report(parent, member);
-        return;
-      }
-      // Referenced without being called. Exempt ONLY when it is an ambient member
-      // being handed on: a property value or a call argument.
-      const handedOn =
-        (ts.isPropertyAssignment(grand) && grand.initializer === parent) ||
-        (ts.isCallExpression(grand) && grand.arguments.includes(parent));
-      if (ambient.has(member) && handedOn) return;
-      report(parent, member);
+      // ONE implementation, called with the identifier as the receiver. Copying these
+      // branches for the property-receiver path left SEVEN survivors on the copy —
+      // no case reached it — and worse, it duplicated the line the registry's control
+      // edit keys on BY TEXT, so the control landed on the unexercised copy and the
+      // suite stopped noticing it. A control edit keyed by text is only as good as
+      // that text's uniqueness, which duplication silently destroys.
+      classifyMemberOn(id);
       return;
     }
 
