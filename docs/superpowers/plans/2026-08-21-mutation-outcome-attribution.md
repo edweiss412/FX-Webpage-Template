@@ -36,9 +36,9 @@ AC-1 through AC-18 of the spec's §7 table. Each AC row already names the strict
 | `.github/workflows/mutation-harness.yml` | records upload on the `source-shards` job | n/a |
 | `.gitignore` | already carries `.mutation-records/` at this base | n/a |
 | `package.json` | `mutation:determinism` script | n/a |
-| `tests/mutation/browser/runner.ts` | `children: []` at its one `MutantOutcome` construction site | no |
+| `tests/mutation/browser/runner.ts` | **NO EDIT** — `children` shipped OPTIONAL, so its one `MutantOutcome` construction site needs none | no |
 
-**The browser row is NOT a scope widening — it is the touched set being complete.** `tests/mutation/browser/**` consumes both changed types and was absent from an earlier draft of spec §5.6, which now carries the per-file probe. The enrolled file there (`tests/mutation/browser/mutate.ts`, `browserMutate`, floor 1) only CONSUMES `MutantOutcome` and constructs none, so it needs no edit and **its score is not retired**; only the non-enrolled `tests/mutation/browser/runner.ts` constructs one. `GateInput.outcomes` is OPTIONAL precisely so the remaining call sites — including the committed, evidentiary probe scripts — stay untouched.
+**The browser row is NOT a scope widening — it is the touched set being complete.** `tests/mutation/browser/**` consumes both changed types and was absent from an earlier draft of spec §5.6, which now carries the per-file probe. The enrolled file there (`tests/mutation/browser/mutate.ts`, `browserMutate`, floor 1) only CONSUMES `MutantOutcome` and constructs none, so it needs no edit and **its score is not retired**. The SUITE beside it, `tests/mutation/browser/mutate.test.ts`, DOES construct `MutantOutcome` and IS that surface's sole deciding suite — which is the fact that made `children` optional (spec §5.6), and with it optional NOTHING under `tests/mutation/browser/**` is edited, including the non-enrolled `runner.ts` an earlier draft of this row named. `GateInput.outcomes` is OPTIONAL precisely so the remaining call sites — including the committed, evidentiary probe scripts — stay untouched.
 
 **`tests/mutation/source/spawnBounded.ts` is NOT touched** — enrolled at `tests/mutation/source/registry.ts:2663`, `scoreFloor: 1`, measured 12/12. Editing it would retire that score for no gain.
 

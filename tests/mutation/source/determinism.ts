@@ -79,6 +79,13 @@ export type DeterminismOutcome =
       stampBefore: InputStamp;
       stampAfter: InputStamp;
       /**
+       * Declared inputs whose bytes differ between the two stamps, i.e. that
+       * moved WHILE the run was in flight. Non-empty means the distribution is
+       * real but UNATTRIBUTABLE: it was produced by a set of inputs that no
+       * longer exists, so it is reported and explicitly not certified.
+       */
+      inputsMoved: string[];
+      /**
        * Runs that did NOT complete, one entry each. Reported rather than
        * silently reducing the denominator: a distribution over 4 of 6 runs is a
        * different claim from one over 6, and a reader must be able to tell.
@@ -120,30 +127,52 @@ export function parseRuns(
     : { ok: false, detail: `--runs must be an integer >= 1, got ${JSON.stringify(value)}` };
 }
 
-function hashFile(path: string): string {
-  const bytes = readFileSync(path);
+function hashBytes(bytes: Buffer, what: string): string {
   if (bytes.length === 0) {
-    throw new Error(`EMPTY INPUT: ${path} — refusing to stamp an empty file as if it were content`);
+    throw new Error(`EMPTY INPUT: ${what} — refusing to stamp an empty file as if it were content`);
   }
   return createHash("sha256").update(bytes).digest("hex").slice(0, 12);
 }
 
-/** Stamp the surface's declared inputs, read from disk (rule: the stamp reads what the harness reads). */
-export function stampInputs(root: string, surface: GuardSurface): InputStamp {
+function hashFile(path: string): string {
+  return hashBytes(readFileSync(path), path);
+}
+
+/**
+ * Stamp the surface's declared inputs.
+ *
+ * `executed` overrides the DISK READ for a path whose bytes the caller already
+ * holds — the source is snapshotted into memory before the run, and an ordinary
+ * save between that snapshot and this call would otherwise make BOTH stamps
+ * describe bytes that never executed, agreeing with each other so no mismatch
+ * could ever surface. The stamp must read what RAN, which is not always what is
+ * on disk when the stamp is taken.
+ */
+export function stampInputs(
+  root: string,
+  surface: GuardSurface,
+  executed: Readonly<Record<string, string>> = {},
+): InputStamp {
   const paths = [surface.sourcePath, ...surface.suitePaths];
   const files: Record<string, string> = {};
-  for (const p of paths) files[p] = hashFile(resolve(root, p));
+  // DECLARED ORDER, duplicates preserved. `runMutantRecorded` runs the suites in
+  // this order and SHORT-CIRCUITS on the first non-zero, so the order and the
+  // multiplicity are both inputs to the outcome; a digest built from a sorted,
+  // path-keyed map reports two input sets that produce different runs as one.
+  const ordered: string[] = [];
+  for (const p of paths) {
+    const override = executed[p];
+    const hash =
+      override === undefined ? hashFile(resolve(root, p)) : hashBytes(Buffer.from(override, "utf8"), p);
+    files[p] = hash;
+    ordered.push(`${p}:${hash}`);
+  }
   // The DECLARED OPERATORS and the floor are inputs to the score in exactly the
   // way the source is, and they live in a file that does not look like code
   // under test — which is why an input set that reads as obvious omits them.
   const operators = `${[...surface.operators].sort().join(",")}|floor=${surface.scoreFloor}`;
   const digest = createHash("sha256")
-    .update(
-      `${Object.entries(files)
-        .sort(([a], [b]) => (a < b ? -1 : 1))
-        .map(([k, v]) => `${k}:${v}`)
-        .join("\n")}\n${operators}`,
-    )
+    .update(`${ordered.join("\n")}\n${operators}`)
     .digest("hex")
     .slice(0, 12);
   return { digest, files, operators, count: paths.length };
@@ -191,7 +220,9 @@ export function runDeterminism(input: DeterminismInput): DeterminismOutcome {
     };
   }
 
-  const stampBefore = stampInputs(root, surface);
+  // Bound to `text` — the bytes this run snapshotted and generated its mutant
+  // from — rather than to a second read of the same path.
+  const stampBefore = stampInputs(root, surface, { [surface.sourcePath]: text });
 
   const scratch = mkdtempSync(join(tmpdir(), "fx-determinism-"));
   const mutantFile = join(scratch, "mutant.ts");
@@ -261,6 +292,12 @@ export function runDeterminism(input: DeterminismInput): DeterminismOutcome {
   }
 
   const stampAfter = stampInputs(root, surface);
+  // Printing two digests and leaving a reader to compare them by eye is the same
+  // defect as printing an exit code without branching on it: it LOOKS like
+  // diligence and is indistinguishable from having not checked.
+  const inputsMoved = Object.keys(stampBefore.files).filter(
+    (p) => stampBefore.files[p] !== stampAfter.files[p],
+  );
 
   const verdicts: Record<string, number> = {};
   const kinds: Record<string, number> = {};
@@ -280,6 +317,7 @@ export function runDeterminism(input: DeterminismInput): DeterminismOutcome {
     kinds,
     stampBefore,
     stampAfter,
+    inputsMoved,
   };
 }
 
@@ -323,5 +361,13 @@ export function renderDeterminism(outcome: DeterminismOutcome): string {
     for (const f of outcome.infraFaults) lines.push(`  ${f}`);
   }
   lines.push(`stamp after: ${outcome.stampAfter.digest} over ${outcome.stampAfter.count} input(s)`);
+  if (outcome.inputsMoved.length > 0) {
+    lines.push(
+      `INPUTS MOVED DURING THE RUN — this distribution is NOT attributable to any current tree:`,
+    );
+    for (const p of outcome.inputsMoved) {
+      lines.push(`  ${p}: ${outcome.stampBefore.files[p]} -> ${outcome.stampAfter.files[p]}`);
+    }
+  }
   return lines.join("\n");
 }

@@ -328,3 +328,71 @@ describe("workflow — the source-shards JOB uploads the records directory (AC-1
     expect(elsewhere).toEqual([]);
   });
 });
+
+describe("workflow — a step that uploads a HIDDEN directory must say so (diff R1 F1)", () => {
+  it("declares include-hidden-files because the record dir is dot-prefixed", () => {
+    const wf = parseYaml(readFileSync(".github/workflows/mutation-harness.yml", "utf8")) as {
+      jobs: Record<string, { steps?: { uses?: string; with?: Record<string, string> }[] }>;
+    };
+    const step = (wf.jobs["source-shards"]?.steps ?? []).find(
+      (s) =>
+        typeof s.uses === "string" &&
+        s.uses.startsWith("actions/upload-artifact") &&
+        String(s.with?.path ?? "").includes(DEFAULT_RECORD_DIR),
+    );
+    premiseHolds("the records upload step still exists", step !== undefined);
+
+    // DERIVED, not enumerated: the requirement exists BECAUSE the path is
+    // hidden, so renaming the directory to a visible name retires it correctly
+    // rather than leaving a rule pinned to a constant nobody re-reads.
+    const first = String(step!.with?.path ?? "").split("/")[0] ?? "";
+    const hidden = first.startsWith(".");
+    premiseHolds("the record dir is dot-prefixed, which is why this rule applies", hidden);
+
+    // upload-artifact@v4 EXCLUDES hidden files by default and counts anything
+    // inside a dot-directory as hidden, so the step below was green on every
+    // shard while uploading nothing at all.
+    expect(String(step!.with?.["include-hidden-files"])).toBe("true");
+
+    // ...and `ignore` is what made that silent: an upload that found no files
+    // is the exact false certification this record exists to prevent, so the
+    // empty case must SURFACE.
+    expect(String(step!.with?.["if-no-files-found"] ?? "warn")).not.toBe("ignore");
+  });
+});
+
+describe("record file names — a dotted surface id is not two surfaces (diff R1 F4)", () => {
+  it("round-trips an id containing dots", () => {
+    const name = recordFileName("pane.compaction", "20260821-064430-1-0001");
+    const parsed = parseRecordFileName(name);
+    expect(parsed).toEqual({ surfaceId: "pane.compaction", runId: "20260821-064430-1-0001" });
+  });
+
+  it("keeps two dot-sharing surfaces in separate prune buckets", () => {
+    const dir = mkdtempSync(join(tmpdir(), "fx-records-dotted-"));
+    try {
+      // Two runs each, so a correct pruner at the floor removes NOTHING: the
+      // failure this catches is four files collapsing into one `pane` bucket
+      // and the older two being evicted as if they were superseded runs of one
+      // surface. Evidence loss, by wrong attribution.
+      const names = [
+        recordFileName("pane.compaction", "20260821-060000-1-0001"),
+        recordFileName("pane.compaction", "20260821-060100-1-0002"),
+        recordFileName("pane.other", "20260821-060200-1-0003"),
+        recordFileName("pane.other", "20260821-060300-1-0004"),
+      ];
+      for (const n of names) writeFileSync(join(dir, n), "{}");
+
+      const removed = prune(dir, MIN_RETAINED_PER_SURFACE);
+      expect(removed).toEqual([]);
+      expect(readdirSync(dir).sort()).toEqual([...names].sort());
+
+      const surfaces = new Set(
+        readdirSync(dir).map((n) => parseRecordFileName(n)?.surfaceId ?? "UNPARSED"),
+      );
+      expect([...surfaces].sort()).toEqual(["pane.compaction", "pane.other"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

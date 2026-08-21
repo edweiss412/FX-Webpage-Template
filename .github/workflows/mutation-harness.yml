@@ -185,7 +185,16 @@ jobs:
         with:
           name: mutation-records-source-shards-${{ matrix.shard }}
           path: .mutation-records/
-          if-no-files-found: ignore
+          # THE DIRECTORY IS DOT-PREFIXED AND upload-artifact@v4 TREATS EVERY
+          # FILE INSIDE ONE AS HIDDEN, excluding them by default. Without this
+          # the step is green on all four shards while uploading nothing —
+          # the CI-only blind spot §1.0 measures, rebuilt inside its own repair.
+          include-hidden-files: true
+          # NOT `ignore`: an upload that found no files is exactly the false
+          # certification the record exists to prevent, so the empty case has to
+          # surface. `warn` reports it without reddening a leg for a shard that
+          # legitimately produced none.
+          if-no-files-found: warn
 
   source-gates:
     runs-on: ubuntu-latest

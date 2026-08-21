@@ -45,7 +45,7 @@ const { enumerateSites, siteId } = await import("./operators");
 const { generateMutants } = await import("./generate");
 const { premiseHolds } = await import("../../_shared/premise");
 const { parseRuns, runDeterminism, stampInputs, renderDeterminism } = await import("./determinism");
-const { main, parseArgv, DEFAULT_DEPS, EXIT_OK, EXIT_REFUSED } =
+const { main, parseArgv, DEFAULT_DEPS, EXIT_OK, EXIT_REFUSED, EXIT_UNATTRIBUTABLE } =
   await import("../../../scripts/mutation-determinism");
 type DeterminismOutcome = Awaited<ReturnType<typeof runDeterminism>>;
 type DeterminismInput = Parameters<typeof runDeterminism>[0];
@@ -369,6 +369,77 @@ describe("determinism — PROVENANCE is derived from the run's ACTUAL inputs (AC
     }
   });
 
+  it("stamps the bytes that RAN, not whatever is on disk when the stamp is taken", () => {
+    const { root, write } = syntheticRoot();
+    try {
+      const executed = "export const a = 1;\n";
+      const diskNow = "export const a = 999;\n";
+      // The ordinary save: the run snapshotted `executed` and generated its
+      // mutant from it, then somebody saved the file before the stamp was taken.
+      write("src/thing.ts", diskNow);
+
+      const bound = stampInputs(root, surface(), { "src/thing.ts": executed });
+      const fromDisk = stampInputs(root, surface());
+      // Kills a stamp that re-reads disk: it would certify the distribution
+      // against bytes that never ran, and both stamps would AGREE about it, so
+      // no mismatch would ever surface.
+      expect(bound.digest).not.toBe(fromDisk.digest);
+
+      // ...and it is byte-FAITHFUL rather than merely different: restoring the
+      // executed bytes to disk reproduces the bound digest exactly. A stamp that
+      // hashed the override's LENGTH, or salted it, passes the line above.
+      write("src/thing.ts", executed);
+      expect(stampInputs(root, surface()).digest).toBe(bound.digest);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("REFUSES an EMPTY override, exactly as it refuses an empty file", () => {
+    const { root } = syntheticRoot();
+    try {
+      // The empty-input refusal must not have a second door that bypasses it.
+      expect(() => stampInputs(root, surface(), { "src/thing.ts": "" })).toThrow(/EMPTY INPUT/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("DIFFERS when the deciding suites are REORDERED, because execution is ordered", () => {
+    const { root } = syntheticRoot();
+    try {
+      const forward = stampInputs(root, surface()).digest;
+      const reversed = stampInputs(
+        root,
+        surface({ suitePaths: ["tests/two.test.ts", "tests/one.test.ts"] }),
+      ).digest;
+      // `runMutantRecorded` runs the suites in DECLARED ORDER and short-circuits
+      // on the first non-zero, so the order is an input to the outcome. A stamp
+      // that sorts before hashing cannot distinguish two input sets that produce
+      // different runs — the definition of wrong attribution.
+      expect(reversed).not.toBe(forward);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("DIFFERS when a suite is declared TWICE, because it then runs twice", () => {
+    const { root } = syntheticRoot();
+    try {
+      const once = stampInputs(root, surface({ suitePaths: ["tests/one.test.ts"] })).digest;
+      const twice = stampInputs(
+        root,
+        surface({ suitePaths: ["tests/one.test.ts", "tests/one.test.ts"] }),
+      ).digest;
+      // The same class as the reorder above, reached the other way: a digest
+      // built from a path-keyed MAP collapses the duplicate and reports the two
+      // input sets as one.
+      expect(twice).not.toBe(once);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("REFUSES to stamp an empty file rather than hashing nothing", () => {
     const { root, write } = syntheticRoot();
     try {
@@ -450,6 +521,7 @@ describe("determinism — the rendering carries what the core produced", () => {
 describe("mutation:determinism adapter — WIRING and RENDERING, proved separately", () => {
   const FIXED: DeterminismOutcome = {
     kind: "result",
+    inputsMoved: [],
     surfaceId: "ledgerGit",
     siteId: "relational-boundary:259:20:<><=",
     // THREE requested, TWO completed — so the fixture is internally coherent AND
@@ -585,3 +657,164 @@ describe("mutation:determinism adapter — WIRING and RENDERING, proved separate
     });
   });
 });
+
+describe("determinism — a run whose inputs MOVED is reported, never certified (diff R1 F2)", () => {
+  const moved = (): DeterminismOutcome => ({
+    kind: "result",
+    surfaceId: "ledgerGit",
+    siteId: "relational-boundary:259:20:<><=",
+    runs: 1,
+    observations: [
+      {
+        run: 1,
+        verdict: "KILLED",
+        exitCode: 1,
+        children: [{ suite: "tests/a.test.ts", kind: "exit", exitCode: 1, durationMs: 12 }],
+      },
+    ],
+    verdicts: { KILLED: 1 },
+    kinds: { exit: 1 },
+    infraFaults: [],
+    stampBefore: { digest: "aaaaaaaaaaaa", files: { "lib/x.ts": "1111" }, operators: "o|floor=1", count: 1 },
+    stampAfter: { digest: "bbbbbbbbbbbb", files: { "lib/x.ts": "2222" }, operators: "o|floor=1", count: 1 },
+    inputsMoved: ["lib/x.ts"],
+  });
+
+  it("names the moved path and BOTH digests in the rendering", () => {
+    const out = renderDeterminism(moved());
+    expect(out).toContain("INPUTS MOVED DURING THE RUN");
+    // The path and both sides, so the reader is not asked to compare two hex
+    // strings by eye — the defect this replaces.
+    expect(out).toContain("lib/x.ts");
+    expect(out).toContain("1111");
+    expect(out).toContain("2222");
+  });
+
+  it("says NOTHING when the inputs held still", () => {
+    // Positive control for the case above: without it, a renderer that printed
+    // the banner unconditionally would satisfy every assertion there.
+    const still = { ...moved(), inputsMoved: [] };
+    expect(renderDeterminism(still)).not.toContain("INPUTS MOVED");
+  });
+
+  it("exits UNATTRIBUTABLE — not OK, and not REFUSED", () => {
+    const written: string[] = [];
+    const code = main(["--surface", "ledgerGit", "--site", "s", "--runs", "1"], {
+      run: () => moved(),
+      render: renderDeterminism,
+      write: (x) => written.push(x),
+    });
+    expect(code).toBe(EXIT_UNATTRIBUTABLE);
+    expect(code).not.toBe(EXIT_OK);
+    // NOT `EXIT_REFUSED`: that code promises no distribution was emitted, and
+    // one WAS. Reusing it would make one of the two claims false.
+    expect(code).not.toBe(EXIT_REFUSED);
+    expect(written.join("")).toContain("verdicts:");
+  });
+
+  it("still exits OK when nothing moved, so the code above is not constant", () => {
+    const code = main(["--surface", "ledgerGit", "--site", "s", "--runs", "1"], {
+      run: () => ({ ...moved(), inputsMoved: [] }),
+      render: renderDeterminism,
+      write: () => {},
+    });
+    expect(code).toBe(EXIT_OK);
+  });
+});
+
+describe("determinism — the AFTER stamp is taken AFTER the runs (AC-8, diff R1 S2)", () => {
+  /** Copy a surface's declared inputs into a scratch root, so a mid-run edit touches no repo file. */
+  const rootFor = (id: string) => {
+    const surface = surfaceOf(id);
+    const root = mkdtempSync(join(tmpdir(), "fx-moved-"));
+    for (const rel of [surface.sourcePath, ...surface.suitePaths]) {
+      mkdirSync(dirname(join(root, rel)), { recursive: true });
+      writeFileSync(join(root, rel), readFileSync(join(process.cwd(), rel), "utf8"), "utf8");
+    }
+    return { surface, root };
+  };
+
+  it("REPORTS an input that moved WHILE the runs were in flight", () => {
+    const { surface, root } = rootFor("psqlStartupScan");
+    const suiteRel = surface.suitePaths[0] as string;
+    try {
+      // The edit lands DURING the run, from inside the child mock — which is the
+      // only moment that distinguishes a second stamp from a copy of the first.
+      reset({
+        [suiteRel]: () => {
+          writeFileSync(join(root, suiteRel), "it('edited mid-run', () => {});\n", "utf8");
+          return 0;
+        },
+      });
+      const out = runDeterminism({
+        surface: surface.id,
+        site: firstSiteOf(surface.id),
+        runs: "1",
+        root,
+      });
+      expect(out.kind).toBe("result");
+      if (out.kind !== "result") return;
+      // Kills `stampAfter = stampBefore`, which passes every equality-shaped
+      // provenance assertion while certifying the distribution against bytes
+      // that are no longer the inputs.
+      expect(out.inputsMoved).toContain(suiteRel);
+      expect(out.stampAfter.digest).not.toBe(out.stampBefore.digest);
+      expect(renderDeterminism(out)).toContain("INPUTS MOVED DURING THE RUN");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reports NOTHING moved when nothing moves — same surface, same site", () => {
+    // The positive control for the case above: without it, an implementation
+    // reporting every input as moved on every run passes it.
+    const { surface, root } = rootFor("psqlStartupScan");
+    try {
+      reset(allGreen());
+      const out = runDeterminism({
+        surface: surface.id,
+        site: firstSiteOf(surface.id),
+        runs: "1",
+        root,
+      });
+      expect(out.kind).toBe("result");
+      if (out.kind !== "result") return;
+      expect(out.inputsMoved).toEqual([]);
+      expect(out.stampAfter.digest).toBe(out.stampBefore.digest);
+      expect(renderDeterminism(out)).not.toContain("INPUTS MOVED");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("determinism — a TIMEOUT reaches the kind distribution as a timeout (diff R1 S3)", () => {
+  it("aggregates a timed-out child as `timeout`, not as `exit`", () => {
+    const surface = surfaceOf("psqlStartupScan");
+    premiseHolds("psqlStartupScan is still single-suite", surface.suitePaths.length === 1);
+    const suiteRel = surface.suitePaths[0] as string;
+    // Call 1 is the BASELINE and must be green, or the run refuses before any
+    // mutant is measured and this case would pass having aggregated nothing.
+    reset({
+      [suiteRel]: (call) =>
+        call === 1 ? 0 : { status: null, signal: "SIGKILL", code: "ETIMEDOUT" },
+    });
+    const out = runDeterminism({
+      surface: surface.id,
+      site: firstSiteOf(surface.id),
+      runs: "1",
+    });
+    expect(out.kind).toBe("result");
+    if (out.kind !== "result") return;
+    // The whole subject of this arc, at the aggregation layer: an aggregator
+    // that counts every child as `exit` passes an all-exit expectation while
+    // spelling a TIMEOUT as an assertion kill in the operator-facing channel.
+    expect(out.kinds).toEqual({ timeout: 1 });
+    expect(out.observations[0]?.children.map((c) => c.kind)).toEqual(["timeout"]);
+    expect(out.observations[0]?.children[0]?.exitCode).toBeNull();
+    // Still KILLED — the verdict is ratified and this case must not read as a
+    // proposal to change it.
+    expect(out.verdicts).toEqual({ KILLED: 1 });
+  });
+});
+

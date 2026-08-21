@@ -78,8 +78,17 @@ export function newRunId(now: number = Date.now()): string {
  * reader listing the directory can tell which surface and which run a file
  * belongs to without opening it, and `prune` can group by surface from the name.
  */
+function encodeSegment(value: string): string {
+  // `encodeURIComponent` leaves `.` UNTOUCHED, and `.` is this name's field
+  // separator — so a dotted surface id parses back as a DIFFERENT, shorter
+  // surface, and `prune` then groups unrelated surfaces into one bucket and
+  // evicts their records as if they were superseded runs of a single surface.
+  // Wrong attribution followed by evidence loss.
+  return encodeURIComponent(value).replace(/\./g, "%2E");
+}
+
 export function recordFileName(surfaceId: string, runId: string): string {
-  return `${encodeURIComponent(surfaceId)}.${runId}.json`;
+  return `${encodeSegment(surfaceId)}.${encodeSegment(runId)}.json`;
 }
 
 /** The inverse of `recordFileName`, or `undefined` for a name this module did not write. */
@@ -90,10 +99,15 @@ export function parseRecordFileName(
   const stem = name.slice(0, -".json".length);
   const dot = stem.indexOf(".");
   if (dot <= 0 || dot === stem.length - 1) return undefined;
-  return {
+  const parsed = {
     surfaceId: decodeURIComponent(stem.slice(0, dot)),
-    runId: stem.slice(dot + 1),
+    runId: decodeURIComponent(stem.slice(dot + 1)),
   };
+  // Round-trip, so the documented contract — `undefined` for a name this module
+  // did not write — is DERIVED from the writer rather than restated as a second
+  // pattern that can drift away from it.
+  if (recordFileName(parsed.surfaceId, parsed.runId) !== name) return undefined;
+  return parsed;
 }
 
 /**

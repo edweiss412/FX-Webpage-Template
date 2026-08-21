@@ -155,3 +155,55 @@ describe("surfaceCases — the DURABLE record is written by the production path 
     }
   });
 });
+
+describe("surfaceCases — the record lands on ALL FOUR cells of outcome x environment (AC-12, diff R1 S1)", () => {
+  // The matrix was proved against `emitRunRecord` directly, which a weaker
+  // `evaluateSurface` emitting only on `passed && !CI` satisfies while dropping
+  // passing-CI, failing-local and failing-CI — rebuilding the CI-only,
+  // failure-only blind spot §1.0 measures inside its own repair. So it is proved
+  // HERE, through the production path, once per cell.
+  const cells = [
+    { name: "passing, local", everyNth: 1, ci: undefined },
+    { name: "passing, CI", everyNth: 1, ci: "true" },
+    { name: "failing, local", everyNth: 1_000_000, ci: undefined },
+    { name: "failing, CI", everyNth: 1_000_000, ci: "true" },
+  ] as const;
+
+  for (const cell of cells) {
+    it(`writes a record via evaluateSurface — ${cell.name}`, async () => {
+      const { mkdtempSync, rmSync } = await import("node:fs");
+      const { tmpdir } = await import("node:os");
+      const { join } = await import("node:path");
+      const { listRecords, readRunRecord } = await import("./records");
+
+      const dir = mkdtempSync(join(tmpdir(), "fx-sc-matrix-"));
+      const priorCi = process.env.CI;
+      try {
+        if (cell.ci === undefined) delete process.env.CI;
+        else process.env.CI = cell.ci;
+
+        timeoutEveryNth = cell.everyNth;
+        mutantCalls = 0;
+        const id = `matrix-${cell.name.replace(/[^a-z]+/gi, "-")}`;
+        const { result } = evaluateSurface(fixture(id), { write: () => {}, recordDir: dir });
+
+        // The cell is what it claims to be. Without this, all four cells could be
+        // the SAME cell and the matrix would prove one thing four times.
+        expect(result.passed).toBe(cell.everyNth === 1);
+
+        const files = listRecords(dir, id);
+        expect(files).toHaveLength(1);
+        // Entry count, not existence: a writer that creates the file and
+        // serializes nothing satisfies an existence check.
+        const back = readRunRecord(join(dir, files[0] as string));
+        expect(back?.outcomes.length).toBeGreaterThan(0);
+        expect(back?.surfaceId).toBe(id);
+      } finally {
+        if (priorCi === undefined) delete process.env.CI;
+        else process.env.CI = priorCi;
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  }
+});
+

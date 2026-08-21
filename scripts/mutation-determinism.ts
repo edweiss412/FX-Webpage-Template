@@ -66,6 +66,13 @@ export function parseArgv(argv: readonly string[]): ParsedArgv {
 export const EXIT_OK = 0;
 /** Every refusal is a usage error and exits 2, emitting NO distribution. */
 export const EXIT_REFUSED = 2;
+/**
+ * A distribution WAS produced, and its inputs moved while it was being produced.
+ * Distinct from `EXIT_REFUSED` on purpose: that code promises NO distribution was
+ * emitted, and reusing it here would make one of the two claims false. Distinct
+ * from `EXIT_OK` because exit 0 is what a caller reads as certified.
+ */
+export const EXIT_UNATTRIBUTABLE = 3;
 
 export function main(argv: readonly string[], deps: Deps = DEFAULT_DEPS): number {
   const parsed = parseArgv(argv);
@@ -75,7 +82,8 @@ export function main(argv: readonly string[], deps: Deps = DEFAULT_DEPS): number
     runs: parsed.runs,
   });
   deps.write(`${deps.render(outcome)}\n`);
-  return outcome.kind === "refusal" ? EXIT_REFUSED : EXIT_OK;
+  if (outcome.kind === "refusal") return EXIT_REFUSED;
+  return outcome.inputsMoved.length > 0 ? EXIT_UNATTRIBUTABLE : EXIT_OK;
 }
 
 /* c8 ignore start — the process entry, exercised by running the command itself */

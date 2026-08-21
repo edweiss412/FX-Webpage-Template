@@ -308,9 +308,15 @@ export type ChildRecord = {
 export type MutantOutcome = {
   siteId: string;
   verdict: Verdict;
-  children: readonly ChildRecord[];
+  children?: readonly ChildRecord[];   // OPTIONAL — see the field decision in §5.6
 };
 ```
+
+**The `?` is load-bearing and is not a weakening of this schema.** An earlier draft wrote it required;
+§5.6 records the fact that overturned it — `tests/mutation/browser/mutate.test.ts` CONSTRUCTS
+`MutantOutcome` fixtures and is the sole deciding suite of the enrolled `browserMutate` at floor 1, so
+a required field would have forced an edit there and RETIRED that score. §5.6 is the single decision;
+this block states it rather than restating the superseded draft.
 
 Kinds are named for what was OBSERVED, never for what it was interpreted to mean: `exit` and `timeout` mirror `SpawnOutcome` (`tests/mutation/source/spawnBounded.ts:82-90`). An `infra` outcome does not appear because it throws (`runner.ts:114`) and is fatal to the run.
 
