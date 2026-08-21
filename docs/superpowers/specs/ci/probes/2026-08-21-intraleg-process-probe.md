@@ -64,7 +64,7 @@ pnpm heavy pnpm exec tsx scripts/intraleg-campaign.ts \
 | Arm | Planned | Varies |
 | --- | --- | --- |
 | A | 12 | the process boundary alone — one fresh child per trial, target site only, no prefix |
-| B | 6 | the ORDERING — the target runs after a prefix of its generation-order predecessors, at the pre-registered lengths 8, 8, 8, 24, 24 and 69. Only the last is the full gate-order prefix; describing all six that way (as an earlier draft did) misstates five of them. |
+| B | 6 | the ORDERING. Per-trial prefix composition is DERIVED from `campaign.json` in the results section below and is not described here — two review rounds each caught a different wrong hand-written summary of this arm, so the artifact is the only authority for it. |
 | C | 2 | the LOAD — one quiet half and one half under a CPU burner per reported core, adjudicated as a pair |
 
 Arm C is a PAIR, not two independent trials: the §5.2 load column advances only

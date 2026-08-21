@@ -109,7 +109,15 @@ describe("fixtures are never discovered, and every one has a live owner", () => 
     }
   });
 
-  it("names a live owner for every fixture on disk, and no others", () => {
+  // WHAT THIS PROVES, exactly: every fixture on disk is CITED as a string literal
+  // by a file that claims it, and no fixture is unclaimed. What it does NOT prove
+  // is that the citation is live — a quoted mention inside a comment fails the
+  // check (that was the round-1 repair), but a dead `const X = "…fixture.ts"` that
+  // nothing reads still passes. Proving liveness means resolving imports and uses,
+  // which is a parser, and the standing direction on this surface is to narrow the
+  // claim rather than grow a recognizer. Recorded as a documented limit at diff
+  // review round 2, where the weaker guarantee was mistaken for the stronger one.
+  it("every fixture on disk is CITED by a declared owner, and none is unclaimed", () => {
     expect(Object.keys(OWNERS).sort()).toEqual([...relatives].sort());
     for (const [fixture, owner] of Object.entries(OWNERS)) {
       // The owner must NAME the fixture, with or without the `.ts`. Requiring

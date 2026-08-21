@@ -5,6 +5,7 @@ import { cpus } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import type { Verdict } from "../tests/mutation/source/oracle";
 import { DEFAULT_RECORD_DIR } from "../tests/mutation/source/records";
 import {
   type CampaignTrial,
@@ -57,6 +58,8 @@ export const SAMPLE_INTERVAL_MS = 15_000;
 const BURNER_TTL_MS = 900_000;
 /** Operator error: a flag the accept-sets reject. Distinct from a campaign that RAN and refused. */
 const CAMPAIGN_EXIT_USAGE = 2;
+/** The site design §2 records an anomaly for. Any other site must declare its own. */
+const DEFAULT_SITE = "relational-boundary:3578:35:<><=";
 
 /**
  * Read one flag, and DO NOT SUBSTITUTE A DEFAULT FOR A MALFORMED VALUE.
@@ -137,6 +140,24 @@ type RefusedTrial = { plan: TrialPlan; input: string; detail: string };
 export function main(): number {
   const surfaceId = arg("surface", "psqlStartupScan");
   const site = arg("site", "relational-boundary:3578:35:<><=");
+  // THE ANOMALY IS A PROPERTY OF THE SITE, and this driver accepts any surface
+  // and site the operator names. Making `anomalousVerdict` required in the core
+  // closed the type hole and left THIS path — the only one a real campaign takes
+  // — still hardcoding KILLED, so on a normally-killed site every ordinary trial
+  // would be reported as a reproduction. The default matches the default site
+  // (design §2: it survives 9 of 10 observations); ANY other site must say so.
+  const anomalyRaw = arg("anomaly", site === DEFAULT_SITE ? "KILLED" : "");
+  if (anomalyRaw !== "KILLED" && anomalyRaw !== "SURVIVED") {
+    process.stderr.write(
+      `--anomaly must be KILLED or SURVIVED, got ${JSON.stringify(anomalyRaw)}. It has no ` +
+        `default away from ${JSON.stringify(DEFAULT_SITE)}, whose anomalous outcome is recorded ` +
+        `as KILLED (design §2). A default here would be a claim about a site nobody measured: ` +
+        `on a normally-killed site, KILLED calls every ordinary trial a reproduction and misses ` +
+        `the anomalous survival.\n`,
+    );
+    return CAMPAIGN_EXIT_USAGE;
+  }
+  const anomalousVerdict: Verdict = anomalyRaw;
   const seedParsed = parseSeed(arg("seed", "20260821"));
   if (!seedParsed.ok) {
     process.stderr.write(`${seedParsed.detail}\n`);
@@ -254,7 +275,8 @@ export function main(): number {
     // 9 of 10 recorded observations (design §2) — and the arm universe is what
     // the campaign SET OUT to run, so an arm that produced nothing is still
     // present to be reported starved.
-    anomalousVerdict: "KILLED",
+    anomalousVerdict,
+    plan,
     declaredArms: ["A", "B", "C"],
     plannedPerArm: { A: armATrials, B: 6, C: 2 },
     trials,
@@ -299,6 +321,9 @@ export function main(): number {
         : [],
     refusedTrials: refusals.length,
     defaultChannelIdentical: identical,
+    treeUnchanged:
+      treeBefore.head === treeAfter.head &&
+      JSON.stringify(treeBefore.dirty) === JSON.stringify(treeAfter.dirty),
     campaignRecordCount: campaignRecords.length,
   });
   if (verdict.code !== 0) process.stderr.write(`${verdict.detail}\n`);
@@ -319,8 +344,18 @@ export function campaignVerdict(state: {
   refusedTrials: number;
   defaultChannelIdentical: boolean;
   campaignRecordCount: number;
+  /** False when HEAD or the uncommitted file list moved between the two attestations. */
+  treeUnchanged: boolean;
 }): { code: number; detail: string } {
   const reasons: string[] = [];
+  // THE ATTESTATION HAS TO GATE. Printing "CHANGED MID-CAMPAIGN" and then exiting
+  // zero is the exact shape this arc keeps finding elsewhere: a signal produced,
+  // observed by nobody, and a green result on top of it. The deciding suite walks
+  // the whole repository, so a tree that moved mid-run is a campaign whose trials
+  // measured different programs.
+  if (!state.treeUnchanged) {
+    reasons.push("the WORKING TREE moved mid-campaign (HEAD or the uncommitted file list)");
+  }
   if (state.aggregateKind === "refusal") reasons.push("the aggregate REFUSED");
   if (state.refusedTrials > 0) reasons.push(`${state.refusedTrials} refused trial(s)`);
   if (state.starvedArms.length > 0) {

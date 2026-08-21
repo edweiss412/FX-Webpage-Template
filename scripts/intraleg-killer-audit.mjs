@@ -612,6 +612,11 @@ function runSuite(suite, filter, live = false) {
 }
 
 export function main() {
+  // `--only` IS VALIDATED against the obligation table. Unvalidated, a typo like
+  // `--only AC-14.k4` skipped every obligation, left `results` empty, and the
+  // unresolved count over an empty set produced EXIT ZERO — a successful audit of
+  // nothing, which is the vacuous-pass shape this whole instrument exists to
+  // refuse. Checked below, after KILLS is in scope.
   const only = process.argv.includes("--only")
     ? process.argv[process.argv.indexOf("--only") + 1]
     : null;
@@ -660,6 +665,15 @@ export function main() {
         "appending a member edits a file every concurrent arc shares AND its pin. The\n" +
         "rule's own authority is a derived sweep rather than that list, and a refusal the\n" +
         "script enforces outlives a line someone has to remember to read.",
+    );
+    process.exit(2);
+  }
+
+  if (only !== null && !KILLS.some((k) => k.id === only)) {
+    console.error(
+      `REFUSING: --only ${JSON.stringify(only)} names no obligation. The table holds ` +
+        `${KILLS.length}; an unmatched selector skips all of them and an audit over zero ` +
+        `obligations would otherwise exit 0, reporting success for work that did not happen.`,
     );
     process.exit(2);
   }

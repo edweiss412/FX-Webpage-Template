@@ -1177,6 +1177,38 @@ describe("processProbe trial provenance — two independent sides (AC-2, AC-3)",
     expect(verdict.detail).toMatch(/role/i);
   });
 
+  it.each([
+    [
+      "a child that never wrote its report",
+      () => {
+        throw Object.assign(new Error("ENOENT: no such file or directory"), { code: "ENOENT" });
+      },
+      /NO readable report/,
+    ],
+    [
+      "valid JSON that is not a trial report",
+      () => Buffer.from(JSON.stringify({ hello: "world" }), "utf8"),
+      /not a trial report/,
+    ],
+  ])("REFUSES BY NAME on %s", (_label, readReportBytes, pattern) => {
+    // Both paths threw out of the parent instead of refusing: the read was
+    // outside any try, and the cast was unchecked so `report.plan.arm` threw a
+    // TypeError. An exception names neither the trial nor the cause, which is
+    // the one thing an operator needs.
+    const report = realReport();
+    const out = observeTrial(
+      report.plan,
+      wideTargetOf(),
+      {
+        spawnChild: () => ({ pid: report.childPid, reportPath: "/tmp/gone.json" }),
+        readReportBytes: readReportBytes as () => Buffer,
+      },
+      REQUEST,
+    );
+    expect(inputOf(out)).toBe("record");
+    expect(detailOf(out)).toMatch(pattern);
+  });
+
   it("a CHILD refusal arrives as itself, naming its own cause", () => {
     // The parent cast every parsed object to TrialReport and read childPid, so
     // "the baseline is RED" surfaced as "pid disagreement, child reports
@@ -1500,6 +1532,57 @@ describe("processProbe aggregator — eligibility, derived claims, render (AC-7,
     const armA = agg.arms.find((a) => a.arm === "A") as ArmSummary;
     expect(armA.eligible).toBe(0);
     expect(armA.excluded[0]?.reason).toMatch(/SELF-REPORT DISAGREES/);
+  });
+
+  it("the right NUMBER of trials can still be the wrong ones", () => {
+    // Counts are not identity. Six fresh reports containing B#0 twice and
+    // omitting B#1 produced "6 of 6 produced", stayed fully eligible and passed
+    // the exit verdict — every per-trial check green, the campaign not the one
+    // planned. The per-trial binding repair cannot see this: each report matches
+    // whichever plan the CALLER handed it.
+    // The membership check reads only each planned trial's (arm, index), so the
+    // plan is stated directly rather than generated — the case is about identity,
+    // not about planning.
+    const plan = {
+      seed: 20260821,
+      surfaceId: "spawnBounded",
+      targetSiteId: "x",
+      trials: [
+        { arm: "A" as const, index: 0 },
+        { arm: "A" as const, index: 1 },
+      ],
+    } as unknown as CampaignPlan;
+    // A#0 twice, A#1 never: the right COUNT, the wrong members.
+    const trials = [fakeTrial({ index: 0 }), fakeTrial({ index: 0, verdict: "KILLED" })];
+    const out = aggregateCampaign({
+      anomalousVerdict: "KILLED",
+      plannedPerArm: { A: 2 },
+      plan,
+      trials,
+    });
+    expect("kind" in out && out.kind === "refusal").toBe(true);
+    expect((out as Refusal).detail).toMatch(/REPEAT|never run|NEVER RAN/i);
+  });
+
+  it("a PESSIMISTIC self-report disagreement is disqualified everywhere, not just in its arm", () => {
+    // The first repair excluded a disagreeing trial from the per-arm count and
+    // nowhere else. This is the direction that case missed: a report claiming
+    // `completed: false` with no infra faults at all. It was excluded from arm A
+    // and could still become the campaign ANCHOR, supply a flip, and enter the
+    // conditions — one trial counted as absent and consulted as present.
+    const lying = fakeTrial({ index: 0, verdict: "KILLED" });
+    const r = lying.observation.report as unknown as Record<string, unknown>;
+    r.completed = false;
+    r.digest = reportDigest(lying.observation.report);
+
+    const agg = mustAggregate({ plannedPerArm: { A: 1 }, trials: [lying] });
+    const armA = agg.arms.find((a) => a.arm === "A") as ArmSummary;
+    expect(armA.eligible).toBe(0);
+    expect(armA.excluded[0]?.reason).toMatch(/SELF-REPORT DISAGREES/);
+    // The three places the first repair left open:
+    expect(agg.anchorDigest).toBeNull();
+    expect(agg.flips).toEqual([]);
+    expect(agg.conditions).toEqual([]);
   });
 
   it("a flip is measured against the DECLARED anomaly, not a hardcoded KILLED", () => {
@@ -2228,6 +2311,7 @@ describe("campaign driver verdict — every gate probed against a constructed fa
     refusedTrials: 0,
     defaultChannelIdentical: true,
     campaignRecordCount: 20,
+    treeUnchanged: true,
   };
 
   it("campaign verdict is 0 only on a complete run — the green control", () => {
@@ -2252,6 +2336,16 @@ describe("campaign driver verdict — every gate probed against a constructed fa
     const verdict = campaignVerdict({ ...clean, ...over });
     expect(verdict.code).toBe(1);
     expect(verdict.detail).toContain(names);
+  });
+
+  it("campaign verdict FAILS when the tree moved mid-campaign", () => {
+    // The attestation printed CHANGED MID-CAMPAIGN and exited zero: a signal
+    // produced, observed by nobody, green on top of it. The deciding suite walks
+    // the whole repository, so a tree that moved means the trials measured
+    // different programs.
+    const verdict = campaignVerdict({ ...clean, treeUnchanged: false });
+    expect(verdict.code).toBe(1);
+    expect(verdict.detail).toMatch(/WORKING TREE moved/);
   });
 
   it("campaign verdict reports EVERY failing condition, not just the first", () => {

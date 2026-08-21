@@ -618,11 +618,24 @@ export type TrialReport = {
  * computes one wrongly seals a CONSISTENT wrong answer. Every consumer therefore
  * derives, and `aggregateCampaign` additionally reports the disagreement.
  */
-export function derivedEligibility(r: TrialReport): { completed: boolean; attributable: boolean } {
-  return {
-    completed: r.infraFaults.length === 0,
-    attributable: r.inputsMoved.length === 0 && r.stampBefore.digest === r.stampAfter.digest,
-  };
+export function derivedEligibility(r: TrialReport): {
+  completed: boolean;
+  attributable: boolean;
+  /** True when the child's own summary of itself does not follow from its evidence. */
+  disagrees: boolean;
+  /** Usable ONLY if the derivation holds AND the child agrees with it. */
+  usable: boolean;
+} {
+  const completed = r.infraFaults.length === 0;
+  const attributable = r.inputsMoved.length === 0 && r.stampBefore.digest === r.stampAfter.digest;
+  // A DISAGREEMENT DISQUALIFIES IN BOTH DIRECTIONS. The first repair excluded a
+  // disagreeing trial from the per-arm count and nowhere else, so a report
+  // claiming `completed: false` with no infra faults was excluded from its arm
+  // and could still become the campaign ANCHOR, supply a flip, enter the
+  // conditions, or adjudicate arm C — the PESSIMISTIC direction, which the
+  // original case did not cover. One predicate, consulted everywhere.
+  const disagrees = r.completed !== completed || r.attributable !== attributable;
+  return { completed, attributable, disagrees, usable: completed && attributable && !disagrees };
 }
 
 export type TrialOutcome = { kind: "report"; report: TrialReport } | Refusal;
@@ -874,7 +887,7 @@ export function runTrial(
         surfaceId: target.surface.id,
         runId: options.runId ?? `trial-${plan.arm}-${plan.index}-${spawnedAt}`,
         startedAt: new Date(spawnedAt).toISOString(),
-        passed: derivedEligibility(report).completed && derivedEligibility(report).attributable,
+        passed: derivedEligibility(report).usable,
         score:
           scored.length === 0
             ? 0
@@ -1075,7 +1088,23 @@ export function observeTrial(
     );
   }
 
-  const bytes = deps.readReportBytes(reportPath);
+  // A CHILD THAT NEVER WROTE ITS REPORT is the ordinary failure — a spawn
+  // timeout, a reaper, a crash — and this read was OUTSIDE any try, so it threw
+  // ENOENT out of the campaign instead of refusing by name. The whole contract of
+  // this instrument is that every input is handled or REFUSED WITH ITS CAUSE, and
+  // an uncaught throw names neither the trial nor the failure.
+  let bytes: Buffer;
+  try {
+    bytes = deps.readReportBytes(reportPath);
+  } catch (e) {
+    return refuse(
+      "record",
+      `trial ${plan.arm}#${plan.index} produced NO readable report at ${reportPath}: ` +
+        `${e instanceof Error ? e.message : String(e)}. The child died before writing one — a ` +
+        `spawn timeout, a reaper, or a crash — so there is no observation, and that is a ` +
+        `refusal rather than an exception the campaign has to catch somewhere else.`,
+    );
+  }
   let report: TrialReport;
   try {
     const parsed = JSON.parse(bytes.toString("utf8")) as unknown;
@@ -1092,6 +1121,23 @@ export function observeTrial(
     ) {
       const r = parsed as Refusal;
       return refuse(r.input, `the CHILD refused before producing a report: ${r.detail}`);
+    }
+    // Valid JSON is not a report. `report.plan.arm` on `{}` or on a bare array
+    // throws a TypeError from inside the parent, which is the same unnamed-failure
+    // shape as the ENOENT above, one layer in.
+    const shaped =
+      typeof parsed === "object" &&
+      parsed !== null &&
+      typeof (parsed as { plan?: unknown }).plan === "object" &&
+      (parsed as { plan?: unknown }).plan !== null &&
+      Array.isArray((parsed as { steps?: unknown }).steps);
+    if (!shaped) {
+      return refuse(
+        "record",
+        `the child's report at ${reportPath} parsed as JSON but is not a trial report ` +
+          `(no object \`plan\`, or no \`steps\` array). Reading fields off it throws inside ` +
+          `the parent, which reports neither the trial nor the cause.`,
+      );
     }
     report = parsed as TrialReport;
   } catch (e) {
@@ -1417,6 +1463,16 @@ export function aggregateCampaign(input: {
    */
   anomalousVerdict: Verdict;
   /**
+   * The plan the campaign was supposed to execute. Given, the aggregate verifies
+   * that the trials ARE its members — same `(arm,index)` keys, each exactly once.
+   *
+   * Counts are not identity: six fresh reports containing B#0 twice and omitting
+   * B#1 produced "6 of 6 produced", stayed fully eligible, and passed the exit
+   * verdict. The per-trial binding repair proves a report matches whichever plan
+   * the CALLER supplied; only this notices the caller executing the wrong member.
+   */
+  plan?: CampaignPlan;
+  /**
    * Every arm the campaign was SUPPOSED to run. The universe cannot be derived
    * from the trials that came back: a campaign whose arm B produced nothing at
    * all would then have no arm B to be starved, and the graduation precondition
@@ -1425,6 +1481,30 @@ export function aggregateCampaign(input: {
   declaredArms?: readonly Arm[];
 }): AggregateOutcome {
   const { trials } = input;
+
+  if (input.plan !== undefined) {
+    const planned = input.plan.trials.map((t) => `${t.arm}#${t.index}`).sort();
+    const got = trials.map(trialKey).sort();
+    const dupes = got.filter((k, i) => got.indexOf(k) !== i);
+    if (dupes.length > 0) {
+      return refuse(
+        "population",
+        `trial keys REPEAT: ${[...new Set(dupes)].join(", ")}. One plan member observed twice ` +
+          `is not two observations, and it hides whichever member was never run.`,
+      );
+    }
+    const missing = planned.filter((k) => !got.includes(k));
+    const extra = got.filter((k) => !planned.includes(k));
+    if (missing.length > 0 || extra.length > 0) {
+      return refuse(
+        "population",
+        `the trials are not the planned campaign` +
+          `${missing.length > 0 ? `; NEVER RAN: ${missing.join(", ")}` : ""}` +
+          `${extra.length > 0 ? `; NOT PLANNED: ${extra.join(", ")}` : ""}. Counts are not ` +
+          `identity: the right NUMBER of trials can still be the wrong ones.`,
+      );
+    }
+  }
 
   const nonces = new Map<string, string>();
   for (const t of trials) {
@@ -1462,6 +1542,11 @@ export function aggregateCampaign(input: {
     }
   }
 
+  // POPULATION is about whether a trial RAN, so it reads `completed` alone — an
+  // infra fault means no observation exists. Trust is a separate question: a
+  // trial can complete and still be unusable because its own account of itself
+  // does not follow from its evidence. Collapsing the two made a disagreeing
+  // trial look like an infra fault and refused the whole campaign for it.
   const completed = trials.filter((t) => derivedEligibility(t.observation.report).completed);
   if (trials.length > 0 && completed.length === 0) {
     return refuse(
@@ -1471,7 +1556,7 @@ export function aggregateCampaign(input: {
     );
   }
 
-  const anchor = completed.find((t) => derivedEligibility(t.observation.report).attributable);
+  const anchor = completed.find((t) => derivedEligibility(t.observation.report).usable);
   const anchorDigest = anchor?.observation.report.stampBefore.digest ?? null;
 
   // THE ARM UNIVERSE IS DECLARED, not observed. Deriving it from the trials that
@@ -1499,9 +1584,12 @@ export function aggregateCampaign(input: {
         // as eligible (probed at diff review round 1). The digest cannot help: it
         // binds these fields to each other, so a producer that computes the
         // boolean wrongly seals a consistent lie.
-        const { completed: derivedCompleted, attributable: derivedAttributable } =
-          derivedEligibility(r);
-        if (r.completed !== derivedCompleted || r.attributable !== derivedAttributable) {
+        const {
+          completed: derivedCompleted,
+          attributable: derivedAttributable,
+          disagrees,
+        } = derivedEligibility(r);
+        if (disagrees) {
           // A DISAGREEMENT is worse than either value: the child's account of
           // itself does not follow from the evidence it shipped, so neither the
           // boolean nor the derivation can be relied on for this trial.
@@ -1550,8 +1638,7 @@ export function aggregateCampaign(input: {
   const eligibleTrials = trials.filter((t) => {
     const r = t.observation.report;
     return (
-      derivedEligibility(r).completed &&
-      derivedEligibility(r).attributable &&
+      derivedEligibility(r).usable &&
       (anchorDigest === null || r.stampBefore.digest === anchorDigest)
     );
   });
@@ -1612,7 +1699,7 @@ export function adjudicateLoad(trials: readonly CampaignTrial[]): LoadAdjudicati
   ] as const) {
     const r = half.observation.report;
     const halfEligibility = derivedEligibility(r);
-    if (!halfEligibility.completed || !halfEligibility.attributable) {
+    if (!halfEligibility.usable) {
       return {
         kind: "refused",
         detail:
