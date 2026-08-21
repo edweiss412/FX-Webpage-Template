@@ -782,6 +782,7 @@ function drive(opts: Parsed, pane: RosterPane, roster: RosterPane[], s: Surface)
   // copy. Two reads cannot disagree if there is only one.
   type Authz = { gone: true } | { gone: false; report: PaneReport; nonce: string | null };
   let pass: Authz | null = null;
+  // send-auth: pass
   const authorize = (): Authz => {
     const freshRoster = s.roster();
     const freshPane = freshRoster.find((r) => r.paneId === pane.paneId);

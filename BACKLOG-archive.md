@@ -1,3 +1,128 @@
+## BL-SEND-AUTH-SINGLE-READ-LINT — a send-authorization path may read each surface at most once per pass
+
+**Status:** SHIPPED 2026-08-20 (`feat/send-auth-single-read-lint`) · **Effort (as shipped):** M — a structural lint plus a boundary decision about which surface
+methods it ranges over, and one existing passing instance to pin it against.
+
+One class of defect produced a P0 in four consecutive review rounds of
+`feat/orchestrator-pane-compaction`, and every intermediate repair was too
+small. r1 re-read the marker but authorized against a nonce captured earlier.
+r2 re-observed the pane but compared only the verdict. r3 compared the whole
+decision but ran it against the original roster. r4 fixed all of that and still
+read the marker twice — once inside revalidation, once for the nonce — so a
+takeover changing `sessionId` between the two reads preserved the nonce and
+passed rule 5 on the stale copy, and `/compact` was sent.
+
+**Probed, not theorized.** Each was demonstrated by a reviewer probe that
+exited 0 and sent bytes.
+
+**One claim in this row was REFUTED by the citation pass that designed its fix,
+and is corrected here rather than carried into the archive.** The row said the
+round-4 case is pinned by `tests/paneCompaction/adapter.test.ts` counting MARKER
+READS. That file's only counter is the `reads` push-array at
+`tests/paneCompaction/adapter.test.ts:411`, asserted `toEqual([])` at
+`tests/paneCompaction/adapter.test.ts:442` under the describe at
+`tests/paneCompaction/adapter.test.ts:396` — it pins that the send FENCE observes
+nothing, a different contract that became true only when the fence landed. The
+contract that DOES pin an authorization-ordering case is
+`tests/paneCompaction/revalidate.test.ts:121` ("compares the nonce the marker
+holds AFTER revalidation, not before").
+
+**Why a lint and not a test.** No suite assertion can express "these two values
+came from different instants" — four rounds of green tests coexisted with the
+defect. The mechanizable form is structural: inside a function that authorizes a
+send, each injected surface method may be invoked at most once per pass, so a
+second read is a lint error rather than a race nobody can see. Closing repair
+shipped in that arc (one snapshot per authorization) is the shape the lint would
+enforce.
+
+**First scheduled step:** decide the surface boundary the rule ranges over —
+every `Surface` method, or only the ones feeding a classification — then pin it
+against `scripts/pane-compaction.ts`, which is a passing instance today.
+
+**Resolution — a structural lint, its gate, and ONE comment line.** The scanner is
+`tests/paneCompaction/sendAuthScan.ts`, an importable module with a referring suite
+from the start because it is a guard surface; the gate is
+`tests/paneCompaction/_metaSendAuthSingleRead.test.ts`; the corpus is the fixture
+tree under `tests/paneCompaction/fixtures/sendAuth`, which the gate WALKS FROM DISK
+rather than reading off a list. No count is stated here, deliberately. This line has
+now gone stale four times — 62, 75, 78, and 78-while-the-tree-held-79 — every time by
+ADDITION alone, twice costing a review round, and the last time within the very commit
+that claimed to have fixed it by "stating it against the tree" while still carrying a
+number. A number is the defect; the tree is the claim. Every fixture is authored against a deliberately
+different registry row (`Channel` / `ch` / `dispatch` / `settle` / `snapshotOf`) with
+NO live spelling anywhere, so a scanner hardcoded to the live vocabulary fails every
+one of them. The live instance is
+covered by exactly one case, and `scripts/pane-compaction.ts` changed by exactly
+one line — `git diff --numstat` reports `1 0`.
+
+**The first scheduled step is settled.** The read set is DERIVED from the surface
+type declaration: every member minus the row's declared sinks, effects and ambient
+members. A member added later is a READ by default, which is the strict direction;
+"only the ones feeding a classification" needs dataflow and is declined.
+
+**What it declines, withdrawn rather than deferred.** Control flow is not analyzed
+and no claim rests on it. Spec rounds 1-2 returned seven findings, every one an
+evasion of a claim that tried to prove an EXECUTION property, so under the
+repair-direction rule the dominance rule was WITHDRAWN and the call-graph traversal
+deleted. The fence is pinned executably in both directions — a conditionally-called
+pass scans CLEAN and a test asserts that, so a later contributor "fixing" the
+apparent gap fails a test that explains why.
+
+**The residual was routed to a machine oracle rather than to more review rounds,
+and that disposition paid.** Four plan rounds bounded the class "a weaker
+implementation passes my fixtures" without proving it empty. Enrolment in the
+source-mutation registry settled it: the first scored run was 0.8584 with 31
+unaccepted survivors and exposed four genuine fail-open holes the rounds had not
+found — `scanRepo`'s entire per-module fan-out was deletable with the corpus green,
+the `interface` branch of the read-set derivation was removable, an unnamed
+module-level function was never discovered, and the classifier's final fallthrough
+was unreached.
+
+**Two covers, stated separately, neither subsuming the other.** A perfect score
+covers what the DECLARED OPERATORS can express, applied to a finite program. It does
+not cover implementations a human would plausibly write that no operator generates,
+and this arc has the demonstration: an unanchored `body.includes(PASS_TOKEN)` matcher
+passed the ENTIRE fixture corpus, and no declared operator produces that edit, so no
+score however perfect would have surfaced it. Only building the weaker version by
+hand found it.
+
+- **MUTATION SCORE — 1.0000 (266/266), zero survivors, zero accepted ledger rows.**
+  Re-measured LOCALLY, foreground, 1121.41s, NO CI run id, at `931ef72d8`, with the
+  four score inputs — source, registry row, deciding suite, fixture tree — checked
+  clean as a SET before and after. The count is DERIVED from the shipped generator
+  against the registry row (266 sites, 0 no-ops), because a green gate prints none.
+
+  **Measured FOUR times, and every re-measure was forced rather than chosen** — 254,
+  262, 261, 266 — once per commit that touched a score input, including a seam merge
+  that moved `registry.ts` and `expectedLedgerKinds.ts` because OTHER arcs added
+  surface rows. The exception was available there and the argument for it is probably
+  true: another surface's row cannot change this surface's operators or floor. It was
+  not taken, because that argument needs exactly the semantic model of the diff that a
+  stamp refuses to build, and applying the exception the one time it is inconvenient
+  retires the RULE instead of the score.
+
+  **One of those re-measures came back RED, and it is the reason this number is worth
+  anything.** The arm repair shipped with seven survivors in its own new code and, worse,
+  the harness reported that its own CONTROL EDIT had stopped discriminating: the repair
+  had copy-pasted the exact line the registry control keys on BY TEXT, so the control
+  landed on the copy no case reached. Both were one defect — the copy — and both were
+  fixed by deleting it rather than by arguing equivalence or adding cases to prop it up.
+  A control edit keyed by text is only as good as that text's uniqueness.
+
+  Every assertion the score rests on runs IN-PROCESS: the deciding suite spawns no
+  child at all, so no branch of this surface is reachable only through a process the
+  runner's in-memory overlay cannot reach, and no survivor here could be a
+  spawned-child coverage artifact. Checked, not assumed.
+  The empty ledger is the dividend of deleting survivors rather than arguing them
+  equivalent: nothing excused means nothing to re-validate when the surrounding code
+  moves, and an equivalence row cannot silently inflate the score.
+
+- **KILLER AUDIT — 35 PROVEN, 0 present-but-unproven, 0 absent, 0 skipped.** Every
+  weaker implementation the plan's table names, built as a source mutation and run
+  against the suite, source restored byte-identical afterwards. A killing check that
+  is never run against the mutant it targets is a claim, not a proof, and it fails in
+  the direction that looks green.
+
 ## BL-PLANLINT-DECLARED-LIMIT-PIN-COLLISION — a plan that changes recognizer behavior can silently invalidate a committed declared-limit pin — CLOSED 2026-08-20 (`feat/planlint-declared-limit-pin-collision`, SHIPPED)
 
 **Status:** SHIPPED 2026-08-20 · **Effort (as shipped):** M · **Filed:** 2026-08-17 (`fix/shell-binding-mixed-quoted-value`, plan adversarial round 3, filed from the round-economy filing's Mechanizable field). **Severity:** LOW (review economy; the collision is caught, but a round later than it needs to be). **Class:** plan tooling. **Effort:** M. **Reachability:** PROBED — plan round-3 finding 1 on this arc: the spec's §3.2 fix 3 (double-quote backslash is literal) inverted the verdict of the committed pin "a QUOTED backslash path in shell text is a KNOWN miss" (`tests/cross-cutting/psqlStartupFileSuppression.test.ts`), and neither the spec nor the plan named it until a reviewer did. The plan then had to grow a Step 3b to retire the pin, its scan.ts residual-limits item, and their DEFERRED pointer.

@@ -8,6 +8,48 @@ Last reconciled: 2026-08-17 — `fix/shell-binding-mixed-quoted-value` graduated
 
 ---
 
+## BL-SENDAUTH-ARM-CLASSIFIER-UNIFICATION — four arms of one scanner each decide independently what a receiver and a raw binding are
+
+**Status:** OPEN · **Filed:** 2026-08-20 (`feat/send-auth-single-read-lint`, from the diff-stage round filing at four rounds) · **Severity:** MEDIUM (each un-narrowed arm is a SILENT miss, which is the one outcome the surface's consequence bound forbids) · **Class:** detector fidelity · **Effort:** M · **Facing:** process · **Class-sweep exception:** (c) — unifying all four arms is a redesign of the scanner's classification layer, and doing it at diff round 4 of the arc that introduced it is how a detector ratchets into a recognizer. · **Reachability:** PROBED — both instances below were run in-process against the shipped scanner and returned zero findings. · **Incident:** four consecutive diff rounds on this arc found the same axis one arm at a time, with a FLAT finding rate rather than a decaying one — corpus `docs/review-rounds/feat/send-auth-single-read-lint/4dfd784ed062.jsonl`, rounds 1-4 declaring 5, 5, 8 and 4 findings; r1 F3, r2 F2, r3 F6 and r4 F1/F2 are all the same sentence.
+
+**The axis, stated once.** `sendAuthScan` decides "is this a surface receiver" and "is this a raw
+binding" in four places, and each place answers with its own hand-written rule. The sink walk
+resolves a receiver at its RIGHTMOST NAME; primary discovery took a BARE IDENTIFIER until diff r3;
+the read arm still takes a bare identifier; the handoff arm still keys on a NAME. Every round has
+found the next arm that had not been narrowed yet, which is why the rate does not decay.
+
+**Probed, both silent against the shipped scanner at `5a11c30e0`:**
+
+- a raw READ through a property receiver — `this.ch.panes()` outside any declared pass — returns 0 findings.
+- a raw HANDOFF of a parameter that SHADOWS a derivation name, inside the pass, returns 0 findings; this is diff r2 F1's defect still live one arm over.
+
+**Two of the four arms are now narrowed; this row carries the other two.** Ruled at the round
+cap: repair what is silent AND ordinary, fence what needs a recognizer the scanner has declined
+to grow, ship, and keep the unification here.
+
+- **NARROWED — the sink walk and primary discovery** (diff r3), which now share one
+  classification (`sendBearingFunctions`), so suppression may rest only on a classification that
+  actually happened.
+- **NARROWED — the read arm and the handoff arm** (diff r4). The read arm dropped a property
+  NAME that was itself a surface binding, so `this.ch.typo()` was silent while the bare
+  `ch.typo()` reported; it now hands that receiver to the same member classification. The handoff
+  arm received a set of raw NAMES and subtracted a shadowing parameter along with the derivation
+  whose name it borrowed; it now asks the shadow-aware predicate AT THE USE. Both fail closed.
+- **STILL SILENT, fenced as documented limits with re-file triggers** at spec §4 limit 8, each
+  probed at `f88690111` returning 0 findings with 0 occurrences in the live corpus: a
+  parenthesized TYPE annotation; a sink or read through a member of an object TYPE; an
+  accessor-shaped function-like holding a pass; a type-position `import()` edge. Every miss is a
+  MISS, never a false advisory.
+
+**What the unification is.** One shared receiver rule and one shared raw-binding predicate,
+consumed by every arm, with DECLINE MEANING REPORT. Not attempted in the originating arc because
+a redesign of the classification layer at diff round 4 is the recognizer ratchet the
+repair-direction rule refuses; the measured trajectory elsewhere is 20 and 41 rounds.
+
+**The load-bearing lesson for whoever takes this.** Failing two arms closed produced ZERO false
+advisories on the live corpus — measured, not predicted. Silence was not buying correctness; it
+was buying nothing.
+
 ## BL-MUTATION-SCORE-NONDETERMINISM — a source-mutation surface's verdict moves with byte-identical inputs, and the score contract assumes that cannot happen
 
 **Renamed away from an id naming a MECHANISM, and away from a count.** This shipped as
@@ -1413,36 +1455,41 @@ The filed severity is LOW on the grounds that this is bookkeeping that never pro
 
 **The mechanical form:** key on the mutated EXPRESSION plus a disambiguator instead of the line, or have the gate emit a `--rekey` patch when the stale set and the unaccepted set are the same size and the expressions match. A third shape belongs here too, measured on the same arc: **removing dead code widened the mutation surface** — deleting an orphaned union variant forced a rewrite of its enclosing condition, and the natural rewrite turned a truthy numeric check into `carried.length > 0`, an operator where there had been none, producing a brand-new survivor. Nothing warned; the gate noticed one cycle later.
 
-## BL-SEND-AUTH-SINGLE-READ-LINT — a send-authorization path may read each surface at most once per pass
+## BL-REVIEWROUND-CORPUS-REBASE-THRESHOLD — a mid-arc merge re-bases the round corpus and the threshold gate counts less
 
-**Status:** OPEN. · **Effort:** M — a structural lint plus a boundary decision about which surface
-methods it ranges over, and one existing passing instance to pin it against.
+**Status:** OPEN. · **Filed:** 2026-08-20 (`feat/send-auth-single-read-lint`, closeout) · **Facing:** process · **Severity:** LOW-MEDIUM (no shipped defect; the gate under-reports an obligation) · **Class:** review economy · **Effort:** S · **Reachability:** PROBED — both corpus files are committed and the split reproduces from them.
 
-One class of defect produced a P0 in four consecutive review rounds of
-`feat/orchestrator-pane-compaction`, and every intermediate repair was too
-small. r1 re-read the marker but authorized against a nonce captured earlier.
-r2 re-observed the pane but compared only the verdict. r3 compared the whole
-decision but ran it against the original roster. r4 fixed all of that and still
-read the marker twice — once inside revalidation, once for the nonce — so a
-takeover changing `sessionId` between the two reads preserved the nonce and
-passed rule 5 on the stale copy, and `/compact` was sent.
+Rounds are keyed `(branch, baseSha12)`, so merging `origin/main` mid-stage splits an arc's rounds across two corpus files while the `ROUND_THRESHOLD` gate counts per file. An arc can therefore sit below the trigger while genuinely owing a filing — **the gate stays green BY COUNTING LESS**, which is the fail-open direction.
 
-**Probed, not theorized.** Each was demonstrated by a reviewer probe that
-exited 0 and sent bytes; the round-4 case is pinned by
-`tests/paneCompaction/adapter.test.ts` counting MARKER READS rather than
-asserting on a verdict, which is the only form that can see it.
+**Incident:** this arc. Its four spec rounds sit 3 + 1 across `4b5028b446a4` and `03953337388b` after PR #854 merged mid-stage; the gate saw at most three and stayed green, and the filing at `docs/review-rounds/feat/send-auth-single-read-lint/4b5028b446a4.md` was written voluntarily rather than because anything demanded it. The same merge tripped the contiguity check, because the round after it was dispatched as `--round 4` into a base holding no rounds 1-3.
 
-**Why a lint and not a test.** No suite assertion can express "these two values
-came from different instants" — four rounds of green tests coexisted with the
-defect. The mechanizable form is structural: inside a function that authorizes a
-send, each injected surface method may be invoked at most once per pass, so a
-second read is a lint error rather than a race nobody can see. Closing repair
-shipped in that arc (one snapshot per authorization) is the shape the lint would
-enforce.
+**Not repaired by this arc**, which owns a send-authorization lint rather than the round-economy gate.
 
-**First scheduled step:** decide the surface boundary the rule ranges over —
-every `Surface` method, or only the ones feeding a classification — then pin it
-against `scripts/pane-compaction.ts`, which is a passing instance today.
+## BL-SPECLINT-EXEC-RED-HEAVY-BLIND — the red-collection arm is silent on every `pnpm heavy` command
+
+**Status:** OPEN. · **Filed:** 2026-08-20 (`feat/send-auth-single-read-lint`, closeout) · **Facing:** process · **Severity:** MEDIUM (a guard that passes unconditionally on the class of command the repo MANDATES) · **Class:** guard fidelity · **Effort:** S · **Reachability:** PROBED — isolated in four runs at plan time.
+
+`spec:lint --exec-red`'s collection arm mints NOTHING for a `red=` wrapped in `pnpm heavy`: `deriveCollectionProbe` returns kind `none` and `collectionProbePlan` drops the marker (`lib/specLint/redContract.ts:721`), so it never enters the probe plan — **not even the `RED_PROBE_UNVERIFIED` advisory the same function emits for a probe it cannot derive.**
+
+**That asymmetry is the difference between a gap and a bug.** The code carries a deliberate, named path for "I could not derive a probe for this", and the heavy-wrapped shape does not take it — an unclassified shape falling THROUGH the classifier, not an exemption anyone chose. Since `AGENTS.md` MANDATES `pnpm heavy` for every heavy phase, the arm is silent on exactly the class of command the repo requires to be wrapped, and silent reads as clean. This is `BL-GUARD-PREMISE-REACHABILITY`'s shape turned on a guard shipped to prevent it.
+
+**Incident:** this plan's Task 8 red. Wrapped per the heavy rule, the originally drafted command exited 0 on the live tree — green from birth, no later edit could ever have made it fail — while `pnpm spec:lint --exec-red` reported nothing about it. It was found by running the command by hand. Isolated in four runs: the bare form and the env-var-prefixed form both FAIL `RED_COLLECTS_NOTHING`; both `pnpm heavy` forms are silent. So neither the `NIGHTLY_ONLY_EXCLUDES` shape nor the env prefix is the cause — the wrapper is.
+
+**Not repaired by this arc**, which owns the lint's subject rather than the lint.
+
+## BL-REVIEWROUNDS-REPORT-RACY-DUAL-GIT-READ — an equality between two non-atomic reads of mutable shared state
+
+**Status:** OPEN. · **Filed:** 2026-08-20 (`feat/send-auth-single-read-lint`, closeout) · **Facing:** process · **Severity:** MEDIUM (it makes a whole-suite run unreliable on a shared checkout, and a known-spurious failure MASKS a real one) · **Class:** test determinism · **Effort:** S · **Reachability:** PROBED — reproduced twice and isolated once on the same tree.
+
+`tests/reviewRounds/report.test.ts:1262` asserts equality between two NON-ATOMIC reads of mutable shared state: `expected` comes from a live `git log --merges --first-parent main` in the test body, and the left side from `mergedArcs()` shelling out to git independently. Nothing serialises them, so a merge or fast-forward landing between the two reads fails the assertion against a tree that is perfectly correct. **Racy by construction, not flaky by accident.**
+
+**Incident:** 2026-08-20, TWICE, during this arc's Task 1 fixture-collision cover. It failed inside the whole-suite run at 42.8s, then again at 58.9s on a tree differing from the first only by a markdown heading, while every other suite passed. Isolated immediately: the same case PASSED in 21.5s on the same tree, and `main`'s unit-suite was green in CI the same morning (run 32336060812). Five arcs were pushing to the shared repo. Cost: one triage cycle plus a killed and restarted 20-minute whole-suite run — and it means a whole-suite run cannot be relied on to go green on this machine while other arcs push.
+
+**Why a row rather than a shrug.** A test known to fail spuriously gets filed as "the known flake" and then MASKS a real failure on the same assertion — the counts genuinely disagreeing is exactly the defect it exists to catch.
+
+**Do NOT loosen the assertion** — an equality that tolerates drift stops catching the real case. Take both counts from ONE git invocation, or resolve `main` to a sha once and read both sides at that sha.
+
+**Not repaired by this arc**, which owns a send-authorization lint rather than the round-corpus reporter.
 
 ## BL-ENROLLED-SUITE-PLACEMENT-METATEST — a test that names an enrolled surface must be in its suitePaths
 
