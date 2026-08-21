@@ -7,9 +7,11 @@ the strictly weaker implementation its fixtures must kill.  A plan-side pass ove
 that table is a cover on the PLAN and it cannot see what actually ships: a table
 that names the case and a suite that omits it is invisible to plan review (the
 plan is correct) and invisible to a fixture audit (the fixture does not exist).
-So the row list below is DERIVED by reading section 6's table -- 20 data rows,
-docs/superpowers/specs/ci/2026-08-20-claim-sweep-after-repair.md lines 487-506 --
-and never from recall, and each row carries three things:
+So the row list below is DERIVED by reading section 6's table, never from recall
+-- and the derivation is RECONCILED AT RUN TIME rather than asserted: the
+pre-flight PARSES that table out of the live spec and requires it to agree with
+the list below row for row, in BOTH directions and in order (see
+`reconcile_rows_against_spec`).  Each row carries three things:
 
   1. the WEAKER IMPLEMENTATION, quoted from the table's own middle column;
   2. the KILLING CHECK -- an exact test file and an exact `it(...)` title,
@@ -86,6 +88,7 @@ import re
 import signal
 import subprocess
 import sys
+from collections import Counter
 from dataclasses import dataclass
 from typing import Optional
 
@@ -125,7 +128,9 @@ class Row:
     `rule` and `weaker` are QUOTED from the table's first two columns.  They are
     transcribed rather than paraphrased so that a reader diffing this list
     against the spec sees drift as a text difference rather than having to judge
-    whether two summaries mean the same thing.
+    whether two summaries mean the same thing.  `reconcile_rows_against_spec`
+    does that diff mechanically, before any mutation, so drift is a loud refusal
+    rather than something a reader has to happen to notice.
     """
 
     rule: str
@@ -144,12 +149,19 @@ class Row:
 
 
 # ---------------------------------------------------------------------------
-# THE ROWS.  Order and wording follow spec section 6's table top to bottom, so a
-# row added to the spec and not here shows up as a length mismatch against the
-# `EXPECTED_ROWS` floor below rather than as a quiet omission.
+# THE ROWS.  Order and wording follow spec section 6's table top to bottom, and
+# `reconcile_rows_against_spec` REQUIRES that, against the parsed live table,
+# before anything is mutated.
+#
+# THERE IS NO HAND-TYPED ROW COUNT HERE.  The one this replaced -- `EXPECTED_ROWS
+# = 20` -- was a second transcription of the same table, so the pre-flight
+# compared two hand-written numbers to each other and agreed with itself: an
+# added row read `actual_spec_rows=21, ROWS=20, EXPECTED_ROWS=20,
+# preflight_mismatch=False`, and removals, reorderings and rewordings escaped the
+# same way.  A count re-derived from the parse would not have been an independent
+# check either, so the check below is the ROW TEXT matched both ways, never a
+# number.
 # ---------------------------------------------------------------------------
-EXPECTED_ROWS = 20
-
 ROWS = [
     Row(
         rule="§3.0 refusal, `N === M`",
@@ -510,6 +522,195 @@ def _sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf8")).hexdigest()[:12]
 
 
+# ---------------------------------------------------------------------------
+# THE SPEC TABLE, PARSED.  `ROWS` above is a transcription, and a transcription
+# nothing reads back is a claim -- the same shape this whole audit exists to
+# find.  These functions read section 6's weaker-implementation table out of the
+# LIVE spec and reconcile it against `ROWS` in BOTH directions before a single
+# byte is mutated.
+#
+# WHAT IS COMPARED IS TEXT, NOT A COUNT.  A parsed count checked against a
+# derived count is a tautology; a parsed count checked against a hand-typed one
+# catches an insertion or a deletion and nothing else -- a row swapped for
+# another, reworded, or moved leaves both numbers equal.  So the comparison is on
+# `rule` + `weaker`, whitespace normalised, and ORDER is compared too, because
+# `ROWS`' own contract and the `[n]` labels in this run's output both cite the
+# table's top-to-bottom order.  Order drift is REPORTED AND REFUSED rather than
+# declared harmless.
+# ---------------------------------------------------------------------------
+SPEC = "docs/superpowers/specs/ci/2026-08-20-claim-sweep-after-repair.md"
+
+SECTION_6_OPEN = re.compile(r"^## 6\. Testing\b")
+SECTION_7_OPEN = re.compile(r"^## 7\.")
+FENCE = re.compile(r"^\s*(?:```|~~~)")
+SEPARATOR_CELL = re.compile(r"^:?-{3,}:?$")
+
+#: Section 6 carries TWO pipe tables -- this one and the paired-fixture table
+#: below it -- so the table is identified by its own header cells rather than by
+#: being first, which would silently follow a reordering of the section.  Exactly
+#: one table must carry this header; 0 or 2+ refuses.
+WEAKER_TABLE_HEADER = ["Rule", "Weaker implementation that would pass", "Fixture that kills it"]
+
+
+def _norm(cell: str) -> str:
+    """Whitespace-normalised cell text -- the unit both sides are compared on."""
+    return " ".join(cell.split())
+
+
+def _split_table_row(line: str) -> list[str]:
+    """One pipe-table row into its cells, honouring `\\|` escapes.
+
+    Written out rather than `line.split("|")` because an escaped pipe inside a
+    cell would otherwise manufacture a column, and the row would then be refused
+    for an arity it does not actually have.
+    """
+    cells: list[str] = []
+    buf: list[str] = []
+    i = 0
+    while i < len(line):
+        if line[i] == "\\" and i + 1 < len(line) and line[i + 1] == "|":
+            buf.append("|")
+            i += 2
+            continue
+        if line[i] == "|":
+            cells.append("".join(buf))
+            buf = []
+            i += 1
+            continue
+        buf.append(line[i])
+        i += 1
+    cells.append("".join(buf))
+    # A pipe table's rows open and close with a delimiter, so the fragments
+    # outside the outermost pipes are empty and are not columns.
+    if cells and not cells[0].strip():
+        cells.pop(0)
+    if cells and not cells[-1].strip():
+        cells.pop()
+    return [_norm(c) for c in cells]
+
+
+def _spec_fail(message: str) -> None:
+    print(f"  FAIL  {SPEC}: {message}")
+    print("        The rows this audit walks are DERIVED from section 6's table. If the table")
+    print("        cannot be read, nothing measured below is attributable to it.")
+    sys.exit(2)
+
+
+def parse_spec_rows() -> list[tuple[str, str]]:
+    """`(rule, weaker)` for every data row of section 6's weaker table, in order."""
+    lines = _read(SPEC).split("\n")
+    start: Optional[int] = None
+    end: Optional[int] = None
+    for i, ln in enumerate(lines):
+        if start is None:
+            if SECTION_6_OPEN.match(ln):
+                start = i
+        elif SECTION_7_OPEN.match(ln):
+            end = i
+            break
+    if start is None:
+        _spec_fail("no line begins `## 6. Testing`")
+    if end is None:
+        _spec_fail("section 6 is never closed by a line beginning `## 7.`")
+
+    matches: list[list[str]] = []
+    block: list[str] = []
+    fenced = False
+    # The trailing "" flushes a table that runs to the last line of the section.
+    for ln in lines[start:end] + [""]:
+        if FENCE.match(ln):
+            fenced = not fenced
+            ln = ""
+        if not fenced and ln.lstrip().startswith("|"):
+            block.append(ln.strip())
+            continue
+        if block:
+            if _split_table_row(block[0]) == WEAKER_TABLE_HEADER:
+                matches.append(block)
+            block = []
+    if len(matches) != 1:
+        _spec_fail(
+            f"{len(matches)} table(s) in section 6 carry the header {WEAKER_TABLE_HEADER!r}; "
+            "need exactly 1"
+        )
+
+    table = matches[0]
+    if len(table) < 3:
+        _spec_fail("the weaker-implementation table carries no data rows")
+    separator = _split_table_row(table[1])
+    if not separator or not all(SEPARATOR_CELL.match(c) for c in separator):
+        _spec_fail(f"the row under the table header is not a separator: {table[1]!r}")
+
+    parsed: list[tuple[str, str]] = []
+    for raw in table[2:]:
+        cells = _split_table_row(raw)
+        if len(cells) != len(WEAKER_TABLE_HEADER):
+            _spec_fail(
+                f"a data row has {len(cells)} column(s), not {len(WEAKER_TABLE_HEADER)}: {raw!r}"
+            )
+        parsed.append((cells[0], cells[1]))
+    return parsed
+
+
+def reconcile_rows_against_spec() -> int:
+    """Require `ROWS` and section 6's table to be the SAME rows, in the same order.
+
+    Fails naming all four ways they can diverge: a spec row this script does not
+    carry, a carried row the spec does not name, a row whose wording drifted on
+    one side, and a reordering.  The returned count is printed for the reader and
+    is a CONSEQUENCE of the match, never the check.
+    """
+    spec_pairs = parse_spec_rows()
+    row_pairs = [(_norm(r.rule), _norm(r.weaker)) for r in ROWS]
+
+    spec_only = list((Counter(spec_pairs) - Counter(row_pairs)).elements())
+    rows_only = list((Counter(row_pairs) - Counter(spec_pairs)).elements())
+
+    problems: list[str] = []
+    # A row whose wording drifted appears once in each leftover list.  Pairing
+    # those by `rule` reports ONE difference carrying both texts, rather than a
+    # phantom deletion beside a phantom insertion the reader has to match up.
+    for spec_pair in list(spec_only):
+        mate = next((r for r in rows_only if r[0] == spec_pair[0]), None)
+        if mate is None:
+            continue
+        spec_only.remove(spec_pair)
+        rows_only.remove(mate)
+        problems.append(
+            f"WORDING DRIFT on rule {spec_pair[0]!r}\n"
+            f"          spec  : {spec_pair[1]!r}\n"
+            f"          script: {mate[1]!r}"
+        )
+    for spec_pair in spec_only:
+        problems.append(
+            f"SPEC ROW NOT CARRIED     rule {spec_pair[0]!r} | weaker {spec_pair[1]!r}"
+        )
+    for row_pair in rows_only:
+        problems.append(
+            f"CARRIED ROW NOT IN SPEC  rule {row_pair[0]!r} | weaker {row_pair[1]!r}"
+        )
+
+    if not problems and spec_pairs != row_pairs:
+        for i, (spec_pair, row_pair) in enumerate(zip(spec_pairs, row_pairs), start=1):
+            if spec_pair != row_pair:
+                problems.append(
+                    f"ORDER DRIFT at position {i}\n"
+                    f"          spec  : {spec_pair[0]!r} | {spec_pair[1]!r}\n"
+                    f"          script: {row_pair[0]!r} | {row_pair[1]!r}"
+                )
+
+    print(f"  spec section 6 data rows     : {len(spec_pairs)}  (parsed from {SPEC})")
+    print(f"  rows carried by this script  : {len(row_pairs)}")
+    if problems:
+        print(f"  RECONCILIATION FAILED -- {len(problems)} difference(s):")
+        for p in problems:
+            print(f"      {p}")
+        print("  These rows are DERIVED from that table. Reconcile the two, then re-run.")
+        sys.exit(2)
+    print("  reconciled                   : every row matches, both directions, same order")
+    return len(spec_pairs)
+
+
 def capture_originals() -> None:
     for rel in MUTABLE_PATHS:
         ORIGINALS[rel] = _read(rel)
@@ -629,17 +830,17 @@ UNPROVEN = "PRESENT-BUT-UNPROVEN"
 ABSENT = "ABSENT"
 
 
-def check_present(row: Row, text: Optional[str] = None) -> bool:
+def check_present(row: Row) -> bool:
     """Does the cited check EXIST -- by exact `it("<title>"` in the cited file.
 
-    `text` is supplied by the deletion control so the same predicate decides
-    presence there as here; two predicates could disagree, and the control would
-    then be proving the wrong reporting path works.
+    Read from the LIVE file, ALWAYS.  This used to take an override text so the
+    deletion control could ask it about an in-memory excision; the control now
+    writes the excision to disk and goes through `audit_row`, so there is exactly
+    one presence path and the control exercises the real one.
     """
     if row.check_file is None or row.check_title is None:
         return False
-    body = _read(row.check_file) if text is None else text
-    return title_needle(row.check_title) in body
+    return title_needle(row.check_title) in _read(row.check_file)
 
 
 def audit_row(row: Row, index: int) -> tuple[str, str]:
@@ -729,8 +930,22 @@ def excise_it_block(text: str, title: str) -> str:
     raise RuntimeError(f"no `{closer}` within 200 lines of the block opening `{needle}`")
 
 
-def deletion_control() -> tuple[bool, str]:
+def deletion_control(prior_state: str) -> tuple[bool, str]:
     """Delete one shipped check; require the row that cites it to report ABSENT.
+
+    ROUTED THROUGH `audit_row`, the same and only entry point every real row
+    takes, and the returned state must be EXACTLY `ABSENT`.  The version this
+    replaced called the presence predicate directly, which proved that one
+    predicate answers "no" and said nothing about whether a deleted check REACHES
+    the ABSENT bucket: measured against it, an audit that classified the deleted
+    check `PROVEN` still reported `deletion_control_ok=True`.  The excision is
+    therefore written to DISK and `audit_row` reads it exactly as it reads every
+    other row -- no override argument, no second path, no shortcut.
+
+    PREMISE, STATED EXECUTABLY: a row that was ALREADY absent on the pristine
+    tree would report ABSENT for a reason the deletion did not cause, and the
+    control would pass while observing nothing.  `prior_state` is that row's
+    state from the main pass, and anything but a non-ABSENT value refuses.
 
     WHAT IT ANSWERS: whether the reporting path works -- whether a row with no
     check reaches the ABSENT bucket rather than being silently skipped or
@@ -742,23 +957,34 @@ def deletion_control() -> tuple[bool, str]:
     described rather than counted as evidence.
     """
     print("\n-- DELETION CONTROL --")
-    row = next(r for r in ROWS if r.check_file == CONTROL_FILE and r.check_title == CONTROL_TITLE)
+    index, row = next(
+        (i, r)
+        for i, r in enumerate(ROWS, start=1)
+        if r.check_file == CONTROL_FILE and r.check_title == CONTROL_TITLE
+    )
+    if prior_state == ABSENT:
+        print(f"  INFRA: row [{index}] was already {ABSENT} on the pristine tree, so ABSENT after")
+        print("         the deletion would be attributable to the row, not to the reporting path")
+        raise SystemExit(2)
+
     original = ORIGINALS[CONTROL_FILE]
-    print(f"  removing {CONTROL_FILE} :: \"{CONTROL_TITLE}\"")
+    print(f'  removing {CONTROL_FILE} :: "{CONTROL_TITLE}"')
+    print(f"  row [{index}], {prior_state} on the pristine tree; re-audited through `audit_row`")
     excised = excise_it_block(original, CONTROL_TITLE)
     removed_lines = original.count("\n") - excised.count("\n")
     _write(CONTROL_FILE, excised)
     try:
-        observed_present = check_present(row, _read(CONTROL_FILE))
+        state, reason = audit_row(row, index)
     finally:
         _write(CONTROL_FILE, original)
     back_ok = _read(CONTROL_FILE) == original
-    print(f"  block removed          : {removed_lines} line(s)")
-    print(f"  row re-classified as   : {'PRESENT (control FAILED)' if observed_present else ABSENT}")
+    print(f"\n  block removed          : {removed_lines} line(s)")
+    print(f"  audit_row returned     : {state} -- {reason}")
+    print(f"  required               : {ABSENT}, exactly")
     print(f"  file restored          : {'yes' if back_ok else 'NO -- FAIL'}  sha {_sha(_read(CONTROL_FILE))}")
     print("  reads only: does the ABSENT reporting path work. It says NOTHING about PROVEN --")
     print("  an audit that labelled every present check PROVEN would pass this control too.")
-    return ((not observed_present) and back_ok), CONTROL_TITLE
+    return (state == ABSENT and back_ok), CONTROL_TITLE
 
 
 # ---------------------------------------------------------------------------
@@ -767,10 +993,7 @@ def deletion_control() -> tuple[bool, str]:
 def preflight(allow_dirty: bool) -> None:
     print("-- PRE-FLIGHT --")
     print(f"  repo root                    : {ROOT}")
-    print(f"  rows carried                 : {len(ROWS)}  (spec section 6 table: {EXPECTED_ROWS})")
-    if len(ROWS) != EXPECTED_ROWS:
-        print("  FAIL  the row list is not the length of the table it is DERIVED from")
-        sys.exit(2)
+    reconcile_rows_against_spec()
     proc = subprocess.run(
         ["git", "status", "--porcelain", "--"] + MUTABLE_PATHS,
         cwd=ROOT,
@@ -797,7 +1020,8 @@ def anchors_mode() -> int:
     print("-- ANCHOR DRY-RUN (plan Task 9 step 7) --")
     print("Counted against the LIVE files, BEFORE the run this script waits on. A wrong")
     print("anchor matches NOTHING, which you notice, or SOMEWHERE ELSE, which you do not.")
-    print(f"\nrows carried: {len(ROWS)}  (spec section 6 table: {EXPECTED_ROWS})")
+    print()
+    reconcile_rows_against_spec()
     bad = 0
     print("\n  n  from-anchor  it-title  row")
     for i, row in enumerate(ROWS, start=1):
@@ -848,7 +1072,17 @@ def main() -> int:
         for i, row in enumerate(ROWS, start=1):
             state, reason = audit_row(row, i)
             states.append((row, state, reason))
-        control_ok, _ = deletion_control()
+        # The control's premise is the state THIS run observed for that row, not
+        # an assumption about it.
+        prior = next(
+            (
+                s
+                for r, s, _ in states
+                if r.check_file == CONTROL_FILE and r.check_title == CONTROL_TITLE
+            ),
+            ABSENT,
+        )
+        control_ok, _ = deletion_control(prior)
     finally:
         print("\n-- RESTORE --")
         restored = restore_all()
