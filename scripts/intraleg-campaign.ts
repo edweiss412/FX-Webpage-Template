@@ -13,6 +13,8 @@ import {
   aggregateCampaign,
   makeParentDeps,
   observeTrial,
+  parseSeed,
+  parseTrials,
   planCampaign,
   renderCampaign,
   renderCampaignPlan,
@@ -53,13 +55,52 @@ const CHILD_ARGV = [
 export const SAMPLE_INTERVAL_MS = 15_000;
 /** How long a burner runs before self-terminating, if the driver dies first. */
 const BURNER_TTL_MS = 900_000;
+/** Operator error: a flag the accept-sets reject. Distinct from a campaign that RAN and refused. */
+const CAMPAIGN_EXIT_USAGE = 2;
 
+/**
+ * Read one flag, and DO NOT SUBSTITUTE A DEFAULT FOR A MALFORMED VALUE.
+ *
+ * A named flag with a missing or flag-shaped value silently fell back, so
+ * `--out --seed 1` ran the campaign into `.mutation-campaign` — the one location
+ * the record says must not be used, because unlike `.mutation-records` it is not
+ * gitignored and dirties the tree the trials are measuring. An omitted flag
+ * takes the default; a MALFORMED one is an operator error and exits.
+ */
 const arg = (name: string, fallback: string): string => {
   const i = process.argv.indexOf(`--${name}`);
   if (i === -1) return fallback;
   const v = process.argv[i + 1];
-  return v === undefined || v.startsWith("--") ? fallback : v;
+  if (v === undefined || v.startsWith("--")) {
+    process.stderr.write(
+      `--${name} was given with no value (next token: ${JSON.stringify(v ?? "end of argv")}). ` +
+        `Refusing rather than falling back to ${JSON.stringify(fallback)}: a silent default ` +
+        `here runs a different campaign than the one asked for, and for --out it writes into a ` +
+        `directory that is not gitignored.\n`,
+    );
+    process.exit(2);
+  }
+  return v;
 };
+
+/**
+ * ATTEST the tree the campaign ran against, rather than commenting that it was
+ * frozen.
+ *
+ * `stampInputs` covers the surface's declared inputs only, and the deciding
+ * suite walks the whole repository — so a file added mid-campaign can move a
+ * verdict while every stamp holds. The freeze was a procedure; this makes it
+ * evidence. Recorded at both ends and compared, so the record says whether the
+ * tree moved instead of asserting that it did not.
+ */
+function attestTree(): { head: string; dirty: string[] } {
+  const at = (args: string[]): string =>
+    (spawnSync("git", args, { cwd: ROOT, encoding: "utf8" }).stdout ?? "").trim();
+  return {
+    head: at(["rev-parse", "HEAD"]),
+    dirty: at(["status", "--porcelain"]).split("\n").filter(Boolean),
+  };
+}
 
 /** One timestamped load-average sample. The timestamp is what the in-window rule reads. */
 export function sampleLoad(now: number = Date.now()): LoadSample | null {
@@ -96,8 +137,18 @@ type RefusedTrial = { plan: TrialPlan; input: string; detail: string };
 export function main(): number {
   const surfaceId = arg("surface", "psqlStartupScan");
   const site = arg("site", "relational-boundary:3578:35:<><=");
-  const seed = Number(arg("seed", "20260821"));
-  const armATrials = Number(arg("trials", "12"));
+  const seedParsed = parseSeed(arg("seed", "20260821"));
+  if (!seedParsed.ok) {
+    process.stderr.write(`${seedParsed.detail}\n`);
+    return CAMPAIGN_EXIT_USAGE;
+  }
+  const seed = seedParsed.value;
+  const trialsParsed = parseTrials(arg("trials", "12"));
+  if (!trialsParsed.ok) {
+    process.stderr.write(`${trialsParsed.detail}\n`);
+    return CAMPAIGN_EXIT_USAGE;
+  }
+  const armATrials = trialsParsed.value;
   const outDir = resolve(arg("out", ".mutation-campaign"));
   const recordDir = join(outDir, "records");
 
@@ -119,6 +170,7 @@ export function main(): number {
   // the override from the CHILD env writes production records into the gate's
   // own channel while every in-process pair stays green, so the default
   // channel's listing is captured before and compared after.
+  const treeBefore = attestTree();
   const defaultBefore = existsSync(DEFAULT_RECORD_DIR)
     ? readdirSync(DEFAULT_RECORD_DIR).sort()
     : [];
@@ -198,12 +250,19 @@ export function main(): number {
   }
 
   const aggregate = aggregateCampaign({
+    // DECLARED, both of them. The anomaly for this site is KILLED — it survives
+    // 9 of 10 recorded observations (design §2) — and the arm universe is what
+    // the campaign SET OUT to run, so an arm that produced nothing is still
+    // present to be reported starved.
+    anomalousVerdict: "KILLED",
+    declaredArms: ["A", "B", "C"],
     plannedPerArm: { A: armATrials, B: 6, C: 2 },
     trials,
   });
   const report = renderCampaign(aggregate);
   process.stdout.write(`\n${report}`);
 
+  const treeAfter = attestTree();
   const defaultAfter = existsSync(DEFAULT_RECORD_DIR) ? readdirSync(DEFAULT_RECORD_DIR).sort() : [];
   const campaignRecords = existsSync(recordDir) ? readdirSync(recordDir) : [];
   const identical = JSON.stringify(defaultBefore) === JSON.stringify(defaultAfter);
@@ -211,12 +270,23 @@ export function main(): number {
     `\nRECORD ISOLATION (AC-6, on the real run)\n` +
       `  campaign dir ${recordDir}: ${campaignRecords.length} record(s)\n` +
       `  default dir ${DEFAULT_RECORD_DIR}: ${defaultBefore.length} before, ${defaultAfter.length} after\n` +
-      `  byte-identical listings: ${identical}\n`,
+      `  byte-identical listings: ${identical}\n` +
+      `TREE ATTESTATION (the freeze, observed rather than asserted)\n` +
+      `  HEAD ${treeBefore.head} -> ${treeAfter.head}` +
+      `${treeBefore.head === treeAfter.head ? " (unchanged)" : " CHANGED MID-CAMPAIGN"}\n` +
+      `  uncommitted files ${treeBefore.dirty.length} -> ${treeAfter.dirty.length}` +
+      `${JSON.stringify(treeBefore.dirty) === JSON.stringify(treeAfter.dirty) ? " (unchanged)" : " CHANGED MID-CAMPAIGN"}\n` +
+      `  NOTE: stampInputs covers the declared inputs only; the deciding suite walks the\n` +
+      `  whole repository, so this attestation is what speaks for everything else.\n`,
   );
 
   writeFileSync(
     join(outDir, "campaign.json"),
-    `${JSON.stringify({ plan, trials, refusals, aggregate, defaultBefore, defaultAfter }, null, 2)}\n`,
+    `${JSON.stringify(
+      { plan, trials, refusals, aggregate, defaultBefore, defaultAfter, treeBefore, treeAfter },
+      null,
+      2,
+    )}\n`,
     "utf8",
   );
   writeFileSync(join(outDir, "report.txt"), report, "utf8");

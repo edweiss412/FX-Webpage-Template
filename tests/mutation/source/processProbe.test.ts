@@ -6,6 +6,9 @@ import { afterAll, describe, expect, it } from "vitest";
 
 import { premise, premiseHolds } from "../../_shared/premise";
 import { CONTROL_SURFACE } from "./fixtures/processProbe/surface";
+import type { InputStamp } from "./determinism";
+import type { Verdict } from "./oracle";
+
 import {
   FLIP_AT_RUN,
   RUNS_PER_TRIAL,
@@ -60,6 +63,7 @@ import {
   conditionOf,
   digestedFieldsOf,
   digestedFieldsOfReport,
+  makeParentDeps,
   observeTrial,
   oneSidedBound,
   planCampaign,
@@ -1061,7 +1065,14 @@ describe("processProbe trial provenance — two independent sides (AC-2, AC-3)",
         cwd: channel === "cwd" ? `/tmp/${nonce}` : REQUEST.cwd,
       };
       const plan = channel === "plan" ? { ...report.plan, targetSiteId: nonce } : report.plan;
-      const out = observeTrial(plan, wideTargetOf(), parentDepsFor(report), request);
+      // The child ECHOES the plan it was given. Without this the `plan` case
+      // trips the trial-binding check first — correctly, since the parent's plan
+      // and the child's would genuinely describe different trials — and the case
+      // would then assert a refusal it was not written to test. Echoing is also
+      // the honest shape of the attack: a parent that mints the nonce into the
+      // plan hands the child a plan carrying it.
+      const echoed = channel === "plan" ? { ...report, plan } : report;
+      const out = observeTrial(plan, wideTargetOf(), parentDepsFor(echoed), request);
       expect(inputOf(out)).toBe("provenance");
       expect(detailOf(out)).toContain(channel);
     },
@@ -1088,6 +1099,106 @@ describe("processProbe trial provenance — two independent sides (AC-2, AC-3)",
     );
     expect(inputOf(out)).toBe("provenance");
     expect(detailOf(out)).toContain("reportPath");
+  });
+
+  it.each([
+    ["fractional trials", { armATrials: 1.5 }, /non-negative safe integer/],
+    ["negative trials", { armATrials: -1 }, /non-negative safe integer/],
+    ["zero trials", { armATrials: 0 }, /at least 1/],
+    ["fractional seed", { seed: 1.5 }, /non-negative safe integer/],
+    ["negative prefix length", { prefixLengths: [-1] }, /EMPTY prefix/],
+  ])("planCampaign REFUSES %s rather than coercing it", (_label, override, pattern) => {
+    // The core is reachable directly, so the CLI's accept-sets protect nothing
+    // here. 1.5 produced two A trials, a fractional seed printed unchanged while
+    // the PRNG coerced it, and -1 sliced to an empty prefix — a condition nobody
+    // declared, reported as if it had been.
+    const out = planCampaign({
+      target: wideTargetOf(),
+      seed: 20260821,
+      armATrials: 12,
+      ...override,
+    });
+    expect("kind" in out && out.kind === "refusal").toBe(true);
+    expect((out as Refusal).detail).toMatch(pattern);
+  });
+
+  it("a zero timeout does NOT disable the child ceiling", () => {
+    // `?? 600_000` accepted 0, and spawnSync reads `timeout: 0` as NO TIMEOUT —
+    // an unbounded child wearing a ceiling's name. The meta-guard pins that the
+    // NAME appears at the call site; only this pins what the name denotes.
+    const seen: { timeout?: number }[] = [];
+    const deps = makeParentDeps({
+      scratchDir: mkdtempSync(join(tmpdir(), "fx-probe-ceiling-")),
+      root: join(__dirname, "..", "..", ".."),
+      surfaceId: "spawnBounded",
+      siteId: "x",
+      timeoutMs: 0,
+      spawn: ((_cmd: string, _args: string[], opts: { timeout?: number }) => {
+        seen.push(opts);
+        return { pid: 1, stdout: "", stderr: "", status: 0 };
+      }) as unknown as NonNullable<Parameters<typeof makeParentDeps>[0]["spawn"]>,
+    });
+    deps.spawnChild({ plan: realReport().plan, ...REQUEST });
+    expect(seen[0]?.timeout).toBe(600_000);
+    expect(seen[0]?.timeout).not.toBe(0);
+  });
+
+  it("a report for ANOTHER trial is refused, however perfect it is in itself", () => {
+    // Everything else verifies the report is internally consistent and freshly
+    // produced. None of it notices that a flawless report describes a different
+    // trial: the digest binds the report's fields TO EACH OTHER, so a producer
+    // that sealed the wrong binding seals a consistent one. Probed at diff
+    // review round 1 — a child report for A#0 came back as the parent's B#5.
+    const report = realReport();
+    const asked = { ...report.plan, arm: "B" as const, index: 5 };
+    const out = observeTrial(asked, wideTargetOf(), parentDepsFor(report), REQUEST);
+    expect(inputOf(out)).toBe("provenance");
+    expect(detailOf(out)).toContain("A#0");
+    expect(detailOf(out)).toContain("B#5");
+  });
+
+  it("a report whose ROLES are re-ordered is refused, even with perfect site order", () => {
+    // Sites and roles are separate fields. A report resealed so the second step
+    // carries role "target" and the third "prefix" passes every site check,
+    // and `conditionOf` then reads the PREFIX's verdict as the trial's answer.
+    const report = realReport();
+    const steps = report.steps.map((st) => ({ ...st }));
+    premise("the trial has a prefix step to swap roles with", steps.length, 2);
+    const targetIdx = steps.findIndex((st) => st.role === "target");
+    const prefixIdx = steps.findIndex((st) => st.role === "prefix");
+    expect(targetIdx).toBeGreaterThan(-1);
+    expect(prefixIdx).toBeGreaterThan(-1);
+    (steps[targetIdx] as { role: string }).role = "prefix";
+    (steps[prefixIdx] as { role: string }).role = "target";
+
+    const verdict = verifyTrialReport({ ...report, steps }, wideTargetOf());
+    expect(verdict.ok).toBe(false);
+    if (verdict.ok) return;
+    expect(verdict.detail).toMatch(/role/i);
+  });
+
+  it("a CHILD refusal arrives as itself, naming its own cause", () => {
+    // The parent cast every parsed object to TrialReport and read childPid, so
+    // "the baseline is RED" surfaced as "pid disagreement, child reports
+    // undefined". The campaign stopped either way; only one of those tells the
+    // operator what to fix.
+    const report = realReport();
+    const out = observeTrial(
+      report.plan,
+      wideTargetOf(),
+      {
+        spawnChild: () => ({ pid: report.childPid, reportPath: "/tmp/report.json" }),
+        readReportBytes: () =>
+          Buffer.from(
+            JSON.stringify({ kind: "refusal", input: "baseline", detail: "the baseline is RED" }),
+            "utf8",
+          ),
+      },
+      REQUEST,
+    );
+    expect(inputOf(out)).toBe("baseline");
+    expect(detailOf(out)).toContain("the baseline is RED");
+    expect(detailOf(out)).not.toMatch(/pid/i);
   });
 
   it("an --arm plan is a SUBSET of the full plan, not a different draw", () => {
@@ -1256,8 +1367,16 @@ describe("processProbe aggregator — eligibility, derived claims, render (AC-7,
     };
   };
 
-  const mustAggregate = (input: Parameters<typeof aggregateCampaign>[0]): CampaignAggregate => {
-    const out = aggregateCampaign(input);
+  // The anomaly direction is REQUIRED by the production signature — a default
+  // there would be a claim about a site the aggregator has never seen. This
+  // helper supplies the fixture site's direction so the eligibility and render
+  // cases stay about what they are about; the direction itself has its own case.
+  const mustAggregate = (
+    input: Omit<Parameters<typeof aggregateCampaign>[0], "anomalousVerdict"> & {
+      anomalousVerdict?: Verdict;
+    },
+  ): CampaignAggregate => {
+    const out = aggregateCampaign({ anomalousVerdict: "KILLED", ...input });
     if (out.kind !== "aggregate")
       throw new Error(`aggregate refused: ${out.input} — ${out.detail}`);
     return out;
@@ -1312,6 +1431,7 @@ describe("processProbe aggregator — eligibility, derived claims, render (AC-7,
 
   it("aggregator REFUSES an ALL-faulting population instead of printing a distribution", () => {
     const out = aggregateCampaign({
+      anomalousVerdict: "KILLED",
       plannedPerArm: { A: 2 },
       trials: [
         fakeTrial({ index: 0, completed: false }),
@@ -1324,6 +1444,7 @@ describe("processProbe aggregator — eligibility, derived claims, render (AC-7,
 
   it("aggregator REFUSES duplicate nonces across trials", () => {
     const out = aggregateCampaign({
+      anomalousVerdict: "KILLED",
       plannedPerArm: { A: 2 },
       trials: [
         fakeTrial({ index: 0, nonce: "same-nonce" }),
@@ -1336,6 +1457,7 @@ describe("processProbe aggregator — eligibility, derived claims, render (AC-7,
 
   it("aggregator REFUSES a trial whose two pid observations disagree", () => {
     const out = aggregateCampaign({
+      anomalousVerdict: "KILLED",
       plannedPerArm: { A: 1 },
       trials: [fakeTrial({ index: 0, pidSkew: 5 })],
     });
@@ -1355,6 +1477,85 @@ describe("processProbe aggregator — eligibility, derived claims, render (AC-7,
       expect(verdict.detail).toContain(field);
     }
     expect(validateCondition(full)).toEqual({ ok: true });
+  });
+
+  it("eligibility RE-DERIVES the child's two booleans and reports a disagreement", () => {
+    // A sealed report claiming attributable:true while its own evidence says
+    // otherwise — stamps that differ and a non-empty inputsMoved — counted as
+    // eligible, because eligibility read the boolean. The digest cannot catch it:
+    // it binds these fields to each other, so a producer that computes the
+    // boolean wrongly seals a consistent lie.
+    const lying = fakeTrial({ index: 0 });
+    const r = lying.observation.report as unknown as Record<string, unknown>;
+    r.inputsMoved = ["tests/x.ts"];
+    r.stampAfter = { ...(r.stampBefore as InputStamp), digest: "deadbeefcafe" };
+    r.attributable = true;
+    // RE-SEALED. Mutating without re-sealing trips the whole-report digest,
+    // which is that guard working — and it is not the defect under test. The
+    // reachable shape is a producer that computes the boolean wrongly and then
+    // seals the result, so the seal agrees with the lie.
+    r.digest = reportDigest(lying.observation.report);
+
+    const agg = mustAggregate({ plannedPerArm: { A: 1 }, trials: [lying] });
+    const armA = agg.arms.find((a) => a.arm === "A") as ArmSummary;
+    expect(armA.eligible).toBe(0);
+    expect(armA.excluded[0]?.reason).toMatch(/SELF-REPORT DISAGREES/);
+  });
+
+  it("a flip is measured against the DECLARED anomaly, not a hardcoded KILLED", () => {
+    // The accepted domain is every enrolled site. On a normally-KILLED site the
+    // old predicate called each ordinary trial a reproduction and stayed silent
+    // on the anomalous survival — a false positive and a false negative from one
+    // line. Same trials, both directions, opposite answers.
+    const trials = [fakeTrial({ index: 0 }), fakeTrial({ index: 1, verdict: "KILLED" })];
+    const killedIsAnomaly = mustAggregate({
+      anomalousVerdict: "KILLED",
+      plannedPerArm: { A: 2 },
+      trials,
+    });
+    const survivedIsAnomaly = mustAggregate({
+      anomalousVerdict: "SURVIVED",
+      plannedPerArm: { A: 2 },
+      trials,
+    });
+    expect(killedIsAnomaly.flips).toEqual(["A#1"]);
+    expect(survivedIsAnomaly.flips).toEqual(["A#0"]);
+  });
+
+  it("the ZERO-EVENT bound is REFUSED once arm A contains a flip", () => {
+    // Printing `p > x` beside BRANCH POSITIVE states a bound and its own
+    // counterexample in one report. `1 - alpha^(1/n)` answers "what rate would
+    // have produced NO event in n trials"; an arm that observed one is not
+    // evidence against that rate.
+    const rendered = renderCampaign(
+      mustAggregate({
+        plannedPerArm: { A: 2 },
+        trials: [fakeTrial({ index: 0 }), fakeTrial({ index: 1, verdict: "KILLED" })],
+      }),
+    );
+    expect(rendered).toContain("BOUND: REFUSED");
+    expect(rendered).toContain("ZERO-EVENT bound");
+    expect(rendered).not.toMatch(/BOUND: p > /);
+    expect(rendered).toContain("BRANCH POSITIVE");
+  });
+
+  it("an arm that produced NOTHING is still reported starved, not dropped", () => {
+    // The universe was derived from observed trials plus whatever keys the
+    // caller put in plannedPerArm, so an arm with zero trials was not in the
+    // list to be found starved — and a campaign holding one eligible A trial
+    // rendered BRANCH NULL while B and C never appeared. The single-arm plan
+    // mode this branch adds makes that state ordinary rather than exotic.
+    const rendered = renderCampaign(
+      mustAggregate({
+        plannedPerArm: { A: 1 },
+        declaredArms: ["A", "B", "C"],
+        trials: [fakeTrial({ index: 0 })],
+      }),
+    );
+    expect(rendered).toContain("GRADUATION: REFUSED");
+    expect(rendered).toMatch(/arm B at 0 eligible/);
+    expect(rendered).toMatch(/arm C at 0 eligible/);
+    expect(rendered).not.toContain("BRANCH NULL");
   });
 
   it("aggregator condition validation TOLERATES a field it does not know", () => {
@@ -1490,6 +1691,7 @@ describe("processProbe aggregator — eligibility, derived claims, render (AC-7,
       });
     // Margins pass comfortably; the halves measured different programs.
     const agg = aggregateCampaign({
+      anomalousVerdict: "KILLED",
       plannedPerArm: { C: 2 },
       trials: [mk("quiet", 1.0, "anchor-digest", 0), mk("loaded", 9.0, "other-digest", 1)],
     });
@@ -1525,6 +1727,7 @@ describe("processProbe aggregator — eligibility, derived claims, render (AC-7,
       renderCampaign(mustAggregate({ plannedPerArm: { A: 12 }, trials })),
       renderCampaign(
         aggregateCampaign({
+          anomalousVerdict: "KILLED",
           plannedPerArm: { A: 1 },
           trials: [fakeTrial({ completed: false })],
         }),
@@ -1928,7 +2131,7 @@ describe("processProbe aggregator trial-level binding — rotation among REPORTS
       sealedTrial({ index: 0, half: "quiet" }),
       sealedTrial({ index: 1, half: "loaded" }),
     ];
-    const out = aggregateCampaign({ plannedPerArm: { C: 2 }, trials });
+    const out = aggregateCampaign({ anomalousVerdict: "KILLED", plannedPerArm: { C: 2 }, trials });
     expect(out.kind).toBe("aggregate");
   });
 
@@ -1958,7 +2161,11 @@ describe("processProbe aggregator trial-level binding — rotation among REPORTS
         },
       },
     }));
-    const out = aggregateCampaign({ plannedPerArm: { C: 3 }, trials: rotated });
+    const out = aggregateCampaign({
+      anomalousVerdict: "KILLED",
+      plannedPerArm: { C: 3 },
+      trials: rotated,
+    });
     expect(inputOf(out)).toBe("record");
     expect(detailOf(out)).toContain("C#0");
   });
@@ -1984,7 +2191,11 @@ describe("processProbe aggregator trial-level binding — rotation among REPORTS
         },
       },
     }));
-    const out = aggregateCampaign({ plannedPerArm: { C: 2 }, trials: swapped });
+    const out = aggregateCampaign({
+      anomalousVerdict: "KILLED",
+      plannedPerArm: { C: 2 },
+      trials: swapped,
+    });
     expect(inputOf(out)).toBe("record");
   });
 

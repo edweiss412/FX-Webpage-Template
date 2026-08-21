@@ -346,6 +346,41 @@ export type PlanInput = {
  */
 export function planCampaign(input: PlanInput): CampaignPlan | Refusal {
   const { target, seed, armATrials } = input;
+  // THE ACCEPT-SETS ARE ADVERTISED, so the planner must not accept what they
+  // reject. `armATrials: 1.5` produced two A trials, a fractional seed printed
+  // unchanged while the PRNG coerced it to uint32, and a prefix length of -1
+  // became a silently empty prefix (probed at diff review round 1). The CLI
+  // parses its strings; a caller reaching the core directly bypassed all of it.
+  for (const [name, value] of [
+    ["trials", armATrials],
+    ["seed", seed],
+  ] as const) {
+    if (!Number.isSafeInteger(value) || value < 0) {
+      return refuse(
+        name === "trials" ? "trials" : "seed",
+        `--${name} must be a non-negative safe integer, got ${JSON.stringify(value)}. A ` +
+          `fractional or negative value is silently coerced downstream, so the campaign that ` +
+          `runs is not the one the operator asked for.`,
+      );
+    }
+  }
+  if (armATrials < 1) {
+    return refuse(
+      "trials",
+      `--trials must be at least 1, got ${armATrials}. Arm A carries the bound; a campaign ` +
+        `planning zero of them cannot produce one.`,
+    );
+  }
+  for (const length of input.prefixLengths ?? ARM_B_PREFIX_LENGTHS) {
+    if (!Number.isSafeInteger(length) || length < 0) {
+      return refuse(
+        "prefix",
+        `every prefix length must be a non-negative safe integer, got ` +
+          `${JSON.stringify(length)}. A negative length slices to an EMPTY prefix, which runs a ` +
+          `condition nobody declared.`,
+      );
+    }
+  }
   const prefixLengths = input.prefixLengths ?? ARM_B_PREFIX_LENGTHS;
   const targetId = target.siteId;
   const available = target.mutants.map((m) => siteId(m.site)).filter((id) => id !== targetId);
@@ -573,6 +608,22 @@ export type TrialReport = {
   /** Binds this report's fields to EACH OTHER; see `reportDigest`. */
   digest: string;
 };
+
+/**
+ * The two eligibility facts, DERIVED from the evidence rather than read off the
+ * child's own summary of itself.
+ *
+ * `TrialReport.completed` and `.attributable` are booleans the child writes; the
+ * digest binds them to the rest of the report, which means a producer that
+ * computes one wrongly seals a CONSISTENT wrong answer. Every consumer therefore
+ * derives, and `aggregateCampaign` additionally reports the disagreement.
+ */
+export function derivedEligibility(r: TrialReport): { completed: boolean; attributable: boolean } {
+  return {
+    completed: r.infraFaults.length === 0,
+    attributable: r.inputsMoved.length === 0 && r.stampBefore.digest === r.stampAfter.digest,
+  };
+}
 
 export type TrialOutcome = { kind: "report"; report: TrialReport } | Refusal;
 
@@ -823,7 +874,7 @@ export function runTrial(
         surfaceId: target.surface.id,
         runId: options.runId ?? `trial-${plan.arm}-${plan.index}-${spawnedAt}`,
         startedAt: new Date(spawnedAt).toISOString(),
-        passed: report.completed && report.attributable,
+        passed: derivedEligibility(report).completed && derivedEligibility(report).attributable,
         score:
           scored.length === 0
             ? 0
@@ -877,7 +928,28 @@ export function verifyTrialReport(
     };
   }
 
+  // THE ROLE SEQUENCE IS CHECKED TOO, not just the site sequence. Sites and roles
+  // are separate fields, so a report resealed as baseline, target, prefix passed
+  // every site check while `conditionOf` — which reads the step whose ROLE is
+  // "target" — took the PREFIX's verdict as the trial's answer. Probed at diff
+  // review round 1. The roles the plan implies are exactly: baseline, then one
+  // prefix per prefix site, then target.
+  const plannedRoles = planned.map((site) =>
+    site === BASELINE_STEP ? "baseline" : site === report.plan.targetSiteId ? "target" : "prefix",
+  );
   for (const [i, step] of report.steps.entries()) {
+    const expectedRole = plannedRoles[i] as string;
+    if (step.role !== expectedRole) {
+      return {
+        ok: false,
+        input: "receipt",
+        detail:
+          `step ${i} carries role ${JSON.stringify(step.role)} where the plan implies ` +
+          `${JSON.stringify(expectedRole)} (${plannedRoles.join(" -> ")}). The verdict is read ` +
+          `off the step whose role is "target", so a re-roled report answers with another ` +
+          `step's outcome while every site check passes.`,
+      };
+    }
     const expectedSite = planned[i] as string;
     if (step.siteId !== expectedSite) {
       return {
@@ -1006,11 +1078,53 @@ export function observeTrial(
   const bytes = deps.readReportBytes(reportPath);
   let report: TrialReport;
   try {
-    report = JSON.parse(bytes.toString("utf8")) as TrialReport;
+    const parsed = JSON.parse(bytes.toString("utf8")) as unknown;
+    // THE CHILD'S OWN REFUSAL, RECOGNIZED BEFORE THE CAST. The child writes a
+    // `Refusal` to the same file on a red baseline or an ungeneratable prefix.
+    // Casting it to `TrialReport` and reading `childPid` turned "the baseline is
+    // RED" into "pid disagreement, child reports undefined" — the campaign still
+    // stopped, but with the wrong cause, which is the one thing an operator
+    // needs. Probed at diff review round 1.
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      (parsed as { kind?: unknown }).kind === "refusal"
+    ) {
+      const r = parsed as Refusal;
+      return refuse(r.input, `the CHILD refused before producing a report: ${r.detail}`);
+    }
+    report = parsed as TrialReport;
   } catch (e) {
     return refuse(
       "provenance",
       `child report at ${reportPath} did not parse: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+
+  // THE REPORT MUST BE THE ONE THIS CALL ASKED FOR. Everything below verifies
+  // the report is internally consistent and freshly produced; none of it notices
+  // that a perfectly sealed, perfectly attributable report describes a DIFFERENT
+  // trial. Probed at diff review round 1: a child report for A#0 was returned as
+  // the parent's requested B#5, and every other check passed. The digest binds
+  // the report's fields to each other, so it cannot see a producer that sealed
+  // the wrong binding in the first place.
+  const asked = `${plan.arm}#${plan.index}`;
+  const got = `${report.plan.arm}#${report.plan.index}`;
+  if (
+    asked !== got ||
+    report.plan.targetSiteId !== plan.targetSiteId ||
+    report.plan.position !== plan.position ||
+    report.plan.seed !== plan.seed ||
+    report.plan.prefix.length !== plan.prefix.length ||
+    report.plan.prefix.some((site, i) => site !== plan.prefix[i])
+  ) {
+    return refuse(
+      "provenance",
+      `the child reported trial ${got} (target ${JSON.stringify(report.plan.targetSiteId)}, ` +
+        `prefix ${report.plan.prefix.length}, position ${report.plan.position}) but the parent ` +
+        `asked for ${asked} (target ${JSON.stringify(plan.targetSiteId)}, prefix ` +
+        `${plan.prefix.length}, position ${plan.position}). A report that is internally perfect ` +
+        `is still the wrong evidence if it describes another trial.`,
     );
   }
 
@@ -1294,6 +1408,21 @@ const trialKey = (t: CampaignTrial): string =>
 export function aggregateCampaign(input: {
   plannedPerArm: Partial<Record<Arm, number>>;
   trials: readonly CampaignTrial[];
+  /**
+   * The verdict that counts as the ANOMALY at this site. Required, and
+   * deliberately not defaulted: a default is a claim about a site the
+   * aggregator has never seen. For `psqlStartupScan`'s primary site the
+   * recorded anomaly is `KILLED` (it survives 9 of 10 observations); on a
+   * normally-killed site it is `SURVIVED`.
+   */
+  anomalousVerdict: Verdict;
+  /**
+   * Every arm the campaign was SUPPOSED to run. The universe cannot be derived
+   * from the trials that came back: a campaign whose arm B produced nothing at
+   * all would then have no arm B to be starved, and the graduation precondition
+   * would pass over an arm that never ran.
+   */
+  declaredArms?: readonly Arm[];
 }): AggregateOutcome {
   const { trials } = input;
 
@@ -1333,7 +1462,7 @@ export function aggregateCampaign(input: {
     }
   }
 
-  const completed = trials.filter((t) => t.observation.report.completed);
+  const completed = trials.filter((t) => derivedEligibility(t.observation.report).completed);
   if (trials.length > 0 && completed.length === 0) {
     return refuse(
       "population",
@@ -1342,61 +1471,100 @@ export function aggregateCampaign(input: {
     );
   }
 
-  const anchor = completed.find((t) => t.observation.report.attributable);
+  const anchor = completed.find((t) => derivedEligibility(t.observation.report).attributable);
   const anchorDigest = anchor?.observation.report.stampBefore.digest ?? null;
 
+  // THE ARM UNIVERSE IS DECLARED, not observed. Deriving it from the trials that
+  // came back plus whatever keys the caller happened to put in `plannedPerArm`
+  // means an arm that produced NOTHING is not in the list at all — so the
+  // starvation check has nothing to find, and a campaign holding one eligible A
+  // trial renders BRANCH NULL while B and C never appeared. `declaredArms`
+  // closes it; the observed and planned sets are still unioned in, so an
+  // unexpected arm is reported rather than dropped.
   const armIds = [...new Set(trials.map((t) => t.observation.plan.arm))].sort();
   const plannedArms = Object.keys(input.plannedPerArm) as Arm[];
-  const arms: ArmSummary[] = [...new Set([...armIds, ...plannedArms])].sort().map((arm) => {
-    const mine = trials.filter((t) => t.observation.plan.arm === arm);
-    const excluded: Exclusion[] = [];
-    let eligible = 0;
-    for (const t of mine) {
-      const r = t.observation.report;
-      const key = trialKey(t);
-      if (!r.completed) {
-        excluded.push({ trial: key, reason: `infra fault: ${r.infraFaults.join(", ")}` });
-        continue;
+  const declared = input.declaredArms ?? [];
+  const arms: ArmSummary[] = [...new Set([...armIds, ...plannedArms, ...declared])]
+    .sort()
+    .map((arm) => {
+      const mine = trials.filter((t) => t.observation.plan.arm === arm);
+      const excluded: Exclusion[] = [];
+      let eligible = 0;
+      for (const t of mine) {
+        const r = t.observation.report;
+        const key = trialKey(t);
+        // RE-DERIVED, not trusted. `completed` and `attributable` are booleans the
+        // CHILD writes about itself, and eligibility read them directly — so a
+        // report with stamps a/b, inputsMoved ["x"] and attributable:true counted
+        // as eligible (probed at diff review round 1). The digest cannot help: it
+        // binds these fields to each other, so a producer that computes the
+        // boolean wrongly seals a consistent lie.
+        const { completed: derivedCompleted, attributable: derivedAttributable } =
+          derivedEligibility(r);
+        if (r.completed !== derivedCompleted || r.attributable !== derivedAttributable) {
+          // A DISAGREEMENT is worse than either value: the child's account of
+          // itself does not follow from the evidence it shipped, so neither the
+          // boolean nor the derivation can be relied on for this trial.
+          excluded.push({
+            trial: key,
+            reason:
+              `SELF-REPORT DISAGREES WITH ITS OWN EVIDENCE — child says completed=${r.completed}, ` +
+              `attributable=${r.attributable}; its evidence says ${derivedCompleted}, ` +
+              `${derivedAttributable} (infraFaults ${r.infraFaults.length}, inputsMoved ` +
+              `${r.inputsMoved.length}, stamps ${r.stampBefore.digest}/${r.stampAfter.digest})`,
+          });
+          continue;
+        }
+        if (!derivedCompleted) {
+          excluded.push({ trial: key, reason: `infra fault: ${r.infraFaults.join(", ")}` });
+          continue;
+        }
+        if (!derivedAttributable) {
+          excluded.push({
+            trial: key,
+            reason: `UNATTRIBUTABLE — declared inputs moved mid-trial (${r.inputsMoved.join(", ")})`,
+          });
+          continue;
+        }
+        if (anchorDigest !== null && r.stampBefore.digest !== anchorDigest) {
+          excluded.push({
+            trial: key,
+            reason:
+              `NOT OF THIS CAMPAIGN — stamp ${r.stampBefore.digest} against the anchor ` +
+              `${anchorDigest}; internally stable, but a different program`,
+          });
+          continue;
+        }
+        eligible += 1;
       }
-      if (!r.attributable) {
-        excluded.push({
-          trial: key,
-          reason: `UNATTRIBUTABLE — declared inputs moved mid-trial (${r.inputsMoved.join(", ")})`,
-        });
-        continue;
-      }
-      if (anchorDigest !== null && r.stampBefore.digest !== anchorDigest) {
-        excluded.push({
-          trial: key,
-          reason:
-            `NOT OF THIS CAMPAIGN — stamp ${r.stampBefore.digest} against the anchor ` +
-            `${anchorDigest}; internally stable, but a different program`,
-        });
-        continue;
-      }
-      eligible += 1;
-    }
-    return {
-      arm,
-      planned: input.plannedPerArm[arm] ?? 0,
-      produced: mine.length,
-      completed: mine.filter((t) => t.observation.report.completed).length,
-      eligible,
-      excluded,
-    };
-  });
+      return {
+        arm,
+        planned: input.plannedPerArm[arm] ?? 0,
+        produced: mine.length,
+        completed: mine.filter((t) => t.observation.report.completed).length,
+        eligible,
+        excluded,
+      };
+    });
 
   const eligibleTrials = trials.filter((t) => {
     const r = t.observation.report;
     return (
-      r.completed &&
-      r.attributable &&
+      derivedEligibility(r).completed &&
+      derivedEligibility(r).attributable &&
       (anchorDigest === null || r.stampBefore.digest === anchorDigest)
     );
   });
 
+  // A FLIP IS A DEPARTURE FROM A DECLARED REFERENCE, never a hardcoded verdict.
+  // This read `verdict === "KILLED"`, which is right only for a site whose
+  // ordinary outcome is SURVIVED. The accepted domain is every enrolled site, so
+  // on a normally-killed site that predicate calls each ordinary trial a
+  // reproduction and stays silent on the anomalous survival — false positive and
+  // false negative from one line. The direction is a property of the SITE and is
+  // therefore supplied by the caller.
   const flips = eligibleTrials
-    .filter((t) => conditionOf(t).verdict === "KILLED")
+    .filter((t) => conditionOf(t).verdict === input.anomalousVerdict)
     .map((t) => trialKey(t));
 
   return {
@@ -1443,7 +1611,8 @@ export function adjudicateLoad(trials: readonly CampaignTrial[]): LoadAdjudicati
     ["loaded", loaded],
   ] as const) {
     const r = half.observation.report;
-    if (!r.completed || !r.attributable) {
+    const halfEligibility = derivedEligibility(r);
+    if (!halfEligibility.completed || !halfEligibility.attributable) {
       return {
         kind: "refused",
         detail:
@@ -1534,12 +1703,24 @@ export function renderCampaign(outcome: AggregateOutcome): string {
     for (const e of arm.excluded) lines.push(`  EXCLUDED ${e.trial}: ${e.reason}`);
 
     if (arm.arm === "A") {
+      // THE BOUND IS A ZERO-EVENT BOUND. `1 - alpha^(1/n)` is the largest rate
+      // whose chance of producing NO event in n trials is still alpha; the
+      // moment arm A contains an event the formula answers a question nobody
+      // asked, and printing it beside BRANCH POSITIVE states a bound and its own
+      // counterexample in one report. Probed at diff review round 1: one killed
+      // and one surviving arm-A trial rendered `p > 0.7764` and `BRANCH
+      // POSITIVE` together.
+      const armAFlips = outcome.flips.filter((f) => f.startsWith(`${arm.arm}#`));
       const bound = oneSidedBound(arm.eligible);
       lines.push(
-        bound.ok
-          ? `  BOUND: p > ${bound.bound.toFixed(4)} one-sided at alpha ${ALPHA}, over ` +
+        armAFlips.length > 0
+          ? `  BOUND: REFUSED — arm A contains ${armAFlips.length} flip(s) ` +
+              `(${armAFlips.join(", ")}), and the one-sided figure is a ZERO-EVENT bound. ` +
+              `A rate is not excluded by trials that observed it.`
+          : bound.ok
+            ? `  BOUND: p > ${bound.bound.toFixed(4)} one-sided at alpha ${ALPHA}, over ` +
               `${arm.eligible} eligible trials, CONDITIONAL on cross-process independence`
-          : `  BOUND: REFUSED — ${bound.detail}`,
+            : `  BOUND: REFUSED — ${bound.detail}`,
       );
     }
   }
@@ -1652,7 +1833,15 @@ export function makeParentDeps(options: {
       // reads `timeout:` followed by a literal or a name from its accept-set, and
       // a default hidden behind `??` reads to it as NO CEILING AT ALL. The name is
       // in that accept-set; the value is unchanged.
-      const PROBE_CHILD_TIMEOUT_MS = options.timeoutMs ?? 600_000;
+      // `?? 600_000` accepted 0, and `timeout: 0` reaches spawnSync as NO
+      // TIMEOUT — an unbounded child wearing a ceiling's name. The accept-set
+      // in `_metaSpawnDisposition` pins the NAME; only this line can pin that
+      // the name denotes a positive number.
+      const requested = options.timeoutMs;
+      const PROBE_CHILD_TIMEOUT_MS =
+        typeof requested === "number" && Number.isFinite(requested) && requested > 0
+          ? requested
+          : 600_000;
       mkdirSync(options.scratchDir, { recursive: true });
       const invocationPath = join(options.scratchDir, "invocation.json");
       const reportPath = join(options.scratchDir, "report.json");

@@ -118,10 +118,17 @@ describe("fixtures are never discovered, and every one has a live owner", () => 
       // import and the guard starts rewarding TS5097.
       const source = readFileSync(join(ROOT, owner), "utf8");
       const bare = fixture.replace(/\.ts$/, "");
-      expect(
-        source.includes(fixture) || source.includes(bare),
-        `${owner} must invoke ${fixture}`,
-      ).toBe(true);
+      // The reference must be a STRING LITERAL, not any occurrence. A bare
+      // substring test passes on an explanatory comment that merely names the
+      // fixture, so deleting the last real consumer while leaving the sentence
+      // behind would keep this green — the precise hole this guard exists to
+      // close. Quote characters on both sides is the cheap, parser-free way to
+      // require a citation rather than a mention.
+      const quoted = (needle: string): boolean =>
+        new RegExp(`["'\`][^"'\`]*${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["'\`]`).test(
+          source,
+        );
+      expect(quoted(fixture) || quoted(bare), `${owner} must invoke ${fixture}`).toBe(true);
     }
   });
 });

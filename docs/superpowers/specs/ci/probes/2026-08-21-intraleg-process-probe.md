@@ -64,7 +64,7 @@ pnpm heavy pnpm exec tsx scripts/intraleg-campaign.ts \
 | Arm | Planned | Varies |
 | --- | --- | --- |
 | A | 12 | the process boundary alone — one fresh child per trial, target site only, no prefix |
-| B | 6 | the ORDERING — the target runs after the gate-order prefix of its 69 generation-order predecessors |
+| B | 6 | the ORDERING — the target runs after a prefix of its generation-order predecessors, at the pre-registered lengths 8, 8, 8, 24, 24 and 69. Only the last is the full gate-order prefix; describing all six that way (as an earlier draft did) misstates five of them. |
 | C | 2 | the LOAD — one quiet half and one half under a CPU burner per reported core, adjudicated as a pair |
 
 Arm C is a PAIR, not two independent trials: the §5.2 load column advances only
@@ -222,13 +222,29 @@ least two IN-WINDOW load samples per half and got one apiece. Section 3 says the
 column advances "ONLY if the pair was ADJUDICATED", and this pair was not. The
 column stays at one.
 
-Worth being plain about: the loaded half ran under 12 burners and its deciding
-child took 23 818 ms against the quiet half's 14 260 ms, so the load was real and
-the machine felt it. That is a duration difference, and duration is the axis the
-predecessor arc already eliminated — it is not evidence about verdicts, and the
-refusal is what stops it from being written up as if it were.
+**Precisely zero in-window samples, not one per half.** Each half took exactly
+one sample and BOTH landed before their child's window opened — the quiet half's
+at 1787348832832 against a window opening at 1787348833249 (417 ms early), the
+loaded half's at 1787348861870 against 1787348862481 (611 ms). An earlier draft
+of this section said the halves "got one apiece", which counts samples taken
+rather than samples that counted.
 
-The fix is the sampler's cadence, not the rule. A 15 s sampler against a ~29 s
-trial produces one in-window sample; two halves need a faster sampler or a
-longer loaded trial. Filed as a documented limit of this campaign rather than a
-finding against the instrument, which refused exactly as designed.
+The loaded half's deciding child took 23 818 ms against the quiet half's
+14 260 ms, so the load was real. That is a DURATION difference, and duration is
+the axis the predecessor arc already eliminated — it is not evidence about
+verdicts, and the refusal is what stops it from being written up as if it were.
+The burner count the driver requests is one per reported core; the artifacts
+record the request, not a liveness check, so this record does not assert how many
+were actually burning.
+
+**And the cadence diagnosis in the earlier draft was wrong in a way worth
+keeping.** It said a faster sampler would fix the shortfall. It cannot:
+`setInterval` schedules a callback on the event loop, and the child runs under
+`spawnSync`, which BLOCKS that loop for the whole window. No interval callback
+can fire between `spawnedAt` and `exitedAt` by construction, at any cadence. The
+only in-window sample this design can ever take is one that happens to fall
+inside another trial's window. So the load column cannot advance as built, and
+the repair is a sampler that does not share the blocked thread — a child
+process, or a synchronous sample taken by the trial runner itself. Recorded as a
+DOCUMENTED LIMIT of the arm, not as a finding against the refusal, which was
+correct.

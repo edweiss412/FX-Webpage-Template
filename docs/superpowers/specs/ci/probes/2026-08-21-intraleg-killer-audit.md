@@ -18,7 +18,20 @@ asserted reason, and the file was restored byte-exact.
 A survivor-based finding is therefore not available to a reviewer of this arc,
 and the diff-review briefs say so.
 
-## The obligation list is DERIVED, not recalled
+## The obligation list is DERIVED, not recalled — and here is exactly how far that goes
+
+**Corrected at diff review round 1, where the earlier wording overstated it.**
+`deriveSpecKills()` parses the spec's AC table and yields **31** obligation IDs
+of the 45 in this record; the audit refuses to start if any derived ID is
+unclassified, so a NEW AC row fails the audit until someone dispositions it. The
+remaining 14 are declared directly in the table below.
+
+The derivation compares IDENTIFIERS, not the text of each named kill. Replacing
+an AC's weaker implementation while preserving its slot count leaves the audit
+green against the old mutant. That is a real limit of this instrument and it is
+recorded rather than papered over: what the derivation buys is that the
+obligation SET cannot silently shrink, not that each obligation still says what
+it said.
 
 `deriveSpecKills()` re-parses the spec's AC table at run time and splits each
 row's fourth column on top-level semicolons, paren-aware because those
