@@ -4650,6 +4650,12 @@ describe("producer B — an unfollowable factory slot reports unclassifiable", (
     // the OUTER eager position for a hook belonging to the inner suite. The
     // replacement stop is narrow: a body, of a recognized registration, at an
     // index Vitest invokes. The reporting cells are what pin that it stayed narrow.
+    // The nested-body stop carries NO slot exemption, so this answers the same
+    // whether the registration is nested or not. An earlier form exempted slot 0
+    // and gave two answers for one construct -- silent at file scope, REPORTED
+    // once nested. Found by the closeout killer audit as a mutant that dropped
+    // the exemption and broke nothing, which is what a surviving mutant is FOR.
+    "nested registration's function-valued NAME carrying a hook": `describe(String(describe(function named() { beforeEach(() => {}); }, () => {})), () => {});\nit("s", () => {});`,
     "nested inline suite body in an outer eager argument": `describe(String(describe("I", () => { beforeEach(() => {}); it("i", () => {}); })), () => {});\nit("s", () => {});`,
   };
 

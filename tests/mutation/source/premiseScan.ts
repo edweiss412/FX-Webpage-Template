@@ -2060,12 +2060,23 @@ function eagerPositionHookReports(facts: ModuleFacts): string[] {
     // FORMATS a function-valued name rather than invoking it (diff review r2
     // finding 1), so a body there is never a body -- the same fact, read through
     // the same helper, rather than a second rule that can drift.
+    //
+    // The skip is per-ARGUMENT and carries NO slot exemption, which is what makes
+    // it agree with `eagerArguments` -- that reader excludes every `isSuiteBody`
+    // argument regardless of slot, and an earlier form of this stop exempted slot
+    // 0. The result was two answers for one construct: a hook inside a
+    // function-valued NAME was silent at file scope and REPORTED once the
+    // registration was nested inside an outer eager argument. Silence is the
+    // ratified answer -- Vitest FORMATS a function-valued name rather than
+    // invoking it (diff review r2 finding 1), so the hook cannot run and
+    // reporting it is a wrong attribution. Found by the closeout killer audit,
+    // as a surviving mutant that dropped the exemption and broke nothing.
     if (ts.isCallExpression(n) && registrarRoot(n.expression) !== null) {
       if (ts.isCallExpression(n.expression)) for (const a of n.expression.arguments) collect(a);
-      n.arguments.forEach((a, i) => {
-        if (i !== 0 && suiteBodyFunction(a) !== null) return;
+      for (const a of n.arguments) {
+        if (suiteBodyFunction(a) !== null) continue;
         collect(a);
-      });
+      }
       return;
     }
     ts.forEachChild(n, collect);

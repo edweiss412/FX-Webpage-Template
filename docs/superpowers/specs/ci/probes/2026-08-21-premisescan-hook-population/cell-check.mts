@@ -105,6 +105,14 @@ results.push(cell("named constant as the NAME", "silent", `const NAME = "A";\nde
 // diff review r5 finding 1. The stop that replaces it is NARROW -- a body, of a
 // recognized registration, at an index Vitest invokes -- and the reporting
 // cells above are what pin that it did not grow back into the broad one.
+// The nested-body stop carries NO slot exemption, so a hook inside a
+// function-valued NAME answers the same whether the registration is nested or
+// not. An earlier form exempted slot 0 and gave two answers for one construct;
+// the closeout killer audit found it as a mutant that dropped the exemption and
+// broke nothing. Vitest FORMATS a function-valued name rather than invoking it
+// (diff review r2 finding 1), so the hook cannot run and reporting it is a
+// wrong attribution.
+results.push(cell("nested registration's function-valued NAME carrying a hook", "silent", `describe(String(describe(function named() { beforeEach(() => {}); }, () => {})), () => {});\nit("s", () => {});`, { kills: "slot-0 exemption in the nested-body stop" }));
 results.push(cell("nested inline suite body in an outer eager argument", "silent", `describe(String(describe("I", () => { beforeEach(() => {}); it("i", () => {}); })), () => {});\nit("s", () => {});`, { kills: "no nested-body stop" }));
 results.push(cell("inert options under a transparent wrapper", "silent", `describe("A", ({ skip: true }));\ndescribe("B", { skip: true } as const);\ndescribe("C", { skip: true } satisfies { skip: boolean });\nit("s", () => {});`, { kills: "raw-node inert reading" }));
 results.push(cell("named handler on an it/test root", "silent", `function testFn() {}\ntest("named", testFn);\ntest("sibling", () => {});`, { input: "root kind" }));
@@ -125,7 +133,7 @@ console.log(
   `\n${reportingCells} reporting + ${results.length - reportingCells} silent = ${results.length} cells`,
 );
 console.log(`${passed} of ${results.length} cells behave as the spec's §5.2 table claims`);
-if (results.length !== 19) {
+if (results.length !== 20) {
   console.error("cell-check: the cell count moved; §5.2's table and this script must agree");
   process.exit(2);
 }
