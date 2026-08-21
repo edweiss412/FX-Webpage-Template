@@ -23,8 +23,8 @@ follow them.
 
 | shape | live occurrences | population scanned |
 | --- | --- | --- |
-| hook in a file-scope registration's eager position | **0** | 3404 registrations across 70 enrolled suites |
-| registration whose suite body is not an inline function | **0** | 3404 registrations across 70 enrolled suites |
+| hook in the eager position of a registration outside every inline suite body | **0** | 3404 registrations across 70 enrolled suites |
+| registration carrying a factory-slot argument the scanner cannot follow | **0** | 3404 registrations across 70 enrolled suites |
 
 ```
 $ pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-premisescan-hook-population/probe-population.mts
@@ -32,6 +32,14 @@ $ pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-premisescan-hook-pop
   2a  describe/suite with a bare IDENTIFIER in the body position: 0 of 3404 registrations
   2c  any registration whose body position holds no inline function: 0 of 3404 registrations
 ```
+
+**The zeros are measurements because the same extractor returns non-zero on constructed input.** A
+zero from a walk that never looked renders identically to a zero from a walk that looked and found
+nothing, so the probe runs its own recognizer over a synthetic file carrying one instance of each
+shape and must report there: `POSITIVE CONTROL (constructed): eagerDirect 2, eagerFileScope 2,
+factoryDescribe 1, registrations 6`. The script throws rather than printing a corpus zero if either
+control count is zero. A zero without a positive control is a broken read wearing a measurement's
+clothes.
 
 So **this change repairs no live wrong verdict.** Nothing in the corpus is misclassified today, and
 this spec does not claim otherwise. What it ships is a **fail-closed boundary**: a construct that
@@ -51,10 +59,11 @@ decision.
 | # | Decision | Ratified by |
 | --- | --- | --- |
 | R1 | **Report, do not resolve.** Neither shape gets a resolver. An unfollowable body reports `unclassifiable`; it is not followed to its declaration. | §3, on the measured zero in §1.1. Both ledger rows name reporting as the honest alternative in their own words ("The honest alternative, if resolution is declined, is to REPORT"). Also AGENTS.md's standing narrowing direction under same-axis recurrence. |
-| R2 | **The file-scope eager report is FILE-scoped, and that is exact rather than conservative.** A hook in a file-scope registration's eager position runs for every test in the file suite, so a file-level reason is correctly attributed. | §3.1 |
+| R2 | **BOTH reports are FILE-scoped and BOTH are conservative.** Neither reason claims which suite a construct attaches to, because lexical position is not semantic suite scope and establishing the difference needs the resolution R1 declines. An earlier draft claimed producer A's scope was exact; spec review r1 refuted it with a probe and the claim is withdrawn. | §3.1, §4 L1 and L2 |
 | R3 | **The unlocatable-body report is also FILE-scoped, and that IS an over-report.** Narrowing it to the affected tests requires resolving the identifier to its declaration, which is the analysis R1 declines. Filed as a documented limit in §4, not as a defect. | §3.2, §4 limit L2 |
 | R4 | **Every fixture is synthetic source TEXT written to a temp file, never a live construct in the suite.** A live instance inside `premiseScan.test.ts` would make this surface's own suite an instance of the population it measures. | §7, and it is asserted executably by AC-7 |
 | R5 | **No AC-1 movement, and none is introduced here.** `EXPECTED_ENV_TOUCHING` declares `tests/mutation/source/premiseScan.test.ts: 0` (`tests/mutation/_metaPremiseContract.test.ts:94`). `ENVIRONMENT_SOURCES.modules` is `["node:child_process", "scripts/lib/ledger-git"]` (`tests/mutation/source/premiseScan.ts:30`), and the new fixtures import neither, so the declared count stays 0. | §6 AC-8 |
+| R5b | **The fixture corpus does not cross the registration-spelling axis, and the numbers are the reason.** Completed at depth 1 the cross-product is 72; at depth 2 it is 43 spellings and 392 cases; the filing arc's 84 mixes depths. Vitest's modifier object is self-similar, so the axis is unbounded and every finite cut through it is arbitrary. | §5.1, §5.2, §5.4 |
 | R6 | **The accept-set work is NOT in this PR.** `MODIFIERS` and `HOOK_REGISTRARS` stay exactly as they are on `origin/main`. | §8, and `BL-PREMISESCAN-REGISTRAR-ACCEPT-SETS-HAND-MAINTAINED` is a separate sequential PR |
 | R7 | **`BL-PREMISESCAN-ALIAS-SLICE-UNCOVERED` (`BACKLOG.md:125`) is a peer `accepted-gap` row on this surface and is not closed here.** §8 states whether this change affects it. | §8 |
 
@@ -143,51 +152,88 @@ an affected file becomes `unclassifiable`, and an `environment-touching` test **
 **So the whole repair is two new PRODUCERS of file-level reasons. No new precedence, no new
 resolution, no new traversal.**
 
-### 3.1 Producer A — a hook in a file-scope eager position
+### 3.1 Producer A — a hook in an eager argument position the scanner does not attach
 
-While reading the SourceFile's statements for `topLevelHooks`, also detect a hook-registrar call
-sitting in an EAGER position of a file-scope registration, and emit a file-level reason naming it.
+Detect a hook-registrar call sitting in an EAGER position of a registration that is not lexically
+inside an inline suite body, and emit a file-level reason naming it.
 
 - **Eager positions** are exactly the ones `hookBodies` already treats as eager for the nested case,
   so the two readers cannot disagree about what "eager" means: the arguments of a curried callee
   (`ts.isCallExpression(call.expression)` → `call.expression.arguments`), and every argument for
   which `isSuiteBody` is false.
-- **File scope** means the registration is not lexically inside another registration's suite body.
+- **Which registrations.** Only those NOT lexically inside an inline suite body. Where the parent
+  is an inline `describe` body, `hookBodies` already walks the nested registration's eager positions
+  and attaches the hook correctly, so reporting there would be a false advisory on the single most
+  common shape in the corpus.
 - **Recognized by the same predicates the scanner already ships.** `registrarRoot` answers
   "is this a registration", `isSuiteBody` answers "is this the body", and `HOOK_REGISTRARS`
   answers "is this a hook". No second matcher is introduced. The comment at
   `tests/mutation/source/premiseScan.ts:1837` states why:
   "two matchers where the design assumes one can drift apart silently".
 
-The reason is FILE-scoped and that is **exact**, not conservative: such a hook registers on the file
-suite, so it runs for every test in the file.
+**The reason does NOT claim a scope, and an earlier draft's claim that it did was wrong.** Lexical
+position is not semantic suite scope: a registration written inside a module-scope factory is
+lexically outside every inline body, yet Vitest invokes that factory with ITS suite current
+(the installed `@vitest/runner` 4.1.5 runs a suite factory under `runWithSuite`, so a hook the
+factory registers lands on that collector), so the hook attaches to that suite, not to the file
+suite. The scanner cannot tell the two apart without
+the resolution R1 declines — so the reason names the CONSTRUCT and states that the suite is
+undetermined, which is a claim it can support. The demote is file-level and conservative, per L2.
 
 Reason wording, following the house form (a lowercase phrase carrying its module, as
 `withModule` at `tests/mutation/source/premiseScan.ts:1528` produces):
 
 ```
-hook <name> in an eager position of a file-scope registration at line <n>, in <path>
+hook <name> at line <n> is registered from an eager argument position, so the suite it attaches to cannot be determined, in <path>
 ```
 
-### 3.2 Producer B — a registration whose body cannot be located
+### 3.2 Producer B — a registration carrying a factory-slot argument the scanner cannot follow
 
-While walking, detect a registration for which **no argument satisfies `isSuiteBody`** and which has
-at least two arguments, and emit a file-level reason naming it.
+**The rule is keyed on the FACTORY SLOTS, not on "any argument".** Vitest's own declaration is the
+authority, and it supplies exactly one fact this rule needs — where the factory can be:
 
-- Deliberately keyed on **the absence of a locatable body**, not on "the argument is an identifier".
-  An identifier is the shape the ledger row names, but a property access, a call, or anything else in
-  that position is equally unfollowable, and a rule keyed on the identifier spelling would be a
-  denylist that accepts whatever it did not model. This is an accept-set with the complement
-  default-denied: `isSuiteBody`'s closed grammar is the accept-set, and everything outside it
-  reports.
-- The `< 2 arguments` guard keeps `describe.each(rows)("name", fn)` and bare calls out of the
-  producer; a registration with fewer than two arguments has no body position to be missing.
+```
+interface SuiteCollectorCallable<ExtraContext = object> {
+  <T>(name: string | Function, fn?: SuiteFactory<T>, options?: number): SuiteCollector<T>;
+  <T>(name: string | Function, options: SuiteOptions, fn?: SuiteFactory<T>): SuiteCollector<T>;
+}
+```
+
+Quoted from the installed `@vitest/runner` 4.1.5 type declarations, `SuiteCollectorCallable`. It is
+not cited by path because `node_modules` is untracked; the durable anchor is the interface name plus
+the pinned version, and `pnpm why vitest` reports the version in force.
+
+Two consequences, both load-bearing and both learned from probes rather than assumed:
+
+- **`name` may itself be a `Function`.** So a body test ranging over EVERY argument is satisfiable
+  by the NAME — `describe(function titledSuite() {}, suiteA)` has a locatable "body" that is not the
+  body, and the real factory `suiteA` goes unreported. Slot 0 is always `name`, so the rule ranges
+  over indices **≥ 1** only.
+- **The factory is OPTIONAL in both overloads.** So `describe("A", { skip: true })` is a legal
+  bodyless registration, and a rule that reports whenever no argument is a body emits a reason for a
+  body that does not exist — a wrong attribution, which the consequence bound forbids.
+
+**The rule, an accept-set with the complement default-denied.** Among the arguments at index ≥ 1,
+ACCEPT if one is a locatable inline body (`isSuiteBody`, whose accept-set is already closed by
+TypeScript's outer-expression grammar), or if EVERY one is an inert literal — a string, numeric,
+object, array, `true` or `false` literal. Otherwise the registration carries a reference this
+scanner cannot follow in a slot that could hold the factory, and it reports.
+
+It is deliberately NOT keyed on "the argument is an identifier". An identifier is the shape the
+ledger rows name, but a property access, an element access and a call are equally unfollowable, and
+a rule keyed on the identifier spelling is a denylist that accepts whatever it did not model.
+
+The report is per REGISTRATION, not per argument. `test("name", fn, WALK_TIMEOUT_MS)` — an inline
+body plus a named timeout constant — is a single registration whose factory IS located, so it is
+silent. That shape is live in the corpus (`tests/cross-cutting/psqlStartupFileSuppression.test.ts`,
+the `"the walk is not vacuous"` registration), and a per-argument rule reported it, which §3.4
+records as a measured regression rather than a hypothetical.
 
 The reason is FILE-scoped and that **is an over-report** — see limit L2. Its live cost is zero
 (§1.1), and the direction is the one the consequence bound permits.
 
 ```
-suite body at line <n> is not an inline function, so hooks registered by it cannot be located, in <path>
+the registration at line <n> has no inline suite body and carries an argument this scanner cannot follow, so if that argument is the suite factory its hooks cannot be located, in <path>
 ```
 
 ### 3.3 What is deliberately NOT built
@@ -198,16 +244,54 @@ suite body at line <n> is not an inline function, so hooks registered by it cann
   arc shipped.
 - No new verdict. `unclassifiable` already exists and already means this.
 
+### 3.4 The design is validated empirically, not argued
+
+A ~40-line prototype of both producers was spliced into a copy of `premiseScan.ts` in a SEPARATE
+worktree — separate because a reviewer was live against this one, and a transient mutation under a
+live read is a contaminated review. It is not the shipped implementation; it exists so that the
+question "does this design produce the intended verdicts" is answered by measurement before a
+reviewer is asked it.
+
+Every constructed case behaves as specified, including the three that would otherwise cost rounds:
+an ordinary nested `describe` carrying a hook does NOT report; a provably `environment-touching`
+test KEEPS its verdict in an affected file rather than being demoted; and an inline body reached
+through the transparent wrappers `isSuiteBody` already accepts is not mistaken for an unlocatable
+one. The three constructs spec review r1 raised — a function-valued name hiding a factory, a
+bodyless options registration, and an eager hook inside a named factory — all behave correctly under
+the repaired rules above.
+
+**And the live corpus is verdict-neutral under the prototype:**
+
+```
+$ pnpm exec tsx spike-corpus.mts        # in the spike worktree
+suites 70  classified 2648  env-touching 74  unclassifiable 1
+tests carrying a NEW reason from either producer: 0
+```
+
+Byte-identical to the shipped baseline in the probe record. Both halves of the consequence bound are
+therefore MEASURED: every constructed instance reports, and there are **zero false advisories on the
+live corpus**.
+
+**One measured regression is recorded here rather than smoothed over**, because it is the whole
+argument for §3.2's per-registration shape. An intermediate per-ARGUMENT rule took the corpus from
+1 `unclassifiable` to **398** — a single live registration, `test("…", fn, WALK_TIMEOUT_MS)`, whose
+named timeout constant is not an inert literal. The first detector run reported "0 new reasons"
+anyway, because that detector was keyed on the PREVIOUS reason wording; re-keying it to the current
+wording is what surfaced the 398. Two lessons kept: a rule about factories must range over the
+factory slots only, and a checker keyed on text a repair just changed reports a confident zero about
+nothing.
+
 ---
 
 ## 4. Documented limits
 
 | id | limit | why it is a limit and not a defect |
 | --- | --- | --- |
-| **L1** | A hook in a file-scope eager position is REPORTED, never attached. A test that could have been proven `environment-touching` through that hook is reported `unclassifiable` instead. | The report is the conservative direction: the reader is told the scanner cannot decide, rather than told the test is free. Following the hook is the resolver R1 declines. |
-| **L2** | The unlocatable-body report is FILE-scoped, so it demotes `environment-free` tests in the file that the unlocatable body could not have affected. | Narrowing it needs the identifier resolution R1 declines. Measured live cost: zero registrations, so zero tests. An over-report with a named cause is a documented limit; a silent free is not. |
+| **L1** | A hook in an eager argument position is REPORTED, never attached, and the reason does not name the suite it attaches to. A test that could have been proven `environment-touching` through that hook is reported `unclassifiable` instead. | The report is the conservative direction: the reader is told the scanner cannot decide, rather than told the test is free. Both following the hook and identifying its suite are the resolution R1 declines. |
+| **L2** | BOTH reports are FILE-scoped, so each demotes `environment-free` tests in the file that the reported construct could not have affected. | Narrowing either needs the resolution R1 declines. Measured live cost: zero registrations, so zero tests, confirmed under a working prototype in §3.4. An over-report with a named cause is a documented limit; a silent free is not. |
 | **L3** | Neither producer fires on a registration the shipped `registrarRoot` does not recognize. `MODIFIERS` is incomplete on Vitest 4.1.5 — `test.skipIf(...)` is invisible to it, one live instance in `tests/cross-cutting/psqlStartupFileSuppression.test.ts`. | That is `BL-PREMISESCAN-REGISTRAR-ACCEPT-SETS-HAND-MAINTAINED`'s subject and ships in the sequential PR 2. Fixing it here would fold two decisions into one recognizer, which is the bigger target. |
 | **L4** | A hook reached only through a helper CALLED from an eager position is not distinguished from one written there. | The producer reports on the syntactic position; a call in an eager position is already an eager argument and reports. This is conservative in the same direction. |
+| **L5** | Producer B reports a registration whose only non-inert factory-slot argument is in fact OPTIONS rather than a factory — `describe("A", opts, () => {})` is silent because slot 2 is a body, but `describe("A", opts)` reports. | The scanner cannot tell a named options object from a named factory without resolution. The reason says "if that argument is the suite factory", so the report is correctly attributed rather than overclaiming, and the worst case is a conservative demote with a named cause. Zero live instances. |
 
 ---
 
@@ -271,28 +355,69 @@ axis it does not read rather than sampling it:
 **Producer A: 3 × 4 = 12 producer-A cells, complete over what the rule reads**, plus 4
 spelling-independence cells, plus one negative twin per cell.
 
-Producer B reads one thing: whether any argument satisfies `isSuiteBody`. Its accept-set is closed
-by TypeScript's outer-expression grammar; its COMPLEMENT is open, so the corpus is keyed on the
-structural classes of a non-inline body rather than on spellings:
+Producer B reads one thing: whether the arguments at index ≥ 1 clear the §3.2 accept-set. That
+accept-set is closed; its COMPLEMENT is open, so the corpus is keyed on structural classes rather
+than spellings.
 
-| body-position shape | why it is in the corpus |
+**Every row below is an ANTI-TAUTOLOGY DEVICE and names the two implementations it separates**, so
+its discriminating power is written down and cannot be quietly weakened later. A fixture whose
+kill target is recorded is a fixture a later edit cannot silently defang.
+
+| case | REPORTS under | falls SILENT under | so it kills |
+| --- | --- | --- | --- |
+| bare identifier — `describe("A", suiteA)` | the specified rule | nothing; every candidate reports | the baseline shape both ledger rows name |
+| identifier declared as a `function` declaration | the specified rule | an implementation keying on the DECLARATION's form | a rule that accepts only arrow-initialized factories |
+| property access — `describe("A", suites.a)` | the specified rule | an identifier denylist | a rule keyed on the identifier spelling |
+| **wrapped identifier — `describe("A", (suiteA))`, `describe("A", suiteA as never)`** | an implementation reading `isSuiteBody`'s RESULT | an implementation reading the RAW argument node kind (`ts.isIdentifier(arg)`), which sees a `ParenthesizedExpression` / `AsExpression`, decides "not an identifier", and falls silent where a report is owed | the raw-node-kind reading — the fail-open direction |
+| call expression — `describe("A", makeSuite())` | the specified rule | a rule requiring a BINDING | a rule that only follows named references |
+| **function-valued NAME — `describe(function titledSuite() {}, suiteA)`** | a rule ranging over index ≥ 1 only | a rule whose body test ranges over EVERY argument, where the NAME satisfies it and the real factory goes unreported | the any-argument reading — spec review r1 finding 1, and the defect it demonstrated |
+
+**Negative cases, which the same corpus must keep SILENT.** Each is one ordinary edit from a
+reporting case, so a rule that reports on them is over-firing on live authoring:
+
+| case | why it must stay silent |
 | --- | --- |
-| bare identifier (`describe("A", suiteA)`) | the shape both ledger rows name |
-| identifier declared as a `function` declaration | proves the rule does not key on the declaration's own form |
-| property access (`describe("A", suites.a)`) | proves the rule is not an identifier denylist |
-| **wrapped identifier (`describe("A", (suiteA))`, `describe("A", suiteA as never)`)** | the sharp one: unwrapping an outer expression yields an identifier, so this reports only if the rule reads `isSuiteBody`'s RESULT rather than the raw argument kind |
-| call expression (`describe("A", makeSuite())`) | an unfollowable body that is not a binding at all |
+| `describe("A", { skip: true })` | the factory is OPTIONAL in both overloads, so this is a legal bodyless registration and a reason naming its body would be a wrong attribution |
+| `test("name", fn, WALK_TIMEOUT_MS)` | an inline body plus a named timeout constant. Live in the corpus; an intermediate per-ARGUMENT rule reported it and took the corpus from 1 `unclassifiable` to 398 (§3.4) |
+| `describe("A", opts, () => {})` | slot 2 is an inline body, so the factory IS located whatever `opts` is |
+| `describe(NAME_CONST, () => {})` | slot 0 is the name and is never examined |
 
-**Producer B: 5 producer-B cells, plus one negative twin per cell, plus 4 registrar-independence
-cells.**
+**Producer B: 6 reporting cells and 4 silent cells, plus one negative twin per reporting cell, plus
+4 registrar-independence cells.**
 
 ### 5.3 The sampling rule, stated once
 
 **Cross every axis the rule under test reads. For an axis it does not read, commit an independence
-proof over the structurally distinct classes instead of a sample.** If a later finding shows a
-spelling the rule is NOT indifferent to, that is a defect in the independence claim, and the repair
-is to make the rule indifferent — never to add that spelling as a case, which would re-open an
-infinite axis one member at a time.
+proof over the structurally distinct classes instead of a sample.**
+
+### 5.4 The repair direction for an independence failure — the terminating clause
+
+**If a later finding shows a spelling the rule is NOT indifferent to, the repair is to make the rule
+indifferent. It is never to add that spelling as a case.**
+
+This has its own heading because it is the terminating answer to the recognizer ratchet, and a
+methodology paragraph is where it would go unread. The measured failure mode on this repository is a
+recognizer that grows one grammar corner per round, each widening a bigger target for the next: 20
+diff rounds with a flat finding rate on one arc, 41 on another. Adding the offending spelling as a
+case is that ratchet's first step, and it re-opens an axis §5.1 proves is infinite — one member at a
+time, forever.
+
+The move that terminates is not a better enumeration. It is proving the rule does not read the axis
+at all.
+
+### 5.5 A number in prose is provenance, not data — including this spec's own
+
+Three figures in this arc's own paperwork were carried as prose and were wrong or unsupported when
+re-derived: the filing arc's 84, an intermediate 96 this spec briefly carried (a hand-derived
+depth-mixing artifact, removed), and a "0 new reasons" reading produced by a detector keyed on
+wording a repair had just changed (§3.4). Every figure in §5.1 now carries the command that produced
+it, and every count in this document is derived rather than recalled.
+
+That parallel is an argument FOR the design rather than an embarrassment about the paperwork. **This
+arc's subject IS a hand-maintained set drifting from a derived one** — `MODIFIERS` and
+`HOOK_REGISTRARS` restating a surface instead of reading it — and the arc's own documentation
+drifted by the identical mechanism at the identical rate. A list maintained by hand goes stale
+whether it lives in a source file or a sentence.
 
 ---
 
@@ -303,10 +428,10 @@ suite is not a proof for AC-7, AC-8 or AC-9 — those name their own field check
 
 | id | claim | proved by |
 | --- | --- | --- |
-| **AC-1** | For **every one of the 12** (eager position × hook registrar) cells, a hook in that position of a file-scope registration makes every `environment-free` test in that file `unclassifiable`, with a reason naming the hook and its line. | Generated fixtures in `tests/mutation/source/premiseScan.test.ts` driven from two declared axis arrays, asserting verdict AND reason text. Every case is expect-a-REPORT, never expect-clean. |
+| **AC-1** | For **every one of the 12** (eager position × hook registrar) cells, a hook in that position of a registration outside every inline suite body makes every `environment-free` test in that file `unclassifiable`, with a reason naming the hook and its line — and NOT naming a suite, per R2. | Generated fixtures in `tests/mutation/source/premiseScan.test.ts` driven from two declared axis arrays, asserting verdict AND reason text. Every case is expect-a-REPORT, never expect-clean. |
 | **AC-2** | The generated case count EQUALS the product of the declared axes, and the hook-registrar axis equals `HOOK_REGISTRARS`'s own members. | A count assertion derived from the arrays, plus an assertion that the registrar array is derived from the shipped `HOOK_REGISTRARS` rather than retyped. A missing axis member fails here rather than being invisible. |
 | **AC-3** | The rule is INDIFFERENT to registration spelling across the four structural classes in §5.2. | Four cases at one fixed (position, registrar) cell asserting identical verdicts and reason shapes. |
-| **AC-4** | For **every one of the 5** body-position shapes in §5.2, including the wrapped identifier, a registration whose body is not an inline function makes every `environment-free` test in that file `unclassifiable`. | Generated fixtures, same shape. The wrapped-identifier case is the one that fails if the rule reads the raw argument kind instead of `isSuiteBody`. |
+| **AC-4** | For **every one of the 6 reporting cells** in §5.2, a registration carrying a factory-slot argument the scanner cannot follow makes every `environment-free` test in that file `unclassifiable`; and for **every one of the 4 silent cells**, no reason is emitted at all. | Generated fixtures, same shape. Each reporting cell names the implementation it kills; the wrapped-identifier cell fails under a raw-node-kind reading and the function-valued-name cell fails under an any-argument reading. The silent cells are the over-firing half and each is one ordinary edit from a reporting cell. |
 | **AC-5** | A test that is provably `environment-touching` STAYS `environment-touching` in a file affected by either producer. | Fixture pairing a touching test with an affected file, for both producers. Proves the precedence rule at `tests/mutation/source/premiseScan.ts:1725` was not inverted. |
 | **AC-6** | **Negative twins, one variable each.** Identical fixture bytes MINUS the eager hook (producer A) and with the factory inlined (producer B) classify `environment-free`. | One twin per generated case, differing by exactly one thing, so a clean verdict is attributable to "examined and correctly declined" rather than to "never got here". |
 | **AC-7** | **This surface's own suites contain no LIVE instance of either shape.** Every fixture is synthetic source text handed to `classifyTests` through a temp file. | An executable check over the surface's own `suitePaths` (`tests/mutation/source/registry.ts:170-172`), run in-process, asserting zero live instances. Demonstrated in BOTH directions: it fails when a live instance is constructed and passes when it is removed. |
