@@ -147,11 +147,24 @@ const PREMISE_CALLS = /^premise(Holds)?$/;
  * on an unrelated object over-reports (§5 L5) -- a conservative report with a
  * named cause, which the bound permits.
  */
+/**
+ * The name a callee resolves to, or null when it resolves to none.
+ *
+ * Split out of `calleeNamed` because a consumer sometimes needs the NAME and not
+ * just the answer, and the two consumers that needed it had each re-derived it
+ * inline instead - which is how `test.beforeEach(…)` stayed invisible to the
+ * eager-hook reporter while `calleeNamed` next to it saw it perfectly well.
+ * One decider, two shapes of question.
+ */
+function calleeName(callee: ts.Expression, propertyAccessCounts: boolean): string | null {
+  if (ts.isIdentifier(callee)) return callee.text;
+  if (propertyAccessCounts && ts.isPropertyAccessExpression(callee)) return callee.name.text;
+  return null;
+}
+
 function calleeNamed(callee: ts.Expression, names: RegExp, propertyAccessCounts: boolean): boolean {
-  if (ts.isIdentifier(callee)) return names.test(callee.text);
-  if (propertyAccessCounts && ts.isPropertyAccessExpression(callee))
-    return names.test(callee.name.text);
-  return false;
+  const name = calleeName(callee, propertyAccessCounts);
+  return name !== null && names.test(name);
 }
 
 /** Every call in a registration's callee chain, with the registrar it roots at.
@@ -2182,13 +2195,15 @@ function eagerPositionHookReports(facts: ModuleFacts): string[] {
     // the reason stays TRUE either way, because it says whether the hook
     // registers cannot be determined rather than asserting that it does. The
     // residue is limit L8, which now covers BOTH producers.
-    if (
-      ts.isCallExpression(n) &&
-      ts.isIdentifier(n.expression) &&
-      HOOK_REGISTRARS.test(n.expression.text)
-    ) {
+    // Through the decider, NOT `ts.isIdentifier` inline: a property receiver is a
+    // hook call too. `test.beforeEach(…)` in a file-suite eager position was
+    // invisible here, so a sibling test reported `environment-free` - a FALSE
+    // CERTIFICATION, and the same widening this arc made to HOOK_REGISTRARS
+    // reached every other consumer but not this one.
+    const hookName = ts.isCallExpression(n) ? calleeName(n.expression, true) : null;
+    if (hookName !== null && HOOK_REGISTRARS.test(hookName)) {
       const line = sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
-      out.push(eagerHookReason(n.expression.text, line));
+      out.push(eagerHookReason(hookName, line));
     }
     // A NESTED registration's INLINE suite body is the one place descent must
     // stop, and for the same reason the `insideInlineBody` check below stops
@@ -2332,7 +2347,13 @@ function unfollowableFactoryReports(facts: ModuleFacts): string[] {
     // itself reported, so the file is already flagged" -- was FALSE, and diff
     // review r3 refuted it: nothing connects a function body to a call site, so
     // the enclosing invocation is invisible and the file was flagged by nothing.
-    if (registrarRoot(call.expression) !== "describe") return;
+    // The SET decides which roots are suites, not a literal. This read
+    // `!== "describe"` and so returned early for `suite("S", factory)`, whose
+    // non-inline factory then went unreported: the file read `environment-free`
+    // while the factory's hook read `process.env`. Widening SUITE_REGISTRARS
+    // helped every consumer that consults it and silently missed this one.
+    const suiteRoot = registrarRoot(call.expression);
+    if (suiteRoot === null || !SUITE_REGISTRARS.has(suiteRoot)) return;
     const slots = call.arguments.slice(1);
     const located = slots.some((a) => isSuiteBody(a));
     // Vacuously true for a registration with no slots past the name, which is

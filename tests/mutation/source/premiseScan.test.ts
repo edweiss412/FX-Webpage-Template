@@ -5125,3 +5125,53 @@ describe("AC-7 — no live instance of either hook-attachment shape in this surf
     expect(got.factory.at(-1)).toContain("at line");
   });
 });
+
+/**
+ * Diff-review round 3 found two consumers of the accept-sets this arc widened
+ * that never consulted them, each reporting `environment-free` for a file that
+ * reaches the environment. Both are FALSE CERTIFICATION, the one class the
+ * consequence bound forbids outright, and both were invisible to every existing
+ * cell because the matrices exercise only the narrower spelling: AC-5 covers
+ * inline `suite` bodies and never a factory argument, and the 18-cell eager-hook
+ * matrix covers only bare calls and never a property receiver.
+ *
+ * The structural repair is `_metaAcceptSetConsumerAuthority`, which derives the
+ * consumer set instead of listing it. These are the behavioural halves - the
+ * defects themselves, not the shape - so a regression fails as a WRONG VERDICT
+ * and not only as a lint.
+ */
+describe("accept-set consumers reached by the widening (diff r3)", () => {
+  // A non-inline factory is unfollowable, so the honest verdict is
+  // `unclassifiable`. `describe` already reported it; `suite` did not, because
+  // the reporter compared the root against the literal "describe".
+  it("a `suite` registration with a non-inline factory is not certified free", () => {
+    const body = `const factory = () => { beforeEach(() => { void process.env.CI; }); it("a", () => {}); };`;
+    const asDescribe = verdict(`${body}\ndescribe("S", factory);\n`);
+    const asSuite = verdict(`${body}\nsuite("S", factory);\n`);
+
+    // The witness is `describe`'s own verdict, not a hardcoded string: the two
+    // spellings are the same registration and the point is that they AGREE.
+    expect(asSuite).toBe(asDescribe);
+    expect(asSuite).not.toBe("environment-free");
+  });
+
+  // A hook in an eager argument position is reported so the file is flagged.
+  // Through a property receiver it was not, so the sibling read free.
+  it("an eager-position hook through a property receiver still flags the file", () => {
+    const bare = `describe(String(beforeEach(() => { void process.env.CI; })), () => { it("inA", () => {}); });\nit("sibling", () => {});\n`;
+    const viaProperty = `describe(String(test.beforeEach(() => { void process.env.CI; })), () => { it("inA", () => {}); });\nit("sibling", () => {});\n`;
+
+    // The WHOLE verdict list, in order, not a lookup by field. The first draft
+    // of this case did `rows.find((r) => r.title === "sibling")` - there is no
+    // `title` on a classification, so both sides resolved to `undefined`, both
+    // assertions held vacuously, and the case PASSED against the defective
+    // scanner. It was caught by reverting the fix and demanding red, which is
+    // the only thing that distinguishes a regression test from a decoration.
+    const verdicts = (src: string): string[] => rowsWithPath(src).rows.map((r) => r.verdict);
+
+    // Witnessed against the bare spelling rather than a literal: the two are the
+    // same registration and the claim is that they AGREE.
+    expect(verdicts(viaProperty)).toEqual(verdicts(bare));
+    expect(verdicts(viaProperty)).not.toContain("environment-free");
+  });
+});
