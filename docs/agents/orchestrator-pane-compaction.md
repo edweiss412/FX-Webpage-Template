@@ -167,7 +167,7 @@ panes:compact --compact    <target> --as <sessionId>   # requires the nonce back
 panes:compact --resume     <target> --as <sessionId>   # sends the resume prompt
 ```
 
-Each revalidates independently and returns immediately. **You sequence them**, re-running the plain
+Each authorizes from its own read-once pass and returns immediately. **You sequence them**, re-running the plain
 report in between to see where the target got to — that re-run is the wait, and putting it in your
 judgement rather than in a timeout inside a script is what keeps each command's failure mode
 singular.

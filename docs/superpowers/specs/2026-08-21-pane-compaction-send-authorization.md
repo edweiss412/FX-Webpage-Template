@@ -544,7 +544,12 @@ bounded, not surfaced at the moment it occurs; **[residual]** accepted gap.
    - **`/compact`**: at worst a compaction the operator no longer wanted — the same outcome
      auto-compaction produces on its own schedule — and a near no-op on an already-compacted
      session; a mis-timed compaction of a blocked session loses nothing durable (the marker
-     is on disk).
+     is on disk). This bullet was an UNDERSTATEMENT until diff round 2: the consume deleted
+     whichever grant the record held rather than the one authorized, so a stale `--compact`
+     also destroyed a newer, unused one-shot grant — a durable loss, which is exactly what
+     the bullet promises does not happen. It is now true by mechanism rather than by
+     assumption: `nonceConsume` takes the authorized value and deletes only on a match, and
+     `runCompact` sends only when the consume reports it spent that grant.
    None interrupts anything (no `\x1b`, pinned). The narrow residue inside the residue: a
    takeover where the successor drives the SAME branch and the marker carried no `sessionId`
    is addressed by branch alone and would act on the prompt — the marker-less soft tier the
@@ -567,7 +572,30 @@ bounded, not surfaced at the moment it occurs; **[residual]** accepted gap.
    pane idle at a quota wall accepts the text and cannot act on it. Not detectable from
    outside; the operator's pane read shows the staged text; procedure is to compact after
    the reset.
-6. **Inherited unchanged** from the 2026-08-16 design §7: purview collision detection is a
+6. **[demote] Two overlapping `--checkpoint` invocations can split the record from the
+   marker.** Each mints and writes independently, so the record can end up holding one
+   invocation's nonce while the target's marker holds the other's; the `--compact` that
+   follows then refuses. Raised as the second interleaving of diff round 2's core finding
+   and filed here rather than fixed, because the reviewer's own probe shows the outcome is
+   conservative and surfaced — which the convergence criterion (§6) makes a documented limit
+   rather than a finding — and because §1's ratified decision already states the nonce is
+   NOT a cross-orchestrator lock:
+
+   ```text
+   outerCode: 0, nestedCode: 0
+   held: "nonce-B", markerNonce: "nonce-A"
+   sendOrder: ["nonce-B", "CR", "nonce-A", "CR"]
+   compactCode: 1, compactAddedSends: 0
+   lines: ["refusing: the target's checkpointNonce is not the one this command recorded"]
+   ```
+
+   Exit 1, a named refusal, zero sends, nothing destroyed. Cost: the operator re-checkpoints.
+   Recorded with the probe verbatim so a later round contests the DISPOSITION rather than
+   rediscovering the behaviour. What would move it out of this tier is a probe showing the
+   split producing a send, a silent success, or a destroyed grant — none of which this one
+   does, and the round-2 repair to `nonceConsume` closes the destruction path specifically.
+
+7. **Inherited unchanged** from the 2026-08-16 design §7: purview collision detection is a
    report, not a lock (two orchestrators can both send `/compact`, benign); rule 5's yield
    depends on herdr populating `agent_session`; `gh`'s no-PR signature is matched on stderr
    text and demotes to `UNDETERMINED` on reword; a marker-less worktree classifies from git
