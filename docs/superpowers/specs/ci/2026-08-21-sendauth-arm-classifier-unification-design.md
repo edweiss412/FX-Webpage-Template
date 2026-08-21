@@ -828,17 +828,19 @@ identically** — and a residue that was predicted and then observed is much str
 defect that was merely repaired, because the prediction could have failed.
 
 **The adoption scan, and the honest size of the refactor.** Run against the prototype it reports
-**26** name-resolution sites not routed through the one rule. That number is the scan's raw output,
-not a repair list, and it sorts into three kinds:
+**28** name-resolution sites not routed through the one rule. That number is the scan's raw output,
+not a repair list, and it sorts into four kinds:
 
 1. **Genuine variable positions** — a surface or member name resolved from arbitrary syntax. These
-   ROUTE. F1–F3's positions are here.
-2. **Positions whose spelling CANNOT vary by the TypeScript grammar** — a `TypeReference`'s
-   `typeName`, a `FunctionDeclaration`'s name, a `VariableDeclaration`'s name in `passNameOf`. There
-   is no element-access spelling of a function declaration's name. These carry an ACKNOWLEDGEMENT;
-   routing them buys nothing and adds indirection.
-3. **Sites resolving something that is not a surface name at all** — a module specifier string, a
-   diagnostic label. These carry an acknowledgement too.
+   ROUTE. F1–F3's positions are here, and so is the read-set member name of §3.14 F1.
+2. **Positions whose FIELD TYPE admits only `Identifier`** — a `FunctionDeclaration`'s name. There is
+   no element-access spelling of one. These carry the durable `grammar` acknowledgement; routing them
+   buys nothing and adds indirection.
+3. **Positions whose FIELD TYPE admits siblings that this code declines** — `EntityName`,
+   `BindingName`. These carry `narrowed`, with a consequence and a re-file trigger. **They were
+   mis-filed as `grammar` until spec round 3** (§3.14 F2).
+4. **Sites resolving something that is not a surface name at all** — a module specifier string, a
+   diagnostic label. These carry `not-a-name`, naming what they do resolve.
 
 **Route-or-acknowledge is what makes the count a cover rather than a backlog**, per §2.5 step 1b: an
 unacknowledged site reds, so these are today's output of a derived scan rather than a list anyone
@@ -862,9 +864,9 @@ not what merges.
 instrument exempted sites by IDENTIFIER SPELLING, so its counts depended on local variable names
 (§3.14 F1). Both numbers moved when the exemption was deleted.
 
-**The 42-to-26 gap is itself informative: it is exactly what the prototype has already routed** —
+**The 46-to-28 gap is itself informative: it is exactly what the prototype has already routed** —
 `calleeNameOf`, `receiverRightmostName`'s internals, the read arm's receiver test, the sink walk's
-callee test. The shipped scanner's 14 UNDISPOSED are those same sites, which have no disposition row
+callee test. The shipped scanner's UNDISPOSED rows are largely those same sites, which have no disposition row
 because in the prototype they no longer resolve a name outside the rule.
 
 **Twelve genuine positions remain to route in the prototype**, and stating that rather than implying
