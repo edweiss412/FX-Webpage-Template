@@ -139,7 +139,9 @@ arcs live, and was DECLINED; `ledgerGit` alone carries the argument as the worst
 
 **Reading stated before the number landed:** a per-mutant maximum far from 180 s does not merely
 weaken the timeout mechanism, it comes close to closing it for the whole population, since every other
-surface has 4x to 22x more room again. A mutant child approaching the ceiling makes the mechanism live
+36 surfaces have 3.9x to 22x more room again (29.0x-163.6x vs 7.4x). It does NOT strongly cover the
+other three tail surfaces at 7.9x-11.8x — only 1.1x to 1.6x more room than `ledgerGit` — so for those
+three it generalises weakly. A mutant child approaching the ceiling makes the mechanism live
 and §5.5's decision urgent.
 
 RESULT: see `p2b` section appended below.

@@ -131,7 +131,7 @@ The remaining 36 range from 29x to 164x.
 
 **Scope, and the decline stated as a decision rather than left as a gap.** The full tail-4 per-mutant sweep (`ledgerGit`, `ledgerClaimsCore`, `premiseScan`, `psqlStartupScan`) costs ~238 minutes worst case — computed as sites x suites x measured baseline — on a two-slot machine-wide semaphore with four other arcs live. It was DECLINED. `ledgerGit` alone carries the argument because it is the worst-placed surface in the population; the other three have more room, not less.
 
-**The reading is stated here, before the number lands.** If `ledgerGit`'s per-mutant maximum sits far from 180 s, that does not merely weaken the timeout mechanism — it comes close to closing it for the whole population, because every other surface has 4x to 22x more headroom again. If instead some mutant child approaches the ceiling, the mechanism is live and §5.5's decision becomes urgent rather than dormant.
+**The reading is stated here, before the number lands.** If `ledgerGit`'s per-mutant maximum sits far from 180 s, that does not merely weaken the timeout mechanism — it comes close to closing it for **the other 36 surfaces, which have 3.9x to 22x more headroom** (29.0x-163.6x against `ledgerGit`'s 7.4x). It does NOT strongly cover the three remaining tail surfaces: `ledgerClaimsCore`, `premiseScan` and `psqlStartupScan` sit at 7.9x-11.8x, only 1.1x to 1.6x more room than `ledgerGit` itself, so for those three a `ledgerGit` result generalises weakly and is not a substitute for measuring them. If instead some mutant child approaches the ceiling, the mechanism is live and §5.5's decision becomes urgent rather than dormant.
 
 ### 2.4 Probe 3 — the intra-leg branch, CLOSED
 
