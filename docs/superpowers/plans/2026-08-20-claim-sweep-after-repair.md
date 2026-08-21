@@ -150,7 +150,7 @@ The repair is to RE-POINT, never to waive (Task 9), and two rules make the re-po
 | 5    | lib/specLint/claimSweep.ts                              | `code: "SWEEP_DOCUMENT_UNREADABLE"`              | :462           |
 | 6    | lib/specLint/claimSweep.ts                              | `CLAIM_SWEEP_CODES`                              | :117           |
 | 7    | scripts/spec-lint.ts:397 (tracked, and STALE)           | the flag loop's final else-if, "unknown flag"    | :426           |
-| 8    | tests/mutation/source/expectedLedgerKinds.ts:24 (tracked)| EXPECTED_LEDGER_KINDS                            |                |
+| 8    | tests/mutation/source/expectedLedgerKinds.ts:24 (tracked)| `EXPECTED_LEDGER_KINDS`                          | :24 (unmoved)  |
 | 9    | lib/specLint/claimSweep.ts                              | the §5 DOCUMENTED LIMITS header block            | :19            |
 ```
 

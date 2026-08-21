@@ -18,6 +18,18 @@ const ALLOWED_FILES = new Set([
   // documentation, not legacy code, and points to
   // tests/db/cutover-drop-m9-5.test.ts as the canonical absence test.
   "tests/db/postgrest-dml-lockdown.test.ts",
+  // The claim-sweep arm's replay fixtures: byte-FROZEN copies of real historical
+  // arc documents, pinned by blob hash in claimSweepNumeric.test.ts. They are
+  // evidence of what the corpus SAID at two past commits, not a live surface,
+  // and `crew_member_auth` appears in them because it appeared in the corpus
+  // then. Editing one to satisfy this audit would falsify the very thing they
+  // exist to preserve, and the freeze test would red for it.
+  //
+  // Exempted as a DIRECTORY rather than as the two files that trip it today:
+  // the fixture set grows by revision, and a two-file list would send the next
+  // arc that adds one here to rediscover this reasoning. The freeze test is
+  // what guards the contents.
+  "tests/specLint/fixtures/claimSweep",
 ]);
 const EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".md", ".mdx"]);
 

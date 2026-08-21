@@ -113,3 +113,10 @@ tests/.spec-lint-fixtures*/
 # a habit is not a control, and the one arc that stayed clean without this said outright it
 # had got lucky on commit ordering.
 tests/mutation/guardSurfaces.shardTMP*.test.ts
+
+# Python bytecode from the probe scripts under docs/superpowers/**/scripts. One .pyc
+# was tracked by this arc (622790154) simply because a script had been run before the
+# `git add`, and a tracked build artifact is both noise and a file no extension model
+# covers -- `sheetIconLinkContainment` reds on exactly that.
+__pycache__/
+*.pyc

@@ -395,6 +395,20 @@ describe("premise contract — the checker cannot report green on nothing", () =
     expect(all.length, "premise: the scanner found tests to classify").toBeGreaterThan(0);
   });
 
+  it("examined tests in EVERY suite, not merely in aggregate", () => {
+    // THE AGGREGATE FLOOR ABOVE IS SATISFIED BY ONE SUITE. If the scanner stops
+    // understanding a suite -- a syntax it cannot parse, a rename, a helper that
+    // wraps `it` -- that suite classifies NOTHING, and its declared
+    // environment-touching count is then satisfied vacuously, because `[]`
+    // filtered by any predicate is still `[]`. The two checks agree, both green,
+    // about a file neither of them read. Every suite declaring 0 is exactly the
+    // case that cannot tell the difference on its own, and four of the
+    // claim-sweep suites declare 0 honestly; this is what makes those zeros
+    // attributable rather than merely true.
+    const empty = suites.filter((s) => classifiedFor(s).length === 0);
+    expect(empty, "every enrolled suite must classify at least one test").toEqual([]);
+  });
+
   it("classifies the declared number of environment-touching tests per suite", () => {
     for (const suite of suites) {
       const touching = classifiedFor(suite).filter((t) => t.verdict === "environment-touching");
