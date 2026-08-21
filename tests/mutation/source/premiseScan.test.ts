@@ -3981,6 +3981,109 @@ describe("AC-5 — every describe spelling stops the nested-hook walk", () => {
   }
 });
 
+describe("AC-5 — a modifier the ROOT's side does not declare is no registration", () => {
+  // The twin of the block above, and the half that had no executable cover.
+  // Diff r2 F3 repaired the union: `test.shuffle(…)` and `describe.fails(…)`
+  // peel cleanly against `MODIFIERS` and Vitest declares NEITHER, so accepting
+  // them invented registrations the file does not contain. The repair landed a
+  // per-side check (premiseScan.ts:349-356) — and the mutation gate then killed
+  // the claim that it was pinned: `equality-flip:350` disabled that check
+  // outright and every test in this file still passed. A repair no assertion
+  // observes is a repair the next edit deletes for free.
+  //
+  // DERIVED, not typed: the population is each side's modifier set MINUS the
+  // other's, crossed with the other side's registrars, all four read out of the
+  // scanner's own declarations. A modifier added to one side later is covered
+  // the day it lands.
+  const suiteMods = scannerModifiers("SUITE_MODIFIERS");
+  const testMods = scannerModifiers("TEST_MODIFIERS");
+  const suiteRegistrars = scannerModifiers("SUITE_REGISTRARS");
+  const testRegistrars = scannerModifiers("TEST_REGISTRARS");
+  const onlySuite = suiteMods.filter((m) => !testMods.includes(m));
+  const onlyTest = testMods.filter((m) => !suiteMods.includes(m));
+
+  // Four premises, because this cover is a CROSS PRODUCT and every factor can
+  // empty it independently. An empty factor makes the loops below vacuous, and
+  // a vacuous loop is indistinguishable from a passing one: the sets could
+  // converge, a rename could break a derivation, and the cover would go on
+  // reporting green while asserting nothing. These red instead.
+  premise("the scanner declares suite-only modifiers", onlySuite.length, 0);
+  premise("the scanner declares test-only modifiers", onlyTest.length, 0);
+  premise("the scanner declares suite registrars", suiteRegistrars.length, 0);
+  premise("the scanner declares test registrars", testRegistrars.length, 0);
+
+  for (const registrar of testRegistrars)
+    for (const mod of onlySuite)
+      it(`${registrar}.${mod} registers no test — ${mod} is suite-only`, () => {
+        // `real` beside it is the POSITIVE CONTROL. The claim is an ABSENCE,
+        // and an absence is equally satisfied by a scanner that classified
+        // nothing at all — a fixture that failed to write, a walk that returned
+        // early. Without the control this passes under exactly that failure.
+        const all = classificationsWithModules(
+          {},
+          `${registrar}.${mod}("x", () => {});\nit("real", () => {});`,
+        );
+        expect(all.map((t) => t.testName)).toEqual(["real"]);
+      });
+
+  for (const registrar of suiteRegistrars)
+    for (const mod of onlyTest)
+      it(`${registrar}.${mod} opens no suite — ${mod} is test-only`, () => {
+        // The suite side has no vanishing record to assert on: the tests INSIDE
+        // the factory are still found either way. The observable is hook
+        // CONTAINMENT — a suite stops the nested-hook walk, a non-suite does
+        // not — so this is the AC-5 shape above with the sibling one level out.
+        //
+        // Direction is deliberate. Under the correct scanner the hook is NOT
+        // contained and `outerSibling` stays TOUCHING; the mutant contains it
+        // and reports FREE. The failure this pins is therefore a SILENT FREE,
+        // which is the direction §6's bound names first.
+        const all = classificationsWithModules(
+          OUTER_HOOK_HELPER,
+          `import { spawnHelper } from "__MODULE_helper__";
+           describe("outer", () => {
+             ${registrar}.${mod}("A", () => {
+               beforeEach(() => { spawnHelper(); });
+               it("inA", () => {});
+             });
+             it("outerSibling", () => {});
+           });`,
+        );
+        // `inA` is touching under every implementation — the foil that stops a
+        // collected-nothing scanner from satisfying the assertion below.
+        expect(all.find((t) => t.testName === "inA")?.verdict).toBe("environment-touching");
+        expect(all.find((t) => t.testName === "outerSibling")?.verdict).toBe(
+          "environment-touching",
+        );
+      });
+
+  // The twin of every case above: the SAME shapes with a modifier the side DOES
+  // declare must behave the opposite way. Without these the whole block passes
+  // under a scanner that rejects every modified spelling on both sides.
+  it("a modifier the side DOES declare still registers (the twin)", () => {
+    const shared = suiteMods.filter((m) => testMods.includes(m) && m !== "each" && m !== "for");
+    premiseHolds("the two sides share a non-curried modifier", shared.length > 0);
+    const mod = shared[0];
+    expect(
+      classificationsWithModules({}, `test.${mod}("x", () => {});\nit("real", () => {});`).map(
+        (t) => t.testName,
+      ),
+    ).toEqual(["x", "real"]);
+    const all = classificationsWithModules(
+      OUTER_HOOK_HELPER,
+      `import { spawnHelper } from "__MODULE_helper__";
+       describe("outer", () => {
+         describe.${mod}("A", () => {
+           beforeEach(() => { spawnHelper(); });
+           it("inA", () => {});
+         });
+         it("outerSibling", () => {});
+       });`,
+    );
+    expect(all.find((t) => t.testName === "outerSibling")?.verdict).toBe("environment-free");
+  });
+});
+
 const OUTER_HOOK_HELPER = {
   helper: `import { spawnSync } from "node:child_process";
     export function spawnHelper(): string { return String(spawnSync("echo", ["x"]).stdout); }`,
