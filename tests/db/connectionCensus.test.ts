@@ -23,7 +23,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import ts from "typescript";
 
+import { premiseHolds } from "@/tests/_shared/premise";
 import { stripCommentsForFile } from "@/tests/_shared/stripComments";
+import { GUARD_SURFACES } from "@/tests/mutation/source/registry";
 
 import { DESTRUCTIVE_STATEMENT_PATTERNS, GUARD_OWN_FILES } from "./_destructiveStatements";
 
@@ -1626,5 +1628,25 @@ describe("connection census — an edge to a NON-SOURCE file is decided, not rep
     for (const extension of ["json", "css", "md", "png"]) {
       expect(SOURCE_EXTENSIONS.test(`x.${extension}`), extension).toBe(false);
     }
+  });
+});
+
+describe("connection census — the enrolment's control is unique in the module (AC-C9)", () => {
+  test("the registry row's control text occurs EXACTLY ONCE in the source it mutates", () => {
+    // `grep -c -F` = 1, made executable. A control keyed by text is only as good as that
+    // text's uniqueness, and a prose claim about it is a measurement with no re-measurement
+    // trigger: on this repo a row that read "verified unique on the current source" went
+    // false under an ordinary refactor, the control edit landed on a site no case reached,
+    // and seven survivors sat undetected behind a green gate.
+    const surface = GUARD_SURFACES.find((s) => s.id === "connectionCensus");
+    premiseHolds("connectionCensus is enrolled", surface !== undefined);
+    const source = readFileSync(join(process.cwd(), MODULE_PATH), "utf8");
+    const occurrences = source.split(surface!.control.from).length - 1;
+    expect(occurrences, `control.from: ${surface!.control.from}`).toBe(1);
+    // And it must actually CHANGE the source, or the overlay proves nothing.
+    expect(source.replace(surface!.control.from, surface!.control.to)).not.toBe(source);
+    // The control's target is the module this suite decides, not some other file.
+    expect(surface!.sourcePath).toBe(MODULE_PATH);
+    expect(surface!.suitePaths).toContain("tests/db/connectionCensus.test.ts");
   });
 });
