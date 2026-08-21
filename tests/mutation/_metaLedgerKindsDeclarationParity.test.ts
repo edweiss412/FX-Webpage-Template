@@ -20,10 +20,14 @@
 //      mismatch below sat inside a leg already red for destructiveFileAnalysis;
 //   3. the leg carrying a surface is not stable. The partition is recomputed
 //      from weights on every commit (tests/mutation/source/shardPartition.ts:39-45),
-//      so enrolling ONE surface moved THREE others between legs.
+//      so enrolling ONE surface moved 24 OF THE 40 pre-existing surfaces to a
+//      different leg -- measured by running `sourceShardAssignment` over the
+//      registry with and without `claimSweep`. An earlier draft said "three",
+//      which was four ids spot-checked and generalised; the real figure is 60%
+//      of the corpus, and it makes the point harder rather than softer.
 //
 // This file is the same claim with none of that machinery: pure data, no child
-// process, no mutation run, in the merge-gating serial project. It cannot be
+// process, no mutation run, in the merge-gating `parallel` project. It cannot be
 // cancelled, cannot be masked by a sibling, and does not move.
 //
 // DERIVED, NOT ENUMERATED. It walks GUARD_SURFACES, so a surface added tomorrow
@@ -99,14 +103,79 @@ describe("EXPECTED_LEDGER_KINDS is in parity with the registry it describes", ()
   it("stays cheap enough to run in the merge-gating suite", async () => {
     // The whole value of this file is that it runs everywhere the sharded gate
     // does not. Importing the runner or the gate would spawn a vitest child per
-    // mutant from inside the serial unit suite -- catastrophic for suite time,
+    // mutant from inside a merge-gating project -- catastrophic for suite time,
     // and it would push this check straight back into the nightly job it was
-    // written to escape. Pinned against its own source.
-    const { readFileSync } = await import("node:fs");
-    const src = readFileSync(new URL(import.meta.url).pathname, "utf8");
-    const heavy = ["./source/runner", "./source/gate", "./source/surfaceCases"].filter((m) =>
-      new RegExp(`from "${m.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`).test(src),
+    // written to escape.
+    //
+    // Walked TRANSITIVELY, over the resolved graph. The first version of this
+    // case regex-matched `from "./source/runner"` in this file's own source and
+    // nothing else, so it was defeated by a re-export, by single quotes, by a
+    // dynamic import, and by any of the three arriving one module deeper -- a
+    // probe with a helper re-exporting the runner passed it while the resolved
+    // graph did contain `source/runner.ts`. Matching a FRAGMENT of the thing you
+    // mean to identify is the same defect this file's subject is about.
+    const { readFileSync, existsSync, statSync } = await import("node:fs");
+    const { dirname, resolve, join, relative } = await import("node:path");
+    const ROOT = process.cwd();
+    // `surfaceCases` ONLY. The first list also named `runner` and `gate`, and the
+    // transitive walk immediately falsified that: `registry.ts` reaches
+    // `source/runner.ts`, and this file still collects and runs in well under a
+    // second. Importing the runner is HARMLESS -- it only DEFINES `runSurface`
+    // (tests/mutation/source/runner.ts:141). What spawns children is CALLING it,
+    // and the module that does so is `surfaceCases`, at module scope inside
+    // `describe.each` (tests/mutation/source/surfaceCases.ts:28). The invariant
+    // as first written was about the wrong noun -- forbidding an IMPORT when the
+    // cost is a CALL -- and strengthening the guard is what exposed it.
+    const FORBIDDEN = ["tests/mutation/source/surfaceCases"];
+
+    const entry = new URL(import.meta.url).pathname;
+    const resolveSpec = (from: string, spec: string): string | null => {
+      if (!spec.startsWith(".")) return null; // package imports cannot reach these
+      const base = resolve(dirname(from), spec);
+      for (const c of [base, `${base}.ts`, `${base}.tsx`, join(base, "index.ts")]) {
+        if (existsSync(c) && statSync(c).isFile()) return c;
+      }
+      return null;
+    };
+    const seen = new Set<string>([entry]);
+    const queue = [entry];
+    while (queue.length > 0) {
+      const file = queue.shift()!;
+      const src = readFileSync(file, "utf8");
+      // Both quote styles, static and dynamic, `import` and `export ... from`.
+      for (const m of src.matchAll(/(?:from|import)\s*\(?\s*["']([^"']+)["']/g)) {
+        const next = resolveSpec(file, m[1]!);
+        if (next && !seen.has(next)) {
+          seen.add(next);
+          queue.push(next);
+        }
+      }
+    }
+    const graph = [...seen].map((f) => relative(ROOT, f).replace(/\\/g, "/"));
+    // PREMISE, STATED EXECUTABLY: the walk must actually traverse. If resolution
+    // silently failed, the graph would be this file alone and the assertion
+    // below would pass over nothing -- which is exactly how the version this
+    // replaces passed.
+    premiseHolds("the import walk resolved beyond the entry file", graph.length > 1);
+    const heavy = graph.filter((f) => FORBIDDEN.some((h) => f.startsWith(h)));
+    expect(heavy, `heavy modules reachable from this file (graph: ${graph.join(", ")})`).toEqual(
+      [],
     );
-    expect(heavy, "heavy imports that would make this file spawn mutants").toEqual([]);
+
+    // The other half, since reaching the runner is not what costs: this file must
+    // never CALL a mutant-spawning entry point. An import is cheap; an invocation
+    // is not, and only the invocation turns this file back into the nightly job
+    // it was written to escape.
+    //
+    // STRING LITERALS ARE BLANKED FIRST, and that is not incidental: the version
+    // without it matched its OWN needle list and failed on a file containing no
+    // call at all. A scanner that reads its own source has to exclude the place
+    // it writes the pattern down -- the same self-reference that makes a
+    // `pgrep`-style check match the shell command running it.
+    const own = readFileSync(entry, "utf8").replace(/"[^"\n]*"|'[^'\n]*'|`[^`]*`/g, '""');
+    const calls = ["runSurface", "runControl", "registerSurfaceCases"].filter((c) =>
+      new RegExp(`\\b${c}\\s*\\(`).test(own),
+    );
+    expect(calls, "mutant-spawning calls in this file").toEqual([]);
   });
 });

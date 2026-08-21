@@ -66,7 +66,7 @@ Measured repartition, `sourceShardAssignment` run against both trees:
 | `4c6f18ac4` | 40 | **shard 1** | shard 1 | absent | 1040/1043/1041/1043 |
 | `0820436cf` | 41 | **shard 2** | shard 0 | shard 1 (w=155) | 1084/1080/1080/1078 |
 
-One enrolment moved three surfaces. Tracking a surface's history by leg number assumes a static
+One enrolment moved **24 of the 40** pre-existing surfaces to a different leg (16 unchanged), measured by running `sourceShardAssignment` over the registry with and without `claimSweep`. An earlier draft of this note said "three" — that was four ids spot-checked and generalised, the error rule 215 describes, and the true figure makes the point harder rather than softer. The table above names examples, not the population. Tracking a surface's history by leg number assumes a static
 assignment that does not exist, and will mis-attribute every enrolment.
 
 Shard conclusions read by name, never from the aggregate:
