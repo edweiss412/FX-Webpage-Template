@@ -2397,3 +2397,639 @@ describe("AC-U6 — the read set's member name is a position too", () => {
     expect(readsFor(readFixture("exotic-type-members.ts"), CHANNEL_ROW)).not.toContain("key");
   });
 });
+
+// ---------------------------------------------------------------------------
+// AC-U16a / AC-U16b / AC-U16c — ABSENCE, ADOPTION, METAMORPHIC INVARIANCE
+//
+// THREE DIFFERENT CLAIMS AND NONE IMPLIES ANOTHER. Every duplicate of the rule
+// can be gone while NOTHING CALLS the replacement: the code compiles, the suite
+// is green, a duplicate sweep reports zero, and the shared rule is DECORATIVE.
+// Absence certifies a deletion; only adoption establishes the unification.
+// ---------------------------------------------------------------------------
+
+const SCANNER_PATH = "tests/paneCompaction/sendAuthScan.ts";
+
+const scannerSource = (): ts.SourceFile =>
+  ts.createSourceFile(
+    SCANNER_PATH,
+    readFileSync(SCANNER_PATH, "utf8"),
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+
+/**
+ * The accept-set is the TypeScript API surface for MATERIALISING A NAME, not a
+ * list of spellings this suite happened to think of. A detector recognising only
+ * `.text` passes every planted violation an author writes in that spelling while
+ * silently missing `getText()`, `.escapedText`, `getFullText()` and the
+ * destructured form.
+ */
+const NAME_PROPERTY_ACCESSORS = ["text", "escapedText"] as const;
+const NAME_CALL_ACCESSORS = ["getText", "getFullText"] as const;
+
+type NameSite = { line: number; accessor: string; text: string; node: ts.Node };
+
+/**
+ * Every site that materialises a name, found STRUCTURALLY. A lexical grep is
+ * blind to a copy spelled differently, which is how copies three, four and five
+ * survived earlier greps.
+ */
+const nameMaterializationSites = (sf: ts.SourceFile): NameSite[] => {
+  const props = new Set<string>(NAME_PROPERTY_ACCESSORS);
+  const calls = new Set<string>(NAME_CALL_ACCESSORS);
+  const out: NameSite[] = [];
+  const at = (n: ts.Node): number => sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
+  const walk = (n: ts.Node): void => {
+    if (ts.isPropertyAccessExpression(n) && props.has(n.name.text)) {
+      out.push({ line: at(n), accessor: n.name.text, text: n.getText(sf), node: n });
+    } else if (
+      ts.isCallExpression(n) &&
+      ts.isPropertyAccessExpression(n.expression) &&
+      calls.has(n.expression.name.text)
+    ) {
+      out.push({ line: at(n), accessor: n.expression.name.text, text: n.getText(sf), node: n });
+    } else if (ts.isBindingElement(n)) {
+      const key = n.propertyName ?? n.name;
+      if (ts.isIdentifier(key) && (props.has(key.text) || calls.has(key.text))) {
+        out.push({ line: at(n), accessor: key.text, text: n.getText(sf), node: n });
+      }
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(sf);
+  return out;
+};
+
+/**
+ * THE DISPOSITION TABLE. Keyed by enclosing function plus ordinal plus the site's
+ * own TEXT, deliberately: a rename REDS rather than silently reclassifying, which
+ * is what a key that survives every edit would do.
+ *
+ * `implementation` is the ONE shared rule. Everything else is a site that reads a
+ * name for some other purpose, and each owes a reason:
+ *   grammar     the FIELD'S DECLARED TYPE admits only `Identifier`. Durable.
+ *   narrowed    the field ADMITS SIBLINGS and this code declines them. A declared
+ *               limit, owing a consequence AND a re-file trigger.
+ *   not-a-name  the site does not resolve a surface name at all. It NAMES THE
+ *               FIELD it resolves, so a repurposing makes the row visibly false
+ *               rather than merely stale.
+ *
+ * `grammar` is a claim about the FIELD, never about the access: code that
+ * prefilters with `isIdentifier` and then reads `.text` LOOKS grammar-fixed at
+ * the access while the field admits a sibling the prefilter silently discards.
+ */
+type Disposition = "implementation" | "grammar" | "narrowed" | "not-a-name";
+
+type DispositionRow = {
+  fn: string;
+  ordinal: number;
+  text: string;
+  disposition: Disposition;
+  why?: string;
+  refileWhen?: string;
+};
+
+const NAME_POSITION_DISPOSITIONS: readonly DispositionRow[] = [
+  {
+    fn: "collect",
+    ordinal: 1,
+    text: "name.text",
+    disposition: "narrowed",
+    why: "TypeElement.name is PropertyName, which admits ComputedPropertyName; this code declines a computed member",
+    refileWhen: "a computed member name must resolve",
+  },
+  {
+    fn: "collect",
+    ordinal: 2,
+    text: "name.text",
+    disposition: "narrowed",
+    why: "same field, the string-literal arm",
+    refileWhen: "a computed member name must resolve",
+  },
+  {
+    fn: "visit",
+    ordinal: 1,
+    text: "node.name.text",
+    disposition: "grammar",
+    why: "TypeAliasDeclaration.name is declared Identifier",
+  },
+  {
+    fn: "visit",
+    ordinal: 2,
+    text: "node.name.text",
+    disposition: "grammar",
+    why: "InterfaceDeclaration.name is declared Identifier",
+  },
+  {
+    fn: "isSurfaceRef",
+    ordinal: 1,
+    text: "t.typeName.text",
+    disposition: "not-a-name",
+    why: "TypeReferenceNode.typeName — a TYPE name, never a receiver",
+    refileWhen: "this site is asked to resolve a value name",
+  },
+  {
+    fn: "visit",
+    ordinal: 3,
+    text: "n.name.text",
+    disposition: "narrowed",
+    why: "BindingName admits BindingPattern; guarded by isIdentifier, so a destructured surface declaration is not collected here",
+    refileWhen: "a destructured binding must join the binding set here",
+  },
+  {
+    fn: "topLevelFunctions",
+    ordinal: 1,
+    text: "st.name?.text",
+    disposition: "not-a-name",
+    why: "FunctionDeclaration.name — the LABEL a finding carries",
+    refileWhen: "this label is used to resolve a binding",
+  },
+  {
+    fn: "topLevelFunctions",
+    ordinal: 2,
+    text: "d.name.text",
+    disposition: "not-a-name",
+    why: "VariableDeclaration.name — the LABEL a finding carries",
+    refileWhen: "this label is used to resolve a binding",
+  },
+  {
+    fn: "classify",
+    ordinal: 1,
+    text: "named.text",
+    disposition: "narrowed",
+    why: "BindingName via propertyName ?? name; a non-identifier falls back to the binding's own text",
+    refileWhen: "a computed bound member must be named exactly",
+  },
+  {
+    fn: "classify",
+    ordinal: 2,
+    text: "id.text",
+    disposition: "grammar",
+    why: "id is declared ts.Identifier",
+  },
+  {
+    fn: "classify",
+    ordinal: 3,
+    text: "id.text",
+    disposition: "grammar",
+    why: "id is declared ts.Identifier",
+  },
+  {
+    fn: "classify",
+    ordinal: 4,
+    text: "id.text",
+    disposition: "grammar",
+    why: "id is declared ts.Identifier",
+  },
+  {
+    fn: "visit",
+    ordinal: 4,
+    text: "node.text",
+    disposition: "grammar",
+    why: "narrowed to Identifier by the walk head's isIdentifier",
+  },
+  {
+    fn: "visit",
+    ordinal: 5,
+    text: "node.text",
+    disposition: "grammar",
+    why: "narrowed to Identifier by the walk head's isIdentifier",
+  },
+  {
+    fn: "visit",
+    ordinal: 6,
+    text: "node.text",
+    disposition: "grammar",
+    why: "narrowed to Identifier by the walk head's isIdentifier",
+  },
+  {
+    fn: "visit",
+    ordinal: 7,
+    text: "node.text",
+    disposition: "grammar",
+    why: "narrowed to Identifier by the walk head's isIdentifier",
+  },
+  {
+    fn: "visit",
+    ordinal: 8,
+    text: "n.name.text",
+    disposition: "narrowed",
+    why: "VariableDeclaration.name is BindingName and this site does not guard it; a destructured derivation would be named by its pattern text",
+    refileWhen: "a destructured derivation must be named",
+  },
+  {
+    fn: "passNameOf",
+    ordinal: 1,
+    text: "parent.name.text",
+    disposition: "not-a-name",
+    why: "VariableDeclaration.name — the pass LABEL",
+    refileWhen: "this label is used to resolve a binding",
+  },
+  {
+    fn: "passNameOf",
+    ordinal: 2,
+    text: "fn.name.text",
+    disposition: "not-a-name",
+    why: "FunctionDeclaration.name — the pass LABEL",
+    refileWhen: "this label is used to resolve a binding",
+  },
+  { fn: "receiverRightmostName", ordinal: 1, text: "e.text", disposition: "implementation" },
+  { fn: "receiverRightmostName", ordinal: 2, text: "e.name.text", disposition: "implementation" },
+  { fn: "receiverRightmostName", ordinal: 3, text: "key.text", disposition: "implementation" },
+  { fn: "memberCallOf", ordinal: 1, text: "c.name.text", disposition: "implementation" },
+  { fn: "memberCallOf", ordinal: 2, text: "key.text", disposition: "implementation" },
+  {
+    fn: "walkDestructures",
+    ordinal: 1,
+    text: "named.text",
+    disposition: "narrowed",
+    why: "BindingName via propertyName ?? name; a computed bound member becomes the literal '(computed)'",
+    refileWhen: "a computed bound member must resolve",
+  },
+  {
+    fn: "walkDestructures",
+    ordinal: 2,
+    text: "element.name.text",
+    disposition: "narrowed",
+    why: "BindingElement.name is BindingName; guarded by isIdentifier, so a nested pattern is not collected",
+    refileWhen: "a nested destructure must join the destructured set",
+  },
+  {
+    fn: "enclosingName",
+    ordinal: 1,
+    text: "cur.name.text",
+    disposition: "not-a-name",
+    why: "MethodDeclaration.name — the finding LABEL",
+    refileWhen: "this label is used to resolve a binding",
+  },
+  {
+    fn: "enclosingName",
+    ordinal: 2,
+    text: "cur.name.text",
+    disposition: "not-a-name",
+    why: "FunctionDeclaration.name — the finding LABEL",
+    refileWhen: "this label is used to resolve a binding",
+  },
+  {
+    fn: "enclosingName",
+    ordinal: 3,
+    text: "cur.name.text",
+    disposition: "not-a-name",
+    why: "PropertyAssignment.name — the finding LABEL",
+    refileWhen: "this label is used to resolve a binding",
+  },
+  {
+    fn: "enclosingName",
+    ordinal: 4,
+    text: "cur.name.text",
+    disposition: "not-a-name",
+    why: "VariableDeclaration.name — the finding LABEL",
+    refileWhen: "this label is used to resolve a binding",
+  },
+  {
+    fn: "walk",
+    ordinal: 1,
+    text: "node.text",
+    disposition: "grammar",
+    why: "narrowed to Identifier by the walk head's isIdentifier",
+  },
+  {
+    fn: "importEdgeFindings",
+    ordinal: 1,
+    text: "statement.moduleSpecifier.text",
+    disposition: "not-a-name",
+    why: "the MODULE SPECIFIER of an import, never a surface name",
+    refileWhen: "this site is asked to resolve a value name",
+  },
+  {
+    fn: "look",
+    ordinal: 1,
+    text: "n.left.text",
+    disposition: "not-a-name",
+    why: "QualifiedName.left of a TYPE reference",
+    refileWhen: "this site is asked to resolve a value name",
+  },
+  {
+    fn: "look",
+    ordinal: 2,
+    text: "bindings.name.text",
+    disposition: "not-a-name",
+    why: "the namespace import's own binding NAME, compared as a namespace",
+    refileWhen: "this site is asked to resolve a value name",
+  },
+  {
+    fn: "look",
+    ordinal: 3,
+    text: "n.right.text",
+    disposition: "not-a-name",
+    why: "QualifiedName.right of a TYPE reference",
+    refileWhen: "this site is asked to resolve a value name",
+  },
+  {
+    fn: "importEdgeFindings",
+    ordinal: 2,
+    text: "(element.propertyName ?? element.name).text",
+    disposition: "not-a-name",
+    why: "an import specifier SYMBOL, matched against the surface type name",
+    refileWhen: "this site is asked to resolve a value name",
+  },
+];
+
+const siteKey = (fn: string, ordinal: number): string => `${fn}#${ordinal}`;
+
+/** Every site, keyed the way the table is keyed. */
+const dispositionedSites = (sf: ts.SourceFile): Map<string, NameSite & { fn: string }> => {
+  const enclosing = (n: ts.Node): string => {
+    for (let c: ts.Node | undefined = n; c !== undefined; c = c.parent) {
+      if (ts.isFunctionDeclaration(c) && c.name !== undefined) return c.name.text;
+      if (
+        ts.isVariableDeclaration(c) &&
+        ts.isIdentifier(c.name) &&
+        c.initializer !== undefined &&
+        (ts.isArrowFunction(c.initializer) || ts.isFunctionExpression(c.initializer))
+      ) {
+        return c.name.text;
+      }
+    }
+    return "(module)";
+  };
+  const seen = new Map<string, number>();
+  const out = new Map<string, NameSite & { fn: string }>();
+  for (const site of nameMaterializationSites(sf)) {
+    const fn = enclosing(site.node);
+    const ordinal = (seen.get(fn) ?? 0) + 1;
+    seen.set(fn, ordinal);
+    out.set(siteKey(fn, ordinal), { ...site, fn });
+  }
+  return out;
+};
+
+describe("AC-U16b — ADOPTION: three assertions, and none implies another", () => {
+  it("(a) disposition every site — an UNDISPOSED site REDS by name", () => {
+    const sites = dispositionedSites(scannerSource());
+    premiseHolds("the scanner parsed and yielded name sites", sites.size > 20);
+
+    const rows = new Set(NAME_POSITION_DISPOSITIONS.map((r) => siteKey(r.fn, r.ordinal)));
+    const undisposed = [...sites.entries()]
+      .filter(([k]) => !rows.has(k))
+      .map(([k, v]) => `${k} :: ${v.text}`);
+    expect(undisposed).toEqual([]);
+  });
+
+  it("(b) every ROW names a LIVE site, with matching text — a rename REDS", () => {
+    // The reverse direction. A forward-only check accumulates dead rows, and a
+    // dead row is a claim about a site that no longer exists -- or worse, an
+    // exemption whose original site was deleted while a new one inherited its key.
+    const sites = dispositionedSites(scannerSource());
+    const stale = NAME_POSITION_DISPOSITIONS.filter((r) => {
+      const live = sites.get(siteKey(r.fn, r.ordinal));
+      return live === undefined || live.text !== r.text;
+    }).map((r) => `${siteKey(r.fn, r.ordinal)} :: expected ${r.text}`);
+    expect(stale).toEqual([]);
+  });
+
+  it("(c) every non-implementation row carries the reason its KIND owes", () => {
+    // An exemption token with no consequence and no trigger is a shrug wearing a
+    // token's name. `narrowed` and `not-a-name` both decay, so both owe a
+    // trigger; `grammar` is a durable claim about a declared field type.
+    const missing = NAME_POSITION_DISPOSITIONS.flatMap((r) => {
+      if (r.disposition === "implementation") return [];
+      const problems: string[] = [];
+      if ((r.why ?? "").length < 12) problems.push("no reason");
+      if (r.disposition !== "grammar" && (r.refileWhen ?? "").length < 12) {
+        problems.push("no re-file trigger");
+      }
+      return problems.map((p) => `${siteKey(r.fn, r.ordinal)}: ${p}`);
+    });
+    expect(missing).toEqual([]);
+  });
+
+  it("keeps the ONE implementation, and it is the only one", () => {
+    // AC-U16a's companion: the implementation rows must all sit inside the two
+    // functions that ARE the shared rule. A third function acquiring
+    // implementation rows means the rule was copied again.
+    const owners = new Set(
+      NAME_POSITION_DISPOSITIONS.filter((r) => r.disposition === "implementation").map((r) => r.fn),
+    );
+    expect([...owners].sort()).toEqual(["memberCallOf", "receiverRightmostName"]);
+  });
+});
+
+describe("AC-U16a — ABSENCE: no site RE-IMPLEMENTS the rule", () => {
+  /**
+   * STRUCTURAL, not lexical. A grep is blind to a copy spelled differently,
+   * which is how copies three, four and five survived earlier greps.
+   *
+   * The shape of a re-implementation: one function deciding a name by applying
+   * BOTH `isIdentifier` and `isPropertyAccessExpression` to the SAME expression.
+   */
+  const reimplementations = (sf: ts.SourceFile): string[] => {
+    const guards = new Map<string, { ident: Set<string>; prop: Set<string> }>();
+    const enclosing = (n: ts.Node): string => {
+      for (let c: ts.Node | undefined = n; c !== undefined; c = c.parent) {
+        if (ts.isFunctionDeclaration(c) && c.name !== undefined) return c.name.text;
+        if (
+          ts.isVariableDeclaration(c) &&
+          ts.isIdentifier(c.name) &&
+          c.initializer !== undefined &&
+          (ts.isArrowFunction(c.initializer) || ts.isFunctionExpression(c.initializer))
+        ) {
+          return c.name.text;
+        }
+      }
+      return "(module)";
+    };
+    const walk = (n: ts.Node): void => {
+      if (
+        ts.isCallExpression(n) &&
+        ts.isPropertyAccessExpression(n.expression) &&
+        n.arguments.length === 1
+      ) {
+        const guard = n.expression.name.text;
+        if (guard === "isIdentifier" || guard === "isPropertyAccessExpression") {
+          const fn = enclosing(n);
+          const entry = guards.get(fn) ?? { ident: new Set<string>(), prop: new Set<string>() };
+          (guard === "isIdentifier" ? entry.ident : entry.prop).add(n.arguments[0]!.getText(sf));
+          guards.set(fn, entry);
+        }
+      }
+      ts.forEachChild(n, walk);
+    };
+    walk(sf);
+    return [...guards.entries()]
+      .flatMap(([fn, e]) => [...e.ident].filter((x) => e.prop.has(x)).map((x) => `${fn}(${x})`))
+      .sort();
+  };
+
+  it("finds exactly the ONE implementation and nothing else", () => {
+    const sf = scannerSource();
+    const found = reimplementations(sf);
+    premiseHolds("the scanner was parsed", sf.statements.length > 0);
+    // `receiverRightmostName` IS the implementation. Any other name here is a copy.
+    expect(found).toEqual(["receiverRightmostName(e)"]);
+  });
+
+  it("PROVES it can fail — a constructed copy is detected", () => {
+    // A check that cannot fail is not a check, and this one fails in the
+    // direction that looks green: a silent scan reads exactly like a clean module.
+    const copy = ts.createSourceFile(
+      "copy.ts",
+      [
+        "const rival = (x: ts.Expression): string | null => {",
+        "  if (ts.isIdentifier(x)) return x.text;",
+        "  if (ts.isPropertyAccessExpression(x)) return x.name.text;",
+        "  return null;",
+        "};",
+      ].join("\n"),
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
+    expect(reimplementations(copy)).toEqual(["rival(x)"]);
+  });
+});
+
+describe("AC-U16c — METAMORPHIC: the detected site SET survives rename and reformat", () => {
+  /**
+   * A STRUCTURAL identity: the AST child-index path plus the materialiser name.
+   * It contains NO identifier spelling, which is the whole point -- a scan
+   * exempting sites by spelling moved its own count 42 to 44 under a
+   * semantics-neutral rename, and reading the instrument could not have shown it.
+   *
+   * CARDINALITY IS EXPLICITLY NOT THE CRITERION: one missed site and one spurious
+   * site cancel in a count and not in a set.
+   *
+   * REORDERING independent declarations is OUT of the invariant and stated as
+   * such -- a child-index path is not stable under reorder, and no
+   * transformation-stable identity is claimed for it.
+   */
+  const structuralSites = (text: string): string[] => {
+    const sf = ts.createSourceFile("m.ts", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    const out: string[] = [];
+    const walk = (n: ts.Node, path: readonly number[]): void => {
+      let index = 0;
+      ts.forEachChild(n, (child) => {
+        const here = [...path, index];
+        index += 1;
+        if (
+          ts.isPropertyAccessExpression(child) &&
+          (child.name.text === "text" || child.name.text === "escapedText")
+        ) {
+          out.push(`${here.join(".")}:${child.name.text}`);
+        }
+        walk(child, here);
+      });
+    };
+    walk(sf, []);
+    return out.sort();
+  };
+
+  it("is identical under a semantics-neutral RENAME", () => {
+    const original = readFileSync(SCANNER_PATH, "utf8");
+    const renamed = original.replace(/\bnamed\b/g, "boundName");
+    premiseHolds("the rename actually changed the source", renamed !== original);
+
+    const before = structuralSites(original);
+    const after = structuralSites(renamed);
+    premiseHolds("the site set is non-empty", before.length > 20);
+    // Compared AS SETS, never as counts.
+    expect(after).toEqual(before);
+  });
+
+  it("is identical under a REFORMAT", () => {
+    const original = readFileSync(SCANNER_PATH, "utf8");
+    // A narrower print width rewraps almost every call in the module while
+    // changing no meaning at all.
+    const reflowed = original.replace(/\n {2}/g, "\n    ");
+    premiseHolds("the reformat actually changed the source", reflowed !== original);
+    expect(structuralSites(reflowed)).toEqual(structuralSites(original));
+  });
+
+  it("PROVES it can fail — removing a site moves the SET, and a cancelling pair moves it too", () => {
+    const original = readFileSync(SCANNER_PATH, "utf8");
+    const before = structuralSites(original);
+
+    // Direction one: a site removed.
+    const removed = original.replace("c.name.text", "c.name.escaped_MISSING");
+    expect(structuralSites(removed)).not.toEqual(before);
+
+    // Direction two, and the one a COUNT cannot see: one site removed and one
+    // added, so the cardinality is IDENTICAL and the set is not.
+    const swapped = original
+      .replace("c.name.text", "c.name.escaped_MISSING")
+      .replace(
+        "const skipTransparent",
+        "const _pad = ({} as ts.Identifier).text;\nconst skipTransparent",
+      );
+    const swappedSites = structuralSites(swapped);
+    expect(swappedSites).toHaveLength(before.length);
+    expect(swappedSites).not.toEqual(before);
+  });
+});
+
+describe("AC-U16b — the adoption detector covers EVERY accepted materialiser", () => {
+  /**
+   * DERIVE THE REQUIREMENT, AUTHOR THE WITNESS, ASSERT THE COVERAGE.
+   *
+   * The obvious repair -- derive the planted violations from the same accept-set
+   * the detector uses -- trades a weak fixture set for a VACUOUS one: both sides
+   * from one source cannot disagree, so a drift moves them together and the
+   * comparison can never fail. So the REQUIREMENT is derived (every accepted form
+   * needs a witness) and each WITNESS is authored by hand, independently.
+   *
+   * This matters because the shipped module uses ONLY `.text`. Four of the five
+   * accepted forms have ZERO instances in it, so a detector recognising `.text`
+   * alone would pass the entire live scan while being blind to the rest.
+   */
+  const WITNESSES: Record<string, string> = {
+    text: "const a = node.text;",
+    escapedText: "const b = node.escapedText;",
+    getText: "const c = node.getText(sf);",
+    getFullText: "const d = node.getFullText(sf);",
+    destructure: "const { text } = node;",
+  };
+
+  it("requires a witness for every accepted form, and every witness is detected", () => {
+    // The requirement list is DERIVED from the shipped accept-sets.
+    const required = [...NAME_PROPERTY_ACCESSORS, ...NAME_CALL_ACCESSORS, "destructure"];
+    premiseHolds("the accept-sets are non-empty", required.length >= 5);
+
+    // Side one: the derived requirement. Side two: the hand-authored directory.
+    expect(Object.keys(WITNESSES).sort()).toEqual([...required].sort());
+
+    const undetected = Object.entries(WITNESSES)
+      .filter(([, snippet]) => {
+        const sf = ts.createSourceFile(
+          "w.ts",
+          snippet,
+          ts.ScriptTarget.Latest,
+          true,
+          ts.ScriptKind.TS,
+        );
+        return nameMaterializationSites(sf).length === 0;
+      })
+      .map(([form]) => form);
+    expect(undetected).toEqual([]);
+  });
+
+  it("PROVES the coverage check discriminates — a form with no witness REDS", () => {
+    // Drop one witness and the derived requirement no longer matches the authored
+    // directory. Without this the check is satisfied by any two lists that happen
+    // to agree today.
+    const short = Object.keys(WITNESSES).filter((k) => k !== "getFullText");
+    const required = [...NAME_PROPERTY_ACCESSORS, ...NAME_CALL_ACCESSORS, "destructure"];
+    expect(short.sort()).not.toEqual([...required].sort());
+
+    // And a materialiser the detector does NOT accept must not be detected, so
+    // the scan is not simply reporting every property access it meets.
+    const unrelated = ts.createSourceFile(
+      "u.ts",
+      "const z = node.kind;",
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
+    expect(nameMaterializationSites(unrelated)).toEqual([]);
+  });
+});

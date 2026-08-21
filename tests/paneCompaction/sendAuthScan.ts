@@ -664,11 +664,13 @@ const analyzePassReads = (
  */
 type Derivation = { name: string; line: number; declaration: ts.Node; initializer: ts.Node };
 
-const calleeNameOf = (call: ts.CallExpression): string => {
-  if (ts.isIdentifier(call.expression)) return call.expression.text;
-  if (ts.isPropertyAccessExpression(call.expression)) return call.expression.name.text;
-  return "(anonymous)";
-};
+const calleeNameOf = (call: ts.CallExpression): string =>
+  // ROUTED. "The rightmost name of this expression" IS rule A's question, and
+  // answering it here a second time is how the two drifted apart in the first
+  // place. Routing also buys the wrapper and element-access forms for free:
+  // `(helper)(x)` and `h["leak"](x)` now name the callee instead of falling to
+  // the anonymous label.
+  receiverRightmostName(call.expression) ?? "(anonymous)";
 
 const isDerivationInitializer = (
   node: ts.Node,
@@ -679,15 +681,20 @@ const isDerivationInitializer = (
     return node.properties.some(
       (prop) =>
         ts.isSpreadAssignment(prop) &&
-        ts.isIdentifier(prop.expression) &&
-        bindings.has(prop.expression.text),
+        // ROUTED: a spread of the surface is a surface receiver like any other,
+        // so `{ ...(ch) }` and `{ ...this.ch }` are derivations too.
+        surfaceReceiverOf(prop.expression, (name) => bindings.has(name)).kind === "surface",
     );
   }
   if (ts.isCallExpression(node)) {
     return (
       ts.isIdentifier(node.expression) &&
-      row.derivationHelpers.includes(node.expression.text) &&
-      node.arguments.some((a) => ts.isIdentifier(a) && bindings.has(a.text))
+      // ROUTED, both positions: the helper's own name and the argument that
+      // carries the surface.
+      row.derivationHelpers.includes(receiverRightmostName(node.expression) ?? "") &&
+      node.arguments.some(
+        (a) => surfaceReceiverOf(a, (name) => bindings.has(name)).kind === "surface",
+      )
     );
   }
   return false;
@@ -1097,7 +1104,11 @@ const unreachedOccurrences = (
         surfaceReceiverOf(memberCall.receiver, (name) => bindings.has(name)).kind === "surface";
       // A sink reached through a destructured local: no property access exists to
       // inspect, so the local's own name is the whole signal.
-      const isBareSink = ts.isIdentifier(bare) && destructured.has(bare.text);
+      // ROUTED: the local's own name is the whole signal, and rule A is what
+      // resolves a name from an expression -- so a wrapped destructured local is
+      // reached exactly as a bare one is.
+      const isBareSink =
+        surfaceReceiverOf(bare, (name) => destructured.has(name)).kind === "surface";
       // Suppress ONLY where discovery actually classified the containing function.
       // The old test was `topLevel.some(...)` — mere containment — which handed the
       // call to an arm that had already declined it (diff r3 F6).
