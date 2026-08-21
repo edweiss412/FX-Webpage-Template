@@ -1793,8 +1793,16 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
   };
 
   // The TEST FILE's own module-load reports apply to every test in it, exactly
-  // as a top-level hook does.
-  const fileReports = [...facts.moduleReports];
+  // as a top-level hook does — and so do the two hook-attachment shapes this
+  // scanner cannot follow (spec §3). Both are PRODUCERS of file-level reasons:
+  // the existing precedence rule below then demotes `environment-free` to
+  // `unclassifiable` and leaves a proven environment reach intact, with no new
+  // precedence, no new resolution and no new traversal.
+  const fileReports = [
+    ...facts.moduleReports,
+    ...eagerPositionHookReports(facts).map((r) => withModule(r, abs)),
+    ...unfollowableFactoryReports(facts).map((r) => withModule(r, abs)),
+  ];
 
   const suiteText = facts.sf.getFullText();
 
@@ -2000,8 +2008,8 @@ function hookBodies(describeCall: ts.CallExpression): ts.Node[] {
       // EVERY call in the callee chain, not just the immediate one, and for the
       // same reason `eachProducers` walks them all: a two-call chain's earlier
       // link is eager too, so a hook written there registers on US.
-      for (const l of calleeChain(n.expression).links) for (const a of l.call.arguments) walk(a);
-      for (const a of n.arguments) if (!isSuiteBody(a)) walk(a);
+      // `eagerArguments` is THE reader of what a registration evaluates eagerly.
+      for (const a of eagerArguments(n)) walk(a);
       return;
     }
     ts.forEachChild(n, walk);
@@ -2027,7 +2035,7 @@ function hookBodies(describeCall: ts.CallExpression): ts.Node[] {
  * omitting ExpressionWithTypeArguments made the closure claim FALSE rather
  * than merely incomplete, which is what diff round 6 caught.
  */
-function isSuiteBody(arg: ts.Expression): boolean {
+function unwrapTransparent(arg: ts.Node): ts.Node {
   let node: ts.Node = arg;
   while (
     ts.isParenthesizedExpression(node) ||
@@ -2038,6 +2046,11 @@ function isSuiteBody(arg: ts.Expression): boolean {
     ts.isExpressionWithTypeArguments(node)
   )
     node = node.expression;
+  return node;
+}
+
+function isSuiteBody(arg: ts.Expression): boolean {
+  const node = unwrapTransparent(arg);
   return ts.isArrowFunction(node) || ts.isFunctionExpression(node);
 }
 
@@ -2052,6 +2065,316 @@ function isSuiteBody(arg: ts.Expression): boolean {
  */
 function eachProducers(call: ts.CallExpression): ts.Node[] {
   return calleeChain(call.expression).links.flatMap((l) => [...l.call.arguments]);
+}
+
+/**
+ * The argument positions a registration EVALUATES while the current suite is
+ * collecting.
+ *
+ * Exactly the positions `hookBodies` already treats as eager for the nested
+ * case, read through the same predicate, because two readers of "eager" where
+ * the design assumes one can drift apart silently.
+ */
+function eagerArguments(call: ts.CallExpression): ts.Node[] {
+  const out: ts.Node[] = [];
+  // EVERY call in the callee chain, not just the immediate one.
+  for (const l of calleeChain(call.expression).links) out.push(...l.call.arguments);
+  for (const a of call.arguments) if (!isSuiteBody(a)) out.push(a);
+  return out;
+}
+
+/** The registration argument that IS the suite body, unwrapped to its function. */
+function suiteBodyFunction(arg: ts.Expression): ts.Node | null {
+  return isSuiteBody(arg) ? unwrapTransparent(arg) : null;
+}
+
+/**
+ * Every registration in the file, with the one fact both producers need.
+ *
+ * THERE IS NO `deferred` FLAG, and its removal is the point. Diff review r1
+ * added one -- suppress a registration sitting inside a function value, because
+ * Vitest never invokes a `.each` datum while collecting. Diff review r3 showed
+ * that flag was set from LEXICAL SHAPE ALONE, so it also suppressed registrations
+ * inside functions that ARE invoked:
+ *
+ *     function register() { describe("A", suiteA); }
+ *     register();
+ *
+ * Nothing in a syntactic scanner connects a function body to a call site, so the
+ * suppression could not tell the two apart and silently dropped the second --
+ * FALSE CERTIFICATION, which the consequence bound forbids outright, traded for
+ * a wrong attribution it permits. Three ordinary extractions of the committed
+ * fixture reproduced it: a named helper, an IIFE, and a synchronously invoked
+ * callback, at both file and inline-suite scope.
+ *
+ * The flag was never needed once r1's OTHER repair landed. Producer A's reason
+ * says a hook OCCUPIES an eager position and that whether it registers cannot be
+ * determined; producer B's says IF the argument is the suite factory its hooks
+ * cannot be located. Both are TRUE of a construct inside a function that may or
+ * may not be invoked, so reporting there is the conservative direction the bound
+ * permits and the suppression bought nothing but the false negative.
+ *
+ * Sharing one walker is the surviving half of r1's finding: the two producers
+ * had independent traversals, and only one carried the inline-body rule.
+ */
+function forEachRegistration(
+  sf: ts.SourceFile,
+  fn: (call: ts.CallExpression, ctx: { insideInlineBody: boolean }) => void,
+): void {
+  const walkInto = (n: ts.Node, insideInlineBody: boolean): void => {
+    ts.forEachChild(n, (c) => visit(c, insideInlineBody));
+  };
+  const visit = (node: ts.Node, insideInlineBody: boolean): void => {
+    if (ts.isCallExpression(node) && registrarRoot(node.expression) !== null) {
+      fn(node, { insideInlineBody });
+      // Same chain, same reason as `eagerArguments`.
+      for (const l of calleeChain(node.expression).links)
+        for (const a of l.call.arguments) visit(a, insideInlineBody);
+      node.arguments.forEach((a, i) => {
+        // SLOT 0 IS THE NAME, and Vitest FORMATS a function-valued name rather
+        // than invoking it, so a registration written inside one is not inside
+        // a SUITE. The same fact §3.2 uses to range producer B over indices
+        // >= 1: a function in slot 0 is a name that happens to be a function,
+        // never a body (diff review r2 finding 1).
+        const body = i === 0 ? null : suiteBodyFunction(a);
+        if (body !== null) walkInto(body, true);
+        else visit(a, insideInlineBody);
+      });
+      return;
+    }
+    walkInto(node, insideInlineBody);
+  };
+  walkInto(sf, false);
+}
+
+/**
+ * Producer A (spec §3.1) — a hook in an eager argument position of a
+ * registration that is not lexically inside an inline suite body.
+ *
+ * The file suite has no collection step, so `topLevelHooks` reads a hook only
+ * as a direct expression STATEMENT of the SourceFile. A hook in an eager
+ * argument is not a statement: it was never pushed, never attached, and every
+ * test in the file read free while it ran for them.
+ *
+ * This does not teach the scanner to follow it. It reports.
+ */
+function eagerPositionHookReports(facts: ModuleFacts): string[] {
+  const out: string[] = [];
+  const sf = facts.sf;
+
+  const collect = (n: ts.Node): void => {
+    // There is DELIBERATELY no stop at a function-like node here. One stood
+    // here until diff review r4, on the reasoning that a function VALUE in an
+    // eager position is not invoked while Vitest collects. That reasoning reads
+    // LEXICAL SHAPE and calls it execution, which it is not: an IIFE, an invoked
+    // object method, a synchronously invoked callback, an invoked
+    // default-parameter initializer and a computed method/getter/setter name all
+    // sit inside a function-like node and all RUN. The stop silenced every one
+    // of them -- probed at runtime, `runtimeHookCalls=1` against
+    // `scanner=environment-free` -- which is FALSE CERTIFICATION, the direction
+    // the consequence bound forbids, bought in exchange for the wrong
+    // attribution it permits.
+    //
+    // This is the same defect diff review r3 found in producer B, and the same
+    // subtractive repair: nothing syntactic connects a function body to a call
+    // site, so the scanner cannot decide invocation, and deciding it is the
+    // resolution R1 declines. Reporting both is the conservative direction and
+    // the reason stays TRUE either way, because it says whether the hook
+    // registers cannot be determined rather than asserting that it does. The
+    // residue is limit L8, which now covers BOTH producers.
+    if (
+      ts.isCallExpression(n) &&
+      ts.isIdentifier(n.expression) &&
+      HOOK_REGISTRARS.test(n.expression.text)
+    ) {
+      const line = sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
+      out.push(eagerHookReason(n.expression.text, line));
+    }
+    // A NESTED registration's INLINE suite body is the one place descent must
+    // stop, and for the same reason the `insideInlineBody` check below stops
+    // there: `hookBodies` already walks it and attaches the hook to that suite's
+    // own tests, so reporting it here would name the OUTER eager position for a
+    // hook that belongs to the inner suite -- a wrong attribution, which the
+    // bound forbids just as it forbids a false certification. Diff review r5
+    // finding 1, which deleting the old `ts.isFunctionLike` stop exposed.
+    //
+    // This stop is NARROW where that one was broad, and the difference is the
+    // whole point. It fires ONLY on an argument that `suiteBodyFunction`
+    // resolves to a body, of a call that `registrarRoot` recognizes, at an index
+    // Vitest actually invokes. It does NOT fire on a function value in general:
+    // an IIFE, a `.each` datum and an uncalled helper all still report, because
+    // nothing attaches those hooks anywhere and silence there would be the false
+    // certification r3 and r4 each caught. Slot 0 is excluded because Vitest
+    // FORMATS a function-valued name rather than invoking it (diff review r2
+    // finding 1), so a body there is never a body -- the same fact, read through
+    // the same helper, rather than a second rule that can drift.
+    //
+    // The skip is per-ARGUMENT and carries NO slot exemption, which is what makes
+    // it agree with `eagerArguments` -- that reader excludes every `isSuiteBody`
+    // argument regardless of slot, and an earlier form of this stop exempted slot
+    // 0. The result was two answers for one construct: a hook inside a
+    // function-valued NAME was silent at file scope and REPORTED once the
+    // registration was nested inside an outer eager argument. Silence is the
+    // ratified answer -- Vitest FORMATS a function-valued name rather than
+    // invoking it (diff review r2 finding 1), so the hook cannot run and
+    // reporting it is a wrong attribution. Found by the closeout killer audit,
+    // as a surviving mutant that dropped the exemption and broke nothing.
+    if (ts.isCallExpression(n) && registrarRoot(n.expression) !== null) {
+      // Same chain, same reason as `eagerArguments`.
+      for (const l of calleeChain(n.expression).links) for (const a of l.call.arguments) collect(a);
+      for (const a of n.arguments) {
+        if (suiteBodyFunction(a) !== null) continue;
+        collect(a);
+      }
+      return;
+    }
+    ts.forEachChild(n, collect);
+  };
+
+  forEachRegistration(sf, (call, { insideInlineBody }) => {
+    // Inside an inline suite body `hookBodies` already walks the nested
+    // registration's eager positions and attaches the hook to the right tests,
+    // so a reason there would be a false advisory on the single most common
+    // shape in the corpus. That is the ONLY suppression, and it is safe because
+    // the hook is genuinely attached elsewhere rather than merely assumed not
+    // to run.
+    if (insideInlineBody) return;
+    for (const arg of eagerArguments(call)) collect(arg);
+  });
+  return out;
+}
+
+/**
+ * Both hook-attachment producers over one suite, reported SEPARATELY.
+ *
+ * Separate because a guard claiming "either shape" needs one probe PER SHAPE: a
+ * single constructed violation is passed by a weaker guard that recognizes one
+ * shape and ignores the other entirely, so a run that merely goes red does not
+ * say which arm fired.
+ *
+ * It THROWS on a file it could not read rather than returning two empty arrays,
+ * because a zero from a walk that never looked renders identically to a zero
+ * from a walk that looked and found nothing.
+ */
+export function hookAttachmentReports(
+  root: string,
+  suitePath: string,
+): { eager: string[]; factory: string[] } {
+  const facts = moduleFacts(resolve(root, suitePath));
+  if (facts === null) throw new Error(`hookAttachmentReports: ${suitePath} did not parse`);
+  return {
+    eager: eagerPositionHookReports(facts),
+    factory: unfollowableFactoryReports(facts),
+  };
+}
+
+/**
+ * A literal the scanner can see through, so it cannot be hiding a suite factory.
+ *
+ * This is the ACCEPT half of an accept-set whose complement is default-denied:
+ * anything not listed here and not a locatable inline body is a reference the
+ * scanner cannot follow. Deliberately not keyed on "the argument is an
+ * identifier" -- a property access, an element access and a call are equally
+ * unfollowable, and a rule keyed on the identifier spelling is a denylist that
+ * accepts whatever it did not model.
+ */
+function isInertLiteral(arg: ts.Expression): boolean {
+  // Read through the SAME transparent-wrapper closure `isSuiteBody` reads
+  // through. Reading the raw node made `(opts)`, `opts as const` and
+  // `x satisfies T` around a legal inline `SuiteOptions` literal report as
+  // possible factories, when Vitest 4.1.5's own declaration accepts
+  // `(name, options, fn?)` and TypeScript emits all three as the same object
+  // literal. Diff review r4 finding 2: the scanner unwrapped when looking for a
+  // BODY and not when checking inertness, and one pair of parentheses is one
+  // ordinary edit from a committed silent cell.
+  const node = unwrapTransparent(arg);
+  return (
+    ts.isStringLiteralLike(node) ||
+    ts.isNumericLiteral(node) ||
+    ts.isObjectLiteralExpression(node) ||
+    ts.isArrayLiteralExpression(node) ||
+    node.kind === ts.SyntaxKind.TrueKeyword ||
+    node.kind === ts.SyntaxKind.FalseKeyword
+  );
+}
+
+/**
+ * Producer B (spec §3.2) — a registration carrying a factory-slot argument the
+ * scanner cannot follow.
+ *
+ * `hookBodies` collects hooks LEXICALLY inside a registration, so a named
+ * factory's body is never walked, while the tests written inside it ARE reached
+ * by the outer walk over the SourceFile and classified without its hooks.
+ *
+ * Vitest's own `SuiteCollectorCallable` supplies the one fact this rule needs:
+ * slot 0 is always `name`, and `name` may itself be a Function. So it ranges
+ * over indices >= 1 ONLY -- a body test over EVERY argument is satisfiable by
+ * the NAME, and the real factory then goes unreported. The factory is OPTIONAL
+ * in both overloads, so a registration whose remaining slots are all inert
+ * literals is a legal bodyless one and reporting it would name a body that does
+ * not exist.
+ *
+ * `describe` root only: a test registration cannot carry a suite factory, and
+ * its handler is not lost either way, because a test's extent is the whole call
+ * expression and the traversal already resolves a named handler.
+ *
+ * The answer is per REGISTRATION, never per argument. Asking it per argument
+ * answers "is every argument followable", which nothing here needs, and took
+ * the live corpus from 1 `unclassifiable` to 398 on one ordinary registration
+ * whose named timeout constant is not an inert literal.
+ */
+function unfollowableFactoryReports(facts: ModuleFacts): string[] {
+  const out: string[] = [];
+  const sf = facts.sf;
+  forEachRegistration(sf, (call) => {
+    // NO execution suppression here either. The claim that once justified it --
+    // "an unfollowable registration that DOES invoke the enclosing function is
+    // itself reported, so the file is already flagged" -- was FALSE, and diff
+    // review r3 refuted it: nothing connects a function body to a call site, so
+    // the enclosing invocation is invisible and the file was flagged by nothing.
+    if (registrarRoot(call.expression) !== "describe") return;
+    const slots = call.arguments.slice(1);
+    const located = slots.some((a) => isSuiteBody(a));
+    // Vacuously true for a registration with no slots past the name, which is
+    // what keeps the inner call of a curried `describe.each(rows)(...)` silent.
+    const allInert = slots.every((a) => isInertLiteral(a));
+    if (!located && !allInert) {
+      const line = sf.getLineAndCharacterOfPosition(call.getStart(sf)).line + 1;
+      out.push(unfollowableFactoryReason(line));
+    }
+  });
+  return out;
+}
+
+/**
+ * Reason wording for producer A (spec §3.1), exported so a test asserts against
+ * the SHIPPED formatter instead of a second copy of the sentence.
+ *
+ * It deliberately does NOT claim which suite the hook attaches to: lexical
+ * position is not semantic suite scope, and telling them apart needs the
+ * identifier resolution this design declines (spec R1, R2).
+ *
+ * The trailing comma is load-bearing. `withModule` appends ` in <path>` only
+ * when the reason does not already contain `" in "`, so this reads
+ * `…cannot be determined, in <path>` once the module is named — the house form.
+ * A wording that contained `" in "` would silently ship with NO path, and an
+ * assertion checking only the sentence would still pass, which is why both
+ * producers' cases assert the emitted detail carries the suite path.
+ */
+export function eagerHookReason(hook: string, line: number): string {
+  return `hook ${hook} at line ${line} occupies an eager argument position, so whether it registers, and which suite it would attach to, cannot be determined,`;
+}
+
+/**
+ * Reason wording for producer B (spec §3.2), exported for the same reason.
+ *
+ * "if that argument is the suite factory" is the conservative form the scanner
+ * can actually support: without resolution it cannot tell a named options
+ * object from a named factory, so it reports the construct rather than
+ * asserting a role for it (spec §4 L5).
+ */
+export function unfollowableFactoryReason(line: number): string {
+  return `the registration at line ${line} has no inline suite body and carries an argument this scanner cannot follow, so if that argument is the suite factory its hooks cannot be located,`;
 }
 
 /**

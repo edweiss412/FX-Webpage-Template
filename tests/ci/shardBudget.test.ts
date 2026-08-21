@@ -100,11 +100,27 @@ describe("shard budget check", () => {
     expect(r.ok).toBe(false);
   });
 
-  it("rejects a ZERO budget, under which every leg is trivially over", () => {
-    // Kills `budgetSeconds <= 0` weakened to `< 0`: a zero budget would then be
-    // accepted, and every leg reported over it. Enrolment survivor
-    // relational-boundary:73:56:<=><.
-    expect(checkBudget([rec(LEGS[0]!, 1), rec(LEGS[1]!, 1)], LEGS, 0).ok).toBe(false);
+  it("rejects a ZERO budget on the BUDGET check, not on the legs being over it", () => {
+    // Kills `budgetSeconds <= 0` weakened to `< 0` -- which the version of this
+    // case written at enrolment did NOT, though its comment claimed it did.
+    //
+    // It passed legs at 1s against a budget of 0. Under the mutant the budget
+    // check goes quiet, but `1 > 0` then fails BOTH legs on the over-budget
+    // branch, so `ok` is false either way and the mutant survives an assertion
+    // written to kill it. The old title said it out loud -- "under which every
+    // leg is trivially over" -- treating as flavour the exact property that
+    // defeated the assertion.
+    //
+    // Legs at ZERO make the budget check the ONLY discriminator: 0 is not
+    // greater than 0, so neither the failure branch nor the warn branch fires,
+    // and every failure in this verdict has to come from the budget guard.
+    // Asserted as the WHOLE verdict rather than `.ok`, so a mutant that keeps
+    // ok:false while losing the message cannot pass either.
+    expect(checkBudget([rec(LEGS[0]!, 0), rec(LEGS[1]!, 0)], LEGS, 0)).toEqual({
+      ok: false,
+      failures: ["budget is not a positive finite number of seconds: 0"],
+      warnings: [],
+    });
   });
 
   it("accepts a budget of ONE second, which is positive and finite", () => {
@@ -115,12 +131,21 @@ describe("shard budget check", () => {
     expect(r).toEqual({ ok: true, failures: [], warnings: [] });
   });
 
-  it("states the warn band as a PERCENTAGE in the annotation", () => {
-    // Kills `WARN_FRACTION * 100` weakened to `* 101`, which leaves every other
-    // assertion green while the annotation reads "75.75%". Enrolment survivor
-    // integer-literal:109:66:100>101.
+  it("renders the warn band as exactly 75%, not merely as a string containing it", () => {
+    // Kills `WARN_FRACTION * 100` weakened to `* 101`. The version written at
+    // enrolment asserted `toContain("75%")` against the mutant's own output --
+    // and "75.75%" CONTAINS "75%", as its last three characters. So the check
+    // was satisfied by precisely the string it was written to reject.
+    //
+    // The percentage is hard-coded on purpose, and this is the opposite of the
+    // usual rule. Deriving it from WARN_FRACTION would move the expected value
+    // and the actual value TOGETHER under the mutant, which is the tautology
+    // this case exists to close; the literal is what makes the two independent.
+    // Full-string equality, so a drift anywhere in the annotation is caught.
     const r = checkBudget([rec(LEGS[0]!, BUDGET * 0.8), rec(LEGS[1]!, 1)], LEGS, BUDGET);
-    expect(r.warnings.join(" ")).toContain("75%");
+    expect(r.warnings).toEqual([
+      `leg ${LEGS[0]} took ${BUDGET * 0.8}s, over 75% of the ${BUDGET}s budget`,
+    ]);
   });
 
   it("fails when no leg is expected at all, rather than passing vacuously", () => {
