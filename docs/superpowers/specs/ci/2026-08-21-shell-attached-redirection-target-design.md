@@ -190,9 +190,11 @@ for.
 ## 5. Convergence criterion
 
 - **Consequence bound.** Every attached-target form is either lexed and its nested bodies scanned,
-  or REPORTED as unlexable — never silently discarded. Zero false advisories on the live corpus:
-  the corpus has ZERO instances of this family today (§2.3), so a corpus scan before and after the
-  change must show the same finding set apart from this arc's own constructed fixtures (§2.4).
+  or REPORTED as unlexable: **correct or signaled, never silently wrong.** A worst case of
+  conservative-over-report-plus-surfaced-signal is a DOCUMENTED LIMIT, not a finding; silent
+  discard and wrong attribution are the two forbidden directions. Zero false advisories on the live
+  corpus: it holds ZERO instances of this family today (§2.3), so a corpus scan before and after
+  the change must show the same finding set apart from this arc's own constructed fixtures (§2.4).
 
 - **PROBE DOMAIN:** the three execution surfaces censused in §2.3 — 46 attached targets across
   whole-file shell, workflow `run:` scalars and `package.json` scripts — plus the eight spellings
