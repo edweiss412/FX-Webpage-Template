@@ -39,8 +39,19 @@ type Case = {
 };
 
 const REPORTS = (r: Result) => r.sites.length > 0 || r.hits.length > 0;
-const IN_BACKTICK = (r: Result) =>
-  r.sites.some((s) => (s as unknown as { nestedInBacktick?: boolean }).nestedInBacktick === true);
+/**
+ * Spec round 4 finding 4: an EXISTENTIAL reading of this predicate is blind to a
+ * leftover. Case I emits ONE wrongly top-level site today; a repair that adds a
+ * correctly attributed site and leaves the wrong one produces `[wrong, correct]`,
+ * which `some(...)` accepts while the forbidden wrong attribution survives. The
+ * quantifier is therefore UNIVERSAL: every site this snippet produces must carry
+ * the attribution, and at least one must exist so an empty read cannot pass
+ * vacuously.
+ */
+const IN_BACKTICK = (r: Result) => {
+  const sites = r.sites as unknown as Array<{ nestedInBacktick?: boolean }>;
+  return sites.length > 0 && sites.every((s) => s.nestedInBacktick === true);
+};
 
 // Every body is a psql invocation with NO -X / --no-psqlrc, i.e. the reportable
 // case. The CONTROLS are the same bodies in positions the lexer already reads.
@@ -111,6 +122,30 @@ const CASES: Case[] = [
     kind: "subject",
     holds: REPORTS,
     src: "cat >\"`echo \\\\\\` ; psql -c \"select 1\"`\"\n",
+  },
+  // ---- spec round 4 findings 2 and 3, BOTH one ordinary edit from B. Every
+  //      case above keeps its attached target on ONE physical line and puts a
+  //      bare `>` immediately after `cat`, so the set could not see either axis.
+  //      Both execute psql once; both were measured silent through BOTH shipped
+  //      scanners before this line was written.
+  {
+    // Round 4 finding 2. The census was repaired for multiline input at round 3
+    // and the ACCEPTANCE SET was not, so a same-line-only implementation passed
+    // every subject here while staying silent on a form bash executes.
+    id: "J backslash continuation inside an ATTACHED double-quoted target (multiline)",
+    kind: "subject",
+    holds: REPORTS,
+    src: 'cat >"/dev/null\\\n$(psql -c \'select 1\')"\n',
+  },
+  {
+    // Round 4 finding 3. Every substitution-bearing subject wrote a BARE `>`
+    // after `cat`; case F varies the operator but carries no substitution. An
+    // implementation that only handles an attached target when no
+    // file-descriptor digit preceded the operator passed the whole gate.
+    id: "K file-descriptor-prefixed operator before an ATTACHED substitution",
+    kind: "subject",
+    holds: REPORTS,
+    src: 'cat 2>"$(psql -c \'select 1\')"\n',
   },
   {
     // Executes psql and REPORTS, with nested:false and nestedInBacktick:false

@@ -82,16 +82,18 @@ not yet  sites=0 indirection=0  E substitution inside ATTACHED brace target
 not yet  sites=0 indirection=0  F plain ATTACHED here-string binding
 not yet  sites=0 indirection=0  G brace inside an ATTACHED double-quoted target (composition of B and E)
 not yet  sites=0 indirection=0  H escaped backtick in an ATTACHED double-quoted target (silent)
+not yet  sites=0 indirection=0  J backslash continuation inside an ATTACHED double-quoted target (multiline)
+not yet  sites=0 indirection=0  K file-descriptor-prefixed operator before an ATTACHED substitution
 not yet  sites=1 indirection=0  I mid-construct stop mis-attributes a backtick body (attribution)
 
-population: 13 cases — 4 controls, 9 subjects
+population: 15 cases — 4 controls, 11 subjects
 controls reporting: 4/4
-subjects whose expectation HOLDS: 0/9
+subjects whose expectation HOLDS: 0/11
 
 BASELINE: no subject expectation holds yet, with 4/4 controls reporting.
 ```
 
-**`--expect-report` on the unrepaired tree exits 1 and names all nine subjects**, which is what
+**`--expect-report` on the unrepaired tree exits 1 and names all eleven subjects**, which is what
 makes it usable as AC-1's proof rather than a printer.
 
 ## 3. `oracle.mts` — the silence is about commands that really run
@@ -107,13 +109,30 @@ F-attached-here-string         executions=1
 G-brace-in-double-quote        executions=1
 H-escaped-backtick             executions=1
 I-midconstruct-attribution     executions=1
+J-multiline-continuation-in-dq executions=1
+K-fd-prefixed-operator         executions=1
 
-10/10 snippets executed the command
+12/12 snippets executed the command
 ```
+
+## Resolved scope — do not relitigate
+
+- **The 123865 figure is RETRACTED.** It scanned raw bytes of every tracked file and so counted
+  markdown prose: mentions, not shell text. The replacement is the 53 in the three-surface census.
+- **The 19- and 46-target takes are SUPERSEDED**, not competing measurements. The first sliced by
+  extension and never saw workflow `run:` scalars or package scripts; the second was keyed on the
+  attached-target regex this arc REPLACES, so it stopped meaning anything the moment the repair
+  landed and it misread `>$(psql)` as `>$` besides.
+- **`package.json` scripts are censused but are NOT in the guard's probe domain.** Production's
+  `SCANNED_EXTENSIONS` excludes `.json`. The distinction is stated in the design spec's §2.3 and
+  §5; a probe on that surface measures a pre-existing documented limit of the scanner rather than
+  anything this arc decides.
+- **The oracle's snippets stay base64.** Committing them as runnable shell text puts this arc's own
+  fixtures into the corpus it measures, which is the measurement recorded below.
 
 **The snippets are base64 in the tracked bytes, and that is load-bearing.** They are instances of
 the family this arc censuses, so a `.sh` file carrying them enters the scanner's own corpus.
-Measured: committing them as `oracle-run.sh` took the shell surface from 19 attached targets / 0
+Measured: committing them as a plain runnable shell script took the shell surface from 19 attached targets / 0
 substitution-bearing to 28 / 5 — every one of the five mine.
 
 **Round 2 replaced an H that did not execute.** The oracle measured the original escaped-backtick
@@ -175,6 +194,21 @@ lines, so quote state and backslash continuations survive a newline as they do i
 continuation case `cat >"/dev/null\` + newline + `$(psql)"` executes psql (oracle: 1 execution)
 and previously read as `"/dev/null\` with `subst: false`. Every control was single-line, which is
 precisely why none of them saw it; three multiline controls now pin it.
+
+**Round 4 carried the same axis one layer along, and added a second.** The census was repaired for
+multiline input at round 3 and the ACCEPTANCE SET was not, so every case A-I still kept its
+attached target on one physical line — a same-line-only implementation would have satisfied AC-1,
+AC-5 and AC-8 while staying silent on a form bash executes. That is subject **J**. Round 4 also
+found that every substitution-bearing case wrote a BARE `>` immediately after the command word, so
+nothing crossed the file-descriptor-prefix axis; `cat 2>"$(psql -c 'select 1')"` executes once and
+both shipped scanners return zero. That is subject **K**, and a thirteenth census control pins the
+same axis on this side. Both are one ordinary edit from B, both were measured silent BEFORE they
+were written up, and the oracle puts both at one execution.
+
+**The attribution predicate was existential and is now universal.** Round 4 finding 4: accepting
+when SOME site carries `nestedInBacktick === true` lets a repair add a correct record and leave the
+wrong one, so `[wrong, correct]` passed. It now requires the attribution on EVERY site the snippet
+produces, with a non-empty guard so an empty read cannot pass vacuously.
 
 **Three further properties, each bought by a round-2 finding.** The scan is INDEPENDENT of the
 attached-target regex §3 replaces — a census keyed on the instrument under repair stops meaning

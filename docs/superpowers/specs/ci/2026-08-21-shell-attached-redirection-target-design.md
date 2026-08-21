@@ -66,7 +66,7 @@ hands a fragment to the outer loop, which then mis-lexes it. A repair that merel
 
 ### 2.2 The acceptance set, and the zeros are attributable
 
-Thirteen cases through the shipped `scanSource` and `scanShellIndirection`
+Fifteen cases through the shipped `scanSource` and `scanShellIndirection`
 (`docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/probe-attached.mts`).
 Each SUBJECT declares the post-change expectation it must come to satisfy; the probe asserts that
 none of them holds today and, under `--expect-report`, that all of them hold after.
@@ -86,9 +86,11 @@ none of them holds today and, under `--expect-report`, that all of them hold aft
 | G brace inside an ATTACHED double-quoted target | reports | silent |
 | H escaped backtick in an ATTACHED double-quoted target | reports | silent |
 | I mid-construct stop mis-attributes a backtick body | **attributed to the backtick body** | **REPORTS, WRONGLY** |
+| J backslash continuation inside an ATTACHED double-quoted target | reports | silent |
+| K file-descriptor-prefixed operator before an ATTACHED substitution | reports | silent |
 
 **4 of 4 positive controls report**, so the subject results are attributable rather than the
-artefact of a broken read. A bash oracle confirms **10 of 10 snippets execute psql exactly once**
+artefact of a broken read. A bash oracle confirms **12 of 12 snippets execute psql exactly once**
 (`docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/oracle.mts`) — the
 scanner is silent about a command that really runs.
 
@@ -96,6 +98,20 @@ scanner is silent about a command that really runs.
 report/silent binary.** I already REPORTS today, with `nested:false, nestedInBacktick:false` for a
 psql that genuinely sits inside a backtick body — the outcome right and the reason wrong, which a
 binary asking only "did anything report" is structurally blind to.
+
+**J and K arrived at round 4, and both are one ordinary edit from B.** They close the two axes
+this set had never crossed. Every case A-I keeps its attached target on ONE physical line, so a
+same-line-only implementation satisfied the whole gate while staying silent on a backslash
+continuation bash executes; and every substitution-bearing case wrote a BARE `>` immediately after
+the command word, so an implementation that handles an attached target only when no
+file-descriptor digit precedes the operator passed it too. The census had been repaired for
+multiline input at round 3 and the ACCEPTANCE SET had not, which is the same blind-axis defect one
+layer along.
+
+**I's expectation is UNIVERSAL, not existential.** Round 4 finding 4: `nestedInBacktick === true`
+on SOME site accepts a repair that adds a correct record and leaves the wrong one in place, so the
+predicate reads every site the snippet produces and requires the attribution on all of them, with a
+non-empty guard so an empty read cannot pass vacuously.
 
 **Round 2 replaced an earlier H that did not execute at all.** The oracle measured it at
 `executions=0`, so it witnessed nothing: a fixture that does not run the command cannot demonstrate
@@ -127,6 +143,17 @@ The first two zeros are attributable by their witness lists. The third has no wi
 so it is attributed by an independent route: **74 script entries contain not one `<` or `>`
 character**, so no redirection — attached or detached — can exist there. The probe ABORTS rather
 than reporting a clean zero if a surface holds redirection characters and yields no targets.
+
+**A census population and a probe domain are different sets, and this section is the first.**
+The three surfaces above are what is measured to make the zeros ATTRIBUTABLE. What the guard
+DEFENDS is bounded separately, by what production actually reads: `SCANNED_EXTENSIONS`
+(`tests/cross-cutting/psqlStartupFiles/scan.ts:455`) excludes `.json`, and the walk at
+`tests/cross-cutting/psqlStartupFiles/scan.ts:3982` never admits a `package.json`. So the
+package-script surface strengthens the census — 74 entries, not one redirection character — while
+contributing nothing to the domain in §5. Round 4 finding 1 was this spec importing the census
+surfaces into the domain wholesale: a probe input on a surface production cannot open is not a
+guard gap, and the scanner has documented that surface as invisible since 2026-08-03
+(`tests/cross-cutting/psqlStartupFiles/scan.ts:116`).
 
 An earlier census of this family reported 123865 attached targets over raw file bytes; **that
 number is retracted and replaced by the 53 above**, because it scanned markdown prose and so
@@ -240,7 +267,7 @@ nothing, and an AC citing prose is decoration.
 
 | id | criterion | proved by, and it fails when the criterion does |
 |---|---|---|
-| AC-1 | All nine §2.2 subjects meet their expectation. | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/probe-attached.mts --expect-report` — exits 1 naming every subject still unmet |
+| AC-1 | All eleven §2.2 subjects meet their expectation. | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/probe-attached.mts --expect-report` — exits 1 naming every subject still unmet |
 | AC-2 | All four §2.2 positive controls still report. | same command — a silent control ABORTS the run with exit 2, so a subject pass can never rest on a broken read |
 | AC-3 | An attached target carrying an unterminated backtick, brace or quote emits an `IndirectionHit` naming it; its terminated sibling emits none. | a paired case per opener in the deciding suite: `pnpm exec vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts` |
 | AC-4 | `F11 a psql call, ATTACHED output redirection` still reports 1 site with `suppressesStartupFiles === false`. | the same suite — the row is an executable `toEqual` at `tests/cross-cutting/psqlStartupFileSuppression.test.ts:5566` |
@@ -248,7 +275,7 @@ nothing, and an AC citing prose is decoration.
 | AC-5b | That digest DISCRIMINATES on the fields §5 forbids moving — a flipped `suppressesStartupFiles`, `nested`, `nestedInBacktick`, `exemptReason` or `hasDynamicTokens` must change it. | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/digest-sensitivity.mts` — exits 1 naming any field the digest is blind to |
 | AC-6 | Every declared-limit pin in §6 moves deliberately, and none moves silently. | the same suite: each retired row is re-pinned at its NEW value, and each held row at its old one, so a recognizer change that moves an unlisted pin reds |
 | AC-7 | `psqlStartupScan` scores at or above its floor with an empty unaccepted-survivor set. | `pnpm heavy pnpm mutation:guards` |
-| AC-8 | The three-surface census still finds ZERO substitution-bearing attached targets, so the repair manufactured no live instance. | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/corpus-family3.mts` — ASSERTS the zero and exits 1 listing witnesses otherwise; ABORTS exit 2 if any of its nine controls fails, so the zero can never rest on a scan that cannot see the family |
+| AC-8 | The three-surface census still finds ZERO substitution-bearing attached targets, so the repair manufactured no live instance. | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/corpus-family3.mts` — ASSERTS the zero and exits 1 listing witnesses otherwise; ABORTS exit 2 if any of its thirteen controls fails, so the zero can never rest on a scan that cannot see the family |
 
 **The digest did NOT move when round 3 repaired the serialisation, and that is correct.** Every
 live `exemptReason` is `null`, so distinguishing `null` from `undefined` from ABSENT changes what
@@ -267,11 +294,14 @@ one that merely got louder, and it is the one check no reading of the diff can s
   corpus: it holds ZERO instances of this family today (§2.3), so a corpus scan before and after
   the change must show the same finding set apart from this arc's own constructed fixtures (§2.4).
 
-- **PROBE DOMAIN:** the three execution surfaces censused in §2.3 — 53 attached targets across
-  whole-file shell, workflow `run:` scalars and `package.json` scripts — plus the eight spellings
-  in §2.1, the thirteen cases in §2.2, and the bash oracle that confirms all ten executing snippets
-  really run. A constructed
-  input more than one ordinary edit from that set files to documented limits, not to a finding.
+- **PROBE DOMAIN:** the execution surfaces production actually READS — whole-file shell
+  (`.sh`/`.bash`) and workflow `run:` scalars, 53 attached targets between them — plus the eight
+  spellings in §2.1, the fifteen cases in §2.2, and the bash oracle that confirms all twelve
+  executing snippets really run. A constructed input more than one ordinary edit from that set
+  files to documented limits, not to a finding. **`package.json` scripts are censused but are NOT
+  in the domain** (§2.3): `SCANNED_EXTENSIONS` excludes `.json`, so production cannot open that
+  surface at all and a probe there measures a pre-existing documented limit of the scanner
+  (`tests/cross-cutting/psqlStartupFiles/scan.ts:116`) rather than anything this arc decides.
 
 - **Threat fence.** Ordinary authoring by a contributor writing a shell script, a workflow `run:`
   block or a package script in this repo. Adversarial obfuscation is out of scope and files to
@@ -340,6 +370,29 @@ survive. A repair that reported BOTH rows would be loud in a direction the shell
 3. **This repair is prospective.** With zero live instances, no shipped behaviour changes today.
    Its value is fail-closed coverage of a family a contributor could author tomorrow, and the
    §2.2 probe is what will notice.
+
+4. **`package.json` scripts are outside what production reads, and this arc does not change that.**
+   `SCANNED_EXTENSIONS` (`tests/cross-cutting/psqlStartupFiles/scan.ts:455`) excludes `.json` and
+   the walk (`tests/cross-cutting/psqlStartupFiles/scan.ts:3982`) never admits one, so an attached
+   target in a package script is invisible however well this repair delimits it. That is a
+   PRE-EXISTING limit the scanner has recorded since 2026-08-03
+   (`tests/cross-cutting/psqlStartupFiles/scan.ts:116`), with the stated remedy of extending
+   `SCANNED_EXTENSIONS`. Widening the walk here would be a different repair on a different surface,
+   and the narrowing direction is what AGENTS.md prescribes under same-axis recurrence. The census
+   in §2.3 still measures the surface, and measures it clean: 74 entries, zero redirection
+   characters. **Re-file trigger:** the first `package.json` script in this repo to contain a `<`
+   or `>` character, which `corpus-family3.mts` reports on every run.
+
+5. **Confirmed by adversarial review, recorded so a later round does not re-derive them.** Each was
+   settled by a reviewer's own probe rather than asserted here:
+   - **Target retention stays off the site path.** `scanShellText` supplies no `targets` array
+     while `scanShellIndirection` does, and `hereStringBindingLines` is its only consumer.
+   - **The §6 declared-limit inventory is complete** — both attached-family pin blocks and their
+     two controls, with no third block.
+   - **No §2.2 subject is unreachable** under §3's four-part design.
+   - **Counting `<(…)` process substitutions as candidate targets is conservative
+     over-reporting**, permitted by the bound and fenced.
+   - **The repaired census detects its own multiline controls**, so round 3's repair holds.
 
 ---
 

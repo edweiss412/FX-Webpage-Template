@@ -164,6 +164,9 @@ const CONTROL: Array<[id: string, line: string, wantSubst: boolean]> = [
   ['MULTILINE: continuation inside a quoted target', 'cat >"/dev/null\\\n$(psql)"', true],
   ['MULTILINE: substitution spanning a newline inside quotes', 'cat >"\n$(psql)"', true],
   ["an UNQUOTED newline must END the region", "cat >out\n$(psql)\n", false],
+  // Round 4 finding 3: every control above puts a BARE operator after the
+  // command word, so none crossed the file-descriptor-prefix axis.
+  ["FD-PREFIXED: 2> before an attached substitution", 'cat 2>"$(psql)"', true],
 ];
 let controlFailures = 0;
 console.log("POSITIVE CONTROL — the acceptance set must be detected:");
