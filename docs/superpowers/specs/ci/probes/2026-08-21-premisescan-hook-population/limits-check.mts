@@ -56,8 +56,19 @@ const P = (src: string) => {
   writeFileSync(p, src, "utf8");
   return { b: base(process.cwd(), p), l: live(process.cwd(), p) };
 };
-const say = (id: string, claim: string, ok: boolean, detail = "") =>
+// A row that prints FALSE must FAIL the command. An earlier version only printed,
+// so a claim that had stopped being true exited 0 and read as a passing run --
+// an instrument that reports without gating. Found by asking of every instrument
+// on this arc: which of my runtime assertions could still fail if the code
+// compiles? This one had none at all.
+const failures: string[] = [];
+const say = (id: string, claim: string, ok: boolean, detail = "") => {
+  if (!ok) failures.push(`${id}: ${claim}`);
   console.log(`${ok ? "HOLDS " : "FALSE "} ${id}  ${claim}${detail ? "\n         " + detail : ""}`);
+};
+process.on("exit", (code) => {
+  if (code === 0 && failures.length > 0) process.exitCode = 1;
+});
 
 const IMP = `import { spawnSync } from "node:child_process";`;
 
@@ -140,4 +151,12 @@ const IMP = `import { spawnSync } from "node:child_process";`;
   say("§2.1", "nested eager hook handled by hookBodies, unchanged from baseline",
     JSON.stringify(b.map((r: Rows[number]) => r.verdict)) === JSON.stringify(l.map((r: Rows[number]) => r.verdict)),
     `base=${b.map((r: Rows[number]) => r.verdict).join(",")} live=${l.map((r: Rows[number]) => r.verdict).join(",")}`);
+}
+
+if (failures.length > 0) {
+  console.error(`\nlimits-check: ${failures.length} claim(s) no longer hold:`);
+  for (const f of failures) console.error(`      ${f}`);
+  process.exitCode = 1;
+} else {
+  console.log(`\nall ${8} claims HOLD`);
 }

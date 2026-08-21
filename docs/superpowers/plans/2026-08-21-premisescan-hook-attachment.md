@@ -59,7 +59,7 @@ definition.
 
 - **Creates:** none.
 - **Extends:** `tests/mutation/source/premiseScan.test.ts` (a `suitePath` of the enrolled
-  `premiseScan` surface), with a new self-pollution guard case (Task 4).
+  `premiseScan` surface), with a new self-pollution guard case (Task 3).
 - **Explicitly does NOT touch:** `tests/mutation/_metaPremiseContract.test.ts`. Spec AC-8 makes that
   a field check on the committed diff, not a suite result.
 
@@ -109,11 +109,19 @@ transparent wrappers `isSuiteBody` already accepts must not be mistaken for an u
 
 ```
 $ pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-premisescan-hook-population/record-diff.mts
-records: baseline 2648, prototype 2648
-records only in baseline : 0     records only in prototype: 0
+POSITIVE CONTROL: perturbing one record moves 1 (expected 1)
+baseline ref             : origin/main
+suites                   : 70
+records: baseline 2648, live 2648
+records only in baseline : 0     records only in live     : 0
 VERDICT moved            : 0     DETAIL moved             : 0
-POSITIVE CONTROL differs: true
 ```
+
+That transcript is the COMMITTED script's output. An earlier draft quoted
+`POSITIVE CONTROL differs: true`, which the committed script cannot emit — the constructed control
+lived in the scratch prototype and the committed version carries a STRUCTURAL one that perturbs a
+baseline record instead. The spec was corrected for this last round and the plan was not, which is
+the artifact-PAIR sweep failing on its own arc. Plan review r1 finding 3.
 
 All 2648 classified rows across the 70 enrolled suites are dumped as
 `(suite, line, testName, verdict, detail)` under the SHIPPED baseline and under the prototype and
@@ -150,7 +158,7 @@ $ pnpm exec vitest list tests/mutation/source/premiseScan.test.ts --project para
 used anywhere in the region: one that matches nothing exits 0 and reports green from the moment it
 is written.
 
-Each of Tasks 1-4 is `red-state=authored` — the failing case is written by the task itself, which is
+**All three enrolled tasks share ONE red command** — `pnpm exec vitest run tests/mutation/source/premiseScan.test.ts --project parallel` — and each is `red-state=authored`: the failing case is written by the task itself, which is
 the ordinary invariant-1 shape — so each names the production line whose absence makes the new case
 fail, verified absent on the live tree, with observed-red landing in the task's own RED step.
 
@@ -346,7 +354,7 @@ the diff dispatch and record the result in the commit:
 
 ## Task 2 — producer B reports a factory-slot argument the scanner cannot follow
 
-<!-- task: red=`pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-premisescan-hook-population/cell-check.mts` red-state=live why=`the committed cell check exits 1 with "7 of 16" on the current tree: the seven reporting cells emit no reason because nothing in classifyTests examines a registration's factory slots, while the seven silent cells already pass; the same command exits 0 with "16 of 16" once the producer lands` ac=AC-4,AC-5,AC-6 -->
+<!-- task: red=`pnpm exec vitest run tests/mutation/source/premiseScan.test.ts --project parallel` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:1669` why=`the new cases assert an "unclassifiable" verdict plus a detail for each reporting cell, "environment-free" for each silent cell and for each one-variable twin, and an unchanged "environment-touching" verdict for the precedence case; today nothing in classifyTests examines a registration's factory slots, so the reporting and twin assertions fail` ac=AC-4,AC-5,AC-6 -->
 
 **Files:** `tests/mutation/source/premiseScan.test.ts`, `tests/mutation/source/premiseScan.ts`
 
@@ -363,20 +371,20 @@ Bracketed — `test("named", testFn)` with a spawning `testFn` is `environment-t
 `origin/main`. Reporting there was spec review r2 finding 2, a wrong attribution AND a false advisory
 on the ordinary extraction of an inline test callback.
 
-**The red is ALREADY FAILING and was run at plan time**, in both directions:
+**Why the red is the vitest suite and NOT `cell-check.mts`, which is the sharper point.**
+`cell-check.mts` decides a cell solely on `rows.some((r) => r.detail.length > 0)` — whether a reason
+was emitted. It never reads a VERDICT and never runs a twin. So it can observe AC-4 and it
+structurally CANNOT observe AC-5 (a touching test keeps its verdict) or AC-6 (a one-variable twin
+classifies `environment-free`), and a marker naming all three against that command would claim
+proofs its own red cannot see. Plan review r1 finding 1.
 
-```
-$ pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-premisescan-hook-population/cell-check.mts        # current tree
-FAIL report  bare identifier factory ... (nine reporting cells)
-PASS silent  bodyless options registration ... (four silent cells)
-7 of 16 cells behave as the spec's §5.2 table claims          exit 1
+`cell-check.mts` is still committed and still valuable — it is an already-failing gate (7 of 16, exit
+1 on this branch; 16 of 16, exit 0 with the producer) and Task 4 runs it. It is a GATE, not this
+task's red.
 
-$ same command, in a worktree carrying the producer
-16 of 16 cells behave as the spec's §5.2 table claims          exit 0
-```
-
-It fails for the ASSERTED reason — a reporting cell emits no reason — rather than on a collection or
-import error, and the script exits 2 if the cell count ever diverges from §5.2's table.
+The red is `red-state=authored`, the ordinary invariant-1 shape: the failing cases are written by
+this task, and the production line whose absence makes them fail is the registration branch of
+`classifyTests`'s walk, which examines no factory slot today.
 
 **Nine REPORTING cells, each naming the implementation it kills** (spec §5.2), so a later edit cannot
 silently defang the case:
@@ -475,10 +483,13 @@ and headings between regions are unchecked, so that is what happens here.
 - **AC-8 field check:** `git diff origin/main...HEAD -- tests/mutation/_metaPremiseContract.test.ts`
   must show no line of `EXPECTED_ENV_TOUCHING` changed. A green meta-suite cannot prove this.
 - **AC-9:** re-run both population probes; counts unchanged against the record.
-- **The three committed passes, run to a FIXED POINT rather than once**, in a worktree carrying the
-  change: `cell-check.mts` (16 of 16, exit 0), `record-diff.mts` (0 records moved, 0 verdicts moved,
-  0 details moved, positive control differs) and `limits-check.mts` (every L1-L5 and §2-§3 claim
-  prints HOLDS). Each is proven in both directions, so a green from any of them is attributable:
+- **The FOUR committed passes, run to a FIXED POINT rather than once**, in a worktree carrying the
+  change: `cell-check.mts` (16 of 16, exit 0, with its derived cell budget summing to the cell
+  count), `record-diff.mts` (0 records, 0 verdicts and 0 details moved, with its structural control
+  reporting exactly one move), `limits-check.mts` (every L1-L6 and §2-§3 claim prints HOLDS) and
+  `claims-check.mts` (every declared limit has a probe, every probe script named by any arc document
+  resolves). The fourth was missing from this list while §1.6 counted four — plan review r1
+  finding 2, and the same stale-inventory class as finding 4. Each is proven in both directions, so a green from any of them is attributable:
   `record-diff.mts` ABORTS where there is nothing to measure and `cell-check.mts` reds where the
   producer is absent. A claim that stops being true prints FALSE rather than being inferred from a
   passing suite.

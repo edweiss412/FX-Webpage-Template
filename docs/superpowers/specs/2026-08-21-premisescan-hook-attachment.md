@@ -453,6 +453,28 @@ measured reason, is exactly how a guard suite grows one member per round:
 | corpus neutrality | `record-diff.mts` | every enrolled suite from `GUARD_SURFACES.flatMap(s => s.suitePaths)`; aborts when there is nothing to measure |
 | this spec's executable citations | `claims-check.mts` part B | fenced commands EXTRACTED from the spec |
 
+**§3.7 bounds the CHECK set. The CELL set is bounded by the RULE**, in two derived parts: one cell
+per (decision input × distinguishable outcome) of §3.1 and §3.2, and one cell per NAMED WEAKER
+IMPLEMENTATION in §5.2's kill-target column. Every cell declares which it exists for, and the
+declaration is a closed union, so **a cell that names neither does not compile** — the unmapped case
+is unrepresentable rather than merely checked. Derived and printed by `cell-check.mts`:
+
+```
+cell budget, derived: 8 decision-input cells (over 5 distinct inputs)
+                    + 8 weaker-implementation cells (over 7 distinct implementations) = 16
+```
+
+Note the units: **8 and 8 are CELL counts and sum to the total; 5 and 7 are DISTINCT-reason counts
+and do not.** Both render as bare numbers in prose, which is exactly how a reader lands on 5 + 7 = 12
+and files a finding against arithmetic that was never wrong. `claims-check.mts` part C asserts the
+total this spec declares against the total `cell-check.mts` actually pins, across the two files.
+
+**The consequence is that the corpus has NO INDEPENDENT GROWTH CHANNEL.** It can only grow when the
+RULE gains a decision input or a named weaker implementation — and rule changes are what the round
+cap and the fence already govern. So fencing the rule fences the corpus for free, with no second
+mechanism, which is a stronger bound than any cap on cell count. The honest residue: a future finding
+naming a NEW decision input would grow it, but that IS a rule change, and rule changes are governed.
+
 A fifth check is owed only if a new claim-site CLASS appears — never because a further instance is
 imagined inside a class already covered. An instance found inside a covered class is a defect in THAT
 COVER, and the repair is to fix the cover rather than add a sibling beside it. Same rule §5.4 states
