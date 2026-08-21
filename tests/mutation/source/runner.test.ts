@@ -369,3 +369,62 @@ describe("runner — a mutant outcome carries the evidence that decided it (AC-4
     }
   });
 });
+
+describe("runner — no suite AFTER the deciding one is spawned (AC-5)", () => {
+  // These assertions are TRUE of the shipped source, so authoring them cannot
+  // produce a red. Their red is observed against a NAMED MUTANT of the
+  // production surface instead — deleting the early return in
+  // `runMutantRecorded` — and that probe is recorded in the commit rather than
+  // left as a claim. A non-regression pin whose red can never be observed is
+  // exactly the shape the red contract rejects.
+  const mutantSpawns = () => calls.filter((c) => !c.isBaseline).map((c) => c.suite);
+
+  it("kill at suite 1: the seam runs ONCE per mutant, with suite 1", () => {
+    const suites = ["a.test.ts", "b.test.ts", "c.test.ts", "d.test.ts"];
+    reset({
+      "a.test.ts": (isBaseline) => (isBaseline ? 0 : 3),
+      "b.test.ts": 0,
+      "c.test.ts": 0,
+      "d.test.ts": 0,
+    });
+    const run = runSurface(process.cwd(), surface(suites));
+    // THE SEAM ASSERTION COMES FIRST, deliberately. Ordered after the verdict
+    // check it never evaluates under the probe that proves this case
+    // discriminates: deleting the early return makes every mutant SURVIVE, so
+    // `killed` reds first and the seam — the thing this case is actually about —
+    // is never reached. An assertion only tests what it names if it DECIDES.
+    expect(new Set(mutantSpawns())).toEqual(new Set(["a.test.ts"]));
+    expect(mutantSpawns()).toHaveLength(run.mutantCount);
+    expect(run.killed).toBe(run.mutantCount);
+  });
+
+  it("kill at suite 3: the seam runs EXACTLY THREE times, in order, and NEVER for suite 4", () => {
+    // A single suite-1 case is passed by an implementation that short-circuits
+    // correctly at suite 1 and runs on after a LATER kill — which records
+    // children AFTER the deciding event, falsifies "the deciding child is the
+    // last one", and can attach a later timeout to a verdict already settled.
+    const suites = ["a.test.ts", "b.test.ts", "c.test.ts", "d.test.ts"];
+    reset({
+      "a.test.ts": 0,
+      "b.test.ts": 0,
+      "c.test.ts": (isBaseline) => (isBaseline ? 0 : 5),
+      "d.test.ts": 0,
+    });
+    const run = runSurface(process.cwd(), surface(suites));
+    const spawned = mutantSpawns();
+    expect(spawned).toHaveLength(run.mutantCount * 3);
+    expect(spawned.slice(0, 3)).toEqual(["a.test.ts", "b.test.ts", "c.test.ts"]);
+    expect(spawned).not.toContain("d.test.ts");
+    // Asserted on the SPAWN SEAM, not on `children.length`. An implementation
+    // that runs every suite and DISCARDS the records after the deciding one
+    // satisfies a length assertion while destroying the short-circuit; it cannot
+    // fake the seam, because the spawn already happened.
+    for (const outcome of run.outcomes) {
+      expect((outcome as { children: { suite: string }[] }).children.map((c) => c.suite)).toEqual([
+        "a.test.ts",
+        "b.test.ts",
+        "c.test.ts",
+      ]);
+    }
+  });
+});
