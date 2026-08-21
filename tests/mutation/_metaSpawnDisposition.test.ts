@@ -101,7 +101,11 @@ type Sweep = {
  * name is not "unrecognized and therefore fine", it is refused until someone
  * adds it here and pins it.
  */
-const CEILING_NAMES = ["BROWSER_MUTANT_TIMEOUT_MS", "WIRING_CHILD_TIMEOUT_MS"] as const;
+const CEILING_NAMES = [
+  "BROWSER_MUTANT_TIMEOUT_MS",
+  "WIRING_CHILD_TIMEOUT_MS",
+  "PROBE_CHILD_TIMEOUT_MS",
+] as const;
 
 /**
  * An ACCEPTED ceiling occurrence: a positive integer literal, or a named
@@ -217,6 +221,19 @@ type Disposition =
   | { kind: "site"; file: string; line: number; member: boolean; reason: string };
 
 const DISPOSITIONS: readonly Disposition[] = [
+  {
+    // The across-process probe's ONE child spawn. A member: this really is an
+    // executed harness child, and the row's ceiling claim is checked per hit —
+    // `PROBE_CHILD_TIMEOUT_MS` at the call site is what satisfies it, and
+    // deleting that ceiling re-reds this row rather than passing quietly.
+    kind: "file",
+    file: "tests/mutation/source/processProbe.ts",
+    member: true,
+    reason:
+      "MEMBER — the trial child of the intra-leg process-boundary probe, spawned once " +
+      "per trial by `makeParentDeps`. Bounded by `PROBE_CHILD_TIMEOUT_MS` (600 s by " +
+      "default, overridable per campaign), so a hung child cannot outlive its trial.",
+  },
   {
     // A REGEX LITERAL, not a call. `/run (\d+)/` matches the sweep's own shape —
     // a spawn name followed by an open paren — because the shape reads TEXT and

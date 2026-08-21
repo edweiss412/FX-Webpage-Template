@@ -118,6 +118,19 @@ const liveTrial = (options: LiveOptions) => {
 };
 
 describe.skipIf(!RUN)("processProbe LIVE — real children (AC-2, AC-4, AC-5, AC-6)", () => {
+  it("the control surface is the two-suite shape AC-4 reads, pinned to literal paths", () => {
+    // Every AC-4 assertion below is phrased as "decided by suite 2". That claim
+    // means nothing unless suite 2 is a known file, and deriving the expected
+    // paths from `CONTROL_SURFACE` itself would compare the object to itself.
+    expect(CONTROL_SURFACE.suitePaths).toEqual([
+      "tests/mutation/source/fixtures/processProbe/suite1.fixture.ts",
+      "tests/mutation/source/fixtures/processProbe/suite2.fixture.ts",
+    ]);
+    expect(CONTROL_SURFACE.sourcePath).toBe(
+      "tests/mutation/source/fixtures/processProbe/source.ts",
+    );
+  });
+
   it(
     "AC-2: N trials yield N DISTINCT parent-observed pids, each equal to its child's self-report",
     { timeout: 600_000 },
@@ -328,6 +341,9 @@ describe.skipIf(!RUN)("processProbe LIVE — real children (AC-2, AC-4, AC-5, AC
       // agrees on every single-suite surface and mis-scores any mutant a LATER
       // suite decides.
       const suites = (target?.children ?? []).map((c) => c.suite);
+      // Without this the comparison is `[] vs []` on a target that spawned no
+      // child at all — a pass that reports the opposite of what happened.
+      premise("the target consulted at least one suite", suites.length, 0);
       expect(surface.suitePaths.slice(0, suites.length)).toEqual(suites);
       expect(suites).toEqual(shipped.children.map((c) => c.suite));
     },

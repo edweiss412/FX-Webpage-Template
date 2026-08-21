@@ -54,7 +54,22 @@ describe("the per-mutant config is at parity with the root config", () => {
  */
 describe("fixtures are never discovered, and every one has a live owner", () => {
   const FIXTURE_DIR = "tests/mutation/source/fixtures";
-  const files = readdirSync(join(ROOT, FIXTURE_DIR)).map((f) => `${FIXTURE_DIR}/${f}`);
+  /**
+   * RECURSIVE, and keyed on the path relative to the fixture root.
+   *
+   * A flat `readdirSync` puts a fixture SUBDIRECTORY into this list as if it
+   * were a file, and then every fixture inside it is invisible to the owner
+   * check — the guard would be blind to exactly the shape that first broke it.
+   * Filtering directories out buys a green suite and the same blindness.
+   */
+  const fixtureFiles = (dir: string): string[] =>
+    readdirSync(join(ROOT, FIXTURE_DIR, dir), { withFileTypes: true }).flatMap((e) => {
+      const rel = dir === "" ? e.name : `${dir}/${e.name}`;
+      return e.isDirectory() ? fixtureFiles(rel) : [rel];
+    });
+
+  const relatives = fixtureFiles("");
+  const files = relatives.map((rel) => `${FIXTURE_DIR}/${rel}`);
 
   /** Declared per spec §3.3.2.3. Rows land as their tasks land. */
   const OWNERS: Record<string, string> = {
@@ -64,6 +79,14 @@ describe("fixtures are never discovered, and every one has a live owner", () => 
     "emptyTestEach.fixture.ts": "tests/mutation/_metaPremiseContract.test.ts",
     "emptyDescribeEach.fixture.ts": "tests/mutation/_metaPremiseContract.test.ts",
     "associatedPlacement.fixture.ts": "tests/mutation/_metaPremiseContract.test.ts",
+    // The across-process probe's control surface (design §5.3): a deliberately
+    // UNENROLLED source plus the two suites that decide it, which is why it
+    // lives in its own directory rather than as five loose files here.
+    "processProbe/source.ts": "tests/mutation/source/processProbe.ts",
+    "processProbe/state.ts": "tests/mutation/source/processProbe.test.ts",
+    "processProbe/surface.ts": "tests/mutation/source/processProbe.test.ts",
+    "processProbe/suite1.fixture.ts": "tests/mutation/source/processProbe.live.test.ts",
+    "processProbe/suite2.fixture.ts": "tests/mutation/source/processProbe.live.test.ts",
   };
 
   it("has fixtures to reason about", () => {
@@ -87,11 +110,18 @@ describe("fixtures are never discovered, and every one has a live owner", () => 
   });
 
   it("names a live owner for every fixture on disk, and no others", () => {
-    expect(Object.keys(OWNERS).sort()).toEqual(files.map((f) => f.split("/").pop()!).sort());
+    expect(Object.keys(OWNERS).sort()).toEqual([...relatives].sort());
     for (const [fixture, owner] of Object.entries(OWNERS)) {
-      expect(readFileSync(join(ROOT, owner), "utf8"), `${owner} must invoke ${fixture}`).toContain(
-        fixture,
-      );
+      // The owner must NAME the fixture, with or without the `.ts`. Requiring
+      // the extension would fail every TypeScript import of a fixture, since
+      // those are written extensionless — and "fix" it by adding `.ts` to the
+      // import and the guard starts rewarding TS5097.
+      const source = readFileSync(join(ROOT, owner), "utf8");
+      const bare = fixture.replace(/\.ts$/, "");
+      expect(
+        source.includes(fixture) || source.includes(bare),
+        `${owner} must invoke ${fixture}`,
+      ).toBe(true);
     }
   });
 });

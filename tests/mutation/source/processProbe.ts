@@ -1607,6 +1607,11 @@ export function makeParentDeps(options: {
   const spawn = options.spawn ?? spawnSync;
   return {
     spawnChild: (request) => {
+      // Named rather than inline because `_metaSpawnDisposition`'s ceiling scan
+      // reads `timeout:` followed by a literal or a name from its accept-set, and
+      // a default hidden behind `??` reads to it as NO CEILING AT ALL. The name is
+      // in that accept-set; the value is unchanged.
+      const PROBE_CHILD_TIMEOUT_MS = options.timeoutMs ?? 600_000;
       mkdirSync(options.scratchDir, { recursive: true });
       const invocationPath = join(options.scratchDir, "invocation.json");
       const reportPath = join(options.scratchDir, "report.json");
@@ -1626,7 +1631,7 @@ export function makeParentDeps(options: {
         cwd: request.cwd,
         env: { ...process.env, ...request.env },
         encoding: "utf8",
-        timeout: options.timeoutMs ?? 600_000,
+        timeout: PROBE_CHILD_TIMEOUT_MS,
       });
       stderr = result.stderr ?? "";
       return { pid: result.pid, reportPath };
