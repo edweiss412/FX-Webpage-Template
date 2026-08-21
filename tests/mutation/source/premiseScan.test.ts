@@ -4263,8 +4263,15 @@ describe("AC-5 — `suite` is adopted at the DISPATCH, and `bench` is not adopte
     // The declaration does not name `bench` as a `SuiteAPI` or a `TestAPI`, so
     // it is excluded by construction. Asserted anyway, because "excluded by
     // construction" is a claim about a derivation and this is the behaviour.
-    const all = classificationsWithModules({}, `bench("b", () => {});`);
-    expect(all.map((t) => t.testName)).toEqual([]);
+    //
+    // The `it` beside it is a POSITIVE CONTROL and it is the whole reason this
+    // case discriminates. Asserting only that `bench` produces nothing is an
+    // ABSENCE, and an absence is satisfied by the thing it means AND by a
+    // scanner that classified nothing at all — a fixture that failed to write, a
+    // path that did not resolve, a walk that returned early. That failure mode
+    // is invisible precisely because its result is the answer we want.
+    const all = classificationsWithModules({}, `bench("b", () => {});\nit("real", () => {});`);
+    expect(all.map((t) => t.testName)).toEqual(["real"]);
   });
 });
 
