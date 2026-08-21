@@ -30,10 +30,7 @@ import { walkSourceFiles } from "@/lib/messages/__internal__/walkSourceFiles";
 
 import { premise, premiseHolds } from "../_shared/premise";
 
-import {
-  NAME_POSITION_DISPOSITIONS,
-  type DispositionRow,
-} from "./sendAuthNamePositions";
+import { NAME_POSITION_DISPOSITIONS, type DispositionRow } from "./sendAuthNamePositions";
 
 import {
   LIVE_ROOTS,
@@ -2530,7 +2527,6 @@ const nameMaterializationSites = (sf: ts.SourceFile): NameSite[] => {
  * prefilters with `isIdentifier` and then reads `.text` LOOKS grammar-fixed at
  * the access while the field admits a sibling the prefilter silently discards.
  */
-
 
 const siteKey = (fn: string, ordinal: number): string => `${fn}#${ordinal}`;
 
