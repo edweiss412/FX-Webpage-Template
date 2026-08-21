@@ -118,33 +118,29 @@ drafts said line 717 was above the edit and therefore unaffected. That was WRONG
 begin at the drop: `ProbeDerivation` and `CollectionProbeEntry` each gain a union member, and both sit
 above every other line this plan cites.
 
-**Round 4's PREDICTION, kept as a record and NOT re-pinned.** A read-only probe applying only the two
-required additions measured this, and it was right about the direction and short about the distance,
-because it modelled two one-token additions rather than the shipped change:
+**Both line-movement tables that stood here are DELETED, and that is the repair.** They recorded a
+prediction and then the measured result, twelve rows of `before -> after` between them. Every row
+had to track a source it did not own, so each was a fresh target: diff rounds 2, 4 and 5 each found
+one stale, and rounds 4 and 5 found staleness that the previous round's own repair had written or
+left. Adding precision made them likelier to rot, one round at a time, which is the trajectory
+AGENTS.md describes for a recognizer growing one grammar corner per round and takes the same answer.
+
+Nothing is lost, because the tables restated a source that already exists and is CHECKED. §0's
+verification table is the single owner of every structured citation into `lib/specLint/redContract.ts`,
+`pnpm probe:citations` asserts each row still holds the content it claims, and the derivation fails on
+any citation absent from that table. A second copy could only ever agree with it or be wrong.
+
+The two facts those tables existed to establish survive as prose that owns no numbers. The edit does
+NOT begin at the drop: `ProbeDerivation` and `CollectionProbeEntry` each gain a union member and both
+sit above every other line this plan cites, so citations below them move. And the observed distance
+exceeded the round-4 prediction, because that probe modelled two one-token additions while each
+shipped member carries a comment explaining why it exists.
+
+Anyone who wants the numbers regenerates them rather than reading a copy:
 
 ```
-CollectionProbeEntry   610 -> 614
-deriveCollectionProbe  637 -> 644
-the v1 exit            717 -> 721
-the none drop          721 -> 725
-```
-
-**What actually landed, measured at the implementation commit `e4de29d3d` and TRUE THERE. This
-block is a snapshot, not a claim about the current tree.** Every number below was re-derived by
-`pnpm probe:citations` at that commit. It says `e4de29d3d` rather than "HEAD" because a table
-whose entire content is line numbers cannot be symbol-named away, so the only repair that does
-not rot is to bind it to a tree that never changes. Diff round 5 caught it claiming HEAD after
-the scope-A comment repair had moved one of its rows; the row is now annotated in place rather
-than re-pointed, because re-pointing resets the clock and this is the third instance of that
-class on this arc.
-
-```
-ProbeDerivation        605 -> 613
-CollectionProbeEntry   610 -> 621
-deriveCollectionProbe  637 -> 648
-the v1 exit            717 -> 742     (748 at and after `63ba77f3d`, the scope-A comment repair)
-the none drop          721 -> DELETED
-VITEST_SHAPE           580 -> 580   (the only survivor, as predicted)
+git diff e5d1d723d69c..HEAD -- lib/specLint/redContract.ts
+pnpm probe:citations
 ```
 
 The distance is larger than the prediction because each added union member carries a comment
