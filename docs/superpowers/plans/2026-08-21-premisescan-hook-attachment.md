@@ -344,31 +344,41 @@ premiseHolds(
 );
 ```
 
-**The premise runs PER CELL, on that cell's own inputs — not once on a representative.**
+**The premise runs PER CELL, on that cell's own inputs, and verifies that `hookText` IS A HOOK.**
 
 ```ts
-// Per generated cell, immediately above the assertions that rest on it.
+const HOOK_CALL = /^(beforeEach|beforeAll|afterEach|afterAll)\s*\(/;
+
 for (const cell of cells) {
   premiseHolds(
-    `${cell.id}: the twin is this cell's own source with exactly its hook replaced`,
-    cell.twinSrc !== cell.caseSrc &&
-      cell.twinSrc === cell.caseSrc.replace(cell.hookText, `"x"`) &&
-      cell.caseSrc.includes(cell.hookText),
+    `${cell.id}: the twin is this cell's own source with exactly ITS HOOK replaced`,
+    HOOK_CALL.test(cell.hookText.trim()) &&
+      cell.caseSrc.includes(cell.hookText) &&
+      cell.twinSrc !== cell.caseSrc &&
+      cell.twinSrc === cell.caseSrc.replace(cell.hookText, `"x"`),
   );
 }
 premise("the generated cell set is non-empty", cells.length, 0);
 ```
 
-An earlier draft stated the premise once over a single hard-coded pair, which is the
-validates-something-ADJACENT defect: a generator that emits a correct representative while
-substituting an unrelated hook-free twin for some OTHER cell satisfies both the displayed premise and
-the planned `environment-free` assertion, and AC-6's one-variable claim is false for that cell with
-nothing to catch it (plan review r4 finding 4). A premise must be proven on the case's OWN inputs;
-one asserted up front about a different case proves that some case was fine.
+Two generator errors this rejects, both of which passed earlier drafts:
 
-**Task 2 carries the same per-cell premise for producer B's twins**, which the earlier draft omitted
-entirely — it had a premise for producer A's cells and none for producer B's, so half the twins
-rested on nothing.
+- **An unrelated hook-free twin** for some cell while a correct representative is displayed. The
+  earlier premise was stated ONCE over a hard-coded pair, so it proved that SOME case was fine — the
+  validates-something-ADJACENT defect (plan review r4 finding 4).
+- **A `hookText` naming more than the hook.** With it set to the whole eager expression
+  `String(beforeEach(…))`, the twin removes `String(…)` too, yet every other conjunct still holds and
+  the twin is still `environment-free`, so the verdict assertion passes as well (plan review r5
+  finding 3). The `HOOK_CALL` test is what makes the premise read the thing it names.
+
+Verified: a correct one-variable twin is ACCEPTED; the wide-span generator is REJECTED; the unrelated
+twin is REJECTED.
+
+**Task 2 carries its own B-SPECIFIC predicate, not "the same" premise.** Producer B's twin inlines
+the factory rather than replacing a hook, so it asserts that the twin is this cell's own source with
+exactly its unfollowable factory-slot argument replaced by an inline body — the same one-variable
+shape, over a different variable. An earlier draft said only that Task 2 carried "the same" premise,
+which named no predicate at all.
 
 
 **The weak form of that premise was caught by typechecking the snippet, and it is worth naming.** An
@@ -617,52 +627,31 @@ exists, not that the reason still holds.
 
 ### Task 4b — the provenance pair, as an executable command that ENFORCES what it claims
 
-AC-10 requires a before/after stamp taken INSIDE the measuring invocation. **The mutation harness
-implements no stamping** — `pnpm mutation:guards` derives and prints nothing (plan review r3 finding
-2) — so the plan supplies it rather than naming a proof no step performs.
+AC-10 requires a before/after stamp taken INSIDE the measuring invocation, and the harness implements
+no stamping. The plan supplies it.
 
-**The input set is DERIVED as a transitive import closure, not hand-listed.** An earlier draft listed
-nine files by hand and was wrong in both directions: it omitted five real transitive inputs
-(`childRun.ts`, `generate.ts`, `oracle.ts`, `runner.ts`, `spawnBounded.ts`) and included two files
-that are not reachable at all (plan review r4 finding 1). That is the set-that-reads-as-obvious
-failing exactly as it always does, in the repair for the previous round's finding.
+**The input set is DERIVED, by a committed script.** `derive-inputs.mts` seeds from the registry
+row's `sourcePath` and `suitePaths` and walks relative imports, PLUS four harness files it declares
+explicitly because no import walk can reach them: `runner.ts` reaches `mutantOverlay.config.ts` by
+PATH, and `surfaceCases.ts` is what computes and enforces the score. A change to any of them moves
+the score while a transitive-only stamp stays equal (plan review r5 finding 1). Those seeds pull in
+`gate.ts` and `expectedLedgerKinds.ts` transitively. **Derived total: 18.**
 
 ```bash
-# derive-inputs.mts — seeded from the registry row, walked transitively.
-cat > /tmp/derive-inputs.mts <<'EOF'
-import { readFileSync, existsSync } from "node:fs";
-import { dirname, join, resolve, relative } from "node:path";
-import { GUARD_SURFACES } from "./tests/mutation/source/registry";
-const ROOT = process.cwd();
-const row = GUARD_SURFACES.find((s) => s.id === "premiseScan");
-if (!row) { console.error("no premiseScan row"); process.exit(2); }
-const seen = new Set<string>();
-const stack = [row.sourcePath, ...row.suitePaths, "tests/mutation/source/registry.ts"];
-while (stack.length) {
-  const rel = stack.pop()!;
-  if (seen.has(rel)) continue;
-  seen.add(rel);
-  const abs = join(ROOT, rel);
-  if (!existsSync(abs)) continue;
-  for (const m of readFileSync(abs, "utf8").matchAll(/from\s+"(\.[^"]+)"/g))
-    for (const ext of [".ts", ".tsx", "/index.ts"]) {
-      const cand = resolve(dirname(abs), m[1]! + ext);
-      if (existsSync(cand)) { stack.push(relative(ROOT, cand)); break; }
-    }
-}
-console.log([...seen].sort().join("\n"));
-EOF
+D=docs/superpowers/specs/ci/probes/2026-08-21-premisescan-hook-population
 
 premise_stamp() {
-  local files n
-  files=$(pnpm exec tsx /tmp/derive-inputs.mts) || return 2
-  n=$(printf '%s\n' "$files" | wc -l | tr -d ' ')
-  if [ "$n" -lt 10 ]; then
-    echo "STAMP ABORT: derived only $n inputs; the closure walk is broken" >&2
-    return 2
-  fi
-  printf '%s stamp over %s inputs: %s\n' "$1" "$n" \
-    "$(printf '%s\n' "$files" | xargs shasum | shasum | cut -c1-12)"
+  local files n digest f missing=0
+  files=$(pnpm exec tsx "$D/derive-inputs.mts") || { echo "STAMP ABORT: closure walk failed" >&2; return 2; }
+  n=$(printf '%s\n' "$files" | grep -c .)
+  [ "$n" -ge 10 ] || { echo "STAMP ABORT: derived only $n inputs" >&2; return 2; }
+  while IFS= read -r f; do
+    [ -f "$f" ] || { echo "STAMP ABORT: input does not exist: $f" >&2; missing=1; }
+  done <<< "$files"
+  [ "$missing" -eq 0 ] || return 2
+  digest=$(printf '%s\n' "$files" | xargs shasum | shasum | cut -c1-12) || { echo "STAMP ABORT: hashing failed" >&2; return 2; }
+  [ "$digest" != "da39a3ee5e6b" ] || { echo "STAMP ABORT: empty-stream digest; nothing was hashed" >&2; return 2; }
+  printf '%s stamp over %s inputs: %s\n' "$1" "$n" "$digest"
 }
 
 set -o pipefail
@@ -673,31 +662,27 @@ gate=$?
 after=$(premise_stamp AFTER) || exit 2
 echo "$after"
 [ "$gate" -eq 0 ] || { echo "GATE FAILED (exit $gate) — the score is not valid" >&2; exit "$gate"; }
-[ "${before#BEFORE}" = "${after#AFTER}" ] || { echo "INPUTS MOVED DURING THE RUN — the score describes no coherent program" >&2; exit 1; }
-echo "score valid: gate passed and all $n inputs byte-identical across the run"
+[ "${before#BEFORE}" = "${after#AFTER}" ] || { echo "INPUTS MOVED DURING THE RUN" >&2; exit 1; }
+echo "score valid: gate passed and every input byte-identical across the run"
 ```
 
-**The command ENFORCES both conditions it claims, and an earlier draft enforced neither.** It used
-`stamp && gate; stamp`, where the `;` discards the gate's exit status and nothing compared the two
-digests — so it returned success with a failing gate and with differing stamps (plan review r4
-finding 2). That is a gate that does not gate, which is the defect this arc reported to the fleet and
-then shipped in its own repair one round later. `set -o pipefail`, an explicit `gate=$?` captured
-immediately, and a digest comparison are what make the claim true.
+**Every input is checked to EXIST before hashing, and the empty digest is rejected by name.** An
+earlier draft hashed inside a `printf` argument, so a failing substitution was masked by printf's own
+success even under `pipefail`: ten missing inputs produced `da39a3ee5e6b` — the digest of an empty
+stream — and the command reported a valid score (plan review r5 finding 2). A digest computed over
+nothing is indistinguishable from a digest computed over everything unless something says otherwise.
 
-Three further properties are deliberate. `sourcePath` and `suitePaths` are read OUT OF the registry
-row and the closure is walked, so a suite or an import added anywhere in the graph is stamped without
-anyone remembering. The stamp ABORTS below ten inputs, because a derivation's failure mode is
-silently deriving nothing, which renders identically to correctly finding nothing. And the pair is
-taken before AND after: one stamp catches a stale read, only the pair catches an input moving DURING
-a run that queues behind the heavy semaphore.
+**The derive script is COMMITTED rather than written to `/tmp`.** An earlier draft heredoc'd it into
+`/tmp` and ran it from there; its relative import of the registry then resolves against `/tmp` and
+the script cannot load at all. Found by running the plan's own command rather than reading it.
 
-Verified at plan time: the closure derives **12** inputs —
-`premise.ts`, `_metaPremiseContract.test.ts`, `childRun.ts`, `generate.ts`, `ledger.ts`,
-`operators.ts`, `oracle.ts`, `premiseScan.test.ts`, `premiseScan.ts`, `registry.ts`, `runner.ts`,
-`spawnBounded.ts`.
+`set -o pipefail`, `gate=$?` captured immediately, and an explicit digest comparison are what make
+the two claims true. Proven: healthy path exit 0; failing gate exit 7, carrying the gate's own status
+rather than a swallowed one; differing stamps exit 1; a 3-input closure exit 2; ten missing inputs
+exit 2 rather than a plausible digest.
 
-**Any input moving retires the score** (spec §6 AC-10), including a whitespace-only edit and
-including a test-side one, since the deciding suites are what make a survivor a survivor.
+**Any input moving retires the score** (spec §6 AC-10), including a whitespace-only edit and a
+test-side one, since the deciding suites are what make a survivor a survivor.
 
 ## Task 5 — ledger closeout, EARLY and as one commit (verification, no red)
 
