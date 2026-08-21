@@ -90,7 +90,46 @@ Every one of the six is genuinely unprobeable: a mutation-checker script, a grep
 itself. None is a vitest command the shape fails to recognize, so the advisory is truthful for all
 fifteen rather than merely conservative for nine of them.
 
-### 1.2 The failure-shape table
+### 1.2 What the CLI emits at those fifteen lines TODAY
+
+§1.1 says which markers reach the drop. This asks the question the acceptance criteria actually
+depend on: what does the shipped CLI emit at those lines right now, at the CLI boundary, with
+`--exec-red` active. Reproduced by `node --import tsx probe/reach.mts`, which lists the fifteen by
+name rather than re-deriving them, so a drift between this design's list and the corpus surfaces as a
+changed result instead of being absorbed by a fresh derivation.
+
+| result at the marker's line       | count  |
+| --------------------------------- | ------ |
+| **SILENT** (no finding at all)     | **12** |
+| already carrying a hard finding    | **3**  |
+
+The three that already carry one:
+
+| marker                                                                 | existing finding        |
+| ---------------------------------------------------------------------- | ----------------------- |
+| `docs/superpowers/plans/2026-08-16-mutation-gate-sharding.md:1237`      | `RED_TARGET_INVALID`    |
+| `docs/superpowers/plans/2026-08-16-server-action-origin-sweep.md:235`   | `RED_TARGET_INVALID`    |
+| `docs/superpowers/plans/2026-08-17-red-verdict-capability.md:135`       | `RED_ALREADY_GREEN`     |
+
+**Two consequences, and the second is a design decision this spec has to make rather than leave to
+the implementer.**
+
+The two `RED_TARGET_INVALID` lines are unrelated: a different arm, a stale `red-target=` citation,
+untouched here. They matter only because an acceptance criterion asserting "the finding list at this
+line becomes exactly one advisory" would be false at three of the fifteen. AC-4 asserts the advisory
+is **added**, not that it is alone.
+
+The `RED_ALREADY_GREEN` line is the live `sh -c` grep, and it sits on the exact hazard
+`synthesizeCollectionFindings` warns about in its own comment: a red that exited 0 "already has its
+own finding from `synthesizeExecFindings`, and consulting a probe here would mint a second verdict
+`--exec-red` never earned." **The advisory is still added there, and the comment does not forbid it.**
+What that gate protects against is reading a PROBE RESULT to judge a live red. No probe runs for a
+declined derivation, so there is no result to read and no verdict to mint. The advisory says only that
+collection capability was never checked, which is true independently of the exit code. The shipped
+`skipped` branch already behaves exactly this way for live entries, emitting before the live gate, so
+this is existing behavior extended to one more decline reason rather than a new position.
+
+### 1.3 The failure-shape table
 
 Every shape built as a real vitest fixture, run, and read. **Exit code is 1 in all of them**, which is
 why exit code discriminates nothing.
@@ -185,12 +224,17 @@ change rather than inherited.
 | AC-1 | a `pnpm heavy`-wrapped v2 marker draws `RED_PROBE_UNVERIFIED` instead of silence    | fixture plan whose `red=` is heavy-wrapped, run through the CLI **under `--exec-red`**; asserts the code by name |
 | AC-2 | a marker the arm CAN probe is unaffected                                            | the existing `exec-genuine-red.md` and `exec-collects-nothing.md` fixtures re-run unchanged, verdicts identical |
 | AC-3 | the change adds **no hard finding**, over the real population rather than fixtures  | the probe runs the shipped `collectionProbePlan` + `synthesizeCollectionFindings` across the whole tracked corpus and asserts that EVERY finding at a `none`-derived line has severity `advisory`; separately, the count of `fail(` construction sites in `lib/specLint/redContract.ts` is unchanged at 11, derived by `grep -c` rather than stated |
-| AC-4 | the **fifteen** v2 markers each draw the advisory, and the sixteen v1 markers do not | the §1.1 probe extended to assert the partition, since line 717 exits before line 721; the fifteen are enumerated in §1.1, so the assertion is against a named set and not a count |
-| AC-5 | the §1.1 table is reproducible **as a dated record**                                | `pnpm tsx probe/population.mts`, committed, aborting on a short read |
+| AC-4 | the **fifteen** v2 markers each GAIN the advisory, and the sixteen v1 markers do not | `probe/reach.mts` re-run after the change: every one of the fifteen carries `RED_PROBE_UNVERIFIED` where twelve carried nothing, and the three that already held a hard finding hold it STILL, alongside the advisory rather than instead of it (§1.2). The sixteen v1 lines stay as they are, since line 717 exits before line 721. Both halves assert against the NAMED sets in §1.1, not against counts |
+| AC-5 | §1.1 and §1.2 are both reproducible **as dated records**                            | `probe/population.mts` and `probe/reach.mts`, both committed, each aborting on a short read or a count that fails to reconcile. Run them as `node --import tsx <probe>`: `pnpm tsx` needs an IPC socket that a review sandbox may deny |
 
 **AC-4 is the load-bearing one.** It is the only criterion that would fail under an implementation
 that repaired the drop by moving the v1 exit as well, a wider change that looks like a more thorough
 fix and would emit advisories on 16 markers the design does not claim.
+
+**AC-4 asserts a gain, not an equality**, because §1.2 measured three of the fifteen already carrying
+a hard finding from an unrelated arm. A criterion written as "the line now holds exactly one advisory"
+would be false at those three and would push an implementer toward suppressing a finding that has
+nothing to do with this change.
 
 **AC-3 deliberately does not range over fixtures.** A fixture corpus cannot exclude a hard branch on a
 command shape the fixtures never contain, which is the objection that produced this criterion. Running
