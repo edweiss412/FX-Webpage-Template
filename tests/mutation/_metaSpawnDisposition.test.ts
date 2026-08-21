@@ -355,6 +355,21 @@ const DISPOSITIONS: readonly Disposition[] = [
   },
   {
     kind: "file",
+    file: "tests/mutation/_metaVitestSurfaceDerivation.test.ts",
+    member: false,
+    reason:
+      "NOT a member — one `RegExp.prototype.exec`, reading the committed `HOOK_REGISTRARS` " +
+      "alternation out of the scanner's own source. Same over-report the two rows below carry, and " +
+      "for the same reason: the derived shape set admits member access on purpose, since a " +
+      "lookbehind tight enough to reject a method-call spelling would also drop a genuine spawn " +
+      "reached through a namespace. The pin resolves `typescript` and reads `node_modules` from " +
+      "disk; it launches no child. Worded WITHOUT literal call shapes on purpose — this file is " +
+      "itself swept, so prose quoting a shape adds hits to its own row.",
+    hits: 1,
+    digest: "7ab94a4fecc2",
+  },
+  {
+    kind: "file",
     file: "tests/mutation/source/operators.ts",
     member: false,
     reason:
