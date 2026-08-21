@@ -47,4 +47,11 @@ export const CONNECTION_CENSUS_DISPOSITIONS: readonly DispositionRow[] = [
     reason:
       "resolvePsqlTarget with requireLocalSupabase and envVars [DATABASE_URL], no remote opt-in; the three consumers of this helper inherit `dispositioned` and owe nothing",
   },
+  {
+    file: "tests/help/render.test.ts",
+    site: "pathToFileURL(file).href",
+    kind: "unclassifiable",
+    reason:
+      "non-literal dynamic import of a help page module by computed file URL; the target is under app/help and opens no connection",
+  },
 ];
