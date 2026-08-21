@@ -11,7 +11,8 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { type InputStamp, resolveSurface, stampInputs } from "./determinism";
@@ -52,6 +53,18 @@ export type Refusal = { kind: "refusal"; input: ProbeRefusedInput; detail: strin
 
 export type Target = {
   surface: GuardSurface;
+  /**
+   * The REPO ROOT the surface's repo-relative paths resolve against.
+   *
+   * Threaded explicitly because both consumers need it and neither can derive
+   * it: `stampInputs` resolves `surface.sourcePath` against whatever root it is
+   * handed, and `runMutantRecorded` uses it as the child's cwd. Passing the
+   * SOURCE'S OWN DIRECTORY instead produced a doubled path
+   * (`.../fixtures/processProbe/tests/mutation/source/fixtures/processProbe/source.ts`)
+   * that only the live path could see, because an injected `stamp` seam ignores
+   * the root it is given.
+   */
+  root: string;
   /** The requested site id, as resolved — never the operator's raw string. */
   siteId: string;
   site: Site;
@@ -197,6 +210,7 @@ export function resolveTarget(input: {
     kind: "target",
     target: {
       surface,
+      root: input.root,
       siteId: input.site,
       site: mutant.site,
       mutants,
@@ -597,6 +611,8 @@ const sealStep = (step: Omit<StepReport, "digest">): StepReport => {
  * that still verifies.
  */
 export type TrialOptions = {
+  /** Where this trial's mutant overlay file is written. Defaults to a fresh tmpdir. */
+  scratchDir?: string;
   /**
    * Where this trial's records go.
    *
@@ -637,7 +653,13 @@ export function runTrial(
     );
   }
 
-  const mutantFile = MUTANT_FILE_NAME;
+  // An ABSOLUTE path in the trial's own scratch directory. A bare filename is
+  // written relative to the child's cwd — the repository root — so the trial
+  // would litter the tree it is measuring, and `psqlStartupScan`'s suite walks
+  // that tree.
+  const scratch = options.scratchDir ?? mkdtempSync(join(tmpdir(), "fx-probe-trial-"));
+  mkdirSync(scratch, { recursive: true });
+  const mutantFile = join(scratch, MUTANT_FILE_NAME);
   const suites = target.surface.suitePaths;
   const steps: StepReport[] = [];
   const infraFaults: string[] = [];
@@ -646,7 +668,7 @@ export function runTrial(
   // the timing is entirely this caller's obligation: an implementation taking
   // both stamps consecutively before execution reports the pair identical and
   // adjudicates a mid-trial edit it never saw.
-  const stampBefore = deps.stamp(target.sourceAbs.replace(/[^/]*$/, ""), target.surface);
+  const stampBefore = deps.stamp(target.root, target.surface);
   const spawnedAt = deps.now();
 
   // The runner CONTEXT is what the shipped `runSurface` passes — `<id> baseline`
@@ -699,7 +721,7 @@ export function runTrial(
     let result: RunMutantResult;
     try {
       result = deps.runMutant({
-        root: target.sourceAbs,
+        root: target.root,
         target: target.sourceAbs,
         mutantFile,
         suites,
@@ -745,7 +767,7 @@ export function runTrial(
   }
 
   const exitedAt = deps.now();
-  const stampAfter = deps.stamp(target.sourceAbs.replace(/[^/]*$/, ""), target.surface);
+  const stampAfter = deps.stamp(target.root, target.surface);
   const inputsMoved = Object.keys(stampBefore.files).filter(
     (path) => stampBefore.files[path] !== stampAfter.files[path],
   );

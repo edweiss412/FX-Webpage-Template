@@ -600,6 +600,12 @@ describe("processProbe trial — composition, receipts, stamps, binding (AC-3, A
     const sequence: string[] = [];
     const disk = new Map<string, string>();
     const exitCodes = new Map<string, number>();
+    // The seams RECORD what they were handed. A seam that ignores its arguments
+    // cannot see a caller passing the wrong ones, and that is precisely how a
+    // doubled path — the source's own directory used as the repo root — reached
+    // the live tier untouched by 136 in-process cases.
+    const handedRoots: string[] = [];
+    const handedMutantPaths: string[] = [];
     const deps: TrialDeps = {
       writeMutant: (path, text) => {
         sequence.push(`write:${text.length}`);
@@ -611,6 +617,8 @@ describe("processProbe trial — composition, receipts, stamps, binding (AC-3, A
       },
       runMutant: (args) => {
         sequence.push(`run:${args.context}`);
+        handedRoots.push(args.root);
+        handedMutantPaths.push(args.mutantFile);
         const code = exitCodes.get(args.context) ?? 0;
         return {
           code,
@@ -625,8 +633,9 @@ describe("processProbe trial — composition, receipts, stamps, binding (AC-3, A
           })),
         };
       },
-      stamp: (_root, surface) => {
+      stamp: (rootArg, surface) => {
         sequence.push("stamp:");
+        handedRoots.push(rootArg);
         return {
           digest: `stamp-${sequence.length}`,
           files: { [surface.sourcePath]: "aaa" },
@@ -639,7 +648,7 @@ describe("processProbe trial — composition, receipts, stamps, binding (AC-3, A
       nonce: () => "nonce-from-inside-the-child",
       ...over,
     };
-    return { deps, sequence, disk, exitCodes };
+    return { deps, sequence, disk, exitCodes, handedRoots, handedMutantPaths };
   };
 
   /** Flip one field to a value of the same shape, so the digest probe moves exactly one axis. */
@@ -674,6 +683,38 @@ describe("processProbe trial — composition, receipts, stamps, binding (AC-3, A
       ...plan.prefix,
       plan.targetSiteId,
     ]);
+  });
+
+  it("trial hands its collaborators the REPO ROOT, never the source's own directory", () => {
+    const plan = shortPlan();
+    const { deps, handedRoots } = makeDeps();
+    const target = wideTargetOf();
+    mustRun(plan, deps);
+    premise(
+      "the seams were handed a root at all, so the assertion has a subject",
+      handedRoots.length,
+      0,
+    );
+    // Every root handed to `stampInputs` and to `runMutantRecorded` must be the
+    // repo root: the first resolves `surface.sourcePath` against it and the
+    // second uses it as the child's cwd. Handing either the source's directory
+    // produces `<dir>/<repo-relative-path>` — a path that exists nowhere.
+    for (const handed of handedRoots) expect(handed).toBe(target.root);
+    expect(target.root).not.toContain(target.surface.sourcePath);
+  });
+
+  it("trial writes its mutant overlay into a SCRATCH dir, never the process cwd", () => {
+    const plan = shortPlan();
+    const { deps, handedMutantPaths } = makeDeps();
+    mustRun(plan, deps);
+    premise("a mutant path was handed over", handedMutantPaths.length, 0);
+    for (const p of handedMutantPaths) {
+      // Absolute, and outside the repository. A bare filename is written
+      // relative to the child's cwd — the repo root — and the trial would
+      // litter the very tree `psqlStartupScan`'s suite walks.
+      expect(p.startsWith("/")).toBe(true);
+      expect(p.startsWith(`${process.cwd()}/`)).toBe(false);
+    }
   });
 
   it("trial REFUSES a red baseline instead of scoring every mutant against it", () => {
@@ -749,10 +790,13 @@ describe("processProbe trial — composition, receipts, stamps, binding (AC-3, A
     const plan = shortPlan();
     const { deps, disk } = makeDeps({ writeMutant: () => {} });
     // The file holds the ORIGINAL source, as it would after a baseline write
-    // that the elided writer then never replaced.
+    // that the elided writer then never replaced. The scratch dir is named
+    // explicitly so the fixture can seed the exact path the trial reads back —
+    // the overlay is an absolute path in a scratch dir, never a bare filename.
     const target = wideTargetOf();
-    disk.set(MUTANT_FILE_NAME, target.sourceText);
-    const out = runTrial(plan, target, { ...deps, writeMutant: () => {} });
+    const scratchDir = join(root, "elided-writer");
+    disk.set(join(scratchDir, MUTANT_FILE_NAME), target.sourceText);
+    const out = runTrial(plan, target, { ...deps, writeMutant: () => {} }, { scratchDir });
     expect(inputOf(out)).toBe("receipt");
     expect(detailOf(out)).toContain(plan.prefix[0] as string);
     expect(detailOf(out)).toMatch(/original/i);
