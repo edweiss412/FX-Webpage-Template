@@ -87,7 +87,7 @@ function invoke(
     outRaw: () => undefined,
     nonceRead: () => null,
     nonceWrite: (_s, _p, nonce) => run.written.push(nonce),
-    nonceConsume: () => undefined,
+    nonceConsume: () => true,
     ...over,
   };
   try {

@@ -62,6 +62,7 @@ describe("consume-before-send, observed from INSIDE the send", () => {
     runCompact({
       consume: () => {
         held = null;
+        return true;
       },
       send: () => {
         seenAtCallTime = held;
@@ -80,10 +81,23 @@ describe("consume-before-send, observed from INSIDE the send", () => {
     runCompact({
       consume: () => {
         consumes += 1;
+        return true;
       },
       send: (s) => sent.push(s),
     });
     expect(consumes).toBe(1);
     expect(sent).toEqual(["/compact", "\r"]);
+  });
+
+  it("a consume that did NOT spend the authorized grant sends nothing", () => {
+    // Diff round 2, core finding 1 (P1). `consume` answers whether it spent THE
+    // authorized grant. A false answer means the record moved between the
+    // decision and the spend, so there is nothing to compact ON -- and the
+    // send must not fire anyway. The negative twin of the case above: without
+    // this, `runCompact` could ignore the answer entirely and both pass.
+    const sent: string[] = [];
+    const spent = runCompact({ consume: () => false, send: (s) => sent.push(s) });
+    expect(spent).toBe(false);
+    expect(sent).toEqual([]);
   });
 });

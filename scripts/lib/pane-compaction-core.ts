@@ -1071,7 +1071,19 @@ export function mintNonce(opts: { markerNonce: string | null; random: () => stri
  * rather than an ordering to maintain: nothing reaches this function unless the
  * authorization already passed.
  */
-export function runCompact(opts: { consume: () => void; send: (s: string) => void }): void {
-  opts.consume(); // BEFORE the send, deliberately
+export function runCompact(opts: { consume: () => boolean; send: (s: string) => void }): boolean {
+  // BEFORE the send, deliberately -- and the send is CONDITIONAL on it, which
+  // is the round 2 repair. `consume` answers whether it spent THE authorized
+  // grant; a false answer means the record moved under us, so the right move is
+  // to send nothing and destroy nothing rather than compact on a grant we were
+  // never given.
+  //
+  // This is NOT the deleted gate returning. The gate answered "was this grant
+  // valid when we decided"; this answers "is the grant we authorized still the
+  // one present at the moment we spend it". Different instants, so neither is
+  // dead code -- the distinction the docblock above draws about belt-and-braces
+  // turns on two checks of ONE condition, and these are two conditions.
+  if (!opts.consume()) return false;
   for (const s of planSends({ command: "compact" }).sends) opts.send(s);
+  return true;
 }

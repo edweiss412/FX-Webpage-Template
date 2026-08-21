@@ -139,8 +139,23 @@ function fakeSurface(over: Partial<Surface> = {}): { surface: Surface; run: Run 
     },
     nonceRead: (sessionId, paneId) => nonces.get(`${sessionId} ${paneId}`) ?? null,
     nonceWrite: (sessionId, paneId, nonce) => nonces.set(`${sessionId} ${paneId}`, nonce),
-    nonceConsume: (sessionId, paneId) => {
-      nonces.delete(`${sessionId} ${paneId}`);
+    // Mirrors the real surface: spends the authorized grant and ONLY that one.
+    //
+    // An UNSEEDED store trusts the read. Many cases stub `nonceRead` to a
+    // literal without ever writing the map, and a default that compared against
+    // the empty map would refuse every one of them for a reason the case is not
+    // about. A case that seeds a DIFFERENT value still gets the refusal, and
+    // the strict compare itself is pinned where it belongs -- on the real
+    // surface, by the newer-grant case below and by `revalidate.test.ts`'s
+    // false-consume twin. Re-reading `nonceRead` here would have been the other
+    // way to stay consistent, and it would have broken the once-per-member
+    // counts by adding a second read outside the pass.
+    nonceConsume: (sessionId, paneId, expected) => {
+      const key = `${sessionId} ${paneId}`;
+      const held = nonces.has(key) ? nonces.get(key) : expected;
+      if (held !== expected) return false;
+      nonces.delete(key);
+      return true;
     },
     roster: () => [
       {
@@ -482,13 +497,52 @@ describe("--dry-run shows the refusal it would hit, and spends nothing", () => {
     const { surface, run } = fakeSurface({
       marker: () => fullMarker({ checkpointNonce: "n1" }),
       nonceRead: () => "n1",
-      nonceConsume: (sessionId, paneId) => consumed.push(`${sessionId}/${paneId}`),
+      nonceConsume: (sessionId, paneId, expected) => {
+        consumed.push(`${sessionId}/${paneId}/${expected}`);
+        return true;
+      },
     });
     const code = main(["--compact", "wM:p1", "--as", "sess-1", "--dry-run"], surface);
     expect(code).toBe(0);
     expect(run.raw.join("")).toContain("/compact");
     expect(consumed).toEqual([]);
     expect(run.sent).toEqual([]);
+  });
+
+  it("a NEWER grant landing between the decision and the spend is not destroyed", () => {
+    // Diff round 2, core finding 1 (P1). The equality lives in `authorizeSend`,
+    // but the EFFECT was never tied to the value that authorized it:
+    // `nonceConsume(sessionId, paneId)` never RECEIVED the nonce, so it could
+    // not compare and deleted whatever was there. A stale `--compact` whose
+    // grant was replaced mid-flight exited 0 and silently destroyed a newer
+    // one-shot grant nobody had authorized -- worse than what §7 limit 1 states
+    // its own worst case is, and silent, which the consequence bound forbids.
+    const store = new Map<string, string>([["sess-1 wM:p1", "old"]]);
+    const { surface, run } = fakeSurface({
+      marker: () => fullMarker({ checkpointNonce: "old" }),
+      nonceRead: (sessionId, paneId) => {
+        const held = store.get(`${sessionId} ${paneId}`) ?? null;
+        // A concurrent `--checkpoint` lands exactly here, replacing the grant.
+        store.set(`${sessionId} ${paneId}`, "new");
+        return held;
+      },
+      nonceConsume: (sessionId, paneId, expected) => {
+        const key = `${sessionId} ${paneId}`;
+        if (store.get(key) !== expected) return false;
+        store.delete(key);
+        return true;
+      },
+    });
+    const code = main(["--compact", "wM:p1", "--as", "sess-1"], surface);
+    premiseHolds(
+      "the decision really was taken on the OLD grant, so this exercises the window",
+      store.get("sess-1 wM:p1") === "new",
+    );
+    // The newer grant is not ours to spend and not ours to destroy.
+    expect(store.get("sess-1 wM:p1")).toBe("new");
+    expect(run.sent).toEqual([]);
+    expect(code).toBe(1);
+    expect(run.lines.join("\n")).toContain("not the one this command recorded");
   });
 });
 
@@ -1469,7 +1523,10 @@ describe("a refusal never burns the checkpoint (AC-8)", () => {
       ],
       marker: () => fullMarker({ checkpointNonce: "n1" }),
       nonceRead: () => "n1",
-      nonceConsume: (sessionId, paneId) => consumed.push(`${sessionId}/${paneId}`),
+      nonceConsume: (sessionId, paneId, expected) => {
+        consumed.push(`${sessionId}/${paneId}/${expected}`);
+        return true;
+      },
     });
     const code = main(["--compact", "wM:p1", "--as", "sess-1"], surface);
     expect(code).toBe(1);

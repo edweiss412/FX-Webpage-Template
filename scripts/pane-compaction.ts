@@ -121,7 +121,17 @@ export type Surface = {
   outRaw(bytes: string): void;
   nonceRead(sessionId: string, paneId: string): string | null;
   nonceWrite(sessionId: string, paneId: string, nonce: string): void;
-  nonceConsume(sessionId: string, paneId: string): void;
+  /**
+   * Spend the grant `expected`, and ONLY that one. Answers whether it did.
+   *
+   * Diff round 2, core finding 1 (P1). This took `(sessionId, paneId)` and
+   * deleted whatever the record held, so the effect was never tied to the value
+   * that authorized it: a `--compact` whose grant was replaced between the
+   * decision and the spend exited 0 having destroyed a NEWER one-shot grant
+   * that nobody authorized and nobody used. Identity alone cannot express
+   * "the one I was authorized for", so the VALUE is a parameter.
+   */
+  nonceConsume(sessionId: string, paneId: string, expected: string): boolean;
   /**
    * `<target>` to a pane id, through herdr rather than through our own guess.
    *
@@ -793,17 +803,20 @@ function driveSend(opts: Parsed, mode: SendMode, s: Surface): number {
   // address rather than an absent one.
   const markerSessionId = typeof marker?.["sessionId"] === "string" ? marker["sessionId"] : null;
 
+  // Read for `--compact` alone, because only `--compact` compares it. Reading
+  // it for every mode would put a member in the pass that no decision uses.
+  // HELD IN A NAME rather than read inline, because the consume below must
+  // spend THIS value and not whatever the record holds by then (diff round 2,
+  // core finding 1). Its position is unchanged -- still immediately before the
+  // decision -- so the read ORDER round 1 fixed is untouched.
+  const recorded = mode === "compact" ? pass.nonceRead(as, pane.paneId) : null;
   const decision = authorizeSend({
     mode,
     paneId: pane.paneId,
     as,
     ownership,
     report,
-    // Read for `--compact` alone, because only `--compact` compares it. Reading
-    // it for every mode would put a member in the pass that no decision uses.
-    ...(mode === "compact"
-      ? { nonce: { recorded: pass.nonceRead(as, pane.paneId), marker: markerNonce } }
-      : {}),
+    ...(mode === "compact" ? { nonce: { recorded, marker: markerNonce } } : {}),
   });
   if (!decision.authorized) {
     pass.out(decision.message);
@@ -849,13 +862,25 @@ function driveSend(opts: Parsed, mode: SendMode, s: Surface): number {
   // shows the refusal the real command would hit. What it must not do is SPEND:
   // reading and comparing the record is the gate, consuming it is the side
   // effect, so the dry run gets a no-op consume and a send that prints.
-  runCompact({
-    consume: opts.dryRun ? (): void => {} : (): void => pass.nonceConsume(as, pane.paneId),
+  // The gate above proved `recorded` equals the marker copy and that both are
+  // non-null, so this is the authorized grant, narrowed on that guarantee.
+  if (recorded === null) throw new Error("unreachable: the nonce gate admits no null recorded");
+  const spent = runCompact({
+    consume: opts.dryRun
+      ? (): boolean => true
+      : (): boolean => pass.nonceConsume(as, pane.paneId, recorded),
     send: (text) => {
       if (opts.dryRun) pass.outRaw(text);
       else pass.send(pane.paneId, text);
     },
   });
+  if (!spent) {
+    // The grant moved between the decision and the spend. Same CONDITION as the
+    // gate's -- the record is not the one this command recorded -- so it reuses
+    // that catalog row rather than minting a second name for one fact.
+    pass.out(refuse({ kind: "nonce-mismatch" }).message);
+    return 1;
+  }
   return 0;
 }
 
@@ -1136,13 +1161,16 @@ export function realSurface(): Surface {
       body[paneId] = nonce;
       writeFileSync(path, JSON.stringify(body, null, 2));
     },
-    nonceConsume: (sessionId, paneId) => {
+    nonceConsume: (sessionId, paneId, expected) => {
       const path = join(NONCE_DIR, `${sessionId}.json`);
       const body = readJson(path) as Record<string, string> | null;
-      if (body === null) return;
+      if (body === null) return false;
+      // A grant that is not the one we authorized is not ours to destroy.
+      if (body[paneId] !== expected) return false;
       delete body[paneId];
       if (Object.keys(body).length === 0) rmSync(path, { force: true });
       else writeFileSync(path, JSON.stringify(body, null, 2));
+      return true;
     },
   };
 }
