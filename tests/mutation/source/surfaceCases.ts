@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { EXPECTED_LEDGER_KINDS } from "./expectedLedgerKinds";
 import { type GateResult, evaluateGate } from "./gate";
+import { emitRunRecord } from "./records";
 import type { GuardSurface } from "./registry";
 import { type RunResult, runControl, runSurface } from "./runner";
 
@@ -32,7 +33,7 @@ const root = process.cwd();
  */
 export function evaluateSurface(
   surface: GuardSurface,
-  options: { write?: (text: string) => void; root?: string } = {},
+  options: { write?: (text: string) => void; root?: string; recordDir?: string } = {},
 ): { run: RunResult; result: GateResult } {
   const write = options.write ?? ((text: string) => process.stdout.write(text));
   const run = runSurface(options.root ?? root, surface);
@@ -54,6 +55,18 @@ export function evaluateSurface(
   // the empty string — and emitting only on failure would rebuild exactly the
   // CI-only, failure-only blind spot design §1.0 measures.
   for (const notice of result.notices) write(`${notice.detail}\n`);
+
+  // The DURABLE half. Unconditional on the verdict, on the gate outcome and on
+  // the environment — WHEN a record is written and WHETHER it survives are
+  // independent requirements, and this module owns only the first. A write
+  // failure reports on stderr and never reaches the gate (AC-14).
+  emitRunRecord({
+    surfaceId: surface.id,
+    passed: result.passed,
+    score: result.score.value,
+    outcomes: run.outcomes,
+    ...(options.recordDir === undefined ? {} : { dir: options.recordDir }),
+  });
 
   return { run, result };
 }

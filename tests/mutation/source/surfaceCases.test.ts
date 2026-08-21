@@ -126,3 +126,32 @@ describe("surfaceCases — timeout notices reach the CONSOLE (AC-6, §5.2 channe
     expect(passingOut.join("")).toContain("NOT evidence the suite rejected the mutant");
   });
 });
+
+describe("surfaceCases — the DURABLE record is written by the production path (AC-12)", () => {
+  it("lands a record for the surface it just ran, with one entry per mutant", async () => {
+    const { mkdtempSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { listRecords, readRunRecord } = await import("./records");
+    const dir = mkdtempSync(join(tmpdir(), "fx-sc-rec-"));
+    try {
+      timeoutEveryNth = 1;
+      mutantCalls = 0;
+      const { run } = evaluateSurface(fixture("record-fixture"), {
+        write: () => {},
+        recordDir: dir,
+      });
+      const files = listRecords(dir, "record-fixture");
+      // The WIRING assertion: a record exists because the production path wrote
+      // it, not because a test called the sink directly.
+      expect(files).toHaveLength(1);
+      const back = readRunRecord(join(dir, files[0] as string));
+      // ENTRY COUNT, not mere existence — a writer that creates the file and
+      // serializes nothing satisfies an existence check.
+      expect(back.outcomes).toHaveLength(run.mutantCount);
+      expect(back.surfaceId).toBe("record-fixture");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
