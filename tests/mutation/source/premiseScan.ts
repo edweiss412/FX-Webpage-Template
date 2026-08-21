@@ -1989,6 +1989,30 @@ function eagerPositionHookReports(facts: ModuleFacts): string[] {
 }
 
 /**
+ * Both hook-attachment producers over one suite, reported SEPARATELY.
+ *
+ * Separate because a guard claiming "either shape" needs one probe PER SHAPE: a
+ * single constructed violation is passed by a weaker guard that recognizes one
+ * shape and ignores the other entirely, so a run that merely goes red does not
+ * say which arm fired.
+ *
+ * It THROWS on a file it could not read rather than returning two empty arrays,
+ * because a zero from a walk that never looked renders identically to a zero
+ * from a walk that looked and found nothing.
+ */
+export function hookAttachmentReports(
+  root: string,
+  suitePath: string,
+): { eager: string[]; factory: string[] } {
+  const facts = moduleFacts(resolve(root, suitePath));
+  if (facts === null) throw new Error(`hookAttachmentReports: ${suitePath} did not parse`);
+  return {
+    eager: eagerPositionHookReports(facts),
+    factory: unfollowableFactoryReports(facts),
+  };
+}
+
+/**
  * A literal the scanner can see through, so it cannot be hiding a suite factory.
  *
  * This is the ACCEPT half of an accept-set whose complement is default-denied:

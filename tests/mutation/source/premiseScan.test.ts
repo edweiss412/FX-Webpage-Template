@@ -7,9 +7,12 @@ import { afterAll, describe, expect, it } from "vitest";
 
 import { premise, premiseHolds } from "../../_shared/premise";
 
+import { GUARD_SURFACES } from "./registry";
+
 import {
   classifyTests,
   eagerHookReason,
+  hookAttachmentReports,
   type TestClassification,
   unfollowableFactoryReason,
 } from "./premiseScan";
@@ -4625,5 +4628,80 @@ it("free", () => {});`,
     );
     expect(got.find((r) => r.testName === "toucher")?.verdict).toBe("environment-touching");
     expect(got.find((r) => r.testName === "free")?.verdict).toBe("unclassifiable");
+  });
+});
+
+// ── AC-7 — this surface's own suites carry no LIVE instance of either shape ──
+//
+// `premiseScan.test.ts` is a `suitePath` of the `premiseScan` surface AND one of
+// the suites `_metaPremiseContract` classifies. A LIVE instance of either shape
+// written into it would make this surface's own suite a member of the population
+// the probe record measures at ZERO -- and worse, producer B's file-level report
+// would demote that suite's own `environment-free` tests, moving a census the
+// probe record pins. Fixtures are source TEXT for exactly that reason, and this
+// asserts it executably rather than trusting the convention.
+describe("AC-7 — no live instance of either hook-attachment shape in this surface's suites", () => {
+  const surface = GUARD_SURFACES.find((s) => s.id === "premiseScan");
+  // Read OUT OF the registry row rather than retyped: a suite added to
+  // `suitePaths` is then covered by default instead of silently exempt.
+  const SUITE_PATHS = surface?.suitePaths ?? [];
+  premiseHolds(
+    "the premiseScan registry row was found and declares at least one suitePath",
+    surface !== undefined && SUITE_PATHS.length > 0,
+  );
+
+  for (const suitePath of SUITE_PATHS) {
+    it(`${suitePath}: zero live instances of either shape`, () => {
+      const { eager, factory } = hookAttachmentReports(ROOT, suitePath);
+      expect(eager, "eager-position hooks").toEqual([]);
+      expect(factory, "unfollowable factory slots").toEqual([]);
+    });
+  }
+
+  /**
+   * Direction 2, ONE constructed violation PER SHAPE, each matched by the arm it
+   * should fire -- not by "something was reported".
+   *
+   * The violation is appended to a copy of the suite's OWN bytes, so what this
+   * proves is that the guard fires on this file one ordinary edit away from its
+   * shipped state. A synthetic file would prove only that the guard works on a
+   * synthetic file.
+   */
+  const withViolation = (suitePath: string, violation: string): string => {
+    const copy = join(scratch, `ac7-${n++}.ts`);
+    writeFileSync(copy, `${readFileSync(join(ROOT, suitePath), "utf8")}\n${violation}\n`, "utf8");
+    return copy;
+  };
+
+  // A DELTA against the file's own current state, never an absolute count: an
+  // absolute assertion is coupled to the suite being clean, so the moment a live
+  // instance exists these controls fail alongside the zero assertion and stop
+  // being able to attribute anything. The delta says exactly what is claimed --
+  // appending this violation adds ONE report of ITS shape and none of the other.
+  const SELF = "tests/mutation/source/premiseScan.test.ts";
+
+  it("fires on a constructed EAGER-POSITION hook, and only that arm", () => {
+    const base = hookAttachmentReports(ROOT, SELF);
+    const got = hookAttachmentReports(
+      ROOT,
+      withViolation(SELF, `describe(String(afterAll(() => {})), () => { it("live", () => {}); });`),
+    );
+    expect(got.eager.length - base.eager.length).toBe(1);
+    expect(got.factory.length - base.factory.length).toBe(0);
+    expect(got.eager.at(-1)).toContain("registered from an eager argument position");
+  });
+
+  it("fires on a constructed UNFOLLOWABLE FACTORY, and only that arm", () => {
+    const base = hookAttachmentReports(ROOT, SELF);
+    const got = hookAttachmentReports(
+      ROOT,
+      withViolation(
+        SELF,
+        `const liveFactory = () => { it("live", () => {}); };\ndescribe("live", liveFactory);`,
+      ),
+    );
+    expect(got.factory.length - base.factory.length).toBe(1);
+    expect(got.eager.length - base.eager.length).toBe(0);
+    expect(got.factory.at(-1)).toContain("has no inline suite body");
   });
 });
