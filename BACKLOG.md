@@ -40,47 +40,34 @@ in `tests/mutation/source/premiseScan.ts` and confirm the derived count matches 
 one this arc found by hand — if a hand count and a derived count disagree, the derivation is the one
 to trust and the disagreement is the row's first finding.
 
-## BL-SENDAUTH-ARM-CLASSIFIER-UNIFICATION — four arms of one scanner each decide independently what a receiver and a raw binding are
+## BL-SENDAUTH-BINDING-IDENTITY-NAME-KEYED — the binding set is a Set of NAMES, so every consumer asks "is something called X in scope" rather than "is this identifier that binding"
 
-**Status:** OPEN · **Filed:** 2026-08-20 (`feat/send-auth-single-read-lint`, from the diff-stage round filing at four rounds) · **Severity:** MEDIUM (each un-narrowed arm is a SILENT miss, which is the one outcome the surface's consequence bound forbids) · **Class:** detector fidelity · **Effort:** M · **Facing:** process · **Class-sweep exception:** (c) — unifying all four arms is a redesign of the scanner's classification layer, and doing it at diff round 4 of the arc that introduced it is how a detector ratchets into a recognizer. · **Reachability:** PROBED — both instances below were run in-process against the shipped scanner and returned zero findings. · **Incident:** four consecutive diff rounds on this arc found the same axis one arm at a time, with a FLAT finding rate rather than a decaying one — corpus `docs/review-rounds/feat/send-auth-single-read-lint/4dfd784ed062.jsonl`, rounds 1-4 declaring 5, 5, 8 and 4 findings; r1 F3, r2 F2, r3 F6 and r4 F1/F2 are all the same sentence.
+**Status:** OPEN · **Filed:** 2026-08-21 (`fix/sendauth-arm-classifier-unification`, promised as a peer by that arc's spec §4.2 and filed on its diff-r1 reviewer noticing the promise had not been kept) · **Severity:** LOW-MEDIUM (a false advisory, which is the survivable direction; the silent direction is closed) · **Class:** detector fidelity · **Effort:** M · **Facing:** process · **Class-sweep exception:** (c) — resolving an identifier to its DECLARATION is a redesign of the binding-discovery layer the unification arc does not otherwise touch, and it needs the `ts.TypeChecker` that predecessor limits 5 and 8(b) both decline. · **Reachability:** PROBED — the false advisory below was measured in that arc's spec §3.6 against source blob `412cadd3`. · **Incident:** the measured false advisory at §3.6 — a name shadowing a surface binding was classified as the surface, because the consumer asks only whether SOME binding carries that name. That is a cost event that already happened, not a constructed hypothetical.
 
-**The axis, stated once.** `sendAuthScan` decides "is this a surface receiver" and "is this a raw
-binding" in four places, and each place answers with its own hand-written rule. The sink walk
-resolves a receiver at its RIGHTMOST NAME; primary discovery took a BARE IDENTIFIER until diff r3;
-the read arm still takes a bare identifier; the handoff arm still keys on a NAME. Every round has
-found the next arm that had not been narrowed yet, which is why the rate does not decay.
+**The residue, stated precisely.** `surfaceBindings` returns a `Set<string>`. Rule A resolves a
+receiver to its rightmost NAME and every consumer then asks `bindings.has(name)`. So a local that
+merely SHARES a surface binding's name is treated as the surface wherever it appears in the module.
 
-**Probed, both silent against the shipped scanner at `5a11c30e0`:**
+**Why this is the survivable direction, and why it is still worth a row.** The failure is a FALSE
+ADVISORY — a report against code that is not the surface — which the consequence bound permits as a
+documented over-report. So this is filed rather than fenced: it is real, it is reachable, and it is
+not urgent.
 
-- a raw READ through a property receiver — `this.ch.panes()` outside any declared pass — returns 0 findings.
-- a raw HANDOFF of a parameter that SHADOWS a derivation name, inside the pass, returns 0 findings; this is diff r2 F1's defect still live one arm over.
+**THAT CLAIM WAS PREMATURE WHEN THIS ROW WAS FIRST FILED, and the correction is kept rather than
+overwritten.** As filed at diff r1 the row said the silent direction was already closed. It was not:
+diff r3 found TWO name-keyed shapes that were SILENT, not merely over-reporting — a competing
+declaration outside the pass, and a quoted declaration name — because the raw-binding count was
+short on SCOPE and on SPELLING. Both are closed now, by making the count total on both axes rather
+than by naming the two shapes. The row's characterisation is accurate at the time of writing and was
+not accurate when it was written, which is the distinction a reader needs.
 
-**Two of the four arms are now narrowed; this row carries the other two.** Ruled at the round
-cap: repair what is silent AND ordinary, fence what needs a recognizer the scanner has declined
-to grow, ship, and keep the unification here.
+**What a repair needs.** Identifier-to-declaration resolution, which means either a
+`ts.TypeChecker` or a scope model. Both are the machinery the predecessor limits decline, so this is
+a design decision rather than a patch — which is what exception (c) records.
 
-- **NARROWED — the sink walk and primary discovery** (diff r3), which now share one
-  classification (`sendBearingFunctions`), so suppression may rest only on a classification that
-  actually happened.
-- **NARROWED — the read arm and the handoff arm** (diff r4). The read arm dropped a property
-  NAME that was itself a surface binding, so `this.ch.typo()` was silent while the bare
-  `ch.typo()` reported; it now hands that receiver to the same member classification. The handoff
-  arm received a set of raw NAMES and subtracted a shadowing parameter along with the derivation
-  whose name it borrowed; it now asks the shadow-aware predicate AT THE USE. Both fail closed.
-- **STILL SILENT, fenced as documented limits with re-file triggers** at spec §4 limit 8, each
-  probed at `f88690111` returning 0 findings with 0 occurrences in the live corpus: a
-  parenthesized TYPE annotation; a sink or read through a member of an object TYPE; an
-  accessor-shaped function-like holding a pass; a type-position `import()` edge. Every miss is a
-  MISS, never a false advisory.
-
-**What the unification is.** One shared receiver rule and one shared raw-binding predicate,
-consumed by every arm, with DECLINE MEANING REPORT. Not attempted in the originating arc because
-a redesign of the classification layer at diff round 4 is the recognizer ratchet the
-repair-direction rule refuses; the measured trajectory elsewhere is 20 and 41 rounds.
-
-**The load-bearing lesson for whoever takes this.** Failing two arms closed produced ZERO false
-advisories on the live corpus — measured, not predicted. Silence was not buying correctness; it
-was buying nothing.
+**Do not "fix" this by narrowing the name match.** A tighter string rule trades a permitted false
+advisory for a silent miss, which is the direction the bound forbids. The only correct repair
+resolves identity; anything else moves the error to the wrong side.
 
 ## BL-MUTATION-VERDICT-MECHANISM-INTRA-LEG — the verdict-movement mechanism is still unexplained, and the probe that could settle it must vary the process boundary
 

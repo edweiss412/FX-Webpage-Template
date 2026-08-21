@@ -440,8 +440,12 @@ it. AC-15 pins that in both directions and AC-7b pins this one.
    about this gate changes.
 
 8. **Four shapes are SILENT, each named with its probe and its re-file trigger.** Diff rounds 3 and 4
-   returned twelve findings between them; two were silent defects and are REPAIRED (the read arm and the
-   handoff arm now fail closed, §2.5). The four below remain silent, and they are fenced here rather than
+   returned twelve findings between them; two were silent defects and are REPAIRED — **named by
+   FUNCTION, because "the read arm" resolves to two of them and this sentence was false under one
+   reading**: `classifyUses`'s member classification and `analyzeHandoffs` now fail closed (§2.5).
+   `analyzePassReads` was NOT narrowed at r4 and still required a bare identifier receiver; it is
+   narrowed by `BL-SENDAUTH-ARM-CLASSIFIER-UNIFICATION`, which is where that half was actually
+   closed. A NARROWED claim is only as precise as the name it is recorded against. The four below remain silent, and they are fenced here rather than
    repaired because each needs a recognizer this scanner has declined to grow — the repair-direction rule
    under same-axis recurrence. A documented limit with a re-file trigger is a decision; without one it is
    an excuse, so every entry carries one.
