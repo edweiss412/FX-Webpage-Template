@@ -51,6 +51,7 @@ import {
   reconcileDispositions,
   renderReport,
   sitesIn,
+  SOURCE_EXTENSIONS,
   type Report,
 } from "./_connectionCensus";
 
@@ -1268,8 +1269,22 @@ describe("connection census — dispositions, both directions (AC-C7)", () => {
     expect(result.stale).toHaveLength(1);
   });
 
-  test("the shipped registry is a closed union and starts empty", () => {
-    expect(CONNECTION_CENSUS_DISPOSITIONS).toEqual([]);
+  test("every shipped row is well formed and uniquely keyed", () => {
+    // This case asserted an EMPTY registry while the rows were still to come; the rows
+    // landed in task:live-census-gate, so the claim it can keep making is the one that
+    // stays true — kinds inside the closed union, a reason a reviewer can check, and no
+    // two rows competing for one report.
+    const kinds = new Set(["resolver", "acquisition", "channel", "unclassifiable"]);
+    const keys = new Set<string>();
+    for (const row of CONNECTION_CENSUS_DISPOSITIONS) {
+      expect(kinds.has(row.kind), `${row.file} ${row.site}`).toBe(true);
+      expect(row.reason.length, `${row.file} ${row.site}`).toBeGreaterThan(20);
+      const key = `${row.file}\u0000${row.site}\u0000${row.nth ?? 1}`;
+      expect(keys.has(key), `duplicate key ${key}`).toBe(false);
+      keys.add(key);
+    }
+    // A premise, not decoration: an empty registry would satisfy every assertion above.
+    expect(CONNECTION_CENSUS_DISPOSITIONS.length).toBeGreaterThan(0);
   });
 });
 
@@ -1517,5 +1532,83 @@ describe("connection census — the report shape and the remedy text (AC-C6 rend
 
   test("an empty report list still renders its count block", () => {
     expect(renderReport([], EMPTY_COUNTS).split("\n")).toHaveLength(1);
+  });
+});
+
+describe("connection census — a driver name in a TYPE position is not a value reference", () => {
+  // Measured on the live corpus by the meta-test: 50+ files name the driver binding in a
+  // TYPE (`postgres.JSONValue`, `ReturnType<typeof postgres>`), which reads no value and
+  // opens no connection. Reporting them is a FALSE report, and a report the corpus does
+  // not need is a defect exactly as a missing one is.
+  const TYPE_POSITIONS: ReadonlyArray<[string, string]> = [
+    ["a qualified type name", `type Captured = { settings: postgres.JSONValue | null };`],
+    ["a typeof query", `let pool: ReturnType<typeof postgres>;`],
+    ["a type argument", `const rows: Array<postgres.Row> = [];`],
+    ["a type-only re-declaration", `type Sql = typeof postgres;`],
+  ];
+
+  for (const [label, declaration] of TYPE_POSITIONS) {
+    test(`${label} reports nothing`, () => {
+      const rec = classifyFile(P, [IMPORT, declaration].join("\n"));
+      expect(
+        rec.reports.map((r) => r.kind),
+        label,
+      ).toEqual([]);
+    });
+  }
+
+  test("twin — the same name in a VALUE position is still a value-reference report", () => {
+    const rec = classifyFile(
+      P,
+      [IMPORT, `let pool: ReturnType<typeof postgres>;`, `const alias = postgres;`].join("\n"),
+    );
+    expect(rec.reports.map((r) => [r.kind, r.line])).toEqual([["value-reference", 3]]);
+  });
+});
+
+describe("connection census — an edge to a NON-SOURCE file is decided, not reported", () => {
+  // Measured on the live corpus: `import baseline from "./x.json"` and a fixture's
+  // `import "./app.css"` resolve to real files that the census population does not hold,
+  // because they are not source. They carry no code and can open no connection, so the
+  // decided answer is "not an edge" — reporting them would be a false report, which the
+  // consequence bound makes a defect exactly as a missed file is.
+  const CONSUMER = "tests/db/consumer.test.ts";
+
+  function propagateWith(target: string, specifier = "./data") {
+    const resolve: ImportResolver = () => target;
+    return propagateThroughImports(
+      [
+        {
+          file: CONSUMER,
+          sf: parse(`import x from "${specifier}";`, CONSUMER),
+          own: [] as FileClass[],
+        },
+      ],
+      resolve,
+      "/repo",
+    );
+  }
+
+  test("a JSON target is not an edge and reports nothing", () => {
+    expect(propagateWith("tests/adminAlerts/baseline.json").reports).toEqual([]);
+  });
+
+  test("a CSS target is not an edge and reports nothing", () => {
+    expect(propagateWith("tests/styles/__fixtures__/app.css").reports).toEqual([]);
+  });
+
+  test("twin — a SOURCE target outside the population still REPORTS", () => {
+    // The walk missing a source file is a real gap and stays loud.
+    const result = propagateWith("tests/db/_notInThePopulation.ts");
+    expect(result.reports.map((r) => r.kind)).toEqual(["unresolved-import"]);
+  });
+
+  test("the source-extension set is shared with the walk rather than typed twice", () => {
+    for (const extension of ["ts", "mts", "cts", "tsx", "js", "mjs", "cjs", "jsx"]) {
+      expect(SOURCE_EXTENSIONS.test(`x.${extension}`), extension).toBe(true);
+    }
+    for (const extension of ["json", "css", "md", "png"]) {
+      expect(SOURCE_EXTENSIONS.test(`x.${extension}`), extension).toBe(false);
+    }
   });
 });

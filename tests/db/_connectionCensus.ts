@@ -112,6 +112,8 @@ export type Report = {
 
 export type FileRecord = {
   file: string;
+  /** The parsed tree, carried so a caller that also needs edges parses the file ONCE. */
+  sf: ts.SourceFile;
   bindings: DriverBinding[];
   sites: ClassifiedSite[];
   reports: Report[];
@@ -591,7 +593,8 @@ function collectCalls(sf: ts.SourceFile, bindings: readonly DriverBinding[]): Ca
         !declarationNodes.has(n) &&
         !calleeNodes.has(n) &&
         !isDeclarationPosition(n) &&
-        !isPropertyNamePosition(n);
+        !isPropertyNamePosition(n) &&
+        !isInTypePosition(n);
       if (isReference) valueReferences.push(n);
     }
     ts.forEachChild(n, visitReferences);
@@ -627,6 +630,21 @@ function isDeclarationPosition(id: ts.Identifier): boolean {
     p.name === id
   ) {
     return true;
+  }
+  return false;
+}
+
+/**
+ * A name inside a TYPE reads no value and opens no connection: `postgres.JSONValue` and
+ * `ReturnType<typeof postgres>` are the live spellings, in 50+ files. The compiler decides
+ * what a type position IS — a hand-written list of type node kinds would be the enumeration
+ * this module avoids everywhere else — by walking up to the first `ts.isTypeNode` ancestor.
+ */
+function isInTypePosition(node: ts.Node): boolean {
+  let cur: ts.Node | undefined = node.parent;
+  while (cur !== undefined && !ts.isSourceFile(cur)) {
+    if (ts.isTypeNode(cur)) return true;
+    cur = cur.parent;
   }
   return false;
 }
@@ -1015,7 +1033,7 @@ export function classifyFile(filePath: string, source: string): FileRecord {
   }
 
   reports.sort((a, b) => a.line - b.line || (a.ordinal ?? 0) - (b.ordinal ?? 0));
-  return { file: filePath, bindings, sites: classified, reports };
+  return { file: filePath, sf, bindings, sites: classified, reports };
 }
 
 /** A file's class after dispositions are applied to its reported sites. */
@@ -1052,6 +1070,14 @@ export function aliasPrefixes(root: string): string[] {
 
 /** The walk root: the destructive guard's root, and the census's. */
 export const TESTS_ROOT_PREFIX = "tests/";
+
+/**
+ * What counts as a SOURCE file, for the walk and for the edge walk alike — one set, two
+ * consumers, so the population and the edges can never disagree about what a module is.
+ * A resolved target outside it (a JSON baseline, a CSS fixture) carries no code and can
+ * open no connection, so it is a DECIDED non-edge rather than a report.
+ */
+export const SOURCE_EXTENSIONS = /\.(ts|mts|cts|tsx|js|mjs|cjs|jsx)$/;
 
 /**
  * PATH-SHAPED is derived from the module system's own forms plus the repo alias map:
@@ -1160,6 +1186,7 @@ export function propagateThroughImports(
         production += 1;
         continue;
       }
+      if (!SOURCE_EXTENSIONS.test(target)) continue;
       if (!known.has(target)) {
         reports.push(
           edgeReport(
