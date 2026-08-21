@@ -19,8 +19,9 @@ on its own line because the gate reads the LINE.
 
 ## 0. Pre-draft code-verification pass — authored AND RUN
 
-Every citation below was READ, not merely resolved. The distinction matters here because ONE of them,
-`lib/specLint/redContract.ts:721`, names the line this plan's own execution will move.
+Every citation below was READ, not merely resolved. The distinction matters here because THIS ARC'S
+OWN EXECUTION MOVES EVERY ONE OF THEM below line 605. See §3, which round 4 corrected: the change
+begins at the type declarations, not at the drop.
 
 | citation | what the line holds |
 | -------- | ------------------- |
@@ -75,19 +76,40 @@ already has.
 
 ## 3. Citation lifetime — this plan's own execution moves its own red-target
 
-The plan carries exactly ONE `red-target=`, and it names line 721, the line Task 1 edits. Once the
-`continue` becomes a push, that line holds something else. The citation is stale by the time the task
-that declares it is done.
+**Round 4 corrected this section, and the correction matters more than the original claim.** Earlier
+drafts said line 717 was above the edit and therefore unaffected. That was WRONG. The edit does not
+begin at the drop: `ProbeDerivation` at line 605 and `CollectionProbeEntry` at line 610 each gain a
+union member, and both sit above every other line this plan cites. A read-only probe applying only the
+two required additions measured the shift:
 
-`RED_TARGET_INVALID` cannot see this. It checks that the path is tracked and the line is in range, not
-that the line still holds what `why=` describes. So the citation is RE-READ at closeout, by reading
-the line rather than confirming it resolves, and corrected in the closing commit.
+```
+CollectionProbeEntry   610 -> 614
+deriveCollectionProbe  637 -> 644
+the v1 exit            717 -> 721
+the none drop          721 -> 725
+```
+
+So EVERY citation into `lib/specLint/redContract.ts` below line 605 goes stale, not just the
+`red-target=`. `RED_TARGET_INVALID` sees none of it: it checks that the path is tracked and the line
+is in range, not that the line still holds what the prose says.
+
+**The closeout therefore re-reads a LIST, not a citation.** Every site below, by READING the line
+rather than confirming it resolves:
+
+| site | what it cites |
+| ---- | ------------- |
+| the `red-target=` in Task 1's marker | the `none` drop |
+| §0's verification table, four rows | 580, 637, 717, 721 |
+| §0's declaration sentence | 605 and 610 |
+| Task 1's prose after the assertion table | the v1 exit |
+| Task 2's edit map fenced block | the `none` drop |
+| `probe/reach.mts`, the V1 block comment | the v1 exit and the drop |
+
+Line 580 (`VITEST_SHAPE`) is the only one above 605 and is the only one that survives untouched.
 
 The re-read is a STEP rather than a habit, because the arm being repaired here is the one that would
-otherwise catch it.
-
-Line 717 is ABOVE the edit and therefore unaffected. It is cited in §0's verification table and in the
-Task 1 assertion table at row 4, and those citations survive the change untouched.
+otherwise catch it, and because round 4 demonstrated that reasoning about which lines move is exactly
+where this goes wrong.
 
 ## 4. The cycle the red-carrying task runs, stated once
 
@@ -154,7 +176,8 @@ unconditionally, and the green ones alone are satisfied by changing nothing at a
 
 Row 2 is what fails the narrowed implementation: a fixture set holding only the heavy-wrapped shape is
 satisfied by a `pnpm heavy` recognizer. Row 4 is what fails the over-broad one that also moves the v1
-exit at line 717. Row 3 is what fails an implementation that files `none` behind the live gate.
+exit at line 717, cited here in prose rather than in the table itself. Row 3 is what fails an
+implementation that files `none` behind the live gate.
 
 **The advisory is ADDED, never exclusive.** Spec §1.2 measured three of the fifteen live markers
 already carrying a hard finding from an unrelated arm. Every assertion above is CONTAINMENT, never
@@ -179,7 +202,7 @@ alongside a stale row at the old. That red cannot fire:
 
 ```
 accepted-row lines : 37  110  127  190  191  257  257
-this arc edits at  : 721 in redContract.ts, plus the deciding suites
+this arc edits at  : 605, 610 and 721 in redContract.ts, plus the deciding suites
 ```
 
 Every accepted row sits ABOVE the edit point, so none shifts. A registry edit asserting a red rather
@@ -247,8 +270,8 @@ which is how a gate stops meaning anything.
 
 **What protects the behaviour permanently is the fixture set, which DOES run in CI.** The division is
 deliberate: the oracle proves the corpus-level claim ONCE, at implementation time, over real
-documents; the five assertions in Task 1, over four fixture documents, pin the behaviour forever over
-documents this repo controls. Neither substitutes for the other, and saying so here is cheaper than a reviewer deriving it.
+documents; the five assertions in Task 1, over six unique fixture documents (four new ones plus the
+two pre-existing ones row 5 re-runs), pin the behaviour forever over documents this repo controls. Neither substitutes for the other, and saying so here is cheaper than a reviewer deriving it.
 
 ## 7. Acceptance criteria → the task that PROVES each
 
@@ -263,7 +286,7 @@ documents this repo controls. Neither substitutes for the other, and saying so h
 Every AC is claimed by a marker or carries a written reason for not being. An unclaimed AC reads as an
 oversight even when it is not.
 
-**All four ACs land on one task on purpose.** Round 1 established that the repair is indivisible, so
+**AC-1 through AC-4 land on one task on purpose, and AC-5 lands on none.** Round 1 established that the repair is indivisible, so
 splitting the criteria across tasks would only recreate the ordering defect at the level of the
 acceptance table.
 
@@ -286,8 +309,8 @@ citation on purpose: the bare filename matches three tracked files and the arm r
   1. `pnpm exec prettier --write` and `pnpm exec eslint --fix` over everything the closing commit will
      stage, so the hook has nothing left to change.
   2. Make the closing commit.
-  3. **On the COMMITTED tree**, run `EXPECT_ADVISORY=1 pnpm probe:reach` and RE-READ the single
-     `red-target=` line per §3.
+  3. **On the COMMITTED tree**, run `EXPECT_ADVISORY=1 pnpm probe:reach` and RE-READ every citation
+     in §3's table.
   4. If either fails, repair and `--amend`, then return to step 3. It is a fixpoint, not a checklist:
      the obligation is that the tree which lands is the tree that passed, and only a check run after
      the commit can establish that.
@@ -300,7 +323,10 @@ citation on purpose: the bare filename matches three tracked files and the arm r
   NOT a second red and is not a marker command: `EXPECT_ADVISORY=1 pnpm probe:reach` derives
   `{ kind: "none" }`, which is the very class this arc repairs, and it is scheduled as a step in §6
   rather than declared as a marker red.
-- Re-read the single `red-target=` line at closeout per §3.
+- Re-read EVERY citation in §3's table at closeout, not just the `red-target=`. Round 4 measured that
+  the union-member additions at lines 605 and 610 shift every cited line below them, so a closeout
+  that re-reads only the marker lands a tree with stale citations everywhere else, including a comment
+  inside `probe/reach.mts`.
 - No fenced block carries an em-dash: `FENCE_EM_DASH` is a plan-fence rule and
   `tests/docs/planFencesBaseline.ts` is a DECREASE-ONLY ratchet, so a new hit fails unlisted.
 - `pnpm typecheck` before push. It was red on this branch for two rounds because `tsx` resolved an
