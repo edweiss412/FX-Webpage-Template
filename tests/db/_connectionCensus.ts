@@ -890,7 +890,7 @@ function classOfResolution(r: Resolution): { cls: SiteClass; envNames: string[];
  * `connection: { statement_timeout: 5000 }` site confirmed the target is unchanged), so
  * restricting them would red a correct file.
  */
-function optionsProblem(sf: ts.SourceFile, options: ts.Expression): string | null {
+function optionsProblem(options: ts.Expression): string | null {
   const node = unwrap(options);
   if (!ts.isObjectLiteralExpression(node)) {
     return "the options argument is not an object literal, so its keys cannot be read";
@@ -932,7 +932,6 @@ function optionsProblem(sf: ts.SourceFile, options: ts.Expression): string | nul
       }
     }
   }
-  void sf;
   return null;
 }
 
@@ -967,7 +966,7 @@ export function classifySite(sf: ts.SourceFile, site: ConnectSite): SiteClassifi
   const guards = guardNamesIn(sf);
   const resolved = classOfResolution(resolveChain(sf, firstArg, guards, new Set()));
   const secondArg = args[1];
-  const problem = secondArg === undefined ? null : optionsProblem(sf, secondArg);
+  const problem = secondArg === undefined ? null : optionsProblem(secondArg);
   if (problem !== null) {
     return {
       cls: "unclassifiable",
