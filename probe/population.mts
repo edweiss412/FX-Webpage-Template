@@ -9,9 +9,9 @@
  */
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { parseDoc } from "../lib/specLint/parse.ts";
-import { MARKER_ANY, parseMarker } from "../lib/specLint/taskContract.ts";
-import { deriveCollectionProbe } from "../lib/specLint/redContract.ts";
+import { parseDoc } from "../lib/specLint/parse";
+import { MARKER_ANY, parseMarker } from "../lib/specLint/taskContract";
+import { deriveCollectionProbe } from "../lib/specLint/redContract";
 
 const files = execFileSync(
   "git",
