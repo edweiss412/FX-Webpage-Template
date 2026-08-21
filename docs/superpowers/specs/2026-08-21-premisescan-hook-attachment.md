@@ -472,18 +472,19 @@ source TEXT, and AC-7 asserts it executably rather than trusting the convention.
 
 ## 9. Convergence criterion
 
-- **Consequence bound.** Every construct is classified correctly or reports `unclassifiable`; never
-  silently free. The forbidden directions are **false certification** (a test told it is free while
-  a hook reaches the environment for it) and **wrong attribution** (a reason naming a construct that
-  is not there). A conservative `unclassifiable` with a named cause — including the file-scoped
-  over-report at L2 — is a DOCUMENTED LIMIT, not a finding. Usefulness is not the criterion;
-  correct attribution is.
+- **Consequence bound.** Every construct is **correct or signaled, never silently wrong**: it is
+  classified correctly, or it reports `unclassifiable`. The two forbidden directions are **false
+  certification** (a test told it is `environment-free` while a hook reaches the environment for it)
+  and **wrong attribution** (a reason naming a construct that is not there, or claiming a scope the
+  scanner cannot establish). A conservative `unclassifiable` with a named cause — including the
+  file-scoped over-reports at L2 and L5 — is a DOCUMENTED LIMIT, not a finding. Usefulness is not
+  the criterion; correct attribution is.
 - **`PROBE DOMAIN:`** the live tracked test corpus `premiseScan` walks — the 70 suites derived from
   `GUARD_SURFACES.flatMap((s) => s.suitePaths)` — the three population probes committed at
-  `docs/superpowers/specs/ci/probes/2026-08-21-premisescan-hook-population/`, the filing arc's
-  constructed sweep (whose 84 is corrected in §5.1), and the two bracketed differentials quoted in
-  the ledger rows. A
-  constructed input more than one ordinary edit from that set files to §4, not to a round.
+  `docs/superpowers/specs/ci/probes/2026-08-21-premisescan-hook-population/`, the installed
+  `@vitest/runner` 4.1.5 declarations, the filing arc's constructed sweep (whose 84 is corrected in
+  §5.1), and the two bracketed differentials quoted in the ledger rows. A constructed input more
+  than one ordinary edit from that set files to §4, not to a round.
 - **Threat fence.** Ordinary repository-local refactors by a contributor — extracting an inline
   callback to a named constant is routine authoring, not obfuscation. Adversarial module graphs are
   out of scope and file to §4.
