@@ -260,17 +260,68 @@ one. The three constructs spec review r1 raised — a function-valued name hidin
 bodyless options registration, and an eager hook inside a named factory — all behave correctly under
 the repaired rules above.
 
-**And the live corpus is verdict-neutral under the prototype:**
+**And the live corpus is untouched under the prototype — checked STRUCTURALLY, not lexically:**
 
 ```
-$ pnpm exec tsx spike-corpus.mts        # in the spike worktree
-suites 70  classified 2648  env-touching 74  unclassifiable 1
-tests carrying a NEW reason from either producer: 0
+$ pnpm exec tsx spike-recorddiff.mts        # in the spike worktree
+records: baseline 2648, prototype 2648
+records only in baseline : 0
+records only in prototype: 0
+VERDICT moved            : 0
+DETAIL moved             : 0
+
+POSITIVE CONTROL differs: true
 ```
 
-Byte-identical to the shipped baseline in the probe record. Both halves of the consequence bound are
-therefore MEASURED: every constructed instance reports, and there are **zero false advisories on the
-live corpus**.
+Every one of the 2648 classified rows across the 70 enrolled suites is dumped as the tuple
+`(suite, line, testName, verdict, detail)` under the SHIPPED baseline and under the prototype, and
+the two are diffed as SETS. **Detail strings are compared for equality between the two runs, never
+against known reason strings**, so a change in reason wording cannot blind the check. The positive
+control classifies one constructed named-factory file both ways inside the same invocation and
+requires the records to disagree; the script throws rather than reporting clean if they do not.
+
+**The baseline side is verified too**, since a contaminated baseline makes a zero meaningless in the
+direction that looks clean:
+
+```
+$ git rev-parse origin/main:tests/mutation/source/premiseScan.ts
+8289f7291a03098c6ad6e53d35d33699172a1c72
+$ git rev-parse HEAD:tests/mutation/source/premiseScan.ts
+8289f7291a03098c6ad6e53d35d33699172a1c72
+$ git log --oneline origin/main..HEAD -- tests/mutation/source/premiseScan.ts | wc -l
+0
+```
+
+The baseline module is the SHIPPED state, not this branch's partly-repaired one.
+
+**Two weaker checks were tried first, and the reason they are recorded rather than replaced quietly
+is the methodological point.** Each was blind in a way the other could not cover, and the pair read
+as belt-and-braces while the braces were cut:
+
+| check | covers | blind to |
+| --- | --- | --- |
+| verdict-count comparison (2648 / 74 / 1) | a construct that moves any verdict | a reason attached to an `environment-touching` test — **no count moves**, which is exactly the r1 finding-2 shape |
+| regex over `detail` for the known reason strings | that gap, and only that gap | the one run where a repair changes the wording, which is the only run being asked about |
+
+So finding-2's class had exactly ONE covering check, and that check was the one carrying the wording
+defect. **A union of checks is a cover only if you can name which check covers which class.** An
+unnamed mapping hides the classes with a single covering check; those drop to zero coverage silently
+while the other check still reports green, and the green is what makes it convincing. The record
+diff has neither blind spot, and it needs no knowledge of what the wording IS.
+
+Both halves of the consequence bound are therefore MEASURED: every constructed instance reports, and
+there are **zero false advisories on the live corpus**.
+
+**All eleven §5.2 cells are probed, not asserted:**
+
+```
+$ pnpm exec tsx spike-cells.mts        # in the spike worktree
+--- six REPORTING cells   (bare identifier, function declaration, property access,
+    wrapped identifier ×2, call expression, function-valued name)          all PASS
+--- four SILENT cells     (bodyless options, inline body + named timeout constant,
+    named options + inline body, named constant as the NAME)               all PASS
+11 of 11 cells behave as the spec's table claims
+```
 
 **One measured regression is recorded here rather than smoothed over**, because it is the whole
 argument for §3.2's per-registration shape. An intermediate per-ARGUMENT rule took the corpus from
@@ -280,6 +331,46 @@ anyway, because that detector was keyed on the PREVIOUS reason wording; re-keyin
 wording is what surfaced the 398. Two lessons kept: a rule about factories must range over the
 factory slots only, and a checker keyed on text a repair just changed reports a confident zero about
 nothing.
+
+### 3.5 The rejected alternative, with the number that rejected it
+
+A simpler rule was tried first and is recorded here because a reviewer who cannot see this number may
+reasonably ask why it was not taken: **report per ARGUMENT — any argument at index ≥ 1 that is
+neither a locatable inline body nor an inert literal.**
+
+It is wrong, and the corpus says so immediately:
+
+```
+per-ARGUMENT rule:      suites 70  classified 2648  env-touching 74  unclassifiable 398
+per-REGISTRATION rule:  suites 70  classified 2648  env-touching 74  unclassifiable 1
+```
+
+**1 to 398**, from ONE ordinary live registration —
+the registration whose title begins `"the walk is not vacuous"`, of the shape
+`test(<title>, () => {…}, WALK_TIMEOUT_MS)`, in
+`tests/cross-cutting/psqlStartupFileSuppression.test.ts`. Its named timeout constant is not an inert
+literal, so a per-argument rule reports it; its factory IS located, so a per-registration rule does
+not. One false advisory in a 400-test file demotes every `environment-free` test in that file.
+
+The lesson kept in the design: a rule about the FACTORY must range over the factory slots and answer
+once per registration. Asking the question per argument answers a different question — "is every
+argument followable" — which no part of this spec needs.
+
+### 3.6 Both accept-sets are DERIVED from the shipped surface, not modelled
+
+This spec and its sequential PR 2 apply one principle in two places, and naming it is what makes the
+design read as principled rather than as two ad-hoc rules:
+
+- **PR 2** derives `MODIFIERS` and `HOOK_REGISTRARS` from the installed Vitest package's own exports,
+  because a hand-maintained list drifts from the surface it restates and completing it by hand does
+  not terminate.
+- **§3.2 here** takes from Vitest's shipped `SuiteCollectorCallable` declaration exactly one fact —
+  **slot 0 is always `name`** — and builds the accept-set on it. No model of the overload set is
+  constructed, nothing is keyed on an identifier spelling, and the complement is default-denied.
+
+The distinction that matters: a FACT the shipped surface states is a durable input; a MODEL of that
+surface built by hand is a second definition that can drift from the first without either being
+obviously wrong. §5.5 records this arc's own paperwork drifting by the same mechanism.
 
 ---
 
