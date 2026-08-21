@@ -411,6 +411,14 @@ describe("connection census — site classification accept-set (AC-C3)", () => {
     });
   }
 
+  test("a NON-identifier option key is unclassifiable, not silently accepted", () => {
+    // `{ "max": 1 }` is a legal spelling of an accepted key, and the census still declines
+    // it: the accept-set is keyed on the plain `name: value` SHAPE, so anything else is
+    // reported rather than parsed. The conservative direction costs a disposition row; the
+    // other direction is the silent one.
+    const rec = classifyFile(P, [IMPORT, `const sql = postgres(${ENV}, { "max": 1 });`].join("\n"));
+    expect(rec.sites.map((s) => s.cls)).toEqual(["unclassifiable"]);
+  });
   test("the report NAMES the offending option key", () => {
     const rec = classifyFile(
       P,
@@ -686,6 +694,14 @@ describe("connection census — no binder dependence (AC-C11)", () => {
   });
 });
 
+/**
+ * A NOTE ON THE STRUCTURAL ASSERTIONS BELOW, because it changes how they read under the
+ * mutation gate: they read the module's TRACKED SOURCE from disk, while the harness serves
+ * a mutant's text to the IMPORT from memory and leaves the file byte-identical. So a
+ * structural assertion neither kills a mutant nor reds falsely under mutation — it is a
+ * claim about the shipped file, checked on every ordinary run, and it is deliberately not
+ * part of what the score measures.
+ */
 /** The module's own source, comments stripped through the ONE shared stripper. */
 function moduleSource(): string {
   const raw = readFileSync(join(process.cwd(), MODULE_PATH), "utf8");
