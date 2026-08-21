@@ -19,7 +19,10 @@ const SNIPPETS: Record<string, string> = {
   "C-backtick-in-dq": "Y2F0ID4iYHBzcWwgLWMgInNlbGVjdCAxImAiCg==",
   "D-locale-quoted": "Y2F0ID4kIiQocHNxbCAtYyAic2VsZWN0IDEiKSIK",
   "E-brace-default-operand": "Y2F0ID4ke09VVDotJChwc3FsIC1jICJzZWxlY3QgMSIpfQo=",
-  "F-attached-here-string": "cmVhZCAtciBQRyA8PDxwJ3NxbCcKIiRQRyIgLWMgInNlbGVjdCAxIgo="
+  "F-attached-here-string": "cmVhZCAtciBQRyA8PDxwJ3NxbCcKIiRQRyIgLWMgInNlbGVjdCAxIgo=",
+  "G-brace-in-double-quote": "Y2F0ID4iJHtPVVQ6LSQocHNxbCAtYyAic2VsZWN0IDEiKX0iCg==",
+  "H-escaped-backtick": "Y2F0ID4iYGVjaG8gXFxcYCA7IHBzcWwgLWMgInNlbGVjdCAxImAiCg==",
+  "I-midconstruct-attribution": "Y2F0ID5gcHJpbnRmICJcMTQwIjsgcHNxbCAtYyAic2VsZWN0IDEiYAo="
 };
 const FAKE = "IyEvYmluL2Jhc2gKcHJpbnRmICdSQU4gYXJndj0lc1xuJyAiJCoiID4+ICIkTE9HRklMRSIKZWNobyBvdXQudHh0Cg==";
 

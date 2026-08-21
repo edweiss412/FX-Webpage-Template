@@ -66,7 +66,7 @@ hands a fragment to the outer loop, which then mis-lexes it. A repair that merel
 
 ### 2.2 The acceptance set, and the zeros are attributable
 
-Twelve cases through the shipped `scanSource` and `scanShellIndirection`
+Thirteen cases through the shipped `scanSource` and `scanShellIndirection`
 (`docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/probe-attached.mts`).
 Each SUBJECT declares the post-change expectation it must come to satisfy; the probe asserts that
 none of them holds today and, under `--expect-report`, that all of them hold after.
@@ -84,17 +84,23 @@ none of them holds today and, under `--expect-report`, that all of them hold aft
 | E substitution inside ATTACHED brace target | reports | silent |
 | F plain ATTACHED here-string binding | reports | silent |
 | G brace inside an ATTACHED double-quoted target | reports | silent |
-| H escaped backtick inside an ATTACHED backtick target | **attributed to the backtick body** | **REPORTS, WRONGLY** |
+| H escaped backtick in an ATTACHED double-quoted target | reports | silent |
+| I mid-construct stop mis-attributes a backtick body | **attributed to the backtick body** | **REPORTS, WRONGLY** |
 
 **4 of 4 positive controls report**, so the subject results are attributable rather than the
-artefact of a broken read. A bash oracle confirms **7 of 7 A–F snippets execute psql exactly once**
+artefact of a broken read. A bash oracle confirms **10 of 10 snippets execute psql exactly once**
 (`docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/oracle.mts`) — the
 scanner is silent about a command that really runs.
 
-**G and H arrived at spec round 1 and are the reason the expectation is a PREDICATE rather than a
-report/silent binary.** H already REPORTS today, with `nested:false, nestedInBacktick:false` for a
+**G, H and I arrived through review, and I is why the expectation is a PREDICATE rather than a
+report/silent binary.** I already REPORTS today, with `nested:false, nestedInBacktick:false` for a
 psql that genuinely sits inside a backtick body — the outcome right and the reason wrong, which a
 binary asking only "did anything report" is structurally blind to.
+
+**Round 2 replaced an earlier H that did not execute at all.** The oracle measured it at
+`executions=0`, so it witnessed nothing: a fixture that does not run the command cannot demonstrate
+a scanner is wrong to be silent about it. The two that shipped are the class's two directions —
+H executes and is SILENT, I executes and is MIS-ATTRIBUTED.
 
 ### 2.3 Live population: zero, on three execution surfaces
 
@@ -103,10 +109,18 @@ Census by EXECUTION SURFACE rather than by extension, with witnesses printed per
 
 | surface | chunks | attached targets | substitution-bearing |
 |---|---|---|---|
-| whole-file shell (`.sh`/`.bash`) | 5 | 19 | **0** |
-| workflow `run:` scalars | 154 | 27 | **0** |
+| whole-file shell (`.sh`/`.bash`) | 5 | 21 | **0** |
+| workflow `run:` scalars | 154 | 32 | **0** |
 | `package.json` scripts | 74 | 0 | **0** |
-| **total** | | **46** | **0** |
+| **total** | | **53** | **0** |
+
+**The scan is INDEPENDENT of the recognizer under repair.** An earlier version extracted the
+lexer's attached-target regex — the very thing §3 replaces — and that regex consumes `>$(psql)`
+as only `>$`, so it classified an in-domain spelling as non-substitution-bearing. The census now
+reads the target region with its own quote-aware scan, which is why the target counts here are
+HIGHER than the 46 an earlier draft reported: it also sees `<(…)` process substitutions the
+regex missed. The load-bearing number, zero, is unchanged and is now asserted rather than
+printed.
 
 The first two zeros are attributable by their witness lists. The third has no witnesses to print,
 so it is attributed by an independent route: **74 script entries contain not one `<` or `>`
@@ -122,7 +136,7 @@ measured mentions rather than shell text.
 `collectPsqlUsage` over the worktree at `e5d1d723d`:
 
 **76 sites, 0 indirections, 0 unreadable**, finding-set digest
-`7a315aa397df9179bec3f11f25f7ea7efcc0c688` (`docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/baseline-corpus.mts`). The digest is the
+`8ebe8b08d43e6308aa471112d9f086d0118e6238` (`docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/baseline-corpus.mts`). The digest is the
 drift detector: the repair must leave it unchanged apart from this arc's own constructed fixtures.
 
 ---
@@ -177,7 +191,7 @@ satisfy case F at all, and finding 1 is why.
 
    **The report fires only when the undelimitable span contains a substitution opener** (`$(`,
    `` ` `` or `${`). A plain `>"${OUT}"` is an ordinary attached target and must stay quiet; the
-   live corpus holds 46 such targets (§2.3) and none may become an advisory.
+   live corpus holds 53 such targets (§2.3) and none may become an advisory.
 
 ### 3.1 Accept-set with default-deny, applied at EVERY depth
 
@@ -225,14 +239,15 @@ nothing, and an AC citing prose is decoration.
 
 | id | criterion | proved by, and it fails when the criterion does |
 |---|---|---|
-| AC-1 | All eight §2.2 subjects meet their expectation. | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/probe-attached.mts --expect-report` — exits 1 naming every subject still unmet |
+| AC-1 | All nine §2.2 subjects meet their expectation. | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/probe-attached.mts --expect-report` — exits 1 naming every subject still unmet |
 | AC-2 | All four §2.2 positive controls still report. | same command — a silent control ABORTS the run with exit 2, so a subject pass can never rest on a broken read |
 | AC-3 | An attached target carrying an unterminated backtick, brace or quote emits an `IndirectionHit` naming it; its terminated sibling emits none. | a paired case per opener in the deciding suite: `pnpm exec vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts` |
 | AC-4 | `F11 a psql call, ATTACHED output redirection` still reports 1 site with `suppressesStartupFiles === false`. | the same suite — the row is an executable `toEqual` at `tests/cross-cutting/psqlStartupFileSuppression.test.ts:5566` |
-| AC-5 | The live-corpus finding set is unchanged: 76 rows, digest `7a315aa397df9179bec3f11f25f7ea7efcc0c688`. | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/baseline-corpus.mts --expect 7a315aa397df9179bec3f11f25f7ea7efcc0c688` — exits 1 printing expected and actual when the set moves, and exits 2 on a zero-row read |
+| AC-5 | The live-corpus finding set is unchanged: 76 rows, digest `8ebe8b08d43e6308aa471112d9f086d0118e6238`, over EVERY field of every record. | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/baseline-corpus.mts --expect 8ebe8b08d43e6308aa471112d9f086d0118e6238` — exits 1 printing expected and actual when the set moves, exits 2 on a zero-row or thin-record read |
+| AC-5b | That digest DISCRIMINATES on the fields §5 forbids moving — a flipped `suppressesStartupFiles`, `nested`, `nestedInBacktick`, `exemptReason` or `hasDynamicTokens` must change it. | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/digest-sensitivity.mts` — exits 1 naming any field the digest is blind to |
 | AC-6 | Every declared-limit pin in §6 moves deliberately, and none moves silently. | the same suite: each retired row is re-pinned at its NEW value, and each held row at its old one, so a recognizer change that moves an unlisted pin reds |
 | AC-7 | `psqlStartupScan` scores at or above its floor with an empty unaccepted-survivor set. | `pnpm heavy pnpm mutation:guards` |
-| AC-8 | The three-surface census still finds ZERO substitution-bearing attached targets, so the repair manufactured no live instance. | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/corpus-family3.mts` — ABORTS on a surface holding redirection characters that yields no targets |
+| AC-8 | The three-surface census still finds ZERO substitution-bearing attached targets, so the repair manufactured no live instance. | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/corpus-family3.mts` — ASSERTS the zero and exits 1 listing witnesses otherwise; ABORTS exit 2 if any of its nine controls fails, so the zero can never rest on a scan that cannot see the family |
 
 **AC-5 is the consequence bound made executable.** It distinguishes a guard that got stricter from
 one that merely got louder, and it is the one check no reading of the diff can substitute for.
@@ -246,9 +261,10 @@ one that merely got louder, and it is the one check no reading of the diff can s
   corpus: it holds ZERO instances of this family today (§2.3), so a corpus scan before and after
   the change must show the same finding set apart from this arc's own constructed fixtures (§2.4).
 
-- **PROBE DOMAIN:** the three execution surfaces censused in §2.3 — 46 attached targets across
+- **PROBE DOMAIN:** the three execution surfaces censused in §2.3 — 53 attached targets across
   whole-file shell, workflow `run:` scalars and `package.json` scripts — plus the eight spellings
-  in §2.1, the twelve cases in §2.2, and the bash oracle that confirms each executes. A constructed
+  in §2.1, the thirteen cases in §2.2, and the bash oracle that confirms all ten executing snippets
+  really run. A constructed
   input more than one ordinary edit from that set files to documented limits, not to a finding.
 
 - **Threat fence.** Ordinary authoring by a contributor writing a shell script, a workflow `run:`

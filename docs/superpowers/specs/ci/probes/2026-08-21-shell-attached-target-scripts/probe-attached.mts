@@ -101,16 +101,25 @@ const CASES: Case[] = [
     holds: REPORTS,
     src: 'cat >"${OUT:-$(psql -c \'select 1\')}"\n',
   },
-  // ---- spec round 1 finding 4: an ESCAPED backtick must not close the span.
+  // ---- spec round 1 finding 4, BOTH directions of the escaped-backtick class.
+  //      Round 2 replaced an earlier H that did not execute at all: the oracle
+  //      measured executions=0, so it witnessed nothing. Both of these execute.
   {
-    // Already REPORTS today, and wrongly: the escaped backtick closes the span
-    // early, so the psql is attributed to top-level shell text rather than to
-    // the backtick body it really sits in. The expectation is therefore about
-    // ATTRIBUTION, which is the forbidden direction section 5 names.
-    id: "H escaped backtick inside an ATTACHED backtick target (attribution)",
+    // Executes psql and is ENTIRELY SILENT — the forbidden direction in its
+    // strongest form.
+    id: "H escaped backtick in an ATTACHED double-quoted target (silent)",
+    kind: "subject",
+    holds: REPORTS,
+    src: "cat >\"`echo \\\\\\` ; psql -c \"select 1\"`\"\n",
+  },
+  {
+    // Executes psql and REPORTS, with nested:false and nestedInBacktick:false
+    // for a psql that sits inside a backtick body. The outcome looks right and
+    // the reason is wrong, which a presence assertion cannot see.
+    id: "I mid-construct stop mis-attributes a backtick body (attribution)",
     kind: "subject",
     holds: IN_BACKTICK,
-    src: "cat >`echo \\` psql -c 'select 1'`\n",
+    src: "cat >`printf \"\\140\"; psql -c \"select 1\"`\n",
   },
 ];
 
