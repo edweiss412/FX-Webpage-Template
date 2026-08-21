@@ -1,0 +1,215 @@
+files scanned under tests/: 2542
+default-imports postgres: 140
+non-default import of postgres (named/ns/dynamic/require): 51
+   other-import: tests/api/show-unpublish-route.realdb.test.ts
+   other-import: tests/db/_b2Helpers.ts
+   other-import: tests/db/_holdsHelpers.ts
+   other-import: tests/db/_mi11Helpers.ts
+   other-import: tests/db/_remediationHelpers.ts
+   other-import: tests/db/acknowledge-changes.test.ts
+   other-import: tests/db/auto-publish-toggle-rls.test.ts
+   other-import: tests/db/b2-first-published-alert-tx-boundary.test.ts
+   other-import: tests/db/bellFeedRpc.test.ts
+   other-import: tests/db/bellRealtimePing.test.ts
+   other-import: tests/db/destructiveResetGate.test.ts
+   other-import: tests/db/feed-tables-read-lockdown.test.ts
+   other-import: tests/db/geocodeCacheCoordExpiry.test.ts
+   other-import: tests/db/isAdminRoleFlagsContract.test.ts
+   other-import: tests/db/notify-toggle-rls.test.ts
+   other-import: tests/db/resetValidationData.test.ts
+   other-import: tests/db/resetValidationDataConcurrency.test.ts
+   other-import: tests/db/resetValidationDataDriveKeyedAudit.test.ts
+   other-import: tests/db/resetValidationDataFkAudit.test.ts
+   other-import: tests/db/resetValidationDataPostgrest.test.ts
+   other-import: tests/db/roleMappingsStampPredicate.db.test.ts
+   other-import: tests/db/roleTokenMappingsPosture.test.ts
+   other-import: tests/db/show-change-log-schema.test.ts
+   other-import: tests/db/sync-holds-schema.test.ts
+   other-import: tests/db/syncLogAttribution.db.test.ts
+   other-import: tests/db/syncLogIndexesAndPrune.db.test.ts
+   other-import: tests/db/telemetryConsoleReads.test.ts
+   other-import: tests/db/validation-schema-parity.test.ts
+   other-import: tests/show/unpublishConfirmGetNoMutation.test.ts
+   other-import: tests/sync/_holdAwareTestkit.ts
+   other-import: tests/sync/_roleVocabDriftApplyKit.ts
+   other-import: tests/sync/applyParseResult.holdAware.identityPin.test.ts
+   other-import: tests/sync/applyParseResult.holdAware.liveOwnerNeverDeleted.test.ts
+   other-import: tests/sync/applyParseResult.holdAware.multiHoldFoldReservation.test.ts
+   other-import: tests/sync/applyParseResult.holdAware.removalFold.test.ts
+   other-import: tests/sync/applyParseResult.holdAware.renameFold.test.ts
+   other-import: tests/sync/applyParseResult.holdAware.targetReservation.test.ts
+   other-import: tests/sync/applyParseResult.identityLink.db.test.ts
+   other-import: tests/sync/capabilityLossReachability.probe.test.ts
+   other-import: tests/sync/cutover.retireLivePendingSyncs.test.ts
+   other-import: tests/sync/def1-cron-resync-clear.db.test.ts
+   other-import: tests/sync/feed/readShowChangeFeed.staleness.test.ts
+   other-import: tests/sync/holds.releaseEval.test.ts
+   other-import: tests/sync/onboarding-alert-heal.db.test.ts
+   other-import: tests/sync/phase2.integration.test.ts
+   other-import: tests/sync/promoteSnapshotExpectedCount.realdb.test.ts
+   other-import: tests/sync/roleVocabDriftResync.db.test.ts
+   other-import: tests/sync/runScheduledCronSync.holdWrite.test.ts
+   other-import: tests/sync/unpublishShowViaEmailedLink.concurrency.test.ts
+   other-import: tests/sync/writeChangeLog.autoApply.test.ts
+   other-import: tests/sync/writeMi11Holds.test.ts
+CALLS the driver directly (connection sites): 139  (total connect calls 174)
+connecting HELPER modules (non-test, direct or transitive): 9
+   helper: tests/db/_b2Helpers
+   helper: tests/db/_holdsHelpers
+   helper: tests/db/_mi11Helpers
+   helper: tests/db/_remediationHelpers
+   helper: tests/e2e/admin-lifecycle-layout.spec
+   helper: tests/e2e/admin-lifecycle-transitions.spec
+   helper: tests/e2e/dev-capture.spec
+   helper: tests/e2e/helpers/devCaptureStaged
+   helper: tests/e2e/tap-target-inline-controls.layout.spec
+files connecting ONLY via a helper: 39
+import driver but never call it nor a connecting helper: 1
+   import-only: tests/db/_censusRunner.ts
+
+CONNECTION-OPENING files (direct or via helper): 178
+  call a loopback guard: 71
+  no guard call: 107
+  unguarded, by env vars read in-file:
+     43  (no env read in file)
+     37  DATABASE_URL,TEST_DATABASE_URL
+     25  TEST_DATABASE_URL
+      1  DATABASE_URL,SUPABASE_SECRET_KEY,SUPABASE_SERVICE_ROLE_KEY,SUPABASE_URL,TEST_DATABASE_URL
+      1  SUPABASE_URL,TEST_DATABASE_URL
+
+  unguarded file list (rel | connects | env | helpers):
+    tests/admin/extractAgenda.test.ts | 2 | - | -
+    tests/admin/step3StateGallery.test.ts | 1 | - | tests/e2e/helpers/devCaptureStaged
+    tests/agenda/extractAgendaLease.test.ts | 4 | - | -
+    tests/api/admin/pendingIngestionRetryPrepare.db.test.ts | 1 | - | -
+    tests/api/show-unpublish-route.realdb.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | tests/db/_b2Helpers
+    tests/db/_b2Helpers.ts | 2 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/db/_holdsHelpers.ts | 2 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/db/_mi11Helpers.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/db/agendaExtractLeases.schema.test.ts | 1 | TEST_DATABASE_URL | -
+    tests/db/auto-publish-toggle-rls.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/db/b2-first-published-alert-tx-boundary.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/db/backfill-email-deliveries-context.test.ts | 1 | TEST_DATABASE_URL | -
+    tests/db/bellFeedRpc.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/db/bellRealtimePing.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/db/deferred-drive-file-name-column.test.ts | 1 | TEST_DATABASE_URL | -
+    tests/db/feed-tables-read-lockdown.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/db/geocodeCacheCoordExpiry.test.ts | 1 | DATABASE_URL,SUPABASE_SECRET_KEY,SUPABASE_SERVICE_ROLE_KEY,SUPABASE_URL,TEST_DATABASE_URL | -
+    tests/db/isAdminRoleFlagsContract.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/db/notify-toggle-rls.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/db/onboarding-publish-intent-column.test.ts | 1 | TEST_DATABASE_URL | -
+    tests/db/resetValidationDataFkAudit.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/db/roleMappingsStampPredicate.db.test.ts | 2 | DATABASE_URL,TEST_DATABASE_URL | tests/db/_b2Helpers
+    tests/db/roleTokenMappingsPosture.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/db/rpc-service-role-revokes.test.ts | 1 | TEST_DATABASE_URL | -
+    tests/db/setPullSheetOverrideGrants.test.ts | 1 | TEST_DATABASE_URL | -
+    tests/db/show-change-log-schema.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/db/showsLastCheckedAt.schema.test.ts | 1 | TEST_DATABASE_URL | -
+    tests/db/sync-holds-schema.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/db/telemetryConsoleReads.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/db/upsert-admin-alert-dedup.test.ts | 1 | TEST_DATABASE_URL | -
+    tests/db/use-raw-decisions-columns.test.ts | 1 | TEST_DATABASE_URL | -
+    tests/e2e/helpers/devCaptureStaged.ts | 1 | - | -
+    tests/notify/auto-publish-undo-live-probe-real-db.test.ts | 1 | TEST_DATABASE_URL | -
+    tests/notify/candidates.test.ts | 2 | TEST_DATABASE_URL | -
+    tests/notify/deliver-auto-publish-undo-real-db.test.ts | 4 | TEST_DATABASE_URL | -
+    tests/notify/deliver-real-db.test.ts | 2 | TEST_DATABASE_URL | -
+    tests/notify/digest.test.ts | 1 | TEST_DATABASE_URL | -
+    tests/notify/email-delivery-failed-reconcile.test.ts | 2 | TEST_DATABASE_URL | -
+    tests/notify/email-delivery-failed-undo-real-db.test.ts | 2 | TEST_DATABASE_URL | -
+    tests/notify/recovery-resolution.test.ts | 2 | TEST_DATABASE_URL | -
+    tests/notify/run-notify-toggle-gate-real-db.test.ts | 1 | SUPABASE_URL,TEST_DATABASE_URL | -
+    tests/notify/singleFlightLock-real-db.test.ts | 2 | TEST_DATABASE_URL | -
+    tests/onboarding/finalizeReadsSourceAnchors.db.test.ts | 1 | TEST_DATABASE_URL | -
+    tests/onboarding/onboardingApplyRevisionRaceDb.test.ts | 1 | TEST_DATABASE_URL | -
+    tests/onboarding/onboardingFinalizePublishDb.test.ts | 1 | TEST_DATABASE_URL | -
+    tests/show/unpublishConfirmGetNoMutation.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | tests/db/_b2Helpers
+    tests/sync/applyParseResult.holdAware.identityPin.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/sync/applyParseResult.holdAware.liveOwnerNeverDeleted.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/sync/applyParseResult.holdAware.multiHoldFoldReservation.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | tests/db/_mi11Helpers
+    tests/sync/applyParseResult.holdAware.removalFold.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/sync/applyParseResult.holdAware.renameFold.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/sync/applyParseResult.holdAware.targetReservation.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/sync/applyParseResult.identityLink.db.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/sync/applyStagedSyncLogEmission.db.test.ts | 1 | - | -
+    tests/sync/capabilityLossReachability.probe.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/sync/cutover.retireLivePendingSyncs.test.ts | 3 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/sync/def1-cron-resync-clear.db.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/sync/holds.releaseEval.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/sync/lastCheckedAt.db.test.ts | 1 | TEST_DATABASE_URL | -
+    tests/sync/manual-sync-default-producers-db.test.ts | 2 | TEST_DATABASE_URL | -
+    tests/sync/onboarding-alert-heal.db.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/sync/phase2.integration.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/sync/promoteSnapshotExpectedCount.realdb.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/sync/resyncShrinkHold.db.test.ts | 1 | TEST_DATABASE_URL | -
+    tests/sync/roleVocabDriftResync.db.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/sync/runScheduledCronSync.holdWrite.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/sync/unpublishShowViaEmailedLink.concurrency.test.ts | 2 | DATABASE_URL,TEST_DATABASE_URL | tests/db/_b2Helpers
+    tests/sync/writeChangeLog.autoApply.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/sync/writeMi11Holds.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | -
+    tests/admin/galleryDatabaseUrl.test.ts | 0 | - | tests/e2e/helpers/devCaptureStaged
+    tests/db/acknowledge-changes.test.ts | 0 | - | tests/db/_holdsHelpers
+    tests/db/archive_show_rpc.test.ts | 0 | - | tests/db/_b2Helpers
+    tests/db/b2-legacy-backfill.test.ts | 0 | - | tests/db/_b2Helpers
+    tests/db/b2-schema-introspection.test.ts | 0 | - | tests/db/_b2Helpers
+    tests/db/def1-rotate-reset-guard.test.ts | 0 | - | tests/db/_b2Helpers
+    tests/db/lifecycle_rpc_performed.test.ts | 0 | - | tests/db/_b2Helpers
+    tests/db/mi11GateActionsPermission.test.ts | 0 | - | tests/db/_mi11Helpers
+    tests/db/mi11_approve_hold.test.ts | 0 | - | tests/db/_mi11Helpers
+    tests/db/mi11_collision_graph.test.ts | 0 | - | tests/db/_mi11Helpers
+    tests/db/mi11_reject_hold.test.ts | 0 | - | tests/db/_mi11Helpers
+    tests/db/publish_show_rpc.test.ts | 0 | - | tests/db/_b2Helpers
+    tests/db/readfinalizeowned-admin-gate.test.ts | 0 | - | tests/db/_b2Helpers
+    tests/db/reset_crew_member_selection_lifecycle_guard.test.ts | 0 | TEST_DATABASE_URL | tests/db/_b2Helpers
+    tests/db/roleMappingUndoInterplay.db.test.ts | 0 | - | tests/db/_holdsHelpers
+    tests/db/roleVocabDriftPredicate.db.test.ts | 0 | - | tests/db/_b2Helpers
+    tests/db/roster-shift-counts.test.ts | 0 | - | tests/db/_holdsHelpers
+    tests/db/stagedApplyIdentityLink.db.test.ts | 0 | - | tests/db/_holdsHelpers
+    tests/db/supersession-both-writers.test.ts | 0 | - | tests/db/_holdsHelpers
+    tests/db/unarchiveShowBehaviorPreserved.db.test.ts | 0 | - | tests/db/_b2Helpers
+    tests/db/unarchive_show_rpc.test.ts | 0 | - | tests/db/_b2Helpers
+    tests/db/undo-before-image-cleanup.test.ts | 0 | - | tests/db/_holdsHelpers
+    tests/db/undo-before-image-pre-apply.test.ts | 0 | - | tests/db/_holdsHelpers
+    tests/db/undo-change-direction-a.test.ts | 0 | - | tests/db/_holdsHelpers
+    tests/db/undo-change-guards.test.ts | 0 | - | tests/db/_holdsHelpers
+    tests/db/undo-change-tombstone.test.ts | 0 | - | tests/db/_holdsHelpers
+    tests/db/undo-closed-group-not-undoable.test.ts | 0 | - | tests/db/_mi11Helpers
+    tests/db/undo-rename-reversal.test.ts | 0 | - | tests/db/_holdsHelpers
+    tests/db/undo-rename-successor-supersession.test.ts | 0 | - | tests/db/_holdsHelpers
+    tests/db/undo-tombstone-direct-call-boundary.test.ts | 0 | - | tests/db/_holdsHelpers
+    tests/db/undo_change_lifecycle_guard.test.ts | 0 | - | tests/db/_holdsHelpers
+    tests/db/unpublish_show_rpc.test.ts | 0 | - | tests/db/_b2Helpers
+    tests/e2e/admin-lifecycle-layout.spec.ts | 0 | - | tests/db/_b2Helpers
+    tests/e2e/admin-lifecycle-transitions.spec.ts | 0 | - | tests/db/_b2Helpers
+    tests/e2e/dev-capture.spec.ts | 0 | - | tests/e2e/helpers/devCaptureStaged
+    tests/e2e/tap-target-inline-controls.layout.spec.ts | 0 | - | tests/e2e/helpers/devCaptureStaged
+    tests/sync/feed/readShowChangeFeed.staleness.test.ts | 0 | - | tests/db/_mi11Helpers
+    tests/sync/unpublishArchiveParity.test.ts | 0 | - | tests/db/_b2Helpers
+
+INCIDENT REPLAY — live literals with unqualified or quoted-qualified destructive calls: 8
+    tests/db/_metaLocalDbUrlGuard.test.ts: they execute reset_validation_data(), so they were the highest-blast-radius 
+    tests/db/destructiveResetGate.test.ts: reset_validation_data() EXECUTE is revoked from authenticated (service-role-only
+    tests/db/destructiveResetGate.test.ts: authenticated role must NOT have EXECUTE on reset_validation_data() after migrat
+    tests/db/destructiveResetGate.test.ts: reset_validation_data() raises 'destructive reset not enabled' for service_role 
+    tests/db/resetValidationData.test.ts: reset_validation_data() — full reset behaviour
+    tests/db/resetValidationDataConcurrency.test.ts: reset_validation_data() — in-flight advisory-lock serialization
+    tests/db/resetValidationDataDriveKeyedAudit.test.ts: reset_validation_data() — drive-keyed completeness audit
+    tests/db/resetValidationDataDriveKeyedAudit.test.ts: " in reset_validation_data()
+    tests/db/resetValidationDataFkAudit.test.ts: reset_validation_data() — FK-ordering audit
+    tests/db/resetValidationDataFkAudit.test.ts: " of shows must be explicit-deleted in reset_validation_data()
+    tests/db/resetValidationDataPostgrest.test.ts: reset_validation_data() wipes ALL shows — refusing to run against a remote Postg
+    tests/db/resetValidationDataPostgrest.test.ts: reset_validation_data() over PostgREST (safeupdate live-integration)
+    tests/db/resetValidationDataPostgrest.test.ts: reset_validation_data() was rejected over PostgREST — a bare DELETE/UPDATE 
+    tests/db/syncLogIndexesAndPrune.db.test.ts: prune_sync_log (spec §3.5)
+
+shipped DISCOVERY_PATTERNS on constructed spellings:
+    DISCOVERED  select public.prune_sync_log()
+    not discovered  select prune_sync_log()
+    not discovered  select "public"."prune_sync_log"()
+    DISCOVERED  select PUBLIC.Prune_Sync_Log()
+    not discovered  select public .prune_sync_log()
+    not discovered  select reset_validation_data()
+    not discovered  select "public".reset_validation_data()
+
+control tests/db/syncLogIndexesAndPrune.db.test.ts discovered today: true
+constructed unqualified file: discovered=false; analyzer verdict if it WERE discovered: {"ok":false,"reason":"no loopback guard is called"}
