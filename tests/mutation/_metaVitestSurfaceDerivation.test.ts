@@ -216,3 +216,72 @@ describe("AC-7 — the builders are excluded by construction, and the direction 
     expect(derived).not.toContain("bench");
   });
 });
+
+describe("the per-side split reaches the CONDITIONAL members too", () => {
+  // Diff round 1 at base e5d1d723d69c, F4. `deriveModifiersFor` split the
+  // chainable members per side and then unioned `conditionalMembers`, which
+  // looped over BOTH `SuiteAPI` and `TestAPI` into one set — so the exact
+  // distinction-loss the split exists to close survived one function below it.
+  //
+  // It could not be caught by any assertion over the LIVE declaration, because
+  // Vitest declares `runIf` and `skipIf` on both sides today: the union and the
+  // per-side read agree, and will go on agreeing until the day they matter.
+  // That is why the justification in the source ("declared once for both sides
+  // and so belong to each") was a snapshot fact rather than a checkable
+  // condition, and why this fixture supplies the declaration that separates
+  // them instead of waiting for an upstream release to do it.
+  const SYNTHETIC = `
+    type ChainableSuiteAPI = ChainableFunction<"only" | "skip", unknown, { each: unknown }>;
+    type ChainableTestAPI = ChainableFunction<"only" | "skip", unknown, { each: unknown }>;
+    type SuiteAPI = ChainableSuiteAPI & { suiteIf: (condition: unknown) => void };
+    type TestAPI = ChainableTestAPI & { testIf: (condition: unknown) => void };
+  `;
+
+  const synthetic = (): Parameters<typeof deriveModifiersFor>[1] => {
+    const sf = ts.createSourceFile("synthetic.d.ts", SYNTHETIC, ts.ScriptTarget.Latest, true);
+    const aliases = new Map<string, ts.TypeAliasDeclaration>();
+    const interfaces = new Map<string, ts.InterfaceDeclaration>();
+    const walk = (n: ts.Node): void => {
+      if (ts.isTypeAliasDeclaration(n)) aliases.set(n.name.text, n);
+      if (ts.isInterfaceDeclaration(n)) interfaces.set(n.name.text, n);
+      ts.forEachChild(n, walk);
+    };
+    walk(sf);
+    return { aliases, interfaces, consts: [] };
+  };
+
+  it("a side-specific conditional is authorized on THAT SIDE ONLY", () => {
+    const decls = synthetic();
+    const suite = deriveModifiersFor("suite", decls);
+    const test = deriveModifiersFor("test", decls);
+
+    // The premise: a fixture whose two sides do not actually differ makes every
+    // assertion below vacuously true, and the whole point is the difference.
+    premise(
+      "the fixture declares a suite-only conditional",
+      suite.filter((m) => m === "suiteIf").length,
+      0,
+    );
+    premise(
+      "the fixture declares a test-only conditional",
+      test.filter((m) => m === "testIf").length,
+      0,
+    );
+
+    expect(suite).toContain("suiteIf");
+    expect(suite).not.toContain("testIf");
+    expect(test).toContain("testIf");
+    expect(test).not.toContain("suiteIf");
+  });
+
+  it("the union is still the union — the per-side split does not lose members", () => {
+    // The twin. Without it, a derivation that returned the EMPTY set per side
+    // would satisfy both `not.toContain` assertions above.
+    const decls = synthetic();
+    const suite = deriveModifiersFor("suite", decls);
+    const test = deriveModifiersFor("test", decls);
+    expect([...new Set([...suite, ...test])].sort()).toEqual(
+      ["each", "only", "skip", "suiteIf", "testIf"].sort(),
+    );
+  });
+});

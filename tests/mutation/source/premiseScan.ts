@@ -2,6 +2,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
 
 import ts from "typescript";
+import {
+  isTransparent,
+  skipTransparent,
+  skipTransparentNode,
+} from "../../_shared/outerExpressions";
 
 /**
  * Classify each test in a suite by whether it can reach environment state
@@ -178,13 +183,26 @@ const PREMISE_CALLS = /^premise(Holds)?$/;
  * on an unrelated object over-reports (§5 L5) -- a conservative report with a
  * named cause, which the bound permits.
  */
-/** Wrappers that change how an expression is written and not which name it
- *  denotes. A predicate rather than a peeling helper: see `calleeChain`. */
-function isWrapperExpression(
-  e: ts.Expression,
-): e is ts.ParenthesizedExpression | ts.AsExpression | ts.NonNullExpression {
-  return ts.isParenthesizedExpression(e) || ts.isAsExpression(e) || ts.isNonNullExpression(e);
-}
+/**
+ * DELETED, NOT NARROWED: the hand-written wrapper list this file used to carry.
+ *
+ * It named parentheses, `as` and `!`, which is three of the SIX kinds
+ * TypeScript itself calls outer expressions -- `satisfies` and the angle-bracket
+ * assertion were simply absent, and nothing in the file could notice, because an
+ * enumeration is a completeness claim that no test can falsify without already
+ * knowing the missing member. Whole-diff review round 1 supplied the one it
+ * knew: `(test.beforeEach satisfies any)(envHook)` left the sibling test
+ * `environment-free` while that hook read `process.env`. FALSE CERTIFICATION,
+ * the direction the bound names first, arriving through a list rather than
+ * through logic.
+ *
+ * The repair is SUBTRACTIVE and it is the same move this arc has now made three
+ * times: replace "which members are transparent" -- an open set of spellings --
+ * with the closed question "does the compiler consider this transparent". The
+ * answer lives in `tests/_shared/outerExpressions.ts`, which fails loud rather
+ * than degrading to a list. Widening the list by two kinds would have shipped
+ * the same defect one round later.
+ */
 
 /**
  * What a callee's name resolves to. THREE states, not two.
@@ -219,7 +237,7 @@ type CalleeName =
  * over - a computed key - is genuinely undecidable, and that is what declines.
  */
 function calleeName(callee: ts.Expression, propertyAccessCounts: boolean): CalleeName {
-  while (isWrapperExpression(callee)) callee = callee.expression;
+  callee = skipTransparent(callee);
   if (ts.isIdentifier(callee)) return { kind: "named", name: callee.text };
   if (propertyAccessCounts && ts.isPropertyAccessExpression(callee))
     return { kind: "named", name: callee.name.text };
@@ -243,13 +261,60 @@ function calleeName(callee: ts.Expression, propertyAccessCounts: boolean): Calle
     // (`computed-key-competing-declaration.ts` on the sendauth branch), which
     // kills exactly this: an unwrap applied to the callee and not to the key.
     let arg: ts.Expression = callee.argumentExpression;
-    while (isWrapperExpression(arg)) arg = arg.expression;
+    arg = skipTransparent(arg);
     if (propertyAccessCounts && ts.isStringLiteralLike(arg))
       return { kind: "named", name: arg.text };
     if (ts.isStringLiteralLike(arg)) return { kind: "nameless" };
+    // A STATICALLY DECIDABLE key that is not a string is NAMELESS, not
+    // undecidable. `handlers[0](cb)` and `flags[true](cb)` read a member whose
+    // name the compiler knows exactly, and it is a name no registrar and no
+    // hook has ever borne -- there is nothing here to be unsure about.
+    //
+    // Filing them under `unrecognized` was over-broad in the direction that
+    // COSTS: `calleeMightBeNamed` carries `unrecognized` as MAYBE, so
+    // `handlers[0](() => process.env.CI)` had its callback attached to every
+    // sibling test in the enclosing suite, reporting them touching with NO
+    // named cause. A conservative verdict reached by inventing a hook is not a
+    // documented limit, it is a wrong attribution wearing one's clothes (diff
+    // round 1 at base e5d1d723d69c, F3).
+    //
+    // This is the SAME narrowing already applied once in this function, at one
+    // remove: `unrecognized` had been the default for everything unfamiliar,
+    // was narrowed to element-access keys, and was STILL a bucket holding keys
+    // that are perfectly decidable. It means exactly one thing -- the source
+    // does not say which member this is -- and every widening of it is a
+    // widening of MAYBE.
+    if (isDecidableNonStringKey(arg)) return { kind: "nameless" };
     return { kind: "unrecognized" };
   }
   return { kind: "nameless" };
+}
+
+/**
+ * A key whose member name the compiler can read off the source, and which is
+ * not a string. Deliberately a SMALL closed set of literal forms rather than
+ * "anything that is not an identifier": the question this answers is "can this
+ * be decided", and for a call, a template with substitutions, or a bare
+ * identifier the honest answer is no.
+ *
+ * `-1` is included because `a[-1]` is a prefix-unary over a numeric literal and
+ * is exactly as decidable as `a[1]`; excluding it would have left a decidable
+ * form in the MAYBE bucket for no reason a reader could reconstruct.
+ */
+function isDecidableNonStringKey(arg: ts.Expression): boolean {
+  if (ts.isNumericLiteral(arg) || ts.isBigIntLiteral(arg)) return true;
+  if (
+    arg.kind === ts.SyntaxKind.TrueKeyword ||
+    arg.kind === ts.SyntaxKind.FalseKeyword ||
+    arg.kind === ts.SyntaxKind.NullKeyword
+  )
+    return true;
+  if (
+    ts.isPrefixUnaryExpression(arg) &&
+    (arg.operator === ts.SyntaxKind.MinusToken || arg.operator === ts.SyntaxKind.PlusToken)
+  )
+    return ts.isNumericLiteral(arg.operand) || ts.isBigIntLiteral(arg.operand);
+  return false;
 }
 
 function calleeNamed(callee: ts.Expression, names: RegExp, propertyAccessCounts: boolean): boolean {
@@ -319,10 +384,10 @@ function calleeChain(callee: ts.Expression): CalleeChain {
     // laundering made the authority invisible to the check that exists to find
     // it. A predicate decides WHETHER to peel; the peel itself stays an
     // assignment the tracker can follow.
-    while (isWrapperExpression(node)) node = node.expression;
+    node = skipTransparent(node);
     if (ts.isCallExpression(node)) {
       let inner: ts.Expression = node.expression;
-      while (isWrapperExpression(inner)) inner = inner.expression;
+      inner = skipTransparent(inner);
       // The modifier a call was curried from, through the SAME decider the rest
       // of the file uses. Reading `inner.name.text` inline accepted only the dot
       // spelling, so `test.skipIf(c)["each"](rows)` lost its modifier and the
@@ -344,7 +409,7 @@ function calleeChain(callee: ts.Expression): CalleeChain {
     }
     break;
   }
-  while (isWrapperExpression(node)) node = node.expression;
+  node = skipTransparent(node);
   const rooted = calleeName(node, false);
   const root = rooted.kind === "named" && REGISTRARS.has(rooted.name) ? rooted.name : null;
   if (root !== null) {
@@ -1029,8 +1094,9 @@ function bindPatternIsModelled(name: ts.BindingName): boolean {
 
 function modelledDynamicDeclaration(call: ts.CallExpression): ts.VariableDeclaration | null {
   let p: ts.Node = call;
-  while (p.parent && (ts.isAwaitExpression(p.parent) || ts.isParenthesizedExpression(p.parent)))
-    p = p.parent;
+  // `await` is NOT transparent in TypeScript's sense — it changes the value —
+  // so it stays named here. The wrapper half is the derived question.
+  while (p.parent && (ts.isAwaitExpression(p.parent) || isTransparent(p.parent))) p = p.parent;
   const parent = p.parent;
   if (parent && ts.isVariableDeclaration(parent) && parent.initializer === p)
     return bindPatternIsModelled(parent.name) ? parent : null;
@@ -1605,17 +1671,15 @@ function moduleFacts(path: string): ModuleFacts | null {
   };
 }
 
-/** Strip parentheses and `as` casts, which otherwise hide the real callee. */
+/** Strip the wrappers that otherwise hide the real callee.
+ *
+ *  A PEER of the callee-chain defect, found by the guard written for that one
+ *  rather than by the review that reported it: this list named four of the six
+ *  kinds and was missing the same angle-bracket assertion. Delegating rather
+ *  than widening, for the reason the shared module states — a normalizer with
+ *  four copies in one file drifts, and here it had. */
 function unwrap(node: ts.Expression): ts.Expression {
-  let n: ts.Expression = node;
-  while (
-    ts.isParenthesizedExpression(n) ||
-    ts.isAsExpression(n) ||
-    ts.isNonNullExpression(n) ||
-    ts.isSatisfiesExpression(n)
-  )
-    n = n.expression;
-  return n;
+  return skipTransparent(node);
 }
 
 /** Does this binding pattern or assignment pattern extract a property named `env`? */
@@ -1648,13 +1712,10 @@ function bindsEnv(target: ts.Node): boolean {
 function extractsEnvFrom(node: ts.Node): boolean {
   let cur: ts.Node = node;
   let p: ts.Node | undefined = cur.parent;
-  while (
-    p !== undefined &&
-    (ts.isParenthesizedExpression(p) ||
-      ts.isAsExpression(p) ||
-      ts.isNonNullExpression(p) ||
-      ts.isSatisfiesExpression(p))
-  ) {
+  // Peer instance, same missing kinds. This walk climbs PARENTS, so it asks
+  // the one-node question rather than the skip — `isTransparent` is derived
+  // from the same skip precisely so this site cannot become a second list.
+  while (p !== undefined && isTransparent(p)) {
     cur = p;
     p = p.parent;
   }
@@ -1957,6 +2018,7 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
     ...facts.moduleReports,
     ...eagerPositionHookReports(facts).map((r) => withModule(r, abs)),
     ...unfollowableFactoryReports(facts).map((r) => withModule(r, abs)),
+    ...undecidableRegistrarReports(facts).map((r) => withModule(r, abs)),
   ];
 
   const suiteText = facts.sf.getFullText();
@@ -2191,17 +2253,12 @@ function hookBodies(describeCall: ts.CallExpression): ts.Node[] {
  * than merely incomplete, which is what diff round 6 caught.
  */
 function unwrapTransparent(arg: ts.Node): ts.Node {
-  let node: ts.Node = arg;
-  while (
-    ts.isParenthesizedExpression(node) ||
-    ts.isAsExpression(node) ||
-    ts.isSatisfiesExpression(node) ||
-    ts.isNonNullExpression(node) ||
-    ts.isTypeAssertionExpression(node) ||
-    ts.isExpressionWithTypeArguments(node)
-  )
-    node = node.expression;
-  return node;
+  // This copy was the COMPLETE one — diff round 6 had already paid for the
+  // missing `ExpressionWithTypeArguments` here. That is the whole argument
+  // against keeping copies: the same fact had to be learned separately at each
+  // one, and three of the four never learned it. Delegating means the next kind
+  // arrives everywhere at once.
+  return skipTransparentNode(arg);
 }
 
 function isSuiteBody(arg: ts.Expression): boolean {
@@ -2487,6 +2544,68 @@ function isInertLiteral(arg: ts.Expression): boolean {
  * the live corpus from 1 `unclassifiable` to 398 on one ordinary registration
  * whose named timeout constant is not an inert literal.
  */
+/**
+ * Reason wording for an UNDECIDABLE REGISTRAR KEY, exported so a test asserts
+ * against the shipped formatter rather than a second copy of the sentence.
+ *
+ * It names the receiver, because the receiver is the whole reason this is
+ * reportable: `test[k](...)` is a registration whose registrar the source does
+ * not say, and `TEMPLATES[position](...)` is not a registration at all.
+ */
+export function undecidableRegistrarKeyReason(receiver: string, line: number): string {
+  return `the call at line ${line} reads a member of \`${receiver}\` through a key this scanner cannot decide, so whether it registers a test or a suite, and under which spelling, is unknown,`;
+}
+
+/**
+ * Producer: a registration whose REGISTRAR is undecidable is reported, not
+ * dropped.
+ *
+ * `registrarRoot` answers `null` for two situations a caller cannot tell apart
+ * -- "this call is not a registration" and "this call may well be one and the
+ * source does not say" -- and every caller read it as the first. So
+ * `test[k]("computed", () => process.env.CI)` produced NO RECORD AT ALL: not a
+ * wrong verdict, no verdict, a test absent from the census with nothing
+ * anywhere saying so. The bound this arc ships under permits a conservative
+ * verdict with a named cause and forbids silence, and a dropped registration is
+ * the purest silence available (diff round 1 at base e5d1d723d69c, F2).
+ *
+ * SCOPED BY THE RECEIVER, and the scope was measured before it was chosen. The
+ * wide form -- report every undecidable element-access callee -- was rejected
+ * against the live corpus: 77 suites contain exactly ONE element-access callee,
+ * `TEMPLATES[position]` in this arc's own suite, a fixture-template lookup that
+ * registers nothing. The wide rule would have flipped that file to
+ * `unclassifiable` for a construct that is not a registration, which is the
+ * over-report the bound calls a cost rather than a virtue. Asking whether the
+ * RECEIVER is a registrar is the same closed question the rest of this file
+ * settles on: not what the member is, but where the chain starts. It fires on
+ * zero live-corpus sites today, which is the point -- it is a tripwire for a
+ * spelling nobody currently writes, and the arc's own history says those arrive.
+ */
+function undecidableRegistrarReports(facts: ModuleFacts): string[] {
+  const out: string[] = [];
+  const sf = facts.sf;
+  const walk = (n: ts.Node): void => {
+    if (ts.isCallExpression(n)) {
+      const callee = skipTransparent(n.expression);
+      if (ts.isElementAccessExpression(callee)) {
+        const key = calleeName(callee, true);
+        if (key.kind === "unrecognized") {
+          // The receiver is resolved through the SAME name authority, so a
+          // wrapped or bracketed receiver is read exactly as a bare one.
+          const recv = calleeName(skipTransparent(callee.expression), true);
+          if (recv.kind === "named" && REGISTRARS.has(recv.name)) {
+            const line = sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
+            out.push(undecidableRegistrarKeyReason(recv.name, line));
+          }
+        }
+      }
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(sf);
+  return out;
+}
+
 function unfollowableFactoryReports(facts: ModuleFacts): string[] {
   const out: string[] = [];
   const sf = facts.sf;
@@ -2675,7 +2794,9 @@ function runsAtModuleLoad(node: ts.Node): boolean {
       const invoked =
         caller !== undefined &&
         ((ts.isCallExpression(caller) && caller.expression === p) ||
-          (ts.isParenthesizedExpression(caller) &&
+          // `(f)()` was handled and `(f as any)()` was not — the same partial
+          // list, in the one place it decides whether a function is INVOKED.
+          (isTransparent(caller) &&
             caller.parent !== undefined &&
             ts.isCallExpression(caller.parent) &&
             caller.parent.expression === caller));

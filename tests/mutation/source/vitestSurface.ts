@@ -166,20 +166,19 @@ const CONDITION_PARAMETER = "condition";
  * falsifies AC-2's upgrade-red claim while every equality check still passes
  * (plan review r4 finding 3).
  */
-function conditionalMembers(decls: Declarations): string[] {
+function conditionalMembersFor(side: "suite" | "test", decls: Declarations): string[] {
+  const typeName = side === "suite" ? "SuiteAPI" : "TestAPI";
   const out = new Set<string>();
-  for (const typeName of ["SuiteAPI", "TestAPI"]) {
-    for (const member of intersectionMembers(decls, typeName)) {
-      if (!ts.isPropertySignature(member) || !ts.isIdentifier(member.name)) continue;
-      const type = member.type;
-      if (type === undefined || !ts.isFunctionTypeNode(type)) continue;
-      const takesCondition = type.parameters.some(
-        (p) => ts.isIdentifier(p.name) && p.name.text === CONDITION_PARAMETER,
-      );
-      if (takesCondition) out.add(member.name.text);
-    }
+  for (const member of intersectionMembers(decls, typeName)) {
+    if (!ts.isPropertySignature(member) || !ts.isIdentifier(member.name)) continue;
+    const type = member.type;
+    if (type === undefined || !ts.isFunctionTypeNode(type)) continue;
+    const takesCondition = type.parameters.some(
+      (p) => ts.isIdentifier(p.name) && p.name.text === CONDITION_PARAMETER,
+    );
+    if (takesCondition) out.add(member.name.text);
   }
-  return floor("SuiteAPI/TestAPI conditional members", [...out]);
+  return floor(`${typeName} conditional members`, [...out]);
 }
 
 /** The modifiers ONE side of the API declares.
@@ -196,14 +195,34 @@ function conditionalMembers(decls: Declarations): string[] {
  *  declaration separates gave back the drift the derivation existed to remove,
  *  in the FREE direction rather than the strict one.
  *
- *  Conditional members (`runIf`, `skipIf`) are declared once for both sides and
- *  so belong to each. */
+ *  CONDITIONAL MEMBERS ARE READ PER SIDE TOO, and this is where the repair above
+ *  was incomplete. Splitting the CHAINABLE members per side while leaving
+ *  `conditionalMembers` looping over `SuiteAPI` AND `TestAPI` into one set left
+ *  the same distinction-loss alive one layer down: an in-memory declaration with
+ *  a suite-only `suiteIf(condition)` and a test-only `testIf(condition)`
+ *  authorized BOTH on BOTH sides, and every equality test agreed, because the
+ *  tests derive from the same flattened source (diff round 1 at base
+ *  e5d1d723d69c, F4).
+ *
+ *  The justification for the flattening was "declared once for both sides and so
+ *  belong to each" -- TRUE TODAY, and a snapshot fact rather than a checkable
+ *  condition. Nothing re-derived it, so an ordinary Vitest upgrade adding a
+ *  side-specific conditional would have silently falsified it while the
+ *  derivation went on reporting a union. Reading each side's own declaration
+ *  makes the claim structural: if the two sides do coincide, they coincide
+ *  because the declaration says so, freshly, every run.
+ *
+ *  This is the same-PR default of the class-sweep rule failing at one remove. I
+ *  swept the modifier SETS and stopped at the function that produced them,
+ *  leaving a peer instance of one shape in a neighbouring function in the same
+ *  file. "Same defect, different function" is exactly the case that default
+ *  covers, and no deferral exception applies to it. */
 export function deriveModifiersFor(
   side: "suite" | "test",
   decls: Declarations = readDeclarations(),
 ): string[] {
   const api = chainableMembers(decls, side === "suite" ? "ChainableSuiteAPI" : "ChainableTestAPI");
-  return [...new Set([...api.chain, ...api.curried, ...conditionalMembers(decls)])].sort();
+  return [...new Set([...api.chain, ...api.curried, ...conditionalMembersFor(side, decls)])].sort();
 }
 
 /** premiseScan's `MODIFIERS`: the union, for the sites that legitimately need

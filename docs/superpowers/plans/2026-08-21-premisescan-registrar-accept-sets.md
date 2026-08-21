@@ -541,44 +541,80 @@ diff <(grep -v -F -f /tmp/edited-suites.txt /tmp/census-before.txt) \
 ! grep '^>' /tmp/unedited.diff | grep -qv '^> environment-free' \
   || { echo "FAIL: an addition outside the edited suites is not environment-free"; exit 1; }
 
-# (b) EDITED suites: additions AND RENAMES, keyed by (VERDICT, SUITE).
-# A rename is a remove plus an add at the SAME verdict IN THE SAME SUITE, so a
-# blanket zero-removals rule rejects one - and rejects it on this very branch.
-# But keying by verdict ALONE across all edited suites lets one suite's deletion
-# be paid for by another suite's unrelated addition: applying that arithmetic to
-# one deleted free record in suite A and one added free record in suite B yields
-# before=2, after=2, lost=[], success. The same masking works inside one suite
-# whenever any same-verdict addition accompanies a deletion. The key must be the
-# pair (diff review r2, F4).
+# (b) EDITED suites: additions AND DECLARED RENAMES, keyed by the RECORD.
+#
+# THIS CHECK HAS NOW BEEN REWRITTEN THREE TIMES ON ONE AXIS (diff r2 F4, r3 F5,
+# r1-at-e5d1d723d69c F5) and each earlier repair edited the COUNTING. That is the
+# drip the same-vector-recurrence rule names, so the counting is gone rather than
+# refined.
+#
+# Why counting could never work here, at any key: a rename is a removal plus an
+# addition, and so is a SUBSTITUTION of one registration for an unrelated one.
+# The two are indistinguishable in any aggregate, because the aggregate is
+# exactly what they have in common. Keying the count by (verdict, suite) made the
+# masking narrower and left it intact -- this branch adds many free records to
+# `premiseScan.test.ts`, so a pre-existing free registration there could vanish
+# under one of them and the count would not move.
+#
+# The census already emits the key that settles it -- `verdict | suite | name
+# #ordinal`, one line per registration -- and the check was throwing it away.
+# Now: a real set difference over those lines. EVERY removal fails unless it is
+# DECLARED below as a rename with its replacement. A rename is a claim about
+# intent that no diff can infer, so it is written down and adjudicated, which is
+# what the prose has claimed since r2 while the commands counted.
+cat > /tmp/declared-renames.txt <<'RENAMES'
+# One per line: <old record line>  =>  <new record line>, both verbatim census
+# lines. Empty means this branch renames nothing and every removal is a failure.
+RENAMES
+
 pnpm exec tsx --eval '
 import { readFileSync } from "node:fs";
 const edited = readFileSync("/tmp/edited-suites.txt", "utf8").split("\n").filter(Boolean);
-const suiteOf = (line: string): string | null => edited.find((e) => line.includes(e)) ?? null;
-const counts = (p: string): Map<string, number> => {
+const inEdited = (line: string): boolean => edited.some((e) => line.includes(e));
+const load = (p: string): string[] =>
+  readFileSync(p, "utf8").split("\n").filter((l) => l.trim() !== "" && inEdited(l));
+// MULTISET difference, not Set difference. Two registrations can share a key
+// only if the census ordinal failed, and if it ever does, a Set would silently
+// absorb the duplicate and under-report the loss.
+const bag = (xs: string[]): Map<string, number> => {
   const m = new Map<string, number>();
-  for (const line of readFileSync(p, "utf8").split("\n")) {
-    const suite = line ? suiteOf(line) : null;
-    if (suite === null) continue;
-    // (verdict, suite) - NOT verdict alone. A pair cannot be cross-subsidised.
-    const key = `${line.split(" | ")[0].trim()} @ ${suite}`;
-    m.set(key, (m.get(key) ?? 0) + 1);
-  }
+  for (const x of xs) m.set(x, (m.get(x) ?? 0) + 1);
   return m;
 };
-const before = counts("/tmp/census-before.txt");
-const after = counts("/tmp/census-after.txt");
-const lost = [...before].filter(([k, n]) => (after.get(k) ?? 0) < n);
-// Print removals BESIDE their matching additions, so a reader can see the
-// rename rather than trust that one happened - the prose claimed this and the
-// commands did not do it.
-const gained = [...after].filter(([k, n]) => n > (before.get(k) ?? 0));
-console.log(`per (verdict, suite): ${before.size} keys before, ${after.size} after`);
-for (const [k, n] of lost) console.log(`  LOST    ${k}: ${before.get(k)} -> ${n === undefined ? 0 : after.get(k) ?? 0}`);
-for (const [k, n] of gained) console.log(`  GAINED  ${k}: ${before.get(k) ?? 0} -> ${n}`);
-if (lost.length > 0) {
-  console.error(`FAIL: a (verdict, suite) pair lost records: ${JSON.stringify(lost)}`);
+const before = bag(load("/tmp/census-before.txt"));
+const after = bag(load("/tmp/census-after.txt"));
+const removed: string[] = [];
+const added: string[] = [];
+for (const [k, n] of before) for (let i = 0; i < n - (after.get(k) ?? 0); i++) removed.push(k);
+for (const [k, n] of after) for (let i = 0; i < n - (before.get(k) ?? 0); i++) added.push(k);
+const declared = new Map<string, string>();
+for (const line of readFileSync("/tmp/declared-renames.txt", "utf8").split("\n")) {
+  if (line.trim() === "" || line.trimStart().startsWith("#")) continue;
+  const [from, to] = line.split("=>").map((x) => x.trim());
+  if (from === undefined || to === undefined || from === "" || to === "")
+    { console.error(`FAIL: unparseable declared rename: ${line}`); process.exit(1); }
+  declared.set(from, to);
+}
+console.log(`records in edited suites: ${[...before.values()].reduce((a, b) => a + b, 0)} before, ${[...after.values()].reduce((a, b) => a + b, 0)} after`);
+for (const r of added) console.log(`  ADDED    ${r}`);
+for (const r of removed) console.log(`  REMOVED  ${r}`);
+const undeclared: string[] = [];
+for (const r of removed) {
+  const to = declared.get(r);
+  // A declared rename must name a replacement that ACTUALLY ARRIVED. Otherwise
+  // the declaration is a way to delete a record by writing a sentence.
+  if (to === undefined) { undeclared.push(`${r}  (no declaration)`); continue; }
+  const idx = added.indexOf(to);
+  if (idx === -1) { undeclared.push(`${r}  (declared -> ${to}, which is NOT among the additions)`); continue; }
+  added.splice(idx, 1);
+  console.log(`  RENAMED  ${r}\n        -> ${to}`);
+}
+if (undeclared.length > 0) {
+  console.error("FAIL: records left the edited suites without a declared rename:");
+  for (const u of undeclared) console.error(`  ${u}`);
   process.exit(1);
 }
+console.log(`(b) holds: ${removed.length} removal(s), all declared and all matched`);
 ' || exit 1
 
 # (c) AC-1, over the UNEDITED population. Restricted deliberately: an edited
@@ -617,9 +653,24 @@ tomorrow is covered by default rather than becoming a false failure.
 **AC-1 AND A RENAME ARE DIFFERENT CLAIMS, AND CHECK (c) MUST NOT CONFLATE THEM.** AC-1 says the
 CLASSIFIER does not move verdicts. A test RENAMED in an edited suite changes a record's identity — it
 is a remove plus an add at the same verdict — without any classification changing. So (c) is
-evaluated over the UNEDITED population, where AC-1's claim actually bites, and every removal inside an
-edited suite is PRINTED with its matching addition so a rename is shown rather than silently allowed
-or wrongly failed. A genuine loss is caught separately: the per-(verdict, suite) count must not fall.
+evaluated over the UNEDITED population, where AC-1's claim actually bites, and a removal inside an
+edited suite is (b)'s business rather than (c)'s.
+
+**(b) DECLARES RENAMES; IT DOES NOT INFER THEM, AND IT NO LONGER COUNTS ANYTHING.** Three successive
+versions of this check compared aggregate counts — first by verdict, then by (verdict, suite) — and a
+review round refuted each. The refutations were not about the key. A rename is a removal plus an
+addition and so is a SUBSTITUTION of one registration for an unrelated one; an aggregate is precisely
+what the two have in common, so no key makes counting able to tell them apart. This branch adds many
+free records to `premiseScan.test.ts`, which is enough to pay for a pre-existing free record
+disappearing there at any count granularity.
+
+So (b) takes a multiset difference over the census's own record lines — `verdict | suite | name
+#ordinal`, the key it was already emitting and the check was already discarding — prints every
+addition and every removal, and FAILS on any removal that is not DECLARED, by hand, alongside the
+addition that replaces it. A declared rename whose replacement never arrived also fails, so the
+declaration cannot become a way to delete a record by writing a sentence. Intent is not derivable
+from a diff; writing it down is the only honest form, and it is what this prose has claimed since the
+first refutation while the commands counted.
 
 **Every new case must be environment-FREE, and that is a requirement on how the cases are written,
 not a prediction.** The fixtures are source STRINGS passed to `classifyTests`; a string literal

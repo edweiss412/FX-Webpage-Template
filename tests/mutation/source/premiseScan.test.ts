@@ -15,6 +15,7 @@ import {
   hookAttachmentReports,
   type TestClassification,
   unfollowableFactoryReason,
+  undecidableRegistrarKeyReason,
 } from "./premiseScan";
 
 const ROOT = join(__dirname, "..", "..", "..");
@@ -4081,6 +4082,152 @@ describe("AC-5 — a modifier the ROOT's side does not declare is no registratio
        });`,
     );
     expect(all.find((t) => t.testName === "outerSibling")?.verdict).toBe("environment-free");
+  });
+});
+
+describe("wrapper transparency is the COMPILER's answer, not a list (diff r1 F1)", () => {
+  // The file used to carry a hand-written wrapper predicate naming parentheses,
+  // `as` and `!` — three of the six kinds TypeScript itself calls outer
+  // expressions. Nothing could notice the other three were missing, because an
+  // enumeration is a completeness claim no test can falsify without already
+  // knowing which member is absent. Review supplied one: `satisfies`.
+  //
+  // So the cases below are the SYMPTOM, and the structural assertion at the end
+  // is the actual guard. A test per known spelling is another enumeration, and
+  // would pass just as happily on the next list that is missing a seventh kind.
+  const WRAPPED = {
+    bare: "test",
+    paren: "(test)",
+    "double paren": "((test))",
+    as: "(test as any)",
+    "non-null": "(test!)",
+    satisfies: "(test satisfies any)",
+    angle: "(<typeof test>test)",
+    "as + paren": "((test as any))",
+  } as const;
+
+  for (const [label, spelling] of Object.entries(WRAPPED))
+    it(`${label}: the registration is SEEN`, () => {
+      const all = classificationsWithModules({}, `${spelling}("x", () => {});`);
+      expect(all.map((t) => t.testName)).toEqual(["x"]);
+    });
+
+  for (const [label, spelling] of Object.entries(WRAPPED))
+    it(`${label}: a hook reached through it is not lost to a silent free`, () => {
+      // The direction that matters. A missing wrapper kind did not merely drop
+      // a record — it certified: `(test.beforeEach satisfies any)(envHook)`
+      // left the sibling `environment-free` while the hook read `process.env`.
+      const all = classificationsWithModules(
+        OUTER_HOOK_HELPER,
+        `import { spawnHelper } from "__MODULE_helper__";
+         ${spelling}.beforeEach(() => { spawnHelper(); });
+         it("sibling", () => {});`,
+      );
+      expect(all.find((t) => t.testName === "sibling")?.verdict).toBe("environment-touching");
+    });
+
+  it("the scanner asks the compiler and keeps NO wrapper list of its own", () => {
+    // THE GUARD, as opposed to the symptoms above. A re-introduced enumeration
+    // reds here on the day it is written rather than on the day someone thinks
+    // of the spelling it omits.
+    //
+    // Comments are stripped first. The file DISCUSSES these predicates at
+    // length in the docstring explaining why they are gone, and a raw scan
+    // flags the explanation as the offence — the use-vs-mention error this
+    // repo has now made in three separate instruments.
+    const src = readFileSync(join(__dirname, "premiseScan.ts"), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/[^\n]*/g, "");
+    const WRAPPER_PREDICATES = [
+      "isParenthesizedExpression",
+      "isAsExpression",
+      "isNonNullExpression",
+      "isSatisfiesExpression",
+      "isTypeAssertionExpression",
+    ];
+    const present = WRAPPER_PREDICATES.filter((n) => src.includes(n));
+    expect(present, `wrapper kinds enumerated in the scanner: ${present.join(", ")}`).toEqual([]);
+    expect(src).toContain("skipTransparent");
+  });
+});
+
+describe("an undecidable registrar key is REPORTED, never dropped (diff r1 F2)", () => {
+  // `registrarRoot` answered `null` for two situations no caller could tell
+  // apart — "not a registration" and "may well be one, and the source does not
+  // say" — so `test[k]("computed", …)` produced no record at all. Not a wrong
+  // verdict: NO verdict, a test absent from the census with nothing saying so.
+  it("the file is unclassifiable, and the reason names the receiver and the line", () => {
+    const c = classificationWithModules(
+      {},
+      `const k = "skip";\ntest[k]("computed", () => { void process.env.CI; });\nit("sibling", () => {});`,
+    );
+    expect(c?.verdict).toBe("unclassifiable");
+    // Against the SHIPPED formatter, so a wording change is one edit and this
+    // case does not quietly stop discriminating.
+    expect(c?.detail).toContain(undecidableRegistrarKeyReason("test", 2));
+  });
+
+  it("a DECIDABLE key still classifies (the twin)", () => {
+    // Without this, the assertion above passes under a scanner that reports
+    // every element-access callee, which is the over-report the scope rejects.
+    const all = classificationsWithModules(
+      {},
+      `test["skip"]("computed", () => { void process.env.CI; });\nit("sibling", () => {});`,
+    );
+    expect(all.find((t) => t.testName === "computed")?.verdict).toBe("environment-touching");
+    expect(all.find((t) => t.testName === "sibling")?.verdict).toBe("environment-free");
+  });
+
+  it("a NON-registrar receiver is silent, which is why the corpus survives it", () => {
+    // The scope was measured before it was chosen: 77 live-corpus suites hold
+    // exactly ONE element-access callee, `TEMPLATES[position]` in this file,
+    // and it registers nothing. Reporting every undecidable element-access
+    // callee would have flipped this very suite to unclassifiable.
+    const all = classificationsWithModules(
+      {},
+      `const position = 0;\nconst TEMPLATES = [(_s: string) => {}];\nTEMPLATES[position]("x");\nit("sibling", () => {});`,
+    );
+    expect(all.find((t) => t.testName === "sibling")?.verdict).toBe("environment-free");
+  });
+});
+
+describe("a decidable non-string key is NAMELESS, not undecidable (diff r1 F3)", () => {
+  // `unrecognized` is carried as MAYBE by every consumer whose non-match grants
+  // freedom, so putting a decidable key in it does not buy conservatism — it
+  // invents a hook. `handlers[0](() => process.env.CI)` had its callback
+  // attached to every sibling test in the enclosing suite, reporting them
+  // touching with no named cause: wrong attribution wearing conservatism's
+  // clothes.
+  const KEYS = ["0", "1", "-1", "true", "false", "null", "0n"];
+  for (const key of KEYS)
+    it(`\`handlers[${key}]\` invents no hook`, () => {
+      const all = classificationsWithModules(
+        OUTER_HOOK_HELPER,
+        `import { spawnHelper } from "__MODULE_helper__";
+         const handlers: Record<string, (f: () => void) => void> = {};
+         describe("S", () => {
+           handlers[${key}](() => { spawnHelper(); });
+           it("sibling", () => {});
+         });`,
+      );
+      expect(all.find((t) => t.testName === "sibling")?.verdict).toBe("environment-free");
+    });
+
+  it("a genuinely undecidable key STILL carries as maybe (the twin)", () => {
+    // The direction check. Without this, the cases above pass under a scanner
+    // that resolved the whole `unrecognized` state away, which would re-open
+    // the false-certification class the three-state decider exists to close.
+    const all = classificationsWithModules(
+      OUTER_HOOK_HELPER,
+      `import { spawnHelper } from "__MODULE_helper__";
+       const k = "beforeEach";
+       const handlers: Record<string, (f: () => void) => void> = {};
+       describe("S", () => {
+         handlers[k](() => { spawnHelper(); });
+         it("sibling", () => {});
+       });`,
+    );
+    expect(all.find((t) => t.testName === "sibling")?.verdict).toBe("environment-touching");
   });
 });
 
