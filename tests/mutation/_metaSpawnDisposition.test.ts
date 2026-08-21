@@ -254,11 +254,20 @@ const DISPOSITIONS: readonly Disposition[] = [
     file: "tests/mutation/source/premiseScan.test.ts",
     member: false,
     reason:
-      "NOT a member — every hit is a source string inside a fixture template, never " +
-      "an executed call. A pattern tight enough to exclude them by shape would have " +
-      "been tight enough to miss a real site.",
-    hits: 91,
-    digest: "4c0d9448a901",
+      "NOT a member — no hit is a child_process spawn. A pattern tight enough to " +
+      "exclude them by shape would have been tight enough to miss a real site. TWO " +
+      "classes, and the second is why this reason was rewritten rather than re-keyed: " +
+      "most hits are source strings inside a FIXTURE TEMPLATE, never executed at all; " +
+      "the rest are `RegExp.prototype.exec` calls, which ARE executed and match only " +
+      "because `exec` is also a node:child_process export name. The earlier wording " +
+      "said every hit was a fixture string, which was already false for one line " +
+      "before this arc and false for two after it. Re-keyed 91/4c0d9448a901 -> " +
+      "94/e4665006d3c5 by the hook-attachment arc: two AC-5 fixture templates carrying " +
+      "`spawnSync` in SOURCE TEXT, plus one regex-exec call in the derivation that reads " +
+      "the shipped HOOK_REGISTRARS. Re-keying is not re-validating, so all three were " +
+      "read: none is a spawn.",
+    hits: 94,
+    digest: "e4665006d3c5",
   },
   {
     kind: "file",
