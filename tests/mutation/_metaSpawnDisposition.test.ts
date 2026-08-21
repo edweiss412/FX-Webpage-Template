@@ -218,6 +218,21 @@ type Disposition =
 
 const DISPOSITIONS: readonly Disposition[] = [
   {
+    // A REGEX LITERAL, not a call. `/run (\d+)/` matches the sweep's own shape —
+    // a spawn name followed by an open paren — because the shape reads TEXT and
+    // cannot tell a call from a pattern that looks like one. That is the
+    // conservative over-report this registry exists to absorb, and the row is the
+    // sanctioned answer to it rather than editing the test to dodge the scanner,
+    // which would leave the next reader no record that the question was asked.
+    kind: "site",
+    file: "tests/mutation/source/determinism.test.ts",
+    line: 637,
+    member: false,
+    reason:
+      "NOT a member — a regex literal parsing the run number out of an infraFaults " +
+      "string, inside a fixed in-memory fixture. No child is spawned by this file.",
+  },
+  {
     kind: "file",
     file: "tests/mutation/source/spawnBounded.ts",
     member: false,

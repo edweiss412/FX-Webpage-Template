@@ -1,4 +1,5 @@
 import { type AcceptedSurvivor, type Score, reconcile, score } from "./ledger";
+import type { MutantOutcome } from "./runner";
 
 /**
  * The gate (spec §3.6).
@@ -20,6 +21,22 @@ export type GateCondition =
 
 export type GateFailure = { condition: GateCondition; detail: string };
 
+/**
+ * An observation the gate REPORTS without failing on.
+ *
+ * `site`, `suite` and `durationMs` are STRUCTURED FIELDS rather than only an
+ * opaque `detail` string, because a proof comparing fields requires fields to
+ * exist — an implementation formatting everything into prose looks informative
+ * and makes the comparison impossible.
+ */
+export type GateNotice = {
+  kind: "timeout-kill";
+  site: string;
+  suite: string;
+  durationMs: number;
+  detail: string;
+};
+
 export type GateInput = {
   surfaceId: string;
   mutantCount: number;
@@ -29,9 +46,24 @@ export type GateInput = {
   survivors: readonly string[];
   ledger: readonly AcceptedSurvivor[];
   scoreFloor: number;
+  /**
+   * OPTIONAL, defaulting to none.
+   *
+   * Requiring it would force edits to three call sites that cannot supply it
+   * meaningfully — including committed probe scripts whose value is EVIDENTIARY
+   * and which must not be edited to stay current. Absent outcomes yield no
+   * notices, which is the CORRECT answer rather than a convenient one: with no
+   * children there is no deciding child, so no timeout kill can exist.
+   */
+  outcomes?: readonly MutantOutcome[];
 };
 
-export type GateResult = { passed: boolean; failures: GateFailure[]; score: Score };
+export type GateResult = {
+  passed: boolean;
+  failures: GateFailure[];
+  notices: GateNotice[];
+  score: Score;
+};
 
 export function evaluateGate(input: GateInput): GateResult {
   const failures: GateFailure[] = [];
@@ -124,5 +156,30 @@ export function evaluateGate(input: GateInput): GateResult {
     });
   }
 
-  return { passed: failures.length === 0, failures, score: s };
+  // A NOTICE IS NOT A FAILURE. `passed` is computed from `failures` ALONE and
+  // this array is never consulted for it — the record is additive, and a channel
+  // that could red a green surface is a new way for the harness to lie about the
+  // thing it was added to observe.
+  //
+  // The DECIDING child is the LAST one, because `runMutantRecorded`
+  // short-circuits. A timeout anywhere earlier cannot have decided the verdict,
+  // and reporting it would attach a stale timeout to a settled outcome.
+  const notices: GateNotice[] = [];
+  for (const outcome of input.outcomes ?? []) {
+    const children = outcome.children ?? [];
+    const deciding = children[children.length - 1];
+    if (deciding === undefined || deciding.kind !== "timeout") continue;
+    notices.push({
+      kind: "timeout-kill",
+      site: outcome.siteId,
+      suite: deciding.suite,
+      durationMs: deciding.durationMs,
+      detail:
+        `TIMEOUT-KILL ${outcome.siteId}: the child running ${deciding.suite} hit the wall-clock ` +
+        `ceiling after ${deciding.durationMs}ms and was killed. It scores KILLED, which is the ` +
+        `standard verdict, but it is NOT evidence the suite rejected the mutant.`,
+    });
+  }
+
+  return { passed: failures.length === 0, failures, notices, score: s };
 }

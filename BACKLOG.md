@@ -82,77 +82,32 @@ repair-direction rule refuses; the measured trajectory elsewhere is 20 and 41 ro
 advisories on the live corpus — measured, not predicted. Silence was not buying correctness; it
 was buying nothing.
 
-## BL-MUTATION-SCORE-NONDETERMINISM — a source-mutation surface's verdict moves with byte-identical inputs, and the score contract assumes that cannot happen
+## BL-MUTATION-VERDICT-MECHANISM-INTRA-LEG — the verdict-movement mechanism is still unexplained, and the probe that could settle it must vary the process boundary
 
-**Renamed away from an id naming a MECHANISM, and away from a count.** This shipped as
-`…-CO-TENANCY-DETERMINISM` with "twice" in the title, and within hours the count reached three and the
-mechanism was RULED OUT (below). Both were the fastest-staling facts in the row — the same lesson
-`BL-MUTATION-HARNESS-MAIN-RED` recorded when it dropped its own count — and an id naming an excluded
-candidate is worse than one naming a number, because it tells the next reader to look where the
-evidence says not to. The id now names the OBSERVATION, which is the part that has not moved. Nothing
-else in the corpus cited the old id; this heading was its only occurrence.
+**Status:** OPEN · **Filed:** 2026-08-21 (`fix/mutation-score-nondeterminism`, the unmet close condition of the archived `BL-MUTATION-SCORE-NONDETERMINISM`) · **Severity:** MEDIUM (a score that is not reproducible from its declared inputs makes every "0 unaccepted survivors" claim a measurement of something the convergence criterion does not name) · **Class:** mutation harness fidelity · **Effort:** L · **Facing:** process · **Class-sweep exception:** (c) — settling it needs a probe harness that varies process boundary and ordering across trials, which is a NEW INSTRUMENT rather than a repair to any surface the closing PR touched. · **Reachability:** PROBED — four observations of one site disagreeing with itself on byte-identical inputs, recorded on the archived row. · **Incident:** PR #856's `source-shards (0)` leg was triaged as an inherited main-red and is not one (run `32375262145` job `96445004668`, against main's same-day nightly `32344648722` job `96350700409`, where the same surface is green); and separately, a CORRECT ledger row was removed on a single stale-row report and had to be restored after three further observations.
 
-**Status:** OPEN · **Filed:** 2026-08-20 (`fix/shell-lexer-quoted-value-recall`, from CI triage on PR #856) · **Severity:** MEDIUM (if a score is not reproducible from its declared inputs, every "0 unaccepted survivors" claim in the convergence criterion is a measurement of something the criterion does not name) · **Class:** mutation harness fidelity · **Effort:** M · **Facing:** process · **Class-sweep exception:** (c) — the repair is a determinism investigation of the runner, a surface this PR does not otherwise touch. · **Reachability:** PROBED — see the two instances below. · **Incident:** PR #856's `source-shards (0)` leg was triaged as an inherited main-red and is not one — run <https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32375262145> (job `96445004668`) against main's same-day nightly <https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32344648722> (job `96350700409`), where the same surface is green.
+**This row exists because the row it succeeds was archived on a RE-SCOPED close condition.** `BL-MUTATION-SCORE-NONDETERMINISM` said what would close it is an EXPLANATION; the arc that closed it shipped ATTRIBUTION and explicitly did not achieve one. Rather than let the graduation absorb the unmet half silently, the original condition is carried here.
 
-**The incident in full.** PR #856's `source-shards (0)` leg (run `32375262145`, job `96445004668`) failed with `unaccepted-survivor: 1 survivor(s) with no ledger row: logical-connector:259:20:&&>||` on the `ledgerGit` surface. Main's own nightly the same day (run `32344648722`, base `03953337388b`, job `96350700409`) reported that leg failing on `rowScanOpener` ALONE — `ledgerGit` was green. The cost is a triage that reads as an inherited red and is not one: three surfaces on that PR did map verbatim onto `BL-MUTATION-HARNESS-MAIN-RED`, so the fourth was one glance away from being waved through with them.
+**THE ELIMINATED SET, SIX DEEP. Do not re-run these.**
 
-**The anomaly is established; the mechanism is not.** `scripts/lib/ledger-git.ts` and both deciding suites named in the surface's registry row (`tests/scripts/ledgerClaimsCheck.test.ts`, `tests/scripts/ledgerGitSpawnSeam.test.ts`) are BYTE-IDENTICAL between `03953337388b` and #856's HEAD, verified by blob hash; that PR's diff touches none of the three, and its only `tests/mutation/source/registry.ts` edit is confined to the `psqlStartupScan` row. A mutation score is documented as a pure function of (source, operators, deciding suites). All three were unchanged and the verdict moved. **Second instance:** the `ledgerGit` registry row already records a killed-locally / survived-CI divergence for the `diffHunks` count pair on 2026-08-08, and re-establishes it with a constructed case — so this is the second time this surface's verdict has depended on something outside its declared inputs.
+| candidate                                                       | how it was eliminated                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **co-tenancy** (an LPT re-pack changing a surface's neighbours) | pre-registered experiment at ~30x the perturbation the original observation carried: ZERO flips across 38 pre-existing surfaces, and the decisive datum is one mover — `ledgerGit` itself changed shards 0 to 1 and STAYED GREEN. Background flip rate measured at zero across five consecutive nightlies, and shard placements reconciled against observed annotations BEFORE interpretation, so the null is over the right population. |
+| **timeouts at the locus**                                       | ZERO of 93 kills, on the surface, site and bytes where the anomaly was observed, in three separate runs.                                                                                                                                                                                                                                                                                                                                 |
+| **headroom correlation**                                        | positive but stuck at n = 2 known-flaky surfaces; suggestive, never confirmatory, and flakiness is observed rather than sampled.                                                                                                                                                                                                                                                                                                         |
+| **duration drives instability — advance prediction**            | the #2 and #3 headroom surfaces show ZERO recorded movement across 19 failing runs. Written down with both branches before any history was read, and it did NOT confirm.                                                                                                                                                                                                                                                                 |
+| **duration drives instability — direct**                        | across three controlled local runs on byte-identical inputs the mutant-duration maximum swung 19.8 s to 39.1 s **while the survivor set reproduced EXACTLY**. The axis that varies is not the axis under investigation.                                                                                                                                                                                                                  |
+| **the bimodal tail as a structural lead**                       | run 2's 38.0/39.1 outlier pair did NOT reproduce; run 3's tail is a flat cluster with no outlier at all.                                                                                                                                                                                                                                                                                                                                 |
 
-**Co-tenancy is RULED OUT as the mechanism, by a pre-registered experiment.** The candidate was that
-re-weighting the LPT partition changes a surface's neighbours and thereby its verdict — this arc moved
-`psqlStartupScan` from 63 to 75 and then 74 mutants, and main's over-budget legs differed from this PR's, so the
-packing demonstrably changed. `feat/send-auth-single-read-lint` tested it directly at roughly thirty
-times that perturbation: run `32391432379` (head `4dfd01465`) enrolled `sendAuthScan` and returned
-**ZERO surface flips across all 38 pre-existing surfaces**. The decisive datum is one mover:
-**`ledgerGit` itself changed shards, 0 to 1, and STAYED GREEN** — the surface at the centre of this
-row, given exactly the co-tenancy change the hypothesis blames, with no flip.
+**READ THE NEGATIVES AT THEIR REAL STRENGTH, not as proof of absence.** The advance prediction's channel is CI-ONLY and FAILURE-ONLY — it cannot see `psqlStartupScan`, the surface with the CLEANEST reproduction in the corpus, because those flips happened in local gate runs and an annotation fires only on a gate FAILURE. So that row is "no recorded gate-failing movement", never "no movement". A ledger row that overstates its own negatives sends the next investigator past the branch that is still open. The durable per-run record the closing arc shipped exists precisely to remove that blind spot for the next attempt.
 
-**Why that is evidence AGAINST rather than a null result**, stated here so no reviewer re-derives it:
-the negative branch was PRE-REGISTERED, so the reading could not be fitted after the fact; the
-background surface-flip rate was MEASURED at zero across five consecutive main nightlies from 08-18 to
-08-20, so there is no noise floor for a real flip to hide under; and reconciliation ran BEFORE
-interpretation — four predicted placements (`sendAuthScan` 3, `destructiveFileAnalysis` 2→1,
-`rowScanOpener` 0→3, `shardBudget` 2→3) all matched the observed annotation titles, confirming CI
-computed the same partition the blob-derived map predicted, so the null is over the right population.
-A null over the wrong population would be worth nothing.
+**AND ONE LOAD OBSERVATION, sized honestly at ONE.** The closing arc's two baselines differed in measured machine load — 100% co-tenanted over 61 samples against a >=49% floor — with every verdict identical, on the least-headroom surface where the load mechanism predicts its largest effect. That is ONE paired observation against the load mechanism, not six: the other runs held load FIXED and unmeasured, so they are evidence for verdict STABILITY and cannot be added to this column. A test requires the independent variable to move.
 
-**SECOND SURFACE, and it is a cleaner reproduction than the one this row was filed on.** On
-`psqlStartupScan` — this arc's own surface — the mutant `relational-boundary:3578:35:<><=` was observed
-FOUR times against BYTE-IDENTICAL inputs (`scan.ts` `a1f9db0c`, deciding suite `cb45f9ea`, verified by
-the derived stamp on both ends of each run):
+**The one branch genuinely still open, with the reason it is hard.** Probe 3 ran the known-flaky site six times SERIALLY IN ONE PROCESS and got 6/6 identical. Under independent trials that excludes only a flip rate around 40% per run or more. But `p^6 + (1-p)^6` presumes INDEPENDENCE, and serial runs in one process share cache, ordering, environment and load state — **correlated within-process state is exactly what an intra-leg mechanism WOULD BE**, so a perfectly correlated 50% mechanism yields six identical results with probability 1. **More trials in the same process carry no further information at any sample size.**
 
-| observation                             | ledger state | verdict for that site                          |
-| --------------------------------------- | ------------ | ---------------------------------------------- |
-| discovery run                           | 27 rows      | SURVIVOR                                       |
-| confirming run                          | 26 rows      | STALE — "site no longer survives", i.e. KILLED |
-| re-run after the row was removed        | 25 rows      | UNACCEPTED SURVIVOR — i.e. SURVIVES            |
-| hand-applied `depth <= 32`, three times | n/a          | survives 3/3                                   |
+**First scheduled step, and it is an INSTRUMENT rather than another run:** a probe that varies the PROCESS BOUNDARY and the ORDERING across trials rather than repeating within one — separate processes, shuffled site order, a deliberate load control — with the per-run record the closing arc shipped as its read-out. `pnpm mutation:determinism --surface <id> --site <siteId> --runs <n>` is the in-process half and already exists; what is missing is the across-process half.
 
-Three of four say it survives; the row is restored and carries this record. **Why this is better
-evidence than the `ledgerGit` observations:** there, the comparison was across DIFFERENT runs on
-different revisions and the mechanism candidate was co-tenancy. Here two runs of the RUNNER ITSELF
-disagree about the same site with identical declared inputs, so no third-party instrument and no
-external-validity argument is needed — the subject contradicts itself. An earlier refusal to claim this
-was correct at the time: the only instruments then available (a hand probe on raw file lines, and a
-local `enumerateSites` that reproduces none of the runner's site IDs) could not adjudicate what a site
-even is. "I cannot substantiate this" was a statement about those instruments, not about the world.
-
-**Consequence for anyone reading a red leg:** `psqlStartupScan`'s gate verdict is flaky at that one
-site, so a red `source-shards` leg naming it is not necessarily a regression, and `mutation-harness` is
-not a required check. Do NOT remove a ledger row on a single stale-row report — re-run first. That is
-exactly the mistake this arc made and then had to reverse.
-
-**THE ANOMALY STANDS, UNEXPLAINED, and ruling out the leading candidate is not an explanation.** A
-surface's verdict has now moved three times with byte-identical inputs — green on main's nightly, red
-on this PR at `adafcd8ad`, green again at `0f98a31c5` — while `scripts/lib/ledger-git.ts` and both
-deciding suites stayed byte-identical throughout and no branch touched them. What produces that is
-still unknown. The 2026-08-08 killed-locally / survived-CI divergence recorded on the surface's own
-registry row is a fourth instance of the same shape and also unexplained. **What would close this row
-is an explanation, not another eliminated candidate** — the next probe should attack determinism
-inside a single leg (ordering, environment, or concurrency within the runner) rather than the
-partition, which the experiment above has now covered.
-
-**Not a duplicate of `BL-MUTATION-HARNESS-MAIN-RED`.** That row names `shardBudget`, `destructiveFileAnalysis` and `rowScanOpener` as main's standing failure set. `ledgerGit` is a fourth surface and is GREEN on main, which is the entire point: this row is about a verdict that MOVES, not about one that is stuck red.
+**Do not attempt this by widening the existing determinism harness.** Its core is deliberately in-process so the source-mutation runner can overlay it (AC-9); an across-process probe is a different instrument with a different contract, and merging them would make the in-process assertions unreachable — which is the defect that makes a CLI-shaped surface score as if untested.
 
 ## BL-PREMISESCAN-ALIAS-SLICE-UNCOVERED — the `@/` specifier slice has no killing test
 
@@ -1344,6 +1299,27 @@ That lexical count is validated rather than trusted: at HEAD it agrees with the 
 **Do not expect the count alone to fix it, and this is the trap in the repair.** The partition is LPT over MODELLED CHILD BOOTS, and the archived row measured that model to be badly miscalibrated to seconds: at `c5518dfab` the four legs weighed 636 / 631 / 637 / 637 — one boot apart — while their wall clocks were 886 / 2166 / 3069 / 3356 s, a **3.8x** spread (1.4 s/boot against 5.3 s/boot). Raising the count rebalances BOOTS. Bounding wall clock needs a weight calibrated to seconds, which is the archived row's own conclusion and its deferred limit L-2 (sub-surface partitioning) — filed there with the `budget` job named as its self-reporting trigger. This row is that trigger firing.
 
 **Not a duplicate of `BL-MUTATION-HARNESS-MAIN-RED`.** That row is the source gate's COVERAGE failure set — surviving mutants and ledger-kind drift — and explicitly disclaims the budget half. This is the `budget` job: a different job, a different failure, a different repair. The 08-18 and 08-19 nightlies are red for both reasons at once, which is exactly why they are easy to conflate.
+
+## BL-MUTATION-CHEAPNESS-GUARD-HAND-ENUMERATED-SPECIFIERS — the reachability guard re-implements a resolver the project already owns, and is one spelling short every round
+
+**Status:** OPEN · **Filed:** 2026-08-21 (`fix/mutation-ledger-kinds-derived-cover`, split out of that arc's diff review at the round cap per the documented-ratchet rule) · **Severity:** LOW (it never produces a wrong parity verdict — the deliverable it guards was confirmed correct in round 1 and never moved; it produces review rounds) · **Class:** guard fidelity · **Effort:** M · **Facing:** process · **Reachability:** PROBED — each miss below was demonstrated by a reviewer probe against the shipped guard, and each repair was verified by injecting the same import form and observing red. · **Incident:** three consecutive diff rounds on one arc were spent on this single axis, with the finding rate FLAT rather than decaying — corpus `docs/review-rounds/fix/mutation-ledger-kinds-derived-cover/0820436cf4dd.jsonl`, rounds 1-3 declaring 3, 2 and 2 findings, of which SEVEN OF SEVEN were against the guard and ZERO against the parity oracle the arc exists to ship.
+
+**The shape, and it is one shape.** `tests/mutation/_metaLedgerKindsDeclarationParity.test.ts` walks its own import graph to prove it cannot reach a mutant-spawning module. To do that it resolves specifiers itself, and each round found it modelling exactly the spellings its author had in mind:
+
+| round | modelled                                  | missed                                                |
+| ----- | ----------------------------------------- | ----------------------------------------------------- |
+| 1     | a regex over the file's own source        | re-exports, single quotes, dynamic, one module deeper |
+| 2     | relative specifiers                       | the `@/` repo alias (`vitest.projects.ts:176`)        |
+| 3     | relative + alias                          | Vite's root-relative `/tests/...`                     |
+| 3     | static `import ... from` in the allowlist | `await import(...)`                                   |
+
+**Why a row rather than another round.** The project already owns the authoritative answer — the Vite/vitest resolve configuration that actually resolves these modules at runtime. A guard that hand-writes a subset of it is a derived cover's opposite: an enumeration, of an open set, maintained by review. It will be one spelling short indefinitely, and every miss costs a round on whatever arc happens to be carrying it.
+
+**Fenced against relitigation.** The current guard is NOT unsound for its stated threat model, and this row is not a defect report against it. Its threat fence is ordinary contributor error, all four known spellings are now handled, and the direct-import allowlist independently bounds what the file can pull in — asserted as an exact set across static AND dynamic forms, so an unmodelled spelling can only matter on a transitive edge inside repo modules whose own imports are ordinary. What this row buys is that the axis stops being maintained one review round at a time.
+
+**What the arc did instead of hardening it, and why that is the starting state.** The transitive walk is DELETED on `fix/mutation-ledger-kinds-derived-cover`, not left one spelling short. Round 4 found a fifth form (Vite's `.js`/`.jsx`-to-TypeScript substitution) and adding it would have bought the sixth; more decisively, the walk forbade IMPORT EDGES and no import edge is hazardous -- `runner.ts` only defines `runSurface`, `surfaceCases.ts` only defines `registerSurfaceCases`, and neither executes at module scope. It red on safe code -- and PROBED, its false positives came from the walker's own comment-matching defect rather than from a real graph edge: `registry.ts` imports only `node:fs`, `./ledger` and `./operators`, so the `registry.ts` -> `runner.ts` path an earlier draft cited does not exist. Top-level parse of both forbidden modules: `runner.ts` has 3 non-declaration statements and `surfaceCases.ts` has 1, none calling a spawner. What ships is the exact-set direct-import allowlist, which is total over its domain because it never resolves a specifier at all.
+
+**First scheduled step:** decide whether a transitive reachability claim is wanted AT ALL before rebuilding one. If it is, resolve through the project's own resolver rather than re-implementing it — `vite`'s `createResolver`/`resolveConfig` against the same config vitest loads, or the resolved module graph vitest already builds. If neither is reachable from a unit test at acceptable cost, the honest alternative is to DELETE the transitive walk and keep the direct-import allowlist alone, which is the half that is total over its domain rather than one enumeration short. Do not add a fifth specifier spelling.
 
 ## BL-MUTATION-WEIGHT-MODEL-BOOT-COUNT-ONLY — the shard partition balances modelled child boots, and the real cost per boot varies ~20x across surfaces
 
