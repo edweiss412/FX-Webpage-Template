@@ -133,7 +133,12 @@ export function main(argv: readonly string[], deps: CliDeps = CLI_DEFAULT_DEPS):
     return CLI_EXIT_REFUSED;
   }
 
-  const plan = deps.planCampaign({ target: resolved.target, seed, armATrials: trials.value });
+  const plan = deps.planCampaign({
+    target: resolved.target,
+    seed,
+    armATrials: trials.value,
+    arm: arm.value,
+  });
   if ("kind" in plan && plan.kind === "refusal") {
     deps.write(deps.renderProbe(plan));
     return CLI_EXIT_REFUSED;

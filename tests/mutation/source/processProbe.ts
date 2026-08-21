@@ -321,6 +321,20 @@ export type PlanInput = {
   armATrials: number;
   /** Arm B's shuffled prefix lengths. Defaults to the pre-registered set. */
   prefixLengths?: readonly number[];
+  /**
+   * Restrict the plan to ONE arm. Omitted, the plan carries every arm.
+   *
+   * This exists because spec 3 says an arm at zero eligible DID NOT RUN and must
+   * be re-run — that arm, not the campaign. Without a selector the only way to
+   * obey it is to re-run everything, which re-spends the healthy arms' hours and
+   * hands the repair a different population than the one being repaired.
+   *
+   * The filter runs AFTER planning, never during it, so a plan for one arm holds
+   * exactly the trials that arm would have had in the full plan: same seed, same
+   * shuffle, same indices. Planning per-arm instead would consume the PRNG
+   * differently and quietly produce a different arm B.
+   */
+  arm?: Arm;
 };
 
 /**
@@ -392,7 +406,20 @@ export function planCampaign(input: PlanInput): CampaignPlan | Refusal {
     trials.push({ ...base, arm: "C", kind: "isolated", index: i, prefix: [], position: 1, half });
   });
 
-  return { seed, surfaceId: target.surface.id, targetSiteId: targetId, trials };
+  // Filtered LAST, on the fully-planned set, so a single-arm plan is a subset of
+  // the full one rather than a different draw. A plan whose filter matches
+  // nothing REFUSES: an empty trial list would otherwise run a campaign that
+  // executes zero trials and reports every arm as quiet.
+  const selected = input.arm === undefined ? trials : trials.filter((t) => t.arm === input.arm);
+  if (selected.length === 0) {
+    return refuse(
+      "arm",
+      `--arm ${JSON.stringify(input.arm)} selects NO trial from this plan, which holds ` +
+        `${trials.length} across ${[...new Set(trials.map((t) => t.arm))].sort().join(", ")}. ` +
+        `A campaign with no trials reports every arm quiet and claims a bound over nothing.`,
+    );
+  }
+  return { seed, surfaceId: target.surface.id, targetSiteId: targetId, trials: selected };
 }
 
 /**
@@ -903,9 +930,14 @@ export function verifyTrialReport(
  * Everything the PARENT controls about a child launch.
  *
  * The nonce-provenance sweep iterates THIS object's own keys, so a new channel
- * joins the sweep by existing rather than by being remembered — a parent minting
- * the nonce as the scratch-directory basename defeats a plan/argv/env-only
- * enumeration, and `cwd` is a parent input exactly as the others are.
+ * joins the sweep by existing rather than by being remembered.
+ *
+ * What this object does NOT cover, stated because an earlier version of this
+ * comment claimed otherwise: the scratch directory. `cwd` is the repo root at
+ * every call site, and the scratch path reaches the child as an argument
+ * `spawnChild` appends AFTER this `argv` is built. A parent minting the nonce as
+ * the scratch basename is caught by sweeping `reportPath` at the call site, not
+ * by anything here.
  */
 export type SpawnRequest = {
   plan: TrialPlan;
@@ -1004,7 +1036,16 @@ export function observeTrial(
     );
   }
 
-  for (const { channel, text } of spawnChannels(full)) {
+  // `reportPath` joins the swept channels, and it is not decoration: it is the
+  // one parent-minted string that carries the SCRATCH DIRECTORY. The comment on
+  // `SpawnRequest` used to claim `cwd` covered a parent minting the nonce as the
+  // scratch basename, and that was false in both directions — `cwd` is the repo
+  // root at every call site, and the scratch path reaches the child through an
+  // argument appended INSIDE `spawnChild`, after the swept `argv` was built.
+  for (const { channel, text } of [
+    ...spawnChannels(full),
+    { channel: "reportPath", text: reportPath },
+  ]) {
     if (text.includes(report.nonce)) {
       return refuse(
         "provenance",

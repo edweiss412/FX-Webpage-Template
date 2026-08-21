@@ -153,16 +153,25 @@ export function main(): number {
       }, SAMPLE_INTERVAL_MS);
     }
 
+    // try/finally, because the release path was STRAIGHT-LINE and the observe
+    // call can throw: `observeTrial` reads the child's report file, which is
+    // absent whenever the child was killed by its spawn timeout or by the
+    // machine's reaper. On that path one burner per core survived to its
+    // 900 s TTL — on a host whose whole slot semaphore exists because nine
+    // unbounded arcs hard-reset it once.
     const started = Date.now();
-    const outcome = observeTrial(trialPlan, target, deps, {
-      argv: CHILD_ARGV,
-      env: { MUTATION_RECORD_DIR: recordDir },
-      cwd: ROOT,
-    });
+    let outcome: ReturnType<typeof observeTrial>;
+    try {
+      outcome = observeTrial(trialPlan, target, deps, {
+        argv: CHILD_ARGV,
+        env: { MUTATION_RECORD_DIR: recordDir },
+        cwd: ROOT,
+      });
+    } finally {
+      if (sampler !== null) clearInterval(sampler);
+      if (burners !== null) burners.kill();
+    }
     const elapsed = Date.now() - started;
-
-    if (sampler !== null) clearInterval(sampler);
-    if (burners !== null) burners.kill();
 
     const label =
       `TRIAL ${trialPlan.arm}#${trialPlan.index} (${trialPlan.kind}, prefix ` +

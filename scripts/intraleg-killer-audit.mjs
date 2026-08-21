@@ -479,7 +479,7 @@ export const KILLS = [
     id: "AC-9.k1",
     named: "a CLI-shaped surface the runner cannot overlay",
     absent:
-      "The core is an importable module with a referring in-process suite (135 cases), and both " +
+      "The core is an importable module with a referring in-process suite (151 cases), and both " +
       "adapters are thin `main(argv, deps)` entries holding no decision. A CLI-shaped surface " +
       "would score as if untested; this one is imported directly by its suite.",
   },
@@ -581,7 +581,14 @@ function listCases(suite, live = false) {
 function runSuite(suite, filter, live = false) {
   const args = ["vitest", "run", suite];
   if (filter) args.push("-t", filter);
-  const r = spawnSync("pnpm", ["exec", ...args], {
+  // The LIVE tier goes through `pnpm heavy`. A scoped `vitest run <file>` is not
+  // a heavy phase by its own shape, but AGENTS.md classifies by what a command
+  // TRANSITIVELY launches, and this one launches a child per trial, each child
+  // running one vitest per suite, plus `runSurface(spawnBounded)`'s twelve. The
+  // wrap lives here rather than in the caller so no caller can get it wrong;
+  // nesting under an outer holder passes through with a notice.
+  const cmd = live ? ["heavy", "pnpm", "exec", ...args] : ["exec", ...args];
+  const r = spawnSync("pnpm", cmd, {
     encoding: "utf8",
     env: live ? { ...process.env, RUN_PROCESS_PROBE_LIVE: "1" } : process.env,
   });

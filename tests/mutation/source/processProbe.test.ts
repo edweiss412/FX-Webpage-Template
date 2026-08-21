@@ -1067,14 +1067,75 @@ describe("processProbe trial provenance — two independent sides (AC-2, AC-3)",
     },
   );
 
+  it("trial refuses a nonce the parent minted as the SCRATCH DIRECTORY basename", () => {
+    // The channel the request object cannot see. `cwd` is the repo root at every
+    // real call site and the scratch path is appended to argv INSIDE spawnChild,
+    // after the swept argv exists — so this attack walked through a sweep whose
+    // own comment claimed to stop it. `reportPath` is what actually carries the
+    // scratch directory back to the parent, so that is what is swept.
+    const report = realReport();
+    const out = observeTrial(
+      report.plan,
+      wideTargetOf(),
+      {
+        spawnChild: () => ({
+          pid: report.childPid,
+          reportPath: `/tmp/fx-probe-${report.nonce}/report.json`,
+        }),
+        readReportBytes: () => Buffer.from(JSON.stringify(report), "utf8"),
+      },
+      REQUEST,
+    );
+    expect(inputOf(out)).toBe("provenance");
+    expect(detailOf(out)).toContain("reportPath");
+  });
+
+  it("an --arm plan is a SUBSET of the full plan, not a different draw", () => {
+    const target = wideTargetOf();
+    const full = planCampaign({ target, seed: 20260821, armATrials: 12 }) as CampaignPlan;
+    const onlyB = planCampaign({
+      target,
+      seed: 20260821,
+      armATrials: 12,
+      arm: "B",
+    }) as CampaignPlan;
+
+    // The property that matters is not "only B trials came back" — filtering
+    // DURING planning would satisfy that while consuming the PRNG differently
+    // and handing the re-run a different arm B than the one being repaired.
+    expect(onlyB.trials.map((t) => t.arm)).toEqual(onlyB.trials.map(() => "B"));
+    expect(onlyB.trials).toEqual(full.trials.filter((t) => t.arm === "B"));
+    expect(onlyB.trials.length).toBeGreaterThan(0);
+  });
+
+  it("an --arm that selects no trial REFUSES rather than planning an empty campaign", () => {
+    // `control` is a legal --arm value and the planner emits no control trials,
+    // so this is reachable from the shipped accept-set rather than constructed.
+    const out = planCampaign({
+      target: wideTargetOf(),
+      seed: 20260821,
+      armATrials: 12,
+      arm: "control",
+    });
+    expect("kind" in out && out.kind === "refusal").toBe(true);
+    expect((out as Refusal).detail).toMatch(/selects NO trial/);
+  });
+
   it("the nonce sweep's channel list is DERIVED from the spawn request's own keys", () => {
     const report = realReport();
     const request = { plan: report.plan, ...REQUEST };
     const swept = spawnChannels(request).map((c) => c.channel);
-    // Not an enumeration: whatever keys the request carries are what gets swept,
-    // so a channel added later joins by existing.
     expect(swept).toEqual(Object.keys(request).sort());
     premise("the request really carries more than one channel", swept.length, 1);
+
+    // The assertion above compares the sweep to the very object it swept, so a
+    // hand-typed list of today's four keys would satisfy it. The claim is that a
+    // channel added LATER joins by existing, and only a channel that does not
+    // exist yet can test it.
+    const widened = { ...request, scratchDir: "/tmp/fx-probe-later" };
+    const sweptWider = spawnChannels(widened as never).map((c) => c.channel);
+    expect(sweptWider).toContain("scratchDir");
+    expect(sweptWider.length).toBe(swept.length + 1);
   });
 
   it("trial report with a WRONG receipt sha is refused, naming the step", () => {
@@ -1215,9 +1276,11 @@ describe("processProbe aggregator — eligibility, derived claims, render (AC-7,
     expect(zero.ok).toBe(false);
     if (zero.ok) return;
     expect(zero.detail).toMatch(/p > 1\.0|impossible/i);
-    // The kill: an implementation evaluating the formula for every N returns 1
-    // here and renders `p > 1.0` with full confidence.
-    expect(1 - Math.pow(0.05, 1 / 0)).toBe(1);
+    // The kill this refusal exists for: an implementation that evaluates the
+    // formula for every N returns 1 at N=0 and renders `p > 1.0` with full
+    // confidence. Asserting `1 - 0.05 ** (1/0) === 1` here would be asserting
+    // JavaScript's arithmetic rather than `oneSidedBound`, so the kill is named
+    // and the assertions above are what carry it.
   });
 
   it("aggregator excludes an INTERNALLY mismatched stamp pair as unattributable", () => {
@@ -1294,8 +1357,17 @@ describe("processProbe aggregator — eligibility, derived claims, render (AC-7,
     expect(validateCondition(full)).toEqual({ ok: true });
   });
 
-  it("aggregator condition field list is DERIVED from the builder, not enumerated", () => {
-    expect(REQUIRED_CONDITION_FIELDS).toEqual(Object.keys(conditionOf(fakeTrial())).sort());
+  it("aggregator condition validation TOLERATES a field it does not know", () => {
+    // NOT re-asserted here: `REQUIRED_CONDITION_FIELDS` IS `Object.keys` of this
+    // same builder (processProbe.ts:1192), so comparing the two compares an
+    // expression to itself and passes identically if someone replaced the
+    // constant with a hand-typed list of today's fields. Derivation is a
+    // structural property of the definition site; what IS testable is the
+    // behaviour, and the loop above tests it by dropping each field in turn.
+    // An UNKNOWN extra field must not break validation, or a condition tuple
+    // gaining a field would refuse every trial that carries it.
+    const tuple = conditionOf(fakeTrial()) as unknown as Record<string, unknown>;
+    expect(validateCondition({ ...tuple, addedLater: 1 })).toEqual({ ok: true });
   });
 
   it("aggregator load pair adjudicates only on IN-WINDOW samples", () => {
@@ -1782,11 +1854,13 @@ describe("processProbe cli adapter — wiring proven separately from rendering (
     expect(CLI_DEFAULT_DEPS.resolveTarget).toBe(resolveTarget);
     expect(CLI_DEFAULT_DEPS.planCampaign).toBe(planCampaign);
     expect(CLI_DEFAULT_DEPS.renderProbe).toBe(renderProbe);
-    // Proven discriminating by pointing the same assertion at an impostor: an
-    // identity check that cannot fail certifies nothing, and a seam wired to a
-    // stub passes every injection test while the operator's command runs it.
+    // Proven discriminating against an impostor — but by BEHAVIOR, not identity:
+    // `impostor.resolveTarget !== resolveTarget` compares a freshly allocated
+    // arrow to a module binding and is true by construction, so it establishes
+    // nothing about the three assertions above. What discriminates is that the
+    // same identity check, run against the impostor, FAILS.
     const impostor = { ...CLI_DEFAULT_DEPS, resolveTarget: () => renderProbe as never };
-    expect(impostor.resolveTarget).not.toBe(resolveTarget);
+    expect(() => expect(impostor.resolveTarget).toBe(resolveTarget)).toThrow();
   });
 
   it("cli generateSeed default produces a value the seed accept-set admits", () => {
