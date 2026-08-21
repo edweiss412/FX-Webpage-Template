@@ -8,6 +8,37 @@ Last reconciled: 2026-08-17 — `fix/shell-binding-mixed-quoted-value` graduated
 
 ---
 
+## BL-ACCEPTSET-CONSUMER-COVERAGE — an accept-set widened without its consumers is a change that reads as adoption and behaves as nothing
+
+**Status:** OPEN · **Severity:** MEDIUM (silent FREE: a widened set that no consumer ranges over leaves the construct unclassified while the diff shows the widening) · **Class:** guard fidelity · **Effort:** S · **Filed:** 2026-08-21 (`fix/premisescan-registrar-accept-sets`, spec rounds 1-3) · **Facing:** process · **Mint-exception:** invariant · **Reachability:** PROBED — three separate consumers measured below.
+
+A hand-maintained accept-set is only adopted where EVERY consumer of it agrees. `premiseScan` carries
+three, and each has consumers that enumerate their own members rather than ranging over the set, so
+widening the set changes the diff and not the behaviour.
+
+**Incident — three findings, three consecutive spec rounds of one arc, all the same shape:**
+
+- `REGISTRARS` widened to include `suite`; the walk then dispatches on the root BY NAME
+  (`if (root_ === "describe")`, `if (root_ === "it" || root_ === "test")`), so `suite` is recognized
+  and dropped. Measured: `suite("x", …)` loses hook attribution where `describe("x", …)` keeps it.
+- `HOOK_REGISTRARS` has THREE consumers — the file-scope seed, `hookBodies`, `loadTimePremises` —
+  each requiring a bare identifier callee. Measured: a bare `beforeEach(spawn)` makes a test
+  `environment-touching`; `test.beforeEach(spawn)` leaves the same test `environment-free`.
+- `eachProducers` reads the immediate curried call only. Measured:
+  `describe.skipIf(process.env.CI).each([1])(…)` collects `[1]` where the chain carries
+  `[1] | process.env.CI`.
+
+**Shape of the repair.** A structural test that, for each accept-set, enumerates its CONSUMERS and
+asserts each ranges over the set rather than over its own copy of some members. The consumer list is
+derived by walking the module for reads of the set's identifier, so a consumer added later is covered
+by default rather than being a fourth instance of this row.
+
+**First scheduled step:** enumerate the consumers of `REGISTRARS`, `MODIFIERS` and `HOOK_REGISTRARS`
+in `tests/mutation/source/premiseScan.ts` and confirm the derived count matches the three, three and
+one this arc found by hand — if a hand count and a derived count disagree, the derivation is the one
+to trust and the disagreement is the row's first finding.
+
+
 ## BL-SENDAUTH-ARM-CLASSIFIER-UNIFICATION — four arms of one scanner each decide independently what a receiver and a raw binding are
 
 **Status:** OPEN · **Filed:** 2026-08-20 (`feat/send-auth-single-read-lint`, from the diff-stage round filing at four rounds) · **Severity:** MEDIUM (each un-narrowed arm is a SILENT miss, which is the one outcome the surface's consequence bound forbids) · **Class:** detector fidelity · **Effort:** M · **Facing:** process · **Class-sweep exception:** (c) — unifying all four arms is a redesign of the scanner's classification layer, and doing it at diff round 4 of the arc that introduced it is how a detector ratchets into a recognizer. · **Reachability:** PROBED — both instances below were run in-process against the shipped scanner and returned zero findings. · **Incident:** four consecutive diff rounds on this arc found the same axis one arm at a time, with a FLAT finding rate rather than a decaying one — corpus `docs/review-rounds/feat/send-auth-single-read-lint/4dfd784ed062.jsonl`, rounds 1-4 declaring 5, 5, 8 and 4 findings; r1 F3, r2 F2, r3 F6 and r4 F1/F2 are all the same sentence.
