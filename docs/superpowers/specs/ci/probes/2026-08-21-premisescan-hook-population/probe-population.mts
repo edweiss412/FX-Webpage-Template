@@ -33,7 +33,7 @@ const srcText = readFileSync(SRC, "utf8");
 const srcSf = ts.createSourceFile(SRC, srcText, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
 
 // ---- extract the SHIPPED predicates as bytes -------------------------------
-const WANT = ["REGISTRARS", "MODIFIERS", "HOOK_REGISTRARS", "registrarRoot", "isSuiteBody"];
+const WANT = ["REGISTRARS", "MODIFIERS", "HOOK_REGISTRARS", "registrarRoot", "isSuiteBody", "unwrapTransparent"];
 const extracted = new Map<string, string>();
 for (const st of srcSf.statements) {
   if (ts.isVariableStatement(st))
@@ -44,12 +44,41 @@ for (const st of srcSf.statements) {
     extracted.set(st.name.text, st.getText(srcSf));
 }
 for (const w of WANT) if (!extracted.has(w)) throw new Error(`probe void: cannot extract ${w}`);
+// The extraction must be CLOSED, not merely complete over the names typed above.
+// Every top-level declaration in the shipped source that an extracted body
+// references must itself be extracted, or the assembled function throws a
+// ReferenceError at call time -- which is how this probe silently stopped
+// running when `isSuiteBody` began delegating to `unwrapTransparent`.
+{
+  const topLevel = new Set<string>();
+  for (const st of srcSf.statements) {
+    if (ts.isVariableStatement(st))
+      for (const d of st.declarationList.declarations)
+        if (ts.isIdentifier(d.name)) topLevel.add(d.name.text);
+    if (ts.isFunctionDeclaration(st) && st.name) topLevel.add(st.name.text);
+  }
+  const missing = new Set<string>();
+  for (const [name, text] of extracted) {
+    const sf = ts.createSourceFile(`${name}.ts`, text, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
+    const visit = (n: ts.Node): void => {
+      if (ts.isIdentifier(n) && topLevel.has(n.text) && !extracted.has(n.text)) missing.add(n.text);
+      ts.forEachChild(n, visit);
+    };
+    ts.forEachChild(sf, visit);
+  }
+  if (missing.size > 0)
+    throw new Error(
+      `probe void: extracted bodies reference unextracted top-level symbols: ${[...missing].sort().join(", ")}. ` +
+        `Add them to WANT (and a strip rule if they carry type annotations).`,
+    );
+}
 const strip = (s: string) =>
   s
     .replace(/function registrarRoot\(callee: ts\.Expression\): string \| null \{/, "function registrarRoot(callee) {")
     .replace(/let node: ts\.Expression = callee;/, "let node = callee;")
     .replace(/function isSuiteBody\(arg: ts\.Expression\): boolean \{/, "function isSuiteBody(arg) {")
-    .replace(/let node: ts\.Node = arg;/, "let node = arg;");
+    .replace(/let node: ts\.Node = arg;/, "let node = arg;")
+    .replace(/function unwrapTransparent\(arg: ts\.Node\): ts\.Node \{/, "function unwrapTransparent(arg) {");
 const S = new Function(
   "ts",
   `${WANT.map((w) => strip(extracted.get(w)!)).join("\n")}\nreturn { REGISTRARS, MODIFIERS, HOOK_REGISTRARS, registrarRoot, isSuiteBody };`,

@@ -6,6 +6,21 @@
 
 `impeccable-gate: N/A — no UI surface`
 
+> **THIS PLAN IS A PRE-REVIEW TRANSCRIPT, deliberately not rewritten.** It records what was planned
+> before five diff-review rounds, and it is kept that way for the same reason spec review r2 finding
+> 2 ratified for §3.1's transcript: a plan edited to match its outcome stops being evidence of what
+> was decided when. Two classes of figure in it are therefore STALE BY DESIGN and are not defects:
+>
+> - **Cell counts.** The plan says nine reporting / seven silent / 16 total. The live population is
+>   19 cells, and it moved at rounds 4 and 5 as findings became fixtures. `cell-check.mts` COMPUTES
+>   and prints its own split and is the only authority; `claims-check.mts` check D holds the SPEC to
+>   that output. Neither reads this file.
+> - **Design narrative about a function-like stop.** Producer A carried one until diff review r4
+>   deleted it as false certification. Anywhere below that describes the walk stopping at
+>   `ts.isFunctionLike`, read spec §3.1 and §4 L8 instead.
+>
+> Every other figure here was verified at plan time and is cited with the command that produced it.
+
 ---
 
 ## 0. Pre-draft code verification

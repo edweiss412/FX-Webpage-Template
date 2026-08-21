@@ -394,7 +394,7 @@ claim is its PROVENANCE goes stale the moment the tree moves, which on a live br
 | enrolled suites | 70 | **77** |
 | registrations scanned (wide recognizer) | 3404 | **3594** |
 | registrations scanned (shipped recognizer) | — | **3592** |
-| classified records | 2648 | **2779** |
+| classified records | 2648 | **2780** |
 | 1a file-scope eager-position hooks | **0** | **0** |
 | 2a/2c unfollowable factory slots | **0** | **0** |
 
@@ -411,7 +411,7 @@ RECOGNIZER SHIPPED registrations 3592, inline-bodied suites 517, chain forms 0
 $ pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-premisescan-hook-population/record-diff.mts
 baseline ref             : origin/main
 suites                   : 77
-records: baseline 2779, live 2779
+records: baseline 2780, live 2780
 records only in baseline : 0     records only in live     : 0
 VERDICT moved            : 0     DETAIL moved             : 0
 ```

@@ -4644,6 +4644,13 @@ describe("producer B — an unfollowable factory slot reports unclassifiable", (
     // ordinary edit from the bodyless-options cell above. ONE cell for the class:
     // TypeScript emits all three of these as the same object literal.
     "inert options under a transparent wrapper": `describe("A", ({ skip: true }));\ndescribe("B", { skip: true } as const);\ndescribe("C", { skip: true } satisfies { skip: boolean });\nit("s", () => {});`,
+    // Diff review r5 finding 1. Deleting the function-like stop at r4 let
+    // `collect` descend into a NESTED registration's inline suite body, where
+    // `hookBodies` already attaches the hook -- so the file-level reason named
+    // the OUTER eager position for a hook belonging to the inner suite. The
+    // replacement stop is narrow: a body, of a recognized registration, at an
+    // index Vitest invokes. The reporting cells are what pin that it stayed narrow.
+    "nested inline suite body in an outer eager argument": `describe(String(describe("I", () => { beforeEach(() => {}); it("i", () => {}); })), () => {});\nit("s", () => {});`,
   };
 
   /**

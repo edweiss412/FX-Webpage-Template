@@ -17,13 +17,9 @@ reach intact. **The report replaces a WRONG answer, not a right one:** on `origi
 case gives sibling=environment-free, and with this change it gives sibling=unclassifiable. The
 nested test's own proven verdict is untouched, because `hookBodies` already collects that hook for it.
 
-The walk stops at every FUNCTION-LIKE node using TypeScript's own `ts.isFunctionLike`, so a hook
-inside a function VALUE in an eager position stays silent — Vitest never invokes it while collecting,
-and reporting it would attribute a hook that does not run. That predicate replaced a hand-listed set
-of node kinds after the enumeration failed exactly once, which deletes the class rather than the
-instance.
+The walk stops at exactly ONE thing: a nested registration's INLINE SUITE BODY, where `hookBodies` already attaches the hook. It does NOT stop at function-like nodes. A stop at `ts.isFunctionLike` stood there for two rounds and diff review r4 probed it silencing hooks that RUN — an IIFE, an invoked object method, a synchronously invoked callback — which is false certification. It was deleted, and a `.each` datum, an IIFE and an uncalled helper all report. Residue is limit L8.
 
-**Scored:** 1.0000 (163/163) over 165 mutants, zero unaccepted survivors; the only two survivors carry `equivalent` ledger rows and are excluded from the denominator. **Corpus-neutral:** zero records moved, verdict and detail, under a
+**Scored:** 1.0000, zero unaccepted survivors, with two `equivalent` ledger rows excluded from the denominator. The DENOMINATOR is deliberately not quoted here: five review rounds each forced a source edit, each retired the score, and each re-measure moved it. A superseded score cited as current is the same defect as quoting a stale one into a review brief, one document over. The final measured figure is in PR #861. **Corpus-neutral:** zero records moved, verdict and detail, under a
 structural record diff with its own positive control. Twelve (eager position x hook registrar) cells,
 each with a one-variable negative twin; the registrar axis is READ OUT OF the shipped
 `HOOK_REGISTRARS` rather than retyped.
@@ -71,7 +67,7 @@ separates. Seven of those weaker implementations were BUILT and proven killed by
 names for it; the eighth names no weaker implementation to build. The silent cells are the
 over-firing half, each one ordinary edit from a reporting cell.
 
-**Scored:** 1.0000 (163/163) over 165 mutants, zero unaccepted survivors; the only two survivors carry `equivalent` ledger rows and are excluded from the denominator. **Corpus-neutral:** zero records moved.
+**Scored:** 1.0000, zero unaccepted survivors, with two `equivalent` ledger rows excluded from the denominator. The DENOMINATOR is deliberately not quoted here: five review rounds each forced a source edit, each retired the score, and each re-measure moved it. A superseded score cited as current is the same defect as quoting a stale one into a review brief, one document over. The final measured figure is in PR #861. **Corpus-neutral:** zero records moved.
 
 Three limits are recorded in the spec rather than closed here, each with a bracketed differential
 against the shipped baseline: a hook registered by a CALLED HELPER stays invisible at every position

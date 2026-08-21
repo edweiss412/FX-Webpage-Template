@@ -2042,6 +2042,32 @@ function eagerPositionHookReports(facts: ModuleFacts): string[] {
       const line = sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
       out.push(eagerHookReason(n.expression.text, line));
     }
+    // A NESTED registration's INLINE suite body is the one place descent must
+    // stop, and for the same reason the `insideInlineBody` check below stops
+    // there: `hookBodies` already walks it and attaches the hook to that suite's
+    // own tests, so reporting it here would name the OUTER eager position for a
+    // hook that belongs to the inner suite -- a wrong attribution, which the
+    // bound forbids just as it forbids a false certification. Diff review r5
+    // finding 1, which deleting the old `ts.isFunctionLike` stop exposed.
+    //
+    // This stop is NARROW where that one was broad, and the difference is the
+    // whole point. It fires ONLY on an argument that `suiteBodyFunction`
+    // resolves to a body, of a call that `registrarRoot` recognizes, at an index
+    // Vitest actually invokes. It does NOT fire on a function value in general:
+    // an IIFE, a `.each` datum and an uncalled helper all still report, because
+    // nothing attaches those hooks anywhere and silence there would be the false
+    // certification r3 and r4 each caught. Slot 0 is excluded because Vitest
+    // FORMATS a function-valued name rather than invoking it (diff review r2
+    // finding 1), so a body there is never a body -- the same fact, read through
+    // the same helper, rather than a second rule that can drift.
+    if (ts.isCallExpression(n) && registrarRoot(n.expression) !== null) {
+      if (ts.isCallExpression(n.expression)) for (const a of n.expression.arguments) collect(a);
+      n.arguments.forEach((a, i) => {
+        if (i !== 0 && suiteBodyFunction(a) !== null) return;
+        collect(a);
+      });
+      return;
+    }
     ts.forEachChild(n, collect);
   };
 

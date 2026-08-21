@@ -98,29 +98,34 @@ results.push(cell("named constant as the NAME", "silent", `const NAME = "A";\nde
 // emits them identically. `isInertLiteral` read the RAW node until diff review
 // r4, so each of these reported as a possible factory against a declaration
 // (`describe(name, options, fn?)`) that makes them legal bodyless options.
+// A NESTED registration's inline suite body, sitting in an OUTER eager
+// argument. `hookBodies` attaches that hook to the inner suite's own tests, so
+// a file-level reason here names the outer position for a hook that belongs to
+// the inner one. Deleting the old function-like stop at r4 exposed this;
+// diff review r5 finding 1. The stop that replaces it is NARROW -- a body, of a
+// recognized registration, at an index Vitest invokes -- and the reporting
+// cells above are what pin that it did not grow back into the broad one.
+results.push(cell("nested inline suite body in an outer eager argument", "silent", `describe(String(describe("I", () => { beforeEach(() => {}); it("i", () => {}); })), () => {});\nit("s", () => {});`, { kills: "no nested-body stop" }));
 results.push(cell("inert options under a transparent wrapper", "silent", `describe("A", ({ skip: true }));\ndescribe("B", { skip: true } as const);\ndescribe("C", { skip: true } satisfies { skip: boolean });\nit("s", () => {});`, { kills: "raw-node inert reading" }));
 results.push(cell("named handler on an it/test root", "silent", `function testFn() {}\ntest("named", testFn);\ntest("sibling", () => {});`, { input: "root kind" }));
 // A hook inside a function-valued eager datum is a VALUE, never invoked during
 // registration, so reporting it attributes a hook that does not run — spec review
 // r3 finding 1.
-// ONE cell for the whole function-like class, not one per node kind. The walk
-// stops on TypeScript's own `isFunctionLike`, so a method, a getter, an accessor
-// and a constructor are covered by the same predicate; a cell per kind would be
-// the enumeration that predicate was adopted to delete. Spec review r4 finding 2
-// arrived as a MethodDeclaration, which is why this cell uses one.
-// A REGISTRATION nested inside a deferred datum. Diff review r1 F2: the
-// function-like boundary existed only inside the hook collector, so the outer
-// walk crossed a deferred function to reach this registration and reported a
-// hook there. Vitest never invokes the datum while collecting, so nothing
-// registers. ONE cell for the class -- the walk stops on `ts.isFunctionLike`,
-// and a cell per node kind would rebuild the enumeration that predicate deletes.
+// ONE cell for the whole function-like class, not one per node kind. Both of
+// these were SILENT cells until diff review r4 deleted the stop that made them
+// so; they are REPORTING cells now and their kill target is that stop. The
+// "one cell, not one per node kind" argument survives the flip unchanged: the
+// deleted predicate covered methods, getters, accessors and constructors
+// together, so a cell per kind would rebuild the enumeration either way. Spec
+// review r4 finding 2 arrived as a MethodDeclaration, which is why the second
+// of these uses one.
 
 const passed = results.filter(Boolean).length;
 console.log(
   `\n${reportingCells} reporting + ${results.length - reportingCells} silent = ${results.length} cells`,
 );
 console.log(`${passed} of ${results.length} cells behave as the spec's §5.2 table claims`);
-if (results.length !== 18) {
+if (results.length !== 19) {
   console.error("cell-check: the cell count moved; §5.2's table and this script must agree");
   process.exit(2);
 }
