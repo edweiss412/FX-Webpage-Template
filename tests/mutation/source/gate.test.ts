@@ -158,3 +158,131 @@ describe("mutation gate (spec §3.6)", () => {
     expect(f?.detail).toContain(PASSING.survivors[0]!);
   });
 });
+
+/* ===== AC-6: a timed-out kill is REPORTED without changing anything ===== */
+
+const timedOut = (siteId: string, suite: string, durationMs: number) => ({
+  siteId,
+  verdict: "KILLED" as const,
+  children: [
+    { suite: "first.test.ts", kind: "exit" as const, exitCode: 0, durationMs: 5 },
+    { suite, kind: "timeout" as const, exitCode: null, durationMs },
+  ],
+});
+
+const ordinaryKill = (siteId: string) => ({
+  siteId,
+  verdict: "KILLED" as const,
+  children: [{ suite: "first.test.ts", kind: "exit" as const, exitCode: 1, durationMs: 7 }],
+});
+
+const noticesOf = (r: unknown): unknown => (r as { notices?: unknown }).notices;
+
+describe("gate — a timed-out kill is REPORTED without changing anything (AC-6)", () => {
+  it("emits exactly ONE notice per timed-out mutant — THREE of them, not one", () => {
+    // THREE, deliberately. A single-timeout fixture is satisfied by an
+    // implementation emitting at most one notice globally, which is the defect
+    // that makes the channel useless on the run where it matters.
+    const outcomes = [
+      timedOut("op:1:1:a", "second.test.ts", 180_001),
+      ordinaryKill("op:2:2:b"),
+      timedOut("op:3:3:c", "third.test.ts", 180_002),
+      { siteId: "op:4:4:d", verdict: "SURVIVED" as const, children: [] },
+      timedOut("op:5:5:e", "second.test.ts", 180_003),
+    ];
+    const r = evaluateGate({
+      surfaceId: "fixture",
+      mutantCount: outcomes.length,
+      noOps: [],
+      baselineGreen: true,
+      killed: 4,
+      survivors: ["op:4:4:d"],
+      ledger: [{ siteId: "op:4:4:d", kind: "equivalent", reason: "fixture" }],
+      scoreFloor: 0.5,
+      outcomes,
+    });
+
+    // The triples are DERIVED from those mutants' own records WITHIN THIS RUN —
+    // never compared across runs, since durationMs is measured unstable between
+    // runs and a cross-run comparison would be flaky by construction.
+    const expected = outcomes
+      .filter((o) => o.children.at(-1)?.kind === "timeout")
+      .map((o) => ({
+        kind: "timeout-kill",
+        site: o.siteId,
+        suite: o.children.at(-1)!.suite,
+        durationMs: o.children.at(-1)!.durationMs,
+        detail: expect.any(String),
+      }));
+    // Whole-array deep equality: `undefined` meets a populated expectation, so
+    // the red is a VALUE assertion rather than a crash. It pins cardinality,
+    // per-mutant field identity and the STRUCTURED fields together — an
+    // implementation formatting everything into `detail` has no fields to
+    // compare and fails here.
+    expect(noticesOf(r)).toEqual(expected);
+  });
+
+  it("leaves `passed` and `score` untouched, asserted AFFIRMATIVELY", () => {
+    // Affirmative rather than by equality against a peer run: equality holds when
+    // a pre-existing failure makes BOTH runs false, so a peer comparison passes
+    // on a gate this change had broken.
+    const r = evaluateGate({
+      surfaceId: "fixture",
+      mutantCount: 1,
+      noOps: [],
+      baselineGreen: true,
+      killed: 1,
+      survivors: [],
+      ledger: [],
+      scoreFloor: 1,
+      outcomes: [timedOut("op:1:1:a", "second.test.ts", 180_001)],
+    });
+    expect(r.passed).toBe(true);
+    expect(r.failures).toEqual([]);
+    expect(r.score.value).toBe(1);
+    // toEqual rather than toHaveLength: on an absent field the length matcher
+    // reds with "Target cannot be null or undefined", which names the matcher's
+    // problem rather than the assertion's subject.
+    expect(noticesOf(r)).toEqual([expect.objectContaining({ kind: "timeout-kill" })]);
+  });
+
+  it("attributes to the DECIDING child, so an ordinary kill and a non-deciding timeout emit NOTHING", () => {
+    const ordinary = evaluateGate({
+      surfaceId: "fixture",
+      mutantCount: 1,
+      noOps: [],
+      baselineGreen: true,
+      killed: 1,
+      survivors: [],
+      ledger: [],
+      scoreFloor: 1,
+      outcomes: [ordinaryKill("op:1:1:a")],
+    });
+    expect(noticesOf(ordinary)).toEqual([]);
+
+    // A mutant whose FIRST child timed out could not have reached a second, so
+    // this shape can only arise from a runner that kept going — and reading it as
+    // a timeout kill would attach a stale timeout to a verdict already settled.
+    const nonDeciding = evaluateGate({
+      surfaceId: "fixture",
+      mutantCount: 1,
+      noOps: [],
+      baselineGreen: true,
+      killed: 1,
+      survivors: [],
+      ledger: [],
+      scoreFloor: 1,
+      outcomes: [
+        {
+          siteId: "op:9:9:z",
+          verdict: "KILLED" as const,
+          children: [
+            { suite: "a.test.ts", kind: "timeout" as const, exitCode: null, durationMs: 180_000 },
+            { suite: "b.test.ts", kind: "exit" as const, exitCode: 1, durationMs: 9 },
+          ],
+        },
+      ],
+    });
+    expect(noticesOf(nonDeciding)).toEqual([]);
+  });
+});

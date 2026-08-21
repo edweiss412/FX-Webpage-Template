@@ -1,12 +1,46 @@
 import { readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const SOURCE = "lib/specLint/taskContract.ts";
 const PRISTINE = readFileSync(SOURCE, "utf8");
 
-type Outcome = number | { status: null; signal?: string; code?: string };
+type Outcome =
+  | number
+  | { status: null; signal?: string; code?: string; hang?: boolean }
+  | { code: number; sleepMs: number };
+
+/**
+ * A VIRTUAL clock, armed only for the timeout cases.
+ *
+ * The shipped `runSuite` hardcodes 180_000, so the ONLY observation separating
+ * it from a version honouring an injected 2_000 ceiling is the recorded
+ * duration — and a real 180-second hang cannot run in a unit suite. When a
+ * fixture declares `hang`, the mock advances this clock by whatever ceiling the
+ * CALLER passed, which is exactly the quantity under test.
+ *
+ * AC-15 deliberately does NOT use it. Under a controlled clock a measured value
+ * and a fabricated one are the same bytes — the fake IS the fabrication that AC
+ * exists to detect — so that case runs a real sleep on the real clock.
+ */
+let virtualNow = 0;
+let clockSpy: { mockRestore: () => void } | null = null;
+const armVirtualClock = () => {
+  virtualNow = 1_000_000;
+  clockSpy = vi.spyOn(Date, "now").mockImplementation(() => virtualNow);
+};
+const disarmVirtualClock = () => {
+  clockSpy?.mockRestore();
+  clockSpy = null;
+};
+/** Block the calling thread for real, so AC-15 measures a real interval. */
+const sleepSync = (ms: number) => {
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    /* spin — synchronous by necessity: spawnSync's caller cannot await */
+  }
+};
 /** Per-suite outcome; a function receives whether this call is the BASELINE. */
 type Behaviour = Record<string, Outcome | ((isBaseline: boolean) => Outcome)>;
 
@@ -53,6 +87,23 @@ vi.mock("node:child_process", async (importOriginal) => {
       if (typeof b === "number") {
         return { pid: FIXTURE_PID, status: b, signal: null, stdout: "", stderr: "", output: [] };
       }
+      if ("sleepMs" in b) {
+        sleepSync(b.sleepMs);
+        return {
+          pid: FIXTURE_PID,
+          status: b.code,
+          signal: null,
+          stdout: "",
+          stderr: "",
+          output: [],
+        };
+      }
+      if (b.hang === true) {
+        // A child that never terminates consumes the WHOLE ceiling the caller
+        // passed. That is the quantity AC-1 discriminates on: the shipped code
+        // burns its hardcoded 180_000 here, a repaired one burns the injected value.
+        virtualNow += opts.timeout ?? 0;
+      }
       return {
         pid: FIXTURE_PID,
         status: null,
@@ -75,8 +126,16 @@ vi.mock("node:child_process", async (importOriginal) => {
  */
 const FIXTURE_PID = 2_147_483_646;
 
-const { WATCHDOG_ARGV, MUTANT_TIMEOUT_EXIT, MutantRunInfraError, runSuite, runSurface } =
-  await import("./runner");
+const {
+  WATCHDOG_ARGV,
+  MUTANT_TIMEOUT_EXIT,
+  MUTANT_TIMEOUT_MS,
+  MutantRunInfraError,
+  runSuite,
+  runSuiteRecorded,
+  runMutantRecorded,
+  runSurface,
+} = await import("./runner");
 
 const { premiseHolds } = await import("../../_shared/premise");
 
@@ -313,5 +372,199 @@ describe("runner — accounting", () => {
     expect(run.outcomes).toHaveLength(run.mutantCount);
     expect(run.killed + run.survivors.length).toBe(run.mutantCount);
     expect(new Set(run.outcomes.map((o) => o.siteId)).size).toBe(run.mutantCount);
+  });
+});
+
+describe("runner — a mutant outcome carries the evidence that decided it (AC-4)", () => {
+  // The shipped `MutantOutcome` is `{ siteId, verdict }`, so `children` reads as
+  // `undefined` at runtime. Each case below therefore asserts the WHOLE children
+  // array by deep equality, so the red is `undefined` meeting a populated
+  // expectation — a VALUE assertion. Mapping over it first would red with a
+  // TypeError instead, which is a crash rather than a discriminating comparison
+  // and would go green for any implementation that merely defines the field.
+  const childrenOf = (o: unknown): unknown => (o as { children?: unknown }).children;
+
+  const exited = (suite: string, exitCode: number) =>
+    ({ suite, kind: "exit", exitCode, durationMs: expect.any(Number) }) as const;
+
+  it("records EVERY declared suite in EXECUTION ORDER, each an exit 0, for a SURVIVOR", () => {
+    // MORE THAN TWO suites, deliberately. Every two-suite proof is satisfied by a
+    // runner capped at two children — the implementation that makes "the deciding
+    // child is the last one" false on the registry's larger rows, one of which
+    // declares ten.
+    const suites = ["a.test.ts", "b.test.ts", "c.test.ts", "d.test.ts"];
+    reset(Object.fromEntries(suites.map((s) => [s, 0])));
+    const run = runSurface(process.cwd(), surface(suites));
+    expect(run.survivors.length).toBeGreaterThan(0);
+
+    for (const outcome of run.outcomes) {
+      expect(outcome.verdict).toBe("SURVIVED");
+      // ONE deep equality over the whole array: order, suite identity, kind and
+      // code together. A COUNT assertion is satisfied by a runner reporting the
+      // right number of WRONG suites; suite identity alone would let a survivor's
+      // children be recorded as timeouts or arbitrary exits with no row noticing.
+      expect(childrenOf(outcome)).toEqual(suites.map((s) => exited(s, 0)));
+    }
+  });
+
+  it("also holds on a TWO-suite surface, so the shape is not >2-only", () => {
+    const suites = ["a.test.ts", "b.test.ts"];
+    reset(Object.fromEntries(suites.map((s) => [s, 0])));
+    const run = runSurface(process.cwd(), surface(suites));
+    for (const outcome of run.outcomes) {
+      expect(childrenOf(outcome)).toEqual(suites.map((s) => exited(s, 0)));
+    }
+  });
+
+  it("records the KILLING child with its OWN exit code, not a normalised one", () => {
+    reset({ "a.test.ts": 0, "b.test.ts": (isBaseline) => (isBaseline ? 0 : 7) });
+    const run = runSurface(process.cwd(), surface(["a.test.ts", "b.test.ts"]));
+    expect(run.killed).toBe(run.mutantCount);
+    for (const outcome of run.outcomes) {
+      // The DECIDING child is the LAST one, because the loop short-circuits — and
+      // its code is the child's REAL 7, not a normalised 1. The evidence is what
+      // the child reported, not what the verdict was interpreted to mean.
+      expect(childrenOf(outcome)).toEqual([exited("a.test.ts", 0), exited("b.test.ts", 7)]);
+    }
+  });
+});
+
+describe("runner — no suite AFTER the deciding one is spawned (AC-5)", () => {
+  // These assertions are TRUE of the shipped source, so authoring them cannot
+  // produce a red. Their red is observed against a NAMED MUTANT of the
+  // production surface instead — deleting the early return in
+  // `runMutantRecorded` — and that probe is recorded in the commit rather than
+  // left as a claim. A non-regression pin whose red can never be observed is
+  // exactly the shape the red contract rejects.
+  const mutantSpawns = () => calls.filter((c) => !c.isBaseline).map((c) => c.suite);
+
+  it("kill at suite 1: the seam runs ONCE per mutant, with suite 1", () => {
+    const suites = ["a.test.ts", "b.test.ts", "c.test.ts", "d.test.ts"];
+    reset({
+      "a.test.ts": (isBaseline) => (isBaseline ? 0 : 3),
+      "b.test.ts": 0,
+      "c.test.ts": 0,
+      "d.test.ts": 0,
+    });
+    const run = runSurface(process.cwd(), surface(suites));
+    // THE SEAM ASSERTION COMES FIRST, deliberately. Ordered after the verdict
+    // check it never evaluates under the probe that proves this case
+    // discriminates: deleting the early return makes every mutant SURVIVE, so
+    // `killed` reds first and the seam — the thing this case is actually about —
+    // is never reached. An assertion only tests what it names if it DECIDES.
+    expect(new Set(mutantSpawns())).toEqual(new Set(["a.test.ts"]));
+    expect(mutantSpawns()).toHaveLength(run.mutantCount);
+    expect(run.killed).toBe(run.mutantCount);
+  });
+
+  it("kill at suite 3: the seam runs EXACTLY THREE times, in order, and NEVER for suite 4", () => {
+    // A single suite-1 case is passed by an implementation that short-circuits
+    // correctly at suite 1 and runs on after a LATER kill — which records
+    // children AFTER the deciding event, falsifies "the deciding child is the
+    // last one", and can attach a later timeout to a verdict already settled.
+    const suites = ["a.test.ts", "b.test.ts", "c.test.ts", "d.test.ts"];
+    reset({
+      "a.test.ts": 0,
+      "b.test.ts": 0,
+      "c.test.ts": (isBaseline) => (isBaseline ? 0 : 5),
+      "d.test.ts": 0,
+    });
+    const run = runSurface(process.cwd(), surface(suites));
+    const spawned = mutantSpawns();
+    expect(spawned).toHaveLength(run.mutantCount * 3);
+    expect(spawned.slice(0, 3)).toEqual(["a.test.ts", "b.test.ts", "c.test.ts"]);
+    expect(spawned).not.toContain("d.test.ts");
+    // Asserted on the SPAWN SEAM, not on `children.length`. An implementation
+    // that runs every suite and DISCARDS the records after the deciding one
+    // satisfies a length assertion while destroying the short-circuit; it cannot
+    // fake the seam, because the spawn already happened.
+    for (const outcome of run.outcomes) {
+      expect((outcome.children ?? []).map((c) => c.suite)).toEqual([
+        "a.test.ts",
+        "b.test.ts",
+        "c.test.ts",
+      ]);
+    }
+  });
+});
+
+describe("runner — a timed-out child records a TIMEOUT, and the ceiling is injectable (AC-1, AC-3)", () => {
+  afterEach(() => disarmVirtualClock());
+
+  it("honours an INJECTED ceiling, and the DURATION is the discriminator", () => {
+    armVirtualClock();
+    reset({ "a.test.ts": { status: null, signal: "SIGKILL", code: "ETIMEDOUT", hang: true } });
+    const { code, record } = runSuiteRecorded("/root", "/t.ts", SOURCE, "a.test.ts", "site", 2_000);
+
+    // AC-1 requires the whole tuple, so a correctly TIMED but wrongly SPELLED
+    // record must fail. `kind` is NOT the discriminator — a hanging child reports
+    // `timeout` under the shipped code too.
+    expect(record.kind).toBe("timeout");
+    expect(record.exitCode).toBeNull();
+    expect(record.suite).toBe("a.test.ts");
+    expect(record.durationMs).toBeGreaterThanOrEqual(2_000);
+    // THE DISCRIMINATING BOUND. Only the duration separates a runner honouring
+    // the injected ceiling from one ignoring it and burning the hardcoded 180_000.
+    expect(record.durationMs).toBeLessThan(10_000);
+
+    // AC-3, the no-blast-radius guarantee, ASSERTED rather than assumed.
+    expect(code).toBe(MUTANT_TIMEOUT_EXIT);
+    expect(classify(code)).toBe("KILLED");
+  });
+
+  it("defaults to MUTANT_TIMEOUT_MS when no ceiling is passed, so every existing call site is unchanged", () => {
+    reset({ "a.test.ts": 0 });
+    runSuiteRecorded("/root", "/t.ts", SOURCE, "a.test.ts", "site");
+    expect(calls[0]!.timeout).toBe(MUTANT_TIMEOUT_MS);
+  });
+});
+
+describe("runner — an assertion-killed child records its OWN exit code (AC-2, AC-3)", () => {
+  it.each([
+    ["a.test.ts", 1],
+    ["b.test.ts", 42],
+  ])("%s exits %i and the record carries THAT code", (suite, expected) => {
+    // TWO fixtures with DIFFERENT non-zero codes. A single fixture admits an
+    // implementation hard-coding whichever value that one fixture produced, and
+    // one hard-coding `kind` from the verdict — which AC-1's timeout case, also
+    // a KILLED verdict, then separates.
+    reset({ [suite]: expected });
+    const { code, record } = runSuiteRecorded("/root", "/t.ts", SOURCE, suite, "site");
+    expect(record.kind).toBe("exit");
+    expect(record.exitCode).toBe(expected);
+    expect(record.suite).toBe(suite);
+    expect(code).toBe(expected);
+    expect(classify(code)).toBe("KILLED");
+  });
+});
+
+describe("runner — an ordinary child's durationMs is MEASURED, not fabricated (AC-15)", () => {
+  it("tracks TWO DIFFERENT intervals, which is what kills a CONSTANT implementation", () => {
+    // On the REAL clock, deliberately: under the virtual one a measured value and
+    // a fabricated one are the same bytes.
+    //
+    // And TWO intervals, because one cannot prove measurement. A single fixture
+    // asserting ~120ms lands in a generous range kills `durationMs: 0` and
+    // NOTHING ELSE — a constant 5000 passes it comfortably. Requiring the longer
+    // child to exceed the shorter kills every constant, whatever it picks.
+    const SHORT_MS = 40;
+    const LONG_MS = 300;
+    reset({
+      "a.test.ts": { code: 0, sleepMs: SHORT_MS },
+      "b.test.ts": { code: 0, sleepMs: LONG_MS },
+    });
+    const { children } = runMutantRecorded(
+      "/root",
+      "/t.ts",
+      SOURCE,
+      ["a.test.ts", "b.test.ts"],
+      "site",
+    );
+    const [short_, long_] = children;
+    expect(short_!.suite).toBe("a.test.ts");
+    expect(long_!.suite).toBe("b.test.ts");
+    expect(short_!.durationMs).toBeGreaterThanOrEqual(SHORT_MS - 10);
+    expect(long_!.durationMs).toBeGreaterThanOrEqual(LONG_MS - 10);
+    expect(long_!.durationMs).toBeGreaterThan(short_!.durationMs);
   });
 });
