@@ -299,8 +299,13 @@ record earlier claimed. The tail is also not smooth: two children at 38.0 and 39
 next-slowest 20.8 s by ~1.8x, which any mean or median would have hidden.
 
 **Duration is itself unstable run to run.** Same surface, byte-identical inputs: an all-children maximum
-of 25.3 s in the first run, a mutant maximum of 39.1 s in this one. Consistent with probe 3's 1.4x
-intra-run spread.
+of 25.3 s in run 1, a mutant maximum of 39.1 s in run 2, and **19.8 s in run 3** — with run 3's slowest
+twelve all between 18.8 s and 19.8 s, **no outlier at all**. Run 2's 38.0/39.1 pair did not reproduce,
+so the bimodality was a transient of that run rather than a property of particular mutants.
+
+**Headroom is therefore a RANGE — 4.6x to 9.1x — and the range is a property of the surface, not
+measurement error.** Zero timeouts in all three runs; killed 93 and survivors 6, the same six sites,
+every run.
 
 **What the earlier run still establishes**, since both are recorded: the survivor set is IDENTICAL
 across the two runs (same six sites), so the verdict result reproduced exactly even while the duration

@@ -143,14 +143,15 @@ Median 1.1 s, p90 3.1 s, max 24.4 s. Zero children at or past the ceiling.
 
 The remaining 36 range from 29x to 164x.
 
-**STANDING ASSESSMENT — the duration hypothesis is a candidate FOUR measurements declined to support, and this spec does not carry it as a live lead.** It was seeded from four verified citations and framed as a candidate; it is recorded here at the weight the evidence gives it:
+**STANDING ASSESSMENT — the duration hypothesis is CLOSED. Five measurements declined to support it, and this spec does not carry it as a live lead.** It was seeded from four verified citations and framed as a candidate; it is recorded here at the weight the evidence gives it:
 
 | test | result |
 | --- | --- |
 | headroom correlation across the enrolled population (§2.2) | positive but stuck at n = 2 known-flaky surfaces; suggestive, never confirmatory |
 | advance prediction on the #2/#3 headroom surfaces (§2.5) | did NOT confirm — no recorded movement on either |
 | timeouts at the exact locus, per mutant (§2.3) | ZERO of 93 kills, on the surface, site and bytes where the anomaly was observed |
-| duration versus verdict across two runs (§2.3) | duration moved 25.3 s to 39.1 s while the survivor set reproduced EXACTLY — the axis that varies is not the axis under investigation |
+| duration versus verdict across THREE runs (§2.3) | the mutant maximum swung 19.8 s to 39.1 s while the survivor set reproduced EXACTLY every time — the axis that varies is not the axis under investigation |
+| the bimodal tail as a structural lead (§2.3) | did NOT reproduce — run 3's tail is a flat cluster with no outlier, so there is no stable pair of slow mutants |
 
 **What survives independent of the hypothesis is the deliverable itself:** a timeout is indistinguishable from an assertion kill at every observable layer (§2.1), which was never a consequence of the duration lead and does not fall with it. A mechanism hunt that eliminates its own leading candidate and ships the instrument anyway is the honest outcome.
 
@@ -169,6 +170,20 @@ The remaining 36 range from 29x to 164x.
 **Result (filtered re-measurement): 99 mutants, 118 children — 116 mutant, 2 baseline — 29.0 min. ZERO timeouts among 93 kills.** Mutant child duration min 0.6 s, median 17.8 s, **max 39.1 s**; headroom at the mutant maximum **4.6x**. Stamp pair identical before and after.
 
 **The withdrawn claim was not merely unsupported — it was wrong in DIRECTION, and the corrected figure is the one that matters.** An earlier run mixed the two baseline children into the same distribution and reported a 25.3 s maximum with a 1.04x mutant-versus-baseline ratio, which read as "mutant children are not materially slower than baseline". Filtered, the worst MUTANT child is 39.1 s against a worst BASELINE child of 18.3 s — a ratio of **2.14x**. **Mutant children ARE materially slower here.** So the limit in §6 is not a formality: a baseline measurement is a genuine LOWER BOUND and understates the tail by roughly a factor of two on this surface.
+
+**A THIRD run, and the tail did not reproduce.** Re-run with per-child identity recorded: mutant max **19.8 s**, headroom **9.1x**, slowest twelve all between 18.8 s and 19.8 s — **no outlier at all**. Run 2's 38.0/39.1 pair was a transient of that run, not a property of particular mutants, so there is no stable pair to name and the structural-lead hypothesis closes in a stronger form than either pre-registered branch: not "they share nothing" but "they do not persist".
+
+| run | mutant max | headroom | baselines | killed / survivors |
+| --- | --- | --- | --- | --- |
+| 1 (contaminated) | 25.3 s over ALL children | — | — | 93 / 6 |
+| 2 (filtered) | 39.1 s, two outliers at 38.0 / 39.1 | 4.6x | 1.1, 18.3 s | 93 / 6 |
+| 3 (filtered + identity) | 19.8 s, no outliers | 9.1x | 1.1, 17.8 s | 93 / 6 |
+
+**Headroom on this surface is therefore a RANGE, 4.6x-9.1x, and the range is a PROPERTY OF THE SURFACE rather than measurement error.** A point estimate of an unstable quantity is not a thing that exists; every statement resting on a single figure is scoped to the range. Zero timeouts in all three runs.
+
+**VERDICT STABLE, DURATION UNSTABLE — the arc's sharpest statement of its own subject.** The identical survivor set — 93 killed, 6 survivors, the same six sites — returned in THREE consecutive controlled local runs while the mutant-duration maximum swung 2x, on byte-identical inputs with the pair stamp identical each time. Set beside §2.5's finding that the historical record of verdict movement is CI-only and failure-only, the honest state of this arc's subject is: **observed historically across CI and local, NOT reproduced in three controlled local runs, on a surface whose duration is wildly unstable across those same runs.**
+
+**That is the strongest argument for the deliverable, not a weakening of the arc.** The phenomenon does not appear on demand, so an attributing record is the only instrument that could catch the next occurrence.
 
 **Two consequences, both against the arc's earlier reading.** Headroom at the worst-placed surface is **4.6x, not 7.1x** — the timeout mechanism has less room than this spec previously claimed. And the mutant tail is not smooth: the slowest ten children are 19.3, 19.3, 19.3, 19.4, 19.8, 19.8, 19.8, 20.8, 38.0, 39.1 s, so two children stand clear of the rest by ~1.8x, which a mean or a median would have concealed entirely.
 
