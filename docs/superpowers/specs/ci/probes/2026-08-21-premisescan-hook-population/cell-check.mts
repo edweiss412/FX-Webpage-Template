@@ -1,0 +1,64 @@
+/**
+ * The eleven §5.2 cells, run against the working tree's `premiseScan`.
+ *
+ * Seven cells must REPORT (a reason is emitted) and four must stay SILENT. The
+ * silent cells are each one ordinary edit from a reporting cell, so a rule that
+ * fires on them is over-firing on live authoring rather than catching anything.
+ *
+ * **On `origin/main` this exits non-zero**, and that is its purpose: the seven
+ * reporting cells fail because neither producer exists yet. It is therefore a
+ * genuine already-failing red for the tasks that add them, failing for the
+ * asserted reason — a cell that emits no reason — rather than for a collection
+ * or import error.
+ *
+ *     pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-premisescan-hook-population/cell-check.mts
+ */
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { classifyTests } from "../../../../../../tests/mutation/source/premiseScan";
+
+const ROOT = process.cwd();
+const scratch = mkdtempSync(join(tmpdir(), "premise-cells-"));
+let n = 0;
+
+const cell = (label: string, expect: "report" | "silent", src: string): boolean => {
+  const p = join(scratch, `cell${n++}.ts`);
+  writeFileSync(p, src, "utf8");
+  const rows = classifyTests(ROOT, p);
+  if (rows.length === 0) {
+    console.log(`FAIL  ${expect.padEnd(6)}  ${label}   <no test classified — the fixture is broken, not the rule>`);
+    return false;
+  }
+  const reported = rows.some((r) => r.detail.length > 0);
+  const ok = expect === "report" ? reported : !reported;
+  console.log(`${ok ? "PASS" : "FAIL"}  ${expect.padEnd(6)}  ${label}`);
+  if (!ok) for (const r of rows) console.log(`          ${r.verdict}  ${r.testName}  | ${r.detail.slice(0, 80)}`);
+  return ok;
+};
+
+const results: boolean[] = [];
+
+console.log("--- seven cells that must REPORT");
+results.push(cell("bare identifier factory", "report", `const suiteA = () => { it("a", () => {}); };\ndescribe("A", suiteA);`));
+results.push(cell("function declaration factory", "report", `function suiteA() { it("a", () => {}); }\ndescribe("A", suiteA);`));
+results.push(cell("property-access factory", "report", `const suites = { a: () => { it("a", () => {}); } };\ndescribe("A", suites.a);`));
+results.push(cell("wrapped identifier (parenthesized)", "report", `const suiteA = () => { it("a", () => {}); };\ndescribe("A", (suiteA));`));
+results.push(cell("wrapped identifier (as-expression)", "report", `const suiteA = () => { it("a", () => {}); };\ndescribe("A", suiteA as never);`));
+results.push(cell("call-expression factory", "report", `const makeSuite = () => () => { it("a", () => {}); };\ndescribe("A", makeSuite());`));
+results.push(cell("function-valued NAME hiding a factory", "report", `const suiteA = () => { it("a", () => {}); };\ndescribe(function titled() {}, suiteA);`));
+
+console.log("--- four cells that must stay SILENT");
+results.push(cell("bodyless options registration", "silent", `describe("A", { skip: true });\nit("s", () => {});`));
+results.push(cell("inline body + named timeout constant", "silent", `const T = 30000;\ntest("a", () => {}, T);`));
+results.push(cell("named options + inline body", "silent", `const opts = { timeout: 1 };\ndescribe("A", opts, () => { it("a", () => {}); });`));
+results.push(cell("named constant as the NAME", "silent", `const NAME = "A";\ndescribe(NAME, () => { it("a", () => {}); });`));
+
+const passed = results.filter(Boolean).length;
+console.log(`\n${passed} of ${results.length} cells behave as the spec's §5.2 table claims`);
+if (results.length !== 11) {
+  console.error("cell-check: the cell count moved; §5.2's table and this script must agree");
+  process.exit(2);
+}
+if (passed !== results.length) process.exit(1);

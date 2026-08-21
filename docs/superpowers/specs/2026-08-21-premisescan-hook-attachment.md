@@ -17,6 +17,12 @@ does not announce itself.
 This spec makes both shapes **report `unclassifiable`** instead. It does **not** teach the scanner to
 follow them.
 
+**It does not close the class.** A third shape — a hook registered by a helper the registration
+CALLS — stays silently free, at every position, exactly as it does today. That is a pre-existing and
+uniform limit of the scanner's lexical hook collection rather than something these producers
+introduce, it is bracketed against the shipped baseline at §4 L4, and saying so here is what stops
+this spec reading as a claim to have closed silent frees in general.
+
 ### 1.1 This change is PROSPECTIVE, and the numbers say so
 
 **The live population of both shapes is ZERO**, measured before this design was written:
@@ -213,6 +219,14 @@ Two consequences, both load-bearing and both learned from probes rather than ass
   bodyless registration, and a rule that reports whenever no argument is a body emits a reason for a
   body that does not exist — a wrong attribution, which the consequence bound forbids.
 
+**The rule applies to SUITE registrations only** — a `describe` or `suite` root. An `it`/`test`
+registration cannot carry a suite factory, and its handler is not lost either way: a test's extent is
+the whole call expression, so the traversal already resolves a named handler to its declaration and
+reaches through it. Bracketed against the shipped baseline, `test("named", testFn)` with a spawning
+`testFn` classifies `environment-touching` on `origin/main` — the body IS analysed. Reporting there
+would be both a wrong attribution (naming a suite factory that cannot exist) and a false advisory on
+the ordinary extraction of an inline test callback. Spec review r2 finding 2.
+
 **The rule, an accept-set with the complement default-denied.** Among the arguments at index ≥ 1,
 ACCEPT if one is a locatable inline body (`isSuiteBody`, whose accept-set is already closed by
 TypeScript's outer-expression grammar), or if EVERY one is an inert literal — a string, numeric,
@@ -263,7 +277,7 @@ the repaired rules above.
 **And the live corpus is untouched under the prototype — checked STRUCTURALLY, not lexically:**
 
 ```
-$ pnpm exec tsx spike-recorddiff.mts        # in the spike worktree
+$ pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-premisescan-hook-population/record-diff.mts
 records: baseline 2648, prototype 2648
 records only in baseline : 0
 records only in prototype: 0
@@ -312,10 +326,19 @@ diff has neither blind spot, and it needs no knowledge of what the wording IS.
 Both halves of the consequence bound are therefore MEASURED: every constructed instance reports, and
 there are **zero false advisories on the live corpus**.
 
+**Both scripts are committed and both are PROVEN IN BOTH DIRECTIONS**, which is what makes their
+zeros mean anything. `record-diff.mts` ABORTS with exit 2 when the working tree's `premiseScan.ts` is
+byte-identical to the baseline ref, because there a perfect zero would be the baseline compared
+against itself — the answer the author is hoping for, produced by a check with nothing to measure.
+Run on this branch it aborts; run where the change exists it reports the figures above and exits 0.
+`cell-check.mts` exits 1 on `origin/main` with 4 of 11 — the seven reporting cells fail because
+neither producer exists yet, and they fail for the ASSERTED reason (a cell that emits no reason)
+rather than for a collection or import error — and exits 0 with 11 of 11 where the change exists.
+
 **All eleven §5.2 cells are probed, not asserted:**
 
 ```
-$ pnpm exec tsx spike-cells.mts        # in the spike worktree
+$ pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-premisescan-hook-population/cell-check.mts
 --- six REPORTING cells   (bare identifier, function declaration, property access,
     wrapped identifier ×2, call expression, function-valued name)          all PASS
 --- four SILENT cells     (bodyless options, inline body + named timeout constant,
@@ -381,7 +404,7 @@ obviously wrong. §5.5 records this arc's own paperwork drifting by the same mec
 | **L1** | A hook in an eager argument position is REPORTED, never attached, and the reason does not name the suite it attaches to. A test that could have been proven `environment-touching` through that hook is reported `unclassifiable` instead. | The report is the conservative direction: the reader is told the scanner cannot decide, rather than told the test is free. Both following the hook and identifying its suite are the resolution R1 declines. |
 | **L2** | BOTH reports are FILE-scoped, so each demotes `environment-free` tests in the file that the reported construct could not have affected. | Narrowing either needs the resolution R1 declines. Measured live cost: zero registrations, so zero tests, confirmed under a working prototype in §3.4. An over-report with a named cause is a documented limit; a silent free is not. |
 | **L3** | Neither producer fires on a registration the shipped `registrarRoot` does not recognize. `MODIFIERS` is incomplete on Vitest 4.1.5 — `test.skipIf(...)` is invisible to it, one live instance in `tests/cross-cutting/psqlStartupFileSuppression.test.ts`. | That is `BL-PREMISESCAN-REGISTRAR-ACCEPT-SETS-HAND-MAINTAINED`'s subject and ships in the sequential PR 2. Fixing it here would fold two decisions into one recognizer, which is the bigger target. |
-| **L4** | A hook reached only through a helper CALLED from an eager position is not distinguished from one written there. | The producer reports on the syntactic position; a call in an eager position is already an eager argument and reports. This is conservative in the same direction. |
+| **L4** | **A hook registered by a CALLED HELPER is invisible, at every position.** `describe(registerHook(), …)`, where `registerHook()` registers a `beforeEach` and returns a name, is classified `environment-free`. Neither producer fires, because both key on a syntactic `HOOK_REGISTRARS` call and there is none. | **PRE-EXISTING and UNIFORM, bracketed against the shipped baseline rather than asserted.** The same helper is equally invisible inside an inline `describe` body and as a plain file-scope statement — all three classify `environment-free` identically on `origin/main` and under this change. It is `hookBodies`' and the top-level seed's existing LEXICAL contract, which this change neither causes nor widens, and it is the same disposition the filing arc applied to its own four pre-existing gaps. Closing it means following hook registration through a call, which is the resolution R1 declines. Raised as spec review r2 finding 1, whose substance was right and whose attribution to this design was not. |
 | **L5** | Producer B reports a registration whose only non-inert factory-slot argument is in fact OPTIONS rather than a factory — `describe("A", opts, () => {})` is silent because slot 2 is a body, but `describe("A", opts)` reports. | The scanner cannot tell a named options object from a named factory without resolution. The reason says "if that argument is the suite factory", so the report is correctly attributed rather than overclaiming, and the worst case is a conservative demote with a named cause. Zero live instances. |
 
 ---
