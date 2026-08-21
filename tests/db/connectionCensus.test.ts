@@ -1650,3 +1650,383 @@ describe("connection census — the enrolment's control is unique in the module 
     expect(surface!.suitePaths).toContain("tests/db/connectionCensus.test.ts");
   });
 });
+
+describe("connection census — a driver name that is a KEY is not a value reference", () => {
+  // Every case here was authored against a SURVIVING MUTANT: the mutation gate found that
+  // nothing in the suite discriminated these positions, so each one is a real gap the score
+  // exposed rather than a case written for symmetry.
+  const KEY_POSITIONS: ReadonlyArray<[string, string]> = [
+    ["a property-assignment key", `const bag = { postgres: 1 };`],
+    ["a property-access name", `const bag = { postgres: 1 };\nconst n = bag.postgres;`],
+    ["a property-signature name", `interface Bag { postgres: string }`],
+    ["a destructuring alias source", `const { postgres: pg } = bag;`],
+    ["an import alias source", `import { postgres as pg } from "./_unrelated";`],
+  ];
+
+  for (const [label, tail] of KEY_POSITIONS) {
+    test(`${label} reports nothing`, () => {
+      const rec = classifyFile(P, [IMPORT, `const sql = postgres(${ENV});`, tail].join("\n"));
+      expect(
+        rec.reports.map((r) => r.kind),
+        label,
+      ).toEqual([]);
+      expect(
+        rec.sites.map((s) => s.cls),
+        label,
+      ).toEqual(["validation-env"]);
+    });
+  }
+
+  test("twin — the same name as the RECEIVER of a property access IS a value reference", () => {
+    // `postgres.length` READS the binding; `bag.postgres` names a key. A predicate that
+    // suppressed on "the parent is a property access" rather than on "this identifier is
+    // its NAME" would silence the first.
+    const rec = classifyFile(
+      P,
+      [IMPORT, `const sql = postgres(${ENV});`, `const n = postgres.length;`].join("\n"),
+    );
+    expect(rec.reports.map((r) => [r.kind, r.line])).toEqual([["value-reference", 3]]);
+  });
+
+  test("twin — a destructuring that BINDS the name shadows the driver instead", () => {
+    const rec = classifyFile(
+      P,
+      [IMPORT, `const sql = postgres(${ENV});`, `const { postgres } = bag;`].join("\n"),
+    );
+    expect(rec.sites).toEqual([]);
+    expect(rec.reports.map((r) => r.kind)).toEqual(["shadowed-driver"]);
+  });
+});
+
+describe("connection census — cases authored against SURVIVING MUTANTS", () => {
+  // The mutation gate's first scored run left 74 survivors. Every case below was written
+  // against a specific one: the score is what found these gaps, not review, and each case
+  // names the weaker implementation it kills.
+  const GUARD_LITERAL = `"postgresql://postgres:postgres@127.0.0.1:54322/postgres"`;
+
+  test("an `export {}` without a module specifier is not a specifier position", () => {
+    // Kills: a walk that treats every ExportDeclaration as carrying a specifier.
+    const refs = moduleSpecifiersIn(parse([`const a = 1;`, `export { a };`].join("\n")));
+    expect(refs).toEqual([]);
+  });
+
+  test("a call of a function that is not `require` is not a specifier position", () => {
+    // Kills: a walk keyed on "any identifier callee" rather than on `require`.
+    const refs = moduleSpecifiersIn(parse(`helper("./_helper");`));
+    expect(refs).toEqual([]);
+  });
+
+  test("a side-effect import does not break the declaration walk", () => {
+    // Kills: a declaration walk that reads `n.importClause` without testing it.
+    const rec = classifyFile(
+      P,
+      [IMPORT, `import "./_side";`, `const sql = postgres(${ENV});`].join("\n"),
+    );
+    expect(rec.sites.map((s) => s.cls)).toEqual(["validation-env"]);
+  });
+
+  test("an unrelated namespace import does not shadow the driver", () => {
+    // Kills: a declaration walk that counts every namespace import as a declaration of the
+    // name it is asked about.
+    const rec = classifyFile(
+      P,
+      [IMPORT, `import * as other from "./_x";`, `const sql = postgres(${ENV});`].join("\n"),
+    );
+    expect(rec.sites.map((s) => s.cls)).toEqual(["validation-env"]);
+    expect(rec.reports).toEqual([]);
+  });
+
+  test("an acquisition CALLED immediately is reported, not bound", () => {
+    // Kills: an ascent that walks through a call expression to the const beyond it.
+    const rec = classifyFile(P, [`const sql = require("postgres")(${ENV});`].join("\n"));
+    expect(rec.sites).toEqual([]);
+    expect(rec.reports.map((r) => r.kind)).toEqual(["acquisition"]);
+  });
+
+  test("a vitest loader that LOADS NOTHING is neither a binding nor a report", () => {
+    // Kills: dropping the skip for a known non-loading member, and dropping its `continue`.
+    const rec = classifyFile(
+      P,
+      [IMPORT, `vi.unmock("postgres");`, `const sql = postgres(${ENV});`].join("\n"),
+    );
+    expect(rec.reports).toEqual([]);
+    expect(rec.sites.map((s) => s.cls)).toEqual(["validation-env"]);
+  });
+
+  test("an UNRECOGNISED vitest member naming the driver reports", () => {
+    // Kills: a guard that reports for known members too, and one that never reports.
+    const rec = classifyFile(P, `vi.somethingElse("postgres");`);
+    expect(rec.reports.map((r) => r.kind)).toEqual(["acquisition"]);
+    expect(rec.reports[0]!.detail).toContain("somethingElse");
+  });
+
+  test("a namespace member other than `default` is not a connect site", () => {
+    // Kills: a site rule that accepts any member of a namespace binding.
+    const rec = classifyFile(
+      P,
+      [`import * as ns from "postgres";`, `const x = ns.other(${ENV});`].join("\n"),
+    );
+    expect(rec.sites).toEqual([]);
+    expect(rec.reports.map((r) => r.kind)).toEqual(["value-reference"]);
+  });
+
+  test("the namespace receiver of a `.default` call is not ALSO a value reference", () => {
+    // Kills: dropping the callee-node exclusion for the namespace form.
+    const rec = classifyFile(
+      P,
+      [`import * as ns from "postgres";`, `const sql = ns.default(${ENV});`].join("\n"),
+    );
+    expect(rec.reports).toEqual([]);
+    expect(rec.sites.map((s) => s.cls)).toEqual(["validation-env"]);
+  });
+
+  test("a TYPE-ONLY import of the guard does not make a site guard-bound", () => {
+    // Kills: a guard-name collector that ignores `isTypeOnly`, and one that drops its skip.
+    const rec = classifyFile(
+      P,
+      [
+        IMPORT,
+        `import type { assertLocalDbUrl } from "./_localDbUrl";`,
+        `const sql = postgres(assertLocalDbUrl(${GUARD_LITERAL}));`,
+      ].join("\n"),
+    );
+    expect(rec.sites.map((s) => s.cls)).toEqual(["unclassifiable"]);
+  });
+
+  test("a NAMESPACE import of the guard module does not crash the name collector", () => {
+    // Kills: reading `.elements` off a namespace binding.
+    const rec = classifyFile(
+      P,
+      [
+        IMPORT,
+        `import * as g from "./_localDbUrl";`,
+        `const sql = postgres(g.assertLocalDbUrl(u));`,
+      ].join("\n"),
+    );
+    expect(rec.sites.map((s) => s.cls)).toEqual(["unclassifiable"]);
+  });
+
+  test("a property read says SO in its detail", () => {
+    // Kills: a shape test that collapses property and element access into one branch.
+    expect(
+      classifyFile(P, [IMPORT, `const sql = postgres(cfg.url);`].join("\n")).sites[0]!.detail,
+    ).toBe("a property read the census does not follow");
+  });
+
+  test("a self-referential const resolves without recursing forever", () => {
+    // Kills: dropping the `seen` insertion that bounds the const-chain walk.
+    const rec = classifyFile(
+      P,
+      [IMPORT, `const url = url;`, `const sql = postgres(url);`].join("\n"),
+    );
+    expect(rec.sites.map((s) => s.cls)).toEqual(["unclassifiable"]);
+  });
+
+  test("two IDENTICAL declarations of one name classify as that name", () => {
+    // Kills: a comparison that reports `unclassifiable` when the declarations AGREE.
+    const rec = classifyFile(
+      P,
+      [
+        IMPORT,
+        `function a() { const url = ${ENV}; return url; }`,
+        `function b() { const url = ${ENV}; return url; }`,
+        `const sql = postgres(url);`,
+      ].join("\n"),
+    );
+    expect(rec.sites.map((s) => s.cls)).toEqual(["validation-env"]);
+  });
+
+  const DISAGREEING: ReadonlyArray<[string, string, string]> = [
+    ["env names", `const url = ${ENV};`, `const url = process.env.DATABASE_URL;`],
+    ["literal hosts", `const url = ${LOOPBACK};`, `const url = ${REMOTE};`],
+    ["unclassifiable reasons", `const url = cfg.a;`, `const url = other();`],
+  ];
+
+  for (const [label, first, second] of DISAGREEING) {
+    test(`two declarations that disagree on ${label} are unclassifiable`, () => {
+      // Kills: a rendering that collapses two DIFFERENT resolutions of one kind into one
+      // string, which makes disagreeing declarations compare equal.
+      const rec = classifyFile(
+        P,
+        [
+          IMPORT,
+          `function a() { ${first} return url; }`,
+          `function b() { ${second} return url; }`,
+          `const sql = postgres(url);`,
+        ].join("\n"),
+      );
+      expect(
+        rec.sites.map((s) => s.cls),
+        label,
+      ).toEqual(["unclassifiable"]);
+    });
+  }
+
+  test("a chain of two loopback literals is loopback, not env", () => {
+    // Kills: an emptiness test on the collected env names that is off by one.
+    const rec = classifyFile(
+      P,
+      [IMPORT, `const sql = postgres(${LOOPBACK} ?? ${GUARD_LITERAL});`].join("\n"),
+    );
+    expect(rec.sites.map((s) => s.cls)).toEqual(["loopback-literal"]);
+  });
+
+  test("a mixed chain names the operand that spoiled it", () => {
+    // Kills: a detail that reports the wrong branch of the mixed-chain test.
+    const rec = classifyFile(P, [IMPORT, `const sql = postgres(cfg.url ?? ${ENV});`].join("\n"));
+    expect(rec.sites[0]!.detail).toContain("a mixed chain");
+  });
+
+  test("a BOOLEAN connection sub-value is a literal", () => {
+    // Kills: a literal test that requires a value to be both `true` and `false`.
+    const rec = classifyFile(
+      P,
+      [IMPORT, `const sql = postgres(${ENV}, { connection: { flag: true } });`].join("\n"),
+    );
+    expect(rec.sites.map((s) => s.cls)).toEqual(["validation-env"]);
+  });
+
+  test("a shadowed call's disposition key is its ARGUMENT text", () => {
+    // Kills: a key taken from the wrong argument position.
+    const rec = classifyFile(
+      P,
+      [IMPORT, `const sql = postgres(${ENV}, { max: 1 });`, `function f(postgres: string) {}`].join(
+        "\n",
+      ),
+    );
+    expect(rec.reports.map((r) => r.site)).toEqual([ENV]);
+  });
+
+  test("reports come out in source order, and a site ordinal breaks a line tie", () => {
+    // Kills: dropping the sort, inverting its comparator, or keying it on the wrong index.
+    const rec = classifyFile(
+      P,
+      [
+        IMPORT,
+        `const a = postgres(cfg.first);`,
+        `const b = postgres(cfg.second);`,
+        `const c = postgres(cfg.third);`,
+      ].join("\n"),
+    );
+    expect(rec.reports.map((r) => [r.line, r.ordinal])).toEqual([
+      [2, 1],
+      [3, 2],
+      [4, 3],
+    ]);
+  });
+
+  test("a file with no production edge carries no production tally", () => {
+    // Kills: a boundary that counts zero production edges as an entry.
+    const result = propagateThroughImports(
+      [
+        {
+          file: "tests/db/consumer.test.ts",
+          sf: parse(`import fs from "node:fs";`, "tests/db/consumer.test.ts"),
+          own: [] as FileClass[],
+        },
+      ],
+      () => null,
+      "/repo",
+    );
+    expect(result.productionEdges.has("tests/db/consumer.test.ts")).toBe(false);
+  });
+
+  test("a helper with no consumer names nobody as affected", () => {
+    // Kills: a boundary that records an EMPTY affected list.
+    const result = propagateThroughImports(
+      [
+        {
+          file: "tests/db/_lonely.ts",
+          sf: parse(`const sql = 1;`, "tests/db/_lonely.ts"),
+          own: ["undisposed"] as FileClass[],
+        },
+      ],
+      () => null,
+      "/repo",
+    );
+    expect(result.affected.size).toBe(0);
+  });
+
+  test("a rendered report with an EMPTY affected list prints no affected line", () => {
+    // Kills: a boundary that prints the affected line for an empty list.
+    const rendered = renderReport(
+      [
+        {
+          file: "tests/db/x.test.ts",
+          line: 3,
+          ordinal: 1,
+          kind: "unclassifiable",
+          site: "cfg.url",
+          detail: "",
+          argIsCall: false,
+          affected: [],
+        },
+      ],
+      {
+        "guard-bound": 0,
+        "validation-env": 0,
+        "loopback-literal": 0,
+        "remote-literal": 0,
+        unclassifiable: 0,
+      },
+    ).split("\n");
+    expect(rendered).toHaveLength(2);
+  });
+
+  test("a channel report's line is the file's first line", () => {
+    // Kills: an off-by-one in the synthesized line number.
+    expect(channelReports(["tests/db/a.test.ts"], new Set())[0]!.line).toBe(1);
+  });
+
+  test("an inadmissible row on a report with NO admissible kind says so", () => {
+    // Kills: a boundary that renders the empty admissible set as a list.
+    const result = reconcileDispositions(
+      [
+        {
+          file: P,
+          line: 1,
+          ordinal: 1,
+          kind: "remote-literal",
+          site: "u",
+          detail: "",
+          argIsCall: false,
+        },
+      ],
+      [{ file: P, site: "u", kind: "unclassifiable", reason: "checked by a reviewer" }],
+    );
+    expect(result.inadmissible[0]!.reason).toBe(
+      "a remote-literal report has no admissible disposition kind",
+    );
+  });
+
+  test("a row that matches exactly one report is never ambiguous", () => {
+    // Kills: a boundary that calls a single match ambiguous.
+    const result = reconcileDispositions(
+      [
+        {
+          file: P,
+          line: 1,
+          ordinal: 1,
+          kind: "unclassifiable",
+          site: "u",
+          detail: "",
+          argIsCall: false,
+        },
+      ],
+      [{ file: P, site: "u", kind: "unclassifiable", reason: "checked by a reviewer" }],
+    );
+    expect(result.ambiguous).toEqual([]);
+    expect(result.undisposed).toEqual([]);
+  });
+
+  test("the join matches in the SQL-stripped view as well as the JS-stripped one", () => {
+    // Kills: a join that reads only one of the two views.
+    const marker = ["public", "prune_app_events"].join(".") + "()";
+    const withSqlComment = `await sql.unsafe("select /* note */ ${marker}");`;
+    expect(
+      discoveredByDestructiveGuard([
+        { path: "tests/db/sqlComment.test.ts", source: withSqlComment },
+      ]),
+    ).toEqual(["tests/db/sqlComment.test.ts"]);
+  });
+});

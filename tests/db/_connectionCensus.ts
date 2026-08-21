@@ -592,7 +592,7 @@ function collectCalls(sf: ts.SourceFile, bindings: readonly DriverBinding[]): Ca
         !binding.shadowed &&
         !declarationNodes.has(n) &&
         !calleeNodes.has(n) &&
-        !isDeclarationPosition(n) &&
+        !isAliasSourceName(n) &&
         !isPropertyNamePosition(n) &&
         !isInTypePosition(n);
       if (isReference) valueReferences.push(n);
@@ -614,24 +614,23 @@ function collectCalls(sf: ts.SourceFile, bindings: readonly DriverBinding[]): Ca
   return { sites, shadowedCalls, valueReferences };
 }
 
-function isDeclarationPosition(id: ts.Identifier): boolean {
+/**
+ * The SOURCE half of an alias: `const { postgres: pg } = o` and
+ * `import { postgres as pg } from "./x"` both NAME a property; neither reads the driver
+ * binding, so neither is a value reference.
+ *
+ * Every OTHER declaration position this function used to test is unreachable here by
+ * construction, and the mutation gate is what proved it: a second declaration of the
+ * driver's name makes the binding SHADOWED, a shadowed binding reports its CALLS and
+ * nothing else, and the binding's own declaration node is excluded by identity before this
+ * is consulted — so the variable, parameter, function, class and import-equals branches
+ * could not be reached by any input, and not one mutant of them could be killed. They are
+ * deleted rather than blessed with an equivalence row.
+ */
+function isAliasSourceName(id: ts.Identifier): boolean {
   const p = id.parent;
-  if (p === undefined) return false;
-  if (ts.isVariableDeclaration(p) && p.name === id) return true;
-  if (ts.isParameter(p) && p.name === id) return true;
-  if (ts.isBindingElement(p) && (p.name === id || p.propertyName === id)) return true;
-  if (ts.isImportSpecifier(p) || ts.isImportClause(p) || ts.isNamespaceImport(p)) return true;
-  if (ts.isImportEqualsDeclaration(p) && p.name === id) return true;
-  if (
-    (ts.isFunctionDeclaration(p) ||
-      ts.isFunctionExpression(p) ||
-      ts.isClassDeclaration(p) ||
-      ts.isClassExpression(p)) &&
-    p.name === id
-  ) {
-    return true;
-  }
-  return false;
+  if (ts.isBindingElement(p) && p.propertyName === id) return true;
+  return ts.isImportSpecifier(p) && p.propertyName === id;
 }
 
 /**
@@ -649,9 +648,13 @@ function isInTypePosition(node: ts.Node): boolean {
   return false;
 }
 
+/**
+ * A property KEY, not a value read. `id.parent` is non-optional in the compiler's typings
+ * once the tree is parsed with `setParentNodes`, so a runtime check for its absence would
+ * be a tautology and is deliberately not written.
+ */
 function isPropertyNamePosition(id: ts.Identifier): boolean {
   const p = id.parent;
-  if (p === undefined) return false;
   if (ts.isPropertyAccessExpression(p) && p.name === id) return true;
   if (ts.isPropertyAssignment(p) && p.name === id) return true;
   if (ts.isPropertySignature(p) && p.name === id) return true;
