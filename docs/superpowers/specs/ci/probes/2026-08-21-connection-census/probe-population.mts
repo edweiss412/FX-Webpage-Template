@@ -40,6 +40,22 @@ type Row = {
 
 const DESTRUCTIVE = ["reset_validation_data", "prune_sync_log", "prune_app_events"];
 
+
+// r2 F1: a binding INITIALIZED from a non-default acquisition is a driver binding too —
+// `const postgres = (await import("postgres")).default`, `const pg = require("postgres")`.
+function isDriverAcquisitionExpr(e0: ts.Expression): boolean {
+  let e: ts.Expression = e0;
+  for (;;) {
+    if (ts.isParenthesizedExpression(e) || ts.isAwaitExpression(e) || ts.isAsExpression(e) || ts.isNonNullExpression(e)) { e = e.expression; continue; }
+    if (ts.isPropertyAccessExpression(e) && e.name.text === "default") { e = e.expression; continue; }
+    break;
+  }
+  if (!ts.isCallExpression(e) || e.arguments.length !== 1) return false;
+  const a = e.arguments[0];
+  if (!a || !ts.isStringLiteral(a) || a.text !== "postgres") return false;
+  return ts.isImportKeyword(e.expression) || (ts.isIdentifier(e.expression) && e.expression.text === "require");
+}
+
 function analyse(file: string): Row {
   const src = readFileSync(file, "utf8");
   const kind = file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
@@ -71,6 +87,9 @@ function analyse(file: string): Row {
     }
   }
   const drv = new Set(row.driverDefault);
+  // pre-pass so a call above the const declaration is still counted
+  const pre = (n: ts.Node): void => { if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer && isDriverAcquisitionExpr(n.initializer)) { row.driverDefault.push(n.name.text); drv.add(n.name.text); } ts.forEachChild(n, pre); };
+  ts.forEachChild(sf, pre);
   const visit = (n: ts.Node): void => {
     if (ts.isCallExpression(n) && ts.isIdentifier(n.expression)) {
       const c = n.expression.text;
@@ -123,7 +142,7 @@ const importOnly = rows.filter((r) => r.driverDefault.length > 0 && r.connects =
 const otherImport = rows.filter((r) => r.driverOtherImport);
 
 console.log(`files scanned under tests/: ${rows.length}`);
-console.log(`default-imports postgres (value, not type-only): ${rows.filter((r) => r.driverDefault.length > 0).length}`);
+console.log(`files with a DRIVER BINDING (value default import, or a const bound to a dynamic/require acquisition): ${rows.filter((r) => r.driverDefault.length > 0).length}`);
 console.log(`non-default import of postgres (named/ns/dynamic/require): ${otherImport.length}`);
 for (const r of otherImport) console.log(`   other-import: ${r.rel}`);
 console.log(`CALLS the driver directly (connection sites): ${direct.length}  (total connect calls ${direct.reduce((a, r) => a + r.connects, 0)})`);

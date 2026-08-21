@@ -1,5 +1,5 @@
 files scanned under tests/: 2542
-default-imports postgres (value, not type-only): 139
+files with a DRIVER BINDING (value default import, or a const bound to a dynamic/require acquisition): 140
 non-default import of postgres (named/ns/dynamic/require): 51
    other-import: tests/api/show-unpublish-route.realdb.test.ts
    other-import: tests/db/_b2Helpers.ts
@@ -52,7 +52,7 @@ non-default import of postgres (named/ns/dynamic/require): 51
    other-import: tests/sync/unpublishShowViaEmailedLink.concurrency.test.ts
    other-import: tests/sync/writeChangeLog.autoApply.test.ts
    other-import: tests/sync/writeMi11Holds.test.ts
-CALLS the driver directly (connection sites): 139  (total connect calls 174)
+CALLS the driver directly (connection sites): 140  (total connect calls 175)
 connecting HELPER modules (non-test, direct or transitive): 5
    helper: tests/db/_b2Helpers
    helper: tests/db/_holdsHelpers
@@ -62,14 +62,15 @@ connecting HELPER modules (non-test, direct or transitive): 5
 files connecting ONLY via a helper: 39
 import driver but never call it nor a connecting helper: 0
 
-CONNECTION-OPENING files (direct or via helper): 178
+CONNECTION-OPENING files (direct or via helper): 179
   call a loopback guard: 71
-  no guard call: 107
+  no guard call: 108
   unguarded, by env vars read in-file:
      43  (no env read in file)
      37  DATABASE_URL,TEST_DATABASE_URL
      25  TEST_DATABASE_URL
       1  DATABASE_URL,SUPABASE_SECRET_KEY,SUPABASE_SERVICE_ROLE_KEY,SUPABASE_URL,TEST_DATABASE_URL
+      1  SCHEMA_MANIFEST_DB_URL,TEST_DATABASE_URL
       1  SUPABASE_URL,TEST_DATABASE_URL
 
   unguarded file list (rel | connects | env | helpers):
@@ -104,6 +105,7 @@ CONNECTION-OPENING files (direct or via helper): 178
     tests/db/telemetryConsoleReads.test.ts | 1 | DATABASE_URL,TEST_DATABASE_URL | -
     tests/db/upsert-admin-alert-dedup.test.ts | 1 | TEST_DATABASE_URL | -
     tests/db/use-raw-decisions-columns.test.ts | 1 | TEST_DATABASE_URL | -
+    tests/db/validation-schema-parity.test.ts | 1 | SCHEMA_MANIFEST_DB_URL,TEST_DATABASE_URL | -
     tests/e2e/helpers/devCaptureStaged.ts | 1 | - | -
     tests/notify/auto-publish-undo-live-probe-real-db.test.ts | 1 | TEST_DATABASE_URL | -
     tests/notify/candidates.test.ts | 2 | TEST_DATABASE_URL | -

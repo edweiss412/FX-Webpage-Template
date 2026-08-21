@@ -25,6 +25,22 @@ const sites: Site[] = [];
 const acquisition = { namespace: [] as string[], dynamicImport: [] as string[], require: [] as string[], namedValue: [] as string[], typeOnlyNamed: 0 };
 const helperImports = new Map<string, Set<string>>();
 
+
+// r2 F1: a binding INITIALIZED from a non-default acquisition is a driver binding too —
+// `const postgres = (await import("postgres")).default`, `const pg = require("postgres")`.
+function isDriverAcquisitionExpr(e0: ts.Expression): boolean {
+  let e: ts.Expression = e0;
+  for (;;) {
+    if (ts.isParenthesizedExpression(e) || ts.isAwaitExpression(e) || ts.isAsExpression(e) || ts.isNonNullExpression(e)) { e = e.expression; continue; }
+    if (ts.isPropertyAccessExpression(e) && e.name.text === "default") { e = e.expression; continue; }
+    break;
+  }
+  if (!ts.isCallExpression(e) || e.arguments.length !== 1) return false;
+  const a = e.arguments[0];
+  if (!a || !ts.isStringLiteral(a) || a.text !== "postgres") return false;
+  return ts.isImportKeyword(e.expression) || (ts.isIdentifier(e.expression) && e.expression.text === "require");
+}
+
 for (const file of walk(join(ROOT, "tests")).sort()) {
   const src = readFileSync(file, "utf8");
   const rel = relative(ROOT, file);
@@ -60,6 +76,7 @@ for (const file of walk(join(ROOT, "tests")).sort()) {
   const decls = new Map<string, ts.VariableDeclaration[]>();
   const params = new Set<string>();
   const v = (n: ts.Node): void => {
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer && isDriverAcquisitionExpr(n.initializer)) drv.add(n.name.text);
     if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name)) {
       const arr = decls.get(n.name.text) ?? [];
       arr.push(n);
