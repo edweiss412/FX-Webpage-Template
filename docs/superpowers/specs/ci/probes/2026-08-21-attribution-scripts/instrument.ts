@@ -6,8 +6,8 @@
  * nothing else, which is probe 1's finding; this adds the evidence WITHOUT
  * changing any verdict.
  *
- * NOT shipped source. This is spec-time measurement instrumentation, kept out of
- * the tree. It mirrors `runSuite`/`runAllSuites`/`runSurface` (runner.ts:87-181)
+ * NOT shipped source. This is spec-time measurement instrumentation, COMMITTED
+ * alongside the probe record it produced so the measurements are regenerable. It mirrors `runSuite`/`runAllSuites`/`runSurface` (runner.ts:87-181)
  * and is a SECOND DEFINITION of that loop, so `selfCheck` below compares its
  * verdicts against the shipped `runSurface` on a real surface. A reimplementation
  * that agrees by luck is rule 84's defect; this makes the agreement checked.

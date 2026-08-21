@@ -13,8 +13,10 @@ Probes 1-4 ran through an ATTRIBUTING mirror of the shipped per-mutant loop: ide
 and **no verdict mapping changed**.
 
 **The scripts are COMMITTED, not summarised**, in `docs/superpowers/specs/ci/probes/2026-08-21-attribution-scripts/`:
-`instrument.ts` (the mirror plus its drift control), `p1-timeout-attribution.ts`, `p2-distribution.ts`,
-`p2b-mutant-tail.ts`, `p3-single-leg.ts` and `p4-annotations.py`. An earlier draft of this record
+`instrument.ts` (the mirror plus its drift control), `p1-e2e.ts`, `p1-timeout-attribution.ts`,
+`p2-distribution.ts`, `p2b-mutant-tail.ts`, `p3-single-leg.ts` and `p4-annotations.py`. `p4` derives its
+own run population through `gh run list` rather than reading an untracked temp file, so the selected
+runs are part of the committed evidence. An earlier draft of this record
 claimed regeneration while reproducing only one function and shipping none of the enumeration,
 iteration, stamping, aggregation, control or history-extraction code — a false claim of the exact kind
 this arc exists to make impossible, and it is fixed by making the claim TRUE rather than by weakening
@@ -54,7 +56,7 @@ transitive-shape rule: each spawns real vitest children serially.
 
 | probe | command |
 | --- | --- |
-| 1 | `pnpm heavy pnpm exec tsx p1-e2e.ts` (ad-hoc surfaces over a synthetic hanging module) |
+| 1 | `pnpm heavy pnpm exec tsx p1-e2e.ts` (end-to-end: ad-hoc surfaces over a synthetic hanging module, producing the `RunResult`/`GateResult` transcript below). `p1-timeout-attribution.ts` is the SEPARATE, cheaper arm that composes `spawnBounded`/`classify`/`evaluateGate` directly. An earlier draft committed only the second while the transcript came from the first. |
 | 2a | `pnpm heavy pnpm exec tsx p2-distribution.ts` (one unmutated child per surface x suite) |
 | 2b | `PROBE_SURFACE=ledgerGit pnpm heavy pnpm exec tsx p2b-mutant-tail.ts` |
 | 3 | `PROBE_N=6 pnpm heavy pnpm exec tsx p3-single-leg.ts` |
@@ -260,10 +262,18 @@ survivors: ["logical-connector:66:12:||>&&","logical-connector:142:18:||>&&","lo
             "integer-literal:259:17:1>2","statement-removal:320:11:continue;>(removed)","logical-connector:365:14:||>&&"]
 ```
 
-**Reading, against the pre-stated branch.** Zero of 93 kills are timeouts, and the slowest mutant child
-is 25.3 s against a 180 s ceiling. The worst mutant child is **1.04x** the worst baseline child
-(24.4 s), so on this surface mutant children are NOT materially slower than baseline — the specific
-concern that makes a baseline measurement a mere lower bound does not materialise here. Per the
+**Reading, against the pre-stated branch — with one claim RETRACTED.** Zero of 93 kills are timeouts.
+No child in the run exceeded **25.3 s** against a 180 s ceiling, so the 7.1x headroom stands: a maximum
+over a superset bounds the maximum over any subset, and the figure is conservative rather than wrong.
+
+**RETRACTED: the 1.04x mutant-versus-baseline ratio, and the claim that 25.3 s was the worst MUTANT
+child.** Round-3 review found that `runSurfaceRecorded` pushes the BASELINE children into the same
+records array the distribution is computed over (`instrument.ts`), and this probe did not filter them.
+`ledgerGit`'s baseline `ledgerClaimsCheck` child measured 24.4 s in probe 2a, so the 25.3 s maximum may
+itself have been a baseline child. **The ratio therefore cannot be computed from that run and is
+withdrawn rather than defended.** The script now filters on `siteId`, reports the two populations
+separately, and ABORTS if the mutant population is empty; the surviving figures are the ones that do
+not depend on the partition. Per the
 pre-stated reading this weakens the timeout mechanism ON THIS SURFACE. It bounds no other: the other
 39 remain baseline-bounded, and the larger headroom elsewhere is a plausibility argument, not a
 measurement.

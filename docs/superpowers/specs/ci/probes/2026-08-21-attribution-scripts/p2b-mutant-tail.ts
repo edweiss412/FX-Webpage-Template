@@ -30,8 +30,22 @@ const wall = Date.now() - t0;
 const after = stampNow();
 console.log(`STAMP AFTER identical: ${before === after}`);
 
-const d = run.records.map((r) => r.durationMs).sort((a, b) => a - b);
-const timeouts = run.records.filter((r) => r.kind === "timeout");
+// The BASELINE children live in the SAME records array (instrument.ts, runSurfaceRecorded),
+// so a distribution taken over all of them is not a MUTANT distribution. Round-3 review caught
+// this: the reported "worst mutant child" could have been a baseline child.
+const mutantRecords = run.records.filter((r) => r.siteId !== "BASELINE");
+const baselineRecords = run.records.filter((r) => r.siteId === "BASELINE");
+if (mutantRecords.length === 0) {
+  console.log("ABORT: no mutant records — a distribution over an empty population is not a result.");
+  process.exit(2);
+}
+const d = mutantRecords.map((r) => r.durationMs).sort((a, b) => a - b);
+const bl = baselineRecords.map((r) => r.durationMs).sort((a, b) => a - b);
+console.log(
+  `partition: ${mutantRecords.length} mutant children, ${baselineRecords.length} baseline children ` +
+    `(baseline durations: ${bl.map((x) => (x / 1000).toFixed(1)).join(", ")}s)`,
+);
+const timeouts = mutantRecords.filter((r) => r.kind === "timeout");
 console.log(`\n=== ${id}: ${run.mutantCount} mutants, ${run.records.length} children, ${(wall / 1000 / 60).toFixed(1)} min ===`);
 console.log(`killed=${run.killed} survivors=${run.survivors.length}`);
 console.log(`child duration (s): min ${(d[0]! / 1000).toFixed(1)}  median ${(d[Math.floor(d.length / 2)]! / 1000).toFixed(1)}  max ${(d[d.length - 1]! / 1000).toFixed(1)}`);

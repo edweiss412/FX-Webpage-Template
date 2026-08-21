@@ -1,7 +1,23 @@
 import json, re, subprocess, sys
 
 REPO = "edweiss412/FX-Webpage-Template"
-RUNS = [l.split() for l in open("/tmp/fx_runs.txt").read().splitlines()[1:] if l.strip()]
+def _failing_runs():
+    """Derive the population in-process. The earlier version read an untracked
+    /tmp file, so the selected run set was absent from the committed evidence and
+    the probe was not regenerable (round-3 review)."""
+    p = subprocess.run(
+        ["gh", "run", "list", "--workflow=mutation-harness.yml", "--limit", "60",
+         "--json", "databaseId,createdAt,conclusion,headBranch,event"],
+        capture_output=True, text=True,
+    )
+    if p.returncode != 0:
+        raise RuntimeError(f"gh run list FAILED: {p.stderr.strip()[:200]}")
+    rows = [r for r in json.loads(p.stdout) if r["conclusion"] == "failure"]
+    if not rows:
+        raise RuntimeError("ABORT: empty run population — a zero over nothing is not a result.")
+    return [[str(r["databaseId"]), r["createdAt"][:16], r["event"], r["headBranch"]] for r in rows]
+
+RUNS = _failing_runs()
 
 def api(path):
     p = subprocess.run(["gh", "api", path], capture_output=True, text=True)
