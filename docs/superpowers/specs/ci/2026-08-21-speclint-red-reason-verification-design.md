@@ -8,9 +8,11 @@ it: `continue; // any other non-zero exit is red observed` (`lib/specLint/redCon
 command that runs, executes nothing, and exits 1 is therefore recorded as an observed red, and the
 task ships a RED that no later edit can make fail.
 
-This spec ships **one closed observable** for that, plus the repair of two silent drops that make
-the arm blind on 25 measured markers. It does **not** attempt to match an observed failure against
-the `why=` prose: that is the unbounded form, and §6 records what it costs to try.
+This spec ships **one closed observable** for that, plus the repair of ONE silent drop that makes the
+arm blind on 25 measured markers. The row names a second drop; §3.2 measures it unreachable from the
+shipped CLI and withdraws it rather than forcing it. The spec does **not** attempt to match an
+observed failure against the `why=` prose: that is the unbounded form, and §6 records what it costs
+to try.
 
 ---
 
@@ -29,9 +31,17 @@ Each of these was settled by a measurement recorded in this document, and each c
 - **The exec-side observable's two-marker population is known and priced** (§4), not overlooked.
 - **The row's premise is refuted by measurement** (§6.1). That refutation is a recorded falsification
   to stop re-derivation, not a defect awaiting repair.
+- **The row's second blind spot is WITHDRAWN, not overlooked** (§3.2, §6.5). Round 1 found the
+  `probes === null` repair unreachable from the shipped CLI; the withdrawal and its reachability
+  argument are the deliverable there. Proposing that it be forced back in needs a probe showing a
+  production transition that reaches it without emitting collection advisories on non-`--exec-red`
+  runs.
+- **The §1.1 file count is a dated record, deliberately not re-pinned** (§6.6). It moves when this
+  arc's own documents are tracked.
 
-A finding that the §2 observable **misses a shape inside the `PROBE DOMAIN`** is welcome. A
-restatement of any bullet above is not.
+A finding that the §2 observable **misses a shape inside the `PROBE DOMAIN`** is welcome, as is a
+demonstration that a §7 criterion is satisfiable by an implementation the spec forbids. A restatement
+of any bullet above is not.
 
 ---
 
@@ -43,6 +53,13 @@ Everything below was produced by the command printed beside it, in this session,
 
 Derived through the **shipped parser** (`parseDoc` + `parseMarker` + `deriveCollectionProbe`), not a
 grep, over `git ls-files docs/superpowers/specs docs/superpowers/plans`, `.md` only:
+
+**Read this table as a DATED RECORD, not a current fact.** The file count is a moving quantity that
+this arc's own documents move — measured at 1153 before this spec was tracked and 1154 after, and it
+moves again when the plan lands. It is therefore never re-pinned: §5 and §7 range over **whatever
+`git ls-files` returns at the time**, and no claim anywhere depends on the literal.
+
+Measured at `0a70816d3`, the commit that first tracked this spec:
 
 | quantity                                       | value    |
 | ---------------------------------------------- | -------- |
@@ -120,7 +137,7 @@ the red's own summary is more direct, spawns nothing, and converts them to a har
 
 ---
 
-## 3. The two silent drops
+## 3. The silent drops — one repaired, one withdrawn
 
 Both were cited in the row, both verified at source, and each gets a decision rather than an empty
 column.
@@ -133,13 +150,35 @@ the class the repo requires wrapping. **Measured at 25 markers, 10 of them v2** 
 becomes a `RED_PROBE_UNVERIFIED` advisory naming the reason, which is the same channel the `skipped`
 branch already uses one line below.
 
-**3.2 `synthesizeCollectionFindings`'s no-probe return — CLOSED.** `if (probes === null) return [];`
-(`lib/specLint/redContract.ts:752`; the row cites line 754, which is two lines off, corrected here
-per the verify-every-citation rule). An invocation that planned probes and ran none returns silence
-indistinguishable from a clean run. It becomes one advisory per planned entry.
+**3.2 `synthesizeCollectionFindings`'s no-probe return — WITHDRAWN, because the state is
+unreachable and the row's claim about it is the arc's THIRD measured refutation.**
 
-Neither repair invents a code: both reuse `RED_PROBE_UNVERIFIED`, which already means exactly
-"collection capability unverified".
+The row names `if (probes === null) return [];` (`lib/specLint/redContract.ts:752`; the row cites 754,
+two lines off) as a silent drop. It is a true statement about the function read in isolation and a
+false one about the shipped pipeline:
+
+- `lib/specLint/run.ts:151` calls `synthesizeCollectionFindings` only under
+  `probes !== undefined && probes !== null`, so production never reaches that return.
+- `scripts/spec-lint.ts:664-689` constructs a non-null `ProbeResults` whenever `--exec-red` is
+  active, even when zero probes ran.
+- The only production `runLint` caller is `scripts/spec-lint.ts:761`; every other caller is a test.
+
+The neighbouring per-entry silence was checked too and is also not a defect: `probesToSpawn`
+(`redContract.ts:906`) skips a LIVE entry whose red did not authorize a probe, so its outcome is
+absent and line 778 `continue`s — deliberately, because such a red **already has its own finding**
+from `synthesizeExecFindings`, and a probe verdict there would mint a second one `--exec-red` never
+earned. Authored entries are always spawned, so their outcomes always exist.
+
+**Forcing this repair would make things worse, not better**, which is why it is withdrawn rather than
+relocated: removing the outer gate emits collection advisories during ordinary non-`--exec-red`
+linting, contradicting the ratified opt-in contract. A unit test driving `probes === null` directly
+would pass while changing no shipped verdict — a guard whose premise is false where it runs, which is
+the exact class this arc exists to close, and it would have shipped inside the repair for it.
+
+**So §3 ships ONE repair, not two**, and the row's blind-spot inventory is corrected in §6.
+
+§3.1 invents no code: it reuses `RED_PROBE_UNVERIFIED`, whose existing meaning is already exactly
+`collection capability unverified`.
 
 ---
 
@@ -172,7 +211,7 @@ ignored.** Three reasons it still ships:
 3. The population is small **because `red-state` is a v2 field** (317 of 479 markers predate it) and
    because a red is live only between authoring and implementation. It grows as v1 markers retire.
 
-The §3 repairs are the volume half of this arc: 25 markers, measured, silently unverified today.
+The §3.1 repair is the volume half of this arc: 25 markers, measured, silently unverified today.
 
 ---
 
@@ -194,7 +233,8 @@ that did execute its case). A conservative over-report is permitted only through
 channel, never as a hard code.
 
 **`PROBE DOMAIN:`** `git ls-files 'docs/superpowers/specs' 'docs/superpowers/plans'`, `.md` only —
-the 1153 files and 479 markers of §1.1 — plus the two `fix/mutation-browser-child-lifetime` plan-round
+whatever that command returns at the time, enumerated in §1.1 — plus the two
+`fix/mutation-browser-child-lifetime` plan-round
 incidents. A probe outside that domain, or more than one ordinary edit from an input in it, files to
 §6 rather than to a finding.
 
@@ -238,6 +278,18 @@ main. **Declined as speculative design; re-file trigger: a committed instance ob
 **6.4 Non-vitest commands.** The arm makes no execution claim for them. Closing that needs a
 per-runner summary grammar — the ratchet this surface has already paid 20 diff rounds for.
 
+**6.5 The row's SECOND blind spot is not a live defect — third measured refutation.** The row lists
+the no-probe return as a silent drop alongside the `none` drop. §3.2 shows it is unreachable from the
+shipped CLI, and that the neighbouring per-entry silence is deliberate and already covered by an exec
+finding. **One of the row's two blind spots is real and measured at 25 markers; the other is an
+artifact of reading the function in isolation.** Recorded so the next reader does not re-derive it,
+and so the arc is not credited with closing something that was never open.
+
+**6.6 The population count is not a claim this spec makes.** §1.1 is a dated record, because the
+count moves when this arc's own documents are tracked — 1153 before this spec, 1154 after, and it
+moves again with the plan. Every criterion ranges over what `git ls-files` returns at run time.
+Re-pinning the literal would only reset its staleness clock.
+
 ---
 
 ## 7. Acceptance criteria
@@ -246,18 +298,43 @@ Every row names the executable step that proves it and the channel the proof arr
 
 | AC   | claim                                                                                     | proved by                                                                                              |
 | ---- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| AC-1 | a live vitest red that runs and executes **zero** cases draws a **hard** finding            | fixture plan + `--exec-red` CLI run in `tests/specLint/fixtures/redVerdict/`, one fixture per shape C/E/G/H |
+| AC-1 | a live vitest red that runs and executes **zero** cases draws a **hard** finding            | fixture plan run through the CLI **under `--exec-red`** in `tests/specLint/fixtures/redVerdict/`, one fixture per shape C/E/G/H |
 | AC-2 | a live vitest red that executes a case and fails does **not** draw it (shapes A, B, D, F)   | the same CLI run; shapes A and F are the must-stay-CLEAN control pair                                    |
 | AC-3 | red-command stdout is **read but never reported**                                           | the shipped `exec-red-stdout.md` sentinel assertion stays green, re-run unchanged                        |
-| AC-4 | a `pnpm heavy`-wrapped v2 marker draws `RED_PROBE_UNVERIFIED` instead of silence            | fixture plan whose `red=` is heavy-wrapped; asserts the code by name                                     |
-| AC-5 | a planned-probe invocation that ran no probes draws one advisory per entry, not `[]`        | unit test over `synthesizeCollectionFindings` with `probes === null` and a non-empty plan                |
-| AC-6 | the §1.1 population table is reproducible                                                   | `pnpm tsx probe/population.mts`, committed, with a floor that aborts on a short read                     |
-| AC-7 | the arm draws **zero hard findings** across the whole PROBE DOMAIN                          | `pnpm spec:lint` over all 1153 tracked docs, count asserted                                              |
+| AC-4 | a `pnpm heavy`-wrapped v2 marker draws `RED_PROBE_UNVERIFIED` instead of silence            | fixture plan whose `red=` is heavy-wrapped, run **under `--exec-red`** — `run.ts:151` reaches `collectionProbePlan` only then, so a plain-lint assertion would prove nothing; asserts the code by name |
+| AC-5 | **WITHDRAWN** — its repair (§3.2) targets a state production cannot reach; the withdrawal's own reachability argument is the deliverable | `lib/specLint/run.ts:151` guards the call; asserted as a source-shape claim, not a runtime one |
+| AC-6 | the §1.1 population table is reproducible **as a dated record**                             | `pnpm tsx probe/population.mts`, committed, with a floor that aborts on a short read                     |
+| AC-7 | the arm draws **zero NEW hard findings** across the whole PROBE DOMAIN, and the reds that DO execute a case stay clean | the §7.1 sweep below — `--exec-red`, one invocation per tracked PLAN doc, diffed against the same sweep at the merge base |
 
 **AC-2 is the load-bearing one.** Shape F is the ratified repair and shape A is the incident; they are
 byte-identical (§6.2), so any implementation that hard-fails A also hard-fails F. A fixture set
 lacking the A/F pair is satisfiable by a strictly weaker implementation that keys on
 `expected undefined`.
+
+### 7.1 The corpus sweep, stated as a runnable procedure
+
+Three facts make the naive form of this criterion useless, and all three are measured:
+
+1. **The arm only runs under `--exec-red`.** Without the flag `runLint` receives no execution results
+   and synthesizes no execution findings (`lib/specLint/run.ts:146-149`), so a plain `spec:lint`
+   sweep proves nothing about this arm.
+2. **The CLI accepts exactly one document per invocation** (`expected exactly one document path`), so
+   the sweep is a LOOP, not one command.
+3. **`--exec-red` on a spec is a usage error** (`tests/specLint/cli.test.ts:420`), so the sweep ranges
+   over tracked PLAN docs — **681** at the time of writing, by
+   `git ls-files 'docs/superpowers/plans' | grep -c '\.md$'`, and over whatever that command returns
+   when it is run.
+
+**What actually executes is two commands**, because only two markers in the entire corpus are
+`red-state=live` (§1.1): a `vitest run` of one styles meta-test, and a `grep -q`. Both are read-only.
+Every other marker in the corpus is authored or v1 and is never run.
+
+**The criterion is a DIFFERENTIAL, not an absolute**, because an absolute count is exactly what a
+defective implementation can satisfy: an arm that hard-fails every live vitest red would still report
+zero hard findings on a corpus whose live reds it has never seen. So the sweep runs at the merge
+base and at HEAD, and asserts the hard-finding SET is unchanged except for findings this spec
+predicts. The two live reds are the positive control: they execute cases, so they must stay CLEAN,
+and an implementation that hard-fails them reds this criterion by name.
 
 ---
 
@@ -279,8 +356,36 @@ The current standing is **produced by the command, not typed here**:
 pnpm exec tsx scripts/spec-lint.ts --json docs/superpowers/specs/ci/2026-08-21-speclint-red-reason-verification-design.md
 ```
 
-The surviving findings are all `NUMERIC_NOUN_MISMATCH` over nouns this document uses for genuinely
-different quantities — `"failed"` across the §1.2 shape table and the §6.3 vacuity measurement,
-`"markers"` across the red-marker total and the heavy-wrapped subset. They are left standing rather
-than reworded: usefulness is not the criterion, correct attribution is, and rewording out of a
-matcher is silencing rather than answering.
+The surviving findings are all `NUMERIC_NOUN_MISMATCH`, in two kinds, and neither is a defect. Some
+are nouns this document uses for genuinely different quantities — `failed` across the §1.2 shape
+table and the §6.3 vacuity measurement, `markers` across the red-marker total and the heavy-wrapped
+subset. The rest are artifacts of SECTION REFERENCES: the arm reads the digits of `§6.2 shows` and
+`§3.2 shows` as two numbers against one noun.
+
+They are left standing rather than reworded, for the reason this arc applies to the guard it is
+building: usefulness is not the criterion, correct attribution is, and rewording out of a matcher is
+silencing rather than answering. Round 1 did surface two real `COPY_UNPAIRED_QUOTE` defects here,
+both from a quoted phrase split across a line break — those were repaired, because they were real.
+
+---
+
+## 9. Review record — what each round could and could not check
+
+**Round 1 — NEEDS-ATTENTION, 3 findings, all real, all accepted.** Head reviewed: `712f9d5678`.
+
+| # | finding | disposition |
+| - | ------- | ----------- |
+| 1 | AC-7 never exercised the arm: the sweep ran without `--exec-red`, and the CLI takes one document per invocation | ACCEPTED. AC-7 is now a DIFFERENTIAL over tracked plan docs with the two live reds as its positive control (§7.1), and the same defect was swept to AC-1 and AC-4, which had it too |
+| 2 | §3.2's repair targets a state production cannot reach | ACCEPTED and taken further: `run.ts:151` gates the call, and the neighbouring per-entry silence is deliberate. The repair is WITHDRAWN, not relocated (§3.2, §6.5) |
+| 3 | the declared file count was already stale — 1154, because this spec is now tracked | ACCEPTED. The count is a dated record and no criterion depends on the literal (§6.6) |
+
+**The reviewer's capability was bounded, and it said so rather than reporting a clean run.** Its
+sandbox denied the tsx IPC socket (`EPERM`), so it ran the modules through `node --import tsx`
+instead; direct Vitest runs failed before collection because Vite could not create its temp
+directory, and it drew no test-suite conclusion from them. **So round 1 was static plus read-only
+probing, not executable verification** — recorded here rather than left for a later reader to
+discover, because a verdict token does not carry its own scope.
+
+**Finding 2 is the arc's third measured refutation of its own ledger row**, and the most useful: the
+withdrawal is a deliverable, not a gap. Had it been forced, this arc would have shipped a guard whose
+premise is false where it runs — inside the repair for exactly that class.
