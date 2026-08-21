@@ -130,15 +130,23 @@ const V2: Row[] = [
 ];
 
 /**
- * The sixteen `pnpm heavy`-wrapped v1 markers, which exit at
- * `lib/specLint/redContract.ts:742` BEFORE any derivation is attempted. They
- * are here precisely so that an implementation which "repairs" the drop by
- * also moving that exit fails: without these rows, that change is invisible.
+ * The sixteen `pnpm heavy`-wrapped v1 markers. They pin that these lines stay
+ * SILENT.
  *
- * The exit was at 717 and the drop it preceded was at 721. The drop is now
- * GONE rather than moved, because the derivation it discarded carries a reason
- * and rides the decline path; the v1 exit still sits above it and still puts
- * these sixteen out of reach BY CONSTRUCTION.
+ * They do NOT pin the v1 exit, and an earlier version of this comment said they
+ * did. Measured by instrumenting `collectionProbePlan`: all sixteen are UNOWNED
+ * and are dropped by `if (!owned.has(line)) continue;` before the exit is ever
+ * reached. Perturbing the v1 exit leaves every one of these rows unmoved, so a
+ * reader must not take a green run here as evidence that the exit holds.
+ *
+ * What pins the exit is the FIXTURE `exec-unprobeable-v1.md`, which is owned and
+ * carries `redState=null`, so that exit is the only thing dropping it. The
+ * corpus contains no owned v1 heavy-wrapped marker, so this file structurally
+ * cannot do that job.
+ *
+ * The exit was at 717 and the drop it preceded was at 721. The drop is now GONE
+ * rather than moved, because the derivation it discarded carries a reason and
+ * rides the decline path.
  */
 const V1: Row[] = [
   {

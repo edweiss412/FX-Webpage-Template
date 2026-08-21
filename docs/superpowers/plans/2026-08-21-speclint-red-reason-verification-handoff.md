@@ -56,8 +56,10 @@ mechanism, not a courtesy check.
 the nine requires a `pnpm heavy` recognizer and is DECLINED in spec §2, on the surface whose entire
 defect history is recognizer growth. Narrower in reach, wider in mechanism, is the wrong trade here.
 
-**Do not touch the v1 exit at line 717.** It sits before the drop at 721, so the sixteen v1
-heavy-wrapped markers are out of reach by construction. An implementation that "also fixes" them emits
+**Do not touch the v1 exit.** The sixteen v1 heavy-wrapped markers are out of reach — though
+measurement at implementation showed the reason is OWNERSHIP, not that exit: all sixteen are unowned
+and never reach it. What the exit does drop is the owned v1 FIXTURE, which is what makes the
+over-broad implementation fail. An implementation that "also fixes" them emits
 sixteen advisories the design does not claim. What fails that is Task 1's fourth assertion row and
 `probe/reach.mts`'s sixteen named v1 rows, NOT Task 2 — Task 2 is the score.
 

@@ -85,11 +85,21 @@ Fifteen is larger than nine: the repair covers MORE than the motivation that pro
 wrapper, so every unprobeable v2 command had been falling through it all along. Two separate
 overclaims were corrected to get here, and both are recorded in §5.4 rather than quietly fixed.
 
-The 16 v1 heavy-wrapped markers are NOT in reach: they exit at `lib/specLint/redContract.ts:742`
-(`if (state === null) continue; // v1: no declared state to probe against`), which sits before any
-derivation is attempted, so nothing this spec does can repair or signal them. That exit was at 717
-when this section was written and the `none` drop it preceded was at 721; the exit moved and the drop
-is gone, for the reason the plan's §0 records.
+The 16 v1 heavy-wrapped markers are NOT in reach, and **the reason is not the one this section
+originally gave.** It said they exit at `lib/specLint/redContract.ts:742`
+(`if (state === null) continue; // v1: no declared state to probe against`). Measured at
+implementation, by instrumenting `collectionProbePlan` and running the CLI at each of the sixteen
+lines: **all sixteen are UNOWNED, and not one of them reaches that exit.** They are dropped by
+`if (!owned.has(line)) continue;`, which sits above it — none of the sixteen sits inside a
+red-contract region at all.
+
+The CONCLUSION stands and the MECHANISM was wrong, which is the more dangerous half: a documented
+limit that names the wrong reason reads as having been checked, and the reviewer who trusts it stops
+looking. Recorded rather than quietly corrected, because the correction is what makes the next
+paragraph's claim about AC-4 honest.
+
+That exit was at 717 when this section was written and the `none` drop it preceded was at 721; the
+exit moved and the drop is gone, for the reason the plan's §0 records.
 
 The reach is 15 rather than 9 because the drop is keyed on `derived.kind`, not on the wrapper. Any v2
 command `VITEST_SHAPE` does not match at the anchor lands there. Nine are `pnpm heavy`-wrapped; the
@@ -247,8 +257,9 @@ obfuscation is out of scope and files to §6.
 of opinion, all machine-checked by `probe/reach.mts` (committed):
 
 1. Each of the fifteen v2 markers §1.1 names GAINS `RED_PROBE_UNVERIFIED`.
-2. The sixteen v1 heavy-wrapped markers §1.1 names do not, because they exit at
-   `lib/specLint/redContract.ts:742` before any derivation is attempted.
+2. The sixteen v1 heavy-wrapped markers §1.1 names do not. They are UNOWNED and never reach the v1
+   exit, so what this half of the oracle pins is that those lines stay SILENT — not that the v1 exit
+   holds. The v1 exit is pinned by the fixture instead, and §4 says which.
 3. No hard finding is added, asserted over the real population rather than over fixtures.
 
 **Score.** `redContract` is already enrolled. `pnpm mutation:guards` runs before the first
@@ -267,9 +278,16 @@ change rather than inherited.
 | AC-4 | the **fifteen** v2 markers each GAIN the advisory, and the **sixteen** v1 markers do not | `probe/reach.mts` holds BOTH named sets, all thirty-one lines, and ASSERTS rather than prints: `EXPECT_ADVISORY=1` demands the advisory at every v2 line and its absence at every v1 line, and any difference exits non-zero. The three v2 lines already holding a hard finding must hold it STILL, alongside the advisory (§1.2). A named line that stops holding a task marker fails as `MARKER_DRIFT` instead of quietly reading as silent |
 | AC-5 | §1.1 and §1.2 are both reproducible **as dated records**                            | `probe/population.mts` and `probe/reach.mts`, both committed. Run them as `node --import tsx <probe>`: `pnpm tsx` needs an IPC socket a review sandbox may deny, and `reach.mts` uses the same invocation for its CHILD process, since using `pnpm exec tsx` there recreated the denial the outer command avoided. `reach.mts` runs the CLI once per document and takes roughly three minutes; its structural checks report BEFORE that loop, so a drift or reconciliation fault fails in seconds |
 
-**AC-4 is the load-bearing one.** It is the only criterion that would fail under an implementation
-that repaired the drop by moving the v1 exit as well, a wider change that looks like a more thorough
-fix and would emit advisories on 16 markers the design does not claim.
+**AC-4 is the load-bearing one, and the two halves of it carry DIFFERENT weight than this section
+first claimed.** It is the criterion that fails under an implementation that repaired the drop by
+moving the v1 exit as well, a wider change that looks like a more thorough fix.
+
+**But the corpus oracle cannot see that change, and the FIXTURE is what catches it.** Proven by
+perturbation: moving the v1 exit leaves `probe/reach.mts` reporting OK on all sixteen v1 lines,
+because those lines are unowned and never reach the exit. The same perturbation reds exactly one
+case, the heavy-wrapped v1 FIXTURE, which is owned and carries `redState=null` and is therefore
+dropped by that exit and by nothing else. The corpus has no owned v1 heavy-wrapped marker to pin it
+with, so no oracle over the corpus could ever have done this job.
 
 **It became load-bearing at round 4 and was not before.** The first version of the oracle listed only
 the fifteen and PRINTED a table, so moving the v1 exit was invisible, narrowing to nine still exited
