@@ -913,6 +913,19 @@ prototype       [panes, gauge]         [panes, gauge]
 The surface type's MEMBER NAME was the one position still outside the rule. It now routes through
 `resolveName` like every other.
 
+**Why a drop from THIS set cost so much more than a drop from an ordinary one: the read set is
+consumed as a COMPLEMENT.** Dropping a member from a set consumed POSITIVELY costs one false
+negative, at that member. Dropping one from a set consumed as a complement costs a false negative
+**everywhere the set gates**, silently, in the permissive direction — the member is not merely
+missing, it is reclassified as "not a read", so rules 2 and 3 stop constraining it entirely.
+**Audit question for every set in this design: is it consumed positively or as a complement?** The
+read set is a complement (§2.2 of the predecessor spec, deliberately, so an unclassified new member
+is a READ on the commit that adds it); the sink, effect and ambient sets are positive.
+
+**`"panes"(): string[]` is INSIDE the probe domain**, which is what makes this a finding rather than
+a constructed corner: it is ordinary TypeScript and one ordinary edit from the live surface
+declaration in `scripts/pane-compaction.ts`.
+
 **F2 — three of nine `grammar` acknowledgements were not grammar invariants.** `grammar` must be a
 claim about the FIELD'S DECLARED TYPE; this spec had made it a claim about the ACCESS. The three
 sites prefilter with `isIdentifier` and then read `.text`, which looks fixed at the call site while
@@ -924,8 +937,13 @@ the field admits a sibling the prefilter DISCARDS:
 | `look` — `n.left` | `EntityName` | `Identifier \| QualifiedName` |
 | `passNameOf` — `parent.name` | `BindingName` | `Identifier \| BindingPattern` |
 
-**A durable token granted to a perishable claim greens exactly the omission it exists to catch**, so
-the three are reclassified `narrowed`, which owes a consequence and a re-file trigger. The remaining
+**An ACCESS-SHAPED CLAIM IS UNFALSIFIABLE BY CONSTRUCTION, because the code that narrowed the access
+is the same code the exemption excuses.** Reading the call site can only ever confirm it. That is
+why the `grammar` claim must be checked against the compiler's declared field type, and it is a
+sharper statement of the defect than the decay argument that motivated the two-token split: the
+problem was not that `grammar` rots, it is that three of its members were never grammar invariants
+at all. **A category's safety argument is worth nothing until its membership is checked.** So the
+three are reclassified `narrowed`, which owes a consequence and a re-file trigger. The remaining
 six `grammar` rows are genuinely fixed, and the reviewer separately confirmed the five `not-a-name`
 rows resolve diagnostic labels or module specifiers and that the reverse check does report the
 prototype's two stale rows.
@@ -989,6 +1007,33 @@ The scanner does not model a wrapped callee as a distinct construct and does not
 signaled either way, and §0 permits a conservative report with a coarser code. **Re-file when:** a
 scanned module calls a sink through a wrapped callee and the coarser code proves to mislead a
 contributor, or the sink-shape test is edited for any other reason.
+
+### §4.5 The disposition mapping is TEXT-KEYED, and a rename REDS rather than silently reclassifying
+
+Running AC-U16c's metamorphic probe against this design found a defect in it, before a reviewer did.
+A semantics-neutral rename of a local (`member` to `candidateMember`, 35 occurrences) gives:
+
+| | before rename | after rename |
+| --- | --- | --- |
+| detected name-resolution sites | **28** | **28** — invariant, so the SCAN is spelling-independent |
+| UNDISPOSED (reds the gate) | **0** | **3** |
+| ROUTE / UNFULFILLED | 12 | 11 |
+
+**The scan is invariant; the disposition MAPPING is not**, because a row is keyed on
+`owner|expression` TEXT and a rename moves the key. That is the same shape as a control keyed by a
+line of source: a text key is only as good as that text's stability.
+
+**It is kept, because the direction is right and the alternative is worse.** A rename does not
+silently reclassify a site — it makes the site UNDISPOSED, and an undisposed site REDS. The author is
+told, in the same run, exactly which rows to re-key. **Fail-closed, measured: undisposed went 0 to 3,
+never a silent re-classification.** Keying on AST position instead would move under any edit above
+the site, which is strictly worse; keying on a structural shape would collapse distinct sites that
+share a shape.
+
+**The cost, stated rather than hidden:** an ordinary rename inside the scanner produces disposition
+churn proportional to the sites it touches, and that churn is a gate failure until the rows are
+re-keyed. **Re-file when:** the churn is measured to exceed the value, or a keying scheme is found
+that is stable under rename AND does not collapse distinct sites.
 
 ### §4.2 The removed false advisory is IN SCOPE, and the residual resolver is not
 
@@ -1135,7 +1180,8 @@ suite is not proof for AC-U6** — see its row.
 | **AC-U14** | A statically known element-access receiver resolves: `this["ch"].dispatch(...)` and `` this[`ch`].dispatch(...) `` report, while a non-literal key `ch[name]` stays `opaque`. The pair is what stops the fix from becoming a blanket report. | new fixtures + suite cases |
 | **AC-U15** | Every transparent wrapper the COMPILER defines is skipped, on BOTH sides: `ch!`, `ch as Channel`, `<Channel>ch`, `ch satisfies Channel` each report `MULTI-READ` naming the doubled READ, not the binding. The wrapper axis is read from `ts.OuterExpressionKinds`, and the suite asserts the axis against that enum rather than against a list typed into the test — so a wrapper kind TypeScript adds is covered by default. | new fixtures + suite cases + an axis-parity assertion |
 | **AC-U16a** | **ABSENCE** — no site re-implements the rule. A STRUCTURAL sweep parses the module and fails on any site deciding a name by applying `isIdentifier` and `isPropertyAccessExpression` to the same expression, other than the one implementation. A lexical grep is blind to a copy spelled differently, which is how copies three, four and five survived earlier greps (§3.10). | a derived check over the module, asserted by the suite, plus a constructed violation proving it FAILS |
-| **AC-U16b** | **ADOPTION** — every site that RESOLVES A NAME routes through the one rule, or carries an inline acknowledgement of why that position's spelling cannot vary; an UNACKNOWLEDGED site REDS. **Absence and adoption are different scans and absence does not imply adoption**: every duplicate can be gone while nothing calls the replacement (§3.13 F4). This scan is also the derived cover for the POSITION axis (§2.5 step 1b), so one mechanism discharges both. | a derived check over the module, asserted by the suite, plus a constructed violation proving it FAILS |
+| **AC-U16c** | **METAMORPHIC INVARIANCE of the scan's DETECTED SITE SET** — the set of name-resolution sites the scan finds is unchanged under a semantics-neutral transformation of the source: rename a local, reorder independent declarations, reformat. **This is the check that caught the scan enumerating** (§3.14 F1): a rename from `name` to `candidate` moved its count 42 to 44, settling by experiment what reading could not. Scoped to the DETECTED SET deliberately — see §4.5, which measures why the DISPOSITION MAPPING is deliberately not invariant. | the scan run twice, before and after a mechanical rename, asserting an identical site set |
+| **AC-U16b** | **ADOPTION** — every site that RESOLVES A NAME routes through the one rule, or carries an inline acknowledgement of why that position's spelling cannot vary; an UNACKNOWLEDGED site REDS, and a `ROUTE` row whose site is still unrouted REDS as an UNFULFILLED OBLIGATION (12 today). **Absence and adoption are different scans and absence does not imply adoption**: every duplicate can be gone while nothing calls the replacement (§3.13 F4). This scan is also the derived cover for the POSITION axis (§2.5 step 1b), so one mechanism discharges both. | a derived check over the module, asserted by the suite, plus a constructed violation proving it FAILS |
 | **AC-U6** | The live corpus scans **0 findings** under the unified rules. | executable: `scanRepo(LIVE_ROOTS, SEND_AUTH_SURFACES)` asserted empty **with its premise stated executably** — the walk visited a non-zero file count and the enrolled module was among them. `0 of 0` and `0 of N` render identically, and a zero over an empty population is not a pass. |
 | **AC-U7** | All 81 pre-existing fixture verdicts are preserved except the two named in §3.6, whose changes are additive only. | the deciding suite's existing cases, unmodified except the two, plus the plan's per-fixture before/after diff run at plan time and pasted |
 | **AC-U8** | `shadowedBetween` no longer exists, and no loop in the module has its termination in a mutable predicate. | grep for the symbol returning 0, plus a module audit for the loop property — a totalisation that moves termination into a predicate turns an off-by-one mutant into a NON-TERMINATING one and takes the whole measurement down |
