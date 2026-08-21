@@ -299,6 +299,22 @@ first (4/4 against the shipped scanner). `w21` forces an unterminated construct 
 the first target, and it is the decisive one: it kills BOTH item-3 checks while leaving the EOF and
 coordinate rows quiet, so the four tests discriminate independently rather than as a bundle.
 
+The variants are built as COPIES outside the repo, as every variant on this arc is, so the tracked
+tree is never mutated and the audit can run beside a live measurement. That makes them ephemeral, so
+the EDIT is recorded here and the file is not — each is a single substitution against
+`tests/cross-cutting/psqlStartupFiles/scan.ts` and rebuilding one is a one-line change:
+
+| variant | the single edit | what it models |
+|---|---|---|
+| `w20` | `i = end - 1` becomes `i = end` | an off-by-one on the resume index after a delimited target |
+| `w21` | in `attachedTargetEnd`, `{ end: text.length, undelimitable: true }` becomes `undelimitable: false` | a delimiter that treats running out of input as a closed construct |
+| `w22` | `i = end - 1` becomes `i = text.length` | the first attached target is handled and the rest of the chunk abandoned |
+| `w23` | the collector guard gains `&& nested.length === 0` | the walk covers the whole chunk but only the FIRST target's bodies are collected |
+
+`w23` is the one to keep: it leaves the walk intact, so the EOF and coordinate rows stay green, and
+only the same-command count rows notice. A variant that breaks everything proves less than one that
+breaks exactly the thing under test.
+
 **`w20` escapes item 3's counts and dies to the coordinate row.** That is §2b-bis's one general
 finding surfacing a third time on its own evidence: a presence-or-count assertion does not
 discriminate a delimiting weakening, and a coordinate assertion does. The count row alone would have
