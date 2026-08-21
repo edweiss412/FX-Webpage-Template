@@ -6591,9 +6591,13 @@ describe("an executing psql inside an ATTACHED redirection target", () => {
   test("the walk resumes after a delimited target WITHIN one command", () => {
     const rows: Array<[label: string, source: string, want: number]> = [
       ["both targets carry it", "cat >\"$(psql -c 'one')\" 2>\"$(psql -c 'two')\"\n", 2],
-      ["payload in the FIRST", 'cat >"$(psql -c \'one\')" 2>"$(true)"\n', 1],
-      ["payload in the LAST", 'cat >"$(true)" 2>"$(psql -c \'one\')"\n', 1],
-      ["payload in the MIDDLE of three", 'cat >"$(true)" 2>"$(psql -c \'x\')" <"$(true)"\n', 1],
+      ["payload in the FIRST", 'cat >"$(psql -c \'one\')" 2>"$(echo two.txt)"\n', 1],
+      ["payload in the LAST", 'cat >"$(echo one.txt)" 2>"$(psql -c \'one\')"\n', 1],
+      [
+        "payload in the MIDDLE of three",
+        'cat >"$(echo one.txt)" 2>"$(psql -c \'x\')" <"$(echo /dev/null)"\n',
+        1,
+      ],
       ["a BARE target then a quoted one", "cat >$(psql -c 'one') 2>\"$(psql -c 'two')\"\n", 2],
     ];
     expect(rows.map(([label, source]) => [label, sitesIn(source, "x.sh").length])).toEqual(
@@ -6657,9 +6661,9 @@ describe("an executing psql inside an ATTACHED redirection target", () => {
   // delimiting weakening while a coordinate assertion does.
   test("an attached target is found mid-file and under CRLF, at its own coordinates", () => {
     const rows: Array<[label: string, source: string, line: number]> = [
-      ["inside a function body", "f() {\n  cat >\"$(psql -c 'x')\"\n}\n", 2],
+      ["inside a function body", "f() {\n  cat >\"$(psql -c 'x')\"\n}\nf\n", 2],
       ["after a here-document", "cat <<EOF\nplain\nEOF\ncat >\"$(psql -c 'x')\"\n", 4],
-      ["inside a case arm", "case $x in\n  a) cat >\"$(psql -c 'x')\" ;;\nesac\n", 2],
+      ["inside a case arm", "case a in\n  a) cat >\"$(psql -c 'x')\" ;;\nesac\n", 2],
       ["CRLF line endings", "cat >\"$(psql -c 'select 1')\"\r\n", 1],
     ];
     expect(
