@@ -699,8 +699,8 @@ source TEXT, and AC-7 asserts it executably rather than trusting the convention.
   certification** (a test told it is `environment-free` while a hook reaches the environment for it)
   and **wrong attribution** (a reason naming a construct that is not there, or claiming a scope the
   scanner cannot establish). A conservative `unclassifiable` with a named cause — including the
-  file-scoped over-reports at L2 and L5 — is a DOCUMENTED LIMIT, not a finding. Usefulness is not
-  the criterion; correct attribution is.
+  file-scoped over-reports at L2 and L5, and the no-constant-folding over-report at L7 — is a
+  DOCUMENTED LIMIT, not a finding. Usefulness is not the criterion; correct attribution is.
 - **`PROBE DOMAIN:`** the live tracked test corpus `premiseScan` walks — the suites derived from
   `GUARD_SURFACES.flatMap((s) => s.suitePaths)` — the three population probes committed at
   `docs/superpowers/specs/ci/probes/2026-08-21-premisescan-hook-population/`, the installed
