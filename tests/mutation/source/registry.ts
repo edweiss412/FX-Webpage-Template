@@ -1022,10 +1022,16 @@ export const GUARD_SURFACES: GuardSurface[] = [
    *
    * `suitePaths` is DERIVED, not typed: every `tests/specLint/claimSweep*.test.ts`.
    * The derivation is asserted in BOTH directions by
-   * `tests/specLint/claimSweepIdentity.test.ts` — every file matching the glob
-   * is here, AND every file that directly imports the module matches the glob —
+   * `tests/mutation/_metaClaimSweepSuiteDerivation.test.ts` — the list EQUALS
+   * the glob (containment either way alone passes a phantom path or a dropped
+   * suite), and no file that imports the module directly sits outside the glob —
    * so a suite added under either rule fails rather than silently buying zero
-   * score. Eight further suites reach the module TRANSITIVELY through
+   * score. That check is named outside the glob deliberately: it would otherwise
+   * match its own rule and have to enrol itself, and it decides nothing about
+   * the module. This sentence cited `claimSweepIdentity.test.ts` for one commit
+   * and that file asserts no such thing — a guard docstring claiming a check
+   * that did not exist, which is this arc's own defect class landing on the
+   * arc. Eight further suites reach the module TRANSITIVELY through
    * `run.ts`/`spec-lint.ts` and are deliberately absent: they never declare a
    * repair, so they decide nothing about this surface and would buy wall clock
    * at no score. That is a declared choice, not an oversight.
