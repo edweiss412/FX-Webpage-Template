@@ -400,8 +400,10 @@ Also assert `bench("b", fn)` produces **no** classification (AC-5's other half, 
 
 <!-- task: red=`pnpm exec vitest run tests/mutation/source/premiseScan.test.ts --project parallel` red-state=authored red-target=`tests/mutation/source/premiseScan.ts:1758` why=`the new cases assert that test.beforeEach(spawn) at file scope and (t) => t.beforeEach(spawn) inside a suite factory both make the enclosed test environment-touching; today every site requires a bare identifier callee, so each qualified form is invisible and every case reads environment-free` ac=AC-6 -->
 
-One exported predicate, **parameterised by the name set** — a callee matches when its property name
-is in the SET PASSED IN, whether it is a bare identifier or a property access on ANY object.
+One exported predicate, **parameterised by TWO things: the name set, and whether a property access
+counts.** A callee matches when its name is in the SET PASSED IN and its shape is permitted by the
+SECOND parameter — bare identifier always, property access on any object only where the caller asks
+for it. The two hook consumers ask for it; `loadTimePremises` does not, for the reason below.
 
 **`HOOK_REGISTRARS` has TWO consumers, not three, and the plan says so because the spec said
 otherwise.** `grep -n HOOK_REGISTRARS tests/mutation/source/premiseScan.ts` returns the declaration
@@ -444,9 +446,11 @@ Cases, one per site, because a single case passes with two of three still unrepa
 - inside a describe: `describe("d", () => { test.beforeEach(spawn); it("x", fn) })` → touching.
 - factory alias: `describe("d", (t) => { t.beforeEach(spawn); it("x", fn) })` → touching.
 - `aroundEach` in the qualified form → touching (the derived set's new member, exercised).
-- `loadTimePremises`: a `.each` registration whose associated premise is written as
-  `t.premise(…)` rather than `premise(…)` is SEEN. Today it is not, and the registration is reported
-  as lacking an associated premise.
+- `loadTimePremises`, and it asserts the OPPOSITE of the hook cases: a `.each` registration whose
+  associated premise is written as `logger.premise(…)` is **NOT** credited — the registration is still
+  reported as lacking an associated premise. Crediting it is false certification, the only class that
+  cannot ship. `t.premise(…)` is likewise not seen, and that stays a documented limit: reporting a
+  premise as missing when one exists is the conservative direction.
 - **the over-report, asserted not merely documented:** `logger.afterAll(spawn)` reports. §5 L5 calls
   this a conservative over-report with a named cause; a limit that is never exercised is a claim, so
   the case pins the behaviour the limit describes.
