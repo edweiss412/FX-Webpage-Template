@@ -46,6 +46,7 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-08-17-mutation-child-lifetime-design.md`](./2026-08-17-mutation-child-lifetime-design.md) | 2026-08-17 |
 | [`2026-08-17-shell-binding-mixed-quoted-value-design.md`](./2026-08-17-shell-binding-mixed-quoted-value-design.md) | 2026-08-17 |
 | [`2026-08-17-rowactions-submenu-reveal-scroll-clamp-design.md`](./2026-08-17-rowactions-submenu-reveal-scroll-clamp-design.md) | 2026-08-17 |
+| [`2026-08-19-planlint-declared-limit-pin-collision.md`](./2026-08-19-planlint-declared-limit-pin-collision.md) | 2026-08-19 |
 | [`2026-08-19-premisescan-nested-hook-sibling-leak-design.md`](./2026-08-19-premisescan-nested-hook-sibling-leak-design.md) | 2026-08-19 |
 | [`2026-08-20-browser-child-lifetime-design.md`](./2026-08-20-browser-child-lifetime-design.md) | 2026-08-20 |
 | [`2026-08-20-shell-lexer-quoted-value-recall-design.md`](./2026-08-20-shell-lexer-quoted-value-recall-design.md) | 2026-08-20 |

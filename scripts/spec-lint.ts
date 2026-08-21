@@ -18,6 +18,16 @@ import {
   probesToSpawn,
 } from "../lib/specLint/redContract";
 import { exitCodeForResult, runLint } from "../lib/specLint/run";
+// The adapter may import from tests/ — established by scripts/print-mutation-sites.ts,
+// which imports tests/mutation/source/operators. This is precisely why the registry is
+// read HERE and injected as data: lib/specLint/** imports neither, so the mutation
+// harness scores the logic while the registry stays the registry.
+import ts from "typescript";
+import { LINE_TERMINATORS, stripCommentsSafely } from "../tests/_shared/stripComments";
+import type { PreparedSuite } from "../lib/specLint/declaredLimitPins";
+import { GUARD_SURFACES } from "../tests/mutation/source/registry";
+import { NOT_A_PIN } from "../tests/specLint/declaredLimitPinDispositions";
+import type { EnrolledSurface } from "../lib/specLint/types";
 import type {
   ExecOutcome,
   ExecResults,
@@ -335,6 +345,85 @@ export function runFixtureSplice(
   return done(unavailable === undefined ? { files } : { files, unavailable });
 }
 
+/**
+ * ScriptKind is REQUIRED, not cosmetic. `stripCommentsSafely`'s own header records why:
+ * parsing plain `.ts` as TSX reads `<T>(x: T) => x` as JSX and misses every comment after
+ * it. Choosing by extension is what makes the PARSER the oracle rather than a guess.
+ */
+function scriptKindFor(path: string): ts.ScriptKind {
+  if (path.endsWith(".tsx")) return ts.ScriptKind.TSX;
+  if (path.endsWith(".jsx")) return ts.ScriptKind.JSX;
+  if (path.endsWith(".mts") || path.endsWith(".cts") || path.endsWith(".ts"))
+    return ts.ScriptKind.TS;
+  return ts.ScriptKind.JS;
+}
+
+/**
+ * Prepare ONE suite's text for the declared-limit pin arm (spec §3.1).
+ *
+ * THE ORDER IS LOAD-BEARING AND IS THE WHOLE POINT (spec §8 item 15). Diagnostics come
+ * from the RAW text, BEFORE a single byte is blanked. Stripping first CONSUMES an
+ * unterminated `/*` as a comment to EOF, so a strip-then-parse adapter sees a CLEAN
+ * parse, blanks the pin along with everything after the opener, and reports "no pins"
+ * with no unreadable advisory — the exact silent fail-open the decline exists to prevent.
+ *
+ * This lives in the ADAPTER, not the core, for two structural reasons rather than taste:
+ * the shared comment stripper is mandated for `tests/` and a private copy under `lib/`
+ * would sit outside its walker, and a core that cannot see comment state cannot grow a
+ * lexer to guess at it.
+ */
+export function prepareSuiteText(path: string, rawLines: readonly string[]): PreparedSuite {
+  const raw = rawLines.join("\n");
+  const kind = scriptKindFor(path);
+
+  // STEP 1 — diagnostics from the RAW text.
+  const sourceFile = ts.createSourceFile(path, raw, ts.ScriptTarget.Latest, true, kind);
+  const diagnostics = (sourceFile as unknown as { parseDiagnostics?: readonly ts.Diagnostic[] })
+    .parseDiagnostics;
+  if (diagnostics !== undefined && diagnostics.length > 0) return { status: "parse-failed" };
+
+  // STEP 2 — comments, via THE shared stripper (single source; local copies are forbidden
+  // by its own meta-test).
+  const commentsBlanked = stripCommentsSafely(raw, kind);
+
+  // STEP 3 — template-literal BODIES and MULTI-LINE ordinary strings, from ranges the
+  // parser reported on the RAW parse.
+  //
+  // Only the literal PARTS of a template are blanked, never a TemplateExpression's
+  // substitutions — those are executable code. SINGLE-LINE string literals are LEFT
+  // INTACT and must be, because they carry the titles; a title literal is single-line by
+  // §3.1 item 2, so nothing the arm needs is ever blanked. A MULTI-LINE ordinary string
+  // IS blanked, because such a string can contain a physical line beginning
+  // `test("… documented limit …")` and preserving it let fixture text read as a live pin.
+  const ranges: [number, number][] = [];
+  const walk = (node: ts.Node): void => {
+    if (
+      ts.isNoSubstitutionTemplateLiteral(node) ||
+      node.kind === ts.SyntaxKind.TemplateHead ||
+      node.kind === ts.SyntaxKind.TemplateMiddle ||
+      node.kind === ts.SyntaxKind.TemplateTail
+    ) {
+      ranges.push([node.getStart(sourceFile), node.getEnd()]);
+    } else if (ts.isStringLiteral(node)) {
+      const start = node.getStart(sourceFile);
+      const end = node.getEnd();
+      if (LINE_TERMINATORS.test(raw.slice(start, end))) ranges.push([start, end]);
+    }
+    ts.forEachChild(node, walk);
+  };
+  walk(sourceFile);
+
+  // Position-for-position, preserving every line terminator, so line and column numbers
+  // survive exactly — the same contract stripCommentsSafely honors.
+  const chars = commentsBlanked.split("");
+  for (const [from, to] of ranges) {
+    for (let i = from; i < to && i < chars.length; i += 1) {
+      if (!LINE_TERMINATORS.test(chars[i]!)) chars[i] = " ";
+    }
+  }
+  return { status: "ok", lines: chars.join("").split("\n") };
+}
+
 export function runCli(argv: string[], deps: CliDeps): CliOutput {
   // ---- flag parse (full pass: --json registers as a flag even when a --kind value is missing) ----
   let json = false;
@@ -523,6 +612,15 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
       fixtureResults = runFixtureSplice(spliceFixturePlanForText(text), deps, timeoutMs).results;
     }
 
+    // PROJECTED, not passed through: the core receives exactly (id, sourcePath,
+    // suitePaths) and never sees a registry row, so no registry type crosses the
+    // purity boundary.
+    const enrolledSurfaces: readonly EnrolledSurface[] = GUARD_SURFACES.map((surface) => ({
+      id: surface.id,
+      sourcePath: surface.sourcePath,
+      suitePaths: surface.suitePaths,
+    }));
+
     const result = runLint(
       { text, repoRelPath, kind: docKind, kindSource },
       resolver,
@@ -530,6 +628,10 @@ export function runCli(argv: string[], deps: CliDeps): CliOutput {
       parseResults,
       probeResults,
       fixtureResults,
+      // Task 7b wires PREPARATION in. Until now the core scanned RAW resolver lines,
+      // which is what kept that task's authored red reachable; the arm only became
+      // sound at this boundary once `prepareSuiteText` shipped.
+      { surfaces: enrolledSurfaces, dispositions: NOT_A_PIN, prepareSuite: prepareSuiteText },
     );
     return {
       stdout: json ? JSON.stringify(result) + "\n" : renderText(result),

@@ -14,6 +14,11 @@ import {
   synthesizeParseFindings,
 } from "./redContract";
 import {
+  RAW_SUITE_PREPARER,
+  checkDeclaredLimitPins,
+  type DeclaredLimitPinInputs,
+} from "./declaredLimitPins";
+import {
   checkFixtureContract,
   spliceFixturePlan,
   synthesizeFixtureFindings,
@@ -94,6 +99,7 @@ export function runLint(
   parse?: ParseResults | null,
   probes?: ProbeResults | null,
   fixtures?: FixtureResults | null,
+  declaredLimitPins?: DeclaredLimitPinInputs | null,
 ): LintResult {
   const model = parseDoc(doc.text);
   // Span-exact exclusion (arms spec §5): a `red-target=` capture IS a citation,
@@ -149,6 +155,24 @@ export function runLint(
       ? synthesizeFixtureFindings(spliceFixturePlan(model, doc.kind), fixtures)
       : [];
 
+  // Declared-limit pin advisories (pin-collision spec §3.3, §3.4). Plan-kind only, and
+  // a null injected table runs nothing — the same static/injected split the four arms
+  // above use, so every existing caller stays byte-identical.
+  const declaredLimitPinFindings =
+    doc.kind === "plan" && declaredLimitPins !== undefined && declaredLimitPins !== null
+      ? checkDeclaredLimitPins(
+          model,
+          doc.kind,
+          declaredLimitPins.surfaces,
+          resolver,
+          // Task 5 injects the table only. The adapter passes RAW lines until Task 7b
+          // lands real preparation, and this default is what makes that ordering true
+          // rather than merely intended.
+          declaredLimitPins.prepareSuite ?? RAW_SUITE_PREPARER,
+          declaredLimitPins.dispositions ?? [],
+        )
+      : [];
+
   let findings: Finding[] = [
     ...model.documentFindings,
     ...citations.findings,
@@ -163,6 +187,7 @@ export function runLint(
     ...execFindings,
     ...collectionFindings,
     ...fixtureFindings,
+    ...declaredLimitPinFindings,
   ];
 
   // ---- ignore-waiver application (spec §3) ----
