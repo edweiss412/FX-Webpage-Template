@@ -199,6 +199,25 @@ The alert pill has two branches. Monitoring-only ("clearing on their own, no act
 
 **First scheduled step:** decide whether an interactive pill whose whole message is "nothing to do here" is a Family D dim member (it is a state pair, and it already carries two non-colour cues), or whether the urgent branch should instead gain weight.
 
+## BL-SHELL-BRACE-MATCHER-CROSS-CONSTRUCT-BLIND — the brace walk counts its own delimiter pair without respecting other constructs, so a `}` inside a nested `$()` closes the `${` early
+
+**Status:** OPEN · **Filed:** 2026-08-21 (`fix/shell-attached-redirection-target`, diff round 1 finding 2) · **Severity:** MEDIUM (one shape is a SILENT MISS, which is a forbidden direction, but the live population is zero) · **Class:** detector fidelity · **Effort:** L · **Facing:** process · **Class-sweep exception:** (c) — `matchBrace` is a PRE-EXISTING shared helper with five callers that this arc does not otherwise touch, and the obvious repair is not viable as written: a construct-aware prototype fixes all four shapes and then TIMES OUT over the live corpus at 400s where the shipped walk finishes in 13s, so making it correct needs memoisation or a single-pass tokeniser rather than a patch. · **Reachability:** PROBED — inputs and observations below, each paired with a bash run. · **Incident:** it reached diff round 1 of this arc as a BLOCKING finding and cost that round (corpus row `docs/review-rounds/fix/shell-attached-redirection-target/`); the reviewer reported it as wrong attribution only, and reproduction found the sharper silent-miss shape underneath it.
+
+`matchBrace` (`tests/cross-cutting/psqlStartupFiles/scan.ts`) tracks quotes and escapes but counts only its own `open`/`close` pair, so a delimiter belonging to a DIFFERENT construct is counted as its own. A `}` inside a nested `$()` therefore closes the enclosing `${` early, and a `)` inside a nested `${}` closes the enclosing `$()` early.
+
+Two observable shapes, both with bash confirming the command really runs:
+
+| input                                 | bash        | scanner                                      |
+| ------------------------------------- | ----------- | -------------------------------------------- |
+| `cat >"$(echo ${A:-)}; psql -c 'x')"` | RAN, exit 0 | **0 sites AND 0 advisories** — a silent miss |
+| `cat >${OUT:-$(echo }; psql -c 'x')}` | RAN         | 1 site, `nested: false` — wrong attribution  |
+
+**PRE-EXISTING, proven rather than assumed.** The identical inputs were run against `scan.ts` at the merge-base on the DETACHED path, which that arc did not change: base and HEAD agree byte for byte on both shapes. The attached-target work extends an existing defect to a new surface; it does not introduce it. The payload placement is what makes it visible — with psql BEFORE the crossing delimiter the attribution is correct, which is why the reviewer's own three probes did not discriminate.
+
+**Exposure is bounded and measured**, not asserted: the three-surface census reports ZERO substitution-bearing attached targets, so no live call site is currently hidden by this. It is a prospective limit on a guard, which is why it is filed rather than shipped hot.
+
+Close condition: a construct-aware delimiter walk that (a) resolves all four shapes above, (b) completes the live-corpus scan within the shipped walk's order of magnitude, and (c) leaves the AC-5 finding-set digest unmoved — the third is currently unprovable for the prototype, because it cannot finish.
+
 ## BL-TEXT-FAINT-AS-RESTING-INTERACTIVE-COLOUR — four controls rest one rung BELOW the token this arc retired
 
 **Filed:** 2026-08-14 (`fix/ui-interactive-token-policy`, invariant-8 impeccable critique round 2, P1). **Class:** colour policy completeness. **Effort:** S-M. **Class-sweep exception:** (a) — whether a control may rest at the faint rung is a design decision, and the census this arc shipped was ratified around one token. **Reachability:** PROBED — all four sites read from the live tree.
