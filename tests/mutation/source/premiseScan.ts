@@ -86,6 +86,11 @@ const MODIFIERS = new Set([
   "skipIf",
   "todo",
 ]);
+/** `deriveCurriedModifiers()` — the modifiers whose CALL returns the
+ *  registration function rather than registering. A proper subset of
+ *  `MODIFIERS`, and the distinction decides which link of a chain holds the
+ *  PRODUCER the associated premise must be about (spec §3.3.2.2). */
+const CURRIED_MODIFIERS = new Set(["each", "for"]);
 
 /** Parsed by EXTENSION: a `.tsx` suite read as TS turns `<div>x</div>` into a
  *  type assertion, so the classifier would be reasoning about an AST the file
@@ -163,26 +168,39 @@ function calleeNamed(callee: ts.Expression, names: RegExp, propertyAccessCounts:
  *  The calls are collected by the SAME walk that peels, because both consumers
  *  ask about the same chain: the root decides what is registered, the calls'
  *  eager arguments decide what that registration consumes. */
-type CalleeChain = { root: string | null; calls: ts.CallExpression[] };
+type ChainLink = {
+  call: ts.CallExpression;
+  /** The modifier this call was curried FROM -- `each` for `test.each(rows)`,
+   *  `skipIf` for `test.skipIf(c)` -- or null when the callee is not a property
+   *  access. Recorded here because it is the only place that knows it, and
+   *  recovering it later means walking the chain a second time. */
+  modifier: string | null;
+};
+
+type CalleeChain = { root: string | null; links: ChainLink[] };
 
 function calleeChain(callee: ts.Expression): CalleeChain {
-  const calls: ts.CallExpression[] = [];
+  const links: ChainLink[] = [];
   let node: ts.Expression = callee;
   for (;;) {
     if (ts.isCallExpression(node)) {
-      calls.push(node);
-      node = node.expression;
+      const inner = node.expression;
+      links.push({
+        call: node,
+        modifier: ts.isPropertyAccessExpression(inner) ? inner.name.text : null,
+      });
+      node = inner;
       continue;
     }
     if (ts.isPropertyAccessExpression(node)) {
-      if (!MODIFIERS.has(node.name.text)) return { root: null, calls };
+      if (!MODIFIERS.has(node.name.text)) return { root: null, links };
       node = node.expression;
       continue;
     }
     break;
   }
   const root = ts.isIdentifier(node) && REGISTRARS.has(node.text) ? node.text : null;
-  return { root, calls };
+  return { root, links };
 }
 
 /** `it`, `test.each`, `describe.skip.each` … → the root identifier, else null. */
@@ -1982,7 +2000,7 @@ function hookBodies(describeCall: ts.CallExpression): ts.Node[] {
       // EVERY call in the callee chain, not just the immediate one, and for the
       // same reason `eachProducers` walks them all: a two-call chain's earlier
       // link is eager too, so a hook written there registers on US.
-      for (const c of calleeChain(n.expression).calls) for (const a of c.arguments) walk(a);
+      for (const l of calleeChain(n.expression).links) for (const a of l.call.arguments) walk(a);
       for (const a of n.arguments) if (!isSuiteBody(a)) walk(a);
       return;
     }
@@ -2033,7 +2051,7 @@ function isSuiteBody(arg: ts.Expression): boolean {
  * it is walked once (AC-4).
  */
 function eachProducers(call: ts.CallExpression): ts.Node[] {
-  return calleeChain(call.expression).calls.flatMap((c) => [...c.arguments]);
+  return calleeChain(call.expression).links.flatMap((l) => [...l.call.arguments]);
 }
 
 /**
@@ -2045,9 +2063,16 @@ function eachProducers(call: ts.CallExpression): ts.Node[] {
  * consumes, sitting between that binding and the call.
  */
 function premiseIsAssociated(call: ts.CallExpression, facts: ModuleFacts): boolean {
-  const callee: ts.Expression = call.expression;
-  if (!ts.isCallExpression(callee)) return false;
-  const producer = callee.arguments[0];
+  // The producer is the argument of the CURRIED call, identified by the
+  // modifier it is curried from -- never "the immediate callee if it happens to
+  // be a call". That weaker rule is right for `test.each(rows)(…)` and wrong for
+  // `test.skipIf(c)(…)`, where it reads the skip CONDITION as a producer and a
+  // premise about the condition then certifies a registration that has no
+  // producer at all: FALSE CERTIFICATION, which §6's bound forbids outright.
+  const curried = calleeChain(call.expression).links.find(
+    (l) => l.modifier !== null && CURRIED_MODIFIERS.has(l.modifier),
+  );
+  const producer = curried?.call.arguments[0];
   if (!producer || !ts.isIdentifier(producer)) return false;
   const binding = producer.text;
 

@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { premise } from "../_shared/premise";
 
 import {
+  deriveCurriedModifiers,
   deriveHooks,
   deriveModifiers,
   deriveRegistrars,
@@ -109,12 +110,32 @@ describe("AC-2 — every committed accept-set equals what Vitest's declaration s
   // stopped matching produces.
   premise("the modifier set derives", deriveModifiers(declarations).length, 0);
   premise("the hook set derives", deriveHooks(declarations).length, 0);
+  premise("the curried set derives", deriveCurriedModifiers(declarations).length, 0);
   premise("the registrar set derives", deriveRegistrars(declarations).length, 0);
   premise("the suite half derives", deriveRegistrarsOfType("SuiteAPI", declarations).length, 0);
   premise("the test half derives", deriveRegistrarsOfType("TestAPI", declarations).length, 0);
 
   it("MODIFIERS equals the declared chainable, curried and conditional members", () => {
     expect([...committedSet("MODIFIERS")].sort()).toEqual(deriveModifiers(declarations));
+  });
+
+  it("CURRIED_MODIFIERS equals the declared curried members", () => {
+    expect([...committedSet("CURRIED_MODIFIERS")].sort()).toEqual(
+      deriveCurriedModifiers(declarations),
+    );
+  });
+
+  it("CURRIED_MODIFIERS is a PROPER subset of MODIFIERS", () => {
+    // The direction, which the two equalities cannot state. A curried modifier
+    // that is not a modifier would never be reached by the peel, so the
+    // associated-premise rule would look for a producer on a chain the scanner
+    // resolved to nothing; and if the two sets were EQUAL, "curried" would have
+    // stopped meaning anything and the skip condition would be a producer again.
+    const curried = deriveCurriedModifiers(declarations);
+    const modifiers = deriveModifiers(declarations);
+    premise("there are curried modifiers to check", curried.length, 0);
+    for (const m of curried) expect(modifiers).toContain(m);
+    expect(modifiers.length).toBeGreaterThan(curried.length);
   });
 
   it("HOOK_REGISTRARS equals the members of `interface Hooks`", () => {

@@ -107,21 +107,27 @@ function propertyNames(members: readonly ts.TypeElement[]): string[] {
  * derivation reading only the suite side leaves `test.fails("must fail", fn)`
  * silently uncensused (spec review r2 finding 1).
  */
-function chainableMembers(decls: Declarations, typeName: string): string[] {
+function chainableMembers(
+  decls: Declarations,
+  typeName: string,
+): { chain: string[]; curried: string[] } {
   const alias = decls.aliases.get(typeName);
   const args = alias && ts.isTypeReferenceNode(alias.type) ? alias.type.typeArguments : undefined;
-  const out: string[] = [];
+  const chain: string[] = [];
   const keys = args?.[0];
   if (keys !== undefined) {
     const literals = ts.isUnionTypeNode(keys) ? keys.types : [keys];
     for (const t of literals) {
-      if (ts.isLiteralTypeNode(t) && ts.isStringLiteral(t.literal)) out.push(t.literal.text);
+      if (ts.isLiteralTypeNode(t) && ts.isStringLiteral(t.literal)) chain.push(t.literal.text);
     }
   }
-  const curried = args?.[2];
-  if (curried !== undefined && ts.isTypeLiteralNode(curried))
-    out.push(...propertyNames(curried.members));
-  return floor(typeName, out);
+  const curriedArg = args?.[2];
+  const curried =
+    curriedArg !== undefined && ts.isTypeLiteralNode(curriedArg)
+      ? propertyNames(curriedArg.members)
+      : [];
+  floor(typeName, [...chain, ...curried]);
+  return { chain, curried };
 }
 
 /** The members of one intersection arm: an inline literal directly, a named
@@ -179,13 +185,39 @@ function conditionalMembers(decls: Declarations): string[] {
 /** premiseScan's `MODIFIERS`: every chainable key, curried member and
  *  conditional member the declaration names, from BOTH API sides. */
 export function deriveModifiers(decls: Declarations = readDeclarations()): string[] {
+  const suite = chainableMembers(decls, "ChainableSuiteAPI");
+  const test = chainableMembers(decls, "ChainableTestAPI");
   return [
     ...new Set([
-      ...chainableMembers(decls, "ChainableSuiteAPI"),
-      ...chainableMembers(decls, "ChainableTestAPI"),
+      ...suite.chain,
+      ...suite.curried,
+      ...test.chain,
+      ...test.curried,
       ...conditionalMembers(decls),
     ]),
   ].sort();
+}
+
+/**
+ * premiseScan's `CURRIED_MODIFIERS`: the members whose CALL returns the
+ * registration function rather than registering -- `each` and `for`, the third
+ * type argument of both chainable declarations.
+ *
+ * A proper subset of the modifier set, and the scanner needs the distinction:
+ * the ASSOCIATED premise (spec §3.3.2.2) is about the argument a CURRIED call
+ * consumes. Reading "the immediate callee if it is a call" instead treats
+ * `test.skipIf(c)("live", fn)`'s skip CONDITION as a producer, and a premise
+ * about that condition then certifies a registration that has no producer at
+ * all.
+ */
+export function deriveCurriedModifiers(decls: Declarations = readDeclarations()): string[] {
+  const out = [
+    ...new Set([
+      ...chainableMembers(decls, "ChainableSuiteAPI").curried,
+      ...chainableMembers(decls, "ChainableTestAPI").curried,
+    ]),
+  ];
+  return floor("curried members of the chainable declarations", out).sort();
 }
 
 /** premiseScan's `HOOK_REGISTRARS`: the members of `interface Hooks`.

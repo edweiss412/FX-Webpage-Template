@@ -4354,3 +4354,57 @@ describe("AC-6 — `loadTimePremises` keeps the bare-identifier callee, and that
     expect(associated(`t.premise("rows", rows.length, 0);`)).toBe(false);
   });
 });
+
+describe("the associated premise is about the CURRIED producer, never the skip condition", () => {
+  // Opened by this arc's own widening, and it is the class that cannot ship.
+  // `premiseIsAssociated` took "the immediate callee, if it is a call" as the
+  // producer. That is the `.each`/`.for` call for `test.each(rows)(…)` -- and it
+  // is the CONDITION call for `test.skipIf(c)(…)`, which before `skipIf` became
+  // a modifier was not a registration at all. A premise about the skip condition
+  // then satisfies the associated-premise requirement for a registration that
+  // has no producer: FALSE CERTIFICATION, the direction §6's bound names first.
+  //
+  // The producer is the call curried from a CURRIED modifier (`each`, `for`),
+  // which the declaration names -- so this reads the same authority the accept
+  // sets do rather than a second hand-written pair.
+
+  const credited = (setup: string, registration: string): boolean | undefined =>
+    classificationsWithModules({}, `${setup}\n${registration}`).find(
+      (t) => t.hasPremise !== undefined,
+    )?.hasPremise;
+
+  const ROWS = `const rows = [1];\nconst c = true;`;
+
+  it("a premise over the producer IS credited (the twin)", () => {
+    // Without this, every assertion below passes under a scanner that credits
+    // nothing at all.
+    expect(
+      credited(`${ROWS}\npremise("rows", rows.length, 0);`, `test.each(rows)("x %s", () => {});`),
+    ).toBe(true);
+  });
+
+  it("a premise over the producer is credited THROUGH a longer chain", () => {
+    expect(
+      credited(
+        `${ROWS}\npremise("rows", rows.length, 0);`,
+        `test.skipIf(c).each(rows)("x %s", () => {});`,
+      ),
+    ).toBe(true);
+  });
+
+  it("a premise over the SKIP CONDITION is not credited -- there is no producer", () => {
+    // The registration has no `.each` at all. Crediting it certifies falsely.
+    expect(
+      credited(`${ROWS}\npremise("c", Number(c), 0);`, `test.skipIf(c)("live", () => {});`),
+    ).toBe(false);
+  });
+
+  it("a premise over the skip condition is not credited when a producer EXISTS either", () => {
+    expect(
+      credited(
+        `${ROWS}\npremise("c", Number(c), 0);`,
+        `test.skipIf(c).each(rows)("x %s", () => {});`,
+      ),
+    ).toBe(false);
+  });
+});
