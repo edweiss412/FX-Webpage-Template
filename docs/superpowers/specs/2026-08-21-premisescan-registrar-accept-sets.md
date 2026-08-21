@@ -197,6 +197,39 @@ The general shape, and it is the reason this row exists: **an accept-set is only
 consumer of it agrees.** Widening one list while a second hand-list downstream still enumerates three
 names produces a change that reads as adoption and behaves as nothing.
 
+### 3.5 Every call in the callee CHAIN contributes its eager arguments
+
+`eachProducers` (`tests/mutation/source/premiseScan.ts:1906`) collects the arguments of the
+IMMEDIATE curried call only:
+
+```ts
+const callee = call.expression;
+return ts.isCallExpression(callee) ? [...callee.arguments] : [];
+```
+
+Once the interleaved peel makes deeper chains resolve, that is no longer sufficient: each level of
+the chain carries its OWN eagerly-evaluated arguments, and only the last is collected. Measured:
+
+```
+describe.each([process.env.CI])(…)                immediate: [process.env.CI]   chain: [process.env.CI]
+describe.skipIf(process.env.CI)(…)                immediate: process.env.CI     chain: process.env.CI
+describe.skipIf(process.env.CI).each([1])(…)      immediate: [1]                chain: [1] | process.env.CI
+```
+
+The third row is a **silent free**: the outer registration resolves, its children are classified, and
+the `process.env.CI` read in the earlier modifier argument is neither attributed nor signaled. Nine
+enrolled sites use `describe.each(…)` today, so adding `.skipIf(process.env.CI)` is one ordinary
+contributor edit. Spec review r3 finding 1.
+
+The repair walks the callee chain and collects every call's arguments, which is the same interleaved
+traversal §2 already requires — the two are one loop, not two rules.
+
+**This is also what makes §5 L2 TRUE.** An earlier draft asserted that chain depth is not a decision
+input while the collector read only one level, so depth was a decision input and the claim was false.
+With every level collected, depth genuinely stops being one, and the limit says so because it is now
+the case rather than because it was assumed.
+
+
 ---
 
 ## 4. AC-1 does not move
@@ -224,7 +257,7 @@ required does not arise here.
 | id | limit | why it is a limit |
 | --- | --- | --- |
 | **L1** | The derived sets are read from the INSTALLED package at authoring time, not at scan time. A Vitest upgrade that adds a modifier does not take effect until the sets are re-derived. | Reading them at scan time would make the scanner's verdicts depend on `node_modules`, which is not tracked. The repair is a re-derivation step, and a structural test pins the derived set against the installed surface so an upgrade REDS rather than drifting silently. |
-| **L2** | A chain form deeper than the ones measured is resolved by the interleaved peel but is not separately fixtured. | The peel is a loop over two node kinds with no depth bound, so depth is not a decision input. |
+| **L2** | A chain form deeper than the ones measured is resolved by the interleaved peel and every level's eager arguments are collected, so it is not separately fixtured. | Depth is not a decision input — but only BECAUSE §3.5 collects the whole chain. An earlier draft made this claim while the collector read one level, which made it false and cost spec review r3 finding 1. The peel and the collector are one traversal. |
 | **L4** | **A modifier call whose result is BOUND before invocation invents a registration and misses the real one.** `const p = test.each(rows); p("real", fn)` records `<test at line N>` and never sees `p("real", fn)`. | **PRE-EXISTING and bracketed, not caused or widened here.** Measured on `origin/main`'s unmodified scanner, which already carries `each` in `MODIFIERS`: that fixture yields `<test at line 3>: environment-free` today. The declaration-derived set adds no new builder to this class — §3.2's exclusion of `extend`, `override` and `scoped` is precisely what stops this change widening it. Closing it means deciding a registration by whether its result is invoked, which is execution reasoning this surface does not do. Raised as spec review r1 finding 1, whose widening half is fixed and whose pre-existing half is documented here. |
 | **L3** | `bench(…)` registrations are not censused. | The declaration types `bench` as a benchmark API rather than a `SuiteAPI` or `TestAPI`, so a derivation that reads the declaration never admits it — the exclusion is derived, not excepted. A benchmark is not a test and carries no premise obligation. Zero enrolled call sites. |
 
