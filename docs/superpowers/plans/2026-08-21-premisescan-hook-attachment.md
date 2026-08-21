@@ -427,7 +427,12 @@ PATH PRESENT  | hook beforeEach at line 1 is registered from an eager argument p
 PATH PRESENT  | the registration at line 2 has no inline suite body and carries an argument …
 ```
 
-— but that is true of today's wording only, which is a claim with an expiry date. **Both tasks
+— and that transcript is a RECORD of the PRE-REPAIR wording, kept rather than rewritten: diff
+review r1 finding 1 replaced "is registered from" with "occupies", so the sentence above is what the
+probe printed at the time and the shipped reason now reads differently. Rewriting a transcript to
+carry today's bytes falsifies the record of what the command actually printed. The observation it
+supports — that the path IS appended — is unaffected, and it was true of that wording only, which is
+a claim with an expiry date. **Both tasks
 therefore assert that the emitted `detail` CONTAINS the suite path**, which catches the drop
 whatever the wording becomes, rather than asserting the wording and inheriting its expiry.
 

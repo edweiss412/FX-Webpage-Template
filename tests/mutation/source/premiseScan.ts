@@ -1978,11 +1978,17 @@ function forEachRegistration(
       fn(node, { insideInlineBody, deferred });
       if (ts.isCallExpression(node.expression))
         for (const a of node.expression.arguments) visit(a, insideInlineBody, deferred);
-      for (const a of node.arguments) {
-        const body = suiteBodyFunction(a);
+      node.arguments.forEach((a, i) => {
+        // SLOT 0 IS THE NAME, and Vitest FORMATS a function-valued name rather
+        // than invoking it, so a registration written inside one never runs.
+        // The same fact §3.2 uses to range producer B over indices >= 1: a
+        // function in slot 0 is a name that happens to be a function, never a
+        // body. Reading it as a body walked into it as EVALUATED code and
+        // reported there (diff review r2 finding 1).
+        const body = i === 0 ? null : suiteBodyFunction(a);
         if (body !== null) walkInto(body, true, deferred);
         else visit(a, insideInlineBody, deferred);
-      }
+      });
       return;
     }
     if (ts.isFunctionLike(node)) {

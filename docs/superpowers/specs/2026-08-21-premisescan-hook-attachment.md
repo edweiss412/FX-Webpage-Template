@@ -211,10 +211,14 @@ the resolution R1 declines — so the reason names the CONSTRUCT and states that
 undetermined, which is a claim it can support. The demote is file-level and conservative, per L2.
 
 Reason wording, following the house form (a lowercase phrase carrying its module, as
-`withModule` at `tests/mutation/source/premiseScan.ts:1528` produces):
+`withModule` at `tests/mutation/source/premiseScan.ts:1528` produces). It says the hook OCCUPIES
+the position rather than that it IS REGISTERED, because the second is a false statement whenever
+the operand never evaluates — a short-circuit right-hand side, an unselected ternary arm, an
+optional-call argument. This scanner does not fold constants (§4 L7), so the honest claim is
+about what it can see and not about what runs. Diff review r1 finding 1:
 
 ```
-hook <name> at line <n> is registered from an eager argument position, so the suite it attaches to cannot be determined, in <path>
+hook <name> at line <n> occupies an eager argument position, so whether it registers, and which suite it would attach to, cannot be determined, in <path>
 ```
 
 ### 3.2 Producer B — a registration carrying a factory-slot argument the scanner cannot follow
