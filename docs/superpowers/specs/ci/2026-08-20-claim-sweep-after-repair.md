@@ -475,6 +475,35 @@ module does not necessarily reach for this document.
    so it is met at the point of temptation: **an edit adding a normative outcome to §3 adds its row in
    the same commit**, and the module header restates this limit.
 
+11. **AN ELLIPTICAL HISTORICAL RECORD IS REPORTED** (§3.1). The arm has no tense model, no record
+    marker, and no notion of a history section: a sentence recording what a value WAS is reported
+    whenever it names only the superseded value. Measured on the SHIPPED arm for a declared `5` -> `6`:
+
+    | sentence | reported |
+    | --- | --- |
+    | `The ladder now has 6 rungs.` | no |
+    | `The count was 5 before this repair.` | YES |
+    | `The site list said 5.` | YES |
+    | `An earlier draft claimed 5, which 6 replaced.` | no |
+    | `The ladder has 5 rungs.` | YES |
+
+    **THE WELL-FORMED RECORD IS ALREADY SILENT, and that is the whole disposition.** The co-occurrence
+    rule suppresses any sentence naming BOTH values, so a record that says what the value BECAME draws
+    nothing; only the ELLIPTICAL record, naming the old value alone, reports. The authoring remedy is
+    therefore COMPLETION rather than deletion, and the finding's own detail says so in those terms --
+    an author who completes the record and an author who DELETES it both silence the advisory, the arm
+    cannot tell the two apart, and only the first is an improvement. A record of what a value was is
+    often the most useful prose in a document, because it is what stops a settled decision being
+    relitigated.
+
+    **The 64 is a CEILING, not an incidence.** §2's naive census counts 64 sites matching the bare
+    `was N` shape across the 1131 tracked documents. Reporting also requires the value to equal a
+    DECLARED superseded value on that arc's own documents, so 64 bounds this shape from above and is
+    not a count of what the arm would say. The direction is a nuisance advisory and never a miss, and
+    every finding is advisory by construction -- `sweepFinding` takes no severity parameter and no path
+    emits `fail`. RE-FILE TRIGGER: any report of this arriving as anything other than advisory, or a
+    measured case where the advisory led an author to DELETE a correct historical sentence.
+
 ## 6. Testing
 
 All under `tests/specLint/`, TDD per task, anti-tautology rules of `docs/agents/writing-plans.md` in

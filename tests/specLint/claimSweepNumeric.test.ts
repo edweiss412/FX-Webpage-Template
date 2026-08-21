@@ -136,8 +136,19 @@ describe("claim sweep — the numeric half", () => {
           `${f.docPath}:${f.docLine} carries ${f.token}, declared superseded by 57, ` +
             `in a sentence that does not name 57`,
         );
+        // The REMEDY is asserted by equality, and it is load-bearing copy rather
+        // than a pleasantry. §5 limit 11: an elliptical historical record is
+        // reported, and the only authoring response that is an improvement is
+        // COMPLETION -- naming the new value in the same sentence, which the
+        // co-occurrence rule then suppresses. Deleting the sentence silences
+        // this advisory just as effectively and destroys the record, and the arm
+        // cannot tell the two responses apart, so the copy has to say which one
+        // it wants. A `toMatch` here would let that instruction be dropped.
         expect(f.detail).toBe(
-          "re-read it -- it is stale, or it is deliberate and wants a word saying so.",
+          "re-read it: it is stale, or it is a RECORD of what the value was. If it is a " +
+            "record, COMPLETE it -- name the new value in the same sentence and this goes " +
+            "quiet. Do NOT delete the sentence: deleting it silences this line by destroying " +
+            "the thing worth keeping.",
         );
       }
     });

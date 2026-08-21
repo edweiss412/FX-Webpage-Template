@@ -105,8 +105,8 @@ describe("claimSweep module header restates spec §5 verbatim", () => {
     // Sequence equality over two empty lists is a pass, and a boundary rename in
     // either file produces exactly that. The count is the floor that makes the
     // clean verdict below attributable.
-    expect(spec.map((i) => i.n)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-    expect(header.map((i) => i.n)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(spec.map((i) => i.n)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(header.map((i) => i.n)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
   });
 
   it("agrees item for item, whole text and not merely the opening clause", () => {

@@ -1134,6 +1134,17 @@ export const GUARD_SURFACES: GuardSurface[] = [
      * accepted site as STALE, so the run adjudicates this without anyone
      * remembering to check.
      *
+     * RE-KEYED ONCE, by EXPRESSION and not by line, when §5 gained limit 11 and
+     * the numeric finding's detail gained the completion-not-deletion remedy
+     * (264/283 -> 293/312, and 391/499 -> 424/532). The first five moved by the
+     * 29 lines the header limit added; the last two by 33, the header plus the
+     * detail's extra lines. Every mutated expression and its 1-based COLUMN is
+     * byte-identical at both keys, which is what makes this a re-key rather than
+     * a new acceptance -- and the gate proved it in both directions, reporting
+     * exactly seven stale rows and exactly seven new survivors with no others.
+     * Measured cost of this one edit: two full gate runs. This is the case
+     * `BL-MUTATION-SITEID-LINE-KEYED-CHURN` exists for.
+     *
      * Rungs 1-3 were refused for each, with the reason stated per cover. Every
      * repair for this surface landed in the SUITES, never in the source: the
      * eighteen other survivors of the discovery run were killed with cases, and
@@ -1173,7 +1184,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // `break`), the final iteration gaining a side effect, or a ceiling
       // written in terms of anything other than `line.length`.
       {
-        siteId: "integer-literal:264:20:0>1",
+        siteId: "integer-literal:293:20:0>1",
         kind: "equivalent",
         reason:
           "`sentenceSpans`' guard initialiser. Starting at 1 costs the loop its LAST available " +
@@ -1181,7 +1192,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "< L for every line, so L iterations still find all k. Cover A.",
       },
       {
-        siteId: "relational-boundary:264:29:<=><",
+        siteId: "relational-boundary:293:29:<=><",
         kind: "equivalent",
         reason:
           "`sentenceSpans`' guard ceiling, L+1 iterations to L. Same bound as the row above: " +
@@ -1190,7 +1201,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "identically. Cover A.",
       },
       {
-        siteId: "integer-literal:264:54:1>2",
+        siteId: "integer-literal:293:54:1>2",
         kind: "equivalent",
         reason:
           "`sentenceSpans`' guard step, halving the ceiling to floor(L/2)+1 iterations. This is " +
@@ -1201,7 +1212,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "does not exist. Cover A.",
       },
       {
-        siteId: "integer-literal:283:20:0>1",
+        siteId: "integer-literal:312:20:0>1",
         kind: "equivalent",
         reason:
           "`boundedOccurrences`' guard initialiser, L+1 iterations to L. `from` advances by one " +
@@ -1210,7 +1221,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "k = L = 3 and returns [0,1,2] under both the original and this mutant. Cover A.",
       },
       {
-        siteId: "relational-boundary:283:29:<=><",
+        siteId: "relational-boundary:312:29:<=><",
         kind: "equivalent",
         reason:
           "`boundedOccurrences`' guard ceiling, the same L+1 to L as the row above and killed or " +
@@ -1218,7 +1229,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
       },
       // ---- COVER B: a counter whose ONLY consumer is a zero test -----------
       {
-        siteId: "integer-literal:391:29:1>2",
+        siteId: "integer-literal:424:29:1>2",
         kind: "equivalent",
         reason:
           "`exactOccurrences += 1` in `namedHalf`. The counter has exactly one reader, " +
@@ -1234,7 +1245,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
       },
       // ---- COVER C: two recognisers anchored on DISJOINT prefixes ----------
       {
-        siteId: "statement-removal:499:7:continue;>(removed)",
+        siteId: "statement-removal:532:7:continue;>(removed)",
         kind: "equivalent",
         reason:
           "The `continue` after a `+++ b/<path>` header in `parseRepairSpans`. Removing it lets " +
