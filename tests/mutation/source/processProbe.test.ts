@@ -1,10 +1,19 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterAll, describe, expect, it } from "vitest";
 
 import { premise, premiseHolds } from "../../_shared/premise";
+import { CONTROL_SURFACE } from "./fixtures/processProbe/surface";
+import {
+  FLIP_AT_RUN,
+  RUNS_PER_TRIAL,
+  STATE_DIR_ENV,
+  boundaryCheckActive,
+  observeRun,
+} from "./fixtures/processProbe/state";
+import { generateMutants } from "./generate";
 import { siteId as siteIdOf } from "./operators";
 import { DEFAULT_RECORD_DIR } from "./records";
 import type { GuardSurface } from "./registry";
@@ -1446,5 +1455,101 @@ describe("processProbe aggregator — eligibility, derived claims, render (AC-7,
     expect(armA.produced).toBe(9);
     expect(armA.planned).toBe(12);
     expect(renderCampaign(agg)).toContain("9 of 12");
+  });
+});
+
+describe("processProbe control surface — the manufactured correlated mechanism (AC-4)", () => {
+  const scopeDir = (name: string): string => join(root, `state-${name}`);
+
+  /** One trial's observation sequence: the green-baseline run, then the mutant run. */
+  const runTrialInScope = (scope: string): { index: number; active: boolean }[] =>
+    Array.from({ length: RUNS_PER_TRIAL }, () => {
+      const { index } = observeRun({ [STATE_DIR_ENV]: scope });
+      return { index, active: boundaryCheckActive(index) };
+    });
+
+  it("control mechanism REFUSES to run with no scope, rather than behaving like a fresh one", () => {
+    expect(() => observeRun({})).toThrow(new RegExp(STATE_DIR_ENV));
+  });
+
+  it("control flips at the AUTHORED index, and the rule that decides is the run index", () => {
+    const scope = scopeDir("authored");
+    const observed = Array.from({ length: 6 }, () => {
+      const { index } = observeRun({ [STATE_DIR_ENV]: scope });
+      return { index, active: boundaryCheckActive(index) };
+    });
+    expect(observed.map((o) => o.index)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(observed.filter((o) => o.active).map((o) => o.index)).toEqual([FLIP_AT_RUN, 6]);
+  });
+
+  it("control in a SHARED scope reaches the flip on trial 3, baseline consumption included", () => {
+    const scope = scopeDir("shared");
+    const trials = [runTrialInScope(scope), runTrialInScope(scope), runTrialInScope(scope)];
+    // The rule deciding each observation is named: trials 1 and 2 are decided by
+    // an index BELOW the flip; trial 3's target is decided by the index reaching
+    // it. The baseline at index 5 is also past the flip and stays GREEN, because
+    // the boundary holds on unmutated source — a flip caused by baseline
+    // consumption would prove the wrong thing while rendering the same verdicts.
+    expect(trials[0]!.map((o) => o.active)).toEqual([false, false]);
+    expect(trials[1]!.map((o) => o.active)).toEqual([false, false]);
+    expect(trials[2]!.map((o) => o.index)).toEqual([5, 6]);
+    expect(trials[2]!.map((o) => o.active)).toEqual([true, true]);
+    premiseHolds(
+      "the flip lands on a TARGET run, not only on a baseline run",
+      trials[2]![1]!.active,
+    );
+  });
+
+  it("control in a FRESH scope per trial never reaches the flip index", () => {
+    const observed = [1, 2, 3, 4, 5].map((i) => runTrialInScope(scopeDir(`fresh-${i}`)));
+    for (const trial of observed) {
+      expect(trial.map((o) => o.index)).toEqual([1, 2]);
+      expect(trial.map((o) => o.active)).toEqual([false, false]);
+    }
+    premise(
+      "more trials were run fresh than the flip index needs in one scope",
+      observed.length,
+      FLIP_AT_RUN - 1,
+    );
+  });
+
+  it("control surface generates exactly the two authored sites, one per deciding suite", () => {
+    const outcome = resolveTarget({
+      root: process.cwd(),
+      surfaceId: CONTROL_SURFACE.id,
+      site: "no-such-site",
+      surfaces: [CONTROL_SURFACE],
+    });
+    expect(inputOf(outcome)).toBe("site");
+    // The refusal lists what IS available; two sites, and the detail names them.
+    expect(detailOf(outcome)).toContain("generates 2 mutants");
+  });
+
+  it("control's deterministic mutant is the one suite 1 decides, by bytes alone", () => {
+    const surfaceSource = readFileSync(CONTROL_SURFACE.sourcePath, "utf8");
+    const gen = generateMutants(
+      CONTROL_SURFACE.sourcePath,
+      surfaceSource,
+      CONTROL_SURFACE.operators,
+    );
+    const always = gen.mutants.find((m) => m.text.includes("n <= 100"));
+    if (always === undefined) throw new Error("no `always` mutant generated");
+    expect(always.text).toContain("n <= 100");
+    // Suite 1 pins `always(100) === false`, which the mutant makes true — killed
+    // by suite bytes alone, with no state dependence on that path.
+    const suite1 = readFileSync(CONTROL_SURFACE.suitePaths[0] as string, "utf8");
+    expect(suite1).toContain("always(100)");
+    expect(suite1).not.toContain("gate(");
+  });
+
+  it("control's state mechanism lives in suite 2 ONLY", () => {
+    const suite1 = readFileSync(CONTROL_SURFACE.suitePaths[0] as string, "utf8");
+    const suite2 = readFileSync(CONTROL_SURFACE.suitePaths[1] as string, "utf8");
+    expect(suite1).not.toContain("observeRun");
+    expect(suite2).toContain("observeRun");
+    // A first-suite-only reimplementation runs suite 1 and reports this control
+    // STABLE in both configurations, because the mechanism lives in the suite it
+    // never runs.
+    expect(suite2).toContain("gate(3)");
   });
 });
