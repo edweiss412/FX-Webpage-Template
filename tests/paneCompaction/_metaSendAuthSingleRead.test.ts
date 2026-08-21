@@ -1235,6 +1235,19 @@ type ManifestCell = {
 const INHERITED_CORPUS_SIZE = 81;
 
 const MANIFEST: readonly ManifestCell[] = [
+  // --- diff r3: the COUNT was short on two axes, scope and spelling.
+  {
+    fixture: "shadow-scope-outside-pass-field.ts",
+    axis: "exemption state",
+    covers:
+      "diff r3 — a competing declaration OUTSIDE the pass; the count walked only the pass and failed OPEN",
+  },
+  {
+    fixture: "shadow-declaration-name-quoted.ts",
+    axis: "exemption state",
+    covers:
+      "diff r3 — a QUOTED declaration name still competes; matching by isIdentifier failed OPEN",
+  },
   // --- diff r1 repairs: the ENTRY-point class, distinct from name RESOLUTION.
   {
     fixture: "element-receiver-unknown-member.ts",
@@ -2706,13 +2719,6 @@ const NAME_POSITION_DISPOSITIONS: readonly DispositionRow[] = [
     refileWhen: "this label is used to resolve a binding",
   },
   {
-    fn: "walk",
-    ordinal: 1,
-    text: "node.text",
-    disposition: "grammar",
-    why: "narrowed to Identifier by the walk head's isIdentifier",
-  },
-  {
     fn: "importEdgeFindings",
     ordinal: 1,
     text: "statement.moduleSpecifier.text",
@@ -3271,6 +3277,48 @@ describe("diff r1 — RESOLVING a name and ENTERING on one are different jobs", 
       finding(f, "UNDECLARED-PASS", "exposed", lineOf(f, 'this.open.dispatch("p2"')),
       finding(f, "UNCLASSIFIED-USE", "typo", lineOf(f, "this.#ch.typo();")),
       finding(f, "UNCLASSIFIED-USE", "typo", lineOf(f, "this.open.typo();")),
+    ]);
+  });
+});
+
+describe("diff r3 — the COUNT is total on SCOPE and on SPELLING, or it fails open", () => {
+  it("counts a competing declaration OUTSIDE the pass", () => {
+    // The count walked only the pass, so a class field `ch` declared outside it
+    // was never counted; a derivation named `ch` inside saw ONE declaration,
+    // kept its exemption, and the RAW field read was silently exempted — a
+    // fail-open in the arm whose whole claim is that it fails closed.
+    //
+    // Counting the MODULE over-counts at worst, which REPORTS. Counting the pass
+    // under-counts, which is silence. The `local.gauge` pair is the control.
+    const f = "shadow-scope-outside-pass-field.ts";
+    const p1 = lineOf(f, "const first = this.ch.panes();");
+    const p2 = lineOf(f, "const second = this.ch.panes();");
+    const g1 = lineOf(f, 'const g1 = local.gauge("a");');
+    const g2 = lineOf(f, 'const g2 = local.gauge("b");');
+    expect(scan(f)).toEqual([
+      finding(f, "UNCLASSIFIED-USE", "ch", lineOf(f, "void ch;")),
+      finding(f, "MULTI-READ", "panes", p1, [p1, p2]),
+      finding(f, "MULTI-READ", "gauge", g1, [g1, g2]),
+      finding(f, "UNDECLARED-PASS", "settle", lineOf(f, 'this.ch.dispatch("p1"')),
+    ]);
+  });
+
+  it("counts a QUOTED declaration name", () => {
+    // `set "snap"(...)` is ordinary TypeScript and one edit from the accessor
+    // fixture. Matching declarations through `isIdentifier` did not count it, so
+    // the exemption survived and the pass fell silent.
+    //
+    // It also corrected a DISPOSITION: that site had been recorded `grammar`,
+    // meaning the field's declared type admits only `Identifier`. It does not —
+    // the code merely PREFILTERED with `isIdentifier`, which is the `narrowed`
+    // case. A `grammar` claim is validated against the compiler's declared field
+    // type, never by reading the call site.
+    const f = "shadow-declaration-name-quoted.ts";
+    const a = lineOf(f, "const a = snap.panes();");
+    const b = lineOf(f, "const b = snap.panes();");
+    expect(scan(f)).toEqual([
+      finding(f, "UNCLASSIFIED-USE", "v", lineOf(f, "void v;")),
+      finding(f, "MULTI-READ", "panes", a, [a, b]),
     ]);
   });
 });

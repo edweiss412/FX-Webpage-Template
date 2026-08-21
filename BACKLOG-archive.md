@@ -40,20 +40,37 @@ baseline built by running the BASE scanner (blob `412cadd3`) over the fixture li
 is what makes the change additive; a count of two moved does not distinguish an addition from a
 replacement.
 
-**Score: 1.0000, floor 1 met, unaccepted-survivor set EMPTY and `accepted: []` EMPTY** — all seven
-gate conditions green in 1392.65s, with the stamp pair IDENTICAL across the run (source
-`78b22540`, suite `a0d277d4`, registry `db82d1a8`, `expectedLedgerKinds` `a65d1ca6`, 112 fixtures,
-digest `61ff83da`). **No k/t denominator is quoted, because a GREEN gate prints no counts** and
-inventing one would be a recalled number wearing a measurement's clothes.
+**Score.** The measurement history, because a single figure here would describe a tree that no
+longer ships — which is exactly what diff r3 caught this entry doing:
 
-**The empty accepted ledger is the result, not an omission.** The first scored run was 0.9895 with
-three unaccepted survivors; two were DEAD CODE the gate exposed (a redundant guard whose mutant no
-case could kill because the next comparison already declined it, and an unkillable memo write) and
-were DELETED, and the third was a genuinely unexercised arm killed by a pair that flips it in
-opposite directions. Nothing was argued as equivalent, so there is no standing claim about
-unreachability for a later refactor to silently falsify. Killer audit reported separately, because a perfect score does not subsume it:
-THIS SURFACE once scored 1.0000 with an empty unaccepted-survivor set WHILE THE TARGET DEFECT CLASS
-WAS LIVE, since no declared operator could express it.
+| run | score | survivors | why it was retired |
+| --- | --- | --- | --- |
+| 1 | 0.9895, BELOW floor | 3 unaccepted | repaired: two DELETIONS, one killing pair |
+| 2 | 289/289 | none | retired by the diff-r1 repairs |
+| 3 | 292/292 | none | retired by the diff-r2 repair |
+| 4 | 295/295 | none | retired by the diff-r3 repairs |
+
+**The FINAL shipping score is taken after merge clearance, deliberately.** `registry.ts` and
+`expectedLedgerKinds.ts` are stamped inputs, so any merge ahead of this branch retires a score taken
+earlier — taking it before clearance guarantees taking it twice. The figure quoted in the PR at
+merge time is the one that describes what shipped.
+
+**`accepted: []` STAYED EMPTY THROUGH ALL FOUR RUNS, and that is the durable result** rather than
+any of the numerals. Three survivors were taken to zero without ever reaching for the ledger — two
+by DELETING dead code the gate exposed, one by a killing pair. An accepted row is a permanent
+liability, re-keyed on every line-shifting edit for the life of the file, and review rounds are made
+of line-shifting edits; a sibling arc is at fifteen re-keys on one row. This surface owes ZERO
+re-keys, forever, and carries no standing unreachability claim for a later refactor to falsify.
+
+**The provenance stamp itself was found deficient and the finding is recorded rather than quietly
+fixed.** The round-1 stamp covered four blobs — source, suite, registry, `expectedLedgerKinds` —
+and OMITTED the spec and the plan, which the deciding suite reads from disk and which are therefore
+score inputs. That is the hand-written-list defect one level out from the fixtures, on the arc
+already caught by it once. The freeze set and the stamp set are the SAME SET, and deriving one while
+hand-listing the other is doing half the work while believing it done. The stamp is now DERIVED from
+what the suite actually reads and covers seven blobs. The affected measurement was re-established by
+an INDEPENDENT ROUTE — a clean worktree against a HEAD committed before the run launched, both blobs
+verified by git — because a widened check cannot vouch for a run it did not observe.
 
 **A finding that did NOT become a row, and the reasoning is the reusable part.** A surface member
 declared as a PROPERTY rather than a method, read twice in a pass, reports `UNCLASSIFIED-USE` twice

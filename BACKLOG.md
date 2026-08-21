@@ -18,8 +18,16 @@ merely SHARES a surface binding's name is treated as the surface wherever it app
 
 **Why this is the survivable direction, and why it is still worth a row.** The failure is a FALSE
 ADVISORY — a report against code that is not the surface — which the consequence bound permits as a
-documented over-report. The forbidden direction is silence, and the unification arc closed that one.
-So this is filed rather than fenced: it is real, it is reachable, and it is not urgent.
+documented over-report. So this is filed rather than fenced: it is real, it is reachable, and it is
+not urgent.
+
+**THAT CLAIM WAS PREMATURE WHEN THIS ROW WAS FIRST FILED, and the correction is kept rather than
+overwritten.** As filed at diff r1 the row said the silent direction was already closed. It was not:
+diff r3 found TWO name-keyed shapes that were SILENT, not merely over-reporting — a competing
+declaration outside the pass, and a quoted declaration name — because the raw-binding count was
+short on SCOPE and on SPELLING. Both are closed now, by making the count total on both axes rather
+than by naming the two shapes. The row's characterisation is accurate at the time of writing and was
+not accurate when it was written, which is the distinction a reader needs.
 
 **What a repair needs.** Identifier-to-declaration resolution, which means either a
 `ts.TypeChecker` or a scope model. Both are the machinery the predecessor limits decline, so this is

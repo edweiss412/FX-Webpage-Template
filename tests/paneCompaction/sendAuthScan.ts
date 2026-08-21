@@ -1224,10 +1224,10 @@ export const DECLARING_PARENT_KINDS: ReadonlySet<ts.SyntaxKind> = new Set([
   ts.SyntaxKind.TypeParameter,
 ]);
 
-const declaresName = (id: ts.Identifier): boolean => {
-  const parent: ts.Node | undefined = id.parent;
+const declaresName = (name: ts.Node): boolean => {
+  const parent: ts.Node | undefined = name.parent;
   if (parent === undefined || !DECLARING_PARENT_KINDS.has(parent.kind)) return false;
-  return (parent as { name?: ts.Node }).name === id;
+  return (parent as { name?: ts.Node }).name === name;
 };
 
 /**
@@ -1271,20 +1271,20 @@ const competesAsSurface = (declaration: ts.Node): boolean => {
  * A bounded tree walk: a mutant to the predicate can only visit fewer nodes,
  * never fail to terminate.
  */
-const competingDeclarationCount = (passFn: ts.Node, name: string): number => {
+const competingDeclarationCount = (scope: ts.Node, name: string): number => {
   let count = 0;
   const walk = (node: ts.Node): void => {
-    if (
-      ts.isIdentifier(node) &&
-      node.text === name &&
-      declaresName(node) &&
-      competesAsSurface(node.parent)
-    ) {
+    // SPELLING: resolved through the shared `declaredNameText`, not through
+    // `isIdentifier`. A QUOTED declaration name -- `set "snap"(v: Channel)`, which
+    // is ordinary TypeScript -- was not counted, so the exemption survived and the
+    // pass fell SILENT. Under-counting here always fails OPEN, which is the
+    // direction the bound forbids.
+    if (declaredNameText(node) === name && declaresName(node) && competesAsSurface(node.parent)) {
       count += 1;
     }
     ts.forEachChild(node, walk);
   };
-  walk(passFn);
+  walk(scope);
   return count;
 };
 
@@ -1347,7 +1347,7 @@ export function scanModule(file: string, row: SendAuthSurface): Finding[] {
       (p) =>
         p.derivations.some((d) => d.name === name) &&
         lexicallyWithin(p.fn, at, sf) &&
-        !exemptionVoid(p.fn, name),
+        !exemptionVoid(sf, name),
     );
 
   const topLevel = topLevelFunctions(sf);
@@ -1359,7 +1359,13 @@ export function scanModule(file: string, row: SendAuthSurface): Finding[] {
     // are derived. Another pass's names are ordinary raw bindings here.
     // Raw HERE means: a surface binding, and not derived AT THIS USE by THIS pass.
     const rawHere = (name: string): boolean =>
-      bindings.has(name) && (exemptionVoid(fn, name) || !derivations.some((d) => d.name === name));
+      // SCOPE: the whole MODULE, not the pass. A competing declaration does not
+      // have to live inside the pass -- a class field `ch` outside it competes
+      // with a derivation named `ch` inside it, and counting only the pass saw
+      // ONE declaration, kept the exemption, and silently exempted the raw field
+      // read. Counting the module over-counts at worst, which REPORTS; counting
+      // the pass under-counts, which is silence.
+      bindings.has(name) && (exemptionVoid(sf, name) || !derivations.some((d) => d.name === name));
     findings.push(...analyzePassReads(sf, file, rawHere, reads, fn, derivations));
     findings.push(...analyzeDerivations(sf, file, fn, derivations));
     // The name-only view was NOT the right one: it subtracted a shadowing parameter

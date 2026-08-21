@@ -23,15 +23,15 @@ export type Channel = {
   clock(): number;
 };
 
-declare function use(v: unknown): void;
+declare function consume(v: unknown): void;
 
 class Holder {
   set ch(v: Channel) {
-    use(v);
+    consume(v);
   }
 
   method(ch: Channel): void {
-    use(ch);
+    consume(ch);
   }
 }
 void Holder;

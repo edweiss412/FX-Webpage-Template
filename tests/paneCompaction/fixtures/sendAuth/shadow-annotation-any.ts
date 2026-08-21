@@ -25,6 +25,9 @@ export function settle(ch: Channel): number {
   // send-auth: pass
   const authorizeOnce = (): boolean => {
     const snap: Channel = { ...ch };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the `any`
+    // annotation IS the fixture: AC-U12 is that a type which COULD hold the
+    // surface competes. Changing it to satisfy the rule would delete the case.
     const inner = (snap: any): boolean => String(snap).length > 0;
     void inner;
     const a = snap.panes();
