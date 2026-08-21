@@ -6575,6 +6575,101 @@ describe("an executing psql inside an ATTACHED redirection target", () => {
     ]);
   });
 
+  // The three tests below close the axes the handover's §5a inventory listed as
+  // crossed by NO fixture. None of them found a defect - the shipped delimiter
+  // already handles all three - so what they buy is the pin, not a repair. That
+  // is the point of the inventory: a quiet round certifies varied axes only,
+  // and an axis no fixture varies is certified by nothing.
+
+  // §5a item 3. Every acceptance fixture writes ONE redirection per command, so
+  // nothing pinned that the walk RESUMES after a delimited target WITHIN a
+  // command. W16 above closes the across-LINE version; this is the same-command
+  // one, and it is the harder half, because resuming from a span the delimiter
+  // just consumed is exactly where an off-by-one lands. Stated over both
+  // which-target-carries-it orders for W16's reason: with the payload first, an
+  // implementation that stops after the first target still passes.
+  test("the walk resumes after a delimited target WITHIN one command", () => {
+    const rows: Array<[label: string, source: string, want: number]> = [
+      ["both targets carry it", "cat >\"$(psql -c 'one')\" 2>\"$(psql -c 'two')\"\n", 2],
+      ["payload in the FIRST", 'cat >"$(psql -c \'one\')" 2>"$(true)"\n', 1],
+      ["payload in the LAST", 'cat >"$(true)" 2>"$(psql -c \'one\')"\n', 1],
+      ["payload in the MIDDLE of three", 'cat >"$(true)" 2>"$(psql -c \'x\')" <"$(true)"\n', 1],
+      ["a BARE target then a quoted one", "cat >$(psql -c 'one') 2>\"$(psql -c 'two')\"\n", 2],
+    ];
+    expect(rows.map(([label, source]) => [label, sitesIn(source, "x.sh").length])).toEqual(
+      rows.map(([label, , want]) => [label, want]),
+    );
+  });
+
+  // A COUNT can be right while the second site sits at the first one's
+  // coordinates, which is the shape an off-by-one resume actually produces.
+  // Both offsets are derived from the fixture rather than typed in.
+  test("the second target's site lands at its OWN offset, not the first's", () => {
+    const source = "cat >\"$(psql -c 'one')\" 2>\"$(psql -c 'two')\"\n";
+    expect(sitesIn(source, "x.sh").map((site) => site.offset)).toEqual([
+      source.indexOf("psql"),
+      source.lastIndexOf("psql"),
+    ]);
+  });
+
+  // §5a item 1. All fifteen acceptance fixtures end with a trailing newline, so
+  // the end-of-file family was unreachable by the whole set - the same shape
+  // that hid an input family on another arc in this repo where 114 cases all
+  // ended in "\n". The split below is the consequence bound stated at EOF: a
+  // target that CLOSES is resolved, one that does not is REPORTED, and neither
+  // is silently wrong. A delimiter that assumed a terminator exists would take
+  // the resolving rows to zero.
+  test("a target running into EOF is resolved when it closes and REPORTED when it does not", () => {
+    const rows: Array<[label: string, source: string, sites: number, advisories: number]> = [
+      ["closed, no trailing newline", "cat >\"$(psql -c 'select 1')\"", 1, 0],
+      ["closed, then a backslash as the LAST byte", "cat >\"$(psql -c 'select 1')\"\\", 1, 0],
+      ["closed, space then a backslash at EOF", "cat >\"$(psql -c 'select 1')\" \\", 1, 0],
+      ["a BARE target ending at EOF", "cat >$(psql -c 'x')", 1, 0],
+      [
+        "a continuation INSIDE the target, closed at EOF",
+        "cat >\"a\\\n$(psql -c 'select 1')\"",
+        1,
+        0,
+      ],
+      ["the double quote never closes", "cat >\"$(psql -c 'select 1')", 0, 1],
+      ["the substitution never closes", "cat >$(psql -c 'select 1'", 0, 1],
+      ["unterminated, last byte a backslash", "cat >\"$(psql -c 'select 1')\\", 0, 1],
+      [
+        "a continuation inside the target, EOF mid-target",
+        "cat >\"a\\\n$(psql -c 'select 1')",
+        0,
+        1,
+      ],
+    ];
+    expect(
+      rows.map(([label, source]) => [
+        label,
+        sitesIn(source, "x.sh").length,
+        scanShellIndirection(source, "x.sh").length,
+      ]),
+    ).toEqual(rows.map(([label, , sites, advisories]) => [label, sites, advisories]));
+  });
+
+  // §5a items 4 and 7. Every acceptance fixture is a whole small file whose
+  // construct starts at line 1 under LF. Line is a field AC-5's digest covers,
+  // so this asserts the COORDINATE and not the presence - the killer audit's
+  // one general finding is that a presence assertion does not discriminate a
+  // delimiting weakening while a coordinate assertion does.
+  test("an attached target is found mid-file and under CRLF, at its own coordinates", () => {
+    const rows: Array<[label: string, source: string, line: number]> = [
+      ["inside a function body", "f() {\n  cat >\"$(psql -c 'x')\"\n}\n", 2],
+      ["after a here-document", "cat <<EOF\nplain\nEOF\ncat >\"$(psql -c 'x')\"\n", 4],
+      ["inside a case arm", "case $x in\n  a) cat >\"$(psql -c 'x')\" ;;\nesac\n", 2],
+      ["CRLF line endings", "cat >\"$(psql -c 'select 1')\"\r\n", 1],
+    ];
+    expect(
+      rows.map(([label, source]) => {
+        const found = sitesIn(source, "x.sh");
+        return [label, found.length, found[0]?.line, found[0]?.offset];
+      }),
+    ).toEqual(rows.map(([label, source, line]) => [label, 1, line, source.indexOf("psql")]));
+  });
+
   // W5: G nests two deep, so an implementation capped at two passes A-K, the
   // operator-derived test and the sibling-body test. The assertion is on depth
   // GENERALLY rather than on one fixture.
