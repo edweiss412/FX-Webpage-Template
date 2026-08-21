@@ -42,11 +42,14 @@ import {
   classifyFile,
   classifySite,
   DEFAULT_JOIN_DEPS,
+  attachAffected,
   channelReports,
+  classCounts,
   discoveredByDestructiveGuard,
   moduleSpecifiersIn,
   propagateThroughImports,
   reconcileDispositions,
+  renderReport,
   sitesIn,
   type Report,
 } from "./_connectionCensus";
@@ -1378,5 +1381,141 @@ describe("connection census — the join with the destructive guard (AC-C8)", ()
     );
     expect(reports.map((r) => r.site)).toEqual(["tests/db/a.test.ts"]);
     expect(reports[0]!.kind).toBe("channel");
+  });
+});
+
+describe("connection census — the report shape and the remedy text (AC-C6 rendering arm)", () => {
+  const F = "tests/db/subject.test.ts";
+
+  function report(overrides: Partial<Report> & Pick<Report, "kind" | "site">): Report {
+    return { file: F, line: 12, ordinal: 1, detail: "", argIsCall: false, ...overrides };
+  }
+
+  const EMPTY_COUNTS = {
+    "guard-bound": 0,
+    "validation-env": 0,
+    "loopback-literal": 0,
+    "remote-literal": 0,
+    unclassifiable: 0,
+  };
+
+  // The remedy sentences are written out HERE, independent of the module's own table, so
+  // exactly one side of each comparison is derived (the file, line and ordinal come from
+  // the report's fields). Equality on the full line, never a substring match: a substring
+  // assertion is structurally blind to every addition.
+  const LINES: ReadonlyArray<[Report, string]> = [
+    [
+      report({ kind: "unclassifiable", site: "cfg.url" }),
+      "tests/db/subject.test.ts:12 site#1 unclassifiable — add a CONNECTION_CENSUS_DISPOSITIONS row of kind `resolver` or `unclassifiable` naming this site",
+    ],
+    [
+      report({ kind: "remote-literal", site: `"postgresql://db.example.invalid/x"`, ordinal: 2 }),
+      "tests/db/subject.test.ts:12 site#2 remote-literal — read the target from TEST_DATABASE_URL or guard it with assertLocalDbUrl",
+    ],
+    [
+      report({ kind: "shadowed-driver", site: "url", ordinal: null }),
+      "tests/db/subject.test.ts:12 shadowed-driver — rename the local declaration that reuses the driver binding's name",
+    ],
+    [
+      report({ kind: "acquisition", site: `import "postgres"`, ordinal: null }),
+      "tests/db/subject.test.ts:12 acquisition — use a static default import, or add an `acquisition` disposition row",
+    ],
+    [
+      report({ kind: "value-reference", site: "postgres", ordinal: null }),
+      "tests/db/subject.test.ts:12 value-reference — call the driver binding directly, or add an `acquisition` disposition row",
+    ],
+    [
+      report({ kind: "unresolved-import", site: "pathToFileURL(file).href", ordinal: null }),
+      "tests/db/subject.test.ts:12 unresolved-import — use a literal specifier, or add an `unclassifiable` disposition row naming this specifier",
+    ],
+    [
+      report({ kind: "loader-call", site: "./_helper", ordinal: null }),
+      "tests/db/subject.test.ts:12 loader-call — use a vitest loader the census models, or add an `unclassifiable` disposition row",
+    ],
+    [
+      report({ kind: "channel", site: F, ordinal: null }),
+      "tests/db/subject.test.ts:12 channel — this file executes destructive SQL through a channel the census does not model; add a `channel` disposition row",
+    ],
+  ];
+
+  for (const [subject, expected] of LINES) {
+    test(`the ${subject.kind} line renders exactly`, () => {
+      const rendered = renderReport([subject], EMPTY_COUNTS).split("\n");
+      expect(rendered[0]).toBe(expected);
+    });
+  }
+
+  test("affected consumers are listed UNDER the helper's one report", () => {
+    const rendered = renderReport(
+      [
+        report({
+          kind: "unclassifiable",
+          site: "galleryDatabaseUrl(dsn)",
+          affected: ["tests/e2e/one.spec.ts", "tests/e2e/two.spec.ts"],
+        }),
+      ],
+      EMPTY_COUNTS,
+    ).split("\n");
+    expect(rendered[1]).toBe("    affected: tests/e2e/one.spec.ts, tests/e2e/two.spec.ts");
+  });
+
+  test("the per-class count block prints every class, including the zeros", () => {
+    // A zero always prints beside its population: `0 of 0` cannot render as a pass.
+    const rendered = renderReport([], {
+      "guard-bound": 85,
+      "validation-env": 78,
+      "loopback-literal": 9,
+      "remote-literal": 0,
+      unclassifiable: 2,
+    });
+    expect(rendered).toBe(
+      "guard-bound 85 / validation-env 78 / loopback-literal 9 / remote-literal 0 / unclassifiable 2",
+    );
+  });
+
+  test("the count block sits AFTER the reports, one block per render", () => {
+    const rendered = renderReport([report({ kind: "unclassifiable", site: "cfg.url" })], {
+      ...EMPTY_COUNTS,
+      "validation-env": 3,
+    }).split("\n");
+    expect(rendered).toHaveLength(2);
+    expect(rendered[1]).toBe(
+      "guard-bound 0 / validation-env 3 / loopback-literal 0 / remote-literal 0 / unclassifiable 0",
+    );
+  });
+
+  test("classCounts tallies the classified sites, zeros included", () => {
+    const rec = classifyFile(
+      P,
+      [
+        IMPORT,
+        `const a = postgres(${ENV});`,
+        `const b = postgres(${LOOPBACK});`,
+        `const c = postgres(cfg.url);`,
+      ].join("\n"),
+    );
+    expect(classCounts(rec.sites)).toEqual({
+      "guard-bound": 0,
+      "validation-env": 1,
+      "loopback-literal": 1,
+      "remote-literal": 0,
+      unclassifiable: 1,
+    });
+  });
+
+  test("attachAffected puts the consumer list on the helper's own report and nowhere else", () => {
+    const helper = report({ kind: "unclassifiable", site: "galleryDatabaseUrl(dsn)" });
+    const other = report({
+      kind: "unclassifiable",
+      site: "cfg.url",
+      file: "tests/db/other.test.ts",
+    });
+    const attached = attachAffected([helper, other], new Map([[F, ["tests/e2e/one.spec.ts"]]]));
+    expect(attached[0]!.affected).toEqual(["tests/e2e/one.spec.ts"]);
+    expect(attached[1]!.affected).toBeUndefined();
+  });
+
+  test("an empty report list still renders its count block", () => {
+    expect(renderReport([], EMPTY_COUNTS).split("\n")).toHaveLength(1);
   });
 });

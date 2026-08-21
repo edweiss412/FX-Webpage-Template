@@ -106,6 +106,8 @@ export type Report = {
   site: string;
   detail: string;
   argIsCall: boolean;
+  /** Consumers that reach this file through the helper graph. One report, at the helper. */
+  affected?: string[];
 };
 
 export type FileRecord = {
@@ -1378,4 +1380,73 @@ export function channelReports(
         "channel the census models; add a `channel` disposition row naming it",
       argIsCall: false,
     }));
+}
+export type ClassCounts = Record<SiteClass, number>;
+
+/** Every class, always, so a zero prints beside its population and `0 of 0` cannot read as a pass. */
+export function classCounts(sites: readonly ClassifiedSite[]): ClassCounts {
+  const counts: ClassCounts = {
+    "guard-bound": 0,
+    "validation-env": 0,
+    "loopback-literal": 0,
+    "remote-literal": 0,
+    unclassifiable: 0,
+  };
+  for (const site of sites) counts[site.cls] += 1;
+  return counts;
+}
+
+/**
+ * The consumers a helper's undisposed site affects, attached to the helper's OWN report.
+ * The obligation is one row where the site lives; listing the consumers is information,
+ * not a second obligation.
+ */
+export function attachAffected(
+  reports: readonly Report[],
+  affected: ReadonlyMap<string, string[]>,
+): Report[] {
+  return reports.map((report) => {
+    const consumers = affected.get(report.file);
+    return consumers === undefined ? report : { ...report, affected: consumers };
+  });
+}
+
+/** The one-line remedy per report kind: the message says which case, and what to do next. */
+export const REMEDIES: Record<ReportKind, string> = {
+  unclassifiable:
+    "add a CONNECTION_CENSUS_DISPOSITIONS row of kind `resolver` or `unclassifiable` naming this site",
+  "remote-literal": "read the target from TEST_DATABASE_URL or guard it with assertLocalDbUrl",
+  "shadowed-driver": "rename the local declaration that reuses the driver binding's name",
+  acquisition: "use a static default import, or add an `acquisition` disposition row",
+  "value-reference": "call the driver binding directly, or add an `acquisition` disposition row",
+  "unresolved-import":
+    "use a literal specifier, or add an `unclassifiable` disposition row naming this specifier",
+  "loader-call":
+    "use a vitest loader the census models, or add an `unclassifiable` disposition row",
+  channel:
+    "this file executes destructive SQL through a channel the census does not model; add a `channel` disposition row",
+};
+
+/**
+ * One line per report, then the per-class count block. Every field comes from the report
+ * itself, so a report the census invents cannot render without saying where it is.
+ */
+export function renderReport(reports: readonly Report[], counts: ClassCounts): string {
+  const lines: string[] = [];
+  for (const report of reports) {
+    const ordinal = report.ordinal === null ? "" : `site#${report.ordinal} `;
+    lines.push(`${report.file}:${report.line} ${ordinal}${report.kind} — ${REMEDIES[report.kind]}`);
+    if (report.affected !== undefined && report.affected.length > 0) {
+      lines.push(`    affected: ${report.affected.join(", ")}`);
+    }
+  }
+  const order: SiteClass[] = [
+    "guard-bound",
+    "validation-env",
+    "loopback-literal",
+    "remote-literal",
+    "unclassifiable",
+  ];
+  lines.push(order.map((cls) => `${cls} ${counts[cls]}`).join(" / "));
+  return lines.join("\n");
 }
