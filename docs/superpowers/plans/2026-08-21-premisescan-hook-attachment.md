@@ -155,6 +155,7 @@ predicted:
 | `cell-check.mts` | **exit 1**, `7 of 16` — the nine reporting cells emit no reason yet | **exit 0**, `16 of 16` | anything other than 7 on the branch means the cell set moved without the table moving |
 | `limits-check.mts` | **exit 1**, L1, L2 and L5 FALSE — those three describe post-change behaviour | **exit 0**, all 8 HOLD | a FOURTH row FALSE on the branch means a limit that should hold today does not |
 | `record-diff.mts` | **exit 2** — baseline and live are the same bytes, so it REFUSES to report | **exit 0**, 0 records moved | exit 1 with the change means the change is not verdict-neutral, which contradicts §3.4 |
+| `derive-inputs.mts` | **exit 0**, 18 paths — it reads the registry and the filesystem, not the producers | **exit 0**, 18 paths | exit 2 means the walk is broken; a COUNT below 18 means an input stopped being reachable and the stamp has silently narrowed |
 
 Three of the four are red-then-green by construction, and that is the point: a green
 `cell-check` or `limits-check` on this branch would mean the instrument had stopped discriminating,
@@ -185,7 +186,7 @@ was, rather than reasoned about:
 | --- | --- | --- |
 | `record-diff` gates on movement | 0 records moved, exit 0 | a constructed unconditional reason moves 5221 records, **exit 1**. The FIRST perturbation moved zero and was refused rather than accepted — an ineffective patch renders identically to a real null |
 | Task 4b enforces gate status and stamp equality | healthy path **exit 0** | failing gate → **exit 7** (the gate's own status, not swallowed); differing stamps → **exit 1** |
-| Task 4b's input set is a derived closure | derives **12**, matching an independent walk | a 3-input set trips the floor → **exit 2**, "the closure walk is broken" |
+| Task 4b's input set is a derived closure | derives **18** — the transitive walk plus four declared harness seeds | a 3-input set trips the floor → **exit 2**; ten missing inputs → **exit 2** rather than the empty-stream digest |
 | the twin premise runs per cell | a correct one-variable twin satisfies it | an unrelated hook-free twin is **REJECTED** — the premise discriminates rather than merely executing |
 
 The `probe-*` scripts are deliberately NOT in this table: they are measurement instruments whose job
