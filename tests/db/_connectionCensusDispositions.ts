@@ -68,4 +68,11 @@ export const CONNECTION_CENSUS_DISPOSITIONS: readonly DispositionRow[] = [
     reason:
       "non-literal dynamic import of a Vite plugin's build output by computed file URL; the output is a fixture bundle and opens no connection",
   },
+  {
+    file: "tests/parser/_metaKnownSectionsWalker.test.ts",
+    site: "path",
+    kind: "unclassifiable",
+    reason:
+      "non-literal dynamic import of a parser module by a computed path under lib/parser; opens no connection",
+  },
 ];
