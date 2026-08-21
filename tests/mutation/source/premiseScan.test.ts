@@ -4246,6 +4246,56 @@ describe("an undecidable registrar key is REPORTED, never dropped (diff r1 F2)",
     });
   });
 
+  it("a LONE undecidable registration still produces a record (diff r3 F1)", () => {
+    // THE POSITIVE CONTROL WAS MASKING THE CASE IT CONTROLLED FOR. Every case
+    // above puts an ordinary sibling beside the undecidable spelling, for a
+    // good reason -- an absence is satisfied by a scanner that classified
+    // nothing. But file-level reasons are carried by DEMOTING the records the
+    // walk produced, so the sibling was supplying the very record being
+    // demoted, and a file holding ONLY the undecidable spelling returned `[]`:
+    // no record, no reason, indistinguishable from a file with no tests.
+    //
+    // A control that supplies the mechanism under test is not a control. This
+    // case removes it.
+    const all = classificationsWithModules({}, `const k = "skip";\ntest[k]("computed", () => {});`);
+    expect(all).toHaveLength(1);
+    expect(all[0]?.verdict).toBe("unclassifiable");
+    expect(all[0]?.detail).toContain(undecidableRegistrarKeyReason("test", 2));
+  });
+
+  it("a file with no registrations at all is still empty (the twin)", () => {
+    // Without this, the case above passes under a scanner that emits a
+    // placeholder record for every file it reads.
+    expect(classificationsWithModules({}, `export const x = 1;`)).toHaveLength(0);
+  });
+
+  describe("...and through any SUFFIX after the undecidable key (diff r3 F2)", () => {
+    // The reporter inspected only calls whose IMMEDIATE callee is an element
+    // access. In `describe[k].only(...)` the outer callee is a property access
+    // and the element access is never itself a call's callee, so nothing saw
+    // it. The reviewer swept the shape and this is the whole of it; the repair
+    // asks `calleeChain`, which covers all of them without naming one, so these
+    // are the sweep recorded rather than the rule.
+    const SUFFIXES = {
+      "dot modifier": "test[k].only",
+      "bracket modifier": `test[k]["only"]`,
+      "conditional call": "test[k].runIf(c)",
+      "curried call": "test[k].each(rows)",
+      "second undecidable key": "test[k][j]",
+      "key after an earlier modifier": "test.only[k].skip",
+    } as const;
+
+    for (const [label, spelling] of Object.entries(SUFFIXES))
+      it(`${label}: reported, not silent`, () => {
+        const c = classificationWithModules(
+          {},
+          `const k = "skip";\nconst j = "only";\nconst c = true;\nconst rows = [1];\n${spelling}("x", () => {});\nit("sibling", () => {});`,
+        );
+        expect(c?.verdict).toBe("unclassifiable");
+        expect(c?.detail).toContain(undecidableRegistrarKeyReason("test", 5));
+      });
+  });
+
   it("a NON-registrar receiver is silent, which is why the corpus survives it", () => {
     // The scope was measured before it was chosen: 77 live-corpus suites hold
     // exactly ONE element-access callee, `TEMPLATES[position]` in this file,

@@ -366,13 +366,33 @@ type ChainLink = {
   modifier: string | null;
 };
 
-type CalleeChain = { root: string | null; links: ChainLink[] };
+/**
+ * `undecidable` is the chain's REASON for a null root, and it exists because
+ * `root: null` conflated the same two situations `calleeName`'s old two-state
+ * return did, one level up: "this is not a registration" and "this may well be
+ * one and the source does not say which". The scanner has now been bitten by
+ * that exact conflation at three different heights (diff r2 F1, diff r3 F1 and
+ * F2), which is the argument for making the reason travel WITH the answer
+ * rather than being re-derived by each caller.
+ *
+ * `root` stays null when it is set: an undecidable chain must not be
+ * classified. It carries the registrar the chain would have rooted at, which
+ * is what makes the report nameable and what keeps `TEMPLATES[position]`
+ * silent.
+ */
+type CalleeChain = {
+  root: string | null;
+  links: ChainLink[];
+  undecidable: { registrar: string } | null;
+};
 
 function calleeChain(callee: ts.Expression): CalleeChain {
   const links: ChainLink[] = [];
   /** Member names peeled off the chain, validated against the ROOT's side once
    *  the root is known - the peel itself cannot know which side applies. */
   const peeled: string[] = [];
+  /** Did any member on the way down have a key this scanner cannot read? */
+  let undecidableSeen = false;
   let node: ts.Expression = callee;
   // Peel the wrappers that do not change which name an expression denotes, at
   // EVERY step - not only at the root. `(test).skipIf(c)` and `test.skipIf(c)`
@@ -399,10 +419,23 @@ function calleeChain(callee: ts.Expression): CalleeChain {
     }
     if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
       const m = calleeName(node, true);
+      // AN UNDECIDABLE MEMBER DOES NOT STOP THE WALK, it marks it. Stopping was
+      // the round-3 defect: `describe[k].only(…)` peels `.only` and then meets
+      // an undecidable member, and returning here lost both the fact that this
+      // is a registration and the registrar it belongs to -- so the reporter,
+      // which only ever inspected an IMMEDIATE element-access callee, never saw
+      // it either. Descending to learn the root costs one more hop and answers
+      // both questions at once.
+      if (m.kind === "unrecognized") {
+        undecidableSeen = true;
+        node = node.expression;
+        continue;
+      }
       // An UNDECIDABLE member stops the walk with NO root, which is the
       // conservative end: an unrooted chain registers nothing rather than
       // registering something under a guessed name.
-      if (m.kind !== "named" || !MODIFIERS.has(m.name)) return { root: null, links };
+      if (m.kind !== "named" || !MODIFIERS.has(m.name))
+        return { root: null, links, undecidable: null };
       peeled.push(m.name);
       node = ts.isPropertyAccessExpression(node) ? node.expression : node.expression;
       continue;
@@ -412,15 +445,21 @@ function calleeChain(callee: ts.Expression): CalleeChain {
   node = skipTransparent(node);
   const rooted = calleeName(node, false);
   const root = rooted.kind === "named" && REGISTRARS.has(rooted.name) ? rooted.name : null;
+  // Resolved LAST, because the registrar is only known here. A chain with an
+  // undecidable member roots at nothing -- classifying it is the false
+  // certification the bound forbids -- but it is REPORTABLE precisely when the
+  // root is a registrar, which is what keeps a non-registrar receiver silent.
+  if (undecidableSeen)
+    return { root: null, links, undecidable: root === null ? null : { registrar: root } };
   if (root !== null) {
     // A modifier the ROOT's side does not declare makes this no registration at
     // all. `test.shuffle(…)` and `suite.fails(…)` parse and peel cleanly against
     // the union, and Vitest has neither; accepting them invented registrations
     // the file does not contain.
     const allowed = SUITE_REGISTRARS.has(root) ? SUITE_MODIFIERS : TEST_MODIFIERS;
-    if (peeled.some((m) => !allowed.has(m))) return { root: null, links };
+    if (peeled.some((m) => !allowed.has(m))) return { root: null, links, undecidable: null };
   }
-  return { root, links };
+  return { root, links, undecidable: null };
 }
 
 /** `it`, `test.each`, `describe.skip.each` … → the root identifier, else null. */
@@ -2116,6 +2155,31 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
       topLevelHooks.push(call.arguments[0]);
   }
   walk(facts.sf, topLevelHooks);
+  // A FILE WHOSE ONLY REGISTRATION IS UNFOLLOWABLE MUST NOT RETURN NOTHING.
+  //
+  // File-level reasons are carried by DEMOTING the classifications the walk
+  // produced, which is exactly right when there are some and silent when there
+  // are none: `test[k]("computed", () => {})` alone in a file returned `[]`,
+  // and a census cannot distinguish that from a file with no tests (diff r3
+  // F1). Worse, the regression test for the reporter put an ordinary sibling
+  // beside the undecidable spelling to serve as a positive control, and the
+  // control MASKED the case it was controlling for -- the sibling supplied the
+  // record the reasons then demoted.
+  //
+  // One record, not one per reason: the reasons all name their own line, so the
+  // detail carries every registration while the census carries the fact that
+  // this file holds something unclassifiable. Emitted only when the walk found
+  // nothing, so no existing file's record set moves.
+  if (out.length === 0 && fileReports.length > 0) {
+    out.push({
+      testName: "<unclassifiable registration>",
+      line: 1,
+      verdict: "unclassifiable",
+      detail: fileReports.join("; "),
+      hasPremise: false,
+      exemption: null,
+    });
+  }
   return out;
 }
 
@@ -2586,32 +2650,18 @@ function undecidableRegistrarReports(facts: ModuleFacts): string[] {
   const sf = facts.sf;
   const walk = (n: ts.Node): void => {
     if (ts.isCallExpression(n)) {
-      const callee = skipTransparent(n.expression);
-      if (ts.isElementAccessExpression(callee)) {
-        const key = calleeName(callee, true);
-        if (key.kind === "unrecognized") {
-          // THE RECEIVER IS RESOLVED BY CHAIN, NOT BY ITS OWN NAME.
-          //
-          // Reading the immediate receiver's name asked the wrong question and
-          // answered it correctly: for `test.only[k]` the name is `only`, and
-          // for `test.each(rows)[k]` the receiver is a CALL and has no name at
-          // all, so neither was reported (diff round 2, F1). Every undecidable
-          // key behind ANY modifier vanished silently -- and `it.each` and
-          // `describe.runIf` are ordinary live spellings, so that is one edit
-          // from the corpus rather than a corner.
-          //
-          // The right question is the one the rest of this file already asks
-          // and already has machinery for: does this chain ROOT at a registrar.
-          // `calleeChain` peels modifier members and modifier CALLS alike and
-          // validates them against the root's side, so it answers for
-          // `test.only`, `test.each(rows)` and `describe.runIf(true)` with no
-          // new spellings enumerated anywhere.
-          const recv = calleeChain(skipTransparent(callee.expression));
-          if (recv.root !== null) {
-            const line = sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
-            out.push(undecidableRegistrarKeyReason(recv.root, line));
-          }
-        }
+      // THE CHAIN ANSWERS, NOT THE IMMEDIATE CALLEE. Inspecting only a callee
+      // that IS an element access missed every suffix: in `describe[k].only(…)`
+      // the outer callee is a property access and the element access is never
+      // itself a call's callee, so nothing here ever visited it. The reviewer
+      // swept the shape and it was the whole of it -- dot and bracket suffixes,
+      // conditional and curried calls, a second key, a key after an earlier
+      // modifier (diff r3 F2). Asking the chain covers all of them without
+      // naming one.
+      const chain = calleeChain(skipTransparent(n.expression));
+      if (chain.undecidable !== null) {
+        const line = sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
+        out.push(undecidableRegistrarKeyReason(chain.undecidable.registrar, line));
       }
     }
     ts.forEachChild(n, walk);
