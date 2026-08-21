@@ -129,13 +129,20 @@ the v1 exit            717 -> 721
 the none drop          721 -> 725
 ```
 
-**What actually landed, re-derived at HEAD by `pnpm probe:citations` after implementation:**
+**What actually landed, measured at the implementation commit `e4de29d3d` and TRUE THERE. This
+block is a snapshot, not a claim about the current tree.** Every number below was re-derived by
+`pnpm probe:citations` at that commit. It says `e4de29d3d` rather than "HEAD" because a table
+whose entire content is line numbers cannot be symbol-named away, so the only repair that does
+not rot is to bind it to a tree that never changes. Diff round 5 caught it claiming HEAD after
+the scope-A comment repair had moved one of its rows; the row is now annotated in place rather
+than re-pointed, because re-pointing resets the clock and this is the third instance of that
+class on this arc.
 
 ```
 ProbeDerivation        605 -> 613
 CollectionProbeEntry   610 -> 621
 deriveCollectionProbe  637 -> 648
-the v1 exit            717 -> 742
+the v1 exit            717 -> 742     (748 at and after `63ba77f3d`, the scope-A comment repair)
 the none drop          721 -> DELETED
 VITEST_SHAPE           580 -> 580   (the only survivor, as predicted)
 ```

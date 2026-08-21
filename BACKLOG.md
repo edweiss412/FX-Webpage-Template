@@ -1727,3 +1727,24 @@ The failing line was the sentence announcing that a stale citation had been REMO
 **Shape of the repair.** The plan and spec self-lint belongs in whatever pre-dispatch step already runs the arc's oracles, so a `fail`-severity finding in either document blocks a review dispatch the way an unreadable citation does. Cheapest form: one line in the arc's verification block, next to the existing oracle invocations. It is deliberately NOT a new mechanism, and deliberately not a widening of `spec:lint` itself.
 
 **First scheduled step:** decide the home — the invariant-8 style closeout checklist, or the codex-guard brief preflight, which already refuses a dispatch on a missing `GUARD SURFACE:` arm and is the closest existing gate in kind.
+
+## BL-SPECLINT-DOC-BARE-LINE-NUMBERS-UNCOVERED — a document's raw line numbers rot where the citation oracle cannot look
+
+**Status:** OPEN · **Filed:** 2026-08-21 (`feat/speclint-red-reason-verification`, from that arc's diff rounds 2 and 5) · **Facing:** process · **Severity:** LOW (prose rots; nothing ships wrong) · **Class:** spec-lint gate · **Effort:** S
+
+**Incident:** THREE diff rounds on one arc, on one vector. `probe:citations` derives its population as `path:line` citations into a named file and is complete over it. A bare `line 742`, or a fenced movement table whose entire content is line numbers, carries no path, so the oracle cannot see it and reports OK while the document states something false. Round 2 found a bare prose instance, round 5 found a fenced-table instance claiming HEAD. Corpus rows: `docs/review-rounds/feat/speclint-red-reason-verification/c9c71b947a85.jsonl`, `diff` rounds 2 and 5. The limit was DECLARED in that plan's §3 and in the PR body before either round found an instance, so this is a known blind spot producing repeat findings, not a surprise.
+
+**Probe.** A derived cover over both documents, rather than the regex sweeps that missed instances two rounds running:
+
+```
+redContract.ts has 965 lines; scanning both docs for integers in [500,965]
+32 candidate(s)
+```
+
+Each candidate resolves to the line it names, so a human can separate a live claim from a historical one. Run after the round-5 repair, all 32 classify as correct: derived §0 table rows, explicitly historical narrative, quoted past values, or the two snapshot blocks now bound to a named commit.
+
+**Why not teach the oracle.** Parsing prose for line references is recognizer growth on a doc scanner, which this repo has measured as the losing move, and the arc's own review rounds are the measurement. The narrowing repair is a PROHIBITION rather than a recognizer: a raw line number for a tracked file may appear only inside the derived table, or inside a block explicitly bound to a named commit. That is a scan for integers in a numeric range plus a location test, and it needs no grammar.
+
+**Three repair shapes were used on this arc and only two are durable.** Symbol-naming retires the site (best, but impossible for a table whose content IS line numbers). Binding the block to a named commit makes it permanently true (used at round 5). Re-pointing the number resets the clock and is the losing move; it was declined every time.
+
+**First scheduled step:** decide whether the prohibition lives in `probe/citations.mts` as a second assertion or in the pre-dispatch gate alongside `BL-SPECLINT-SELFLINT-NOT-IN-PREDISPATCH-GATE`, which shares an owner and a trigger point.
