@@ -6294,8 +6294,11 @@ const ATTACHED_CONTROLS: Array<[label: string, source: string]> = [
 /**
  * The acceptance set. `holds` is the POST-CHANGE expectation, stated per case.
  *
- * A-F are the ledger row's own family. G, H and I arrived at spec round 1 and
- * are what separate the specified implementation from the accidental one - a
+ * A-F are the ledger row's own family. G, H and I arrived at spec round 1 as
+ * the three cases said to separate the specified implementation from the
+ * accidental one; the killer audit refuted two of the three, since `"[^"]*"`
+ * matches G's target whole and H's escaped backtick never reaches that path.
+ * Case I's ATTRIBUTION predicate is what actually separates them - a
  * naive re-lex of the old regex's match passes A-F by coincidence, because the
  * fragment it stops on re-lexes to an unterminated backtick whose body happens
  * to contain the command word. J and K arrived at round 4: every case A-I keeps
@@ -6703,9 +6706,13 @@ describe("an executing psql inside an ATTACHED redirection target", () => {
   });
 
   // W5: G nests two deep, so an implementation capped at two passes A-K, the
-  // operator-derived test and the sibling-body test. The assertion is on depth
-  // GENERALLY rather than on one fixture.
-  test("recursion into an attached target is unbounded, not capped at case G's depth", () => {
+  // operator-derived test and the sibling-body test. This asserts three concrete
+  // depths rather than depth generally, so it kills a cap at TWO or THREE and a
+  // cap at FOUR would survive it. Stated as the limit it is: diff round 2 found
+  // both the plan and this name claiming "unbounded", which the fixture list
+  // cannot support, and no W5 variant was ever observed failing (§2b-bis records
+  // it as could-not-be-built).
+  test("recursion into an attached target is not capped at case G's depth, over depths 2 to 4", () => {
     const rows: Array<[depth: number, source: string]> = [
       [2, "cat >\"${OUT:-$(psql -c 'select 1')}\"\n"],
       [3, "cat >\"${OUT:-${OTHER:-$(psql -c 'select 1')}}\"\n"],

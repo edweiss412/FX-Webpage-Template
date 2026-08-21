@@ -142,7 +142,7 @@ by exhaustion.
 | W2 | delimit by construct, but do NOT retain the target | the substitution family is the visible half of the ledger row | **F** — an attached here-string has no nested body at all |
 | W3 | retain the target, but do NOT collect nested bodies | retention alone makes the here-string case pass | **A–E** — every substitution spelling stays silent |
 | W4 | fire the unlexable report on ANY attached target | "never silently discarded", read maximally | **AC-5's digest** — the corpus's 53 ordinary targets become advisories |
-| W5 | recurse only ONE level into the attached slice | depth 1 covers B, C and D, which look like the whole family | **the depth-general recursion case** — G is depth 2 and an implementation capped there passes it; §2b-bis records W5 as could-not-be-built, so the shipped killer is the unbounded-depth assertion, not G |
+| W5 | recurse only ONE level into the attached slice | depth 1 covers B, C and D, which look like the whole family | **the depth 2/3/4 recursion case** — G is depth 2 and an implementation capped there passes it. §2b-bis records W5 as could-not-be-built, so no variant was ever observed failing; and the shipped case asserts three concrete depths rather than depth generally, so a cap at FOUR would still survive it. Recorded as the limit it is. |
 | W6 | honour the escape pair at top level only | escapes read as a lexer-entry concern | **the escaped-double-quote case** — §2b-bis found H does NOT reach this path and no shipped check caught W6 at all; the case that kills it was measured and added on this arc |
 | W7 | treat the report as a `PsqlSite` rather than an `IndirectionHit` | a site is the more familiar result type | **the zero-PsqlSite assertion on an unlexable target** — §2b-bis records W7 as could-not-be-built (it needs a site factory) and the live corpus has no applicable row, so the digest is NOT the discriminator |
 | W8 | delimit within ONE physical line, ending the region at any newline | a redirection and its target look like a same-line construct, and every case A–I is one | **the body COORDINATE cases** — §2b-bis measured J's presence assertion SURVIVING this weakening; only the line-and-offset assertions kill it |
@@ -244,7 +244,7 @@ coordinate cases. W6 survives everything, and its separator is a case where the 
 outright. This plan's killer column named a presence case in each of those three rows.
 
 **What the audit changed, and it is the reason to run one.** W1's killer set as this plan first
-stated it — G, H and I — is WRONG in three of four parts, and no amount of re-reading would have
+stated it — G, H and I — is WRONG in two of its three parts, and no amount of re-reading would have
 shown it. See the corrected row above. W16's proof is the other useful one: the variant is caught
 by the payload-in-the-LAST-target row and NOT by the payload-in-the-first row, which is exactly
 why the case is stated in both orders.
@@ -418,9 +418,12 @@ mutant it kills.
    construction.
 7. **Four more axes, all found by review at plan rounds 1 and 2, all the same shape.** Each names
    an implementation that passes every case stated above:
-   - **H asserts ATTRIBUTION, not presence.** A walker that marks a backtick inside an attached
-     double-quoted target as `backtick:false` makes H report while attributing it wrongly, and the
-     separate bare-backtick path still carries I. H therefore takes the same non-empty UNIVERSAL
+   - **H needs an ATTRIBUTION assertion, which is why it carries one BESIDE its presence row.**
+     A walker that marks a backtick inside an attached double-quoted target as `backtick:false`
+     makes H report while attributing it wrongly, and the separate bare-backtick path still
+     carries I. H's SUBJECT row keeps the ordinary presence expectation and a separate assertion
+     covers attribution - two assertions on one subject, which is what the suite ships. H does
+     NOT take the UNIVERSAL
      `nestedInBacktick === true` predicate as I, not a presence check.
    - **COORDINATE ASSERTIONS FOLLOW A DERIVED RULE, because fixture-at-a-time did not converge.**
      Rounds 1 through 4 each killed one positional heuristic and left the next alive: anchor to the
@@ -443,7 +446,9 @@ mutant it kills.
      on the only fixture that could tell them apart. J therefore carries TWO continuations and
      asserts the psql on the physical THIRD line AND at the psql's own byte offset. A displacement
      that is right by construction is not an assertion.
-   - **Recursion is UNBOUNDED, not capped at case G's depth.** G nests two deep, so an
+   - **Recursion is not capped at case G's depth**, asserted over depths 2, 3 and 4 rather than
+     over depth generally — a cap at four survives it, and that is a stated limit rather than a
+     claim of unboundedness. G nests two deep, so an
      implementation capped at two passes A-K, the operator-derived test and the sibling-body test.
      `cat >"${OUT:-${OTHER:-$(psql -c 'select 1')}}"` is one edit from G and bash executes it; the
      assertion is on depth generally rather than on that one fixture.
