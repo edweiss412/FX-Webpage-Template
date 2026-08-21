@@ -4198,7 +4198,11 @@ describe("a decidable non-string key is NAMELESS, not undecidable (diff r1 F3)",
   // attached to every sibling test in the enclosing suite, reporting them
   // touching with no named cause: wrong attribution wearing conservatism's
   // clothes.
-  const KEYS = ["0", "1", "-1", "true", "false", "null", "0n"];
+  // BOTH unary operators the predicate names. `-1` alone left the `+` arm
+  // untested and the mutation gate said so: flipping its comparison survived
+  // every test in this file. A list that covers one of a pair covers neither,
+  // because the uncovered half is exactly where the next edit is free.
+  const KEYS = ["0", "1", "-1", "+1", "true", "false", "null", "0n", "-0n"];
   for (const key of KEYS)
     it(`\`handlers[${key}]\` invents no hook`, () => {
       const all = classificationsWithModules(
@@ -4212,6 +4216,28 @@ describe("a decidable non-string key is NAMELESS, not undecidable (diff r1 F3)",
       );
       expect(all.find((t) => t.testName === "sibling")?.verdict).toBe("environment-free");
     });
+
+  it("an unlisted unary is NOT decided, and stays maybe (the other direction)", () => {
+    // `~0` is a constant too, and this scanner deliberately does not evaluate
+    // it: the predicate reads literal FORMS, not values. So it lands in
+    // `unrecognized` and the sibling is reported touching -- a conservative
+    // over-report with a named cause, which the bound permits.
+    //
+    // Asserted because the mutation gate showed the boundary is load-bearing in
+    // the OPPOSITE direction from the case above: with the `+` arm's comparison
+    // flipped, every non-`+` unary is accepted as decidable, and `~0` would go
+    // silently free. One mutant, two ways to catch it, and neither existed.
+    const all = classificationsWithModules(
+      OUTER_HOOK_HELPER,
+      `import { spawnHelper } from "__MODULE_helper__";
+       const handlers: Record<string, (f: () => void) => void> = {};
+       describe("S", () => {
+         handlers[~0](() => { spawnHelper(); });
+         it("sibling", () => {});
+       });`,
+    );
+    expect(all.find((t) => t.testName === "sibling")?.verdict).toBe("environment-touching");
+  });
 
   it("a genuinely undecidable key STILL carries as maybe (the twin)", () => {
     // The direction check. Without this, the cases above pass under a scanner
