@@ -35,29 +35,42 @@ Each row was settled by a prior ratification. Verify the citation; do not re-der
 | **No feature flag.** The fence is removed whole, not converted into a toggle — a boolean gate with one write path and no product read path is the zombie-flag shape. | this section |
 | **Restored tests are restored, not rewritten.** The pre-fence send-path suite is the baseline (§8.1). | ledger row, "restore them with the arc rather than rewriting them" |
 
-### 1.2 The decision: one atomic snapshot per authorization
+### 1.2 The decision: one read-once pass per authorization
 
-**Each sending-mode invocation performs exactly one read pass over its world, derives every
-authorization predicate from that one snapshot, and then sends.** Concretely:
+The ledger row asks whether "one atomic snapshot per authorization" is sufficient. The honest
+first half of the answer: **a literally atomic snapshot is unobtainable over this surface.**
+The world is multi-source — the roster from herdr, the marker and purview from disk, checks
+from the network — and no transaction spans them. Any design claiming a single-instant
+capture would be claiming more than the mechanism can deliver, which is the exact defect
+shape the 2026-08-16 design spent rounds removing from its own §6/§7. What IS obtainable,
+and what this spec commits to:
 
-- One roster read, one marker read, one purview read, one nonce-record read, one git/gh read
-  per worktree — captured through a read-once surface so a second read of any member within
-  the pass is unrepresentable, and enforced structurally by the shipped send-auth scanner
-  (§3.5).
-- Classification (the twelve rules), ownership, the rule 1–8 observation stop, the
-  mode's verdict gate, and — for `--compact` — the nonce equality are all **derived from the
-  same snapshot**. There is no "earlier capture" for any input to be stale relative to,
-  because there is only one capture.
+**Each sending-mode invocation performs exactly one read-once pass over its world, derives
+every authorization predicate from that pass, and then sends.** Concretely:
+
+- Every read member is read AT MOST ONCE per invocation, through a read-once surface, and
+  enforced structurally by the shipped send-auth scanner (§3.5). Same-member re-reads — the
+  shape of chains 1 and 4 — are unrepresentable.
+- **No decision input predates the pass.** Classification (the twelve rules), ownership, the
+  rule 1–8 observation stop, the mode's verdict gate, and — for `--compact` — the nonce
+  equality all derive from this invocation's pass. Nothing is carried from an earlier
+  observation, an earlier command, or an earlier invocation — the shape of chains 2, 3
+  and 5.
 - The decision is followed by the send, with nothing read in between.
 
-Why this closes the class rather than narrowing the window again: the six defects were all
-**read-skew** — two or more reads of one world taken at different instants, composed into one
-decision (§2.2). Under a single pass the skew is not small; it is **unrepresentable**. What
-remains is the decision→send window (§7 limit 1), and that window was already priced by the
-shipped design: the only bytes ever sent are a checkpoint prompt, `/compact`, and a resume
-prompt, each of which queues if the target is busy and interrupts nothing, so a send that
-races a state change is benign (2026-08-16 design §5.5). The model therefore pairs a
-zero-read-skew decision with sends whose worst stale case is a wasted prompt.
+What this closes, exactly: the six defects (§2.2) were all **inter-pass skew** — a decision
+composed from an earlier capture plus a later read, or from a pass that was never refreshed
+at all. With one pass per invocation and no carried inputs, that class has no second pass to
+skew against. What it does NOT close, said plainly rather than discovered by a reviewer: the
+pass itself takes time, so two DIFFERENT members are still read at two instants, and a world
+change landing between the pass's first read and the send is not observed by that invocation
+(**intra-pass skew — §7 limit 1**). No reachable mechanism closes that residual — an
+acknowledgment read moves it (§1.3), and the shipped two-pass code has the identical residual
+inside its own revalidation pass. What prices it is the benign-sends property, already
+ratified: the only bytes ever sent are a checkpoint prompt, `/compact`, and a resume prompt,
+each of which queues if the target is busy and interrupts nothing, so a send that races a
+state change is a wasted prompt or a measured near no-op, never damage (2026-08-16 design
+§5.5; per-send worst cases enumerated in §7 limit 1).
 
 The shipped-but-fenced code already contains the fourth repair's partial form of this — the
 `authorize()` closure in `scripts/pane-compaction.ts` memoizes the marker and derives the
@@ -73,29 +86,50 @@ comparisons necessary instead of completing them again.
 
 ### 1.3 The losing model: target-acknowledge-before-send
 
-Stated so it cannot be relitigated. "The target must acknowledge before any byte is sent"
-fails structurally, four ways:
+Stated with both of its forms, so neither can be relitigated.
 
-1. **It cannot cover the first byte.** The checkpoint prompt is the first contact with the
-   target. There is no channel on which a target can acknowledge a byte that has not been
-   sent, so a fully general ack-before-send is incoherent at the exact boundary it claims to
-   protect. Restricted to later bytes, it degenerates into "ack before `/compact`" — which is
-   the shipped nonce, already present in the snapshot model (§1.4).
-2. **The acknowledgment is itself a read.** The only return channel from a target is its
+**The solicited form** — this invocation asks, then waits for the target's acknowledgment,
+then sends — fails structurally, three ways:
+
+1. **The acknowledgment is itself a read.** The only return channel from a target is its
    marker file. Reading an ack after the authorization decision is a second read at a second
-   instant — the exact shape of chain 4 (§2.2), reintroduced by design. An ack-based flow has
-   MORE reads at MORE instants than the code it would replace.
-3. **It cannot close the window either.** Between reading the ack and emitting the send, the
-   world can still change. The model moves the window and adds reads; it does not remove it.
-4. **It requires waiting on a busy party.** A compaction target is by selection near context
+   instant — the exact shape of chain 4 (§2.2), reintroduced by design. A solicited-ack flow
+   has MORE reads at MORE instants than the code it would replace.
+2. **It cannot close the window either.** Between reading the ack and emitting the send, the
+   world can still change. The model moves the residual (§7 limit 1) and adds reads; it does
+   not remove it.
+3. **It requires waiting on a busy party.** A compaction target is by selection near context
    exhaustion and mid-turn; input to it queues and executes at turn end (probe P1/P7). A
    command that waits for an ack is a stateful driver holding a multi-hour sequence — the
    decomposition into three one-shot commands closed exactly that defect family (round-3
    F5–F8) and is a do-not-relitigate row.
 
-Because the losing model is structurally incoherent rather than merely inferior, this is not
-the "both models genuinely defensible" escalation case the arc brief reserved; the decision is
-made here and argued above.
+**The pre-issued form** — the target writes a standing grant (a marker field naming the
+orchestrator and command class) in advance, and the invocation requires it before the first
+byte — is COHERENT, and an earlier draft of this section overclaimed by calling
+ack-before-first-byte structurally impossible; that claim is withdrawn. But the coherent form
+is not a rival authorization model: the grant is read **as one more field of the same
+read-once pass**, so it collapses into the decided model as a candidate ADDITIONAL predicate.
+As an additional predicate it is DECLINED, with reasons, and fenced:
+
+- **Consent already has a structure.** The purview registry is written at dispatch time by
+  the orchestrator that launched the pane, and rule 5 refuses a pane whose live session does
+  not match its marker. A target-side grant would be a second consent channel guarding the
+  same relationship.
+- **A standing grant is a stale claim with no retirement trigger.** Nothing retires it when
+  the arc's situation changes — the exact expiry-with-no-notice class this repo's lessons
+  corpus documents for markers, uniqueness comments and pending notes. The nonce avoids this
+  only by being single-use; a reusable grant cannot.
+- **Adoption is a fleet tax with a forced bad default.** Every arc's Stage 0 would have to
+  write the grant. Until universal, an absent grant either refuses (the fleet is undrivable)
+  or passes (the field is a zombie that gates nothing).
+
+The residual it would buy — refusing an orchestrator that legitimately owns the pane but
+whose target never opted in — is not a defect the six chains contain, and files to §11.
+
+The decided model therefore stands on §1.2's argument; the "both models genuinely defensible"
+escalation the arc brief reserved does not arise, because the coherent form of the
+alternative IS the decided model plus one declined predicate, not an alternative.
 
 ### 1.4 What the nonce is, under the decided model
 
@@ -103,8 +137,9 @@ The nonce is **target acknowledgment for the one send that needs one** — proof
 orchestrator's checkpoint prompt was executed by the target before this orchestrator sends
 `/compact` — and it is **verified from within the snapshot**: the marker copy that classified
 the pane is the copy whose `checkpointNonce` is compared. The snapshot model and the nonce are
-orthogonal, not rivals: the snapshot answers "is the decision built from one instant"; the
-nonce answers "did the checkpoint actually land before the compact". Single-use,
+orthogonal, not rivals: the pass answers whether the decision is built from this
+invocation's own reads with nothing carried in; the nonce answers whether the checkpoint
+actually landed before the compact. Single-use,
 consumed-before-send, re-minted on collision — all unchanged from the shipped design.
 
 ---
@@ -188,8 +223,10 @@ member** — the set is DERIVED as the complement of the enrolled row's declared
 and ambient members (`tests/paneCompaction/sendAuthScan.ts` `SEND_AUTH_SURFACES`, the same
 complement the scanner itself consumes), never a hand-list — so each read member answers from
 its first read for the remainder of the pass. The shipped `authorize()` memoizes `marker` alone;
-the snapshot generalizes that to the whole read surface, so "read twice at two instants"
-stops being expressible for any input, not just the one chain 4 named.
+the pass generalizes that to the whole read surface, so "the SAME member read twice at two
+instants" stops being expressible for any member, not just the one chain 4 named. The pass is
+not an instant (§1.2): two DIFFERENT members are still read at two instants, which is §7
+limit 1, not a property this section claims away.
 
 From the snapshot, in order, each refusing by name (§6 guarantee 3):
 
@@ -232,20 +269,22 @@ Deletion is the point: a comparison that exists can be incomplete (r2), and a se
 that exists can skew (r4). A comparison that does not exist cannot be the next round's
 finding.
 
-### 3.3 Delivery evidence
+### 3.3 Delivery evidence is operator procedure, not tool behavior
 
-After every live send, the command prints a short verbatim tail of the target pane (the
-existing `screen(paneId)` surface member, read once, after the send). The echo runs OUTSIDE
-the authorization pass — it feeds no decision and touches no sink, so it is a reporting step,
-not a send-auth read. It is clearly delimited and
-**never parsed**: the tool does not classify delivery, because pane text is a display string
-and the shipped posture is that display strings are never parsed for meaning (2026-08-16
-design §4.3). The operator reads the echo — which is exactly the manual discipline the field
-notes measured (a send that returns ok is not a send; read the pane back), wired into the
-instrument so it cannot be forgotten.
+The tool performs **no post-send reads and prints no echo**. An earlier draft had the command
+read the pane back after each live send; that contradicted the read-once contract (`screen`
+is a read member the classifier already consumes for the gauge — `observe()` in
+`scripts/pane-compaction.ts` — so a post-send read is a second `screen` read per invocation)
+and it would have been the first step toward classifying display strings, which the shipped
+posture forbids (2026-08-16 design §4.3). Deleted rather than special-cased.
 
-Exit codes are unchanged by the echo: 0 still means "authorized and sent". A send herdr
-refuses is already a named fault (exit 2, `SendFailed`), unchanged.
+What the field notes measured — a send that returns ok is not a send; read the pane back —
+is real and is accounted for as OPERATOR PROCEDURE in the write-up (§10): after each
+command, the orchestrator reads the target pane (`herdr pane read`) before sequencing the
+next step, exactly as the shipped protocol already makes the between-commands report re-run
+the wait and the operator's judgement the verification. Exit 0 means "authorized and sent",
+a claim about the transport; delivery is the operator's read. A send herdr refuses is
+already a named fault (exit 2, `SendFailed`), unchanged.
 
 ### 3.4 Fence removal
 
@@ -278,14 +317,26 @@ fence and retires with it.
 
 Each chain becomes a red that fails against the shipped (unfenced-for-test) code or against a
 deliberately weakened build, and goes green under §3. None of the six is unrepresentable
-under the snapshot model; chain 4's red converts from behavioral to structural, which is the
+under the pass model; chain 4's red converts from behavioral to structural, which is the
 model working as evidence, not a gap.
+
+**Every historical behavioral kill is PRESERVED, not replaced by structure.** The restored
+suite's cases assert that the state read by THIS invocation's pass decides: a purview
+transfer, a marker-session change, a takeover, or a `blockedOn` flip that has landed by the
+time the pass reads it refuses, having sent nothing. The fixtures mutate the world before
+the invocation (or between invocations), which is the inter-pass class the chains name — the
+adapter cases the fence deleted (purview transfer; checkpoint/resume marker changes;
+marker-session change; roster takeover) and the stale-nonce case in
+`tests/paneCompaction/revalidate.test.ts` all retain their kills under §8.1's adaptation.
+The intra-pass variant — the same mutation landing between two DIFFERENT member reads of the
+single pass — is not one of the six chains, exists identically inside the shipped code's
+revalidation pass, and files to §7 limit 1, where its per-send worst case is priced.
 
 | # | Chain | Red (restored or adapted case) | What kills it under §3 |
 | --- | --- | --- | --- |
 | 1 | Nonce captured before revalidation | Restored AC-19 set: absent nonce refuses; mismatched nonce refuses; consumed record refuses a second `--compact`; dry-run does not consume | Nonce equality derived from the snapshot marker; store read/consume inside the pass |
 | 2 | Verdict-only comparison let a purview transfer through | Restored "purview transfer … refuses, having sent nothing" (AC-13) | Ownership derived from the snapshot's purview read; not a comparison against an earlier pass |
-| 3 | Revalidation against the ORIGINAL roster | Restored takeover case (AC-17): `agent_session` swap between invocations refuses via rule 5 | The pass's roster read is its only roster; a swap is visible because nothing older exists |
+| 3 | Revalidation against the ORIGINAL roster | Restored takeover case (AC-17): `agent_session` swap between invocations refuses via rule 5 | The pass's roster read is its only roster; no earlier pass exists for the swap to hide behind |
 | 4 | Marker read twice; mutation between reads preserved the nonce | **Structural**: spy asserts `marker` is read exactly once on an invocation that reaches the decision (and never more than once on any path) — red against shipped `drive()` (entry read + `authorize()` read), green after | Read-once memo; sendAuthScan MULTI-READ arm |
 | 5 | `--checkpoint`/`--resume` observed once, then sent, never revalidated | Restored round-5 case: a rule 1–8 condition present at invocation time refuses each mode by RULE name; plus the `blockedOn`-flip shape asserted per mode | Every mode derives its stop from the fresh snapshot of THIS invocation |
 | 6 | A labelled non-arc was driven; checkpoint sent to an orchestrator pane | Restored AC-16 pair: label resolving to no worktree branch is NOT-AN-ARC and never driven | Classification and authorization share one snapshot; rule 1 fires before any send |
@@ -300,7 +351,7 @@ byte-exact dry-run (AC-6), and the refused-send-is-a-named-fault case.
 
 ```
 scripts/pane-compaction.ts                       # fence removed; drive() rebuilt on one
-                                                 #   snapshot; post-send echo; pass marker
+                                                 #   read-once pass; pass marker
 scripts/lib/pane-compaction-core.ts              # authorization predicate (pure, enrolled);
                                                  #   runCompact loses its revalidate thunk
 tests/paneCompaction/adapter.test.ts             # pre-fence suite RESTORED from
@@ -328,11 +379,13 @@ impeccable-gate: N/A — no UI surface
 ## 6. Convergence criterion
 
 **Consequence bound.** Every invocation of a sending mode is authorized correctly or
-signaled, never silently wrong: it either sends under an authorization derived entirely from
-one snapshot, or refuses naming the condition that fired. It never sends on a decision
-assembled from more than one read instant, and it never emits a refusal citing a condition
-other than the one that fired. A conservative refusal plus a surfaced reason is a documented
-limit, not a finding.
+signaled, never silently wrong: it either sends under an authorization whose every input
+comes from that invocation's own single read-once pass — no member read more than once, no
+input carried from any earlier pass, command, or invocation — or refuses naming the
+condition that fired, and it never emits a refusal citing a condition other than the one
+that fired. The interval from the pass's first read to the send is the declared residual
+(§7 limit 1), priced by the benign-sends property, not forbidden by this bound. A
+conservative refusal plus a surfaced reason is a documented limit, not a finding.
 
 **Probe domain.** The live `herdr agent list` roster on this machine; the fixture corpus and
 constructed `Surface` doubles under `tests/paneCompaction/`; and the six probe chains of §2.2.
@@ -351,9 +404,11 @@ of the diff under review.
 
 **Closed criterion.** The six §4 reds red-then-green, the restored suite green, the no-ESC
 pins green, and the mutation score above — all machine-checked. A finding claiming the
-authorization can skew needs a probe from the domain showing two read instants feeding one
-decision or a send after a refusal; enumeration of further hypothetical pane states is not
-admissible against the bound.
+authorization can skew needs a probe from the domain showing a decision input read more than
+once, an input carried from outside the invocation's own pass, or a send after a refusal. A
+probe showing a world change landing between two DIFFERENT member reads of the single pass
+demonstrates §7 limit 1 — the declared residual — and files there without a round, unless it
+also shows the resulting send breaching limit 1's per-send worst case.
 
 ---
 
@@ -362,27 +417,37 @@ admissible against the bound.
 Tiers as in the 2026-08-16 design: **[demote]** conservative + surfaced; **[bounded]**
 bounded, not surfaced at the moment it occurs; **[residual]** accepted gap.
 
-1. **[residual] The decision→send window.** A state change between the snapshot and the bytes
-   landing is not observed by that invocation. Bounded by the benign-sends property: the only
-   bytes are a queueing prompt, `/compact`, and a queueing resume prompt; none interrupts; a
-   second `/compact` on an already-compacted session is a measured near no-op. This is the
-   residue the model accepts instead of the read-skew class it eliminates; closing it would
-   require an acknowledgment channel §1.3 rejects.
+1. **[residual] The pass-to-send window.** The pass is not an instant: its members are read
+   sequentially, so a world change landing anywhere between the pass's FIRST read and the
+   bytes landing — including between two different member reads — is not observed by that
+   invocation, and a send can proceed that a later pass would have refused. No reachable
+   mechanism closes this: an acknowledgment read moves the window (§1.3), and the shipped
+   two-pass code carries the identical window inside its own revalidation pass. What prices
+   it is the per-send worst case, each benign by prior measurement and design: a
+   **checkpoint prompt** to a pane that changed underneath is queued text asking a session
+   to update its own marker — the target's own contract governs, nothing executes; a
+   **`/compact`** to a pane that changed is at worst a compaction the operator no longer
+   wanted, the same outcome auto-compaction produces on its own schedule, and a near no-op
+   on an already-compacted session; a **resume prompt** tells a session to re-read its own
+   marker and resume — a superseded or foreign session's own supersession check governs.
+   None interrupts anything (no `\x1b`, pinned).
 2. **[bounded] A `/compact` queued behind other pending input can merge into prose** and not
    execute as a command (field note, §2.3). Consequence: no compaction; the nonce is already
-   consumed, so the operator re-checkpoints. The post-send echo surfaces the pane state; the
-   tool does not parse it (limit 4). The orchestrator-side mitigation — send into an empty
-   queue, verified by the pane read — is operator procedure in the write-up, not tool logic.
+   consumed, so the operator re-checkpoints. Surfaced by the operator's post-send pane read
+   (§3.3, §10) — the orchestrator-side mitigation (send into an empty queue, verify by
+   reading the pane) is operator procedure in the write-up, not tool logic.
 3. **[demote] A freshly launched pane can drop its first send** while the TUI is not accepting
    input. Compaction targets are established panes and resume targets just-compacted idle
-   panes, so the launch window is not on this tool's ordinary path; where it occurs, the echo
-   shows an unmoved pane and the command is re-run.
-4. **[residual] The delivery echo is verbatim and unparsed.** The tool asserts nothing about
-   what the echo shows; classifying delivery would be a recognizer over display strings,
-   which the shipped posture forbids. The operator's read is the verification.
+   panes, so the launch window is not on this tool's ordinary path; where it occurs, the
+   operator's pane read shows an unmoved pane and the command is re-run.
+4. **[residual] The tool asserts nothing about delivery.** `{"type":"ok"}` from herdr
+   describes the transport; exit 0 means authorized-and-sent, never delivered. Classifying
+   delivery would be a recognizer over display strings, which the shipped posture forbids;
+   the operator's pane read is the verification (§3.3).
 5. **[demote] A usage-walled target cannot compact** — compaction is itself an API call, so a
    pane idle at a quota wall accepts the text and cannot act on it. Not detectable from
-   outside; the echo shows the staged text; operator procedure is to compact after the reset.
+   outside; the operator's pane read shows the staged text; procedure is to compact after
+   the reset.
 6. **Inherited unchanged** from the 2026-08-16 design §7: purview collision detection is a
    report, not a lock (two orchestrators can both send `/compact`, benign); rule 5's yield
    depends on herdr populating `agent_session`; `gh`'s no-PR signature is matched on stderr
@@ -424,26 +489,29 @@ the fence.
 
 ## 9. Acceptance criteria
 
-- **AC-1** With the fence removed, each sending mode authorizes from exactly one snapshot:
-  a spy on every `Surface` read member records at most one call per member per sending
-  invocation. (Chain 4's structural red.)
-- **AC-2** `--compact`'s nonce comparison uses the snapshot marker's `checkpointNonce`; a
-  marker mutated after the snapshot is not re-read (spy) and cannot alter the decision.
+- **AC-1** With the fence removed, each sending mode authorizes from one read-once pass: a
+  spy on every `Surface` read member records at most one call per member per sending
+  invocation, and no decision input is carried from outside the invocation. (Chain 4's
+  structural red.)
+- **AC-2** `--compact`'s nonce comparison uses the pass's marker copy (`checkpointNonce`); a
+  marker mutated after the pass's marker read is not re-read (spy) and cannot alter the
+  decision.
 - **AC-3** Each of the six §4 reds is demonstrated red (against shipped or weakened code)
   then green, with failure output recorded in the plan's task bodies.
 - **AC-4** Every refusal names the condition that fired; the roster-disappearance case names
   disappearance, never a nonce reason. (Restored lying-refusal pin.)
 - **AC-5** `--resume` refuses on any rule 1–8 observation and does not require
   `COMPACT`/`FORCE`; `--checkpoint`/`--compact` additionally require `COMPACT`/`FORCE` —
-  all derived from the invocation's own snapshot.
+  all derived from the invocation's own pass.
 - **AC-6** `--dry-run` on each mode runs the identical gate, prints that command's bytes
   byte-exactly, sends nothing, writes nothing, consumes nothing.
 - **AC-7** No `\x1b` byte on the dry-run path or the live send path (spy), across every
   command.
 - **AC-8** The nonce stays single-use: consume precedes send; an immediate re-run of
   `--compact` refuses; the refusal tells the operator to re-checkpoint.
-- **AC-9** After every live send the command prints a delimited verbatim pane tail via one
-  `screen` read; the tool performs no parsing of it; exit codes are unchanged by the echo.
+- **AC-9** The tool performs no post-send reads: a spy across every live-send case records
+  zero `Surface` read-member calls after the sink fires; the write-up documents the
+  operator's post-send pane read as procedure (§3.3, §10).
 - **AC-10** The fence block is gone; no flag replaces it; `--checkpoint`, `--compact`,
   `--resume` and their `--dry-run` forms execute their §3 flows.
 - **AC-11** sendAuthScan's live-tree scan passes with the pass marker on the authorization
@@ -462,8 +530,10 @@ the fence.
 ## 10. Documentation deliverable
 
 `docs/agents/orchestrator-pane-compaction.md` loses its fence banner and gains one paragraph
-on the delivery echo and the queued-`/compact` limit (§7 limits 2–4) — operator procedure
-lives there, not in AGENTS.md. AGENTS.md's "Compacting another session's pane" bullet updates
+of operator procedure: after each live command, read the target pane back before sequencing
+the next step (ok describes the transport, never delivery), send `/compact` into an empty
+queue, and the queued-merge / dropped-first-send / usage-wall limits (§7 limits 2–5) —
+operator procedure lives there, not in AGENTS.md. AGENTS.md's "Compacting another session's pane" bullet updates
 its first sentence to the shipped-enabled state and keeps its four load-bearing rules
 (nothing interrupts; nonce proves the checkpoint; `--resume` has its own predicate; `--as`
 explicit) — all still true under this spec. The 2026-08-16 design's §7 "[SHIPPED DISABLED]"
@@ -484,3 +554,6 @@ drafting.
 - `PreCompact`/`SessionStart` hooks, auto-compaction thresholds, compacting the orchestrator
   itself, judging checkpoint content (2026-08-16 design §11 — all inherited).
 - Delivery classification, retry loops, or send-until-confirmed behavior (§1.3, §3.3).
+- A target-side pre-issued authorization grant — coherent, collapses into the pass as one
+  more field, and declined with reasons in §1.3; adding it later is a spec revision, not an
+  implementation patch.
