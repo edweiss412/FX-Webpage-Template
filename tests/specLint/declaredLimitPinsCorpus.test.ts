@@ -216,6 +216,7 @@ describe("declared-limit pins — §2.6 corpus regression (AC-6)", () => {
         "docs/superpowers/plans/2026-08-16-execution-methods-driver-derived.md | tests/mutation/source/premiseScan.test.ts | `t.premise(…)` is not seen either, and that stays a documented limit",
         "docs/superpowers/plans/2026-08-16-premisescan-import-edge-fidelity.md | tests/mutation/source/premiseScan.test.ts | `t.premise(…)` is not seen either, and that stays a documented limit",
         "docs/superpowers/plans/2026-08-19-premisescan-nested-hook-sibling-leak.md | tests/mutation/source/premiseScan.test.ts | `t.premise(…)` is not seen either, and that stays a documented limit",
+        "docs/superpowers/plans/2026-08-21-premisescan-hook-attachment.md | tests/mutation/source/premiseScan.test.ts | `t.premise(…)` is not seen either, and that stays a documented limit",
         "docs/superpowers/plans/2026-08-21-premisescan-registrar-accept-sets.md | tests/mutation/source/premiseScan.test.ts | `t.premise(…)` is not seen either, and that stays a documented limit",
         "docs/superpowers/plans/ci/2026-08-16-modal-wait-boundary-helper-adoption.md | tests/mutation/source/premiseScan.test.ts | `t.premise(…)` is not seen either, and that stays a documented limit",
         "docs/superpowers/plans/ci/2026-08-17-modal-wait-skeleton-tolerant-sites.md | tests/mutation/source/premiseScan.test.ts | `t.premise(…)` is not seen either, and that stays a documented limit",
@@ -230,6 +231,6 @@ describe("declared-limit pins — §2.6 corpus regression (AC-6)", () => {
     premise("corpus advisories to group by plan", corpusAdvisories().length, 0);
     // A companion to the set, not a substitute for it: this is derived FROM the set
     // above rather than typed as an independent cardinality.
-    expect(new Set(corpusAdvisories().map((row) => row.split(" | ")[0])).size).toBe(11);
+    expect(new Set(corpusAdvisories().map((row) => row.split(" | ")[0])).size).toBe(12);
   });
 });
