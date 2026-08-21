@@ -28,6 +28,11 @@ export function settle(ch: Channel): number {
   const authorizeOnce = (): boolean => {
     const snap: Channel = { ...ch };
     class Holder {
+      // The QUOTED name is the fixture. Prettier UNQUOTES it to `set snap`,
+      // which would silently convert this into a duplicate of
+      // `shadow-scope-set-accessor.ts` and retire the only coverage of the
+      // spelling axis — the formatter deleting the construct under test.
+      // prettier-ignore
       set "snap"(v: Channel) {
         void v;
       }

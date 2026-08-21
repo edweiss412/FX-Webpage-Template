@@ -1247,6 +1247,7 @@ const MANIFEST: readonly ManifestCell[] = [
     axis: "exemption state",
     covers:
       "diff r3 — a QUOTED declaration name still competes; matching by isIdentifier failed OPEN",
+    syntaxSensitive: ['set "snap"(v: Channel) {'],
   },
   // --- diff r1 repairs: the ENTRY-point class, distinct from name RESOLUTION.
   {
