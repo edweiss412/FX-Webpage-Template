@@ -609,61 +609,33 @@ export function main(argv: string[], s: Surface): number {
   }
 
   // An unreadable roster is a DEGRADED report, not a stack trace and not an
-  // empty one. Letting the read throw would end the process on whatever `herdr`
-  // printed; returning an empty roster silently would be worse still, since a
-  // report of no panes and a report of no ANSWER look identical to a reader and
-  // `--check` would say 0, meaning "nothing needs you". The envelope carries a
-  // `degraded` channel for exactly this, and untrusted is exit 2.
-  let roster: RosterPane[];
-  try {
-    roster = s.roster();
-  } catch (e) {
-    const detail = e instanceof Error ? e.message : String(e);
-    const reason = `herdr roster unreadable: ${detail}`;
-    if (opts.json) s.out(JSON.stringify(reportEnvelope([], [reason]), null, 2));
-    else s.out(`refusing: ${reason}`);
-    return 2;
-  }
-
-  // The disjunction rather than `SENDING.has`, because it NARROWS: `drive`
-  // takes a `SendMode`, and a Set membership test tells the compiler nothing.
+  // SENDING MODES LEAVE HERE, BEFORE ANY READ.
+  //
+  // This return is the round-1 repair and its POSITION is the whole content of
+  // it. `main` used to read the roster and resolve the target on the RAW
+  // surface and hand both to `drive()`, which only then opened the pass -- so
+  // the roster feeding rules 1, 2, 5 and 7 PREDATED the pass, which spec §1.2
+  // forbids outright. A takeover landing during `resolveTarget()` was therefore
+  // invisible: the stale roster still carried the old `agent_session`, rule 5
+  // compared it against the marker naming that same old session, matched, and
+  // `/compact` went to the pane the successor now held. Probed, exit 0, two
+  // bytes sent, `rosterReads: 1`.
+  //
+  // It is NOT the §7 limit-1 residual, which is scoped from the pass's FIRST
+  // read to the send. This was earlier than that, and the structural cover
+  // could not see it: set equality and at-most-one-call are both satisfied by a
+  // read taken at the wrong TIME.
+  //
+  // The disjunction rather than `SENDING.has`, because it NARROWS: the pass
+  // function takes a `SendMode`, and a Set membership test tells the compiler
+  // nothing.
   if (opts.mode !== "report" && opts.mode !== "check") {
-    const target = opts.target;
-    if (target === null) {
-      // ABSENT is not UNRESOLVABLE, and neither is a missing `--as`. Routing
-      // this through either of those causes would print a message naming the
-      // wrong condition — the absent-versus-mismatched conflation the repo has
-      // been bitten by before — so the adapter states its own, and the core's
-      // catalog keeps covering only the causes the core can observe.
-      s.out("refusing: name a single target; none was given");
-      return 1;
-    }
-    const resolved = s.resolveTarget(target);
-    if ("fault" in resolved) {
-      // A broken herdr is not a typo. Reporting it as "not found" would send an
-      // operator to check their spelling while the tool is what is wrong.
-      s.out(`refusing: could not resolve target ${target}: ${resolved.fault}`);
-      return 2;
-    }
-    if ("notFound" in resolved) {
-      s.out(refuse({ kind: "unresolvable-target", target }).message);
-      return 1;
-    }
-    const pane = roster.find((r) => r.paneId === resolved.paneId);
-    if (pane === undefined) {
-      // herdr knows the target but it is absent from the roster we classified —
-      // a race with a closing pane. Not drivable, and said as its own condition.
-      s.out(
-        `refusing: target ${target} resolved to ${resolved.paneId}, which is not on the roster`,
-      );
-      return 1;
-    }
     // A refused send is a FAULT (exit 2), not a refusal (exit 1): the command
     // was authorized and the tool underneath failed, which is a different thing
     // for an operator to do something about. Caught here so it cannot escape
     // `main` as an unhandled throw, which is what the round-1 probe observed.
     try {
-      return drive(opts, opts.mode, pane, roster, s);
+      return driveSend(opts, opts.mode, s);
     } catch (e) {
       if (e instanceof NonceMintExhausted) {
         // A TOOL fault (2), never a refusal (1). Nothing is wrong with the
@@ -689,6 +661,22 @@ export function main(argv: string[], s: Surface): number {
     }
   }
 
+  // The REPORT path's roster read. An unreadable roster is a DEGRADED report,
+  // not a stack trace and not an empty one: a report of no panes and a report
+  // of no ANSWER look identical to a reader, and `--check` would say 0, meaning
+  // "nothing needs you". The envelope carries a `degraded` channel for exactly
+  // this, and untrusted is exit 2.
+  let roster: RosterPane[];
+  try {
+    roster = s.roster();
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    const reason = `herdr roster unreadable: ${detail}`;
+    if (opts.json) s.out(JSON.stringify(reportEnvelope([], [reason]), null, 2));
+    else s.out(`refusing: ${reason}`);
+    return 2;
+  }
+
   const cache = cacheOf(s);
   const panes = roster.map((p) => observe(p, roster, opts.as, s, cache));
   if (opts.json) {
@@ -711,13 +699,7 @@ export function main(argv: string[], s: Surface): number {
  * nothing is read between the decision and the send.
  */
 // send-auth: pass
-function drive(
-  opts: Parsed,
-  mode: SendMode,
-  pane: RosterPane,
-  roster: RosterPane[],
-  s: Surface,
-): number {
+function driveSend(opts: Parsed, mode: SendMode, s: Surface): number {
   // NOT `opts.as ?? ""`. Every sending mode is refused with `missing-as` before
   // drive() is reachable (the guard above, on mode), so the null branch is dead
   // — and defaulting it to empty would be the wrong death: an empty `as` yields
@@ -725,10 +707,66 @@ function drive(
   // than failing. Narrow on the established guarantee, so a future edit that
   // breaks it fails here instead of quietly driving an unowned pane.
   const as = opts.as!;
-  // THE PASS. Established as the first act of the authorization, before any
-  // read it will decide on, so every value below is this invocation's own.
-  // `s` is not touched again after this line.
+  // THE PASS, established as the FIRST ACT and before every read it decides on.
+  // `s` is not touched again after this line -- roster and target resolution
+  // included, which is what round 1 found missing.
   const pass = readOnce(s, NON_READ_MEMBERS);
+
+  // TARGET RESOLUTION FIRST, ROSTER SECOND, and the order is load-bearing.
+  //
+  // Resolution picks WHICH pane; it feeds no rule. The roster feeds rules 1, 2,
+  // 5 and 7 -- `agent_session` above all -- so it is read as LATE as the
+  // decision allows, which puts the freshest possible value under rule 5. The
+  // reverse order let a takeover landing during `resolveTarget()` sit
+  // unobserved behind an already-captured roster.
+  //
+  // This NARROWS the window; it does not close it, and nothing can. A takeover
+  // landing after the roster read is still unobserved by this invocation --
+  // that is spec §7 limit 1, the declared intra-pass residual, priced there per
+  // decay class rather than claimed away. For `/compact` specifically the
+  // priced worst case is a compaction the operator no longer wanted, which is
+  // what auto-compaction does on its own schedule anyway.
+  const target = opts.target;
+  if (target === null) {
+    // ABSENT is not UNRESOLVABLE, and neither is a missing `--as`. Routing this
+    // through either of those causes would print a message naming the wrong
+    // condition -- the absent-versus-mismatched conflation the repo has been
+    // bitten by before -- so the adapter states its own, and the core's catalog
+    // keeps covering only the causes the core can observe.
+    s.out("refusing: name a single target; none was given");
+    return 1;
+  }
+  const resolved = pass.resolveTarget(target);
+  if ("fault" in resolved) {
+    // A broken herdr is not a typo. Reporting it as "not found" would send an
+    // operator to check their spelling while the tool is what is wrong.
+    s.out(`refusing: could not resolve target ${target}: ${resolved.fault}`);
+    return 2;
+  }
+  if ("notFound" in resolved) {
+    s.out(refuse({ kind: "unresolvable-target", target }).message);
+    return 1;
+  }
+  // An unreadable roster is a FAULT here rather than a degraded report: a
+  // sending mode has no envelope to carry a `degraded` channel, and driving on
+  // a roster we could not read is the one thing this arc exists to prevent.
+  let roster: RosterPane[];
+  try {
+    roster = pass.roster();
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    s.out(`refusing: herdr roster unreadable: ${detail}`);
+    return 2;
+  }
+
+  const pane = roster.find((r) => r.paneId === resolved.paneId);
+  if (pane === undefined) {
+    // herdr knows the target but the pass's roster does not carry it -- a race
+    // with a closing pane. Not drivable, and said as its own condition.
+    s.out(`refusing: target ${target} resolved to ${resolved.paneId}, which is not on the roster`);
+    return 1;
+  }
+
   const cache = cacheOf(pass);
   const report = observe(pane, roster, as, pass, cache);
 

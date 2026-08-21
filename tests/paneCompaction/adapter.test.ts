@@ -76,6 +76,53 @@ function fullMarker(over: Record<string, unknown> = {}): Record<string, unknown>
   };
 }
 
+/** The seven fields §4.3 requires of a marker that EXISTS. */
+const MARKER_REQUIRED_FIELDS = [
+  "branch",
+  "stage",
+  "tasksRemaining",
+  "next",
+  "blockedOn",
+  "cronJobId",
+  "sessionId",
+] as const;
+
+/**
+ * Cases that DELIBERATELY hand over an incomplete marker, by title suffix.
+ *
+ * Diff round 1 found three cases whose partial fixture refused at RULE 4 -- an
+ * accept-set rejection -- long before reaching the nonce, the rule-7 stop, or
+ * the live send each of them named. They passed while asserting nothing about
+ * their own subject, and the no-ESC loop's premise counted refusal LINES as
+ * sufficient, so all three modes "passed" having sent nothing at all.
+ *
+ * A LIST of those three would have been the wrong repair: my own static sweep
+ * for the shape missed a fourth, because its fixture was a named const the
+ * regex did not match. This is the derived cover instead -- it runs on every
+ * marker any case hands the adapter, whatever syntax produced it -- and it
+ * caught SIX, two of which are genuinely deliberate and are named here.
+ */
+const INCOMPLETE_MARKER_IS_THE_POINT: readonly string[] = [
+  // Its subject IS the missing field.
+  "a marker that EXISTS but omits a required field is untrusted, not actionable",
+  // Hands over the frozen MALFORMED_MARKER sentinel; corruption is the subject.
+  "AC-4: a marker that is present but corrupt is UNDETERMINED, and is not driven",
+];
+
+function assertMarkerComplete(marker: Record<string, unknown> | null, caseName: string): void {
+  if (marker === null) return; // an ABSENT marker is a supported observation (AC-20)
+  // By SUFFIX: `currentTestName` carries the describe path ahead of the title.
+  if (INCOMPLETE_MARKER_IS_THE_POINT.some((t) => caseName.endsWith(t))) return;
+  const missing = MARKER_REQUIRED_FIELDS.filter((f) => !(f in marker));
+  if (missing.length === 0) return;
+  throw new Error(
+    `fixture defect in "${caseName}": the marker omits ${missing.join(", ")}, so this case ` +
+      `refuses at RULE 4 (accept-set) before reaching what its title names. Build it with ` +
+      `fullMarker(), or add the title to INCOMPLETE_MARKER_IS_THE_POINT if the incompleteness ` +
+      `IS the subject.`,
+  );
+}
+
 function fakeSurface(over: Partial<Surface> = {}): { surface: Surface; run: Run } {
   const run: Run = { code: 0, lines: [], raw: [], sent: [] };
   // In memory, so no case can reach ~/.claude/pane-nonces on the real machine.
@@ -158,6 +205,15 @@ function fakeSurface(over: Partial<Surface> = {}): { surface: Surface; run: Run 
     out: (line) => run.lines.push(line),
     outRaw: (bytes) => run.raw.push(bytes),
     ...over,
+  };
+  // The guard sits on the SURFACE, so it sees whatever any case actually hands
+  // the adapter -- an inline literal, a named const, or a closure -- rather
+  // than whatever a static scan of this file can recognise.
+  const declared = surface.marker;
+  surface.marker = (cwd: string): Record<string, unknown> | null => {
+    const marker = declared(cwd);
+    assertMarkerComplete(marker, expect.getState().currentTestName ?? "(unknown case)");
+    return marker;
   };
   return { surface, run };
 }
@@ -391,14 +447,12 @@ describe("--dry-run shows the refusal it would hit, and spends nothing", () => {
   it("--compact --dry-run refuses on an absent nonce instead of printing /compact", () => {
     // AC-19. A dry run that prints the command when the real one would exit 1
     // tells an operator it is ready to go, which is worse than no dry run.
+    // COMPLETE marker (diff r1 F1): the partial literal here omitted
+    // tasksRemaining, next and cronJobId, so this refused at RULE 4 and never
+    // reached the nonce its title is about. The nonce is absent because
+    // `nonceRead` defaults to null -- which is the condition under test.
     const run = drive(["--compact", "wM:p1", "--as", "sess-1", "--dry-run"], {
-      marker: () => ({
-        branch: "feat/alpha",
-        stage: "x",
-        sessionId: "sess-target",
-        blockedOn: "",
-        checkpointNonce: "n1",
-      }),
+      marker: () => fullMarker({ checkpointNonce: "n1" }),
     });
     expect(run.code).toBe(1);
     expect(run.lines.join("\n")).not.toContain("/compact");
@@ -745,8 +799,12 @@ describe("the three commands", () => {
   it("a marker whose known key holds the wrong TYPE is not driven", () => {
     // Diff round 2, finding 1 (P0), end to end.
     const sent: Array<{ target: string; text: string }> = [];
+    // COMPLETE apart from the bad TYPE (diff r1 F1, one instance past the three
+    // the reviewer named): `{ sessionId: 123 }` alone omits six required
+    // fields, and the required-presence check runs FIRST, so this refused for
+    // MISSINGNESS while claiming to be about the type.
     const { surface } = fakeSurface({
-      marker: () => ({ sessionId: 123 }),
+      marker: () => fullMarker({ sessionId: 123 }),
       send: (target, text) => sent.push({ target, text }),
     });
     expect(main(["--checkpoint", "wM:p1", "--as", "sess-1"], surface)).toBe(1);
@@ -981,12 +1039,9 @@ describe("the three commands", () => {
     // Rule 7 (a non-empty blockedOn) and rules 11/12 (banding) both yield WAIT,
     // so a verdict-based gate cannot tell them apart and would drive a pane an
     // observation had stopped. The rule number is what discriminates.
-    const blocked = {
-      branch: "feat/alpha",
-      stage: "x",
-      sessionId: "sess-target",
-      blockedOn: "waiting on a human",
-    };
+    // COMPLETE (diff r1 F1): the partial literal refused at RULE 4, so rule 7 --
+    // the rule this case exists to distinguish from banding -- never fired.
+    const blocked = fullMarker({ blockedOn: "waiting on a human" });
     // The premise is about the FIXTURE, read off the fixture — not a restatement
     // of the thing under test.
     premiseHolds("the fixture carries a blockedOn for rule 7 to fire on", blocked.blockedOn !== "");
@@ -1031,16 +1086,15 @@ describe("the three commands", () => {
 
   it("emits no ESC byte on the live send path, across every command", () => {
     for (const cmd of ["--checkpoint", "--compact", "--resume"]) {
+      // COMPLETE marker and a matching nonce record (diff r1 F1). The partial
+      // literal refused at RULE 4, so every mode sent NOTHING -- and the old
+      // premise counted refusal LINES as sufficient, which let a live-path
+      // assertion pass having observed no live path at all.
       const run = drive([cmd, "wM:p1", "--as", "sess-1"], {
-        marker: () => ({
-          branch: "feat/alpha",
-          stage: "x",
-          sessionId: "sess-1",
-          blockedOn: "",
-          checkpointNonce: "n1",
-        }),
+        marker: () => fullMarker({ checkpointNonce: "n1" }),
+        nonceRead: () => "n1",
       });
-      premiseHolds(`${cmd} produced output to inspect`, run.sent.length + run.lines.length > 0);
+      premiseHolds(`${cmd} reached the LIVE send path`, run.sent.length > 0);
       for (const s of run.sent) expect(s.text).not.toContain("\x1b");
       for (const l of run.lines) expect(l).not.toContain("\x1b");
     }
@@ -1242,6 +1296,88 @@ describe("one read-once pass per sending invocation (AC-1, AC-2)", () => {
     expect(markerReads).toBe(1);
     expect(code).toBe(0);
     expect(run.sent.map((x) => x.text).join("")).toContain("/compact");
+  });
+});
+
+describe("NOTHING precedes the pass, and the roster is its LAST read (diff r1 F1)", () => {
+  /** Records the ORDER of read-member calls, and flips the live session mid-run. */
+  function ordered(flipDuring: "resolveTarget" | "screen"): {
+    surface: Surface;
+    run: Run;
+    order: string[];
+    liveNow: () => string;
+  } {
+    const order: string[] = [];
+    let live = "sess-target";
+    const { surface: base, run } = fakeSurface({
+      marker: () => fullMarker({ checkpointNonce: "n1" }),
+      nonceRead: () => "n1",
+    });
+    const spied: Record<string, unknown> = { ...(base as unknown as Record<string, unknown>) };
+    for (const member of READ_MEMBERS) {
+      const original = (base as unknown as Record<string, (...a: never[]) => unknown>)[member];
+      if (typeof original !== "function") throw new Error(`read member ${member} is not callable`);
+      spied[member] = (...args: never[]): unknown => {
+        order.push(member);
+        if (member === flipDuring) live = "sess-successor";
+        // The roster answers with the session live WHEN IT IS READ, which is
+        // the whole point: a roster captured earlier cannot show a takeover
+        // that happened since.
+        if (member === "roster") {
+          return (original(...args) as ReturnType<Surface["roster"]>).map((r) =>
+            r.paneId === "wM:p1" ? { ...r, agentSession: live } : r,
+          );
+        }
+        return original(...args);
+      };
+    }
+    return { surface: spied as unknown as Surface, run, order, liveNow: () => live };
+  }
+
+  it.each(SENDING_MODES)("%s resolves the target BEFORE reading the roster", (mode) => {
+    // Ordering, not counting -- and that distinction IS the finding. The
+    // set-equality cover asserts each member is read exactly once, and it is
+    // SATISFIED by a read taken at the wrong time: round 1 found `main()`
+    // reading the roster on the raw surface before the pass existed, once.
+    //
+    // Resolution picks WHICH pane and feeds no rule. The roster feeds rules 1,
+    // 2, 5 and 7, so it is read LAST, closest to the decision.
+    const { surface, order } = ordered("screen");
+    expect(main([mode, "wM:p1", "--as", "sess-1"], surface)).toBe(0);
+    premiseHolds(
+      "both members were actually read",
+      order.includes("resolveTarget") && order.includes("roster"),
+    );
+    expect(order.indexOf("resolveTarget")).toBeLessThan(order.indexOf("roster"));
+  });
+
+  it("a takeover landing DURING target resolution refuses by rule 5, having sent nothing", () => {
+    // The round-1 reviewer's probe, as a regression pin. Against the shipped
+    // structure this exited 0 and sent both `/compact` bytes to the successor:
+    // the roster had been captured before the takeover, so rule 5 compared the
+    // marker's `sessionId` against a stale `agent_session` and matched.
+    const { surface, run } = ordered("resolveTarget");
+    expect(main(["--compact", "wM:p1", "--as", "sess-1"], surface)).toBe(1);
+    expect(run.sent).toEqual([]);
+    expect(run.lines.join("\n")).toContain("rule 5");
+  });
+
+  it("DECLARED LIMIT: a takeover AFTER the roster read is not observed, and still sends", () => {
+    // Spec §7 limit 1, pinned as a CLAIM rather than left to an absence. This
+    // asserts the gap EXISTS, so nobody later reads its silence as closure, and
+    // so that closing it would fail loudly here and be a deliberate act.
+    //
+    // The pass is not an instant: two DIFFERENT members are read at two
+    // instants and nothing observes a change between them. Priced there per
+    // decay class; for `/compact` the worst case is a compaction the operator
+    // no longer wanted, which auto-compaction produces on its own schedule.
+    const { surface, run, liveNow } = ordered("screen");
+    expect(main(["--compact", "wM:p1", "--as", "sess-1"], surface)).toBe(0);
+    premiseHolds(
+      "the takeover really did land after the roster read",
+      liveNow() === "sess-successor",
+    );
+    expect(run.sent.map((x) => x.text)).toEqual(["/compact", "\r"]);
   });
 });
 
