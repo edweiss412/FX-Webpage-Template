@@ -6,6 +6,7 @@ import ts from "typescript";
 import { afterAll, describe, expect, it } from "vitest";
 
 import { premise, premiseHolds } from "../../_shared/premise";
+import { stripCommentsForFile } from "../../_shared/stripComments";
 
 import { GUARD_SURFACES } from "./registry";
 
@@ -4135,9 +4136,17 @@ describe("wrapper transparency is the COMPILER's answer, not a list (diff r1 F1)
     // length in the docstring explaining why they are gone, and a raw scan
     // flags the explanation as the offence — the use-vs-mention error this
     // repo has now made in three separate instruments.
-    const src = readFileSync(join(__dirname, "premiseScan.ts"), "utf8")
-      .replace(/\/\*[\s\S]*?\*\//g, "")
-      .replace(/\/\/[^\n]*/g, "");
+    //
+    // Through the SHARED stripper, not a local pair of regexes. The first draft
+    // of this case hand-rolled the two — in the same commit whose message
+    // argued that four copies of one normalizer is why three of them stayed
+    // stale. `tests/cross-cutting/_metaStripCommentsSingleSource.test.ts`
+    // caught it, which is the whole point of a guard that walks the tree
+    // instead of trusting the author who just wrote the lesson down.
+    const src = stripCommentsForFile(
+      readFileSync(join(__dirname, "premiseScan.ts"), "utf8"),
+      "premiseScan.ts",
+    );
     const WRAPPER_PREDICATES = [
       "isParenthesizedExpression",
       "isAsExpression",
