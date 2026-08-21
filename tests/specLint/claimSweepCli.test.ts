@@ -418,13 +418,21 @@ describe("claim sweep adapter — a revision git refuses", () => {
   const bad = "fatal: bad revision '-3'";
 
   it("REFUSES through the usage channel, naming the revision, and writes NO report", () => {
+    const spy = newSpy();
     const deps: CliDeps = {
-      ...fixtureDeps("c272ebed3"),
-      repairDiff: () => {
+      ...fixtureDeps("c272ebed3", { spy }),
+      repairDiff: (rev, paths) => {
+        spy.repairDiffCalls.push({ rev, paths: [...paths] });
         throw new Error(bad);
       },
     };
     const out = runCli(["--json", INCIDENT_SPEC, ...NAMED, ...PEERS], deps);
+    // THE PREMISE: the run actually REACHED the repair read. Exit 2 is also what
+    // a malformed declaration returns, and what an unparseable flag returns, so
+    // without this the case is satisfied by an adapter that refused for some
+    // entirely different reason and never called git at all -- which would make
+    // it green against an arm that had lost this behaviour completely.
+    premiseHolds("the adapter reached the repair read", spy.repairDiffCalls.length === 1);
     expect(out.exitCode).toBe(2);
     // No report at all: a refusal must not arrive in the same channel as a
     // claim about the corpus, or a reader cannot tell a swept-and-clean run
@@ -441,7 +449,12 @@ describe("claim sweep adapter — a revision git refuses", () => {
     // Paired positive. Without it, an adapter that refused every `--repair`
     // invocation would pass the case above, and the refusal would be
     // indistinguishable from the arm being broken.
-    const out = run(["--json", INCIDENT_SPEC, ...NAMED, ...PEERS], fixtureDeps("c272ebed3"));
+    const spy = newSpy();
+    const out = run(["--json", INCIDENT_SPEC, ...NAMED, ...PEERS], fixtureDeps("c272ebed3", { spy }));
+    // Same premise, the other side of the pair: the sweep is attributable to the
+    // repair having been READ rather than to the record having been built
+    // without one.
+    premiseHolds("the adapter reached the repair read", spy.repairDiffCalls.length === 1);
     expect(out.exitCode).not.toBe(2);
     expect(sweepOf(out.result, "CLAIM_SITE_UNSWEPT").length).toBeGreaterThan(0);
   });

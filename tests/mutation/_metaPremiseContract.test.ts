@@ -40,7 +40,11 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   "tests/specLint/claimSweepDocumentSet.test.ts": 0,
   "tests/specLint/claimSweepIdentity.test.ts": 0,
   "tests/specLint/claimSweepRefusals.test.ts": 9,
-  "tests/specLint/claimSweepCli.test.ts": 13,
+  // 13 at enrolment, 15 after whole-diff review round 1 added the two
+  // revision-refusal cases. Both carry premises: exit 2 is ALSO what a malformed
+  // declaration returns, so "the adapter reached the repair read" is what makes
+  // the refusal attributable to git rather than to an earlier bail.
+  "tests/specLint/claimSweepCli.test.ts": 15,
   // The pane-compaction suites, enrolled 2026-08-16. All declare 0 honestly and
   // structurally: ENVIRONMENT_SOURCES.modules is ["node:child_process",
   // "scripts/lib/ledger-git"], and these suites import neither. That holds only
