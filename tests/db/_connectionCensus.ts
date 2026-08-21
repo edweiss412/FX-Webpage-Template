@@ -28,7 +28,10 @@ import ts from "typescript";
 
 import { REPO_ALIAS } from "@/vitest.projects";
 
+import { stripCommentsForFile, stripSqlComments } from "@/tests/_shared/stripComments";
+
 import type { DispositionKind, DispositionRow } from "./_connectionCensusDispositions";
+import { DESTRUCTIVE_STATEMENT_PATTERNS, GUARD_OWN_FILES } from "./_destructiveStatements";
 import { ACCEPTED_HOSTS } from "./_localDbUrl";
 import { isGuardModule } from "./_localDbUrlScan";
 
@@ -1310,4 +1313,69 @@ export function reconcileDispositions(
     ambiguous,
     inadmissible,
   };
+}
+
+export type JoinDeps = {
+  patterns: Record<string, RegExp>;
+  strip: (source: string, filePath: string) => string;
+};
+
+export type CensusSourceFile = { path: string; source: string };
+
+export const DEFAULT_JOIN_DEPS: JoinDeps = {
+  patterns: DESTRUCTIVE_STATEMENT_PATTERNS,
+  strip: stripCommentsForFile,
+};
+
+/**
+ * The destructive guard's OWN discovered set, computed by CALLING its recognizer and its
+ * stripper rather than reproducing either. The union of two views is the destructive
+ * meta-test's own rule: JS comments come off first, then SQL comments inside the surviving
+ * literals, and a match in EITHER view counts — stripping SQL comments over a whole
+ * TypeScript file treats a decrement as a line comment and can erase a real execution, so
+ * the union can only ever ADD a match, never hide one.
+ *
+ * `patterns` and `strip` are INJECTED with the imported objects as defaults, and the
+ * deciding suite asserts the defaults ARE those objects by identity: a private `new RegExp`
+ * copy reproduces the live set and satisfies a literal-only structural check, but it cannot
+ * respond to an injected pattern set.
+ */
+export function discoveredByDestructiveGuard(
+  files: readonly CensusSourceFile[],
+  deps: JoinDeps = DEFAULT_JOIN_DEPS,
+): string[] {
+  const exempt = new Set<string>(GUARD_OWN_FILES);
+  const patterns = Object.values(deps.patterns);
+  return files
+    .filter(({ path, source }) => {
+      if (exempt.has(path)) return false;
+      const js = deps.strip(source, path);
+      const sql = stripSqlComments(js);
+      return patterns.some((pattern) => pattern.test(js) || pattern.test(sql));
+    })
+    .map(({ path }) => path);
+}
+
+/**
+ * The one silent pass the census alone cannot see: a destructive statement reaching the
+ * database through something that is not `postgres(...)`. Every discovered file must be in
+ * the census population, or it is named here.
+ */
+export function channelReports(
+  discovered: readonly string[],
+  population: ReadonlySet<string>,
+): Report[] {
+  return discovered
+    .filter((path) => !population.has(path))
+    .map((path) => ({
+      file: path,
+      line: 1,
+      ordinal: null,
+      kind: "channel" as const,
+      site: path,
+      detail:
+        "the destructive guard discovers this file, and it acquires the driver through no " +
+        "channel the census models; add a `channel` disposition row naming it",
+      argIsCall: false,
+    }));
 }

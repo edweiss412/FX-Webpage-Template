@@ -25,6 +25,8 @@ import ts from "typescript";
 
 import { stripCommentsForFile } from "@/tests/_shared/stripComments";
 
+import { DESTRUCTIVE_STATEMENT_PATTERNS, GUARD_OWN_FILES } from "./_destructiveStatements";
+
 import {
   CONNECTION_CENSUS_DISPOSITIONS,
   type DispositionRow,
@@ -39,6 +41,9 @@ import {
   aliasPrefixes,
   classifyFile,
   classifySite,
+  DEFAULT_JOIN_DEPS,
+  channelReports,
+  discoveredByDestructiveGuard,
   moduleSpecifiersIn,
   propagateThroughImports,
   reconcileDispositions,
@@ -1262,5 +1267,116 @@ describe("connection census — dispositions, both directions (AC-C7)", () => {
 
   test("the shipped registry is a closed union and starts empty", () => {
     expect(CONNECTION_CENSUS_DISPOSITIONS).toEqual([]);
+  });
+});
+
+describe("connection census — the join with the destructive guard (AC-C8)", () => {
+  // Assembled at runtime: spelled literally, these fixtures would make THIS file a
+  // discovered destructive file under the shipped guard's own regex walk (see the header).
+  const PRUNE_CALL = `select ${["public", "prune_sync_log"].join(".")}()`;
+  const WIPE_CALL = `select ${["public", "reset_validation_data"].join(".")}()`;
+  const SENTINEL = ["ZZZ", "CENSUS", "SENTINEL"].join("_");
+
+  const NON_ACQUIRER = "tests/db/prunesOnly.test.ts";
+  const nonAcquirerSource = [
+    `import { sql } from "./_someClient";`,
+    `await sql.unsafe("${PRUNE_CALL}");`,
+  ].join("\n");
+
+  test("a destructive file that acquires no driver is a CHANNEL report", () => {
+    const files = [{ path: NON_ACQUIRER, source: nonAcquirerSource }];
+    const discovered = discoveredByDestructiveGuard(files);
+    expect(discovered).toEqual([NON_ACQUIRER]);
+    const reports = channelReports(discovered, new Set<string>());
+    expect(reports.map((r) => [r.kind, r.site])).toEqual([["channel", NON_ACQUIRER]]);
+  });
+
+  test("twin — the same file acquiring the driver is in the population and reports nothing", () => {
+    const source = [
+      IMPORT,
+      `const sql = postgres(${ENV});`,
+      `await sql.unsafe("${PRUNE_CALL}");`,
+    ].join("\n");
+    const files = [{ path: NON_ACQUIRER, source }];
+    const discovered = discoveredByDestructiveGuard(files);
+    expect(discovered).toEqual([NON_ACQUIRER]);
+    expect(channelReports(discovered, new Set([NON_ACQUIRER]))).toEqual([]);
+  });
+
+  test("the wipe spelling is discovered too", () => {
+    const files = [{ path: "tests/db/wipes.test.ts", source: `await sql.unsafe("${WIPE_CALL}");` }];
+    expect(discoveredByDestructiveGuard(files)).toEqual(["tests/db/wipes.test.ts"]);
+  });
+
+  test("a file naming the destructive statement only in a COMMENT is not discovered", () => {
+    // The stripper decides, exactly as it does in the destructive guard.
+    const files = [
+      {
+        path: "tests/db/prose.test.ts",
+        source: `// this test never runs ${PRUNE_CALL}\nconst x = 1;`,
+      },
+    ];
+    expect(discoveredByDestructiveGuard(files)).toEqual([]);
+  });
+
+  test("a SQL comment inside the literal is stripped too — the union of both views", () => {
+    const spaced = `select /* note */ ${["public", "prune_sync_log"].join(".")}()`;
+    const files = [
+      { path: "tests/db/inlineSqlComment.test.ts", source: `await sql.unsafe("${spaced}");` },
+    ];
+    expect(discoveredByDestructiveGuard(files)).toEqual(["tests/db/inlineSqlComment.test.ts"]);
+  });
+
+  test("the guard's OWN files are excluded by name", () => {
+    const files = GUARD_OWN_FILES.map((path) => ({ path, source: `const q = "${PRUNE_CALL}";` }));
+    expect(discoveredByDestructiveGuard(files)).toEqual([]);
+  });
+
+  test("the default deps ARE the shared recognizer and the shared stripper, by identity", () => {
+    // An injectable seam certifies a path production never takes unless the DEFAULT
+    // binding is asserted: without this, a copy could sit behind the same parameter.
+    expect(DEFAULT_JOIN_DEPS.patterns).toBe(DESTRUCTIVE_STATEMENT_PATTERNS);
+    expect(DEFAULT_JOIN_DEPS.strip).toBe(stripCommentsForFile);
+  });
+
+  test("METAMORPHIC — injecting a pattern set moves the discovered set to exactly the sentinel", () => {
+    // A `new RegExp` copy reproduces the live set and passes a literal-only structural
+    // check; it cannot respond to an injected pattern set, because it never reads one.
+    const files = [
+      { path: NON_ACQUIRER, source: nonAcquirerSource },
+      { path: "tests/db/sentinel.test.ts", source: `const marker = "${SENTINEL}";` },
+    ];
+    const injected = discoveredByDestructiveGuard(files, {
+      patterns: { sentinel: new RegExp(SENTINEL) },
+      strip: stripCommentsForFile,
+    });
+    expect(injected).toEqual(["tests/db/sentinel.test.ts"]);
+  });
+
+  test("METAMORPHIC — injecting the stripper changes what is discovered", () => {
+    const files = [
+      {
+        path: "tests/db/prose.test.ts",
+        source: `// this test never runs ${PRUNE_CALL}\nconst x = 1;`,
+      },
+    ];
+    // With a stripper that strips NOTHING, the commented mention is discovered: the join
+    // reads the injected function rather than a private copy of the stripping rule.
+    const identityStrip = (source: string, _filePath: string): string => source;
+    expect(
+      discoveredByDestructiveGuard(files, {
+        patterns: DESTRUCTIVE_STATEMENT_PATTERNS,
+        strip: identityStrip,
+      }),
+    ).toEqual(["tests/db/prose.test.ts"]);
+  });
+
+  test("channelReports names every discovered file the population does not contain", () => {
+    const reports = channelReports(
+      ["tests/db/a.test.ts", "tests/db/b.test.ts"],
+      new Set(["tests/db/b.test.ts"]),
+    );
+    expect(reports.map((r) => r.site)).toEqual(["tests/db/a.test.ts"]);
+    expect(reports[0]!.kind).toBe("channel");
   });
 });
