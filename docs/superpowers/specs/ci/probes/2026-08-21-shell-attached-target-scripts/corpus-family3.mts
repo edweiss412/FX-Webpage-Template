@@ -167,6 +167,11 @@ const CONTROL: Array<[id: string, line: string, wantSubst: boolean]> = [
   // Round 4 finding 3: every control above puts a BARE operator after the
   // command word, so none crossed the file-descriptor-prefix axis.
   ["FD-PREFIXED: 2> before an attached substitution", 'cat 2>"$(psql)"', true],
+  // Plan round 1 finding 1, swept here per 2a-bis: no control had two SIBLING
+  // substitutions in one target, so nothing distinguished a reader that stops
+  // after the first body. Siblings, not nesting - a first-body-only walk
+  // survives nesting and dies on siblings.
+  ["SIBLINGS: two substitutions in one attached target", 'cat >"$(true)$(psql)"', true],
 ];
 let controlFailures = 0;
 console.log("POSITIVE CONTROL — the acceptance set must be detected:");

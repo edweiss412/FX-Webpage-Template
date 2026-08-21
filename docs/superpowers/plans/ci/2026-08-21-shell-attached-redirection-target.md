@@ -17,8 +17,19 @@ restate an approved criterion more weakly than the spec makes it.
 | accepted rows on `psqlStartupScan` | 26, zero STALE | `pnpm mutation:sites` |
 | documented-flaky site present | `relational-boundary:3578:35:<><=`, `ok` | `pnpm mutation:sites` |
 | corpus finding set | 76 sites, 0 indirections, digest `8ebe8b08d43e6308aa471112d9f086d0118e6238` over EVERY field | `baseline-corpus.mts` |
-| live population of the family | 0 across three execution surfaces (53 attached targets) | `corpus-family3.mts` |
+| live population of the family | 0 across three execution surfaces (57 attached targets at plan HEAD; 53 at base `e5d1d723d`) | `corpus-family3.mts` |
 | ledger closeout gate | FAIL for the asserted reasons; PASS on a constructed post-closeout state | `scripts/ci/attached-target-closeout-check.sh` |
+
+**Why the target count moved and the zero did not.** The spec's §2.3 census reports 53 at base
+`e5d1d723d`; this plan's HEAD measures 57 across 6 shell chunks rather than 5. The difference is
+`scripts/ci/attached-target-closeout-check.sh`, which this arc COMMITS and which is therefore a
+`.sh` file inside the corpus the census walks — four ordinary `>` and `2>` redirections, none
+substitution-bearing. **This is the second occurrence of one shape in this arc**: the oracle's
+snippets were base64-encoded for exactly this reason after committing them as a runnable script
+took the shell surface from 19 targets to 28 with 5 substitution-bearing, every one of them the
+arc's own. An artifact this arc commits enters the corpus this arc measures. The load-bearing
+number is the ZERO, which is unmoved and asserted; the target count is a population size and is
+stated per revision, because it is not stable across the arc's own commits.
 
 ## 1. Meta-test inventory (mandatory declaration)
 
@@ -94,6 +105,15 @@ before the fix commits:
 3. `digest-sensitivity.mts` — the field perturbations (AC-5b).
 4. The declared-limit pins and their controls in the deciding suite (AC-6).
 
+**Worked example, from plan round 1.** Finding 1 named the nested-body population axis. Asked of
+all four sets: the acceptance set carries at most one body per target (blind, closed by Task 1's
+equality assertion above); the census controls have no target with two SIBLING substitutions
+(blind, a control is added in the same commit); `digest-sensitivity.mts` perturbs exactly one site
+of 76 and the digest sorts its rows, so a second perturbation is covered by construction, and its
+zero-population case already ABORTS rather than passing vacuously (not blind, recorded as checked);
+the declared-limit pins do not range over body count (not applicable, recorded). Three of four
+recorded, one repaired — that is what discharging this obligation looks like.
+
 The check is one question asked four times: *does this set vary the dimension the finding names?*
 A set that does not gets the case in the same commit. Recording that a peer set was checked and
 already varies the dimension satisfies the obligation; silence does not.
@@ -120,6 +140,7 @@ by exhaustion.
 | W9 | handle an attached target only when the operator has no file-descriptor prefix | the prefix reads as a separate token, so `2>` looks like a different construct | **K** — `cat 2>"$(psql -c 'select 1')"` executes once and both scanners return zero |
 | W10 | ADD a correctly attributed record and leave the wrongly attributed one | additive repairs feel safer than replacing a record something else may read | **I** — its predicate is universal over every site the snippet produces, so `[wrong, correct]` fails |
 | W11 | delimit construct-aware after `>` and `<<<`, fall back to the old character run for the other ten operators | those two are what every acceptance case uses, so the gate goes green | **nothing in the acceptance set** — this is the one gap the spec's cases do NOT close, and Task 1 carries the obligation below instead |
+| W12 | delimit and retain the target correctly, but collect only the FIRST nested body in it | one target reads like one body, and every §2.2 case has at most one | **nothing in the acceptance set either** — `cat >"$(true)$(psql -c 'select 1')"` executes psql and stays silent under first-body-only collection. Closed by the population obligation below, derived rather than by one more fixture |
 
 **W8, W9 and W10 are round 4's, and each is the same defect shape as W1: an implementation that
 passes the whole gate for a reason unrelated to the specification.** W8 and W9 were invisible until
@@ -208,7 +229,16 @@ mutant it kills.
    of silently exempt. Operators whose grammar makes an attached substitution meaningless (`>&`,
    `<&` take a descriptor) assert the CONSERVATIVE outcome explicitly rather than being skipped:
    a skip is indistinguishable from a miss.
-6. The attached target's own text still never becomes an argv word. That is what keeps this
+6. **Cross the nested-body POPULATION axis, and assert the count rather than a witness.** Every
+   §2.2 case carries AT MOST ONE substitution body, so W12 — collect the first body and stop —
+   passes the whole acceptance set. `cat >"$(true)$(psql -c 'select 1')"` is one ordinary edit from
+   B, bash executes psql, and first-body-only collection is silent. The task's test asserts that the
+   number of collected nested bodies EQUALS the number the target contains, over a fixture family
+   of zero, one and two SIBLING bodies — siblings, not nesting: case H already nests, and a
+   first-body-only walk survives nesting while dying on siblings. A single two-body witness proves
+   less than the equality does, and the equality is what makes an added third body covered by
+   construction.
+7. The attached target's own text still never becomes an argv word. That is what keeps this
    outside both readings the filing arc REFUSED (spec §1.1).
 
 **Retire the three pins in this commit** (§2 above), and hold both controls unchanged.
@@ -271,12 +301,26 @@ cannot be red, and a marker claiming otherwise would be the manufactured-red sha
 documentation half is a docs move: nothing mechanical fails on a documented limit that has become
 false, which is exactly why it has to be a named step rather than a trusted intention.
 
-**Files:** Modify `tests/cross-cutting/psqlStartupFiles/scan.ts`, `tests/cross-cutting/psqlStartupFileSuppression.test.ts`; run `docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/baseline-corpus.mts` and `docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/corpus-family3.mts`.
+**Files:** Modify `tests/cross-cutting/psqlStartupFiles/scan.ts`, `tests/cross-cutting/psqlStartupFileSuppression.test.ts`; run `docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/baseline-corpus.mts --expect 8ebe8b08d43e6308aa471112d9f086d0118e6238`, `docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/digest-sensitivity.mts` and `docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/corpus-family3.mts`.
 
 **AC-5, the consequence bound made executable.** Re-run the digest-pinned baseline and assert the
 finding set is unchanged apart from this arc's own constructed fixtures: **76 sites, digest
 `8ebe8b08d43e6308aa471112d9f086d0118e6238`**. This is the check that distinguishes a guard that
 got stricter from one that merely got louder.
+
+**`--expect` is not optional, and the flag IS the gate.** Without it `baseline-corpus.mts` prints
+the digest and exits 0 whatever the digest turns out to be — measured, both directions: bare exits
+0, a wrong expected value exits 1. A step that names the bare invocation as its gate cannot reject
+a moved finding set, which is the tautological-gate shape this plan is otherwise built to avoid.
+The digest is a corpus SCAN DIGEST, not a git ref: verify it with this probe, never with
+`git cat-file`.
+
+**AC-5b runs HERE, in this step, and it is not a peer-sweep afterthought.** `digest-sensitivity.mts`
+proves the digest still DISCRIMINATES on the fields §5 forbids moving — seven perturbations
+including `null`→`undefined` and `null`→ABSENT. It must run AFTER the `scan.ts` edit, because a
+record shape that changed underneath the serialisation is exactly what would make AC-5 pass
+vacuously: an unchanged digest over a field the digest stopped reading is not an unchanged finding
+set.
 
 **Documentation that must move with the code, or it becomes a stale citation that still reads
 true** (spec §6):
@@ -349,7 +393,8 @@ both ledger files and can reintroduce a row or a marker.
 | AC-2 | four positive controls still report | Task 1 |
 | AC-3 | undelimitable target REPORTED as unlexable | Task 2 |
 | AC-4 | `F11` control unchanged | Task 1 |
-| AC-5 | corpus finding set unchanged, digest held | Step 3 |
+| AC-5 | corpus finding set unchanged, digest held (`--expect`, not the bare reporter) | Step 3 |
+| AC-5b | the digest still DISCRIMINATES on every field §5 forbids moving | Step 3 |
 | AC-8 | census still finds zero substitution-bearing targets | Step 3 |
-| AC-6 | two pins retired deliberately; ledger closed | Task 1, Step 5 |
+| AC-6 | THREE pins retired deliberately, two controls held; ledger closed | Task 1, Step 5 |
 | AC-7 | score at or above floor, empty unaccepted set | Step 4 |

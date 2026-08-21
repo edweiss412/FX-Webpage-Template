@@ -164,7 +164,7 @@ measured mentions rather than shell text.
 `collectPsqlUsage` over the worktree at `e5d1d723d`:
 
 **76 sites, 0 indirections, 0 unreadable**, finding-set digest
-`8ebe8b08d43e6308aa471112d9f086d0118e6238` (`docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/baseline-corpus.mts`). The digest is the
+`8ebe8b08d43e6308aa471112d9f086d0118e6238` — a corpus SCAN DIGEST, not a git ref: verify it with the probe below, never with `git cat-file` (`docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/baseline-corpus.mts`). The digest is the
 drift detector: the repair must leave it unchanged apart from this arc's own constructed fixtures.
 
 ---
@@ -284,6 +284,17 @@ proves the repair landed; an unchanged digest is not evidence that it did not.
 
 **AC-5 is the consequence bound made executable.** It distinguishes a guard that got stricter from
 one that merely got louder, and it is the one check no reading of the diff can substitute for.
+
+## 4b. Stage posture — DISPOSITIONED, not CONVERGED
+
+**This spec has no APPROVE row.** Four adversarial rounds ran, every one BLOCKING, and the stage
+closed on an orchestrator disposition after a round declared TERMINAL in its own brief. The four
+repairs made after that round are unreviewed by any reviewer. The full split is in
+`docs/review-rounds/fix/shell-attached-redirection-target/e5d1d723d69c.md`, and the blind-spot map
+is §5a of the handover. Stated here, in the spec itself, because a reader who never opens the round
+record would otherwise read a finished document as a ratified one.
+
+---
 
 ## 5. Convergence criterion
 
