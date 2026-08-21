@@ -69,8 +69,12 @@ instead.
   quoted copy, so a verbatim source title in prose reds the very lint this plan is checked by.
 
   **The line citation this row used to carry is GONE, and finding it is the answer to one half of §8's
-  named residue.** It said `:837`; the block now opens at 847, moved by this arc's own edit to a case
-  four hundred lines above it. `pnpm probe:citations` did NOT catch it, and correctly so: its declared
+  named residue.** It pinned a line number for that block, and this arc's own edit to a case well
+  above it moved the block down. The stale number is not reproduced here, in either the before or
+  the after form: writing it in prose is what a diff round caught, because a bare
+  colon-and-digits token lints as `CITATION_MALFORMED` with an empty path, so the sentence announcing
+  the citation was gone was itself a malformed citation. A claim that a number is retired cannot be
+  made by printing the number. `pnpm probe:citations` did NOT catch the original, and correctly so: its declared
   population is citations into `lib/specLint/redContract.ts`, and this is a citation into a different
   file the arc happens to edit. The derived cover is complete over the population it declares, and the
   population was narrower than the hazard. Naming the symbols removes the citation rather than

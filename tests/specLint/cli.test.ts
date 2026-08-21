@@ -1005,11 +1005,20 @@ describe("spec-lint CLI — collection probes under --exec-red (spec §5)", () =
       //
       // A lone negative is satisfied by an arm that reports NOTHING, so this
       // case is load-bearing only next to its positive twin. That twin is the
-      // heavy-wrapped case above: the two fixtures carry a BYTE-IDENTICAL
-      // `red=`, and the only field separating them is `red-state=authored`.
-      // Same CLI path, same code list, one variable apart.
+      // heavy-wrapped case above, and the two markers are byte-identical
+      // except that this one drops `red-state=authored`. One variable.
+      //
+      // The `why=` is why that matters, and this fixture briefly did NOT carry
+      // it. Adding `red-target=` to the twin to close the round-1 finding left
+      // this marker three fields behind instead of one, so it also drew
+      // `RED_WHY_MISSING` -- and an implementation that suppressed declines
+      // whenever `why=` was absent passed the whole matrix while doing the
+      // wrong thing for the wrong reason. The assertion below pins the
+      // property rather than the intent: `why=` present, so silence here is
+      // attributable to the v1 exit and to nothing else.
       const r = execCli([`${V}/exec-unprobeable-v1.md`, "--exec-red", "--json"]);
       expect(codesOf(r)).not.toContain("RED_PROBE_UNVERIFIED");
+      expect(codesOf(r)).not.toContain("RED_WHY_MISSING");
     },
     PROBE_T,
   );
