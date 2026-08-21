@@ -369,8 +369,12 @@ record would otherwise read a finished document as a ratified one.
 
 - **PROBE DOMAIN:** the execution surfaces production actually READS — whole-file shell
   (`.sh`/`.bash`) and workflow `run:` scalars, 53 attached targets between them — plus the eight
-  spellings in §2.1, the fifteen cases in §2.2, the twelve-operator bash oracle of §2.2b, and the
-  bash oracle that confirms all twelve executing snippets really run. A constructed input more than one ordinary edit from that set
+  spellings in §2.1, the fifteen cases in §2.2, the twelve-operator bash oracle of §2.2b, the four
+  axes closed by the 2026-08-21 acceptance-set sweep (same-command resume, end of file, position in
+  file, CRLF), and every snippet in `oracle.mts` — whose two tables are the domain's executable
+  statement and are read from the file rather than counted here, because a count of them goes stale
+  the next time one is added. `SNIPPETS` must all RUN and `NON_EXECUTING` must all run NOTHING; the
+  script aborts either way. A constructed input more than one ordinary edit from that set
   files to documented limits, not to a finding. **`package.json` scripts are censused but are NOT
   in the domain** (§2.3): `SCANNED_EXTENSIONS` excludes `.json`, so production cannot open that
   surface at all and a probe there measures a pre-existing documented limit of the scanner
