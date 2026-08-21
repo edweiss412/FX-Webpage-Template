@@ -365,27 +365,42 @@ Scoped single-surface shard, `pnpm heavy`, foreground, on this branch:
 
 ```
 Test Files  1 passed (1)      Tests  7 passed (7)      EXIT=0
-Duration  1068.08s
+Duration  1031.70s
 
 74 mutants, 26 equivalent, 0 accepted gap, 48 counted, 48 killed, score 1.0000, scoreFloor 1
 ```
 
-All seven gate cases pass, which IS the empty-unaccepted-survivor assertion. The counts are DERIVED
-from the shipped registry and generator rather than read from the log, because a GREEN gate prints no
-counts — `enumerateSites` + `generateMutants` over the surface give 75, the registry declares 27
-`equivalent` rows, and 75 − 27 = 48 counted, all killed since the run cleared `scoreFloor: 1`.
+All seven gate cases pass, which IS the empty-unaccepted-survivor assertion. A GREEN gate prints no
+counts, so the vector is derived from the shipped registry and generator: `enumerateSites` +
+`generateMutants` over the surface give **74**, the registry declares **26** `equivalent` rows and no
+accepted gap, and 74 − 26 = 48 counted, all killed since the run cleared `scoreFloor: 1`.
 
-**Provenance, stamped from INSIDE the measured invocation, before and after:** `scan.ts`
-`675dd1b0f23e22ad72a72fa684cd2372d538ec6b`, deciding suite
-`eb5ed6440b23c9a9681ace23de0d3d509f37b1ff`, registry `872f1cf1f668d13c49dd526c11681e1824a14d9d`. The
-BEFORE and AFTER stamps are identical, so no edit landed during the run.
+**Provenance, stamped from INSIDE the measured invocation, before and after, over all SEVEN derived
+inputs:** `scan.ts` `a1f9db0c3c5ff51f12e1c8d834471cc29d7fa78f`, deciding suite
+`cb45f9ea034c297459057e9a4be18172892c1217`, registry `f7730ec2bfd66a5f30b105e529f308e188d417cd`,
+`operators.ts` `165bf99d49f9`, `ledger.ts` `f62120c11555`, `premise.ts` `773ef617f219`,
+`stripComments.ts` `e6aab711039a`. BEFORE and AFTER are identical, so no edit landed during the run,
+and the registry blob stamped here IS the shipped one — the run was made against the tree that
+merges.
 
-Two later edits are recorded rather than glossed. The weaker-implementation audit applied nine
-mutants to `scan.ts` and restored it, verified byte-identical to `675dd1b0f2` after every case. The
-equivalence rows were then collapsed onto their shared invariant, which moved the registry blob to
-`fe67217d8de4e2f4cc198749b8e14bfec053732d` — **prose only**, proved rather than asserted: every
-`siteId`, `kind`, `operators` and `scoreFloor` line is IDENTICAL between the measured blob and the
-shipped one, so the score cannot have moved.
+**This paragraph replaces a materially wrong one, and the correction is the point.** Diff review
+round 4 found that this section mixed a current vector with RETIRED run provenance: it printed 74/26
+above while deriving 75/27 in the prose and attaching the blobs of an earlier run
+(`675dd1b0f2` / `eb5ed644` / `872f1cf1`). Re-deriving from the bytes showed something worse than a
+wording slip. **The last run stamped here had been measured at registry `b38331b3d1`, which carried
+25 rows and scored 48/49 — BELOW `scoreFloor: 1`, so that run FAILED its own floor.** The shipped
+48/48 had been inferred from it by reasoning that restoring the flaky row moves the survivor into the
+ledger. Sound reasoning, but an inference is not a measurement, and **a run that failed still emits
+numbers that quote exactly like a passing run's.** The run recorded above is a fresh one at the
+26-row shipped registry, and it is the first measurement of this vector that actually cleared the
+floor.
+
+**Why no arithmetic check caught the stale numbers, which is the generalisable part.** 75 − 27 = 48
+and 74 − 26 = 48. The retirement of one site and the restoration of one row moved both inputs and
+left the derived value fixed, so every check written against `counted` was invariant across precisely
+the edit that invalidated its inputs — and a stale-number sweep over this corpus duly reported "0
+documents need attention" while three stale sites stood. A check on a derived quantity cannot witness
+a change its derivation absorbs. Check the inputs, or check something the edit cannot preserve.
 
 **Four runs were spent and three discarded deliberately** — two because source or suite edits were
 still owed (a comment alone re-keys every `siteId`), one because a repair to the repair was owed. A

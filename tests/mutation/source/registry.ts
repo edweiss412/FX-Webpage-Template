@@ -2137,10 +2137,15 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // deciding nested expansions on the RAW operand rather than the dequoted
     // one. 67 -> 69 mutants; all 25 rows re-keyed and every argument re-read.
     // Re-keyed ONCE MORE after diff review rounds 2 and 3, which moved every
-    // site again: 69 -> 75 mutants, 25 -> 27 rows, 48 counted and 48 killed,
-    // score 1.0000. The two rows added are the RAW-OFFSET group at the head of
-    // `accepted`, and every one of the 25 carried over was re-read at its new
-    // site rather than translated on the strength of having been true before.
+    // site again. The round-3 F2 repair (ownership by operator IDENTITY rather
+    // than by offset ordering) then RETIRED a `relational-boundary` site, so the
+    // final shipped vector is 74 mutants and 26 rows, 48 counted. An earlier
+    // draft of this comment said `69 -> 75 mutants, 25 -> 27 rows`; that was the
+    // pre-retirement count and it survived a stale-number sweep because 75 - 27
+    // and 74 - 26 BOTH equal 48 — a derived value cannot witness a change its
+    // derivation is invariant over, so sweep the INPUTS, not the difference.
+    // Every one of the rows carried over was re-read at its new site rather than
+    // translated on the strength of having been true before.
     // Achieved 39/39 counted (63 mutants, 24 equivalent, NO accepted gap) after
     // the 2026-08-17 arc, whose diff-review repairs moved every site twice; it was 30/30
     // (48 mutants, 18 equivalent) after the 2026-08-16 disposition arc, whose

@@ -705,6 +705,48 @@ rather than one that is absent. No limit in this list is a false certification.
     over-report arm is the permitted one. **Re-file trigger:** a consequence bound that stops
     permitting conservative over-reports.
 
+13. **NEW (diff round 4 finding 1) — a literal newline truncates an accepted operand.**
+    `PG=${U:-psql arg\n-X}` spelled across a real newline reports 0, while bash expands `psql`,
+    `arg`, `-X` unquoted. Newline handling flushes before the brace-operand whitespace branch, so
+    the operand reader sees only the first word. Reproduced for all six accepted operators, on the
+    assignment and compound-array consumers. **This is a NON-REPORT — a MISS, the quiet direction**,
+    stated plainly rather than softened: the guard stays silent where bash binds. It is a limit and
+    not a repair because closing it means teaching the operand reader multi-line continuation, which
+    is one more grammar corner on the axis that has produced 2, 2 and 3 findings across rounds 2, 3
+    and 4 without decaying — the standing repair direction is NARROWING, never parser growth. Live
+    corpus instances of a newline-bearing accepted operand: **0**. **Re-file trigger:** any corpus
+    instance, or a consumer that begins treating a silent operand read as a positive certification.
+14. **NEW (diff round 4 finding 2) — an array subscript containing a quoted or escaped `]` is
+    rejected.** `declare -A A=(); PG=${A["x]y"]:-'psql'}` reports 0 while bash binds `psql`; the
+    subscript terminates at the first RAW `]` regardless of quoting, and the same holds for
+    single-quoted and backslash-escaped forms across all six operators and both consumers. Also a
+    NON-REPORT. Closing it requires a quote-aware subscript scanner — a second lexer inside the
+    parameter-name class, the exact predicate growth this arc has twice declined. A key whose text
+    contains `]` is not an ordinary authoring mistake by a contributor writing shell in this
+    repository, which is the declared threat fence; the corpus holds **3** array-subscript
+    expansions and **0** with a quoted `]`. **Re-file trigger:** a corpus instance, or a contributor
+    convention that admits `]`-bearing keys.
+15. **NEW (diff round 4 finding 3) — an accepted expansion nested inside DOUBLE QUOTES inside
+    another accepted expansion is not resolved.** `PG=${U:-"${V:-$'psql'}"}` reports 0 with `U` and
+    `V` unset, where bash binds `psql`; reproduced across the full 6x6 outer/inner operator matrix
+    and both consumers. The double-quote lexer branch recognizes `$()` and backticks but not
+    `${...}`, so the raw-only recursion never sees the inner expansion. The reviewer argued this is
+    not composition because after quote removal the operand is exactly one nested expansion; the
+    mechanism it attacks is nonetheless the nesting mechanism, and **composition is a ratified
+    documented limit** (§6 item 11, §3.3). Recording it here as its own row rather than resting on
+    that ratification, because the distinction is arguable and a future reader deserves the probe.
+    Corpus instances of an expansion nested inside double quotes inside an expansion: **0**.
+    **Re-file trigger:** a corpus instance, or an arc that makes the double-quote branch
+    expansion-aware for an independent reason.
+
+**All three round-4 rows share one disposition and one reason.** Each is a conservative NON-REPORT
+on a constructed input absent from the live corpus, and each closes only by widening the recognizer
+by one more grammar feature. That is the shape AGENTS.md names explicitly: successive rounds each
+adding a lexer case, with the finding rate flat or rising rather than decaying. Round 4 is the
+declared last round on this axis, so the class-level repair is to DECLINE TO FIRE and record the
+limit. What the reader gets instead of silence is this section: the input, the probe, the direction
+of the error, the corpus count, and the trigger that would re-open it.
+
 ---
 
 ## 7. Verification contract

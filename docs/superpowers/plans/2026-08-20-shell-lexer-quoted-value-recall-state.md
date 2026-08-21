@@ -6,12 +6,21 @@ reader would re-derive all of them. Every figure here is derived or quoted, not 
 ## Score, and how it is derived
 
 **74 mutants, 26 `equivalent`, 0 accepted gap, 48 counted, 48 killed, score 1.0000,
-`scoreFloor` 1.** A GREEN gate prints no counts, so these come from the shipped
-registry and generator: `enumerateSites` + `generateMutants` give the mutant total,
-the registry gives the row count, `counted = mutants − rows`, and `killed = counted`
-because the run cleared the floor. Cross-check from the 25-row run, which scored
-0.9795918 = 48/49 with one unaccepted survivor: restoring that row moves 49 → 48
-counted and the survivor into the ledger, giving 48/48.
+`scoreFloor` 1 — MEASURED, gate 7/7, EXIT=0, 1031.70s, at the shipped 26-row registry
+`f7730ec2bfd6`.** A GREEN gate prints no counts, so the vector is derived from the
+shipped registry and generator; the PASS is what makes it a score.
+
+**Superseded, and recorded because it is the more instructive half.** This section
+previously carried 48/48 as a DERIVATION from the 25-row run that scored 0.9795918 =
+48/49 with one unaccepted survivor, reasoning that restoring the flaky row moves the
+survivor into the ledger. Diff review round 4 forced the check, and the derivation's
+base run had scored BELOW `scoreFloor: 1` — it FAILED. A failing run still emits
+numbers, and those numbers quote exactly like a passing run's. The inference was
+sound and it was still not a measurement. What made this findable from the outside
+was that this file said "derived" and showed the arithmetic instead of asserting a
+figure: when a number cannot be derived inside the command that reports it, say so
+loudly and say from what, because that note is the only thing a later reader can
+check.
 
 ## Provenance, stated with its limits
 
@@ -22,8 +31,12 @@ transitive local imports of each — **seven files**. An earlier three-blob stam
 `tests/mutation/source/operators.ts` — the last of which DECLARES the operators the
 score is a function of. The set that reads as obvious is the set that omits.
 
-- Final run stamps, BEFORE == AFTER: `scan.ts` `a1f9db0c`, suite `cb45f9ea`,
-  registry `b38331b3d1`, plus the four above unchanged.
+- **Shipped run stamps, BEFORE == AFTER:** `scan.ts` `a1f9db0c`, suite `cb45f9ea`,
+  registry `f7730ec2bfd6`, plus the four above unchanged. This is the PASSING run.
+- **Superseded run, kept so the two are never confused:** the same source and suite
+  at registry `b38331b3d1` — 25 rows, scored 48/49, below the floor. Its stamps were
+  once labelled "final" here, which is how a failed run's numbers came to be quoted
+  as a score.
 - **Degraded stamp, one run:** an intermediate run's AFTER stamp was lost when its
   wrapper was killed during an unrelated poller cleanup. Taken by hand the pair
   closes, but it is no longer emitted by the same invocation. Recorded as degraded,
