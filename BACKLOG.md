@@ -1513,7 +1513,7 @@ nobody trusts.
 
 ## BL-PANE-COMPACTION-SEND-AUTHORIZATION — the pane-compaction send path needs its own arc
 
-**Status:** OPEN. · **Effort:** L — an authorization redesign plus its own review arc; five diff
+**Status:** IN PROGRESS · **Branch:** feat/pane-compaction-send-auth · **Effort:** L — an authorization redesign plus its own review arc; five diff
 rounds could not close it as a sub-part of the classifier PR.
 
 `pnpm panes:compact` ships with `--checkpoint`, `--compact` and `--resume` DISABLED. The classifier
