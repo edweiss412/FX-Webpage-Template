@@ -371,6 +371,30 @@ exactly that reason.
 | **wrapper kind** — parentheses · `as` · `<T>` · `!` · `satisfies` · partially-emitted · with-type-arguments | YES, and DERIVED from `ts.OuterExpressionKinds` rather than typed here | YES, rule A skips them | **cross completely, axis read from the compiler's enum** |
 | **annotation certainty** — provably-not-surface keyword · everything else | YES, 2 | YES, rule B reads it | **cross completely** |
 
+**Step 1b — POSITION is itself an axis, and it is the one this arc kept discovering one member at
+a time.** The rule can be shared and still be applied at the receiver expression and not the element
+key, at the member selector and not the declaration name. Spec rounds 1 and 2 returned seven such
+positions between them.
+
+**The position set is DERIVED by an ADOPTION SCAN, never listed.** The scan is the inverse of the
+duplicate sweep of §3.10: that one proves no site RE-IMPLEMENTS the rule; this one proves every site
+that RESOLVES A NAME ROUTES THROUGH it. **Both are required, and the second is the one that was
+missing** — every duplicate can be gone while nothing calls the replacement, at which point the code
+compiles, the suite is green, the duplicate sweep reports zero, and the shared rule is decorative
+(§3.13 F4).
+
+**Route-or-acknowledge, so the set is covered without being enumerated.** Every name-resolution site
+either routes through the one rule, or carries an inline acknowledgement naming why that position's
+spelling cannot vary — the same shape as this repo's `// not-subject-to-meta:` and `// no-telemetry:`
+exemptions. **The scan REDS on an UNACKNOWLEDGED site**, so a position added later fails by default
+rather than waiting to be discovered by a reviewer.
+
+**The stopping condition, stated so it can be checked rather than felt:** coverage is complete when
+the adoption scan is derived and green. If a later round reports an eighth position, the correct
+reading is that **the SCAN is wrong — a defect in ONE place, and bounded work** — not that the axis
+set needs another member. That is the difference between this and a ratchet, and it is the whole
+reason the position set must not be a list.
+
 **Step 2 — a finite, read axis is crossed completely, and the axis is DERIVED from the shipped
 constant rather than retyped into the manifest.** A retyped axis drifts the moment the constant
 gains a member, and nothing says it did.
@@ -742,6 +766,59 @@ Two of this spec's claims were reproduced by the round-1 reviewer, working indep
 An independent reproduction of a probe is the strongest form that evidence takes, and it is
 recorded here rather than left in a review transcript.
 
+### §3.13 Spec round 2: four findings, all POSITION, and the cover defect that explains them
+
+Breakdown: **4 real / 3 refuted / 2 fenced.** The four round-1 repairs were verified and not
+re-raised.
+
+| # | shape | before | after |
+| --- | --- | --- | --- |
+| F1 | a WRAPPED element key — `this[("ch")]`, `this[("ch" as const)]`, `this[("ch" satisfies string)]`, `this[("ch"!)]` | silent, while `this["ch"]` reported | all report `UNDECLARED-PASS` |
+| F2 | member SELECTOR — `this["ch"]["dispatch"]()`; `ch["panes"]()` doubled | sink silent; read attributed to the binding | sink reports; read reports `MULTI-READ:panes` |
+| F3 | binding DECLARATION spelling — `#ch`, `private ["ch"]` | silent, the binding vanished before rule A ran | both report |
+| F4 | the cover proves ABSENCE, not ADOPTION | `surfaceReceiverOf` occurred exactly ONCE — its own declaration | rule A has a consuming entry point; the adoption scan is AC-U16b |
+
+**F1–F3 are one shape and it is not "three more grammar corners": the derivation was applied at one
+POSITION and not its siblings.** The receiver expression was normalized and the element key was not.
+The member was assumed to be dot-selected. The binding declaration was assumed identifier-named. The
+repair is therefore N-rules-to-1 continued one level out — **one `resolveName` consumed at every
+position** — which deletes decision points rather than teaching the recognizer new grammar.
+
+**F4 is the sharpest finding of either round, and it is about the COVER rather than the code.** A
+de-duplication sweep proves no site RE-IMPLEMENTS the rule. It cannot prove anything CALLS it. The
+prototype demonstrated the gap exactly: every duplicate was gone, the sweep reported its expected
+five sites, the suite was green — **and `surfaceReceiverOf` was never called**, so §2.2's three-way
+disposition table described behaviour the prototype did not have. The observable residue was the one
+F4 predicted: `this.ch.typo()` reported while `this["ch"].typo()` was silent. **Both now report
+identically.**
+
+**The adoption scan, and the honest size of the refactor.** Run against the prototype it reports
+**26** name-resolution sites not routed through the one rule. That number is the scan's raw output,
+not a repair list, and it sorts into three kinds:
+
+1. **Genuine variable positions** — a surface or member name resolved from arbitrary syntax. These
+   ROUTE. F1–F3's positions are here.
+2. **Positions whose spelling CANNOT vary by the TypeScript grammar** — a `TypeReference`'s
+   `typeName`, a `FunctionDeclaration`'s name, a `VariableDeclaration`'s name in `passNameOf`. There
+   is no element-access spelling of a function declaration's name. These carry an ACKNOWLEDGEMENT;
+   routing them buys nothing and adds indirection.
+3. **Sites resolving something that is not a surface name at all** — a module specifier string, a
+   diagnostic label. These carry an acknowledgement too.
+
+**Route-or-acknowledge is what makes the count a cover rather than a backlog**, per §2.5 step 1b: an
+unacknowledged site reds, so the 26 is today's output of a derived scan rather than a list anyone
+maintains.
+
+**Full regression after all four repairs.** 81 fixtures, still exactly 2 moved and the same 2; live
+corpus 0 to 0; every §3.6 class still closed; depth independence still byte-identical; every
+negative control still silent.
+
+**What the reviewer REFUTED, recorded so it is not re-derived:** the two opposite defaults remain on
+their safe sides; round-1 F1–F4 produce the recorded reports; `calleeNameOf` and wrapped-callee
+attribution match §3.10. **What it FENCED:** wrapping a derivation SOURCE produces a surfaced
+`MULTI-READ` plus `MISSING-DERIVATION` rather than silence; the four §4.3 inherited fences are
+unchanged.
+
 ---
 
 ## §4 Documented limits
@@ -928,7 +1005,8 @@ suite is not proof for AC-U6** — see its row.
 | **AC-U13** | A value reference carrying a `name` is classified as a USE, not a declaration: `Object.values({ ch })` and `export { ch }` both report `UNCLASSIFIED-USE`. Paired with a real declaration of each accepted parent kind, which must stay silent. | new fixtures + suite cases |
 | **AC-U14** | A statically known element-access receiver resolves: `this["ch"].dispatch(...)` and `` this[`ch`].dispatch(...) `` report, while a non-literal key `ch[name]` stays `opaque`. The pair is what stops the fix from becoming a blanket report. | new fixtures + suite cases |
 | **AC-U15** | Every transparent wrapper the COMPILER defines is skipped, on BOTH sides: `ch!`, `ch as Channel`, `<Channel>ch`, `ch satisfies Channel` each report `MULTI-READ` naming the doubled READ, not the binding. The wrapper axis is read from `ts.OuterExpressionKinds`, and the suite asserts the axis against that enum rather than against a list typed into the test — so a wrapper kind TypeScript adds is covered by default. | new fixtures + suite cases + an axis-parity assertion |
-| **AC-U16** | The rightmost-name rule has exactly ONE implementation and every consumer calls it. **Proved by a STRUCTURAL sweep asserted by the suite** — it parses the module and fails on any site deciding a name by applying `isIdentifier` and `isPropertyAccessExpression` to the same expression, other than the one implementation. A lexical grep cannot do this: it is blind to a copy spelled differently. This is the check that found copies four (`calleeNameOf`) and five (`walkSinks`'s local unwrap) after three consecutive "that was the last one" claims had each been wrong (§3.10). | a derived check over the module, asserted by the suite, plus a constructed violation proving it FAILS |
+| **AC-U16a** | **ABSENCE** — no site re-implements the rule. A STRUCTURAL sweep parses the module and fails on any site deciding a name by applying `isIdentifier` and `isPropertyAccessExpression` to the same expression, other than the one implementation. A lexical grep is blind to a copy spelled differently, which is how copies three, four and five survived earlier greps (§3.10). | a derived check over the module, asserted by the suite, plus a constructed violation proving it FAILS |
+| **AC-U16b** | **ADOPTION** — every site that RESOLVES A NAME routes through the one rule, or carries an inline acknowledgement of why that position's spelling cannot vary; an UNACKNOWLEDGED site REDS. **Absence and adoption are different scans and absence does not imply adoption**: every duplicate can be gone while nothing calls the replacement (§3.13 F4). This scan is also the derived cover for the POSITION axis (§2.5 step 1b), so one mechanism discharges both. | a derived check over the module, asserted by the suite, plus a constructed violation proving it FAILS |
 | **AC-U6** | The live corpus scans **0 findings** under the unified rules. | executable: `scanRepo(LIVE_ROOTS, SEND_AUTH_SURFACES)` asserted empty **with its premise stated executably** — the walk visited a non-zero file count and the enrolled module was among them. `0 of 0` and `0 of N` render identically, and a zero over an empty population is not a pass. |
 | **AC-U7** | All 81 pre-existing fixture verdicts are preserved except the two named in §3.6, whose changes are additive only. | the deciding suite's existing cases, unmodified except the two, plus the plan's per-fixture before/after diff run at plan time and pasted |
 | **AC-U8** | `shadowedBetween` no longer exists, and no loop in the module has its termination in a mutable predicate. | grep for the symbol returning 0, plus a module audit for the loop property — a totalisation that moves termination into a predicate turns an off-by-one mutant into a NON-TERMINATING one and takes the whole measurement down |
