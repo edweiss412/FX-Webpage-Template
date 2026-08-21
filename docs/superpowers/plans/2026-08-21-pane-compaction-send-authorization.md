@@ -42,7 +42,7 @@ in the live file and are NOT part of the restoration). Classes per spec §8.1:
 
 | Historical case (deleted block) | Class |
 | --- | --- |
-| `--dry-run` refusal/no-write/no-consume trio | 2 — adapted (bytes gain §3.6 address line) |
+| `--dry-run` refusal/no-write/no-consume trio, plus "shows the refusal it would hit, and spends nothing" | 2 — adapted (bytes gain §3.6 address line) |
 | resume-refusal-names-RULE; rule-4 names field; singly-claimed not UNOWNED; claimed-by-other BY NAME | 1 — verbatim |
 | AC-13 purview transfer "between observation and send" | 2 — adapted PIN (two-read premise → transferred purview IN the pass; kill target: ownership-check-deleted build) |
 | leaves-roster refuses with THAT reason | 2 — adapted (single-pass framing; lying-refusal pin retained) |
@@ -51,7 +51,8 @@ in the live file and are NOT part of the restoration). Classes per spec §8.1:
 | the seven refusal-naming cases (missing --as after flag; unresolvable target; herdr FAULT not a missing target; resolved-but-not-on-roster; terminal-id-only target; no-target names itself; driving without --as) | 1 — verbatim |
 | `--compact --dry-run` hex-compare (AC-6) | 1 — verbatim (spec §3.6: `/compact` carries no address; bytes stay `/compact\r`) |
 | checkpoint/resume send-text and dry-run byte cases | 2 — adapted (address line; resume deference line; BOTH address forms, live and dry-run, incl. a resume dry-run byte case) |
-| resume-refuses-on-OBSERVATION (blockedOn flip shape) | 2 — adapted PIN (kill target: rule-stop-deleted build) |
+| resume-refuses-on-OBSERVATION — the STATIC rule-vs-banding case at baseline :920 ("not merely when banding says WAIT") | 2 — adapted PIN (kill target: rule-stop-deleted build) |
+| `it.each` checkpoint/resume "revalidates before sending, like --compact does" pair (TWO dynamic instances, baseline :607; r3 F3 — previously unaccounted) | 3 — retired (the case's premise IS the second read §3.2 deletes; its intent — fresh state per sending invocation — is carried by the structural cover's set-equality and two-invocation freshness cases) |
 | current fence suite (zero-reads spies) | 3 — retired with the fence |
 | `revalidate.test.ts` "runs immediately before sending" describes (revalidation-callback premises, incl. stale-verdict/purview at lines 104–174) | 3 — retired (§3.2 deletes the second pass); nonce-from-pass and consume-before-send re-target as pins in Task 2 |
 
@@ -136,11 +137,19 @@ release") is absent from `scripts/pane-compaction.ts` and no flag gates the send
 dispatch (AC-10's no-flag clause); re-target
 `revalidate.test.ts`'s surviving cases (nonce compared from the pass's marker copy;
 consume-before-send leaves a refused record reusable) and delete its retired describes,
-each named in the commit message with §3.2 as the reason. Run against the CURRENT tree:
-observed red — the fence refuses every sending case (that red is the fence's, i.e.
-wrong-reason for the pin cases, which is WHY the fence removal and the suite land in ONE
-cycle: the suite is this task's red, per spec §8.1 and rule "the guard is the red of the
-change's own task").
+each named in the commit message with §3.2 as the reason. Observed red, TWO records (r3 F1 — the second is the structural red spec AC-3/§4 require,
+and the fenced tree cannot produce it: the fence returns before any read, so the spy fails
+with zero reads there, not duplicate ones):
+(i) against the CURRENT tree, the full restored suite — the fence refuses every sending
+case (the task-gate red; wrong-reason for the pin cases, which is WHY the fence removal and
+the suite land in ONE cycle: the suite is this task's red, per spec §8.1 and the
+guard-is-the-red rule);
+(ii) with ONLY the fence block deleted as an UNCOMMITTED probe edit (drive() and its
+two-pass reads untouched), the read-member spy fails on DUPLICATE reads — marker at entry
+(scripts/pane-compaction.ts:733) and again inside authorize(), roster twice — the
+structural red against the shipped two-pass structure. Record the failing assertion lines,
+restore the probe edit byte-exact (git checkout, blob hash compared) before GREEN begins;
+the probe edit is never committed.
 
 GREEN: delete the fence block whole (no flag); rebuild `drive()` on one read-once pass —
 wrap the live `Surface` in the read-once memo derived from the `SEND_AUTH_SURFACES` row's
@@ -183,16 +192,29 @@ ownership-check-deleted; rule-1–8-stop-deleted; verdict-gate-deleted;
 nonce-equality-deleted; rule-1(NOT-AN-ARC)-deleted. Record ABSENT /
 PRESENT-BUT-UNPROVEN / PROVEN per pin — all must end PROVEN (AC-3). Paste each kill's
 failing assertion line into the commit message. No pin may be proven by a crash red (spec
-§8.2). Per-build invocation template (expected: non-zero vitest exit AND a failure line
-naming the pin's test title; anything else is NOT a kill):
+§8.2). Per-build invocation template (r3 F2 replaced the fail-open r2 form, whose exit
+status was the restore check's and discarded the vitest verdict — a surviving mutant exited
+0 through it). The template FAILS unless the suite failed AND the failure names the pin:
 
+    LOG=$(mktemp); PIN_TITLE="<the pin's exact test title>"
     before=$(git hash-object scripts/lib/pane-compaction-core.ts scripts/pane-compaction.ts | tr '\n' ' ')
     # apply ONE named weakened edit
-    pnpm vitest run tests/paneCompaction/adapter.test.ts tests/paneCompaction/authorization.test.ts
-    # record: exit code + the failing assertion line naming the pin
+    pnpm vitest run tests/paneCompaction/adapter.test.ts tests/paneCompaction/authorization.test.ts > "$LOG" 2>&1; vexit=$?
     git checkout -- scripts/lib/pane-compaction-core.ts scripts/pane-compaction.ts
     after=$(git hash-object scripts/lib/pane-compaction-core.ts scripts/pane-compaction.ts | tr '\n' ' ')
-    test "$before" = "$after" && echo RESTORED || { echo RESTORE-FAILED; exit 1; }
+    test "$before" = "$after" || { echo RESTORE-FAILED; exit 1; }
+    test "$vexit" -ne 0 || { echo "SURVIVED: build not killed"; exit 1; }
+    grep -E "(×|✗|FAIL).*" "$LOG" | grep -qF "$PIN_TITLE" || { echo "WRONG-KILL: no failure names the pin"; exit 1; }
+    echo "KILLED: $PIN_TITLE"
+
+Then read the log by hand and record the failing ASSERTION line — a collection or
+module-load crash is a red the template cannot distinguish from an assertion failure, and
+spec §8.2 rejects it; the human read is the crash filter.
+
+Task commit (r3 F4 — a measurement task still owes its one commit): `git commit
+--allow-empty` with the per-build PROVEN table, each kill's failing assertion line, and the
+blob-hash restore pairs in the message. The tree is unchanged by design; the record is the
+deliverable.
 
 <!-- tasks: depth=2 red-contract -->
 
@@ -229,7 +251,10 @@ Killer audit derived from spec §4's fourth column plus Task 4's table — deriv
 obligation list from the documents, not recall. The round-1 diff brief carries
 `GUARD SURFACE: paneCompactionCore` with `MUTATION SCORE: <killed>/<total>` and "0
 unaccepted survivors" on the same line (wrapper exits 2 otherwise). A source edit after the
-run RETIRES the number — say so and re-run rather than quoting it.
+run RETIRES the number — say so and re-run rather than quoting it. Task commit (r3 F4):
+`git commit --allow-empty` with the score, the survivor set (must be empty of unaccepted
+rows), the stamp pair, and the `mutation:sites` re-key account in the message — the later
+review brief QUOTES this commit's number, it is not the number's home.
 
 ## Task 7 — ledger closeout, early (one commit, before whole-diff review)
 
@@ -302,9 +327,9 @@ the whole-diff review approves (the arming window, AGENTS.md invariant 12 ruling
 | --- | --- | --- |
 | AC-1 (one read-once pass; read-member spy) | Task 2 structural cover | `pnpm vitest run tests/paneCompaction/adapter.test.ts` |
 | AC-2 (nonce from the pass's marker copy) | Task 2 (adapter-level instrumented-marker case; revalidate pins cover the core half) | `pnpm vitest run tests/paneCompaction/adapter.test.ts tests/paneCompaction/revalidate.test.ts` |
-| AC-3 (structural red-then-green; pins PROVEN) | Task 2 red record + Task 4 kill records | `pnpm vitest run tests/paneCompaction/adapter.test.ts tests/paneCompaction/authorization.test.ts` — once as Task 2's recorded red against the fenced tree, once per weakened build under Task 4's template (non-zero exit + failure line naming the pin) |
+| AC-3 (structural red-then-green; pins PROVEN) | Task 2 red records (i)+(ii) + Task 4 kill records | `pnpm vitest run tests/paneCompaction/adapter.test.ts tests/paneCompaction/authorization.test.ts` — once against the fenced tree (record i), once against the fence-deleted uncommitted probe edit (record ii — the structural duplicate-read red), once per weakened build under Task 4's template |
 | AC-4 (refusals name the condition) | Task 2 (restored verbatim class) | `pnpm vitest run tests/paneCompaction/adapter.test.ts` |
-| AC-5 (resume predicate; mode verdict gates) | Task 1 + Task 2 | both red commands above |
+| AC-5 (resume predicate; mode verdict gates) | Task 1 + Task 2 | `pnpm vitest run tests/paneCompaction/authorization.test.ts tests/paneCompaction/adapter.test.ts` |
 | AC-6 (dry-run byte-exact: compact verbatim `/compact\r`; checkpoint and resume in BOTH address forms) | Task 2 | `pnpm vitest run tests/paneCompaction/adapter.test.ts` |
 | AC-7 (no `\x1b`, both paths) | Task 2 (adapter-level live-send spy through main(); driver core pins updated in Task 1) | `pnpm vitest run tests/paneCompaction/adapter.test.ts tests/paneCompaction/driver.test.ts` |
 | AC-8 (nonce single-use, consume before send) | Task 2 (re-targeted revalidate pins) | `pnpm vitest run tests/paneCompaction/revalidate.test.ts` |
