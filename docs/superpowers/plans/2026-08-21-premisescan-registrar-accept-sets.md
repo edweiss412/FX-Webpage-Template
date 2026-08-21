@@ -50,7 +50,7 @@ here.
 | **AC-3** | The interleaved peel resolves `test.skipIf(c).each(rows)(…)` to its real registration, and no spurious registration is invented from the condition variable. | §2 |
 | **AC-4** | Every call in the callee chain contributes its eager arguments, in the SAME traversal as the peel. | §3.5 |
 | **AC-5** | `suite` is adopted AT THE DISPATCH, not merely in `REGISTRARS`; `bench` is excluded by construction. | §3.3 |
-| **AC-6** | ONE predicate, parameterised by the name set, serves all three bare-identifier-callee SITES, and it keys on the property NAME alone. | §3.4, §3.7 |
+| **AC-6** | ONE predicate, parameterised by the name set AND by whether a property access counts, serves all three bare-identifier-callee SITES. The two hook consumers accept any object; `loadTimePremises` does not, because widening it would FALSELY CERTIFY rather than over-report. | §3.4, §3.7 |
 | **AC-7** | Builders (`extend`, `override`, `scoped`, `fn`) are excluded because the declaration does not name them, not by an exception list. | §3.2 |
 | **AC-8** | Every selector in the extractor ABORTS when it matches nothing, rather than returning a confident empty set. | §3.2 |
 
@@ -240,8 +240,9 @@ Four edits to `premiseScan.ts`, one new extractor module, one new pin test.
    scanner does NOT read `node_modules` at scan time (§5 L1) — the pin does, in the test.
 3. **`suite` is adopted at the DISPATCH.** Widening `REGISTRARS` alone is adoption that behaves as
    nothing (§3.3). Both sites that name `"describe"` accept `suite` too.
-4. **One predicate, three sites, parameterised by the name set.** A callee matches when its property
-   NAME is in the given set — bare identifier or any property access. `HOOK_REGISTRARS` itself has
+4. **One predicate, three sites, parameterised by the name set AND the direction.** A callee matches
+   when its property NAME is in the given set; whether a property access counts is a parameter,
+   because widening is conservative at the two hook sites and FALSE CERTIFICATION at the third. `HOOK_REGISTRARS` itself has
    TWO consumers; the third site, `loadTimePremises`, carries the identical shape over
    `/^premise(Holds)?$/`, which is why the predicate takes the set rather than closing over one.
    Three copies of a rule are three things that drift, the accept-set defect one level down.
@@ -282,9 +283,17 @@ New module vitestSurface.ts, beside the scanner under `tests/mutation/source/`, 
 
 | set | derived from | today |
 | --- | --- | --- |
-| `MODIFIERS` | `ChainableSuiteAPI` ∪ `ChainableTestAPI` chain keys and curried members, ∪ `SuiteAPI`'s condition-taking members | 11 |
+| `MODIFIERS` | `ChainableSuiteAPI` ∪ `ChainableTestAPI` chain keys and curried members, ∪ every condition-taking member reachable from `SuiteAPI` **and** `TestAPI` — including through named interfaces in their intersections | 11 |
 | `HOOK_REGISTRARS` | members of `interface Hooks` | 6 |
 | `REGISTRARS` | `declare const X: SuiteAPI \| TestAPI` | 4 — `suite`, `describe`, `it`, `test` |
+
+**The conditional selector follows the intersection, including its NAMED members** (plan review r4
+finding 3). `TestAPI = ChainableTestAPI & ExtendedAPI & Hooks & { … }`
+(`node_modules/@vitest/runner` — `type TestAPI`, 4.1.5), and `skipIf`/`runIf` are declared on
+`interface ExtendedAPI`, not inline. A selector reading only `SuiteAPI`'s inline object gets the right
+ANSWER today, because the two coincide, and would not RED if `ExtendedAPI` gained a member — which
+falsifies AC-2's upgrade-red claim while every equality check still passes. Resolve each intersection
+member: inline type literals directly, named references by looking the declaration up.
 
 **AC-8's floor is per selector, not per module.** Each of the four selectors throws naming ITSELF when
 it yields nothing; a module-level "did we get anything" check passes as long as one selector still
@@ -401,12 +410,33 @@ plus `tests/mutation/source/premiseScan.ts:1758` and `tests/mutation/source/prem
 bare-identifier-callee shape over `/^premise(Holds)?$/`. Spec §3.4 has been corrected; the
 parameterised predicate is what lets one implementation serve a site that ranges over a different set.
 
-**The three sites fail in different DIRECTIONS, and both are repaired anyway.** The two hook
-consumers fail toward a silent FREE — the thing §6's bound forbids. `loadTimePremises` failing to see
-`t.premise(…)` reports a premise as MISSING when one exists, which is conservative and therefore not
-urgent. It is repaired in the same change because it is the same one-line call and the class-sweep
-default is every instance of one shape in the same PR; deferring it would need a reason the sweep
-rule accepts, and "same defect, different file" is explicitly not one.
+**The three sites fail in OPPOSITE directions, and only two get the widening. This retracts an
+earlier draft of this plan** (plan review r4 finding 1), which said all three were repaired because
+"it is the same one-line call" — the class-sweep default correctly applied to the wrong class.
+
+- The two hook consumers fail toward a **silent FREE**. More matching means more
+  environment-touching, so widening them is CONSERVATIVE.
+- `loadTimePremises` feeds `premiseIsAssociated`, and from there `hasPremise`
+  (`tests/mutation/source/premiseScan.ts:1729`). More matching means more registrations credited with
+  a premise they do not have — **FALSE CERTIFICATION**, which is the direction §6's bound names first.
+  `logger.premise("rows", rows.length, 0)` sitting before an `.each` registration would satisfy the
+  associated-premise requirement outright.
+
+**So the predicate takes the name set AND whether a property access counts**, and
+`loadTimePremises` is called with property access OFF — it keeps requiring a bare identifier. Its
+existing failure, not seeing `t.premise(…)`, reports a premise as MISSING when one exists, which is
+conservative and is a DOCUMENTED LIMIT rather than a defect.
+
+**A pre-existing instance of the same shape is bracketed, not widened.** `hasPremise` ORs a raw text
+match, `/\bpremise(Holds)?\s*\(/` over the test's own text (`tests/mutation/source/premiseScan.ts:1729`),
+and `\b` matches after a `.` — so `logger.premise(…)` INSIDE a test body already certifies today, on
+`origin/main`, independently of this change. That is pre-existing, is not caused or widened here, and
+closing it is a separate decision about a different code path. Recorded so a later reviewer does not
+re-derive it.
+
+**A one-directional class sweep is the lesson.** The shape was identical at all three sites; the
+CONSEQUENCE of repairing it was not. Sweeping a class means checking each instance's failure
+direction, not only its syntax.
 
 Cases, one per site, because a single case passes with two of three still unrepaired:
 
@@ -434,21 +464,34 @@ an earlier draft appended the partition BESIDE the whole-population numbers it s
 both standing, which was r3 finding 1). The claim is partitioned, and records are name-keyed so
 inserting a case does not re-key every record below it.
 
-### Step 0 — the baseline, BEFORE any source edit
+### Step 0 — the baseline, taken FROM THE MERGE BASE
 
-Its omission cannot be recovered later without checking out the merge base again.
+**A working-tree guard cannot produce this baseline, and an earlier draft's did not** (plan review r4
+finding 2). Task 4 runs AFTER Tasks 1-3, which COMMIT their changes, so `git diff --quiet` reports a
+clean tree and happily censuses the post-change state — a "before" identical to the "after", under
+which the one-addition check fails and every diff reads empty. The guard was checking the wrong thing:
+not "is the tree dirty" but "is this tree the one I mean to measure".
+
+Take it from the merge base itself, in a detached worktree, so no ordering discipline is required:
 
 ```bash
-git diff --quiet tests/mutation/source/premiseScan.ts tests/mutation/source/premiseScan.test.ts \
-  || { echo "ABORT: a subject file is already modified; this would be a snapshot, not a baseline"; exit 2; }
 CENSUS=docs/superpowers/specs/ci/probes/2026-08-21-premisescan-registrar-accept-sets/census.mts
-pnpm exec tsx "$CENSUS" --records | tail -n +7 | sort > /tmp/census-before.txt
-wc -l < /tmp/census-before.txt    # 2761 on this tree; recorded as provenance, NOT as a later expectation
+BASE=$(git merge-base origin/main HEAD)
+git worktree add --detach /tmp/census-base "$BASE" >/dev/null
+ln -s "$PWD/node_modules" /tmp/census-base/node_modules
+mkdir -p "/tmp/census-base/$(dirname "$CENSUS")"
+cp "$CENSUS" "/tmp/census-base/$CENSUS"      # the probe post-dates the merge base
+(cd /tmp/census-base && pnpm exec tsx "$CENSUS" --records) | tail -n +7 | sort > /tmp/census-before.txt
+git worktree remove --force /tmp/census-base
+
+[ -s /tmp/census-before.txt ] || { echo "ABORT: empty baseline"; exit 2; }
+git -C . diff --quiet "$BASE" -- tests/mutation/source/premiseScan.ts \
+  && { echo "ABORT: the scanner is unchanged from the merge base; there is nothing to measure"; exit 2; }
 ```
 
-The `git diff --quiet` guard is what makes it a baseline rather than a snapshot of whatever was in
-the tree: a "before" captured over a half-applied change is the failure this task exists to detect,
-wearing the baseline's name.
+The second guard is the one that matters and it is the one the earlier draft could not express: it
+compares the working tree against **the merge base**, not against HEAD, so a committed change is
+visible to it. It also fails when Tasks 1-3 have NOT run — a baseline compared against itself.
 
 ### Step 1 — the third declaration is unmoved
 

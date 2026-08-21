@@ -164,9 +164,13 @@ That is a silent free, and widening the hook NAMES does not touch it — spec re
 **§3.3's own rule arriving one section later on this spec's own change**: an accept-set is only
 adopted where every consumer of it agrees.
 
-The repair is ONE shared predicate, PARAMETERISED BY THE NAME SET — a callee matches when its
-property name is in the set, whether it is a bare identifier or a property access on any object —
-applied at all three SITES. Parameterised rather than hook-specific precisely because the third site
+The repair is ONE shared predicate, PARAMETERISED BY THE NAME SET **and by whether a property access
+counts**, applied at all three SITES. **The direction of failure differs and decides that second
+parameter:** at the two hook consumers, matching more means reporting more environment-touching, so
+accepting any object is conservative. `loadTimePremises` feeds `hasPremise`
+(`tests/mutation/source/premiseScan.ts:1729`), where matching more means crediting a registration
+with a premise it does not have — false certification, the direction §6's bound names first. So that
+site keeps requiring a bare identifier, and not seeing `t.premise(…)` stays a documented limit. Parameterised rather than hook-specific precisely because the third site
 ranges over a different set: a predicate hard-coded to `HOOK_REGISTRARS` could not serve it, and
 leaving it behind would leave one instance of a three-instance shape unrepaired. One predicate rather
 than three, because three copies of a rule are three things that drift, which is the same defect one
@@ -299,15 +303,18 @@ C derived+peel       77        2762           101      2660               1
 ```
 
 **The claim is the RECORD diff, not the totals.** Three equal integers are satisfied by any
-permutation that keeps the counts, so `--records` emits one `verdict | suite | name` row per
-classified test and the comparison is a diff of those rows. **The row is keyed by NAME, never by
-line** — inserting a case anywhere in a suite re-keys every record below it, and the diff then reports
-a wall of spurious moves that hides the real one, which is the same churn
-`BL-MUTATION-SITEID-LINE-KEYED-CHURN` is filed against in the survivor ledger:
+permutation that keeps the counts, so `--records` emits one `verdict | suite | name #ordinal` row per
+classified test and the comparison is a diff of those rows. **The row is keyed by NAME plus an
+OCCURRENCE ORDINAL, never by line.** Not by line, because inserting a case re-keys every record below
+it — the churn `BL-MUTATION-SITEID-LINE-KEYED-CHURN` is filed against in the survivor ledger. But not
+by name alone either: 18 keys are duplicated on the live corpus, so a scanner that attributes an
+environment read to the WRONG one of two same-named registrations would emit a byte-identical record
+set, rendering wrong attribution as no change at all. The ordinal is the Nth registration of that name
+within that suite, in line order — unmoved by unrelated insertions, moved by a swap between the two:
 
 ```
 $ diff <(A --records) <(C --records)
-> environment-free | tests/cross-cutting/psqlStartupFileSuppression.test.ts | chmod 000 on a directory holding a psql site fails the census
+> environment-free | tests/cross-cutting/psqlStartupFileSuppression.test.ts | chmod 000 on a directory holding a psql site fails the census #1
 ```
 
 **One record added, zero records moved.** The environment-touching set — all 101 rows — is

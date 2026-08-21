@@ -69,14 +69,37 @@ console.log(`unclassifiable  ${count("unclassifiable")}`);
 
 if (process.argv.includes("--records")) {
   console.log("");
-  // A record is keyed by NAME, never by line. Line is provenance, not identity:
-  // inserting a case anywhere in a suite re-keys every record below it, and a
-  // diff then reports a wall of spurious moves that hides the real one. This is
-  // the same churn `tests/mutation/source/registry.ts` carries in its
-  // line-keyed accepted survivors, and `BL-MUTATION-SITEID-LINE-KEYED-CHURN`
-  // is filed against it -- there is no reason to reproduce it here.
-  const sorted = rows.slice().sort((a, b) => `${a.suite}\u0000${a.name}`.localeCompare(`${b.suite}\u0000${b.name}`));
-  for (const r of sorted) {
-    console.log([r.verdict, r.suite, r.name].join(" | "));
+  // Keyed by NAME plus an OCCURRENCE ORDINAL, never by line, and both halves
+  // are load-bearing in opposite directions.
+  //
+  // Not by line, because inserting a case re-keys every record below it and the
+  // diff becomes a wall of spurious moves hiding the real one -- the churn
+  // `BL-MUTATION-SITEID-LINE-KEYED-CHURN` is filed against in the survivor
+  // ledger, and no reason to reproduce it in a fresh instrument.
+  //
+  // But NAME ALONE IS NOT UNIQUE: 18 keys are duplicated on the live corpus
+  // today, two of them in `tests/docs/interactionTimingScan.test.ts` under
+  // "the boundary predicate ACCEPTS %s". With a name-only key, a scanner that
+  // attributes an environment read to the WRONG one of two same-named
+  // registrations emits a byte-identical record set -- wrong attribution, which
+  // is one of the two directions the consequence bound forbids, rendering as no
+  // change at all.
+  //
+  // The ordinal is the Nth registration of that name within that suite, in line
+  // order. Unrelated insertions do not move it; a swap between two same-named
+  // registrations does.
+  const byKey = new Map<string, number>();
+  const keyed = rows
+    .slice()
+    .sort((a, b) => a.suite.localeCompare(b.suite) || a.line - b.line)
+    .map((r) => {
+      const base = `${r.suite}\u0000${r.name}`;
+      const n = (byKey.get(base) ?? 0) + 1;
+      byKey.set(base, n);
+      return { ...r, ordinal: n };
+    });
+  keyed.sort((a, b) => `${a.suite}\u0000${a.name}\u0000${a.ordinal}`.localeCompare(`${b.suite}\u0000${b.name}\u0000${b.ordinal}`));
+  for (const r of keyed) {
+    console.log([r.verdict, r.suite, `${r.name} #${r.ordinal}`].join(" | "));
   }
 }
