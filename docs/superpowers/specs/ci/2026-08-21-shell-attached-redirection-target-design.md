@@ -34,7 +34,7 @@ It is PRE-EXISTING and was not made worse by the arc that filed it.
 | 1 | **Handing the attached slice to `lexShellWords` recursively and exposing the result to the SITE path is REFUSED.** It breaks the by-construction site-path identity the detached-target arm rests on. | `BACKLOG.md:95`; `tests/cross-cutting/psqlStartupFiles/scan.ts:293` |
 | 2 | **Recursive lexing that keeps the bodies PRIVATE is REFUSED.** It is machinery with the miss still in place. | `BACKLOG.md:95`; `tests/cross-cutting/psqlStartupFiles/scan.ts:294` |
 | 3 | **The repair changes no live behaviour today.** The corpus holds zero instances (§2.3). This is a PROSPECTIVE guard, fail-closed against future authoring, and that is the whole of its value. A finding that it fixes nothing observable is answered here. | §2.3 |
-| 4 | **No resolver.** The design decides nothing about what a target EVALUATES to. It delimits, collects, and reports. | §3 |
+| 4 | **No resolver.** The design decides nothing about what a target EVALUATES to. It delimits, retains, collects, and reports. | §3 |
 | 5 | **The attached target still never becomes an argv word.** That property is what rows 1 and 2 exist to protect, and §3 preserves it. | §3 |
 | 6 | The withdrawn-scope prose in the surface header and in the deciding suite is RETIRED by this arc, not contradicted. Both sites are named in §6. | §6 |
 
@@ -64,28 +64,37 @@ when it cannot delimit one. For the two substitution-OPENING forms it stops mid-
 hands a fragment to the outer loop, which then mis-lexes it. A repair that merely re-lexes
 `attached[0]` would inherit both fragments.
 
-### 2.2 The acceptance set is silent, and the zeros are attributable
+### 2.2 The acceptance set, and the zeros are attributable
 
-Ten cases through the shipped `scanSource` and `scanShellIndirection`
-(`docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/probe-attached.mts`):
+Twelve cases through the shipped `scanSource` and `scanShellIndirection`
+(`docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/probe-attached.mts`).
+Each SUBJECT declares the post-change expectation it must come to satisfy; the probe asserts that
+none of them holds today and, under `--expect-report`, that all of them hold after.
 
-| case | sites | indirection |
+| case | expectation | today |
 |---|---|---|
-| CONTROL detached backtick target | 1 | 0 |
-| CONTROL detached `$( )` target | 1 | 0 |
-| CONTROL plain call | 1 | 0 |
-| CONTROL detached here-string binding | 0 | 1 |
-| A bare backtick ATTACHED target | **0** | **0** |
-| B `$()` inside ATTACHED double-quoted target | **0** | **0** |
-| C backtick inside ATTACHED double-quoted target | **0** | **0** |
-| D locale-quoted ATTACHED target | **0** | **0** |
-| E substitution inside ATTACHED brace target | **0** | **0** |
-| F plain ATTACHED here-string binding | **0** | **0** |
+| CONTROL detached backtick target | reports | REPORTS |
+| CONTROL detached `$( )` target | reports | REPORTS |
+| CONTROL plain call | reports | REPORTS |
+| CONTROL detached here-string binding | reports | REPORTS |
+| A bare backtick ATTACHED target | reports | silent |
+| B `$()` inside ATTACHED double-quoted target | reports | silent |
+| C backtick inside ATTACHED double-quoted target | reports | silent |
+| D locale-quoted ATTACHED target | reports | silent |
+| E substitution inside ATTACHED brace target | reports | silent |
+| F plain ATTACHED here-string binding | reports | silent |
+| G brace inside an ATTACHED double-quoted target | reports | silent |
+| H escaped backtick inside an ATTACHED backtick target | **attributed to the backtick body** | **REPORTS, WRONGLY** |
 
-**4 of 4 positive controls report**, so the six zeros are attributable rather than the artefact of
-a broken read. A bash oracle with a fake `psql` on PATH confirms **7 of 7 snippets execute psql
-exactly once** (`docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/oracle.mts`) — the scanner is silent about a command that really
-runs.
+**4 of 4 positive controls report**, so the subject results are attributable rather than the
+artefact of a broken read. A bash oracle confirms **7 of 7 A–F snippets execute psql exactly once**
+(`docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/oracle.mts`) — the
+scanner is silent about a command that really runs.
+
+**G and H arrived at spec round 1 and are the reason the expectation is a PREDICATE rather than a
+report/silent binary.** H already REPORTS today, with `nested:false, nestedInBacktick:false` for a
+psql that genuinely sits inside a backtick body — the outcome right and the reason wrong, which a
+binary asking only "did anything report" is structurally blind to.
 
 ### 2.3 Live population: zero, on three execution surfaces
 
@@ -120,72 +129,113 @@ drift detector: the repair must leave it unchanged apart from this arc's own con
 
 ## 3. The design
 
-**Delimit the attached target with the construct-aware machinery the lexer already ships, collect
-its nested bodies into `nested`, and REPORT anything the machinery cannot delimit.**
+**Delimit the attached target with the construct-aware machinery the lexer already ships; RETAIN
+the dequoted target for the callers that ask for one; collect its nested bodies into `nested`; and
+REPORT anything the machinery cannot delimit.**
 
-Three parts, no new grammar:
+Four parts, no new grammar. Part 2 is new at spec round 1 — the three-part design could not
+satisfy case F at all, and finding 1 is why.
 
 1. **Delimit by construct, not by character run.** Walk the attached slice using the handlers that
    already exist: `matchBrace` (`tests/cross-cutting/psqlStartupFiles/scan.ts:946`) for `${…}` and
    `$(…)`, the backtick scan, and the quote scanners. This is what fixes §2.1's two mid-construct
    stops — the boundary comes from the construct, so it cannot land inside one.
 
-2. **Collect into `nested`.** Re-anchor each body into the outer `nested` array exactly as the
+2. **Retain the DEQUOTED target as a `RedirectionTarget`** in the optional `targets` array
+   (`tests/cross-cutting/psqlStartupFiles/scan.ts:1041`), carrying `operator`, `line`, `offset` and
+   `operatorOffset` exactly as the DETACHED arm already does.
+
+   **Why this part exists, and why it is not either REFUSED reading.** The here-string family
+   binds from the TARGET, not from a nested body — `<<<p'sql'` has no nested body at all — and
+   `hereStringBindingLines` (`tests/cross-cutting/psqlStartupFiles/scan.ts:2970`) reads only that
+   array. Without retention, case F is unreachable by construction.
+
+   The `targets` array is also precisely the mechanism that PRESERVES site-path identity, in the
+   type's own words: *"Targets never enter the returned word array: `scanShellText` passes no array
+   and so receives a byte-identical `ShellWord[]`, which is what makes the site path unchanged BY
+   CONSTRUCTION rather than by care at each consumer."* `scanShellText` passes no `targets` array;
+   `scanShellIndirection` does (`tests/cross-cutting/psqlStartupFiles/scan.ts:3080`). So retention
+   reaches the binding path and cannot reach the site path — which is the property §1.1 rows 1 and
+   2 protect, obtained by construction rather than by care.
+
+3. **Collect nested bodies into `nested`.** Re-anchor each body into the outer array exactly as the
    `${…}` branch already does (`tests/cross-cutting/psqlStartupFiles/scan.ts:1340`), so
    `scanShellText` reads them as it reads every other substitution body. This is the ledger's
-   ratified closing reading.
+   ratified closing reading, and it serves the SUBSTITUTION family (cases A–E, G, H).
 
-3. **Report the unlexable.** A slice the machinery cannot delimit — an unterminated backtick,
-   brace or quote — is REPORTED, never silently discarded. A declined input needs a channel, not
-   an exclusion.
+4. **Report the unlexable, on a named channel.** A slice the accept-set cannot delimit — an
+   unterminated backtick, brace or quote — emits an **`IndirectionHit`**
+   (`tests/cross-cutting/psqlStartupFiles/scan.ts:438`) from `scanShellIndirection`, carrying
+   `{ file, line, text }` where `text` names the undelimitable target.
 
-**Why this is not either REFUSED reading.** The target's own text never becomes an argv word and
-is never exposed to the site path, so the by-construction identity that rows 1.1/1 and 1.1/2
-protect is untouched. Only the nested BODIES — which already have a well-defined route through
-`scanShellText` — are surfaced, and they are surfaced by the mechanism that already carries every
-other substitution body.
+   **That channel is named rather than left to prose because finding 2 showed silent consumption
+   and several incompatible loud behaviours all satisfied the earlier wording.** It is an existing
+   surfaced channel — `collectPsqlUsage` already collects `indirections` for non-JS files — so this
+   adds no type and no result shape. It does NOT throw, does NOT extend `PsqlUsage`, and does NOT
+   emit a `PsqlSite`: an unlexable target is a "something here I cannot read" signal, which is what
+   an indirection hit already means.
 
-### 3.1 Accept-set with default-deny
+   **The report fires only when the undelimitable span contains a substitution opener** (`$(`,
+   `` ` `` or `${`). A plain `>"${OUT}"` is an ordinary attached target and must stay quiet; the
+   live corpus holds 46 such targets (§2.3) and none may become an advisory.
+
+### 3.1 Accept-set with default-deny, applied at EVERY depth
 
 The attached slice's interior is delimited by an ACCEPT-SET of construct openers, keyed on
 STRUCTURE rather than spelling:
 
-| opener | delimiter |
-|---|---|
-| `${` | `matchBrace` |
-| `$(` | `matchBrace` |
-| `` ` `` | backtick scan |
-| `"` … `$"` | double-quote scanner |
-| `'` … `$'` | single-quote / ANSI-C scanner |
-| `\` | escape pair |
-| any other non-metacharacter | literal run |
+| opener | delimiter | precedence |
+|---|---|---|
+| `\` | escape pair — consumes the NEXT character whatever it is | **highest** |
+| `${` | `matchBrace` | |
+| `$(` | `matchBrace` | |
+| `` ` `` | backtick scan | |
+| `"` and `$"` | double-quote scanner | |
+| `'` and `$'` | single-quote / ANSI-C scanner | |
+| any other non-metacharacter | literal run | lowest |
 
-**Everything outside this set is REPORTED as an unlexable target, by default rather than by
-enumeration.** A later finding INSIDE the accept set is a bug in scope this spec promised to
-handle. A spelling OUTSIDE it is a documented limit by construction and is not an admissible
-finding — which is what makes the axis closable rather than an open grammar to chase.
+**Two precedence rules are normative, and each answers a round-1 finding:**
 
----
+- **The accept-set applies RECURSIVELY, at every nesting depth inside the attached slice,
+  including inside quotes.** Finding 3: `cat >"${OUT:-$(psql -c "select 1")}"` is one ordinary
+  edit from cases B and E, bash executes it, and it is silent today because the main `${…}` branch
+  is unreachable inside double quotes (`tests/cross-cutting/psqlStartupFiles/scan.ts:1329`) while
+  the double-quote scanner recognises `$(` and backticks but not `${`
+  (`tests/cross-cutting/psqlStartupFiles/scan.ts:1445`). Uniform recursion is what makes the
+  accept-set mean inside a quoted target what it means outside one. Anything the recursion cannot
+  delimit routes to part 4 rather than being consumed.
+
+- **The escape pair binds TIGHTER than every other opener.** Finding 4: both shipped backtick paths
+  close on `indexOf("` `` `")` (`tests/cross-cutting/psqlStartupFiles/scan.ts:1371` and `tests/cross-cutting/psqlStartupFiles/scan.ts:1482`), so
+  an ESCAPED backtick closes the span early and the remainder is attributed to top-level shell
+  text. Measured: the psql reports with `nested:false, nestedInBacktick:false` while it genuinely
+  sits inside a backtick body — WRONG ATTRIBUTION, which §5 forbids outright. The escape pair
+  taking precedence is what stops a `\`` from terminating anything.
+
+**Everything outside this set is REPORTED through part 4, by default rather than by enumeration.**
+A later finding INSIDE the accept set is a bug in scope this spec promised to handle. A spelling
+OUTSIDE it is a documented limit by construction and is not an admissible finding — which is what
+makes the axis closable rather than an open grammar to chase.
 
 ## 4. Acceptance criteria
 
-Each row names the command that proves it.
+Each row names a command that can FAIL for the thing the row asserts. Round 1 finding 6 caught the
+earlier table naming probes that only printed: a command that exits 0 whatever it observes proves
+nothing, and an AC citing prose is decoration.
 
-| id | criterion | proved by |
+| id | criterion | proved by, and it fails when the criterion does |
 |---|---|---|
-| AC-1 | All six §2.2 acceptance-set spellings report the executing psql. | the §2.2 probe, re-run, expecting REPORT |
-| AC-2 | All four §2.2 positive controls still report. | same probe |
-| AC-3 | An unterminated backtick / brace / quote in an attached target is REPORTED as unlexable, not discarded. | a constructed case per opener |
-| AC-4 | `F11 a psql call, ATTACHED output redirection` still reports 1 site with `suppressesStartupFiles === false`. | `tests/cross-cutting/psqlStartupFileSuppression.test.ts:5566` |
-| AC-5 | The live-corpus finding set is unchanged apart from this arc's fixtures: 76 sites, digest `7a315aa397df9179bec3f11f25f7ea7efcc0c688`. | `docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/baseline-corpus.mts`, re-run |
-| AC-6 | The two retired declared-limit pins are retired deliberately, with their new values pinned. | §6 |
-| AC-7 | `psqlStartupScan` scores at or above its floor with an empty unaccepted-survivor set. | `pnpm mutation:guards` |
+| AC-1 | All eight §2.2 subjects meet their expectation. | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/probe-attached.mts --expect-report` — exits 1 naming every subject still unmet |
+| AC-2 | All four §2.2 positive controls still report. | same command — a silent control ABORTS the run with exit 2, so a subject pass can never rest on a broken read |
+| AC-3 | An attached target carrying an unterminated backtick, brace or quote emits an `IndirectionHit` naming it; its terminated sibling emits none. | a paired case per opener in the deciding suite: `pnpm exec vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts` |
+| AC-4 | `F11 a psql call, ATTACHED output redirection` still reports 1 site with `suppressesStartupFiles === false`. | the same suite — the row is an executable `toEqual` at `tests/cross-cutting/psqlStartupFileSuppression.test.ts:5566` |
+| AC-5 | The live-corpus finding set is unchanged: 76 rows, digest `7a315aa397df9179bec3f11f25f7ea7efcc0c688`. | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/baseline-corpus.mts --expect 7a315aa397df9179bec3f11f25f7ea7efcc0c688` — exits 1 printing expected and actual when the set moves, and exits 2 on a zero-row read |
+| AC-6 | Every declared-limit pin in §6 moves deliberately, and none moves silently. | the same suite: each retired row is re-pinned at its NEW value, and each held row at its old one, so a recognizer change that moves an unlisted pin reds |
+| AC-7 | `psqlStartupScan` scores at or above its floor with an empty unaccepted-survivor set. | `pnpm heavy pnpm mutation:guards` |
+| AC-8 | The three-surface census still finds ZERO substitution-bearing attached targets, so the repair manufactured no live instance. | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/corpus-family3.mts` — ABORTS on a surface holding redirection characters that yields no targets |
 
-**AC-5 is the consequence bound made executable.** It distinguishes a guard that got stricter
-from one that merely got louder, and it is the one check no reading of the diff can substitute
-for.
-
----
+**AC-5 is the consequence bound made executable.** It distinguishes a guard that got stricter from
+one that merely got louder, and it is the one check no reading of the diff can substitute for.
 
 ## 5. Convergence criterion
 
@@ -198,7 +248,7 @@ for.
 
 - **PROBE DOMAIN:** the three execution surfaces censused in §2.3 — 46 attached targets across
   whole-file shell, workflow `run:` scalars and `package.json` scripts — plus the eight spellings
-  in §2.1, the ten cases in §2.2, and the bash oracle that confirms each executes. A constructed
+  in §2.1, the twelve cases in §2.2, and the bash oracle that confirms each executes. A constructed
   input more than one ordinary edit from that set files to documented limits, not to a finding.
 
 - **Threat fence.** Ordinary authoring by a contributor writing a shell script, a workflow `run:`
@@ -217,8 +267,12 @@ Every admissibility clause cites the fence and the domain above.
 
 ## 6. Declared-limit pins — named, per the planlint obligation
 
-The deciding suite carries an executable table pinning this family at zero. **This arc RETIRES two
-rows and must not move a third.**
+The deciding suite pins this family at zero in **two separate blocks**. Round 1 finding 5 caught
+the earlier inventory naming only the first; a pinned zero is a RECORD of current behaviour, not a
+guarantee about it, and changing the recognizer under an unnamed one converts the record into a
+false assertion.
+
+**Block 1 — the section-4 unchanged-rows table.**
 
 | row | site | today | after |
 |---|---|---|---|
@@ -226,19 +280,28 @@ rows and must not move a third.**
 | `F2 the ATTACHED substitution target` | `tests/cross-cutting/psqlStartupFileSuppression.test.ts:5543` and `tests/cross-cutting/psqlStartupFileSuppression.test.ts:5555` | 0 hits | **RETIRED — reports** |
 | `F11 a psql call, ATTACHED output redirection` | `tests/cross-cutting/psqlStartupFileSuppression.test.ts:5566` and `tests/cross-cutting/psqlStartupFileSuppression.test.ts:5580` | 1 site, `[false]` | **UNCHANGED — control** |
 
-A pinned zero is a RECORD of current behaviour, not a guarantee about it. Changing the recognizer
-under one without naming it converts the record into a false assertion, which is exactly the
-collision the obligation exists to catch.
+**Block 2 — `F3: recording an attached operator does not read an attached TARGET`
+(`tests/cross-cutting/psqlStartupFileSuppression.test.ts:5927`).** This block pins the attached here-string AND its overridden sibling, and it is the
+one the earlier inventory missed.
+
+| row | today | after |
+|---|---|---|
+| `attached target, no override` | 0 hits | **RETIRED — reports** (this is case F exactly) |
+| `attached target, overridden` (`<<<p'sql' < /dev/null`) | 0 hits | **UNCHANGED — control** |
+
+**The overridden sibling is a second control worth having**, and it arrived free with the finding:
+a later `< /dev/null` on fd 0 overrides the here-string, so bash makes no binding and the zero must
+survive. A repair that reported BOTH rows would be loud in a direction the shell does not license.
 
 **Prose that must move with the code**, or it becomes a stale citation that still reads true:
 
-- the surface's documented-limits block (`tests/cross-cutting/psqlStartupFiles/scan.ts:280` through `tests/cross-cutting/psqlStartupFiles/scan.ts:297`),
-  which currently calls this family "not read at all" and "the sharpest limit in this list";
+- the surface's documented-limits block (`tests/cross-cutting/psqlStartupFiles/scan.ts:280` through
+  `tests/cross-cutting/psqlStartupFiles/scan.ts:297`), which calls this family "not read at all"
+  and "the sharpest limit in this list";
+- the block-2 comment declaring that "the attached TARGET is still never read as a binding. The
+  zero below is the withdrawn family, unchanged by this arc" (`tests/cross-cutting/psqlStartupFileSuppression.test.ts:5921`);
 - the deciding suite's note declaring the attached `<<<p'sql'` spelling withdrawn scope that lives
-  in scan.ts's documented-limits block rather than in the suite
-  (`tests/cross-cutting/psqlStartupFileSuppression.test.ts:6171`).
-
----
+  in scan.ts's documented-limits block rather than in the suite (`tests/cross-cutting/psqlStartupFileSuppression.test.ts:6171`).
 
 ## 7. Documented limits
 
@@ -262,8 +325,8 @@ collision the obligation exists to catch.
 
 | file | change |
 |---|---|
-| `tests/cross-cutting/psqlStartupFiles/scan.ts` | the attached-target branch at `tests/cross-cutting/psqlStartupFiles/scan.ts:1581`; the documented-limits block at `tests/cross-cutting/psqlStartupFiles/scan.ts:280` through `tests/cross-cutting/psqlStartupFiles/scan.ts:297` |
-| `tests/cross-cutting/psqlStartupFileSuppression.test.ts` | two pins retired, one control held, new cases for §4 |
+| `tests/cross-cutting/psqlStartupFiles/scan.ts` | the attached-target branch at `tests/cross-cutting/psqlStartupFiles/scan.ts:1581`, which gains construct-aware delimiting, target RETENTION into the `targets` array, nested-body collection and the unlexable report; the documented-limits block at `tests/cross-cutting/psqlStartupFiles/scan.ts:280` through `tests/cross-cutting/psqlStartupFiles/scan.ts:297` |
+| `tests/cross-cutting/psqlStartupFileSuppression.test.ts` | THREE pins retired across two blocks, two controls held, new cases for §4 |
 | `tests/mutation/source/registry.ts` | `psqlStartupScan` accepted rows re-derived — the source edit moves every site below the lexer |
 | `BACKLOG.md` / `BACKLOG-archive.md` | ledger closeout |
 
