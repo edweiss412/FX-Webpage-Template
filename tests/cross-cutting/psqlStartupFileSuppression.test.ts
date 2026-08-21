@@ -6617,3 +6617,188 @@ describe("an executing psql inside an ATTACHED redirection target", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Task 2 of BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION. Task 1 delimits
+// what the accept-set can close; an UNTERMINATED construct closes nothing, and
+// the consequence bound forbids silent discard. So the machinery REPORTS what
+// it cannot delimit, on the channel that already means "something here I
+// cannot read": an IndirectionHit naming the target.
+//
+// The case list is DERIVED from spec section 3.1's opener table rather than
+// picked - one unterminated case per opener the table admits - because an
+// implementation keyed to whichever three spellings an author happened to
+// choose silently discards their siblings, and `$(` is a different opener from
+// `${` exactly as a plain double quote is from the locale form.
+// ---------------------------------------------------------------------------
+
+describe("an ATTACHED target the accept-set cannot delimit is REPORTED, not discarded", () => {
+  /** One row per opener in the accept-set table, each with the TERMINATED twin
+   *  that is one edit away. Without the twin a channel that reports EVERY
+   *  attached target satisfies all seven positives while being maximally
+   *  broken; without the positives a channel that reports nothing does. */
+  const UNLEXABLE: Array<[opener: string, unterminated: string, twin: string]> = [
+    ["$(", "cat >$(psql -c 'select 1'\n", "cat >$(psql -c 'select 1')\n"],
+    ["${", "cat >${OUT:-$(psql -c 'select 1')\n", "cat >${OUT:-$(psql -c 'select 1')}\n"],
+    ["backtick", "cat >`psql -c 'select 1'\n", "cat >`psql -c 'select 1'`\n"],
+    ['"', "cat >\"$(psql -c 'select 1')\n", "cat >\"$(psql -c 'select 1')\"\n"],
+    ['$"', "cat >$\"$(psql -c 'select 1')\n", "cat >$\"$(psql -c 'select 1')\"\n"],
+    ["'", "cat >'$(psql -c x)\n", "cat >'$(psql -c x)'\n"],
+    ["$'", "cat >$'$(psql -c x)\n", "cat >$'$(psql -c x)'\n"],
+  ];
+
+  test("every opener in the accept-set table reports when its construct never closes", () => {
+    premiseHolds(
+      "the case list covers the whole opener table, derived from spec section 3.1 rather than picked",
+      UNLEXABLE.length === 7,
+    );
+    expect(
+      UNLEXABLE.map(([opener, unterminated]) => {
+        const hits = scanShellIndirection(unterminated, "x.sh");
+        return [opener, hits.length, hits[0]?.text ?? null];
+      }),
+    ).toEqual(
+      UNLEXABLE.map(([opener, unterminated]) => [
+        opener,
+        1,
+        unterminated.slice(unterminated.indexOf(">") + 1).trim(),
+      ]),
+    );
+  });
+
+  test("the TERMINATED twin of each opener reports no unlexable target", () => {
+    expect(
+      UNLEXABLE.map(([opener, , twin]) => [
+        opener,
+        scanShellIndirection(twin, "x.sh").filter(
+          (hit) =>
+            hit.text.startsWith("$") ||
+            hit.text.startsWith("`") ||
+            hit.text.startsWith("'") ||
+            hit.text.startsWith('"'),
+        ).length,
+      ]),
+    ).toEqual(UNLEXABLE.map(([opener]) => [opener, 0]));
+  });
+
+  // An implementation that emits the required hit AND fabricates a PsqlSite
+  // beside it passes both the positive and the twin, and AC-5's digest cannot
+  // kill it because the live corpus holds zero members of this family - there
+  // is no baseline row for a fabricated site to move. The site count is the
+  // only assertion that discriminates, so it is stated per case. It is also
+  // what bash does: an unterminated construct is a syntax error and the file
+  // runs NOTHING.
+  test("an unlexable target produces no PsqlSite", () => {
+    expect(
+      UNLEXABLE.map(([opener, unterminated]) => [opener, sitesIn(unterminated, "x.sh").length]),
+    ).toEqual(UNLEXABLE.map(([opener]) => [opener, 0]));
+  });
+
+  // The firing condition is NARROW and is part of the contract: the live corpus
+  // holds 53 ordinary attached targets and not one of them may become an
+  // advisory. An undelimitable span carrying nothing executable stays quiet
+  // too - being unreadable is not by itself worth a report.
+  test("an ordinary attached target is never advised on, delimitable or not", () => {
+    const rows: Array<[label: string, source: string]> = [
+      ["a terminated ordinary target", 'cat >"${OUT}"\n'],
+      ["a plain path", "cat >/dev/null\n"],
+      ["an UNTERMINATED double quote carrying no opener", 'cat >"/dev/null\n'],
+      ["an UNTERMINATED single quote carrying no opener", "cat >'/dev/null\n"],
+    ];
+    // These four are quiet TODAY and after, so on their own they are satisfied
+    // by an implementation that never looks. Each is one edit from a case in
+    // the opener table above that is RED until the channel exists, and it is
+    // the pair that discriminates: the same target with an opener reports, and
+    // without one it does not.
+    expect(
+      rows.map(([label, source]) => [label, scanShellIndirection(source, "x.sh").length]),
+    ).toEqual(rows.map(([label]) => [label, 0]));
+  });
+
+  // `${` is one of the three openers the spec names, so an unterminated brace
+  // fires even with nothing executable inside it. That is deliberate and it is
+  // the conservative direction: bash refuses the file outright on the
+  // unexpected EOF, the target is genuinely unreadable, and the report says so
+  // rather than claiming what it would have expanded to. Pinned here so a later
+  // reader meets the decision instead of re-deriving it as an over-report.
+  test("an unterminated brace fires on its own opener, deliberately", () => {
+    expect(scanShellIndirection("cat >${OUT\n", "x.sh").map((hit) => hit.text)).toEqual(["${OUT"]);
+  });
+
+  // The report is scoped to the execution surfaces production READS. In a JS
+  // file the text is a COMPOSED STRING where `<` is a comparison, a JSX tag or
+  // a regex, and the ungated channel fired on NINE live template literals -
+  // measured, not feared. The pair varies ONE thing, the file's extension, so
+  // the quiet side is attributable: identical bytes report as shell and stay
+  // silent as JS. Shell text embedded in JS is documented limit 1 of the
+  // design, not an oversight here.
+  test("the unlexable report is scoped to shell and workflow surfaces, not JS", () => {
+    // ONE variable: the file's extension. Identical bytes, so the silence is
+    // attributable to the scoping rather than to the reader never getting
+    // there. A YAML row rides along because the workflow `run:` surface IS in
+    // the domain and a shell-only reading would have silently dropped it.
+    const shellShaped = "cat >\"$(psql -c 'select 1')\n";
+    // Shell embedded in a JS string is documented limit 1 of the design -
+    // reaching it needs extractors this module does not export - so the zero
+    // here is a DECLARED limit and not an accident of the fixture.
+    const embeddedInJs = 'const cmd = "cat >\\"$(psql -c \'select 1\')";\n';
+    expect({
+      asShell: scanShellIndirection(shellShaped, "x.sh").length,
+      asWorkflow: scanShellIndirection(shellShaped, "x.yml").length,
+      asTypeScript: scanShellIndirection(shellShaped, "x.ts").length,
+      embeddedInJs: scanShellIndirection(embeddedInJs, "x.ts").length,
+    }).toEqual({ asShell: 1, asWorkflow: 1, asTypeScript: 0, embeddedInJs: 0 });
+  });
+
+  // The operator derivation in Task 1 sits only on the DELIMIT path, so an
+  // implementation can delimit every shipped operator correctly and emit
+  // unlexable reports for `>` alone. And Task 2 varies opener KIND and nothing
+  // else, so an implementation that suppresses the report whenever a file
+  // descriptor preceded the operator passes every stipulated case - the killer
+  // is case K with its closing quote removed, one edit inside the domain.
+  test("the report path crosses the operator axis too, prefix included", () => {
+    // Counted by the hit's own TEXT rather than by the array length. The
+    // here-string row draws a SECOND, unrelated hit from the line-text route,
+    // which is correct and says nothing about this channel: a length assertion
+    // there would pin an unrelated reading and drift the first time it moved.
+    const rows: Array<[label: string, source: string, expected: string]> = [
+      ["a non-`>` operator", "cat >>\"$(psql -c 'select 1')\n", "\"$(psql -c 'select 1')"],
+      ["an fd-prefixed operator", "cat 2>\"$(psql -c 'select 1')\n", "\"$(psql -c 'select 1')"],
+      ["an input operator", "read -r PG <<<\"$(psql -c 'select 1')\n", "\"$(psql -c 'select 1')"],
+    ];
+    expect(
+      rows.map(([label, source, expected]) => [
+        label,
+        scanShellIndirection(source, "x.sh").filter((hit) => hit.text === expected).length,
+      ]),
+    ).toEqual(rows.map(([label]) => [label, 1]));
+  });
+
+  // Every unlexable fixture above starts on line 1, so an implementation that
+  // always emits `line = 1` passes all of them. Moving one to a later line
+  // kills that and leaves the NEXT heuristic alive: for a span that never
+  // closes, "where it started" and "where the scan ran out" coincide unless the
+  // span crosses lines. This one does both - it opens on line 3 and EOF is line
+  // 6 - under the same derived rule Task 1's coordinate cases use.
+  test("the hit names the line the target OPENS on, not line 1 and not EOF", () => {
+    const source = [
+      "echo one",
+      "echo two",
+      "cat >\"$(psql -c 'select 1')",
+      "echo three",
+      "echo four",
+      "",
+    ].join("\n");
+    const candidates = { firstLine: 1, eofLine: source.split("\n").length };
+    premiseHolds(
+      "the asserted line differs from every candidate a positional heuristic could pick",
+      ![candidates.firstLine, candidates.eofLine].includes(3),
+    );
+    const hits = scanShellIndirection(source, "x.sh");
+    expect({ count: hits.length, line: hits[0]?.line, candidates }).toEqual({
+      count: 1,
+      line: 3,
+      candidates: { firstLine: 1, eofLine: 6 },
+    });
+  });
+});

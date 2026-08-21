@@ -1011,6 +1011,12 @@ function closingBacktick(text: string, start: number): number {
   return -1;
 }
 
+/** The three openers that make a span EXECUTABLE. An undelimitable attached
+ *  target carrying none of them is unreadable and harmless - the live corpus
+ *  holds 53 ordinary attached targets and not one may become an advisory - so
+ *  this is the firing condition for the unlexable report, not the walk. */
+const SUBSTITUTION_OPENER = /\$\(|`|\$\{/;
+
 /** The characters that END an unquoted attached redirection target. Identical
  *  to the negated class of the character-run regex this walk replaces, so the
  *  repair changes WHERE a construct ends and never WHICH characters terminate
@@ -3313,6 +3319,36 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
   // reasoning as `nestedInBacktick` on the site side. In a .sh or .yml file a
   // backtick IS a substitution, so it still counts there.
   const backticksAreMarkdown = JS_EXTENSIONS.includes(extensionOf(file));
+  // An ATTACHED target the accept-set could not delimit is REPORTED rather than
+  // discarded: correct or signaled, never silently wrong. The channel is the
+  // one that already means "something here I cannot read" - it adds no type and
+  // no result shape, does not throw, and emits no `PsqlSite`, because the
+  // report names an unreadable target and does not claim what it would have
+  // evaluated to. It fires ONLY on a span carrying a substitution opener; an
+  // ordinary attached target stays quiet whether or not it closes. Ledger:
+  // BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION.
+  //
+  // Scoped to the execution surfaces production actually READS - whole-file
+  // shell and workflow `run:` scalars - which is the design's own PROBE DOMAIN
+  // rather than an exclusion invented here. In a JS file the text handed to
+  // this lexer is a COMPOSED STRING, where `<` is a comparison, a JSX tag or a
+  // regex and not a redirection: measured on the live tree, the ungated report
+  // fired on NINE template literals, `` `<h2[^>]*\bid=["']${ref.fragment}["']`
+  // `` among them, every one a false advisory - the direction the consequence
+  // bound refuses even though it is the loud one. Shell text embedded in JS is
+  // documented limit 1 of the design and reaching it needs extractors this
+  // module does not export. The SAME predicate the backtick reading already
+  // makes, taken from that reading rather than copied beside it.
+  if (!backticksAreMarkdown)
+    for (const target of targets) {
+      if (target.unlexable === null) continue;
+      if (!SUBSTITUTION_OPENER.test(target.unlexable)) continue;
+      // The target's OPENING line, which for an attached target is the
+      // operator's. Not the line the scan ran out on: for a span that never
+      // closes those coincide unless it crosses lines, and then only the
+      // opening line names where the target is.
+      hits.push({ file, line: target.line + 1, text: target.unlexable.trim() });
+    }
   const bindingLines = assignmentBindingLines(words, file);
   // Arm 1's word route, kept as its OWN set rather than merged into
   // `bindingLines`, so the two routes stay distinguishable to a reader and to a
