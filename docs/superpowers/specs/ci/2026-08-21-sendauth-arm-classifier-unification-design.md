@@ -384,16 +384,40 @@ compiles, the suite is green, the duplicate sweep reports zero, and the shared r
 (§3.13 F4).
 
 **Route-or-acknowledge, so the set is covered without being enumerated.** Every name-resolution site
-either routes through the one rule, or carries an inline acknowledgement naming why that position's
-spelling cannot vary — the same shape as this repo's `// not-subject-to-meta:` and `// no-telemetry:`
-exemptions. **The scan REDS on an UNACKNOWLEDGED site**, so a position added later fails by default
-rather than waiting to be discovered by a reviewer.
+either routes through the one rule, or carries an inline acknowledgement. **The scan REDS on an
+UNACKNOWLEDGED site**, so a position added later fails by default rather than waiting to be
+discovered by a reviewer.
+
+**This is an application of ratified repo convention, not new machinery.** Invariant 9's
+`// not-subject-to-meta: <reason>` and invariant 10's `// no-telemetry: <reason>` are the same
+registry-plus-inline-exemption pattern with the same fail-by-default property. A reviewer can check
+the convention rather than judge a novel proposal.
+
+**TWO acknowledgement tokens, because the two exemption kinds have different DECAY RATES.** Writing
+one token for both would put a durable fact and a perishable one in the same audit set.
+
+| token | claim | decays? |
+| --- | --- | --- |
+| `// name-position: grammar — <reason>` | the TypeScript grammar forbids this spelling from varying: a `FunctionDeclaration`'s name will not gain an element-access form | **NO.** Safe to write once. |
+| `// name-position: not-a-name — <what it actually resolves>` | this position does not resolve a surface name at all — a module specifier, a diagnostic label | **YES.** It is a claim about the CURRENT CODE, and code gets repurposed. |
+
+**The `not-a-name` token names WHAT the site resolves**, so a repurposing makes the comment visibly
+FALSE rather than merely stale — a diagnostic label someone later feeds a surface name into would
+otherwise leave a true-looking comment and a green scan, which is a uniqueness claim with an expiry
+and no mechanism to notice it. The two sets are audited separately, and the `not-a-name` set is
+re-read whenever its surrounding code changes.
+
+**Routing ALL sites would be the ratchet in disguise.** Forcing a `FunctionDeclaration`'s name
+through a receiver-resolution rule buys nothing and adds indirection, and ceremony is what a reviewer
+correctly attacks.
 
 **The stopping condition, stated so it can be checked rather than felt:** coverage is complete when
-the adoption scan is derived and green. If a later round reports an eighth position, the correct
-reading is that **the SCAN is wrong — a defect in ONE place, and bounded work** — not that the axis
-set needs another member. That is the difference between this and a ratchet, and it is the whole
-reason the position set must not be a list.
+the adoption scan is derived and green. **If a later round reports a further position, exactly two
+readings are available and neither is a new axis:** either the SCAN MISSED IT — a defect in ONE
+place, bounded work, fix the scan — or SOMEONE ADDED A SITE WITHOUT ACKNOWLEDGING IT, in which case
+the scan already redded and the round found nothing the gate had not. That is what makes this
+de-duplication rather than growth, and it is the sentence that answers the ratchet objection before
+it is raised.
 
 **Step 2 — a finite, read axis is crossed completely, and the axis is DERIVED from the shipped
 constant rather than retyped into the manifest.** A retyped axis drifts the moment the constant
@@ -789,8 +813,9 @@ de-duplication sweep proves no site RE-IMPLEMENTS the rule. It cannot prove anyt
 prototype demonstrated the gap exactly: every duplicate was gone, the sweep reported its expected
 five sites, the suite was green — **and `surfaceReceiverOf` was never called**, so §2.2's three-way
 disposition table described behaviour the prototype did not have. The observable residue was the one
-F4 predicted: `this.ch.typo()` reported while `this["ch"].typo()` was silent. **Both now report
-identically.**
+F4 PREDICTED: `this.ch.typo()` reported while `this["ch"].typo()` was silent. **Both now report
+identically** — and a residue that was predicted and then observed is much stronger evidence than a
+defect that was merely repaired, because the prediction could have failed.
 
 **The adoption scan, and the honest size of the refactor.** Run against the prototype it reports
 **26** name-resolution sites not routed through the one rule. That number is the scan's raw output,
@@ -806,8 +831,32 @@ not a repair list, and it sorts into three kinds:
    diagnostic label. These carry an acknowledgement too.
 
 **Route-or-acknowledge is what makes the count a cover rather than a backlog**, per §2.5 step 1b: an
-unacknowledged site reds, so the 26 is today's output of a derived scan rather than a list anyone
+unacknowledged site reds, so these are today's output of a derived scan rather than a list anyone
 maintains.
+
+**Both figures are DERIVED by the scan and printed with it**, because both are load-bearing: kind 1
+IS the refactor size, and the shipped-scanner figure is the one that matters since the prototype is
+not what merges.
+
+| | shipped scanner (`origin/main`) | prototype |
+| --- | --- | --- |
+| name-resolution sites not routed | **42** | **26** |
+| ROUTE — genuine variable position, **the refactor size** | **14** | **12** |
+| GRAMMAR — durable acknowledgement | 9 | 9 |
+| NOT-A-NAME — decaying acknowledgement | 5 | 5 |
+| UNDISPOSED — would RED the gate | 14 | **0** |
+
+**The 42-to-26 gap is itself informative: it is exactly what the prototype has already routed** —
+`calleeNameOf`, `receiverRightmostName`'s internals, the read arm's receiver test, the sink walk's
+callee test. The shipped scanner's 14 UNDISPOSED are those same sites, which have no disposition row
+because in the prototype they no longer resolve a name outside the rule.
+
+**Twelve genuine positions remain to route in the prototype**, and stating that rather than implying
+the prototype is finished is the honest size of the plan's work.
+
+**The disposition table is checked in BOTH directions.** A site with no row REDS; a row matching no
+site is reported STALE. The prototype currently reports 2 stale rows, which is the check working —
+those sites changed shape under the repairs.
 
 **Full regression after all four repairs.** 81 fixtures, still exactly 2 moved and the same 2; live
 corpus 0 to 0; every §3.6 class still closed; depth independence still byte-identical; every
