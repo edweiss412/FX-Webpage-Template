@@ -352,7 +352,9 @@ export const KILLS = [
     file: CLI,
     from: "  generateSeed: () => randomInt(0, 2 ** 32),",
     to: "  generateSeed: () => 1,",
-    filter: "generateSeed default",
+    // The accept-set case admits a constant (1 IS a valid seed), so it cannot
+    // discriminate. The case that can is the one asserting the DEFAULT varies.
+    filter: "generateSeed DEFAULT actually varies",
     reason: "two omitted-seed invocations would plan the same campaign",
   },
   {
@@ -390,7 +392,10 @@ export const KILLS = [
     file: CORE,
     from: "    return (t.loadSamples ?? []).filter((s) => s.at >= spawnedAt && s.at <= exitedAt);",
     to: "    return [...(t.loadSamples ?? [])];",
-    filter: "IN-WINDOW samples",
+    // The all-in-window case cannot discriminate: dropping the window filter
+    // changes nothing when every sample is already inside it. The OUT-of-window
+    // case is the one that decides.
+    filter: "samples all fall OUTSIDE its window",
     reason: "samples from outside the trial window enter the mean",
     sharedAnchorWith: "AC-10.k1",
   },
@@ -400,7 +405,10 @@ export const KILLS = [
     file: CORE,
     from: "  if (qDigest !== lDigest) {",
     to: "  if (false) {",
-    filter: "load column as unchanged at one",
+    // The no-samples case refuses for a missing sampler whatever the stamps
+    // say, so it cannot see this. The cross-stamp case can, and it now asserts
+    // the RENDER's load column as well as the internal refusal.
+    filter: "cross-stamp load pair",
     reason: "the load column advances on halves that measured different programs",
     sharedAnchorWith: "AC-10.k4",
   },

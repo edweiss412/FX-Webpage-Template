@@ -1363,6 +1363,13 @@ describe("processProbe aggregator — eligibility, derived claims, render (AC-7,
     if (agg.load.kind !== "refused") return;
     expect(agg.load.detail).toContain("anchor-digest");
     expect(agg.load.detail).toContain("other-digest");
+    // AC-16's half of the same defect, asserted where a reader would see it: the
+    // load column must stay at one. Refusing the pair internally while the
+    // render still advances the column would report an observation the campaign
+    // never made.
+    const text = renderCampaign(agg);
+    expect(text).toContain("load column unchanged at one");
+    expect(text).not.toMatch(/advances to two/);
   });
 
   it("render carries a POPULATION SIZE beside every aggregate and names its statistic", () => {
