@@ -19,6 +19,7 @@ import {
   positionFor,
   refuse,
   renderRow,
+  NonceMintExhausted,
 } from "@/scripts/lib/pane-compaction-core";
 
 /**
@@ -289,7 +290,22 @@ describe("mintNonce's retry bound", () => {
       calls += 1;
       return "same";
     };
-    expect(() => mintNonce({ markerNonce: "same", random: collide })).toThrow(/colliding/);
+    // The TYPE, not the message. The adapter discriminates this throw from
+    // every other one to pick exit 2 over exit 1, and it does so by
+    // `instanceof`; a text matcher here would go green on a reword that broke
+    // the adapter's discrimination -- the exact shape `gh`'s stderr-matched
+    // no-PR signature carries as a documented limit.
+    expect(() => mintNonce({ markerNonce: "same", random: collide })).toThrow(NonceMintExhausted);
+    // The count the error REPORTS must be the count it actually made, or the
+    // adapter's message tells an operator a number nothing measured.
+    let thrown: unknown;
+    calls = 0;
+    try {
+      mintNonce({ markerNonce: "same", random: collide });
+    } catch (e) {
+      thrown = e;
+    }
+    expect((thrown as NonceMintExhausted).attempts).toBe(calls);
     expect(calls).toBe(8);
   });
 

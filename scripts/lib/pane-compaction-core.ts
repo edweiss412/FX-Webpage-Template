@@ -1024,12 +1024,24 @@ export function authorizeSend(input: AuthorizationInput): AuthorizationDecision 
  * and exits 2 naming the condition (spec §3.7); letting it escape `main` would
  * exit with a code the taxonomy assigns to refusals.
  */
+export class NonceMintExhausted extends Error {
+  constructor(readonly attempts: number) {
+    super(`mintNonce: the random source returned the marker's nonce ${attempts} times running`);
+    this.name = "NonceMintExhausted";
+  }
+}
+
 export function mintNonce(opts: { markerNonce: string | null; random: () => string }): string {
-  for (let attempt = 0; attempt < 8; attempt += 1) {
+  const ATTEMPTS = 8;
+  for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
     const candidate = opts.random();
     if (candidate !== opts.markerNonce) return candidate;
   }
-  throw new Error("mintNonce: generator kept colliding with the marker's nonce");
+  // A CLASS, not a message the adapter greps. Matching on error text is the
+  // shape this repo already carries as a documented limit (`gh`'s no-PR
+  // signature demotes on a reword), and here the caller must distinguish a
+  // broken generator from every other throw in order to pick an exit code.
+  throw new NonceMintExhausted(ATTEMPTS);
 }
 
 /**

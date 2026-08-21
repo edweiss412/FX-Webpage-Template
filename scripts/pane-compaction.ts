@@ -42,6 +42,7 @@ import {
   MALFORMED_CORPUS_STATUS,
   GH_BUCKETS,
   type SendMode,
+  NonceMintExhausted,
   authorizeSend,
   planSends,
   readOnce,
@@ -664,6 +665,16 @@ export function main(argv: string[], s: Surface): number {
     try {
       return drive(opts, opts.mode, pane, roster, s);
     } catch (e) {
+      if (e instanceof NonceMintExhausted) {
+        // A TOOL fault (2), never a refusal (1). Nothing is wrong with the
+        // pane: the generator is. Routing this through exit 1 would tell an
+        // operator "asked and answered: not now" about a condition that no
+        // amount of waiting or re-checkpointing fixes, and an UNCAUGHT throw
+        // would exit with whatever code the runtime picks -- which the taxonomy
+        // reads as a refusal.
+        s.out(`refusing: the random source is broken -- ${e.message}`);
+        return 2;
+      }
       if (e instanceof SendFailed) {
         s.out(`refusing: ${e.message}`);
         // Said explicitly, because the retry is NOT obvious: --compact consumes
