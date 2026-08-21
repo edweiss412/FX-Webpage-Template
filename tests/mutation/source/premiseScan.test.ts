@@ -6,6 +6,7 @@ import ts from "typescript";
 import { afterAll, describe, expect, it } from "vitest";
 
 import { premise, premiseHolds } from "../../_shared/premise";
+import { stripCommentsForFile } from "../../_shared/stripComments";
 
 import { GUARD_SURFACES } from "./registry";
 
@@ -15,6 +16,7 @@ import {
   hookAttachmentReports,
   type TestClassification,
   unfollowableFactoryReason,
+  undecidableRegistrarKeyReason,
 } from "./premiseScan";
 
 const ROOT = join(__dirname, "..", "..", "..");
@@ -3889,7 +3891,7 @@ describe("whole-diff R5 #1 — a memberless namespace of a BARE specifier stays 
  * unresolved import, which goes green when the TEST changes rather than when
  * the implementation lands (docs/agents/writing-plans.md:15).
  */
-function scannerModifiers(): string[] {
+function scannerModifiers(setName = "MODIFIERS"): string[] {
   const src = readFileSync(join(__dirname, "premiseScan.ts"), "utf8");
   const sf = ts.createSourceFile("premiseScan.ts", src, ts.ScriptTarget.Latest, true);
   let names: string[] | null = null;
@@ -3897,7 +3899,7 @@ function scannerModifiers(): string[] {
     if (
       ts.isVariableDeclaration(node) &&
       ts.isIdentifier(node.name) &&
-      node.name.text === "MODIFIERS" &&
+      node.name.text === setName &&
       node.initializer &&
       ts.isNewExpression(node.initializer)
     ) {
@@ -3935,10 +3937,14 @@ function branchA(spelling: string): string {
 }
 
 describe("AC-5 — every describe spelling stops the nested-hook walk", () => {
-  const modifiers = scannerModifiers();
+  // SUITE_MODIFIERS, not the union. `describe.fails` was in this generated
+  // population and Vitest has no such spelling: the union accepted it, so the
+  // cover asserted a behaviour for a registration that cannot exist. A cover
+  // generated from a set wider than its subject tests fiction (diff r2, F3).
+  const modifiers = scannerModifiers("SUITE_MODIFIERS");
   // The premise: a mis-read source yields an empty loop, and an empty loop
   // passes by asserting nothing. This reds loudly instead.
-  premise("the scanner's modifier set was extracted", modifiers.length, 0);
+  premise("the scanner's suite-modifier set was extracted", modifiers.length, 0);
 
   const spellings = [
     "describe",
@@ -3975,6 +3981,406 @@ describe("AC-5 — every describe spelling stops the nested-hook walk", () => {
       expect(all.find((t) => t.testName === "inB")?.verdict).toBe("environment-free");
     });
   }
+});
+
+describe("AC-5 — a modifier the ROOT's side does not declare is no registration", () => {
+  // The twin of the block above, and the half that had no executable cover.
+  // Diff r2 F3 repaired the union: `test.shuffle(…)` and `describe.fails(…)`
+  // peel cleanly against `MODIFIERS` and Vitest declares NEITHER, so accepting
+  // them invented registrations the file does not contain. The repair landed a
+  // per-side check (premiseScan.ts:349-356) — and the mutation gate then killed
+  // the claim that it was pinned: `equality-flip:350` disabled that check
+  // outright and every test in this file still passed. A repair no assertion
+  // observes is a repair the next edit deletes for free.
+  //
+  // DERIVED, not typed: the population is each side's modifier set MINUS the
+  // other's, crossed with the other side's registrars, all four read out of the
+  // scanner's own declarations. A modifier added to one side later is covered
+  // the day it lands.
+  const suiteMods = scannerModifiers("SUITE_MODIFIERS");
+  const testMods = scannerModifiers("TEST_MODIFIERS");
+  const suiteRegistrars = scannerModifiers("SUITE_REGISTRARS");
+  const testRegistrars = scannerModifiers("TEST_REGISTRARS");
+  const onlySuite = suiteMods.filter((m) => !testMods.includes(m));
+  const onlyTest = testMods.filter((m) => !suiteMods.includes(m));
+
+  // Four premises, because this cover is a CROSS PRODUCT and every factor can
+  // empty it independently. An empty factor makes the loops below vacuous, and
+  // a vacuous loop is indistinguishable from a passing one: the sets could
+  // converge, a rename could break a derivation, and the cover would go on
+  // reporting green while asserting nothing. These red instead.
+  premise("the scanner declares suite-only modifiers", onlySuite.length, 0);
+  premise("the scanner declares test-only modifiers", onlyTest.length, 0);
+  premise("the scanner declares suite registrars", suiteRegistrars.length, 0);
+  premise("the scanner declares test registrars", testRegistrars.length, 0);
+
+  for (const registrar of testRegistrars)
+    for (const mod of onlySuite)
+      it(`${registrar}.${mod} registers no test — ${mod} is suite-only`, () => {
+        // `real` beside it is the POSITIVE CONTROL. The claim is an ABSENCE,
+        // and an absence is equally satisfied by a scanner that classified
+        // nothing at all — a fixture that failed to write, a walk that returned
+        // early. Without the control this passes under exactly that failure.
+        const all = classificationsWithModules(
+          {},
+          `${registrar}.${mod}("x", () => {});\nit("real", () => {});`,
+        );
+        expect(all.map((t) => t.testName)).toEqual(["real"]);
+      });
+
+  for (const registrar of suiteRegistrars)
+    for (const mod of onlyTest)
+      it(`${registrar}.${mod} opens no suite — ${mod} is test-only`, () => {
+        // The suite side has no vanishing record to assert on: the tests INSIDE
+        // the factory are still found either way. The observable is hook
+        // CONTAINMENT — a suite stops the nested-hook walk, a non-suite does
+        // not — so this is the AC-5 shape above with the sibling one level out.
+        //
+        // Direction is deliberate. Under the correct scanner the hook is NOT
+        // contained and `outerSibling` stays TOUCHING; the mutant contains it
+        // and reports FREE. The failure this pins is therefore a SILENT FREE,
+        // which is the direction §6's bound names first.
+        const all = classificationsWithModules(
+          OUTER_HOOK_HELPER,
+          `import { spawnHelper } from "__MODULE_helper__";
+           describe("outer", () => {
+             ${registrar}.${mod}("A", () => {
+               beforeEach(() => { spawnHelper(); });
+               it("inA", () => {});
+             });
+             it("outerSibling", () => {});
+           });`,
+        );
+        // `inA` is touching under every implementation — the foil that stops a
+        // collected-nothing scanner from satisfying the assertion below.
+        expect(all.find((t) => t.testName === "inA")?.verdict).toBe("environment-touching");
+        expect(all.find((t) => t.testName === "outerSibling")?.verdict).toBe(
+          "environment-touching",
+        );
+      });
+
+  // The twin of every case above: the SAME shapes with a modifier the side DOES
+  // declare must behave the opposite way. Without these the whole block passes
+  // under a scanner that rejects every modified spelling on both sides.
+  it("a modifier the side DOES declare still registers (the twin)", () => {
+    const shared = suiteMods.filter((m) => testMods.includes(m) && m !== "each" && m !== "for");
+    premiseHolds("the two sides share a non-curried modifier", shared.length > 0);
+    const mod = shared[0];
+    expect(
+      classificationsWithModules({}, `test.${mod}("x", () => {});\nit("real", () => {});`).map(
+        (t) => t.testName,
+      ),
+    ).toEqual(["x", "real"]);
+    const all = classificationsWithModules(
+      OUTER_HOOK_HELPER,
+      `import { spawnHelper } from "__MODULE_helper__";
+       describe("outer", () => {
+         describe.${mod}("A", () => {
+           beforeEach(() => { spawnHelper(); });
+           it("inA", () => {});
+         });
+         it("outerSibling", () => {});
+       });`,
+    );
+    expect(all.find((t) => t.testName === "outerSibling")?.verdict).toBe("environment-free");
+  });
+});
+
+describe("wrapper transparency is the COMPILER's answer, not a list (diff r1 F1)", () => {
+  // The file used to carry a hand-written wrapper predicate naming parentheses,
+  // `as` and `!` — three of the six kinds TypeScript itself calls outer
+  // expressions. Nothing could notice the other three were missing, because an
+  // enumeration is a completeness claim no test can falsify without already
+  // knowing which member is absent. Review supplied one: `satisfies`.
+  //
+  // So the cases below are the SYMPTOM, and the structural assertion at the end
+  // is the actual guard. A test per known spelling is another enumeration, and
+  // would pass just as happily on the next list that is missing a seventh kind.
+  const WRAPPED = {
+    bare: "test",
+    paren: "(test)",
+    "double paren": "((test))",
+    as: "(test as any)",
+    "non-null": "(test!)",
+    satisfies: "(test satisfies any)",
+    angle: "(<typeof test>test)",
+    "as + paren": "((test as any))",
+  } as const;
+
+  for (const [label, spelling] of Object.entries(WRAPPED))
+    it(`${label}: the registration is SEEN`, () => {
+      const all = classificationsWithModules({}, `${spelling}("x", () => {});`);
+      expect(all.map((t) => t.testName)).toEqual(["x"]);
+    });
+
+  for (const [label, spelling] of Object.entries(WRAPPED))
+    it(`${label}: a hook reached through it is not lost to a silent free`, () => {
+      // The direction that matters. A missing wrapper kind did not merely drop
+      // a record — it certified: `(test.beforeEach satisfies any)(envHook)`
+      // left the sibling `environment-free` while the hook read `process.env`.
+      const all = classificationsWithModules(
+        OUTER_HOOK_HELPER,
+        `import { spawnHelper } from "__MODULE_helper__";
+         ${spelling}.beforeEach(() => { spawnHelper(); });
+         it("sibling", () => {});`,
+      );
+      expect(all.find((t) => t.testName === "sibling")?.verdict).toBe("environment-touching");
+    });
+
+  it("the scanner asks the compiler and keeps NO wrapper list of its own", () => {
+    // THE GUARD, as opposed to the symptoms above. A re-introduced enumeration
+    // reds here on the day it is written rather than on the day someone thinks
+    // of the spelling it omits.
+    //
+    // Comments are stripped first. The file DISCUSSES these predicates at
+    // length in the docstring explaining why they are gone, and a raw scan
+    // flags the explanation as the offence — the use-vs-mention error this
+    // repo has now made in three separate instruments.
+    //
+    // Through the SHARED stripper, not a local pair of regexes. The first draft
+    // of this case hand-rolled the two — in the same commit whose message
+    // argued that four copies of one normalizer is why three of them stayed
+    // stale. `tests/cross-cutting/_metaStripCommentsSingleSource.test.ts`
+    // caught it, which is the whole point of a guard that walks the tree
+    // instead of trusting the author who just wrote the lesson down.
+    const src = stripCommentsForFile(
+      readFileSync(join(__dirname, "premiseScan.ts"), "utf8"),
+      "premiseScan.ts",
+    );
+    const WRAPPER_PREDICATES = [
+      "isParenthesizedExpression",
+      "isAsExpression",
+      "isNonNullExpression",
+      "isSatisfiesExpression",
+      "isTypeAssertionExpression",
+    ];
+    const present = WRAPPER_PREDICATES.filter((n) => src.includes(n));
+    expect(present, `wrapper kinds enumerated in the scanner: ${present.join(", ")}`).toEqual([]);
+    expect(src).toContain("skipTransparent");
+  });
+});
+
+describe("an undecidable registrar key is REPORTED, never dropped (diff r1 F2)", () => {
+  // `registrarRoot` answered `null` for two situations no caller could tell
+  // apart — "not a registration" and "may well be one, and the source does not
+  // say" — so `test[k]("computed", …)` produced no record at all. Not a wrong
+  // verdict: NO verdict, a test absent from the census with nothing saying so.
+  it("the file is unclassifiable, and the reason names the receiver and the line", () => {
+    const c = classificationWithModules(
+      {},
+      `const k = "skip";\ntest[k]("computed", () => { void process.env.CI; });\nit("sibling", () => {});`,
+    );
+    expect(c?.verdict).toBe("unclassifiable");
+    // Against the SHIPPED formatter, so a wording change is one edit and this
+    // case does not quietly stop discriminating.
+    expect(c?.detail).toContain(undecidableRegistrarKeyReason("test", 2));
+  });
+
+  it("a DECIDABLE key still classifies (the twin)", () => {
+    // Without this, the assertion above passes under a scanner that reports
+    // every element-access callee, which is the over-report the scope rejects.
+    const all = classificationsWithModules(
+      {},
+      `test["skip"]("computed", () => { void process.env.CI; });\nit("sibling", () => {});`,
+    );
+    expect(all.find((t) => t.testName === "computed")?.verdict).toBe("environment-touching");
+    expect(all.find((t) => t.testName === "sibling")?.verdict).toBe("environment-free");
+  });
+
+  // THE RECEIVER IS A CHAIN, AND THE FIRST VERSION ASKED ONLY ABOUT ITS LAST
+  // LINK. Reading the immediate receiver's NAME meant `test.only[k]` asked
+  // about `only` and `test.each(rows)[k]` asked about a call that has no name,
+  // so every undecidable key behind ANY modifier vanished exactly as before
+  // (diff round 2, F1). `it.each` and `describe.runIf` are ordinary live
+  // spellings, so that was one edit from the corpus, not a corner.
+  //
+  // Registrars and modifiers are DERIVED from the scanner's own declarations.
+  // The receiver SHAPES are enumerated because they are the closed set of chain
+  // forms — bare, a member modifier, a curried modifier call — and that closure
+  // is the file's own design, not a guess about spellings.
+  describe("...through any modifier chain, not only the bare root", () => {
+    const registrars = [
+      ...scannerModifiers("SUITE_REGISTRARS"),
+      ...scannerModifiers("TEST_REGISTRARS"),
+    ];
+    const suiteMods = scannerModifiers("SUITE_MODIFIERS");
+    const testMods = scannerModifiers("TEST_MODIFIERS");
+    premise("the scanner declares registrars", registrars.length, 0);
+
+    for (const registrar of registrars) {
+      const isSuite = scannerModifiers("SUITE_REGISTRARS").includes(registrar);
+      const mods = isSuite ? suiteMods : testMods;
+      // One member modifier and one CURRIED modifier call, both drawn from the
+      // side's own set, so a modifier renamed upstream re-keys these by itself.
+      const member = mods.find((m) => m !== "each" && m !== "for");
+      const curried = mods.find((m) => m === "each") ?? mods[0];
+      premise(
+        `the ${registrar} side declares a non-curried modifier`,
+        member === undefined ? 0 : 1,
+        0,
+      );
+
+      for (const [shape, receiver] of [
+        ["bare", registrar],
+        ["member modifier", `${registrar}.${String(member)}`],
+        ["curried modifier call", `${registrar}.${curried}([1])`],
+      ] as const)
+        it(`${registrar} via ${shape}: an undecidable key is reported`, () => {
+          const c = classificationWithModules(
+            {},
+            `const k = "only";\n${receiver}[k]("computed", () => {});\nit("sibling", () => {});`,
+          );
+          expect(c?.verdict).toBe("unclassifiable");
+          expect(c?.detail).toContain(undecidableRegistrarKeyReason(registrar, 2));
+        });
+    }
+
+    it("a valid curried registration is NOT reported (the twin)", () => {
+      // Without this, every case above passes under a reporter that fires on
+      // any chain at all — which would flag the live corpus's own `it.each`.
+      const all = classificationsWithModules(
+        {},
+        `const rows = [1];\nit.each(rows)("x %s", () => {});\nit("sibling", () => {});`,
+      );
+      expect(all.find((t) => t.testName === "sibling")?.verdict).toBe("environment-free");
+    });
+  });
+
+  it("a LONE undecidable registration still produces a record (diff r3 F1)", () => {
+    // THE POSITIVE CONTROL WAS MASKING THE CASE IT CONTROLLED FOR. Every case
+    // above puts an ordinary sibling beside the undecidable spelling, for a
+    // good reason -- an absence is satisfied by a scanner that classified
+    // nothing. But file-level reasons are carried by DEMOTING the records the
+    // walk produced, so the sibling was supplying the very record being
+    // demoted, and a file holding ONLY the undecidable spelling returned `[]`:
+    // no record, no reason, indistinguishable from a file with no tests.
+    //
+    // A control that supplies the mechanism under test is not a control. This
+    // case removes it.
+    const all = classificationsWithModules({}, `const k = "skip";\ntest[k]("computed", () => {});`);
+    expect(all).toHaveLength(1);
+    expect(all[0]?.verdict).toBe("unclassifiable");
+    expect(all[0]?.detail).toContain(undecidableRegistrarKeyReason("test", 2));
+    // Line 1 is a CHOICE, not a position, and the mutation gate is what made it
+    // one: nothing observed the value, so it was an arbitrary literal any edit
+    // could change for free. This record stands for the FILE rather than for a
+    // registration, its reasons carry the real lines, and the census sorts
+    // records by suite then line -- so 1 puts the file-level record first,
+    // ahead of every test the file would have had. Asserted at the value that
+    // makes that true.
+    expect(all[0]?.line).toBe(1);
+  });
+
+  it("a file with no registrations at all is still empty (the twin)", () => {
+    // Without this, the case above passes under a scanner that emits a
+    // placeholder record for every file it reads.
+    expect(classificationsWithModules({}, `export const x = 1;`)).toHaveLength(0);
+  });
+
+  describe("...and through any SUFFIX after the undecidable key (diff r3 F2)", () => {
+    // The reporter inspected only calls whose IMMEDIATE callee is an element
+    // access. In `describe[k].only(...)` the outer callee is a property access
+    // and the element access is never itself a call's callee, so nothing saw
+    // it. The reviewer swept the shape and this is the whole of it; the repair
+    // asks `calleeChain`, which covers all of them without naming one, so these
+    // are the sweep recorded rather than the rule.
+    const SUFFIXES = {
+      "dot modifier": "test[k].only",
+      "bracket modifier": `test[k]["only"]`,
+      "conditional call": "test[k].runIf(c)",
+      "curried call": "test[k].each(rows)",
+      "second undecidable key": "test[k][j]",
+      "key after an earlier modifier": "test.only[k].skip",
+    } as const;
+
+    for (const [label, spelling] of Object.entries(SUFFIXES))
+      it(`${label}: reported, not silent`, () => {
+        const c = classificationWithModules(
+          {},
+          `const k = "skip";\nconst j = "only";\nconst c = true;\nconst rows = [1];\n${spelling}("x", () => {});\nit("sibling", () => {});`,
+        );
+        expect(c?.verdict).toBe("unclassifiable");
+        expect(c?.detail).toContain(undecidableRegistrarKeyReason("test", 5));
+      });
+  });
+
+  it("a NON-registrar receiver is silent, which is why the corpus survives it", () => {
+    // The scope was measured before it was chosen: 77 live-corpus suites hold
+    // exactly ONE element-access callee, `TEMPLATES[position]` in this file,
+    // and it registers nothing. Reporting every undecidable element-access
+    // callee would have flipped this very suite to unclassifiable.
+    const all = classificationsWithModules(
+      {},
+      `const position = 0;\nconst TEMPLATES = [(_s: string) => {}];\nTEMPLATES[position]("x");\nit("sibling", () => {});`,
+    );
+    expect(all.find((t) => t.testName === "sibling")?.verdict).toBe("environment-free");
+  });
+});
+
+describe("a decidable non-string key is NAMELESS, not undecidable (diff r1 F3)", () => {
+  // `unrecognized` is carried as MAYBE by every consumer whose non-match grants
+  // freedom, so putting a decidable key in it does not buy conservatism — it
+  // invents a hook. `handlers[0](() => process.env.CI)` had its callback
+  // attached to every sibling test in the enclosing suite, reporting them
+  // touching with no named cause: wrong attribution wearing conservatism's
+  // clothes.
+  // BOTH unary operators the predicate names. `-1` alone left the `+` arm
+  // untested and the mutation gate said so: flipping its comparison survived
+  // every test in this file. A list that covers one of a pair covers neither,
+  // because the uncovered half is exactly where the next edit is free.
+  const KEYS = ["0", "1", "-1", "+1", "true", "false", "null", "0n", "-0n"];
+  for (const key of KEYS)
+    it(`\`handlers[${key}]\` invents no hook`, () => {
+      const all = classificationsWithModules(
+        OUTER_HOOK_HELPER,
+        `import { spawnHelper } from "__MODULE_helper__";
+         const handlers: Record<string, (f: () => void) => void> = {};
+         describe("S", () => {
+           handlers[${key}](() => { spawnHelper(); });
+           it("sibling", () => {});
+         });`,
+      );
+      expect(all.find((t) => t.testName === "sibling")?.verdict).toBe("environment-free");
+    });
+
+  it("an unlisted unary is NOT decided, and stays maybe (the other direction)", () => {
+    // `~0` is a constant too, and this scanner deliberately does not evaluate
+    // it: the predicate reads literal FORMS, not values. So it lands in
+    // `unrecognized` and the sibling is reported touching -- a conservative
+    // over-report with a named cause, which the bound permits.
+    //
+    // Asserted because the mutation gate showed the boundary is load-bearing in
+    // the OPPOSITE direction from the case above: with the `+` arm's comparison
+    // flipped, every non-`+` unary is accepted as decidable, and `~0` would go
+    // silently free. One mutant, two ways to catch it, and neither existed.
+    const all = classificationsWithModules(
+      OUTER_HOOK_HELPER,
+      `import { spawnHelper } from "__MODULE_helper__";
+       const handlers: Record<string, (f: () => void) => void> = {};
+       describe("S", () => {
+         handlers[~0](() => { spawnHelper(); });
+         it("sibling", () => {});
+       });`,
+    );
+    expect(all.find((t) => t.testName === "sibling")?.verdict).toBe("environment-touching");
+  });
+
+  it("a genuinely undecidable key STILL carries as maybe (the twin)", () => {
+    // The direction check. Without this, the cases above pass under a scanner
+    // that resolved the whole `unrecognized` state away, which would re-open
+    // the false-certification class the three-state decider exists to close.
+    const all = classificationsWithModules(
+      OUTER_HOOK_HELPER,
+      `import { spawnHelper } from "__MODULE_helper__";
+       const k = "beforeEach";
+       const handlers: Record<string, (f: () => void) => void> = {};
+       describe("S", () => {
+         handlers[k](() => { spawnHelper(); });
+         it("sibling", () => {});
+       });`,
+    );
+    expect(all.find((t) => t.testName === "sibling")?.verdict).toBe("environment-touching");
+  });
 });
 
 const OUTER_HOOK_HELPER = {
@@ -4173,6 +4579,290 @@ describe("a nested body wrapped in a transparent expression is still a BODY", ()
   }
 });
 
+describe("AC-3/AC-4 — the callee chain is peeled and collected in ONE traversal", () => {
+  // Two sequential loops -- peel every call, THEN peel every property -- resolve
+  // `test.skipIf(c).each(rows)(...)` to nothing, because the chain INTERLEAVES:
+  // call, property, call, property. Adding `skipIf` to the modifier set without
+  // the interleaved peel is worse than adding neither: the outer call still
+  // resolves to nothing while the inner `test.skipIf(c)` now resolves to `test`,
+  // and its first argument is the CONDITION, so the scanner invents a
+  // registration named `<test at line N>` out of a skip predicate.
+
+  it("test.skipIf(c).each(rows) registers ONCE, under the curried name", () => {
+    const all = classificationsWithModules(
+      {},
+      `const rows = [1];
+       const c = true;
+       test.skipIf(c).each(rows)("chain %s", () => {});`,
+    );
+    // The WHOLE list, not a `find`: asserting only that `chain %s` is present
+    // passes while the spurious `<test at line N>` registration is present
+    // beside it, which is the exact half-implementation above.
+    expect(all.map((t) => t.testName)).toEqual(["chain %s"]);
+  });
+
+  it("test.skipIf(c) registers under its own name, with no curried call at all", () => {
+    const all = classificationsWithModules(
+      {},
+      `const c = true;\ntest.skipIf(c)("live", () => {});`,
+    );
+    expect(all.map((t) => t.testName)).toEqual(["live"]);
+  });
+
+  it("test.each(rows) still registers under the curried name (regression)", () => {
+    const all = classificationsWithModules(
+      {},
+      `const rows = [1];\ntest.each(rows)("plain %s", () => {});`,
+    );
+    expect(all.map((t) => t.testName)).toEqual(["plain %s"]);
+  });
+
+  it("EVERY call in the chain contributes its eager arguments, not just the last", () => {
+    // AC-4. A collector reading only the IMMEDIATE curried call sees `[1]` and
+    // leaves the child free; the environment read sits in the `skipIf` call one
+    // link further up, which the same traversal that peels the chain reaches.
+    const all = classificationsWithModules(
+      {},
+      `describe.skipIf(process.env.CI).each([1])(() => { it("x", () => {}); });`,
+    );
+    expect(all.find((t) => t.testName === "x")?.verdict).toBe("environment-touching");
+  });
+
+  it("a single-level describe.each producer is unchanged (regression)", () => {
+    const all = classificationsWithModules(
+      {},
+      `describe.each([process.env.CI])("d%s", () => { it("y", () => {}); });`,
+    );
+    expect(all.find((t) => t.testName === "y")?.verdict).toBe("environment-touching");
+  });
+
+  it("a hook in an EARLIER link of a nested describe's chain still reaches the sibling", () => {
+    // The nested-describe prune walks the eager arguments of the nested
+    // registration's callee, because those are evaluated while the PARENT suite
+    // is current. It walked only the immediate curried call -- correct while a
+    // chain could only be one call long, and a SILENT FREE the moment `skipIf`
+    // makes two-call chains resolvable. The direction is what makes it part of
+    // this commit rather than a later one: before the modifier set widened,
+    // `describe.skipIf(...)` peeled to nothing, the prune never fired, and the
+    // hook was found by the ordinary walk.
+    const all = classificationsWithModules(
+      OUTER_HOOK_HELPER,
+      `import { spawnHelper } from "__MODULE_helper__";
+       describe("outer", () => {
+         describe.skipIf(beforeEach(() => { spawnHelper(); })).each([1])("A%s", () => {
+           it("inA", () => {});
+         });
+         describe("B", () => { it("inB", () => {}); });
+       });`,
+    );
+    expect(all.find((t) => t.testName === "inA")?.verdict).toBe("environment-touching");
+    expect(all.find((t) => t.testName === "inB")?.verdict).toBe("environment-touching");
+  });
+});
+
+describe("AC-5 — `suite` is adopted at the DISPATCH, and `bench` is not adopted at all", () => {
+  // Widening the registrar set alone is adoption that behaves as nothing:
+  // `registrarRoot` returns "suite" and the walk then DISPATCHES on the root by
+  // name, so an unwidened dispatch recognizes the registration and drops it --
+  // strictly worse than not recognizing it, because the body is no longer
+  // walked as ordinary content either.
+  //
+  // TWO cases, because there are two sites and the first passes with the second
+  // unrepaired (plan review r2 finding 1 demonstrated exactly that).
+
+  it("the dispatch twin: the same body under `suite` classifies as it does under `describe`", () => {
+    const body = `(() => { beforeEach(() => { spawnHelper(); }); it("y", () => {}); })`;
+    const under = (registrar: string): string | undefined =>
+      classificationsWithModules(
+        OUTER_HOOK_HELPER,
+        `import { spawnHelper } from "__MODULE_helper__";
+         ${registrar}("x", ${body});`,
+      ).find((t) => t.testName === "y")?.verdict;
+    // A twin, not a constant: the describe half is what makes the suite half
+    // impossible to satisfy by asserting a fixed string.
+    expect(under("describe")).toBe("environment-touching");
+    expect(under("suite")).toBe(under("describe"));
+  });
+
+  it("the nested-prune site: a nested `suite` owns its own hooks", () => {
+    // The ONLY case that reaches the prune. With it still keyed on "describe"
+    // alone, the nested `suite` is not recognized as a suite, its hook is
+    // treated as ordinary content of the OUTER describe, and the sibling is
+    // wrongly reported touching.
+    const all = classificationsWithModules(
+      OUTER_HOOK_HELPER,
+      `import { spawnHelper } from "__MODULE_helper__";
+       describe("outer", () => {
+         suite("inner", () => {
+           beforeEach(() => { spawnHelper(); });
+           it("inner child", () => {});
+         });
+         it("outer sibling", () => {});
+       });`,
+    );
+    // The SIBLING is the whole case: `inner child` is touching under every
+    // implementation, so asserting it alone passes either way.
+    expect(all.find((t) => t.testName === "inner child")?.verdict).toBe("environment-touching");
+    expect(all.find((t) => t.testName === "outer sibling")?.verdict).toBe("environment-free");
+  });
+
+  it("`bench` registers nothing (§5 L3)", () => {
+    // The declaration does not name `bench` as a `SuiteAPI` or a `TestAPI`, so
+    // it is excluded by construction. Asserted anyway, because "excluded by
+    // construction" is a claim about a derivation and this is the behaviour.
+    //
+    // The `it` beside it is a POSITIVE CONTROL and it is the whole reason this
+    // case discriminates. Asserting only that `bench` produces nothing is an
+    // ABSENCE, and an absence is satisfied by the thing it means AND by a
+    // scanner that classified nothing at all — a fixture that failed to write, a
+    // path that did not resolve, a walk that returned early. That failure mode
+    // is invisible precisely because its result is the answer we want.
+    const all = classificationsWithModules({}, `bench("b", () => {});\nit("real", () => {});`);
+    expect(all.map((t) => t.testName)).toEqual(["real"]);
+  });
+});
+
+describe("AC-6 — one predicate, three sites, keyed on the property NAME", () => {
+  // Vitest exposes the hooks as PROPERTIES too -- `test.beforeEach(…)`,
+  // `test.aroundEach(…)` -- and a suite factory receives the API as a parameter,
+  // so `(t) => t.beforeEach(…)` is the ordinary spelling inside one. Every site
+  // required a bare IDENTIFIER callee, so each qualified form was invisible: a
+  // SILENT FREE, the direction §6's bound forbids.
+
+  const hookForm = (hook: string, testSrc: string): string | undefined =>
+    classificationsWithModules(
+      OUTER_HOOK_HELPER,
+      `import { spawnHelper } from "__MODULE_helper__";\n${hook}\n${testSrc}`,
+    ).find((t) => t.testName === "x")?.verdict;
+
+  it("a qualified hook at FILE scope reaches every test in the file", () => {
+    expect(hookForm(`test.beforeEach(() => { spawnHelper(); });`, `it("x", () => {});`)).toBe(
+      "environment-touching",
+    );
+  });
+
+  it("a qualified hook inside a describe reaches that describe's tests", () => {
+    expect(
+      hookForm(
+        "",
+        `describe("d", () => { test.beforeEach(() => { spawnHelper(); }); it("x", () => {}); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("a suite FACTORY's alias is a hook registrar: `(t) => t.beforeEach(…)`", () => {
+    // The parameter is a local binding that peels to nothing, so a rule keyed on
+    // a callee resolving through `registrarRoot` cannot see it -- which is why
+    // the predicate keys on the property NAME (§5 L5).
+    expect(
+      hookForm(
+        "",
+        `describe("d", (t) => { t.beforeEach(() => { spawnHelper(); }); it("x", () => {}); });`,
+      ),
+    ).toBe("environment-touching");
+  });
+
+  it("`aroundEach` in the qualified form -- the derived set's new member, exercised", () => {
+    expect(hookForm(`test.aroundEach(() => { spawnHelper(); });`, `it("x", () => {});`)).toBe(
+      "environment-touching",
+    );
+  });
+
+  it("§5 L5 -- a hook-named member on an unrelated object REPORTS", () => {
+    // The limit says this over-reports; a limit that is never exercised is a
+    // claim, so the behaviour it describes is pinned. Conservative with a named
+    // cause is what the bound permits.
+    expect(hookForm(`logger.afterAll(() => { spawnHelper(); });`, `it("x", () => {});`)).toBe(
+      "environment-touching",
+    );
+  });
+});
+
+describe("AC-6 — `loadTimePremises` keeps the bare-identifier callee, and that is the POINT", () => {
+  // The same shape at a third site, failing the OPPOSITE way. The two hook
+  // consumers fail toward a silent FREE, so matching more is conservative.
+  // `loadTimePremises` feeds `hasPremise`: matching more means crediting a
+  // registration with a premise it does not have -- FALSE CERTIFICATION, the
+  // direction §6's bound names first. A repair whose safety argument is that it
+  // is syntactically identical to a safe one has not made a safety argument.
+
+  const associated = (premiseCall: string): boolean | undefined =>
+    classificationsWithModules(
+      {},
+      `const rows = [1];\n${premiseCall}\nit.each(rows)("x %s", () => {});`,
+    ).find((t) => t.testName === "x %s")?.hasPremise;
+
+  it("a bare `premise(…)` over the producer IS the associated placement", () => {
+    // The twin. Without it, the two assertions below pass under a scanner that
+    // credits nothing at all.
+    expect(associated(`premise("rows", rows.length, 0);`)).toBe(true);
+  });
+
+  it("`logger.premise(…)` is NOT credited -- crediting it would certify falsely", () => {
+    expect(associated(`logger.premise("rows", rows.length, 0);`)).toBe(false);
+  });
+
+  it("`t.premise(…)` is not seen either, and that stays a documented limit", () => {
+    // Reporting a premise as MISSING when one exists is the conservative
+    // direction. It is the price of not widening the site that certifies.
+    expect(associated(`t.premise("rows", rows.length, 0);`)).toBe(false);
+  });
+});
+
+describe("the associated premise is about the CURRIED producer, never the skip condition", () => {
+  // Opened by this arc's own widening, and it is the class that cannot ship.
+  // `premiseIsAssociated` took "the immediate callee, if it is a call" as the
+  // producer. That is the `.each`/`.for` call for `test.each(rows)(…)` -- and it
+  // is the CONDITION call for `test.skipIf(c)(…)`, which before `skipIf` became
+  // a modifier was not a registration at all. A premise about the skip condition
+  // then satisfies the associated-premise requirement for a registration that
+  // has no producer: FALSE CERTIFICATION, the direction §6's bound names first.
+  //
+  // The producer is the call curried from a CURRIED modifier (`each`, `for`),
+  // which the declaration names -- so this reads the same authority the accept
+  // sets do rather than a second hand-written pair.
+
+  const credited = (setup: string, registration: string): boolean | undefined =>
+    classificationsWithModules({}, `${setup}\n${registration}`).find(
+      (t) => t.hasPremise !== undefined,
+    )?.hasPremise;
+
+  const ROWS = `const rows = [1];\nconst c = true;`;
+
+  it("a premise over the producer IS credited (the twin)", () => {
+    // Without this, every assertion below passes under a scanner that credits
+    // nothing at all.
+    expect(
+      credited(`${ROWS}\npremise("rows", rows.length, 0);`, `test.each(rows)("x %s", () => {});`),
+    ).toBe(true);
+  });
+
+  it("a premise over the producer is credited THROUGH a longer chain", () => {
+    expect(
+      credited(
+        `${ROWS}\npremise("rows", rows.length, 0);`,
+        `test.skipIf(c).each(rows)("x %s", () => {});`,
+      ),
+    ).toBe(true);
+  });
+
+  it("a premise over the SKIP CONDITION is not credited -- there is no producer", () => {
+    // The registration has no `.each` at all. Crediting it certifies falsely.
+    expect(
+      credited(`${ROWS}\npremise("c", Number(c), 0);`, `test.skipIf(c)("live", () => {});`),
+    ).toBe(false);
+  });
+
+  it("a premise over the skip condition is not credited when a producer EXISTS either", () => {
+    expect(
+      credited(
+        `${ROWS}\npremise("c", Number(c), 0);`,
+        `test.skipIf(c).each(rows)("x %s", () => {});`,
+      ),
+    ).toBe(false);
+  });
+});
+
 // ── Producer A — a hook in an EAGER argument position (spec §3.1) ────────────
 //
 // A registration's eager positions -- its name argument, its options argument
@@ -4298,7 +4988,10 @@ describe("producer A — a hook in an eager argument position reports unclassifi
    * `REGISTRAR_AXIS`: a check whose two sides come from one source cannot
    * disagree, so the foil has to be independent of the derivation it audits.
    */
-  const HOOK_CALL = /^(beforeEach|beforeAll|afterEach|afterAll)\s*\(/;
+  // STAYS HAND-WRITTEN per the docstring above: deriving it would make both
+  // sides of the check one source. The shipped set gained `aroundAll`/`aroundEach`,
+  // so the WITNESS is updated by hand.
+  const HOOK_CALL = /^(beforeEach|beforeAll|afterEach|afterAll|aroundAll|aroundEach)\s*\(/;
   for (const cell of CELLS)
     premiseHolds(
       `${cell.id}: the twin is this cell's own source with exactly ITS HOOK replaced`,
@@ -4314,9 +5007,17 @@ describe("producer A — a hook in an eager argument position reports unclassifi
     // the shipped regex, this list is the independent witness, and they can
     // disagree in the two ways that matter -- a narrowed extraction, and a
     // registrar added to the surface while §5.2's declared 12 goes stale.
-    expect(REGISTRAR_AXIS).toEqual(["beforeEach", "beforeAll", "afterEach", "afterAll"]);
+    // Witness updated BY HAND to the six the declaration now names.
+    expect(REGISTRAR_AXIS).toEqual([
+      "afterAll",
+      "afterEach",
+      "aroundAll",
+      "aroundEach",
+      "beforeAll",
+      "beforeEach",
+    ]);
     expect(CELLS.length).toBe(POSITIONS.length * REGISTRAR_AXIS.length);
-    expect(CELLS.length).toBe(12);
+    expect(CELLS.length).toBe(18);
   });
 
   it("the shipped reason formatter agrees with this suite's independent witness", () => {
@@ -4828,5 +5529,170 @@ describe("AC-7 — no live instance of either hook-attachment shape in this surf
     // The ARM is the discriminator, and the line is the one fact the reason
     // carries by contract. Same reasoning as the eager control above.
     expect(got.factory.at(-1)).toContain("at line");
+  });
+});
+
+/**
+ * Diff-review round 3 found two consumers of the accept-sets this arc widened
+ * that never consulted them, each reporting `environment-free` for a file that
+ * reaches the environment. Both are FALSE CERTIFICATION, the one class the
+ * consequence bound forbids outright, and both were invisible to every existing
+ * cell because the matrices exercise only the narrower spelling: AC-5 covers
+ * inline `suite` bodies and never a factory argument, and the 18-cell eager-hook
+ * matrix covers only bare calls and never a property receiver.
+ *
+ * The structural repair is `_metaAcceptSetConsumerAuthority`, which derives the
+ * consumer set instead of listing it. These are the behavioural halves - the
+ * defects themselves, not the shape - so a regression fails as a WRONG VERDICT
+ * and not only as a lint.
+ */
+describe("accept-set consumers reached by the widening (diff r3)", () => {
+  // A non-inline factory is unfollowable, so the honest verdict is
+  // `unclassifiable`. `describe` already reported it; `suite` did not, because
+  // the reporter compared the root against the literal "describe".
+  it("a `suite` registration with a non-inline factory is not certified free", () => {
+    const body = `const factory = () => { beforeEach(() => { void process.env.CI; }); it("a", () => {}); };`;
+    const asDescribe = verdict(`${body}\ndescribe("S", factory);\n`);
+    const asSuite = verdict(`${body}\nsuite("S", factory);\n`);
+
+    // The witness is `describe`'s own verdict, not a hardcoded string: the two
+    // spellings are the same registration and the point is that they AGREE.
+    expect(asSuite).toBe(asDescribe);
+    expect(asSuite).not.toBe("environment-free");
+  });
+
+  // A hook in an eager argument position is reported so the file is flagged.
+  // Through a property receiver it was not, so the sibling read free.
+  it("an eager-position hook through a property receiver still flags the file", () => {
+    const bare = `describe(String(beforeEach(() => { void process.env.CI; })), () => { it("inA", () => {}); });\nit("sibling", () => {});\n`;
+    const viaProperty = `describe(String(test.beforeEach(() => { void process.env.CI; })), () => { it("inA", () => {}); });\nit("sibling", () => {});\n`;
+
+    // The WHOLE verdict list, in order, not a lookup by field. The first draft
+    // of this case did `rows.find((r) => r.title === "sibling")` - there is no
+    // `title` on a classification, so both sides resolved to `undefined`, both
+    // assertions held vacuously, and the case PASSED against the defective
+    // scanner. It was caught by reverting the fix and demanding red, which is
+    // the only thing that distinguishes a regression test from a decoration.
+    const verdicts = (src: string): string[] => rowsWithPath(src).rows.map((r) => r.verdict);
+
+    // Witnessed against the bare spelling rather than a literal: the two are the
+    // same registration and the claim is that they AGREE.
+    expect(verdicts(viaProperty)).toEqual(verdicts(bare));
+    expect(verdicts(viaProperty)).not.toContain("environment-free");
+  });
+});
+
+/**
+ * Diff-review round 2 found the deciders themselves incomplete. `calleeName`
+ * accepted an identifier and a dot property access and returned `null` for
+ * everything else - and every caller reads `null` as "this callee bears no
+ * name", so an unrecognised SPELLING became a silent "not a hook". That is
+ * FALSE CERTIFICATION arriving through the very function introduced to stop it.
+ *
+ * The repair is not one branch per spelling. Two different things were conflated
+ * behind one `null`:
+ *
+ *   - spellings whose name is statically DECIDABLE and merely written another
+ *     way - `test["beforeEach"]`, `(test).beforeEach`, `(test as X).beforeEach`.
+ *     These are the same name by any reading and are decided, once.
+ *   - callees whose name is NOT statically decidable - `test[k]`, a computed
+ *     member. These now report UNRECOGNISED, and every caller treats that
+ *     conservatively instead of as "no".
+ *
+ * The second half is what makes a spelling nobody has thought of fail SAFE.
+ */
+describe("the deciders are complete or they decline (diff r2)", () => {
+  const hookIn = (callee: string): string =>
+    `describe("S", () => { ${callee}(() => { void process.env.CI; }); it("a", () => {}); });`;
+
+  // Witnessed against the dot spelling rather than a literal: these are the
+  // same registration and the claim is that they AGREE.
+  it("a hook named through a decidable spelling is not certified free", () => {
+    const dot = verdict(hookIn("beforeEach"));
+    expect(dot).toBe("environment-touching");
+    for (const spelling of [
+      `test["beforeEach"]`,
+      `(beforeEach)`,
+      `(test as typeof test).beforeEach`,
+      `test!.beforeEach`,
+    ]) {
+      expect({ spelling, v: verdict(hookIn(spelling)) }).toEqual({
+        spelling,
+        v: dot,
+      });
+    }
+  });
+
+  // The undecidable case must NOT read as free. It may be conservative; it may
+  // not be silently absent.
+  it("a hook whose name cannot be decided is not certified free", () => {
+    const src = `const k = "beforeEach";\ndescribe("S", () => { (test as never)[k](() => { void process.env.CI; }); it("a", () => {}); });`;
+    expect(verdict(src)).not.toBe("environment-free");
+  });
+
+  // A bracketed modifier mid-chain must not invent a registration nor lose one.
+  it("a bracketed modifier in the callee chain neither invents nor loses a row", () => {
+    const dotEach = rowsWithPath(`test.skipIf(false).each([[1]])("t%s", () => {});`).rows;
+    const brkEach = rowsWithPath(`test.skipIf(false)["each"]([[1]])("t%s", () => {});`).rows;
+    const brkSkip = rowsWithPath(`test["skipIf"](false).each([[1]])("t%s", () => {});`).rows;
+    expect(brkEach.map((r) => r.verdict)).toEqual(dotEach.map((r) => r.verdict));
+    expect(brkSkip.map((r) => r.verdict)).toEqual(dotEach.map((r) => r.verdict));
+  });
+});
+
+/**
+ * A decidable element-access KEY is decided, not declined.
+ *
+ * Led to by a sibling arc's fixture rather than by review: `computed-key-
+ * competing-declaration.ts` on `fix/sendauth-arm-classifier-unification` kills
+ * an implementation that unwraps the callee but not the KEY, so `[("snap")]`
+ * reads as no name at all. This scanner had exactly that gap - it peeled
+ * parentheses and casts off the callee and never off the argument, so
+ * `test[("beforeEach")]` and `test["beforeEach" as string]` fell to
+ * `unrecognized`.
+ *
+ * IT WAS INVISIBLE FROM THE VERDICT. Both forms already classified correctly,
+ * because `unrecognized` is carried conservatively by the consumers that grant
+ * freedom - so the outcome looked right while the reason was wrong. That is the
+ * same error corrected earlier for `import(...)`: a conservative answer on a
+ * decidable input is still a wrong answer, and here it hid behind a correct
+ * result rather than announcing itself.
+ */
+describe("a decidable element-access key is decided (sendauth fixture lead)", () => {
+  // The EAGER position, deliberately. In a suite body both spellings already
+  // classify identically, because `unrecognized` is carried conservatively by
+  // the consumers that grant freedom - so a test written there passes with the
+  // defect present and proves nothing. The eager reporter is the one path where
+  // the two decisions produce DIFFERENT observable output: it names the hook it
+  // resolved, or says it could not resolve one.
+  const eager = (callee: string): string =>
+    `describe(String(${callee}(() => { void process.env.CI; })), () => { it("inA", () => {}); });\nit("sib", () => {});\n`;
+
+  // A file-level reason carries its MODULE, and each case is written to its own
+  // temp file, so an equality on the raw `detail` compares paths that differ by
+  // construction. The path is stripped; the reason is what is being witnessed.
+  const reasonOf = (src: string): string => {
+    const { path, rows } = rowsWithPath(src);
+    return String(rows[0]?.detail ?? "").replace(`, in ${path}`, "");
+  };
+
+  it("a wrapped string key resolves to the same NAME as the bare form", () => {
+    const bareDetail = reasonOf(eager(`test["beforeEach"]`));
+    expect(bareDetail).toContain("hook beforeEach at line");
+
+    for (const spelling of [
+      `test[("beforeEach")]`,
+      `test["beforeEach" as string]`,
+      "test[`beforeEach`]",
+      `test[("beforeEach") as string]`,
+    ]) {
+      const detail = reasonOf(eager(spelling));
+      // Witnessed against the bare spelling: same registration, same name.
+      expect({ spelling, detail }).toEqual({ spelling, detail: bareDetail });
+      expect({ spelling, undecidable: detail.includes("<undecidable callee>") }).toEqual({
+        spelling,
+        undecidable: false,
+      });
+    }
   });
 });

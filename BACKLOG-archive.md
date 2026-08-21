@@ -10214,3 +10214,88 @@ Returned **30** elements on 2026-08-16 against a universe of 362, of which **thi
 **Why it is filed and not swept.** Spec §2.1 and §6 fence it in both directions and the fence is quoted here so neither side is relitigated: _"Widening the swap to `border-border` is NOT the repair. `border-border` is a different token doing a different job — DESIGN.md §1.2a explicitly preserves the border tokens for tile edges, card edges, dividers and hover chrome — and moving it is a design decision this ruling did not make."_ The cover also reaches THIRTEEN crew surfaces, which the admin-scoped 2026-08-16 mockup never showed the user. Nine sit under a crew path: `app/me/meShowSections.tsx:174`, `:213` and `:258`; `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx:233`; `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx:103` and `:121`; `components/crew/SectionChipLink.tsx:48`; `components/crew/primitives/PersonRow.tsx:196` and `:213`. Four more reach a crew surface through a RENDER CHAIN and a path regex misses them, which is how the count was wrong until whole-diff R10: `components/agenda/AgendaEmbed.tsx:83` and `components/agenda/AgendaPdfViewer.tsx:198` via `components/crew/sections/ScheduleSection.tsx`; `components/layout/ThemeToggle.tsx:91` via `components/layout/Header.tsx`, the `/show/[slug]` page chrome; and `components/shared/ReportButton.tsx:142` via `components/layout/Footer.tsx`.
 
 **First scheduled step:** put the narrower question to the user with a rendered mockup — does a control whose ONLY outline is `border-border` on a neutral fill take the text ramp too, or is `border-border` a deliberate third weight for quiet controls? If the answer is "text ramp", the sweep is derived and mechanical; if it is "third weight", §1.2a gains one sentence and this closes as a documented limit. Start with the five confirm-row Cancels, which have the strongest case either way.
+
+## BL-PREMISESCAN-REGISTRAR-ACCEPT-SETS-HAND-MAINTAINED — the scanner's registrar and modifier lists drift from Vitest's actual API — CLOSED 2026-08-21 (`fix/premisescan-registrar-accept-sets`, SHIPPED)
+
+**Status:** SHIPPED 2026-08-21 · **Effort (as shipped):** M · **Severity (as filed):** MEDIUM (drift is silent in the FREE direction) · **Class:** guard fidelity · **Filed:** 2026-08-19 (`fix/premisescan-nested-hook-sibling-leak`, diff review r10) · **Facing:** process · **Mint-exception:** invariant · **Reachability:** PROBED at filing — one member was LIVE in an enrolled suite.
+
+**Resolution.** All three accept-sets are derived from `@vitest/runner`'s shipped DECLARATION and carried as committed literals, with a structural pin that reds when an upgrade moves any of them. `MODIFIERS` 7 → 11 (`fails`, `runIf`, `shuffle`, `skipIf`), `HOOK_REGISTRARS` 4 → 6 (`aroundAll`, `aroundEach`), `REGISTRARS` 3 → 4 (`suite`), plus a fourth derived set `CURRIED_MODIFIERS` the repair turned out to need.
+
+**The declaration rather than runtime properties, and that is the load-bearing choice.** A runtime read cannot tell a modifier from a BUILDER: `extend`, `override`, `scoped` and `fn` are callable own properties of `test` that return a new API rather than registering, so admitting them makes `test.extend({})` peel to `test` and invent a registration out of a builder call. They are absent from both chainable declarations, so the exclusion is BY CONSTRUCTION rather than an exception list — which is what makes this a derivation. `bench` is excluded the same way: the runtime exports it, the declaration does not type it as `SuiteAPI` or `TestAPI`.
+
+**The row's own condition — the two halves ship together — is discharged.** Completing the sets without the peel trades a silent omission for a silent wrong verdict, and the filing arc proved that by REVERTING its own round-10 completion at round 12. `registrarRoot` and `eachProducers` now share one `calleeChain` fixpoint that alternates call-peel and property-peel, so `test.skipIf(c).each(rows)(…)` resolves to one registration under its real name instead of to nothing plus a spurious `<test at line N>` invented from the skip predicate.
+
+**AC-1 did not move, and the claim is partitioned because the census population includes a file this change edits.** The environment-touching record set is byte-identical across the whole corpus; exactly one record was ADDED outside the edited suite, and it is `tests/cross-cutting/psqlStartupFileSuppression.test.ts`'s `test.skipIf(isRoot)(…)` — the enrolled test the filing incident measured as ABSENT from the census. Naming which shape it is, rather than counting it, is what makes that a verified expectation. `_metaPremiseContract` is unmoved at 11 passed. **The row's "first scheduled step" was exactly this measurement, and it came back with no AC-1 amendment owed.**
+
+**A THIRD instance of the repaired class was found in this arc's own diff, by the mechanical cover rather than by review.** `premiseIsAssociated` took "the immediate callee, if it is a call" as the `.each` producer — right for `test.each(rows)(…)`, and for `test.skipIf(c)("live", fn)` it read the SKIP CONDITION as a producer, so `premise("c", …)` before it yielded `hasPremise` TRUE on a registration with no producer at all. FALSE CERTIFICATION, opened by this arc's own first task, written the same hour, and a patch list covering the two known sites would have shipped it.
+
+**So the deliverable is a derived cover, not a list of repaired sites.** `tests/mutation/_metaCalleeChainAuthority.test.ts` walks the file and reports every site asking whether a call's callee is itself a call, outside the one permitted authority. Typed rather than textual, because `st.expression` on an `ExpressionStatement` reads identically to `call.expression` on a `CallExpression`. The sweep was complete when written and incomplete before it could merge — a concurrent branch added a fourth reader that did not exist when the list was made — which is the cleanest available demonstration of why this repo requires a sweep to produce a derivation.
+
+**Three detector properties were each bought by the check failing on ITSELF**, and the third generalises: **an exemption that cannot fail is indistinguishable from a detector that cannot see.** The authority must appear in the RAW findings before it is excused, or a detector that silently stops matching goes green having found nothing while the exemption absorbs the failure. Applies to every `eslint-disable`, every `// no-telemetry:` comment and every registry exemption row in this repo. The other two — assignment aliases with a fixpoint, and lexical scoping — exist because the check reported the authority CLEAN and then excused it, and then flagged every walker in the file.
+
+**The cover's measured result, which is the strongest claim this entry makes.** By the time the arc
+merged, the one-level callee read had been found at SIX sites and **FOUR of them were found only by
+the derived cover** — one in this arc's own code an hour after it was written, two on the tree merged
+with `fix/premisescan-hook-attachment`, and one that sibling ADDED while this arc watched. No list
+anyone wrote contained them, and a list could not have: on that sibling's branch the one-level read
+is CORRECT, because its `registrarRoot` resolves single-call chains only, so every registration
+walker it wrote was right on its own tree and defective on the merged one. That is a 4-of-6
+measurement rather than a preference for derivations over lists.
+
+**The real merge then produced the head-to-head the cumulative count could not.** Merging `origin/main`
+after that sibling landed reintroduced the read at THREE sites, and the two instruments were run
+against the same tree in the same minute: the derived cover reported **3 of 3**; a hand-written probe
+grep, naming its receivers by hand as `call.` and `node.`, reported **2 of 3**. It missed the
+producer's site because that one reads `n.expression`. The hand-list was written by the same person,
+on the same day, with the class fully in mind, inside the arc whose entire deliverable is the argument
+against hand-lists — and it still missed a third of the instances. The variable name was the only
+thing that differed.
+
+**None of those merge interactions produced a conflict.** `premiseScan.ts` auto-merged cleanly every
+time. Git detects textual adjacency, not semantic contradiction, so two branches can edit one file in
+disjoint regions while one reintroduces exactly the class the other removes — with nothing for a
+careful reviewer of the merge to look at. Running the guards against the MERGED tree, rather than
+reading the merge, is what caught each one.
+
+**Ownership, because a reviewer will ask why the sibling was not made to fix its own sites.** Each
+defect is TRUE on that branch alone and TRUE on this one alone, and false only in combination —
+including a spec number (`3 × 4 = 12` producer-A cells) that was correct there and went stale only
+because this arc widened the hook set. Neither branch is defective by itself; the party who creates
+the combination owns the repair. The sibling's own class sweep was COMPLETE relative to its own tree.
+
+**Two structural guards on `main` caught this arc where every local run had passed**, and both were
+established as this branch's rather than inherited by running the failing suite at `origin/main`:
+`_metaSpawnDisposition` (the new pin reads an alternation with `RegExp.prototype.exec`, taken as a
+NON-MEMBER row with its hit count and digest — the guard's designed channel, not a rewrite that
+dodges the sweep) and `declaredLimitPinsCorpus` (+8 advisory rows for ONE pin, since the advisory is
+keyed `(plan, suitePath, title)` and eight plans name this suite; merging `origin/main` later added a
+NINTH, because the sibling's own plan carries the same pin, taking the distinct-plan count to twelve). The corpus expectation was
+UPDATED rather than the pin dispositioned or its title reworded — rewording out of the three-phrase
+accept set would have made a real pin INVISIBLE, which that module names as the weaker state. Both
+cheaper options were one line and both were silencing the arm rather than answering it.
+
+**Task 6's own closeout checks were found broken and repaired before being relied on.** Dry-run
+against the tree BEFORE the closeout edit, two of the four ranged over MENTIONS where they meant
+DECLARATIONS: the "removed but never archived" check PASSED ALREADY, because this row is cited in the
+prose of a different archive entry, and the both-open-and-archived `comm` reported 120 false
+overlaps. The enforcement was never the problem — the block failed loudly and branched on every exit
+code. It was correctly SHAPED and measured the wrong set, which is a confident wrong answer whose
+loudness is what makes it persuasive.
+
+**Then the repair itself was wrong in the same direction, which is the part worth keeping.** Anchoring
+the checks to `^## <ROW>` fixed mentions-versus-declarations and introduced a new blindness: a ledger
+row is declared at `##` OR `###`, and 123 rows — 24 open, 99 archived — are at the deeper level. For
+every one of those the repaired check would have passed forever, silently, exactly as the original
+did. It surfaced only because an unrelated errand needed a `###` row's boundary. A repair aimed at a
+fail-open check is itself a candidate for failing open, and the second one is harder to see because
+the first is now trusted.
+
+**Not closed here:** `BL-ACCEPTSET-CONSUMER-COVERAGE`. Its repair is a structural test whose consumer list is DERIVED, so a consumer added later is covered rather than becoming a fourth instance. This arc repaired the three known consumers of one set, which is the instance, not the class.
+
+**Review closed DISPOSITIONED, not APPROVED, and the residue is named.** Three whole-diff rounds ran at the final merge base — nine findings, all correct, all repaired, rate decaying 5 / 2 / 2. Round 4 was never dispatched: the Codex API hit its weekly limit mid-arc. So round 3's two repairs — `calleeChain` carrying its own bail reason, and a lone unfollowable registration emitting a record instead of returning nothing — ship unreviewed, verified instead by re-probing every shape the round swept, a clean 191/191 mutation score with zero unaccepted survivors, and a live-corpus census in which `environment-touching` and `unclassifiable` never moved across any of the three rounds of repair.
+
+**Two findings the rounds produced are worth more than the repairs.** The structural guard written for round 1's first finding immediately red on FOUR MORE instances of that class elsewhere in the same file, none of which the review reached — a reviewer ranges over a probe, a guard ranges over the file. And `unwrapTransparent`, one of those four, was the COMPLETE copy: a previous arc's round 6 had already paid to extend it, and the other three copies never learned what it learned. One lesson, purchased once, propagated to none of its peers — which is the measured argument against duplicated normalizers, as opposed to the asserted one.
+
+**A control that supplies the mechanism under test is not a control.** Round 3's first finding was hidden by this arc's own regression tests: each put an ordinary sibling beside the undecidable spelling as a positive control, but file-level reasons are carried by DEMOTING records the walk produced, so the sibling was supplying the very record being demoted. A lone undecidable registration therefore returned nothing at all, and the control was what concealed it.
+
+**Spec:** `docs/superpowers/specs/2026-08-21-premisescan-registrar-accept-sets.md`. **Plan:** `docs/superpowers/plans/2026-08-21-premisescan-registrar-accept-sets.md`. **Probes:** `docs/superpowers/specs/ci/probes/2026-08-21-premisescan-registrar-accept-sets/`. **Round corpus:** `docs/review-rounds/fix/premisescan-registrar-accept-sets/`.
