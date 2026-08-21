@@ -681,3 +681,54 @@ Round-economy: this arc's spec stage crossed the threshold and is filed at
 corpus file** — that split is by design and the rows are never consolidated. If the plan stage
 crosses four counted rounds it owes its own filing under the new key, **filed by this session and not
 left for the implementer**.
+
+---
+
+## 13. Handover to the implementer
+
+**Branch `fix/premisescan-registrar-accept-sets` is pushed and clean.** Spec and plan are both
+APPROVED-equivalent at their caps; nothing here is awaiting a reviewer.
+
+### Start here
+
+1. `git worktree add -b <your-branch> ../FX-worktrees/<name> origin/main` is NOT what you want — this
+   branch already exists and carries the spec, the plan, two probes and both round-economy filings.
+   Check it out and continue on it.
+2. `pnpm install`, `pnpm worktree:link-env`, `pnpm preflight`.
+3. Read §0.3 before Task 1. Eight measurements are recorded there, all re-runnable; **do not re-derive
+   them**, and do not treat §0.3's census table as an expectation for Task 4 (it measures the variants
+   in isolation, on a tree with no test-file edits).
+4. Task order is 1 → 2 → 3 → 4 → 5a → 5b → 6 and §2 says why each edge is forced.
+
+### The four things most likely to trip you
+
+- **Task 1 is one commit, not two.** The peel alone changes nothing observable, so it cannot carry a
+  red. Do not split it back apart.
+- **`loadTimePremises` does NOT get the any-object widening.** Its failure direction is inverted from
+  the two hook consumers: matching more there means CREDITING a premise that does not exist. This was
+  the only BLOCKING finding in eleven rounds; if you find yourself writing one predicate that treats
+  all three sites alike, stop.
+- **Task 4 asserts no whole-population count.** `premiseScan.test.ts` is in the census population and
+  your own cases add to it. Check (c) — the environment-touching SET is unchanged — is the AC-1 claim.
+- **Task 5a observes BEFORE re-keying.** Once the ledger holds the new keys, `reconcile` reports empty
+  lists and the two-in two-out observation is gone.
+
+### Two things this arc learned the expensive way
+
+**A line-keyed identity churns, and the shift is not uniform.** Both accepted survivors move. Re-key by
+EXPRESSION and COLUMN, never by line arithmetic — and never by assuming a constant offset. A concurrent
+red on `main` (run 32459382957) shows the same surface's eight rows shifting by +1 seven times and by
+**+24** once; a uniform re-key writes a wrong key for exactly that row, and a wrong key then reads as a
+fresh stale row rather than as an error in the repair.
+
+**A class sweep must check each instance's failure DIRECTION, not only its syntax.** Three sites shared
+one shape here and one of them failed the other way. A repair whose safety argument is that it is
+syntactically identical to a safe one has not made a safety argument.
+
+### Review economy for the implementation stage
+
+The diff stage starts a fresh round count. `premiseScan` is enrolled, so **enrolment precedes review**:
+run Task 5b's producer BEFORE the round-1 `--stage diff` dispatch and put `MUTATION SCORE: <k>/<t>`
+plus "0 unaccepted survivors" on the brief's `GUARD SURFACE:` line — the wrapper refuses the dispatch
+without it. If the diff stage crosses four counted rounds it owes its own filing under the merge base
+in effect at that time; **file it yourself rather than leaving it for whoever comes next.**
