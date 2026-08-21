@@ -62,7 +62,7 @@ before this spec, 1154 after — so no criterion depends on the literal. Measure
 | **v2 markers reaching the `none` drop**       | **15**   |
 | …of those, `pnpm heavy`-wrapped               | 9        |
 | …of those, other unprobeable commands         | 6        |
-| v1 heavy-wrapped markers exiting at line 717  | 16       |
+| v1 heavy-wrapped markers, UNOWNED and dropped before the v1 exit | 16 |
 
 Reproduced by `node --import tsx probe/population.mts`, which aborts on a short read. Its derivation
 totals, QUOTED rather than transcribed:
@@ -348,10 +348,14 @@ correctly, and the sequence is recorded rather than tidied because both errors h
 reading a subset as the total.
 
 The first three came from counting `pnpm heavy`-wrapped markers by eye. Deriving them mechanically
-gave 9, because 16 of the 25 are v1 and exit at the `if (state === null) continue;` guard, above
-the drop. That correction was right
-about the v1 exit and wrong about the reach, because it answered how many HEAVY-WRAPPED markers reach
-the drop when the drop is not keyed on the wrapper at all. The population probe printed `none: 15`
+gave 9, because 16 of the 25 are v1 and never reach the drop. That correction was right that the
+sixteen are out of reach and wrong TWICE over. Wrong about the reach, because it answered how many
+HEAVY-WRAPPED markers reach the drop when the drop is not keyed on the wrapper at all. And wrong
+about the MECHANISM, which is corrected in §1.1 and restated here so §5.4 cannot be read on its own
+and mislead: those sixteen are dropped by the ownership gate ABOVE the v1 exit, not by the exit.
+Probed against the shipped parser over `probe/reach.mts`'s sixteen v1 rows: `owned: 0, unowned: 16`.
+Not one of them reaches `if (state === null) continue;`, so the corpus oracle does NOT pin that exit
+and only the fixture does. The population probe printed `none: 15`
 in its derivation totals; the heavy-wrapped subset was read instead. The repair's reach is every v2
 marker reaching the branch, which is 15.
 

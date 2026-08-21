@@ -1706,3 +1706,24 @@ Both runs were from the repo root with the paths valid and readable; relative an
 **Shape of the repair.** Upstream: exit non-zero when a requested path could not be read, so inability-to-look is never spelled the same as nothing-found. Locally, cheaper and available now: a wrapper that refuses a non-directory argument, or an invariant-8 checklist line requiring the directory form and a non-zero exit before "detector clean" may be recorded.
 
 **First scheduled step:** confirm the behaviour against the current upstream release, then decide wrapper-versus-report — a local wrapper is worth it either way, since this repo's gate cannot wait on an upstream fix.
+
+## BL-SPECLINT-SELFLINT-NOT-IN-PREDISPATCH-GATE — a plan declares its own lint obligation in prose, so nothing runs it
+
+**Status:** OPEN · **Filed:** 2026-08-21 (`feat/speclint-red-reason-verification`, from that arc's diff round 3) · **Facing:** process · **Severity:** LOW (it costs review rounds; it ships nothing wrong) · **Class:** spec-lint gate · **Effort:** S
+
+**Incident:** diff round 3 on `feat/speclint-red-reason-verification` spent a finding on the plan failing its OWN `spec:lint`. The corpus row is `docs/review-rounds/feat/speclint-red-reason-verification/c9c71b947a85.jsonl`, `diff` round 3, `findingCount` 2. A cross-model reviewer, dispatched to attack the shipped behaviour, was instead spent running a lint the arc had already committed to running. The round also carried a second finding, so the round is not chargeable to this gap alone; the reviewer attention is.
+
+**Probe:**
+
+```
+node --import tsx scripts/spec-lint.ts --json docs/superpowers/plans/2026-08-21-speclint-red-reason-verification.md
+CITATION_MALFORMED at line 72: malformed citation `:837` (empty path)
+```
+
+The failing line was the sentence announcing that a stale citation had been REMOVED, which reproduced it while saying so. That is the shape worth noticing: the defect was in prose whose entire subject was the defect.
+
+**Why prose was not enough.** That plan declares a pre-dispatch lint obligation in a sentence, and it also declares two oracles, `pnpm probe:citations` and `pnpm probe:reach`. Both oracles ran at every gate on that arc, several times each, because they are COMMANDS someone types. The lint obligation ran zero times, because it is a paragraph. The arc's own §3 makes the same argument about re-reads ("the re-read is a COMMAND, not a habit") and then left this one a habit.
+
+**Shape of the repair.** The plan and spec self-lint belongs in whatever pre-dispatch step already runs the arc's oracles, so a `fail`-severity finding in either document blocks a review dispatch the way an unreadable citation does. Cheapest form: one line in the arc's verification block, next to the existing oracle invocations. It is deliberately NOT a new mechanism, and deliberately not a widening of `spec:lint` itself.
+
+**First scheduled step:** decide the home — the invariant-8 style closeout checklist, or the codex-guard brief preflight, which already refuses a dispatch on a missing `GUARD SURFACE:` arm and is the closest existing gate in kind.
