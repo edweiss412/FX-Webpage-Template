@@ -106,13 +106,26 @@ describe("EXPECTED_LEDGER_KINDS is in parity with the registry it describes", ()
     //
     // THE TRANSITIVE REACHABILITY WALK THAT STOOD HERE IS DELETED, and the
     // reason is the finding four review rounds converged on rather than a
-    // retreat under pressure. It forbade IMPORT EDGES, and no import edge is
-    // hazardous: `runner.ts` only DEFINES `runSurface` (runner.ts:141), and
-    // `surfaceCases.ts` only defines `registerSurfaceCases` -- neither executes
-    // anything at module scope. What costs is CALLING one of them, which only a
-    // shard file does. So the walk red on safe code (this file reaches
-    // `runner.ts` through `registry.ts` and runs in half a second) while its
-    // misses were edges that were never unsafe.
+    // retreat under pressure. It forbade IMPORT EDGES, and NO IMPORT EDGE IS
+    // HAZARDOUS. What costs is CALLING a spawner, which only a shard file does.
+    //
+    // PROBED rather than asserted, by parsing both modules' top-level statements
+    // (2026-08-21):
+    //   runner.ts       3 top-level non-declaration statements -- `const CONFIG`,
+    //                   `export const MUTANT_TIMEOUT_EXIT = 124`, `const CHILD_ARGS`.
+    //                   NONE calls runSurface/runControl/execFileSync/spawnSync.
+    //   surfaceCases.ts 1 -- `const root = process.cwd()`. Same result.
+    // So importing either executes no mutant and spawns no child.
+    //
+    // A CORRECTION TO THIS COMMENT'S OWN FIRST DRAFT, kept because it is the
+    // reason the walk had to go. That draft said the walk "red on safe code
+    // because this file reaches runner.ts through registry.ts". IT DOES NOT:
+    // `registry.ts` imports exactly `node:fs`, `./ledger` and `./operators`.
+    // The reachability that red was manufactured by the walker's OWN defect --
+    // it matched `from "..."` inside comments, including the comment quoting the
+    // attack example. So the walk's observed false positives came from its
+    // scanner rather than from the graph, which is a worse fault than the one I
+    // credited it with and an independent reason not to keep it.
     //
     // It was also unfixable in the direction it was being pushed. Rounds 1-4
     // each found one more specifier spelling the resolver did not model --
