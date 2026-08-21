@@ -3033,3 +3033,73 @@ describe("AC-U16b — the adoption detector covers EVERY accepted materialiser",
     expect(nameMaterializationSites(unrelated)).toEqual([]);
   });
 });
+
+describe("AC-U7 — whole-corpus preservation against a committed BASE baseline", () => {
+  /**
+   * The instrument the arc did NOT have: every pre-existing fixture's verdict
+   * compared against a baseline captured at BASE, so the two moves rule B
+   * deliberately creates are the ONLY differences and any third is a regression.
+   *
+   * A VALUE COMPARISON WITH AN INDEPENDENT WITNESS ON EACH SIDE: a committed
+   * baseline against a live scan. The baseline was produced by running the
+   * BASE scanner (blob 412cadd3, byte-identical at `origin/main`) over the
+   * fixture list read from `git ls-tree` at BASE -- not from the manifest, so
+   * the population is not derived from the same place the assertion is.
+   *
+   * `removed: (none)` is the load-bearing half. A count of two moved does not
+   * distinguish an ADDITION from a REPLACEMENT; the empty removal set does.
+   */
+  const BASELINE_PATH = "tests/paneCompaction/fixtures/sendAuthBaseVerdicts.json";
+
+  const verdictOf = (fixtureName: string): string[] =>
+    scan(fixtureName)
+      .map((f) => `${f.code}:${f.name}:${f.lines.join(",")}`)
+      .sort();
+
+  it("preserves all 81 BASE verdicts except the two rule B moves, and those are ADDITIVE", () => {
+    const baseline = JSON.parse(readFileSync(BASELINE_PATH, "utf8")) as Record<string, string[]>;
+    const names = Object.keys(baseline);
+    // Population floor: a baseline that shrank would let this pass over nothing.
+    expect(names).toHaveLength(81);
+
+    const EXPECTED_MOVES: Record<string, string> = {
+      "same-pass-shadowed-derivation.ts": "RAW-HANDOFF:inner",
+      "shadowed-param-handoff.ts": "RAW-HANDOFF:inner",
+    };
+
+    const regressions: string[] = [];
+    const moved: string[] = [];
+    for (const name of names) {
+      const want = baseline[name]!;
+      const got = verdictOf(name);
+      if (JSON.stringify(got) === JSON.stringify(want)) continue;
+      moved.push(name);
+      const added = got.filter((x) => !want.includes(x));
+      const removed = want.filter((x) => !got.includes(x));
+      const expected = EXPECTED_MOVES[name];
+      if (expected === undefined) {
+        regressions.push(`${name}: UNEXPECTED move (+${added.join("|")} -${removed.join("|")})`);
+        continue;
+      }
+      // ADDITIVE: nothing removed, and exactly the one documented addition.
+      if (removed.length > 0) regressions.push(`${name}: REMOVED ${removed.join("|")}`);
+      if (added.length !== 1 || !added[0]!.startsWith(expected)) {
+        regressions.push(`${name}: added ${added.join("|")}, expected one ${expected}`);
+      }
+    }
+
+    expect(regressions).toEqual([]);
+    expect(moved.sort()).toEqual(Object.keys(EXPECTED_MOVES).sort());
+  });
+
+  it("PROVES the baseline can fail — a fabricated verdict is reported as a regression", () => {
+    // Without this the comparison is satisfied by a baseline that matches
+    // whatever the scanner currently does, which is the shape that reports a
+    // perfect zero while measuring nothing.
+    const baseline = JSON.parse(readFileSync(BASELINE_PATH, "utf8")) as Record<string, string[]>;
+    const pick = "single-read-clean.ts";
+    expect(baseline[pick]).toEqual([]);
+    // The live scan agrees today; a baseline claiming otherwise must not match.
+    expect(verdictOf(pick)).not.toEqual(["MULTI-READ:panes:1,2"]);
+  });
+});
