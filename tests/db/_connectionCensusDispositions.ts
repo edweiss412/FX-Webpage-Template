@@ -54,4 +54,11 @@ export const CONNECTION_CENSUS_DISPOSITIONS: readonly DispositionRow[] = [
     reason:
       "non-literal dynamic import of a help page module by computed file URL; the target is under app/help and opens no connection",
   },
+  {
+    file: "tests/parser/fieldNearMiss.test.ts",
+    site: "`../../lib/parser/blocks/${stem}.ts`",
+    kind: "unclassifiable",
+    reason:
+      "template dynamic import of a parser block under lib/parser; parser blocks open no connection",
+  },
 ];
