@@ -396,7 +396,9 @@ describe("workflow — a step that uploads a HIDDEN directory must say so (diff 
     const wf = parseYaml(readFileSync(".github/workflows/mutation-harness.yml", "utf8")) as {
       jobs: Record<
         string,
-        { steps?: { uses?: string; with?: Record<string, string>; "continue-on-error"?: boolean }[] }
+        {
+          steps?: { uses?: string; with?: Record<string, string>; "continue-on-error"?: boolean }[];
+        }
       >;
     };
     const step = (wf.jobs["source-shards"]?.steps ?? []).find(

@@ -228,7 +228,10 @@ describe("surfaceCases — an unwritable sink NEVER moves the gate (AC-14, diff 
     const writable = mkdtempSync(join(tmpdir(), "fx-sc-ok-"));
     let reference: { passed: boolean; score: number };
     try {
-      const { result } = evaluateSurface(fixture("sink-ok"), { write: () => {}, recordDir: writable });
+      const { result } = evaluateSurface(fixture("sink-ok"), {
+        write: () => {},
+        recordDir: writable,
+      });
       reference = { passed: result.passed, score: result.score.value };
     } finally {
       rmSync(writable, { recursive: true, force: true });
@@ -292,4 +295,3 @@ describe("surfaceCases — the console notice carries THIS run's values (diff R2
     expect(notices.every((n) => Number.isFinite(n.durationMs))).toBe(true);
   });
 });
-

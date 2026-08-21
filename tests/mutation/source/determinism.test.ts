@@ -675,8 +675,18 @@ describe("determinism — a run whose inputs MOVED is reported, never certified 
     verdicts: { KILLED: 1 },
     kinds: { exit: 1 },
     infraFaults: [],
-    stampBefore: { digest: "aaaaaaaaaaaa", files: { "lib/x.ts": "1111" }, operators: "o|floor=1", count: 1 },
-    stampAfter: { digest: "bbbbbbbbbbbb", files: { "lib/x.ts": "2222" }, operators: "o|floor=1", count: 1 },
+    stampBefore: {
+      digest: "aaaaaaaaaaaa",
+      files: { "lib/x.ts": "1111" },
+      operators: "o|floor=1",
+      count: 1,
+    },
+    stampAfter: {
+      digest: "bbbbbbbbbbbb",
+      files: { "lib/x.ts": "2222" },
+      operators: "o|floor=1",
+      count: 1,
+    },
     inputsMoved: ["lib/x.ts"],
   });
 
@@ -898,11 +908,25 @@ describe("determinism adapter — EVERY refusal exits 2, not just the one (diff 
     const produced = new Set<string>();
     const surface = surfaceOf("psqlStartupScan");
     reset(allGreen());
-    produced.add((runDeterminism({ surface: surface.id, site: "nope", runs: "1" }) as { input?: string }).input ?? "");
-    produced.add((runDeterminism({ surface: "nope", site: "x", runs: "1" }) as { input?: string }).input ?? "");
-    produced.add((runDeterminism({ surface: surface.id, site: "x", runs: "2.5" }) as { input?: string }).input ?? "");
+    produced.add(
+      (runDeterminism({ surface: surface.id, site: "nope", runs: "1" }) as { input?: string })
+        .input ?? "",
+    );
+    produced.add(
+      (runDeterminism({ surface: "nope", site: "x", runs: "1" }) as { input?: string }).input ?? "",
+    );
+    produced.add(
+      (runDeterminism({ surface: surface.id, site: "x", runs: "2.5" }) as { input?: string })
+        .input ?? "",
+    );
     reset({ ...allGreen(), [surface.suitePaths[0] as string]: 1 });
-    produced.add((runDeterminism({ surface: surface.id, site: firstSiteOf(surface.id), runs: "1" }) as { input?: string }).input ?? "");
+    produced.add(
+      (
+        runDeterminism({ surface: surface.id, site: firstSiteOf(surface.id), runs: "1" }) as {
+          input?: string;
+        }
+      ).input ?? "",
+    );
     for (const p of produced) expect(REFUSALS as readonly string[]).toContain(p);
   });
 });
@@ -946,4 +970,3 @@ describe("determinism — the rendering states WHAT THE STAMP COVERS (spec §6 l
     expect(out).not.toContain("stamp coverage");
   });
 });
-

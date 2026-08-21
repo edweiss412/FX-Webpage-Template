@@ -72,7 +72,6 @@ export function evaluateSurface(
     ...(options.recordDir === undefined ? {} : { dir: options.recordDir }),
   });
 
-
   return { run, result };
 }
 

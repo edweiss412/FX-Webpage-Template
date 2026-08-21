@@ -163,7 +163,9 @@ export function stampInputs(
   for (const p of paths) {
     const override = executed[p];
     const hash =
-      override === undefined ? hashFile(resolve(root, p)) : hashBytes(Buffer.from(override, "utf8"), p);
+      override === undefined
+        ? hashFile(resolve(root, p))
+        : hashBytes(Buffer.from(override, "utf8"), p);
     files[p] = hash;
     ordered.push(`${p}:${hash}`);
   }
