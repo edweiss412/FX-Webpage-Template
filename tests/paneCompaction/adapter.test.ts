@@ -1353,6 +1353,9 @@ describe("one read-once pass per sending invocation (AC-1, AC-2)", () => {
   });
 });
 
+/** The moment the read-once pass is constructed, as an entry in the read order. */
+const PASS_BUILT = "<pass built>";
+
 describe("NOTHING precedes the pass, and the roster is its LAST read (diff r1 F1)", () => {
   /** Records the ORDER of read-member calls, and flips the live session mid-run. */
   function ordered(flipDuring: "resolveTarget" | "screen"): {
@@ -1368,6 +1371,17 @@ describe("NOTHING precedes the pass, and the roster is its LAST read (diff r1 F1
       nonceRead: () => "n1",
     });
     const spied: Record<string, unknown> = { ...(base as unknown as Record<string, unknown>) };
+    // `readOnce` builds the pass by ENUMERATING the surface -- it spreads it and
+    // walks `Object.entries` -- so enumeration is the observable moment the pass
+    // comes into existence, and a proxy can timestamp it in the same sequence as
+    // the reads. That is what makes CONTAINMENT assertable at all: ordering and
+    // counting both see a read taken outside the pass as an ordinary read.
+    const proxied = new Proxy(spied, {
+      ownKeys(t) {
+        order.push(PASS_BUILT);
+        return Reflect.ownKeys(t);
+      },
+    });
     for (const member of READ_MEMBERS) {
       const original = (base as unknown as Record<string, (...a: never[]) => unknown>)[member];
       if (typeof original !== "function") throw new Error(`read member ${member} is not callable`);
@@ -1385,7 +1399,7 @@ describe("NOTHING precedes the pass, and the roster is its LAST read (diff r1 F1
         return original(...args);
       };
     }
-    return { surface: spied as unknown as Surface, run, order, liveNow: () => live };
+    return { surface: proxied as unknown as Surface, run, order, liveNow: () => live };
   }
 
   it.each(SENDING_MODES)("%s resolves the target BEFORE reading the roster", (mode) => {
@@ -1403,6 +1417,29 @@ describe("NOTHING precedes the pass, and the roster is its LAST read (diff r1 F1
       order.includes("resolveTarget") && order.includes("roster"),
     );
     expect(order.indexOf("resolveTarget")).toBeLessThan(order.indexOf("roster"));
+  });
+
+  it.each(SENDING_MODES)("%s takes EVERY read inside the pass, none before it", (mode) => {
+    // Diff round 2, suites finding 1 (P1). The cases around this one assert
+    // ORDER (resolution precedes the roster) and COUNT (each member once), and
+    // a build that resolves the target BEFORE constructing the pass and carries
+    // the result in satisfies both -- plus the takeover twins and the scanner.
+    // The reviewer built exactly that and every guard here stayed green.
+    //
+    // Neither ordering nor counting can see CONTAINMENT, because both describe
+    // reads relative to each other and this property is about a read relative to
+    // the pass. So the pass's own construction joins the sequence, and the
+    // assertion is that nothing is read before it exists.
+    const { surface, order } = ordered("screen");
+    expect(main([mode, "wM:p1", "--as", "sess-1"], surface)).toBe(0);
+    premiseHolds(
+      "the pass was actually built and reads actually happened, so this is not vacuous",
+      order.includes(PASS_BUILT) && order.some((e) => e !== PASS_BUILT),
+    );
+    expect(order[0]).toBe(PASS_BUILT);
+    expect(order.indexOf(PASS_BUILT)).toBeLessThan(
+      Math.min(...READ_MEMBERS.map((m) => order.indexOf(m)).filter((i) => i >= 0)),
+    );
   });
 
   it("a takeover landing DURING target resolution refuses by rule 5, having sent nothing", () => {
