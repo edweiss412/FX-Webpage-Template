@@ -73,9 +73,13 @@ queue property alone is not enough — the shipped prompt texts carry no address
 takeover landing inside the window would deliver actionable stop/resume instructions to a
 session they were never authorized for. Both prompts therefore open with an ADDRESS LINE
 naming the branch and, when the pass's marker carries one, the session id, with an explicit
-instruction that any other session ignore the message entirely — so a mis-delivered prompt
-is self-neutralizing, and the residual's per-send worst cases (§7 limit 1) are benign with
-the addressing as the mechanism, not as an assumption.
+instruction that any other session ignore the message entirely — the wrong-recipient
+delivery self-neutralizes. And because an authorization can also decay with the RECIPIENT
+UNCHANGED (round 3's probe: a concurrent marker write flips `blockedOn` after the pass read
+it), the resume prompt additionally defers to the recipient's own marker at execution time
+(§3.6) — the one payload whose content could override safety state now re-checks that state
+where it is freshest. §7 limit 1 prices every decay class on these mechanisms, not on an
+assumption.
 
 The shipped-but-fenced code already contains the fourth repair's partial form of this — the
 `authorize()` closure in `scripts/pane-compaction.ts` memoizes the marker and derives the
@@ -343,16 +347,41 @@ exactly <NONCE>. Leave the working tree exactly as it is. Then stop.
 RESUME_TEXT:
 For the session driving <BRANCH> (session <SESSION>) ONLY -- any other session must ignore
 this message entirely. Run `date` first; the shell clock is the only source of truth.
-Discard any stale blocked or standing-down framing. Re-read .claude/ship-state.json in your
-worktree and resume its `next` action immediately, in this turn. You were compacted by the
-orchestrator; approval already given, do not re-ask.
+Re-read .claude/ship-state.json in your worktree FIRST: if its blockedOn is non-empty, honor
+it and stop -- your marker outranks this message. Otherwise discard any stale blocked or
+standing-down framing from your conversation and resume the marker's `next` action
+immediately, in this turn. You were compacted by the orchestrator; approval already given,
+do not re-ask.
 ```
+
+**The resume payload defers to the recipient's own marker, and that is the round-3 repair,
+not a courtesy.** The address line neutralizes the WRONG-recipient delivery; it cannot
+neutralize a SAME-recipient authorization decay — a `blockedOn` written by a concurrent
+marker update after the pass read it, with branch and session unchanged. The earlier resume
+text told exactly that recipient to discard its blocked framing, which OVERRODE the one
+piece of state that would have refused the send. The repaired text makes the recipient's own
+marker — the freshest authorization state that exists anywhere, read at the recipient's own
+execution instant — the final gate, so for the resume path the residual window's endpoint
+moves from the orchestrator's send to the recipient's execution, where it is zero. The
+checkpoint payload needs no such line: its ask is a truthful self-record plus a stop at the
+recipient's own turn boundary, benign under any decay (§7 limit 1).
 
 A session can always answer "am I driving this branch" (its worktree) and, per this repo's
 Stage 0 contract, knows its own session id, so the ignore instruction is executable by any
 recipient. The address line defends against ACCIDENTAL misdirection — the fence's subject; a
 session that disobeys an ignore instruction it can read is outside the fence and files
 to §7.
+
+### 3.7 Fault taxonomy for the mint path
+
+`mintNonce` throws after its collision-retry budget is exhausted (`mintNonce` in
+`scripts/lib/pane-compaction-core.ts`; the collision behavior is pinned at
+`tests/paneCompaction/mutantKills.test.ts`). Unreachable with a healthy 128-bit source, and
+reachable exactly when `random()` is broken — which is a TOOL fault, not a refusal. The
+adapter catches it and exits 2 naming the condition (a broken random source, alongside the
+existing `SendFailed` handling), never letting the throw escape `main`: an uncaught throw
+exits with a code the taxonomy assigns to refusals, which is a fault wearing a refusal's
+number. Round-3 finding, accepted.
 
 ---
 
@@ -444,8 +473,8 @@ comes from that invocation's own single read-once pass — no member read more t
 input carried from any earlier pass, command, or invocation — or refuses naming the
 condition that fired, and it never emits a refusal citing a condition other than the one
 that fired. The interval from the pass's first read to the send is the declared residual
-(§7 limit 1), priced by the queue property plus §3.6's addressed payloads, not forbidden by
-this bound. A
+(§7 limit 1), priced per decay class by the queue property, §3.6's addressed payloads, and
+the resume payload's deference to the recipient's own marker, not forbidden by this bound. A
 conservative refusal plus a surfaced reason is a documented limit, not a finding.
 
 **Probe domain.** The live `herdr agent list` roster on this machine; the fixture corpus and
@@ -483,20 +512,30 @@ bounded, not surfaced at the moment it occurs; **[residual]** accepted gap.
    sequentially, so a world change landing anywhere between the pass's FIRST read and the
    bytes landing — including between two different member reads — is not observed by that
    invocation, and a send can proceed that a later pass would have refused. No reachable
-   mechanism closes this: an acknowledgment read moves the window (§1.3), and the shipped
-   two-pass code carries the identical window inside its own revalidation pass. What prices
-   it is the per-send worst case, each benign BY MECHANISM: a **checkpoint prompt** or
-   **resume prompt** delivered to a session other than its addressee opens by telling that
-   session to ignore it (§3.6's address line — round-2 review established that unaddressed
-   prompts carry actionable stop/resume instructions to the wrong session, so the addressing
-   is the mechanism this pricing rests on, not an assumption); a **`/compact`** to a pane
-   that changed is at worst a compaction the operator no longer wanted, the same outcome
-   auto-compaction produces on its own schedule, and a near no-op on an already-compacted
-   session. None interrupts anything (no `\x1b`, pinned). The narrow residue inside the
-   residue: a takeover where the successor drives the SAME branch and the marker carried no
-   `sessionId` is addressed by branch alone and would act on the prompt — the marker-less
-   soft tier the ship gate already prices, conservative in outcome (a checkpoint asks it to
-   record state; a resume asks it to do its own marker's `next`).
+   orchestrator-side mechanism closes this: an acknowledgment read moves the window (§1.3),
+   and the shipped two-pass code carries the identical window inside its own revalidation
+   pass. The pricing, per send and per decay class, with the mechanism named for each
+   (rounds 2 and 3 each caught this limit priced on an assumption; it is now priced on
+   mechanisms):
+   - **Wrong recipient** (takeover swapping the session): both prompts open with §3.6's
+     address line telling any non-addressee to ignore the message — self-neutralizing.
+   - **Same recipient, authorization decayed** (a concurrent marker write flipping
+     `blockedOn`, a verdict decaying, a purview transfer with the session unchanged): the
+     **resume prompt** defers to the recipient's own marker read at execution time (§3.6),
+     so the decayed state itself refuses; the **checkpoint prompt**'s ask is a truthful
+     self-record plus a stop at the recipient's own turn boundary — benign under any decay,
+     and the `--compact` that would follow refuses on its OWN fresh pass (a transferred
+     purview or changed session fails revalidation there). Cost of the stray checkpoint: one
+     recorded marker and one stopped turn, surfaced to the recipient's own driver.
+   - **`/compact`**: at worst a compaction the operator no longer wanted — the same outcome
+     auto-compaction produces on its own schedule — and a near no-op on an already-compacted
+     session; a mis-timed compaction of a blocked session loses nothing durable (the marker
+     is on disk).
+   None interrupts anything (no `\x1b`, pinned). The narrow residue inside the residue: a
+   takeover where the successor drives the SAME branch and the marker carried no `sessionId`
+   is addressed by branch alone and would act on the prompt — the marker-less soft tier the
+   ship gate already prices, conservative in outcome (a checkpoint asks it to record state;
+   a resume defers to its own marker).
 2. **[bounded] A `/compact` queued behind other pending input can merge into prose** and not
    execute as a command (field note, §2.3). Consequence: no compaction; the nonce is already
    consumed, so the operator re-checkpoints. Surfaced by the operator's post-send pane read
@@ -605,7 +644,11 @@ restored, adapted and retired case — with the class it falls in — is a table
   commits.
 - **AC-15** Both prompt payloads open with §3.6's address line on every live and dry-run
   path; the with-session and branch-only forms are each pinned byte-exactly; no payload
-  ships unaddressed.
+  ships unaddressed; the resume payload carries the marker-outranks-this-message deference
+  line.
+- **AC-16** Nonce-mint exhaustion is a named fault: a `Surface` whose `random()` always
+  collides with the marker's nonce yields exit 2 naming the broken random source — never an
+  uncaught throw (§3.7).
 
 ---
 
