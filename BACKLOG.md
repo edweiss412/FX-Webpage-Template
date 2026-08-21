@@ -1305,6 +1305,27 @@ That lexical count is validated rather than trusted: at HEAD it agrees with the 
 
 **Not a duplicate of `BL-MUTATION-HARNESS-MAIN-RED`.** That row is the source gate's COVERAGE failure set — surviving mutants and ledger-kind drift — and explicitly disclaims the budget half. This is the `budget` job: a different job, a different failure, a different repair. The 08-18 and 08-19 nightlies are red for both reasons at once, which is exactly why they are easy to conflate.
 
+## BL-MUTATION-CHEAPNESS-GUARD-HAND-ENUMERATED-SPECIFIERS — the reachability guard re-implements a resolver the project already owns, and is one spelling short every round
+
+**Status:** OPEN · **Filed:** 2026-08-21 (`fix/mutation-ledger-kinds-derived-cover`, split out of that arc's diff review at the round cap per the documented-ratchet rule) · **Severity:** LOW (it never produces a wrong parity verdict — the deliverable it guards was confirmed correct in round 1 and never moved; it produces review rounds) · **Class:** guard fidelity · **Effort:** M · **Facing:** process · **Reachability:** PROBED — each miss below was demonstrated by a reviewer probe against the shipped guard, and each repair was verified by injecting the same import form and observing red. · **Incident:** three consecutive diff rounds on one arc were spent on this single axis, with the finding rate FLAT rather than decaying — corpus `docs/review-rounds/fix/mutation-ledger-kinds-derived-cover/0820436cf4dd.jsonl`, rounds 1-3 declaring 3, 2 and 2 findings, of which SEVEN OF SEVEN were against the guard and ZERO against the parity oracle the arc exists to ship.
+
+**The shape, and it is one shape.** `tests/mutation/_metaLedgerKindsDeclarationParity.test.ts` walks its own import graph to prove it cannot reach a mutant-spawning module. To do that it resolves specifiers itself, and each round found it modelling exactly the spellings its author had in mind:
+
+| round | modelled                                  | missed                                                |
+| ----- | ----------------------------------------- | ----------------------------------------------------- |
+| 1     | a regex over the file's own source        | re-exports, single quotes, dynamic, one module deeper |
+| 2     | relative specifiers                       | the `@/` repo alias (`vitest.projects.ts:176`)        |
+| 3     | relative + alias                          | Vite's root-relative `/tests/...`                     |
+| 3     | static `import ... from` in the allowlist | `await import(...)`                                   |
+
+**Why a row rather than another round.** The project already owns the authoritative answer — the Vite/vitest resolve configuration that actually resolves these modules at runtime. A guard that hand-writes a subset of it is a derived cover's opposite: an enumeration, of an open set, maintained by review. It will be one spelling short indefinitely, and every miss costs a round on whatever arc happens to be carrying it.
+
+**Fenced against relitigation.** The current guard is NOT unsound for its stated threat model, and this row is not a defect report against it. Its threat fence is ordinary contributor error, all four known spellings are now handled, and the direct-import allowlist independently bounds what the file can pull in — asserted as an exact set across static AND dynamic forms, so an unmodelled spelling can only matter on a transitive edge inside repo modules whose own imports are ordinary. What this row buys is that the axis stops being maintained one review round at a time.
+
+**What the arc did instead of hardening it, and why that is the starting state.** The transitive walk is DELETED on `fix/mutation-ledger-kinds-derived-cover`, not left one spelling short. Round 4 found a fifth form (Vite's `.js`/`.jsx`-to-TypeScript substitution) and adding it would have bought the sixth; more decisively, the walk forbade IMPORT EDGES and no import edge is hazardous -- `runner.ts` only defines `runSurface`, `surfaceCases.ts` only defines `registerSurfaceCases`, and neither executes at module scope. It red on safe code while its misses were edges that were never unsafe. What ships is the exact-set direct-import allowlist, which is total over its domain because it never resolves a specifier at all.
+
+**First scheduled step:** decide whether a transitive reachability claim is wanted AT ALL before rebuilding one. If it is, resolve through the project's own resolver rather than re-implementing it — `vite`'s `createResolver`/`resolveConfig` against the same config vitest loads, or the resolved module graph vitest already builds. If neither is reachable from a unit test at acceptable cost, the honest alternative is to DELETE the transitive walk and keep the direct-import allowlist alone, which is the half that is total over its domain rather than one enumeration short. Do not add a fifth specifier spelling.
+
 ## BL-MUTATION-HARNESS-PR-TRIGGER-FANOUT — the harness's path-filtered PR trigger runs the whole matrix on every harness-touching PR, and those legs compete with that PR's own required checks
 
 **Status:** OPEN. · **Filed:** 2026-08-16 (`docs/mutation-ledger-accuracy`, from the shipping arc of #834 — it existed only in that arc's handoff message until now) · **Severity:** MEDIUM (it does not fail anything; it delays the merge path for exactly the PRs least able to afford it) · **Class:** CI capacity · **Effort:** S

@@ -102,137 +102,62 @@ describe("EXPECTED_LEDGER_KINDS is in parity with the registry it describes", ()
 
   it("stays cheap enough to run in the merge-gating suite", async () => {
     // The whole value of this file is that it runs everywhere the sharded gate
-    // does not. Importing the runner or the gate would spawn a vitest child per
-    // mutant from inside a merge-gating project -- catastrophic for suite time,
-    // and it would push this check straight back into the nightly job it was
-    // written to escape.
+    // does not, so what it may depend on is pinned rather than trusted.
     //
-    // Walked TRANSITIVELY, over the resolved graph. The first version of this
-    // case regex-matched `from "./source/runner"` in this file's own source and
-    // nothing else, so it was defeated by a re-export, by single quotes, by a
-    // dynamic import, and by any of the three arriving one module deeper -- a
-    // probe with a helper re-exporting the runner passed it while the resolved
-    // graph did contain `source/runner.ts`. Matching a FRAGMENT of the thing you
-    // mean to identify is the same defect this file's subject is about.
-    const { readFileSync, existsSync, statSync } = await import("node:fs");
-    const { dirname, resolve, join, relative } = await import("node:path");
-    const ROOT = process.cwd();
-    // `surfaceCases` ONLY. The first list also named `runner` and `gate`, and the
-    // transitive walk immediately falsified that: `registry.ts` reaches
-    // `source/runner.ts`, and this file still collects and runs in well under a
-    // second. Importing the runner is HARMLESS -- it only DEFINES `runSurface`
-    // (tests/mutation/source/runner.ts:141). What spawns children is CALLING it,
-    // and the module that does so is `surfaceCases`, at module scope inside
-    // `describe.each` (tests/mutation/source/surfaceCases.ts:28). The invariant
-    // as first written was about the wrong noun -- forbidding an IMPORT when the
-    // cost is a CALL -- and strengthening the guard is what exposed it.
-    const FORBIDDEN = ["tests/mutation/source/surfaceCases"];
+    // THE TRANSITIVE REACHABILITY WALK THAT STOOD HERE IS DELETED, and the
+    // reason is the finding four review rounds converged on rather than a
+    // retreat under pressure. It forbade IMPORT EDGES, and no import edge is
+    // hazardous: `runner.ts` only DEFINES `runSurface` (runner.ts:141), and
+    // `surfaceCases.ts` only defines `registerSurfaceCases` -- neither executes
+    // anything at module scope. What costs is CALLING one of them, which only a
+    // shard file does. So the walk red on safe code (this file reaches
+    // `runner.ts` through `registry.ts` and runs in half a second) while its
+    // misses were edges that were never unsafe.
+    //
+    // It was also unfixable in the direction it was being pushed. Rounds 1-4
+    // each found one more specifier spelling the resolver did not model --
+    // re-export, `@/` alias, root-relative `/tests/...`, then Vite's `.js`/
+    // `.jsx`-to-TypeScript substitution -- because it re-implemented a resolver
+    // the project already owns. A fifth spelling was the round-4 finding, and
+    // adding it would have bought the sixth.
+    //
+    // What remains is the half that is TOTAL over its domain instead of one
+    // enumeration short. Hardening the reachability claim properly -- through
+    // Vite's own resolver -- is BL-MUTATION-CHEAPNESS-GUARD-HAND-ENUMERATED-SPECIFIERS.
+    const { readFileSync } = await import("node:fs");
+    const entry = new URL(import.meta.url).pathname;
 
-    // USE vs MENTION, in one place because BOTH scans below need it. A guard
-    // that reads source and also DOCUMENTS the hazard it forbids will match its
-    // own documentation unless comments are removed first -- which is exactly
-    // what happened twice here: the import walk flagged the aliased example
-    // quoted in a comment, and the call scan flagged `runSurface(` written in
-    // prose explaining the call scan.
+    // USE vs MENTION: this file documents the hazard it forbids, so a scan of
+    // its own source matches its own prose unless comments go first.
     const stripComments = (src: string): string =>
       src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-
-    const entry = new URL(import.meta.url).pathname;
-    const resolveSpec = (from: string, spec: string): string | null => {
-      // `@/...` is the repo alias (vitest.projects.ts:176, `{ "@": root }`). The
-      // first version discarded every non-relative specifier as "a package", so
-      // `export * from "@/tests/mutation/source/surfaceCases"` reached the
-      // forbidden module and PASSED. An alias is a repo path wearing a package's
-      // shape; a resolver that models only one of the two spellings covers only
-      // the imports its author happened to write.
-      // THREE spellings reach a repo module, not one: relative, the `@/` alias
-      // (vitest.projects.ts:176), and Vite's ROOT-RELATIVE `/tests/...`. Each
-      // round of this review found the resolver modelling exactly the spellings
-      // its author had in mind, so they are enumerated here rather than
-      // discovered one per round -- and anything else is a real package, which
-      // cannot reach repo modules.
-      const base = spec.startsWith("@/")
-        ? resolve(ROOT, spec.slice(2))
-        : spec.startsWith("/")
-          ? resolve(ROOT, spec.slice(1))
-          : spec.startsWith(".")
-            ? resolve(dirname(from), spec)
-            : null;
-      if (base === null) return null; // a real package cannot reach repo modules
-      for (const c of [base, `${base}.ts`, `${base}.tsx`, join(base, "index.ts")]) {
-        if (existsSync(c) && statSync(c).isFile()) return c;
-      }
-      return null;
-    };
-    const seen = new Set<string>([entry]);
-    const queue = [entry];
-    while (queue.length > 0) {
-      const file = queue.shift()!;
-      const src = stripComments(readFileSync(file, "utf8"));
-      // Both quote styles, static and dynamic, `import` and `export ... from`.
-      for (const m of src.matchAll(/(?:from|import)\s*\(?\s*["']([^"']+)["']/g)) {
-        const next = resolveSpec(file, m[1]!);
-        if (next && !seen.has(next)) {
-          seen.add(next);
-          queue.push(next);
-        }
-      }
-    }
-    const graph = [...seen].map((f) => relative(ROOT, f).replace(/\\/g, "/"));
-    // PREMISE, STATED EXECUTABLY: the walk must actually traverse. If resolution
-    // silently failed, the graph would be this file alone and the assertion
-    // below would pass over nothing -- which is exactly how the version this
-    // replaces passed.
-    premiseHolds("the import walk resolved beyond the entry file", graph.length > 1);
-    const heavy = graph.filter((f) => FORBIDDEN.some((h) => f.startsWith(h)));
-    expect(heavy, `heavy modules reachable from this file (graph: ${graph.join(", ")})`).toEqual(
-      [],
-    );
-
-    // The other half, since reaching the runner is not what costs: this file must
-    // never CALL a mutant-spawning entry point. An import is cheap; an invocation
-    // is not, and only the invocation turns this file back into the nightly job
-    // it was written to escape.
-    // THE REAL GUARANTEE IS THE IMPORT ALLOWLIST, not the call scan below.
-    // Round 2 showed the call scan missing renamed indirection, optional calls
-    // and template interpolation, and chasing those turns a guard into a
-    // recognizer -- each round adds one more invocation spelling and the next
-    // round finds the next. The narrowing that is STRICTLY STRONGER: pin this
-    // file's DIRECT imports to an exact set. None of the hazard identifiers is
-    // then in lexical scope at all, so there is nothing to rename, interpolate
-    // or optional-call, and a transitive helper cannot be introduced without
-    // failing here first. Set equality, so an addition AND a removal both fail.
-    // STATIC **AND** DYNAMIC. The first version matched only `import ... from`,
-    // so `await import("./source/runner")` bypassed the allowlist entirely --
-    // and the allowlist is what makes the narrowed call scan sound, so the hole
-    // was underneath the argument rather than beside it. This file uses dynamic
-    // import deliberately (node:fs, node:path), so banning the form is not
-    // available; covering it is.
     const ownSrc = stripComments(readFileSync(entry, "utf8"));
+
+    // EXACT SET, static AND dynamic. This is the guarantee the case rests on and
+    // it is total over its domain: every specifier this file can name has to
+    // appear here, so a hazard identifier can never enter lexical scope --
+    // nothing to rename, interpolate, optional-call, or reach one module deeper.
     const staticSpecs = [
       ...ownSrc.matchAll(/^\s*(?:import|export)\s[^;]*?from\s+["']([^"']+)["']/gm),
     ].map((m) => m[1]!);
     const dynamicSpecs = [...ownSrc.matchAll(/\bimport\s*\(\s*["']([^"']+)["']/g)].map(
       (m) => m[1]!,
     );
-    const directImports = [...staticSpecs, ...dynamicSpecs].sort();
-    expect(directImports, "this file's direct imports are pinned (static AND dynamic)").toEqual([
+    expect(
+      [...staticSpecs, ...dynamicSpecs].sort(),
+      "this file's direct imports are pinned (static AND dynamic)",
+    ).toEqual([
       "../_shared/premise",
       "./source/expectedLedgerKinds",
       "./source/registry",
       "node:fs",
-      "node:path",
       "vitest",
     ]);
 
-    // Belt and braces, and deliberately NOT extended past what an ordinary edit
-    // looks like. Single- and double-quoted strings are blanked so the needle
-    // list cannot match itself; TEMPLATE literals are left intact, because
-    // `${runSurface(...)}` is a real call and blanking backticks hid it. `?.(`
-    // is covered. A renamed indirect call (`const f = runSurface; f(...)`) is a
-    // DOCUMENTED LIMIT of this scan -- it is adversarial rather than an ordinary
-    // authoring mistake, which this file's threat fence puts out of scope, and
-    // the allowlist above makes it unreachable in any case.
+    // Belt and braces on the axis that actually costs. Bounded deliberately: a
+    // renamed indirect call is a DOCUMENTED LIMIT against this file's threat
+    // fence (ordinary authoring mistakes), and the allowlist above makes it
+    // unreachable regardless.
     const HAZARDS = ["runSurface", "runControl", "registerSurfaceCases"];
     const scanned = ownSrc
       .split("\n")
