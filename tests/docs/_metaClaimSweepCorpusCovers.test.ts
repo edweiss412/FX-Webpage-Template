@@ -53,7 +53,15 @@ const enumeration = git(["ls-files", "--", "docs/superpowers"]).out
 function corpusHits(needle: string): string[] {
   const { status, out } = git([
     "grep", "-F", "-l", "-e", needle,
-    "--", "docs/superpowers",
+    // THE SAME POPULATION THE CENSUS MEASURES, and the `*.md` filter is the
+    // load-bearing half rather than a tidy-up. The census enumerates markdown
+    // only, so "collides with the corpus" means "a census over the corpus would
+    // count it". Searching every tracked file instead reported a collision that
+    // is not one: the killer-audit SCRIPT quotes a literal inside a mutant
+    // recipe, which no census reads. A cover whose search population is wider
+    // than the population it makes a claim about reports findings the claim
+    // does not cover.
+    "--", "docs/superpowers/*.md",
     ...ARC_DOCUMENTS.map((p) => `:!${p}`),
   ]);
   if (status === 1) return []; // git grep: 1 means no match, not an error

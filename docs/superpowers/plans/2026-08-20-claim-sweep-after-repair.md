@@ -719,7 +719,7 @@ this plan                                                    (the anchor table's
 lib/specLint/claimSweep.ts                                   (the §5 header; and the audit's mutant sites)
 scripts/spec-lint.ts                                         (the audit's adapter-side mutant sites)
 tests/specLint/*.test.ts                                     (the deletion control removes and restores one check)
-docs/superpowers/specs/ci/probes/scripts/arc-documents.json   (new — the ONE declaration)
+docs/superpowers/specs/ci/probes/scripts/arc-documents.json   (new: the ONE declaration)
 docs/superpowers/specs/ci/probes/scripts/2026-08-20-population-census.py  (reads it instead of a literal)
 docs/agents/writing-plans.md, docs/superpowers/specs/ci/README.md
 BACKLOG.md, BACKLOG-archive.md
