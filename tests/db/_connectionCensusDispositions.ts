@@ -61,4 +61,11 @@ export const CONNECTION_CENSUS_DISPOSITIONS: readonly DispositionRow[] = [
     reason:
       "template dynamic import of a parser block under lib/parser; parser blocks open no connection",
   },
+  {
+    file: "tests/e2e/helpers/useServerDirectivePlugin.test.ts",
+    site: "pathToFileURL(out).href",
+    kind: "unclassifiable",
+    reason:
+      "non-literal dynamic import of a Vite plugin's build output by computed file URL; the output is a fixture bundle and opens no connection",
+  },
 ];
