@@ -166,9 +166,13 @@ inside an inline suite body, and emit a file-level reason naming it.
 - **An eager position is EVALUATED, and a nested function body in one is NOT.** A hook written
   inside a function VALUE sitting in an eager position — `describe.each([() => { beforeEach(…) }])` —
   is never invoked while Vitest collects, so reporting it attributes a hook that does not run. The
-  walk therefore stops at every `ArrowFunction`, `FunctionExpression` and `FunctionDeclaration`
-  boundary. A hook written DIRECTLY in that datum, `describe.each([beforeEach(…)])`, still reports.
-  Spec review r3 finding 1.
+  walk therefore stops at every FUNCTION-LIKE node, using TypeScript's own `ts.isFunctionLike`
+  predicate rather than a hand-listed set of kinds — a method, a getter, an accessor and a
+  constructor are all containers Vitest does not invoke while collecting, and an enumeration of node
+  kinds is a list to be completed one kind per review round. Spec review r3 finding 1 arrived as an
+  arrow and r4 finding 2 as a `MethodDeclaration`, which is the enumeration failing exactly once
+  before it was replaced. A hook written DIRECTLY in the datum, `describe.each([beforeEach(…)])`,
+  still reports.
 - **Eager positions** are exactly the ones `hookBodies` already treats as eager for the nested case,
   so the two readers cannot disagree about what "eager" means: the arguments of a curried callee
   (`ts.isCallExpression(call.expression)` → `call.expression.arguments`), and every argument for
@@ -348,26 +352,27 @@ zeros mean anything. `record-diff.mts` ABORTS with exit 2 when the working tree'
 byte-identical to the baseline ref, because there a perfect zero would be the baseline compared
 against itself — the answer the author is hoping for, produced by a check with nothing to measure.
 Run on this branch it aborts; run where the change exists it reports the figures above and exits 0.
-`cell-check.mts` exits 1 on `origin/main` with **6 of 15** — the nine reporting cells fail because
+`cell-check.mts` exits 1 on `origin/main` with **7 of 16** — the nine reporting cells fail because
 neither producer exists yet, and they fail for the ASSERTED reason (a cell that emits no reason)
-rather than for a collection or import error — and exits 0 with **15 of 15** where the change exists.
+rather than for a collection or import error — and exits 0 with **16 of 16** where the change exists.
 
 Its positive control is structural rather than fixture-based: it perturbs one record of the baseline
 set and requires the identical comparison to report exactly one move. A control built from a
 constructed fixture goes silent whenever the change under test happens not to touch that fixture's
 construct, and a silent control is indistinguishable from a working one.
 
-**All fifteen §5.2 cells are probed, not asserted:**
+**All sixteen §5.2 cells are probed, not asserted:**
 
 ```
 $ pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-premisescan-hook-population/cell-check.mts
 --- nine cells that must REPORT   (bare identifier, function declaration, property
     access, wrapped identifier ×2, call expression, function-valued name,
     factory-in-slot-1-with-timeout, literal-options-then-factory)          all PASS
---- six cells that must stay SILENT  (bodyless options, inline body + named timeout
-    constant, named options + inline body, named constant as the NAME,
-    it/test root, deferred hook in a function-valued .each datum)          all PASS
-15 of 15 cells behave as the spec's table claims
+--- seven cells that must stay SILENT  (bodyless options, inline body + named
+    timeout constant, named options + inline body, named constant as the NAME,
+    it/test root, deferred hook in a function-valued .each datum, deferred hook
+    in a method-shorthand datum)                                          all PASS
+16 of 16 cells behave as the spec's table claims
 ```
 
 **One measured regression is recorded here rather than smoothed over**, because it is the whole
@@ -558,9 +563,10 @@ reporting case, so a rule that reports on them is over-firing on live authoring:
 | `describe(NAME_CONST, () => {})` | slot 0 is the name and is never examined |
 | `test("named", testFn)` | an `it`/`test` root cannot carry a suite factory, and the traversal already reaches a named handler — spec review r2 finding 2 |
 | `describe.each([() => { beforeEach(…) }])(…)` | the hook sits inside a function VALUE in an eager position; Vitest never invokes it while collecting, so reporting it would attribute a hook that does not run — spec review r3 finding 1 |
+| `describe.each([{ setup() { beforeEach(…) } }])(…)` | ONE cell for the whole function-like class. `ts.isFunctionLike` covers methods, getters, accessors and constructors together, so a cell per node kind would be the enumeration that predicate deleted — spec review r4 finding 2 |
 
-**Nine reporting cells and six silent cells — 15 in total, pinned by `cell-check.mts`, which exits 2
-if that count ever diverges from this table.** Four of the fifteen exist because a spec review found
+**Nine reporting cells and seven silent cells — 16 in total, pinned by `cell-check.mts`, which exits
+2 if that count ever diverges from this table.** Six of the sixteen exist because a spec review found
 the defect they now hold fixed, and a finding that became a fixture cannot recur silently.
 
 ### 5.3 The sampling rule, stated once
@@ -609,7 +615,7 @@ suite is not a proof for AC-7, AC-8 or AC-9 — those name their own field check
 | **AC-1** | For **every one of the 12** (eager position × hook registrar) cells, a hook in that position of a registration outside every inline suite body makes every `environment-free` test in that file `unclassifiable`, with a reason naming the hook and its line — and NOT naming a suite, per R2. | Generated fixtures in `tests/mutation/source/premiseScan.test.ts` driven from two declared axis arrays, asserting verdict AND reason text. Every case is expect-a-REPORT, never expect-clean. |
 | **AC-2** | The generated case count EQUALS the product of the declared axes, and the hook-registrar axis equals `HOOK_REGISTRARS`'s own members. | A count assertion derived from the arrays, plus an assertion that the registrar array is derived from the shipped `HOOK_REGISTRARS` rather than retyped. A missing axis member fails here rather than being invisible. |
 | **AC-3** | The rule is INDIFFERENT to registration spelling across the four structural classes in §5.2. | Four cases at one fixed (position, registrar) cell asserting identical verdicts and reason shapes. |
-| **AC-4** | For **every one of the 6 reporting cells** in §5.2, a registration carrying a factory-slot argument the scanner cannot follow makes every `environment-free` test in that file `unclassifiable`; and for **every one of the 4 silent cells**, no reason is emitted at all. | Generated fixtures, same shape. Each reporting cell names the implementation it kills; the wrapped-identifier cell fails under a raw-node-kind reading and the function-valued-name cell fails under an any-argument reading. The silent cells are the over-firing half and each is one ordinary edit from a reporting cell. |
+| **AC-4** | For **every one of the 9 reporting cells** in §5.2, a registration carrying a factory-slot argument the scanner cannot follow makes every `environment-free` test in that file `unclassifiable`; and for **every one of the 7 silent cells**, no reason is emitted at all. `cell-check.mts` pins the total at 16 and exits 2 if the table and the script ever disagree. | Generated fixtures, same shape. Each reporting cell names the implementation it kills; the wrapped-identifier cell fails under a raw-node-kind reading and the function-valued-name cell fails under an any-argument reading. The silent cells are the over-firing half and each is one ordinary edit from a reporting cell. |
 | **AC-5** | A test that is provably `environment-touching` STAYS `environment-touching` in a file affected by either producer. | Fixture pairing a touching test with an affected file, for both producers. Proves the precedence rule at `tests/mutation/source/premiseScan.ts:1725` was not inverted. |
 | **AC-6** | **Negative twins, one variable each.** Identical fixture bytes MINUS the eager hook (producer A) and with the factory inlined (producer B) classify `environment-free`. | One twin per generated case, differing by exactly one thing, so a clean verdict is attributable to "examined and correctly declined" rather than to "never got here". |
 | **AC-7** | **This surface's own suites contain no LIVE instance of either shape.** Every fixture is synthetic source text handed to `classifyTests` through a temp file. | An executable check over the surface's own `suitePaths` (`tests/mutation/source/registry.ts:170-172`), run in-process, asserting zero live instances. Demonstrated in BOTH directions: it fails when a live instance is constructed and passes when it is removed. |

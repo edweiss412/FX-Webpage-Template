@@ -1,7 +1,7 @@
 /**
  * The eleven §5.2 cells, run against the working tree's `premiseScan`.
  *
- * Nine cells must REPORT (a reason is emitted) and six must stay SILENT. The
+ * Nine cells must REPORT (a reason is emitted) and seven must stay SILENT. The
  * silent cells are each one ordinary edit from a reporting cell, so a rule that
  * fires on them is over-firing on live authoring rather than catching anything.
  *
@@ -54,7 +54,7 @@ results.push(cell("function-valued NAME hiding a factory", "report", `const suit
 results.push(cell("factory in slot 1 with a trailing timeout (kills last-slot-only)", "report", `const f = () => { it("a", () => {}); };\ndescribe("A", f, 5000);`));
 results.push(cell("literal options in slot 1 with the factory in slot 2 (kills first-slot-only)", "report", `const f = () => { it("a", () => {}); };\ndescribe("A", { concurrent: true }, f);`));
 
-console.log("--- six cells that must stay SILENT");
+console.log("--- seven cells that must stay SILENT");
 results.push(cell("bodyless options registration", "silent", `describe("A", { skip: true });\nit("s", () => {});`));
 results.push(cell("inline body + named timeout constant", "silent", `const T = 30000;\ntest("a", () => {}, T);`));
 results.push(cell("named options + inline body", "silent", `const opts = { timeout: 1 };\ndescribe("A", opts, () => { it("a", () => {}); });`));
@@ -69,10 +69,16 @@ results.push(cell("named handler on an it/test root", "silent", `function testFn
 // registration, so reporting it attributes a hook that does not run — spec review
 // r3 finding 1.
 results.push(cell("deferred hook inside a function-valued .each datum", "silent", `describe.each([() => { beforeEach(() => {}); }])("A%s", () => { it("a", () => {}); });`));
+// ONE cell for the whole function-like class, not one per node kind. The walk
+// stops on TypeScript's own `isFunctionLike`, so a method, a getter, an accessor
+// and a constructor are covered by the same predicate; a cell per kind would be
+// the enumeration that predicate was adopted to delete. Spec review r4 finding 2
+// arrived as a MethodDeclaration, which is why this cell uses one.
+results.push(cell("deferred hook inside a method-shorthand .each datum", "silent", `describe.each([{ setup() { beforeEach(() => {}); } }])("A%s", () => { it("a", () => {}); });`));
 
 const passed = results.filter(Boolean).length;
 console.log(`\n${passed} of ${results.length} cells behave as the spec's §5.2 table claims`);
-if (results.length !== 15) {
+if (results.length !== 16) {
   console.error("cell-check: the cell count moved; §5.2's table and this script must agree");
   process.exit(2);
 }
