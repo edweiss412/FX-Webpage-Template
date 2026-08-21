@@ -1197,7 +1197,13 @@ type ManifestCell = {
    * distinctions that do not change semantics -- which is precisely the set of
    * things a scanner-under-test is asked to handle.
    */
-  syntaxSensitive?: string;
+  syntaxSensitive?: readonly string[];
+  /**
+   * Which member of the receiver-shape axis this cell occupies. Checked against
+   * the SPEC's own axis row on disk, so the five members are read from the
+   * document rather than retyped here.
+   */
+  receiverShape?: string;
 };
 
 /**
@@ -1208,11 +1214,56 @@ type ManifestCell = {
 const INHERITED_CORPUS_SIZE = 81;
 
 const MANIFEST: readonly ManifestCell[] = [
+  {
+    fixture: "call-result-receiver.ts",
+    axis: "receiver shape, once depth is factored out",
+    receiverShape: "call result",
+    covers:
+      "the fifth receiver shape — DECLARED SILENCE under the no-call-graph fence, with an in-module control",
+  },
+  // --- Task 3 [task:sites-consume-rule-a].
+  {
+    fixture: "property-receiver-double-read.ts",
+    receiverShape: "property",
+    axis: "receiver shape, once depth is factored out",
+    covers:
+      "AC-U1 — a doubled read through a property receiver, with a bare pair as the in-function control",
+  },
+  {
+    fixture: "property-receiver-handoff.ts",
+    axis: "receiver shape, once depth is factored out",
+    covers: "AC-U2 — a raw handoff through a property receiver, paired with a bare handoff",
+  },
+  {
+    fixture: "parenthesized-double-read.ts",
+    axis: "parenthesis depth",
+    covers: "AC-U3 — the OUTWARD transparent walk, which is D6 and was found by the depth probe",
+    syntaxSensitive: ['const first = (ch).gauge("a");', 'const second = (ch).gauge("b");'],
+  },
+  {
+    fixture: "parenthesized-handoff.ts",
+    axis: "parenthesis depth",
+    covers: "AC-U3 — a parenthesized handoff argument",
+    syntaxSensitive: ["helper((ch));"],
+  },
+  {
+    fixture: "element-selector-sink.ts",
+    axis: "receiver shape, once depth is factored out",
+    covers:
+      "the SELECTOR killer — both positions in element form, completely silent under a receiver-only unification",
+  },
+  {
+    fixture: "element-selector-double-read.ts",
+    axis: "receiver shape, once depth is factored out",
+    covers:
+      "the SELECTOR killer — a doubled element-selected read, which a receiver-only form mis-attributes to the binding",
+  },
   // --- Task 2 [task:resolve-name]. These name a §2.5 AXIS rather than
   // `inherited`, which the frozen BASE size forces: a new fixture cannot be
   // absorbed as pre-existing.
   {
     fixture: "element-access-receiver.ts",
+    receiverShape: "static element access",
     axis: "receiver shape, once depth is factored out",
     covers: "AC-U14 — a statically known element-access receiver resolves from its literal key",
   },
@@ -1360,6 +1411,7 @@ const MANIFEST: readonly ManifestCell[] = [
   },
   {
     fixture: "destructured-param-sink.ts",
+    receiverShape: "destructured local",
     axis: "inherited",
     covers: "diff r1 F2 — the surface DESTRUCTURED in a parameter position",
   },
@@ -1392,7 +1444,7 @@ const MANIFEST: readonly ManifestCell[] = [
     fixture: "generic-arrow-scriptkind.ts",
     axis: "inherited",
     covers: "the ScriptKind discriminator — the parse kind must be chosen by extension",
-    syntaxSensitive: "const identity = <T>(x: T): T => x;",
+    syntaxSensitive: ["const identity = <T>(x: T): T => x;"],
   },
   {
     fixture: "helper-derivation.ts",
@@ -1465,6 +1517,7 @@ const MANIFEST: readonly ManifestCell[] = [
   },
   {
     fixture: "multi-read.ts",
+    receiverShape: "bare",
     axis: "inherited",
     covers: "AC-7 — TWO straight-line reads of the SAME method report MULTI-READ naming BOTH lines",
   },
@@ -1508,7 +1561,7 @@ const MANIFEST: readonly ManifestCell[] = [
     fixture: "parenthesized-receiver.ts",
     axis: "inherited",
     covers: "diff r2 F2 — a PARENTHESIZED receiver is a transparent wrapper",
-    syntaxSensitive: '(this.ch).dispatch("p1", "/compact");',
+    syntaxSensitive: ['(this.ch).dispatch("p1", "/compact");'],
   },
   {
     fixture: "pass-is-toplevel-function.ts",
@@ -1668,11 +1721,6 @@ const OWED: readonly { axis: AxisId; cell: string; owner: string }[] = [
     owner: "task:resolve-name",
   },
   {
-    axis: "receiver shape, once depth is factored out",
-    cell: "bare · property · static element access · destructured local · call result",
-    owner: "task:sites-consume-rule-a",
-  },
-  {
     axis: "exemption state",
     cell: "none · declared once · declared twice competing · declared twice non-competing",
     owner: "task:rule-b-count",
@@ -1802,6 +1850,32 @@ describe("AC-U16 groundwork — the fixture manifest is DERIVED and the corpus c
     expect(missing).toEqual([]);
   });
 
+  it("crosses the RECEIVER-SHAPE axis completely, read from the spec's own row", () => {
+    // The axis is finite (5) and the rule reads it, so it is crossed COMPLETELY
+    // rather than sampled. The five members are parsed OUT OF THE SPEC, which is
+    // the independent witness: a member added there with no fixture reds here.
+    const spec = readFileSync(SPEC_PATH, "utf8");
+    const row = spec
+      .split("\n")
+      .find((l) => l.startsWith("| receiver shape, once depth is factored out"));
+    premiseHolds("the spec's receiver-shape axis row was found", row !== undefined);
+
+    const members = row!
+      .split("|")[1]!
+      .split("—")[1]!
+      .split("·")
+      .map((m) => m.replace(/\*\*/g, "").trim())
+      .filter(Boolean);
+    // A population floor: five members are declared, and a short parse would
+    // otherwise make this pass over whatever it happened to find.
+    expect(members).toHaveLength(5);
+
+    const covered = new Set(MANIFEST.map((c) => c.receiverShape).filter(Boolean));
+    expect(members.filter((m) => !covered.has(m))).toEqual([]);
+    // And no cell may claim a shape the spec does not declare.
+    expect([...covered].filter((m) => !members.includes(m!))).toEqual([]);
+  });
+
   it("carries the prettier directive on EVERY syntax-sensitive cell, immediately above its line", () => {
     // A formatter is a silent input mutation for any fixture that is PARSED
     // rather than read, and both of these are parsed. Measured on this corpus:
@@ -1814,11 +1888,25 @@ describe("AC-U16 groundwork — the fixture manifest is DERIVED and the corpus c
     const sensitive = MANIFEST.filter((c) => c.syntaxSensitive);
     premiseHolds("the corpus contains syntax-sensitive cells to check", sensitive.length > 0);
 
-    const bad = sensitive
-      .map((c) => ({ c, r: directiveImmediatelyAbove(readFixture(c.fixture), c.syntaxSensitive!) }))
-      .filter((x) => !x.r.ok)
-      .map((x) => `${x.c.fixture}: ${x.r.reason}`);
+    // EVERY declared line, not the first: `parenthesized-double-read.ts` carries
+    // TWO, and a single-line field would have silently protected one of them
+    // while reading as a covered cell.
+    const bad = sensitive.flatMap((c) =>
+      c
+        .syntaxSensitive!.map((line) => ({
+          c,
+          line,
+          r: directiveImmediatelyAbove(readFixture(c.fixture), line),
+        }))
+        .filter((x) => !x.r.ok)
+        .map((x) => `${x.c.fixture} :: ${x.line} :: ${x.r.reason}`),
+    );
     expect(bad).toEqual([]);
+
+    // A cell declaring an EMPTY list would pass the loop above vacuously.
+    expect(sensitive.filter((c) => c.syntaxSensitive!.length === 0).map((c) => c.fixture)).toEqual(
+      [],
+    );
   });
 
   it("declares every directive the corpus actually carries — no undeclared directive", () => {
@@ -1882,11 +1970,11 @@ describe("AC-U14/AC-U15 — rule A resolves a receiver ONCE, for every position"
   // parentheses only passes a single representative while silently missing the
   // other three.
   it.each([
-    ["wrapper-nonnull-sink.ts", 'ch!.dispatch("p1"'],
-    ["wrapper-as-sink.ts", "(ch as Channel).dispatch"],
-    ["wrapper-angle-sink.ts", "(<Channel>ch).dispatch"],
-    ["wrapper-satisfies-sink.ts", "(ch satisfies Channel).dispatch"],
-  ])("%s — a transparent wrapper does not change what the guard sees", (f, needle) => {
+    "wrapper-nonnull-sink.ts",
+    "wrapper-as-sink.ts",
+    "wrapper-angle-sink.ts",
+    "wrapper-satisfies-sink.ts",
+  ])("%s — a transparent wrapper does not change what the guard sees", (f) => {
     // TWO findings, and the second is a DECLARED BASELINE THAT SHRINKS rather
     // than an expectation being accommodated.
     //
@@ -1900,10 +1988,13 @@ describe("AC-U14/AC-U15 — rule A resolves a receiver ONCE, for every position"
     // when those sites consume rule A. It is asserted HERE, by equality, so
     // that removal is a visible change to this expectation rather than a
     // silent one: a presence check would have been satisfied by either state.
-    expect(scan(f)).toEqual([
-      finding(f, "UNDECLARED-PASS", "settle", fnLine(f)),
-      finding(f, "UNCLASSIFIED-USE", "ch", lineOf(f, needle)),
-    ]);
+    // The declared baseline has SHRUNK. `task:resolve-name` asserted a second
+    // finding here -- UNCLASSIFIED-USE naming the BINDING -- as D3/D6 still
+    // answering for themselves, and named this task as the one that removes it.
+    // It is gone because those sites now consume rule A, so the wrapper is
+    // classified rather than mis-attributed. Asserting it by EQUALITY there is
+    // what makes this removal visible instead of silent.
+    expect(scan(f)).toEqual([finding(f, "UNDECLARED-PASS", "settle", fnLine(f))]);
   });
 
   it("reads the wrapper axis from ts.OuterExpressionKinds, not from a list typed here", () => {
@@ -1932,9 +2023,94 @@ describe("AC-U14/AC-U15 — rule A resolves a receiver ONCE, for every position"
     // carrying its own flag, and the fixture proves the behaviour regardless of
     // which flag owns it -- which is why the fixture is the proof and this
     // assertion is only the axis check.
-    expect(scan("wrapper-satisfies-sink.ts").map((x) => x.code)).toEqual([
-      "UNDECLARED-PASS",
-      "UNCLASSIFIED-USE",
+    expect(scan("wrapper-satisfies-sink.ts").map((x) => x.code)).toEqual(["UNDECLARED-PASS"]);
+  });
+});
+
+describe("AC-U1/AC-U2/AC-U3 — the decision sites stop answering for themselves", () => {
+  // NEEDLES ANCHOR ON THE CODE FORM, not on the construct alone. Each of these
+  // fixtures names its own construct in its header prose, and a looser anchor
+  // resolves to that comment -- a fixture's explanation is part of the text a
+  // lookup searches, which is the collision `class-field-sink` already pins.
+
+  it("counts a doubled read through a PROPERTY receiver, with a bare pair as the control", () => {
+    // The bare `local.gauge` pair reports through the route that already worked,
+    // so the property pair's finding is attributable to the RECEIVER SHAPE and
+    // not to the machinery having arrived at all.
+    //
+    // The trailing UNDECLARED-PASS is the PRE-EXISTING class-method behaviour,
+    // identical to `class-field-sink`: discovery ranges over top-level
+    // functions, so a method is never classified and the sink walk reports it.
+    // Unchanged by this task and asserted rather than filtered, because an
+    // equality that quietly drops a finding is a presence check wearing
+    // equality's clothes.
+    const f = "property-receiver-double-read.ts";
+    const p1 = lineOf(f, "const first = this.ch.panes()");
+    const p2 = lineOf(f, "const second = this.ch.panes()");
+    const g1 = lineOf(f, 'const g1 = local.gauge("a")');
+    const g2 = lineOf(f, 'const g2 = local.gauge("b")');
+    expect(scan(f)).toEqual([
+      finding(f, "MULTI-READ", "panes", p1, [p1, p2]),
+      finding(f, "MULTI-READ", "gauge", g1, [g1, g2]),
+      finding(f, "UNDECLARED-PASS", "settle", lineOf(f, 'this.ch.dispatch("p1"')),
+    ]);
+  });
+
+  it("reports a raw handoff through a PROPERTY receiver, paired with the bare form", () => {
+    const f = "property-receiver-handoff.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "RAW-HANDOFF", "helper", lineOf(f, "helper(this.ch);")),
+      finding(f, "RAW-HANDOFF", "helper", lineOf(f, "helper(local);")),
+      finding(f, "UNDECLARED-PASS", "settle", lineOf(f, 'this.ch.dispatch("p1"')),
+    ]);
+  });
+
+  it("classifies a PARENTHESIZED receiver identically to a bare one (D6, the outward walk)", () => {
+    const f = "parenthesized-double-read.ts";
+    const a = lineOf(f, 'const first = (ch).gauge("a")');
+    const b = lineOf(f, 'const second = (ch).gauge("b")');
+    expect(scan(f)).toEqual([finding(f, "MULTI-READ", "gauge", a, [a, b])]);
+  });
+
+  it("reports a PARENTHESIZED handoff argument", () => {
+    const f = "parenthesized-handoff.ts";
+    expect(scan(f)).toEqual([finding(f, "RAW-HANDOFF", "helper", lineOf(f, "helper((ch));"))]);
+  });
+
+  // RECEIVER and SELECTOR are TWO POSITIONS, and a killer for one is not a
+  // killer for the other. Both are asserted, because a form that unifies the
+  // receiver while leaving the selector dot-only passes every case above.
+  it("resolves a member SELECTED by element access — the fully-silent case", () => {
+    const f = "element-selector-sink.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "UNDECLARED-PASS", "settle", lineOf(f, 'this["ch"]["dispatch"]("p1"')),
+    ]);
+  });
+
+  it("leaves a CALL-RESULT receiver silent, and the silence is ATTRIBUTABLE", () => {
+    // The fifth receiver shape, and the boundary that keeps the rule defensible.
+    // A static element key names its member in the bytes; a call result does not
+    // name it at all, so resolving it would re-open the no-call-graph fence.
+    // `settleBare` reports through the ordinary route, so exactly one finding is
+    // owed and the opaque receiver contributing none is attributable.
+    const f = "call-result-receiver.ts";
+    expect(scan(f)).toEqual([
+      // A TOP-LEVEL function, so discovery classifies it and the finding lands on
+      // the FUNCTION line -- unlike the class-method fixtures, where discovery
+      // never reaches the method and the sink walk reports at the CALL.
+      finding(f, "UNDECLARED-PASS", "settleBare", fnLine(f, "settleBare")),
+    ]);
+  });
+
+  it("names the MEMBER, not the binding, when the selector is an element access", () => {
+    const f = "element-selector-double-read.ts";
+    const p1 = lineOf(f, 'const first = ch["panes"]()');
+    const p2 = lineOf(f, 'const second = ch["panes"]()');
+    const g1 = lineOf(f, 'const g1 = local.gauge("a")');
+    const g2 = lineOf(f, 'const g2 = local.gauge("b")');
+    expect(scan(f)).toEqual([
+      finding(f, "MULTI-READ", "panes", p1, [p1, p2]),
+      finding(f, "MULTI-READ", "gauge", g1, [g1, g2]),
     ]);
   });
 });

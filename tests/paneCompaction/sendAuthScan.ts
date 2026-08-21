@@ -402,10 +402,15 @@ const classifyUses = (
    * answering differently is what made `this.ch.typo()` silent while `ch.typo()`
    * reported (diff r4 F1).
    */
-  const classifyMemberOn = (receiver: ts.PropertyAccessExpression | ts.Expression): void => {
+  const classifyMemberOn = (receiver: ts.Expression): void => {
     const outer = receiver.parent;
-    if (!ts.isPropertyAccessExpression(outer) || outer.expression !== receiver) return;
-    const member = outer.name.text;
+    if (!ts.isExpression(outer)) return;
+    // The SELECTOR resolves through the same decomposition as the receiver, so
+    // `ch["panes"]()` names `panes` rather than falling through and naming the
+    // binding. A non-literal key yields null and is DECLARED SILENCE.
+    const selected = memberCallOf(outer);
+    if (selected === null || selected.receiver !== receiver) return;
+    const member = selected.member;
     const call = outer.parent;
     if (ts.isCallExpression(call) && call.expression === outer) {
       if (!known.has(member)) report(outer, member);
@@ -419,16 +424,30 @@ const classifyUses = (
   };
 
   const classify = (id: ts.Identifier): void => {
-    const parent = id.parent;
+    // Transparency is SYMMETRIC. Without this walk a wrapped reference matches no
+    // branch below and falls through to the generic report, naming the BINDING
+    // where the member is owed -- which is D6, the sixth decision site, and it
+    // was absent from the design's first draft. The depth probe found it, which
+    // is why an independence proof is a DERIVED cover over decision sites while a
+    // site list is a hand-maintained one.
+    const node = outwardTransparent(id);
+    const parent = node.parent;
 
-    if (ts.isPropertyAccessExpression(parent) && parent.expression === id) {
+    // The branch is taken only when the member actually RESOLVES. A COMPUTED
+    // member (`ch[key]`) is not knowable from the source text, so it must keep
+    // falling through to the generic report that names the BINDING -- accepting
+    // an element-access parent unconditionally silenced that case entirely,
+    // which is a narrowing manufacturing a silent miss in the same edit that
+    // removed a false one.
+    const selected = ts.isExpression(parent) ? memberCallOf(parent) : null;
+    if (selected !== null && selected.receiver === node) {
       // ONE implementation, called with the identifier as the receiver. Copying these
       // branches for the property-receiver path left SEVEN survivors on the copy —
       // no case reached it — and worse, it duplicated the line the registry's control
       // edit keys on BY TEXT, so the control landed on the unexercised copy and the
       // suite stopped noticing it. A control edit keyed by text is only as good as
       // that text's uniqueness, which duplication silently destroys.
-      classifyMemberOn(id);
+      classifyMemberOn(node);
       return;
     }
 
@@ -441,7 +460,7 @@ const classifyUses = (
 
     // An injection argument. Inside a declared pass this becomes RAW-HANDOFF,
     // which rule 3 owns; outside one it is ordinary injection and correct.
-    if (ts.isCallExpression(parent) && parent.arguments.includes(id)) return;
+    if (ts.isCallExpression(parent) && parent.arguments.includes(node)) return;
 
     // STORING the surface into a field of `this` -- `this.ch = ch` in a constructor
     // -- is the same ordinary injection as passing it as an argument, and the field
@@ -452,7 +471,7 @@ const classifyUses = (
     if (
       ts.isBinaryExpression(parent) &&
       parent.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
-      parent.right === id &&
+      parent.right === node &&
       ts.isPropertyAccessExpression(parent.left) &&
       parent.left.expression.kind === ts.SyntaxKind.ThisKeyword
     ) {
@@ -573,14 +592,13 @@ const analyzePassReads = (
   const lineAt = (n: ts.Node): number => sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
 
   const visit = (n: ts.Node): void => {
+    const readCall = ts.isCallExpression(n) ? memberCallOf(n.expression) : null;
     if (
-      ts.isCallExpression(n) &&
-      ts.isPropertyAccessExpression(n.expression) &&
-      ts.isIdentifier(n.expression.expression) &&
-      isRaw(n.expression.expression.text, n) &&
-      readSet.has(n.expression.name.text)
+      readCall !== null &&
+      readSet.has(readCall.member) &&
+      surfaceReceiverOf(readCall.receiver, (name) => isRaw(name, n)).kind === "surface"
     ) {
-      const member = n.expression.name.text;
+      const member = readCall.member;
       // Raw reads inside a derivation's OWN initializer are exempt from this
       // rule: that is the shipped memo at `scripts/pane-compaction.ts:797`,
       // which reads `marker` once inside the snapshot it is building. The
@@ -770,7 +788,12 @@ const analyzeHandoffs = (
         // SHADOWING a derived name was subtracted with it and its handoff went
         // unreported — diff r2 F1's defect, still live one arm over at diff r4 F2.
         // A binding the scanner cannot SHOW to be derived here is RAW: fail closed.
-        if (!ts.isIdentifier(argument) || !isRaw(argument.text, argument)) continue;
+        // The ARGUMENT is the surface reference, so rule A resolves it exactly as
+        // it resolves a receiver: `helper(this.ch)` and `helper((ch))` hand on the
+        // same binding a bare `helper(ch)` does. `foreign` and `opaque` are silent.
+        if (surfaceReceiverOf(argument, (name) => isRaw(name, argument)).kind !== "surface") {
+          continue;
+        }
         const line = sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
         // Named by CALLEE: two handoffs can share a code, a file AND a line and
         // differ only here, so the callee is part of the finding's IDENTITY.
@@ -895,10 +918,64 @@ const receiverRightmostName = (raw: ts.Expression): string | null => {
  * the distinction is load-bearing, and collapsing the two is what silenced a
  * real sink.
  */
-export const surfaceReceiverOf = (raw: ts.Expression, bindings: ReadonlySet<string>): Receiver => {
+export const surfaceReceiverOf = (
+  raw: ts.Expression,
+  // A PREDICATE, not a set. Whether a name is a surface binding is position-
+  // dependent for two of the six consumers -- a parameter shadowing a derived
+  // name is raw at its own uses and derived nowhere -- and a set keyed on the
+  // name alone cannot say that. Passing `bindings.has` covers the set case, so
+  // one entry point serves all six rather than two rules drifting apart.
+  isBinding: (name: string) => boolean,
+): Receiver => {
   const name = receiverRightmostName(raw);
   if (name === null) return { kind: "opaque" };
-  return bindings.has(name) ? { kind: "surface", name } : { kind: "foreign", name };
+  return isBinding(name) ? { kind: "surface", name } : { kind: "foreign", name };
+};
+
+/**
+ * A member call decomposed into its TWO POSITIONS.
+ *
+ * RECEIVER and SELECTOR are different positions, and a rule that unifies the
+ * receiver while leaving the selector dot-only satisfies every receiver-shaped
+ * case in this arc -- then leaves `this["ch"]["dispatch"]()` COMPLETELY SILENT
+ * and reports the BINDING twice for a doubled `ch["panes"]()`. One decomposition
+ * answers both, so neither position can be unified without the other.
+ */
+type MemberCall = { receiver: ts.Expression; member: string };
+
+const memberCallOf = (callee: ts.Expression): MemberCall | null => {
+  const c = skipTransparent(callee);
+  if (ts.isPropertyAccessExpression(c)) return { receiver: c.expression, member: c.name.text };
+  if (ts.isElementAccessExpression(c)) {
+    const key = skipTransparent(c.argumentExpression);
+    return ts.isStringLiteralLike(key) ? { receiver: c.expression, member: key.text } : null;
+  }
+  return null;
+};
+
+/**
+ * TRANSPARENCY IS SYMMETRIC, and this is the mirror of `skipTransparent`.
+ *
+ * Rule A unwraps the receiver EXPRESSION. D6 branches on an identifier's PARENT,
+ * so a wrapped reference matches no branch and falls through to the generic
+ * report -- naming the BINDING where the member is owed. Walking OUT first is
+ * what makes `(ch).gauge()` reach the same branch as `ch.gauge()`.
+ *
+ * The comparison is against the ORIGINAL node, never the current one: for
+ * `((ch))` the outer wrapper unwraps to `ch` and not to the inner wrapper, so a
+ * current-node comparison would stop the walk one level in.
+ *
+ * It ascends a finite tree and assigns in the loop BODY, so a mutant to the
+ * predicate can only stop it EARLIER -- never turn it into a hang.
+ */
+const outwardTransparent = (n: ts.Expression): ts.Expression => {
+  let cur: ts.Expression = n;
+  for (;;) {
+    const p: ts.Node | undefined = cur.parent;
+    if (p === undefined || !ts.isExpression(p)) return cur;
+    if (skipTransparent(p) !== n) return cur;
+    cur = p;
+  }
 };
 
 /**
@@ -920,11 +997,15 @@ const sendBearingFunctions = (
   topLevel.filter((fn) => {
     let sendBearing = false;
     const look = (n: ts.Node): void => {
-      if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)) {
-        const receiver = surfaceReceiverOf(n.expression.expression, bindings);
+      if (ts.isCallExpression(n)) {
+        const call = memberCallOf(n.expression);
         // `foreign` is silent and REQUIRED for zero false advisories; `opaque` is
         // DECLARED SILENCE under the no-call-graph fence. Only `surface` proceeds.
-        if (receiver.kind === "surface" && row.sinks.includes(n.expression.name.text)) {
+        if (
+          call !== null &&
+          row.sinks.includes(call.member) &&
+          surfaceReceiverOf(call.receiver, (name) => bindings.has(name)).kind === "surface"
+        ) {
           sendBearing = true;
         }
       }
@@ -992,10 +1073,11 @@ const unreachedOccurrences = (
       // default-deny arm miss it, and the module reported NOTHING (diff r2 F2). A
       // wrapper that changes no semantics must not change what the guard sees.
       const bare = skipTransparent(callee);
+      const memberCall = memberCallOf(callee);
       const isMemberSink =
-        ts.isPropertyAccessExpression(bare) &&
-        row.sinks.includes(bare.name.text) &&
-        surfaceReceiverOf(bare.expression, bindings).kind === "surface";
+        memberCall !== null &&
+        row.sinks.includes(memberCall.member) &&
+        surfaceReceiverOf(memberCall.receiver, (name) => bindings.has(name)).kind === "surface";
       // A sink reached through a destructured local: no property access exists to
       // inspect, so the local's own name is the whole signal.
       const isBareSink = ts.isIdentifier(bare) && destructured.has(bare.text);
