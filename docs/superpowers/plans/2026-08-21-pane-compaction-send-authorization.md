@@ -296,8 +296,11 @@ writing-plans authored-AND-RUN rule; r2 F5):
        test -z "$(comm -12 <(rg -o '^## (BL|DEF)-[A-Z0-9-]+' BACKLOG.md | sort -u) <(rg -o '^## (BL|DEF)-[A-Z0-9-]+' BACKLOG-archive.md | sort -u))" && echo PASS || { echo FAIL; exit 1; }
 
    Plan-time output: PASS (intersection empty). Constructed-failure proof, run at plan
-   time: the same pipeline over two fixture files each declaring `## BL-FAKE-DUP` printed
-   `FAIL: ## BL-FAKE-DUP` and exited 1.
+   time: the same pipeline over two fixture files, each declaring one and the same
+   synthetic id, printed that id under `FAIL:` and exited 1. The id is described rather
+   than spelled here because `tests/docs/_metaLedgerReferentialIntegrity.test.ts` resolves
+   every `BL-` literal in the corpus against the ledgers, and a synthetic one defined in no
+   ledger reds it -- which is exactly what it did from `b1db667e0` until this repair.
 5. Check C — the graduating id is declared exactly once across both files (rule 176's
    doubled-body guard, applied to every entry this closeout touches):
 
