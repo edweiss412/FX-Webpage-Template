@@ -772,12 +772,68 @@ const analyzeHandoffs = (
  *     its own pass), and a send-bearing construct outside that range must not
  *     therefore vanish.
  */
+/**
+ * The RIGHTMOST NAME of a call's receiver, or null when there is none.
+ *
+ * ONE definition, deliberately, because the two arms that ask this question used to
+ * answer it differently and the disagreement was SILENT: the sink walk resolved a
+ * receiver by rightmost name (so it saw `h.ch.dispatch`), suppressed on the grounds
+ * that primary discovery would handle anything inside a top-level function, and
+ * discovery then declined the same call because it accepted only a BARE IDENTIFIER.
+ * Suppressed by one arm, skipped by the other, reported by neither (diff r3 F6).
+ * A shared rule cannot drift apart the way two hand-written ones did.
+ */
+const receiverRightmostName = (raw: ts.Expression): string | null => {
+  const e = ts.isParenthesizedExpression(raw) ? receiverUnparen(raw.expression) : raw;
+  return ts.isIdentifier(e) ? e.text : ts.isPropertyAccessExpression(e) ? e.name.text : null;
+};
+
+/** Transparent-wrapper unwrap, shared for the same reason (diff r2 F2). */
+function receiverUnparen(e: ts.Expression): ts.Expression {
+  return ts.isParenthesizedExpression(e) ? receiverUnparen(e.expression) : e;
+}
+
+/**
+ * The top-level functions primary discovery CLASSIFIES as send-bearing: the subtree
+ * calls a declared SINK on a surface binding. Anchored on sinks, never on effects —
+ * anchoring on every effect makes the live `main` send-bearing through its fifteen
+ * `out(...)` calls and reports against correct code (§3.5, AC-14).
+ *
+ * Computed ONCE and handed to both consumers. The sink walk suppresses only where
+ * this set says a classification actually happened, so a form discovery cannot
+ * classify now REPORTS instead of vanishing — a suppression may not rest on another
+ * arm's classification unless that arm made one.
+ */
+const sendBearingFunctions = (
+  row: SendAuthSurface,
+  bindings: ReadonlySet<string>,
+  topLevel: readonly { node: ts.Node; name: string; line: number }[],
+): { node: ts.Node; name: string; line: number }[] =>
+  topLevel.filter((fn) => {
+    let sendBearing = false;
+    const look = (n: ts.Node): void => {
+      if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)) {
+        const receiver = receiverRightmostName(n.expression.expression);
+        if (
+          receiver !== null &&
+          bindings.has(receiver) &&
+          row.sinks.includes(n.expression.name.text)
+        ) {
+          sendBearing = true;
+        }
+      }
+      ts.forEachChild(n, look);
+    };
+    look(fn.node);
+    return sendBearing;
+  });
+
 const unreachedOccurrences = (
   sf: ts.SourceFile,
   file: string,
   row: SendAuthSurface,
   bindings: ReadonlySet<string>,
-  topLevel: readonly { node: ts.Node; name: string; line: number }[],
+  classified: readonly { node: ts.Node; name: string; line: number }[],
 ): Finding[] => {
   const out: Finding[] = [];
   const at = (node: ts.Node): number =>
@@ -831,10 +887,7 @@ const unreachedOccurrences = (
       // wrapper that changes no semantics must not change what the guard sees.
       const unparen = (e: ts.Expression): ts.Expression =>
         ts.isParenthesizedExpression(e) ? unparen(e.expression) : e;
-      const receiverName = (raw: ts.Expression): string | null => {
-        const e = unparen(raw);
-        return ts.isIdentifier(e) ? e.text : ts.isPropertyAccessExpression(e) ? e.name.text : null;
-      };
+      const receiverName = receiverRightmostName;
       const bare = unparen(callee);
       const isMemberSink =
         ts.isPropertyAccessExpression(bare) &&
@@ -846,7 +899,10 @@ const unreachedOccurrences = (
       // A sink reached through a destructured local: no property access exists to
       // inspect, so the local's own name is the whole signal.
       const isBareSink = ts.isIdentifier(bare) && destructured.has(bare.text);
-      if ((isMemberSink || isBareSink) && !topLevel.some((t) => lexicallyWithin(t.node, n, sf))) {
+      // Suppress ONLY where discovery actually classified the containing function.
+      // The old test was `topLevel.some(...)` — mere containment — which handed the
+      // call to an arm that had already declined it (diff r3 F6).
+      if ((isMemberSink || isBareSink) && !classified.some((t) => lexicallyWithin(t.node, n, sf))) {
         const line = at(n);
         out.push({
           code: "UNDECLARED-PASS",
@@ -924,8 +980,9 @@ export function scanModule(file: string, row: SendAuthSurface): Finding[] {
     );
 
   const topLevel = topLevelFunctions(sf);
+  const classified = sendBearingFunctions(row, bindings, topLevel);
   const findings: Finding[] = classifyUses(sf, file, row, bindings, reads, derivedAt);
-  findings.push(...unreachedOccurrences(sf, file, row, bindings, topLevel));
+  findings.push(...unreachedOccurrences(sf, file, row, bindings, classified));
   for (const { fn, derivations } of passes) {
     // Per-pass, for the same reason: inside THIS pass, only THIS pass's derivations
     // are derived. Another pass's names are ordinary raw bindings here.
@@ -943,27 +1000,7 @@ export function scanModule(file: string, row: SendAuthSurface): Finding[] {
     findings.push(...analyzeHandoffs(sf, file, rawNames, fn, derivations));
   }
 
-  for (const fn of topLevel) {
-    // Send-bearing: the SUBTREE calls a declared SINK on a surface binding.
-    // Anchored on sinks, never on effects — anchoring on every effect makes the
-    // live `main` send-bearing through its fifteen `out(...)` calls and reports
-    // against correct code (§3.5, AC-14).
-    let sendBearing = false;
-    const look = (n: ts.Node): void => {
-      if (
-        ts.isCallExpression(n) &&
-        ts.isPropertyAccessExpression(n.expression) &&
-        ts.isIdentifier(n.expression.expression) &&
-        bindings.has(n.expression.expression.text) &&
-        row.sinks.includes(n.expression.name.text)
-      ) {
-        sendBearing = true;
-      }
-      ts.forEachChild(n, look);
-    };
-    look(fn.node);
-    if (!sendBearing) continue;
-
+  for (const fn of classified) {
     // An exempt marker suppresses only with a NON-EMPTY reason: the bare token
     // is not a certificate.
     const exempted = markers.some(

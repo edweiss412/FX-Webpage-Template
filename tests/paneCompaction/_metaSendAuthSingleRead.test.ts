@@ -937,6 +937,25 @@ describe("Task 8 — second repair pass, from the re-measure at 0.9259", () => {
     ]);
   });
 
+  it("reports a sink whose receiver is a property access, inside a top-level function", () => {
+    // Diff r3 F6 — the one finding of that round that probed SILENT, and the third
+    // recurrence of ONE axis (r1 F3, r2 F2, this). Each time an arm DECLINED to
+    // classify and the scanner said nothing, so the repair direction is NARROWING:
+    // the classification is computed once and shared, suppression may rest only on a
+    // classification that actually happened, and discovery resolves a receiver by the
+    // same rightmost-name rule the walk already used.
+    //
+    // Probed against the shipped scanner BEFORE the repair: 0 findings. One variable
+    // from `class-field-sink`, which reports without the wrapper.
+    const f = "wrapped-class-field-sink.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "UNDECLARED-PASS", "build", lineOf(f, "export function build")),
+      // The handoff is reported too, and independently: `new Driver(injected)` passes
+      // a raw surface to a constructor, which no declared set classifies.
+      finding(f, "UNCLASSIFIED-USE", "injected", lineOf(f, "new Driver(injected)")),
+    ]);
+  });
+
   it("reports the surface DESTRUCTURED in a parameter, naming the bound member", () => {
     // Diff r1 F2, and the case the arm shipped WITHOUT. `settle({ dispatch }: Channel)`
     // calls the sink through a bare local, so no property access on a binding exists
@@ -947,6 +966,13 @@ describe("Task 8 — second repair pass, from the re-measure at 0.9259", () => {
     const f = "destructured-param-sink.ts";
     expect(scan(f)).toEqual([
       finding(f, "UNCLASSIFIED-USE", "dispatch", lineOf(f, "export function settle({ dispatch }")),
+      // STRENGTHENED by the r3 F6 narrowing, and the second instance of that defect —
+      // found by sweeping the shape rather than by a later round. This function sends
+      // and declares no pass, but the walk used to suppress it on mere CONTAINMENT in
+      // a top-level function that discovery had already declined (a bare destructured
+      // callee is not a property access, so it was never classified). The single
+      // finding pinned here before was the under-report.
+      finding(f, "UNDECLARED-PASS", "settle", lineOf(f, 'dispatch("p1"')),
     ]);
   });
 
