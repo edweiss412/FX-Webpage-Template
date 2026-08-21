@@ -10,8 +10,9 @@
  * Design: `docs/superpowers/specs/ci/2026-08-21-intraleg-process-boundary-probe-design.md`
  */
 import { createHash, randomUUID } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 import { type InputStamp, resolveSurface, stampInputs } from "./determinism";
 import { type Mutant, generateMutants } from "./generate";
@@ -528,6 +529,8 @@ export type TrialReport = {
   infraFaults: string[];
   /** The trial's own [spawn, exit] interval — arm C's in-window sample rule reads it. */
   window: { spawnedAt: number; exitedAt: number };
+  /** Binds this report's fields to EACH OTHER; see `reportDigest`. */
+  digest: string;
 };
 
 export type TrialOutcome = { kind: "report"; report: TrialReport } | Refusal;
@@ -550,6 +553,30 @@ export function stepDigest(step: StepReport): string {
   const record = step as unknown as Record<string, unknown>;
   return createHash("sha256")
     .update(JSON.stringify(digestedFieldsOf(step).map((f) => [f, record[f]])))
+    .digest("hex")
+    .slice(0, 16);
+}
+
+/** Every field of a REPORT the trial-level seal reads, derived from the record. */
+export function digestedFieldsOfReport(report: TrialReport): string[] {
+  return Object.keys(report)
+    .filter((k) => k !== "digest")
+    .sort();
+}
+
+/**
+ * The whole-REPORT seal.
+ *
+ * `stepDigest` binds a step's fields to each other; this binds a TRIAL's fields
+ * to each other. They catch different rotations: rotating child arrays among
+ * steps moves a step digest, and rotating windows or half identities among
+ * REPORTS leaves every step digest, every pid pair and every nonce intact while
+ * attaching a trial's evidence to the wrong trial.
+ */
+export function reportDigest(report: TrialReport): string {
+  const record = report as unknown as Record<string, unknown>;
+  return createHash("sha256")
+    .update(JSON.stringify(digestedFieldsOfReport(report).map((f) => [f, record[f]])))
     .digest("hex")
     .slice(0, 16);
 }
@@ -723,7 +750,7 @@ export function runTrial(
     (path) => stampBefore.files[path] !== stampAfter.files[path],
   );
 
-  const report: TrialReport = {
+  const unsealed: TrialReport = {
     plan,
     childPid: deps.pid(),
     nonce: deps.nonce(),
@@ -735,7 +762,9 @@ export function runTrial(
     completed: infraFaults.length === 0,
     infraFaults,
     window: { spawnedAt, exitedAt },
+    digest: "",
   };
+  const report: TrialReport = { ...unsealed, digest: reportDigest(unsealed) };
 
   if (deps.writeRecord !== undefined) {
     const dir = options.recordDir ?? recordDir();
@@ -1135,6 +1164,7 @@ export const REQUIRED_CONDITION_FIELDS: readonly string[] = Object.keys(
         completed: true,
         infraFaults: [],
         window: { spawnedAt: 0, exitedAt: 0 },
+        digest: "",
       },
     },
   }),
@@ -1226,6 +1256,18 @@ export function aggregateCampaign(input: {
     }
     const condition = validateCondition(conditionOf(t) as unknown as Record<string, unknown>);
     if (!condition.ok) return refuse("record", `trial ${key}: ${condition.detail}`);
+    // The whole-REPORT seal. Rotating windows or half identities among reports
+    // leaves every per-trial direct check passing — well-formed report, agreeing
+    // pids, distinct nonce, untouched receipt sequence — and attaches one
+    // trial's evidence to another. Only this can see it.
+    if (reportDigest(t.observation.report) !== t.observation.report.digest) {
+      return refuse(
+        "record",
+        `trial ${key} does not match its own whole-report seal: its fields have been re-bound ` +
+          `since the child sealed them. Right evidence on the wrong trial is the ` +
+          `wrong-attribution direction the bound forbids.`,
+      );
+    }
   }
 
   const completed = trials.filter((t) => t.observation.report.completed);
@@ -1505,4 +1547,59 @@ export function renderCampaignPlan(plan: CampaignPlan): string {
     );
   }
   return `${lines.join("\n")}\n`;
+}
+
+/* ------------------------------------------------------- the real spawn path */
+
+/**
+ * The production parent seams.
+ *
+ * The pid comes FROM THE SPAWN HANDLE — `spawnSync`'s own return — never from
+ * anything the child said. `spawnBounded` is not usable here for exactly that
+ * reason: it returns `{ outcome, ownGroup }` and no pid, so the parent would
+ * have no observation of its own and the two-sided check would collapse into
+ * one side read twice.
+ *
+ * Each trial gets its OWN scratch directory and its own env, so "fresh process"
+ * is fresh in the ways this instrument can control.
+ */
+export function makeParentDeps(options: {
+  root: string;
+  scratchDir: string;
+  surfaceId: string;
+  siteId: string;
+  env?: Readonly<Record<string, string>>;
+  timeoutMs?: number;
+  spawn?: typeof spawnSync;
+}): ParentDeps & { lastStderr: () => string } {
+  let stderr = "";
+  const spawn = options.spawn ?? spawnSync;
+  return {
+    spawnChild: (request) => {
+      mkdirSync(options.scratchDir, { recursive: true });
+      const invocationPath = join(options.scratchDir, "invocation.json");
+      const reportPath = join(options.scratchDir, "report.json");
+      writeFileSync(
+        invocationPath,
+        JSON.stringify({
+          plan: request.plan,
+          root: options.root,
+          surfaceId: options.surfaceId,
+          siteId: options.siteId,
+          reportPath,
+        }),
+        "utf8",
+      );
+      const result = spawn(request.argv[0] as string, [...request.argv.slice(1), invocationPath], {
+        cwd: request.cwd,
+        env: { ...process.env, ...request.env },
+        encoding: "utf8",
+        timeout: options.timeoutMs ?? 600_000,
+      });
+      stderr = result.stderr ?? "";
+      return { pid: result.pid, reportPath };
+    },
+    readReportBytes: (path) => readFileSync(path),
+    lastStderr: () => stderr,
+  };
 }

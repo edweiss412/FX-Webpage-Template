@@ -55,11 +55,13 @@ import {
   aggregateCampaign,
   conditionOf,
   digestedFieldsOf,
+  digestedFieldsOfReport,
   observeTrial,
   oneSidedBound,
   planCampaign,
   renderCampaign,
   renderProbe,
+  reportDigest,
   resolveTarget,
   runTrial,
   serializeCampaign,
@@ -1120,7 +1122,7 @@ describe("processProbe aggregator — eligibility, derived claims, render (AC-7,
       children: [{ suite: "s", kind: "exit", exitCode: 0, durationMs: 10 }],
       digest: "d",
     };
-    const report: TrialReport = {
+    const unsealed: TrialReport = {
       plan,
       childPid: 1000 + nonceCounter,
       nonce: over.nonce ?? `nonce-${nonceCounter}`,
@@ -1132,7 +1134,9 @@ describe("processProbe aggregator — eligibility, derived claims, render (AC-7,
       completed,
       infraFaults: completed ? [] : ["some-site"],
       window,
+      digest: "",
     };
+    const report: TrialReport = { ...unsealed, digest: reportDigest(unsealed) };
     return {
       observation: {
         plan,
@@ -1722,5 +1726,135 @@ describe("processProbe cli adapter — wiring proven separately from rendering (
       "the generated seed is not a constant zero",
       CLI_DEFAULT_DEPS.generateSeed() !== 0 || seed !== 0,
     );
+  });
+});
+
+describe("processProbe aggregator trial-level binding — rotation among REPORTS (AC-14)", () => {
+  const MIDDLE_SITE = "relational-boundary:15:46:<><=";
+
+  let seq = 0;
+  const sealedTrial = (over: {
+    arm?: Arm;
+    index?: number;
+    half?: "quiet" | "loaded";
+    window?: { spawnedAt: number; exitedAt: number };
+  }): CampaignTrial => {
+    seq += 1;
+    const arm = over.arm ?? "C";
+    const plan: TrialPlan = {
+      arm,
+      kind: "isolated",
+      seed: 7,
+      index: over.index ?? 0,
+      surfaceId: "wideSurface",
+      targetSiteId: MIDDLE_SITE,
+      prefix: [],
+      position: 1,
+      ...(over.half === undefined ? {} : { half: over.half }),
+    };
+    const stamp = { digest: "anchor", files: { "wide.ts": "aaa" }, operators: "o", count: 1 };
+    const unsealed: TrialReport = {
+      plan,
+      childPid: 2000 + seq,
+      nonce: `sealed-nonce-${seq}`,
+      steps: [],
+      stampBefore: stamp,
+      stampAfter: stamp,
+      inputsMoved: [],
+      attributable: true,
+      completed: true,
+      infraFaults: [],
+      // DISTINGUISHABLE per trial, so a rotation moves something observable.
+      window: over.window ?? { spawnedAt: 1000 * seq, exitedAt: 1000 * seq + 500 },
+      digest: "",
+    };
+    const report = { ...unsealed, digest: reportDigest(unsealed) };
+    return { observation: { plan, parentPid: report.childPid, report } };
+  };
+
+  it("aggregator accepts intact sealed reports — the rotation refusal is not vacuous", () => {
+    const trials = [
+      sealedTrial({ index: 0, half: "quiet" }),
+      sealedTrial({ index: 1, half: "loaded" }),
+    ];
+    const out = aggregateCampaign({ plannedPerArm: { C: 2 }, trials });
+    expect(out.kind).toBe("aggregate");
+  });
+
+  it("aggregator REFUSES a TRIAL-LEVEL rotation of windows among reports, naming the first", () => {
+    const trials = [
+      sealedTrial({ index: 0, half: "quiet" }),
+      sealedTrial({ index: 1, half: "loaded" }),
+      sealedTrial({ index: 2, half: "quiet" }),
+    ];
+    const windows = trials.map((t) => t.observation.report.window);
+    premise(
+      "the windows are DISTINGUISHABLE, so rotating them moves something",
+      new Set(windows.map((w) => w.spawnedAt)).size,
+      1,
+    );
+    // Rotate the windows one step among the reports. Every per-trial direct
+    // check still passes: each report is well-formed, each pid pair agrees, each
+    // nonce is distinct, and the receipt sequence is untouched. Only the
+    // whole-report seal can see that evidence moved between trials.
+    const rotated = trials.map((t, i) => ({
+      ...t,
+      observation: {
+        ...t.observation,
+        report: {
+          ...t.observation.report,
+          window: windows[(i + 1) % windows.length] as (typeof windows)[number],
+        },
+      },
+    }));
+    const out = aggregateCampaign({ plannedPerArm: { C: 3 }, trials: rotated });
+    expect(inputOf(out)).toBe("record");
+    expect(detailOf(out)).toContain("C#0");
+  });
+
+  it("aggregator REFUSES a rotation of arm-C HALF identities among reports", () => {
+    const trials = [
+      sealedTrial({ index: 0, half: "quiet" }),
+      sealedTrial({ index: 1, half: "loaded" }),
+    ];
+    // The half lives on the plan inside the report; swapping it between reports
+    // is the arm-C form of the same wrong-attribution move.
+    const swapped = trials.map((t, i) => ({
+      ...t,
+      observation: {
+        ...t.observation,
+        report: {
+          ...t.observation.report,
+          plan: {
+            ...t.observation.report.plan,
+            half: (trials[(i + 1) % trials.length] as CampaignTrial).observation.report.plan
+              .half as "quiet" | "loaded",
+          },
+        },
+      },
+    }));
+    const out = aggregateCampaign({ plannedPerArm: { C: 2 }, trials: swapped });
+    expect(inputOf(out)).toBe("record");
+  });
+
+  it("aggregator report digest moves when ANY field of the report moves", () => {
+    const report = sealedTrial({ index: 0 }).observation.report;
+    const fields = digestedFieldsOfReport(report);
+    premise("the report digest reads more than one field", fields.length, 1);
+    const record = report as unknown as Record<string, unknown>;
+    for (const field of fields) {
+      const value = record[field];
+      const moved =
+        typeof value === "string"
+          ? `${value}-moved`
+          : typeof value === "number"
+            ? value + 1
+            : typeof value === "boolean"
+              ? !value
+              : Array.isArray(value)
+                ? [...value, "extra"]
+                : { ...(value as object), moved: true };
+      expect(reportDigest({ ...report, [field]: moved } as TrialReport)).not.toBe(report.digest);
+    }
   });
 });
