@@ -450,7 +450,10 @@ describe("claim sweep adapter — a revision git refuses", () => {
     // invocation would pass the case above, and the refusal would be
     // indistinguishable from the arm being broken.
     const spy = newSpy();
-    const out = run(["--json", INCIDENT_SPEC, ...NAMED, ...PEERS], fixtureDeps("c272ebed3", { spy }));
+    const out = run(
+      ["--json", INCIDENT_SPEC, ...NAMED, ...PEERS],
+      fixtureDeps("c272ebed3", { spy }),
+    );
     // Same premise, the other side of the pair: the sweep is attributable to the
     // repair having been READ rather than to the record having been built
     // without one.
