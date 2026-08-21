@@ -86,20 +86,28 @@ passed the ENTIRE fixture corpus, and no declared operator produces that edit, s
 score however perfect would have surfaced it. Only building the weaker version by
 hand found it.
 
-- **MUTATION SCORE — 1.0000 (261/261), zero survivors, zero accepted ledger rows.**
-  Re-measured LOCALLY, foreground, 1022.82s, NO CI run id, at `1cdf31465` with every
-  score input CLEAN before and after — source, registry row, deciding suite and
-  fixture tree, checked as a set rather than assumed. That is the guarantee the arc's
-  earlier four-input digest was built to give; the digest stays in the PR record as
-  the provenance of ITS run rather than being restated here, because a record of what
-  was observed is not improved by being made current. The count is DERIVED from the
-  shipped generator against the registry row (261 sites, 0 no-ops), because a green
-  gate prints none.
+- **MUTATION SCORE — 1.0000 (266/266), zero survivors, zero accepted ledger rows.**
+  Re-measured LOCALLY, foreground, 1121.41s, NO CI run id, at `931ef72d8`, with the
+  four score inputs — source, registry row, deciding suite, fixture tree — checked
+  clean as a SET before and after. The count is DERIVED from the shipped generator
+  against the registry row (266 sites, 0 no-ops), because a green gate prints none.
 
-  Measured THREE times on this arc, and each re-measure was forced by a commit that
-  touched a score input — 254/254, then 262/262, then this. A score is a claim about a
-  tree, so it retires when the tree moves, and the discipline is to say so in the
-  commit that moves it rather than to let the number age in place.
+  **Measured FOUR times, and every re-measure was forced rather than chosen** — 254,
+  262, 261, 266 — once per commit that touched a score input, including a seam merge
+  that moved `registry.ts` and `expectedLedgerKinds.ts` because OTHER arcs added
+  surface rows. The exception was available there and the argument for it is probably
+  true: another surface's row cannot change this surface's operators or floor. It was
+  not taken, because that argument needs exactly the semantic model of the diff that a
+  stamp refuses to build, and applying the exception the one time it is inconvenient
+  retires the RULE instead of the score.
+
+  **One of those re-measures came back RED, and it is the reason this number is worth
+  anything.** The arm repair shipped with seven survivors in its own new code and, worse,
+  the harness reported that its own CONTROL EDIT had stopped discriminating: the repair
+  had copy-pasted the exact line the registry control keys on BY TEXT, so the control
+  landed on the copy no case reached. Both were one defect — the copy — and both were
+  fixed by deleting it rather than by arguing equivalence or adding cases to prop it up.
+  A control edit keyed by text is only as good as that text's uniqueness.
 
   Every assertion the score rests on runs IN-PROCESS: the deciding suite spawns no
   child at all, so no branch of this surface is reachable only through a process the
