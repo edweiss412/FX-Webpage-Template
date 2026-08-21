@@ -222,7 +222,8 @@
  *    `hereStringBindingLines` reads it through the same `valueBinds` the
  *    assignment family uses, so the lexer no longer drops it before words
  *    exist (BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE, closed). The ATTACHED
- *    spelling is a different family and is its own entry below. The alias case is narrower than it looks: an alias
+ *    spelling was a different family and CLOSED separately on 2026-08-21; the
+ *    entry below records what remains of it. The alias case is narrower than it looks: an alias
  *    definition is an assignment-SHAPED word, so `alias p'sql'='psql -F'` IS
  *    reported through the assignment route; only an alias whose body binds
  *    another program (`alias p'sql'='pgcli -F'`) escapes.
@@ -277,25 +278,32 @@
  *    composition is the same mechanism that produced it. RE-FILE TRIGGER: a live
  *    corpus instance of a composed expansion value, or a reading that reaches
  *    composition without substituting across a complement boundary.
- *  - The ATTACHED redirection TARGET family is not read at all, and it is the
- *    sharpest limit in this list. The attached-target regex wholly CONSUMES its
- *    match, so a target that contains a command SUBSTITUTION hides an executing
- *    command from BOTH scanners - zero sites and zero indirection hits - while
- *    bash runs it. The family, each spelling probed at 0/0 with a bash oracle
- *    confirming the call really happens: a bare backtick target; `$(…)` or a
- *    backtick inside an attached DOUBLE-QUOTED target; a locale-quoted `$"…"`
- *    target; and a command substitution inside an attached `${…}` target. The
- *    plain attached here-string (`read -r PG <<<p'sql'`) is the same family's
- *    benign end and is also missed. This is a MISSED SITE for an executing
- *    psql, not merely a missed discovery hit. It is PRE-EXISTING - every probe
- *    reports the same zeros before and after the 2026-08-20 arm 1 change, which
- *    covers DETACHED targets only. Not closed there because the only readings
- *    that would close it either expose the nested bodies to `scanShellText`,
- *    breaking the by-construction identity of the site path, or add recursive
- *    lexing that still does not report. Ledger:
- *    BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION. RE-FILE TRIGGER: a live
- *    corpus instance of any spelling above, or any arc that needs attached
- *    targets lexed for another reason.
+ *  - The ATTACHED redirection TARGET family CLOSED on 2026-08-21
+ *    (BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION). It was the sharpest
+ *    limit in this list: the attached-target regex wholly CONSUMED its match,
+ *    so a target containing a command SUBSTITUTION hid an executing command
+ *    from BOTH scanners while bash ran it - a missed SITE, not merely a missed
+ *    discovery hit. `attachedTargetEnd` delimits the target BY CONSTRUCT, the
+ *    slice is handed back to this lexer so its nested bodies reach
+ *    `scanShellText` exactly as every other substitution body does, and the
+ *    dequoted target is retained in `targets` for the here-string reader. The
+ *    two readings the filing arc REFUSED are still refused: the target's text
+ *    never becomes an argv word, and the site path stays byte-identical BY
+ *    CONSTRUCTION because `scanShellText` passes no `targets` array.
+ *    What REMAINS a limit, and is narrower:
+ *      * An UNDELIMITABLE target - a construct opened and never closed - is
+ *        REPORTED as an `IndirectionHit` naming it, never resolved. The report
+ *        says the target is unreadable; it does not say what it would have
+ *        evaluated to. Conservative-and-loud is the permitted direction.
+ *      * That report is scoped to the surfaces production READS. Shell text
+ *        embedded in a JS string is not one of them: there, `<` is a
+ *        comparison, a JSX tag or a regex, and the ungated report fired on nine
+ *        live template literals. RE-FILE TRIGGER: an extractor that yields the
+ *        shell text out of a JS call site, which this module does not export.
+ *      * A here-DOCUMENT delimiter (`<<`, `<<-`) is taken LITERALLY by bash, so
+ *        its bodies are deliberately NOT collected. Measured against bash by
+ *        `operator-oracle.mts`, one script per operator: those two execute
+ *        nothing while the other ten expand an attached substitution.
  *  - `PG=$(x)psql`-shaped values over-report conservatively, matching the
  *    trailing-path reading of `isPsqlCommandWord`.
  *  - An ANSI-C `\U` escape ABOVE the Unicode maximum keeps its raw `\U` text
@@ -1733,9 +1741,11 @@ function lexShellWords(
           // suppresses nothing — while the scanner consumed the phantom word as
           // `-F`'s value and certified the `-X` behind it.
           // Recorded BEFORE the buffer is cleared, because the fd prefix is
-          // the buffer. Both spellings are recorded: the attached one emits no
-          // target, and a reading that cannot see it reports a binding the
-          // shell has already overridden.
+          // the buffer. Both spellings are recorded here, and both now emit a
+          // target as well - the attached one through `attachedTargetEnd`. This
+          // ledger is still what carries the fd PREFIX, which the target does
+          // not, and a reading that cannot see it reports a binding the shell
+          // has already overridden.
           redirections.push({
             operator: redirection[0],
             fd: FD_PREFIX.test(buffer) ? buffer : null,
@@ -3193,10 +3203,13 @@ function splicedAt(first: string, lines: string[], index: number): { spliced: st
  * reports today and must keep reporting, while `valueBinds` alone would decline
  * it for carrying no flag-shaped token).
  *
- * The ATTACHED spelling (`<<<p'sql'`) is deliberately NOT read: the attached
- * target is consumed by a regex that never produces a word, that whole family is
- * withdrawn scope, and its documented limit is item 3 of the block at the top of
- * this file.
+ * The ATTACHED spelling (`<<<p'sql'`) IS read as of 2026-08-21
+ * (BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION): `attachedTargetEnd`
+ * delimits it by construct and the dequoted target is retained here alongside
+ * the detached one, so both spellings reach `valueBinds` through one reading.
+ * A target the accept-set could NOT delimit is skipped here and surfaced as an
+ * `IndirectionHit` instead - bash fails on the unexpected EOF and binds
+ * nothing, so there is no binding for this function to find.
  */
 function hereStringBindingLines(
   source: string,

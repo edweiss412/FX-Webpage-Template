@@ -19,6 +19,11 @@ Measured at `e5d1d723d`. Six probes, all re-run after the round-3 repairs: `slic
 
 ## 1. `slice-shape.mts` — what the attached regex consumes
 
+**Pinned to the BASE revision `e5d1d723d`, and it prints which one it read.** The design DELETES the
+pattern this probe measures, so this section is a RECORD of the pre-repair matcher rather than a
+description of current behaviour. Reading the working tree would abort — that is the repair having
+landed, not a broken probe — and a record updated to stay current stops being evidence.
+
 Reads the attached-target pattern OUT OF the shipped source rather than retyping it.
 
 ```
@@ -172,6 +177,57 @@ substitution-bearing to 28 / 5 — every one of the five mine.
 fixture at `executions=0`: it echoed the psql rather than running it, so it witnessed nothing. The
 two that shipped are the class's two directions — H executes and is SILENT, I executes and is
 MIS-ATTRIBUTED.
+
+## 3b. `operator-oracle.mts` — which operators bash EXPANDS an attached target for
+
+The scanner's `LITERAL_TARGET_REDIRECTIONS` is a claim about the SHELL, so the shell settles it.
+One real bash script per operator, a fake psql on PATH, executions counted.
+
+```
+positive control: psql executed 1x — the harness can observe an execution
+
+ok    &>>  executions=1  declared=EXPANDED
+ok    &>   executions=1  declared=EXPANDED
+ok    <<<  executions=1  declared=EXPANDED
+ok    <<-  executions=0  declared=LITERAL delimiter
+ok    <<   executions=0  declared=LITERAL delimiter
+ok    >>   executions=1  declared=EXPANDED
+ok    >&   executions=1  declared=EXPANDED
+ok    <&   executions=1  declared=EXPANDED
+ok    <>   executions=1  declared=EXPANDED
+ok    >|   executions=1  declared=EXPANDED
+ok    <    executions=1  declared=EXPANDED
+ok    >    executions=1  declared=EXPANDED
+
+population: 12 operators — 10 expand an attached substitution, 2 take the target literally
+PASS: bash agrees with LITERAL_TARGET_REDIRECTIONS on every shipped operator.
+```
+
+**Two results refuted the obvious reading, in opposite directions**, which is the whole reason this
+is measured rather than declared. `>&` and `<&` take a DESCRIPTOR, so the intuitive answer is that
+no substitution runs there — bash expands the word FIRST and fails the descriptor check afterwards,
+so psql really executes and a scanner that declined would carry a silent miss. And `<<` / `<<-`
+look like ordinary redirections while executing nothing at all, so collecting bodies from them is a
+FALSE advisory. The first draft of the deciding suite's operator row asserted the opposite pair and
+was simply wrong.
+
+**Why deriving both sides is sound here and nowhere else.** The operator LIST comes from the shipped
+array and the expected split from the shipped set — normally a vacuous check, since a drift in the
+constant moves both sides together. It is not vacuous because BASH supplies the observation, and
+bash cannot be moved by editing `REDIRECTION_PARTITION`.
+
+**The positive control is an ABORT, not a step someone might skip.** A harness that cannot execute
+anything — wrong PATH, unwritable log, no bash — reports zero executions for every operator, and a
+uniform zero renders identically to a real finding about the shell. If the bare `psql -c 'select 1'`
+control does not run exactly once, the probe exits 2 and reports nothing.
+
+**PROVEN to discriminate:** declaring `>` a literal delimiter yields
+`MISS  >    executions=1  declared=LITERAL delimiter` and exit 1; restored, exit 0.
+
+**The snippets are BASE64.** They are instances of the very family this arc censuses, and a literal
+shell-shaped string in a committed file is corpus — measured on this arc, committing the sibling
+oracle's snippets as a runnable script took the shell surface from 19 attached targets with 0
+substitution-bearing to 28 with 5, every one of them the author's.
 
 ## 4. `corpus-family3.mts` — live population, by EXECUTION SURFACE
 

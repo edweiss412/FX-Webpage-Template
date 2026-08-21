@@ -33,7 +33,7 @@ stated per revision, because it is not stable across the arc's own commits.
 
 ## 1. Meta-test inventory (mandatory declaration)
 
-- **CREATES:** none.
+- **CREATES:** `docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/operator-oracle.mts` — a bash oracle, not a meta-test, and NOT enrolled anywhere. It lives under `docs/`, which the census walk skips, and its snippets are base64'd, so it does not enter the corpus it helps measure. Re-verified after adding it: the census still reports zero substitution-bearing attached targets.
 - **EXTENDS:** `tests/cross-cutting/psqlStartupFileSuppression.test.ts` — the deciding suite, with
   new cases per Task 1 and Task 2 and THREE retired declared-limit pins (two controls held).
 - **EXTENDS:** `tests/mutation/source/registry.ts` — `psqlStartupScan`'s accepted rows are
@@ -139,7 +139,7 @@ by exhaustion.
 | W8 | delimit within ONE physical line, ending the region at any newline | a redirection and its target look like a same-line construct, and every case A–I is one | **J** — a backslash continuation inside a quoted target crosses the newline and bash executes it |
 | W9 | handle an attached target only when the operator has no file-descriptor prefix | the prefix reads as a separate token, so `2>` looks like a different construct | **K** — `cat 2>"$(psql -c 'select 1')"` executes once and both scanners return zero |
 | W10 | ADD a correctly attributed record and leave the wrongly attributed one | additive repairs feel safer than replacing a record something else may read | **I** — its predicate is universal over every site the snippet produces, so `[wrong, correct]` fails |
-| W11 | delimit construct-aware after `>` and `<<<`, fall back to the old character run for the other ten operators | those two are what every acceptance case uses, so the gate goes green | **nothing in the acceptance set** — this is the one gap the spec's cases do NOT close, and Task 1 carries the obligation below instead |
+| W11 | delimit construct-aware after `>` and `<<<`, fall back to the old character run for the other ten operators | those two are what every acceptance case uses, so the gate goes green | **the derived operator row**, which iterates the SHIPPED array — plus `operator-oracle.mts` (spec §2.2b), which measures the expected split against bash rather than against the constant |
 | W18 | stamp every collected body with the TARGET'S FINAL line, preserving the real byte offset | the target's end is where the walk finishes, so it is the line in hand | **a body on line 2 of a target closing on line 3** — the derived coordinate rule, which also kills the unnamed members of this family |
 | W19 | emit `IndirectionHit.line` from the scanner's current line at EOF | for a span that never closes, "where it started" and "where the scan ran out" look identical | **a multiline unlexable span** — its opening line and EOF are then distinct |
 | W13 | emit unlexable reports only for `>` while delimiting every operator correctly | the report path and the delimit path look like one feature | **a non-`>` unlexable case** — the operator derivation covers the report path too, not only Task 1's |
@@ -147,6 +147,9 @@ by exhaustion.
 | W15 | always stamp `IndirectionHit.line = 1` | every unlexable fixture started on line 1 | **a prefixed case requiring line 2** — the same first-line blindness J carried, one surface along |
 | W16 | overwrite accumulated bodies at each attached target, keeping only the last | one target reads like one accumulation | **psql in the FIRST of two targets** — the multi-target control is stated in both orders because payload position decides whether it discriminates |
 | W17 | stamp `line = operatorLine + 1`, `offset = operatorOffset` | a one-line displacement matches the only multiline fixture | **J with TWO continuations** plus a byte-offset assertion — a displacement right by construction is not an assertion |
+| W20 | decline the attached walk for `>&` and `<&`, reasoning that a descriptor operand cannot carry a substitution | the operand IS a descriptor, so the reading is intuitive and wrong | **the bash oracle** — both expand the word FIRST and fail the descriptor check afterwards, so psql executes and declining is a SILENT MISS. This was the first draft's assertion and it was simply wrong |
+| W21 | collect nested bodies for EVERY operator, `<<` and `<<-` included | a here-doc delimiter looks like an ordinary attached target | **the bash oracle** — those two execute NOTHING, so a body collected there is a FALSE advisory, the direction the bound refuses even though it is the loud one |
+| W22 | emit the unlexable report on every surface the walk runs on | the report path looks surface-agnostic | **the live tree** — nine template literals in `.ts` files, `` `<h2[^>]*\bid=["']${ref.fragment}["']` `` among them, every one a false advisory. Killed by the tree-certified rows and by AC-5, not by a fixture |
 | W12 | delimit and retain the target correctly, but collect only the FIRST nested body in it | one target reads like one body, and every §2.2 case has at most one | **nothing in the acceptance set either** — `cat >"$(true)$(psql -c 'select 1')"` executes psql and stays silent under first-body-only collection. Closed by the population obligation below, derived rather than by one more fixture |
 
 **W8, W9 and W10 are round 4's, and each is the same defect shape as W1: an implementation that
@@ -403,7 +406,7 @@ cannot be red, and a marker claiming otherwise would be the manufactured-red sha
 documentation half is a docs move: nothing mechanical fails on a documented limit that has become
 false, which is exactly why it has to be a named step rather than a trusted intention.
 
-**Files:** Modify `tests/cross-cutting/psqlStartupFiles/scan.ts`, `tests/cross-cutting/psqlStartupFileSuppression.test.ts`; run `docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/baseline-corpus.mts --expect 8ebe8b08d43e6308aa471112d9f086d0118e6238`, `docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/digest-sensitivity.mts` and `docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/corpus-family3.mts`.
+**Files:** Modify `tests/cross-cutting/psqlStartupFiles/scan.ts`, `tests/cross-cutting/psqlStartupFileSuppression.test.ts`, the spec and the probe record; RE-PIN `docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/slice-shape.mts` to the base revision, since Task 1 deletes the pattern it reads and a probe that cannot see its subject must abort rather than report; CREATE `docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/operator-oracle.mts`. Run `docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/baseline-corpus.mts --expect 8ebe8b08d43e6308aa471112d9f086d0118e6238`, `docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/digest-sensitivity.mts` and `docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/corpus-family3.mts`.
 
 **AC-5, the consequence bound made executable.** Re-run the digest-pinned baseline and assert the
 finding set is unchanged apart from this arc's own constructed fixtures: **76 sites, digest

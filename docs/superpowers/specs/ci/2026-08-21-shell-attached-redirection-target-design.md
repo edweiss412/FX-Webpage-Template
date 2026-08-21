@@ -6,6 +6,34 @@
 **Base:** `e5d1d723d`. Every number below was measured at that revision and carries the command
 that produced it.
 
+**Every `file:line` here is BASE-STAMPED at `e5d1d723d`, and the SYMBOL beside it is the durable
+identity.** §3 rewrites the lexer, so every line below the attached-target branch moves — and a
+citation re-pointed at HEAD is stale within the hour, since the arc's own later repairs move them
+again. Spot-verified at the base, by line number in `tests/cross-cutting/psqlStartupFiles/scan.ts`:
+1193 is `function lexShellWords(`, 1041 is `type RedirectionTarget = {`, 1581 is the character-run
+assignment §1 quotes, and 946 is `function matchBrace(`. `spec:lint` reads citations against the
+WORKING TREE, so it reports
+`CITATION_SYMBOL_UNMATCHED` advisories on this document by construction after the repair lands.
+That is the linter doing its job on a base-stamped record, not drift; the gate this document owes
+is **0 hard**, and resolve any citation by grepping the named symbol rather than by trusting the
+number.
+
+**Measured rather than asserted, because "they were all there before" is the comfortable reading
+and it is false.** With the pre-repair source restored (blobs `a1f9db0c`, `cb45f9ea`) this document
+linted **0 hard, 18 advisory** — a fixed figure against a fixed revision, which cannot go stale.
+Against the repaired tree the advisory count is HIGHER, by the citations §3's line shift moved, and
+every one of them still names its symbol correctly at `e5d1d723d`.
+
+**The current count is deliberately not written down here.** It moves on every edit below the lexer
+— including the edit that states it, which is how the first draft of this paragraph went stale the
+moment it was saved. Re-derive it instead:
+
+```
+pnpm spec:lint docs/superpowers/specs/ci/2026-08-21-shell-attached-redirection-target-design.md
+```
+
+The only figure this document owes is **0 hard**.
+
 ---
 
 ## 1. The defect
@@ -45,7 +73,13 @@ It is PRE-EXISTING and was not made worse by the arc that filed it.
 ### 2.1 What the attached regex actually consumes
 
 Eight spellings through the SHIPPED pattern, read out of the source rather than retyped
-(`docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/slice-shape.mts`):
+(`docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/slice-shape.mts`).
+**That probe is now pinned to the BASE revision `e5d1d723d` and prints which one it read**, because
+§3 DELETES the pattern it measures: this table is a RECORD of the pre-repair matcher, and a record
+updated to stay current stops being evidence. Reading the working tree would abort, which is the
+repair having landed rather than a broken probe.
+
+
 
 | spelling | consumed | whole? |
 |---|---|---|
@@ -117,6 +151,34 @@ non-empty guard so an empty read cannot pass vacuously.
 `executions=0`, so it witnessed nothing: a fixture that does not run the command cannot demonstrate
 a scanner is wrong to be silent about it. The two that shipped are the class's two directions —
 H executes and is SILENT, I executes and is MIS-ATTRIBUTED.
+
+### 2.2b The operator axis, measured against bash rather than declared
+
+The attached-target branch runs for every one of the twelve operators in `REDIRECTION_OPERATORS`
+(`tests/cross-cutting/psqlStartupFiles/scan.ts:1088`), and the acceptance set exercises two. What
+bash does with an attached substitution is a claim about the SHELL, so the shell settles it: one
+real script per operator with a fake psql on PATH, counted
+(`docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/operator-oracle.mts`).
+
+| operators | executions | reading |
+|---|---|---|
+| `&>>` `&>` `<<<` `>>` `>&` `<&` `<>` `>\|` `<` `>` — TEN | 1 each | the target is EXPANDED |
+| `<<` `<<-` — TWO | **0** | a here-DOCUMENT delimiter is taken LITERALLY |
+
+**Two of these refuted the obvious reading, in opposite directions.** `>&` and `<&` take a
+descriptor, so the intuitive answer is that no substitution runs there — bash expands the word
+FIRST and only then fails the descriptor check, so psql executes and a scanner that declined would
+carry a silent miss. And `<<` / `<<-` look like ordinary redirections while executing nothing at
+all, so collecting bodies from them is a FALSE advisory, which §5 forbids even though it is the
+loud direction.
+
+So `LITERAL_TARGET_REDIRECTIONS` declines exactly those two. The probe derives the operator list
+from the shipped array and the expected split from the shipped set, which is sound ONLY because
+BASH supplies the observation — a check whose two sides both come from `REDIRECTION_PARTITION`
+moves together and can never disagree. A positive control (a bare `psql -c 'select 1'`) ABORTS the
+run if the harness cannot observe an execution at all, since a uniform zero would otherwise render
+identically to a finding about the shell. Proven to discriminate: declaring `>` literal reports
+`MISS  >  executions=1` and exits 1; restored, exit 0.
 
 ### 2.3 Live population: zero, on three execution surfaces
 
@@ -307,8 +369,8 @@ record would otherwise read a finished document as a ratified one.
 
 - **PROBE DOMAIN:** the execution surfaces production actually READS — whole-file shell
   (`.sh`/`.bash`) and workflow `run:` scalars, 53 attached targets between them — plus the eight
-  spellings in §2.1, the fifteen cases in §2.2, and the bash oracle that confirms all twelve
-  executing snippets really run. A constructed input more than one ordinary edit from that set
+  spellings in §2.1, the fifteen cases in §2.2, the twelve-operator bash oracle of §2.2b, and the
+  bash oracle that confirms all twelve executing snippets really run. A constructed input more than one ordinary edit from that set
   files to documented limits, not to a finding. **`package.json` scripts are censused but are NOT
   in the domain** (§2.3): `SCANNED_EXTENSIONS` excludes `.json`, so production cannot open that
   surface at all and a probe there measures a pre-existing documented limit of the scanner
@@ -378,6 +440,23 @@ survive. A repair that reported BOTH rows would be loud in a direction the shell
    report names the target as unlexable; it does not say what the target would have evaluated to.
    Conservative-and-loud is the permitted direction; wrongly-silent is not.
 
+2b. **That report is scoped to the surfaces production READS, and shell inside JS is not one.**
+   In a JS file the text handed to the lexer is a COMPOSED STRING where `<` is a comparison, a JSX
+   tag or a regex rather than a redirection. Measured on the live tree: the ungated report fired on
+   NINE template literals, `` `<h2[^>]*\bid=["']${ref.fragment}["']` `` among them, every one a
+   false advisory — the direction §5 forbids even though it is the loud one. The gate is the SAME
+   predicate the backtick reading already makes (`JS_EXTENSIONS.includes(extensionOf(file))`), not
+   a second copy of it. This is limit 1 arriving on the report path rather than a new exclusion.
+   **Re-file trigger:** an extractor that yields the shell text out of a JS call site, which the
+   module does not export.
+
+2c. **A here-DOCUMENT delimiter's bodies are deliberately NOT collected.** `<<` and `<<-` take
+   their target literally, so `cat <<"$(psql -c 'select 1')"` warns about an unterminated
+   here-document and executes NOTHING (§2.2b). Collecting bodies there would be a false advisory.
+   Declined over a DECLARED closed set, `LITERAL_TARGET_REDIRECTIONS`, so an operator added to
+   `REDIRECTION_OPERATORS` fails the deciding suite's row instead of defaulting into either half —
+   and the bash oracle would disagree with the constant if it were widened wrongly.
+
 3. **This repair is prospective.** With zero live instances, no shipped behaviour changes today.
    Its value is fail-closed coverage of a family a contributor could author tomorrow, and the
    §2.2 probe is what will notice.
@@ -414,6 +493,8 @@ survive. A repair that reported BOTH rows would be loud in a direction the shell
 | `tests/cross-cutting/psqlStartupFiles/scan.ts` | the attached-target branch at `tests/cross-cutting/psqlStartupFiles/scan.ts:1581`, which gains construct-aware delimiting, target RETENTION into the `targets` array, nested-body collection and the unlexable report; the documented-limits block at `tests/cross-cutting/psqlStartupFiles/scan.ts:280` through `tests/cross-cutting/psqlStartupFiles/scan.ts:297` |
 | `tests/cross-cutting/psqlStartupFileSuppression.test.ts` | THREE pins retired across two blocks, two controls held, new cases for §4 |
 | `tests/mutation/source/registry.ts` | `psqlStartupScan` accepted rows re-derived — the source edit moves every site below the lexer |
+| `docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/operator-oracle.mts` | NEW — §2.2b's twelve-operator bash oracle, snippets base64'd so the arc's fixtures stay out of the corpus it censuses |
+| `docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/slice-shape.mts` | re-pinned to the base revision, since §3 deletes the pattern it reads |
 | `BACKLOG.md` / `BACKLOG-archive.md` | ledger closeout |
 
 **A source edit voids the score.** The registry row's accepted rows are re-derived for this

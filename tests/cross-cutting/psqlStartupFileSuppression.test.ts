@@ -5536,7 +5536,7 @@ describe("arm 2 - a WHOLE-VALUE accepted expansion has its operand decided", () 
   // are asserted in ONE table so a change that moves any of them fails here.
   test("every remaining section 4 unchanged row holds its probed value", () => {
     const hitRows: Array<[label: string, source: string]> = [
-      ["A3 the ATTACHED here-string, withdrawn scope", "read -r PG <<<p'sql'\n"],
+      ["A3 the ATTACHED here-string, RETIRED 2026-08-21", "read -r PG <<<p'sql'\n"],
       ["A5 a fully quoted target", "read -r PG <<< 'psql'\n"],
       ["A10 a notpsql target", "read -r PG <<< notpsql\n"],
       ["F1 a DETACHED substitution target", "cat x > $(command -v psql)\n"],
@@ -5552,7 +5552,7 @@ describe("arm 2 - a WHOLE-VALUE accepted expansion has its operand decided", () 
       // retained now, so the here-string reader sees `p'sql'` exactly as it
       // sees the detached spelling. Ledger:
       // BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION.
-      ["A3 the ATTACHED here-string, withdrawn scope", 1],
+      ["A3 the ATTACHED here-string, RETIRED 2026-08-21", 1],
       ["A5 a fully quoted target", 1],
       ["A10 a notpsql target", 0],
       ["F1 a DETACHED substitution target", 1],
@@ -6178,8 +6178,11 @@ describe("documented limits - quote-concatenated spellings outside the assignmen
       // is a HIT now and is re-pinned as one - together with its ANSI-C,
       // quoted-directory, continuation and nested-body siblings - by the "arm 1
       // - a DETACHED here-string target is read from the lexer's retained word"
-      // block above. The ATTACHED spelling (`<<<p'sql'`) is withdrawn scope and
-      // lives in scan.ts's documented-limits block, not here.
+      // block above. The ATTACHED spelling (`<<<p'sql'`) LEFT this bullet on
+      // 2026-08-21 for the same reason one round later: the lexer delimits an
+      // attached target by construct and retains it too, so both spellings
+      // reach `valueBinds` through one reading. Ledger:
+      // BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION.
       // The alias row's BODY deliberately binds something OTHER than psql. An
       // alias definition is an assignment-SHAPED word, so `alias p'sql'='psql
       // -F'` dequotes to the candidate `psql=psql -F` and the assignment route
