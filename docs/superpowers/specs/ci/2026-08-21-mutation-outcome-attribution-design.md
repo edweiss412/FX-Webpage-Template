@@ -416,17 +416,32 @@ difference decides whether a score dies:
 
 | file | relationship | enrolled | consequence |
 | --- | --- | --- | --- |
-| `tests/mutation/browser/mutate.ts` | CONSUMES `MutantOutcome` only — a parameter type and a predicate; constructs none | **YES (`browserMutate`, floor 1)** | **no edit, so that score is NOT retired** |
-| `tests/mutation/browser/runner.ts` | CONSTRUCTS `MutantOutcome` | no | takes `children: []` |
+| `tests/mutation/browser/mutate.ts` | CONSUMES `MutantOutcome` only — a parameter type and a predicate; constructs none | **YES (`browserMutate`, floor 1)** | no edit |
+| **`tests/mutation/browser/mutate.test.ts`** | **CONSTRUCTS `MutantOutcome` fixtures (7 sites)** | **the SOLE deciding suite of `browserMutate`** | **no edit — a required `children` would have forced one and RETIRED that score, which is why the field is optional** |
+| `tests/mutation/browser/runner.ts` | CONSTRUCTS `MutantOutcome` | no | no edit — optional `children` needs none |
 | `tests/mutation/browser/browserSurfaces.gate.test.ts`, and the committed probe scripts under `docs/superpowers/specs/ci/probes/2026-08-21-attribution-scripts/` | construct a `GateInput` | no | unchanged — see the field decision below |
 
-**The field decision, asymmetric on purpose.** `MutantOutcome.children` is REQUIRED: it is the
-deliverable, and an optional field is one a producer can silently omit. `GateInput.outcomes` is
-OPTIONAL and defaults to `[]`: requiring it would break three call sites that cannot supply it
-meaningfully, two of them committed probe scripts whose value is EVIDENTIARY and which must not be
-edited to stay current. In both cases the value at the non-enrolled sites — `children: []`, `outcomes:
-[]` — is the CORRECT one rather than a placeholder, because a browser mutant has no per-suite children
-by construction, and with no children there is no deciding child, so no timeout notice can exist.
+**The field decision — BOTH fields are OPTIONAL, and the first was corrected during implementation
+by a fact the table above missed.**
+
+An earlier draft of this section made `MutantOutcome.children` REQUIRED, reasoning that an optional
+field is one a producer can silently omit. That reasoning stands; the premise under it did not. The
+table above records that `tests/mutation/browser/mutate.ts` only CONSUMES the type — true, and it is
+the SOURCE. **The SUITE beside it, `tests/mutation/browser/mutate.test.ts`, CONSTRUCTS `MutantOutcome`
+fixtures, and it is the SOLE deciding suite of the enrolled `browserMutate` surface at `scoreFloor: 1`.**
+A required field forces seven edits there, and editing a deciding suite RETIRES that surface's score —
+rule 27 grants no test-side exception — which would falsify §5.6's own claim that no enrolled score is
+retired by this arc. Checking the source and not the suite is the same
+construct-versus-consume distinction the table was built to draw, applied one file short.
+
+So `children` is optional, and **the strength a required field would have bought is bought by
+ASSERTION instead**: AC-4 pins `runSurface`'s children by deep equality over the whole array, so a
+producer that omitted them fails a test rather than a type check. `GateInput.outcomes` is optional for
+the separate reason already given — requiring it would force edits to committed probe scripts whose
+value is EVIDENTIARY.
+
+**The consequence is that this arc touches NO file under `tests/mutation/browser/` at all**, so the
+browser surfaces' scores are untouched rather than merely argued to be unaffected.
 
 The hazard an optional field creates — a producer that stops passing `outcomes`, and notices silently
 vanishing — is covered by AC-6's console half, which drives the REAL `registerSurfaceCases` rather than

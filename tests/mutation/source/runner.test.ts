@@ -315,3 +315,57 @@ describe("runner — accounting", () => {
     expect(new Set(run.outcomes.map((o) => o.siteId)).size).toBe(run.mutantCount);
   });
 });
+
+describe("runner — a mutant outcome carries the evidence that decided it (AC-4)", () => {
+  // The shipped `MutantOutcome` is `{ siteId, verdict }`, so `children` reads as
+  // `undefined` at runtime. Each case below therefore asserts the WHOLE children
+  // array by deep equality, so the red is `undefined` meeting a populated
+  // expectation — a VALUE assertion. Mapping over it first would red with a
+  // TypeError instead, which is a crash rather than a discriminating comparison
+  // and would go green for any implementation that merely defines the field.
+  const childrenOf = (o: unknown): unknown => (o as { children?: unknown }).children;
+
+  const exited = (suite: string, exitCode: number) =>
+    ({ suite, kind: "exit", exitCode, durationMs: expect.any(Number) }) as const;
+
+  it("records EVERY declared suite in EXECUTION ORDER, each an exit 0, for a SURVIVOR", () => {
+    // MORE THAN TWO suites, deliberately. Every two-suite proof is satisfied by a
+    // runner capped at two children — the implementation that makes "the deciding
+    // child is the last one" false on the registry's larger rows, one of which
+    // declares ten.
+    const suites = ["a.test.ts", "b.test.ts", "c.test.ts", "d.test.ts"];
+    reset(Object.fromEntries(suites.map((s) => [s, 0])));
+    const run = runSurface(process.cwd(), surface(suites));
+    expect(run.survivors.length).toBeGreaterThan(0);
+
+    for (const outcome of run.outcomes) {
+      expect(outcome.verdict).toBe("SURVIVED");
+      // ONE deep equality over the whole array: order, suite identity, kind and
+      // code together. A COUNT assertion is satisfied by a runner reporting the
+      // right number of WRONG suites; suite identity alone would let a survivor's
+      // children be recorded as timeouts or arbitrary exits with no row noticing.
+      expect(childrenOf(outcome)).toEqual(suites.map((s) => exited(s, 0)));
+    }
+  });
+
+  it("also holds on a TWO-suite surface, so the shape is not >2-only", () => {
+    const suites = ["a.test.ts", "b.test.ts"];
+    reset(Object.fromEntries(suites.map((s) => [s, 0])));
+    const run = runSurface(process.cwd(), surface(suites));
+    for (const outcome of run.outcomes) {
+      expect(childrenOf(outcome)).toEqual(suites.map((s) => exited(s, 0)));
+    }
+  });
+
+  it("records the KILLING child with its OWN exit code, not a normalised one", () => {
+    reset({ "a.test.ts": 0, "b.test.ts": (isBaseline) => (isBaseline ? 0 : 7) });
+    const run = runSurface(process.cwd(), surface(["a.test.ts", "b.test.ts"]));
+    expect(run.killed).toBe(run.mutantCount);
+    for (const outcome of run.outcomes) {
+      // The DECIDING child is the LAST one, because the loop short-circuits — and
+      // its code is the child's REAL 7, not a normalised 1. The evidence is what
+      // the child reported, not what the verdict was interpreted to mean.
+      expect(childrenOf(outcome)).toEqual([exited("a.test.ts", 0), exited("b.test.ts", 7)]);
+    }
+  });
+});
