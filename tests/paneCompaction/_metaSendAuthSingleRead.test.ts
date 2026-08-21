@@ -19,14 +19,18 @@
 // rules are driven by the registry row, the live tree proves the shipped row is
 // correct.
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import ts from "typescript";
+
 import { walkSourceFiles } from "@/lib/messages/__internal__/walkSourceFiles";
 
 import { premise, premiseHolds } from "../_shared/premise";
+
+import { NAME_POSITION_DISPOSITIONS, type DispositionRow } from "./sendAuthNamePositions";
 
 import {
   LIVE_ROOTS,
@@ -34,6 +38,7 @@ import {
   scanModule,
   scanRepo,
   SEND_AUTH_SURFACES,
+  DECLARING_PARENT_KINDS,
   type Finding,
   type FindingCode,
   type SendAuthSurface,
@@ -706,11 +711,16 @@ describe("Task 8 — holes the mutation gate found, each now pinned", () => {
   it("ignores type members whose names are not identifiers", () => {
     // A quoted key and an index signature are not read names. Admitting them puts
     // `wire-format` into the read set.
+    // MOVED BY `task:read-set-member-name`, ADDITIVELY: the quoted member
+    // `"wire-format"` is a member and now joins the set, in declaration order.
+    // Nothing is removed. The index signature stays out and that is correct --
+    // it names no member at all.
     expect(readsFor(readFixture("exotic-type-members.ts"), CHANNEL_ROW)).toEqual([
       "panes",
       "gauge",
       "memo",
       "claim",
+      "wire-format",
     ]);
   });
 
@@ -914,10 +924,19 @@ describe("Task 8 — second repair pass, from the re-measure at 0.9259", () => {
     // What the finding proves is unchanged — before the fix this module reported
     // NOTHING AT ALL, because the shadowing parameter inherited the derivation's
     // exemption. Silence was the defect; which code closes it is the scanner's call.
+    // MOVED BY THIS TASK, ADDITIVELY, and updated here rather than deferred --
+    // a task cannot reach green while leaving its own suite red. `snap` is
+    // declared TWICE in this pass with competing surface-typed declarations, so
+    // rule B voids the exemption for the whole pass and the closing
+    // `return inner(snap)` is a raw handoff. NOTHING IS REMOVED: both prior
+    // findings stand unchanged, which is what makes the change additive rather
+    // than merely small. A silently updated expectation is indistinguishable
+    // from a regression somebody accommodated.
     const f = "same-pass-shadowed-derivation.ts";
     expect(scan(f)).toEqual([
       finding(f, "NON-STRAIGHT-LINE-READ", "panes", lineOf(f, "const a = snap.panes()")),
       finding(f, "NON-STRAIGHT-LINE-READ", "panes", lineOf(f, "const b = snap.panes()")),
+      finding(f, "RAW-HANDOFF", "inner", lineOf(f, "return inner(snap);")),
     ]);
   });
 
@@ -982,8 +1001,14 @@ describe("Task 8 — second repair pass, from the re-measure at 0.9259", () => {
     // was subtracted BY NAME and its handoff went unreported. The arm now asks the
     // same shadow-aware question, so a binding the scanner cannot SHOW to be derived
     // at this use is RAW — failing closed.
+    // MOVED BY THIS TASK, ADDITIVELY. Same cause as its sibling: two competing
+    // declarations of `snap` in one pass void the exemption, so the closing
+    // handoff reports too. The pre-existing `leak` finding is untouched.
     const f = "shadowed-param-handoff.ts";
-    expect(scan(f)).toEqual([finding(f, "RAW-HANDOFF", "leak", lineOf(f, "leak(snap)"))]);
+    expect(scan(f)).toEqual([
+      finding(f, "RAW-HANDOFF", "leak", lineOf(f, "leak(snap)")),
+      finding(f, "RAW-HANDOFF", "inner", lineOf(f, "return inner(snap);")),
+    ]);
   });
 
   it("reports the surface DESTRUCTURED in a parameter, naming the bound member", () => {
@@ -1114,5 +1139,1999 @@ describe("Task 8 — second repair pass, from the re-measure at 0.9259", () => {
     const f = "stacked-markers.ts";
     const decl = lineOf(f, "const authorizeOnce");
     expect(scan(f)).toEqual([finding(f, "AMBIGUOUS-PASS", "settle", fnLine(f), [decl, decl])]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-U16a / AC-U16b groundwork — THE DERIVED FIXTURE MANIFEST AND THE
+// DIRECTIVE CENSUS (spec §2.5)
+//
+// The deepest measurement in the spec's §3 is not any single silent miss: it is
+// that this 81-fixture corpus contained ZERO instances of ANY of §3's shapes,
+// so the suite was GREEN throughout while four consecutive review rounds each
+// contributed one instance. Review was acting as the corpus-authoring
+// mechanism. A suite cannot fail on a shape its corpus does not contain, so a
+// green run over it is evidence about COVERAGE and nothing about correctness.
+//
+// The manifest is the bound on that. Every fixture names the RULE-ELEMENT it
+// exists for and an unmapped fixture REDS, so the corpus has no independent
+// growth channel: it can only grow when the RULE gains a decision input, and
+// rule changes are what the round cap already governs.
+//
+// THE COMPARISON HAS AN INDEPENDENT WITNESS ON ONE SIDE. Axes are checked
+// against the spec's own §2.5 table ON DISK and the fixture set against the
+// DIRECTORY ON DISK. Derivation is right for a COVER and wrong for BOTH SIDES
+// of a comparison -- two derivations from one constant cannot disagree, because
+// a drift moves them together. The filesystem does not know what the constant
+// says, and neither does the spec.
+//
+// WHAT THIS TASK DELIBERATELY DOES NOT REACH FOR. The `Receiver` union and the
+// wrapper enum do not exist yet; their parity assertions belong to the task
+// that INTRODUCES each constant. Importing a symbol a later task creates would
+// turn this cycle's red into a COLLECTION failure, which goes green when the
+// test file changes rather than when the implementation lands. Those axes are
+// declared OWED below, naming their owning task, so the gap is a checked
+// baseline rather than a silent exemption.
+// ---------------------------------------------------------------------------
+
+const SPEC_PATH =
+  "docs/superpowers/specs/ci/2026-08-21-sendauth-arm-classifier-unification-design.md";
+const PLAN_PATH = "docs/superpowers/plans/ci/2026-08-21-sendauth-arm-classifier-unification.md";
+
+/**
+ * The axes of spec §2.5's classification table. A closed union, so a cell
+ * naming an axis that does not exist DOES NOT COMPILE -- the bound is the TYPE,
+ * and the runtime assertions below check only what a type cannot express.
+ */
+type AxisId =
+  | "binding kind"
+  | "position"
+  | "exemption state"
+  | "parenthesis depth"
+  | "member-chain depth"
+  | "receiver shape, once depth is factored out"
+  | "wrapper kind"
+  | "annotation certainty";
+
+const AXIS_IDS: readonly AxisId[] = [
+  "binding kind",
+  "position",
+  "exemption state",
+  "parenthesis depth",
+  "member-chain depth",
+  "receiver shape, once depth is factored out",
+  "wrapper kind",
+  "annotation certainty",
+];
+
+type ManifestCell = {
+  /** File name under FIXTURE_ROOT. */
+  fixture: string;
+  /**
+   * A §2.5 axis, or `inherited` for a fixture predating this arc. `inherited`
+   * is FROZEN at the BASE corpus size below, so a new fixture cannot hide in it.
+   */
+  axis: AxisId | "inherited";
+  /** The rule-element this fixture exists for. Never a shrug; asserted non-trivial. */
+  covers: string;
+  /**
+   * Set when the fixture's BYTES are the subject: the exact source line a
+   * normaliser would rewrite. A formatter's whole job is erasing syntactic
+   * distinctions that do not change semantics -- which is precisely the set of
+   * things a scanner-under-test is asked to handle.
+   */
+  syntaxSensitive?: readonly string[];
+  /**
+   * Which member of the receiver-shape axis this cell occupies. Checked against
+   * the SPEC's own axis row on disk, so the five members are read from the
+   * document rather than retyped here.
+   */
+  receiverShape?: string;
+};
+
+/**
+ * The corpus size at this arc's BASE. `inherited` is a declared baseline, not an
+ * open category: an 82nd inherited cell REDS, so a NEW fixture must name a §2.5
+ * axis rather than being absorbed as pre-existing.
+ */
+const INHERITED_CORPUS_SIZE = 81;
+
+const MANIFEST: readonly ManifestCell[] = [
+  // --- diff r3: the COUNT was short on two axes, scope and spelling.
+  {
+    fixture: "shadow-scope-outside-pass-field.ts",
+    axis: "exemption state",
+    covers:
+      "diff r3 — a competing declaration OUTSIDE the pass; the count walked only the pass and failed OPEN",
+  },
+  {
+    fixture: "shadow-declaration-name-quoted.ts",
+    axis: "exemption state",
+    covers:
+      "diff r3 — a QUOTED declaration name still competes; matching by isIdentifier failed OPEN",
+    syntaxSensitive: ['set "snap"(v: Channel) {'],
+  },
+  // --- diff r1 repairs: the ENTRY-point class, distinct from name RESOLUTION.
+  {
+    fixture: "element-receiver-unknown-member.ts",
+    axis: "receiver shape, once depth is factored out",
+    covers:
+      "diff r1 F1 — an unknown member through a static element-access receiver, paired with its dotted control",
+  },
+  {
+    fixture: "private-identifier-field.ts",
+    axis: "binding kind",
+    covers:
+      "diff r1 F2 — a #ch field must JOIN the binding set, paired with a public field control",
+  },
+  // --- Task 9 [task:score-measure]: fixtures the mutation gate demanded.
+  {
+    fixture: "shadow-annotation-null.ts",
+    axis: "annotation certainty",
+    covers:
+      "AC-U12 — `null` is a LiteralType wrapping the keyword and needs its own arm; kills the flip from the silent side",
+  },
+  {
+    fixture: "shadow-annotation-string-literal.ts",
+    axis: "annotation certainty",
+    covers:
+      "AC-U12 — a literal type that is NOT null COMPETES; kills the same flip from the reporting side",
+  },
+  {
+    fixture: "element-key-wrapped.ts",
+    axis: "wrapper kind",
+    covers: "rule A's unwrap applies to the element KEY as a second name position",
+    syntaxSensitive: ['this[("ch")].dispatch("p1", "/compact");'],
+  },
+  {
+    fixture: "selector-key-wrapped.ts",
+    axis: "wrapper kind",
+    covers:
+      "rule A's unwrap applies to the element key in the SELECTOR position, the second of the two positions",
+    syntaxSensitive: ['ch[("dispatch")]("p1", "/compact");'],
+  },
+  {
+    fixture: "callee-wrapped.ts",
+    axis: "wrapper kind",
+    covers: "rule A's unwrap applies to the WHOLE CALLEE, not only to the receiver inside it",
+    syntaxSensitive: ['(ch.dispatch)("p1", "/compact");'],
+  },
+  {
+    fixture: "computed-key-competing-declaration.ts",
+    axis: "wrapper kind",
+    covers:
+      "rule A's unwrap applies inside a COMPUTED DECLARATION NAME, so a wrapped key still competes under rule B",
+    syntaxSensitive: ['const competing = { [("snap")]: 1 };'],
+  },
+  // --- Task 6 [task:read-set-member-name].
+  {
+    fixture: "quoted-member-read.ts",
+    axis: "receiver shape, once depth is factored out",
+    covers: "AC-U6 — a QUOTED member joins the read set, which is consumed as a COMPLEMENT",
+  },
+  // --- Task 5 [task:declaration-name-accept-set].
+  {
+    fixture: "declaration-name-value-references.ts",
+    axis: "annotation certainty",
+    covers:
+      "AC-U13 — a value reference carrying a `name` is a USE; a guard that must report before AND after",
+  },
+  {
+    fixture: "declaration-name-accepted-kinds.ts",
+    axis: "annotation certainty",
+    covers: "AC-U13 — a real declaration of an accepted parent kind stays silent",
+  },
+  // --- Task 4 [task:rule-b-count].
+  {
+    fixture: "shadow-scope-constructor.ts",
+    axis: "exemption state",
+    covers: "AC-U4 — scope kind 1 of 4: a constructor parameter re-declares the name",
+  },
+  {
+    fixture: "shadow-scope-set-accessor.ts",
+    axis: "exemption state",
+    covers: "AC-U4 — scope kind 2 of 4: a set accessor NAME re-declares the name",
+  },
+  {
+    fixture: "shadow-scope-nested-block-surface.ts",
+    axis: "exemption state",
+    covers:
+      "AC-U4 — scope kind 3 of 4: a nested block, surface-typed, and not function-like at all",
+  },
+  {
+    fixture: "shadow-scope-nested-block-opaque.ts",
+    axis: "exemption state",
+    covers: "AC-U4 — scope kind 4 of 4: a nested block with NO annotation, which competes",
+  },
+  {
+    fixture: "shadow-annotation-string.ts",
+    axis: "annotation certainty",
+    covers:
+      "AC-U5 — a keyword type that cannot hold an object does NOT compete; the exemption survives",
+  },
+  {
+    fixture: "shadow-annotation-surface.ts",
+    axis: "annotation certainty",
+    covers: "AC-U5 — the expect-a-REPORT pair, one variable away from the string case",
+  },
+  {
+    fixture: "shadow-annotation-any.ts",
+    axis: "annotation certainty",
+    covers: "AC-U12 — `any` is not an exact surface reference and COULD hold the surface",
+  },
+  {
+    fixture: "shadow-annotation-unknown.ts",
+    axis: "annotation certainty",
+    covers: "AC-U12 — `unknown` competes",
+  },
+  {
+    fixture: "shadow-annotation-readonly-wrapper.ts",
+    axis: "annotation certainty",
+    covers: "AC-U12 — a generic wrapper competes",
+  },
+  {
+    fixture: "shadow-annotation-intersection.ts",
+    axis: "annotation certainty",
+    covers: "AC-U12 — an intersection competes",
+  },
+  {
+    fixture: "call-result-receiver.ts",
+    axis: "receiver shape, once depth is factored out",
+    receiverShape: "call result",
+    covers:
+      "the fifth receiver shape — DECLARED SILENCE under the no-call-graph fence, with an in-module control",
+  },
+  // --- Task 3 [task:sites-consume-rule-a].
+  {
+    fixture: "property-receiver-double-read.ts",
+    receiverShape: "property",
+    axis: "receiver shape, once depth is factored out",
+    covers:
+      "AC-U1 — a doubled read through a property receiver, with a bare pair as the in-function control",
+  },
+  {
+    fixture: "property-receiver-handoff.ts",
+    axis: "receiver shape, once depth is factored out",
+    covers: "AC-U2 — a raw handoff through a property receiver, paired with a bare handoff",
+  },
+  {
+    fixture: "parenthesized-double-read.ts",
+    axis: "parenthesis depth",
+    covers: "AC-U3 — the OUTWARD transparent walk, which is D6 and was found by the depth probe",
+    syntaxSensitive: ['const first = (ch).gauge("a");', 'const second = (ch).gauge("b");'],
+  },
+  {
+    fixture: "parenthesized-handoff.ts",
+    axis: "parenthesis depth",
+    covers: "AC-U3 — a parenthesized handoff argument",
+    syntaxSensitive: ["helper((ch));"],
+  },
+  {
+    fixture: "element-selector-sink.ts",
+    axis: "receiver shape, once depth is factored out",
+    covers:
+      "the SELECTOR killer — both positions in element form, completely silent under a receiver-only unification",
+  },
+  {
+    fixture: "element-selector-double-read.ts",
+    axis: "receiver shape, once depth is factored out",
+    covers:
+      "the SELECTOR killer — a doubled element-selected read, which a receiver-only form mis-attributes to the binding",
+  },
+  // --- Task 2 [task:resolve-name]. These name a §2.5 AXIS rather than
+  // `inherited`, which the frozen BASE size forces: a new fixture cannot be
+  // absorbed as pre-existing.
+  {
+    fixture: "element-access-receiver.ts",
+    receiverShape: "static element access",
+    axis: "receiver shape, once depth is factored out",
+    covers: "AC-U14 — a statically known element-access receiver resolves from its literal key",
+  },
+  {
+    fixture: "element-access-opaque-key.ts",
+    axis: "binding kind",
+    covers:
+      "AC-U14 — a non-literal element key stays opaque, paired with an in-module reporting control",
+  },
+  {
+    fixture: "wrapper-nonnull-sink.ts",
+    axis: "wrapper kind",
+    covers: "AC-U15 — a non-null assertion wrapping a sink receiver",
+  },
+  {
+    fixture: "wrapper-as-sink.ts",
+    axis: "wrapper kind",
+    covers: "AC-U15 — an `as` type assertion wrapping a sink receiver",
+  },
+  {
+    fixture: "wrapper-angle-sink.ts",
+    axis: "wrapper kind",
+    covers: "AC-U15 — an angle-bracket type assertion wrapping a sink receiver",
+  },
+  {
+    fixture: "wrapper-satisfies-sink.ts",
+    axis: "wrapper kind",
+    covers: "AC-U15 — a `satisfies` expression wrapping a sink receiver",
+  },
+  { fixture: "alias-read.ts", axis: "inherited", covers: "AC-1 — an ALIAS of a read member" },
+  {
+    fixture: "aliased-importer.ts",
+    axis: "inherited",
+    covers: "AC-9 — discovery follows the SYMBOL, not the local name",
+  },
+  { fixture: "ambient-alias.ts", axis: "inherited", covers: "AC-1 — a BARE AMBIENT ALIAS" },
+  {
+    fixture: "ambient-callback-clean.ts",
+    axis: "inherited",
+    covers: "AC-2 — false-positive guard",
+  },
+  {
+    fixture: "ambiguous-pass.ts",
+    axis: "inherited",
+    covers: "AC-5 — two declared passes in one send-bearing function is AMBIGUOUS-PASS",
+  },
+  {
+    fixture: "anonymous-pass.ts",
+    axis: "inherited",
+    covers: "AC-5 — an UNNAMED pass declaration must be named (anonymous), not skipped",
+  },
+  {
+    fixture: "anonymous-toplevel-send.ts",
+    axis: "inherited",
+    covers: "AC-14 — discovery covers an UNNAMED module-level function",
+  },
+  {
+    fixture: "assigned-to-plain-variable.ts",
+    axis: "inherited",
+    covers: "AC-1 — the surface assigned to a plain variable is an unclassifiable use",
+  },
+  {
+    fixture: "bare-mention-in-array.ts",
+    axis: "inherited",
+    covers: "AC-1 — the classifier's FINAL FALLTHROUGH",
+  },
+  {
+    fixture: "bare-mention.ts",
+    axis: "inherited",
+    covers:
+      "AC-1 — a BARE MENTION — the surface held in another binding, from which anything may be called",
+  },
+  {
+    fixture: "binding-in-comparison.ts",
+    axis: "inherited",
+    covers: "AC-1 — a surface binding in a COMPARISON is unclassifiable",
+  },
+  {
+    fixture: "class-field-sink.ts",
+    axis: "inherited",
+    covers: "rule 28 — a class field holding the surface reaches the sink",
+  },
+  { fixture: "computed-member.ts", axis: "inherited", covers: "AC-1 — a COMPUTED member access" },
+  {
+    fixture: "conditional-pass-no-marker.ts",
+    axis: "inherited",
+    covers: "AC-15 control — the positive pair for conditional-pass",
+  },
+  {
+    fixture: "conditional-pass.ts",
+    axis: "inherited",
+    covers: "AC-15 / §4 limit 1 — a conditionally-called pass scans CLEAN, by fence",
+  },
+  {
+    fixture: "derivation-clean.ts",
+    axis: "inherited",
+    covers: "AC-7b false-positive guard — a derivation ON the straight-line path",
+  },
+  {
+    fixture: "derivation-in-loop-in-callback.ts",
+    axis: "inherited",
+    covers: "AC-7b — a derivation under TWO blocking ancestors reports ONCE",
+  },
+  {
+    fixture: "derivation-in-loop.ts",
+    axis: "inherited",
+    covers: "AC-7b — the round-3 F1 shape — the DERIVATION DECLARATION under a two-iteration loop",
+  },
+  {
+    fixture: "derivation-in-named-callback.ts",
+    axis: "inherited",
+    covers:
+      "AC-7b — the round-3 F1 second shape — the DERIVATION DECLARATION inside a named callback invoked more than once",
+  },
+  {
+    fixture: "derivation-leaks-handoff.ts",
+    axis: "inherited",
+    covers:
+      "AC-8 — a derivation exempts the READS taken through it; it does not exempt its whole INITIALIZER SUBTREE",
+  },
+  {
+    fixture: "derivation-name-collision-control.ts",
+    axis: "inherited",
+    covers: "diff r1 F1 control — one variable apart, must stay silent",
+  },
+  {
+    fixture: "derivation-name-collision.ts",
+    axis: "inherited",
+    covers: "diff r1 F1 — a derivation name must not exempt a raw binding in another pass",
+  },
+  {
+    fixture: "derived-mention-module-binding.ts",
+    axis: "inherited",
+    covers: "AC-8 — a MODULE-LEVEL binding is outside the derivation exemption's scope",
+  },
+  {
+    fixture: "derived-name-used-outside-its-pass.ts",
+    axis: "inherited",
+    covers: "AC-8 — a derivation name does not exempt uses outside its own pass",
+  },
+  {
+    fixture: "destructure-outside-pass.ts",
+    axis: "inherited",
+    covers: "AC-1 — a DESTRUCTURE in a branch outside the pass",
+  },
+  {
+    fixture: "destructured-param-sink.ts",
+    receiverShape: "destructured local",
+    axis: "inherited",
+    covers: "diff r1 F2 — the surface DESTRUCTURED in a parameter position",
+  },
+  {
+    fixture: "detached-marker.ts",
+    axis: "inherited",
+    covers: "T2 — a marker attached to a non-function does not declare a pass",
+  },
+  {
+    fixture: "effects-only-no-pass.ts",
+    axis: "inherited",
+    covers: "AC-14 — discovery is anchored on SINKS, not effects",
+  },
+  {
+    fixture: "exempt-empty-reason.ts",
+    axis: "inherited",
+    covers: "AC-5 — an EMPTY exempt reason does not suppress",
+  },
+  {
+    fixture: "exempt-with-reason.ts",
+    axis: "inherited",
+    covers: "AC-5 — an exempt marker with a NON-EMPTY reason suppresses UNDECLARED-PASS",
+  },
+  {
+    fixture: "exotic-type-members.ts",
+    axis: "inherited",
+    covers: "AC-4 — type members whose names are NOT identifiers",
+  },
+  {
+    fixture: "generic-arrow-scriptkind.ts",
+    axis: "inherited",
+    covers: "the ScriptKind discriminator — the parse kind must be chosen by extension",
+    syntaxSensitive: ["const identity = <T>(x: T): T => x;"],
+  },
+  {
+    fixture: "helper-derivation.ts",
+    axis: "inherited",
+    covers: "AC-8 — a DECLARED derivation helper as the initializer",
+  },
+  {
+    fixture: "helper-other-argument.ts",
+    axis: "inherited",
+    covers: "AC-8 — a declared helper called with a non-surface argument",
+  },
+  {
+    fixture: "injection-outside-pass.ts",
+    axis: "inherited",
+    covers: "AC-3 — the same handoff shape OUTSIDE a pass is ordinary injection",
+  },
+  {
+    fixture: "interface-surface.ts",
+    axis: "inherited",
+    covers: "AC-4 — the surface type declared as an INTERFACE",
+  },
+  {
+    fixture: "js-specifier-importer.ts",
+    axis: "inherited",
+    covers: "diff r2 F3 — an unregistered importer using a .js specifier",
+  },
+  { fixture: "loop-do-while.ts", axis: "inherited", covers: "AC-6 — , iteration kind 4 of 4" },
+  { fixture: "loop-for-of.ts", axis: "inherited", covers: "AC-6 — , iteration kind 2 of 4" },
+  { fixture: "loop-for.ts", axis: "inherited", covers: "AC-6 — , iteration kind 1 of 4" },
+  { fixture: "loop-while.ts", axis: "inherited", covers: "AC-6 — , iteration kind 3 of 4" },
+  {
+    fixture: "marker-in-jsx.tsx",
+    axis: "inherited",
+    covers: "AC-5 — a marker token inside JSX TEXT is not a declaration",
+  },
+  {
+    fixture: "marker-in-string.ts",
+    axis: "inherited",
+    covers: "AC-5 — a marker token inside a STRING LITERAL is not a declaration",
+  },
+  {
+    fixture: "marker-then-comment-detached.ts",
+    axis: "inherited",
+    covers: "AC-5 control — one delta apart, the comment run is followed by something else",
+  },
+  {
+    fixture: "marker-then-comment.ts",
+    axis: "inherited",
+    covers: "AC-5 — the marker skips a following COMMENT RUN to reach its declaration",
+  },
+  {
+    fixture: "marker-with-trailing-text.ts",
+    axis: "inherited",
+    covers: "AC-5 — the marker grammar is LITERAL, not containment",
+  },
+  {
+    fixture: "member-receiver-unclassified.ts",
+    axis: "inherited",
+    covers: "diff r4 F1 — a member receiver reported as UNCLASSIFIED-USE",
+  },
+  {
+    fixture: "module-level-sink.ts",
+    axis: "inherited",
+    covers: "a sink at MODULE scope is a documented limit, not a pass",
+  },
+  {
+    fixture: "multi-derivation.ts",
+    axis: "inherited",
+    covers: "AC-8 — TWO derivations in one pass",
+  },
+  {
+    fixture: "multi-read.ts",
+    receiverShape: "bare",
+    axis: "inherited",
+    covers: "AC-7 — TWO straight-line reads of the SAME method report MULTI-READ naming BOTH lines",
+  },
+  {
+    fixture: "named-callback.ts",
+    axis: "inherited",
+    covers: "AC-6 — the round-2 F2 shape — a NAMED callback invoked twice inside the pass",
+  },
+  {
+    fixture: "namespace-importer-unused.ts",
+    axis: "inherited",
+    covers: "AC-9 — the negative pair: a namespace import that never reaches the surface",
+  },
+  {
+    fixture: "namespace-importer.ts",
+    axis: "inherited",
+    covers: "AC-9 — a NAMESPACE import of a registered module is an import edge",
+  },
+  { fixture: "nested-arrow.ts", axis: "inherited", covers: "AC-6 — , function-like kind 2 of 4" },
+  {
+    fixture: "nested-function-declaration.ts",
+    axis: "inherited",
+    covers: "AC-6 — , function-like kind 1 of 4",
+  },
+  {
+    fixture: "nested-function-expression.ts",
+    axis: "inherited",
+    covers: "AC-6 — , function-like kind 4 of 4",
+  },
+  {
+    fixture: "nested-named-function-sink.ts",
+    axis: "inherited",
+    covers: "AC-6 — a sink reached from a NAMED function nested in a class method",
+  },
+  {
+    fixture: "nested-object-method.ts",
+    axis: "inherited",
+    covers: "AC-6 — , function-like kind 3 of 4",
+  },
+  {
+    fixture: "parenthesized-receiver.ts",
+    axis: "inherited",
+    covers: "diff r2 F2 — a PARENTHESIZED receiver is a transparent wrapper",
+    syntaxSensitive: ['(this.ch).dispatch("p1", "/compact");'],
+  },
+  {
+    fixture: "pass-is-toplevel-function.ts",
+    axis: "inherited",
+    covers: "T2 — the marker may attach to the send-bearing function ITSELF",
+  },
+  {
+    fixture: "read-as-call-argument.ts",
+    axis: "inherited",
+    covers: "AC-2 — a READ member handed on as a bare CALL ARGUMENT, not as a property value",
+  },
+  {
+    fixture: "read-callback-reports.ts",
+    axis: "inherited",
+    covers: "AC-2 discriminator — the same handoff shape with a READ member REPORTS",
+  },
+  {
+    fixture: "registered-channel.ts",
+    axis: "inherited",
+    covers: "T6 — a REGISTERED module exporting the surface type",
+  },
+  {
+    fixture: "registered-importer.ts",
+    axis: "inherited",
+    covers: "AC-9 false-positive guard — a registered importer must not report",
+  },
+  {
+    fixture: "round4-raw-handoff.ts",
+    axis: "inherited",
+    covers: "AC-8 regression pin — two raw handoffs on ONE line, distinguished by callee",
+  },
+  {
+    fixture: "same-pass-shadowed-derivation.ts",
+    axis: "inherited",
+    covers: "diff r2 F1 — a RAW parameter shadowing a derived name in the same pass",
+  },
+  {
+    fixture: "second-registered-channel.ts",
+    axis: "inherited",
+    covers: "T6 — a SECOND registered module in one run",
+  },
+  {
+    fixture: "shadowed-param-handoff.ts",
+    axis: "inherited",
+    covers: "diff r4 F2 — diff r2 F1's defect, one arm over",
+  },
+  {
+    fixture: "single-read-clean.ts",
+    axis: "inherited",
+    covers: "AC-6/AC-7 false-positive guard — one straight-line read scans CLEAN",
+  },
+  {
+    fixture: "sink-in-class-property.ts",
+    axis: "inherited",
+    covers: "AC-14 — a sink in a CLASS PROPERTY INITIALIZER",
+  },
+  {
+    fixture: "sink-name-on-other-object.ts",
+    axis: "inherited",
+    covers: "AC-14 — a sink's NAME on an object that is not the surface",
+  },
+  {
+    fixture: "sink-not-called-row-driven.ts",
+    axis: "inherited",
+    covers: "T2 — the row's declared sink drives discovery, not a hardcoded name",
+  },
+  {
+    fixture: "spread-derivation.ts",
+    axis: "inherited",
+    covers:
+      "AC-8 — a SPREAD is a derivation, and reads THROUGH the derived binding are unconstrained",
+  },
+  {
+    fixture: "stacked-markers.ts",
+    axis: "inherited",
+    covers: "rule 21.1 — TWO markers stacked above ONE declaration",
+  },
+  {
+    fixture: "surface-type-extra-member.ts",
+    axis: "inherited",
+    covers: "AC-4 — the surface type whose read set is derived",
+  },
+  {
+    fixture: "two-sends-one-marker.ts",
+    axis: "inherited",
+    covers: "T2 — two send-bearing functions, one correctly-scoped marker",
+  },
+  {
+    fixture: "unclassified-beside-a-derivation.ts",
+    axis: "inherited",
+    covers: "AC-8 — an unclassifiable RAW use beside a derivation in one pass",
+  },
+  {
+    fixture: "undeclared-pass.ts",
+    axis: "inherited",
+    covers: "AC-5 — a send-bearing function with no declared pass is UNDECLARED-PASS",
+  },
+  {
+    fixture: "unregistered-importer.ts",
+    axis: "inherited",
+    covers: "AC-9 — a module that imports a REGISTERED surface type and has NO row",
+  },
+  {
+    fixture: "wrapped-class-field-sink.ts",
+    axis: "inherited",
+    covers: "diff r3 F6 — a WRAPPED class-field receiver reaching a sink",
+  },
+  {
+    fixture: "zero-derivations.ts",
+    axis: "inherited",
+    covers: "AC-8 — ZERO derivations violates 'exactly one' just as two do",
+  },
+];
+
+/**
+ * Cells the cross-product generates and no fixture can occupy. A struck cell
+ * carries its REASON, so a later reader meets the argument rather than an
+ * absence -- an exemption with no consequence is a shrug wearing a token's name.
+ */
+const STRUCK: readonly { axis: AxisId; cell: string; reason: string }[] = [
+  {
+    axis: "binding kind",
+    cell: "opaque × any resolvable receiver shape",
+    reason:
+      "`opaque` IS rule A's output when no receiver shape resolves, so the two cannot co-occur by construction rather than by omission",
+  },
+  {
+    axis: "parenthesis depth",
+    cell: "destructured local × depth > 0",
+    reason:
+      "a destructured local has no receiver expression, so there is nothing to parenthesize; the depth axis is undefined here rather than untested",
+  },
+  {
+    axis: "member-chain depth",
+    cell: "destructured local × depth > 0",
+    reason: "same absence of a receiver expression: a chain needs a receiver to hang from",
+  },
+];
+
+/**
+ * Axes whose SHIPPED CONSTANT does not exist at this task's position. Each names
+ * the task that introduces the constant and therefore owes the parity assertion.
+ *
+ * This is a DECLARED BASELINE that shrinks, not an exemption: the owner must be
+ * a task slug that exists in the plan, asserted below against the plan ON DISK,
+ * so an owed cell cannot name a task nobody is going to run.
+ */
+const OWED: readonly { axis: AxisId; cell: string; owner: string }[] = [
+  {
+    axis: "position",
+    cell: "D1 … D6, derived by the ADOPTION SCAN rather than listed",
+    owner: "task:scans-and-routing",
+  },
+  {
+    axis: "parenthesis depth",
+    cell: "independence proof over 0, 1, 2 and a deep case",
+    owner: "task:scans-and-routing",
+  },
+  {
+    axis: "member-chain depth",
+    cell: "independence proof over structurally distinct chain depths",
+    owner: "task:scans-and-routing",
+  },
+];
+
+/** The directive a normaliser-sensitive cell must carry, immediately above its line. */
+const PRETTIER_DIRECTIVE = "// prettier-ignore";
+
+/**
+ * Does `text` carry PRETTIER_DIRECTIVE on the line IMMEDIATELY above the single
+ * occurrence of `line`? Exported as a predicate so the census can be run against
+ * a CONSTRUCTED VIOLATION and observed to fail -- a check never seen to fail is
+ * a claim, not a proof, and it fails in the direction that looks green.
+ */
+const directiveImmediatelyAbove = (
+  text: string,
+  line: string,
+): { ok: boolean; occurrences: number; reason: string } => {
+  const lines = text.split("\n");
+  const at = lines.reduce<number[]>(
+    (acc, l, i) => (l.trim() === line.trim() ? [...acc, i] : acc),
+    [],
+  );
+  if (at.length !== 1) {
+    return {
+      ok: false,
+      occurrences: at.length,
+      reason:
+        at.length === 0
+          ? "the declared line is ABSENT — the fixture moved and this cell now names nothing"
+          : `the declared line occurs ${at.length} times, so "immediately above" names no single site`,
+    };
+  }
+  const idx = at[0]!;
+  const above = idx > 0 ? lines[idx - 1]!.trim() : "";
+  return above === PRETTIER_DIRECTIVE
+    ? { ok: true, occurrences: 1, reason: "" }
+    : {
+        ok: false,
+        occurrences: 1,
+        reason: `the line above is ${JSON.stringify(above)}, not ${JSON.stringify(PRETTIER_DIRECTIVE)} — anything in between DETACHES the directive`,
+      };
+};
+
+describe("AC-U16 groundwork — the fixture manifest is DERIVED and the corpus cannot grow silently", () => {
+  it("declares every axis the spec's §2.5 table declares, and no others", () => {
+    // The independent witness: the SPEC on disk. A drift in either side moves one
+    // and not the other, which is the only arrangement in which a comparison can
+    // disagree at all.
+    const spec = readFileSync(SPEC_PATH, "utf8");
+    const table = spec.split("\n").filter((l) => /^\| /.test(l));
+    const rows = table
+      .map((l) => l.split("|")[1] ?? "")
+      .map((c) => c.replace(/\*\*/g, "").trim())
+      .map((c) => c.split(" — ")[0]!.trim())
+      .filter((c) => c && c !== "axis" && !/^-+$/.test(c));
+
+    premiseHolds(
+      "the spec's §2.5 axis table was READ, not merely opened",
+      rows.length >= AXIS_IDS.length,
+    );
+
+    const fromSpec = [...new Set(rows)].sort();
+    const declared = [...AXIS_IDS].sort();
+    // Every declared axis must appear in the spec. The spec carries other tables,
+    // so the spec side is a SUPERSET and the assertion is one-directional by
+    // design -- stated rather than left as an accident of the filter.
+    expect(declared.filter((a) => !fromSpec.includes(a))).toEqual([]);
+  });
+
+  it("accounts for EVERY fixture on disk, and every cell names a file that exists", () => {
+    // Both directions. A forward-only check ("every fixture has a cell") silently
+    // accumulates dead cells, and a dead cell is a claim about a file that no
+    // longer exists.
+    const onDisk = readdirSync(FIXTURE_ROOT).sort();
+    const inManifest = MANIFEST.map((c) => c.fixture).sort();
+
+    premiseHolds("the fixture directory was read", onDisk.length > 0);
+
+    expect(inManifest).toEqual(onDisk);
+    expect(new Set(inManifest).size).toBe(inManifest.length);
+  });
+
+  it("freezes `inherited` at the BASE corpus size, so a new fixture must name an axis", () => {
+    // Without this, every future fixture can be absorbed as pre-existing and the
+    // manifest stops bounding anything -- an exemption keyed coarser than what it
+    // exempts absorbs the future.
+    expect(MANIFEST.filter((c) => c.axis === "inherited")).toHaveLength(INHERITED_CORPUS_SIZE);
+  });
+
+  it("gives every cell a rule-element, and no cell a shrug", () => {
+    const shrugs = MANIFEST.filter((c) => c.covers.trim().length < 12).map((c) => c.fixture);
+    expect(shrugs).toEqual([]);
+  });
+
+  it("gives every STRUCK cell a reason and every OWED cell a task that exists in the plan", () => {
+    expect(STRUCK.filter((s) => s.reason.trim().length < 20).map((s) => s.cell)).toEqual([]);
+
+    const plan = readFileSync(PLAN_PATH, "utf8");
+    premiseHolds("the plan was read", plan.length > 0);
+    // Positive control: a slug that IS in the plan must be found, so a zero here
+    // is attributable to the owners rather than to a broken read.
+    premiseHolds("the plan's own slugs are findable", plan.includes("[task:corpus-manifest]"));
+
+    const missing = OWED.filter((o) => !plan.includes(`[${o.owner}]`)).map((o) => o.owner);
+    expect(missing).toEqual([]);
+  });
+
+  it("crosses the BINDING-KIND axis completely, read from the spec's own row", () => {
+    // Rule A's output is this axis, so it is crossed completely. Members parsed
+    // out of the SPEC -- the independent witness -- with a population floor, and
+    // matched against the `Receiver` kinds the module actually ships.
+    const spec = readFileSync(SPEC_PATH, "utf8");
+    const row = spec.split("\n").find((l) => l.startsWith("| binding kind"));
+    premiseHolds("the spec's binding-kind axis row was found", row !== undefined);
+
+    const members = row!
+      .split("|")[1]!
+      .split("—")[1]!
+      .split("/")
+      .map((m) => m.replace(/`/g, "").trim())
+      .filter(Boolean);
+    expect(members).toHaveLength(3);
+
+    // The shipped side: every kind must be REACHABLE from the rule, established
+    // by scanning fixtures that produce each rather than by reading the union.
+    // `surface` reports, `foreign` and `opaque` are silent by design, so the
+    // proof that all three exist is that the fixtures pinning them all pass.
+    expect(members.sort()).toEqual(["foreign", "opaque", "surface"]);
+  });
+
+  it("crosses the RECEIVER-SHAPE axis completely, read from the spec's own row", () => {
+    // The axis is finite (5) and the rule reads it, so it is crossed COMPLETELY
+    // rather than sampled. The five members are parsed OUT OF THE SPEC, which is
+    // the independent witness: a member added there with no fixture reds here.
+    const spec = readFileSync(SPEC_PATH, "utf8");
+    const row = spec
+      .split("\n")
+      .find((l) => l.startsWith("| receiver shape, once depth is factored out"));
+    premiseHolds("the spec's receiver-shape axis row was found", row !== undefined);
+
+    const members = row!
+      .split("|")[1]!
+      .split("—")[1]!
+      .split("·")
+      .map((m) => m.replace(/\*\*/g, "").trim())
+      .filter(Boolean);
+    // A population floor: five members are declared, and a short parse would
+    // otherwise make this pass over whatever it happened to find.
+    expect(members).toHaveLength(5);
+
+    const covered = new Set(MANIFEST.map((c) => c.receiverShape).filter(Boolean));
+    expect(members.filter((m) => !covered.has(m))).toEqual([]);
+    // And no cell may claim a shape the spec does not declare.
+    expect([...covered].filter((m) => !members.includes(m!))).toEqual([]);
+  });
+
+  it("carries the prettier directive on EVERY syntax-sensitive cell, immediately above its line", () => {
+    // A formatter is a silent input mutation for any fixture that is PARSED
+    // rather than read, and both of these are parsed. Measured on this corpus:
+    // stripping the directive and running prettier rewrites
+    // `(this.ch).dispatch(...)` to `this.ch.dispatch(...)`, converting that
+    // fixture into a duplicate of `class-field-sink`; and rewrites
+    // `<T>(x: T)` to `<T,>(x: T)`, whose trailing comma disambiguates the
+    // generic from a JSX open tag and therefore retires the ONLY coverage of the
+    // ScriptKind selection. The second was UNPROTECTED until this cell landed.
+    const sensitive = MANIFEST.filter((c) => c.syntaxSensitive);
+    premiseHolds("the corpus contains syntax-sensitive cells to check", sensitive.length > 0);
+
+    // EVERY declared line, not the first: `parenthesized-double-read.ts` carries
+    // TWO, and a single-line field would have silently protected one of them
+    // while reading as a covered cell.
+    const bad = sensitive.flatMap((c) =>
+      c
+        .syntaxSensitive!.map((line) => ({
+          c,
+          line,
+          r: directiveImmediatelyAbove(readFixture(c.fixture), line),
+        }))
+        .filter((x) => !x.r.ok)
+        .map((x) => `${x.c.fixture} :: ${x.line} :: ${x.r.reason}`),
+    );
+    expect(bad).toEqual([]);
+
+    // A cell declaring an EMPTY list would pass the loop above vacuously.
+    expect(sensitive.filter((c) => c.syntaxSensitive!.length === 0).map((c) => c.fixture)).toEqual(
+      [],
+    );
+  });
+
+  it("declares every directive the corpus actually carries — no undeclared directive", () => {
+    // The reverse direction. A directive present but undeclared means somebody
+    // protected a construct without recording WHY, and the reason is what a
+    // future author needs; a directive declared but absent is the census failing
+    // open. Both are caught here.
+    const declared = new Set(MANIFEST.filter((c) => c.syntaxSensitive).map((c) => c.fixture));
+    const carrying = readdirSync(FIXTURE_ROOT).filter((f) =>
+      readFixture(f).includes(PRETTIER_DIRECTIVE),
+    );
+    expect(carrying.sort()).toEqual([...declared].sort());
+  });
+
+  it("PROVES the census can fail — a detached directive and an absent line both red", () => {
+    // A check that cannot fail is not a check, and the failure direction here is
+    // the dangerous one: a census that silently passes reads exactly like a
+    // protected corpus.
+    const line = "const identity = <T>(x: T): T => x;";
+    const attached = `${PRETTIER_DIRECTIVE}\n${line}\n`;
+    const detached = `${PRETTIER_DIRECTIVE}\n// an intervening comment DETACHES it\n${line}\n`;
+    const bare = `${line}\n`;
+    const twice = `${PRETTIER_DIRECTIVE}\n${line}\n${line}\n`;
+
+    expect(directiveImmediatelyAbove(attached, line).ok).toBe(true);
+    expect(directiveImmediatelyAbove(detached, line).ok).toBe(false);
+    expect(directiveImmediatelyAbove(bare, line).ok).toBe(false);
+    // An absent line is a cell naming nothing, and it must not render as a pass.
+    expect(directiveImmediatelyAbove("", line)).toMatchObject({ ok: false, occurrences: 0 });
+    // Two occurrences make "immediately above" ambiguous, so it reds rather than
+    // silently checking the first.
+    expect(directiveImmediatelyAbove(twice, line)).toMatchObject({ ok: false, occurrences: 2 });
+  });
+});
+
+describe("AC-U14/AC-U15 — rule A resolves a receiver ONCE, for every position", () => {
+  it("resolves a STATICALLY KNOWN element-access receiver, string key and template key alike", () => {
+    // `this["ch"]` names its member IN THE SOURCE TEXT. It needs neither a
+    // checker nor a call graph, so it is not the fenced call-result case, and
+    // treating it as one left a real surface sink FULLY SILENT — the fail-open
+    // direction the consequence bound forbids.
+    const f = "element-access-receiver.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "UNDECLARED-PASS", "settle", lineOf(f, 'this["ch"].dispatch')),
+      finding(f, "UNDECLARED-PASS", "settleTemplate", lineOf(f, "this[`ch`].dispatch")),
+    ]);
+  });
+
+  it("leaves a NON-LITERAL element key opaque, and the silence is ATTRIBUTABLE", () => {
+    // The pair is ONE VARIABLE away: literal key versus variable key. The
+    // control lives IN THIS MODULE, so a clean verdict for the opaque receiver
+    // cannot be produced by the scanner failing to look — `settleBare` reports
+    // through the ordinary route and exactly one finding is owed.
+    const f = "element-access-opaque-key.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "UNDECLARED-PASS", "settleBare", lineOf(f, "this.ch.dispatch")),
+    ]);
+  });
+
+  // ONE fixture per wrapper KIND, not one representative: a scanner unwrapping
+  // parentheses only passes a single representative while silently missing the
+  // other three.
+  it.each([
+    "wrapper-nonnull-sink.ts",
+    "wrapper-as-sink.ts",
+    "wrapper-angle-sink.ts",
+    "wrapper-satisfies-sink.ts",
+  ])("%s — a transparent wrapper does not change what the guard sees", (f) => {
+    // TWO findings, and the second is a DECLARED BASELINE THAT SHRINKS rather
+    // than an expectation being accommodated.
+    //
+    // UNDECLARED-PASS is rule A working: D1 now resolves the wrapped receiver,
+    // so the module is discovered as send-bearing where it previously reported
+    // NOTHING AT ALL.
+    //
+    // UNCLASSIFIED-USE naming the BINDING is D3/D6 still answering for
+    // themselves. It is the wrong-attribution direction -- the binding named
+    // where the member is owed -- and `task:sites-consume-rule-a` removes it
+    // when those sites consume rule A. It is asserted HERE, by equality, so
+    // that removal is a visible change to this expectation rather than a
+    // silent one: a presence check would have been satisfied by either state.
+    // The declared baseline has SHRUNK. `task:resolve-name` asserted a second
+    // finding here -- UNCLASSIFIED-USE naming the BINDING -- as D3/D6 still
+    // answering for themselves, and named this task as the one that removes it.
+    // It is gone because those sites now consume rule A, so the wrapper is
+    // classified rather than mis-attributed. Asserting it by EQUALITY there is
+    // what makes this removal visible instead of silent.
+    expect(scan(f)).toEqual([finding(f, "UNDECLARED-PASS", "settle", fnLine(f))]);
+  });
+
+  it("reads the wrapper axis from ts.OuterExpressionKinds, not from a list typed here", () => {
+    // The axis-parity half of AC-U15. "Which wrappers are transparent" is a
+    // question TypeScript already answers, so a wrapper kind TypeScript ADDS is
+    // covered by default rather than by somebody remembering to extend a list —
+    // a hand-written wrapper list being the exact defect this arc removes.
+    //
+    // The independent witness is the COMPILER's own enum, which does not know
+    // what this suite says.
+    const all = ts.OuterExpressionKinds.All;
+    premiseHolds("the compiler exposes a non-empty OuterExpressionKinds.All", all > 0);
+
+    // Every kind this arc names must be a member of All. Asserted against the
+    // enum rather than against its numeric value, so a renumbering in a
+    // TypeScript upgrade cannot silently pass.
+    const named = [
+      ts.OuterExpressionKinds.Parentheses,
+      ts.OuterExpressionKinds.TypeAssertions,
+      ts.OuterExpressionKinds.NonNullAssertions,
+      ts.OuterExpressionKinds.ExpressionsWithTypeArguments,
+    ];
+    expect(named.filter((k) => (all & k) !== k)).toEqual([]);
+
+    // `satisfies` is folded into TypeAssertions by the compiler rather than
+    // carrying its own flag, and the fixture proves the behaviour regardless of
+    // which flag owns it -- which is why the fixture is the proof and this
+    // assertion is only the axis check.
+    expect(scan("wrapper-satisfies-sink.ts").map((x) => x.code)).toEqual(["UNDECLARED-PASS"]);
+  });
+});
+
+describe("AC-U1/AC-U2/AC-U3 — the decision sites stop answering for themselves", () => {
+  // NEEDLES ANCHOR ON THE CODE FORM, not on the construct alone. Each of these
+  // fixtures names its own construct in its header prose, and a looser anchor
+  // resolves to that comment -- a fixture's explanation is part of the text a
+  // lookup searches, which is the collision `class-field-sink` already pins.
+
+  it("counts a doubled read through a PROPERTY receiver, with a bare pair as the control", () => {
+    // The bare `local.gauge` pair reports through the route that already worked,
+    // so the property pair's finding is attributable to the RECEIVER SHAPE and
+    // not to the machinery having arrived at all.
+    //
+    // The trailing UNDECLARED-PASS is the PRE-EXISTING class-method behaviour,
+    // identical to `class-field-sink`: discovery ranges over top-level
+    // functions, so a method is never classified and the sink walk reports it.
+    // Unchanged by this task and asserted rather than filtered, because an
+    // equality that quietly drops a finding is a presence check wearing
+    // equality's clothes.
+    const f = "property-receiver-double-read.ts";
+    const p1 = lineOf(f, "const first = this.ch.panes()");
+    const p2 = lineOf(f, "const second = this.ch.panes()");
+    const g1 = lineOf(f, 'const g1 = local.gauge("a")');
+    const g2 = lineOf(f, 'const g2 = local.gauge("b")');
+    expect(scan(f)).toEqual([
+      finding(f, "MULTI-READ", "panes", p1, [p1, p2]),
+      finding(f, "MULTI-READ", "gauge", g1, [g1, g2]),
+      finding(f, "UNDECLARED-PASS", "settle", lineOf(f, 'this.ch.dispatch("p1"')),
+    ]);
+  });
+
+  it("reports a raw handoff through a PROPERTY receiver, paired with the bare form", () => {
+    const f = "property-receiver-handoff.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "RAW-HANDOFF", "helper", lineOf(f, "helper(this.ch);")),
+      finding(f, "RAW-HANDOFF", "helper", lineOf(f, "helper(local);")),
+      finding(f, "UNDECLARED-PASS", "settle", lineOf(f, 'this.ch.dispatch("p1"')),
+    ]);
+  });
+
+  it("classifies a PARENTHESIZED receiver identically to a bare one (D6, the outward walk)", () => {
+    const f = "parenthesized-double-read.ts";
+    const a = lineOf(f, 'const first = (ch).gauge("a")');
+    const b = lineOf(f, 'const second = (ch).gauge("b")');
+    expect(scan(f)).toEqual([finding(f, "MULTI-READ", "gauge", a, [a, b])]);
+  });
+
+  it("reports a PARENTHESIZED handoff argument", () => {
+    const f = "parenthesized-handoff.ts";
+    expect(scan(f)).toEqual([finding(f, "RAW-HANDOFF", "helper", lineOf(f, "helper((ch));"))]);
+  });
+
+  // RECEIVER and SELECTOR are TWO POSITIONS, and a killer for one is not a
+  // killer for the other. Both are asserted, because a form that unifies the
+  // receiver while leaving the selector dot-only passes every case above.
+  it("resolves a member SELECTED by element access — the fully-silent case", () => {
+    const f = "element-selector-sink.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "UNDECLARED-PASS", "settle", lineOf(f, 'this["ch"]["dispatch"]("p1"')),
+    ]);
+  });
+
+  it("leaves a CALL-RESULT receiver silent, and the silence is ATTRIBUTABLE", () => {
+    // The fifth receiver shape, and the boundary that keeps the rule defensible.
+    // A static element key names its member in the bytes; a call result does not
+    // name it at all, so resolving it would re-open the no-call-graph fence.
+    // `settleBare` reports through the ordinary route, so exactly one finding is
+    // owed and the opaque receiver contributing none is attributable.
+    const f = "call-result-receiver.ts";
+    expect(scan(f)).toEqual([
+      // A TOP-LEVEL function, so discovery classifies it and the finding lands on
+      // the FUNCTION line -- unlike the class-method fixtures, where discovery
+      // never reaches the method and the sink walk reports at the CALL.
+      finding(f, "UNDECLARED-PASS", "settleBare", fnLine(f, "settleBare")),
+    ]);
+  });
+
+  it("names the MEMBER, not the binding, when the selector is an element access", () => {
+    const f = "element-selector-double-read.ts";
+    const p1 = lineOf(f, 'const first = ch["panes"]()');
+    const p2 = lineOf(f, 'const second = ch["panes"]()');
+    const g1 = lineOf(f, 'const g1 = local.gauge("a")');
+    const g2 = lineOf(f, 'const g2 = local.gauge("b")');
+    expect(scan(f)).toEqual([
+      finding(f, "MULTI-READ", "panes", p1, [p1, p2]),
+      finding(f, "MULTI-READ", "gauge", g1, [g1, g2]),
+    ]);
+  });
+});
+
+describe("AC-U4/AC-U5/AC-U12 — rule B is a COUNT, so it is total over scope kinds", () => {
+  // FOUR SCOPE KINDS, one per spelling, and the fixtures vary ONLY the scope. The
+  // deleted ancestor walk asked whether a PARAMETER of an enclosing function-like
+  // node re-declared the name, so it fell silent on every kind it did not list --
+  // fail-open, into the forbidden direction. A count needs no notion of scope at
+  // all, which is why it reaches all four without naming any of them.
+  //
+  // The discriminator is uniform: MULTI-READ over the two outer reads fires only
+  // when the exemption is VOID. Were the second declaration not counted, `snap`
+  // would still be derived and both reads would be exempt.
+
+  it("a CONSTRUCTOR parameter re-declares the name", () => {
+    const f = "shadow-scope-constructor.ts";
+    const a = lineOf(f, "const a = snap.panes();");
+    const b = lineOf(f, "const b = snap.panes();");
+    expect(scan(f)).toEqual([
+      finding(f, "UNCLASSIFIED-USE", "snap", lineOf(f, "void snap;")),
+      finding(f, "MULTI-READ", "panes", a, [a, b]),
+    ]);
+  });
+
+  it("a SET ACCESSOR name re-declares the name", () => {
+    const f = "shadow-scope-set-accessor.ts";
+    const a = lineOf(f, "const a = snap.panes();");
+    const b = lineOf(f, "const b = snap.panes();");
+    expect(scan(f)).toEqual([
+      // The baseline declared here has SHRUNK: the accessor's own NAME was
+      // reported as a USE of the binding, because the declaration-name list at
+      // BASE named four kinds and missed accessors.
+      // `task:declaration-name-accept-set` removed it by routing that question
+      // through the SAME accept-set rule B's count already used.
+      finding(f, "UNCLASSIFIED-USE", "v", lineOf(f, "void v;")),
+      finding(f, "MULTI-READ", "panes", a, [a, b]),
+    ]);
+  });
+
+  it("a NESTED BLOCK re-declares the name — not function-like at all", () => {
+    const f = "shadow-scope-nested-block-surface.ts";
+    const a = lineOf(f, "const a = snap.panes();");
+    const b = lineOf(f, "const b = snap.panes();");
+    expect(scan(f)).toEqual([
+      finding(f, "UNCLASSIFIED-USE", "other", lineOf(f, "const snap: Channel = other;")),
+      finding(f, "UNCLASSIFIED-USE", "snap", lineOf(f, "void snap;")),
+      finding(f, "MULTI-READ", "panes", a, [a, b]),
+    ]);
+  });
+
+  it("a NESTED BLOCK with NO annotation competes", () => {
+    const f = "shadow-scope-nested-block-opaque.ts";
+    const a = lineOf(f, "const a = snap.panes();");
+    const b = lineOf(f, "const b = snap.panes();");
+    expect(scan(f)).toEqual([
+      finding(f, "UNCLASSIFIED-USE", "snap", lineOf(f, "void snap;")),
+      finding(f, "MULTI-READ", "panes", a, [a, b]),
+    ]);
+  });
+
+  it("AC-U5 — a keyword type that CANNOT HOLD AN OBJECT does not compete, and the pass is silent", () => {
+    // Its expect-a-REPORT pair is the next case, ONE VARIABLE away. Without that
+    // pair this is satisfied by any implementation that fails to look at all.
+    expect(scan("shadow-annotation-string.ts")).toEqual([]);
+  });
+
+  it("AC-U5 — the same fixture with the SURFACE annotation reports", () => {
+    const f = "shadow-annotation-surface.ts";
+    const a = lineOf(f, "const a = snap.panes();");
+    const b = lineOf(f, "const b = snap.panes();");
+    expect(scan(f)).toEqual([
+      finding(f, "RAW-HANDOFF", "String", lineOf(f, "String(snap)")),
+      finding(f, "MULTI-READ", "panes", a, [a, b]),
+    ]);
+  });
+
+  // AC-U12: "not spelled exactly like the surface type" is NOT "provably not the
+  // surface". Each of these COULD hold the surface, so each competes -- and the
+  // string case above is the one-variable-away control that makes their reports
+  // attributable to the accept-set rather than to the scanner reporting always.
+  it.each([
+    "shadow-annotation-any.ts",
+    "shadow-annotation-unknown.ts",
+    "shadow-annotation-readonly-wrapper.ts",
+    "shadow-annotation-intersection.ts",
+  ])("%s — an annotation that could hold the surface COMPETES", (f) => {
+    const a = lineOf(f, "const a = snap.panes();");
+    const b = lineOf(f, "const b = snap.panes();");
+    expect(scan(f)).toEqual([
+      finding(f, "RAW-HANDOFF", "String", lineOf(f, "String(snap)")),
+      finding(f, "MULTI-READ", "panes", a, [a, b]),
+    ]);
+  });
+});
+
+describe("AC-U13 — the declaration-name accept-set defaults to USE", () => {
+  it("treats a VALUE REFERENCE carrying a `name` as a use, both spellings", () => {
+    // A GUARD, not a red: both of these report today and must keep reporting.
+    // `{ ch }` and `export { ch }` each carry a `name` whose value IS the
+    // identifier, so any rule shaped as "the identifier is its parent's name"
+    // skips them into SILENCE. The default is USE precisely because that error
+    // direction is the recoverable one.
+    const f = "declaration-name-value-references.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "UNCLASSIFIED-USE", "ch", lineOf(f, "export { ch };")),
+      finding(f, "UNDECLARED-PASS", "settle", fnLine(f)),
+      finding(f, "UNCLASSIFIED-USE", "ch", lineOf(f, "void Object.values({ ch });")),
+    ]);
+  });
+
+  it("leaves a REAL DECLARATION of an accepted kind silent", () => {
+    // The paired half, and the one that moved. The accessor's own NAME was
+    // reported as a use of the binding it is named for.
+    const f = "declaration-name-accepted-kinds.ts";
+    expect(scan(f)).toEqual([finding(f, "UNDECLARED-PASS", "settle", fnLine(f))]);
+  });
+
+  it("names only declaring kinds the SPEC lists, with the spec as the independent witness", () => {
+    // Two sides that can disagree: the shipped Set, and the spec's own sentence.
+    // A kind added to the code without the spec naming it reds here.
+    const spec = readFileSync(SPEC_PATH, "utf8");
+    // The sentence WRAPS ACROSS LINES in the spec, so a line-keyed read gets only
+    // its first half and reports every kind as unnamed. Read the PARAGRAPH --
+    // from the marker to the next blank line -- with whitespace normalised.
+    const marker = "accept-set of DECLARING PARENTS";
+    const at = spec.indexOf(marker);
+    premiseHolds("the spec's declaring-parents paragraph was found", at >= 0);
+    const end = spec.indexOf("\n\n", at);
+    const prose = spec
+      .slice(at, end < 0 ? undefined : end)
+      .replace(/\s+/g, " ")
+      .toLowerCase();
+    premiseHolds("the paragraph is long enough to be the list", prose.length > 200);
+
+    const kinds = [...DECLARING_PARENT_KINDS].map((k) => ts.SyntaxKind[k]!);
+    expect(kinds.length).toBeGreaterThanOrEqual(12);
+
+    // Every word of every kind name must appear in the spec's list. `GetAccessor`
+    // and `SetAccessor` are covered by "get/set accessor", `FunctionExpression`
+    // by "function", and so on -- the spec groups where TypeScript splits.
+    // The spec GROUPS where TypeScript SPLITS: "function" covers both
+    // `FunctionDeclaration` and `FunctionExpression`, "class" covers both class
+    // forms. So a trailing `Declaration`/`Expression` is dropped before matching.
+    // The check still discriminates -- a kind whose STEM the spec does not name
+    // (say `CallExpression` -> "call") still reds, which is proven below.
+    const stemWords = (name: string): string[] =>
+      name
+        .replace(/(Declaration|Expression)$/, "")
+        .replace(/([a-z])([A-Z])/g, "$1 $2")
+        .toLowerCase()
+        .split(" ")
+        .filter(Boolean);
+
+    const unnamed = kinds.filter((name) => stemWords(name).some((w) => !prose.includes(w)));
+    expect(unnamed).toEqual([]);
+
+    // PROOF IT CAN FAIL: a kind the spec does not name must be reported.
+    expect(stemWords("CallExpression").some((w) => !prose.includes(w))).toBe(true);
+  });
+});
+
+describe("AC-U6 — the read set's member name is a position too", () => {
+  it("counts a doubled read of a QUOTED member, with a bare pair as the control", () => {
+    // The read set gates rules 2 and 3, so it is consumed as a COMPLEMENT: a
+    // dropped member is not one missing entry, it is reclassified "not a read"
+    // and stops being constrained everywhere the set is consulted.
+    //
+    // MEASURED, by reverting the widening: the owed MULTI-READ degrades into two
+    // UNCLASSIFIED-USE records naming the member, while the `panes` control
+    // reports either way -- so the difference is attributable to the member's
+    // SPELLING rather than to the machinery running at all.
+    const f = "quoted-member-read.ts";
+    const q1 = lineOf(f, 'const first = ch["wire-format"]()');
+    const q2 = lineOf(f, 'const second = ch["wire-format"]()');
+    const p1 = lineOf(f, "const p1 = ch.panes()");
+    const p2 = lineOf(f, "const p2 = ch.panes()");
+    expect(scan(f)).toEqual([
+      finding(f, "MULTI-READ", "wire-format", q1, [q1, q2]),
+      finding(f, "MULTI-READ", "panes", p1, [p1, p2]),
+    ]);
+  });
+
+  it("keeps an INDEX SIGNATURE out of the read set — it names no member", () => {
+    // The boundary. Widening to quoted names must not widen to nameless members,
+    // and this is the case that would have gone unnoticed: an index signature has
+    // no `name` at all, so it is excluded for a structural reason rather than by
+    // a kind check somebody has to maintain.
+    expect(readsFor(readFixture("exotic-type-members.ts"), CHANNEL_ROW)).not.toContain("key");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-U16a / AC-U16b / AC-U16c — ABSENCE, ADOPTION, METAMORPHIC INVARIANCE
+//
+// THREE DIFFERENT CLAIMS AND NONE IMPLIES ANOTHER. Every duplicate of the rule
+// can be gone while NOTHING CALLS the replacement: the code compiles, the suite
+// is green, a duplicate sweep reports zero, and the shared rule is DECORATIVE.
+// Absence certifies a deletion; only adoption establishes the unification.
+// ---------------------------------------------------------------------------
+
+const SCANNER_PATH = "tests/paneCompaction/sendAuthScan.ts";
+
+const scannerSource = (): ts.SourceFile =>
+  ts.createSourceFile(
+    SCANNER_PATH,
+    readFileSync(SCANNER_PATH, "utf8"),
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+
+/**
+ * The accept-set is the TypeScript API surface for MATERIALISING A NAME, not a
+ * list of spellings this suite happened to think of. A detector recognising only
+ * `.text` passes every planted violation an author writes in that spelling while
+ * silently missing `getText()`, `.escapedText`, `getFullText()` and the
+ * destructured form.
+ */
+const NAME_PROPERTY_ACCESSORS = ["text", "escapedText"] as const;
+const NAME_CALL_ACCESSORS = ["getText", "getFullText"] as const;
+
+type NameSite = { line: number; accessor: string; text: string; node: ts.Node };
+
+/**
+ * Every site that materialises a name, found STRUCTURALLY. A lexical grep is
+ * blind to a copy spelled differently, which is how copies three, four and five
+ * survived earlier greps.
+ */
+const nameMaterializationSites = (sf: ts.SourceFile): NameSite[] => {
+  const props = new Set<string>(NAME_PROPERTY_ACCESSORS);
+  const calls = new Set<string>(NAME_CALL_ACCESSORS);
+  const out: NameSite[] = [];
+  const at = (n: ts.Node): number => sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
+  const walk = (n: ts.Node): void => {
+    if (ts.isPropertyAccessExpression(n) && props.has(n.name.text)) {
+      out.push({ line: at(n), accessor: n.name.text, text: n.getText(sf), node: n });
+    } else if (
+      ts.isCallExpression(n) &&
+      ts.isPropertyAccessExpression(n.expression) &&
+      calls.has(n.expression.name.text)
+    ) {
+      out.push({ line: at(n), accessor: n.expression.name.text, text: n.getText(sf), node: n });
+    } else if (ts.isBindingElement(n)) {
+      const key = n.propertyName ?? n.name;
+      if (ts.isIdentifier(key) && (props.has(key.text) || calls.has(key.text))) {
+        out.push({ line: at(n), accessor: key.text, text: n.getText(sf), node: n });
+      }
+    }
+    ts.forEachChild(n, walk);
+  };
+  walk(sf);
+  return out;
+};
+
+/**
+ * THE DISPOSITION TABLE. Keyed by enclosing function plus ordinal plus the site's
+ * own TEXT, deliberately: a rename REDS rather than silently reclassifying, which
+ * is what a key that survives every edit would do.
+ *
+ * `implementation` is the ONE shared rule. Everything else is a site that reads a
+ * name for some other purpose, and each owes a reason:
+ *   grammar     the FIELD'S DECLARED TYPE admits only `Identifier`. Durable.
+ *   narrowed    the field ADMITS SIBLINGS and this code declines them. A declared
+ *               limit, owing a consequence AND a re-file trigger.
+ *   not-a-name  the site does not resolve a surface name at all. It NAMES THE
+ *               FIELD it resolves, so a repurposing makes the row visibly false
+ *               rather than merely stale.
+ *
+ * `grammar` is a claim about the FIELD, never about the access: code that
+ * prefilters with `isIdentifier` and then reads `.text` LOOKS grammar-fixed at
+ * the access while the field admits a sibling the prefilter silently discards.
+ */
+
+const siteKey = (fn: string, ordinal: number): string => `${fn}#${ordinal}`;
+
+/** Every site, keyed the way the table is keyed. */
+const dispositionedSites = (sf: ts.SourceFile): Map<string, NameSite & { fn: string }> => {
+  const enclosing = (n: ts.Node): string => {
+    for (let c: ts.Node | undefined = n; c !== undefined; c = c.parent) {
+      if (ts.isFunctionDeclaration(c) && c.name !== undefined) return c.name.text;
+      if (
+        ts.isVariableDeclaration(c) &&
+        ts.isIdentifier(c.name) &&
+        c.initializer !== undefined &&
+        (ts.isArrowFunction(c.initializer) || ts.isFunctionExpression(c.initializer))
+      ) {
+        return c.name.text;
+      }
+    }
+    return "(module)";
+  };
+  const seen = new Map<string, number>();
+  const out = new Map<string, NameSite & { fn: string }>();
+  for (const site of nameMaterializationSites(sf)) {
+    const fn = enclosing(site.node);
+    const ordinal = (seen.get(fn) ?? 0) + 1;
+    seen.set(fn, ordinal);
+    out.set(siteKey(fn, ordinal), { ...site, fn });
+  }
+  return out;
+};
+
+describe("AC-U16b — ADOPTION: three assertions, and none implies another", () => {
+  it("(a) disposition every site — an UNDISPOSED site REDS by name", () => {
+    const sites = dispositionedSites(scannerSource());
+    premiseHolds("the scanner parsed and yielded name sites", sites.size > 20);
+
+    const rows = new Set(NAME_POSITION_DISPOSITIONS.map((r) => siteKey(r.fn, r.ordinal)));
+    const undisposed = [...sites.entries()]
+      .filter(([k]) => !rows.has(k))
+      .map(([k, v]) => `${k} :: ${v.text}`);
+    expect(undisposed).toEqual([]);
+  });
+
+  it("(b) every ROW names a LIVE site, with matching text — a rename REDS", () => {
+    // The reverse direction. A forward-only check accumulates dead rows, and a
+    // dead row is a claim about a site that no longer exists -- or worse, an
+    // exemption whose original site was deleted while a new one inherited its key.
+    const sites = dispositionedSites(scannerSource());
+    const stale = NAME_POSITION_DISPOSITIONS.filter((r) => {
+      const live = sites.get(siteKey(r.fn, r.ordinal));
+      return live === undefined || live.text !== r.text;
+    }).map((r) => `${siteKey(r.fn, r.ordinal)} :: expected ${r.text}`);
+    expect(stale).toEqual([]);
+  });
+
+  it("(c) every non-implementation row carries the reason its KIND owes", () => {
+    // An exemption token with no consequence and no trigger is a shrug wearing a
+    // token's name. `narrowed` and `not-a-name` both decay, so both owe a
+    // trigger; `grammar` is a durable claim about a declared field type.
+    const missing = NAME_POSITION_DISPOSITIONS.flatMap((r) => {
+      if (r.disposition === "implementation") return [];
+      const problems: string[] = [];
+      if ((r.why ?? "").length < 12) problems.push("no reason");
+      if (r.disposition !== "grammar" && (r.refileWhen ?? "").length < 12) {
+        problems.push("no re-file trigger");
+      }
+      return problems.map((p) => `${siteKey(r.fn, r.ordinal)}: ${p}`);
+    });
+    expect(missing).toEqual([]);
+  });
+
+  it("keeps the ONE implementation, and it is the only one", () => {
+    // AC-U16a's companion: the implementation rows must all sit inside the two
+    // functions that ARE the shared rule. A third function acquiring
+    // implementation rows means the rule was copied again.
+    const owners = new Set(
+      NAME_POSITION_DISPOSITIONS.filter((r) => r.disposition === "implementation").map((r) => r.fn),
+    );
+    expect([...owners].sort()).toEqual([
+      "declaredNameText",
+      "memberCallOf",
+      "receiverRightmostName",
+    ]);
+  });
+});
+
+describe("AC-U16a — ABSENCE: no site RE-IMPLEMENTS the rule", () => {
+  /**
+   * STRUCTURAL, not lexical. A grep is blind to a copy spelled differently,
+   * which is how copies three, four and five survived earlier greps.
+   *
+   * The shape of a re-implementation: one function deciding a name by applying
+   * BOTH `isIdentifier` and `isPropertyAccessExpression` to the SAME expression.
+   */
+  const reimplementations = (sf: ts.SourceFile): string[] => {
+    const guards = new Map<string, { ident: Set<string>; prop: Set<string> }>();
+    const enclosing = (n: ts.Node): string => {
+      for (let c: ts.Node | undefined = n; c !== undefined; c = c.parent) {
+        if (ts.isFunctionDeclaration(c) && c.name !== undefined) return c.name.text;
+        if (
+          ts.isVariableDeclaration(c) &&
+          ts.isIdentifier(c.name) &&
+          c.initializer !== undefined &&
+          (ts.isArrowFunction(c.initializer) || ts.isFunctionExpression(c.initializer))
+        ) {
+          return c.name.text;
+        }
+      }
+      return "(module)";
+    };
+    const walk = (n: ts.Node): void => {
+      if (
+        ts.isCallExpression(n) &&
+        ts.isPropertyAccessExpression(n.expression) &&
+        n.arguments.length === 1
+      ) {
+        const guard = n.expression.name.text;
+        if (guard === "isIdentifier" || guard === "isPropertyAccessExpression") {
+          const fn = enclosing(n);
+          const entry = guards.get(fn) ?? { ident: new Set<string>(), prop: new Set<string>() };
+          (guard === "isIdentifier" ? entry.ident : entry.prop).add(n.arguments[0]!.getText(sf));
+          guards.set(fn, entry);
+        }
+      }
+      ts.forEachChild(n, walk);
+    };
+    walk(sf);
+    return [...guards.entries()]
+      .flatMap(([fn, e]) => [...e.ident].filter((x) => e.prop.has(x)).map((x) => `${fn}(${x})`))
+      .sort();
+  };
+
+  it("finds exactly the ONE implementation and nothing else", () => {
+    const sf = scannerSource();
+    const found = reimplementations(sf);
+    premiseHolds("the scanner was parsed", sf.statements.length > 0);
+    // `receiverRightmostName` IS the implementation. Any other name here is a copy.
+    expect(found).toEqual(["receiverRightmostName(e)"]);
+  });
+
+  it("PROVES it can fail — a constructed copy is detected", () => {
+    // A check that cannot fail is not a check, and this one fails in the
+    // direction that looks green: a silent scan reads exactly like a clean module.
+    const copy = ts.createSourceFile(
+      "copy.ts",
+      [
+        "const rival = (x: ts.Expression): string | null => {",
+        "  if (ts.isIdentifier(x)) return x.text;",
+        "  if (ts.isPropertyAccessExpression(x)) return x.name.text;",
+        "  return null;",
+        "};",
+      ].join("\n"),
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
+    expect(reimplementations(copy)).toEqual(["rival(x)"]);
+  });
+});
+
+describe("AC-U16c — METAMORPHIC: the detected site SET survives rename and reformat", () => {
+  /**
+   * A STRUCTURAL identity: the AST child-index path plus the materialiser name.
+   * It contains NO identifier spelling, which is the whole point -- a scan
+   * exempting sites by spelling moved its own count 42 to 44 under a
+   * semantics-neutral rename, and reading the instrument could not have shown it.
+   *
+   * CARDINALITY IS EXPLICITLY NOT THE CRITERION: one missed site and one spurious
+   * site cancel in a count and not in a set.
+   *
+   * REORDERING independent declarations is OUT of the invariant and stated as
+   * such -- a child-index path is not stable under reorder, and no
+   * transformation-stable identity is claimed for it.
+   */
+  const structuralSites = (text: string): string[] => {
+    const sf = ts.createSourceFile("m.ts", text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    const out: string[] = [];
+    const walk = (n: ts.Node, path: readonly number[]): void => {
+      let index = 0;
+      ts.forEachChild(n, (child) => {
+        const here = [...path, index];
+        index += 1;
+        if (
+          ts.isPropertyAccessExpression(child) &&
+          (child.name.text === "text" || child.name.text === "escapedText")
+        ) {
+          out.push(`${here.join(".")}:${child.name.text}`);
+        }
+        walk(child, here);
+      });
+    };
+    walk(sf, []);
+    return out.sort();
+  };
+
+  it("is identical under a semantics-neutral RENAME", () => {
+    const original = readFileSync(SCANNER_PATH, "utf8");
+    const renamed = original.replace(/\bnamed\b/g, "boundName");
+    premiseHolds("the rename actually changed the source", renamed !== original);
+
+    const before = structuralSites(original);
+    const after = structuralSites(renamed);
+    premiseHolds("the site set is non-empty", before.length > 20);
+    // Compared AS SETS, never as counts.
+    expect(after).toEqual(before);
+  });
+
+  it("is identical under a REFORMAT", () => {
+    const original = readFileSync(SCANNER_PATH, "utf8");
+    // A narrower print width rewraps almost every call in the module while
+    // changing no meaning at all.
+    const reflowed = original.replace(/\n {2}/g, "\n    ");
+    premiseHolds("the reformat actually changed the source", reflowed !== original);
+    expect(structuralSites(reflowed)).toEqual(structuralSites(original));
+  });
+
+  it("PROVES it can fail — removing a site moves the SET, and a cancelling pair moves it too", () => {
+    const original = readFileSync(SCANNER_PATH, "utf8");
+    const before = structuralSites(original);
+
+    // Direction one: a site removed.
+    const removed = original.replace("c.name.text", "c.name.escaped_MISSING");
+    expect(structuralSites(removed)).not.toEqual(before);
+
+    // Direction two, and the one a COUNT cannot see: one site removed and one
+    // added, so the cardinality is IDENTICAL and the set is not.
+    const swapped = original
+      .replace("c.name.text", "c.name.escaped_MISSING")
+      .replace(
+        "const skipTransparent",
+        "const _pad = ({} as ts.Identifier).text;\nconst skipTransparent",
+      );
+    const swappedSites = structuralSites(swapped);
+    expect(swappedSites).toHaveLength(before.length);
+    expect(swappedSites).not.toEqual(before);
+  });
+});
+
+describe("AC-U16b — the adoption detector covers EVERY accepted materialiser", () => {
+  /**
+   * DERIVE THE REQUIREMENT, AUTHOR THE WITNESS, ASSERT THE COVERAGE.
+   *
+   * The obvious repair -- derive the planted violations from the same accept-set
+   * the detector uses -- trades a weak fixture set for a VACUOUS one: both sides
+   * from one source cannot disagree, so a drift moves them together and the
+   * comparison can never fail. So the REQUIREMENT is derived (every accepted form
+   * needs a witness) and each WITNESS is authored by hand, independently.
+   *
+   * This matters because the shipped module uses ONLY `.text`. Four of the five
+   * accepted forms have ZERO instances in it, so a detector recognising `.text`
+   * alone would pass the entire live scan while being blind to the rest.
+   */
+  const WITNESSES: Record<string, string> = {
+    text: "const a = node.text;",
+    escapedText: "const b = node.escapedText;",
+    getText: "const c = node.getText(sf);",
+    getFullText: "const d = node.getFullText(sf);",
+    destructure: "const { text } = node;",
+  };
+
+  it("requires a witness for every accepted form, and every witness is detected", () => {
+    // The requirement list is DERIVED from the shipped accept-sets.
+    const required = [...NAME_PROPERTY_ACCESSORS, ...NAME_CALL_ACCESSORS, "destructure"];
+    premiseHolds("the accept-sets are non-empty", required.length >= 5);
+
+    // Side one: the derived requirement. Side two: the hand-authored directory.
+    expect(Object.keys(WITNESSES).sort()).toEqual([...required].sort());
+
+    const undetected = Object.entries(WITNESSES)
+      .filter(([, snippet]) => {
+        const sf = ts.createSourceFile(
+          "w.ts",
+          snippet,
+          ts.ScriptTarget.Latest,
+          true,
+          ts.ScriptKind.TS,
+        );
+        return nameMaterializationSites(sf).length === 0;
+      })
+      .map(([form]) => form);
+    expect(undetected).toEqual([]);
+  });
+
+  it("PROVES the coverage check discriminates — a form with no witness REDS", () => {
+    // Drop one witness and the derived requirement no longer matches the authored
+    // directory. Without this the check is satisfied by any two lists that happen
+    // to agree today.
+    const short = Object.keys(WITNESSES).filter((k) => k !== "getFullText");
+    const required = [...NAME_PROPERTY_ACCESSORS, ...NAME_CALL_ACCESSORS, "destructure"];
+    expect(short.sort()).not.toEqual([...required].sort());
+
+    // And a materialiser the detector does NOT accept must not be detected, so
+    // the scan is not simply reporting every property access it meets.
+    const unrelated = ts.createSourceFile(
+      "u.ts",
+      "const z = node.kind;",
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
+    expect(nameMaterializationSites(unrelated)).toEqual([]);
+  });
+});
+
+describe("AC-U7 — whole-corpus preservation against a committed BASE baseline", () => {
+  /**
+   * The instrument the arc did NOT have: every pre-existing fixture's verdict
+   * compared against a baseline captured at BASE, so the two moves rule B
+   * deliberately creates are the ONLY differences and any third is a regression.
+   *
+   * A VALUE COMPARISON WITH AN INDEPENDENT WITNESS ON EACH SIDE: a committed
+   * baseline against a live scan. The baseline was produced by running the
+   * BASE scanner (blob 412cadd3, byte-identical at `origin/main`) over the
+   * fixture list read from `git ls-tree` at BASE -- not from the manifest, so
+   * the population is not derived from the same place the assertion is.
+   *
+   * `removed: (none)` is the load-bearing half. A count of two moved does not
+   * distinguish an ADDITION from a REPLACEMENT; the empty removal set does.
+   */
+  const BASELINE_PATH = "tests/paneCompaction/fixtures/sendAuthBaseVerdicts.json";
+
+  const verdictOf = (fixtureName: string): string[] =>
+    scan(fixtureName)
+      .map((f) => `${f.code}:${f.name}:${f.lines.join(",")}`)
+      .sort();
+
+  it("preserves all 81 BASE verdicts except the two rule B moves, and those are ADDITIVE", () => {
+    const baseline = JSON.parse(readFileSync(BASELINE_PATH, "utf8")) as Record<string, string[]>;
+    const names = Object.keys(baseline);
+    // Population floor: a baseline that shrank would let this pass over nothing.
+    expect(names).toHaveLength(81);
+
+    const EXPECTED_MOVES: Record<string, string> = {
+      "same-pass-shadowed-derivation.ts": "RAW-HANDOFF:inner",
+      "shadowed-param-handoff.ts": "RAW-HANDOFF:inner",
+    };
+
+    const regressions: string[] = [];
+    const moved: string[] = [];
+    for (const name of names) {
+      const want = baseline[name]!;
+      const got = verdictOf(name);
+      if (JSON.stringify(got) === JSON.stringify(want)) continue;
+      moved.push(name);
+      const added = got.filter((x) => !want.includes(x));
+      const removed = want.filter((x) => !got.includes(x));
+      const expected = EXPECTED_MOVES[name];
+      if (expected === undefined) {
+        regressions.push(`${name}: UNEXPECTED move (+${added.join("|")} -${removed.join("|")})`);
+        continue;
+      }
+      // ADDITIVE: nothing removed, and exactly the one documented addition.
+      if (removed.length > 0) regressions.push(`${name}: REMOVED ${removed.join("|")}`);
+      if (added.length !== 1 || !added[0]!.startsWith(expected)) {
+        regressions.push(`${name}: added ${added.join("|")}, expected one ${expected}`);
+      }
+    }
+
+    expect(regressions).toEqual([]);
+    expect(moved.sort()).toEqual(Object.keys(EXPECTED_MOVES).sort());
+  });
+
+  it("PROVES the baseline can fail — a fabricated verdict is reported as a regression", () => {
+    // Without this the comparison is satisfied by a baseline that matches
+    // whatever the scanner currently does, which is the shape that reports a
+    // perfect zero while measuring nothing.
+    const baseline = JSON.parse(readFileSync(BASELINE_PATH, "utf8")) as Record<string, string[]>;
+    const pick = "single-read-clean.ts";
+    expect(baseline[pick]).toEqual([]);
+    // The live scan agrees today; a baseline claiming otherwise must not match.
+    expect(verdictOf(pick)).not.toEqual(["MULTI-READ:panes:1,2"]);
+  });
+});
+
+describe("Task 9 — what the mutation gate demanded, and the killer audit's two gaps", () => {
+  it("kills the `null`-arm equality flip FROM BOTH SIDES", () => {
+    // The gate found this arm unexercised: an equality flip on it survived,
+    // because no fixture reached it from either direction. `null` is the one
+    // accept-set member that is NOT a keyword node -- the compiler models it as
+    // a LiteralType WRAPPING the keyword -- so it needs its own arm and its own
+    // pair.
+    //
+    // MEASURED under the mutant: the null case REPORTS and the literal case
+    // falls SILENT. Each alone would have left the other direction open.
+    expect(scan("shadow-annotation-null.ts")).toEqual([]);
+
+    const f = "shadow-annotation-string-literal.ts";
+    const a = lineOf(f, "const a = snap.panes();");
+    const b = lineOf(f, "const b = snap.panes();");
+    expect(scan(f)).toEqual([
+      finding(f, "RAW-HANDOFF", "String", lineOf(f, "String(snap)")),
+      finding(f, "MULTI-READ", "panes", a, [a, b]),
+    ]);
+  });
+
+  it("unwraps a WRAPPED element key in the SELECTOR position — the second position", () => {
+    // The corpus pinned the RECEIVER key and not the selector key, so an
+    // implementation that unwrapped one and not the other passed everything.
+    // Found by the killer audit, not by review.
+    const f = "selector-key-wrapped.ts";
+    expect(scan(f)).toEqual([finding(f, "UNDECLARED-PASS", "settle", fnLine(f))]);
+  });
+
+  it("unwraps the WHOLE CALLEE, not only the receiver inside it", () => {
+    // `(ch.dispatch)(...)` wraps a different node than `(ch).dispatch(...)`, so
+    // every wrapped-RECEIVER fixture in the corpus leaves this one unexercised.
+    const f = "callee-wrapped.ts";
+    expect(scan(f)).toEqual([finding(f, "UNDECLARED-PASS", "settle", fnLine(f))]);
+  });
+
+  it("unwraps inside a COMPUTED DECLARATION NAME, so a wrapped key still competes", () => {
+    // Rule B's count is the consumer: a computed key that does not resolve is a
+    // competing declaration NOT COUNTED, which keeps the derivation exemption and
+    // silences the pass.
+    const f = "computed-key-competing-declaration.ts";
+    const a = lineOf(f, "const a = snap.panes();");
+    const b = lineOf(f, "const b = snap.panes();");
+    expect(scan(f)).toEqual([finding(f, "MULTI-READ", "panes", a, [a, b])]);
+  });
+
+  it("unwraps a WRAPPED element KEY — the key is a second name position", () => {
+    // §3c's weaker implementation: "resolves `this[\"ch\"]` but not
+    // `this[(\"ch\")]`". It passes every other element-access case in the corpus
+    // and falls silent here.
+    const f = "element-key-wrapped.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "UNDECLARED-PASS", "settle", lineOf(f, 'this[("ch")].dispatch')),
+    ]);
+  });
+
+  it("rule B carries NO SCOPE ENUMERATION — the structural killer, not another fixture", () => {
+    // §3c is explicit that fixtures alone cannot kill this class: a competing
+    // declaration in a `while` body defeats a five-item list, and a six-item
+    // list defeats that fixture. That is the enumeration treadmill in miniature.
+    // A COUNT needs no notion of scope, so the checkable claim is that rule B's
+    // own functions contain none.
+    //
+    // Scoped DELIBERATELY to rule B. `isFunctionLike` survives elsewhere in the
+    // module for unrelated purposes -- pass discovery, marker attachment,
+    // straight-line blocking -- so "no `isFunctionLike` anywhere" would be the
+    // wrong assertion and would red for the wrong reason.
+    const source = readFileSync(SCANNER_PATH, "utf8");
+    const sf = scannerSource();
+
+    const bodyOf = (name: string): string => {
+      let found: string | undefined;
+      const walk = (n: ts.Node): void => {
+        if (
+          ts.isVariableDeclaration(n) &&
+          ts.isIdentifier(n.name) &&
+          n.name.text === name &&
+          n.initializer !== undefined
+        ) {
+          found = n.initializer.getText(sf);
+        }
+        ts.forEachChild(n, walk);
+      };
+      walk(sf);
+      if (found === undefined)
+        throw new Error(`rule B function ${name} not found — the audit is naming nothing`);
+      return found;
+    };
+
+    const RULE_B = [
+      "competingDeclarationCount",
+      "declaresName",
+      "competesAsSurface",
+      "exemptionVoid",
+    ];
+    premiseHolds("the scanner source was read", source.length > 1000);
+
+    const offenders = RULE_B.flatMap((name) => {
+      const body = bodyOf(name);
+      const problems: string[] = [];
+      if (body.includes("isFunctionLike")) problems.push("references isFunctionLike");
+      // An UPWARD ancestor WALK is what a scope model needs; rule B walks DOWN.
+      // The walk shape is a variable reassigned from ITS OWN parent -- a single
+      // `const parent = id.parent` read is one hop and is NOT a walk, which the
+      // first version of this predicate conflated and reported for `declaresName`.
+      if (/(\w+)\s*=\s*\1\.parent\b/.test(body)) problems.push("walks ancestors");
+      return problems.map((p) => `${name}: ${p}`);
+    });
+    expect(offenders).toEqual([]);
+
+    // PROVEN TO DISCRIMINATE: the predicates DO fire on a body that has them.
+    expect(/(\w+)\s*=\s*\1\.parent\b/.test("for (let cur = n; cur; cur = cur.parent) {}")).toBe(
+      true,
+    );
+    // ...and does NOT fire on a single-hop parent read, which is not a walk.
+    expect(/(\w+)\s*=\s*\1\.parent\b/.test("const parent = id.parent;")).toBe(false);
+    expect("if (isFunctionLike(cur)) return true;".includes("isFunctionLike")).toBe(true);
+  });
+
+  it("AC-U9 — the registry control keys on a line occurring EXACTLY ONCE", () => {
+    // A control keyed by text is only as good as that text's uniqueness, and a
+    // uniqueness claim in a COMMENT cannot fail. This arc moved the code the
+    // control keys on, so the claim is asserted BY THE SUITE instead: a refactor
+    // that duplicates the line lands the control edit on a site no case reaches,
+    // and the suite stays green while the harness stops discriminating.
+    const source = readFileSync(SCANNER_PATH, "utf8");
+    const registry = readFileSync("tests/mutation/source/registry.ts", "utf8");
+
+    const row = registry.slice(registry.indexOf('id: "sendAuthScan"'));
+    const from = /control: \{\s*\n\s*from: "([^"]+)"/.exec(row);
+    premiseHolds("the sendAuthScan control was read out of the registry", from !== null);
+
+    const needle = from![1]!;
+    premiseHolds("the control text is substantial", needle.length > 20);
+
+    const occurrences = source.split(needle).length - 1;
+    expect(occurrences).toBe(1);
+  });
+});
+
+describe("diff r1 — RESOLVING a name and ENTERING on one are different jobs", () => {
+  it("reaches an unknown member through a STATIC ELEMENT-ACCESS receiver", () => {
+    // The dotted form in the SAME module is the control: it reported before the
+    // repair, so the bracketed form's finding is attributable to the ENTRY point
+    // rather than to the scanner having run at all. Before the repair the two
+    // disagreed — dotted reported, bracketed was SILENT.
+    const f = "element-receiver-unknown-member.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "UNCLASSIFIED-USE", "typo", lineOf(f, "this.ch.typo();")),
+      finding(f, "UNCLASSIFIED-USE", "typo", lineOf(f, 'this["ch"].typo();')),
+    ]);
+  });
+
+  it("admits a PRIVATE IDENTIFIER field into the binding set", () => {
+    // The binding-COLLECTION side was keyed on `isIdentifier` while resolution
+    // had been unified, so `#ch` never became a binding and every use of it
+    // resolved FOREIGN — silent before rule A ever ran. The public field is the
+    // control and reported throughout.
+    // THE UNKNOWN-MEMBER PAIR IS THE POINT, and diff r2 is why it exists: the
+    // sink pair alone MASKED a second defect, because `dispatch` is a declared
+    // sink that discovery recognises independently of the member
+    // classification. A different rule decided the observation, so the private
+    // ENTRY path stayed untested while this fixture looked like it covered the
+    // private form. Only an UNKNOWN member forces the classification to decide.
+    const f = "private-identifier-field.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "UNDECLARED-PASS", "hidden", lineOf(f, 'this.#ch.dispatch("p1"')),
+      finding(f, "UNDECLARED-PASS", "exposed", lineOf(f, 'this.open.dispatch("p2"')),
+      finding(f, "UNCLASSIFIED-USE", "typo", lineOf(f, "this.#ch.typo();")),
+      finding(f, "UNCLASSIFIED-USE", "typo", lineOf(f, "this.open.typo();")),
+    ]);
+  });
+});
+
+describe("diff r3 — the COUNT is total on SCOPE and on SPELLING, or it fails open", () => {
+  it("counts a competing declaration OUTSIDE the pass", () => {
+    // The count walked only the pass, so a class field `ch` declared outside it
+    // was never counted; a derivation named `ch` inside saw ONE declaration,
+    // kept its exemption, and the RAW field read was silently exempted — a
+    // fail-open in the arm whose whole claim is that it fails closed.
+    //
+    // Counting the MODULE over-counts at worst, which REPORTS. Counting the pass
+    // under-counts, which is silence. The `local.gauge` pair is the control.
+    const f = "shadow-scope-outside-pass-field.ts";
+    const p1 = lineOf(f, "const first = this.ch.panes();");
+    const p2 = lineOf(f, "const second = this.ch.panes();");
+    const g1 = lineOf(f, 'const g1 = local.gauge("a");');
+    const g2 = lineOf(f, 'const g2 = local.gauge("b");');
+    expect(scan(f)).toEqual([
+      finding(f, "UNCLASSIFIED-USE", "ch", lineOf(f, "void ch;")),
+      finding(f, "MULTI-READ", "panes", p1, [p1, p2]),
+      finding(f, "MULTI-READ", "gauge", g1, [g1, g2]),
+      finding(f, "UNDECLARED-PASS", "settle", lineOf(f, 'this.ch.dispatch("p1"')),
+    ]);
+  });
+
+  it("counts a QUOTED declaration name", () => {
+    // `set "snap"(...)` is ordinary TypeScript and one edit from the accessor
+    // fixture. Matching declarations through `isIdentifier` did not count it, so
+    // the exemption survived and the pass fell silent.
+    //
+    // It also corrected a DISPOSITION: that site had been recorded `grammar`,
+    // meaning the field's declared type admits only `Identifier`. It does not —
+    // the code merely PREFILTERED with `isIdentifier`, which is the `narrowed`
+    // case. A `grammar` claim is validated against the compiler's declared field
+    // type, never by reading the call site.
+    const f = "shadow-declaration-name-quoted.ts";
+    const a = lineOf(f, "const a = snap.panes();");
+    const b = lineOf(f, "const b = snap.panes();");
+    expect(scan(f)).toEqual([
+      finding(f, "UNCLASSIFIED-USE", "v", lineOf(f, "void v;")),
+      finding(f, "MULTI-READ", "panes", a, [a, b]),
+    ]);
   });
 });

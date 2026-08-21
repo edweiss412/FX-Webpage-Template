@@ -31,6 +31,14 @@ export type Channel = {
   clock(): number;
 };
 
+// The BARE `<T>` is the fixture. Prettier rewrites it to `<T,>`, and that
+// trailing comma is precisely what disambiguates a generic parameter from a
+// JSX open tag — so the reformatted bytes would parse cleanly under BOTH
+// kinds and this fixture would stop discriminating the ScriptKind selection
+// at all, while still being present and still passing. The directive sits
+// IMMEDIATELY above the line, because anything between it and the code
+// detaches it.
+// prettier-ignore
 const identity = <T>(x: T): T => x;
 
 export function settle(ch: Channel): number {

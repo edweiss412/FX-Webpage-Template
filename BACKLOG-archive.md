@@ -1,3 +1,88 @@
+## BL-SENDAUTH-ARM-CLASSIFIER-UNIFICATION — four arms of one scanner each decide independently what a receiver and a raw binding are — CLOSED 2026-08-21
+
+**Status:** SHIPPED 2026-08-21 · **Effort (as shipped):** M · **Severity (as filed):** MEDIUM (each un-narrowed arm is a SILENT miss, the one outcome the surface's consequence bound forbids) · **Class:** detector fidelity · **Facing:** process · **Shipped by:** `fix/sendauth-arm-classifier-unification`
+
+**Resolution.** One shared receiver rule (`surfaceReceiverOf`, total and three-way over
+`surface`/`foreign`/`opaque`) and one shared raw-binding predicate (a COUNT of competing
+declarations), consumed by every decision site. `receiverUnparen`, a local `unparen` copy, the
+four-kind `isDeclarationName` list and the ancestor-walk shadow predicate are all DELETED rather
+than left agreeing with the new rule by coincidence.
+
+**THREE DEFECTS IN THIS ROW'S OWN TEXT ARE CORRECTED HERE, and naming them is the point of the
+graduation.** A row is a claim, and these three were false when the arc opened:
+
+1. **The ambiguous "read arm".** Two functions answered to that name. The predecessor's diff-r4
+   bullet narrowed `classifyUses`; the axis paragraph meant `analyzePassReads`, which was NEVER
+   TOUCHED at r4 and still required a bare identifier receiver. A NARROWED claim is only as precise
+   as the name it is recorded against, so every such claim now names ONE FUNCTION. The predecessor
+   spec's §4 limit 8 preamble carried the same false sentence and is corrected in the same commit.
+2. **The stale "probed silent" claim for the handoff instance.** The row recorded the shadowed-
+   parameter handoff as returning 0 findings. It REPORTS, and had begun reporting before this arc
+   opened — the probe was a claim that had gone stale with no mechanism to notice.
+3. **The stale summary "two of the four arms are now narrowed".** The count described a population
+   that had already moved.
+
+**What the unification bought, measured rather than predicted.** Six name-resolution sites now route
+through the shared rule; the population went 42 sites to 36. Routing was not merely tidying —
+`calleeNameOf` gained the wrapper and element-access forms for free, so `(helper)(x)` and
+`h["leak"](x)` name the callee instead of falling to the anonymous label.
+
+**The corpus is the other half of the deliverable, and it is why the finding rate was flat.** The
+81-fixture corpus contained ZERO instances of any shape the four predecessor rounds found, so the
+suite was green throughout while REVIEW acted as the corpus-authoring mechanism — the most expensive
+authoring tool available. The corpus is now derived from the axes the rules decide on, every fixture
+names the rule-element it exists for, an unmapped fixture REDS, and `inherited` is frozen at the BASE
+size so a new fixture must name an axis instead of being absorbed as pre-existing.
+
+**Preservation, with an independent witness on each side:** every BASE verdict compared against a
+baseline built by running the BASE scanner (blob `412cadd3`) over the fixture list read from
+`git ls-tree` AT BASE — 79 identical, 2 moved, **`removed: (none)` on both**. The empty removal set
+is what makes the change additive; a count of two moved does not distinguish an addition from a
+replacement.
+
+**Score.** The measurement history, because a single figure here would describe a tree that no
+longer ships — which is exactly what diff r3 caught this entry doing:
+
+| run | score               | survivors    | why it was retired                        |
+| --- | ------------------- | ------------ | ----------------------------------------- |
+| 1   | 0.9895, BELOW floor | 3 unaccepted | repaired: two DELETIONS, one killing pair |
+| 2   | 289/289             | none         | retired by the diff-r1 repairs            |
+| 3   | 292/292             | none         | retired by the diff-r2 repair             |
+| 4   | 295/295             | none         | retired by the diff-r3 repairs            |
+
+**The FINAL shipping score is taken after merge clearance, deliberately.** `registry.ts` and
+`expectedLedgerKinds.ts` are stamped inputs, so any merge ahead of this branch retires a score taken
+earlier — taking it before clearance guarantees taking it twice. The figure quoted in the PR at
+merge time is the one that describes what shipped.
+
+**`accepted: []` STAYED EMPTY THROUGH ALL FOUR RUNS, and that is the durable result** rather than
+any of the numerals. Three survivors were taken to zero without ever reaching for the ledger — two
+by DELETING dead code the gate exposed, one by a killing pair. An accepted row is a permanent
+liability, re-keyed on every line-shifting edit for the life of the file, and review rounds are made
+of line-shifting edits; a sibling arc is at fifteen re-keys on one row. This surface owes ZERO
+re-keys, forever, and carries no standing unreachability claim for a later refactor to falsify.
+
+**The provenance stamp itself was found deficient and the finding is recorded rather than quietly
+fixed.** The round-1 stamp covered four blobs — source, suite, registry, `expectedLedgerKinds` —
+and OMITTED the spec and the plan, which the deciding suite reads from disk and which are therefore
+score inputs. That is the hand-written-list defect one level out from the fixtures, on the arc
+already caught by it once. The freeze set and the stamp set are the SAME SET, and deriving one while
+hand-listing the other is doing half the work while believing it done. The stamp is now DERIVED from
+what the suite actually reads and covers seven blobs. The affected measurement was re-established by
+an INDEPENDENT ROUTE — a clean worktree against a HEAD committed before the run launched, both blobs
+verified by git — because a widened check cannot vouch for a run it did not observe.
+
+**A finding that did NOT become a row, and the reasoning is the reusable part.** A surface member
+declared as a PROPERTY rather than a method, read twice in a pass, reports `UNCLASSIFIED-USE` twice
+where rule 2 would owe `MULTI-READ`. Probed, not reasoned about. The direction is the permitted one —
+signalled with a coarser code, never silent — so it is a DOCUMENTED LIMIT in the owning spec (§4.1c)
+with a re-file trigger, not an open-queue entry. Filing it would have asserted work someone should
+schedule for an outcome already inside the bound.
+
+**The load-bearing lesson, unchanged from the filing and now confirmed twice.** Failing arms closed
+produced ZERO false advisories on the live corpus. Silence was not buying correctness; it was buying
+nothing.
+
 ## BL-MUTATION-SCORE-NONDETERMINISM — a source-mutation surface's verdict moves with byte-identical inputs, and the score contract assumes that cannot happen — RESOLVED 2026-08-21 (`fix/mutation-score-nondeterminism`, SHIPPED)
 
 **Status:** RESOLVED 2026-08-21 (`fix/mutation-score-nondeterminism`) — **on a RE-SCOPED close condition, and the ORIGINAL one is NOT met.** · **Filed:** 2026-08-20 (`fix/shell-lexer-quoted-value-recall`, from CI triage on PR #856) · **Severity (as filed):** MEDIUM · **Class:** mutation harness fidelity · **Facing:** process · **Reachability:** PROBED — four observations of one site disagreeing with itself on byte-identical inputs.

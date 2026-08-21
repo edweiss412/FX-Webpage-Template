@@ -143,8 +143,24 @@ function readsFromSourceFile(sf: ts.SourceFile, row: SendAuthSurface): string[] 
       const name = member.name;
       // Both MethodSignature and PropertySignature: the rule ranges over every
       // member of the declaration, and the live type mixes the two forms.
-      if (name === undefined || !ts.isIdentifier(name)) continue;
-      if (!declared.has(name.text)) reads.push(name.text);
+      //
+      // A QUOTED member is a member. `isStringLiteralLike` is the compiler's own
+      // answer for a statically known name, the same one the element-access key
+      // uses, so `"wire-format"` resolves without this module deciding which node
+      // kinds qualify. It matters more than one entry: THE READ SET IS CONSUMED
+      // AS A COMPLEMENT, so a dropped member is not missing -- it is reclassified
+      // "not a read" and stops being constrained everywhere the set gates.
+      //
+      // An index signature has no name at all and stays out, which is correct:
+      // it names no member.
+      if (name === undefined) continue;
+      const text = ts.isIdentifier(name)
+        ? name.text
+        : ts.isStringLiteralLike(name)
+          ? name.text
+          : null;
+      if (text === null) continue;
+      if (!declared.has(text)) reads.push(text);
     }
   };
 
@@ -323,9 +339,9 @@ const surfaceBindings = (sf: ts.SourceFile, row: SendAuthSurface): Set<string> =
       // inside the threat fence, and omitting it made `this.ch.send(...)` silent.
       (ts.isParameter(n) || ts.isVariableDeclaration(n) || ts.isPropertyDeclaration(n)) &&
       isSurfaceRef2(n.type) &&
-      ts.isIdentifier(n.name)
+      declaredNameText(n.name) !== null
     ) {
-      names.add(n.name.text);
+      names.add(declaredNameText(n.name)!);
     }
     ts.forEachChild(n, visit);
   };
@@ -402,33 +418,60 @@ const classifyUses = (
    * answering differently is what made `this.ch.typo()` silent while `ch.typo()`
    * reported (diff r4 F1).
    */
-  const classifyMemberOn = (receiver: ts.PropertyAccessExpression | ts.Expression): void => {
+  const classifyMemberOn = (receiver: ts.Expression): void => {
     const outer = receiver.parent;
-    if (!ts.isPropertyAccessExpression(outer) || outer.expression !== receiver) return;
-    const member = outer.name.text;
-    const call = outer.parent;
-    if (ts.isCallExpression(call) && call.expression === outer) {
+    if (!ts.isExpression(outer)) return;
+    // The SELECTOR resolves through the same decomposition as the receiver, so
+    // `ch["panes"]()` names `panes` rather than falling through and naming the
+    // binding. A non-literal key yields null and is DECLARED SILENCE.
+    const selected = memberCallOf(outer);
+    if (selected === null || selected.receiver !== receiver) return;
+    const member = selected.member;
+    // TRANSPARENCY IS SYMMETRIC HERE TOO. `classify` already walks OUT before
+    // matching a branch; this site asked `outer.parent` directly, so a callee
+    // wrapped as a WHOLE -- `(ch.dispatch)(...)`, where the member access's parent
+    // is the wrapper and not the call -- matched neither the call branch nor
+    // `handedOn`, and a SINK CALL degraded to UNCLASSIFIED-USE naming the member.
+    // That is the wrong-attribution direction this arc exists to remove, surviving
+    // at the one position no fixture covered. Found by the killer audit.
+    const outward = outwardTransparent(outer);
+    const call = outward.parent;
+    if (ts.isCallExpression(call) && call.expression === outward) {
       if (!known.has(member)) report(outer, member);
       return;
     }
     const handedOn =
-      (ts.isPropertyAssignment(call) && call.initializer === outer) ||
-      (ts.isCallExpression(call) && call.arguments.includes(outer));
+      (ts.isPropertyAssignment(call) && call.initializer === outward) ||
+      (ts.isCallExpression(call) && call.arguments.includes(outward));
     if (ambient.has(member) && handedOn) return;
     report(outer, member);
   };
 
   const classify = (id: ts.Identifier): void => {
-    const parent = id.parent;
+    // Transparency is SYMMETRIC. Without this walk a wrapped reference matches no
+    // branch below and falls through to the generic report, naming the BINDING
+    // where the member is owed -- which is D6, the sixth decision site, and it
+    // was absent from the design's first draft. The depth probe found it, which
+    // is why an independence proof is a DERIVED cover over decision sites while a
+    // site list is a hand-maintained one.
+    const node = outwardTransparent(id);
+    const parent = node.parent;
 
-    if (ts.isPropertyAccessExpression(parent) && parent.expression === id) {
+    // The branch is taken only when the member actually RESOLVES. A COMPUTED
+    // member (`ch[key]`) is not knowable from the source text, so it must keep
+    // falling through to the generic report that names the BINDING -- accepting
+    // an element-access parent unconditionally silenced that case entirely,
+    // which is a narrowing manufacturing a silent miss in the same edit that
+    // removed a false one.
+    const selected = ts.isExpression(parent) ? memberCallOf(parent) : null;
+    if (selected !== null && selected.receiver === node) {
       // ONE implementation, called with the identifier as the receiver. Copying these
       // branches for the property-receiver path left SEVEN survivors on the copy —
       // no case reached it — and worse, it duplicated the line the registry's control
       // edit keys on BY TEXT, so the control landed on the unexercised copy and the
       // suite stopped noticing it. A control edit keyed by text is only as good as
       // that text's uniqueness, which duplication silently destroys.
-      classifyMemberOn(id);
+      classifyMemberOn(node);
       return;
     }
 
@@ -441,7 +484,7 @@ const classifyUses = (
 
     // An injection argument. Inside a declared pass this becomes RAW-HANDOFF,
     // which rule 3 owns; outside one it is ordinary injection and correct.
-    if (ts.isCallExpression(parent) && parent.arguments.includes(id)) return;
+    if (ts.isCallExpression(parent) && parent.arguments.includes(node)) return;
 
     // STORING the surface into a field of `this` -- `this.ch = ch` in a constructor
     // -- is the same ordinary injection as passing it as an argument, and the field
@@ -452,7 +495,7 @@ const classifyUses = (
     if (
       ts.isBinaryExpression(parent) &&
       parent.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
-      parent.right === id &&
+      parent.right === node &&
       ts.isPropertyAccessExpression(parent.left) &&
       parent.left.expression.kind === ts.SyntaxKind.ThisKeyword
     ) {
@@ -486,14 +529,30 @@ const classifyUses = (
   };
 
   const visit = (node: ts.Node): void => {
+    // ENTRY, DERIVED FROM THE REAL QUESTION rather than enumerated by node kind.
+    //
+    // The identifier walk below can only enter on an `Identifier`. A receiver
+    // whose own NAME NODE is not one therefore has no entry node at all and the
+    // member classification never runs — `this["ch"]` (a string literal key) and
+    // `this.#ch` (a PrivateIdentifier) are both that shape. Round 1 fixed the
+    // string-literal case by naming it, which left the private one; asking
+    // instead "can the identifier walk reach this?" closes both and anything
+    // else the language adds with a non-identifier name.
+    if (nonIdentifierMemberName(node) !== undefined) {
+      const receiver = surfaceReceiverOf(node as ts.Expression, (name) => bindings.has(name));
+      if (receiver.kind === "surface" && !derivedAt(receiver.name, node)) {
+        classifyMemberOn(node as ts.Expression);
+      }
+    }
     if (ts.isIdentifier(node) && bindings.has(node.text)) {
       const parent = node.parent;
-      const isDeclarationName =
-        (ts.isParameter(parent) ||
-          ts.isVariableDeclaration(parent) ||
-          ts.isPropertyDeclaration(parent) ||
-          ts.isBindingElement(parent)) &&
-        parent.name === node;
+      // ONE accept-set, shared with rule B's declaration count. The four-kind
+      // list this replaces missed accessor, method and property-assignment names,
+      // so an accessor NAMED for a surface binding was reported as a USE of it --
+      // and the same list was invisible to the shadow walk until that walk was
+      // repaired. Two hand-written copies of "is this a declaration" is the shape
+      // this arc exists to remove.
+      const isDeclarationName = declaresName(node);
       const isPropertyName = ts.isPropertyAccessExpression(parent) && parent.name === node;
       // A property NAME is not a binding reference — EXCEPT when the property itself
       // is a surface binding, which is what a class field is. `this.ch.typo()` was
@@ -562,7 +621,7 @@ const analyzePassReads = (
   // used. A parameter shadowing a derived name inside the same pass is raw at its own
   // uses and derived nowhere (diff r2 F1), and a set keyed on the name alone cannot
   // say that.
-  isRaw: (name: string, at: ts.Node) => boolean,
+  isRaw: (name: string) => boolean,
   reads: readonly string[],
   passFn: ts.Node,
   derivations: readonly Derivation[],
@@ -573,14 +632,13 @@ const analyzePassReads = (
   const lineAt = (n: ts.Node): number => sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
 
   const visit = (n: ts.Node): void => {
+    const readCall = ts.isCallExpression(n) ? memberCallOf(n.expression) : null;
     if (
-      ts.isCallExpression(n) &&
-      ts.isPropertyAccessExpression(n.expression) &&
-      ts.isIdentifier(n.expression.expression) &&
-      isRaw(n.expression.expression.text, n) &&
-      readSet.has(n.expression.name.text)
+      readCall !== null &&
+      readSet.has(readCall.member) &&
+      surfaceReceiverOf(readCall.receiver, isRaw).kind === "surface"
     ) {
-      const member = n.expression.name.text;
+      const member = readCall.member;
       // Raw reads inside a derivation's OWN initializer are exempt from this
       // rule: that is the shipped memo at `scripts/pane-compaction.ts:797`,
       // which reads `marker` once inside the snapshot it is building. The
@@ -629,11 +687,13 @@ const analyzePassReads = (
  */
 type Derivation = { name: string; line: number; declaration: ts.Node; initializer: ts.Node };
 
-const calleeNameOf = (call: ts.CallExpression): string => {
-  if (ts.isIdentifier(call.expression)) return call.expression.text;
-  if (ts.isPropertyAccessExpression(call.expression)) return call.expression.name.text;
-  return "(anonymous)";
-};
+const calleeNameOf = (call: ts.CallExpression): string =>
+  // ROUTED. "The rightmost name of this expression" IS rule A's question, and
+  // answering it here a second time is how the two drifted apart in the first
+  // place. Routing also buys the wrapper and element-access forms for free:
+  // `(helper)(x)` and `h["leak"](x)` now name the callee instead of falling to
+  // the anonymous label.
+  receiverRightmostName(call.expression) ?? "(anonymous)";
 
 const isDerivationInitializer = (
   node: ts.Node,
@@ -644,15 +704,20 @@ const isDerivationInitializer = (
     return node.properties.some(
       (prop) =>
         ts.isSpreadAssignment(prop) &&
-        ts.isIdentifier(prop.expression) &&
-        bindings.has(prop.expression.text),
+        // ROUTED: a spread of the surface is a surface receiver like any other,
+        // so `{ ...(ch) }` and `{ ...this.ch }` are derivations too.
+        surfaceReceiverOf(prop.expression, (name) => bindings.has(name)).kind === "surface",
     );
   }
   if (ts.isCallExpression(node)) {
     return (
       ts.isIdentifier(node.expression) &&
-      row.derivationHelpers.includes(node.expression.text) &&
-      node.arguments.some((a) => ts.isIdentifier(a) && bindings.has(a.text))
+      // ROUTED, both positions: the helper's own name and the argument that
+      // carries the surface.
+      row.derivationHelpers.includes(receiverRightmostName(node.expression) ?? "") &&
+      node.arguments.some(
+        (a) => surfaceReceiverOf(a, (name) => bindings.has(name)).kind === "surface",
+      )
     );
   }
   return false;
@@ -757,7 +822,7 @@ const analyzeDerivations = (
 const analyzeHandoffs = (
   sf: ts.SourceFile,
   file: string,
-  isRaw: (name: string, at: ts.Node) => boolean,
+  isRaw: (name: string) => boolean,
   passFn: ts.Node,
   derivations: readonly Derivation[],
 ): Finding[] => {
@@ -770,7 +835,12 @@ const analyzeHandoffs = (
         // SHADOWING a derived name was subtracted with it and its handoff went
         // unreported — diff r2 F1's defect, still live one arm over at diff r4 F2.
         // A binding the scanner cannot SHOW to be derived here is RAW: fail closed.
-        if (!ts.isIdentifier(argument) || !isRaw(argument.text, argument)) continue;
+        // The ARGUMENT is the surface reference, so rule A resolves it exactly as
+        // it resolves a receiver: `helper(this.ch)` and `helper((ch))` hand on the
+        // same binding a bare `helper(ch)` does. `foreign` and `opaque` are silent.
+        if (surfaceReceiverOf(argument, isRaw).kind !== "surface") {
+          continue;
+        }
         const line = sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
         // Named by CALLEE: two handoffs can share a code, a file AND a line and
         // differ only here, so the callee is part of the finding's IDENTITY.
@@ -815,15 +885,195 @@ const analyzeHandoffs = (
  * Suppressed by one arm, skipped by the other, reported by neither (diff r3 F6).
  * A shared rule cannot drift apart the way two hand-written ones did.
  */
+export type Receiver =
+  /** the rightmost name resolves to a surface binding */
+  | { kind: "surface"; name: string }
+  /** a rightmost name exists and is NOT a binding */
+  | { kind: "foreign"; name: string }
+  /** no statically knowable rightmost name */
+  | { kind: "opaque" };
+
+/**
+ * TRANSPARENCY IS ASKED OF THE COMPILER, NEVER ENUMERATED.
+ *
+ * "Which wrappers change no meaning" is a question TypeScript already answers:
+ * `OuterExpressionKinds.All` covers parentheses, type assertions (`as` and the
+ * angle form), non-null (`!`), `satisfies`, partially-emitted expressions and
+ * expressions-with-type-arguments. A hand-written wrapper list is the exact
+ * defect this arc exists to remove, so writing one HERE would have been the
+ * defect committed inside its own repair.
+ */
+type SkipOuterExpressions = (node: ts.Expression, kinds: ts.OuterExpressionKinds) => ts.Expression;
+
+/**
+ * PROBED, NOT ASSUMED. In the pinned TypeScript (5.9.3) `skipOuterExpressions`
+ * is present at RUNTIME and absent from the public `.d.ts`; `OuterExpressionKinds`
+ * IS public and `All` is 63. So it is bound through a narrow declared shape
+ * rather than reached for as a public export.
+ *
+ * It FAILS LOUD if an upgrade removes it. A silent fallback to a hand-written
+ * wrapper list would re-open precisely the class this rule closes, and it would
+ * do so invisibly -- the suite would stay green while the guard quietly stopped
+ * seeing three of the four wrapper forms.
+ */
+const skipOuterExpressions: SkipOuterExpressions = ((): SkipOuterExpressions => {
+  const fn = (ts as unknown as { skipOuterExpressions?: unknown }).skipOuterExpressions;
+  if (typeof fn !== "function") {
+    throw new Error(
+      "sendAuthScan: ts.skipOuterExpressions is unavailable in this TypeScript build. " +
+        "Rule A resolves receiver transparency THROUGH THE COMPILER deliberately; " +
+        "a hand-written wrapper list is the defect this rule exists to remove, so " +
+        "this fails rather than degrading to one.",
+    );
+  }
+  return fn as SkipOuterExpressions;
+})();
+
+/** Rule A's unwrap. Both sides of the rule use this one function. */
+const skipTransparent = (e: ts.Expression): ts.Expression =>
+  skipOuterExpressions(e, ts.OuterExpressionKinds.All);
+
+/**
+ * The RIGHTMOST NAME of a receiver, or null when the source text does not name
+ * it.
+ *
+ * A STATICALLY KNOWN element access resolves to its key: `this["ch"]` and
+ * `` this[`ch`] `` name their member IN THE BYTES and need neither a checker nor
+ * a call graph, so they are NOT the fenced call-result case. Treating them as
+ * one left a real surface sink fully silent, which is the fail-open direction.
+ * A non-literal key (`ch[name]`) has no name to resolve and stays opaque.
+ */
 const receiverRightmostName = (raw: ts.Expression): string | null => {
-  const e = ts.isParenthesizedExpression(raw) ? receiverUnparen(raw.expression) : raw;
-  return ts.isIdentifier(e) ? e.text : ts.isPropertyAccessExpression(e) ? e.name.text : null;
+  const e = skipTransparent(raw);
+  if (ts.isIdentifier(e)) return e.text;
+  if (ts.isPropertyAccessExpression(e)) return declaredNameText(e.name);
+  if (ts.isElementAccessExpression(e)) {
+    const key = skipTransparent(e.argumentExpression);
+    // `isStringLiteralLike` is the compiler's own answer for "a literal whose
+    // text is known statically", covering both `"ch"` and `` `ch` `` without
+    // this module deciding which node kinds qualify.
+    return ts.isStringLiteralLike(key) ? key.text : null;
+  }
+  return null;
 };
 
-/** Transparent-wrapper unwrap, shared for the same reason (diff r2 F2). */
-function receiverUnparen(e: ts.Expression): ts.Expression {
-  return ts.isParenthesizedExpression(e) ? receiverUnparen(e.expression) : e;
-}
+/**
+ * RULE A. Total and three-way, so every consumer disposes of every case
+ * explicitly and the disposition table has no empty cells.
+ *
+ * `opaque` means "no statically knowable name", NOT "not a bare identifier" —
+ * the distinction is load-bearing, and collapsing the two is what silenced a
+ * real sink.
+ */
+/**
+ * The TEXT of a declared or accessed NAME, whatever spelling it carries.
+ *
+ * The class diff round 1 found: resolving a name and ENTERING on one are
+ * different jobs, and every ENTRY point was keyed on `isIdentifier` alone. So a
+ * `#ch` field never joined the binding set and a `this["ch"]` receiver was never
+ * reached at all -- both SILENT, the direction the consequence bound forbids,
+ * while the dotted forms reported. Rule A was unified and the sites that FEED it
+ * were not.
+ *
+ * `PrivateIdentifier.text` carries the `#`, and the declaration and the use both
+ * read it through here, so the two sides agree by construction rather than by
+ * coincidence.
+ */
+const declaredNameText = (name: ts.Node | undefined): string | null => {
+  if (name === undefined) return null;
+  if (ts.isIdentifier(name) || ts.isPrivateIdentifier(name)) return name.text;
+  if (ts.isStringLiteralLike(name)) return name.text;
+  if (ts.isComputedPropertyName(name)) {
+    const key = skipTransparent(name.expression);
+    return ts.isStringLiteralLike(key) ? key.text : null;
+  }
+  return null;
+};
+
+/**
+ * The member NAME NODE of a member expression, but ONLY when it is not an
+ * `Identifier` — which is exactly the case an identifier-keyed walk cannot
+ * reach. `this["ch"]` names its member with a string literal and `this.#ch`
+ * with a `PrivateIdentifier`; neither yields an identifier to enter on.
+ *
+ * Kept as its own function so the guards apply to ITS parameter rather than to
+ * a walk's node: a walk that tests `isIdentifier` and `isPropertyAccessExpression`
+ * on ONE expression is the shape the absence scan reports as a second
+ * implementation of the receiver rule, and it would be right to.
+ */
+const nonIdentifierMemberName = (n: ts.Node): ts.Node | undefined => {
+  const name = ts.isPropertyAccessExpression(n)
+    ? n.name
+    : ts.isElementAccessExpression(n)
+      ? n.argumentExpression
+      : undefined;
+  return name !== undefined && !ts.isIdentifier(name) ? name : undefined;
+};
+
+export const surfaceReceiverOf = (
+  raw: ts.Expression,
+  // A PREDICATE, not a set. Whether a name is a surface binding is position-
+  // dependent for two of the six consumers -- a parameter shadowing a derived
+  // name is raw at its own uses and derived nowhere -- and a set keyed on the
+  // name alone cannot say that. Passing `bindings.has` covers the set case, so
+  // one entry point serves all six rather than two rules drifting apart.
+  isBinding: (name: string) => boolean,
+): Receiver => {
+  const name = receiverRightmostName(raw);
+  if (name === null) return { kind: "opaque" };
+  return isBinding(name) ? { kind: "surface", name } : { kind: "foreign", name };
+};
+
+/**
+ * A member call decomposed into its TWO POSITIONS.
+ *
+ * RECEIVER and SELECTOR are different positions, and a rule that unifies the
+ * receiver while leaving the selector dot-only satisfies every receiver-shaped
+ * case in this arc -- then leaves `this["ch"]["dispatch"]()` COMPLETELY SILENT
+ * and reports the BINDING twice for a doubled `ch["panes"]()`. One decomposition
+ * answers both, so neither position can be unified without the other.
+ */
+type MemberCall = { receiver: ts.Expression; member: string };
+
+const memberCallOf = (callee: ts.Expression): MemberCall | null => {
+  const c = skipTransparent(callee);
+  if (ts.isPropertyAccessExpression(c)) return { receiver: c.expression, member: c.name.text };
+  if (ts.isElementAccessExpression(c)) {
+    const key = skipTransparent(c.argumentExpression);
+    return ts.isStringLiteralLike(key) ? { receiver: c.expression, member: key.text } : null;
+  }
+  return null;
+};
+
+/**
+ * TRANSPARENCY IS SYMMETRIC, and this is the mirror of `skipTransparent`.
+ *
+ * Rule A unwraps the receiver EXPRESSION. D6 branches on an identifier's PARENT,
+ * so a wrapped reference matches no branch and falls through to the generic
+ * report -- naming the BINDING where the member is owed. Walking OUT first is
+ * what makes `(ch).gauge()` reach the same branch as `ch.gauge()`.
+ *
+ * The comparison is against the ORIGINAL node, never the current one: for
+ * `((ch))` the outer wrapper unwraps to `ch` and not to the inner wrapper, so a
+ * current-node comparison would stop the walk one level in.
+ *
+ * It ascends a finite tree and assigns in the loop BODY, so a mutant to the
+ * predicate can only stop it EARLIER -- never turn it into a hang.
+ */
+const outwardTransparent = (n: ts.Expression): ts.Expression => {
+  let cur: ts.Expression = n;
+  for (;;) {
+    const p: ts.Node | undefined = cur.parent;
+    if (p === undefined) return cur;
+    // The `ts.isExpression(p)` guard that stood here was REDUNDANT and the gate
+    // proved it: no case could kill a mutant of that disjunction, because
+    // `skipOuterExpressions` returns a non-expression node UNCHANGED, so the
+    // comparison below already declines it. Deleted per rule 20's first rung --
+    // a site whose only differing case is unreachable is removed, not argued.
+    if (skipTransparent(p as ts.Expression) !== n) return cur;
+    cur = p as ts.Expression;
+  }
+};
 
 /**
  * The top-level functions primary discovery CLASSIFIES as send-bearing: the subtree
@@ -844,12 +1094,14 @@ const sendBearingFunctions = (
   topLevel.filter((fn) => {
     let sendBearing = false;
     const look = (n: ts.Node): void => {
-      if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)) {
-        const receiver = receiverRightmostName(n.expression.expression);
+      if (ts.isCallExpression(n)) {
+        const call = memberCallOf(n.expression);
+        // `foreign` is silent and REQUIRED for zero false advisories; `opaque` is
+        // DECLARED SILENCE under the no-call-graph fence. Only `surface` proceeds.
         if (
-          receiver !== null &&
-          bindings.has(receiver) &&
-          row.sinks.includes(n.expression.name.text)
+          call !== null &&
+          row.sinks.includes(call.member) &&
+          surfaceReceiverOf(call.receiver, (name) => bindings.has(name)).kind === "surface"
         ) {
           sendBearing = true;
         }
@@ -882,7 +1134,8 @@ const unreachedOccurrences = (
       for (const element of n.name.elements) {
         const named = element.propertyName ?? element.name;
         const member = ts.isIdentifier(named) ? named.text : "(computed)";
-        if (ts.isIdentifier(element.name)) destructured.add(element.name.text);
+        const bound = declaredNameText(element.name);
+        if (bound !== null) destructured.add(bound);
         const line = at(element);
         out.push({ code: "UNCLASSIFIED-USE", file, line, name: member, lines: [line] });
       }
@@ -917,20 +1170,25 @@ const unreachedOccurrences = (
       // reader. Inspecting the node without unwrapping made both the sink walk and the
       // default-deny arm miss it, and the module reported NOTHING (diff r2 F2). A
       // wrapper that changes no semantics must not change what the guard sees.
-      const unparen = (e: ts.Expression): ts.Expression =>
-        ts.isParenthesizedExpression(e) ? unparen(e.expression) : e;
-      const receiverName = receiverRightmostName;
-      const bare = unparen(callee);
+      // NOT unwrapped here: `surfaceReceiverOf` unwraps its own argument (rule A's
+      // one entry point), and `skipTransparent` is idempotent, so a second unwrap
+      // at this call site could never change the result. The killer audit found it
+      // by removing it and observing that NOTHING in the corpus noticed -- which
+      // for a load-bearing unwrap would be a coverage gap, and for this one is the
+      // proof it was dead. A fixture pinning dead code would pin the wrong thing.
+      const bare = callee;
+      const memberCall = memberCallOf(callee);
       const isMemberSink =
-        ts.isPropertyAccessExpression(bare) &&
-        row.sinks.includes(bare.name.text) &&
-        (() => {
-          const name = receiverName(bare.expression);
-          return name !== null && bindings.has(name);
-        })();
+        memberCall !== null &&
+        row.sinks.includes(memberCall.member) &&
+        surfaceReceiverOf(memberCall.receiver, (name) => bindings.has(name)).kind === "surface";
       // A sink reached through a destructured local: no property access exists to
       // inspect, so the local's own name is the whole signal.
-      const isBareSink = ts.isIdentifier(bare) && destructured.has(bare.text);
+      // ROUTED: the local's own name is the whole signal, and rule A is what
+      // resolves a name from an expression -- so a wrapped destructured local is
+      // reached exactly as a bare one is.
+      const isBareSink =
+        surfaceReceiverOf(bare, (name) => destructured.has(name)).kind === "surface";
       // Suppress ONLY where discovery actually classified the containing function.
       // The old test was `topLevel.some(...)` — mere containment — which handed the
       // call to an arm that had already declined it (diff r3 F6).
@@ -949,6 +1207,99 @@ const unreachedOccurrences = (
   };
   walkSinks(sf);
   return out;
+};
+
+/**
+ * The accept-set of DECLARING PARENTS. Its default is USE, and that direction is
+ * chosen by which error SURVIVES BEING WRONG: classifying a use as a declaration
+ * SKIPS it and the finding is lost forever and silently, while classifying a
+ * declaration as a use REPORTS and costs a line somebody reads.
+ *
+ * Note this arc's two accept-sets default in OPPOSITE directions on purpose --
+ * rule B's competing test defaults to COMPETES. What they share is that the
+ * default is the direction whose mistake is recoverable.
+ */
+export const DECLARING_PARENT_KINDS: ReadonlySet<ts.SyntaxKind> = new Set([
+  ts.SyntaxKind.Parameter,
+  ts.SyntaxKind.VariableDeclaration,
+  ts.SyntaxKind.PropertyDeclaration,
+  ts.SyntaxKind.BindingElement,
+  ts.SyntaxKind.MethodDeclaration,
+  ts.SyntaxKind.GetAccessor,
+  ts.SyntaxKind.SetAccessor,
+  ts.SyntaxKind.PropertyAssignment,
+  ts.SyntaxKind.PropertySignature,
+  ts.SyntaxKind.MethodSignature,
+  ts.SyntaxKind.FunctionDeclaration,
+  ts.SyntaxKind.FunctionExpression,
+  ts.SyntaxKind.ClassDeclaration,
+  ts.SyntaxKind.ClassExpression,
+  ts.SyntaxKind.EnumMember,
+  ts.SyntaxKind.TypeParameter,
+]);
+
+const declaresName = (name: ts.Node): boolean => {
+  const parent: ts.Node | undefined = name.parent;
+  if (parent === undefined || !DECLARING_PARENT_KINDS.has(parent.kind)) return false;
+  return (parent as { name?: ts.Node }).name === name;
+};
+
+/**
+ * The KEYWORD TYPES that cannot hold an object. This is the ONLY escape from
+ * competing, and the complement is DEFAULT-DENIED into the reporting direction.
+ *
+ * "Not spelled exactly like the surface type" is NOT "provably not the surface":
+ * permitting only an exact reference or an absent annotation to compete let a
+ * shadow annotated `any` or `Readonly<Channel>` INHERIT the exemption and
+ * suppress reads the scanner reports today -- a regression in the silence
+ * direction, introduced by the repair.
+ */
+const CANNOT_HOLD_AN_OBJECT: ReadonlySet<ts.SyntaxKind> = new Set([
+  ts.SyntaxKind.StringKeyword,
+  ts.SyntaxKind.NumberKeyword,
+  ts.SyntaxKind.BooleanKeyword,
+  ts.SyntaxKind.BigIntKeyword,
+  ts.SyntaxKind.SymbolKeyword,
+  ts.SyntaxKind.VoidKeyword,
+  ts.SyntaxKind.UndefinedKeyword,
+  ts.SyntaxKind.NeverKeyword,
+]);
+
+const competesAsSurface = (declaration: ts.Node): boolean => {
+  const annotation = (declaration as { type?: ts.TypeNode }).type;
+  // NO ANNOTATION COMPETES: it cannot be ruled out without a checker.
+  if (annotation === undefined) return true;
+  if (CANNOT_HOLD_AN_OBJECT.has(annotation.kind)) return false;
+  // `null` is a LiteralType wrapping the keyword rather than a keyword node.
+  if (ts.isLiteralTypeNode(annotation) && annotation.literal.kind === ts.SyntaxKind.NullKeyword) {
+    return false;
+  }
+  return true;
+};
+
+/**
+ * How many COMPETING declarations of `name` the pass contains. More than one and
+ * the derivation exemption for that name is VOID, so every use of it in the pass
+ * is RAW and the pass REPORTS instead of falling silent.
+ *
+ * A bounded tree walk: a mutant to the predicate can only visit fewer nodes,
+ * never fail to terminate.
+ */
+const competingDeclarationCount = (scope: ts.Node, name: string): number => {
+  let count = 0;
+  const walk = (node: ts.Node): void => {
+    // SPELLING: resolved through the shared `declaredNameText`, not through
+    // `isIdentifier`. A QUOTED declaration name -- `set "snap"(v: Channel)`, which
+    // is ordinary TypeScript -- was not counted, so the exemption survived and the
+    // pass fell SILENT. Under-counting here always fails OPEN, which is the
+    // direction the bound forbids.
+    if (declaredNameText(node) === name && declaresName(node) && competesAsSurface(node.parent)) {
+      count += 1;
+    }
+    ts.forEachChild(node, walk);
+  };
+  walk(scope);
+  return count;
 };
 
 /** Scan one enrolled module against its row. */
@@ -988,27 +1339,29 @@ export function scanModule(file: string, row: SendAuthSurface): Finding[] {
   // parameter, the use is treated as RAW. A shadow the scanner cannot resolve
   // therefore REPORTS rather than falling silent, which is the only direction the
   // consequence bound allows.
-  const shadowedBetween = (name: string, at: ts.Node, declaration: ts.Node): boolean => {
-    for (let cur: ts.Node | undefined = at; cur !== undefined; cur = cur.parent) {
-      if (cur === declaration) return false;
-      if (isFunctionLike(cur)) {
-        const shadows = (cur as ts.SignatureDeclaration).parameters.some(
-          (param) => ts.isIdentifier(param.name) && param.name.text === name,
-        );
-        if (shadows) return true;
-      }
-    }
-    return false;
-  };
+  // RULE B, as a COUNT. The ancestor-walk shadow predicate this replaces is
+  // DELETED OUTRIGHT -- named in the commit that removed it rather than here, so
+  // AC-U8's grep for the symbol can return a clean zero. It had to ENUMERATE the
+  // scopes able to shadow, and it fell silent -- fail-open, into the forbidden
+  // direction -- on every scope kind it did not list. It was already measured
+  // missing three, and widening it one scope per round is the ratchet.
+  //
+  // A count needs no notion of scope AT ALL, so it is total over constructors, set
+  // accessors, nested blocks and forms nobody has thought of, without naming any
+  // of them. It also cannot be argued with.
+  // No memo. It was an optimisation this corpus does not need, and its cache
+  // write was an UNKILLABLE site -- removing it changed no result, only work.
+  // An equivalence row would have been a standing claim that a later refactor
+  // could silently falsify; a deleted site cannot rot.
+  const exemptionVoid = (passFn: ts.Node, name: string): boolean =>
+    competingDeclarationCount(passFn, name) > 1;
 
   const derivedAt = (name: string, at: ts.Node): boolean =>
-    passes.some((p) =>
-      p.derivations.some(
-        (d) =>
-          d.name === name &&
-          lexicallyWithin(p.fn, at, sf) &&
-          !shadowedBetween(name, at, d.declaration),
-      ),
+    passes.some(
+      (p) =>
+        p.derivations.some((d) => d.name === name) &&
+        lexicallyWithin(p.fn, at, sf) &&
+        !exemptionVoid(sf, name),
     );
 
   const topLevel = topLevelFunctions(sf);
@@ -1019,9 +1372,14 @@ export function scanModule(file: string, row: SendAuthSurface): Finding[] {
     // Per-pass, for the same reason: inside THIS pass, only THIS pass's derivations
     // are derived. Another pass's names are ordinary raw bindings here.
     // Raw HERE means: a surface binding, and not derived AT THIS USE by THIS pass.
-    const rawHere = (name: string, at: ts.Node): boolean =>
-      bindings.has(name) &&
-      !derivations.some((d) => d.name === name && !shadowedBetween(name, at, d.declaration));
+    const rawHere = (name: string): boolean =>
+      // SCOPE: the whole MODULE, not the pass. A competing declaration does not
+      // have to live inside the pass -- a class field `ch` outside it competes
+      // with a derivation named `ch` inside it, and counting only the pass saw
+      // ONE declaration, kept the exemption, and silently exempted the raw field
+      // read. Counting the module over-counts at worst, which REPORTS; counting
+      // the pass under-counts, which is silence.
+      bindings.has(name) && (exemptionVoid(sf, name) || !derivations.some((d) => d.name === name));
     findings.push(...analyzePassReads(sf, file, rawHere, reads, fn, derivations));
     findings.push(...analyzeDerivations(sf, file, fn, derivations));
     // The name-only view was NOT the right one: it subtracted a shadowing parameter

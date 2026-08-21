@@ -1,0 +1,246 @@
+// tests/paneCompaction/sendAuthNamePositions.ts
+//
+// The name-position disposition table, lifted OUT of the deciding suite so the
+// suite and the derived cover share ONE definition. A second copy is the defect
+// this whole arc is about, and a table asserted by two files that each keep their
+// own would be that defect wearing the guard's clothes.
+
+export type Disposition = "implementation" | "grammar" | "narrowed" | "not-a-name";
+
+export type DispositionRow = {
+  fn: string;
+  ordinal: number;
+  text: string;
+  disposition: Disposition;
+  why?: string;
+  refileWhen?: string;
+};
+
+export const NAME_POSITION_DISPOSITIONS: readonly DispositionRow[] = [
+  {
+    fn: "collect",
+    ordinal: 1,
+    text: "name.text",
+    disposition: "narrowed",
+    why: "same field, the string-literal arm",
+    refileWhen: "a computed member name must resolve",
+  },
+  {
+    fn: "collect",
+    ordinal: 2,
+    text: "name.text",
+    disposition: "narrowed",
+    why: "same field, the string-literal arm",
+    refileWhen: "a computed member name must resolve",
+  },
+  {
+    fn: "visit",
+    ordinal: 1,
+    text: "node.name.text",
+    disposition: "grammar",
+    why: "InterfaceDeclaration.name is declared Identifier",
+  },
+  {
+    fn: "visit",
+    ordinal: 2,
+    text: "node.name.text",
+    disposition: "grammar",
+    why: "InterfaceDeclaration.name is declared Identifier",
+  },
+  {
+    fn: "isSurfaceRef",
+    ordinal: 1,
+    text: "t.typeName.text",
+    disposition: "not-a-name",
+    why: "TypeReferenceNode.typeName — a TYPE name, never a receiver",
+    refileWhen: "this site is asked to resolve a value name",
+  },
+  {
+    fn: "topLevelFunctions",
+    ordinal: 1,
+    text: "st.name?.text",
+    disposition: "not-a-name",
+    why: "FunctionDeclaration.name — the LABEL a finding carries",
+    refileWhen: "this label is used to resolve a binding",
+  },
+  {
+    fn: "topLevelFunctions",
+    ordinal: 2,
+    text: "d.name.text",
+    disposition: "not-a-name",
+    why: "VariableDeclaration.name — the LABEL a finding carries",
+    refileWhen: "this label is used to resolve a binding",
+  },
+  {
+    fn: "classify",
+    ordinal: 1,
+    text: "named.text",
+    disposition: "narrowed",
+    why: "BindingName via propertyName ?? name; a non-identifier falls back to the binding's own text",
+    refileWhen: "a computed bound member must be named exactly",
+  },
+  {
+    fn: "classify",
+    ordinal: 2,
+    text: "id.text",
+    disposition: "grammar",
+    why: "id is declared ts.Identifier",
+  },
+  {
+    fn: "classify",
+    ordinal: 3,
+    text: "id.text",
+    disposition: "grammar",
+    why: "id is declared ts.Identifier",
+  },
+  {
+    fn: "classify",
+    ordinal: 4,
+    text: "id.text",
+    disposition: "grammar",
+    why: "id is declared ts.Identifier",
+  },
+  {
+    fn: "visit",
+    ordinal: 3,
+    text: "node.text",
+    disposition: "narrowed",
+    why: "the binding's DECLARED type is ts.Node; this site is reached only behind the walk head's isIdentifier prefilter, so a non-identifier name node is silently declined here",
+    refileWhen: "a name node that is not an Identifier must be classified at this site",
+  },
+  {
+    fn: "visit",
+    ordinal: 4,
+    text: "node.text",
+    disposition: "narrowed",
+    why: "the binding's DECLARED type is ts.Node; this site is reached only behind the walk head's isIdentifier prefilter, so a non-identifier name node is silently declined here",
+    refileWhen: "a name node that is not an Identifier must be classified at this site",
+  },
+  {
+    fn: "visit",
+    ordinal: 5,
+    text: "node.text",
+    disposition: "narrowed",
+    why: "the binding's DECLARED type is ts.Node; this site is reached only behind the walk head's isIdentifier prefilter, so a non-identifier name node is silently declined here",
+    refileWhen: "a name node that is not an Identifier must be classified at this site",
+  },
+  {
+    fn: "visit",
+    ordinal: 6,
+    text: "node.text",
+    disposition: "narrowed",
+    why: "the binding's DECLARED type is ts.Node; this site is reached only behind the walk head's isIdentifier prefilter, so a non-identifier name node is silently declined here",
+    refileWhen: "a name node that is not an Identifier must be classified at this site",
+  },
+  {
+    fn: "visit",
+    ordinal: 7,
+    text: "n.name.text",
+    disposition: "narrowed",
+    why: "VariableDeclaration.name is BindingName and this site does not guard it; a destructured derivation would be named by its pattern text",
+    refileWhen: "a destructured derivation must be named",
+  },
+  {
+    fn: "passNameOf",
+    ordinal: 1,
+    text: "parent.name.text",
+    disposition: "not-a-name",
+    why: "VariableDeclaration.name — the pass LABEL",
+    refileWhen: "this label is used to resolve a binding",
+  },
+  {
+    fn: "passNameOf",
+    ordinal: 2,
+    text: "fn.name.text",
+    disposition: "not-a-name",
+    why: "FunctionDeclaration.name — the pass LABEL",
+    refileWhen: "this label is used to resolve a binding",
+  },
+  { fn: "receiverRightmostName", ordinal: 1, text: "e.text", disposition: "implementation" },
+  { fn: "receiverRightmostName", ordinal: 2, text: "key.text", disposition: "implementation" },
+  { fn: "declaredNameText", ordinal: 1, text: "name.text", disposition: "implementation" },
+  { fn: "declaredNameText", ordinal: 2, text: "name.text", disposition: "implementation" },
+  { fn: "declaredNameText", ordinal: 3, text: "key.text", disposition: "implementation" },
+  { fn: "memberCallOf", ordinal: 1, text: "c.name.text", disposition: "implementation" },
+  { fn: "memberCallOf", ordinal: 2, text: "key.text", disposition: "implementation" },
+  {
+    fn: "walkDestructures",
+    ordinal: 1,
+    text: "named.text",
+    disposition: "narrowed",
+    why: "BindingName via propertyName ?? name; a computed bound member becomes the literal '(computed)'",
+    refileWhen: "a computed bound member must resolve",
+  },
+  {
+    fn: "enclosingName",
+    ordinal: 1,
+    text: "cur.name.text",
+    disposition: "not-a-name",
+    why: "VariableDeclaration.name — the finding LABEL",
+    refileWhen: "this label is used to resolve a binding",
+  },
+  {
+    fn: "enclosingName",
+    ordinal: 2,
+    text: "cur.name.text",
+    disposition: "not-a-name",
+    why: "VariableDeclaration.name — the finding LABEL",
+    refileWhen: "this label is used to resolve a binding",
+  },
+  {
+    fn: "enclosingName",
+    ordinal: 3,
+    text: "cur.name.text",
+    disposition: "not-a-name",
+    why: "VariableDeclaration.name — the finding LABEL",
+    refileWhen: "this label is used to resolve a binding",
+  },
+  {
+    fn: "enclosingName",
+    ordinal: 4,
+    text: "cur.name.text",
+    disposition: "not-a-name",
+    why: "VariableDeclaration.name — the finding LABEL",
+    refileWhen: "this label is used to resolve a binding",
+  },
+  {
+    fn: "importEdgeFindings",
+    ordinal: 1,
+    text: "statement.moduleSpecifier.text",
+    disposition: "not-a-name",
+    why: "the MODULE SPECIFIER of an import, never a surface name",
+    refileWhen: "this site is asked to resolve a value name",
+  },
+  {
+    fn: "look",
+    ordinal: 1,
+    text: "n.left.text",
+    disposition: "not-a-name",
+    why: "QualifiedName.left of a TYPE reference",
+    refileWhen: "this site is asked to resolve a value name",
+  },
+  {
+    fn: "look",
+    ordinal: 2,
+    text: "bindings.name.text",
+    disposition: "not-a-name",
+    why: "the namespace import's own binding NAME, compared as a namespace",
+    refileWhen: "this site is asked to resolve a value name",
+  },
+  {
+    fn: "look",
+    ordinal: 3,
+    text: "n.right.text",
+    disposition: "not-a-name",
+    why: "QualifiedName.right of a TYPE reference",
+    refileWhen: "this site is asked to resolve a value name",
+  },
+  {
+    fn: "importEdgeFindings",
+    ordinal: 2,
+    text: "(element.propertyName ?? element.name).text",
+    disposition: "not-a-name",
+    why: "an import specifier SYMBOL, matched against the surface type name",
+    refileWhen: "this site is asked to resolve a value name",
+  },
+];
