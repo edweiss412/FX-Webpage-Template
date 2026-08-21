@@ -128,9 +128,13 @@ const undisposedKeys = new Set(
   reconciliation.undisposed.map((r) => `${r.file}\u0000${r.line}\u0000${r.site}`),
 );
 
+const byPath = new Map(records.map((r) => [r.file, r]));
+
 /** A file's OWN classes: accepted site classes, plus how each reported site was disposed. */
 function ownClassesOf(file: string): FileClass[] {
-  const record = records.find((r) => r.file === file);
+  // Indexed, not searched: this runs once per walked file, and a linear scan inside it
+  // makes the pass quadratic over a 2560-file corpus for no reason.
+  const record = byPath.get(file);
   if (record === undefined) return [];
   const own = new Set<FileClass>();
   for (const site of record.sites) {
