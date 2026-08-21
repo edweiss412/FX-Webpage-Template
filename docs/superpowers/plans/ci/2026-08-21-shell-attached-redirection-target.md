@@ -190,12 +190,36 @@ failure below could be the harness rather than the weakening.
 
 | state | rows |
 |---|---|
-| **PROVEN** — variant built, shipped check observed FAILING | W1, W4, W12, W16, W20, W21, W22 |
-| **PRESENT-BUT-UNPROVEN** — a killing check exists and was not run against a built variant | W2, W3, W5, W6, W7, W8, W9, W10, W11, W13, W14, W15, W17, W18, W19 |
-| **ABSENT** | none |
+| **PROVEN** — variant built, weakening confirmed EXPRESSED, shipped check observed FAILING | W1, W2, W3, W4, W8, W9, W12, W15, W16, W19, W20, W21, W22 |
+| **PRESENT-BUT-UNPROVEN** — a killing check exists and no variant was built for it | W5, W7, W10, W11, W13, W14, W17, W18 |
+| **NOT CAUGHT — killing check ABSENT** | **W6** |
 
 The split is stated rather than rounded up, because "I checked" and "it discriminates" are
-different claims and only one of them was made for fifteen of these rows.
+different claims and only one of them was made for eight of these rows.
+
+**W6 is the audit's real yield: no shipped check catches it.** Honouring the escape pair at top
+level only leaves 24 of 24 holding, and the killer this plan named — H — does not exercise that
+path at all, because H's escaped backtick is consumed inside `closingBacktick` rather than inside
+the quoted-span walk. The separator was then MEASURED rather than guessed:
+`cat >"a\"b$(psql -c 'select 1')"` is sites 1 / hits 0 shipped and sites 0 / hits 1 under the
+variant, so the weakening converts a real SITE into a mere advisory. That case is owed to the
+deciding suite, and because the suite is a stamped input it was HELD rather than written while a
+measurement was in flight — editing a deciding suite mid-run does not cost the run, it silently
+corrupts it.
+
+**A variant must be shown to EXPRESS its weakening before its result is read.** Two first drafts
+were inert or wrong-shaped and both would have been recorded as clean: W8's stopped the quoted walk
+at a bare newline, but J's newline is preceded by a BACKSLASH and the escape branch consumes the
+pair first; W9's fell through to the DETACHED path, where the ordinary loop lexes the target as a
+word and collects its body anyway. Each now carries a precondition check that base and variant
+DIFFER on the input the weakening is about, and both are caught once rebuilt.
+
+**The pattern the audit actually found, across W1, W6 and W8: a PRESENCE assertion does not
+discriminate a delimiting weakening, and an ATTRIBUTION or COORDINATE assertion does.** W1 survives
+G and H and dies to I's attribution predicate. W8 survives J's presence assertion — the truncated
+target leaves the substitution at top level, so something still reports — and dies to the two
+coordinate cases. W6 survives everything, and its separator is a case where the site is lost
+outright. This plan's killer column named a presence case in each of those three rows.
 
 **What the audit changed, and it is the reason to run one.** W1's killer set as this plan first
 stated it — G, H and I — is WRONG in three of four parts, and no amount of re-reading would have
