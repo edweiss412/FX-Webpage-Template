@@ -510,7 +510,15 @@ contradicts AC-1**, and this is also what catches a new case that unexpectedly r
 
 ```bash
 CENSUS=docs/superpowers/specs/ci/probes/2026-08-21-premisescan-registrar-accept-sets/census.mts
-EDITED='tests/mutation/source/premiseScan.test.ts'
+# DERIVED, never hardcoded — see the note below. Every suite this branch edits
+# that is also in the census population, computed from git at run time.
+EDITED=$(pnpm exec tsx --eval '
+import { GUARD_SURFACES } from "./tests/mutation/source/registry";
+import { execSync } from "node:child_process";
+const pop = new Set(GUARD_SURFACES.flatMap((s) => s.suitePaths));
+const changed = execSync(`git diff --name-only ${process.env.BASE}...HEAD`).toString().split("\n").filter(Boolean);
+console.log(changed.filter((f) => pop.has(f)).join(","));
+')
 pnpm exec tsx "$CENSUS" --records | tail -n +7 | sort > /tmp/census-after.txt
 
 # (a) UNEDITED population: exactly one record added, none removed, none moved.
@@ -537,6 +545,21 @@ because it asserts a SET is unchanged rather than predicting a size. (a) alone p
 record is swapped for a free one, since that is still one `>` and one `<`. **A verdict move inside the
 EDITED suite is caught by (b)'s `^<` check**, because a name-keyed record that changes verdict leaves
 the old line and adds a new one.
+
+**THE EDITED SET IS DERIVED, AND A HARDCODED ONE WAS MEASURED WRONG ON THIS VERY BRANCH.** This block
+originally named ONE edited suite. The branch later grew a SECOND: a required-CI repair renamed a test
+in `tests/specLint/declaredLimitPinsCorpus.test.ts`, which is also in the census population, and the
+hardcoded partition reported that rename as *"a record outside the edited suite moved or vanished"* —
+a true statement about the wrong question, and one that reads as an AC-1 break. The edited set is
+therefore `git diff --name-only BASE...HEAD` intersected with the population, so a suite edited
+tomorrow is covered by default rather than becoming a false failure.
+
+**AC-1 AND A RENAME ARE DIFFERENT CLAIMS, AND CHECK (c) MUST NOT CONFLATE THEM.** AC-1 says the
+CLASSIFIER does not move verdicts. A test RENAMED in an edited suite changes a record's identity — it
+is a remove plus an add at the same verdict — without any classification changing. So (c) is
+evaluated over the UNEDITED population, where AC-1's claim actually bites, and every removal inside an
+edited suite is PRINTED with its matching addition so a rename is shown rather than silently allowed
+or wrongly failed. A genuine loss is caught separately: the per-(verdict, suite) count must not fall.
 
 **Every new case must be environment-FREE, and that is a requirement on how the cases are written,
 not a prediction.** The fixtures are source STRINGS passed to `classifyTests`; a string literal
