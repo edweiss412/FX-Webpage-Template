@@ -33,7 +33,7 @@ describe("the classifier core is enrolled", () => {
     // and the re-measurement found 17. Both rounds were repaid by tests
     // (mutantKills.test.ts) except the eight argued below.
     //
-    // SIX mutate a TYPE ANNOTATION, which TypeScript erases and the runner never
+    // FOUR mutate a TYPE ANNOTATION, which TypeScript erases and the runner never
     // typechecks, so the emitted JavaScript is byte-identical. TWO are counter
     // details in `newestVerdictTie`, and those are argued from EVALUATED OUTPUT
     // rather than from how the lines look: a differential run over 3616 row
@@ -46,6 +46,15 @@ describe("the classifier core is enrolled", () => {
     // Round 2 moved the core again and every row went stale a second time; the
     // survivor SET was identical, so the repairs added no new gaps.
     //
+    // EIGHT until 2026-08-21, now SIX. The send-authorization arc deleted
+    // `runCompact`'s `{ exitCode: 0 | 1; message: string }` return type -- the
+    // function no longer gates, so it returns nothing -- and the two rows keyed
+    // to that annotation went with the code they described. `mutation:sites`
+    // reported them as `(none -- the site is gone)` rather than as MOVED, which
+    // is the distinction that separates a deletion from a re-key; the sixth row
+    // was re-keyed 700 -> 801 and re-validated by READING line 801, since a key
+    // that resolves proves the site exists, never that the reason still holds.
+    //
     // Eight of the seventeen also taught something the score alone would not
     // have: the refusal-message tests I had written lived in adapter.test.ts,
     // which is NOT in this surface's suitePaths, so they never counted. Coverage
@@ -56,7 +65,7 @@ describe("the classifier core is enrolled", () => {
     // not debt at all. Keeping the two apart is what stops the ledger from
     // becoming a place to park survivors nobody wanted to kill.
     const accepted = surface?.accepted ?? [];
-    expect(accepted.map((r) => r.kind)).toEqual(Array(8).fill("equivalent"));
+    expect(accepted.map((r) => r.kind)).toEqual(Array(6).fill("equivalent"));
     expect(accepted.filter((r) => r.kind === "accepted-gap")).toEqual([]);
     expect(accepted.map((r) => r.siteId).sort()).toEqual([
       "integer-literal:386:15:0>1",
@@ -64,9 +73,7 @@ describe("the classifier core is enrolled", () => {
       "integer-literal:557:53:0>1",
       "integer-literal:557:57:1>2",
       "integer-literal:557:61:2>3",
-      "integer-literal:700:35:1>2",
-      "integer-literal:798:17:0>1",
-      "integer-literal:798:21:1>2",
+      "integer-literal:801:35:1>2",
     ]);
     // Not a formality: an empty reason would let a future row be waved through.
     for (const r of accepted) expect(r.reason.length).toBeGreaterThan(40);
