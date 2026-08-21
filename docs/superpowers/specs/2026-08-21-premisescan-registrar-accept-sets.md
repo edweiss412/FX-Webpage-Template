@@ -24,8 +24,8 @@ measurement that says so.**
 | --- | --- | --- |
 | R1 | **Both halves ship together.** Completing the sets without the peel repair trades a silent omission for a silently WRONG verdict; repairing the peel without completing the sets leaves an enrolled test uncensused. | §2, measured through the shipped implementations |
 | R2 | **Derived, never completed by hand.** A hand-completion is what the filing arc did twice and it does not terminate. | §3 |
-| R3 | **The derivation is DISCRIMINATED, not "every own property of `describe`".** Vitest 4 attaches its whole API to the test object, so a naive read admits `describe`, `suite` and the four hook registrars as "modifiers". | §3.2 |
-| R4 | **`aroundAll`/`aroundEach` are in scope and change nothing measurable today** — zero enrolled call sites. | §3.3 |
+| R3 | **The modifier set is derived from Vitest's DECLARATION, not from runtime property enumeration.** A property read over-accepts: it admits the hook registrars, and it admits BUILDERS (`extend`, `override`, `scoped`) whose call returns a new API rather than registering. The declaration names the chainable set directly. | §3.2 |
+| R4 | **`aroundAll`/`aroundEach` are in scope at zero call sites; `suite` is adopted by routing it through the `describe` branch; `bench` is NOT adopted, derived from its declaration as a benchmark API rather than excepted by hand.** | §3.3, §5 L3 |
 | R5 | **AC-1 does not move.** Measured: environment-touching holds at 74 and unclassifiable at 1; the only delta is one previously uncensused test entering the census, classified environment-FREE. | §4 |
 
 ---
@@ -79,37 +79,81 @@ DERIVED hook globals present as functions (6): afterAll, afterEach, aroundAll, a
 vitest exports that are suite/test registrars: bench, describe, it, suite, test
 ```
 
-### 3.2 A naive derivation OVER-accepts, and that is why the rule is discriminated
+### 3.2 Derive from the DECLARATION, not from runtime properties
 
-Reading every own property of `describe`, `it` and `test` yields 23 members and adds 16 — including
-`describe`, `suite`, and all four hook registrars, because Vitest 4 attaches the whole API to the
-test object. Accepting those as MODIFIERS would make `test.beforeAll(…)` peel to `test` and classify
-a hook registration as a test.
+An earlier draft derived the modifier set by enumerating callable own properties of `describe`, `it`
+and `test` and excluding top-level exports. That over-accepts, and spec review r1 finding 1 showed
+how: `extend`, `override`, `scoped`, `fn` and `fails` are **BUILDERS** — a call to one returns a new
+test API rather than registering anything — so admitting them makes `test.extend({})` peel to `test`
+and invent a registration out of a builder call.
 
-**The discriminator: a MODIFIER is an own property whose value is callable and which is NOT itself a
-top-level Vitest export.** That removes exactly the re-exposed API surface:
+**Vitest's shipped declaration states the chainable modifier set directly**, and it is the
+authoritative answer to the question the peel is asking:
 
 ```
-  describe (11): concurrent, each, fn, for, only, runIf, sequential, shuffle, skip, skipIf, todo
-  UNION    (15): concurrent, each, extend, fails, fn, for, only, override, runIf, scoped,
-                 sequential, shuffle, skip, skipIf, todo
-  ADDS over shipped MODIFIERS (8): extend, fails, fn, override, runIf, scoped, shuffle, skipIf
-  DROPS    (0): (none)
+type ChainableSuiteAPI<ExtraContext = object> = ChainableFunction<
+  "concurrent" | "sequential" | "only" | "skip" | "todo" | "shuffle",
+  SuiteCollectorCallable<ExtraContext>,
+  { each: TestEachFunction; for: SuiteForFunction }
+>;
+type SuiteAPI<ExtraContext = object> = ChainableSuiteAPI<ExtraContext> & {
+  skipIf: (condition: any) => ChainableSuiteAPI<ExtraContext>;
+  runIf: (condition: any) => ChainableSuiteAPI<ExtraContext>;
+};
 ```
 
-**DROPS is 0, and that is the strongest property of this change.** The derived set is a strict
-SUPERSET of the shipped one, so nothing currently recognized stops being recognized and the change
-cannot silently un-classify anything. It is also why the premise is `CONTAINS` rather than `EQUALS`:
-losing a member silently is the failure this row exists for, while gaining one on a Vitest release is
-benign, and an equality premise would red for the wrong reason.
+Three groups, all named by the declaration: the chainable keys, the two curried members, and the two
+conditional ones. Derived from them:
 
-### 3.3 `aroundAll` / `aroundEach`, and `suite` / `bench`
+```
+chainable keys : concurrent, sequential, only, skip, todo, shuffle
+curried members: each, for
+conditional    : skipIf, runIf
+DERIVED SET (10): concurrent, each, for, only, runIf, sequential, shuffle, skip, skipIf, todo
+ADDS  : runIf, shuffle, skipIf
+DROPS : (none)
+builders EXCLUDED: extend, override, scoped, fn, fails
+```
 
-The derived hook set adds `aroundAll` and `aroundEach`; the derived registrar set adds `suite` and
-`bench`. All four have **zero enrolled call sites today**, so adopting them is verdict-neutral now
-and correct later. `suite` is the subject of PR 1's §4 L6, which documented that a `suite(…)`
-registration is invisible because `REGISTRARS` matches identifier TEXT — this change is where that
-limit is retired.
+**The builders are excluded BY CONSTRUCTION rather than by exception.** They are not in
+`ChainableSuiteAPI`, so a derivation that reads the declaration never sees them — which is what makes
+this a derivation rather than a hand-list with a caveat.
+
+**And the result vindicates the filing arc's round 10 exactly.** The three members the declaration
+adds — `runIf`, `shuffle`, `skipIf` — are precisely the three that round added by hand. Its CONTENT
+was right; what was missing was the peel repair beside it, which is §2's measurement and R1's whole
+point.
+
+### 3.3 `aroundAll` / `aroundEach`, `suite`, and `bench`
+
+The derived hook set adds `aroundAll` and `aroundEach`, both with **zero enrolled call sites today**,
+so adopting them is verdict-neutral now and correct later.
+
+**`suite` and `bench` are NOT adopted by widening `REGISTRARS` alone, and spec review r1 finding 2
+proved it.** `registrarRoot` returning a root is only half the path: the walk then DISPATCHES on the
+root by name —
+
+```ts
+if (root_ === "describe") { … }
+if (root_ === "it" || root_ === "test") { … }
+```
+
+— so a widened `REGISTRARS` yields `suite`, which matches neither branch, and the registration is
+recognized and then dropped. Measured: with the derived sets applied, `suite("x", …)` loses hook
+attribution where `describe("x", …)` keeps it, and `bench` produces no row at all.
+
+The dispatch is a THIRD hand-maintained list, and it is the one that decides behaviour.
+
+- **`suite` IS adopted**, by routing it through the same branch as `describe`. It is a Vitest alias —
+  the same function object — so treating it identically is the derived answer, not a special case.
+  This retires PR 1's §4 L6.
+- **`bench` is NOT adopted**, and the exclusion is DERIVED rather than excepted: the declaration types
+  it as a benchmark API, not a `SuiteAPI` or `TestAPI`, so a derivation that reads the declaration
+  never admits it. A benchmark is not a test and carries no premise obligation. Recorded as §5 L3.
+
+The general shape, and it is the reason this row exists: **an accept-set is only adopted where every
+consumer of it agrees.** Widening one list while a second hand-list downstream still enumerates three
+names produces a change that reads as adoption and behaves as nothing.
 
 ---
 
@@ -138,8 +182,9 @@ required does not arise here.
 | id | limit | why it is a limit |
 | --- | --- | --- |
 | **L1** | The derived sets are read from the INSTALLED package at authoring time, not at scan time. A Vitest upgrade that adds a modifier does not take effect until the sets are re-derived. | Reading them at scan time would make the scanner's verdicts depend on `node_modules`, which is not tracked. The repair is a re-derivation step, and a structural test pins the derived set against the installed surface so an upgrade REDS rather than drifting silently. |
-| **L2** | A chain form deeper than the ones measured is resolved by the interleaved peel but is not separately fixtured. | The peel is a loop over two node kinds with no depth bound, so depth is not a decision input. §6 crosses the shapes the rule reads. |
-| **L3** | `bench` is admitted as a registrar although no enrolled suite uses it. | Admitting it is the derived answer; excluding it would be a hand-exception, which is the thing this row retires. Verdict-neutral at zero call sites. |
+| **L2** | A chain form deeper than the ones measured is resolved by the interleaved peel but is not separately fixtured. | The peel is a loop over two node kinds with no depth bound, so depth is not a decision input. |
+| **L4** | **A modifier call whose result is BOUND before invocation invents a registration and misses the real one.** `const p = test.each(rows); p("real", fn)` records `<test at line N>` and never sees `p("real", fn)`. | **PRE-EXISTING and bracketed, not caused or widened here.** Measured on `origin/main`'s unmodified scanner, which already carries `each` in `MODIFIERS`: that fixture yields `<test at line 3>: environment-free` today. The declaration-derived set adds no new builder to this class — §3.2's exclusion of `extend`, `override` and `scoped` is precisely what stops this change widening it. Closing it means deciding a registration by whether its result is invoked, which is execution reasoning this surface does not do. Raised as spec review r1 finding 1, whose widening half is fixed and whose pre-existing half is documented here. |
+| **L3** | `bench(…)` registrations are not censused. | The declaration types `bench` as a benchmark API rather than a `SuiteAPI` or `TestAPI`, so a derivation that reads the declaration never admits it — the exclusion is derived, not excepted. A benchmark is not a test and carries no premise obligation. Zero enrolled call sites. |
 
 ---
 
