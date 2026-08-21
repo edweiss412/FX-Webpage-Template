@@ -579,6 +579,14 @@ export function main() {
   const only = process.argv.includes("--only")
     ? process.argv[process.argv.indexOf("--only") + 1]
     : null;
+  /**
+   * Defer the live-suite mutants.
+   *
+   * DEFERRED, never dropped: a deferred obligation is still unresolved, so the
+   * run reports it as such and exits non-zero. An audit that quietly shrinks its
+   * own denominator is the defect class this arc exists to detect.
+   */
+  const noLive = process.argv.includes("--no-live");
 
   // DERIVED COVER: every kill the spec names must be classified here. A new AC
   // row, or a new semicolon-separated kill inside an existing one, fails this
@@ -652,6 +660,11 @@ export function main() {
   const results = [];
   for (const kill of KILLS) {
     if (only && kill.id !== only) continue;
+    if (kill.live === true && noLive) {
+      results.push({ ...kill, state: "DEFERRED-LIVE" });
+      process.stdout.write(`DEFERRED-LIVE        ${kill.id}  ${kill.named}\n`);
+      continue;
+    }
     if (kill.absent) {
       results.push({ ...kill, state: "ABSENT" });
       process.stdout.write(`ABSENT               ${kill.id}  ${kill.named}\n`);
