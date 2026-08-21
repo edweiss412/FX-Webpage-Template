@@ -24,7 +24,15 @@ for f in BACKLOG.md BACKLOG-archive.md; do
   [ -r "$f" ] || { note FAIL "cannot read $f"; echo "ABORT"; exit 2; }
 done
 
-decl_count() { grep -c "^## ${2}" "$1" 2>/dev/null || true; }
+# `grep -c` exits 1 on zero matches and 2 on an unreadable file, and both
+# would be swallowed by a bare `|| true`, so the two are separated: a real
+# zero prints 0, an unreadable file aborts rather than counting as clean.
+decl_count() {
+  local n
+  n=$(grep -c "^## ${2}" "$1" 2>/dev/null); local rc=$?
+  if [ "$rc" -gt 1 ]; then note FAIL "cannot count declarations in $1"; echo "ABORT"; exit 2; fi
+  printf '%s' "${n:-0}"
+}
 
 OPEN=$(decl_count BACKLOG.md "$ROW")
 ARCH=$(decl_count BACKLOG-archive.md "$ROW")
@@ -38,13 +46,17 @@ ARCH=$(decl_count BACKLOG-archive.md "$ROW")
                 || note FAIL "row still declared open $OPEN times"
 
 # 3. no id is BOTH open and archived — computed over declarations only
+# mktemp, not a fixed name: this script ships, this machine runs many arcs at
+# once, and two concurrent runs on one path would each read the other's set.
+OVERLAP=$(mktemp "${TMPDIR:-/tmp}/closeout_overlap.XXXXXX") || { echo "ABORT: mktemp failed"; exit 2; }
+trap 'rm -f "$OVERLAP"' EXIT
 comm -12 \
   <(grep -oE '^## (BL|DEF)-[A-Z0-9-]+' BACKLOG.md | sed 's/^## //' | sort -u) \
   <(grep -oE '^## (BL|DEF)-[A-Z0-9-]+' BACKLOG-archive.md | sed 's/^## //' | sort -u) \
-  > /tmp/closeout_overlap.txt
-OVER=$(wc -l < /tmp/closeout_overlap.txt | tr -d ' ')
+  > "$OVERLAP"
+OVER=$(wc -l < "$OVERLAP" | tr -d ' ')
 [ "$OVER" = 0 ] && note PASS "no id both open and archived" \
-                || { note FAIL "$OVER ids both open and archived"; head -5 /tmp/closeout_overlap.txt; }
+                || { note FAIL "$OVER ids both open and archived"; head -5 "$OVERLAP"; }
 
 # 4. no in-progress marker survives anywhere in the ledger
 MARK=$(grep -c 'Status:\*\* IN PROGRESS' BACKLOG.md BACKLOG-archive.md 2>/dev/null | awk -F: '{s+=$2} END{print s+0}')

@@ -12,7 +12,7 @@ import { writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { collectPsqlUsage } from "../../../../../../tests/cross-cutting/psqlStartupFiles/scan.ts";
+import { collectPsqlUsage } from "../../../../../../tests/cross-cutting/psqlStartupFiles/scan";
 
 /** Repo root, derived from this file so the probe runs in any checkout. */
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../../..");

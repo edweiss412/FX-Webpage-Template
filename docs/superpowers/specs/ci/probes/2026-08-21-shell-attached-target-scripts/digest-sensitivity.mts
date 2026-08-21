@@ -13,7 +13,7 @@
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { collectPsqlUsage } from "../../../../../../tests/cross-cutting/psqlStartupFiles/scan.ts";
+import { collectPsqlUsage } from "../../../../../../tests/cross-cutting/psqlStartupFiles/scan";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../../..");
 

@@ -18,7 +18,7 @@
 import {
   scanSource,
   scanShellIndirection,
-} from "../../../../../../tests/cross-cutting/psqlStartupFiles/scan.ts";
+} from "../../../../../../tests/cross-cutting/psqlStartupFiles/scan";
 
 type Result = {
   sites: ReturnType<typeof scanSource>;

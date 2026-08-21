@@ -140,6 +140,11 @@ by exhaustion.
 | W9 | handle an attached target only when the operator has no file-descriptor prefix | the prefix reads as a separate token, so `2>` looks like a different construct | **K** — `cat 2>"$(psql -c 'select 1')"` executes once and both scanners return zero |
 | W10 | ADD a correctly attributed record and leave the wrongly attributed one | additive repairs feel safer than replacing a record something else may read | **I** — its predicate is universal over every site the snippet produces, so `[wrong, correct]` fails |
 | W11 | delimit construct-aware after `>` and `<<<`, fall back to the old character run for the other ten operators | those two are what every acceptance case uses, so the gate goes green | **nothing in the acceptance set** — this is the one gap the spec's cases do NOT close, and Task 1 carries the obligation below instead |
+| W13 | emit unlexable reports only for `>` while delimiting every operator correctly | the report path and the delimit path look like one feature | **a non-`>` unlexable case** — the operator derivation covers the report path too, not only Task 1's |
+| W14 | key the unlexable channel to the three opener spellings the plan happened to name | three cases read like three openers | **the accept-set opener table** — cases are derived from §3.1, so `$(` vs `${` and plain vs locale vs ANSI-C quotes are all covered |
+| W15 | always stamp `IndirectionHit.line = 1` | every unlexable fixture started on line 1 | **a prefixed case requiring line 2** — the same first-line blindness J carried, one surface along |
+| W16 | overwrite accumulated bodies at each attached target, keeping only the last | one target reads like one accumulation | **psql in the FIRST of two targets** — the multi-target control is stated in both orders because payload position decides whether it discriminates |
+| W17 | stamp `line = operatorLine + 1`, `offset = operatorOffset` | a one-line displacement matches the only multiline fixture | **J with TWO continuations** plus a byte-offset assertion — a displacement right by construction is not an assertion |
 | W12 | delimit and retain the target correctly, but collect only the FIRST nested body in it | one target reads like one body, and every §2.2 case has at most one | **nothing in the acceptance set either** — `cat >"$(true)$(psql -c 'select 1')"` executes psql and stays silent under first-body-only collection. Closed by the population obligation below, derived rather than by one more fixture |
 
 **W8, W9 and W10 are round 4's, and each is the same defect shape as W1: an implementation that
@@ -253,11 +258,14 @@ mutant it kills.
      double-quoted target as `backtick:false` makes H report while attributing it wrongly, and the
      separate bare-backtick path still carries I. H therefore takes the same non-empty UNIVERSAL
      `nestedInBacktick === true` predicate as I, not a presence check.
-   - **J asserts the LINE, not just the report.** A walker that anchors every attached nested body
-     to the operator's line makes J report and passes a presence assertion, while stamping the site
-     with line 1 instead of the physical second line. J requires the psql site to report on the line
-     the psql actually occupies — the multiline axis crossed with the attribution axis, and neither
-     alone catches it.
+   - **J asserts the COORDINATES, and a one-line displacement is not enough.** A walker anchoring
+     every attached nested body to the operator's line passes a presence assertion while stamping
+     line 1. But a walker that stamps `line = operatorLine + 1` and `offset = operatorOffset` ALSO
+     passes a J spanning exactly one continuation: every other case is single-line and ignores the
+     coordinates, and J happens to expect the next line, so the wrong rule and the right rule agree
+     on the only fixture that could tell them apart. J therefore carries TWO continuations and
+     asserts the psql on the physical THIRD line AND at the psql's own byte offset. A displacement
+     that is right by construction is not an assertion.
    - **Recursion is UNBOUNDED, not capped at case G's depth.** G nests two deep, so an
      implementation capped at two passes A-K, the operator-derived test and the sibling-body test.
      `cat >"${OUT:-${OTHER:-$(psql -c 'select 1')}}"` is one edit from G and bash executes it; the
@@ -268,6 +276,12 @@ mutant it kills.
      `cat >"$(psql -c 'select 1')"` on the next kills it. Assert over BOTH populations - targets per
      chunk and bodies per target - because closing one leaves the other open, which is exactly what
      happened here.
+     **The payload's POSITION is part of the control, and the first draft of this case got it
+     wrong.** With `true` in the first target and `psql` in the last, an implementation that
+     OVERWRITES its accumulated bodies at each target — keeping only the final one — passes. State
+     the case in BOTH orders: psql in the FIRST target with a harmless one after it, and psql in the
+     last. A control whose payload sits where the defect cannot hide it is not a control, and this
+     one was added in the previous round to close a population axis while being blind on order.
 8. The attached target's own text still never becomes an argv word. That is what keeps this
    outside both readings the filing arc REFUSED (spec §1.1).
 
@@ -304,7 +318,7 @@ would pass through the arm that already works and prove nothing about this one.
 
 ## Task 2 — a target the machinery cannot delimit is REPORTED, not discarded
 
-<!-- task: red=`pnpm exec vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:3050` why=`three new cases assert that an attached target carrying an unterminated backtick, brace or quote yields an IndirectionHit naming it; the production surface is scanShellIndirection, which emits no such hit for any undelimitable target, so all three cases read an empty hit array until the channel exists` ac=AC-3 -->
+<!-- task: red=`pnpm exec vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:3050` why=`cases derived from the accept-set opener table assert that an attached target carrying an unterminated construct yields an IndirectionHit naming it; the production surface is scanShellIndirection, which emits no such hit for any undelimitable target, so all three cases read an empty hit array until the channel exists` ac=AC-3 -->
 
 **Files:** Modify `tests/cross-cutting/psqlStartupFiles/scan.ts`, `tests/cross-cutting/psqlStartupFileSuppression.test.ts`.
 
@@ -312,8 +326,28 @@ would pass through the arm that already works and prove nothing about this one.
 than by a line Task 1 rewrites — a red-target pointing into your own blast radius still resolves
 after the edit and silently names different code. Task 1 delimits what the accept-set can close. An UNTERMINATED
 construct closes nothing, and the consequence bound forbids silent discard — so an unterminated
-backtick, brace and quote each get a case asserting a surfaced **`IndirectionHit`** naming the
-undelimitable target. They fail until the channel exists.
+construct gets a case asserting a surfaced **`IndirectionHit`** naming the undelimitable target.
+They fail until the channel exists.
+
+**The case list is DERIVED from the accept-set, not hand-picked — three findings in one round came
+from picking.** Task 1 iterates the shipped `REDIRECTION_OPERATORS` array rather than a retyped
+list, and Task 2 was written with three chosen spellings (one backtick, one brace, one quote) while
+varying nothing else. Three separate implementations pass that:
+
+- **Opener coverage.** §3.1's accept-set distinguishes `$(` from `${`, and a plain double quote from
+  the locale form `$"…"` and the ANSI-C form `$'…'`. An implementation keyed to whichever three
+  spellings were picked silently discards their siblings. Enumerate the unlexable cases FROM §3.1's
+  opener table — one unterminated case per opener the table admits — so an opener added to the
+  design is covered without editing this plan.
+- **Operator coverage.** The derived operator test sits only on Task 1's delimitable path, so an
+  implementation can delimit every shipped operator correctly and emit unlexable reports only for
+  `>`. At least one unlexable case carries a non-`>` operator (`>>` is the cheapest), and the
+  derivation over `REDIRECTION_OPERATORS` covers the report path as it does the delimit path.
+- **Line attribution.** Every unlexable fixture as described starts on line 1, so an implementation
+  that always emits `IndirectionHit.line = 1` passes every positive, every terminated twin and the
+  descriptor case while attributing wrongly — one of the two forbidden directions. At least one
+  case is prefixed with a harmless command and requires the hit on line 2. This is the same
+  first-line blindness J had, one surface along.
 
 **The firing condition is narrow and is part of the red:** the report fires only when the
 undelimitable span carries a substitution opener, so the corpus's ordinary attached targets (53 at base `e5d1d723d`, 57 at plan HEAD; see §0)
