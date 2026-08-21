@@ -24,6 +24,14 @@ const FIXTURE_PID = 2_147_483_646;
 /** Which mutant calls should hit the wall clock rather than exiting. */
 let timeoutEveryNth = 1;
 let mutantCalls = 0;
+/**
+ * When set, ONLY this suite times out and every other suite exits 0.
+ *
+ * A single-suite fixture cannot distinguish a renderer that prints the deciding
+ * suite from one that hard-codes the only name available — the two agree on
+ * every output. Naming a deciding suite that is NOT the first makes them differ.
+ */
+let timeoutSuite: string | null = null;
 
 vi.mock("node:child_process", async (importOriginal) => {
   const real = await importOriginal<typeof import("node:child_process")>();
@@ -35,6 +43,10 @@ vi.mock("node:child_process", async (importOriginal) => {
         return { pid: FIXTURE_PID, status: 0, signal: null, stdout: "", stderr: "", output: [] };
       }
       mutantCalls += 1;
+      const suite = opts.env!.MUTATION_SUITE!;
+      if (timeoutSuite !== null && suite !== timeoutSuite) {
+        return { pid: FIXTURE_PID, status: 0, signal: null, stdout: "", stderr: "", output: [] };
+      }
       if (mutantCalls % timeoutEveryNth === 0) {
         // The shape Node reports for a timed-out child: no status, a signal, and
         // ETIMEDOUT. `runSuiteRecorded` maps it to a `timeout` ChildRecord.
@@ -82,6 +94,42 @@ const failingOut: string[] = [];
 timeoutEveryNth = 3;
 mutantCalls = 0;
 const failing = evaluateSurface(fixture("failing-fixture"), { write: (s) => failingOut.push(s) });
+
+// THE REGISTRAR ITSELF, at collection scope — the only place `describe.each` can
+// run. Every case above drives `evaluateSurface` directly, and a registrar that
+// called it with `{...options, write: () => {}}` would keep every gate result
+// intact while removing timeout notices from real shard output entirely.
+const registrarOut: string[] = [];
+timeoutEveryNth = 1;
+mutantCalls = 0;
+// `describe.skip` is deliberate and is NOT a skipped proof. The registrar emits
+// at COLLECTION time — that is the design, so notices appear before any `it` —
+// so calling it here runs the real emission and fills `registrarOut` regardless.
+// What `skip` drops is the registrar's own seven generated cases, which assert
+// REGISTRY-COUPLED facts (the ledger kinds declared for a real surface id) that a
+// synthetic fixture cannot satisfy and has no business claiming. The proof that
+// this call did its work is the un-skipped case directly below it.
+describe.skip("registrar wiring — the generated cases belong to real surfaces", () => {
+  registerSurfaceCases(
+    [fixture("registrar-wiring")] as unknown as Parameters<typeof registerSurfaceCases>[0],
+    {
+      write: (s) => {
+        registrarOut.push(s);
+      },
+    },
+  );
+});
+
+describe("surfaceCases — the REGISTRAR passes the sink through (diff R3 S1)", () => {
+  it("emits this run's timeout notices through registerSurfaceCases, not just evaluateSurface", () => {
+    const out = registrarOut.join("");
+    expect(out).toMatch(/TIMEOUT-KILL/);
+    // Bound to the fixture's own suite, so a registrar that swallowed the sink
+    // and a renderer that fabricated a line are both excluded.
+    expect(out).toContain("a.test.ts");
+    expect(out).toMatch(/[a-z-]+:\d+:\d+:/);
+  });
+});
 
 describe("surfaceCases — timeout notices reach the CONSOLE (AC-6, §5.2 channel 1)", () => {
   it.each([
@@ -205,8 +253,13 @@ describe("surfaceCases — the record lands on ALL FOUR cells of outcome x envir
         expect(back?.score).toBe(result.score.value);
         expect(back?.outcomes.map((o) => o.siteId)).toEqual(run.outcomes.map((o) => o.siteId));
         expect(back?.outcomes.map((o) => o.verdict)).toEqual(run.outcomes.map((o) => o.verdict));
-        expect(back?.outcomes.map((o) => (o.children ?? []).map((c) => c.kind))).toEqual(
-          run.outcomes.map((o) => (o.children ?? []).map((c) => c.kind)),
+        // WHOLE children, not a projection: `suite`, `exitCode` and `durationMs`
+        // are the evidence itself, and an implementation persisting correct ids,
+        // verdicts and kinds while fabricating those three passes a projection
+        // comparison — wrong attribution in the durable channel the arc relies on
+        // once the logs are gone.
+        expect(back?.outcomes.map((o) => o.children ?? [])).toEqual(
+          run.outcomes.map((o) => o.children ?? []),
         );
       } finally {
         if (priorCi === undefined) delete process.env.CI;
@@ -274,24 +327,43 @@ describe("surfaceCases — the console notice carries THIS run's values (diff R2
   it("prints the site, suite and duration the gate actually produced", () => {
     timeoutEveryNth = 1;
     mutantCalls = 0;
+    // TWO suites, and the one that decides is the SECOND. Against a single-suite
+    // fixture a renderer that hard-codes the only suite name available passes
+    // every assertion here, which is what made this case satisfiable by a
+    // constant.
+    timeoutSuite = "b.test.ts";
     const out: string[] = [];
-    const { result } = evaluateSurface(fixture("notice-attribution"), {
-      write: (s) => {
-        out.push(s);
+    const { result } = evaluateSurface(
+      { ...fixture("notice-attribution"), suitePaths: ["a.test.ts", "b.test.ts"] },
+      {
+        write: (s) => {
+          out.push(s);
+        },
       },
-    });
+    );
+    expect(result.notices.every((n) => n.suite === "b.test.ts")).toBe(true);
     const notices = result.notices.filter((n) => n.kind === "timeout-kill");
     premiseHolds("this fixture really produced timeout notices", notices.length > 0);
 
-    const text = out.join("");
-    for (const n of notices) {
-      // DERIVED from the notice, never a shape: a site-shaped token, the
-      // fixture's only suite name and any integer duration are all satisfied by a
-      // constant fabricated line, which is wrong attribution that reads correct.
-      expect(text).toContain(n.site);
-      expect(text).toContain(String(n.durationMs));
-    }
-    // ...and the durations are not all one constant the fixture makes trivial.
-    expect(notices.every((n) => Number.isFinite(n.durationMs))).toBe(true);
+    // PER NOTICE, on one line — not an unordered bag of tokens over the whole
+    // output. A renderer transposing durations between lines satisfies "every
+    // site appears" and "every duration appears" while attributing each timeout
+    // to the wrong child.
+    // Segmented on the marker, NOT on newlines: a site id embeds the source text
+    // it mutates and that text can contain a newline, so a line-split silently
+    // cuts a notice in half and the case fails for a reason that is not the
+    // subject. One segment per notice, IN ORDER.
+    const segments = out.join("").split("TIMEOUT-KILL ").slice(1);
+    expect(segments).toHaveLength(notices.length);
+    notices.forEach((n, i) => {
+      const seg = segments[i] as string;
+      // POSITIONAL, so a renderer that transposes durations or suites between
+      // notice lines fails — "every site appears somewhere" does not.
+      expect(seg.startsWith(n.site)).toBe(true);
+      expect(seg).toContain(String(n.durationMs));
+      // The SUITE was never asserted at all, so a hard-coded suite name passed.
+      expect(seg).toContain(n.suite);
+    });
+    timeoutSuite = null;
   });
 });

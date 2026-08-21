@@ -34,14 +34,18 @@ export type RunObservation = {
 };
 
 /**
- * A digest over the run's ACTUAL inputs.
+ * A digest over the run's DECLARED inputs — its source, its deciding suites and
+ * its declared operators. NOT everything the run reads: a deciding suite may open
+ * paths the registry does not declare (spec §6 limit 10).
  *
  * PROVENANCE IS PART OF THE CLAIM, NOT DECORATION (AC-8). A constant or
  * fabricated stamp associates a distribution with the wrong bytes, which is
  * wrong attribution — the direction the consequence bound forbids. So this is
  * DERIVED from the source, the deciding suites and the registry row's declared
  * operators and floor, and it is read from DISK because that is what the
- * harness itself reads: a git-sourced stamp would certify bytes that did not run.
+ * harness itself reads on disk: a git-sourced stamp would certify bytes that did
+ * not run. Within the declared set that holds exactly; outside it, the stamp is
+ * silent rather than wrong, and the rendering says so on every result.
  */
 export type InputStamp = {
   digest: string;
@@ -228,6 +232,12 @@ export function runDeterminism(input: DeterminismInput): DeterminismOutcome {
 
   const scratch = mkdtempSync(join(tmpdir(), "fx-determinism-"));
   const mutantFile = join(scratch, "mutant.ts");
+  // EVERY stamp taken, not just the two endpoints. A declared suite edited to B
+  // and reverted to A while the runs are in flight produces IDENTICAL endpoints —
+  // the children spawned in between executed B, and an endpoint comparison
+  // reports nothing at all. Stamping around each run shrinks the invisible window
+  // from the whole invocation to one child's lifetime (spec §6 limit 11).
+  const stamps: InputStamp[] = [stampBefore];
   const observations: RunObservation[] = [];
   const infraFaults: string[] = [];
   try {
@@ -250,6 +260,7 @@ export function runDeterminism(input: DeterminismInput): DeterminismOutcome {
     }
 
     for (let run = 1; run <= runs; run += 1) {
+      stamps.push(stampInputs(root, surface));
       writeFileSync(mutantFile, mutant.text);
       try {
         const { code, children } = runMutantRecorded(
@@ -294,11 +305,15 @@ export function runDeterminism(input: DeterminismInput): DeterminismOutcome {
   }
 
   const stampAfter = stampInputs(root, surface);
+  stamps.push(stampAfter);
   // Printing two digests and leaving a reader to compare them by eye is the same
   // defect as printing an exit code without branching on it: it LOOKS like
   // diligence and is indistinguishable from having not checked.
-  const inputsMoved = Object.keys(stampBefore.files).filter(
-    (p) => stampBefore.files[p] !== stampAfter.files[p],
+  //
+  // Computed across the WHOLE sequence rather than between the endpoints: a path
+  // whose hash is not constant at EVERY stamp moved, whether or not it came back.
+  const inputsMoved = Object.keys(stampBefore.files).filter((p) =>
+    stamps.some((s) => s.files[p] !== stampBefore.files[p]),
   );
 
   const verdicts: Record<string, number> = {};

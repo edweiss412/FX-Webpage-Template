@@ -297,7 +297,7 @@ describe("determinism — an INFRA FAULT is excluded, not folded into a verdict 
   });
 });
 
-describe("determinism — PROVENANCE is derived from the run's ACTUAL inputs (AC-8)", () => {
+describe("determinism — PROVENANCE is derived from the run's DECLARED inputs (AC-8)", () => {
   const syntheticRoot = () => {
     const root = mkdtempSync(join(tmpdir(), "fx-stamp-"));
     const write = (rel: string, text: string) => {
@@ -968,5 +968,126 @@ describe("determinism — the rendering states WHAT THE STAMP COVERS (spec §6 l
     // would state a boundary for a run that never took a stamp at all.
     const out = renderDeterminism({ kind: "refusal", input: "runs", detail: "no" });
     expect(out).not.toContain("stamp coverage");
+  });
+});
+
+describe("determinism — evidence is bound to ITS OWN run (diff R3 S3)", () => {
+  it("does not let run 2's timeout child appear under run 1", () => {
+    const out = renderDeterminism({
+      kind: "result",
+      surfaceId: "s",
+      siteId: "op:1:1:x",
+      runs: 2,
+      observations: [
+        {
+          run: 1,
+          verdict: "SURVIVED",
+          exitCode: 0,
+          children: [
+            { suite: "one.test.ts", kind: "exit", exitCode: 0, durationMs: 11 },
+            { suite: "two.test.ts", kind: "exit", exitCode: 0, durationMs: 22 },
+          ],
+        },
+        {
+          run: 2,
+          verdict: "KILLED",
+          exitCode: 124,
+          children: [
+            { suite: "one.test.ts", kind: "timeout", exitCode: null, durationMs: 180_000 },
+          ],
+        },
+      ],
+      verdicts: { SURVIVED: 1, KILLED: 1 },
+      kinds: { exit: 2, timeout: 1 },
+      infraFaults: [],
+      stampBefore: { digest: "a", files: {}, operators: "o", count: 0 },
+      stampAfter: { digest: "a", files: {}, operators: "o", count: 0 },
+      inputsMoved: [],
+    });
+
+    // PER-RUN BLOCKS, not a bag of tokens over the whole output: a renderer that
+    // printed run 2's timeout beneath run 1 and run 1's exits beneath run 2
+    // satisfies "every verdict, suite and duration appears somewhere" while
+    // attributing the evidence to the wrong run.
+    const blocks = out.split(/^run (?=\d+:)/m).slice(1);
+    expect(blocks).toHaveLength(2);
+    const [first, second] = blocks as [string, string];
+
+    expect(first.startsWith("1: SURVIVED")).toBe(true);
+    expect(first).toContain("one.test.ts kind=exit exitCode=0 durationMs=11");
+    expect(first).toContain("two.test.ts kind=exit exitCode=0 durationMs=22");
+    expect(first).not.toContain("kind=timeout");
+
+    expect(second.startsWith("2: KILLED")).toBe(true);
+    expect(second).toContain("one.test.ts kind=timeout exitCode=null durationMs=180000");
+    expect(second).not.toContain("kind=exit");
+  });
+});
+
+describe("determinism — a declared input that moved AND CAME BACK is still reported (diff R3 C1)", () => {
+  const rootFor = (id: string) => {
+    const surface = surfaceOf(id);
+    const root = mkdtempSync(join(tmpdir(), "fx-transient-"));
+    for (const rel of [surface.sourcePath, ...surface.suitePaths]) {
+      mkdirSync(dirname(join(root, rel)), { recursive: true });
+      writeFileSync(join(root, rel), readFileSync(join(process.cwd(), rel), "utf8"), "utf8");
+    }
+    return { surface, root };
+  };
+
+  it("catches an A -> B -> A edit across two runs, where the endpoints agree", () => {
+    const { surface, root } = rootFor("psqlStartupScan");
+    const suiteRel = surface.suitePaths[0] as string;
+    const abs = join(root, suiteRel);
+    const original = readFileSync(abs, "utf8");
+    try {
+      // call 1 = baseline, call 2 = run 1's child (edit to B), call 3 = run 2's
+      // child (revert to A). Both ENDPOINT stamps see A, so an endpoint-only
+      // comparison reports nothing while the children that ran saw B.
+      reset({
+        [suiteRel]: (call) => {
+          if (call === 2) writeFileSync(abs, "it('B', () => {});\n", "utf8");
+          if (call === 3) writeFileSync(abs, original, "utf8");
+          return 0;
+        },
+      });
+      const out = runDeterminism({
+        surface: surface.id,
+        site: firstSiteOf(surface.id),
+        runs: "2",
+        root,
+      });
+      expect(out.kind).toBe("result");
+      if (out.kind !== "result") return;
+
+      // The endpoints AGREE — which is exactly why this case exists.
+      expect(out.stampAfter.digest).toBe(out.stampBefore.digest);
+      expect(out.inputsMoved).toContain(suiteRel);
+      expect(renderDeterminism(out)).toContain("INPUTS MOVED DURING THE RUN");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("determinism adapter — the process entry must not truncate its own output (diff R3 C2)", () => {
+  it("sets process.exitCode instead of calling process.exit", async () => {
+    const { readFileSync: read } = await import("node:fs");
+    const { stripCommentsSafely } = await import("../../_shared/stripComments");
+    const ts = await import("typescript");
+    const src = read("scripts/mutation-determinism.ts", "utf8");
+    const code = stripCommentsSafely(src, ts.ScriptKind.TS);
+
+    // COMMENTS STRIPPED: this file's own comment explains why `process.exit` is
+    // forbidden here, and a scanner that matched it would flag the warning
+    // against the mistake as the mistake.
+    expect(code).toContain("process.exitCode = main(");
+    // On a PIPE stdout is asynchronous and `process.exit` drops queued bytes —
+    // measured at 65,536 of 159,926 delivered, exit 0 on both. A truncated
+    // distribution reported as a complete one is false certification.
+    expect(code).not.toMatch(/process\.exit\s*\(/);
+    // Positive control that the scanner reads this file at all, and that
+    // stripping did not empty it.
+    expect(code).toContain("EXIT_UNATTRIBUTABLE");
   });
 });

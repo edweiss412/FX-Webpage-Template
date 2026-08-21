@@ -91,6 +91,11 @@ const invokedDirectly =
   process.argv[1] !== undefined &&
   import.meta.url === pathToFileURL(process.argv[1] as string).href;
 if (invokedDirectly) {
-  process.exit(main(process.argv.slice(2)));
+  // `process.exitCode`, NEVER `process.exit`. On a PIPE, stdout is asynchronous,
+  // and `process.exit` terminates with bytes still queued — a measured 65,536 of
+  // 159,926 delivered, with exit 0 on both. That is a truncated distribution
+  // reported as a complete one, which is the false certification this whole arc
+  // exists to remove. Setting the code lets Node drain and exit on its own.
+  process.exitCode = main(process.argv.slice(2));
 }
 /* c8 ignore stop */
