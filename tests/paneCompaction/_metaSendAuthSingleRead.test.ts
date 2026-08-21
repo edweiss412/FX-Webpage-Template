@@ -36,6 +36,7 @@ import {
   scanModule,
   scanRepo,
   SEND_AUTH_SURFACES,
+  DECLARING_PARENT_KINDS,
   type Finding,
   type FindingCode,
   type SendAuthSurface,
@@ -1229,6 +1230,18 @@ type ManifestCell = {
 const INHERITED_CORPUS_SIZE = 81;
 
 const MANIFEST: readonly ManifestCell[] = [
+  // --- Task 5 [task:declaration-name-accept-set].
+  {
+    fixture: "declaration-name-value-references.ts",
+    axis: "annotation certainty",
+    covers:
+      "AC-U13 — a value reference carrying a `name` is a USE; a guard that must report before AND after",
+  },
+  {
+    fixture: "declaration-name-accepted-kinds.ts",
+    axis: "annotation certainty",
+    covers: "AC-U13 — a real declaration of an accepted parent kind stays silent",
+  },
   // --- Task 4 [task:rule-b-count].
   {
     fixture: "shadow-scope-constructor.ts",
@@ -2212,10 +2225,11 @@ describe("AC-U4/AC-U5/AC-U12 — rule B is a COUNT, so it is total over scope ki
     const a = lineOf(f, "const a = snap.panes();");
     const b = lineOf(f, "const b = snap.panes();");
     expect(scan(f)).toEqual([
-      // A DECLARED BASELINE THAT SHRINKS: the accessor's own NAME is reported as a
-      // use because the declaration-name accept-set at BASE lists four kinds and
-      // misses accessors. `task:declaration-name-accept-set` removes this row.
-      finding(f, "UNCLASSIFIED-USE", "snap", lineOf(f, "set snap(v: Channel) {")),
+      // The baseline declared here has SHRUNK: the accessor's own NAME was
+      // reported as a USE of the binding, because the declaration-name list at
+      // BASE named four kinds and missed accessors.
+      // `task:declaration-name-accept-set` removed it by routing that question
+      // through the SAME accept-set rule B's count already used.
       finding(f, "UNCLASSIFIED-USE", "v", lineOf(f, "void v;")),
       finding(f, "MULTI-READ", "panes", a, [a, b]),
     ]);
@@ -2274,5 +2288,71 @@ describe("AC-U4/AC-U5/AC-U12 — rule B is a COUNT, so it is total over scope ki
       finding(f, "RAW-HANDOFF", "String", lineOf(f, "String(snap)")),
       finding(f, "MULTI-READ", "panes", a, [a, b]),
     ]);
+  });
+});
+
+describe("AC-U13 — the declaration-name accept-set defaults to USE", () => {
+  it("treats a VALUE REFERENCE carrying a `name` as a use, both spellings", () => {
+    // A GUARD, not a red: both of these report today and must keep reporting.
+    // `{ ch }` and `export { ch }` each carry a `name` whose value IS the
+    // identifier, so any rule shaped as "the identifier is its parent's name"
+    // skips them into SILENCE. The default is USE precisely because that error
+    // direction is the recoverable one.
+    const f = "declaration-name-value-references.ts";
+    expect(scan(f)).toEqual([
+      finding(f, "UNCLASSIFIED-USE", "ch", lineOf(f, "export { ch };")),
+      finding(f, "UNDECLARED-PASS", "settle", fnLine(f)),
+      finding(f, "UNCLASSIFIED-USE", "ch", lineOf(f, "void Object.values({ ch });")),
+    ]);
+  });
+
+  it("leaves a REAL DECLARATION of an accepted kind silent", () => {
+    // The paired half, and the one that moved. The accessor's own NAME was
+    // reported as a use of the binding it is named for.
+    const f = "declaration-name-accepted-kinds.ts";
+    expect(scan(f)).toEqual([finding(f, "UNDECLARED-PASS", "settle", fnLine(f))]);
+  });
+
+  it("names only declaring kinds the SPEC lists, with the spec as the independent witness", () => {
+    // Two sides that can disagree: the shipped Set, and the spec's own sentence.
+    // A kind added to the code without the spec naming it reds here.
+    const spec = readFileSync(SPEC_PATH, "utf8");
+    // The sentence WRAPS ACROSS LINES in the spec, so a line-keyed read gets only
+    // its first half and reports every kind as unnamed. Read the PARAGRAPH --
+    // from the marker to the next blank line -- with whitespace normalised.
+    const marker = "accept-set of DECLARING PARENTS";
+    const at = spec.indexOf(marker);
+    premiseHolds("the spec's declaring-parents paragraph was found", at >= 0);
+    const end = spec.indexOf("\n\n", at);
+    const prose = spec
+      .slice(at, end < 0 ? undefined : end)
+      .replace(/\s+/g, " ")
+      .toLowerCase();
+    premiseHolds("the paragraph is long enough to be the list", prose.length > 200);
+
+    const kinds = [...DECLARING_PARENT_KINDS].map((k) => ts.SyntaxKind[k]!);
+    expect(kinds.length).toBeGreaterThanOrEqual(12);
+
+    // Every word of every kind name must appear in the spec's list. `GetAccessor`
+    // and `SetAccessor` are covered by "get/set accessor", `FunctionExpression`
+    // by "function", and so on -- the spec groups where TypeScript splits.
+    // The spec GROUPS where TypeScript SPLITS: "function" covers both
+    // `FunctionDeclaration` and `FunctionExpression`, "class" covers both class
+    // forms. So a trailing `Declaration`/`Expression` is dropped before matching.
+    // The check still discriminates -- a kind whose STEM the spec does not name
+    // (say `CallExpression` -> "call") still reds, which is proven below.
+    const stemWords = (name: string): string[] =>
+      name
+        .replace(/(Declaration|Expression)$/, "")
+        .replace(/([a-z])([A-Z])/g, "$1 $2")
+        .toLowerCase()
+        .split(" ")
+        .filter(Boolean);
+
+    const unnamed = kinds.filter((name) => stemWords(name).some((w) => !prose.includes(w)));
+    expect(unnamed).toEqual([]);
+
+    // PROOF IT CAN FAIL: a kind the spec does not name must be reported.
+    expect(stemWords("CallExpression").some((w) => !prose.includes(w))).toBe(true);
   });
 });

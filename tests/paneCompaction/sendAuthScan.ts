@@ -507,12 +507,13 @@ const classifyUses = (
   const visit = (node: ts.Node): void => {
     if (ts.isIdentifier(node) && bindings.has(node.text)) {
       const parent = node.parent;
-      const isDeclarationName =
-        (ts.isParameter(parent) ||
-          ts.isVariableDeclaration(parent) ||
-          ts.isPropertyDeclaration(parent) ||
-          ts.isBindingElement(parent)) &&
-        parent.name === node;
+      // ONE accept-set, shared with rule B's declaration count. The four-kind
+      // list this replaces missed accessor, method and property-assignment names,
+      // so an accessor NAMED for a surface binding was reported as a USE of it --
+      // and the same list was invisible to the shadow walk until that walk was
+      // repaired. Two hand-written copies of "is this a declaration" is the shape
+      // this arc exists to remove.
+      const isDeclarationName = declaresName(node);
       const isPropertyName = ts.isPropertyAccessExpression(parent) && parent.name === node;
       // A property NAME is not a binding reference — EXCEPT when the property itself
       // is a surface binding, which is what a class field is. `this.ch.typo()` was
@@ -1111,7 +1112,7 @@ const unreachedOccurrences = (
  * rule B's competing test defaults to COMPETES. What they share is that the
  * default is the direction whose mistake is recoverable.
  */
-const DECLARING_PARENT_KINDS: ReadonlySet<ts.SyntaxKind> = new Set([
+export const DECLARING_PARENT_KINDS: ReadonlySet<ts.SyntaxKind> = new Set([
   ts.SyntaxKind.Parameter,
   ts.SyntaxKind.VariableDeclaration,
   ts.SyntaxKind.PropertyDeclaration,
