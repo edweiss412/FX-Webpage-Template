@@ -1722,10 +1722,17 @@ describe("processProbe cli adapter — wiring proven separately from rendering (
   it("cli generateSeed default produces a value the seed accept-set admits", () => {
     const seed = CLI_DEFAULT_DEPS.generateSeed();
     expect(parseSeed(String(seed))).toEqual({ ok: true, value: seed });
-    premiseHolds(
-      "the generated seed is not a constant zero",
-      CLI_DEFAULT_DEPS.generateSeed() !== 0 || seed !== 0,
-    );
+  });
+
+  it("cli generateSeed DEFAULT actually varies — a constant would satisfy every other case", () => {
+    // The different-seeds case above injects its own generator, so it proves
+    // `main` forwards distinct values and says nothing about the SHIPPED
+    // default. A constant default passes it, passes the accept-set case, and
+    // ships a campaign nobody can tell apart from its predecessor. My own killer
+    // audit found this gap: the constant-seed mutant survived every case.
+    const draws = Array.from({ length: 8 }, () => CLI_DEFAULT_DEPS.generateSeed());
+    premise("the probe drew more than one value, so variation is observable", draws.length, 1);
+    expect(new Set(draws).size).toBeGreaterThan(1);
   });
 });
 

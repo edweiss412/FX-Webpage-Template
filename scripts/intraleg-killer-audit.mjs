@@ -45,7 +45,7 @@ export const KILLS = [
     file: CORE,
     from: "  if (!/^[+-]?\\d+$/.test(text)) {\n    return { ok: false, detail: `${bound}, got ${JSON.stringify(value)}` };\n  }",
     to: "  if (false) {\n    return { ok: false, detail: `${bound}, got ${JSON.stringify(value)}` };\n  }",
-    filter: "--trials refuses",
+    filter: "trials refuses",
     reason: "a fractional --trials is accepted instead of refused",
   },
   {
@@ -111,9 +111,14 @@ export const KILLS = [
     file: CORE,
     from: "  const suites = target.surface.suitePaths;",
     to: "  const suites = target.surface.suitePaths.slice(0, 1);",
-    filter: "trial executes baseline",
+    // LIVE, and the reason is a fixture property rather than a preference: the
+    // in-process fixture surface declares ONE suite, so slicing `suitePaths` to
+    // its first element changes nothing there and the mutant survives a case
+    // that cannot express it. The two-suite control is the cheapest surface on
+    // which this defect is observable at all.
+    filter: "SHARED state scope reports the flip",
     reason: "only the first declared suite runs, so a later-suite verdict is missed",
-    alsoLive: true,
+    live: true,
   },
   // ---------------------------------------------------------------- AC-6
   {
@@ -385,7 +390,7 @@ export const KILLS = [
     file: CORE,
     from: "    return (t.loadSamples ?? []).filter((s) => s.at >= spawnedAt && s.at <= exitedAt);",
     to: "    return [...(t.loadSamples ?? [])];",
-    filter: "in-window",
+    filter: "IN-WINDOW samples",
     reason: "samples from outside the trial window enter the mean",
     sharedAnchorWith: "AC-10.k1",
   },
@@ -395,7 +400,7 @@ export const KILLS = [
     file: CORE,
     from: "  if (qDigest !== lDigest) {",
     to: "  if (false) {",
-    filter: "load column unchanged at one",
+    filter: "load column as unchanged at one",
     reason: "the load column advances on halves that measured different programs",
     sharedAnchorWith: "AC-10.k4",
   },
@@ -532,6 +537,27 @@ function assertCleanBaseline(files) {
   }
 }
 
+/**
+ * Every case name in a suite, for the filter-coverage check below.
+ *
+ * Three of this audit's first five unresolved entries were FILTER TYPOS
+ * reported as PRESENT-BUT-UNPROVEN — a `-t` value beginning with `--` is eaten
+ * as a flag, and `-t` is case-sensitive. "No case ran" and "the mutant survived"
+ * are opposite findings that render identically once the count is not printed,
+ * so the filters are now validated against the real case list BEFORE any mutant
+ * is applied.
+ */
+function listCases(suite, live = false) {
+  const r = spawnSync("pnpm", ["exec", "vitest", "list", suite], {
+    encoding: "utf8",
+    env: live ? { ...process.env, RUN_PROCESS_PROBE_LIVE: "1" } : process.env,
+  });
+  return (r.stdout ?? "")
+    .split("\n")
+    .filter((l) => l.includes(" > "))
+    .map((l) => l.slice(l.indexOf(" > ") + 3));
+}
+
 function runSuite(suite, filter, live = false) {
   const args = ["vitest", "run", suite];
   if (filter) args.push("-t", filter);
@@ -583,7 +609,45 @@ export function main() {
         `would read KILLED against an already-red suite.`,
     );
   }
-  process.stdout.write(`BASELINE GREEN: ${green.passed} passed, 0 failed\n\n`);
+  process.stdout.write(`BASELINE GREEN: ${green.passed} passed, 0 failed\n`);
+
+  // FILTER COVERAGE. A `-t` filter matching nothing exits 0 and reports green from
+  // the moment it is written; against a mutant it reports "survived". Refused up
+  // front, naming every filter that matches no case, so the two can never be
+  // confused again.
+  const caseNames = { [SUITE]: listCases(SUITE), [LIVE_SUITE]: listCases(LIVE_SUITE, true) };
+  const blind = [];
+  for (const kill of KILLS) {
+    if (kill.absent || !kill.filter) continue;
+    const suite = kill.live === true ? LIVE_SUITE : SUITE;
+    const hits = caseNames[suite].filter((n) => n.includes(kill.filter)).length;
+    if (hits === 0) blind.push(`${kill.id} (${JSON.stringify(kill.filter)} in ${suite})`);
+  }
+  if (blind.length > 0) {
+    throw new Error(
+      `REFUSING TO START: ${blind.length} filter(s) match NO case, so their mutants would report ` +
+        `as survivors against a suite that never ran them: ${blind.join(", ")}`,
+    );
+  }
+  process.stdout.write(
+    `FILTER COVERAGE: every filter matches at least one case ` +
+      `(${caseNames[SUITE].length} fast + ${caseNames[LIVE_SUITE].length} live cases listed)\n\n`,
+  );
+
+  // The same rule for the LIVE suite: a mutant run against an already-red suite
+  // reads KILLED for free, so the live baseline is established before any live
+  // mutant is applied — and only when one will actually run.
+  const willRunLive = KILLS.some((k) => k.live === true && !noLive && (!only || k.id === only));
+  if (willRunLive) {
+    const liveGreen = runSuite(LIVE_SUITE, null, true);
+    if (liveGreen.status !== 0 || liveGreen.failed !== 0) {
+      throw new Error(
+        `REFUSING TO RUN LIVE MUTANTS: the live baseline is not green (${liveGreen.failed} failed, ` +
+          `${liveGreen.passed} passed). Every live mutant would read KILLED against it.`,
+      );
+    }
+    process.stdout.write(`LIVE BASELINE GREEN: ${liveGreen.passed} passed, 0 failed\n`);
+  }
 
   const results = [];
   for (const kill of KILLS) {
@@ -614,13 +678,19 @@ export function main() {
     if (restoredSha !== beforeSha) {
       throw new Error(`RESTORE FAILED for ${kill.id}: ${kill.file} is not byte-identical`);
     }
-    const state = outcome.failed > 0 ? "PROVEN" : "PRESENT-BUT-UNPROVEN";
+    const matched = outcome.failed + outcome.passed;
+    const state =
+      matched === 0
+        ? "FILTER-MATCHED-NOTHING"
+        : outcome.failed > 0
+          ? "PROVEN"
+          : "PRESENT-BUT-UNPROVEN";
     results.push({
       ...kill,
       state,
       failed: outcome.failed,
       passed: outcome.passed,
-      matched: outcome.failed + outcome.passed,
+      matched,
     });
     process.stdout.write(
       `${state.padEnd(20)} ${kill.id}  ${outcome.failed} failed of ${outcome.failed + outcome.passed} matched  (${kill.reason})\n`,
