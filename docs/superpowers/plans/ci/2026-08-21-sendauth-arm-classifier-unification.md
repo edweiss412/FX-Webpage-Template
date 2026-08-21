@@ -15,7 +15,7 @@ locator that this plan's own execution invalidates.
 
 **Every task that edits `sendAuthScan.ts` or the deciding suite RETIRES the mutation score**, and
 rule 27 has no test-side exception: the score is a pure function of source, declared operators,
-deciding suites and fixtures. So **the score is measured ONCE, in TASK 9, after the last input
+deciding suites and fixtures. So **the score is measured ONCE, in `task:score-measure`, after the last input
 edit** — not per task, and never quoted from an earlier run.
 
 The same applies to the `GUARD SURFACE:` line of any diff-stage review brief: a score cited there is
@@ -84,24 +84,24 @@ and proof channel live in spec §6; this is the index, not a second definition.
 
 | id | claim | task |
 | --- | --- | --- |
-| **AC-U1** | `analyzePassReads` counts a read through a property receiver | 3 |
-| **AC-U2** | `analyzeHandoffs` reports a handoff through a property receiver | 3 |
-| **AC-U3** | parenthesized receivers classify identically to bare ones at every consumer | 3 |
-| **AC-U4** | the derivation exemption is void under a competing double declaration, in every scope kind | 4 |
-| **AC-U5** | a declaration provably NOT the surface does not compete, paired one variable away | 4 |
-| **AC-U6** | the live corpus scans 0 findings, with its population premise stated executably | 6, 8 |
-| **AC-U7** | all 81 pre-existing fixture verdicts preserved except the two named, additively | 8 |
-| **AC-U8** | `shadowedBetween` no longer exists, and no loop's termination rests on a mutable predicate | 9 |
-| **AC-U9** | the registry control keys on a line occurring exactly once, asserted by the SUITE not a comment | 9 |
-| **AC-U10** | the ledger row's three defects corrected; every NARROWED claim resolves to one FUNCTION | 10 |
-| **AC-U11** | the predecessor spec's §4 limit 8 preamble no longer carries a claim false under either reading | 10 |
-| **AC-U12** | an annotation that could hold the surface COMPETES; a keyword-typed one does not | 4 |
-| **AC-U13** | a value reference carrying a `name` classifies as a USE, not a declaration | 5 |
-| **AC-U14** | a statically known element-access receiver resolves; a non-literal key stays `opaque` | 2 |
-| **AC-U15** | every transparent wrapper the COMPILER defines is skipped, on BOTH sides | 2 |
-| **AC-U16a** | ABSENCE — no site re-implements the rule | 1, 7 |
-| **AC-U16b** | ADOPTION — every name-resolution site routes or carries one of the three tokens | 1, 7 |
-| **AC-U16c** | METAMORPHIC — the detected site SET is identical under rename and reformat | 7 |
+| **AC-U1** | `analyzePassReads` counts a read through a property receiver | `sites-consume-rule-a` |
+| **AC-U2** | `analyzeHandoffs` reports a handoff through a property receiver | `sites-consume-rule-a` |
+| **AC-U3** | parenthesized receivers classify identically to bare ones at every consumer | `sites-consume-rule-a` |
+| **AC-U4** | the derivation exemption is void under a competing double declaration, in every scope kind | `rule-b-count` |
+| **AC-U5** | a declaration provably NOT the surface does not compete, paired one variable away | `rule-b-count` |
+| **AC-U6** | the live corpus scans 0 findings, with its population premise stated executably | `read-set-member-name`, `corpus-preservation` |
+| **AC-U7** | all 81 pre-existing fixture verdicts preserved except the two named, additively | `corpus-preservation` |
+| **AC-U8** | `shadowedBetween` no longer exists, and no loop's termination rests on a mutable predicate | `score-measure` |
+| **AC-U9** | the registry control keys on a line occurring exactly once, asserted by the SUITE not a comment | `score-measure` |
+| **AC-U10** | the ledger row's three defects corrected; every NARROWED claim resolves to one FUNCTION | `ledger-closeout` |
+| **AC-U11** | the predecessor spec's §4 limit 8 preamble no longer carries a claim false under either reading | `ledger-closeout` |
+| **AC-U12** | an annotation that could hold the surface COMPETES; a keyword-typed one does not | `rule-b-count` |
+| **AC-U13** | a value reference carrying a `name` classifies as a USE, not a declaration | `declaration-name-accept-set` |
+| **AC-U14** | a statically known element-access receiver resolves; a non-literal key stays `opaque` | `resolve-name` |
+| **AC-U15** | every transparent wrapper the COMPILER defines is skipped, on BOTH sides | `resolve-name` |
+| **AC-U16a** | ABSENCE — no site re-implements the rule | `corpus-manifest`, `scans-and-routing` |
+| **AC-U16b** | ADOPTION — every name-resolution site routes or carries one of the three tokens | `corpus-manifest`, `scans-and-routing` |
+| **AC-U16c** | METAMORPHIC — the detected site SET is identical under rename and reformat | `scans-and-routing` |
 
 **AC-U16a, AC-U16b and AC-U16c are three different claims and none implies another** — absence of
 copies, adoption of the shared rule, and independence from spelling.
@@ -154,13 +154,19 @@ until `task:corpus-preservation` edited production code, so it could never commi
 `task:score-measure` deferred; and three authored REDs were not entailed. **A task owns every file its own red
 needs, and every cycle goes green on its own command before the next task starts.**
 
-<!-- tasks: depth=2 red-contract -->
-
 ## Task 1 — the corpus manifest, its axes, and the directive census  `[task:corpus-manifest]`
 
 **Files:** `tests/paneCompaction/_metaSendAuthSingleRead.test.ts`, `tests/paneCompaction/fixtures/sendAuth/`
 
-<!-- task: red=`pnpm vitest run tests/paneCompaction/_metaSendAuthSingleRead.test.ts` red-state=authored red-target=`tests/paneCompaction/_metaSendAuthSingleRead.test.ts:42` why=`the manifest case compares the fixture DIRECTORY read from disk against the cross-product derived from the shipped constants, and the corpus has no fixture for the element-access, wrapper or annotation-certainty cells, so the assertion fails on a VALUE - the missing cell names - not on an unresolved import` ac=AC-U16a,AC-U16b -->
+**OUTSIDE the red-contract region, and this is the rule applied CONSISTENTLY rather than a fourth
+attempt at a marker.** Rounds 3 and 4 both found this task's red unentailed, and the reason is
+structural: it authors fixtures and a manifest, changing NO production behaviour, so there is no
+production line whose repair turns it green. **A red contract is a contract about production
+behaviour**, and a task that has none cannot honestly carry a marker — which is exactly what the
+three tasks below already concluded.
+
+**Acceptance:** the manifest case reports zero unaccounted fixtures, the directive census passes, and
+every struck cell carries its reason.
 
 **The manifest is authored INSIDE the deciding suite, not as a separate module.** A new module that
 the suite imports turns its own absence into a COLLECTION failure, and a collection failure is not a
@@ -185,6 +191,8 @@ asserting the finding set is IDENTICAL. Struck cells carry their reason.
 
 **The directive census** asserts every syntax-sensitive cell carries `// prettier-ignore` immediately
 above its line, by a walk derived from the manifest — not a shared-file ignore entry.
+
+<!-- tasks: depth=2 red-contract -->
 
 ## Task 2 — `resolveName`, rule A, and the fixtures that exercise them  `[task:resolve-name]`
 
@@ -326,9 +334,35 @@ includes the scanner, the suite and the fixtures **because that is where a survi
 accepting one is forbidden by the empty-survivor criterion, so a registry-only inventory could not
 close.
 
-**The RED command is the GATE, not the deciding suite** — the deciding suite does not import the
+**The measurement runs against the GATE, not the deciding suite** — the deciding suite does not import the
 registry, so it can express no verdict about a survivor set. The gate is the only oracle that knows
 which mutants survived.
+
+**The exact commands, because a specified mechanic with no command establishes nothing** — round 4
+was right that `pnpm mutation:guards` names shards 0-3 and the gates file, so it can never run a
+scoped shard 9:
+
+```
+# 1. stamp the DERIVED input set BEFORE, inside the same invocation that measures
+tsx -e 'import {SEND_AUTH_SURFACES} from "./tests/paneCompaction/sendAuthScan"; …' \
+  && git hash-object tests/paneCompaction/sendAuthScan.ts \
+                     tests/paneCompaction/_metaSendAuthSingleRead.test.ts \
+                     tests/mutation/source/registry.ts \
+                     tests/mutation/source/expectedLedgerKinds.ts \
+  && find tests/paneCompaction/fixtures -type f | sort | xargs shasum | shasum
+
+# 2. the scoped run itself — BACKGROUNDED, because a foreground Bash call dies at 600s
+VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy pnpm vitest run --project mutation \
+  tests/mutation/guardSurfaces.shard9.test.ts
+
+# 3. observe the EXIT STATUS and the survivor list, not merely that it finished
+# 4. stamp the same derived set AFTER, and assert both stamps equal
+# 5. delete the shard, then prove the deletion load-bearing in BOTH directions:
+pnpm vitest run tests/mutation/_metaSourceShardIntegrity.test.ts   # FAILS with shard9 present
+rm tests/mutation/guardSurfaces.shard9.test.ts
+pnpm vitest run tests/mutation/_metaSourceShardIntegrity.test.ts   # PASSES once removed
+git ls-tree -r --name-only HEAD | grep shard                        # across EVERY commit, not ls-files
+```
 
 Mechanics, verified rather than recalled: a temp shard **numbered 9**, since the repository's ignore
 file covers the scoped-shard scratch glob for shard numbers four through nine ONLY and an uncovered
@@ -406,42 +440,42 @@ would break it is the next tautology.
 
 | task | instrument | Q1 | Q2 — the event that separates the sides |
 | --- | --- | --- | --- |
-| 1 | manifest vs fixture DIRECTORY | yes | a cell added to the derivation with no fixture on disk; the filesystem does not know what the constant says |
-| 1 | directive census | yes | a syntax-sensitive fixture authored without `// prettier-ignore` |
-| 1 | struck-cell coverage | yes | a struck cell with no recorded reason |
-| 1 | depth independence | yes | a rule that reads depth at any position; it FAILED before the §3.7 repair |
-| 2 | wrapper set vs `ts.OuterExpressionKinds` | yes | TypeScript adding a wrapper kind, or a hand-typed list drifting from the enum |
-| 2 | wrapper symmetry, BOTH sides of resolution | yes | the receiver side unwrapping a kind the identifier side does not, which is how the sixth decision site was found |
-| 2 | `Receiver` union parity | yes | a member added to the union with no manifest cell — authored HERE because this task creates the union |
-| 2 | static element key resolves | yes | a key spelling the resolver does not read |
-| 3 | six-site equality assertions | yes | any consumer answering differently from rule A; each compares a whole finding SET |
-| 4 | competing-declaration count | yes | an annotation moved between the keyword accept-set and its complement |
-| 4 | scope-totality witness | yes | a competing declaration in ANY scope, including one no list names; the implementation must contain no scope enumeration at all |
-| 4 | AC-U5's clean/report attribution pair | yes | the annotation swapped between surface and keyword on ONE fixture, which is what makes the clean verdict attributable rather than "never got here" |
-| 4 | the two moved expectations | yes | a finding added or removed at either fixture |
-| 5 | declaration-name accept-set | yes | a parent kind entering or leaving the set |
-| 6 | read set over a quoted member | yes | the member-name position leaving the rule |
-| 7 | ABSENCE scan | yes | a second copy of the rule; copies three, four and five all compiled and shipped green |
-| 7 | ADOPTION scan | yes | a name-resolution site neither routed nor acknowledged; reports 12 today |
-| 7 | METAMORPHIC scan | yes | a spelling dependence anywhere in the detector; it FAILED at 42 to 44 before the repair |
-| 7 | per-form planted violations | yes | a detector recognizing a strict subset of the API set |
-| 7 | derived API REQUIREMENT vs authored fixture DIRECTORY | yes | a member of the API set with no hand-authored violation on disk — a DIFFERENT event from a detector recognizing a subset, and the two must not share a row |
-| 9 | `shadowedBetween` grep returns zero | yes | the symbol surviving the refactor anywhere in the module |
-| 9 | no loop's termination rests on a mutable predicate | yes | a totalisation that moves termination into a predicate, which turns an off-by-one mutant into a NON-TERMINATING one and takes the whole measurement down |
-| 7 | stale-row check | yes | a disposition row whose site is gone; reports 2 today |
-| 7 | ROUTE compliance | yes | a `ROUTE` row whose site is still unrouted; reports 12 today |
-| 7 | `not-a-name` field invalidation | yes | the site repurposed to read a different field |
-| 7 | `grammar` validated against DECLARED FIELD TYPES | yes | a field whose type admits a sibling spelling being granted the durable token — three of nine were, and an access-shaped claim is unfalsifiable by construction |
-| 7 | `narrowed` syntax carries consequence AND trigger | yes | a `narrowed` row written without either, which is a shrug wearing a token's name |
-| 8 | whole-corpus verdict preservation (AC-U7) | yes | any fixture's verdict differing from the committed baseline beyond the two `task:rule-b-count` moves; a committed baseline against a live scan is two independent sides |
-| 8 | live scan empty, with its population premise | **already ships** | recorded here NOT as a new instrument but because round 2 caught this task claiming to author it — the premise is live in the suite today, so authoring it would have been a red that passes on write |
-| 9 | survivor set vs GATE report | yes | a mutant surviving that the row does not accept — the gate is the oracle, and the deciding suite could not be |
-| 9 | input stamps, before and after | yes | any score input moving during the run |
-| 9 | shard integrity, both directions | yes | the temp shard present or absent; proven each way |
-| 9 | `grep -c -F` control uniqueness | yes | a refactor duplicating the keyed line; it was 1 at BASE and this arc moves that code |
-| 9 | killer audit | yes | a weaker implementation no declared operator can express |
-| 10 | ledger set arithmetic | yes | a row in both files, or a marker surviving to HEAD |
-| 10 | mint-bar fields on the peer row | yes | the row filed after the cutoff without `Facing` / `Incident` |
+| `corpus-manifest` | manifest vs fixture DIRECTORY | yes | a cell added to the derivation with no fixture on disk; the filesystem does not know what the constant says |
+| `corpus-manifest` | directive census | yes | a syntax-sensitive fixture authored without `// prettier-ignore` |
+| `corpus-manifest` | struck-cell coverage | yes | a struck cell with no recorded reason |
+| `corpus-manifest` | depth independence | yes | a rule that reads depth at any position; it FAILED before the §3.7 repair |
+| `resolve-name` | wrapper set vs `ts.OuterExpressionKinds` | yes | TypeScript adding a wrapper kind, or a hand-typed list drifting from the enum |
+| `resolve-name` | wrapper symmetry, BOTH sides of resolution | yes | the receiver side unwrapping a kind the identifier side does not, which is how the sixth decision site was found |
+| `resolve-name` | `Receiver` union parity | yes | a member added to the union with no manifest cell — authored HERE because this task creates the union |
+| `resolve-name` | static element key resolves | yes | a key spelling the resolver does not read |
+| `sites-consume-rule-a` | six-site equality assertions | yes | any consumer answering differently from rule A; each compares a whole finding SET |
+| `rule-b-count` | competing-declaration count | yes | an annotation moved between the keyword accept-set and its complement |
+| `rule-b-count` | scope-totality witness | yes | a competing declaration in ANY scope, including one no list names; the implementation must contain no scope enumeration at all |
+| `rule-b-count` | AC-U5's clean/report attribution pair | yes | the annotation swapped between surface and keyword on ONE fixture, which is what makes the clean verdict attributable rather than "never got here" |
+| `rule-b-count` | the two moved expectations | yes | a finding added or removed at either fixture |
+| `declaration-name-accept-set` | declaration-name accept-set | yes | a parent kind entering or leaving the set |
+| `read-set-member-name` | read set over a quoted member | yes | the member-name position leaving the rule |
+| `scans-and-routing` | ABSENCE scan | yes | a second copy of the rule; copies three, four and five all compiled and shipped green |
+| `scans-and-routing` | ADOPTION scan | yes | a name-resolution site neither routed nor acknowledged; reports 12 today |
+| `scans-and-routing` | METAMORPHIC scan | yes | a spelling dependence anywhere in the detector; it FAILED at 42 to 44 before the repair |
+| `scans-and-routing` | per-form planted violations | yes | a detector recognizing a strict subset of the API set |
+| `scans-and-routing` | derived API REQUIREMENT vs authored fixture DIRECTORY | yes | a member of the API set with no hand-authored violation on disk — a DIFFERENT event from a detector recognizing a subset, and the two must not share a row |
+| `score-measure` | `shadowedBetween` grep returns zero | yes | the symbol surviving the refactor anywhere in the module |
+| `score-measure` | no loop's termination rests on a mutable predicate | yes | a totalisation that moves termination into a predicate, which turns an off-by-one mutant into a NON-TERMINATING one and takes the whole measurement down |
+| `scans-and-routing` | stale-row check | yes | a disposition row whose site is gone; reports 2 today |
+| `scans-and-routing` | ROUTE compliance | yes | a `ROUTE` row whose site is still unrouted; reports 12 today |
+| `scans-and-routing` | `not-a-name` field invalidation | yes | the site repurposed to read a different field |
+| `scans-and-routing` | `grammar` validated against DECLARED FIELD TYPES | yes | a field whose type admits a sibling spelling being granted the durable token — three of nine were, and an access-shaped claim is unfalsifiable by construction |
+| `scans-and-routing` | `narrowed` syntax carries consequence AND trigger | yes | a `narrowed` row written without either, which is a shrug wearing a token's name |
+| `corpus-preservation` | whole-corpus verdict preservation (AC-U7) | yes | any fixture's verdict differing from the committed baseline beyond the two `task:rule-b-count` moves; a committed baseline against a live scan is two independent sides |
+| `corpus-preservation` | live scan empty, with its population premise | **already ships** | recorded here NOT as a new instrument but because round 2 caught this task claiming to author it — the premise is live in the suite today, so authoring it would have been a red that passes on write |
+| `score-measure` | survivor set vs GATE report | yes | a mutant surviving that the row does not accept — the gate is the oracle, and the deciding suite could not be |
+| `score-measure` | input stamps, before and after | yes | any score input moving during the run |
+| `score-measure` | shard integrity, both directions | yes | the temp shard present or absent; proven each way |
+| `score-measure` | `grep -c -F` control uniqueness | yes | a refactor duplicating the keyed line; it was 1 at BASE and this arc moves that code |
+| `score-measure` | killer audit | yes | a weaker implementation no declared operator can express |
+| `ledger-closeout` | ledger set arithmetic | yes | a row in both files, or a marker surviving to HEAD |
+| `ledger-closeout` | mint-bar fields on the peer row | yes | the row filed after the cutoff without `Facing` / `Incident` |
 
 **The row that had to be rewritten rather than confirmed:** an early manifest case compared a
 DERIVATION AGAINST A DERIVATION — axes from the shipped constants on both sides — which fails Q2 by
@@ -460,6 +494,7 @@ implementation that would satisfy its fixtures, and the case that kills it.
 | --- | --- | --- |
 | rule A, unwrap | unwraps parentheses only | a receiver wrapped in `as`, `<T>`, `!` and `satisfies` — one fixture each, since one representative leaves the other three unexercised |
 | rule A, element key | resolves `this["ch"]` but not `this[("ch")]` | a WRAPPED key, which is the same unwrap applied to a second position |
+| **member SELECTOR** | unifies RECEIVER resolution while leaving the SELECTOR dot-only — it satisfies every receiver-shaped red in `task:sites-consume-rule-a`, because those attribute their failure to the receiver's identifier restriction | `this["ch"]["dispatch"]()`, which stays **completely silent** under the weaker form, and doubled `ch["panes"]()`, which reports **the BINDING twice** instead of `MULTI-READ:panes`. Both measured on the live tree. **Receiver and selector are two positions, and a killer for one is not a killer for the other** |
 | rule B, scope | ANY enumerator, however long — constructor, setter, blocks, `for` initializers, catch bindings — since each named case only extends the list | **the killing check is STRUCTURAL, not another fixture**: the shipped implementation must contain NO scope enumeration at all. A count needs no notion of scope, so "which scopes does it list" has the answer "none". Fixtures alone cannot kill this class — a competing declaration in a `while` body defeats the five-item list, and a six-item list defeats that fixture — which is the enumeration treadmill in miniature |
 | rule B, competing | treats any annotation that is not the surface type as non-competing | `any`, `Readonly<Channel>`, `Channel & {}`, paired with a `string` that must stay silent |
 | declaration-name | `parent.name === node` minus a two-item denylist | `Object.values({ ch })` and `export { ch }`, which carry a `name` and are references |
@@ -512,8 +547,11 @@ Every `why=` above names output the implementation must PRODUCE, never a symbol'
 an absence is not a failing case**: an absent named half returns no named findings, so a substring
 assertion over the output passes vacuously.
 
-**Every task authors its own failing case** and names the production line whose defect makes it
-fail; none claims `red-state=live`. Round 1's two live claims were both wrong — one was pre-satisfied
+**Every task INSIDE the red-contract region authors its own failing case** and names the production
+line whose defect makes it fail; none claims `red-state=live`. **The four tasks outside it —
+`task:corpus-manifest`, `task:corpus-preservation`, `task:score-measure`, `task:ledger-closeout` —
+carry NO marker by design and state their acceptance instead**, because none changes production
+behaviour and a marker there would assert a red rather than observe one. Round 1's two live claims were both wrong — one was pre-satisfied
 by a guarantee an earlier task already made, the other could only fail in a future the task itself
 creates — so the restructure carries no live reds at all rather than carrying a doubtful one.
 
@@ -521,7 +559,11 @@ creates — so the restructure carries no live reds at all rather than carrying 
 
 ## 5. Checklist
 
-- [ ] every task, each red-then-green on the SAME command, committed per task
+- [ ] the six red-contract tasks (`task:resolve-name` through `task:scans-and-routing`), each
+      red-then-green on the SAME command, committed per task
+- [ ] the four acceptance tasks (`task:corpus-manifest`, `task:corpus-preservation`,
+      `task:score-measure`, `task:ledger-closeout`), each meeting its STATED acceptance — they carry
+      no marker, and requiring a red of them is what produced three manufactured reds
 - [ ] Self-review
 - [ ] Adversarial review (cross-model) — plan stage, to APPROVE
 - [ ] Execution handoff
