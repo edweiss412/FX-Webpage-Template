@@ -1,0 +1,26 @@
+{
+  "why": [
+    "THE ONE AUTHORITY for which documents this arc writes. Two scripts consume it:",
+    "the population census EXCLUDES these from the corpus it measures, because its own",
+    "spec and probe record are documents full of transition sentences and measuring them",
+    "reports the arc's writing as corpus growth; the claimed-repair sweep READS exactly",
+    "these, because a sweep that is clean about a document it never opened is this arm's",
+    "own defect one artifact further out.",
+    "",
+    "A second literal list anywhere is the split-population drift spec section 2.0 forbids:",
+    "an ordinary later addition updates one list while the other's check stays green, and",
+    "both keep reporting clean. Any document this arc adds later joins THIS FILE in the",
+    "same commit, and nowhere else.",
+    "",
+    "Keyed by ROLE rather than listed flat, because the sweep needs the roles: it carries a",
+    "must-be-PRESENT control per document, and one global control would be satisfied by any",
+    "single successful read."
+  ],
+  "documents": {
+    "spec": "docs/superpowers/specs/ci/2026-08-20-claim-sweep-after-repair.md",
+    "probe": "docs/superpowers/specs/ci/probes/2026-08-20-claim-sweep-after-repair-probes.md",
+    "plan": "docs/superpowers/plans/2026-08-20-claim-sweep-after-repair.md",
+    "handoff": "docs/superpowers/plans/2026-08-20-claim-sweep-after-repair-handoff.md",
+    "filing": "docs/review-rounds/feat/speclint-claim-sweep-after-repair/4dfd784ed062.md"
+  }
+}

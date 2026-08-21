@@ -26,15 +26,31 @@ every positive check.  Raw counts only; no computed verdict.  Controls are
 mandatory: a must-be-PRESENT witness proves the read succeeded, a must-be-ABSENT
 witness proves the matcher can report absence.
 """
-import re, pathlib, sys
+import re, pathlib, sys, json
 
-SPEC  = "docs/superpowers/specs/ci/2026-08-20-claim-sweep-after-repair.md"
-PROBE = "docs/superpowers/specs/ci/probes/2026-08-20-claim-sweep-after-repair-probes.md"
+# READ from the ONE declaration, never restated here. `arc-documents.json` beside
+# this script is the single authority for what this arc writes; the population
+# census excludes exactly these, and this sweep reads exactly these. Two literal
+# lists is the split population section 2.0 forbids -- a document added to one
+# list leaves the other's check green, and both keep reporting clean, which is
+# how the FILING stayed outside this sweep for four rounds.
+_DECLARATION = pathlib.Path(__file__).resolve().parent / "arc-documents.json"
+_DOCS = json.loads(_DECLARATION.read_text(encoding="utf8"))["documents"]
+
+SPEC    = _DOCS["spec"]
+PROBE   = _DOCS["probe"]
+PLAN    = _DOCS["plan"]
+HANDOFF = _DOCS["handoff"]
+FILING  = _DOCS["filing"]
 norm  = lambda s: re.sub(r"\s+", " ", s)
 
-PLAN   = "docs/superpowers/plans/2026-08-20-claim-sweep-after-repair.md"
-FILING = "docs/review-rounds/feat/speclint-claim-sweep-after-repair/4dfd784ed062.md"
-HANDOFF = "docs/superpowers/plans/2026-08-20-claim-sweep-after-repair-handoff.md"
+# EVERY declared role is read, derived from the declaration rather than from the
+# five names above: a sixth role added to the JSON must not be silently dropped
+# here, which is the exact failure the single authority exists to prevent.
+_UNREAD = sorted(set(_DOCS) - {"spec", "probe", "plan", "handoff", "filing"})
+if _UNREAD:
+    print(f"FAIL  arc-documents.json declares role(s) this sweep does not read: {_UNREAD}")
+    sys.exit(1)
 
 # THE SWEEP UNIT IS EVERY DOCUMENT THIS ARC WRITES, not the spec/probe pair it
 # started as.  Plan review round 4 found SEVEN current-tense survivors in the
