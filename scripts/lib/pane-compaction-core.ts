@@ -601,25 +601,95 @@ export function renderRow(p: PaneReport): string {
 // ---------------------------------------------------------------------------
 
 /**
- * The checkpoint prompt. `<NONCE>` is the only substitution.
+ * The ADDRESS LINE both prose payloads open with (spec §3.6).
+ *
+ * The queue property alone does not price the pass-to-send window. A takeover
+ * landing inside it swaps the session behind an authorization that was correct
+ * when it was taken, and the prompts used to carry no addressee — so actionable
+ * stop/resume instructions would have been delivered to a session they were
+ * never authorized for. Naming the recipient makes the wrong-recipient delivery
+ * SELF-NEUTRALIZING: a session can always answer "am I driving this branch"
+ * from its own worktree, and per this repo's Stage 0 contract it knows its own
+ * session id, so the ignore instruction is executable by whoever reads it.
+ *
+ * `--` and not an em dash: these bytes are typed into another agent's TUI.
+ */
+const ADDRESS_LINE =
+  "For the session driving <BRANCH> (session <SESSION>) ONLY -- any other session must ignore";
+
+/**
+ * The parenthetical, as ONE definition.
+ *
+ * A marker-less or session-less target is addressed by branch alone, and the
+ * omission is of the WHOLE parenthetical rather than of the token inside it —
+ * `(session )` addresses nobody while looking like it addresses someone. Spelt
+ * once here because `addressPayload` removes exactly this substring, so a
+ * second copy in the removal would be free to drift out of the constant.
+ */
+const SESSION_PARENTHETICAL = " (session <SESSION>)";
+
+/**
+ * The checkpoint prompt.
  *
  * It instructs against committing because invariant 1 permits a task commit
  * only after the implementation passes its test, and an interrupted target is
  * by construction mid-task. It writes the gitignored marker and leaves the tree.
+ *
+ * Its ask is benign under every decay class the pass-to-send window admits — a
+ * truthful self-record plus a stop at the recipient's own turn boundary — which
+ * is why it needs no deference line of its own (spec §3.6, §7 limit 1).
  */
 export const CHECKPOINT_TEXT = [
-  "Checkpoint before compaction. Do not commit. Update .claude/ship-state.json in your worktree:",
-  "set `stage` to where you actually are, set `next` to the literal command or action that resumes",
-  "this work, and set `checkpointNonce` to exactly <NONCE>. Leave the working tree exactly as it",
-  "is. Then stop.",
+  ADDRESS_LINE,
+  "this message entirely. Checkpoint before compaction. Do not commit. Update",
+  ".claude/ship-state.json in your worktree: set `stage` to where you actually are, set `next`",
+  "to the literal command or action that resumes this work, and set `checkpointNonce` to",
+  "exactly <NONCE>. Leave the working tree exactly as it is. Then stop.",
 ].join("\n");
 
+/**
+ * The resume prompt, which DEFERS to the recipient's own marker.
+ *
+ * That deference is the round-3 repair, not a courtesy. The address line
+ * neutralizes a WRONG-recipient delivery; it cannot neutralize a SAME-recipient
+ * authorization decay — a `blockedOn` written concurrently after the pass read
+ * it, with branch and session unchanged. An earlier text told exactly that
+ * recipient to discard its blocked framing, overriding the one piece of state
+ * that would have refused the send. Re-reading the marker FIRST makes the
+ * recipient's own `blockedOn` the gate, at its own execution instant.
+ *
+ * It closes the `blockedOn` decay class and NO OTHER: a verdict or purview
+ * change is invisible to the recipient by construction, and those classes are
+ * priced as bounded consequences in spec §7 limit 1 rather than claimed closed.
+ */
 export const RESUME_TEXT = [
-  "Run `date` first; the shell clock is the only source of truth. Discard any stale blocked or",
-  "standing-down framing. Re-read .claude/ship-state.json in your worktree and resume its `next`",
-  "action immediately, in this turn. You were compacted by the orchestrator; approval already",
-  "given, do not re-ask.",
+  ADDRESS_LINE,
+  "this message entirely. Run `date` first; the shell clock is the only source of truth.",
+  "Re-read .claude/ship-state.json in your worktree FIRST: if its blockedOn is non-empty, honor",
+  "it and stop -- your marker outranks this message. Otherwise discard any stale blocked or",
+  "standing-down framing from your conversation and resume the marker's `next` action",
+  "immediately, in this turn. You were compacted by the orchestrator; approval already given,",
+  "do not re-ask.",
 ].join("\n");
+
+/**
+ * Substitute the address line's targets into a prose payload.
+ *
+ * The session is omitted by removing the parenthetical WHOLE, so a target whose
+ * marker carries no `sessionId` is addressed by branch alone rather than by an
+ * empty id. Rule 5 already governs the mismatch cases the id would catch, so
+ * branch-alone is a narrower address rather than an absent one.
+ */
+export function addressPayload(
+  text: string,
+  opts: { branch: string; session: string | null },
+): string {
+  const addressed =
+    opts.session === null
+      ? text.replace(SESSION_PARENTHETICAL, "")
+      : text.replace("<SESSION>", opts.session);
+  return addressed.replace("<BRANCH>", opts.branch);
+}
 
 export type SendPlan = { sends: string[] };
 
@@ -647,17 +717,39 @@ export type SendPlan = { sends: string[] };
 export function planSends(opts: {
   command: "checkpoint" | "compact" | "resume";
   nonce?: string;
+  /**
+   * The target's branch, and its marker's `sessionId` when the pass read one.
+   *
+   * OPTIONAL in the type and REQUIRED at runtime for the two prose commands,
+   * the same shape `nonce` already uses. `/compact` is address-exempt by
+   * construction (below), so a required field would force every compact caller
+   * to supply an argument no branch reads — the zombie shape the comment above
+   * `planSends` exists to refuse. An absent branch THROWS rather than
+   * defaulting: an empty address addresses nobody while looking addressed.
+   */
+  branch?: string;
+  session?: string | null;
 }): SendPlan {
+  const address = (text: string, command: string): string => {
+    const branch = opts.branch;
+    if (branch === undefined) throw new Error(`--${command} requires the target's branch`);
+    return addressPayload(text, { branch, session: opts.session ?? null });
+  };
   switch (opts.command) {
     case "checkpoint": {
       const nonce = opts.nonce;
       if (nonce === undefined) throw new Error("--checkpoint requires a nonce");
-      return { sends: [CHECKPOINT_TEXT.replace("<NONCE>", nonce), "\r"] };
+      return { sends: [address(CHECKPOINT_TEXT, "checkpoint").replace("<NONCE>", nonce), "\r"] };
     }
     case "compact":
+      // NO address, and none is needed. `/compact` is a slash command -- a
+      // prefix line would strip it of that status and deliver prose. Its worst
+      // mis-delivery is a compaction, which is the same outcome auto-compaction
+      // produces on its own schedule and a near no-op on an already-compacted
+      // session (spec §3.6).
       return { sends: ["/compact", "\r"] };
     case "resume":
-      return { sends: [RESUME_TEXT, "\r"] };
+      return { sends: [address(RESUME_TEXT, "resume"), "\r"] };
   }
 }
 
@@ -678,6 +770,16 @@ export type RefusalCause =
   | { kind: "nonce-absent" }
   | { kind: "nonce-mismatch" }
   | { kind: "stale-verdict"; was: Verdict; now: Verdict }
+  /**
+   * A VALID, uncontested claim held by a different session.
+   *
+   * Rule 3 asks whether the pane is claimed AT ALL, so a pane validly claimed
+   * by another orchestrator passes it. Refusing that here, by its own name,
+   * rather than folding it into `not-drivable` -- which would tell an operator
+   * the verdict is wrong when the verdict is fine and the CALLER is wrong.
+   */
+  | { kind: "owned-by-other"; paneId: string; sessionId: string; as: string }
+  | { kind: "not-in-purview"; paneId: string; reason: string }
   | { kind: "contested" };
 
 /**
@@ -729,11 +831,125 @@ export function refuse(cause: RefusalCause): Refusal {
         return "refusing: the target's checkpointNonce is not the one this command recorded";
       case "stale-verdict":
         return `refusing: verdict changed from ${cause.was} to ${cause.now} before sending`;
+      case "owned-by-other":
+        return `refusing: ${cause.paneId} is claimed by ${cause.sessionId}, not by ${cause.as}`;
+      case "not-in-purview":
+        return `refusing: ${cause.paneId} is not in your purview: ${cause.reason}`;
       case "contested":
         return "refusing: purview is contested; another orchestrator also claims this pane";
     }
   })();
   return { exitCode: 1, sends: [], message };
+}
+
+// ---------------------------------------------------------------------------
+// §3.1 — the authorization predicate
+// ---------------------------------------------------------------------------
+
+/** The three modes that send bytes. The read-only surfaces never reach here. */
+export type SendMode = "checkpoint" | "compact" | "resume";
+
+/**
+ * Everything the decision is allowed to consult, as ONE value.
+ *
+ * The type is the point. Every field is derived from the invocation's own
+ * read-once pass, and there is nowhere to put a value taken at another instant
+ * -- no thunk to be consulted later, no `was`/`now` pair to compare. Six
+ * shipped defects were all inter-pass skew, and four incremental repairs
+ * narrowed the window without closing it; the closure is structural rather than
+ * another comparison, because a comparison that exists can be incomplete and a
+ * second read that exists can skew (spec §1.2, §3.2).
+ */
+export type AuthorizationInput = {
+  mode: SendMode;
+  paneId: string;
+  /** The `--as <sessionId>` the caller supplied. Explicit, never inferred. */
+  as: string;
+  /** Resolved from the pass's purview read. */
+  ownership: Ownership;
+  /** `observe()` over the pass. Carries the deciding rule, not merely the verdict. */
+  report: PaneReport;
+  /**
+   * `--compact` only: the record this orchestrator wrote, and the `checkpointNonce`
+   * the PASS's marker copy carries. Both from this invocation; there is no
+   * earlier capture for them to disagree with.
+   */
+  nonce?: { recorded: string | null; marker: string | null };
+};
+
+export type AuthorizationDecision = { authorized: true } | { authorized: false; message: string };
+
+/**
+ * Whether this invocation may send, and if not, WHICH condition refused it.
+ *
+ * Pure over pass data, so the whole gate is assertable without a live herdr,
+ * git or network -- and so the mutation gate can attack it, which a decision
+ * spread across the adapter's I/O could not be.
+ *
+ * ORDER IS PART OF THE CONTRACT, and it is the ordering half of §6's
+ * name-the-condition guarantee. A round-5 defect refused with "marker carries
+ * no checkpointNonce" while a matching nonce sat in the marker, sending an
+ * operator to re-checkpoint a pane that had already been stopped for another
+ * reason. Checking the cheapest-to-explain condition first means the reason an
+ * operator reads is the FIRST one that held, not whichever check happened to
+ * run last.
+ */
+export function authorizeSend(input: AuthorizationInput): AuthorizationDecision {
+  const no = (cause: RefusalCause): AuthorizationDecision => ({
+    authorized: false,
+    message: refuse(cause).message,
+  });
+
+  // 1. Ownership by THIS caller. A contested pane is deliberately NOT refused
+  //    here: rule 3 already saw it, and naming it twice would give an operator
+  //    two different sentences for one condition.
+  if (input.ownership.kind === "owned-by-other") {
+    return no({
+      kind: "owned-by-other",
+      paneId: input.paneId,
+      sessionId: input.ownership.sessionId,
+      as: input.as,
+    });
+  }
+  if (input.ownership.kind === "unowned") {
+    return no({ kind: "not-in-purview", paneId: input.paneId, reason: input.ownership.reason });
+  }
+
+  // 2. The rule 1-8 observation stop, for EVERY mode including `--resume`.
+  //    Read off the rule number rather than the verdict: WAIT is produced by
+  //    rules 7 and 8 (observations) AND by 11 and 12 (banding), so a
+  //    verdict-based gate would let `--resume` drive a pane rule 7 had stopped.
+  const OBSERVATION_RULES = 8;
+  if (input.report.rule <= OBSERVATION_RULES) {
+    return no({
+      kind: "observation-stop",
+      rule: input.report.rule,
+      verdict: input.report.verdict,
+      detail: input.report.rejectedField,
+    });
+  }
+
+  // 3. The mode verdict gate. `--resume` deliberately does not require
+  //    COMPACT/FORCE: a successful compaction makes both false exactly when
+  //    resuming is the correct next act.
+  if (
+    input.mode !== "resume" &&
+    input.report.verdict !== "COMPACT" &&
+    input.report.verdict !== "FORCE"
+  ) {
+    return no({ kind: "not-drivable", verdict: input.report.verdict });
+  }
+
+  // 4. `--compact` only: the nonce proves this orchestrator's checkpoint was
+  //    executed by the target before this orchestrator compacts it.
+  if (input.mode === "compact") {
+    const nonce = input.nonce;
+    if (nonce === undefined) throw new Error("--compact requires the pass's nonce pair");
+    if (nonce.recorded === null || nonce.marker === null) return no({ kind: "nonce-absent" });
+    if (nonce.recorded !== nonce.marker) return no({ kind: "nonce-mismatch" });
+  }
+
+  return { authorized: true };
 }
 
 // ---------------------------------------------------------------------------

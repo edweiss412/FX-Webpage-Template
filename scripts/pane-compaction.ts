@@ -733,6 +733,11 @@ function drive(opts: Parsed, pane: RosterPane, roster: RosterPane[], s: Surface)
   const marker = s.marker(pane.cwd);
   const markerNonce =
     typeof marker?.["checkpointNonce"] === "string" ? marker["checkpointNonce"] : null;
+  // The addressee, when the marker names one. A marker-less or session-less
+  // target is addressed by BRANCH alone (spec §3.6) -- rule 5 already governs
+  // the mismatch cases the id would catch, so branch-alone is a narrower
+  // address rather than an absent one.
+  const markerSessionId = typeof marker?.["sessionId"] === "string" ? marker["sessionId"] : null;
 
   // "An observation says stop" is RULES 1-8, and it has to be read off the rule
   // number rather than the verdict. `WAIT` is produced by rule 7 (blocked or
@@ -763,6 +768,14 @@ function drive(opts: Parsed, pane: RosterPane, roster: RosterPane[], s: Surface)
     s.out(refuse({ kind: "not-drivable", verdict: report.verdict }).message);
     return 1;
   }
+
+  // Rule 1 stopped every pane whose label resolves to no worktree branch, so
+  // the label is a string from here down. NARROWED on that guarantee rather
+  // than defaulted to the empty string: an empty address addresses nobody while
+  // looking addressed, which is the one thing §3.6's address line exists to
+  // prevent -- and a future edit that breaks the guarantee fails here instead.
+  const branch = pane.agentName;
+  if (branch === null) throw new Error("unreachable: rule 1 stops a pane with no agent label");
 
   // ONE ATOMIC AUTHORIZATION READ, and this is the FOURTH repair of one class.
   //
@@ -849,7 +862,12 @@ function drive(opts: Parsed, pane: RosterPane, roster: RosterPane[], s: Surface)
       return 1;
     }
     const nonce = mintNonce({ markerNonce, random: s.random });
-    const sends = planSends({ command: "checkpoint", nonce }).sends;
+    const sends = planSends({
+      command: "checkpoint",
+      nonce,
+      branch,
+      session: markerSessionId,
+    }).sends;
     if (opts.dryRun) {
       for (const line of sends) s.outRaw(line);
       return 0;
@@ -868,7 +886,7 @@ function drive(opts: Parsed, pane: RosterPane, roster: RosterPane[], s: Surface)
       s.out(freshOk.message);
       return 1;
     }
-    const sends = planSends({ command: "resume" }).sends;
+    const sends = planSends({ command: "resume", branch, session: markerSessionId }).sends;
     for (const line of sends) {
       if (opts.dryRun) s.outRaw(line);
       else s.send(pane.paneId, line);

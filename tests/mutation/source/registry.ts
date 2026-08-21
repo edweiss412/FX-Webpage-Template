@@ -250,6 +250,11 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // loop bound nothing counted.
       "tests/paneCompaction/mutantKills.test.ts",
       "tests/paneCompaction/revalidate.test.ts",
+      // The send-authorization arc's deciding suite (BL-PANE-COMPACTION-SEND-AUTHORIZATION).
+      // Enrolled in the SAME task that authors it: a deciding suite outside
+      // `suitePaths` runs, passes, and buys zero score, which is how eight #831
+      // survivors existed under a green suite.
+      "tests/paneCompaction/authorization.test.ts",
     ],
     // Five of the six. `regex-quantifier-bound` is EXCLUDED, and the exclusion
     // is probed rather than assumed: it recognizes only `{m,n}` quantifiers
