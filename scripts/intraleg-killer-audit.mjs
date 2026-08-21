@@ -581,14 +581,15 @@ function listCases(suite, live = false) {
 function runSuite(suite, filter, live = false) {
   const args = ["vitest", "run", suite];
   if (filter) args.push("-t", filter);
-  // The LIVE tier goes through `pnpm heavy`. A scoped `vitest run <file>` is not
-  // a heavy phase by its own shape, but AGENTS.md classifies by what a command
-  // TRANSITIVELY launches, and this one launches a child per trial, each child
-  // running one vitest per suite, plus `runSurface(spawnBounded)`'s twelve. The
-  // wrap lives here rather than in the caller so no caller can get it wrong;
-  // nesting under an outer holder passes through with a notice.
-  const cmd = live ? ["heavy", "pnpm", "exec", ...args] : ["exec", ...args];
-  const r = spawnSync("pnpm", cmd, {
+  // NOT wrapped per invocation. The live tier IS a heavy phase — it launches a
+  // child per trial, each running one vitest per suite, plus
+  // `runSurface(spawnBounded)`'s twelve — but this function reaches it SIX times
+  // in one audit (one baseline plus five live kills), and wrapping each one made
+  // the audit queue for a slot six separate times on a saturated machine.
+  // Measured: eleven minutes waiting without having started. One acquisition for
+  // the whole run is strictly better for this arc AND for every other one, so
+  // the audit requires a slot at its ENTRY instead (see `main`).
+  const r = spawnSync("pnpm", ["exec", ...args], {
     encoding: "utf8",
     env: live ? { ...process.env, RUN_PROCESS_PROBE_LIVE: "1" } : process.env,
   });
@@ -636,6 +637,24 @@ export function main() {
 
   const files = [...new Set(KILLS.filter((k) => k.file).map((k) => k.file))];
   assertCleanBaseline([...files, SUITE, LIVE_SUITE]);
+
+  // ONE slot for the whole audit, taken by the caller. The audit runs the live
+  // tier six times; a wrapper per invocation queues six times, and a wrapper
+  // around nothing lets 45 mutant runs loose on a machine whose slot semaphore
+  // exists because unbounded arcs hard-reset it once.
+  if (!process.env.FX_HEAVY_SLOT_HELD) {
+    console.error(
+      "REFUSING: this audit runs the live tier and 45 mutant suites, which is a heavy phase.\n" +
+        "Run it as:  pnpm heavy node scripts/intraleg-killer-audit.mjs\n" +
+        "(FX_HEAVY_SLOT_HELD is set by scripts/with-heavy-slot.py once a slot is held.)\n\n" +
+        "NOT also added to AGENTS.md's known-members list, deliberately: that rule's code\n" +
+        "spans are pinned by tests/docs/agentsHeavyPhaseRule.test.ts against a fixture, so\n" +
+        "appending a member edits a file every concurrent arc shares AND its pin. The\n" +
+        "rule's own authority is a derived sweep rather than that list, and a refusal the\n" +
+        "script enforces outlives a line someone has to remember to read.",
+    );
+    process.exit(2);
+  }
 
   const green = runSuite(SUITE, null);
   if (green.status !== 0 || green.failed !== 0) {
