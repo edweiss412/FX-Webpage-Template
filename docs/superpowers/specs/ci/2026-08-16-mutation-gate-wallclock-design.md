@@ -297,7 +297,10 @@ broken, and it is bounded — which is the distinction from raising a ceiling to
 where the cost is paid on every healthy run and is unbounded by construction. The requirement is pinned
 executably as `ceiling >= 2 x SHARD_BUDGET_SECONDS + a 300 s reporting reserve` (7500 s = 125 min today) in `tests/mutation/_metaSourceShardIntegrity.test.ts`,
 stated as a factor over the shared constant rather than as minutes, so the two can never drift back
-together and neither can be changed alone. The live value is 120 minutes from
+together. Precisely: neither can be moved in the UNSAFE direction alone — probed, raising the budget
+to 3601 s alone FAILS and lowering the ceiling to 124 min alone FAILS, while the safe directions
+(raising the ceiling, lowering the budget) pass in isolation, which is the intended asymmetry rather
+than a hole. A fifth measured job with no ceiling also fails. The live value is 125 minutes from
 `fix/mutation-shard-ceiling-pin`; the comparison table's "90 per shard job" is left as the record of
 what THIS design shipped, not as a current reading.
 
