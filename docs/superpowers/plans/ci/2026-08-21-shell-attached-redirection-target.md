@@ -424,34 +424,31 @@ report any observation at that site to `bl-orch`.
 Then `pnpm heavy pnpm mutation:guards`, and record the score with an empty unaccepted-survivor set
 plus the provenance pair stamped INSIDE the measuring invocation.
 
-## Step 5 (OUTSIDE the red-contract region) — ledger closeout, THE PR'S LAST COMMIT
+## Step 5 (OUTSIDE the red-contract region) — ledger closeout, EARLY
 
 **Why it carries no task marker.** A ledger move is a docs change; the gate below is a CLOSEOUT
 CHECK, not a red-then-green cycle on production behaviour. Stated acceptance: the gate exits 0.
 
 **Files:** Modify `BACKLOG.md`, `BACKLOG-archive.md`; create `scripts/ci/attached-target-closeout-check.sh`.
 
-**One commit, and it is the PR's LAST — after whole-diff review and after every review repair.**
-Archive the graduating row, file any peers, remove the in-progress marker. For a graduating entry
-those are necessarily ONE commit: archives categorically reject in-progress entries, so the marker
-cannot ride along into the archive.
+**One commit, BEFORE whole-diff review**: file any peer rows, archive the graduating row, remove the
+in-progress marker. Absence is then guaranteed rather than maintained, and the ledger commit is
+reviewed rather than riding into the merge unreviewed. Arm `--auto` only once CI is green AND review
+approves.
 
-**This reverses an earlier draft of this step, and the reason is an invariant, not a preference.**
-The draft ran closeout EARLY, before whole-diff review, reasoning that absence is then guaranteed
-rather than maintained and that the ledger commit gets reviewed instead of riding into the merge
-unseen. Plan round 1 finding 7 caught what that costs: any review repair then lands AFTER the
-ledger commit, so the marker is off while work is still in flight and the PR's last commit is not
-the marker removal. Invariant 12 requires exactly that ordering — the marker comes off in the last
-commit, before the merge, so it never reaches `main`, where the origin-existence rule in
-`tests/docs/_metaLedgerInProgress.test.ts` would fail on a branch the merge had just deleted.
-Invariant 12 is non-negotiable and the early-closeout benefit is a convenience, so the invariant
-wins.
+**This ordering is RATIFIED and supersedes AGENTS.md invariant 12's last-commit wording. Do not
+relitigate it.** The ratification is a batch-wide standing rule carried inline in every batch-2 and
+batch-3 plan; the citation is the batch-3 common brief, §3 STANDING RULES, first bullet: *"Ledger
+closeout goes EARLY — peer rows filed, graduating row archived, marker removed, ONE commit taken
+BEFORE whole-diff review."* A sibling arc refuted this same finding against the same ratification.
 
-**What is lost, stated rather than glossed.** The ledger commit is no longer covered by whole-diff
-review. The compensation is mechanical rather than human: `scripts/ci/attached-target-closeout-check.sh`
-ships with this plan and is proven in both directions, so the commit that review no longer sees is
-the one commit whose correctness is decided by an executable gate. Run it as the last action before
-pushing that commit, and again after any subsequent `main` merge.
+**Recorded because this plan got it wrong once.** Plan round 1 finding 7 raised the AGENTS.md
+last-commit wording against this step; it was ACCEPTED and the step reversed, then reversed back —
+a forced change later undone, which the round-economy rules charge to the ACCEPTANCE rather than to
+the reviewer. The finding was really about a MISSING CITATION: the ratification was never named
+here, so a reviewer reading only AGENTS.md was right to flag it and had nothing to check against.
+The citation above is the actual repair, and it is fenced in both directions so neither side
+relitigates it again.
 
 **The gate SHIPS with this plan** at `scripts/ci/attached-target-closeout-check.sh` rather than
 living in a session scratchpad, so the implementer runs the same predicates I proved. Proven in
