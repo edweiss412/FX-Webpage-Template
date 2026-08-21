@@ -420,7 +420,7 @@ describe("runner — no suite AFTER the deciding one is spawned (AC-5)", () => {
     // satisfies a length assertion while destroying the short-circuit; it cannot
     // fake the seam, because the spawn already happened.
     for (const outcome of run.outcomes) {
-      expect((outcome as { children: { suite: string }[] }).children.map((c) => c.suite)).toEqual([
+      expect((outcome.children ?? []).map((c) => c.suite)).toEqual([
         "a.test.ts",
         "b.test.ts",
         "c.test.ts",
