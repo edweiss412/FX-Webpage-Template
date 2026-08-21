@@ -10,7 +10,8 @@ that derivation through the decline path that already ships, so the entry draws 
 
 impeccable-gate: N/A — no UI surface
 
-Every file this plan touches is under `lib/specLint/`, `probe/`, `tests/`, or `fixtures/`; nothing
+This plan touches `lib/specLint/`, `probe/`, `tests/`, `fixtures/`, and `package.json` (the
+`probe:reach` script, §6); nothing
 under `app/`, `components/`, `app/globals.css`, `tailwind.config.*`, or `DESIGN.md`. The marker sits
 on its own line because the gate reads the LINE.
 
@@ -18,8 +19,8 @@ on its own line because the gate reads the LINE.
 
 ## 0. Pre-draft code-verification pass — authored AND RUN
 
-Every citation below was READ, not merely resolved. The distinction matters here because two of them
-name lines this plan's own execution will move.
+Every citation below was READ, not merely resolved. The distinction matters here because ONE of them,
+`lib/specLint/redContract.ts:721`, names the line this plan's own execution will move.
 
 | citation | what the line holds |
 | -------- | ------------------- |
@@ -48,8 +49,10 @@ instead.
   `tests/specLint/cli.test.ts:837`. The block's title is not quoted here: it carries an em-dash, and
   `COPY_EM_DASH` is a hard finding this arm raises against quoted copy, so a verbatim source title in
   prose reds the very lint this plan is checked by. **This is the declared consumer of the fixture plans**, and it is
-  where every claim in this plan is asserted, because every claim is about the CLI path under
-  `--exec-red`. Round 1 found the fixtures had no declared consumer; that block is it. Its `execCli`
+  where every CLI-PATH claim in this plan is asserted, which is all five assertion rows of Task 1.
+  The plan's other claims are asserted elsewhere and each names its home: the unit-level half in
+  `tests/specLint/redExec.test.ts`, the corpus-level half in `probe/reach.mts` (§6), and the score in
+  Task 2. Round 1 found the fixtures had no declared consumer; that block is it. Its `execCli`
   helper spawns the real `scripts/spec-lint.ts` and its `codesOf` helper reads the emitted code list,
   which is the VALUE every assertion below is written against.
 - **EXTENDS** `tests/specLint/redExec.test.ts` (core synthesis) for the unit-level half.
@@ -86,7 +89,7 @@ otherwise catch it.
 Line 717 is ABOVE the edit and therefore unaffected. It is cited in §0's verification table and in the
 Task 1 assertion table at row 4, and those citations survive the change untouched.
 
-## 4. The cycle every task runs, stated once
+## 4. The cycle the red-carrying task runs, stated once
 
 1. Write the failing case. Run it. **Read the failure text** and confirm it fails on the VALUE the
    task names, not on a missing symbol, a bad path, or a collection that found nothing.
@@ -94,6 +97,10 @@ Task 1 assertion table at row 4, and those citations survive the change untouche
 3. Re-run. Confirm green, and confirm the paired negative in the same task is still green.
 4. `pnpm exec tsx scripts/spec-lint.ts --json <this plan>` and report the result.
 5. Commit.
+
+**Task 2 does not run this cycle and is not meant to.** It carries no `red=`, for the measured reason
+its own section gives, and its acceptance is stated there instead. This section is headed for the
+red-carrying task rather than for every task, because the universal form was false.
 
 Step 1's read is not ceremony. This arc exists because a red that exits non-zero for the wrong reason
 looks identical to one that exits non-zero for the right one, and the task below carries an authored
@@ -209,8 +216,8 @@ point of the blind spot. So the fixture work is four new PLAN documents:
 | live unprobeable v2, red exits 0 | `sh -c "true"`, `red-state=live` | the advisory coexists with `RED_ALREADY_GREEN` (§1.2) |
 | heavy-wrapped v1 | no `red-state=` | AC-4's silent half |
 
-Two v2 shapes rather than one, because a fixture set holding only the heavy-wrapped shape is satisfied
-by the narrowed implementation.
+Three v2 shapes rather than one, because a fixture set holding only the heavy-wrapped shape is
+satisfied by the narrowed implementation the spec forbids.
 
 **The broken-by-design fixture fan-out does not apply.** No syntactically invalid file is added, so
 nothing needs excluding from `tsconfig.json`, the eslint ignore list, or `.prettierignore`.
@@ -240,8 +247,8 @@ which is how a gate stops meaning anything.
 
 **What protects the behaviour permanently is the fixture set, which DOES run in CI.** The division is
 deliberate: the oracle proves the corpus-level claim ONCE, at implementation time, over real
-documents; the five fixture assertions in Task 1 pin the behaviour forever, over documents this repo
-controls. Neither substitutes for the other, and saying so here is cheaper than a reviewer deriving it.
+documents; the five assertions in Task 1, over four fixture documents, pin the behaviour forever over
+documents this repo controls. Neither substitutes for the other, and saying so here is cheaper than a reviewer deriving it.
 
 ## 7. Acceptance criteria → the task that PROVES each
 
@@ -265,11 +272,29 @@ acceptance table.
 - Run `pnpm spec:lint` on this plan and report the result. This arc's own arm reads it.
 - Add the `probe:reach` package script in the same commit as Task 1, per §6. Without it the plan cites
   a criterion no command can invoke, which is the defect round 1 found.
-- **Run `EXPECT_ADVISORY=1 pnpm probe:reach` as the LAST command before the closing commit**, after
-  every source edit including any prompted by Task 2's mutation validation. §6 names this as the
-  oracle's third scheduling site and round 2 found the site was named and never written. Without it, a
-  source repair made after Task 1's own post-change run leaves every other command green while the
-  final tree fails the closed criterion.
+- **Verify the COMMITTED tree, not the pre-commit tree.** `simple-git-hooks` runs `lint-staged` on
+  every commit, which applies `prettier --write` and `eslint --fix` to staged sources and
+  `prettier --write --ignore-unknown` to staged Markdown and JSON. The wiring is the `simple-git-hooks`
+and `lint-staged` blocks of the repository-root package manifest, which is named without a line
+citation on purpose: the bare filename matches three tracked files and the arm reads it as
+`CITATION_AMBIGUOUS`, while a `./` prefix is an illegal path. So a commit can MUTATE the
+  tree after any check that ran before it, and round 3 found both closing obligations open to exactly
+  that: the tree that passed the oracle need not be the tree that landed, and a formatter-induced line
+  shift can invalidate a `red-target=` that was corrected moments earlier. The closing sequence is
+  therefore ordered so the hook cannot invalidate it:
+
+  1. `pnpm exec prettier --write` and `pnpm exec eslint --fix` over everything the closing commit will
+     stage, so the hook has nothing left to change.
+  2. Make the closing commit.
+  3. **On the COMMITTED tree**, run `EXPECT_ADVISORY=1 pnpm probe:reach` and RE-READ the single
+     `red-target=` line per §3.
+  4. If either fails, repair and `--amend`, then return to step 3. It is a fixpoint, not a checklist:
+     the obligation is that the tree which lands is the tree that passed, and only a check run after
+     the commit can establish that.
+
+  Step 3 must run after every source edit, including any prompted by Task 2's mutation validation. §6
+  names this the oracle's third scheduling site; round 2 found the site named and never written, and
+  round 3 found that writing it before the commit was not enough.
 - The plan's single `red=` is not `pnpm heavy`-wrapped and IS vitest-shaped at the anchor, so it sits
   inside the arm's sighted domain rather than demonstrating the blind spot. The oracle invocation is
   NOT a second red and is not a marker command: `EXPECT_ADVISORY=1 pnpm probe:reach` derives
