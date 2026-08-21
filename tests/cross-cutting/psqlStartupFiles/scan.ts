@@ -138,8 +138,8 @@
  * • Hypothetical gaps on surfaces this repository does NOT use, found by
  *   adversarial review rounds R28-R40 and recorded rather than closed. Each was
  *   demonstrated with a live mutant against this file; none is a miss on any
- *   call site in this tree, whose census has stayed 75 sites / 0 unprotected
- *   through every one of those rounds. They are the three entries in the
+ *   call site in this tree, whose census has held 0 unprotected and 0
+ *   indirections through every one of those rounds. They are the three entries in the
  *   Documented limits block below, which is their record of first resort.
  * • Deliberately adversarial spellings beyond the above. The lexer handles the
  *   ones review demonstrated, but the space is unbounded and this file does not
@@ -157,8 +157,10 @@
  * against this file on 2026-08-04 recorded beneath each.
  *
  * The `-X` class is CLOSED on this repository: this file walks the tree and
- * reports 75 psql call sites, 0 unprotected, 0 indirections, and a new site
- * fails by default. Adversarial review rounds R28-R40 hardened the guard's
+ * reports 0 unprotected psql call sites and 0 indirections, and a new site
+ * fails by default. The site COUNT is deliberately not stated here: it belongs
+ * to whoever last added a psql call, and three stale copies of it survived in
+ * this block until 2026-08-20. Adversarial review rounds R28-R40 hardened the guard's
  * RECALL well past that — roughly 120 defects fixed, including several real
  * false safes — and closed every gap that touches a surface this repo uses.
  * Three demonstrated gaps were recorded here, all on surfaces this repo does
@@ -190,7 +192,7 @@
  *    form of the same path has been read since R40.
  *
  * Why recorded rather than fixed: none is a miss on any call site in this
- * tree. The census stayed 75 sites / 0 unprotected through all thirteen
+ * tree. The census held 0 unprotected through all thirteen
  * rounds, and each of these needs a structural change (command-word glob
  * analysis, reading the spawn options object the guard deliberately does not
  * read, and — for item 3, since carried out — a lexer change to double-quote
@@ -213,12 +215,14 @@
  * Design:
  * docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md.
  *
- *  - Quote-concatenated spellings of a rule KEYWORD or non-assignment operand:
- *    a mixed-quoted here-string target (`read PG <<< p'sql'` — ledger
- *    BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE, since the lexer drops a
- *    redirection operand before words exist), a mixed-quoted interpreter
- *    positional (`bash -c '$0 …' p'sql'`), and a mixed-quoted `alias`/
- *    `function` NAME. The alias case is narrower than it looks: an alias
+ *  - Quote-concatenated spellings of a rule KEYWORD: a mixed-quoted
+ *    interpreter positional (`bash -c '$0 …' p'sql'`) and a mixed-quoted
+ *    `alias`/`function` NAME. The mixed-quoted DETACHED here-string target
+ *    LEFT this bullet on 2026-08-20: `lexShellWords` retains the target and
+ *    `hereStringBindingLines` reads it through the same `valueBinds` the
+ *    assignment family uses, so the lexer no longer drops it before words
+ *    exist (BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE, closed). The ATTACHED
+ *    spelling is a different family and is its own entry below. The alias case is narrower than it looks: an alias
  *    definition is an assignment-SHAPED word, so `alias p'sql'='psql -F'` IS
  *    reported through the assignment route; only an alias whose body binds
  *    another program (`alias p'sql'='pgcli -F'`) escapes.
@@ -233,9 +237,65 @@
  *    reading requires psql at ARGV[0] and the eval reading takes the pathname
  *    quote as syntax, so both decline. Wrapper-aware splitting is out of scope
  *    in both directions.
- *  - Quoting or escapes INSIDE a `${…}` expansion operand (`PG=${U:-'psql'}`),
- *    which is data to a word the lexer keeps verbatim by design — ledger
- *    BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE. A bare `PG=${U:-psql}` reports.
+ *  - The `${…}` operand is read for the SIX value-supplying operators in
+ *    `EXPANSION_ACCEPT` (`:-` `-` `:=` `=` `:+` `+`) when the WHOLE value is one
+ *    such expansion. For EVERY OTHER `${…}` interior the operand is not read at
+ *    all - pattern, length, indirection, error, subscript, substring,
+ *    case-modification, transformation, and any operator bash adds after this is
+ *    written. Each keeps exactly today's behavior. Written as a COMPLEMENT
+ *    rather than a list because spec rounds 1 and 2 each spent a finding on an
+ *    operator a list had failed to name, and a list over a grammar admits one
+ *    more round indefinitely.
+ *    The failure direction across the complement is MIXED, and saying so is the
+ *    point: substring expansion is a silent MISS (`U=xpsql; PG=${U:1}` binds
+ *    `psql`, scanner 0 before and after), while `${U^}`, `${U@Q}` and `${U@U}`
+ *    are conservative OVER-reports (bash binds `Psql`, `'psql'` and `PSQL`).
+ *    Neither direction is changed here (BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE,
+ *    closed 2026-08-20). RE-FILE TRIGGER: a live corpus instance of a psql
+ *    binding through any non-value-supplying expansion operator.
+ *  - A value COMPOSED inside DOUBLE QUOTES (`PG="p${U:-sql}"`) is not read: the
+ *    `${…}` branch that records the candidate is unreachable inside double
+ *    quotes, and that unreachability is exactly what makes `PG="p${U:-'sql'}"`
+ *    CORRECT - bash binds `p'sql'` there, so the scanner's zero is right. The
+ *    bare-operand case inside double quotes is therefore a declared MISS: bash
+ *    binds `psql`, scanner 0 before and after. Reading it would mean deciding
+ *    per-operand whether its quotes are syntax or data inside a double-quoted
+ *    span, which is the boundary this design keeps structural. RE-FILE TRIGGER:
+ *    a live corpus instance of a composed double-quoted expansion value.
+ *  - A value that COMPOSES an accepted expansion with anything else is not read,
+ *    and this is the boundary the whole-value fence buys: literal text before it
+ *    (`PG=p${U:-"sql"}`), literal text after it (`PG=${U:-"p"}sql`), a nested
+ *    accepted expansion supplying only PART of the value (`PG=${U:-${V:-p}sql}`),
+ *    the bare-operand versions of all of those, and an accepted expansion
+ *    ADJACENT TO or INSIDE a complement member (`${U#x}${V:-"psql"}`,
+ *    `U=xpsql; PG=${U#${V:-'psql'}}`). Bash binds `psql` in the composition
+ *    spellings and the scanner reports 0 before and after. Not a gap to close:
+ *    the withdrawn substitution model DID read composition, and it substituted
+ *    an accepted child inside a non-accepted parent, so `${U#${V:-'psql'}}`
+ *    reported while bash binds `xpsql`. Wrongly-loud is the one direction the
+ *    consequence bound does not permit, and the mechanism that reached
+ *    composition is the same mechanism that produced it. RE-FILE TRIGGER: a live
+ *    corpus instance of a composed expansion value, or a reading that reaches
+ *    composition without substituting across a complement boundary.
+ *  - The ATTACHED redirection TARGET family is not read at all, and it is the
+ *    sharpest limit in this list. The attached-target regex wholly CONSUMES its
+ *    match, so a target that contains a command SUBSTITUTION hides an executing
+ *    command from BOTH scanners - zero sites and zero indirection hits - while
+ *    bash runs it. The family, each spelling probed at 0/0 with a bash oracle
+ *    confirming the call really happens: a bare backtick target; `$(…)` or a
+ *    backtick inside an attached DOUBLE-QUOTED target; a locale-quoted `$"…"`
+ *    target; and a command substitution inside an attached `${…}` target. The
+ *    plain attached here-string (`read -r PG <<<p'sql'`) is the same family's
+ *    benign end and is also missed. This is a MISSED SITE for an executing
+ *    psql, not merely a missed discovery hit. It is PRE-EXISTING - every probe
+ *    reports the same zeros before and after the 2026-08-20 arm 1 change, which
+ *    covers DETACHED targets only. Not closed there because the only readings
+ *    that would close it either expose the nested bodies to `scanShellText`,
+ *    breaking the by-construction identity of the site path, or add recursive
+ *    lexing that still does not report. Ledger:
+ *    BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION. RE-FILE TRIGGER: a live
+ *    corpus instance of any spelling above, or any arc that needs attached
+ *    targets lexed for another reason.
  *  - `PG=$(x)psql`-shaped values over-report conservatively, matching the
  *    trailing-path reading of `isPsqlCommandWord`.
  *  - An ANSI-C `\U` escape ABOVE the Unicode maximum keeps its raw `\U` text
@@ -245,6 +305,37 @@
  *    after it (diff review r1 finding 2). The same guard covers a template
  *    literal's `\u{…}` — a literal the JS engine would itself reject is simply
  *    not cookable. Neither raw reading can be psql, so both are missed reports.
+ *  - A here-string overridden by a later fd-0 redirection INSIDE a substitution
+ *    BODY is still reported by the line-text route:
+ *    `X=$(read -r PG <<< psql < /dev/null)` reports, while bash binds the empty
+ *    string. The WORD route reads that body's own redirection ledger and
+ *    declines; the text route cannot, because the outer lex replaces the body
+ *    with the opaque `${}` word and records no redirection within it - and that
+ *    boundary is load-bearing in the other direction, since the text route
+ *    exists BECAUSE it is the only reading that sees inside a body. Treating its
+ *    empty ledger as "no redirection is there" would retire that contribution
+ *    rather than narrow it. Conservative over-report, permitted by the bound;
+ *    every FLAT spelling of the same shape declines correctly (diff review r2
+ *    finding 3, class sweep). RE-FILE TRIGGER: a live corpus instance, or any
+ *    arc that gives the outer lex a view of a body's redirections.
+ *  - On a MULTI-COMMAND logical line the line-text route does not read
+ *    redirection precedence, so `read -r PG <<< psql < /dev/null; cat x` reports
+ *    though bash binds the empty string. Deliberate, and the alternative is
+ *    worse: the span-wide effective redirection can belong to a DIFFERENT
+ *    command there, so gating on it silences `read -r PG <<< psql; cat <<< x`,
+ *    which bash really does bind. A declared over-report is permitted; an
+ *    undeclared miss is not, and a narrowing that trades one for the other is
+ *    the failure mode this arc measured on its own first repair. RE-FILE
+ *    TRIGGER: per-command association arriving for the text route.
+ *  - The four UNSET-branch spellings on an always-set special parameter -
+ *    `${-:-'psql'}`, `${--'psql'}`, `${-='psql'}`, `${-:='psql'}` - report,
+ *    while bash yields `$-` itself (probed `[hBc]`). Not specific to `-` and not
+ *    new: it is the ratified MAY-BIND posture, identical to `${U:-psql}`
+ *    reporting when `U` happens to be set, and `$`, `?` and `#` have carried it
+ *    since the parameter class was widened. Reading it per-operator-per-parameter
+ *    is predicate growth; the over-report arm is the permitted one (diff review
+ *    r2 finding 2). RE-FILE TRIGGER: a bound that stops permitting conservative
+ *    over-reports.
  *
  * The lexed-word route has exactly ONE blind spot by construction, and it is
  * closed: the outer lex replaces a `$(…)`/backtick/process-substitution body
@@ -254,7 +345,12 @@
  * rules (`READ_HERE_STRING`, `githubEnvWrite`, `INTERPRETER_POSITIONAL_BINDING`,
  * `aliased`, `functionDef`) were never blind here, because the raw line carries
  * the body's characters — which is why this is a one-consumer sweep rather than
- * a family. Left open it was a FALSE CERTIFICATION, not a miss: a body holding
+ * a family. The here-string WORD route added on 2026-08-20 is NOT a line-text
+ * rule and IS blind there, for the same reason the assignment route is: the
+ * outer lex retained no target for anything inside the substitution. So
+ * `visitBody` passes it a `targets` array too, which is what keeps the claim
+ * above true rather than letting it go stale (probe A7).
+ * Left open it was a FALSE CERTIFICATION, not a miss: a body holding
  * both the binding and a literal `psql -X` certified on the literal call while
  * bash ran the expanded one first (diff review r2).
  *
@@ -815,7 +911,29 @@ type ShellWord = {
    * exemption written for an unrelated call. */
   offsets: number[];
   operator: boolean;
+  /** Arm 2. When this word's text ENDS with a `${…}` expansion drawn from the
+   * six-member accept-set, the span's DEQUOTED operand and the index in `text`
+   * where that span begins; `null` otherwise. A CONSUMER decides WHOLE-VALUE by
+   * comparing `at` to where its own value starts, which is what keeps the
+   * assignment grammar in `assignmentBindingLines` and out of the lexer, and
+   * what makes composition (`PG=p${U:-"psql"}`) unreadable by construction
+   * rather than by a guard. Recorded in the `${…}` branch, which is
+   * structurally UNREACHABLE inside double quotes - that is the whole of why
+   * `PG="${U:-'psql'}"` stays 0, where bash really does bind the literal
+   * `'psql'`. */
+  expandedCandidate: { operand: string; at: number } | null;
 };
+
+/** The six VALUE-SUPPLYING expansion operators, longest spelling first. This is
+ * an ACCEPT-SET, and every other `${…}` interior - pattern, length,
+ * indirection, error, subscript, substring, case-modification, transformation,
+ * and any operator bash adds after this is written - is DEFAULT-DENIED: its
+ * operand is not read at all and it keeps exactly the reading it has today.
+ * Stated as a default rather than as a list on purpose. Spec rounds 1 and 2 each
+ * spent a finding on an operator a list had failed to name, and a list over a
+ * grammar admits one more round indefinitely; a six-member accept-set plus a
+ * complement default cannot. */
+const EXPANSION_ACCEPT = [":-", ":=", ":+", "-", "=", "+"];
 
 export const OPERATOR_STARTS = new Set([";", "&", "|", "(", ")", "\n"]);
 
@@ -912,7 +1030,173 @@ function decodeAnsiCEscape(text: string, at: number): { decoded: string; consume
   return { decoded: `\\${next}`, consumed: 2 };
 }
 
-function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
+/**
+ * A redirection TARGET the lexer kept, for a caller that asks for one. Targets
+ * never enter the returned word array: `scanShellText` passes no array and so
+ * receives a byte-identical `ShellWord[]`, which is what makes the site path
+ * unchanged BY CONSTRUCTION rather than by care at each consumer. Design:
+ * docs/superpowers/specs/ci/2026-08-20-shell-lexer-quoted-value-recall-design.md
+ * section 3.1.
+ */
+type RedirectionTarget = {
+  /** The redirection operator this target belongs to: `<<<`, `>`, `2>`, as matched. */
+  operator: string;
+  /** The DEQUOTED target word: quote removal and escape processing already applied. */
+  text: string;
+  /** Physical line of the target, 0-based, in the text handed to this lexer. */
+  line: number;
+  /** Raw index of the target's first character in that text. */
+  offset: number;
+  /** Raw index of the REDIRECTION OPERATOR that produced this target. Position
+   *  after the effective operator is necessary and NOT sufficient - a
+   *  here-string on an explicit non-zero fd sits after it too - so consumers
+   *  match on IDENTITY here rather than inferring ownership from ordering
+   *  (diff review r3 finding 2). */
+  operatorOffset: number;
+  /** Arm 2, applied symmetrically at this SECOND site: the same whole-value
+   * candidate an assignment value carries. Not a second mechanism - the same
+   * predicate at another call site. */
+  expandedCandidate: { operand: string; at: number } | null;
+};
+
+/**
+ * A redirection the lexer CONSUMED - the attached spelling (`</dev/null`) and
+ * the detached one (`< /dev/null`) alike. `targets` cannot answer this: it holds
+ * only DETACHED targets, because an attached target is eaten by the lexer's own
+ * regex and never becomes a word, so a reading built on `targets` is blind to
+ * exactly the override an attached redirection performs.
+ */
+type Redirection = {
+  /** The operator as matched, WITHOUT any fd prefix: `<<<`, `<`, `>&`. */
+  operator: string;
+  /** The explicit fd in front of it (`2<` -> `2`, `{v}<` -> `{v}`), else null. */
+  fd: string | null;
+  /** Physical line of the operator, 0-based, in the text handed to this lexer. */
+  line: number;
+  /** Raw index of the operator's first character in that text. */
+  offset: number;
+};
+
+/** EVERY redirection operator the lexer recognises, LONGEST-FIRST: the shorter
+ *  match would leave a stray `<`/`>` that reads as a second redirection and eats
+ *  the following argv word. This array is the SINGLE SOURCE - the matching regex
+ *  is built from it below, and the input/output partition beneath is asserted
+ *  TOTAL over it - so an operator added here cannot be silently unclassified.
+ *  That totality is the point: diff round 2 finding 2 was exactly a class that
+ *  claimed to cover a grammar while enumerating a subset of it, and restating
+ *  this list inside a test would have shipped the same shape in the repair. */
+const REDIRECTION_OPERATORS = [
+  "&>>",
+  "&>",
+  "<<<",
+  "<<-",
+  "<<",
+  ">>",
+  ">&",
+  "<&",
+  "<>",
+  ">|",
+  "<",
+  ">",
+] as const;
+
+/** Built FROM the list, never restated beside it. */
+const REDIRECTION_OPERATOR = new RegExp(
+  `^(?:${REDIRECTION_OPERATORS.map((op) => op.replace(/[|>&<[\]{}()*+?.\\^$]/g, "\\$&")).join("|")})`,
+);
+
+/** The operators that can land on fd 0. Probed against bash, both directions:
+ *  `read -r PG <<< psql > out` still binds `psql`, and
+ *  `read -r PG <<< psql < /dev/null` binds the empty string. */
+const INPUT_REDIRECTIONS: ReadonlySet<string> = new Set(["<", "<<", "<<-", "<<<", "<>", "<&"]);
+
+/** The complement, DECLARED rather than inferred, so the partition can be
+ *  asserted total over `REDIRECTION_OPERATORS` instead of one half being
+ *  "whatever is left". A new operator classified into neither set fails the
+ *  deciding suite rather than defaulting to output. */
+const OUTPUT_REDIRECTIONS: ReadonlySet<string> = new Set(["&>>", "&>", ">>", ">&", ">|", ">"]);
+
+export const REDIRECTION_PARTITION = {
+  all: REDIRECTION_OPERATORS,
+  input: INPUT_REDIRECTIONS,
+  output: OUTPUT_REDIRECTIONS,
+} as const;
+
+/**
+ * The redirection in EFFECT on stdin across the physical lines `from..to`: the
+ * LAST input redirection carrying no fd prefix or an explicit `0`.
+ *
+ * LAST, because the shell applies redirections left to right and the final one
+ * on a descriptor wins - probed in bash: `read -r PG <<< psql <<< notpsql` binds
+ * `notpsql`, and `read -r PG <<< psql < /dev/null` binds the empty string. An
+ * fd prefix takes it off stdin entirely: `2<` opens fd 2 and bash's dynamic
+ * `{v}<` assigns a FRESH descriptor, so `read -r PG <<< psql 2< /dev/null` still
+ * binds `psql`.
+ *
+ * The caller is responsible for the COMMAND boundary; this reads a span of
+ * physical lines and nothing else.
+ */
+function effectiveStdin(redirections: Redirection[], from: number, to: number): Redirection | null {
+  let effective: Redirection | null = null;
+  for (const redirection of redirections) {
+    if (redirection.line < from || redirection.line > to) continue;
+    if (!INPUT_REDIRECTIONS.has(redirection.operator)) continue;
+    if (redirection.fd !== null && redirection.fd !== "0") continue;
+    if (effective === null || redirection.offset > effective.offset) effective = redirection;
+  }
+  return effective;
+}
+
+/**
+ * The `<<<` the shell actually hands to `read` on the logical line `from..to`,
+ * or `null` when no here-string reading may attribute a binding there.
+ *
+ * This is the WORD route's gate. Its two conditions are the here-string
+ * family's attribution rule, and the LINE-TEXT route enforces the same two - but
+ * scoped to its own command SEGMENT rather than through this function, for a
+ * reason worth stating because the obvious sharing is wrong. Round 1's F2 and
+ * round 2's F3 were each repaired in the word route alone, so the identical
+ * mis-attributions survived in the text route - a route, not a file, and
+ * therefore the "same defect, different site" the class-sweep rule refuses as a
+ * deferral. Repairing the text route by calling THIS function then produced a
+ * third defect: on a span carrying two commands the span-wide effective
+ * redirection can belong to the OTHER command, so gating the text route on it
+ * silenced `read -r PG <<< psql; cat <<< notpsql`, which bash really does bind.
+ * The text route therefore bounds its own REACH to the `read`'s command segment
+ * and consults precedence only where the span is one command. The two readings
+ * still cannot disagree about WHICH target binds; they reach that agreement by
+ * different instruments because they see different things - the lexer's operator
+ * words here, where a quoted `;` is data, and raw line text there, which is the
+ * only reading that sees inside a `$(…)` body.
+ *
+ * Two conditions, both about attribution rather than about value:
+ *  - ONE COMMAND on the span, read from the LEXER's own operator words rather
+ *    than from a second grammar over the text, so a quoted `;` is data here
+ *    exactly as it is to the shell.
+ *  - The EFFECTIVE final stdin redirection is a `<<<`. Anything else on fd 0
+ *    replaces the here-string outright.
+ */
+function effectiveHereString(
+  words: ShellWord[],
+  redirections: Redirection[],
+  from: number,
+  to: number,
+): Redirection | null {
+  const separated = words.some(
+    (word) => word.operator && word.text !== "\n" && word.line >= from && word.line <= to,
+  );
+  if (separated) return null;
+  const effective = effectiveStdin(redirections, from, to);
+  return effective !== null && effective.operator === "<<<" ? effective : null;
+}
+
+function lexShellWords(
+  text: string,
+  nested: NestedShell[] = [],
+  targets: RedirectionTarget[] = [],
+  redirections: Redirection[] = [],
+  braceOperand = false,
+): ShellWord[] {
   const words: ShellWord[] = [];
   let buffer = "";
   let bufferOffsets: number[] = [];
@@ -925,12 +1209,28 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
   let startLine = 0;
   let startOffset = 0;
   let line = 0;
-  /** Redirections and their targets never reach argv. */
-  let dropWord = false;
+  /** Redirections and their targets never reach argv. A DETACHED target is
+   * still BUILT by the ordinary loop and is handed to `targets` at flush
+   * instead of to `words`, so it carries this lexer's own quote removal,
+   * ANSI-C decoding and escape handling for free - there is no second
+   * dequoting path that can drift from this one, which is the defect shape the
+   * 2026-08-17 arc retired when it deleted the per-delimiter pattern family.
+   * Holds the matched OPERATOR while a target is pending, null otherwise. */
+  let pendingTarget: string | null = null;
+  let pendingTargetOffset = -1;
+  /** Arm 2: the accepted `${…}` span most recently appended to `buffer`, with
+   * the buffer positions it occupies. At flush it becomes the word's
+   * `expandedCandidate` only if it still runs to the END of the buffer, which
+   * is how literal text AFTER the span (`PG=${U:-"p"}sql`) disqualifies it. */
+  let pendingCandidate: { operand: string; at: number; end: number } | null = null;
 
   const flush = (): void => {
     if (started) {
-      if (!dropWord)
+      const expandedCandidate =
+        pendingCandidate !== null && pendingCandidate.end === buffer.length
+          ? { operand: pendingCandidate.operand, at: pendingCandidate.at }
+          : null;
+      if (pendingTarget === null)
         words.push({
           text: buffer,
           line: startLine,
@@ -939,8 +1239,20 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
           quoted: bufferQuoted,
           lines: bufferLines,
           operator: false,
+          expandedCandidate,
         });
-      dropWord = false;
+      else
+        targets.push({
+          operator: pendingTarget,
+          text: buffer,
+          line: startLine,
+          offset: startOffset,
+          operatorOffset: pendingTargetOffset,
+          expandedCandidate,
+        });
+      pendingTarget = null;
+      pendingTargetOffset = -1;
+      pendingCandidate = null;
     }
     buffer = "";
     bufferOffsets = [];
@@ -1034,7 +1346,17 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
           offset: i + 2 + entry.offset,
           backtick: entry.backtick,
         });
+      const spanAt = buffer.length;
       appendRun(slice, i, false);
+      // Arm 2. The expansion still becomes ONE opaque word whose text is the
+      // verbatim slice - resolved-scope row 4, and the property that stops
+      // brace-protected whitespace from splitting a redirection target into a
+      // phantom argv word. What is added is a DECISION recorded alongside it.
+      // Deciding it HERE rather than over the word's text is load-bearing: this
+      // branch is unreachable inside double quotes, where the operand's quote
+      // characters are literal pathname data, so E5 needs no guard clause.
+      const operand = acceptedExpansionOperand(slice);
+      pendingCandidate = operand === null ? null : { operand, at: spanAt, end: buffer.length };
       i = close;
       continue;
     }
@@ -1190,12 +1512,24 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
         quoted: [true],
         lines: [line],
         operator: true,
+        expandedCandidate: null,
       });
       line++;
       continue;
     }
 
     if (/\s/.test(character)) {
+      // Inside a `${…}` OPERAND bash performs no word splitting and no operator
+      // parsing, so whitespace there is ordinary literal text. Keeping it means
+      // a multiword operand keeps its OWN separators - `${U:-'psql' -X}` yields
+      // the candidate `psql -X`, not a normalized join - so `valueBinds` reaches
+      // its multiword branch with the string bash would really bind.
+      if (braceOperand) {
+        begin(i);
+        append(character, i);
+        if (character === "\n") line++;
+        continue;
+      }
       flush();
       continue;
     }
@@ -1209,11 +1543,13 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
     // `-F>/dev/null` followed by a standalone `-X` — a FALSE SAFE, since bash
     // removes the redirection and psql really receives `-F -X mydb`, where
     // `-X` is the field separator.
-    if (!started || FD_PREFIX.test(buffer) || character === "<" || character === ">") {
-      // Longest-first: `<<<` before `<<`, `<>` and `>|` before the bare forms,
-      // or the shorter match leaves a stray `<`/`>` that reads as a SECOND
-      // redirection and eats the following argv word.
-      const redirection = /^(?:&>>|&>|<<<|<<-|<<|>>|>&|<&|<>|>\||[<>])/.exec(text.slice(i));
+    if (
+      !braceOperand &&
+      (!started || FD_PREFIX.test(buffer) || character === "<" || character === ">")
+    ) {
+      // Longest-first ordering lives in `REDIRECTION_OPERATORS`, which this
+      // pattern is BUILT from rather than restating.
+      const redirection = REDIRECTION_OPERATOR.exec(text.slice(i));
       if (redirection && (character === "<" || character === ">" || character === "&")) {
         const isBackgroundAmp = character === "&" && text[i + 1] !== ">";
         if (!isBackgroundAmp) {
@@ -1224,6 +1560,16 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
           // really runs as `-F -X mydb`, where `-X` is the field separator and
           // suppresses nothing — while the scanner consumed the phantom word as
           // `-F`'s value and certified the `-X` behind it.
+          // Recorded BEFORE the buffer is cleared, because the fd prefix is
+          // the buffer. Both spellings are recorded: the attached one emits no
+          // target, and a reading that cannot see it reports a binding the
+          // shell has already overridden.
+          redirections.push({
+            operator: redirection[0],
+            fd: FD_PREFIX.test(buffer) ? buffer : null,
+            line,
+            offset: i,
+          });
           if (!FD_PREFIX.test(buffer)) flush();
           buffer = "";
           bufferOffsets = [];
@@ -1234,13 +1580,16 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
           const rest = text.slice(i + 1);
           const attached = /^(?:\$\{[^}]*\}|"[^"]*"|'[^']*'|\\.|[^\s;&|()<>])+/.exec(rest);
           if (attached) i += attached[0].length;
-          else dropWord = true;
+          else {
+            pendingTarget = redirection[0];
+            pendingTargetOffset = i - (redirection[0].length - 1);
+          }
           continue;
         }
       }
     }
 
-    if (OPERATOR_STARTS.has(character)) {
+    if (OPERATOR_STARTS.has(character) && !braceOperand) {
       flush();
       const two = text.slice(i, i + 2);
       const operator = two === "&&" || two === "||" ? two : character;
@@ -1252,6 +1601,7 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
         quoted: [...operator].map(() => true),
         lines: [...operator].map(() => line),
         operator: true,
+        expandedCandidate: null,
       });
       i += operator.length - 1;
       continue;
@@ -1262,6 +1612,102 @@ function lexShellWords(text: string, nested: NestedShell[] = []): ShellWord[] {
   }
   flush();
   return words;
+}
+
+/**
+ * The DEQUOTED default operand of a `${…}` span that is, in its ENTIRETY, one
+ * expansion drawn from `EXPANSION_ACCEPT` - and `null` for every other interior,
+ * by default rather than by enumeration. Arm 2 of
+ * docs/superpowers/specs/ci/2026-08-20-shell-lexer-quoted-value-recall-design.md
+ * (ledger BL-SHELL-EXPANSION-OPERAND-QUOTED-VALUE).
+ *
+ * The operand is dequoted by `lexShellWords` ITSELF, in brace-operand mode, so
+ * mixed quoting, ANSI-C `$'…'`, escapes and a nested accepted `${…}` all come
+ * free: there is no second grammar to keep in step with the first.
+ *
+ * WHOLE-VALUE ONLY, and the narrowness is the point. A wider substitution model
+ * was tried and withdrawn because it read an accepted child inside a
+ * NON-accepted parent - `U=xpsql; PG=${U#${V:-'psql'}}` yielded the candidate
+ * `${U#psql}` and REPORTED, while bash binds `xpsql`. Conservative-and-silent is
+ * a documented limit; wrongly-loud is not, and refusing to look inside a
+ * complement member removes the mechanism that generated it rather than adding
+ * care around it.
+ */
+function acceptedExpansionOperand(span: string): string | null {
+  if (!span.startsWith("${") || !span.endsWith("}")) return null;
+  // An UNTERMINATED expansion is a shell syntax error, so the file runs nothing
+  // and binds nothing. `matchBrace` returns the LAST index when it finds no
+  // close, so the boundary is checked here rather than assumed.
+  if (matchBrace(span, 1, "{", "}") !== span.length - 1) return null;
+  const interior = span.slice(2, span.length - 1);
+  // The PARAMETER, not just an identifier. A positional (`${1:-word}`) and the
+  // special parameters take the same value-supplying operators an identifier
+  // does, and bash binds their operands identically, so an identifier-only
+  // reading default-denied spellings the accept-set had already promised.
+  // Widening the NAME does not widen the accept-set: `${#psql}` and `${!psql}`
+  // still find no accepted operator after the name and are still default-denied.
+  // The class is bash's special parameters IN FULL. Omitting `-` was a defect
+  // INSIDE the accept-set rather than a narrower promise: it default-denied all
+  // six operators on that one spelling, at both consumers, and `${-:+'psql'}`
+  // and `${-+'psql'}` really do yield `psql` (probed). The four unset-branch
+  // spellings yield `$-` itself, and reading their operand is the same
+  // ratified MAY-BIND over-report `${U:-psql}` already carries when `U` is set
+  // (spec §7.4) - so `-` needs no operator-by-operator treatment, which is the
+  // predicate growth the standing repair direction forbids. `0` and `_` were
+  // never missing: `\d+` and `[A-Za-z_]\w*` already spell them.
+  const name = /^(?:[A-Za-z_]\w*(?:\[[^\]]*\])?|\d+|[@*#?$!-])/.exec(interior);
+  if (!name) return null;
+  const rest = interior.slice(name[0].length);
+  const operator = EXPANSION_ACCEPT.find((accepted) => rest.startsWith(accepted));
+  if (operator === undefined) return null;
+  // Trimmed on the DEFAULT-IFS edges, exactly as `assignmentBindingLines`
+  // already trims an assignment value, and for the same shell reason: an
+  // unquoted expansion word-splits at its use site, so `PG=${U:- psql -X}` runs
+  // psql there. It is also LOAD-BEARING for an equivalence claim in the
+  // mutation ledger. Every other caller of `valueBinds` trims, and the split
+  // reading depends on it: with a leading empty part at argv[0] the reading
+  // silently declines a wrapper-quoted psql the EVAL reading cannot see either.
+  // Probed on this branch: without this trim,
+  // `PG=${U:-" /tmp/O'Reilly/psql -X"}` reports 1 while the
+  // `filter(part => part.length > 0)` mutant reports 0 - a separating input, so
+  // the candidate route had broken an argument that held before it existed.
+  const rawOperand = rest.slice(operator.length);
+  const operand = (lexShellWords(rawOperand, [], [], [], true)[0]?.text ?? "").replace(
+    /^[ \t\n]+|[ \t\n]+$/g,
+    "",
+  );
+  // A NESTED accepted expansion resolves through the SAME whole-value rule, and
+  // it is decided on the RAW operand rather than on the dequoted result. Quote
+  // removal turns `'${V:-psql}'` into text that LOOKS like an expansion and is
+  // not one - bash binds that literal string - so recursing on the dequoted text
+  // reinterprets DATA as SYNTAX. That is the same defect the withdrawn
+  // substitution model had, one level down, and reading the raw slice removes
+  // the mechanism rather than guarding its output.
+  // The recursion needs no depth counter: an operand is the text INSIDE its own
+  // braces minus the name and the operator, so it is strictly shorter than the
+  // span it came from and the descent terminates on length alone. A counter
+  // here would be a bound nothing can reach, which is a mutation site that
+  // earns nothing and a number a later reader would have to justify.
+  return acceptedExpansionOperand(rawOperand.replace(/^[ \t\n]+|[ \t\n]+$/g, "")) ?? operand;
+}
+
+/**
+ * A word's expansion candidate, but only when the accepted span covers the WHOLE
+ * of the value beginning at `valueAt` - nothing but IFS whitespace before it,
+ * and, by construction of `expandedCandidate`, nothing at all after it.
+ *
+ * Keeping the whole-value TEST here rather than in the lexer is what lets the
+ * lexer stay ignorant of the assignment grammar while `PG=p${U:-"psql"}` is
+ * still unreadable: the span is recorded, and the consumer sees it does not
+ * start where its value starts.
+ */
+function wholeValueCandidate(
+  word: { text: string; expandedCandidate: { operand: string; at: number } | null },
+  valueAt: number,
+): string | null {
+  const span = word.expandedCandidate;
+  if (span === null || span.at < valueAt) return null;
+  return /^[ \t\n]*$/.test(word.text.slice(valueAt, span.at)) ? span.operand : null;
 }
 
 /** The command word, with any directory prefix removed. */
@@ -2250,10 +2696,44 @@ export function scanJsSource(source: string, file: string): PsqlSite[] {
  * test timeout, which is a CI failure rather than a slow test.
  */
 const PSQL_VALUE = "[^\\s\"';|&]*\\bpsql\\b[^\\s\"';|&]*";
+/** The `read` grammar up to and including the `<<<` operator. ONE source string
+ * for both readings below, so the line-text rule and the word route cannot
+ * drift into two different ideas of what a here-string read looks like. Which
+ * command words and flag shapes constitute a here-string read is RATIFIED
+ * unchanged by this arc (design section 1.1 row 2); only the VALUE reading moved.
+ *
+ * Two bounded changes to the reach, and they are ONE decision. The middle no
+ * longer crosses `;`, `&` or `|`, so the match covers the `read`'s OWN command
+ * segment; and the lookahead pins it to the LAST `<<<` WITHIN that segment,
+ * which is the one the shell hands to this `read`.
+ *
+ * Each without the other is a defect, which is why they land together:
+ *  - Without the segment bound, `[^\n]*` BACKTRACKS across a separator. On
+ *    `read -r PG <<< notpsql; cat <<< psql` the engine walks to the SECOND
+ *    command's target and reports, while bash binds `notpsql`.
+ *  - Without the lookahead it backtracks WITHIN the command. On
+ *    `read -r PG <<< psql <<< notpsql` it reads the first target and reports,
+ *    while bash binds `notpsql`.
+ *  - With the lookahead but NOT the segment bound - the shape shipped mid-repair
+ *    and caught before commit - the last `<<<` on the LINE can belong to another
+ *    command, so `read -r PG <<< psql; cat <<< notpsql` reads `notpsql` and goes
+ *    SILENT on a binding bash really makes. That is a narrowing that manufactured
+ *    a MISS while removing a false positive, which is the one trade the
+ *    consequence bound does not allow either half of.
+ *
+ * Segment reach is textual and therefore quote-naive: a `;` inside a quoted
+ * target cuts the segment. That direction is a missed report, and the WORD route
+ * - which reads the LEXER's operator words, where a quoted `;` is data - covers
+ * it, which is what the union is for. */
+const READ_HERE_STRING_PREFIX_SOURCE =
+  "(?:^|[\\s;&|(])read\\s+(?:-\\w+\\s+)*[A-Za-z_]\\w*\\b(?:(?![;&|])[^\\n])*<<<" +
+  "(?!(?:(?![;&|])[^\\n])*<<<)";
 /** `read -r PG <<< psql` binds the name from a here-string. */
-const READ_HERE_STRING = new RegExp(
-  `(?:^|[\\s;&|(])read\\s+(?:-\\w+\\s+)*[A-Za-z_]\\w*\\b[^\\n]*<<<\\s*["']?${PSQL_VALUE}`,
-);
+const READ_HERE_STRING = new RegExp(`${READ_HERE_STRING_PREFIX_SOURCE}\\s*["']?${PSQL_VALUE}`);
+/** The IDENTICAL grammar with the VALUE portion removed. The word route decides
+ * the value from the lexer's retained target rather than from the line text, so
+ * it needs the prefix only. */
+const READ_HERE_STRING_PREFIX = new RegExp(READ_HERE_STRING_PREFIX_SOURCE);
 
 /**
  * Assignment bindings are read from LEXED WORDS, not from raw line text. The
@@ -2303,7 +2783,8 @@ function assignmentBindingLines(words: ShellWord[], file: string): Set<number> {
       continue;
     }
     if (value.length === 0) continue;
-    if (valueBinds(value, file)) found.add(word.line);
+    if (valueBinds(value, file, wholeValueCandidate(word, word.text.length - match[1]!.length)))
+      found.add(word.line);
   }
   return found;
 }
@@ -2334,7 +2815,9 @@ function compoundArrayBinds(words: ShellWord[], from: number, file: string): boo
     // An element is either a bare value or `[key]=value` / `[key]+=value`.
     const keyed = /^\[[^\]]*\]\+?=([\s\S]*)$/.exec(word.text);
     const value = (keyed ? keyed[1]! : word.text).replace(/^[ \t\n]+|[ \t\n]+$/g, "");
-    if (value.length > 0 && valueBinds(value, file)) return true;
+    const valueAt = keyed ? word.text.length - keyed[1]!.length : 0;
+    if (value.length > 0 && valueBinds(value, file, wholeValueCandidate(word, valueAt)))
+      return true;
   }
   return false;
 }
@@ -2344,7 +2827,16 @@ function compoundArrayBinds(words: ShellWord[], from: number, file: string): boo
  * single-word case and by every element of a compound array, so the two cannot
  * drift into two different readings of the same string.
  */
-function valueBinds(value: string, file: string): boolean {
+function valueBinds(value: string, file: string, candidate: string | null = null): boolean {
+  // Arm 2: the candidate is an ADDITIONAL string tested by this SAME predicate,
+  // never a replacement for the verbatim reading below. That is why every
+  // existing verdict is bit-for-bit what it was - the bare-operand hit, and
+  // every conservative complement over-report alike - and why precision holds
+  // where it held: `${U:-'psql;x'}` yields the candidate `psql;x` and is
+  // rejected on the separator, `${U:-'psql\'}` on the trailing backslash, and
+  // `${M:-'psql failed to connect'}` reaches the multiword branch and is
+  // declined for carrying no flag-shaped token.
+  if (candidate !== null && valueBinds(candidate, file)) return true;
   if (/\s/.test(value)) {
     // A MULTIWORD value binds a command LINE (`CMD='psql -qAt mydb'; eval
     // "$CMD"`): re-lex the dequoted value and require a psql site carrying a
@@ -2423,6 +2915,138 @@ const INTERPRETER_POSITIONAL_BINDING = new RegExp(
   )})\\b[^\\n]*?\\s-{1,2}[A-Za-z-]*c[A-Za-z-]*(?:\\s+--)?\\s+(?:'[^']*'|"[^"]*")\\s+[^\\n]*?\\bpsql\\b`,
 );
 
+/**
+ * The shell REMOVES a backslash-newline outright - no space in its place - so
+ * `"/opt/postgresql/17/bin/\` + newline + `psql"` is the single word
+ * `/opt/postgresql/17/bin/psql`. A space-joined view splits the very word the
+ * shell is gluing together, so every binding rule read two halves and neither
+ * contained a psql-shaped value. `first` is the line's own text with any
+ * comment already removed.
+ *
+ * Returns the joined text AND the LAST physical line it consumed, because the
+ * here-string WORD route has to know which physical lines a logical line covers:
+ * a `RedirectionTarget.line` is the PHYSICAL line its target starts on, and a
+ * continuation either before `<<<` or between `<<<` and its target puts that
+ * target on a later line than the `read` (probes N1 and N2). ONE implementation
+ * for both callers, so they cannot disagree about the span.
+ */
+function splicedAt(first: string, lines: string[], index: number): { spliced: string; to: number } {
+  let spliced = first;
+  let to = index;
+  for (let k = index; /\\$/.test(spliced) && k + 1 < lines.length; k++) {
+    spliced = `${spliced.replace(/\\$/, "")}${(lines[k + 1] ?? "").replace(/^\s+/, "")}`;
+    to = k + 1;
+  }
+  return { spliced, to };
+}
+
+/**
+ * Logical-line indexes (0-based) where a `read` binds the psql command name from
+ * a DETACHED here-string TARGET, decided from the LEXER'S RETAINED WORD rather
+ * than from the line text. Arm 1 of
+ * docs/superpowers/specs/ci/2026-08-20-shell-lexer-quoted-value-recall-design.md
+ * (ledger BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE).
+ *
+ * The target's text has already been through the lexer's quote removal, ANSI-C
+ * decoding and escape handling, and it is decided by `valueBinds` - the SAME
+ * predicate the assignment family uses - so neither the dequoting nor the
+ * binding criterion can drift into a second reading of one string.
+ *
+ * Association is by LOGICAL line, never physical. Requiring the target to sit on
+ * the `read`'s own physical line fails for BOTH ordinary continuation positions,
+ * and announcing the here-string family closed while a continuation still hid
+ * one would leave a FALSE CERTIFICATION behind. This route is a UNION MEMBER,
+ * not a replacement: `READ_HERE_STRING` still reads the spliced line, because
+ * that is the only reading that sees inside a `$(...)` body and it is
+ * stricter-in-reverse on prose (`read -r MSG <<< 'psql failed to connect'`
+ * reports today and must keep reporting, while `valueBinds` alone would decline
+ * it for carrying no flag-shaped token).
+ *
+ * The ATTACHED spelling (`<<<p'sql'`) is deliberately NOT read: the attached
+ * target is consumed by a regex that never produces a word, that whole family is
+ * withdrawn scope, and its documented limit is item 3 of the block at the top of
+ * this file.
+ */
+function hereStringBindingLines(
+  source: string,
+  targets: RedirectionTarget[],
+  words: ShellWord[],
+  redirections: Redirection[],
+  file: string,
+): Set<number> {
+  const found = new Set<number>();
+  if (targets.length === 0) return found;
+  const lines = source.split("\n");
+  const commentAt = commentIndexPerLine(source, "hash");
+  for (let index = 0; index < lines.length; index++) {
+    const comment = commentAt[index]?.[0]?.[0];
+    const line = lines[index] ?? "";
+    const code = comment === undefined ? line : line.slice(0, comment);
+    const { spliced, to } = splicedAt(code, lines, index);
+    if (!READ_HERE_STRING_PREFIX.test(spliced)) continue;
+    // Attribution - which command, and which redirection - is decided by the
+    // shared gate. Round 1's F2 took the COMMAND boundary; this route now also
+    // declines when the shell has already replaced the here-string on fd 0:
+    // `read -r PG <<< p'sql' < /dev/null` reported while bash binds the empty
+    // string, and `read -r PG <<< p'sql' <<< notpsql` reported while bash binds
+    // `notpsql`. That is a MIS-READ of precedence the shell decides ON THE PAGE,
+    // which §7.4 separates from the ratified may-bind posture: may-bind covers
+    // what a static reader CANNOT know - whether `U` is set when `${U:-psql}`
+    // expands - and never excuses misreading what is written down. Narrowing,
+    // per the standing repair direction: the rule DECLINES over a closed
+    // operator set rather than growing a per-operator predicate.
+    const effective = effectiveHereString(words, redirections, index, to);
+    if (effective === null) continue;
+    for (const target of targets) {
+      // The operator is load-bearing, not decoration: with `<` the shell hands
+      // `read` the FILE'S CONTENT, so an operator-blind reading reports a
+      // binding bash does not make.
+      if (target.operator !== "<<<") continue;
+      if (target.line < index || target.line > to) continue;
+      // The target must belong to the EFFECTIVE redirection itself, matched by
+      // the operator offset the lexer recorded on it. Ordering alone is not
+      // enough: `read -r PG <<< notpsql 2<<< psql` puts a here-string target
+      // AFTER the effective stdin operator, on fd 2, and bash binds `notpsql`
+      // (diff review r3 finding 2). Identity cannot make that mistake.
+      if (target.operatorOffset !== effective.offset) continue;
+      // `read NAME` binds the FIRST LINE of its input, with default-IFS edges
+      // stripped - not the whole here-string. Passing the entire target both
+      // MISSED bindings bash makes (`$'psql\\nignored'` and `$'\\tpsql '` bind
+      // psql) and REPORTED one it does not (`$'other\\npsql -X'` binds `other`).
+      // The candidate is offered only when nothing was truncated, so a
+      // multi-line target cannot be read through a span that spills past the
+      // line bash actually binds.
+      // `read NAME` binds the first line with default-IFS edges stripped, and
+      // that applies to the EXPANSION candidate exactly as it applies to the
+      // target's own text. Reading only the raw span was wrong in both
+      // directions: `${U:-$'psql\nignored'}` is a single RAW line, so the
+      // not-truncated guard passed while the DECODED operand still carried its
+      // newline, and `${U:-$'other\npsql -X'}` reported though bash binds
+      // `other` (diff review r3 finding 1). One helper, applied to whichever
+      // string is about to be read, so the two cannot drift apart.
+      const firstLine = (value: string): string =>
+        (value.split("\n")[0] ?? "").replace(/^[ \t]+|[ \t]+$/g, "");
+      const bound = firstLine(target.text);
+      const operand = wholeValueCandidate(target, 0);
+      // The operand's OWN first line, not the operand whole and not a decline.
+      // `read` receives the EXPANDED string, so it truncates the operand exactly
+      // as it truncates a literal target: `${U:-$'psql\nignored'}` binds `psql`
+      // and was MISSED, while `${U:-$'other\npsql -X'}` binds `other` and was
+      // REPORTED (diff review r3 finding 1). The candidate is an ADDITIONAL
+      // string tested by the same predicate rather than a replacement for the
+      // verbatim reading - arm 2's ratified contract - so an EMPTY first line
+      // yields no candidate rather than forcing a verdict.
+      const candidate = operand === null ? null : firstLine(operand) || null;
+      if (bound.length === 0 && candidate === null) continue;
+      if (valueBinds(bound, file, candidate)) {
+        found.add(index);
+        break;
+      }
+    }
+  }
+  return found;
+}
+
 export function scanShellIndirection(source: string, file: string): IndirectionHit[] {
   const hits: IndirectionHit[] = [];
   const lines = source.split("\n");
@@ -2451,7 +3075,9 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
   const lexedSource = YAML_EXTENSIONS.includes(extensionOf(file))
     ? source.replace(/\\\n[ \t]+/g, "\\\n")
     : source;
-  const words = lexShellWords(lexedSource, nested);
+  const targets: RedirectionTarget[] = [];
+  const redirections: Redirection[] = [];
+  const words = lexShellWords(lexedSource, nested, targets, redirections);
   const seenBodies = new Set<string>();
   // In a JS string literal a BACKTICK span is markdown, not shell: prose like
   // "wrap with `command -v psql >/dev/null || (...)`" is documentation. Same
@@ -2459,10 +3085,16 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
   // backtick IS a substitution, so it still counts there.
   const backticksAreMarkdown = JS_EXTENSIONS.includes(extensionOf(file));
   const bindingLines = assignmentBindingLines(words, file);
+  // Arm 1's word route, kept as its OWN set rather than merged into
+  // `bindingLines`, so the two routes stay distinguishable to a reader and to a
+  // mutant even though both collapse to the same emission below.
+  const hereStringLines = hereStringBindingLines(source, targets, words, redirections, file);
   const visitBody = (body: NestedShell): void => {
     if (body.backtick && backticksAreMarkdown) return;
     const inner: NestedShell[] = [];
-    const innerWords = lexShellWords(body.text, inner);
+    const innerTargets: RedirectionTarget[] = [];
+    const innerRedirections: Redirection[] = [];
+    const innerWords = lexShellWords(body.text, inner, innerTargets, innerRedirections);
     // A NESTED body's assignments are invisible to the outer lex, which replaced
     // the whole substitution with the opaque `${}` word — so they are read from
     // the body's OWN words, offset back to their physical line. Without this the
@@ -2474,6 +3106,19 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
     // exactly the shape the false certification hid behind.
     for (const bound of assignmentBindingLines(innerWords, file)) {
       bindingLines.add(body.line + bound);
+    }
+    // The same treatment for the here-string word route, and for the same
+    // reason: the outer lex replaced the whole substitution with the opaque
+    // `${}` word and so retained no target for anything inside it, which is why
+    // `X=$(read -r PG <<< p'sql')` was invisible to both readings (probe A7).
+    for (const bound of hereStringBindingLines(
+      body.text,
+      innerTargets,
+      innerWords,
+      innerRedirections,
+      file,
+    )) {
+      hereStringLines.add(body.line + bound);
     }
     for (const deeper of inner) visitBody({ ...deeper, line: body.line + deeper.line });
     if (seenBodies.has(body.text)) return;
@@ -2499,28 +3144,48 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
     for (let k = index; /\\$/.test(logical) && k + 1 < lines.length; k++) {
       logical = `${logical.replace(/\\$/, " ")}${lines[k + 1] ?? ""}`;
     }
-    // The shell REMOVES a backslash-newline outright — no space in its place —
-    // so `"/opt/postgresql/17/bin/\` + newline + `psql"` is the single word
-    // `/opt/postgresql/17/bin/psql`. `logical` joins with a SPACE, which is
-    // right for separating WORDS but splits the very word the shell is gluing
-    // together, so every binding rule read two halves and neither contained a
-    // psql-shaped value. `spliced` is the shell's own reading. Its remaining
-    // consumers are `READ_HERE_STRING` and `githubEnvWrite` — the assignment
-    // family reads lexed words now, where the lexer performs the same splice.
-    let spliced = rawCode;
-    for (let k = index; /\\$/.test(spliced) && k + 1 < lines.length; k++) {
-      spliced = `${spliced.replace(/\\$/, "")}${(lines[k + 1] ?? "").replace(/^\s+/, "")}`;
-    }
+    // `logical` joins with a SPACE, which is right for separating WORDS but
+    // splits the very word the shell is gluing together. `spliced` is the
+    // shell's own reading of the same continuation, built by `splicedAt` — one
+    // implementation, shared with the here-string word route, which needs the
+    // identical logical-line span. Its consumers are `READ_HERE_STRING` and
+    // `githubEnvWrite`; the assignment family reads lexed words now, where the
+    // lexer performs the same splice.
+    const { spliced, to: splicedTo } = splicedAt(rawCode, lines, index);
+    // The text route obeys the SAME attribution gate as the word route - one
+    // command on the span, and the effective fd-0 redirection is the `<<<` -
+    // because both are union members of one rule and rounds 1 and 2 each
+    // repaired only the word half (F3 class sweep).
+    //
+    // Applied ONLY where the lexer positively SAW an fd-0 input redirection on
+    // the span. That is not a fail-open convenience, it is the boundary between
+    // the two readings: the text route exists because it is the only one that
+    // sees inside a `$(…)` body, and the outer lex replaces such a body with an
+    // opaque word, so it records no redirection for anything within. Gating on
+    // an EMPTY ledger would read "the lexer saw nothing" as "nothing is there"
+    // and silently retire that contribution. An override INSIDE a substitution
+    // body is therefore unread by this route and is a DOCUMENTED LIMIT (the
+    // word route reads the body's own ledger and does decline there); the five
+    // zero rows of the F3 sweep case are the same gate firing where it can see.
+    const spanEffective = effectiveStdin(redirections, index, splicedTo);
+    const spanIsOneCommand = !words.some(
+      (word) => word.operator && word.text !== "\n" && word.line >= index && word.line <= splicedTo,
+    );
+    const textRouteBlocked =
+      spanIsOneCommand && spanEffective !== null && spanEffective.operator !== "<<<";
     // Any assignment whose VALUE binds the psql command name: `PG=psql`,
     // `PSQL="/usr/bin/psql"`, `PG=p'sql'`, and the parameter-default forms
     // `PSQL="${PSQL:-psql}"` (and `-` `:=` `=` `:+` `+`), where the lexer
     // replaces the whole expansion with an opaque word and the command name
     // only exists at runtime. Decided by `assignmentBindingLines` over the
     // LEXED words above — see its comment for why the declaration-keyword and
-    // quoting-position alternations are gone. `READ_HERE_STRING` still reads
-    // the spliced line: a here-string TARGET is a redirection operand the
-    // lexer drops before words exist (ledger
-    // BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE).
+    // quoting-position alternations are gone. The here-string family is a UNION
+    // of two readings: `READ_HERE_STRING` against the spliced line, which is the
+    // only reading that sees inside a `$(…)` body and is stricter-in-reverse on
+    // prose, and the WORD route in `hereStringBindingLines`, which reads the
+    // lexer's RETAINED redirection target and is therefore immune to quote
+    // concatenation (ledger BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE, closed
+    // 2026-08-20).
     // No literal prefilter here, deliberately, even though both readers
     // require a `psql` inside the text they match. A per-line substring guard
     // would be equivalent TODAY and is worth ~6s on the walk, but it is the
@@ -2528,7 +3193,12 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
     // once and silently disabled every decoding fix — and a guard is not worth
     // weakening for six seconds. The patterns are compiled once at module
     // scope, which is where the real cost was.
-    const assigned = bindingLines.has(index) ? ["", ""] : READ_HERE_STRING.exec(spliced);
+    const assigned =
+      bindingLines.has(index) || hereStringLines.has(index)
+        ? ["", ""]
+        : textRouteBlocked
+          ? null
+          : READ_HERE_STRING.exec(spliced);
     // `alias psql=…`, including the whole-argument quotings `alias 'psql=…'`
     // and `alias "psql=…"`, plus a shell FUNCTION named psql.
     const aliased = /(?:^|\s)alias\s+(?:-\w+\s+)*["']?psql=/.exec(code);
