@@ -4261,6 +4261,14 @@ describe("an undecidable registrar key is REPORTED, never dropped (diff r1 F2)",
     expect(all).toHaveLength(1);
     expect(all[0]?.verdict).toBe("unclassifiable");
     expect(all[0]?.detail).toContain(undecidableRegistrarKeyReason("test", 2));
+    // Line 1 is a CHOICE, not a position, and the mutation gate is what made it
+    // one: nothing observed the value, so it was an arbitrary literal any edit
+    // could change for free. This record stands for the FILE rather than for a
+    // registration, its reasons carry the real lines, and the census sorts
+    // records by suite then line -- so 1 puts the file-level record first,
+    // ahead of every test the file would have had. Asserted at the value that
+    // makes that true.
+    expect(all[0]?.line).toBe(1);
   });
 
   it("a file with no registrations at all is still empty (the twin)", () => {
