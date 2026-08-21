@@ -64,9 +64,13 @@ rather than discovering it at closeout.
 
 ### §1.1 The headline: a NARROWED claim is only as precise as the name it is recorded against
 
-`sendAuthScan` answers "is this a surface receiver" and "is this a raw binding" at five decision
+`sendAuthScan` answers "is this a surface receiver" and "is this a raw binding" at **six** decision
 sites, each with its own hand-written rule. The predecessor arc narrowed some of them across diff
 rounds 3 and 4 and recorded which — **and the record cannot be resolved.**
+
+**The count was FIVE in this spec's first draft.** The sixth was found by the depth-independence
+probe of §3.7, not by enumeration, and that is §2.5's whole argument arriving before the design was
+finished.
 
 The phrase "the read arm" occurs six times across four documents and resolves to **two different
 functions**:
@@ -97,10 +101,13 @@ ways, and every narrowing claim below names a symbol.
 
 ### §1.2 The drift is measured, not argued
 
-Three of the four defect classes in §3 are one decision site doing what a sibling does not:
+Four of the five defect classes in §3 are one decision site doing what a sibling does not:
 
 - `walkSinks` and `sendBearingFunctions` unwrap a parenthesized receiver through
   `receiverUnparen`; `analyzePassReads`, `analyzeHandoffs` and `classifyMemberOn` do not.
+- `classify` (D6) does not unwrap on the IDENTIFIER side either, so a parenthesized parent matches
+  none of its branches and falls through to a generic report naming the binding — wrong attribution,
+  and the fourth instance of one construct being read differently by siblings (§3.7).
 - `analyzeHandoffs` declines a member receiver, and `classifyMemberOn` skips the same construct —
   **so it is reported by neither.** That is diff r3 F6's exact shape ("suppressed by one arm,
   skipped by the other, reported by neither") recurring on a new pair, after the r3 repair closed
@@ -164,9 +171,9 @@ neither is a round on this diff.
 
 ## §2 The design
 
-Two shared rules, consumed by every decision site. Not five rules that agree today.
+Two shared rules, consumed by every decision site. Not six rules that agree today.
 
-### §2.1 What the five decision sites are
+### §2.1 What the six decision sites are
 
 Named by symbol, because §1.1 is what happens when they are not.
 
@@ -177,9 +184,13 @@ Named by symbol, because §1.1 is what happens when they are not.
 | D3 | `classifyMemberOn` (in `classifyUses`) | is this member use classified? | receiver-hood decided at two call sites, no unwrap |
 | D4 | `analyzePassReads` | is this an in-pass read of a raw binding? | `ts.isIdentifier(n.expression.expression)` — bare only |
 | D5 | `analyzeHandoffs` | is this an in-pass handoff of a raw binding? | `ts.isIdentifier(argument)` — bare only |
+| **D6** | **`classify` (in `classifyUses`)** | **which branch does this binding reference reach?** | **branches on `id.parent` DIRECTLY, so a parenthesized parent matches no branch and falls through to the generic report** |
 
-D1 and D2 already share `receiverRightmostName` (the r3 repair). D3, D4 and D5 each answer for
+D1 and D2 already share `receiverRightmostName` (the r3 repair). D3, D4, D5 and D6 each answer for
 themselves.
+
+**D6 was not in this spec's first draft**, and its omission is the point of §2.5: a hand-maintained
+list of decision sites contains the sites its author thought of. See §3.7.
 
 ### §2.2 Rule A — the shared receiver rule
 
@@ -197,6 +208,13 @@ const surfaceReceiverOf = (raw: ts.Expression, bindings: ReadonlySet<string>): R
 It unwraps parentheses (through the existing `receiverUnparen`) and takes the rightmost name
 (through the existing `receiverRightmostName`). **Narrowing with parts that already ship, not with
 new ones.**
+
+**Parenthesis transparency is symmetric, and BOTH sides are the rule.** Rule A unwraps the receiver
+EXPRESSION; D6 needs the mirror — from an identifier, walk OUT through any run of parentheses
+before asking which branch it reaches, on the member-receiver path, the call-argument path and the
+spread path alike. Unwrapping only the outer side leaves `(ch).gauge()` matching no branch in
+`classify`, which is the D6 defect §3.7 measures. **A transparent wrapper must not change what the
+guard sees, in either direction.**
 
 **Disposition table — the whole point of the rule is that this table has no empty cells.**
 
@@ -271,31 +289,61 @@ contains ZERO instances of all four shapes** — so the deciding suite was green
 four consecutive review rounds each contributed one instance. **Review was acting as the
 corpus-authoring mechanism, which is the most expensive authoring tool available.**
 
-Adding seven fixtures for the seven instances of §3 repeats that mistake one notch further out: it
-would make round 5's job to find shape eight. **The corpus is therefore ENUMERATED FROM THE AXES
+Adding eight fixtures for the eight instances of §3 repeats that mistake one notch further out: it
+would make the next round's job to find shape nine. **The corpus is therefore ENUMERATED FROM THE AXES
 THE SHARED RULES DECIDE ON, and the enumeration is only possible BECAUSE the rules are shared** —
-five hand-written rules have no common axis set to enumerate over. The unified rules and the
+six hand-written rules have no common axis set to enumerate over. The unified rules and the
 derived corpus are ONE deliverable, and the plan ships them in one arc.
 
-**The axes, which are exactly rule A's inputs and rule B's:**
+**A cross-product is only valid over axes that are FINITE. Two of these are not**, and treating an
+unbounded axis as a finite list is the class-sweep failure one level up: an enumerated cover calling
+itself complete. So each axis is classified before it is used.
 
-| axis | members |
-| --- | --- |
-| receiver shape | bare `ch` · property `this.ch` · parenthesized `(ch)` · nested `((this.ch))` · destructured local · call result `getChannel()` |
-| binding kind | `surface` · `foreign` · `opaque` (§2.2) |
-| position | D1 discovery · D2 sink walk · D3 totality member · D4 in-pass read · D5 in-pass handoff |
-| exemption state | no derivation · derivation, name declared once · derivation, name declared twice COMPETING · derivation, name declared twice NON-competing |
+**Step 1 — for each axis, ask: is it FINITE, and does the rule READ it?**
 
-The corpus is the cross-product with impossible cells struck and a reason recorded per struck cell
-— `opaque` never co-occurs with a resolvable receiver shape, a destructured local has no receiver
-to parenthesize, and so on. **A struck cell carries its reason in the manifest, so a later reader
-meets the argument rather than an absence.** The manifest is asserted against the fixture directory
-by the suite, so a cell added without a fixture, or a fixture added outside the enumeration, fails
-by default rather than being silently exempt.
+| axis | finite? | does the rule read it? | treatment |
+| --- | --- | --- | --- |
+| binding kind — `surface` / `foreign` / `opaque` | YES, 3 | YES, it IS rule A's output | **cross completely**, derived from the `Receiver` union rather than retyped |
+| position — D1 … D6 | YES, 6 | YES, each is a consumer | **cross completely**, derived from the consumer list the module exports |
+| exemption state — none / declared once / declared twice competing / declared twice non-competing | YES, 4 | YES, it is rule B's input | **cross completely** |
+| **parenthesis depth** | **NO — `((((ch))))` nests without limit** | **NO — rule A unwraps to a fixed point** | **independence proof**, never enumeration |
+| **member-chain depth** | **NO — `a.b.c.d.ch` nests without limit** | **NO — rule A takes the RIGHTMOST name** | **independence proof**, never enumeration |
+| receiver shape, once depth is factored out — bare · property · destructured local · call result | YES, 4 | YES | **cross completely** |
 
-**What this buys, stated as the convergence claim:** a reviewer proposing shape eight is proposing
-either a cell the manifest already covers (refuted mechanically) or a NEW AXIS — which is a
-registry-shaped change carrying its own before/after cross-product, not a round on this diff.
+**Step 2 — a finite, read axis is crossed completely, and the axis is DERIVED from the shipped
+constant rather than retyped into the manifest.** A retyped axis drifts the moment the constant
+gains a member, and nothing says it did.
+
+**Step 3 — an axis the rule does NOT read gets an INDEPENDENCE PROOF over structurally distinct
+classes, never a sample.** For paren depth the classes are 0, 1, 2 and a deep case; the proof is
+that the finding set is IDENTICAL across all of them (§3.7), not that four depths were tried.
+
+**Step 4, and it is the load-bearing one — if a later finding shows the rule is NOT indifferent to
+some spelling, THE REPAIR IS TO MAKE IT INDIFFERENT, never to add that spelling as a case.** Adding
+the case re-opens an infinite axis one member at a time, which is this arc's own
+four-rounds-one-shape-each story with fixtures playing the part of the grammar. §3.7 is that repair
+performed once already.
+
+**Why an independence proof is the stronger instrument, and it is not a methodology footnote — it
+is why this design is correct.** Proving indifference to an axis EXERCISES EVERY PATH THAT READS
+THE AXIS, so it discovers readers the author did not know existed. An enumeration of decision sites
+can only check the sites already listed. **That is exactly how D6 was found**: the site list said
+five, and the depth probe returned findings from a sixth (§3.7). **An independence proof is a
+DERIVED cover over decision sites; a site list is a hand-maintained one** — the same relationship
+this repo keeps rediscovering between a derived accept-set and a hand-kept list.
+
+The finite portion is the cross-product with impossible cells struck and a reason recorded per
+struck cell — `opaque` never co-occurs with a resolvable receiver shape, a destructured local has no
+receiver to parenthesize, and so on. **A struck cell carries its reason in the manifest, so a later
+reader meets the argument rather than an absence.** The manifest is asserted against the fixture
+directory by the suite, so a cell added without a fixture, or a fixture added outside the
+enumeration, fails by default rather than being silently exempt.
+
+**The convergence claim, restated over the corrected axis set:** a reviewer proposing a new shape is
+proposing either (i) a cell the manifest already covers — refuted mechanically; (ii) a DEPTH of an
+unbounded axis — answered by the independence proof, and if the proof fails the repair is
+indifference, not a case; or (iii) a NEW AXIS, which is a registry-shaped change carrying its own
+before/after cross-product, not a round on this diff.
 
 ---
 
@@ -357,8 +405,8 @@ p2c-ordinary-raw-handoff    ordinary raw handoff         RAW-HANDOFF@19:helper  
 
 The r4 repair holds and the row's "probed silent" claim is **stale for this instance**. The
 graduation corrects it. **This does not weaken the case**: the unification rests on there being
-five hand-written rules that CAN drift apart, demonstrated in §3.1, §3.3 and §3.4, not on these two
-still being silent.
+six hand-written rules that CAN drift apart, demonstrated in §3.1, §3.3, §3.4 and §3.7, not on
+these two still being silent.
 
 Same file, same pass, only the argument's syntactic form varying:
 
@@ -459,6 +507,69 @@ Their two suite expectations change, and the plan owns that as a task with its o
 as an incidental edit — a silently updated expectation is indistinguishable from a regression
 someone accommodated.
 
+### §3.7 The independence proof, and the sixth decision site it found
+
+Parenthesis depth and member-chain depth are UNBOUNDED, so no finite sample of them proves
+anything. What is provable is that the rule does not READ them.
+
+**First run, against the design as originally specced** — one construct (an in-pass double read plus
+a handoff), only the paren depth varying:
+
+| depth | finding set |
+| --- | --- |
+| 0 | `MULTI-READ@18:gauge` `RAW-HANDOFF@20:helper` |
+| 1 | the same, **plus** `UNCLASSIFIED-USE@18:ch` `UNCLASSIFIED-USE@19:ch` `UNCLASSIFIED-USE@20:ch` |
+| 2 | identical to depth 1 |
+| 5 | identical to depth 1 |
+
+**The trio is WRONG ATTRIBUTION, not a conservative over-report.** It names the BINDING (`ch`) where
+the use is a read or a handoff through that binding, so it reports the wrong thing about a construct
+the scanner does classify — the direction §0 forbids, not the direction it permits. It is also
+PRE-EXISTING: the baseline emits it at every depth above 0.
+
+**The cause is D6.** `classify` branches on `id.parent` directly, so an identifier whose parent is a
+`ParenthesizedExpression` matches no branch — not the member-receiver branch, not the call-argument
+branch, not the spread branch — and falls through to the generic report. §2.2's receiver unwrap
+handles the OUTER side only. **The site list said five; the probe returned findings from a sixth.**
+
+**The repair is INDIFFERENCE, not a depth-1 case** (§2.5 step 4): from the identifier, walk out
+through any run of parentheses before branching, on all three paths.
+
+**Second run, after the repair — the independence proof:**
+
+| depth | finding set |
+| --- | --- |
+| 0 | `MULTI-READ@18:gauge` `RAW-HANDOFF@20:helper` |
+| 1 | **identical** |
+| 2 | **identical** |
+| 5 | **identical** |
+
+Byte-identical across every class, so the claim is invariance rather than "four depths were tried".
+Member-chain depth likewise: depth 1 (`this.ch`) and depth 2 (`host.inner.ch`) both report
+`MULTI-READ` and `RAW-HANDOFF`.
+
+**The full regression was re-run after this repair, not only the case the finding named** — because
+the repair is the next round's most likely defect, and a reviewer will otherwise make that point
+for me. Held constant: **81 fixtures, still exactly 2 moved and the same 2**; live corpus **0 to
+0**; all seven §3.6 classes still closed, plus this section's own; both negative controls still
+silent. M1a and M1b came out
+STRICTLY CLEANER than before, because the spurious trio is gone from them too.
+
+### §3.8 A zero I had to withdraw: the broken occurrence probe
+
+**Recorded here because a reviewer re-running my first probe gets the same 0 and would read it as a
+refutation of §4.1's count.**
+
+The first occurrence probe for §4.1 reported **0 declared passes** in the live corpus. That was a
+BROKEN READ, not a measurement: it looked for the `// send-auth: pass` marker in the leading trivia
+of the ARROW FUNCTION, and the marker attaches to the enclosing `const` — the VariableStatement.
+`scripts/pane-compaction.ts` does carry exactly one marker.
+
+**A broken probe and a real absence are byte-identical from the outside**, so a zero without a
+positive control is not a measurement. Re-run through the SHIPPED machinery (`markersIn`,
+`derivationsIn`, `surfaceBindings`, `isSurfaceRef`) rather than a re-modelling of it: 1 declared
+pass, and the §4.1 numbers follow from that run.
+
 ---
 
 ## §4 Documented limits
@@ -516,7 +627,10 @@ every consumer asks "is a binding called `X` in scope anywhere in this module" r
 identifier that binding". Resolving an identifier to its declaration is a redesign of the
 binding-discovery layer this arc does not otherwise touch, and it needs the `ts.TypeChecker` that
 predecessor limits 5 and 8(b) both decline. The peer row carries this measurement as its probe
-evidence and its incident. **v3 makes the one measured instance strictly better rather than worse,
+evidence and its incident. **It is filed after the 2026-08-19 mint-bar cutoff
+(`tests/docs/_metaLedgerMintBar.test.ts`), so it carries `**Facing:** process` and an
+`**Incident:**` naming a cost event that has already happened** — the false advisory measured in
+§3.6 against blob `412cadd3`, which is an incident rather than a constructed hypothetical. **v3 makes the one measured instance strictly better rather than worse,
 which is the direction the bound requires** — the arc does not leave the class untouched, it
 narrows it and files the residue.
 
@@ -626,7 +740,7 @@ suite is not proof for AC-U6** — see its row.
 | --- | --- | --- |
 | **AC-U1** | `analyzePassReads` counts a read through a property receiver. `this.ch.panes()` twice in a pass reports `MULTI-READ` naming `panes`; the bare `local.gauge` pair in the SAME function still reports, so the case cannot pass by the machinery failing to run. | new fixture + suite case, findings compared as sorted records by equality |
 | **AC-U2** | `analyzeHandoffs` reports a handoff through a property receiver. `helper(this.ch)` inside a pass reports `RAW-HANDOFF`; `helper(local)` in the same pass reports too. | new fixture + suite case |
-| **AC-U3** | Parenthesized receivers are classified identically to bare ones by ALL of D3, D4, D5. `(ch).gauge()` twice reports `MULTI-READ`; `helper((ch))` reports `RAW-HANDOFF`. Fixture bytes carry `// prettier-ignore` immediately above the line and the directory is `.prettierignore`-fenced — a normaliser deleting the parentheses would silently convert the case into a duplicate of an existing fixture. | new fixtures + suite cases; plus a byte-identity assertion over the fixture manifest |
+| **AC-U3** | Parenthesized receivers are classified identically to bare ones by ALL of D3, D4, D5. `(ch).gauge()` twice reports `MULTI-READ`; `helper((ch))` reports `RAW-HANDOFF`. Fixture bytes carry `// prettier-ignore` immediately above the line — a normaliser deleting the parentheses would silently convert the case into a duplicate of an existing fixture. **Measured at BASE, and this is work the plan performs rather than a property the tree has:** `.prettierignore` carries NO `tests/paneCompaction/` entry, exactly ONE of the 81 fixtures carries the inline directive, and the deciding suite asserts NOTHING about fixture bytes. The enumerated `.prettierignore` leaves every new fixture directory unprotected by default, so the cover is a DERIVED assertion — every syntax-sensitive cell of the §2.5 manifest is checked to carry its directive — rather than a `.prettierignore` line, which is a shared-file edit in a batch where four arcs are merging around each other. | new fixtures + suite cases; plus a byte-identity assertion over the fixture manifest |
 | **AC-U4** | The derivation exemption is void under a competing double declaration, in EVERY scope kind: constructor, set accessor, nested block with a surface-typed initializer, nested block with an opaque initializer. Four cases, one per spelling. | new fixtures + suite cases |
 | **AC-U5** | A declaration that is provably NOT the surface does not compete. A parameter typed `string` sharing the name leaves the exemption intact and the pass silent. **Expect-a-REPORT pair:** the same fixture with the annotation changed to the surface type REPORTS, so the silent verdict is attributable to the annotation rather than to the scanner never looking. | new fixture PAIR + suite cases |
 | **AC-U6** | The live corpus scans **0 findings** under the unified rules. | executable: `scanRepo(LIVE_ROOTS, SEND_AUTH_SURFACES)` asserted empty **with its premise stated executably** — the walk visited a non-zero file count and the enrolled module was among them. `0 of 0` and `0 of N` render identically, and a zero over an empty population is not a pass. |
