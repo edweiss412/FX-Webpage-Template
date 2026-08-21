@@ -38,7 +38,6 @@ in `tests/mutation/source/premiseScan.ts` and confirm the derived count matches 
 one this arc found by hand — if a hand count and a derived count disagree, the derivation is the one
 to trust and the disagreement is the row's first finding.
 
-
 ## BL-SENDAUTH-ARM-CLASSIFIER-UNIFICATION — four arms of one scanner each decide independently what a receiver and a raw binding are
 
 **Status:** OPEN · **Filed:** 2026-08-20 (`feat/send-auth-single-read-lint`, from the diff-stage round filing at four rounds) · **Severity:** MEDIUM (each un-narrowed arm is a SILENT miss, which is the one outcome the surface's consequence bound forbids) · **Class:** detector fidelity · **Effort:** M · **Facing:** process · **Class-sweep exception:** (c) — unifying all four arms is a redesign of the scanner's classification layer, and doing it at diff round 4 of the arc that introduced it is how a detector ratchets into a recognizer. · **Reachability:** PROBED — both instances below were run in-process against the shipped scanner and returned zero findings. · **Incident:** four consecutive diff rounds on this arc found the same axis one arm at a time, with a FLAT finding rate rather than a decaying one — corpus `docs/review-rounds/feat/send-auth-single-read-lint/4dfd784ed062.jsonl`, rounds 1-4 declaring 5, 5, 8 and 4 findings; r1 F3, r2 F2, r3 F6 and r4 F1/F2 are all the same sentence.
