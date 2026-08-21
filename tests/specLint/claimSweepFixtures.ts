@@ -1,0 +1,195 @@
+/**
+ * Fixture loader for the historical re-enactment (spec §6).
+ *
+ * The two incident blobs ship as files rather than being read from git at test
+ * time: the acceptance criterion is pinned by the incident itself, and a frozen
+ * blob is the one input a corpus that grows cannot move.
+ *
+ * The `path` each document is given is its REAL repo-relative path at the
+ * incident commit, not the fixture path — so every assertion below reads in the
+ * probe record's own units (`spec:220`, `plan:112`) and can be checked against
+ * `docs/superpowers/specs/ci/probes/2026-08-20-claim-sweep-after-repair-probes.md`
+ * §9.2 without translation.
+ */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import type { SweepDocument } from "../../lib/specLint/types";
+
+const FIXTURE_ROOT = join(process.cwd(), "tests/specLint/fixtures/claimSweep");
+
+/** The incident arc's three documents, by their real repo-relative paths. */
+export const INCIDENT_SPEC =
+  "docs/superpowers/specs/2026-08-18-control-outline-border-token-design.md";
+export const INCIDENT_PLAN = "docs/superpowers/plans/2026-08-18-control-outline-border-token.md";
+export const INCIDENT_PROBE =
+  "docs/superpowers/specs/probes/2026-08-18-border-border-neutral-fill-census.md";
+
+const STEMS: readonly [path: string, stem: string][] = [
+  [INCIDENT_SPEC, "spec"],
+  [INCIDENT_PLAN, "plan"],
+  [INCIDENT_PROBE, "probe"],
+];
+
+/** The two frozen commits, in the order the acceptance criterion names them. */
+export const INCIDENT_REVS = ["fede5f084", "c272ebed3"] as const;
+
+/**
+ * Every frozen fixture, as `[rev, stem, repo-relative path at that commit]`.
+ *
+ * DERIVED from `INCIDENT_REVS` x `STEMS` rather than typed out, so a document
+ * added to the replay joins the byte-identity cover by construction. A
+ * hand-listed manifest re-opens the moment somebody adds a file, and nothing
+ * tells you it did.
+ */
+export const FROZEN_FIXTURES: readonly [rev: string, stem: string, path: string][] =
+  INCIDENT_REVS.flatMap((rev) =>
+    STEMS.map(([path, stem]) => [rev, stem, path] as [string, string, string]),
+  );
+
+/**
+ * The frozen bytes, keyed `<rev>/<stem>`, as a committed SHA-256.
+ *
+ * The freeze check compared the file on disk against `git show <rev>:<path>`,
+ * which requires the ORIGINAL COMMIT to be reachable. CI checks out shallow, so
+ * that object does not exist there and `git show` exits 128 -- the check threw
+ * before its own premise could run, and the whole shard failed. It passed
+ * locally on every run, because a development clone has the history.
+ *
+ * The hash makes the check TOTAL: it pins exactly what the check exists to pin
+ * -- that nothing reflowed these bytes -- in any clone, shallow or complete,
+ * with no history at all. The history comparison is kept as the STRONGER claim
+ * where it can be made, and states when it cannot rather than skipping quietly.
+ */
+export const FROZEN_FIXTURE_SHA256: Readonly<Record<string, string>> = {
+  "c272ebed3/spec": "e6bad3d25eb2249d232fecd94d4f54cb6ceb7b301f1e02a7cc875f5785e32193",
+  "c272ebed3/plan": "83e08878100cfeb8010bfc272148c6c3e16d4fe8e0d4777d1e442946d7fb4a5d",
+  "c272ebed3/probe": "314b59896fba12d4ecd3e04cf9847210ac65a2f47672e15f53b66e6702f35a49",
+  "fede5f084/spec": "dd79b85324041df7a6b4a3459c966ff7a297dbbbd11b11b53ff70bb41d5f9426",
+  "fede5f084/plan": "d73af051a323d7fd6f79d27dee835354289143cfa5495a30226a84db55e6aea0",
+  "fede5f084/probe": "818ce0388ee09d1cbeed7bf6a1cd06a088c590826224fd39ae6e5a68cf63be8d",
+};
+
+/** Absolute path of one frozen fixture on disk. */
+export function fixturePath(rev: string, stem: string): string {
+  return join(FIXTURE_ROOT, rev, `${stem}.md`);
+}
+
+/** Split identically to the probe scripts: 1-based line numbers over `split("\n")`. */
+export function fixtureLines(rev: string, stem: string): string[] {
+  return readFileSync(join(FIXTURE_ROOT, rev, `${stem}.md`), "utf8").split("\n");
+}
+
+/** The three arc documents at `rev`, readable, with no repair spans. */
+export function incidentDocs(rev: string): SweepDocument[] {
+  return STEMS.map(([path, stem]) => ({ path, lines: fixtureLines(rev, stem) }));
+}
+
+/** The unified-0 diff of the repair commit over exactly those three documents. */
+export function incidentDiff(rev: string): string {
+  return readFileSync(join(FIXTURE_ROOT, rev, "repair.diff"), "utf8");
+}
+
+/**
+ * The repair's touched lines, DERIVED from the committed unified-0 diff rather
+ * than typed out.
+ *
+ * This is deliberately a SECOND, INDEPENDENT extractor: the shipped adapter
+ * derives the same spans from live git (Task 7), and reconciling two routes is
+ * evidence a hand-listed span table could never be. A typed span list is also
+ * an enumeration that re-opens the moment the fixture changes, and nothing
+ * would say it did.
+ *
+ * `@@ -a,b +c,d @@` names the AFTER side as `c` for `d` lines; `d` defaults to
+ * 1 when omitted, and `d === 0` is a pure deletion that touches no after-line.
+ */
+export function repairSpans(rev: string): Map<string, Set<number>> {
+  const spans = new Map<string, Set<number>>();
+  let current: Set<number> | null = null;
+  for (const line of incidentDiff(rev).split("\n")) {
+    const file = /^\+\+\+ b\/(\S+)/.exec(line);
+    if (file !== null) {
+      current = spans.get(file[1]!) ?? new Set<number>();
+      spans.set(file[1]!, current);
+      continue;
+    }
+    const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(line);
+    if (hunk === null || current === null) continue;
+    const start = Number(hunk[1]);
+    const count = hunk[2] === undefined ? 1 : Number(hunk[2]);
+    for (let n = start; n < start + count; n += 1) current.add(n);
+  }
+  return spans;
+}
+
+/**
+ * The R4 repair's nine numeric survivors, verbatim from probes §9.2 —
+ * `<path>:<line>:<column>`. Nine DISTINCT lines, which is why the replay set is
+ * identical under a line-keyed and a column-keyed identity, and why the live
+ * corpus rather than the replay is where the two diverge.
+ */
+export const FEDE_SURVIVORS: readonly string[] = [
+  `${INCIDENT_SPEC}:220:395`,
+  `${INCIDENT_SPEC}:282:47`,
+  `${INCIDENT_PLAN}:7:246`,
+  `${INCIDENT_PLAN}:9:521`,
+  `${INCIDENT_PLAN}:18:139`,
+  `${INCIDENT_PLAN}:112:122`,
+  `${INCIDENT_PLAN}:119:74`,
+  `${INCIDENT_PLAN}:140:95`,
+  `${INCIDENT_PLAN}:188:37`,
+];
+
+/** The three occurrences the transition-sentence rule excludes (probes §9.2). */
+export const FEDE_EXCLUDED: readonly string[] = [
+  `${INCIDENT_SPEC}:220:83`,
+  `${INCIDENT_PLAN}:79:54`,
+  `${INCIDENT_PLAN}:102:290`,
+];
+
+/**
+ * The survivors that sit INSIDE `fede5f084`'s own hunks, measured from that
+ * commit's unified-0 diff. The numeric half must report them anyway — the
+ * cheaper "outside the repair's diff" rule is refuted by exactly these
+ * (probes §3.1), and the spec's consequence bound at spec:220 is an ADDED line.
+ */
+export const FEDE_SURVIVORS_INSIDE_OWN_HUNKS: readonly string[] = [
+  `${INCIDENT_SPEC}:220:395`,
+  `${INCIDENT_SPEC}:282:47`,
+  `${INCIDENT_PLAN}:112:122`,
+];
+
+/** The R2 repair's declared identifier, and its measured occurrence split. */
+export const INCIDENT_IDENTIFIER = "PublishedReviewModal.tsx:964";
+/** One deleted character: matches ZERO times exactly and NINE times as a substring. */
+export const INCIDENT_IDENTIFIER_TRUNCATED = "PublishedReviewModal.tsx:96";
+/** Touched on both sides of the repair's hunk with its classification unchanged (probes §8.1). */
+export const COLLATERAL_IDENTIFIER = "components/admin/HoverHelp.tsx:562";
+
+/** The four occurrences OUTSIDE the repair's hunks — what the named half reports. */
+export const C272_OUTSIDE_SPANS: readonly string[] = [
+  `${INCIDENT_SPEC}:268:116`,
+  `${INCIDENT_SPEC}:327:301`,
+  `${INCIDENT_PLAN}:211:105`,
+  `${INCIDENT_PROBE}:64:36`,
+];
+
+/** The five occurrences INSIDE them — the repair's own restated claim. */
+export const C272_INSIDE_SPANS: readonly string[] = [
+  `${INCIDENT_SPEC}:153:1051`,
+  `${INCIDENT_SPEC}:155:30`,
+  `${INCIDENT_PLAN}:85:83`,
+  `${INCIDENT_PLAN}:148:211`,
+  `${INCIDENT_PLAN}:149:328`,
+];
+
+/** The collateral identifier's three occurrences outside the hunks (probes §8.1). */
+export const C272_COLLATERAL_OUTSIDE: readonly string[] = [
+  `${INCIDENT_SPEC}:88:8`,
+  `${INCIDENT_SPEC}:269:137`,
+  `${INCIDENT_PROBE}:121:4`,
+];
+
+/** `<path>:<line>:<column>` for a finding, the key every set assertion uses. */
+export function siteKey(f: { docPath: string; docLine: number; column: number }): string {
+  return `${f.docPath}:${f.docLine}:${f.column}`;
+}

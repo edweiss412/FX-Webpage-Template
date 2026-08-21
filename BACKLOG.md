@@ -1275,12 +1275,19 @@ for (const s of GUARD_SURFACES) { const k = s.accepted.reduce((a,r)=>{a[r.kind]=
 
 The series, each surface count produced by the command below it:
 
-| revision                                  | surfaces | binding leg | % of 3600 s budget | `budget` job          |
-| ----------------------------------------- | -------- | ----------- | ------------------ | --------------------- |
-| `c5518dfab` (wallclock row's measurement) | 29       | 3356 s      | 93.2%              | pass, 2 warnings      |
-| `59a9ef25a` (08-17 nightly head)          | 31       | 3404 s      | 94.6%              | pass, 1 warning       |
-| `b24e3ac5f` (08-18 nightly head)          | 36       | 4562 s      | 126.7%             | **FAIL, 3 legs over** |
-| `4e074d3bc` (08-19 nightly head)          | 38       | 5210 s      | **144.7%**         | **FAIL, 1 leg over**  |
+| revision                                  | surfaces | binding leg | % of 3600 s budget | `budget` job                                |
+| ----------------------------------------- | -------- | ----------- | ------------------ | ------------------------------------------- |
+| `c5518dfab` (wallclock row's measurement) | 29       | 3356 s      | 93.2%              | pass, 2 warnings                            |
+| `59a9ef25a` (08-17 nightly head)          | 31       | 3404 s      | 94.6%              | pass, 1 warning                             |
+| `b24e3ac5f` (08-18 nightly head)          | 36       | 4562 s      | 126.7%             | **FAIL, 3 legs over**                       |
+| `4e074d3bc` (08-19 nightly head)          | 38       | 5210 s      | **144.7%**         | **FAIL, 1 leg over**                        |
+| `50d68dd6d` (08-21, PR #859)              | 40       | **>5400 s** | **>150%**          | **leg CANCELLED at the 90 min job timeout** |
+
+**THE PREDICTED CONSEQUENCE HAS NOW HAPPENED, and this row called it in advance.** Its severity line reads "the same growth censors a quarter of the source gate's annotations at the next enrolment". PR #859 is that next enrolment -- it adds `claimSweep` as surface 40 -- and on 2026-08-21 `source-shards (1)` ran 90 min 17 s from `05:11:10Z` to `06:41:27Z` and was CANCELLED at the job timeout with its single step `Run source-mutation shard 1` cancelled. Exactly one of four legs, and it produced NO annotations: not a red, not a green, silence. A quarter of the gate's output, censored, as written.
+
+**The arriving surface is the MARGINAL cause and not the underlying one, which matters for the repair.** `sourceShardAssignment` is weight-balanced, so `claimSweep`'s 155 units do not land on one leg: measured on the branch, all four shards sit at 1078-1084 units against 1042 before, so every leg got about 4% heavier. The binding leg was already at 144.7% of a 3600 s budget one arc earlier. A 4% increase does not create a breach at 144.7%; it moves the binding leg across the 90-minute JOB timeout, which is a different and harder ceiling than the budget warning, because a budget breach reports and a timeout is silent.
+
+**Consequence for the arc that hit it:** #859's own enrolment was validated locally across several scored runs with paired in-run provenance stamps, and has NO CI evidence, because the leg carrying it never reported. The three legs that did report are `(0)` SUCCESS, `(3)` SUCCESS, and `(2)` FAILURE naming `rowScanOpener` -- an inherited main-red that reproduces identically on `origin/main` and that the PR does not touch. `source-shards` is not a required check, so this did not block the merge; it removed evidence somebody wanted.
 
 ```
 git show <rev>:tests/mutation/source/registry.ts | grep -cE '^\s+id: "'
@@ -1572,23 +1579,6 @@ recoverable from git history on this branch; restore them with the arc rather th
 **Why the wrapper and not a habit.** The habit is already written down and was not followed on this arc by the session that wrote this entry. `codex-guard` is the single choke point every dispatch passes through, which is exactly why the mutation-score check lives there rather than in a checklist.
 
 **First scheduled step:** confirm the lint's exit contract is stable enough to gate on (it currently exits 1 on hard failures and prints a `summary: N hard, M advisory` line), then add the check beside the existing `GUARD SURFACE:` refusal so both live in one place.
-
-## BL-SPEC-CLAIM-SWEEP-AFTER-REASONING-FINDING — a repair fixes the site the finding named and leaves the document unswept
-
-**Status:** OPEN · **Severity:** LOW-MEDIUM (no shipped defect; it buys review rounds) · **Class:** review economy / authoring tooling · **Effort:** M · **Filed:** 2026-08-18 (`fix/control-outline-border-token`, spec review R2 F1 + R4 F3, then R4 F1 + R5 F1) · **Facing:** process · **Class-sweep exception:** (c) — the repair is a new lint arm or derived helper, a surface this arc does not otherwise touch · **Reachability:** PROBED — all four findings are committed corpus rows and the unswept claims reproduce on the pre-repair blobs.
-
-AGENTS.md already says to class-sweep a finding's SHAPE across the code before patching the named instance. It does not say the same about the DOCUMENT, and that gap is measurable.
-
-**Incident, twice on one arc.** Spec review R2 F1 found the hover classification reasoning over `allStrings(element)` — the union of every render alternative — where the question is per render path. The repair fixed that section and swept the hover sites. **Two rounds later R4 F3 found the identical reasoning still standing in the §6 tinted-plate claim**, where it produced a false statement that a swapped control joins `BL-CONTROL-OUTLINE-ON-TINTED-PLATES`. Separately, R4 F1 corrected a census count from 58 to 57; the repair fixed the cited claims and **R5 F1 found four more built on the old number**, with five further occurrences caught only because the next brief's bound was diffed against the spec. Corpus: `docs/review-rounds/fix/control-outline-border-token/2ddbf038bdf4.jsonl`, rounds 2, 4 and 5. Two of that arc's five spec rounds are attributable to this shape.
-
-**Why scrutiny does not close it.** Both instances survived a careful author and a probing reviewer. The union-versus-per-path error is invisible at the sentence level — each sentence is locally plausible, and only the relationship between a claim and the scanner's data model is wrong. The arithmetic version is worse, because a corrected number reads as settled.
-
-**Two mechanical forms, either of which would have caught an instance.**
-
-1. **A derived per-path helper**, so a spec or test author answering "does this element carry X" cannot reach for the union when the question is per-path. `element.paths` already exists; what is missing is an obvious, named way to ask the per-path question, which is why `allStrings` gets used by default.
-2. **A stale-predecessor check at the document level:** when a numeric literal or named claim changes in a spec or plan, fail if occurrences of the superseded value survive elsewhere in the same arc's documents. This is the cheaper of the two and generalises past this arc — it is the same defect class the self-consistency sweep in `docs/agents/spec-self-review.md` already targets by hand.
-
-**First scheduled step:** decide which of the two forms to build, then confirm against this arc's own history — replay the R2 and R4 repairs and check that the proposed mechanism flags the claims R4 F3 and R5 F1 later found. A mechanism that does not flag those two is not worth building.
 
 ## BL-PREMISESCAN-REGISTRAR-ACCEPT-SETS-HAND-MAINTAINED — the scanner's registrar and modifier lists drift from Vitest's actual API
 

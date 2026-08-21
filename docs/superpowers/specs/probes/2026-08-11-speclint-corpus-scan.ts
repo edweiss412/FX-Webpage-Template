@@ -70,6 +70,12 @@ const deps: CliDeps = {
   // The red-contract arm's executor, which this scan never enables: it lints without
   // `--exec`, so nothing reaches this seam. Refusing loudly is the honest stub — a
   // silent success would let a future `--exec` corpus run report green on no execution.
+  // Never reached: these suites declare no claim sweep, so the adapter
+  // never resolves a repair diff. A THROW rather than a stub return, so an
+  // unexpected call is loud instead of contributing empty spans.
+  repairDiff: () => {
+    throw new Error("repairDiff: not expected in this suite");
+  },
   spawn: () => {
     throw new Error("corpus scan does not execute declared commands");
   },
