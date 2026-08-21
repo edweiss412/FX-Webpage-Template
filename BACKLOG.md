@@ -8,6 +8,36 @@ Last reconciled: 2026-08-17 — `fix/shell-binding-mixed-quoted-value` graduated
 
 ---
 
+## BL-SCREENSHOTS-DRIFT-CAPTURE-NONDETERMINISM — the byte gate fails on a diff that changes no render input, and the same branch passed an hour earlier
+
+**Status:** OPEN · **Filed:** 2026-08-21 (reported by the `fix/shell-attached-redirection-target` arc; probed further here) · **Facing:** process · **Severity:** MEDIUM (a merge-blocking gate firing on arcs that touch nothing it measures; no shipped-behavior defect) · **Class:** CI gate fidelity · **Effort:** M · **Incident:** run [32528532727](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32528532727) FAILED screenshots-drift on 2026-08-21 at 21:26Z while the nightly backstop on `main`, run [32472312764](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32472312764), PASSED the same day at 10:22Z. · **Reachability:** PROBED — see the same-branch pair below.
+
+The failing job recaptured `public/help/screenshots/review-queues-empty-state-light.webp` at **11408 bytes against a committed baseline of 6148** — a near-doubling of an EMPTY-STATE image. The reporting arc's diff touches ZERO render inputs: nothing under `app/`, `components/`, `lib/`, `fixtures/`, `supabase/` or `public/`.
+
+**The decisive evidence is a SAME-BRANCH pair, not the nightly comparison.** The nightly rules out a stale baseline and no more; it runs on different content, so a defender can always say the branch is what differs. That objection does not survive this:
+
+| run                                                                                       | sha            | conclusion  | at                |
+| ----------------------------------------------------------------------------------------- | -------------- | ----------- | ----------------- |
+| [32523151283](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32523151283) | `f51a96457190` | **success** | 2026-08-21 20:21Z |
+| [32528532727](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32528532727) | `be5d3d810db2` | **failure** | 2026-08-21 21:26Z |
+
+`git diff --name-only f51a96457190..be5d3d810db2` filtered to render inputs returns NOTHING — the eight changed files are two ledger files, three docs, and three files under `tests/`. One branch, no render input moved, sixty-five minutes apart, pass then fail. Whatever varies is not in the repository.
+
+**THIS IS THE SECOND OCCURRENCE OF A CLASS ALREADY FILED.** `BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED` (filed 2026-08-18) records a `dashboard-overview-light.webp` flip at a fixed tree that nine dispatched runs could not reproduce, and it is filed `INFERRED, NOT PROBED` with its first scheduled step waiting on a recurrence. This is that recurrence, on a different image, with a same-branch pair the earlier occurrence never had. The two rows are ONE class and must be worked together; neither should be scheduled alone.
+
+**TWO CANDIDATE MECHANISMS, and the reporting arc's is not obviously the stronger.**
+
+1. **A time-of-day or date-dependent capture** (the reporting arc's hypothesis, labelled as one). A near-doubled EMPTY-STATE image reads like the queue was not empty at the 21:38Z capture, which follows if the fixture's emptiness depends on a comparison against the wall clock.
+2. **Runner-population bimodality** (the predecessor row's leading candidate, and the repository already carries this as a known byte-gate lesson). A capture environment where some fraction of runners encode differently produces exactly this: same tree, same inputs, different bytes, no reproduction on demand.
+
+Both fit every fact here. The same-branch pair narrows the variable to something outside the repository and does not choose between them.
+
+**The probe settles both at once, and it is the first scheduled step:** at the next capture, record runner identity — `Runner.Name` plus CPU model from the runner context — alongside the wall-clock time, on BOTH outcomes, and capture the same baseline twice from one unchanged tree at two well-separated times of day. Time-varying bytes on one runner names mechanism 1; identical bytes across times but differing bytes across runner identities names mechanism 2; neither is a third thing worth knowing before any repair is designed. This is the predecessor row's scheduled capture with a time axis added, not a new instrument.
+
+**Exposure, which is why this is not merely one arc's bad luck.** screenshots-drift is path-filtered, and `scripts/ci/**` is in its allow-list. The reporting arc tripped the job only because it added a closeout gate under that path. **Any arc adding a file under `scripts/ci/` pays for this job**, and if the capture is genuinely nondeterministic, any of them can draw the failure while changing nothing the gate measures.
+
+**DO NOT recapture the baseline from a branch.** The byte-pin discipline stands: baselines are regenerated from the pinned amd64 Docker image, never from a host, and never as a way to make a red gate green. A recapture here would overwrite the pinned bytes with whatever the nondeterminism produced and destroy the evidence that something varies.
+
 ## BL-ACCEPTSET-CONSUMER-COVERAGE — an accept-set widened without its consumers is a change that reads as adoption and behaves as nothing
 
 **Status:** OPEN · **Severity:** MEDIUM (silent FREE: a widened set that no consumer ranges over leaves the construct unclassified while the diff shows the widening) · **Class:** guard fidelity · **Effort:** S · **Filed:** 2026-08-21 (`fix/premisescan-registrar-accept-sets`, spec rounds 1-3) · **Facing:** process · **Mint-exception:** invariant · **Reachability:** PROBED — three separate consumers measured below.
@@ -683,6 +713,8 @@ ParsePanel was not alone. Shape swept: **a file under `components/` that no file
 **Reachability: INFERRED, NOT PROBED.** The probe that settles it is capturing runner identity — `Runner.Name` plus CPU model, from the runner context — on BOTH outcomes at the next recurrence, and comparing the populations. That capture, not a repair, is the first scheduled step; it is cheap, and it is the only thing that turns the leading reading into a testable one.
 
 **Do NOT open a screenshots repair on the current evidence.** Regenerating or re-pinning a baseline against one unreproduced drift would destroy the signal the capture needs.
+
+**RECURRENCE OBSERVED 2026-08-21 — the capture this row schedules now has an occurrence to run against.** `BL-SCREENSHOTS-DRIFT-CAPTURE-NONDETERMINISM` records a second flip, on `review-queues-empty-state-light.webp`, with something this row's occurrence lacked: a SAME-BRANCH pass/fail pair sixty-five minutes apart with zero render inputs changed between the two shas. That pair does what 0/9 dispatched runs could not — it establishes that the varying input is outside the repository — while still not choosing between this row's runner-population reading and the new row's time-of-day one. The two rows are one class. Schedule the identity capture described above TOGETHER with the new row's time axis; running either alone can only half-answer it.
 
 ## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — 23 app-dependent e2e specs are named by no CI workflow
 
