@@ -86,7 +86,51 @@ case admits a constant. The coverage gate cannot catch this, because "does this
 case discriminate" has no cheap static form; it is exactly what applying the
 mutant measures. The audit is the check, and it caught them.
 
-Round 4: **zero PRESENT-BUT-UNPROVEN.**
+Round 4 closed the fast side at zero PRESENT-BUT-UNPROVEN, and the LIVE half then
+opened two more — both faults in the AUDIT rather than in the code, which is the
+distinction this record exists to keep:
+
+- `PLAN.k5` reported ANCHOR-NOT-UNIQUE at **0 matches**. Its anchor quoted the
+  `deps.stamp(target.sourceAbs.replace(...))` text that the repo-root repair had
+  replaced. A stale anchor edits nothing, and "matched 0 times" is a different
+  finding from "the mutant survived" — reporting them as one state is exactly
+  the conflation the three-state split is for.
+- `PLAN.k12` came back 0 failed of 1 matched because the MUTANT was wrong. It
+  switched only the receipt SOURCE, so the prefix mutant was still written and
+  executed and the behavioural case stayed green. The plan names BOTH seams
+  switched together — writer elided AND receipt fed planned bytes — and that
+  pairing is precisely what separates it from `AC-4.k3`, the elided-writer-alone
+  variant the read-back path already refuses at the receipt.
+
+Both repaired, and the final run classifies every obligation:
+
+```
+LIVE BASELINE GREEN: 7 passed, 0 failed
+TALLY: {"PROVEN":41,"ABSENT":4}
+TOTAL OBLIGATIONS: 45
+```
+
+## What the LIVE tier caught that 148 in-process cases could not
+
+Four defects, each a real fault in the harness rather than a flake, and worth
+recording because the in-process tier had every opportunity to see them:
+
+1. **The parent observed the wrong process.** `pnpm exec tsx` forks, so the
+   parent's spawn handle reported the WRAPPER's pid while the child self-reported
+   its own — measured at parent 31881 against child 31909, and 31944/31944 under
+   `node --import tsx`. AC-2's "two independent sides" is only two sides if the
+   parent's side observes the process that ran the trial.
+2. **The child could not reach the control surface**, resolving only against
+   `GUARD_SURFACES` while the §5.3 control is deliberately unenrolled apparatus.
+3. **A doubled repo root.** `runTrial` passed the source's own DIRECTORY where
+   `stampInputs` and `runMutantRecorded` both want the repo root. The in-process
+   seams ignored the root argument entirely, so no assertion could decide on it;
+   both seams now record it and two cases assert it.
+4. **A near-miss on the worktree itself.** `MUTANT_FILE_NAME` was a bare
+   filename, so every trial would have written `mutant.ts` into the repository
+   root — the tree `psqlStartupScan`'s suite walks and the campaign must freeze.
+   No stray file exists only because defect 3 aborted each trial before the
+   write.
 
 ## Results
 
@@ -112,7 +156,10 @@ Round 4: **zero PRESENT-BUT-UNPROVEN.**
 | `AC-2.k1` — an implementation looping in one process and minting distinct nonces | PROVEN | `LYING child pid` — 1 failed of 1 matched; the parent no longer compares its own observation against the child's |
 | `AC-3.k1` — a planner that prints shuffled plans while running a fixed order | PROVEN | `EXECUTOR that runs a different order` — 1 failed of 1 matched; a relabelled execution is accepted |
 | `AC-3.k2` — a reporter that computes receipts from the PLAN and never writes | PROVEN | `WRITER elided` — 1 failed of 1 matched; the receipt attests the plan rather than the disk, so an elided write verifies |
-| `AC-4.k1` — a harness that cannot see a known correlated mechanism | PROVEN | `control` — 2 failed of 7 matched; the manufactured mechanism never fires, so the control is vacuous |
+| `AC-4.k1` — a harness that cannot see a known correlated mechanism | PROVEN | `control` — 2 failed of 8 matched; the manufactured mechanism never fires, so the control is vacuous |
+| `AC-4.k2` — a first-suite-only reimplementation | PROVEN | `SHARED state scope reports the flip` — 1 failed of 1 matched; only the first declared suite runs, so a later-suite verdict is missed |
+| `AC-4.k3` — the skip-prefix-writes implementation, which no sha check can catch | PROVEN | `PREFIX-BEARING` — 1 failed of 1 matched; the prefix mutant is never written, so its step reports SURVIVED |
+| `AC-5.k2` — the `suitePaths[0]`-only implementation on a MULTI-suite surface | PROVEN | `SHARED state scope reports the flip` — 1 failed of 1 matched; a verdict a LATER suite decides is mis-scored on a multi-suite surface |
 | `AC-6.k1` — a sink hard-coded to `.mutation-records` | PROVEN | `records land ONLY in the redirected` — 1 failed of 1 matched; campaign records are written into the gate's own channel |
 | `AC-7.k1` — a renderer that upgrades a bound to an exclusion | PROVEN | `REFUSES exclusion vocabulary` — 1 failed of 1 matched; exclusion vocabulary reaches a claim line |
 | `AC-8.k1` — one folding a fault into `KILLED` | PROVEN | `EXCLUDES an infra-faulted step` — 1 failed of 1 matched; the fault is no longer reported by name |
@@ -121,21 +168,18 @@ Round 4: **zero PRESENT-BUT-UNPROVEN.**
 | `PLAN.k1` — a planner returning a CONSTANT position | PROVEN | `derives POSITION as prefix length` — 1 failed of 1 matched; position no longer follows the prefix |
 | `PLAN.k10` — a serializer dropping a field of the whole condition | PROVEN | `condition serialization missing ANY field` — 1 failed of 1 matched; a decision is taken against a condition the record cannot express |
 | `PLAN.k11` — a CONSTANT default seed | PROVEN | `generateSeed DEFAULT actually varies` — 1 failed of 1 matched; two omitted-seed invocations would plan the same campaign |
+| `PLAN.k12` — skip-prefix-writes AND planned-text receipts together (both seams switched) | PROVEN | `PREFIX-BEARING` — 1 failed of 1 matched; every sha check passes while the prefix executes stale bytes; DISTINCT from the elided-writer-alone variant, which the read-back path already refuses at the receipt |
 | `PLAN.k2` — a planner spelled shuffle(allMutants).slice(0, n) | PROVEN | `never places the TARGET in its own prefix` — 1 failed of 1 matched; the target can be drawn into its own prefix and run twice |
 | `PLAN.k3` — a COPYING consumer that trusts the serialized position | PROVEN | `POSITION was tampered` — 1 failed of 1 matched; a tampered position is adjudicated instead of refused |
 | `PLAN.k4` — a consumer accepting a plan whose prefix contains the target | PROVEN | `prefix contains the target` — 2 failed of 2 matched; the target is executed twice under one trial's verdict |
 | `PLAN.k5` — an implementation taking BOTH stamps consecutively before execution | PROVEN | `MID-TRIAL edit` — 1 failed of 1 matched; a declared input moving mid-trial is invisible |
 | `PLAN.k6` — an implementation that copies the child-reported pid into the parent-observed field | PROVEN | `pid` — 1 failed of 4 matched; the two pid observations can never disagree |
 | `PLAN.k7` — a PARENT that mints the nonce and passes it in for the child to echo | PROVEN | `nonce the parent could have passed through` — 4 failed of 4 matched; a pass-through nonce satisfies every remaining check |
+| `PLAN.k8` — a SPAWNER omitting MUTATION_RECORD_DIR from the child env | PROVEN | `records land in the redirect` — 1 failed of 1 matched; the child writes production records into the default channel |
 | `PLAN.k9` — a TRIAL-level rotation among reports (parallel position-keyed structure) | PROVEN | `TRIAL-LEVEL rotation` — 1 failed of 1 matched; one trial's evidence is accepted on another trial |
 | `AC-13.k1` — the widening §1.1 forbids, arriving as an "innocent" helper edit | ABSENT | Checked mechanically rather than argued: the AC-13 freeze diff is empty at closeout. See the closeout section of this record for the command and its output. |
 | `AC-13.k2` — a closeout check that reports without gating | ABSENT | The closeout script exits non-zero on every failure branch and is dry-run against a constructed failing input before it is depended on. See the closeout section. |
 | `AC-5.k1` — a reimplemented runner whose verdicts agree by luck | ABSENT | No runner is reimplemented. Every verdict comes from the shipped `runMutantRecorded` through the `runMutant` seam, and `DEFAULT_TRIAL_DEPS` is asserted bound to it. There is no second implementation for luck to operate on. |
 | `AC-9.k1` — a CLI-shaped surface the runner cannot overlay | ABSENT | The core is an importable module with a referring in-process suite (135 cases), and both adapters are thin `main(argv, deps)` entries holding no decision. A CLI-shaped surface would score as if untested; this one is imported directly by its suite. |
-| `AC-4.k2` — a first-suite-only reimplementation | DEFERRED-LIVE | deferred to the live run |
-| `AC-4.k3` — the skip-prefix-writes implementation, which no sha check can catch | DEFERRED-LIVE | deferred to the live run |
-| `AC-5.k2` — the `suitePaths[0]`-only implementation on a MULTI-suite surface | DEFERRED-LIVE | deferred to the live run |
-| `PLAN.k12` — skip-prefix-writes AND planned-text receipts together (both seams switched) | DEFERRED-LIVE | deferred to the live run |
-| `PLAN.k8` — a SPAWNER omitting MUTATION_RECORD_DIR from the child env | DEFERRED-LIVE | deferred to the live run |
 
-**Tally.** 36 PROVEN, 4 ABSENT, 5 DEFERRED-LIVE — 45 obligations.
+**Tally.** 41 PROVEN, 4 ABSENT — 45 obligations.
