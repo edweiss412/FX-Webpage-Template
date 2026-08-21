@@ -20,28 +20,41 @@ on its own line because the gate reads the LINE.
 ## 0. Pre-draft code-verification pass — authored AND RUN
 
 Every citation below was READ, not merely resolved. The distinction matters here because THIS ARC'S
-OWN EXECUTION MOVES EVERY ONE OF THEM below line 605. See §3, which round 4 corrected: the change
+OWN EXECUTION MOVED EVERY ONE OF THEM below line 580. See §3, which round 4 corrected: the change
 begins at the type declarations, not at the drop.
+
+**The table is now stated AT HEAD, and every row moved except one.** It was authored against the
+base and re-derived after implementation, by `pnpm probe:citations` rather than by reasoning about
+which lines shift. The measured result is in §3.
 
 | citation | what the line holds |
 | -------- | ------------------- |
-| `lib/specLint/redContract.ts:717` | `if (state === null) continue; // v1: no declared state to probe against` |
-| `lib/specLint/redContract.ts:721` | `if (derived.kind === "none") continue;` |
+| `lib/specLint/redContract.ts:742` | `if (state === null) continue; // v1: no declared state to probe against` |
+| `lib/specLint/redContract.ts:664` | `skipped: "not-vitest-shaped",` |
 | `lib/specLint/redContract.ts:580` | `const VITEST_SHAPE =` |
-| `lib/specLint/redContract.ts:637` | `export function deriveCollectionProbe(` |
-| `lib/specLint/redContract.ts:605` | `export type ProbeDerivation =` |
-| `lib/specLint/redContract.ts:610` | `export type CollectionProbeEntry =` |
-| `lib/specLint/redContract.ts:906` | `export function probesToSpawn(` |
+| `lib/specLint/redContract.ts:648` | `export function deriveCollectionProbe(` |
+| `lib/specLint/redContract.ts:613` | `export type ProbeDerivation =` |
+| `lib/specLint/redContract.ts:621` | `export type CollectionProbeEntry =` |
+| `lib/specLint/redContract.ts:930` | `export function probesToSpawn(` |
 | `lib/specLint/run.ts:152` | `doc.kind === "plan" && probes !== undefined && probes !== null` |
 | `lib/specLint/taskContract.ts:49` | `const V2_FIELDS =` |
 | `tests/mutation/source/expectedLedgerKinds.ts:137` | `redContract: { equivalent: 7 },` |
 
-The last three rows are the ones round 5 added: `ProbeDerivation` and `CollectionProbeEntry` are the
-lines this arc EDITS, and `probesToSpawn` is cited only in the spec, which is why the earlier site
-list missed it entirely. The `skipped` reason union is
-`"compound-command" | "unstrippable-filter"` in both, so a third reason is a two-site type change,
-not one. The two lines are named individually rather than as a range: on an arc whose subject is
-citation accuracy, "around" is the wrong register.
+Row 2 no longer cites the drop, **because the drop no longer exists**, and that is a design decision
+worth stating rather than leaving a reader to infer from a diff. Spec §2 says the `none` case gains a
+third `skipped` reason and rides the decline path that already ships. Once it does, nothing in the
+module returns `{ kind: "none" }` any more, so both that union member and
+`if (derived.kind === "none") continue;` become unreachable. **Keeping them was not available:** a
+statement-removal mutant over an unreachable `continue` changes no behaviour and SURVIVES, which
+would have owed an eighth `equivalent` row and moved `expectedLedgerKinds.ts:137` off
+`{ equivalent: 7 }` — the one value Task 2's acceptance pins UNCHANGED. The plan's own acceptance
+criterion chose the subtractive form. Row 2 therefore cites the line that now carries the repair.
+
+`ProbeDerivation` and `CollectionProbeEntry` are the lines this arc EDITS, and `probesToSpawn` is
+cited only in the spec, which is why an earlier site list missed it entirely. The `skipped` reason
+union was `"compound-command" | "unstrippable-filter"` in both, so the third reason is a two-site
+type change, not one. The two lines are named individually rather than as a range: on an arc whose
+subject is citation accuracy, "around" is the wrong register.
 
 **Two helpers this plan deliberately does NOT use.** `ownedContractLines` and `wellFormedMarkers` are
 not exported. Any probe reconstructing the guard sequence around them would be a MODEL of
@@ -50,10 +63,18 @@ instead.
 
 ## 1. Meta-test inventory
 
-- **EXTENDS** `tests/specLint/cli.test.ts`, specifically the collection-probe describe block opened at
-  `tests/specLint/cli.test.ts:837`. The block's title is not quoted here: it carries an em-dash, and
-  `COPY_EM_DASH` is a hard finding this arm raises against quoted copy, so a verbatim source title in
-  prose reds the very lint this plan is checked by. **This is the declared consumer of the fixture plans**, and it is
+- **EXTENDS** `tests/specLint/cli.test.ts`, specifically the collection-probe describe block, named
+  here by its `execCli` and `codesOf` helpers rather than by a line number. The block's title is not
+  quoted either: it carries an em-dash, and `COPY_EM_DASH` is a hard finding this arm raises against
+  quoted copy, so a verbatim source title in prose reds the very lint this plan is checked by.
+
+  **The line citation this row used to carry is GONE, and finding it is the answer to one half of §8's
+  named residue.** It said `:837`; the block now opens at 847, moved by this arc's own edit to a case
+  four hundred lines above it. `pnpm probe:citations` did NOT catch it, and correctly so: its declared
+  population is citations into `lib/specLint/redContract.ts`, and this is a citation into a different
+  file the arc happens to edit. The derived cover is complete over the population it declares, and the
+  population was narrower than the hazard. Naming the symbols removes the citation rather than
+  re-pinning it, which is the only repair that does not rot again on the next edit. **This is the declared consumer of the fixture plans**, and it is
   where every CLI-PATH claim in this plan is asserted, which is all five assertion rows of Task 1.
   The plan's other claims are asserted elsewhere and each names its home: the unit-level half in
   `tests/specLint/redExec.test.ts`, the corpus-level half in `probe/reach.mts` (§6), and the score in
@@ -61,6 +82,14 @@ instead.
   helper spawns the real `scripts/spec-lint.ts` and its `codesOf` helper reads the emitted code list,
   which is the VALUE every assertion below is written against.
 - **EXTENDS** `tests/specLint/redExec.test.ts` (core synthesis) for the unit-level half.
+- **EXTENDS** `tests/specLint/redContract.test.ts`, and this row was MISSING from the ratified
+  plan. It is the third deciding suite of the `redContract` surface, and it carried the live pin
+  of the defect: a six-case block asserting that a non-vitest-shaped command DERIVES NO ENTRY AT
+  ALL, one of whose cases is the `pnpm heavy` wrapper itself. Two further cases pinned the same
+  silence elsewhere, one in `redExec.test.ts` and one in `cli.test.ts`. Leaving the file out of
+  the marker would have let the declared red command pass while a deciding suite was red, which
+  is the criterion-that-does-not-exercise-what-it-names class the spec's round 2 retired an arm
+  over. The marker's `red=` names all three files for that reason.
 - **EXTENDS** the `redVerdict` fixture plan corpus.
 - **EXTENDS** `probe/reach.mts`, and §6 states when it runs and why it is deliberately not a CI gate.
 - **UNCHANGED and load-bearing:** `tests/specLint/_metaPureCore.test.ts`. It walks `lib/specLint/`
@@ -82,9 +111,12 @@ already has.
 
 **Round 4 corrected this section, and the correction matters more than the original claim.** Earlier
 drafts said line 717 was above the edit and therefore unaffected. That was WRONG. The edit does not
-begin at the drop: `ProbeDerivation` at line 605 and `CollectionProbeEntry` at line 610 each gain a
-union member, and both sit above every other line this plan cites. A read-only probe applying only the
-two required additions measured the shift:
+begin at the drop: `ProbeDerivation` and `CollectionProbeEntry` each gain a union member, and both sit
+above every other line this plan cites.
+
+**Round 4's PREDICTION, kept as a record and NOT re-pinned.** A read-only probe applying only the two
+required additions measured this, and it was right about the direction and short about the distance,
+because it modelled two one-token additions rather than the shipped change:
 
 ```
 CollectionProbeEntry   610 -> 614
@@ -93,23 +125,42 @@ the v1 exit            717 -> 721
 the none drop          721 -> 725
 ```
 
-So EVERY citation into `lib/specLint/redContract.ts` below line 605 goes stale, not just the
+**What actually landed, re-derived at HEAD by `pnpm probe:citations` after implementation:**
+
+```
+ProbeDerivation        605 -> 613
+CollectionProbeEntry   610 -> 621
+deriveCollectionProbe  637 -> 648
+the v1 exit            717 -> 742
+the none drop          721 -> DELETED
+VITEST_SHAPE           580 -> 580   (the only survivor, as predicted)
+```
+
+The distance is larger than the prediction because each added union member carries a comment
+explaining why it exists, and the drop is gone rather than moved for the reason §0 records. Six of the
+ten table rows were stale when the probe first ran on the changed tree, which is the whole argument
+for the probe: **reasoning about which lines move is exactly where four review rounds went wrong.**
+
+So EVERY citation into `lib/specLint/redContract.ts` below line 580 goes stale, not just the
 `red-target=`. `RED_TARGET_INVALID` sees none of it: it checks that the path is tracked and the line
 is in range, not that the line still holds what the prose says.
 
 **The closeout therefore re-reads a LIST, not a citation.** Every site below, by READING the line
-rather than confirming it resolves:
+rather than confirming it resolves. The rows marked DERIVED are covered by `pnpm probe:citations`;
+the rest are bare prose references carrying no file, and they stay a manual re-read:
 
-| site | what it cites |
-| ---- | ------------- |
-| the `red-target=` in Task 1's marker | the `none` drop |
-| §0's verification table, four rows | 580, 637, 717, 721 |
-| §0's declaration sentence | 605 and 610 |
-| Task 1's prose after the assertion table | the v1 exit |
-| Task 2's edit map fenced block | the `none` drop |
-| `probe/reach.mts`, the V1 block comment | the v1 exit and the drop |
+| site | what it cites | covered by |
+| ---- | ------------- | ---------- |
+| the `red-target=` in Task 1's marker | the repair line | DERIVED |
+| §0's verification table, all ten rows | every structured citation this plan makes | DERIVED |
+| the spec's §1.1, §2, §3 and §5.3 citations | the v1 exit, `VITEST_SHAPE`, `probesToSpawn` | DERIVED |
+| Task 1's prose after the assertion table | the v1 exit | prose, manual |
+| Task 2's edit map fenced block | the lines this arc edits | prose, manual |
+| `probe/reach.mts`, the V1 block comment | the v1 exit and the drop | prose, manual |
 
-Line 580 (`VITEST_SHAPE`) is the only one above 605 and is the only one that survives untouched.
+`VITEST_SHAPE` is the only citation above the edit point and the only one that survived untouched,
+which is why it is the one row of the ten whose number is unchanged. It is named by SYMBOL here
+rather than by number, because a sentence about which lines move should not itself carry one.
 
 **The re-read is a COMMAND, not a habit.** `pnpm probe:citations` parses §0's table out of this plan
 and asserts that every cited line still CONTAINS the content the table claims. It is a command because
@@ -158,7 +209,7 @@ red that no one will ever watch fail again.
 
 ## Task 1 — the unprobeable drop reports, and only where the design says it does
 
-<!-- task: red=`pnpm vitest run tests/specLint/cli.test.ts tests/specLint/redExec.test.ts` red-state=authored red-target=`lib/specLint/redContract.ts:721` why=`collectionProbePlan continues past a kind none derivation, so the three new unprobeable fixture plans produce no plan entry and the CLI returns a code list with no RED_PROBE_UNVERIFIED where the new cases require it by name` ac=AC-1,AC-2,AC-3,AC-4 -->
+<!-- task: red=`pnpm vitest run tests/specLint/cli.test.ts tests/specLint/redExec.test.ts tests/specLint/redContract.test.ts` red-state=authored red-target=`lib/specLint/redContract.ts:664` why=`collectionProbePlan continues past a kind none derivation, so the three new unprobeable fixture plans produce no plan entry and the CLI returns a code list with no RED_PROBE_UNVERIFIED where the new cases require it by name, and at the unit level the six non-vitest-shaped commands derive no entry at all where the flipped cases require a declined entry naming not-vitest-shaped` ac=AC-1,AC-2,AC-3,AC-4 -->
 
 **Round 1 collapsed this from two tasks into one, and the reason is invariant 1.** The earlier draft
 made the partition assertion its own task. But the repair is indivisible: once the `none` derivation
@@ -202,7 +253,7 @@ unconditionally, and the green ones alone are satisfied by changing nothing at a
 
 Row 2 is what fails the narrowed implementation: a fixture set holding only the heavy-wrapped shape is
 satisfied by a `pnpm heavy` recognizer. Row 4 is what fails the over-broad one that also moves the v1
-exit at line 717, cited here in prose rather than in the table itself. Row 3 is what fails an
+exit at line 742, cited here in prose rather than in the table itself. Row 3 is what fails an
 implementation that files `none` behind the live gate.
 
 **The advisory is ADDED, never exclusive.** Spec §1.2 measured three of the fifteen live markers
@@ -228,7 +279,7 @@ alongside a stale row at the old. That red cannot fire:
 
 ```
 accepted-row lines : 37  110  127  190  191  257  257
-this arc edits at  : 605, 610 and 721 in redContract.ts, plus the deciding suites
+this arc edits at  : 613, 621 and 648 in redContract.ts, plus the deciding suites
 ```
 
 Every accepted row sits ABOVE the edit point, so none shifts. A registry edit asserting a red rather
@@ -376,13 +427,15 @@ declares; that half was removed rather than worked around.
   round 3 found that writing it before the commit was not enough.
 - The plan's single `red=` is not `pnpm heavy`-wrapped and IS vitest-shaped at the anchor, so it sits
   inside the arm's sighted domain rather than demonstrating the blind spot. The oracle invocation is
-  NOT a second red and is not a marker command: `EXPECT_ADVISORY=1 pnpm probe:reach` derives
-  `{ kind: "none" }`, which is the very class this arc repairs, and it is scheduled as a step in §6
-  rather than declared as a marker red.
+  NOT a second red and is not a marker command: `EXPECT_ADVISORY=1 pnpm probe:reach` runs commands
+  the arm cannot derive a probe from, which is the very class this arc repairs, and it is scheduled as
+  a step in §6 rather than declared as a marker red. Before the change those commands derived a
+  reasonless decline the plan dropped; after it they derive `not-vitest-shaped` and are reported.
 - Re-read EVERY citation in §3's table at closeout, not just the `red-target=`. Round 4 measured that
-  the union-member additions at lines 605 and 610 shift every cited line below them, so a closeout
-  that re-reads only the marker lands a tree with stale citations everywhere else, including a comment
-  inside `probe/reach.mts`.
+  the union-member additions at `ProbeDerivation` and `CollectionProbeEntry` shift every cited line
+  below them, so a closeout that re-reads only the marker lands a tree with stale citations everywhere
+  else, including a comment inside `probe/reach.mts`. Measured at implementation: SIX of the ten rows
+  were stale, and the `probe/reach.mts` comment was one of them, exactly as predicted.
 - No fenced block carries an em-dash: `FENCE_EM_DASH` is a plan-fence rule and
   `tests/docs/planFencesBaseline.ts` is a DECREASE-ONLY ratchet, so a new hit fails unlisted.
 - `pnpm typecheck` before push. It was red on this branch for two rounds because `tsx` resolved an

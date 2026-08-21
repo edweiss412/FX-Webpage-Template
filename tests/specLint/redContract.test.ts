@@ -699,8 +699,21 @@ describe("collectionProbePlan — vitest-shape recognition (spec §5.1)", () => 
     ["a mid-command vitest run under a wrapper", "pnpm heavy pnpm vitest run tests/a.test.ts"],
     ["vitest without run", "pnpm vitest tests/a.test.ts"],
     ["a runner prefix that is not measured", "yarn vitest run tests/a.test.ts"],
-  ])("derives no entry at all for %s", (_label, red) => {
-    expect(probePlan(live(red))).toEqual([]);
+  ])("declines %s as not-vitest-shaped, with NO probe text", (_label, red) => {
+    // These used to derive NO ENTRY AT ALL: `collectionProbePlan` continued
+    // past a `kind: "none"` derivation, so the marker drew neither a FAIL nor
+    // an advisory. Fifteen live v2 markers landed there, nine of them wrapped
+    // in `pnpm heavy` — the wrapper AGENTS.md mandates for every heavy phase,
+    // which is what made the hole rule-mandated rather than incidental.
+    //
+    // The decline is keyed on the DERIVATION, not on the wrapper, so all six
+    // shapes are in reach for one reason. A probe-less decline is what makes
+    // the advisory honest: the arm cannot know whether the command would have
+    // collected anything, and reports only that its capability is unverified.
+    const entry = onlyEntry(live(red));
+    expect(entry).toMatchObject({ line: 3, state: "live", skipped: "not-vitest-shaped" });
+    expect(Object.prototype.hasOwnProperty.call(entry, "probe")).toBe(false);
+    expect((entry as { detail: string }).detail).toContain("not vitest-shaped");
   });
 });
 

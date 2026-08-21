@@ -85,9 +85,11 @@ Fifteen is larger than nine: the repair covers MORE than the motivation that pro
 wrapper, so every unprobeable v2 command had been falling through it all along. Two separate
 overclaims were corrected to get here, and both are recorded in §5.4 rather than quietly fixed.
 
-The 16 v1 heavy-wrapped markers are NOT in reach: they exit at `lib/specLint/redContract.ts:717`
-(`if (state === null) continue; // v1: no declared state to probe against`), which sits before the
-`none` drop at line 721, so nothing this spec does can repair or signal them.
+The 16 v1 heavy-wrapped markers are NOT in reach: they exit at `lib/specLint/redContract.ts:742`
+(`if (state === null) continue; // v1: no declared state to probe against`), which sits before any
+derivation is attempted, so nothing this spec does can repair or signal them. That exit was at 717
+when this section was written and the `none` drop it preceded was at 721; the exit moved and the drop
+is gone, for the reason the plan's §0 records.
 
 The reach is 15 rather than 9 because the drop is keyed on `derived.kind`, not on the wrapper. Any v2
 command `VITEST_SHAPE` does not match at the anchor lands there. Nine are `pnpm heavy`-wrapped; the
@@ -170,8 +172,12 @@ that executes zero cases. §5.2 has the consequence.
 
 ## 2. What ships: the unprobeable-command silent drop
 
-`deriveCollectionProbe` returns `{ kind: "none" }` for any command that is not vitest-shaped
-(`VITEST_SHAPE`, `lib/specLint/redContract.ts:580`), and `collectionProbePlan` then drops the entry
+**The code in this section is the PRE-CHANGE state**, quoted because it is the defect this spec
+exists to describe. Neither the member nor the branch survives the repair, for the reason recorded at
+the end of the section.
+
+`deriveCollectionProbe` returned `{ kind: "none" }` for any command that is not vitest-shaped
+(`VITEST_SHAPE`, `lib/specLint/redContract.ts:580`), and `collectionProbePlan` then dropped the entry
 entirely:
 
 ```
@@ -189,6 +195,15 @@ an entry, and `synthesizeCollectionFindings` emits `RED_PROBE_UNVERIFIED` for it
 the one derivation that returns without a reason and is therefore dropped. So `none` gains a third
 `skipped` reason (`"not-vitest-shaped"`) and rides the existing path: one union member, one detail
 string, no new finding code, no new predicate, no new severity decision.
+
+**And the reasonless member GOES, rather than being left declared and unproduced.** Once the only
+`return { kind: "none" }` becomes a decline with a reason, both that union member and the
+`continue` above are unreachable. A statement-removal mutant over an unreachable `continue` changes
+no behaviour and survives, which would owe an eighth `equivalent` row and move
+`tests/mutation/source/expectedLedgerKinds.ts:137` off `{ equivalent: 7 }` — the value the plan's
+Task 2 pins UNCHANGED. So the subtractive form is not a preference here; the acceptance criterion
+selects it. The type is left saying something true of the shipped module: every derivation carries
+either a probe or a reason there is none.
 
 **The alternative was NARROWER in reach and WIDER in mechanism, and is declined.** Restricting the
 advisory to the nine `pnpm heavy`-wrapped markers requires teaching the module to recognize that
@@ -233,7 +248,7 @@ of opinion, all machine-checked by `probe/reach.mts` (committed):
 
 1. Each of the fifteen v2 markers §1.1 names GAINS `RED_PROBE_UNVERIFIED`.
 2. The sixteen v1 heavy-wrapped markers §1.1 names do not, because they exit at
-   `lib/specLint/redContract.ts:717` before the drop at 721.
+   `lib/specLint/redContract.ts:742` before any derivation is attempted.
 3. No hard finding is added, asserted over the real population rather than over fixtures.
 
 **Score.** `redContract` is already enrolled. `pnpm mutation:guards` runs before the first
@@ -304,7 +319,7 @@ the observable does not ship.
 function in isolation and false of the pipeline. `lib/specLint/run.ts:152` gates the call, the adapter
 always builds a non-null `ProbeResults` under `--exec-red` even with zero probes, and the only
 production `runLint` caller is `scripts/spec-lint.ts:761`. The neighbouring per-entry silence is
-deliberate: `probesToSpawn` (`redContract.ts:906`) skips a LIVE entry whose red did not authorize a
+deliberate: `probesToSpawn` (`redContract.ts:930`) skips a LIVE entry whose red did not authorize a
 probe, because such a red already carries its own `synthesizeExecFindings` finding.
 
 **5.4 The reach was reported as 25, then 10, then 9, and it is 15.** Only the last was derived

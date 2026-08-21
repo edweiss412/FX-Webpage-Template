@@ -131,9 +131,14 @@ const V2: Row[] = [
 
 /**
  * The sixteen `pnpm heavy`-wrapped v1 markers, which exit at
- * `lib/specLint/redContract.ts:717` BEFORE the drop at 721. They are here
- * precisely so that an implementation which "repairs" the drop by also moving
- * that exit fails: without these rows, that change is invisible.
+ * `lib/specLint/redContract.ts:742` BEFORE any derivation is attempted. They
+ * are here precisely so that an implementation which "repairs" the drop by
+ * also moving that exit fails: without these rows, that change is invisible.
+ *
+ * The exit was at 717 and the drop it preceded was at 721. The drop is now
+ * GONE rather than moved, because the derivation it discarded carries a reason
+ * and rides the decline path; the v1 exit still sits above it and still puts
+ * these sixteen out of reach BY CONSTRUCTION.
  */
 const V1: Row[] = [
   {

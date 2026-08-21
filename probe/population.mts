@@ -44,14 +44,18 @@ for (const file of files) {
     if (parsed === null || parsed === "malformed") continue;
     if (parsed.red.trim() === "") continue;
     const state = parsed.redState;
-    const d =
-      state === null
-        ? "v1-no-state"
-        : deriveCollectionProbe(parsed.red, state).kind === "none"
-          ? "none"
-          : deriveCollectionProbe(parsed.red, state).kind === "skipped"
-            ? `skipped:${(deriveCollectionProbe(parsed.red, state) as { skipped: string }).skipped}`
-            : "probe";
+    // Derived ONCE. The earlier form called `deriveCollectionProbe` three times
+    // on the same input and carried a `kind === "none"` arm; that member is
+    // gone, because a reasonless decline is exactly the silent drop this arc
+    // repaired. What used to tally as `none` now tallies as
+    // `skipped:not-vitest-shaped`, over the same fifteen markers.
+    let d: string;
+    if (state === null) {
+      d = "v1-no-state";
+    } else {
+      const derived = deriveCollectionProbe(parsed.red, state);
+      d = derived.kind === "skipped" ? `skipped:${derived.skipped}` : "probe";
+    }
     rows.push({ file, line: i + 1, state, red: parsed.red, derivation: d });
   }
 }
