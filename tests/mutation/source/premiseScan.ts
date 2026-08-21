@@ -1661,8 +1661,15 @@ export function classifyTests(root: string, suitePath: string): TestClassificati
   };
 
   // The TEST FILE's own module-load reports apply to every test in it, exactly
-  // as a top-level hook does.
-  const fileReports = [...facts.moduleReports];
+  // as a top-level hook does — and so do the two hook-attachment shapes this
+  // scanner cannot follow (spec §3). Both are PRODUCERS of file-level reasons:
+  // the existing precedence rule below then demotes `environment-free` to
+  // `unclassifiable` and leaves a proven environment reach intact, with no new
+  // precedence, no new resolution and no new traversal.
+  const fileReports = [
+    ...facts.moduleReports,
+    ...eagerPositionHookReports(facts).map((r) => withModule(r, abs)),
+  ];
 
   const suiteText = facts.sf.getFullText();
 
@@ -1906,6 +1913,109 @@ function isSuiteBody(arg: ts.Expression): boolean {
 function eachProducers(call: ts.CallExpression): ts.Node[] {
   const callee = call.expression;
   return ts.isCallExpression(callee) ? [...callee.arguments] : [];
+}
+
+/**
+ * The argument positions a registration EVALUATES while the current suite is
+ * collecting.
+ *
+ * Exactly the positions `hookBodies` already treats as eager for the nested
+ * case, read through the same predicate, because two readers of "eager" where
+ * the design assumes one can drift apart silently.
+ */
+function eagerArguments(call: ts.CallExpression): ts.Node[] {
+  const out: ts.Node[] = [];
+  if (ts.isCallExpression(call.expression)) out.push(...call.expression.arguments);
+  for (const a of call.arguments) if (!isSuiteBody(a)) out.push(a);
+  return out;
+}
+
+/**
+ * Producer A (spec §3.1) — a hook in an eager argument position of a
+ * registration that is not lexically inside an inline suite body.
+ *
+ * The file suite has no collection step, so `topLevelHooks` reads a hook only
+ * as a direct expression STATEMENT of the SourceFile. A hook in an eager
+ * argument is not a statement: it was never pushed, never attached, and every
+ * test in the file read free while it ran for them.
+ *
+ * This does not teach the scanner to follow it. It reports.
+ */
+function eagerPositionHookReports(facts: ModuleFacts): string[] {
+  const out: string[] = [];
+  const sf = facts.sf;
+
+  const collect = (n: ts.Node): void => {
+    // An eager position is EVALUATED; a function VALUE sitting in one is NOT
+    // invoked while Vitest collects, so a hook inside it registers on nothing
+    // and reporting it would attribute a hook that does not run.
+    //
+    // `ts.isFunctionLike` is TypeScript's OWN predicate and the `ts.` prefix is
+    // load-bearing: this module declares a local `isFunctionLike` over a
+    // hand-listed seven kinds, and a hand list is a list to be completed one
+    // node kind per review round. The compiler's answer covers methods,
+    // getters, accessors and constructors together.
+    if (ts.isFunctionLike(n)) return;
+    if (
+      ts.isCallExpression(n) &&
+      ts.isIdentifier(n.expression) &&
+      HOOK_REGISTRARS.test(n.expression.text)
+    ) {
+      const line = sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
+      out.push(eagerHookReason(n.expression.text, line));
+    }
+    ts.forEachChild(n, collect);
+  };
+
+  const visit = (node: ts.Node, insideInlineBody: boolean): void => {
+    if (ts.isCallExpression(node) && registrarRoot(node.expression) !== null) {
+      // Inside an inline suite body `hookBodies` already walks the nested
+      // registration's eager positions and attaches the hook to the right
+      // tests, so a reason there would be a false advisory on the single most
+      // common shape in the corpus.
+      if (!insideInlineBody) for (const arg of eagerArguments(node)) collect(arg);
+      if (ts.isCallExpression(node.expression))
+        for (const a of node.expression.arguments) visit(a, insideInlineBody);
+      // The BODY argument is what puts a registration "inside an inline suite
+      // body"; every other position stays outside one.
+      for (const a of node.arguments) visit(a, insideInlineBody || isSuiteBody(a));
+      return;
+    }
+    ts.forEachChild(node, (c) => visit(c, insideInlineBody));
+  };
+  visit(sf, false);
+  return out;
+}
+
+/**
+ * Reason wording for producer A (spec §3.1), exported so a test asserts against
+ * the SHIPPED formatter instead of a second copy of the sentence.
+ *
+ * It deliberately does NOT claim which suite the hook attaches to: lexical
+ * position is not semantic suite scope, and telling them apart needs the
+ * identifier resolution this design declines (spec R1, R2).
+ *
+ * The trailing comma is load-bearing. `withModule` appends ` in <path>` only
+ * when the reason does not already contain `" in "`, so this reads
+ * `…cannot be determined, in <path>` once the module is named — the house form.
+ * A wording that contained `" in "` would silently ship with NO path, and an
+ * assertion checking only the sentence would still pass, which is why both
+ * producers' cases assert the emitted detail carries the suite path.
+ */
+export function eagerHookReason(hook: string, line: number): string {
+  return `hook ${hook} at line ${line} is registered from an eager argument position, so the suite it attaches to cannot be determined,`;
+}
+
+/**
+ * Reason wording for producer B (spec §3.2), exported for the same reason.
+ *
+ * "if that argument is the suite factory" is the conservative form the scanner
+ * can actually support: without resolution it cannot tell a named options
+ * object from a named factory, so it reports the construct rather than
+ * asserting a role for it (spec §4 L5).
+ */
+export function unfollowableFactoryReason(line: number): string {
+  return `the registration at line ${line} has no inline suite body and carries an argument this scanner cannot follow, so if that argument is the suite factory its hooks cannot be located,`;
 }
 
 /**

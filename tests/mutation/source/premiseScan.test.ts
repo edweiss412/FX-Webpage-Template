@@ -5,9 +5,9 @@ import { dirname, join } from "node:path";
 import ts from "typescript";
 import { afterAll, describe, expect, it } from "vitest";
 
-import { premise } from "../../_shared/premise";
+import { premise, premiseHolds } from "../../_shared/premise";
 
-import { classifyTests, type TestClassification } from "./premiseScan";
+import { classifyTests, eagerHookReason, type TestClassification } from "./premiseScan";
 
 const ROOT = join(__dirname, "..", "..", "..");
 const scratch = mkdtempSync(join(tmpdir(), "premise-scan-"));
@@ -20,6 +20,29 @@ function verdict(src: string): string {
   writeFileSync(p, src, "utf8");
   const [first] = classifyTests(ROOT, p);
   return first?.verdict ?? "<no test found>";
+}
+
+/**
+ * Every classification for a synthetic suite, with the path it was written to.
+ *
+ * The path is returned because a file-level reason carries its module, so an
+ * EQUALITY assertion on a `detail` needs the one thing the caller cannot know.
+ */
+function rowsWithPath(src: string): { path: string; rows: TestClassification[] } {
+  const path = join(scratch, `rows${n++}.ts`);
+  writeFileSync(path, src, "utf8");
+  return { path, rows: classifyTests(ROOT, path) };
+}
+
+/**
+ * Every classification for a synthetic suite.
+ *
+ * Neither existing helper can express a case that asserts a REASON on a named
+ * test: `verdict` returns the FIRST row's verdict only, and `verdicts` is
+ * block-scoped to one `describe` and drops `detail` entirely.
+ */
+function rows(src: string): TestClassification[] {
+  return rowsWithPath(src).rows;
 }
 
 describe("provenance, over the declaration-reference graph", () => {
@@ -4130,4 +4153,242 @@ describe("a nested body wrapped in a transparent expression is still a BODY", ()
       expect(all.find((t) => t.testName === "inB")?.verdict).toBe("environment-free");
     });
   }
+});
+
+// ── Producer A — a hook in an EAGER argument position (spec §3.1) ────────────
+//
+// A registration's eager positions -- its name argument, its options argument
+// and the arguments of a curried `.each`/`.for` producer -- are evaluated while
+// the CURRENT suite is collecting, so a hook written there registers on that
+// suite. Where the current suite is a `describe`, `hookBodies` already attaches
+// it. Where it is the FILE suite there is no collection step, and the hook was
+// never attached at all: a sibling read `environment-free` while the hook ran
+// for it. That is the silent free these cells close.
+describe("producer A — a hook in an eager argument position reports unclassifiable", () => {
+  /**
+   * The hook-registrar axis, READ OUT OF the shipped `HOOK_REGISTRARS`.
+   *
+   * Retyping it would make a registrar added to the surface silently uncovered
+   * by this corpus, which is the enumeration defect one level up from the code.
+   * The read is structural (the regex literal's own declaration) rather than a
+   * grep, and it THROWS rather than returning a short list: a derivation that
+   * silently derives nothing renders identically to one that correctly found
+   * nothing.
+   */
+  function shippedHookRegistrars(): string[] {
+    const source = readFileSync(join(__dirname, "premiseScan.ts"), "utf8");
+    const sf = ts.createSourceFile(
+      "premiseScan.ts",
+      source,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
+    );
+    let literal: string | null = null;
+    const visit = (node: ts.Node): void => {
+      if (
+        ts.isVariableDeclaration(node) &&
+        ts.isIdentifier(node.name) &&
+        node.name.text === "HOOK_REGISTRARS" &&
+        node.initializer !== undefined &&
+        ts.isRegularExpressionLiteral(node.initializer)
+      )
+        literal = node.initializer.text;
+      ts.forEachChild(node, visit);
+    };
+    visit(sf);
+    if (literal === null)
+      throw new Error("HOOK_REGISTRARS is not a regex-literal declaration in premiseScan.ts");
+    const members = /^\/\^\((.+)\)\$\/$/.exec(literal);
+    if (!members?.[1])
+      throw new Error(
+        `HOOK_REGISTRARS is not the anchored alternation this read expects: ${literal}`,
+      );
+    return members[1].split("|");
+  }
+
+  const REGISTRAR_AXIS = shippedHookRegistrars();
+  const POSITIONS = ["name", "options", "producer"] as const;
+
+  /**
+   * The expected reason, HAND-WRITTEN here on purpose.
+   *
+   * Building it by calling the shipped `eagerHookReason` reads as the stronger
+   * discipline and is vacuous: both sides of the comparison then come from one
+   * source, so any drift in the wording moves them together and the assertion
+   * can never disagree. Measured rather than reasoned -- with the expectation
+   * built from the shipped formatter, a mutant that emptied the reason and a
+   * mutant that APPENDED "and the suite was resolved," (the exact claim R2
+   * forbids it from making) both survived all twelve cells.
+   *
+   * So this is the independent witness, and `eagerHookReason` is asserted
+   * against it once below. A reword now has to be made in two places or it
+   * reds, which is what a foil is for.
+   */
+  const expectedEagerReason = (registrar: string, line: number): string =>
+    `hook ${registrar} at line ${line} is registered from an eager argument position, so the suite it attaches to cannot be determined,`;
+
+  /**
+   * The spelling varies with the POSITION because it must: the curried producer
+   * slot exists only on a curried spelling. The CELL is (position x registrar);
+   * §5.2's independence proof below is what establishes the spelling does not
+   * matter.
+   */
+  const TEMPLATES: Record<(typeof POSITIONS)[number], (hook: string) => string> = {
+    name: (hook) =>
+      `// cell\ndescribe(String(${hook}), () => { it("inA", () => {}); });\nit("sibling", () => {});\n`,
+    options: (hook) =>
+      `// cell\ndescribe("A", { concurrent: Boolean(${hook}) }, () => { it("inA", () => {}); });\nit("sibling", () => {});\n`,
+    producer: (hook) =>
+      `// cell\ndescribe.each([${hook}])("A%s", () => { it("inA", () => {}); });\nit("sibling", () => {});\n`,
+  };
+
+  type Cell = {
+    id: string;
+    registrar: string;
+    hookText: string;
+    hookLine: number;
+    caseSrc: string;
+    twinSrc: string;
+  };
+
+  const CELLS: Cell[] = POSITIONS.flatMap((position) =>
+    REGISTRAR_AXIS.map((registrar): Cell => {
+      const hookText = `${registrar}(() => {})`;
+      const caseSrc = TEMPLATES[position](hookText);
+      return {
+        id: `${position} x ${registrar}`,
+        registrar,
+        hookText,
+        // DERIVED from the case's own bytes, never the layout the author had in
+        // mind: a producer that reports the wrong line must red here.
+        hookLine: caseSrc.slice(0, caseSrc.indexOf(hookText)).split("\n").length,
+        caseSrc,
+        twinSrc: caseSrc.replace(hookText, `"x"`),
+      };
+    }),
+  );
+
+  /**
+   * The premise runs PER CELL, on that cell's OWN inputs.
+   *
+   * Stated once over a representative pair it would prove that SOME case is
+   * well formed while an unrelated or over-wide twin sat in the set. The
+   * `HOOK_CALL` conjunct is what makes it read the thing it names: with
+   * `hookText` set to the whole eager expression the twin still differs, still
+   * classifies free, and every other conjunct still holds.
+   *
+   * HOOK_CALL is deliberately HAND-WRITTEN rather than derived from
+   * `REGISTRAR_AXIS`: a check whose two sides come from one source cannot
+   * disagree, so the foil has to be independent of the derivation it audits.
+   */
+  const HOOK_CALL = /^(beforeEach|beforeAll|afterEach|afterAll)\s*\(/;
+  for (const cell of CELLS)
+    premiseHolds(
+      `${cell.id}: the twin is this cell's own source with exactly ITS HOOK replaced`,
+      HOOK_CALL.test(cell.hookText.trim()) &&
+        cell.caseSrc.includes(cell.hookText) &&
+        cell.twinSrc !== cell.caseSrc &&
+        cell.twinSrc === cell.caseSrc.replace(cell.hookText, `"x"`),
+    );
+  premise("the generated cell set is non-empty", CELLS.length, 0);
+
+  it("the registrar axis IS the shipped HOOK_REGISTRARS, and the cell count is the axis product", () => {
+    // AC-2. The foil is hand-written on purpose (rule 154): the generator reads
+    // the shipped regex, this list is the independent witness, and they can
+    // disagree in the two ways that matter -- a narrowed extraction, and a
+    // registrar added to the surface while §5.2's declared 12 goes stale.
+    expect(REGISTRAR_AXIS).toEqual(["beforeEach", "beforeAll", "afterEach", "afterAll"]);
+    expect(CELLS.length).toBe(POSITIONS.length * REGISTRAR_AXIS.length);
+    expect(CELLS.length).toBe(12);
+  });
+
+  it("the shipped reason formatter agrees with this suite's independent witness", () => {
+    // The two sides are independent by construction: `eagerHookReason` ships in
+    // the surface, `expectedEagerReason` is typed here. Every cell's own inputs
+    // are used rather than a representative pair, so a formatter that is right
+    // for `beforeEach` and wrong for `afterAll` cannot hide behind a sample.
+    for (const cell of CELLS)
+      expect(eagerHookReason(cell.registrar, cell.hookLine), cell.id).toBe(
+        expectedEagerReason(cell.registrar, cell.hookLine),
+      );
+  });
+
+  for (const cell of CELLS) {
+    it(`${cell.id}: the sibling is unclassifiable, and its twin is not`, () => {
+      // AC-1: expect-a-REPORT, never expect-clean. An expect-clean case is
+      // satisfied by any implementation that fails to look.
+      const { path, rows: got } = rowsWithPath(cell.caseSrc);
+      const sibling = got.find((r) => r.testName === "sibling");
+      // EQUALITY against the SHIPPED formatter, not `toMatch`: a presence check
+      // is satisfied by every superset, so an implementation that appends a
+      // claim the reason is forbidden from making would pass one.
+      expect(sibling?.detail).toBe(
+        `${expectedEagerReason(cell.registrar, cell.hookLine)} in ${path}`,
+      );
+      // Named separately because it is the assertion that survives a wording
+      // change: `withModule` appends the module only when the reason does not
+      // already contain " in ", so a reworded reason can silently ship with no
+      // path at all.
+      expect(sibling?.detail).toContain(path);
+      expect(sibling?.verdict).toBe("unclassifiable");
+
+      // AC-6: one variable. The twin is these bytes minus the hook, so a clean
+      // verdict here is "examined and correctly declined" rather than "never
+      // got here".
+      const twin = rows(cell.twinSrc).find((r) => r.testName === "sibling");
+      expect(twin?.detail).toBe("");
+      expect(twin?.verdict).toBe("environment-free");
+    });
+  }
+
+  it("AC-5: a provably environment-touching test in an affected file KEEPS its verdict", () => {
+    // The precedence branch demotes `environment-free` and leaves a proven
+    // environment reach alone. Asserted for THIS producer rather than once for
+    // both: a producer pushing its reason into `ownUnresolved` instead of the
+    // file-level array would invert it for its own cases only.
+    const got = rows(
+      `import { spawnSync } from "node:child_process";
+describe(String(beforeEach(() => {})), () => { it("inA", () => {}); });
+it("toucher", () => { spawnSync("git", []); });
+it("free", () => {});`,
+    );
+    expect(got.find((r) => r.testName === "toucher")?.verdict).toBe("environment-touching");
+    expect(got.find((r) => r.testName === "free")?.verdict).toBe("unclassifiable");
+  });
+
+  it("AC-3: the rule is INDIFFERENT to registration spelling", () => {
+    // The four structurally distinct classes. The axis itself is INFINITE --
+    // Vitest's modifier object is self-similar, so `describe.concurrent.concurrent…`
+    // resolves at any depth -- which is why this is an independence proof over
+    // structural classes and not a sample of spellings.
+    const SPELLINGS: Record<string, string> = {
+      bare: `describe(String(beforeEach(() => {})), () => { it("inA", () => {}); });`,
+      depth1Plain: `describe.skip(String(beforeEach(() => {})), () => { it("inA", () => {}); });`,
+      depth1Curried: `describe.each([1])(String(beforeEach(() => {})), () => { it("inA", () => {}); });`,
+      depth2Curried: `describe.concurrent.each([1])(String(beforeEach(() => {})), () => { it("inA", () => {}); });`,
+    };
+    for (const [form, registration] of Object.entries(SPELLINGS)) {
+      const { path, rows: got } = rowsWithPath(
+        `// ${form}\n${registration}\nit("sibling", () => {});\n`,
+      );
+      const sibling = got.find((r) => r.testName === "sibling");
+      expect(sibling?.verdict, form).toBe("unclassifiable");
+      expect(sibling?.detail, form).toBe(`${expectedEagerReason("beforeEach", 2)} in ${path}`);
+    }
+  });
+
+  it("an ordinary nested describe carrying a hook does NOT report", () => {
+    // The single most common shape in the corpus. `hookBodies` already walks a
+    // nested registration's eager positions and attaches the hook to the right
+    // tests, so a reason here would be a false advisory on live authoring.
+    const got = rows(
+      `describe("outer", () => {
+  describe(String(beforeEach(() => {})), () => { it("inA", () => {}); });
+  it("sibling", () => {});
+});`,
+    );
+    expect(got.find((r) => r.testName === "sibling")?.detail).toBe("");
+    expect(got.find((r) => r.testName === "sibling")?.verdict).toBe("environment-free");
+  });
 });
