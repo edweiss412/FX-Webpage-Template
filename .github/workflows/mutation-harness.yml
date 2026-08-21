@@ -172,6 +172,20 @@ jobs:
         with:
           name: elapsed-source-shards-${{ matrix.shard }}
           path: elapsed.txt
+      # The per-run attribution records (design §5.2). WITHOUT THIS THE FILE DIES
+      # WITH THE WORKSPACE and the CI half of the record does not survive —
+      # rebuilding the CI-only, failure-only blind spot §1.0 measures, in a new
+      # place. `if: always()` is load-bearing in BOTH directions: conditioned on
+      # success it reproduces the failure-only defect, conditioned on failure it
+      # reproduces it inverted. The artifact name carries the matrix shard so the
+      # four workspaces cannot collide on one constant.
+      - name: Upload mutation records
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutation-records-source-shards-${{ matrix.shard }}
+          path: .mutation-records/
+          if-no-files-found: ignore
 
   source-gates:
     runs-on: ubuntu-latest

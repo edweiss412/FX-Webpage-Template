@@ -1,8 +1,17 @@
-import { chmodSync, existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { parse as parseYaml } from "yaml";
 
 import { premiseHolds } from "../../_shared/premise";
 import {
@@ -269,5 +278,53 @@ describe("records — written for all four cells of {passing, failing} x {CI, lo
     } finally {
       rmSync(cell, { recursive: true, force: true });
     }
+  });
+});
+
+describe("workflow — the source-shards JOB uploads the records directory (AC-11)", () => {
+  it("resolves the step by JOB, not by searching the file", () => {
+    const wf = parseYaml(readFileSync(".github/workflows/mutation-harness.yml", "utf8")) as {
+      jobs: Record<
+        string,
+        { steps?: { uses?: string; if?: string; with?: Record<string, string> }[] }
+      >;
+    };
+    const job = wf.jobs["source-shards"];
+    premiseHolds("the source-shards job still exists", job !== undefined);
+    const steps = job!.steps ?? [];
+    premiseHolds("it has steps to search", steps.length > 0);
+
+    const uploads = steps.filter(
+      (s) => typeof s.uses === "string" && s.uses.startsWith("actions/upload-artifact"),
+    );
+    const records = uploads.filter((s) => String(s.with?.path ?? "").includes(DEFAULT_RECORD_DIR));
+    // The surfaces run in the `source-shards` MATRIX, so a correct step under
+    // `source-gates` uploads nothing and all four shard workspaces are still
+    // discarded — which a file-scoped existence check cannot distinguish from a
+    // correct one.
+    expect(records).toHaveLength(1);
+    const step = records[0]!;
+    // `if: always()` is load-bearing: conditioned on success it reproduces the
+    // failure-only defect, conditioned on failure it reproduces it inverted.
+    expect(step.if).toBe("always()");
+    expect(step.with?.path).toContain(DEFAULT_RECORD_DIR);
+    // Shard-scoped, so four matrix jobs cannot collide on one constant name.
+    expect(step.with?.name).toContain("${{ matrix.shard }}");
+  });
+
+  it("is NOT satisfied by the same step living under another job", () => {
+    const wf = parseYaml(readFileSync(".github/workflows/mutation-harness.yml", "utf8")) as {
+      jobs: Record<string, { steps?: { uses?: string; with?: Record<string, string> }[] }>;
+    };
+    const elsewhere = Object.entries(wf.jobs)
+      .filter(([name]) => name !== "source-shards")
+      .flatMap(([name, job]) =>
+        (job.steps ?? [])
+          .filter((s) => String(s.with?.path ?? "").includes(DEFAULT_RECORD_DIR))
+          .map(() => name),
+      );
+    // A positive control that the traversal WORKS lives in the case above; this
+    // one pins that the records upload is not ALSO somewhere it does nothing.
+    expect(elsewhere).toEqual([]);
   });
 });
