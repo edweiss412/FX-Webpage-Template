@@ -171,7 +171,9 @@ setParentNodes: true, ScriptKind by extension)`):
 - `classifySite(sf, site)` → `{ cls: "guard-bound" | "validation-env" | "loopback-literal" | "remote-literal" | "unclassifiable", envNames: string[], argText: string }`
   per spec §2.3. The walk: unwrap through the compiler's outer-expression kinds (see below); a
   `CallExpression` whose callee is a guard name imported from the guard module (resolved by
-  `isGuardModule`, imported) → `guard-bound`; a string / no-substitution template literal → parse
+  `isGuardModule`, imported) AND declared nowhere else in the file → `guard-bound` (a guard name
+  declared twice — parameter, variable, named function, another import — makes the site
+  `unclassifiable`, by the same any-declaration rule as `shadowed-driver`; spec §2.3); a string / no-substitution template literal → parse
   with `new URL`, host in `ACCEPTED_HOSTS` (imported) → `loopback-literal`, else `remote-literal`,
   unparseable → `unclassifiable`; `??`/`||` → classify both operands, combine (any `guard-bound` →
   `guard-bound`; all operands env-or-loopback-literal with env names EXACTLY `[TEST_DATABASE_URL]`
@@ -182,10 +184,13 @@ setParentNodes: true, ScriptKind by extension)`):
   Then the REST of the argument list (spec §2.3, re-analysis §3.8): zero arguments → `unclassifiable`
   (libpq env decides the target); a second argument that is not an object literal, or carries a
   spread, a computed key, a shorthand property, a key outside the OPTIONS ACCEPT-SET (`max`,
-  `prepare`, `idle_timeout`, `connect_timeout`, `statement_timeout`, `max_lifetime`, `onnotice`,
-  `debug`, `transform`, `types`, `fetch_types`, `connection` with an object-literal value whose keys
-  are in `{ application_name }`), or a third argument → `unclassifiable`, with the offending key or
-  shape named in the report. The options accept-set is an exported constant the suite asserts
+  `prepare`, `idle_timeout`, `connect_timeout`, `max_lifetime`, `onnotice`, `debug`, `transform`,
+  `types`, `fetch_types`, `connection`), or a third argument → `unclassifiable`, with the offending
+  key or shape named in the report. `connection`'s value must be an object literal of plain
+  `identifier: <string | number | boolean literal>` pairs; its KEYS are UNRESTRICTED (server-side
+  runtime parameters cannot redirect the socket — spec §2.3, verified by the round-3 driver probe on
+  `tests/db/watchActivationRace.db.test.ts:35`'s `connection: { statement_timeout: 5000 }`); a
+  non-literal value, a spread or a computed key inside it → `unclassifiable`. The options accept-set is an exported constant the suite asserts
   contains no steering name (`host`, `hostname`, `port`, `path`, `database`, `db`, `user`,
   `username`, `password`, `pass`, `ssl`, `socket`) — a hand-written witness against a hand-written
   set, which is allowed because the two lists answer different questions.
@@ -211,12 +216,19 @@ negative alone is satisfied by a scanner that classifies nothing — rule 234 co
 - AC-C3: one fixture per class plus the one-edit-away neighbour, and for the options axis:
   `postgres()` → unclassifiable; `postgres(u, { max: 1 })` → classifies by `u`; `postgres(u, { host: "x" })`
   → unclassifiable naming `host`; `postgres(u, opts)` → unclassifiable; `postgres(u, { ...base })` →
-  unclassifiable; `postgres(u, { max: 1 }, extra)` → unclassifiable; `postgres(u, { connection: { application_name: "t" } })`
-  → classifies by `u`; `postgres(u, { connection: { host: "x" } })` → unclassifiable. Also `TEST_DATABASE_URL` → validation-env;
+  unclassifiable; `postgres(u, { max: 1 }, extra)` → unclassifiable; `postgres(u, { unknown_key: 1 })` →
+  unclassifiable; `postgres(u, { connection: { statement_timeout: 5000 } })` → classifies by `u` (the
+  live `watchActivationRace.db.test.ts:35` shape); `postgres(u, { connection: { anything_at_all: "x" } })`
+  → classifies by `u` (kills an implementation that restricts `connection` sub-keys and would red the
+  live site); `postgres(u, { connection: opts })` → unclassifiable; `postgres(u, { connection: { ...c } })`
+  → unclassifiable. Also `TEST_DATABASE_URL` → validation-env;
   `PROD_TEST_DATABASE_URL` → unclassifiable; `DATABASE_URL ?? TEST_DATABASE_URL` (reversed) →
   unclassifiable; `TEST_DATABASE_URL ?? DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres"`
   → validation-env; a loopback literal const → loopback-literal; the validation pooler host as a
-  literal → remote-literal; `assertLocalDbUrl(x)` inline and via const → guard-bound; a `let` →
+  literal → remote-literal; `assertLocalDbUrl(x)` inline and via const → guard-bound; the same file
+  with an unrelated `function helper(assertLocalDbUrl: string) {}` added → unclassifiable at the
+  guard-bound site (kills a classifier that checks only the trusted import and the callee spelling);
+  a `let` →
   unclassifiable; a parameter → unclassifiable; an imported constant → unclassifiable; a template
   with substitution → unclassifiable.
 - AC-C4: `url!`, `url as string`, `<string>url`, `url satisfies string`, `(url)` on the argument AND
@@ -260,8 +272,8 @@ argument of `import(...)`, and of `require(...)`; type-only imports included. On
 `moduleSpecifiersIn(sf)`, serves both the driver acquisition walk (Task 1) and the edge walk, so the
 two cannot enumerate differently. A `./`/`../` or `@/tests/` specifier the resolver cannot map to a
 file yields an `unresolved-import` report on the importing file (never a dropped edge); a NON-literal
-specifier in any position (`literal: null`) is likewise an `unresolved-import` report (two live at
-BASE, both dispositioned in Task 6). PATH-SHAPED is derived: `./`, `../`, a leading `/`, or `<key>/`
+specifier in any position (`literal: null`) is likewise an `unresolved-import` report (five live at
+BASE by the committed AST probe, all dispositioned in Task 6). PATH-SHAPED is derived: `./`, `../`, a leading `/`, or `<key>/`
 for every key of `REPO_ALIAS` imported from `vitest.projects.ts` (round 2 F3); anything else is a
 bare package specifier and not an edge. A path-shaped specifier resolving OUTSIDE `tests/` is a
 `production-edge` tally on the file (printed, never red — spec §4.2), not an edge followed.
@@ -280,7 +292,15 @@ Module-grain: any edge to a connecting module inherits its whole class set (spec
 `dispositioned`, zero reports; the same with the row removed → ONE report at the helper naming the
 three as affected (kills the propagate-raw-report and the suppress implementations). A
 root-relative `/tests/db/_helper` specifier and an `@/tests/db/_helper` specifier resolve to the same
-edge (`REPO_ALIAS` read, not retyped); a non-literal `import(x)` → one `unresolved-import`. The
+edge (`REPO_ALIAS` read, not retyped); a non-literal `import(x)` → one `unresolved-import`. One
+fixture per LOADER form, each a consumer reaching a connecting helper only through that form (spec
+AC-C5): `await vi.importActual("./_helper")` inside a `vi.mock` factory → inherits the helper's class
+(one ordinary edit from `tests/app/admin/setDeveloperAction.test.ts:42`); `vi.importMock("./_helper")`
+→ inherits; `vi.mock("./_helper")` without a factory → inherits; `vi.mock("./_helper", () => ({}))` →
+no edge, no report; `vi.doMock` the same pair; `vi.unmock("./_helper")` → no edge; `vi.somethingElse("./_helper")`
+→ one `loader-call` report; `vi.stubEnv("X", "y")` → nothing. Kills an implementation that reads
+loader positions for driver acquisition (Task 1) but not for edge propagation — the two walks share
+`moduleSpecifiersIn`, and this pair is what proves the edge walk consumes it. The
 three-module cycle (A→B→C→A, C connects): A and B inherit C's set; a one-level walk
 (the weaker implementation) leaves A empty — asserted by ALSO running a deliberately one-level
 variant inside the test and showing the two disagree on A, so the fixture is proven to discriminate
@@ -306,9 +326,10 @@ a report with no row whose `(file, site)` text-equals it is `undisposed`; a row 
 reports is `stale`; a row matching two or more is `ambiguous`; a row whose kind is not admissible
 for the report it matches is `inadmissible` (`resolver` only for a site whose argument is a call;
 `acquisition` only for an acquisition report; `channel` only for a join report; `unclassifiable` for
-any site report). A `remote-literal` site is ALWAYS `undisposed` regardless of rows. The module
-exports `CONNECTION_CENSUS_DISPOSITIONS` EMPTY in this task; the three BASE rows land in
-`task:live-census-gate`, where they are observed to turn three live reports green one at a time.
+any site report OR any edge report — `unresolved-import` and `loader-call` are edge reports, and
+five of the seven BASE rows are non-literal import edges, spec §2.5). A `remote-literal` site is ALWAYS `undisposed` regardless of rows. The module
+exports `CONNECTION_CENSUS_DISPOSITIONS` EMPTY in this task; the seven BASE rows land in
+`task:live-census-gate`, where they are observed to turn seven live reports green one at a time.
 
 **Cases,** each proven in both directions on constructed registries: undisposed / disposed twin;
 stale / live twin; ambiguous (two identical sites in one file, one row) / two rows twin; each
@@ -351,7 +372,7 @@ full rendered line, derived from the report's own fields, so a superset wording 
 
 <!-- tasks: end -->
 
-## Task 6 — the live census gate, with its three BASE rows  `[task:live-census-gate]`
+## Task 6 — the live census gate, with its seven BASE rows  `[task:live-census-gate]`
 
 **Files:** `tests/db/_metaConnectionCensusGuard.test.ts (new)`, `tests/db/_connectionCensusDispositions.ts (new)`
 
@@ -368,8 +389,9 @@ with the destructive guard, and asserts: premises of spec §2.9 (each via `premi
 unconditionally, above the assertions they license); `undisposed`, `stale`, `ambiguous`,
 `inadmissible`, `remote-literal`, `unresolved-import`, `channel` all EMPTY, each assertion's message
 the rendered report; the anti-vacuity names: `tests/db/_b2Helpers.ts` is a connecting helper,
-`tests/db/validation-schema-parity.test.ts` carries an `acquisition` row, `galleryDatabaseUrl` is
-dispositioned at both sites.
+`tests/db/validation-schema-parity.test.ts` holds a DRIVER BINDING through its const-bound dynamic
+acquisition and its site at line 407 classifies `validation-env` with NO row, `galleryDatabaseUrl` is
+dispositioned at both sites, and each of the five non-literal import edges has its row.
 
 **The seven rows**, added one at a time in this task's commit history so each is observed to retire
 exactly one report:
@@ -444,7 +466,7 @@ check is empty.
 
 **The archive entry opens with the re-scope** (spec §1.3 item 1, rule 195): the row graduated on a
 CLASSIFICATION of every connection-opening file with a validation accept-set and per-site
-dispositions, NOT on loopback-everywhere, because the census measured 107 of 178 connection-opening
+dispositions, NOT on loopback-everywhere, because the census measured 108 of 179 connection-opening
 files targeting validation by ratified posture. The census numbers and the zero-live-incident
 replay are the probe record. Both refutations stay in the entry.
 
@@ -518,6 +540,9 @@ and what else could produce it.
 | classifier with an implicit "not mine" return | the enum-driven totality sweep + the bare-return structural assertion |
 | a second specifier reader beside `moduleSpecifiersIn` | the one-extractor structural assertion |
 | driver walk that ignores loader positions | `const postgres = await vi.importActual("postgres"); postgres(raw)` → one site |
+| edge walk that ignores loader positions | the per-loader-form fixtures in Task 2 (importActual inside a mock factory inherits the helper's class) |
+| classifier that restricts `connection` sub-keys | `connection: { anything_at_all: "x" }` classifies by the URL; the live `statement_timeout` site stays green |
+| guard-bound by trusted import + callee spelling only | the twice-declared `assertLocalDbUrl` fixture → unclassifiable |
 | `toMatch` on report lines | equality on the full rendered line derived from the report's fields |
 | census whose walk matches nothing | premise floors (Task 6), perturbed |
 
