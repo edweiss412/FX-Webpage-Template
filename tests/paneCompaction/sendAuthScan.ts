@@ -521,14 +521,19 @@ const classifyUses = (
   };
 
   const visit = (node: ts.Node): void => {
-    // A STATIC ELEMENT-ACCESS RECEIVER names its binding in the source text but
-    // contains no identifier to enter on, so the identifier-keyed walk below
-    // never reached the member classification and an unknown member through it
-    // was SILENT while its dotted twin reported.
-    if (ts.isElementAccessExpression(node)) {
-      const receiver = surfaceReceiverOf(node, (name) => bindings.has(name));
+    // ENTRY, DERIVED FROM THE REAL QUESTION rather than enumerated by node kind.
+    //
+    // The identifier walk below can only enter on an `Identifier`. A receiver
+    // whose own NAME NODE is not one therefore has no entry node at all and the
+    // member classification never runs — `this["ch"]` (a string literal key) and
+    // `this.#ch` (a PrivateIdentifier) are both that shape. Round 1 fixed the
+    // string-literal case by naming it, which left the private one; asking
+    // instead "can the identifier walk reach this?" closes both and anything
+    // else the language adds with a non-identifier name.
+    if (nonIdentifierMemberName(node) !== undefined) {
+      const receiver = surfaceReceiverOf(node as ts.Expression, (name) => bindings.has(name));
       if (receiver.kind === "surface" && !derivedAt(receiver.name, node)) {
-        classifyMemberOn(node);
+        classifyMemberOn(node as ts.Expression);
       }
     }
     if (ts.isIdentifier(node) && bindings.has(node.text)) {
@@ -975,6 +980,26 @@ const declaredNameText = (name: ts.Node | undefined): string | null => {
     return ts.isStringLiteralLike(key) ? key.text : null;
   }
   return null;
+};
+
+/**
+ * The member NAME NODE of a member expression, but ONLY when it is not an
+ * `Identifier` — which is exactly the case an identifier-keyed walk cannot
+ * reach. `this["ch"]` names its member with a string literal and `this.#ch`
+ * with a `PrivateIdentifier`; neither yields an identifier to enter on.
+ *
+ * Kept as its own function so the guards apply to ITS parameter rather than to
+ * a walk's node: a walk that tests `isIdentifier` and `isPropertyAccessExpression`
+ * on ONE expression is the shape the absence scan reports as a second
+ * implementation of the receiver rule, and it would be right to.
+ */
+const nonIdentifierMemberName = (n: ts.Node): ts.Node | undefined => {
+  const name = ts.isPropertyAccessExpression(n)
+    ? n.name
+    : ts.isElementAccessExpression(n)
+      ? n.argumentExpression
+      : undefined;
+  return name !== undefined && !ts.isIdentifier(name) ? name : undefined;
 };
 
 export const surfaceReceiverOf = (

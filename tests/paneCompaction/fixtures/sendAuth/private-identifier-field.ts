@@ -40,4 +40,25 @@ export class Driver {
   exposed(): void {
     this.open.dispatch("p2", "/compact");
   }
+
+  // THE UNKNOWN-MEMBER PAIR, and it exists because the sink pair above MASKED a
+  // second defect. `dispatch` is a declared sink, so discovery recognises it
+  // independently of the member classification -- a DIFFERENT RULE decided the
+  // observation, and the entry path stayed untested while the fixture looked
+  // like it covered the private form. Both diff-r2 reviewers found that
+  // independently, from opposite sides of the seam.
+  //
+  // An UNKNOWN member has no other route: only the member classification can
+  // report it, so this pair is what makes the private entry path observable.
+
+  hiddenUnknown(): void {
+    // @ts-expect-error — `typo` is DELIBERATELY absent from `Channel`. That
+    // absence is the fixture: only the member classification can report it.
+    this.#ch.typo();
+  }
+
+  exposedUnknown(): void {
+    // @ts-expect-error — the public control, one variable away from the private form.
+    this.open.typo();
+  }
 }

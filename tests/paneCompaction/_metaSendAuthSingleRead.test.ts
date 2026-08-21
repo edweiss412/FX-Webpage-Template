@@ -3259,10 +3259,18 @@ describe("diff r1 — RESOLVING a name and ENTERING on one are different jobs", 
     // had been unified, so `#ch` never became a binding and every use of it
     // resolved FOREIGN — silent before rule A ever ran. The public field is the
     // control and reported throughout.
+    // THE UNKNOWN-MEMBER PAIR IS THE POINT, and diff r2 is why it exists: the
+    // sink pair alone MASKED a second defect, because `dispatch` is a declared
+    // sink that discovery recognises independently of the member
+    // classification. A different rule decided the observation, so the private
+    // ENTRY path stayed untested while this fixture looked like it covered the
+    // private form. Only an UNKNOWN member forces the classification to decide.
     const f = "private-identifier-field.ts";
     expect(scan(f)).toEqual([
       finding(f, "UNDECLARED-PASS", "hidden", lineOf(f, 'this.#ch.dispatch("p1"')),
       finding(f, "UNDECLARED-PASS", "exposed", lineOf(f, 'this.open.dispatch("p2"')),
+      finding(f, "UNCLASSIFIED-USE", "typo", lineOf(f, "this.#ch.typo();")),
+      finding(f, "UNCLASSIFIED-USE", "typo", lineOf(f, "this.open.typo();")),
     ]);
   });
 });
