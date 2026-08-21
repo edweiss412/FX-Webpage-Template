@@ -480,6 +480,11 @@ Take it from the merge base itself, in a detached worktree, so no ordering disci
 
 ```bash
 CENSUS=docs/superpowers/specs/ci/probes/2026-08-21-premisescan-registrar-accept-sets/census.mts
+# EXPORTED, because step 2's derivation runs in a CHILD process and reads
+# `process.env.BASE`. As a bare shell variable the child saw `undefined`, the
+# derivation threw before producing a partition, and the failure then looked like
+# a census problem rather than a missing export.
+export BASE
 BASE=$(git merge-base origin/main HEAD)
 git worktree add --detach /tmp/census-base "$BASE" >/dev/null
 ln -s "$PWD/node_modules" /tmp/census-base/node_modules
@@ -512,39 +517,81 @@ contradicts AC-1**, and this is also what catches a new case that unexpectedly r
 CENSUS=docs/superpowers/specs/ci/probes/2026-08-21-premisescan-registrar-accept-sets/census.mts
 # DERIVED, never hardcoded — see the note below. Every suite this branch edits
 # that is also in the census population, computed from git at run time.
+# ONE PATH PER LINE. `grep -F` treats each LINE of its pattern as a separate
+# pattern, so a newline-joined set matches any of them, while a COMMA-joined set
+# is a single pattern containing a comma and matches NOTHING. Measured on this
+# branch: the joined value matched 0 records where the two paths separately
+# matched 327, so every record fell into the "unedited" side and (b) checked an
+# empty set while reporting success.
 EDITED=$(pnpm exec tsx --eval '
 import { GUARD_SURFACES } from "./tests/mutation/source/registry";
 import { execSync } from "node:child_process";
 const pop = new Set(GUARD_SURFACES.flatMap((s) => s.suitePaths));
 const changed = execSync(`git diff --name-only ${process.env.BASE}...HEAD`).toString().split("\n").filter(Boolean);
-console.log(changed.filter((f) => pop.has(f)).join(","));
+console.log(changed.filter((f) => pop.has(f)).join("\n"));
 ')
+[ -n "$EDITED" ] || { echo "ABORT: the derived edited set is EMPTY - the derivation is broken, not the tree"; exit 2; }
+printf '%s\n' "$EDITED" > /tmp/edited-suites.txt
 pnpm exec tsx "$CENSUS" --records | tail -n +7 | sort > /tmp/census-after.txt
 
-# (a) UNEDITED population: exactly one record added, none removed, none moved.
-diff <(grep -v -F "$EDITED" /tmp/census-before.txt) <(grep -v -F "$EDITED" /tmp/census-after.txt) > /tmp/unedited.diff
-[ "$(grep -c '^>' /tmp/unedited.diff)" = 1 ] || { echo "FAIL: not exactly one addition outside the edited suite"; exit 1; }
-[ "$(grep -c '^<' /tmp/unedited.diff)" = 0 ] || { echo "FAIL: a record outside the edited suite moved or vanished"; exit 1; }
-grep '^>' /tmp/unedited.diff | grep -q '^> environment-free' \
-  || { echo "FAIL: the added record is not environment-free"; exit 1; }
+# (a) UNEDITED population: additions only, and every addition environment-free.
+diff <(grep -v -F -f /tmp/edited-suites.txt /tmp/census-before.txt) \
+     <(grep -v -F -f /tmp/edited-suites.txt /tmp/census-after.txt) > /tmp/unedited.diff || true
+[ "$(grep -c '^<' /tmp/unedited.diff)" = 0 ] || { echo "FAIL: a record outside every edited suite moved or vanished"; exit 1; }
+! grep '^>' /tmp/unedited.diff | grep -qv '^> environment-free' \
+  || { echo "FAIL: an addition outside the edited suites is not environment-free"; exit 1; }
 
-# (b) EDITED suite: additions only, and every addition environment-free.
-diff <(grep -F "$EDITED" /tmp/census-before.txt) <(grep -F "$EDITED" /tmp/census-after.txt) > /tmp/edited.diff
-[ "$(grep -c '^<' /tmp/edited.diff)" = 0 ] || { echo "FAIL: a pre-existing record in the edited suite moved or vanished"; exit 1; }
-! grep '^>' /tmp/edited.diff | grep -qv '^> environment-free' \
-  || { echo "FAIL: a new case is not environment-free"; exit 1; }
+# (b) EDITED suites: additions AND RENAMES. A rename is a remove plus an add at
+# the SAME verdict, so a blanket zero-removals rule rejects one -- and rejects it
+# on this very branch, where a CI repair renamed a test in an edited suite. What
+# must actually hold is that no verdict LOSES records: per verdict, after >= before.
+pnpm exec tsx --eval '
+import { readFileSync } from "node:fs";
+const edited = readFileSync("/tmp/edited-suites.txt", "utf8").split("\n").filter(Boolean);
+const counts = (p: string): Map<string, number> => {
+  const m = new Map<string, number>();
+  for (const line of readFileSync(p, "utf8").split("\n")) {
+    if (line && edited.some((e) => line.includes(e))) {
+      const v = line.split(" | ")[0].trim();
+      m.set(v, (m.get(v) ?? 0) + 1);
+    }
+  }
+  return m;
+};
+const before = counts("/tmp/census-before.txt");
+const after = counts("/tmp/census-after.txt");
+const lost = [...before].filter(([v, n]) => (after.get(v) ?? 0) < n);
+if (lost.length > 0) {
+  console.error(`FAIL: a verdict lost records in an edited suite: ${JSON.stringify(lost)}`);
+  process.exit(1);
+}
+console.log(`edited suites hold: per-verdict before=${JSON.stringify([...before])} after=${JSON.stringify([...after])}`);
+' || exit 1
 
-# (c) the actual AC-1 claim, over the WHOLE corpus: the touching set is byte-identical.
-diff <(grep '^environment-touching' /tmp/census-before.txt) \
-     <(grep '^environment-touching' /tmp/census-after.txt) || { echo "FAIL: the env-touching set moved"; exit 1; }
+# (c) AC-1, over the UNEDITED population. Restricted deliberately: an edited
+# suite's own renames are (b)'s business, and counting them here reports a rename
+# as an AC-1 violation -- true of the wrong question.
+diff <(grep -v -F -f /tmp/edited-suites.txt /tmp/census-before.txt | grep '^environment-touching') \
+     <(grep -v -F -f /tmp/edited-suites.txt /tmp/census-after.txt | grep '^environment-touching') \
+  || { echo "FAIL: the env-touching set moved outside the edited suites"; exit 1; }
 echo "AC-1 holds"
 ```
 
-**(c) is the load-bearing one and it IS whole-population** — that is legitimate where a count is not,
-because it asserts a SET is unchanged rather than predicting a size. (a) alone passes if a touching
-record is swapped for a free one, since that is still one `>` and one `<`. **A verdict move inside the
-EDITED suite is caught by (b)'s `^<` check**, because a name-keyed record that changes verdict leaves
-the old line and adds a new one.
+**(c) is the load-bearing one, and it is scoped to the UNEDITED population** — legitimate where a
+count is not, because it asserts a SET is unchanged rather than predicting a size. Whole-population
+was the earlier form and it was wrong in a way only running it reveals: a test RENAMED inside an
+edited suite is a remove plus an add at the same verdict, so the touching set differs textually and
+(c) reports an AC-1 violation for a rename that moved no verdict at all. (a) alone is not enough
+either — it passes if a touching record is swapped for a free one, since that is still one `>` and one
+`<`. **A verdict move inside an EDITED suite is caught by (b)'s per-verdict counts**: a record that
+changes verdict decrements the old verdict's count, and (b) fails on any verdict whose count falls.
+
+**These three commands were repaired after diff review round 3 ran them**, which is the whole point of
+the finding: they had been read and reasoned about, never executed. `BASE` was assigned but not
+exported, so the child process computing the edited set read `undefined`; the set was then joined with
+a comma and handed to `grep -F` as ONE pattern, which matched 0 of 2805 records where the two paths
+separately match 329; and (b) forbade every removal while the prose beside it claimed renames were
+allowed. Each failure was in the direction that reads as success.
 
 **THE EDITED SET IS DERIVED, AND A HARDCODED ONE WAS MEASURED WRONG ON THIS VERY BRANCH.** This block
 originally named ONE edited suite. The branch later grew a SECOND: a required-CI repair renamed a test
