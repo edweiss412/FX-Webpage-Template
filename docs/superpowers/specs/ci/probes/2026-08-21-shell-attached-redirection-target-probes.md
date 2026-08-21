@@ -115,6 +115,39 @@ K-fd-prefixed-operator         executions=1
 12/12 snippets executed the command
 ```
 
+## `region-underapprox.mts` — the census region reader, attacked
+
+Eighteen adversarial cases against the quote-aware region reader `corpus-family3.mts` uses, five of
+them multiline. It exists because round 3 found that reader blind to backslash continuations while
+every control was single-line, and the first draft of this probe was single-line too — the same
+blind axis, in the instrument written to defend against it.
+
+It was ALSO a reporter until the void-branch sweep below: it counted disagreements and exited 0.
+Blinding the reader in a mirror copy produced `5/18 correct` and a clean exit status. It now exits 1
+naming the count. **It was cited nowhere in this record until now**, which is the other half of the
+same defect: a committed probe nobody references and that cannot fail is a file, not evidence.
+
+## Every VOID branch, executed
+
+A probe that cannot fail proves nothing, and each of these carries a branch that voids its own
+result. Those branches were prose until they were run. Technique: copy the probe into a
+depth-matching mirror (six directories under a root whose `tests/` is a symlink to the real one),
+mutate the COPY, run it. The shipped probes are untouched by this.
+
+| probe | mutation applied to the copy | required | observed |
+|---|---|---|---|
+| `probe-attached.mts` | one positive control's source commented out, so it cannot report | exit 2 | exit 2 — `PROBE VOID: 1 positive control(s) went silent, so every subject zero is unattributable`, at 3/4 controls |
+| `corpus-family3.mts` | `attachedRegion` returns `null` unconditionally, blinding the scan | exit 2 | exit 2 — `ABORT: 11 control(s) failed — the scan cannot see the family, so a corpus zero would mean nothing` |
+| `digest-sensitivity.mts` | serialisation narrowed to the PRE-REPAIR field set (`key`, `file`, `line`, `text`) | exit 1 | exit 1 — `0/7 perturbations detected`, `FAIL: the digest is blind to 7 field(s) it claims to pin` |
+| `oracle.mts` | a snippet added that ECHOES the psql command instead of running it — the round-1 case-H shape | non-zero | exit 2 — `ABORT: a snippet did not execute - the oracle proves nothing about it`, at 12/13 |
+| `region-underapprox.mts` | its region reader returns `null` unconditionally | non-zero | **exit 0 at 5/18 — IT WAS A REPORTER.** Repaired in the same commit; now exits 1 naming the count |
+| `baseline-corpus.mts` | a wrong `--expect` value | exit 1 | exit 1; bare invocation exits 0 on any digest, which is why the flag IS the gate |
+
+**The digest row is a regression proof for the round-2 repair, not just a branch test.** Narrowing
+the serialisation back to what it hashed BEFORE that repair takes it from 7/7 perturbations detected
+to 0/7. The repair is therefore load-bearing rather than decorative, and anyone who later "simplifies"
+that serialisation to the fields that look like they matter will rebuild the exact blindness.
+
 ## Resolved scope — do not relitigate
 
 - **The 123865 figure is RETRACTED.** It scanned raw bytes of every tracked file and so counted

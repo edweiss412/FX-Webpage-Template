@@ -13,7 +13,12 @@
 set -uo pipefail
 
 ROW="BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION"
-cd "$(git rev-parse --show-toplevel)" || exit 2
+# `cd "$(git rev-parse ...)"` is a trap: on failure the substitution is EMPTY
+# and `cd ""` SUCCEEDS, so `|| exit` never fires and the script runs on in the
+# caller's directory, reporting a missing BACKLOG.md instead of the real cause.
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || ROOT=""
+[ -n "$ROOT" ] || { echo "ABORT: not inside a git repository"; exit 2; }
+cd "$ROOT" || { echo "ABORT: cannot enter $ROOT"; exit 2; }
 FAILED=0
 note() { printf '%-6s %s\n' "$1" "$2"; [ "$1" = FAIL ] && FAILED=1; return 0; }
 

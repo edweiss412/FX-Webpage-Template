@@ -140,6 +140,8 @@ by exhaustion.
 | W9 | handle an attached target only when the operator has no file-descriptor prefix | the prefix reads as a separate token, so `2>` looks like a different construct | **K** — `cat 2>"$(psql -c 'select 1')"` executes once and both scanners return zero |
 | W10 | ADD a correctly attributed record and leave the wrongly attributed one | additive repairs feel safer than replacing a record something else may read | **I** — its predicate is universal over every site the snippet produces, so `[wrong, correct]` fails |
 | W11 | delimit construct-aware after `>` and `<<<`, fall back to the old character run for the other ten operators | those two are what every acceptance case uses, so the gate goes green | **nothing in the acceptance set** — this is the one gap the spec's cases do NOT close, and Task 1 carries the obligation below instead |
+| W18 | stamp every collected body with the TARGET'S FINAL line, preserving the real byte offset | the target's end is where the walk finishes, so it is the line in hand | **a body on line 2 of a target closing on line 3** — the derived coordinate rule, which also kills the unnamed members of this family |
+| W19 | emit `IndirectionHit.line` from the scanner's current line at EOF | for a span that never closes, "where it started" and "where the scan ran out" look identical | **a multiline unlexable span** — its opening line and EOF are then distinct |
 | W13 | emit unlexable reports only for `>` while delimiting every operator correctly | the report path and the delimit path look like one feature | **a non-`>` unlexable case** — the operator derivation covers the report path too, not only Task 1's |
 | W14 | key the unlexable channel to the three opener spellings the plan happened to name | three cases read like three openers | **the accept-set opener table** — cases are derived from §3.1, so `$(` vs `${` and plain vs locale vs ANSI-C quotes are all covered |
 | W15 | always stamp `IndirectionHit.line = 1` | every unlexable fixture started on line 1 | **a prefixed case requiring line 2** — the same first-line blindness J carried, one surface along |
@@ -258,7 +260,20 @@ mutant it kills.
      double-quoted target as `backtick:false` makes H report while attributing it wrongly, and the
      separate bare-backtick path still carries I. H therefore takes the same non-empty UNIVERSAL
      `nestedInBacktick === true` predicate as I, not a presence check.
-   - **J asserts the COORDINATES, and a one-line displacement is not enough.** A walker anchoring
+   - **COORDINATE ASSERTIONS FOLLOW A DERIVED RULE, because fixture-at-a-time did not converge.**
+     Rounds 1 through 4 each killed one positional heuristic and left the next alive: anchor to the
+     operator's line (round 1); `operatorLine + 1` with the operator's offset (round 3); the
+     target's FINAL line (round 4); the scanner's current line at EOF (round 4, on Task 2). Each
+     repair was a fixture, and each fixture left another coincidence standing. **The rule, applied
+     to every coordinate assertion in both tasks: choose the fixture so the asserted line differs
+     from EVERY other candidate line in that fixture** — the operator's line, the target's first
+     line, the target's LAST line, and EOF. Concretely, a body on line 2 of a target that opens on
+     line 1 and closes on line 3, in a file whose EOF is later still. That kills the whole family of
+     "stamp it with some other line" implementations at once, including heuristics nobody has
+     named yet, where another fixture kills exactly one. State the four candidate lines and show
+     they are pairwise distinct; a fixture where any two coincide is not admissible as a coordinate
+     control.
+   - **The one-line displacement that motivated this.** A walker anchoring
      every attached nested body to the operator's line passes a presence assertion while stamping
      line 1. But a walker that stamps `line = operatorLine + 1` and `offset = operatorOffset` ALSO
      passes a J spanning exactly one continuation: every other case is single-line and ignores the
@@ -343,11 +358,16 @@ varying nothing else. Three separate implementations pass that:
   implementation can delimit every shipped operator correctly and emit unlexable reports only for
   `>`. At least one unlexable case carries a non-`>` operator (`>>` is the cheapest), and the
   derivation over `REDIRECTION_OPERATORS` covers the report path as it does the delimit path.
-- **Line attribution.** Every unlexable fixture as described starts on line 1, so an implementation
-  that always emits `IndirectionHit.line = 1` passes every positive, every terminated twin and the
-  descriptor case while attributing wrongly — one of the two forbidden directions. At least one
-  case is prefixed with a harmless command and requires the hit on line 2. This is the same
-  first-line blindness J had, one surface along.
+- **Line attribution, under the SAME derived rule as Task 1.** Every unlexable fixture as described
+  starts on line 1, so an implementation that always emits `IndirectionHit.line = 1` passes every
+  positive, every terminated twin and the descriptor case while attributing wrongly. Moving one
+  fixture to line 2 kills that heuristic and leaves the next one alive: an implementation emitting
+  the scanner's CURRENT line at EOF passes a single-line unlexable span on line 2, because for a
+  span that never closes, "where it started" and "where the scan ran out" coincide. So at least one
+  unlexable case SPANS lines — the target opens on one line and EOF is later — and the hit is
+  asserted at the target's opening line with the four candidate lines shown pairwise distinct, per
+  Task 1's derived rule. Round 4 found the EOF heuristic on this surface and the final-line
+  heuristic on Task 1's; they are one family and the rule closes both.
 
 **The firing condition is narrow and is part of the red:** the report fires only when the
 undelimitable span carries a substitution opener, so the corpus's ordinary attached targets (53 at base `e5d1d723d`, 57 at plan HEAD; see §0)

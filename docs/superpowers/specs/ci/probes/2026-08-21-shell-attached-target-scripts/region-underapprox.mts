@@ -60,3 +60,11 @@ for (const [id, line, want] of CASES) {
   console.log(`${ok ? "ok  " : "MISS"}  want=${String(want).padEnd(5)} got=${String(got).padEnd(5)} ${id}`);
 }
 console.log(`\n${CASES.length - bad}/${CASES.length} correct`);
+if (bad > 0) {
+  // Counting misses and exiting 0 makes this a printer. Blinding the reader
+  // in a mirror copy produced 5/18 and exit 0, which would have read as a
+  // clean run to anything checking the status.
+  console.error(`FAIL: ${bad} case(s) disagree with the region reader.`);
+  process.exit(1);
+}
+console.log("PASS: every adversarial case agrees with the region reader.");
