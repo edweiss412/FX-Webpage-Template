@@ -13,10 +13,10 @@ Nothing this arc touches is under `app/`, `components/`, `app/globals.css`, `tai
 | Artifact | State |
 | --- | --- |
 | Spec `docs/superpowers/specs/ci/2026-08-21-speclint-red-reason-verification-design.md` | **CLOSED by orchestrator ruling** at the round cap: 4 rounds, 12 findings, none refuted, no round returning APPROVE. See spec §8. |
-| Plan `docs/superpowers/plans/2026-08-21-speclint-red-reason-verification.md` | **CLOSED by orchestrator ruling** at the round cap: 4 rounds, 9 findings, none refuted. DISPOSITIONED, not CONVERGED. See plan §8. Two tasks in the red-contract region, one score task outside it. |
+| Plan `docs/superpowers/plans/2026-08-21-speclint-red-reason-verification.md` | **CLOSED by orchestrator ruling** at the round cap: 4 rounds, 9 findings, none refuted. DISPOSITIONED, not CONVERGED. See plan §8. ONE task in the red-contract region and one score task outside it: round 1 collapsed the partition assertion into Task 1, because a task authored afterwards would be green the moment it was written. |
 | Probes `probe/population.mts`, `probe/reach.mts`, `probe/citations.mts` | Committed. Every number in the spec is produced by one of them, and the third derives the citation set rather than trusting a list. |
 | Round-economy filing `docs/review-rounds/feat/speclint-red-reason-verification/e5d1d723d69c.md` | `## spec — 4 rounds` filed. `## plan — 4 rounds` filed alongside it. |
-| Implementation | **NOT STARTED.** Tasks 1-3 of the plan, in order. |
+| Implementation | **LANDED at `e4de29d3d`** (PR #871). Task 1 and Task 2 are the whole set; there is no Task 3, and the earlier "Tasks 1-3" was stale from round 1's collapse. This row read **NOT STARTED** at handoff, which was true then. |
 
 ## 2. Start here, in this order
 
@@ -58,7 +58,8 @@ defect history is recognizer growth. Narrower in reach, wider in mechanism, is t
 
 **Do not touch the v1 exit at line 717.** It sits before the drop at 721, so the sixteen v1
 heavy-wrapped markers are out of reach by construction. An implementation that "also fixes" them emits
-sixteen advisories the design does not claim, and Task 2 exists to fail on exactly that.
+sixteen advisories the design does not claim. What fails that is Task 1's fourth assertion row and
+`probe/reach.mts`'s sixteen named v1 rows, NOT Task 2 — Task 2 is the score.
 
 **The live marker gains the advisory.** `2026-08-17-red-verdict-capability.md:135` is `red-state=live`
 and already draws `RED_ALREADY_GREEN`. It still gains `RED_PROBE_UNVERIFIED`, because the live gate in
@@ -121,8 +122,9 @@ the repo's own convergence criterion for a guard surface. If you change that pro
 ## 6. Enrolment, and what the closeout owes
 
 `redContract` is already enrolled in the source-mutation registry with `scoreFloor: 0.95` and seven
-`equivalent` rows, keyed at lines 37, 110, 127, 190, 191, and 257. **Every one sits ABOVE this arc's
-edit point at 721, so none shifts** — which is why the plan's Task 3 carries no `red=` and says so
+`equivalent` rows, keyed at lines 37, 110, 127, 190, 191, and 257 — SEVEN keys over six lines, since
+257 carries two. **Every one sits ABOVE this arc's
+edit point, so none shifts** — which is why the plan's Task 2 carries no `red=` and says so
 with the numbers. Editing `redContract.ts` still RETIRES the current score, so measure ONCE after the
 last source-or-suite edit, re-VALIDATE all seven rows even though they are unshifted, and run
 `pnpm mutation:sites` LAST before any push touching the enrolled source. `pnpm mutation:guards` is a
