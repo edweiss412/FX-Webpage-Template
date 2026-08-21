@@ -39,9 +39,11 @@ const globMembers = readdirSync(SPEC_LINT_TESTS)
 /** Test files that import the module DIRECTLY, by reading their source. */
 const directImporters = readdirSync(SPEC_LINT_TESTS)
   .filter((f) => f.endsWith(".test.ts"))
-  .filter((f) => /from "(?:\.\.\/\.\.|@)\/lib\/specLint\/claimSweep"/.test(
-    readFileSync(join(SPEC_LINT_TESTS, f), "utf8"),
-  ))
+  .filter((f) =>
+    /from "(?:\.\.\/\.\.|@)\/lib\/specLint\/claimSweep"/.test(
+      readFileSync(join(SPEC_LINT_TESTS, f), "utf8"),
+    ),
+  )
   .map((f) => `tests/specLint/${f}`)
   .sort();
 

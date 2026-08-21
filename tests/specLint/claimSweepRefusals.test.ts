@@ -65,13 +65,11 @@ describe("claim sweep — the three refusals (spec §3.0)", () => {
         // so nothing else catches it.
         const r = cli([DOC, "--superseded", "58", "--replacement", "58"]);
         premise(
-
           "the CLI child wrote to a channel",
 
           r.stdout.length + r.stderr.length,
 
           0,
-
         );
         expect(r.code).toBe(2);
         // The REASON is the assertion. It names both declared values and says
@@ -95,13 +93,11 @@ describe("claim sweep — the three refusals (spec §3.0)", () => {
         // declaration, which would be the silent clean wearing another costume.
         const r = cli([DOC, "--superseded", "58", "--replacement", "57"]);
         premise(
-
           "the CLI child wrote to a channel",
 
           r.stdout.length + r.stderr.length,
 
           0,
-
         );
         expect(r.code).not.toBe(2);
         expect(r.stderr).toBe("");
@@ -120,13 +116,11 @@ describe("claim sweep — the three refusals (spec §3.0)", () => {
         // five the repair itself wrote — a wrong advisory.
         const r = cli([DOC, "--claim-about", "PublishedReviewModal.tsx:964"]);
         premise(
-
           "the CLI child wrote to a channel",
 
           r.stdout.length + r.stderr.length,
 
           0,
-
         );
         expect(r.code).toBe(2);
         expect(r.stderr).toMatch(/--repair/);
@@ -148,13 +142,11 @@ describe("claim sweep — the three refusals (spec §3.0)", () => {
           "c272ebed3",
         ]);
         premise(
-
           "the CLI child wrote to a channel",
 
           r.stdout.length + r.stderr.length,
 
           0,
-
         );
         expect(r.code).not.toBe(2);
         expect(r.stderr).toBe("");
@@ -175,13 +167,11 @@ describe("claim sweep — the three refusals (spec §3.0)", () => {
         // than running nothing and reporting clean.
         const r = cli([DOC, "--repair", "c272ebed3"]);
         premise(
-
           "the CLI child wrote to a channel",
 
           r.stdout.length + r.stderr.length,
 
           0,
-
         );
         expect(r.code).toBe(2);
         expect(r.stderr).toMatch(/--repair/);
@@ -197,13 +187,11 @@ describe("claim sweep — the three refusals (spec §3.0)", () => {
       () => {
         const r = cli([DOC, "--repair", "c272ebed3", "--superseded", "58", "--replacement", "57"]);
         premise(
-
           "the CLI child wrote to a channel",
 
           r.stdout.length + r.stderr.length,
 
           0,
-
         );
         expect(r.code).not.toBe(2);
         expect(r.stderr).toBe("");
@@ -221,7 +209,8 @@ describe("claim sweep — the three refusals (spec §3.0)", () => {
         const noDecl = cli([DOC, "--repair", "c272ebed3"]).stderr;
         for (const s of [equal, noRepair, noDecl]) {
           premise("each refusal produced a reason line", s.length, 0);
-        }        expect(new Set([equal, noRepair, noDecl]).size).toBe(3);
+        }
+        expect(new Set([equal, noRepair, noDecl]).size).toBe(3);
       },
       T,
     );
@@ -233,13 +222,11 @@ describe("claim sweep — the three refusals (spec §3.0)", () => {
       () => {
         const r = cli([DOC, "--supersedes", "58"]);
         premise(
-
           "the CLI child wrote to a channel",
 
           r.stdout.length + r.stderr.length,
 
           0,
-
         );
         expect(r.code).toBe(2);
         expect(r.stderr).toMatch(/unknown flag: --supersedes/);
@@ -252,25 +239,21 @@ describe("claim sweep — the three refusals (spec §3.0)", () => {
       () => {
         const onlyOld = cli([DOC, "--superseded", "58"]);
         premise(
-
           "the CLI child wrote to a channel",
 
           onlyOld.stdout.length + onlyOld.stderr.length,
 
           0,
-
         );
         expect(onlyOld.code).toBe(2);
         expect(onlyOld.stderr).toMatch(/--replacement/);
         const onlyNew = cli([DOC, "--replacement", "57"]);
         premise(
-
           "the CLI child wrote to a channel",
 
           onlyNew.stdout.length + onlyNew.stderr.length,
 
           0,
-
         );
         expect(onlyNew.code).toBe(2);
         expect(onlyNew.stderr).toMatch(/--superseded/);

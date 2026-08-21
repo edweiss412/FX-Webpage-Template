@@ -1143,7 +1143,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
         reason:
           "`boundedOccurrences`' guard initialiser, L+1 iterations to L. `from` advances by one " +
           "per success so k <= L; the dropped iteration is the failing `indexOf` that only " +
-          "breaks. Measured at the tight end: `boundedOccurrences(\"aaa\", \"a\", /[0-9]/)` has " +
+          'breaks. Measured at the tight end: `boundedOccurrences("aaa", "a", /[0-9]/)` has ' +
           "k = L = 3 and returns [0,1,2] under both the original and this mutant. Cover A.",
       },
       {
