@@ -5536,7 +5536,7 @@ describe("arm 2 - a WHOLE-VALUE accepted expansion has its operand decided", () 
   // are asserted in ONE table so a change that moves any of them fails here.
   test("every remaining section 4 unchanged row holds its probed value", () => {
     const hitRows: Array<[label: string, source: string]> = [
-      ["A3 the ATTACHED here-string, withdrawn scope", "read -r PG <<<p'sql'\n"],
+      ["A3 the ATTACHED here-string, RETIRED 2026-08-21", "read -r PG <<<p'sql'\n"],
       ["A5 a fully quoted target", "read -r PG <<< 'psql'\n"],
       ["A10 a notpsql target", "read -r PG <<< notpsql\n"],
       ["F1 a DETACHED substitution target", "cat x > $(command -v psql)\n"],
@@ -5548,11 +5548,18 @@ describe("arm 2 - a WHOLE-VALUE accepted expansion has its operand decided", () 
     expect(
       hitRows.map(([label, source]) => [label, scanShellIndirection(source, "x.sh").length]),
     ).toEqual([
-      ["A3 the ATTACHED here-string, withdrawn scope", 0],
+      // RETIRED 2026-08-21. The attached target is delimited by construct and
+      // retained now, so the here-string reader sees `p'sql'` exactly as it
+      // sees the detached spelling. Ledger:
+      // BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION.
+      ["A3 the ATTACHED here-string, RETIRED 2026-08-21", 1],
       ["A5 a fully quoted target", 1],
       ["A10 a notpsql target", 0],
       ["F1 a DETACHED substitution target", 1],
-      ["F2 the ATTACHED substitution target", 0],
+      // RETIRED 2026-08-21, same ledger row: the substitution inside the
+      // attached target is a nested body now, so the discovery hit its
+      // DETACHED sibling has always produced is produced here too.
+      ["F2 the ATTACHED substitution target", 1],
       ["E2 a notpsql operand", 0],
       ["E5 a double-quoted WHOLE expansion", 0],
       ["Q2 a composed value inside double quotes", 0],
@@ -5918,15 +5925,18 @@ describe("diff review round 2 - the two behavioural findings, each pinned", () =
     });
   });
 
-  // The ATTACHED redirection family is WITHDRAWN SCOPE (spec section 6 item 3),
-  // and the F3 repair now records an attached redirection's OPERATOR in the
-  // lexer's ledger. Those two facts are easy to confuse, so the boundary is
-  // pinned: recording the operator is what lets an attached `</dev/null`
-  // OVERRIDE a here-string, while the attached TARGET is still never read as a
-  // binding. The zero below is the withdrawn family, unchanged by this arc.
-  test("F3: recording an attached operator does not read an attached TARGET", () => {
+  // RETIRED IN PART, 2026-08-21. The F3 repair records an attached
+  // redirection's OPERATOR, which is what lets an attached `</dev/null`
+  // OVERRIDE a here-string. Reading the attached TARGET was a separate,
+  // withdrawn question and was closed by
+  // BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION: the first row REPORTS
+  // now. The SECOND row is the control the pair exists for and its zero is
+  // unmoved - a later `< /dev/null` on fd 0 overrides the here-string, so bash
+  // makes no binding, and a repair loud enough to report BOTH would be loud in
+  // a direction the shell does not license.
+  test("F3: an attached operator overrides, and an attached TARGET is now read", () => {
     premise(
-      "the DETACHED spelling of the same binding reports, so the difference is attachment",
+      "the DETACHED spelling of the same binding still reports, so the zero below is the OVERRIDE and not a broken read",
       scanShellIndirection("read -r PG <<< p'sql'\n", "x.sh").length,
       0,
     );
@@ -5940,7 +5950,7 @@ describe("diff review round 2 - the two behavioural findings, each pinned", () =
         scanShellIndirection("read -r PG <<<p'sql' < /dev/null\n", "x.sh").length,
       ],
     ]).toEqual([
-      ["attached target, no override", 0],
+      ["attached target, no override", 1],
       ["attached target, overridden", 0],
     ]);
   });
@@ -6168,8 +6178,11 @@ describe("documented limits - quote-concatenated spellings outside the assignmen
       // is a HIT now and is re-pinned as one - together with its ANSI-C,
       // quoted-directory, continuation and nested-body siblings - by the "arm 1
       // - a DETACHED here-string target is read from the lexer's retained word"
-      // block above. The ATTACHED spelling (`<<<p'sql'`) is withdrawn scope and
-      // lives in scan.ts's documented-limits block, not here.
+      // block above. The ATTACHED spelling (`<<<p'sql'`) LEFT this bullet on
+      // 2026-08-21 for the same reason one round later: the lexer delimits an
+      // attached target by construct and retains it too, so both spellings
+      // reach `valueBinds` through one reading. Ledger:
+      // BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION.
       // The alias row's BODY deliberately binds something OTHER than psql. An
       // alias definition is an assignment-SHAPED word, so `alias p'sql'='psql
       // -F'` dequotes to the candidate `psql=psql -F` and the assignment route
@@ -6226,5 +6239,878 @@ describe("documented limits - quote-concatenated spellings outside the assignmen
     ["a plain alias name", "alias psql='psql -F'\n"],
   ])("%s whose body binds psql is reported", (_label, source) => {
     expect(scanShellIndirection(source, "x.sh").length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION - an executing psql hidden
+// inside an ATTACHED redirection target.
+//
+// Design: docs/superpowers/specs/ci/2026-08-21-shell-attached-redirection-target-design.md
+//
+// The lexer consumed an attached target with a character-class run and threw
+// the match away, so a target carrying a command SUBSTITUTION hid an executing
+// command from BOTH scanners. The repair delimits the target BY CONSTRUCT,
+// retains it for the here-string reader, collects its nested bodies, and
+// REPORTS anything the accept-set cannot delimit.
+//
+// Every case below is drawn from the spec's acceptance set or from an axis a
+// review round found the set blind along - not constructed for the occasion.
+// ---------------------------------------------------------------------------
+
+/** Both scanners at once. The acceptance set's expectation is a PREDICATE over
+ *  this pair rather than a report/silent binary: case I already REPORTS today
+ *  with the attribution wrong, and a binary asking only "did anything report"
+ *  is structurally blind to it. */
+function scannedBoth(source: string) {
+  return {
+    sites: sitesIn(source, "x.sh"),
+    hits: scanShellIndirection(source, "x.sh"),
+  };
+}
+const attachedReports = (source: string): boolean => {
+  const { sites, hits } = scannedBoth(source);
+  return sites.length > 0 || hits.length > 0;
+};
+/** UNIVERSAL, and the quantifier is the assertion. An existential reading
+ *  accepts a repair that adds a correctly attributed record and leaves the
+ *  wrong one standing; the non-empty guard stops an empty read passing
+ *  vacuously. */
+const attachedInBacktick = (source: string): boolean => {
+  const { sites } = scannedBoth(source);
+  return sites.length > 0 && sites.every((site) => site.nestedInBacktick);
+};
+
+/** The four positive controls: the same bodies in positions the lexer already
+ *  reads. They are what makes a subject zero attributable rather than the
+ *  artefact of a broken read. */
+const ATTACHED_CONTROLS: Array<[label: string, source: string]> = [
+  ["detached backtick target", "cat > `psql -c 'select 1'`\n"],
+  ["detached dollar-paren target", "cat > $(psql -c 'select 1')\n"],
+  ["plain call", "psql -c 'select 1'\n"],
+  ["detached here-string binding", "read -r PG <<< p'sql'\n\"$PG\" -c 'select 1'\n"],
+];
+
+/**
+ * The acceptance set. `holds` is the POST-CHANGE expectation, stated per case.
+ *
+ * A-F are the ledger row's own family. G, H and I arrived at spec round 1 as
+ * the three cases said to separate the specified implementation from the
+ * accidental one; the killer audit refuted two of the three, since `"[^"]*"`
+ * matches G's target whole and H's escaped backtick never reaches that path.
+ * Case I's ATTRIBUTION predicate is what actually separates them - a
+ * naive re-lex of the old regex's match passes A-F by coincidence, because the
+ * fragment it stops on re-lexes to an unterminated backtick whose body happens
+ * to contain the command word. J and K arrived at round 4: every case A-I keeps
+ * its target on ONE physical line and writes a BARE `>` after the command word,
+ * so a same-line-only implementation and a no-fd-prefix implementation each
+ * passed the whole gate while staying silent on a form bash executes.
+ */
+const ATTACHED_SUBJECTS: Array<[label: string, source: string, holds: (s: string) => boolean]> = [
+  ["A bare backtick ATTACHED target", "cat >`psql -c 'select 1'`\n", attachedReports],
+  [
+    "B dollar-paren inside ATTACHED double quotes",
+    "cat >\"$(psql -c 'select 1')\"\n",
+    attachedReports,
+  ],
+  ["C backtick inside ATTACHED double quotes", "cat >\"`psql -c 'select 1'`\"\n", attachedReports],
+  ["D locale-quoted ATTACHED target", "cat >$\"$(psql -c 'select 1')\"\n", attachedReports],
+  [
+    "E substitution inside an ATTACHED brace target",
+    "cat >${OUT:-$(psql -c 'select 1')}\n",
+    attachedReports,
+  ],
+  [
+    "F plain ATTACHED here-string binding",
+    "read -r PG <<<p'sql'\n\"$PG\" -c 'select 1'\n",
+    attachedReports,
+  ],
+  [
+    "G brace inside an ATTACHED double-quoted target",
+    "cat >\"${OUT:-$(psql -c 'select 1')}\"\n",
+    attachedReports,
+  ],
+  [
+    "H escaped backtick in an ATTACHED double-quoted target",
+    'cat >"`echo \\\\\\` ; psql -c "select 1"`"\n',
+    attachedReports,
+  ],
+  [
+    "J backslash continuation inside an ATTACHED double-quoted target",
+    "cat >\"/dev/null\\\n$(psql -c 'select 1')\"\n",
+    attachedReports,
+  ],
+  [
+    "K fd-prefixed operator before an ATTACHED substitution",
+    "cat 2>\"$(psql -c 'select 1')\"\n",
+    attachedReports,
+  ],
+  [
+    "I mid-construct stop mis-attributes a backtick body",
+    'cat >`printf "\\140"; psql -c "select 1"`\n',
+    attachedInBacktick,
+  ],
+];
+
+describe("an executing psql inside an ATTACHED redirection target", () => {
+  test("every positive control still reports, so a subject zero is attributable", () => {
+    expect(ATTACHED_CONTROLS.map(([label, source]) => [label, attachedReports(source)])).toEqual(
+      ATTACHED_CONTROLS.map(([label]) => [label, true]),
+    );
+  });
+
+  test("each acceptance-set subject meets its declared expectation", () => {
+    for (const [label, source] of ATTACHED_SUBJECTS) {
+      premiseHolds(
+        `${label}: the target really is ATTACHED - no whitespace between operator and target`,
+        /(?:^|[^<>&|])(?:&>>|&>|<<<|<<-|<<|>>|>&|<&|<>|>\||<|>)[^\s]/.test(source),
+      );
+    }
+    expect(ATTACHED_SUBJECTS.map(([label, source, holds]) => [label, holds(source)])).toEqual(
+      ATTACHED_SUBJECTS.map(([label]) => [label, true]),
+    );
+  });
+
+  // The string-presence discipline. Each family below covers a SUBSET of the
+  // firing cases, not all eleven: (a) omits D, F, H, I and J; (b) omits H and I;
+  // (c) omits H; (d) omits C, D, G, H, I and J. Diff round 3 found this header
+  // claiming four mutants for EVERY case, which the tables do not carry.
+  // For the cases each family does cover, mutants that a
+  // presence assertion cannot tell apart from the real thing. (a) an EMPTY body
+  // proves the case tracks the nested body rather than the presence of a
+  // target; (b) `notpsql` proves it reads the command word; (c) `-X` proves it
+  // reads the VERDICT rather than mere presence; (d) the same body DETACHED
+  // proves the case is not passing through the arm that already worked.
+  test("mutant (a): an attached target whose body runs NOTHING stays quiet", () => {
+    const rows: Array<[label: string, source: string]> = [
+      ["A bare backtick", "cat >``\n"],
+      ["B dollar-paren in double quotes", 'cat >"$()"\n'],
+      ["C backtick in double quotes", 'cat >""\n'],
+      ["E brace operand", "cat >${OUT:-}\n"],
+      ["G brace in double quotes", 'cat >"${OUT:-}"\n'],
+      ["K fd-prefixed", 'cat 2>"$()"\n'],
+    ];
+    expect(rows.map(([label, source]) => [label, attachedReports(source)])).toEqual(
+      rows.map(([label]) => [label, false]),
+    );
+  });
+
+  test("mutant (b): the same targets carrying notpsql stay quiet", () => {
+    const rows: Array<[label: string, source: string]> = [
+      ["A bare backtick", "cat >`notpsql -c 'select 1'`\n"],
+      ["B dollar-paren in double quotes", "cat >\"$(notpsql -c 'select 1')\"\n"],
+      ["C backtick in double quotes", "cat >\"`notpsql -c 'select 1'`\"\n"],
+      ["D locale-quoted", "cat >$\"$(notpsql -c 'select 1')\"\n"],
+      ["E brace operand", "cat >${OUT:-$(notpsql -c 'select 1')}\n"],
+      ["F here-string binding", "read -r PG <<<n'otpsql'\n\"$PG\" -c 'select 1'\n"],
+      ["G brace in double quotes", "cat >\"${OUT:-$(notpsql -c 'select 1')}\"\n"],
+      ["J continuation", "cat >\"/dev/null\\\n$(notpsql -c 'select 1')\"\n"],
+      ["K fd-prefixed", "cat 2>\"$(notpsql -c 'select 1')\"\n"],
+    ];
+    expect(rows.map(([label, source]) => [label, attachedReports(source)])).toEqual(
+      rows.map(([label]) => [label, false]),
+    );
+  });
+
+  test("mutant (c): adding -X moves the VERDICT rather than removing the site", () => {
+    const rows: Array<[label: string, source: string]> = [
+      ["A bare backtick", "cat >`psql -X -c 'select 1'`\n"],
+      ["B dollar-paren in double quotes", "cat >\"$(psql -X -c 'select 1')\"\n"],
+      ["C backtick in double quotes", "cat >\"`psql -X -c 'select 1'`\"\n"],
+      ["D locale-quoted", "cat >$\"$(psql -X -c 'select 1')\"\n"],
+      ["E brace operand", "cat >${OUT:-$(psql -X -c 'select 1')}\n"],
+      ["G brace in double quotes", "cat >\"${OUT:-$(psql -X -c 'select 1')}\"\n"],
+      ["J continuation", "cat >\"/dev/null\\\n$(psql -X -c 'select 1')\"\n"],
+      ["K fd-prefixed", "cat 2>\"$(psql -X -c 'select 1')\"\n"],
+      ["I bare backtick, mid-construct", 'cat >`printf "\\140"; psql -X -c "select 1"`\n'],
+    ];
+    expect(
+      rows.map(([label, source]) => {
+        const sites = sitesIn(source, "x.sh");
+        return [label, sites.length, sites.map((s) => s.suppressesStartupFiles)];
+      }),
+    ).toEqual(rows.map(([label]) => [label, 1, [true]]));
+  });
+
+  // F reports through `scanShellIndirection` as an IndirectionHit and produces
+  // no PsqlSite, so there is no `suppressesStartupFiles` field for (c) to move.
+  // Its analogue asserts the hit stays PRESENT: a hit records an indirection,
+  // not a verdict. Stated rather than silently skipped - a procedure written
+  // for "each of the eleven" that cannot execute for one of them is a checklist
+  // item nobody can discharge.
+  test("mutant (c), F's analogue: -X on the here-string binding leaves the hit present", () => {
+    expect(
+      scanShellIndirection("read -r PG <<<p'sql'\n\"$PG\" -X -c 'select 1'\n", "x.sh"),
+    ).toHaveLength(1);
+  });
+
+  // W6: honour the escape pair at TOP LEVEL only. The plan named case H as its
+  // killer and H does not reach that path at all -- H's escaped backtick is
+  // consumed inside `closingBacktick`, never inside the quoted-span walk -- so
+  // the variant held all 27 shipped checks. Found by BUILDING it, not by
+  // reading. The separator is an escaped DOUBLE QUOTE inside the attached
+  // target: with the escape honoured the target runs to its real close and the
+  // substitution is a nested body; without it the span ends at the escaped
+  // quote, the remainder never closes, and the SITE is lost to an advisory.
+  // Both halves are asserted, because "something reported" holds either way and
+  // is exactly the presence reading this class defeats.
+  test("an escaped double quote inside an attached target does not end it", () => {
+    const source = 'cat >"a\\"b$(psql -c \'select 1\')"\n';
+    premiseHolds(
+      "the same target WITHOUT the escaped quote reports one site, so the pair differs by that escape alone",
+      sitesIn("cat >\"ab$(psql -c 'select 1')\"\n", "x.sh").length === 1,
+    );
+    const sites = sitesIn(source, "x.sh");
+    expect({
+      sites: sites.length,
+      nested: sites.map((s) => s.nested),
+      unlexableAdvisories: scanShellIndirection(source, "x.sh").length,
+    }).toEqual({ sites: 1, nested: [true], unlexableAdvisories: 0 });
+  });
+
+  test("mutant (d): each covered body still reports from a DETACHED position", () => {
+    const rows: Array<[label: string, source: string]> = [
+      ["A bare backtick", "cat > `psql -c 'select 1'`\n"],
+      ["B dollar-paren", "cat > \"$(psql -c 'select 1')\"\n"],
+      ["E brace operand", "cat > ${OUT:-$(psql -c 'select 1')}\n"],
+      ["F here-string binding", "read -r PG <<< p'sql'\n\"$PG\" -c 'select 1'\n"],
+      ["K fd-prefixed", "cat 2> \"$(psql -c 'select 1')\"\n"],
+    ];
+    expect(rows.map(([label, source]) => [label, attachedReports(source)])).toEqual(
+      rows.map(([label]) => [label, true]),
+    );
+  });
+
+  // I's mutants are DIFFERENT, and that is the point of giving it its own
+  // predicate. Moving the psql OUT of the backtick body must flip
+  // `nestedInBacktick` to false while the site STILL REPORTS - the mutant only
+  // an attribution assertion kills. And the round-4 mutant: a snippet producing
+  // BOTH a wrongly top-level site and a correct one must FAIL, which an
+  // existential reading accepts.
+  test("I's attribution predicate discriminates in both directions", () => {
+    const inBacktick = 'cat >`printf "\\140"; psql -c "select 1"`\n';
+    const outOfBacktick = 'cat >`printf "\\140"` ; psql -c "select 1"\n';
+    const both = 'cat >`printf "\\140"; psql -c "select 1"`\npsql -c \'select 2\'\n';
+    expect({
+      inBacktick: attachedInBacktick(inBacktick),
+      outOfBacktickStillReports: sitesIn(outOfBacktick, "x.sh").length > 0,
+      outOfBacktickAttribution: attachedInBacktick(outOfBacktick),
+      leftoverWrongSiteFails: attachedInBacktick(both),
+    }).toEqual({
+      inBacktick: true,
+      outOfBacktickStillReports: true,
+      outOfBacktickAttribution: false,
+      leftoverWrongSiteFails: false,
+    });
+  });
+
+  // H asserts ATTRIBUTION too, and for the same reason: a walker that marks a
+  // backtick inside an attached double-quoted target as `backtick:false` makes
+  // H report while attributing it wrongly, and the separate bare-backtick path
+  // still carries I.
+  test("H's body is attributed to the backtick it really sits in", () => {
+    expect(attachedInBacktick('cat >"`echo \\\\\\` ; psql -c "select 1"`"\n')).toBe(true);
+  });
+
+  // W11: an implementation that delimits construct-aware after `>` and `<<<`
+  // and falls back to the character run for the other ten operators passes the
+  // entire acceptance set, which exercises exactly those two. The array is
+  // IMPORTED rather than retyped, so an operator added to the lexer is covered
+  // by construction instead of silently exempt.
+  test("the attached-target walk runs for EVERY shipped redirection operator", () => {
+    // The FOIL is hand-written and the POPULATION is derived, which is the only
+    // pairing that can disagree - deriving both from `REDIRECTION_PARTITION`
+    // moves them together and the row could never fail. These two are the
+    // operators bash takes LITERALLY, MEASURED rather than reasoned: one bash
+    // script per operator with a fake psql on PATH, `<<` and `<<-` warn about
+    // an unterminated here-document and execute NOTHING while the other ten
+    // execute the substitution exactly once - `<&` included, which expands the
+    // word first and only then fails the descriptor check. Reporting on a
+    // here-doc delimiter is a FALSE advisory, the direction the consequence
+    // bound refuses even though it is the quiet-looking one.
+    const literalDelimiter = ["<<", "<<-"];
+    expect([...REDIRECTION_PARTITION.literalTarget].sort()).toEqual([...literalDelimiter].sort());
+    premiseHolds(
+      "the operator axis is derived from the shipped array, so an operator added later is covered by construction",
+      REDIRECTION_PARTITION.all.length === 12 &&
+        literalDelimiter.every((operator) =>
+          (REDIRECTION_PARTITION.all as readonly string[]).includes(operator),
+        ),
+    );
+    expect(
+      REDIRECTION_PARTITION.all.map((operator) => [
+        operator,
+        attachedReports(`cat ${operator}"$(psql -c 'select 1')"\n`),
+      ]),
+    ).toEqual(
+      REDIRECTION_PARTITION.all.map((operator) => [operator, !literalDelimiter.includes(operator)]),
+    );
+  });
+
+  // W12: every acceptance-set case carries AT MOST ONE substitution body, so
+  // "collect the first body and stop" passes the whole set. The assertion is on
+  // the COUNT rather than on a witness, over zero, one and two SIBLING bodies -
+  // siblings, not nesting, because a first-body-only walk survives nesting and
+  // dies on siblings.
+  test("every nested body of one attached target is collected, not just the first", () => {
+    const rows: Array<[label: string, source: string, bodies: number]> = [
+      ["zero bodies", 'cat >"/dev/null"\n', 0],
+      ["one body", "cat >\"$(psql -c 'one')\"\n", 1],
+      ["two SIBLING bodies", "cat >\"$(psql -c 'one')$(psql -c 'two')\"\n", 2],
+      ["three SIBLING bodies", "cat >\"$(psql -c 'one')$(psql -c 'two')$(psql -c 'three')\"\n", 3],
+    ];
+    expect(rows.map(([label, source]) => [label, sitesIn(source, "x.sh").length])).toEqual(
+      rows.map(([label, , bodies]) => [label, bodies]),
+    );
+  });
+
+  // W16: the sibling-body case varies bodies inside ONE target. A collector
+  // that walks every body of the FIRST substitution-bearing target and ignores
+  // later ones still passes it. Stated in BOTH orders, because with the payload
+  // last an implementation that OVERWRITES its accumulation at each target also
+  // passes.
+  test("every attached target in a chunk is walked, whichever one carries the payload", () => {
+    const rows: Array<[label: string, source: string]> = [
+      ["payload in the FIRST target", 'cat >"$(psql -c \'one\')"\ncat >"$(true)"\n'],
+      ["payload in the LAST target", 'cat >"$(true)"\ncat >"$(psql -c \'one\')"\n'],
+      ["payload in BOTH targets", "cat >\"$(psql -c 'one')\"\ncat >\"$(psql -c 'two')\"\n"],
+    ];
+    expect(rows.map(([label, source]) => [label, sitesIn(source, "x.sh").length])).toEqual([
+      ["payload in the FIRST target", 1],
+      ["payload in the LAST target", 1],
+      ["payload in BOTH targets", 2],
+    ]);
+  });
+
+  // The three tests below close the axes the handover's §5a inventory listed as
+  // crossed by NO fixture. None of them found a defect - the shipped delimiter
+  // already handles all three - so what they buy is the pin, not a repair. That
+  // is the point of the inventory: a quiet round certifies varied axes only,
+  // and an axis no fixture varies is certified by nothing.
+
+  // §5a item 3. Every acceptance fixture writes ONE redirection per command, so
+  // nothing pinned that the walk RESUMES after a delimited target WITHIN a
+  // command. W16 above closes the across-LINE version; this is the same-command
+  // one, and it is the harder half, because resuming from a span the delimiter
+  // just consumed is exactly where an off-by-one lands. Stated over both
+  // which-target-carries-it orders for W16's reason: with the payload first, an
+  // implementation that stops after the first target still passes.
+  test("the walk resumes after a delimited target WITHIN one command", () => {
+    const rows: Array<[label: string, source: string, want: number]> = [
+      ["both targets carry it", "cat >\"$(psql -c 'one')\" 2>\"$(psql -c 'two')\"\n", 2],
+      ["payload in the FIRST", 'cat >"$(psql -c \'one\')" 2>"$(echo two.txt)"\n', 1],
+      ["payload in the LAST", 'cat >"$(echo one.txt)" 2>"$(psql -c \'one\')"\n', 1],
+      [
+        "payload in the MIDDLE of three",
+        'cat >"$(echo one.txt)" 2>"$(psql -c \'x\')" <"$(echo /dev/null)"\n',
+        1,
+      ],
+      ["a BARE target then a quoted one", "cat >$(psql -c 'one') 2>\"$(psql -c 'two')\"\n", 2],
+    ];
+    expect(rows.map(([label, source]) => [label, sitesIn(source, "x.sh").length])).toEqual(
+      rows.map(([label, , want]) => [label, want]),
+    );
+  });
+
+  // A COUNT can be right while the second site sits at the first one's
+  // coordinates, which is the shape an off-by-one resume actually produces.
+  // Both offsets are derived from the fixture rather than typed in.
+  test("the second target's site lands at its OWN offset, not the first's", () => {
+    const source = "cat >\"$(psql -c 'one')\" 2>\"$(psql -c 'two')\"\n";
+    expect(sitesIn(source, "x.sh").map((site) => site.offset)).toEqual([
+      source.indexOf("psql"),
+      source.lastIndexOf("psql"),
+    ]);
+  });
+
+  // §5a item 1. All fifteen acceptance fixtures end with a trailing newline, so
+  // the end-of-file family was unreachable by the whole set - the same shape
+  // that hid an input family on another arc in this repo where 114 cases all
+  // ended in "\n". The split below is the consequence bound stated at EOF: a
+  // target that CLOSES is resolved, one that does not is REPORTED, and neither
+  // is silently wrong. A delimiter that assumed a terminator exists would take
+  // the resolving rows to zero.
+  test("a target running into EOF is resolved when it closes and REPORTED when it does not", () => {
+    const rows: Array<[label: string, source: string, sites: number, advisories: number]> = [
+      ["closed, no trailing newline", "cat >\"$(psql -c 'select 1')\"", 1, 0],
+      ["closed, then a backslash as the LAST byte", "cat >\"$(psql -c 'select 1')\"\\", 1, 0],
+      ["closed, space then a backslash at EOF", "cat >\"$(psql -c 'select 1')\" \\", 1, 0],
+      ["a BARE target ending at EOF", "cat >$(psql -c 'x')", 1, 0],
+      [
+        "a continuation INSIDE the target, closed at EOF",
+        "cat >\"a\\\n$(psql -c 'select 1')\"",
+        1,
+        0,
+      ],
+      ["the double quote never closes", "cat >\"$(psql -c 'select 1')", 0, 1],
+      ["the substitution never closes", "cat >$(psql -c 'select 1'", 0, 1],
+      ["unterminated, last byte a backslash", "cat >\"$(psql -c 'select 1')\\", 0, 1],
+      [
+        "a continuation inside the target, EOF mid-target",
+        "cat >\"a\\\n$(psql -c 'select 1')",
+        0,
+        1,
+      ],
+    ];
+    expect(
+      rows.map(([label, source]) => [
+        label,
+        sitesIn(source, "x.sh").length,
+        scanShellIndirection(source, "x.sh").length,
+      ]),
+    ).toEqual(rows.map(([label, , sites, advisories]) => [label, sites, advisories]));
+  });
+
+  // Diff round 1, finding 1. `matchBraceEnd` asked whether the character it
+  // LANDED on equals the closing delimiter. `matchBrace` returns the final index
+  // when it runs out of input, so a span whose last character merely IS that
+  // delimiter - escaped, inside an unclosed quote, or closing a NESTED opener -
+  // read as closed. The target was then resolved and its bodies collected, and
+  // the unlexable channel it exists to feed was bypassed entirely.
+  //
+  // Bash exits 2 on every one of these and runs NOTHING, so a resolved site is
+  // wrong auto-correction, not a conservative over-report. Both delimiter pairs
+  // crossed with all three ways a final delimiter can fail to close.
+  test("a construct whose LAST character is its delimiter without closing is REPORTED, not resolved", () => {
+    const rows: Array<[label: string, source: string]> = [
+      ["$() final ) is escaped", "cat >$(psql -c 'x'\\)"],
+      ["$() final ) is inside an unclosed single quote", "cat >$(psql -c 'x)"],
+      ["$() final ) closes only a NESTED opener", "cat >$(psql -c 'x' $(echo)"],
+      ["${} final } is escaped", "cat >${OUT:-$(psql -c 'x')\\}"],
+      ["${} final } is inside an unclosed single quote", "cat >${OUT:-$(psql -c 'x')'}"],
+      ["${} final } closes only a NESTED opener", "cat >${OUT:-$(psql -c 'x') ${A}"],
+    ];
+    expect(
+      rows.map(([label, source]) => [
+        label,
+        sitesIn(source, "x.sh").length,
+        scanShellIndirection(source, "x.sh").length,
+      ]),
+    ).toEqual(rows.map(([label]) => [label, 0, 1]));
+  });
+
+  // Diff round 2, finding 1. `closeDoubleQuoted` delegated EVERY character to
+  // `openerEnd`, which knows the quote forms too - so a `'` or `$'` or `$"`
+  // sitting inside a double-quoted target was read as opening a nested span.
+  // In bash those three are LITERAL text inside double quotes. The walk
+  // therefore ran to end of chunk, called the target undelimitable, and then
+  // emitted no advisory either, because the swallowed span carries no
+  // substitution opener. Silent miss on both declared production surfaces, on
+  // one-edit target spellings, which is the forbidden direction.
+  test("a quote character that is LITERAL inside a double-quoted target does not open a span", () => {
+    const rows: Array<[label: string, source: string]> = [
+      ["control, no inner quote", 'cat >"x"\npsql -c "select 1"\n'],
+      ["a literal single quote", 'cat >"x\'"\npsql -c "select 1"\n'],
+      ["a literal ANSI-C opener", 'cat >"x$\'"\npsql -c "select 1"\n'],
+      ["a literal locale opener", 'cat >"x$"\npsql -c "select 1"\n'],
+    ];
+    expect(
+      rows.map(([label, source]) => [
+        label,
+        sitesIn(source, "x.sh").length,
+        scanShellIndirection(source, "x.sh").length,
+      ]),
+    ).toEqual(rows.map(([label]) => [label, 1, 0]));
+  });
+
+  // Diff round 3. `$((` is ARITHMETIC, not a command substitution, and the
+  // lexer's `$(` branches matched its prefix - so `>"$((psql -c 'x'))"` yielded
+  // a resolved site for a command bash never runs (it exits on an arithmetic
+  // syntax error). A REGRESSION this arc introduced: base reports nothing here.
+  //
+  // The obvious repair is a trap and the last row is what guards it. Bash DOES
+  // execute a command substitution NESTED INSIDE arithmetic, so suppressing the
+  // whole span would trade this false site for a silent miss - the forbidden
+  // direction swapped in while fixing the permitted one. The arithmetic span
+  // contributes no body of its OWN; its interior stays a live lexing context.
+  // PROMOTED from a scratchpad probe, because a scratchpad artifact dies with
+  // the session that wrote it and this is the branch's terminal verifier. The
+  // source-mutation registry cannot reach the `$((` branch at all: BOTH declared
+  // operators produce ZERO sites over it. Four UNdeclared operators do reach it,
+  // the cheapest file-wide being `logical-connector` at +195 sites; the row
+  // carries the per-operator census, stated as reaches/does-not-reach plus a
+  // file-wide cost, because an exact in-branch count depends on where the
+  // branch is cut and two honest enumerations disagreed on it.
+  // Filed as BL-MUTATION-SCORE-JURISDICTION-GAP-ARITHMETIC-BRANCH rather than
+  // enrolled, so this test IS the coverage for that branch.
+  //
+  // Expectations are DERIVED FROM BASH, not typed in: each row runs under a
+  // fake `psql` on PATH and the scanner must agree with whether the shell
+  // actually executed it. A row that stops executing changes its own
+  // expectation, so the test cannot rot into asserting a stale belief.
+  test("the scanner agrees with BASH on every arithmetic-versus-substitution spelling", () => {
+    const dir = mkdtempSync(join(tmpdir(), "arith-oracle-"));
+    const bin = join(dir, "bin");
+    mkdirSync(bin);
+    const fake = join(bin, "psql");
+    writeFileSync(fake, "#!/bin/bash\nprintf 'RAN\\n' >> \"$LOGFILE\"\necho out.txt\n");
+    chmodSync(fake, 0o755);
+    const bashRuns = (source: string, id: string): boolean => {
+      const script = join(dir, `${id}.sh`);
+      const log = join(dir, `${id}.log`);
+      writeFileSync(script, source);
+      writeFileSync(log, "");
+      try {
+        execFileSync("bash", [script], {
+          cwd: dir,
+          env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, LOGFILE: log },
+          stdio: "ignore",
+          timeout: 10_000,
+        });
+      } catch {
+        // A failed redirection or an arithmetic syntax error is fine - the LOG
+        // is the observation, not the exit status.
+      }
+      return readFileSync(log, "utf8").includes("RAN");
+    };
+    const rows: Array<[label: string, source: string]> = [
+      ["bare arithmetic", "cat >$((psql -c 'select 1'))\n"],
+      ["double-quoted arithmetic", "cat >\"$((psql -c 'select 1'))\"\n"],
+      ["locale-quoted arithmetic", "cat >$\"$((psql -c 'select 1'))\"\n"],
+      ["brace-wrapped arithmetic", "cat >${OUT:-$((psql -c 'select 1'))}\n"],
+      ["fd-prefixed arithmetic", "cat 2>\"$((psql -c 'select 1'))\"\n"],
+      ["a real substitution NESTED in arithmetic", "cat >\"$((1 + $(psql -c 'x')))\"\n"],
+      ["control, ordinary substitution", "cat >\"$(psql -c 'select 1')\"\n"],
+    ];
+    // ONE spawn per row, memoised. The first draft called `bashRuns` FOUR times
+    // per row - a floor pass plus three inside the assertion - which is 28 bash
+    // processes for 7 rows, and it was quietly TAUTOLOGICAL: the EXPECTED array
+    // called `bashRuns` a second time, so it compared bash against itself and
+    // the scanner's answer rode along without ever being the thing under test.
+    const ran = new Map(rows.map(([, source], n) => [n, bashRuns(source, `r${n}`)]));
+
+    // Floor 1, non-vacuity, stated as an executable PREMISE because this test
+    // TOUCHES THE ENVIRONMENT - it needs a usable `bash` and a fake `psql` it can
+    // put on PATH. If neither runs, every "agrees" below is two zeros agreeing
+    // about nothing, and the premise contract is what makes that a red rather
+    // than a quiet green.
+    premiseHolds(
+      "bash runs the fixtures and the fake psql on PATH is reachable",
+      [...ran.values()].some(Boolean),
+    );
+
+    // Floor 2, PLANTED DEFECT. A gate whose expected and actual share a producer
+    // is vacuous however principled that producer is, and the double-call above
+    // is what that looks like in practice. So a deliberately wrong classifier -
+    // one that calls every spelling a site - is run through the SAME comparison
+    // and must DISAGREE with bash. If this ever stops disagreeing, the matrix has
+    // stopped discriminating and its green means nothing.
+    const alwaysSite = rows.map(([label]) => [label, true]);
+    const fromBash = rows.map(([label], n) => [label, ran.get(n)]);
+    expect(
+      alwaysSite,
+      "a classifier that reports EVERYTHING still matched bash - the matrix cannot discriminate",
+    ).not.toEqual(fromBash);
+
+    expect(rows.map(([label, source]) => [label, sitesIn(source, "x.sh").length > 0])).toEqual(
+      fromBash,
+    );
+  }, 30_000);
+
+  test("$(( )) is arithmetic and yields no site, while a substitution nested INSIDE it still does", () => {
+    const rows: Array<[label: string, source: string, sites: number]> = [
+      ["bare arithmetic target", "cat >$((psql -c 'select 1'))\n", 0],
+      ["double-quoted", "cat >\"$((psql -c 'select 1'))\"\n", 0],
+      ["locale-quoted", "cat >$\"$((psql -c 'select 1'))\"\n", 0],
+      ["brace-wrapped", "cat >${OUT:-$((psql -c 'select 1'))}\n", 0],
+      ["fd-prefixed operator", "cat 2>\"$((psql -c 'select 1'))\"\n", 0],
+      ["a real $() NESTED in arithmetic still reports", "cat >\"$((1 + $(psql -c 'x')))\"\n", 1],
+      ["control, ordinary substitution", "cat >\"$(psql -c 'select 1')\"\n", 1],
+    ];
+    expect(rows.map(([label, source]) => [label, sitesIn(source, "x.sh").length])).toEqual(
+      rows.map(([label, , sites]) => [label, sites]),
+    );
+  });
+
+  // Diff round 3 at the settled base. `visitBody` lexes a nested body into its
+  // OWN `innerTargets`, and nothing ever read their `unlexable` entries - so an
+  // undelimitable target INSIDE a substitution was reported at the enclosing
+  // body's line, with the whole body as its text, instead of at the target's own
+  // opening line. The channel fired, which is why no silence test caught it; it
+  // fired pointing somewhere else. Wrong attribution is a forbidden direction,
+  // and line is a field AC-5's digest covers.
+  test("an undelimitable target NESTED in a substitution body reports at its own line", () => {
+    const source = "X=$(\ncat >\"$(psql -c 'select 1')\n)\n";
+    const hits = scanShellIndirection(source, "x.sh");
+    expect(hits.map((hit) => hit.line)).toContain(2);
+  });
+
+  // §5a items 4 and 7. Every acceptance fixture is a whole small file whose
+  // construct starts at line 1 under LF. Line is a field AC-5's digest covers,
+  // so this asserts the COORDINATE and not the presence - the killer audit's
+  // one general finding is that a presence assertion does not discriminate a
+  // delimiting weakening while a coordinate assertion does.
+  test("an attached target is found mid-file and under CRLF, at its own coordinates", () => {
+    const rows: Array<[label: string, source: string, line: number]> = [
+      ["inside a function body", "f() {\n  cat >\"$(psql -c 'x')\"\n}\nf\n", 2],
+      ["after a here-document", "cat <<EOF\nplain\nEOF\ncat >\"$(psql -c 'x')\"\n", 4],
+      ["inside a case arm", "case a in\n  a) cat >\"$(psql -c 'x')\" ;;\nesac\n", 2],
+      ["CRLF line endings", "cat >\"$(psql -c 'select 1')\"\r\n", 1],
+    ];
+    expect(
+      rows.map(([label, source]) => {
+        const found = sitesIn(source, "x.sh");
+        return [label, found.length, found[0]?.line, found[0]?.offset];
+      }),
+    ).toEqual(rows.map(([label, source, line]) => [label, 1, line, source.indexOf("psql")]));
+  });
+
+  // W5: G nests two deep, so an implementation capped at two passes A-K, the
+  // operator-derived test and the sibling-body test. This asserts THREE concrete
+  // depths rather than depth generally, so it kills a cap at TWO or THREE and a
+  // cap at FOUR would survive it. Stated as the limit it is: diff round 2 found
+  // both the plan and this name claiming "unbounded", which the fixture list
+  // cannot support, and no W5 variant was ever observed failing (§2b-bis records
+  // it as could-not-be-built).
+  test("recursion into an attached target is not capped at case G's depth, over depths 2 to 4", () => {
+    const rows: Array<[depth: number, source: string]> = [
+      [2, "cat >\"${OUT:-$(psql -c 'select 1')}\"\n"],
+      [3, "cat >\"${OUT:-${OTHER:-$(psql -c 'select 1')}}\"\n"],
+      [4, "cat >\"${A:-${B:-${C:-$(psql -c 'select 1')}}}\"\n"],
+    ];
+    expect(rows.map(([depth, source]) => [depth, attachedReports(source)])).toEqual(
+      rows.map(([depth]) => [depth, true]),
+    );
+  });
+
+  // W18/W17/W15: rounds 1 through 4 each killed one positional heuristic and
+  // left the next alive - the operator's line, `operatorLine + 1`, the target's
+  // FINAL line, the scanner's line at EOF. The rule that closes the family at
+  // once: choose the fixture so the asserted line differs from EVERY other
+  // candidate line in it. For an ATTACHED target the operator's line and the
+  // target's first line necessarily coincide, so the candidates are three, and
+  // the asserted value differs from all three.
+  test("a nested body is stamped with its OWN line and byte offset, not a displacement", () => {
+    const source = ['cat >"a\\', "$(psql -c 'select 1')\\", 'b"', "echo one", "echo two", ""].join(
+      "\n",
+    );
+    const candidates = {
+      operatorLine: 1,
+      targetFirstLine: 1,
+      targetLastLine: 3,
+      eofLine: source.split("\n").length,
+    };
+    premiseHolds(
+      "the asserted line differs from every candidate a positional heuristic could pick",
+      ![
+        candidates.operatorLine,
+        candidates.targetFirstLine,
+        candidates.targetLastLine,
+        candidates.eofLine,
+      ].includes(2),
+    );
+    const sites = sitesIn(source, "x.sh");
+    expect({
+      count: sites.length,
+      line: sites[0]?.line,
+      offset: sites[0]?.offset,
+      candidates,
+    }).toEqual({
+      count: 1,
+      line: 2,
+      offset: source.indexOf("psql"),
+      candidates: { operatorLine: 1, targetFirstLine: 1, targetLastLine: 3, eofLine: 6 },
+    });
+  });
+
+  // J with TWO continuations. One continuation is not enough: a walker that
+  // stamps `operatorLine + 1` agrees with the right rule on the only fixture
+  // that could tell them apart, so the psql sits on the physical THIRD line and
+  // the assertion carries its byte offset as well. A displacement that is right
+  // by construction is not an assertion.
+  test("a continuation-crossing target stamps the body's real line, not operatorLine + 1", () => {
+    const source = ['cat >"/dev/null\\', "/tmp/x\\", "$(psql -c 'select 1')\"", ""].join("\n");
+    const sites = sitesIn(source, "x.sh");
+    expect({ count: sites.length, line: sites[0]?.line, offset: sites[0]?.offset }).toEqual({
+      count: 1,
+      line: 3,
+      offset: source.indexOf("psql"),
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 2 of BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION. Task 1 delimits
+// what the accept-set can close; an UNTERMINATED construct closes nothing, and
+// the consequence bound forbids silent discard. So the machinery REPORTS what
+// it cannot delimit, on the channel that already means "something here I
+// cannot read": an IndirectionHit naming the target.
+//
+// The case list is DERIVED from spec section 3.1's opener table rather than
+// picked - one unterminated case per opener the table admits - because an
+// implementation keyed to whichever three spellings an author happened to
+// choose silently discards their siblings, and `$(` is a different opener from
+// `${` exactly as a plain double quote is from the locale form.
+// ---------------------------------------------------------------------------
+
+describe("an ATTACHED target the accept-set cannot delimit is REPORTED on the spec's REPORT CONDITION", () => {
+  /** One row per opener in the accept-set table, each with the TERMINATED twin
+   *  that is one edit away. Without the twin a channel that reports EVERY
+   *  attached target satisfies all seven positives while being maximally
+   *  broken; without the positives a channel that reports nothing does. */
+  const UNLEXABLE: Array<[opener: string, unterminated: string, twin: string]> = [
+    ["$(", "cat >$(psql -c 'select 1'\n", "cat >$(psql -c 'select 1')\n"],
+    ["${", "cat >${OUT:-$(psql -c 'select 1')\n", "cat >${OUT:-$(psql -c 'select 1')}\n"],
+    ["backtick", "cat >`psql -c 'select 1'\n", "cat >`psql -c 'select 1'`\n"],
+    ['"', "cat >\"$(psql -c 'select 1')\n", "cat >\"$(psql -c 'select 1')\"\n"],
+    ['$"', "cat >$\"$(psql -c 'select 1')\n", "cat >$\"$(psql -c 'select 1')\"\n"],
+    ["'", "cat >'$(psql -c x)\n", "cat >'$(psql -c x)'\n"],
+    ["$'", "cat >$'$(psql -c x)\n", "cat >$'$(psql -c x)'\n"],
+  ];
+
+  test("every opener in the accept-set table reports when its construct never closes", () => {
+    premiseHolds(
+      "the case list covers the whole opener table, derived from spec section 3.1 rather than picked",
+      UNLEXABLE.length === 7,
+    );
+    expect(
+      UNLEXABLE.map(([opener, unterminated]) => {
+        const hits = scanShellIndirection(unterminated, "x.sh");
+        return [opener, hits.length, hits[0]?.text ?? null];
+      }),
+    ).toEqual(
+      UNLEXABLE.map(([opener, unterminated]) => [
+        opener,
+        1,
+        unterminated.slice(unterminated.indexOf(">") + 1).trim(),
+      ]),
+    );
+  });
+
+  test("the TERMINATED twin of each opener reports no unlexable target", () => {
+    expect(
+      UNLEXABLE.map(([opener, , twin]) => [
+        opener,
+        scanShellIndirection(twin, "x.sh").filter(
+          (hit) =>
+            hit.text.startsWith("$") ||
+            hit.text.startsWith("`") ||
+            hit.text.startsWith("'") ||
+            hit.text.startsWith('"'),
+        ).length,
+      ]),
+    ).toEqual(UNLEXABLE.map(([opener]) => [opener, 0]));
+  });
+
+  // An implementation that emits the required hit AND fabricates a PsqlSite
+  // beside it passes both the positive and the twin, and AC-5's digest cannot
+  // kill it because the live corpus holds zero members of this family - there
+  // is no baseline row for a fabricated site to move. The site count is the
+  // only assertion that discriminates, so it is stated per case. It is also
+  // what bash does: an unterminated construct is a syntax error and the file
+  // runs NOTHING.
+  test("an unlexable target produces no PsqlSite", () => {
+    expect(
+      UNLEXABLE.map(([opener, unterminated]) => [opener, sitesIn(unterminated, "x.sh").length]),
+    ).toEqual(UNLEXABLE.map(([opener]) => [opener, 0]));
+  });
+
+  // The firing condition is NARROW and is part of the contract: the live corpus
+  // holds ordinary attached targets - 58 at this HEAD, 53 at base `e5d1d723d`,
+  // derived by `corpus-family3.mts` rather than trusted from here - and not one of them may become an
+  // advisory. An undelimitable span carrying nothing executable stays quiet
+  // too - being unreadable is not by itself worth a report.
+  test("an ordinary attached target is never advised on, delimitable or not", () => {
+    const rows: Array<[label: string, source: string]> = [
+      ["a terminated ordinary target", 'cat >"${OUT}"\n'],
+      ["a plain path", "cat >/dev/null\n"],
+      ["an UNTERMINATED double quote carrying no opener", 'cat >"/dev/null\n'],
+      ["an UNTERMINATED single quote carrying no opener", "cat >'/dev/null\n"],
+    ];
+    // These four are quiet TODAY and after, so on their own they are satisfied
+    // by an implementation that never looks. Each is one edit from a case in
+    // the opener table above that is RED until the channel exists, and it is
+    // the pair that discriminates: the same target with an opener reports, and
+    // without one it does not.
+    expect(
+      rows.map(([label, source]) => [label, scanShellIndirection(source, "x.sh").length]),
+    ).toEqual(rows.map(([label]) => [label, 0]));
+  });
+
+  // `${` is one of the three openers the spec names, so an unterminated brace
+  // fires even with nothing executable inside it. That is deliberate and it is
+  // the conservative direction: bash refuses the file outright on the
+  // unexpected EOF, the target is genuinely unreadable, and the report says so
+  // rather than claiming what it would have expanded to. Pinned here so a later
+  // reader meets the decision instead of re-deriving it as an over-report.
+  test("an unterminated brace fires on its own opener, deliberately", () => {
+    expect(scanShellIndirection("cat >${OUT\n", "x.sh").map((hit) => hit.text)).toEqual(["${OUT"]);
+  });
+
+  // The report is scoped to the execution surfaces production READS. In a JS
+  // file the text is a COMPOSED STRING where `<` is a comparison, a JSX tag or
+  // a regex, and the ungated channel fired on NINE live template literals -
+  // measured, not feared. The pair varies ONE thing, the file's extension, so
+  // the quiet side is attributable: identical bytes report as shell and stay
+  // silent as JS. Shell text embedded in JS is documented limit 1 of the
+  // design, not an oversight here.
+  test("the unlexable report is scoped to shell and workflow surfaces, not JS", () => {
+    // ONE variable: the file's extension. Identical bytes, so the silence is
+    // attributable to the scoping rather than to the reader never getting
+    // there. A YAML row rides along because the workflow `run:` surface IS in
+    // the domain and a shell-only reading would have silently dropped it.
+    const shellShaped = "cat >\"$(psql -c 'select 1')\n";
+    // Shell embedded in a JS string is documented limit 1 of the design -
+    // reaching it needs extractors this module does not export - so the zero
+    // here is a DECLARED limit and not an accident of the fixture.
+    const embeddedInJs = 'const cmd = "cat >\\"$(psql -c \'select 1\')";\n';
+    expect({
+      asShell: scanShellIndirection(shellShaped, "x.sh").length,
+      asWorkflow: scanShellIndirection(shellShaped, "x.yml").length,
+      asTypeScript: scanShellIndirection(shellShaped, "x.ts").length,
+      embeddedInJs: scanShellIndirection(embeddedInJs, "x.ts").length,
+    }).toEqual({ asShell: 1, asWorkflow: 1, asTypeScript: 0, embeddedInJs: 0 });
+  });
+
+  // The operator derivation in Task 1 sits only on the DELIMIT path, so an
+  // implementation can delimit every shipped operator correctly and emit
+  // unlexable reports for `>` alone. And Task 2 varies opener KIND and nothing
+  // else, so an implementation that suppresses the report whenever a file
+  // descriptor preceded the operator passes every stipulated case - the killer
+  // is case K with its closing quote removed, one edit inside the domain.
+  test("the report path crosses the operator axis too, prefix included", () => {
+    // Counted by the hit's own TEXT rather than by the array length. The
+    // here-string row draws a SECOND, unrelated hit from the line-text route,
+    // which is correct and says nothing about this channel: a length assertion
+    // there would pin an unrelated reading and drift the first time it moved.
+    const rows: Array<[label: string, source: string, expected: string]> = [
+      ["a non-`>` operator", "cat >>\"$(psql -c 'select 1')\n", "\"$(psql -c 'select 1')"],
+      ["an fd-prefixed operator", "cat 2>\"$(psql -c 'select 1')\n", "\"$(psql -c 'select 1')"],
+      ["an input operator", "read -r PG <<<\"$(psql -c 'select 1')\n", "\"$(psql -c 'select 1')"],
+    ];
+    expect(
+      rows.map(([label, source, expected]) => [
+        label,
+        scanShellIndirection(source, "x.sh").filter((hit) => hit.text === expected).length,
+      ]),
+    ).toEqual(rows.map(([label]) => [label, 1]));
+  });
+
+  // Every unlexable fixture above starts on line 1, so an implementation that
+  // always emits `line = 1` passes all of them. Moving one to a later line
+  // kills that and leaves the NEXT heuristic alive: for a span that never
+  // closes, "where it started" and "where the scan ran out" coincide unless the
+  // span crosses lines. This one does both - it opens on line 3 and EOF is line
+  // 6 - under the same derived rule Task 1's coordinate cases use.
+  test("the hit names the line the target OPENS on, not line 1 and not EOF", () => {
+    const source = [
+      "echo one",
+      "echo two",
+      "cat >\"$(psql -c 'select 1')",
+      "echo three",
+      "echo four",
+      "",
+    ].join("\n");
+    const candidates = { firstLine: 1, eofLine: source.split("\n").length };
+    premiseHolds(
+      "the asserted line differs from every candidate a positional heuristic could pick",
+      ![candidates.firstLine, candidates.eofLine].includes(3),
+    );
+    const hits = scanShellIndirection(source, "x.sh");
+    expect({ count: hits.length, line: hits[0]?.line, candidates }).toEqual({
+      count: 1,
+      line: 3,
+      candidates: { firstLine: 1, eofLine: 6 },
+    });
   });
 });
