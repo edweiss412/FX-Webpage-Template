@@ -561,7 +561,7 @@ Every affected domain × layer. Every cell is an action or an `N/A — reason`.
 | Schema manifest | regenerate + commit | regenerate + commit | regenerate + commit | N/A — unchanged | N/A — unchanged |
 | Validation project | atomic surgical apply + `notify pgrst` | same | same | N/A — its row already reads `true` there (§3.1); this arc does not write it | N/A — no DDL reaches either table |
 | Frontend | N/A — no UI surface in this diff | N/A — no component or route reads either prune | N/A — same | N/A — the admin reset UI that reads this marker is untouched | N/A — this diff changes no UI; existing admin readers of `sync_log` are untouched |
-| Tests | `tests/db/pruneGate.db.test.ts (new)` (§6) | AC-1..AC-5 | AC-1..AC-5 | AC-3 forces each posture state | AC-4 (existing suites stay green, unedited) |
+| Tests | `tests/db/pruneGate.db.test.ts (new)` (§6) | AC-1..AC-5 | AC-1..AC-5 | AC-3 forces each posture state | AC-4 (existing suites stay green, unedited) + AC-8 (both cron rows pinned) |
 
 **CHECK/enum migration matrix:** no CHECK and no enum changes anywhere in this diff — the only new
 object is a function. There is therefore no transitional window, no old/new value overlap, and no
@@ -670,6 +670,17 @@ exact failure the arc exists to prevent, committed by its own acceptance test. S
   Together the two limbs answer what the parity gate structurally cannot (§4.3): parity compares
   signatures, not bodies, so only a live behavioural probe distinguishes an applied migration from a
   half-applied one. The R1 P1 finding is why both limbs name BOTH functions.
+- **AC-8 — both cron rows are pinned, not just one.** `app_events_prune`'s `command`, `schedule` and
+  `active` are asserted, mirroring what `sync_log_prune` already has at
+  `tests/db/syncLogIndexesAndPrune.db.test.ts:214-223`. Today only its NAME is checked
+  (`tests/log/appEventsSchema.test.ts:108-111` selects `jobname` and asserts one row), so all three of
+  its other fields are free to move. The wrong implementation this excludes is the one that breaks the
+  production half of the consequence bound while every gate criterion stays green: a cron row rewritten
+  to `select public.prune_app_events(interval '5 days')` still refuses on validation — the gate has no
+  opinion about the argument — and on production silently deletes events aged 5 to 60 days. The
+  `active` assertion covers its twin, a correct command on a disabled job, which is the reason the
+  `sync_log_prune` test carries one.
+
 - **AC-7 — parity gates pass.** `pnpm gen:schema-manifest` output is committed and
   `tests/db/validation-schema-parity.test.ts` passes at all three layers.
 
