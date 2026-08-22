@@ -38,6 +38,16 @@ Both fit every fact here. The same-branch pair narrows the variable to something
 
 **DO NOT recapture the baseline from a branch.** The byte-pin discipline stands: baselines are regenerated from the pinned amd64 Docker image, never from a host, and never as a way to make a red gate green. A recapture here would overwrite the pinned bytes with whatever the nondeterminism produced and destroy the evidence that something varies.
 
+## BL-DERIVED-NUMBERS-IN-DOCS-ROT — a number a document states about an artifact goes stale unless a command produces it at write time
+
+**Status:** OPEN · **Filed:** 2026-08-21 (`feat/mutation-verdict-intraleg-probe`, diff review rounds 1-3) · **Facing:** process · **Severity:** LOW (stale prose in records and ledger entries; no shipped behavior) · **Class:** documentation fidelity · **Effort:** M · **Incident:** diff review round 3 of PR #874 raised THREE findings that were all one shape — the archive quoted the first campaign's arm-C durations after the second superseded them, the probe record's producing command named the superseded output directory while every number came from the new one, and the audit transcript said 7 live cases against a tier of 8. A fourth instance, a case count stale at 151 against 169, was corrected separately in the same arc. Corpus rows: `docs/review-rounds/feat/mutation-verdict-intraleg-probe/c9c71b947a85.jsonl`. · **Reachability:** PROBED — four measured instances on one arc.
+
+**The population is sharply defined, which is what makes this filable rather than a wish.** On that arc, every number a RENDERER derived from `campaign.json` was correct at every rewrite; every number a person carried from one document to another went stale at least once. The two sets do not overlap. The rot is not caused by carelessness about numbers in general — it is caused by the ones that pass through a human hand between the measurement and the page.
+
+**What a repair looks like.** Not a linter that recognizes numbers: a convention plus one mechanical check. Records and ledger entries that state figures about a suite, an artifact or a run either (a) carry the producing command beside the figure, or (b) are assembled by a script that reads the artifact. A structural test can then require, for documents under `docs/superpowers/specs/ci/probes/`, that any line asserting a bare count near a `campaign.json`-shaped path also names the command that produced it.
+
+**First scheduled step:** count the population before building anything — grep the probe records for stated figures and classify each as derived or hand-carried. If the hand-carried set is small and shrinking, this closes as a convention with no test at all.
+
 ## BL-ACCEPTSET-CONSUMER-COVERAGE — an accept-set widened without its consumers is a change that reads as adoption and behaves as nothing
 
 **Status:** OPEN · **Severity:** MEDIUM (silent FREE: a widened set that no consumer ranges over leaves the construct unclassified while the diff shows the widening) · **Class:** guard fidelity · **Effort:** S · **Filed:** 2026-08-21 (`fix/premisescan-registrar-accept-sets`, spec rounds 1-3) · **Facing:** process · **Mint-exception:** invariant · **Reachability:** PROBED — three separate consumers measured below.
