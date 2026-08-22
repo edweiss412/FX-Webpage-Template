@@ -6776,12 +6776,15 @@ describe("an executing psql inside an ATTACHED redirection target", () => {
     // the scanner's answer rode along without ever being the thing under test.
     const ran = new Map(rows.map(([, source], n) => [n, bashRuns(source, `r${n}`)]));
 
-    // Floor 1, non-vacuity: if NOTHING executes, the fake psql or PATH is broken
-    // and every "agrees" below is two zeros agreeing about nothing.
-    expect(
-      [...ran.values()].filter(Boolean).length,
-      "no row executed - the oracle cannot see its own subject",
-    ).toBeGreaterThan(0);
+    // Floor 1, non-vacuity, stated as an executable PREMISE because this test
+    // TOUCHES THE ENVIRONMENT - it needs a usable `bash` and a fake `psql` it can
+    // put on PATH. If neither runs, every "agrees" below is two zeros agreeing
+    // about nothing, and the premise contract is what makes that a red rather
+    // than a quiet green.
+    premiseHolds(
+      "bash runs the fixtures and the fake psql on PATH is reachable",
+      [...ran.values()].some(Boolean),
+    );
 
     // Floor 2, PLANTED DEFECT. A gate whose expected and actual share a producer
     // is vacuous however principled that producer is, and the double-call above
