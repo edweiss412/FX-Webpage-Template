@@ -200,8 +200,29 @@ prototype flipped two declared-limit rows at
 `tests/cross-cutting/psqlStartupFileSuppression.test.ts:5153-5157` from their pinned zero to one hit
 each: `- run: "PG=psql; $PG -qAt mydb"` and its `PG=p'sql'` spelling. That is the improving
 direction, and the predecessor arc predicted it: its own spec says recall there needs YAML-aware value extraction on a different surface
-(`docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md:322-328`). Three
-edits, all in this task's commit:
+(`docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md:322-328`).
+
+**The corpus was swept for every other place asserting that zero, and the sweep is why this is four
+edits rather than three.** Commands and dispositions:
+
+```
+grep -rn 'run: \\"' tests/ --include='*.ts' | grep -i 'toHaveLength(0)\|toEqual(\[\])'
+  -> no other executable assertion of the zero
+grep -rn 'quoted YAML `run:`\|quoted workflow `run:`' docs/ --include='*.md'
+  -> 5 prose hits
+```
+
+The prose hits, each dispositioned:
+
+| Hit | Disposition |
+| --- | --- |
+| predecessor spec, line 292 — "the quoted workflow `run:` scalar ... **stays ZERO**" | SUPERSEDE. A present-tense claim this change falsifies. |
+| predecessor spec, lines 322-328 — the documented-limit bullet | SUPERSEDE by cross-reference to §6 item 2. |
+| predecessor spec, line 346 — §6 item 2 | SUPERSEDE. This is the canonical record and carries the note. |
+| predecessor PLAN, line 666 — the test comment, quoted verbatim | LEAVE. An execution record of a completed arc, like a probe transcript. |
+| `docs/review-rounds/fix/shell-attached-redirection-target/0ba72c23774f.md:33` | LEAVE. A dated round record; those are never corrected. |
+
+Four edits, all in this task's commit:
 
 1. Re-pin both rows as HITS rather than deleting them. A retired limit stays visible as a pin.
 2. Correct their comment. It currently attributes the miss to the flag criterion; the actual cause
@@ -210,6 +231,9 @@ edits, all in this task's commit:
 3. Add a "Superseded in part, 2026-08-22" note to §6 item 2 of the predecessor spec, naming this row
    — the same form item 1 of that section already carries from 2026-08-20. The flag criterion for
    `.sh` input is untouched and stands.
+4. Point line 292 and the lines 322-328 bullet at that note, so no present-tense "stays ZERO" survives
+   uncorrected. One canonical record, two cross-references — not three independent rewrites that can
+   drift apart.
 
 **Then, in the same task:** `pnpm mutation:sites`.
 
