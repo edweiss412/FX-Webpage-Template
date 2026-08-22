@@ -1139,12 +1139,20 @@ describe("connection census — dispositions, both directions (AC-C7)", () => {
     // conjunction is never true and BOTH edge kinds fall through to the site logic below,
     // which answers for a site rather than an edge. Asserting only one of the two spellings
     // leaves the other's branch unpinned, so both are named here.
-    expect(admissibleKindsFor(report({ kind: "unresolved-import", site: "./_helper" }))).toEqual([
-      "unclassifiable",
-    ]);
-    expect(admissibleKindsFor(report({ kind: "loader-call", site: "./_helper" }))).toEqual([
-      "unclassifiable",
-    ]);
+    // `argIsCall: true` is load-bearing. The fall-through below answers `["unclassifiable"]`
+    // for a report whose argument is NOT a call, so an edge report built with the default
+    // reaches the same answer by the wrong route and proves nothing. With the flag set, the
+    // fall-through would answer `["resolver", "unclassifiable"]`, which an EDGE report must
+    // never be excused by.
+    for (const kind of ["unresolved-import", "loader-call"] as const) {
+      expect(admissibleKindsFor(report({ kind, site: "./_helper", argIsCall: true })), kind).toEqual(
+        ["unclassifiable"],
+      );
+    }
+    // Twin, so the contrast is pinned: on a SITE report the same flag DOES open `resolver`.
+    expect(
+      admissibleKindsFor(report({ kind: "unclassifiable", site: "dsn()", argIsCall: true })),
+    ).toEqual(["resolver", "unclassifiable"]);
   });
 
   function row(overrides: Partial<DispositionRow> & Pick<DispositionRow, "kind">): DispositionRow {
@@ -2000,9 +2008,12 @@ describe("connection census — cases authored against SURVIVING MUTANTS", () =>
     // order is load-bearing: the consumer is listed BEFORE the helper it reaches.
     const result = propagateThroughImports(
       chainFiles({
-        "tests/db/far.test.ts": { source: `import "./_mid.js";` },
-        "tests/db/_mid.ts": { source: `import "./_deep.js";` },
-        "tests/db/_deep.ts": { source: `const sql = 1;`, own: ["undisposed"] as FileClass[] },
+        // EVERY file carries the class, so class propagation adds nothing and saturates
+        // at pass one. That isolation is the point: with the class on the deepest file
+        // only, class growth signals `grew` on its own and masks a removed reach signal.
+        "tests/db/far.test.ts": { source: `import "./_mid.js";`, own: ["undisposed"] },
+        "tests/db/_mid.ts": { source: `import "./_deep.js";`, own: ["undisposed"] },
+        "tests/db/_deep.ts": { source: `const sql = 1;`, own: ["undisposed"] },
       }),
       chainResolver({ "./_mid.js": "tests/db/_mid.ts", "./_deep.js": "tests/db/_deep.ts" }),
       "/repo",
@@ -2020,10 +2031,11 @@ describe("connection census — cases authored against SURVIVING MUTANTS", () =>
     // runs, so the head of the chain silently drops out of the affected list.
     const result = propagateThroughImports(
       chainFiles({
-        "tests/db/head.test.ts": { source: `import "./_one.js";` },
-        "tests/db/_one.ts": { source: `import "./_two.js";` },
-        "tests/db/_two.ts": { source: `import "./_three.js";` },
-        "tests/db/_three.ts": { source: `const sql = 1;`, own: ["undisposed"] as FileClass[] },
+        // As above: the class is on every file, so only reach growth can signal.
+        "tests/db/head.test.ts": { source: `import "./_one.js";`, own: ["undisposed"] },
+        "tests/db/_one.ts": { source: `import "./_two.js";`, own: ["undisposed"] },
+        "tests/db/_two.ts": { source: `import "./_three.js";`, own: ["undisposed"] },
+        "tests/db/_three.ts": { source: `const sql = 1;`, own: ["undisposed"] },
       }),
       chainResolver({
         "./_one.js": "tests/db/_one.ts",
