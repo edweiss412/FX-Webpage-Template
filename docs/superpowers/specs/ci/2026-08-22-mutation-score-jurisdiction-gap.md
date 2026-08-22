@@ -18,7 +18,7 @@ The general shape outranks the instance, and the row says so: a mutation score a
 
 ## §1 The decision: three outcomes, one ratified
 
-The row's close condition is a fork and this section is the fork, argued so none of the losing branches can be relitigated. All three were first-class candidates.
+The row's own close condition names two outcomes, (a) and (b): "either a per-branch enrolment mechanism (operators scoped to a region rather than a file), or a ratified decision that file-wide widening is worth its runtime" (`BACKLOG.md`, the row's last paragraph). Outcome (c) is not in that sentence. It entered by a RE-SCOPE stated before this spec was drafted: the orchestrator's arc brief of 2026-08-22 (`bl-orch`, wave 6, "The one decision that comes FIRST") ratified a three-way fork in which a documented-limit close with a required disclosure is a first-class outcome alongside (a) and (b), on the row's own finding that the general shape outranks the instance. A row whose stated close condition is unmet graduates only on a re-scope that is stated first, and this paragraph is that statement; §2.5 carries it into the archive entry so the archived row never reads as closed against a condition it did not meet. This section is the fork, argued so none of the losing branches can be relitigated.
 
 ### §1.0 The measurement this decision rests on (re-censused, not carried)
 
@@ -33,7 +33,7 @@ Every number below was produced by a command against this branch's HEAD (`beb995
 | `integer-literal`                   | no        |                     376 | yes                                       | yes                                           |
 | `statement-removal`                 | no        |                     417 | yes                                       | yes                                           |
 
-Declared-set sites over the whole file: 79, which is the denominator the `psqlStartupScan` score currently ranges over (plus equivalence rows excluded, `tests/mutation/source/ledger.ts`, symbol `score`). The two branch arms are located by their guard lines, each of which occurs exactly once in `scan.ts` (verified with `split(anchor).length - 1 === 1`):
+Declared-set sites over the whole file: 79 generated mutants, of which 30 are ledgered `equivalent` (`tests/mutation/source/expectedLedgerKinds.ts`, `psqlStartupScan: { equivalent: 30 }`) and excluded from the denominator by `score` (`tests/mutation/source/ledger.ts`, symbol `score`), so the score the surface reports is `49/49`: through the shipped function, `score({ killed: 49, survivors: <the 30 ledgered ids>, ledger: <the row's accepted list> })` returns `{ killed: 49, countedSurvivors: 0, excluded: 30, denominator: 49, value: 1 }` (spec review round 3; the earlier wording called 79 the denominator, which it is not). The two branch arms are located by their guard lines, each of which occurs exactly once in `scan.ts` (verified with `split(anchor).length - 1 === 1`):
 
 - top-level arm: `if (character === "$" && text[i + 1] === "(" && text[i + 2] === "(")` (`tests/cross-cutting/psqlStartupFiles/scan.ts`, symbol `lexShellWords`);
 - double-quoted arm: `if (text[i] === "$" && text[i + 1] === "(" && text[i + 2] === "(")` (same symbol, inside the `"` branch).
@@ -166,7 +166,7 @@ The enforcement-pair spec §2.1 item 4's score-arm bullet is rewritten to carry 
 
 ### §2.5 Ledger graduation
 
-The row moves from `BACKLOG.md` to the top of `BACKLOG-archive.md` with heading suffix `— CLOSED <merge date>`, `**Status:** CLOSED · **Resolution:** documented limit (harness spec §7 L-11) plus the `OPERATORS:` disclosure arm and the bullet-4 admissibility correction`, the row body preserved verbatim including its correction history, and a closing paragraph stating the decision (this spec §1) and the re-file trigger. The `**Branch:**` marker comes off in the same commit as the archive move, which is the PR's last commit before merge (invariant 12; `tests/docs/_metaLedgerInProgress.test.ts` rejects in-flight archive rows).
+The row moves from `BACKLOG.md` to the top of `BACKLOG-archive.md` with heading suffix `— CLOSED <merge date>`, `**Status:** CLOSED · **Resolution:** re-scoped 2026-08-22 (orchestrator ruling, wave-6 arc brief) to admit a documented-limit close, then closed as documented limit (harness spec §7 L-11) plus the `OPERATORS:` disclosure arm and the bullet-4 admissibility correction`, the row body preserved verbatim including its correction history and its original two-outcome close condition, and a closing paragraph that states the RE-SCOPE FIRST (the original condition named (a) and (b); the orchestrator's 2026-08-22 brief added (c); the reason) and then the decision (this spec §1) and the re-file trigger. The original close condition is kept verbatim and superseded by the paragraph beneath it, not edited, so a reader sees both the condition as filed and the ruling that changed it. The `**Branch:**` marker comes off in the same commit as the archive move, which is the PR's last commit before merge (invariant 12; `tests/docs/_metaLedgerInProgress.test.ts` rejects in-flight archive rows).
 
 ### §2.6 What is deliberately NOT touched, and why
 
