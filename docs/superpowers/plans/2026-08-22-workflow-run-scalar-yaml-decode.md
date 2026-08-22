@@ -249,7 +249,43 @@ each is probed against a failing input rather than trusted:
 | AC-5 digest probe with `--expect` | the clean tree at base and at HEAD | already observed: a stray `.mts` in the worktree holding a psql fixture string injected 7 indirections and the probe exited 2. Recorded in spec §2. |
 | AC-6 census | zero quoted executable scalars | **RUN, not described.** A `- run: "echo quoted"` step was appended to `.github/workflows/admin-layout-e2e.yml`; the census reported `run:QUOTE_DOUBLE = 1` and named the planted step by file and line. The workflow was then restored and the census returned to `0`. No line is cited for the planted step: it existed only while the mutant was, and the restored file is shorter. |
 | AC-7 `pnpm mutation:sites` | all registry keys resolve | observed red after every `scan.ts` edit in Tasks 1-3, before the re-key |
-| AC-8 `git diff origin/main -- tests/cross-cutting/psqlStartupFiles/scan.ts` shows no hunk inside `matchBrace` / `closeDoubleQuoted` / `openerEnd` / `substitutionOpenerEnd` | this arc's diff | fails if the seam is touched. Constructed at implementation time by adding a one-character edit inside `closeDoubleQuoted`, confirming the check names it, and reverting — the same plant-observe-restore shape AC-6 above already ran. |
+| AC-8 `node docs/superpowers/specs/ci/probes/2026-08-22-seam-check.mjs` | this arc's diff | **RUN, and the first version of this gate FAILED to fire.** See below. |
+
+### AC-8: the gate that could not fail, and why
+
+The plan first stated AC-8 as "`git diff` shows no hunk inside `matchBrace` / `closeDoubleQuoted` /
+`openerEnd` / `substitutionOpenerEnd`", called it "trivially fails if the seam is touched", and left
+its mutant-red as a description. Running that mutant-red is what found the gate was VACUOUS.
+
+Two independent defects, both measured:
+
+1. **Git's `@@` hunk header names the ENCLOSING function.** Every member of this seam except the
+   `matchBrace*` family is a nested arrow inside `lexShellWords`, so a header-pattern check can
+   never match one. A one-character edit planted inside `closeDoubleQuoted` returned `PASS (no seam
+   hunk)`.
+2. **The seam list was under-scoped to a thin wrapper.** It named `matchBrace` (3 lines, a
+   pass-through) and missed `matchBraceSpan` (33 lines, the actual delimiter walk) and
+   `matchBraceEnd`. An edit to the implementation would have passed a gate named after its wrapper.
+
+The replacement keys on LINE RANGES from the TypeScript parser — the suite already imports
+`typescript`, so this delegates to a real parser rather than growing a second one. A hand-rolled
+brace-balance walk was tried first and is recorded as the third trap: it put `substitutionOpenerEnd`
+at 952 lines, because braces inside strings, regex literals and comments are not structure.
+
+Observed, clean tree and planted mutant:
+
+```
+seam matchBraceSpan: 973-1005 (33)   matchBrace: 1009-1011 (3)   matchBraceEnd: 1025-1028 (4)
+seam closeDoubleQuoted: 1102-1116 (15)  substitutionOpenerEnd: 1127-1135 (9)  openerEnd: 1139-1148 (10)
+clean:  changed lines: 0 -> PASS, exit 0
+mutant: FAIL: 1 changed line(s) inside the arc-bracecross seam:
+          tests/cross-cutting/psqlStartupFiles/scan.ts:1010 inside matchBrace (1009-1012)
+        exit 1
+```
+
+The script also exits 2 rather than passing when it locates fewer than all six seam functions: a
+check that cannot find what it ranges over must not report clean. Adding it moved no finding — the
+AC-5 digest still reads `8ebe8b08d43e6308aa471112d9f086d0118e6238` over 76 rows.
 
 Run the AC-5 digest on a CLEAN tree. Then `pnpm heavy pnpm mutation:guards` for the score, and state
 the score plus the unaccepted-survivor set in the round-1 diff brief's GUARD SURFACE line.
