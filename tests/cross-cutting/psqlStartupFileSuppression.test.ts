@@ -6725,9 +6725,10 @@ describe("an executing psql inside an ATTACHED redirection target", () => {
   // contributes no body of its OWN; its interior stays a live lexing context.
   // PROMOTED from a scratchpad probe, because a scratchpad artifact dies with
   // the session that wrote it and this is the branch's terminal verifier. The
-  // source-mutation registry cannot reach the `$((` branch at all: its declared
-  // operators produce ZERO sites over it, and the only operator that would is
-  // file-wide `integer-literal`, which takes this surface from 79 sites to 454.
+  // source-mutation registry cannot reach the `$((` branch at all: BOTH declared
+  // operators produce ZERO sites over it. Four UNdeclared operators do reach it,
+  // the cheapest file-wide being `logical-connector` at +195 sites; the row
+  // carries the full per-operator census.
   // Filed as BL-MUTATION-SCORE-JURISDICTION-GAP-ARITHMETIC-BRANCH rather than
   // enrolled, so this test IS the coverage for that branch.
   //
@@ -6990,7 +6991,8 @@ describe("an ATTACHED target the accept-set cannot delimit is REPORTED on the sp
   });
 
   // The firing condition is NARROW and is part of the contract: the live corpus
-  // holds 53 ordinary attached targets and not one of them may become an
+  // holds ordinary attached targets - 58 at this HEAD, 53 at base `e5d1d723d`,
+  // derived by `corpus-family3.mts` rather than trusted from here - and not one of them may become an
   // advisory. An undelimitable span carrying nothing executable stays quiet
   // too - being unreadable is not by itself worth a report.
   test("an ordinary attached target is never advised on, delimitable or not", () => {

@@ -1052,7 +1052,8 @@ function closingBacktick(text: string, start: number): number {
 
 /** The three openers that make a span EXECUTABLE. An undelimitable attached
  *  target carrying none of them is unreadable and harmless - the live corpus
- *  holds 53 ordinary attached targets and not one may become an advisory - so
+ *  holds ordinary attached targets - 58 at this HEAD, 53 at base `e5d1d723d`,
+ *  derived by `corpus-family3.mts` - and not one may become an advisory, so
  *  this is the firing condition for the unlexable report, not the walk. */
 const SUBSTITUTION_OPENER = /\$\(|`|\$\{/;
 

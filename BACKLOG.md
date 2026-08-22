@@ -58,16 +58,21 @@ Close condition: `mutation:sites` runs unconditionally after any edit to a file 
 
 `psqlStartupScan` declares `relational-boundary` and `regex-quantifier-bound`. The arithmetic branch added in diff round 3 uses equality tests and `Math.max`, so those operators enumerate **zero sites over it**: the surface holds 79 sites with the branch present and held 79 without it.
 
-**Measured cost of closing it as-is:**
+**Measured cost of closing it as-is.** The first version of this row said `integer-literal` is the ONLY operator reaching the branch, at +375. **That was wrong and diff round 5 caught it:** the measurement behind it was a FILE-WIDE delta, which answers "what does adding this operator cost" and not "does this operator reach the branch". Two different questions, and I reported one as the other.
 
-| operator added          | sites |    delta |
-| ----------------------- | ----: | -------: |
-| (declared today)        |    79 |        — |
-| `+ integer-literal`     |   454 | **+375** |
-| `+ statement-removal`   |   493 |     +414 |
-| `+ arithmetic-operator` |    79 |        0 |
+Re-censused per operator, counting sites INSIDE the two `$((` branch bodies as well as file-wide:
 
-The only operator that reaches the branch is `integer-literal`, and it is file-wide: roughly a 6x run on a surface that already takes ~24 minutes, plus a large new accepted-row population to adjudicate. `arithmetic-operator` does not apply.
+| operator                            | file-wide | inside the `$((` branches |
+| ----------------------------------- | --------: | ------------------------: |
+| `relational-boundary` (declared)    |        71 |                     **0** |
+| `regex-quantifier-bound` (declared) |         8 |                     **0** |
+| `logical-connector`                 |       195 |                         5 |
+| `equality-flip`                     |       278 |                         8 |
+| `integer-literal`                   |       375 |                        20 |
+| `statement-removal`                 |       414 |                        13 |
+| `arithmetic-operator`               |         0 |                         0 |
+
+FOUR operators reach the branch, not one, and the cheapest is `logical-connector` at +195 file-wide rather than `integer-literal` at +375. What SURVIVES the correction is the finding itself: both DECLARED operators reach it zero times, so the branch is outside the score's jurisdiction as configured, and every operator that would reach it is file-wide on a surface that already runs ~24 minutes.
 
 **Why it was NOT enrolled in the arc that found it.** Enrolling buys mutants weaker than the verifier already built: the branch's terminal check is a bash-oracle matrix that derives every expectation from whether the shell actually executed the command, promoted into the deciding suite so it is a standing gate rather than a session artifact. Enrolment would add hundreds of mutants over unrelated integer literals to reach one branch a stronger instrument already covers, and it would land that decision under review pressure at diff round 4.
 
