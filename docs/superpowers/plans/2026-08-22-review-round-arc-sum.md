@@ -51,7 +51,7 @@ Two mechanical constraints follow from the enrolment, and both are easy to trip:
 | AC-10 | `pnpm review:economy` prints a totals line for a multi-base directory, omits it for a single-base one, and marks a stage at threshold with no section anywhere. | `pnpm vitest run tests/reviewRounds/report.test.ts` |
 | AC-13 | The report never reimplements a gate predicate: its marked set equals the gate's `missing_arc_filing` set over the same fixture corpus, so a grandfathered pair is not marked. | `pnpm vitest run tests/reviewRounds/report.test.ts` |
 | AC-14 | `triggerRateByMonth` populates per `(branch directory, stage)` and tests the arc sum, and the rate line says the unit changed. | `pnpm vitest run tests/reviewRounds/report.test.ts` |
-| AC-15 | **All nine cells** of the spec's coordinate-control matrix are implemented, one per `(key, coordinate)` across K1-K4. The matrix is reproduced verbatim above the task list with an owner column; a cell without a test is an unmet AC, and a cell whose owner's command does not run its suite is the same failure. | `pnpm vitest run tests/docs/_metaReviewRoundEconomy.test.ts tests/reviewRounds/count.test.ts tests/reviewRounds/report.test.ts` |
+| AC-15 | **All thirteen cells** of the spec's coordinate-control matrix are implemented, one per `(decision, coordinate)` across K1, K2a, K2b, K2c, K3 and K4. The matrix is reproduced verbatim above the task list with an owner column; a cell without a test is an unmet AC, and a cell whose owner's command does not run its suite is the same failure. | `pnpm vitest run tests/docs/_metaReviewRoundEconomy.test.ts tests/reviewRounds/count.test.ts tests/reviewRounds/report.test.ts` |
 | AC-16 | **All eleven rows** of the spec's computed-value inventory (V1-V11) are asserted BY VALUE, not by presence, and every line the change adds or alters is additionally asserted verbatim as rendered (L1-L4, Task 5). The inventory is reproduced verbatim above the task list with an owner column; a row without a by-value assertion is an unmet AC. | `pnpm vitest run tests/reviewRounds/report.test.ts tests/docs/_metaReviewRoundEconomy.test.ts tests/reviewRounds/count.test.ts` |
 | AC-18 | The documentation fan-out lands: `docs/superpowers/specs/ci/README.md` carries an index row for the new spec, the mechanically observable half of spec §6's five-item list. | `pnpm vitest run tests/docs/specsReadmeIndexParity.test.ts` |
 | AC-17 | A non-arc-shaped `.md` under a branch directory carrying a parseable `## diff` section does NOT discharge a clause-B obligation: only a filing `readArcs` recognizes does. | `pnpm vitest run tests/docs/_metaReviewRoundEconomy.test.ts` |
@@ -86,13 +86,19 @@ Both of the spec's derived artifacts are reproduced below, **verbatim and once**
 
 ### The coordinate-control matrix (AC-15)
 
+**The rows are enumerated from the DECISIONS the code makes, not from the data structures.** Plan review round 3 cost a round on that: clause B makes THREE decisions keyed on `(directory, stage)` — it counts rows into a sum (K2a), it looks up whether a filing section satisfies (K2b), and it decides whether clause A already reported (K2c) — and a battery controlling only the count admits an implementation that collects filings globally, ignores the filing's stage, suppresses across every directory, or suppresses every stage in one. All four pass a count-only battery and all four silently drop a real obligation.
+
 | key | coordinate | control - vary this one, hold the others fixed | must | owner |
 | --- | --- | --- | --- | --- |
 | K1 `arcCountedRounds`: stage to a set of `(baseSha, round)` | `baseSha` | one round number, two bases | count 2 | Task 1 |
 | K1 | `round` | one base, two round numbers | count 2 | Task 1 |
 | K1 | `stage` | a counted `spec` row at a third base | not raise `diff`'s count | Task 1 |
-| K2 clause B obligation: `(directory, stage)` | `directory` | an owing directory, plus a LATER below-threshold directory | the owing one still reports | Task 2 |
-| K2 | `stage` | one directory, 2 counted `diff` plus 2 counted `spec` | stay clean | Task 2 |
+| K2a obligation count | `directory` | an owing directory, plus a LATER below-threshold directory | the owing one still reports | Task 2 |
+| K2a | `stage` | one directory, 2 counted `diff` plus 2 counted `spec` | stay clean | Task 2 |
+| K2b satisfaction lookup | `directory` | an owing directory, plus a DIFFERENT directory carrying a recognized filing | the owing one still reports | Task 3 |
+| K2b | `stage` | an owing `diff` directory whose only section is `## spec` | still reports | Task 3 |
+| K2c suppression | `directory` | one directory at per-base threshold unfiled, plus a SECOND owing only by sum | the second still reports | Task 3 |
+| K2c | `stage` | one directory where `diff` is at per-base threshold unfiled and `spec` owes only by sum | `spec` still reports | Task 3 |
 | K3 grandfather exemption: `(branch, stage)` | `branch` | the grandfathered shape on a non-grandfathered branch | report | Task 4 |
 | K3 | `stage` | a grandfathered branch carrying a DIFFERENT counted stage | report | Task 4 |
 | K4 trigger-rate population: `(directory, stage)` | `directory` | one stage spanning two bases of one directory | population 1, triggered | Task 5 |
@@ -112,7 +118,7 @@ Both of the spec's derived artifacts are reproduced below, **verbatim and once**
 | V8 | the trigger-rate triggered count | the report test | Task 5 |
 | V9 | the trigger-rate month bucket - the directory-wide EARLIEST counted row, never the first base enumerated | the report test | Task 5 |
 | V10 | the trigger-rate `rate` - a THIRD stored field on the bucket (`scripts/review-economy.ts:197`), rendered independently of the fraction beside it | the report test | Task 5 |
-| V11 | the rate line as RENDERED, verbatim | the report test | Task 5 |
+| V11 | the rate line as RENDERED, verbatim (`  2026-08  213/282  75.5%`) | the report test | Task 5 |
 
 <!-- tasks: depth=3 red-contract -->
 
@@ -157,14 +163,21 @@ Then the three set-hygiene assertions over `ROOT`: every listed pair still owes 
 
 <!-- task: red=`pnpm vitest run tests/docs/_metaReviewRoundEconomy.test.ts` red-state=authored red-target=`lib/reviewRounds/corpus.ts:236` why=`clause A pushes missing_filing with nothing consulting it afterwards, so the base-at-threshold fixture reports both missing_filing and missing_arc_filing where the case asserts exactly one` ac=AC-3,AC-4,AC-5,AC-8,AC-17 -->
 
-**RED.** Four cases:
+**RED.** Four cases, plus the four K2b and K2c controls below:
 
 - the Task 2 directory with a filing section at base A → clean; again with it at base B → clean.
 - **the satisfaction recognizer (AC-17):** the same 2 + 2 directory PLUS a non-arc-shaped `.md` under it carrying a parseable `## diff` section → **still reports** `missing_arc_filing`. The stray file is ignored prose to `readArcs` (`lib/reviewRounds/corpus.ts:65`), and an implementation reading "any `.md`" lets it discharge a real obligation while the canonical reader sees no filing. The existing stray-filing case at `tests/docs/_metaReviewRoundEconomy.test.ts:597` does NOT cover this: it reaches the threshold in ONE base and asserts clause A's `missing_filing`, which a loose clause B still emits, so it passes either way. This fixture must therefore stay below the per-base threshold in every base.
 - a directory with `ROUND_THRESHOLD` rounds at base A and two at base B, no filing → exactly `["missing_filing"]`.
 - the spec §3.1 equivalence fixture: `ROUND_THRESHOLD` rounds at A **with** a section at A, plus two at B and two at C → clean.
 
-**GREEN.** Clause B skips a stage for which clause A already pushed `missing_filing` under the same directory, and reads sections only from `arc.filingText`.
+Then the four controls plan review round 3 found missing, all on decisions Task 3 owns. Each is one ordinary edit from a fixture already above, and each excludes an implementation that silently drops a real obligation:
+
+- **K2b/`directory`** — the owing 2 + 2 directory PLUS a DIFFERENT directory carrying a recognized filing for the same stage → the owing one still reports. Excludes a satisfaction lookup that collects sections globally.
+- **K2b/`stage`** — the owing `diff` directory whose only section is a well-formed `## spec` one → still reports. Excludes a lookup that ignores the filing's stage.
+- **K2c/`directory`** — one directory at the per-base threshold unfiled (clause A fires) PLUS a second directory owing only by sum → the second still reports. Excludes suppression that is global rather than per-directory.
+- **K2c/`stage`** — one directory where `diff` is at the per-base threshold unfiled and `spec` owes only by sum → `spec` still reports. Excludes suppression that silences every stage in a directory once any stage is suppressed.
+
+**GREEN.** Clause B skips a stage for which clause A already pushed `missing_filing` **under the same directory and for that same stage**, and reads sections only from `arc.filingText` **for that same directory and stage**. Both scopes are load-bearing and both are what the four controls above pin.
 
 Monotonicity lands here too, asserted by kind over the fixture battery: every per-base problem the gate reports before the change is still reported after it. Like the hygiene assertions in Task 2 it is a guard rather than a TDD step, and it belongs beside the suppression logic that could break it.
 

@@ -241,21 +241,38 @@ The filing-duty section gains: the threshold is reached either by one base's rou
 
 Rounds 2 and 3 both landed here, and the second time was my fault rather than the reviewer's: R2's repair stated the rule as prose ("one control per coordinate") and then instantiated it by hand, which missed two cells. **A rule a human applies by hand is not a mechanism.** So the battery is DERIVED from the key list instead, as a table with one row per `(key, coordinate)`. A missing control is then a visibly empty cell in this document rather than something a reviewer has to re-derive, and adding a key or a coordinate later adds rows rather than requiring anyone to remember the rule.
 
-Every compound key in this design, exhaustively:
+**The rows are enumerated from the DECISIONS the code makes, not from the data structures I could picture.** That distinction is plan review round 3's finding and it cost a round: the first version listed "clause B's obligation key" as one row, when clause B makes THREE decisions that each key on `(directory, stage)` — it counts rows into a sum, it looks up whether a filing section exists, and it decides whether clause A already reported. A battery controlling only the first admits an implementation that collects filing sections globally, or ignores the filing's stage, or suppresses across every directory, or suppresses every stage in one directory. All four pass a count-only battery and all four silently drop a real obligation.
+
+So the enumeration is: for each decision the change makes, for each coordinate of that decision's key, one control varying exactly that coordinate.
+
+| decision | keys on |
+| --- | --- |
+| K1 count rows into a per-stage sum | `(baseSha, round)` within a stage |
+| K2a count into the per-directory obligation | `(directory, stage)` |
+| K2b look up whether a filing section satisfies it | `(directory, stage)` |
+| K2c decide whether clause A already reported | `(directory, stage)` |
+| K3 decide whether the pair is exempt | `(branch, stage)` |
+| K4 populate the trigger rate | `(directory, stage)` |
+
+Thirteen controls follow:
 
 | key | coordinate | control - vary this one, hold the others fixed | must |
 | --- | --- | --- | --- |
 | K1 `arcCountedRounds`: stage to a set of `(baseSha, round)` | `baseSha` | one round number, two bases | count 2 |
 | K1 | `round` | one base, two round numbers | count 2 |
 | K1 | `stage` | a counted `spec` row at a third base | not raise `diff`'s count |
-| K2 clause B obligation: `(directory, stage)` | `directory` | an owing directory, plus a LATER below-threshold directory | the owing one still reports |
-| K2 | `stage` | one directory, 2 counted `diff` plus 2 counted `spec` | stay clean |
+| K2a obligation count | `directory` | an owing directory, plus a LATER below-threshold directory | the owing one still reports |
+| K2a | `stage` | one directory, 2 counted `diff` plus 2 counted `spec` | stay clean |
+| K2b satisfaction lookup | `directory` | an owing directory, plus a DIFFERENT directory carrying a recognized filing | the owing one still reports |
+| K2b | `stage` | an owing `diff` directory whose only section is `## spec` | still reports |
+| K2c suppression | `directory` | one directory at per-base threshold unfiled, plus a SECOND owing only by sum | the second still reports |
+| K2c | `stage` | one directory where `diff` is at per-base threshold unfiled and `spec` owes only by sum | `spec` still reports |
 | K3 grandfather exemption: `(branch, stage)` | `branch` | the grandfathered shape on a non-grandfathered branch | report |
 | K3 | `stage` | a grandfathered branch carrying a DIFFERENT counted stage | report |
 | K4 trigger-rate population: `(directory, stage)` | `directory` | one stage spanning two bases of one directory | population 1, triggered |
 | K4 | `stage` | one directory with two counted stages | population 2, not 1 |
 
-Nine controls. K2's `directory` row and K4's `stage` row are R3 findings 1 and 2, and both are cells the hand-instantiated version left empty. The two wrong implementations they exclude are worth naming, because neither is exotic: a clause-B accumulator keyed on stage alone, where each directory's state overwrites the last, and a trigger-rate population keyed on directory alone, which reports a denominator of 125 where the unit gives 282.
+Thirteen controls. K2a's `directory` row and K4's `stage` row were spec round 3's findings; the whole K2b and K2c blocks were plan round 3's, and they are the reason the table is now indexed by decision rather than by data structure. The two wrong implementations they exclude are worth naming, because neither is exotic: a clause-B accumulator keyed on stage alone, where each directory's state overwrites the last, and a trigger-rate population keyed on directory alone, which reports a denominator of 125 where the unit gives 282.
 
 #### Values are asserted, never presences
 
