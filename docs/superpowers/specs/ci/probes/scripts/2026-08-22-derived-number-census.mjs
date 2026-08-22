@@ -59,9 +59,12 @@ const TREE_BINDING = /\b(?:at|on|base|blob|sha|commit|revision|branch point)\b[^
 // Recognizes remote-qualified refs only. A bare local branch name is not matched,
 // so this UNDER-counts mutable refs — which matters only for a record naming no
 // immutable anchor, since the mutable-only verdict is the conjunction of the two.
-// Probed at b52481446: the one record with no immutable anchor and no detected
-// mutable ref (2026-08-04-finding-format-probe.md) names no ref-shaped token at
-// all, so the narrowness costs nothing on this corpus.
+// Probed at b52481446: TWO rows have neither an immutable anchor nor a detected
+// mutable ref — README.md, which states no figures and so is outside the
+// question, and 2026-08-04-finding-format-probe.md, which names no ref-shaped
+// token at all. So the narrowness costs nothing on this corpus. The exclusion of
+// README.md is stated rather than assumed: the walked population is every *.md,
+// and a sentence about figure-stating records has to say it means those.
 const MUTABLE_REF = /`?\b(?:origin|upstream)\/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*\b`?/g;
 // A hex object id needs BOTH a digit and a hex letter. Requiring only a digit
 // matches millisecond timestamps and CI run ids — 43 of one record's 87 reported

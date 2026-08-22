@@ -174,7 +174,11 @@ three a seed and two numeric UUID prefixes. Documented limit of the current form
 all-digit short sha is not recognized (about 3.7% of ids at 7 characters, falling off fast with
 length), and the error it causes is calling a bound record unbound, which is the safe direction. The
 companion `MUTABLE_REF` recognizes remote-qualified refs only, so it under-counts; that matters only
-for a record naming no immutable anchor, and the one such record names no ref-shaped token at all.
+for a record naming no immutable anchor. **Two rows qualify at `b52481446`, not one**, and the
+exclusion is stated rather than left implicit: `README.md` states no figures, so it is outside a
+question about figure-stating records, and `2026-08-04-finding-format-probe.md` names no ref-shaped
+token at all. The walked population is every `*.md`, so a sentence that means "figure-stating records"
+has to say so.
 
 **The screen is a screen, and round 2 was right to press on this.** A first draft read the output as
 "fourteen of fifteen records are bound." It does not support that. **One unrelated object id anywhere
