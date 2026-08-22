@@ -73,10 +73,14 @@ console.log(
   enumerateSites(surface.sourcePath, text, surface.operators).length,
 );
 
-function partition(surfaces: readonly GuardSurface[], label: string): Map<string, number> {
+function partition(surfaces: readonly GuardSurface[], label: string): ReadonlyMap<string, number> {
   const assignment = sourceShardAssignment(surfaces);
   const loads = new Array<number>(SOURCE_SHARD_COUNT).fill(0);
-  for (const s of surfaces) loads[assignment.get(s.id)!] += weightOf(s);
+  for (const s of surfaces) {
+    const shard = assignment.get(s.id);
+    if (shard === undefined) throw new Error(`${s.id} is absent from the assignment`);
+    loads[shard] = (loads[shard] ?? 0) + weightOf(s);
+  }
   const mine = surfaces.find((s) => s.id === SURFACE_ID)!;
   console.log(
     `\n${label}: surfaces=${surfaces.length} totalBoots=${loads.reduce((a, b) => a + b, 0)} ` +
