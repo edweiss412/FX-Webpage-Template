@@ -189,13 +189,43 @@ its own tally, and those two lines are the figures to read:
 ```
 ROWS: 22 total = 17 accept-set + 5 documented-limit
 8/17 accept-set rows meet their post-repair expectation
+5/5 documented-limit rows reported (shipped module, nothing to compare against)
 ```
 
 at `50ca72a56` against the shipped scanner. A count written here would go stale the next time a row
-is added; the line above is dated evidence of one run, and the probe re-derives it on every run.
+is added; the lines above are dated evidence of one run, and the probe re-derives them on every run.
 
-**Against the §3 prototype, the same probe prints `17/17 accept-set rows meet their post-repair
-expectation`**, and every documented-limit row reports byte-identically to the shipped module.
+**The two populations reconcile against their own denominators**, because they answer different
+questions: an accept-set row asks whether the repair LANDED, a documented-limit row asks whether the
+repair stayed inside its scope. An earlier cut of this probe folded a moved limit into the
+accept-set tally and reported `16/17 accept-set` for a run in which all seventeen accept-set rows
+passed and one LIMIT had moved — one population's failure against the other's denominator.
+
+**Against the §3 prototype the same probe prints `17/17 accept-set rows meet their post-repair
+expectation` and `5/5 documented-limit rows UNCHANGED against the shipped module`.**
+
+### 2.1b The probes are proven to fail, in both populations
+
+A probe that only prints cannot be an acceptance criterion, so each gate was run against a planted
+defect and against a no-defect baseline. Two defects, chosen so that each targets one population and
+neither targets both:
+
+| planted defect | accept-set | documented limits | exit |
+|---|---|---|---|
+| none (the §3 prototype) | 17/17 | 5/5 UNCHANGED | 0 |
+| the bare walk stops delimiting `'` | **16/17** — control C4, the quoted `)` | 5/5 UNCHANGED | **1** |
+| the walk grows a `#`-comment rule (parser growth) | 17/17 | **4/5** — L2 reports `MOVED` | **1** |
+
+**The second defect is the one worth having.** It is not a bug in the ordinary sense — it makes the
+walk agree with bash on a case where today it does not — and it is exactly the scope creep §1.2 row
+2 forbids. Nothing in the accept-set notices it; only the limit rows do. That is what those five
+rows are for, and it is why they compare against the shipped module rather than against a written
+expectation.
+
+`corpus-time.mts`'s ratio gate was proved the same way: `--max-cpu-ratio 1.5 --baseline-cpu-ms 10`
+exits 1 printing `median cpu 16636 ms exceeds 1.5 x baseline 10 ms = 15 ms`; the same command at a
+real baseline exits 0 printing `PASS`. `depth.mts` and `cost-curve.mts` are REPORTERS, not gates —
+they abort on an empty read and otherwise only print, and nothing in §4 rests on them alone.
 
 ```
 SCAN_MODULE=<candidate> pnpm exec tsx \
@@ -357,7 +387,7 @@ AC-5, AC-6 or AC-8; each names its own instrument.
 |---|---|---|
 | AC-1 | EVERY accept-set row of §2.1 meets its post-repair expectation, including the ledger row's four shapes in both placements. The probe's own tally is the count. | `SCAN_MODULE=<candidate> pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-shell-brace-cross-construct/shapes.mts --expect-repaired` — exits 1 naming every unmet row |
 | AC-2 | Every §2.1 control still reports, and the bash column holds for EVERY row. | the same command — a bash disagreement ABORTS with exit 2, so no subject result rests on an unestablished snippet |
-| AC-3 | Every §7 documented limit reports byte-identically to the merge-base scanner. | the same command with `SCAN_MODULE` set: each limit row is compared against the shipped module and prints `MOVED` on divergence |
+| AC-3 | Every §7 documented limit reports byte-identically to the merge-base scanner, so the repair has not grown into a shell grammar. | the same command with `SCAN_MODULE` set: each limit row is compared against the shipped module, prints `MOVED` on divergence, and is counted in its OWN tally line. Proven to fire by the §2.1b widening defect |
 | AC-4 | The deciding suite is green, with the two nearest pin blocks (`tests/cross-cutting/psqlStartupFileSuppression.test.ts:6674` and `tests/cross-cutting/psqlStartupFileSuppression.test.ts:6700`) unmoved. | `pnpm exec vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts` |
 | AC-5 | The live-corpus finding set is unchanged: 76 rows, digest `8ebe8b08d43e6308aa471112d9f086d0118e6238`, over every field of every record. **This is the ledger row's close condition (c).** | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/baseline-corpus.mts --expect 8ebe8b08d43e6308aa471112d9f086d0118e6238` — exits 1 printing expected and actual, exit 2 on a zero-row or thin-record read |
 | AC-6 | **The ledger row's close condition (b).** The repaired walk's median CPU over the live corpus is within **1.5×** the shipped walk's, both measured in the SAME session so heavy-slot contention cancels. | `SCAN_MODULE=<a checkout of the merge-base scanner> pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-shell-brace-cross-construct/corpus-time.mts` for the baseline, then the same probe against HEAD with `--max-cpu-ratio 1.5 --baseline-cpu-ms <that number>`; exits 1 printing both |
