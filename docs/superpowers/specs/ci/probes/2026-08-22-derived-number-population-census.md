@@ -139,6 +139,15 @@ and described this one as "pinned"; it is not pinned, and the census now decides
 mechanically rather than by a reader's charity — a hex object id is immutable, a branch or remote ref
 moves and can be deleted.
 
+**A note on the recognizer, found by attacking it rather than by review.** "Names an immutable anchor"
+is decided by a regex, and the first version required only that a 7-to-40 character run of `[0-9a-f]`
+contain a digit. That matches millisecond timestamps and CI run ids: 43 of the 87 anchors it reported
+in `2026-08-21-intraleg-process-probe.md` were epoch-ms values. It now requires a hex LETTER as well as
+a digit. Per-record counts fell — that record reads 44 — and **no record crossed zero**, so every
+conclusion below is unchanged. Documented limit: a genuinely all-digit short sha is not recognized
+(about 3.7% of ids at 7 characters, falling off fast with length), and the error it causes is calling a
+bound record unbound, which is the safe direction for a convention.
+
 **The corrected count.** 16 files; `README.md` states no figures, leaving 15 records. Fourteen are
 bound: thirteen name an immutable anchor, and `2026-08-04-finding-format-probe.md` binds by
 declaration instead — its corpus is stated to be machine-local, deliberately uncommitted, and never
@@ -155,7 +164,7 @@ across the two genres, so "same instrument" does not license the ratio.
 
 The binding census does not transfer either, and the reason is a unit mismatch worth stating: it asks
 whether a DOCUMENT names an anchor, and a probe record is one measurement while `BACKLOG-archive.md`
-is hundreds of entries carrying 203 distinct object ids between them. At file granularity every ledger
+is hundreds of entries carrying 123 distinct object ids between them. At file granularity every ledger
 file passes trivially and the question is not being asked.
 
 What survives is not a measurement at all, and it is enough: **three of the parent row's four measured
