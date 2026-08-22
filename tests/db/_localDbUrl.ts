@@ -18,7 +18,7 @@
  * hostname, or a redacted/content-free rendering.
  */
 
-const ACCEPTED_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
+export const ACCEPTED_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
 
 /**
  * `scheme://user:pass@host/db` → `scheme://***@host/db`. Never returns the userinfo.

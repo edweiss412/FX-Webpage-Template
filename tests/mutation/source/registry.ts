@@ -2969,4 +2969,59 @@ export const GUARD_SURFACES: GuardSurface[] = [
     },
     accepted: [],
   },
+  /**
+   * The connection census (BL-DESTRUCTIVE-GUARD-DISCOVERY-BY-CONNECTION). Pure AST over a
+   * source string plus an INJECTED import resolver, DB-free and subprocess-free, with a
+   * deciding suite that is entirely constructed sources — the shape the registry can
+   * express, enrolled BEFORE the first diff-review round because "the guard does not pin
+   * what it claims" is exactly the finding class a score plus an empty survivor set
+   * settles mechanically.
+   *
+   * The LIVE gate (`_metaConnectionCensusGuard.test.ts`) is deliberately NOT a deciding
+   * suite: it reads the whole `tests/` tree, and a score whose input set includes the
+   * repository is not closable. What it proves — that the corpus needs exactly the
+   * disposition rows it carries — is a measurement, not a behaviour.
+   */
+  {
+    id: "connectionCensus",
+    sourcePath: "tests/db/_connectionCensus.ts",
+    suitePaths: ["tests/db/connectionCensus.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.95,
+    // Inverts the exact-match that decides `validation-env`: under `!==` no environment
+    // chain matches its accept-set entry, so every validation-env fixture — the largest
+    // class in the suite — reds. Verified unique on the current source (grep -c -F = 1),
+    // and the deciding suite asserts that uniqueness executably rather than in prose.
+    control: {
+      from: "chain.every((n, i) => n === r.names[i])",
+      to: "chain.every((n, i) => n !== r.names[i])",
+    },
+    accepted: [
+      {
+        siteId: "statement-removal:1326:9:continue;>(removed)",
+        kind: "equivalent",
+        reason:
+          "Removing the `continue` also pushes an out-of-population target onto `targets`, " +
+          "so it reaches `edges` and then a file's `reaches` set. Nothing downstream can " +
+          "observe it: `reaches.get(target)` and `classes.get(target)` are both absent for a " +
+          "path that is not in `files` and fall through their `?? []`, and `affected` " +
+          "(tests/db/_connectionCensus.ts:1367) only ever asks `reaches.get(f)?.has(input.file)` " +
+          "for an `input` drawn from `files` — which an out-of-population target is, by the " +
+          "definition of the branch, not a member of. The report is pushed on both sides.",
+      },
+      {
+        siteId: "statement-removal:1358:13:grew = true;>(removed)",
+        kind: "equivalent",
+        reason:
+          "Class growth can never be the LAST growth of a pass, so its signal is never the " +
+          "one that keeps the loop alive. Classes and reach travel the same edge relation at " +
+          "the same rate — one hop per pass — because both read the target's already-" +
+          "propagated map in the same iteration. If `mine` gains a class at distance N, a " +
+          "node exists at distance N, and that node grows `myReach` in the same pass " +
+          "(tests/db/_connectionCensus.ts:1347,1352), which signals. The converse does not " +
+          "hold, which is why the reach sites at 1211 and 1216 ARE killed, each by its own " +
+          "chain fixture in the deciding suite.",
+      },
+    ],
+  },
 ];

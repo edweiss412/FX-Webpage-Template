@@ -10307,3 +10307,83 @@ the first is now trusted.
 **MEASURED CORRECTION 2026-08-21 (`feat/speclint-red-reason-verification`), recorded so nobody re-derives it.** Two of this row's claims are FALSE under this repo's toolchain, established by running all eight shapes as real vitest fixtures. (a) A missing NAMED EXPORT does not fail before the assertions run: under Vite's SSR transform it binds `undefined`, the case EXECUTES, and the failure is `AssertionError: expected undefined to be <N>`. Only a missing MODULE dies at the loader. (b) That shape is therefore NOT separable from the repair round 1 ratified for it -- importing the module and asserting on the missing export -- whose verdict line is BYTE-IDENTICAL. A classifier keying on the failure text would condemn the repo's own accepted form. (c) The row's SECOND blind spot is not a live defect: `synthesizeCollectionFindings`'s `probes === null` return is unreachable from the shipped CLI, because `lib/specLint/run.ts:151` gates the call and the adapter always builds a non-null `ProbeResults` under `--exec-red`. (d) The reach of the SURVIVING blind spot is FIFTEEN markers, not 25 and not 9. The 16 heavy-wrapped v1 markers exit at `lib/specLint/redContract.ts:717` before the `none` drop at 721, so the repair can neither fix nor signal them; that correction is right. (e) But the drop is keyed on the DERIVATION, not on the wrapper, so its reach is every v2 marker whose command is not vitest-shaped at the anchor: nine `pnpm heavy`-wrapped plus six ordinary unprobeable commands (four `pnpm exec tsx single-mutant.ts`, one `sh -c` grep, one `pnpm spec:lint`), all enumerated in the design §1.1. Both the 25 and the 9 were a SUBSET read as a total, which is the shape worth remembering: when a change sits on a branch, its reach is everything arriving at that branch, not the subset that motivated it. **AND THE ROW'S OWN DIRECTION IS RETIRED.** An executed-case COUNT looked like the closable observable and is not: a module-scope `premise()` failure throws during collection, so vitest reports ZERO cases while an assertion ran and FAILED — an honest red a count-based arm would hard-fail — and conversely a `beforeEach` throw yields FAILED entries whose bodies never ran. Both were already measured one spec over, at `docs/superpowers/specs/2026-08-18-planlint-fixture-satisfiability.md` §2.7 and §2.9, with a live corpus instance. So what ships is the fifteen-marker silent drop alone; the reason-classifying arm is retired by ratified scope decision. Design, carrying all five refutations: `docs/superpowers/specs/ci/2026-08-21-speclint-red-reason-verification-design.md`.
 
 **Reachability: PROBED.** Both instances are quoted from reviewer output on a real arc, not constructed. The `pnpm heavy` blind spot is a static reading of the two cited lines and was confirmed by a third party the same night; it is a documented limit of the arm rather than a hypothetical.
+
+## BL-DESTRUCTIVE-GUARD-DISCOVERY-BY-CONNECTION — discover destructive-analysis files by connection, not by SQL spelling — CLOSED 2026-08-21
+
+**Status:** SHIPPED 2026-08-21 · **Effort (as shipped):** L · **Severity (as filed):** MEDIUM · **Class:** structural guard · **Facing:** process · **Shipped by:** `feat/destructive-guard-discovery-by-connection`
+
+**THE ROW GRADUATES ON A RE-SCOPE, AND THE RE-SCOPE IS STATED FIRST.** The row's terminating
+framing was "ask whether the file OPENS A DATABASE CONNECTION, then require the loopback guard of
+all of them." The census REFUTES the second half. Of the 179 connection-opening files under
+`tests/`, **99 target the validation project by declared environment variable** (63 directly, 36
+through a helper) — by this repository's ratified posture, not by accident
+(`scripts/preflight-env.mjs:146`, "TEST_DATABASE_URL is DELIBERATELY validation"; the destructive
+guard's own header). Requiring `assertLocalDbUrl` of them is requiring the suite to stop running
+against validation, which is a product decision outside a structural-guard row. What shipped is the
+row's own second paragraph instead: a CLASSIFICATION of every connection-opening file, with a
+validation-target accept-set and per-site dispositions.
+
+**What shipped.** `tests/db/_connectionCensus.ts` walks `tests/`, finds every acquisition of the
+`postgres` driver, classifies every call of it by where its URL argument comes from
+(`guard-bound` / `validation-env` / `loopback-literal` / `remote-literal` / `unclassifiable`),
+propagates classes through the import graph to a fixpoint, and REPORTS anything it cannot classify.
+`tests/db/_metaConnectionCensusGuard.test.ts` runs it over the live tree in `unit-suite-db`;
+`tests/db/_connectionCensusDispositions.ts` carries the per-site rows, keyed on source text so a
+site that moves REDS as stale.
+
+**The probe record, measured through the SHIPPED census rather than a probe script:**
+
+    2565 files walked · 140 hold a driver binding · 175 connect sites · 5 connecting helpers
+    39 files inherit a class through the helper graph · 7 destructive-discovered, 0 off-channel
+    guard-bound 85 / validation-env 79 / loopback-literal 9 / remote-literal 0 / unclassifiable 2
+    8 disposition rows · 0 undisposed · 4856 production edges counted, never red
+
+**Both refutations stay in the row, because a row is a claim and these two were false as filed.**
+
+1. **"Require the loopback guard of all of them" is refuted**, above, and the deliverable is the
+   classification the row's own second paragraph asked for.
+2. **The row's census command over-counted and under-described.** `rg -l 'from "postgres"|require("postgres")' tests/`
+   returns 145: the 139 value default importers, five files whose only import is a TYPE, and one
+   that carries the import as FIXTURE TEXT inside string literals. It misses the dynamic
+   acquisition, and says nothing about the 39 files that never import the driver and still open a
+   connection. The chokepoint is the CALL, not the import, and the helper graph is part of the
+   population — neither is derivable by `rg`.
+
+**The motivating defect is a CONSTRUCTED fixture, and that is recorded rather than smoothed over.**
+Both incident spellings (`select prune_sync_log()`, `select "public"."prune_sync_log"()`) were
+replayed against the shipped recognizer: both confirmed as discovery misses, the positive control
+fires, and the analyzer WOULD reject a constructed file if discovery handed it over. The live
+corpus has **zero executing instances** — 14 textual hits, every one a test title or an assertion
+message. So what this row closes is not the spelling miss but the SILENT PASS: a connection-opening
+file that no recognizer discovers now sits in a named class in a counted population, which nobody
+could enumerate before.
+
+**The documented limit, and its successor.** A `validation-env` file that executes a destructive RPC
+in a spelling `DESTRUCTIVE_STATEMENT_PATTERNS` does not match is still not discovered — unchanged in
+substance, and no longer silent. The terminating answer is DB-side and is filed as
+`BL-VALIDATION-PRUNE-DB-SIDE-GATE` (class-sweep exception (c): a migration plus RPC change on a
+surface this arc does not touch), carrying the eliminations so the next reader does not re-derive
+them.
+
+**What implementation measured that the spec's probes had not**, recorded in the spec's §3.11: a
+driver name in a TYPE position is not a value reference (50+ live files), an edge to a non-source
+file is a decided non-edge (3), NodeNext `.js` specifiers name their `.ts` sources (5), the walk
+includes `__generated__` (2 edges into it), and an unresolvable path-shaped specifier is a class the
+probes never ranged over (1 — the eighth disposition row). FOUR of the five were FALSE REPORTS
+waiting to happen, which the consequence bound makes a defect exactly as a missed file is. The fifth
+is the opposite and is worth stating as such: the unresolvable `./state` edge is a report the census
+SHOULD make and does, and it is the reason an eighth disposition row exists rather than seven.
+
+---
+
+## BL-SPECLINT-SELFLINT-NOT-IN-PREDISPATCH-GATE — MERGED into BL-CODEX-GUARD-SPECLINT-PREDISPATCH-GATE
+
+**Status:** CLOSED · **Resolution:** merged as a duplicate · **Filed:** 2026-08-21 (`feat/speclint-red-reason-verification`, that arc's diff round 3) · **Facing:** process · **Merged:** 2026-08-21 into [`BL-CODEX-GUARD-SPECLINT-PREDISPATCH-GATE`](#bl-codex-guard-speclint-predispatch-gate)
+
+**Incident:** `docs/review-rounds/feat/speclint-red-reason-verification/c9c71b947a85.jsonl`, `diff` round 3 — a reviewer spent a finding on `CITATION_MALFORMED at line 72: malformed citation \`:837\` (empty path)` in that arc's own plan. Restated here so this stub stands on its own evidence; it is the same measured event now recorded as the third instance on the surviving entry, not a second cost.
+
+Same mechanism as the elder entry, filed independently and in good faith: at filing time the elder row sat on an unmerged branch, so it was invisible to anyone reading `origin/main` to pick work. Both say a document's own `spec:lint` obligation is declared in prose and therefore runs zero times, and both put the repair at the pre-dispatch choke point.
+
+This id is kept RESOLVABLE rather than deleted, because the merged round-economy filing for `feat/speclint-red-reason-verification` cites it by name and `BL-SPECLINT-DOC-BARE-LINE-NUMBERS-UNCOVERED`'s first-scheduled-step names it as sharing an owner and a trigger point. A deleted id dangles both pointers.
+
+Its incident is preserved verbatim as the third measured instance on the elder entry.

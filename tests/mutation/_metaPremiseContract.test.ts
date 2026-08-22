@@ -374,6 +374,12 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // Also a scanner-rule 0 with the same caveat: it readFileSync's the workflow
   // and the shard files, but imports no member of ENVIRONMENT_SOURCES.
   "tests/mutation/_metaSourceShardIntegrity.test.ts": 0,
+  // The connection census's deciding suite, enrolled 2026-08-21. It drives the pure core
+  // over CONSTRUCTED sources and reads only the module's own text for the structural
+  // assertions, so it reaches no member of ENVIRONMENT_SOURCES: the `process.env` spellings
+  // in its fixtures are STRING LITERALS inside template fixtures, not reads. The count is
+  // what the classifier reports for it, run and read rather than guessed.
+  "tests/db/connectionCensus.test.ts": 0,
 };
 
 const suites = [...new Set(GUARD_SURFACES.flatMap((s) => s.suitePaths))].sort();
