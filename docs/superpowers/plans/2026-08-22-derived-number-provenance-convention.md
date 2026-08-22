@@ -56,9 +56,12 @@ The index row closes it, and it still reproduces on demand: strip that row and t
 that message, restore it and 21 pass.
 
 **It was not the only red, and the first draft of this paragraph said it was.** Plan review round 1
-found the second: `8d9462fa4` added two citations of `BL-CLOSEOUT-COUNT-PROSE-DRIFT` to `BACKLOG.md`
-and no `KNOWN_DANGLING` row, so `_metaLedgerReferentialIntegrity` was red across that commit and was
-closed one commit later at `573c72abc`. That is a real gate red on this arc's own work, and the
+found the second: `8d9462fa4` added six citations of `BL-CLOSEOUT-COUNT-PROSE-DRIFT` across three
+files — one in `BACKLOG.md`, four in the spec, one in the probe record — and no `KNOWN_DANGLING` row,
+so `_metaLedgerReferentialIntegrity` was red across that commit and was closed one commit later at
+`573c72abc`. (Plan review round 2 caught this count too: a first draft said two in `BACKLOG.md`, from a grep
+that counted diff LINES rather than added occurrences. Produced by
+`git show 8d9462fa4 | grep '^+' | grep -o BL-CLOSEOUT-COUNT-PROSE-DRIFT | wc -l`.) That is a real gate red on this arc's own work, and the
 "same change that broke them" claim below holds for the retired-identifier registry only.
 
 Steps:
