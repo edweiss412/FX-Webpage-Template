@@ -222,7 +222,8 @@
  *    `hereStringBindingLines` reads it through the same `valueBinds` the
  *    assignment family uses, so the lexer no longer drops it before words
  *    exist (BL-SHELL-HERESTRING-MIXED-QUOTED-VALUE, closed). The ATTACHED
- *    spelling is a different family and is its own entry below. The alias case is narrower than it looks: an alias
+ *    spelling was a different family and CLOSED separately on 2026-08-21; the
+ *    entry below records what remains of it. The alias case is narrower than it looks: an alias
  *    definition is an assignment-SHAPED word, so `alias p'sql'='psql -F'` IS
  *    reported through the assignment route; only an alias whose body binds
  *    another program (`alias p'sql'='pgcli -F'`) escapes.
@@ -277,25 +278,43 @@
  *    composition is the same mechanism that produced it. RE-FILE TRIGGER: a live
  *    corpus instance of a composed expansion value, or a reading that reaches
  *    composition without substituting across a complement boundary.
- *  - The ATTACHED redirection TARGET family is not read at all, and it is the
- *    sharpest limit in this list. The attached-target regex wholly CONSUMES its
- *    match, so a target that contains a command SUBSTITUTION hides an executing
- *    command from BOTH scanners - zero sites and zero indirection hits - while
- *    bash runs it. The family, each spelling probed at 0/0 with a bash oracle
- *    confirming the call really happens: a bare backtick target; `$(…)` or a
- *    backtick inside an attached DOUBLE-QUOTED target; a locale-quoted `$"…"`
- *    target; and a command substitution inside an attached `${…}` target. The
- *    plain attached here-string (`read -r PG <<<p'sql'`) is the same family's
- *    benign end and is also missed. This is a MISSED SITE for an executing
- *    psql, not merely a missed discovery hit. It is PRE-EXISTING - every probe
- *    reports the same zeros before and after the 2026-08-20 arm 1 change, which
- *    covers DETACHED targets only. Not closed there because the only readings
- *    that would close it either expose the nested bodies to `scanShellText`,
- *    breaking the by-construction identity of the site path, or add recursive
- *    lexing that still does not report. Ledger:
- *    BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION. RE-FILE TRIGGER: a live
- *    corpus instance of any spelling above, or any arc that needs attached
- *    targets lexed for another reason.
+ *  - The ATTACHED redirection TARGET family CLOSED on 2026-08-21
+ *    (BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION). It was the sharpest
+ *    limit in this list: the attached-target regex wholly CONSUMED its match,
+ *    so a target containing a command SUBSTITUTION hid an executing command
+ *    from BOTH scanners while bash ran it - a missed SITE, not merely a missed
+ *    discovery hit. `attachedTargetEnd` delimits the target BY CONSTRUCT, the
+ *    slice is handed back to this lexer so its nested bodies reach
+ *    `scanShellText` exactly as every other substitution body does, and the
+ *    dequoted target is retained in `targets` for the here-string reader. The
+ *    two readings the filing arc REFUSED are still refused: the target's text
+ *    never becomes an argv word, and the site path stays byte-identical BY
+ *    CONSTRUCTION because `scanShellText` passes no `targets` array.
+ *    What REMAINS a limit, and is narrower:
+ *      * An UNDELIMITABLE target - a construct opened and never closed -
+ *        CARRYING A SUBSTITUTION OPENER is REPORTED as an `IndirectionHit`
+ *        naming it, never resolved. The report says the target is unreadable;
+ *        it does not say what it would have evaluated to.
+ *        Conservative-and-loud is the permitted direction.
+ *      * An undelimitable target carrying NONE of the three openers stays
+ *        SILENT, and that is a documented limit rather than a miss. Nothing in
+ *        such a span can execute, so there is no call site to miss; and firing
+ *        there would turn the live corpus's ordinary attached targets into
+ *        advisories, which the consequence bound forbids in the other
+ *        direction. `SUBSTITUTION_OPENER` is that firing condition. Recorded
+ *        here, in the surface's own limits record, because prose narrowed
+ *        elsewhere is prose a reader of this file never sees (diff round 3
+ *        found the universal claim standing at seventeen sites, this one
+ *        included).
+ *      * That report is scoped to the surfaces production READS. Shell text
+ *        embedded in a JS string is not one of them: there, `<` is a
+ *        comparison, a JSX tag or a regex, and the ungated report fired on nine
+ *        live template literals. RE-FILE TRIGGER: an extractor that yields the
+ *        shell text out of a JS call site, which this module does not export.
+ *      * A here-DOCUMENT delimiter (`<<`, `<<-`) is taken LITERALLY by bash, so
+ *        its bodies are deliberately NOT collected. Measured against bash by
+ *        `operator-oracle.mts`, one script per operator: those two execute
+ *        nothing while the other ten expand an attached substitution.
  *  - `PG=$(x)psql`-shaped values over-report conservatively, matching the
  *    trailing-path reading of `isPsqlCommandWord`.
  *  - An ANSI-C `\U` escape ABOVE the Unicode maximum keeps its raw `\U` text
@@ -942,8 +961,21 @@ export const OPERATOR_STARTS = new Set([";", "&", "|", "(", ")", "\n"]);
  * Neither reaches argv. */
 const FD_PREFIX = /^(?:\d+|\{[A-Za-z_]\w*\})$/;
 
-/** Index of the closing delimiter matching the opener at `start`. */
-function matchBrace(text: string, start: number, open: string, close: string): number {
+/**
+ * The closing delimiter's index AND whether the span actually closed.
+ *
+ * The walk has always known the difference - it returns on `depth === 0` and
+ * falls out of the loop otherwise - but the old return threw that away and left
+ * callers to re-derive it from the character it landed on. That re-derivation is
+ * wrong whenever the final character merely IS the delimiter without closing
+ * anything (diff round 1, finding 1), so the fact is reported instead of inferred.
+ */
+function matchBraceSpan(
+  text: string,
+  start: number,
+  open: string,
+  close: string,
+): { index: number; closed: boolean } {
   let depth = 0;
   let quote: string | null = null;
   for (let i = start; i < text.length; i++) {
@@ -966,10 +998,184 @@ function matchBrace(text: string, start: number, open: string, close: string): n
     if (character === open) depth++;
     else if (character === close) {
       depth--;
-      if (depth === 0) return i;
+      if (depth === 0) return { index: i, closed: true };
     }
   }
-  return text.length - 1;
+  return { index: text.length - 1, closed: false };
+}
+
+/** Index of the closing delimiter matching the opener at `start`. Preserved
+ * verbatim for the four callers that only ever wanted the index. */
+function matchBrace(text: string, start: number, open: string, close: string): number {
+  return matchBraceSpan(text, start, open, close).index;
+}
+
+/**
+ * Index of the closing delimiter for the opener at `start`, or `-1` when it
+ * never closes.
+ *
+ * `matchBrace` answers the same question by returning the LAST index either
+ * way, which cannot distinguish a span that closed on the final character from
+ * one that ran out of input - and that distinction is the whole of the
+ * unlexable report (design section 3, part 4). This reads the walk's OWN
+ * `closed` flag rather than duplicating the brace walk or re-deriving closure
+ * from the character it landed on; the latter is what diff round 1 found, and
+ * it fails on every span whose last character merely IS the delimiter.
+ */
+function matchBraceEnd(text: string, start: number, open: string, close: string): number {
+  const span = matchBraceSpan(text, start, open, close);
+  return span.closed ? span.index : -1;
+}
+
+/**
+ * Index of the backtick that CLOSES the span opened at `start`, or `-1` when it
+ * never closes.
+ *
+ * An ESCAPED backtick does not close it. Both shipped backtick paths used a
+ * bare `indexOf`, so `` `echo \` ; psql -c "x"` `` ended at the escaped
+ * backtick and the remainder - including an executing psql - was attributed to
+ * whatever text followed: the outcome right and the reason wrong, which is the
+ * wrong-attribution direction the consequence bound forbids outright. Spec
+ * section 3.1's escape-binds-tightest precedence, applied at the ONE place both
+ * paths already shared a defect rather than at each of them.
+ */
+function closingBacktick(text: string, start: number): number {
+  for (let i = start + 1; i < text.length; i++) {
+    if (text[i] === "\\") {
+      i++;
+      continue;
+    }
+    if (text[i] === "`") return i;
+  }
+  return -1;
+}
+
+/** The three openers that make a span EXECUTABLE. An undelimitable attached
+ *  target carrying none of them is unreadable and harmless - the live corpus
+ *  holds ordinary attached targets - 58 at this HEAD, 53 at base `e5d1d723d`,
+ *  derived by `corpus-family3.mts` - and not one may become an advisory, so
+ *  this is the firing condition for the unlexable report, not the walk. */
+const SUBSTITUTION_OPENER = /\$\(|`|\$\{/;
+
+/** The characters that END an unquoted attached redirection target. Identical
+ *  to the negated class of the character-run regex this walk replaces, so the
+ *  repair changes WHERE a construct ends and never WHICH characters terminate
+ *  an ordinary one. */
+const ATTACHED_TARGET_TERMINATOR = /[\s;&|()<>]/;
+
+/**
+ * The end of an ATTACHED redirection target, delimited BY CONSTRUCT.
+ *
+ * The regex this replaces was not a target recognizer, it was a character-run
+ * muncher: it neither respected construct boundaries nor reported when it could
+ * not delimit one. Measured through the shipped pattern, `` >`psql -c 'x'` ``
+ * consumed only ``  `psql `` and `>$(psql)` consumed only `$`, handing a
+ * FRAGMENT to the outer loop which then mis-lexed it - so a repair that merely
+ * re-lexed the old match would inherit both.
+ *
+ * Returns the index one PAST the target, and whether the walk opened a
+ * construct it never closed. The accept-set is spec section 3.1's opener table,
+ * keyed on STRUCTURE rather than spelling and applied RECURSIVELY at every
+ * depth INCLUDING inside quotes - uniform recursion is what makes the set mean
+ * inside a quoted target what it means outside one. The escape pair binds
+ * TIGHTEST, ahead of every other opener. Everything outside the set terminates
+ * the target by DEFAULT rather than by enumeration, so a spelling nobody listed
+ * is answered already.
+ */
+function attachedTargetEnd(text: string, start: number): { end: number; undelimitable: boolean } {
+  /** The last index of the ANSI-C span whose body starts at `from`, or -1. A
+   *  `\'` does not close it. */
+  const closeAnsiC = (from: number): number => {
+    for (let k = from; k < text.length; k++) {
+      if (text[k] === "\\") {
+        k++;
+        continue;
+      }
+      if (text[k] === "'") return k;
+    }
+    return -1;
+  };
+  /** The index of the quote closing the double-quoted span whose body starts at
+   *  `from`, or -1. The accept-set again, at this depth: this is the recursion
+   *  spec section 3.1 makes normative, and `${…}` is the member the shipped
+   *  double-quote scanner never had. */
+  const closeDoubleQuoted = (from: number): number => {
+    for (let k = from; k < text.length; k++) {
+      const character = text[k]!;
+      if (character === "\\") {
+        k++;
+        continue;
+      }
+      if (character === '"') return k;
+      const inner = substitutionOpenerEnd(k);
+      if (inner === null) continue;
+      if (inner === -1) return -1;
+      k = inner;
+    }
+    return -1;
+  };
+  /**
+   * The openers that stay ACTIVE inside a double-quoted span: command
+   * substitution, parameter expansion, backticks. Nothing else.
+   *
+   * `'`, `$'` and `$"` are LITERAL text inside double quotes, and treating them
+   * as openers made the walk run to end of chunk, call the target undelimitable
+   * and then emit no advisory either - because the swallowed span carries no
+   * substitution opener. Diff round 2, finding 1: a silent miss on one-edit
+   * spellings, on both declared production surfaces.
+   */
+  const substitutionOpenerEnd = (k: number): number | null => {
+    const character = text[k]!;
+    if (character === "$" && (text[k + 1] === "{" || text[k + 1] === "(")) {
+      const open = text[k + 1] === "{" ? "{" : "(";
+      return matchBraceEnd(text, k + 1, open, open === "{" ? "}" : ")");
+    }
+    if (character === "`") return closingBacktick(text, k);
+    return null;
+  };
+  /** The last index of the construct opening at `k`; `-1` when that construct
+   *  never closes; `null` when `k` opens no construct at all. Used OUTSIDE a
+   *  double-quoted span, where the quote forms are openers rather than text. */
+  const openerEnd = (k: number): number | null => {
+    const substitution = substitutionOpenerEnd(k);
+    if (substitution !== null) return substitution;
+    const character = text[k]!;
+    if (character === '"') return closeDoubleQuoted(k + 1);
+    if (character === "$" && text[k + 1] === '"') return closeDoubleQuoted(k + 2);
+    if (character === "$" && text[k + 1] === "'") return closeAnsiC(k + 2);
+    if (character === "'") return text.indexOf("'", k + 1);
+    return null;
+  };
+
+  let i = start;
+  for (; i < text.length; i++) {
+    const character = text[i]!;
+    if (character === "\\") {
+      // The pair, whatever the next character is - including the newline, which
+      // is a CONTINUATION and keeps the target going, exactly as bash reads it.
+      //
+      // A dangling backslash at end of input needs NO special case here, and it
+      // had one until the gate proved it dead. Consuming the pair past the end
+      // leaves `end` one larger, `text.slice` clamps to the same bytes, and the
+      // caller's `i = end - 1` reaches the same place - so the branch could not
+      // change any observable, on any input. Probed across the whole
+      // dangling-backslash-at-EOF family, every case with NO trailing newline
+      // because a battery that all ends in one cannot reach this family at all:
+      // identical sites and hits with the branch present, deleted, and mutated.
+      // Bash keeping the backslash as a literal character of the word is real
+      // and is handled where the slice is LEXED, not where it is delimited.
+      i++;
+      continue;
+    }
+    const opener = openerEnd(i);
+    if (opener !== null) {
+      if (opener === -1) return { end: text.length, undelimitable: true };
+      i = opener;
+      continue;
+    }
+    if (ATTACHED_TARGET_TERMINATOR.test(character)) break;
+  }
+  return { end: i, undelimitable: false };
 }
 
 type NestedShell = { text: string; line: number; offset: number; backtick: boolean };
@@ -1057,14 +1263,21 @@ type RedirectionTarget = {
    * candidate an assignment value carries. Not a second mechanism - the same
    * predicate at another call site. */
   expandedCandidate: { operand: string; at: number } | null;
+  /** The RAW slice when the accept-set could NOT delimit this target - a
+   *  construct opened and never closed - and `null` in every other case. When
+   *  it is set, `text` is meaningless and no consumer may read it: an
+   *  undelimitable span is a "something here I cannot read" signal, which is
+   *  what `scanShellIndirection` surfaces it as. Never set on a DETACHED
+   *  target, which is built by the ordinary loop and cannot fail to delimit. */
+  unlexable: string | null;
 };
 
 /**
  * A redirection the lexer CONSUMED - the attached spelling (`</dev/null`) and
- * the detached one (`< /dev/null`) alike. `targets` cannot answer this: it holds
- * only DETACHED targets, because an attached target is eaten by the lexer's own
- * regex and never becomes a word, so a reading built on `targets` is blind to
- * exactly the override an attached redirection performs.
+ * the detached one (`< /dev/null`) alike. `targets` holds BOTH spellings now,
+ * so a reading built on it sees the override an attached redirection performs;
+ * this record is still what carries the operator's own fd prefix, which the
+ * target does not.
  */
 type Redirection = {
   /** The operator as matched, WITHOUT any fd prefix: `<<<`, `<`, `>&`. */
@@ -1116,10 +1329,26 @@ const INPUT_REDIRECTIONS: ReadonlySet<string> = new Set(["<", "<<", "<<-", "<<<"
  *  deciding suite rather than defaulting to output. */
 const OUTPUT_REDIRECTIONS: ReadonlySet<string> = new Set(["&>>", "&>", ">>", ">&", ">|", ">"]);
 
+/** The operators whose ATTACHED target bash takes LITERALLY. A here-DOCUMENT
+ *  delimiter is not expanded: `cat <<"$(psql -c 'select 1')"` runs nothing and
+ *  warns about an unterminated here-document, so collecting bodies out of it
+ *  would be a FALSE advisory rather than a conservative one - and the
+ *  consequence bound permits a conservative over-report, never a wrong one.
+ *
+ *  Probed against bash, all twelve operators, one script each with a fake psql
+ *  on PATH: TEN execute the substitution (`&>>` `&>` `<<<` `>>` `>&` `<&` `<>`
+ *  `>|` `<` `>`, including `<&`, which expands the word and only then fails the
+ *  descriptor check) and exactly these two do not. DECLARED rather than
+ *  inferred, so an operator added to `REDIRECTION_OPERATORS` fails the
+ *  deciding suite's totality row instead of defaulting into either half. */
+const LITERAL_TARGET_REDIRECTIONS: ReadonlySet<string> = new Set(["<<", "<<-"]);
+
 export const REDIRECTION_PARTITION = {
   all: REDIRECTION_OPERATORS,
   input: INPUT_REDIRECTIONS,
   output: OUTPUT_REDIRECTIONS,
+  /** The complement of the operators whose attached target is EXPANDED. */
+  literalTarget: LITERAL_TARGET_REDIRECTIONS,
 } as const;
 
 /**
@@ -1249,6 +1478,7 @@ function lexShellWords(
           offset: startOffset,
           operatorOffset: pendingTargetOffset,
           expandedCandidate,
+          unlexable: null,
         });
       pendingTarget = null;
       pendingTargetOffset = -1;
@@ -1360,6 +1590,28 @@ function lexShellWords(
       i = close;
       continue;
     }
+    // `$((` is ARITHMETIC and is NOT a command substitution - matching the `$(`
+    // prefix reported a resolved site for a command bash never runs (diff round
+    // 3). It contributes no body of its OWN, but its interior stays a LIVE
+    // lexing context, because bash really does execute a substitution nested
+    // inside arithmetic: suppressing the whole span would swap a false site for
+    // a silent miss.
+    if (character === "$" && text[i + 1] === "(" && text[i + 2] === "(") {
+      const close = matchBrace(text, i + 1, "(", ")");
+      const inner: NestedShell[] = [];
+      lexShellWords(text.slice(i + 3, Math.max(i + 3, close - 1)), inner);
+      for (const entry of inner)
+        nested.push({
+          text: entry.text,
+          line: line + entry.line,
+          offset: i + 3 + entry.offset,
+          backtick: entry.backtick,
+        });
+      line += (text.slice(i, close + 1).match(/\n/g) ?? []).length;
+      append("${}", i);
+      i = close;
+      continue;
+    }
     if (
       (character === "$" && text[i + 1] === "(") ||
       character === "`" ||
@@ -1367,10 +1619,14 @@ function lexShellWords(
     ) {
       const isBacktick = character === "`";
       const open = isBacktick ? i : i + 1;
+      // ESCAPE-AWARE, through the one shared closer: `\`` is a literal backtick
+      // inside a substitution and does not end it, so a bare `indexOf` ended
+      // the span early and handed the remainder to top-level text.
+      const backtickClose = isBacktick ? closingBacktick(text, i) : -1;
       const close = isBacktick
-        ? text.indexOf("`", i + 1) === -1
+        ? backtickClose === -1
           ? text.length
-          : text.indexOf("`", i + 1)
+          : backtickClose
         : matchBrace(text, open, "(", ")");
       nested.push({
         text: text.slice(open + 1, close),
@@ -1467,6 +1723,23 @@ function lexShellWords(
           append("\\", i, true);
           continue;
         }
+        // Arithmetic first, for the reason above: `$((` only PREFIXES `$(`.
+        if (text[i] === "$" && text[i + 1] === "(" && text[i + 2] === "(") {
+          const close = matchBrace(text, i + 1, "(", ")");
+          const inner: NestedShell[] = [];
+          lexShellWords(text.slice(i + 3, Math.max(i + 3, close - 1)), inner);
+          for (const entry of inner)
+            nested.push({
+              text: entry.text,
+              line: line + entry.line,
+              offset: i + 3 + entry.offset,
+              backtick: entry.backtick,
+            });
+          line += (text.slice(i, close + 1).match(/\n/g) ?? []).length;
+          append("${}", i);
+          i = close;
+          continue;
+        }
         // `"$(psql …)"` and "`psql …`" still EXECUTE inside double quotes.
         if (text[i] === "$" && text[i + 1] === "(") {
           const close = matchBrace(text, i + 1, "(", ")");
@@ -1480,7 +1753,7 @@ function lexShellWords(
           continue;
         }
         if (text[i] === "`") {
-          const close = text.indexOf("`", i + 1);
+          const close = closingBacktick(text, i);
           const end = close === -1 ? text.length : close;
           nested.push({ text: text.slice(i + 1, end), line, offset: i + 1, backtick: true });
           line += (text.slice(i, end + 1).match(/\n/g) ?? []).length;
@@ -1561,9 +1834,11 @@ function lexShellWords(
           // suppresses nothing — while the scanner consumed the phantom word as
           // `-F`'s value and certified the `-X` behind it.
           // Recorded BEFORE the buffer is cleared, because the fd prefix is
-          // the buffer. Both spellings are recorded: the attached one emits no
-          // target, and a reading that cannot see it reports a binding the
-          // shell has already overridden.
+          // the buffer. Both spellings are recorded here, and both now emit a
+          // target as well - the attached one through `attachedTargetEnd`. This
+          // ledger is still what carries the fd PREFIX, which the target does
+          // not, and a reading that cannot see it reports a binding the shell
+          // has already overridden.
           redirections.push({
             operator: redirection[0],
             fd: FD_PREFIX.test(buffer) ? buffer : null,
@@ -1576,11 +1851,70 @@ function lexShellWords(
           started = false;
           i += redirection[0].length - 1;
           // An attached target follows immediately; otherwise the next word is
-          // the target and is dropped when it is flushed.
-          const rest = text.slice(i + 1);
-          const attached = /^(?:\$\{[^}]*\}|"[^"]*"|'[^']*'|\\.|[^\s;&|()<>])+/.exec(rest);
-          if (attached) i += attached[0].length;
-          else {
+          // the target and is built by the ordinary loop.
+          //
+          // The attached spelling is DELIMITED BY CONSTRUCT (design section 3),
+          // then handed to this same lexer so that dequoting, ANSI-C decoding,
+          // escape handling and nested-body collection all come from ONE
+          // implementation rather than a second grammar beside it. The bodies
+          // are re-anchored into the OUTER array exactly as the `${…}` branch
+          // does; the target's own text goes to `targets` and never to `words`,
+          // which is what keeps the site path byte-identical BY CONSTRUCTION -
+          // `scanShellText` passes no `targets` array and so cannot see it,
+          // while `scanShellIndirection` does. Ledger:
+          // BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION.
+          const targetStart = i + 1;
+          const { end, undelimitable } = attachedTargetEnd(text, targetStart);
+          if (end > targetStart) {
+            const slice = text.slice(targetStart, end);
+            const operatorOffset = targetStart - redirection[0].length;
+            if (undelimitable) {
+              // A construct opened and never closed. Bash reads the rest of the
+              // input as part of that word and then fails on the unexpected
+              // EOF, so nothing in it runs and collecting bodies from it would
+              // report a command the shell never executes. The slice is
+              // RETAINED for the surfaced report and nothing else.
+              targets.push({
+                operator: redirection[0],
+                text: "",
+                line,
+                offset: targetStart,
+                operatorOffset,
+                expandedCandidate: null,
+                unlexable: slice,
+              });
+            } else {
+              const inner: NestedShell[] = [];
+              const innerWords = lexShellWords(slice, inner);
+              // A here-DOCUMENT delimiter is not expanded, so its bodies go
+              // nowhere: reporting them would be the wrong direction, not the
+              // conservative one. Narrowed over a DECLARED closed set rather
+              // than by a per-operator predicate.
+              if (!LITERAL_TARGET_REDIRECTIONS.has(redirection[0]))
+                for (const entry of inner)
+                  nested.push({
+                    text: entry.text,
+                    line: line + entry.line,
+                    offset: targetStart + entry.offset,
+                    backtick: entry.backtick,
+                  });
+              targets.push({
+                operator: redirection[0],
+                text: innerWords.map((word) => word.text).join(""),
+                line,
+                offset: targetStart,
+                operatorOffset,
+                // Only a target that lexed to exactly ONE word can carry a
+                // whole-value candidate; anything else is a composition and
+                // `expandedCandidate` is a claim about a whole value.
+                expandedCandidate:
+                  innerWords.length === 1 ? (innerWords[0]?.expandedCandidate ?? null) : null,
+                unlexable: null,
+              });
+            }
+            line += (slice.match(/\n/g) ?? []).length;
+            i = end - 1;
+          } else {
             pendingTarget = redirection[0];
             pendingTargetOffset = i - (redirection[0].length - 1);
           }
@@ -2962,10 +3296,13 @@ function splicedAt(first: string, lines: string[], index: number): { spliced: st
  * reports today and must keep reporting, while `valueBinds` alone would decline
  * it for carrying no flag-shaped token).
  *
- * The ATTACHED spelling (`<<<p'sql'`) is deliberately NOT read: the attached
- * target is consumed by a regex that never produces a word, that whole family is
- * withdrawn scope, and its documented limit is item 3 of the block at the top of
- * this file.
+ * The ATTACHED spelling (`<<<p'sql'`) IS read as of 2026-08-21
+ * (BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION): `attachedTargetEnd`
+ * delimits it by construct and the dequoted target is retained here alongside
+ * the detached one, so both spellings reach `valueBinds` through one reading.
+ * A target the accept-set could NOT delimit is skipped here and surfaced as an
+ * `IndirectionHit` instead - bash fails on the unexpected EOF and binds
+ * nothing, so there is no binding for this function to find.
  */
 function hereStringBindingLines(
   source: string,
@@ -2998,6 +3335,10 @@ function hereStringBindingLines(
     const effective = effectiveHereString(words, redirections, index, to);
     if (effective === null) continue;
     for (const target of targets) {
+      // A target the accept-set could not delimit carries no readable text -
+      // bash fails on the unexpected EOF and binds nothing - so it is skipped
+      // here and surfaced by `scanShellIndirection` instead.
+      if (target.unlexable !== null) continue;
       // The operator is load-bearing, not decoration: with `<` the shell hands
       // `read` the FILE'S CONTENT, so an operator-blind reading reports a
       // binding bash does not make.
@@ -3084,6 +3425,36 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
   // reasoning as `nestedInBacktick` on the site side. In a .sh or .yml file a
   // backtick IS a substitution, so it still counts there.
   const backticksAreMarkdown = JS_EXTENSIONS.includes(extensionOf(file));
+  // An ATTACHED target the accept-set could not delimit is REPORTED rather than
+  // discarded: correct or signaled, never silently wrong. The channel is the
+  // one that already means "something here I cannot read" - it adds no type and
+  // no result shape, does not throw, and emits no `PsqlSite`, because the
+  // report names an unreadable target and does not claim what it would have
+  // evaluated to. It fires ONLY on a span carrying a substitution opener; an
+  // ordinary attached target stays quiet whether or not it closes. Ledger:
+  // BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION.
+  //
+  // Scoped to the execution surfaces production actually READS - whole-file
+  // shell and workflow `run:` scalars - which is the design's own PROBE DOMAIN
+  // rather than an exclusion invented here. In a JS file the text handed to
+  // this lexer is a COMPOSED STRING, where `<` is a comparison, a JSX tag or a
+  // regex and not a redirection: measured on the live tree, the ungated report
+  // fired on NINE template literals, `` `<h2[^>]*\bid=["']${ref.fragment}["']`
+  // `` among them, every one a false advisory - the direction the consequence
+  // bound refuses even though it is the loud one. Shell text embedded in JS is
+  // documented limit 1 of the design and reaching it needs extractors this
+  // module does not export. The SAME predicate the backtick reading already
+  // makes, taken from that reading rather than copied beside it.
+  if (!backticksAreMarkdown)
+    for (const target of targets) {
+      if (target.unlexable === null) continue;
+      if (!SUBSTITUTION_OPENER.test(target.unlexable)) continue;
+      // The target's OPENING line, which for an attached target is the
+      // operator's. Not the line the scan ran out on: for a span that never
+      // closes those coincide unless it crosses lines, and then only the
+      // opening line names where the target is.
+      hits.push({ file, line: target.line + 1, text: target.unlexable.trim() });
+    }
   const bindingLines = assignmentBindingLines(words, file);
   // Arm 1's word route, kept as its OWN set rather than merged into
   // `bindingLines`, so the two routes stay distinguishable to a reader and to a
@@ -3106,6 +3477,22 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
     // exactly the shape the false certification hid behind.
     for (const bound of assignmentBindingLines(innerWords, file)) {
       bindingLines.add(body.line + bound);
+    }
+    // A nested body has its OWN targets, and an undelimitable one among them was
+    // never read - so it surfaced only as the enclosing body's hit, at the BODY's
+    // line and carrying the whole body as its text. The channel fired, which is
+    // why no silence test caught it; it fired pointing at the wrong place, and
+    // line is a field AC-5's digest covers. Same predicate and same shape as the
+    // top-level loop above, offset back to the physical line (diff round 3 at the
+    // settled base).
+    for (const innerTarget of innerTargets) {
+      if (innerTarget.unlexable === null) continue;
+      if (!SUBSTITUTION_OPENER.test(innerTarget.unlexable)) continue;
+      hits.push({
+        file,
+        line: body.line + innerTarget.line + 1,
+        text: innerTarget.unlexable.trim(),
+      });
     }
     // The same treatment for the here-string word route, and for the same
     // reason: the outer lex replaced the whole substitution with the opaque

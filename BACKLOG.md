@@ -40,6 +40,48 @@ in `tests/mutation/source/premiseScan.ts` and confirm the derived count matches 
 one this arc found by hand — if a hand count and a derived count disagree, the derivation is the one
 to trust and the disagreement is the row's first finding.
 
+## BL-MUTATION-REGISTRY-KEYS-STALE-AFTER-ANY-SOURCE-EDIT — nothing runs `mutation:sites` after an edit to a registered surface, and a COMMENT edit invalidates the keys exactly as code does
+
+**Status:** OPEN · **Filed:** 2026-08-21 (`fix/shell-attached-redirection-target`, diff rounds 2 and 3) · **Severity:** MEDIUM (a stale registry fails AC-7 at HEAD while every other gate stays green, so the arc reports itself ready) · **Class:** mutation harness fidelity · **Effort:** S · **Facing:** process · **Reachability:** PROBED — observed twice on one arc, by two different routes. · **Incident:** it cost TWO review rounds on this arc and both are corpus rows at `docs/review-rounds/fix/shell-attached-redirection-target/c9c71b947a85.jsonl`. Diff round 2 found 28 of 30 `psqlStartupScan` rows stale after a behavioural fix — `pnpm mutation:sites` exiting 1 at a HEAD whose suite, AC-5 and AC-8 were all green and had been reported as such. The identical failure then recurred through the COMMENT-only route while repairing round 3, taking all 30 stale.
+
+Accepted-survivor rows are keyed `operator:line:column:replacement`, so the key moves whenever the line moves — and a prose or comment edit moves lines exactly as a behavioural one does. Nothing enforces a re-derivation. The check that catches it, `pnpm mutation:sites`, exists and is cheap; it simply is not wired to the event that invalidates its subject.
+
+**The failure mode is that everything else stays green.** A stale registry does not fail typecheck, the suite, the corpus digest or the census, so an arc that re-runs "the tests" after a fix sees green and reports ready. Both occurrences here were found by a reviewer running the one command the implementer had dropped, not by the implementer's own post-fix pass.
+
+**Why the human step is the wrong place for it.** The rule is already written down and was already known to this arc when the second occurrence happened; what failed was re-deriving the post-fix check set from memory rather than from the blast radius of the edit. That is the shape a gate closes and discipline does not.
+
+Close condition: `mutation:sites` runs unconditionally after any edit to a file named by a `GUARD_SURFACES` row — as a pre-commit hook, a CI job on the changed-file set, or a meta-test that fails when a registered surface's blob differs from the revision its keys were derived at.
+
+## BL-MUTATION-SCORE-JURISDICTION-GAP-ARITHMETIC-BRANCH — a guard surface's declared operators produce ZERO sites over a whole branch, so the score cannot see code it is reported against
+
+**Status:** OPEN · **Filed:** 2026-08-21 (`fix/shell-attached-redirection-target`, diff round 3) · **Severity:** MEDIUM (the score is reported as the surface's convergence criterion while a branch of that surface is outside it; the number is honest and its jurisdiction is not stated) · **Class:** mutation harness fidelity · **Effort:** L · **Facing:** process · **Class-sweep exception:** (c) — closing it means widening a registry operator set file-wide, which is a measurement-scope decision about the harness rather than a repair to this arc's code. · **Reachability:** PROBED — the numbers below were measured, not estimated. · **Incident:** diff round 3 of this arc found a REGRESSION the arc itself introduced — `$((...))` arithmetic read as a `$()` command substitution, yielding a resolved site for a command bash never runs — after FOUR earlier review rounds and a `49/49` score with zero unaccepted survivors had all passed over it. A reviewer probing bash found it; the score structurally could not.
+
+`psqlStartupScan` declares `relational-boundary` and `regex-quantifier-bound`. The arithmetic branch added in diff round 3 uses equality tests and `Math.max`, so those operators enumerate **zero sites over it**: the surface holds 79 sites with the branch present and held 79 without it.
+
+**Measured cost of closing it as-is.** The first version of this row said `integer-literal` is the ONLY operator reaching the branch, at +375. **That was wrong and diff round 5 caught it:** the measurement behind it was a FILE-WIDE delta, which answers "what does adding this operator cost" and not "does this operator reach the branch". Two different questions, and I reported one as the other.
+
+Re-censused per operator. **The file-wide column is the load-bearing one and the only one stated as a count:**
+
+| operator                            | file-wide | reaches the `$((` branches? |
+| ----------------------------------- | --------: | --------------------------- |
+| `relational-boundary` (declared)    |        71 | **no**                      |
+| `regex-quantifier-bound` (declared) |         8 | **no**                      |
+| `logical-connector`                 |       195 | yes                         |
+| `equality-flip`                     |       278 | yes                         |
+| `integer-literal`                   |       375 | yes                         |
+| `statement-removal`                 |       414 | yes                         |
+| `arithmetic-operator`               |         0 | no                          |
+
+An earlier version of this row gave exact in-branch COUNTS. They are deliberately gone: diff round 6 enumerated the same branches and got different numbers, and both enumerations were honest — the count depends entirely on where you cut the branch, and a neighbouring ordinary `$()` arm sits immediately after it. A number whose value depends on an arbitrary boundary is not a measurement, so what remains is the predicate that does not: **which operators reach the branch at all**, and what each costs file-wide.
+
+FOUR operators reach it, not the one this row first named, and the cheapest is `logical-connector` at +195 file-wide rather than `integer-literal` at +375. What survives every correction is the finding: both DECLARED operators reach it ZERO times, so the branch is outside the score's jurisdiction as configured, and every operator that would reach it is file-wide on a surface that already runs ~24 minutes.
+
+**Why it was NOT enrolled in the arc that found it.** Enrolling buys mutants weaker than the verifier already built: the branch's terminal check is a bash-oracle matrix that derives every expectation from whether the shell actually executed the command, promoted into the deciding suite so it is a standing gate rather than a session artifact. Enrolment would add hundreds of mutants over unrelated integer literals to reach one branch a stronger instrument already covers, and it would land that decision under review pressure at diff round 4.
+
+**The general shape, which is worth more than the instance.** A mutation score answers "does the suite pin what is WRITTEN". It cannot answer "is what is written the whole domain", because a construct the code never distinguished is invisible to every mutant of that code. This row is the first measured instance on this repo of a surface being scored against operators that cannot reach part of it.
+
+Close condition: either a per-branch enrolment mechanism (operators scoped to a region rather than a file), or a ratified decision that file-wide widening is worth its runtime, taken outside a review round with these numbers in hand.
+
 ## BL-SENDAUTH-BINDING-IDENTITY-NAME-KEYED — the binding set is a Set of NAMES, so every consumer asks "is something called X in scope" rather than "is this identifier that binding"
 
 **Status:** OPEN · **Filed:** 2026-08-21 (`fix/sendauth-arm-classifier-unification`, promised as a peer by that arc's spec §4.2 and filed on its diff-r1 reviewer noticing the promise had not been kept) · **Severity:** LOW-MEDIUM (a false advisory, which is the survivable direction; the silent direction is closed) · **Class:** detector fidelity · **Effort:** M · **Facing:** process · **Class-sweep exception:** (c) — resolving an identifier to its DECLARATION is a redesign of the binding-discovery layer the unification arc does not otherwise touch, and it needs the `ts.TypeChecker` that predecessor limits 5 and 8(b) both decline. · **Reachability:** PROBED — the false advisory below was measured in that arc's spec §3.6 against source blob `412cadd3`. · **Incident:** the measured false advisory at §3.6 — a name shadowing a surface binding was classified as the surface, because the consumer asks only whether SOME binding carries that name. That is a cost event that already happened, not a constructed hypothetical.
@@ -115,16 +157,6 @@ It survives the suite, and is carried as an `accepted-gap` row on the `premiseSc
 **Not archived, deliberately.** That is ONE run, and a row removed on a single observation is the mistake this repository has already made and reversed once — the correct posture is to record the observation and let a second one adjudicate. What would settle it: this site surviving, or not, in the next independent gate run of `premiseScan`, at which point the row either graduates with two observations behind it or is corrected again. What is settled NOW is that the row's own description of the ledger is wrong, and a falsely-described row recruits work that does not exist.
 
 **First scheduled step:** add a committed two-file fixture under the recognizer's own fixture directory — a module reached via `@/` whose exported helper spawns — and assert `environment-touching`. That kills the mutant and lets the row graduate from `accepted-gap` to killed.
-
-## BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION — a command substitution inside an ATTACHED redirection target hides an executing psql from both scanners
-
-**Status:** OPEN · **Filed:** 2026-08-20 (`fix/shell-lexer-quoted-value-recall`, spec adversarial round 1 finding 1) · **Facing:** process · **Severity:** MEDIUM (a MISSED SITE for an executing command, not a conservative non-report; zero corpus instances) · **Class:** guard coverage · **Effort:** M · **Incident:** spec round 1 of `fix/shell-lexer-quoted-value-recall` was burned on this gap — the reviewer's BLOCKING finding is the round, corpus row `docs/review-rounds/fix/shell-lexer-quoted-value-recall/`, and the arc withdrew its attached-target scope in response (design §1.1 row 7, §6 item 3). · **Reachability:** PROBED — see below; zero live corpus instances.
-
-`lexShellWords` (`tests/cross-cutting/psqlStartupFiles/scan.ts`) consumes an ATTACHED redirection target with a regex that matches the whole target and discards it, so a target CONTAINING A COMMAND SUBSTITUTION is never lexed and its body is never collected as a nested shell. Bash executes that body. Probed spellings, each reporting **zero sites and zero indirection hits** while the bash oracle confirms the call really runs: a bare backtick target; `$(…)` or a backtick inside an attached DOUBLE-QUOTED target; a locale-quoted `$"…"` target; and a command substitution inside an attached `${…}` target. The plain attached here-string (`read -r PG <<<p'sql'`) is the same family's benign end and is missed for the same reason.
-
-The failure direction is the bad one — a missed SITE for an executing psql, not a missed discovery hit — which is why this is a ledger row rather than only a limits entry. It is nonetheless PRE-EXISTING and not made worse by the arc that filed it.
-
-**What would close it, and what will not:** collecting the attached target's nested bodies into the lexer's `nested` array so `scanShellText` reads them as it reads every other substitution body. The two readings the filing arc REFUSED, recorded so they are not re-proposed: handing the attached slice to `lexShellWords` recursively and exposing the result to the site path (it breaks the by-construction site-path identity that the detached-target arm rests on), and recursive lexing that keeps the bodies private (machinery with the miss still in place). Closing it belongs to an arc that can re-measure the whole site path, not to a recall arc.
 
 ## BL-DESTRUCTIVE-GUARD-DISCOVERY-BY-CONNECTION — discover destructive-analysis files by connection, not by SQL spelling
 
@@ -208,6 +240,55 @@ The alert pill has two branches. Monitoring-only ("clearing on their own, no act
 **Why it was not repaired on this branch.** The site is dispositioned SWAP in the ratified census (spec `2026-08-14-ui-interactive-token-policy-design.md` §4.3), and the exemption side is pinned executably — the registry's 14 rows, plus the NEGATIVE guarantee that no other in-scope element carries a bare `text-text-subtle` — by `tests/styles/_metaSubtleOnInteractive.test.ts`. Moving it to a Family D carve-out would edit a user-ratified table, which is the user's call, not the implementer's. The pair is NOT indistinguishable meanwhile: the fills differ (`bg-surface-sunken` vs `bg-warning-bg`) and the dot differs in shape (hollow positive-tone vs filled review-tone), so the §1 colour-blind floor holds either way.
 
 **First scheduled step:** decide whether an interactive pill whose whole message is "nothing to do here" is a Family D dim member (it is a state pair, and it already carries two non-colour cues), or whether the urgent branch should instead gain weight.
+
+## BL-SHEET-ICON-CONTAINMENT-WALK-INGESTS-GITIGNORED — a containment guard walks the repo without honouring gitignore, so local scratch directories enter its censused-consumers map
+
+**Status:** OPEN · **Filed:** 2026-08-21 (routed by `pr2` via the orchestrator; probed by `pr2` on main) · **Severity:** LOW-MEDIUM (never reaches the merge gate — it is green in CI by accident of clean checkouts and red for the humans and agents who have local scratch) · **Class:** guard fidelity · **Effort:** S · **Facing:** process · **Reachability:** PROBED — `pr2` ran it BOTH directions: the identical file PASSES in a clean worktree and FAILS in the dirty main checkout. · **Incident:** a `.validation-local/` directory left in the main checkout since May put `node_modules` into the guard's censused-consumers map and failed the guard's own non-compile-trees assertion, and the resulting investigation is the cost event — time spent on a red that describes the checkout rather than the code.
+
+`tests/components/admin/sheetIconLinkContainment.test.ts` walks the repository and ingests GITIGNORED local directories. Nothing in the walk consults `.gitignore`, so any scratch tree a session leaves behind becomes input to the census. **Whether that is a defect depends on the answer to the owner question below, and this row does not presume it:** the guard describes and performs a raw full-repository walk, so ranging over untracked files is what it currently SAYS it does, not a deviation from a stated tracked-source contract.
+
+**The failure mode is the one that costs the most per unit of severity.** It cannot block a merge, because CI checks out clean — so the guard is permanently green where it is watched and intermittently red where it is worked. A red that depends on the reader's untracked files is worse than a red that depends on the code: it is unreproducible for whoever is asked to confirm it, and the first move it invites is to doubt the diff.
+
+**Same class as `BL-REVIEW-ROUND-REPORT-TEST-TIMEOUT-GROWTH`** — a guard whose expectation is derived from something outside the tracked tree, so it degrades on an axis no reviewer of the diff can see. Cross-referenced deliberately: two instances make it a shape worth naming rather than an incident.
+
+**This row records the owner question rather than answering it:** should that walk honour `.gitignore`? Honouring it makes the guard agree with what CI actually checks out and with what a contributor can reason about. Declining to makes the guard range over everything physically present, which is a defensible reading for a CONTAINMENT check whose point is that nothing unexpected sits in the tree. The two readings disagree about whether an untracked directory is part of the subject at all, and that is a decision for the surface's owner, not a repair to be picked here.
+
+## BL-SHELL-BRACE-MATCHER-CROSS-CONSTRUCT-BLIND — the brace walk counts its own delimiter pair without respecting other constructs, so a `}` inside a nested `$()` closes the `${` early
+
+**Status:** OPEN · **Filed:** 2026-08-21 (`fix/shell-attached-redirection-target`, diff round 1 finding 2) · **Severity:** MEDIUM (one shape is a SILENT MISS, which is a forbidden direction, but the live population is zero) · **Class:** detector fidelity · **Effort:** L · **Facing:** process · **Class-sweep exception:** (c) — `matchBrace` is a PRE-EXISTING shared helper with five callers that this arc does not otherwise touch, and the obvious repair is not viable as written: a construct-aware prototype fixes all four shapes and then TIMES OUT over the live corpus at 400s where the shipped walk finishes in 13s, so making it correct needs memoisation or a single-pass tokeniser rather than a patch. · **Reachability:** PROBED — inputs and observations below, each paired with a bash run. · **Incident:** it reached diff round 1 of this arc as a BLOCKING finding and cost that round (corpus row `docs/review-rounds/fix/shell-attached-redirection-target/`); the reviewer reported it as wrong attribution only, and reproduction found the sharper silent-miss shape underneath it.
+
+`matchBrace` (`tests/cross-cutting/psqlStartupFiles/scan.ts`) tracks quotes and escapes but counts only its own `open`/`close` pair, so a delimiter belonging to a DIFFERENT construct is counted as its own. A `}` inside a nested `$()` therefore closes the enclosing `${` early, and a `)` inside a nested `${}` closes the enclosing `$()` early.
+
+Two observable shapes, both with bash confirming the command really runs:
+
+| input                                 | bash        | scanner                                      |
+| ------------------------------------- | ----------- | -------------------------------------------- |
+| `cat >"$(echo ${A:-)}; psql -c 'x')"` | RAN, exit 0 | **0 sites AND 0 advisories** — a silent miss |
+| `cat >${OUT:-$(echo }; psql -c 'x')}` | RAN         | 1 site, `nested: false` — wrong attribution  |
+
+**PRE-EXISTING, proven rather than assumed.** The identical inputs were run against `scan.ts` at the merge-base on the DETACHED path, which that arc did not change: base and HEAD agree byte for byte on both shapes. The attached-target work extends an existing defect to a new surface; it does not introduce it. The payload placement is what makes it visible — with psql BEFORE the crossing delimiter the attribution is correct, which is why the reviewer's own three probes did not discriminate.
+
+**Exposure is bounded and measured**, not asserted: the three-surface census reports ZERO substitution-bearing attached targets, so no live call site is currently hidden by this. It is a prospective limit on a guard, which is why it is filed rather than shipped hot.
+
+Close condition: a construct-aware delimiter walk that (a) resolves all four shapes above, (b) completes the live-corpus scan within the shipped walk's order of magnitude, and (c) leaves the AC-5 finding-set digest unmoved — the third is currently unprovable for the prototype, because it cannot finish.
+
+## BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE — a QUOTED workflow `run:` scalar is scanned as if its YAML quoting were shell, fabricating a site on one spelling and going silent on another
+
+**Status:** OPEN · **Filed:** 2026-08-21 (`fix/shell-attached-redirection-target`, diff round 5 - raised against that diff, REFUTED against it, and true of the tree either way) · **Severity:** MEDIUM (one spelling FABRICATES a `PsqlSite` for a command bash never runs, which is a forbidden direction; the other is silent, which is the other forbidden direction) · **Class:** detector fidelity · **Effort:** M · **Facing:** process · **Class-sweep exception:** (c) — the repair belongs to the YAML decode path (`scanSource`'s workflow reader), a surface the attached-redirection arc does not otherwise touch, and it needs the scanner to distinguish YAML quoting from shell quoting before the shell lexer ever sees the value. · **Reachability:** PROBED — three spellings, each run against bash and against `scan.ts` at both revisions. · **Incident:** it consumed diff round 5 of this arc (corpus row at `docs/review-rounds/fix/shell-attached-redirection-target/0ba72c23774f.jsonl`), where it was raised as a finding against a diff that does not cause it. The round is the cost event; the defect is real and outlives the refutation.
+
+Production passes the whole YAML file to the scanner, which reads `run:` values. When the scalar is QUOTED, the quoting belongs to YAML and not to the shell, and the scanner does not make that distinction.
+
+| `run:` scalar | bash                        | scanner                                   |
+| ------------- | --------------------------- | ----------------------------------------- |
+| single-quoted | exits 2, never invokes psql | **0 sites, 0 hits** — silently unsignaled |
+| double-quoted | exits 2, never invokes psql | **1 site** — a FABRICATED `PsqlSite`      |
+| plain         | exits 2, never invokes psql | 0 sites, 1 advisory — correct             |
+
+**PRE-EXISTING, proven rather than assumed.** All three spellings were run against `scan.ts` at the merge-base as well as HEAD. The two failing rows are BYTE-IDENTICAL at both revisions. The plain-scalar row is where the attached-redirection arc CHANGED behaviour, and it changed it in the right direction: base is silent, HEAD emits the advisory.
+
+**Why the fabricated site is the worse half.** A silent miss on the single-quoted spelling is the familiar direction and the census bounds it. The double-quoted spelling asserts a psql call site that the shell will never execute — the guard telling a reader that code runs when it does not, which is the direction every other row on this surface treats as forbidden.
+
+Close condition: the workflow reader decodes a `run:` scalar's YAML quoting BEFORE handing the value to the shell lexer, with the three spellings above as its acceptance and bash as the oracle for each.
 
 ## BL-TEXT-FAINT-AS-RESTING-INTERACTIVE-COLOUR — four controls rest one rung BELOW the token this arc retired
 
