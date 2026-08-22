@@ -118,6 +118,17 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/admin-dev.spec.ts":
     'runs in dev-gate-e2e.yml through the project-only invocation at .github/workflows/dev-gate-e2e.yml:153 (--project=dev-build --project=prod-build --project=prod-runtime-flip), which the scanner cannot see by its own contract. That workflow carries a PATH-FILTERED pull_request trigger naming this spec (:52 ff.) plus a daily schedule backstop (:42) for out-of-filter drift. Not PR-blocking-capable: the job is absent on non-matching PRs, so it cannot join the required set. Reclassified from UNSEEN by batch 2 (spec docs/superpowers/specs/ci/2026-08-21-app-e2e-batch2-design.md section 7.3): it is out of the app-e2e batches by requirement class (a different build server), and a workflow does name it, so the census cannot call it "runs nowhere".',
   "tests/e2e/admin-layout-dimensions.spec.ts": PATH_GATED,
+  // LEFT BATCH 2 UNDER AC-4, 2026-08-22. It was wired and green on four CI runs
+  // (32559183296, 32559865786, 32560300422 and the ceiling run 32558218336), then
+  // red on run 32561531983 with the whole page rendering the admin error boundary
+  // ("Admin session unavailable") at the Re-sync assertion — the transient
+  // admin-session infra class BL-CHANGES-FEED-MODAL-BATCH-FLAKE measured on this
+  // same job, not a defect in the spec. An admitted flake never rides in (batch-1
+  // AC-4, inherited verbatim), and recovering mid-case would be new machinery
+  // rather than the ratified open-time recovery, so the spec stays dark until that
+  // is designed. Re-entry needs the same bar every member clears: five consecutive
+  // green pull_request runs.
+  "tests/e2e/admin-parse-panel.spec.ts": UNSEEN,
   "tests/e2e/admin-lifecycle-transitions.spec.ts":
     "its lifecycle-layout-e2e.yml run block validates the REPEATS input in a case/if block, and the R12 scanner refuses control-flow run blocks (both branches DO run the spec on every PR — REPEATS defaults to '1' — but the scanner cannot prove branch liveness by regex; the census pins the same block via complex-invocation registry rows). NOT the BL-E2E-APP-DEPENDENT-SPECS-CI-DARK population: this spec runs on every PR.",
   "tests/e2e/admin-nav-layout-dimensions.spec.ts": PATH_GATED,

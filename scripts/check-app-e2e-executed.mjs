@@ -46,9 +46,6 @@ export const REQUIRED = {
   "admin-changes-feed-layout.spec.ts": 8,
   // 2 cases x 2 projects.
   "admin-layout.spec.ts": 4,
-  // 5 cases x 2 projects. Measured 2026-08-22, post-fix run of all 23 specs, both
-  // projects, --retries=0: 181 executed identities, zero skipped.
-  "admin-parse-panel.spec.ts": 10,
   // 4 cases x 1 project — admin-phase2-surfaces resolves under mobile-safari only
   // (playwright.config.ts testMatch), so 4 is the whole suite, not half of it.
   "admin-phase2-surfaces.spec.ts": 4,
