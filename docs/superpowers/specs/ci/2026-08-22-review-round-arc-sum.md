@@ -112,11 +112,14 @@ arcCounted(D, S) = |{ (row.baseSha, row.round)
                         row.stage === S }|
 ```
 
-When `arcCounted(D, S) >= ROUND_THRESHOLD` **and no base under D satisfies clause A for S**, the directory owes a filing section for *S* in **any one** `.md` under *D*. Reported as a new `ProblemKind`, `missing_arc_filing`, whose message names the directory, the sum, and the per-base breakdown that produced it.
+When `arcCounted(D, S) >= ROUND_THRESHOLD`, the directory owes **at least one** filing section for *S* in **any one** `.md` under *D*. Clause B reports when no such section exists anywhere under *D*, as a new `ProblemKind`, `missing_arc_filing`, whose message names the directory, the sum, and the per-base breakdown that produced it.
 
-Clause B is deliberately **residual**: it fires only where clause A cannot see. That gives three properties worth having, and each is a test in §5.
+**Suppression.** Clause B does not report for `(D, S)` when clause A is already reporting `missing_filing` for *S* at any base under *D*. Its only job is to keep one unmet obligation from producing two messages.
 
-- **One obligation, one message.** An arc with 5 rounds at base A and 2 at base B is reported once, by clause A at A, never twice.
+Writing it as "when any base reached the threshold" would pick out the same corpora — if every threshold base has a section, that section is also a section under *D*, so clause B is satisfied and silent either way. The two are equivalent, and this spec states the narrow one because it names the reason (do not double-report) instead of a proxy that happens to coincide with it. §5 pins the equivalence with the fixture that discriminates them if it is ever broken: a threshold base carrying its own section, plus two later bases below threshold, must stay clean.
+
+Two properties follow, and each is a test in §5.
+
 - **Monotonicity (§1.1.5).** Clause A is untouched and clause B only adds, so the problem set can only grow. This is what makes the change safe over 126 historical directories without inspecting them one at a time.
 - **No new satisfaction path for a clause-A obligation.** A filing elsewhere in the directory never discharges a base that reached the threshold on its own. This is the property that keeps branch-name reuse from *weakening* the gate: a reused name whose second PR burns 4 rounds at one base still owes at that base, exactly as today.
 
@@ -173,7 +176,11 @@ The filing-duty section gains: the threshold is reached either by one base's rou
 ## §4 Documented limits
 
 1. **A reused branch name sums two unrelated PRs.** Direction: **over-obligation** — a filing demanded where two short PRs shared a name — which the 2026-08-04 spec §8.2 already rules a documented limit costing one `**Mechanizable:** none` line. Zero live instances (probe 3), and the four reused names in history all predate the corpus. The alternative — partitioning a directory's bases by the merge commits of that branch on main — is **not implementable in this gate**: `mergedArcs` declines outright on a shallow clone (`lib/reviewRounds/mergedArcs.ts:46`) and CI checks out at depth 1 by design, so a git-ancestry partition would silently do nothing in the only environment that matters.
-2. **One under-obligation residue survives, and it already exists today.** Reused branch name, *and* the second PR re-merges so no base of its own reaches the threshold, *and* the first PR filed for that stage — the old filing then satisfies clause B for the new PR. It requires all three, has zero instances, and is not a regression: the same arc escapes under today's rule too, since neither of its bases reaches the threshold either. Monotonicity (§1.1.5) is what guarantees that reading.
+2. **One filing section per stage discharges the whole directory, however many rounds follow it.** An arc that files for `diff` at its first base and then burns three more diff rounds at each of two later bases owes nothing further: the section exists, so clause B is satisfied. Only clause A can re-oblige it, and only if some single later base reaches the threshold on its own.
+
+   This is the existing contract, not a new hole. A single-base arc that files at round 4 and then burns ten more rounds at the same base is likewise never re-obliged — `missing_filing` asks whether a section exists, not whether it is current. What keeps that honest at one base is `count_mismatch`, which forces the heading to keep declaring the true count; across bases there is no later section for it to hold to account. Closing it needs a declared cross-base total on the filing, which would red the 37 sections probe 2 measured, so it is fenced here rather than repaired (§7).
+
+   **The reused-branch-name case is this limit's worst instance**, and it is the one under-obligation direction the change carries: a reused name whose first PR filed for a stage, whose second PR re-merges so no base of its own reaches the threshold, and whose rounds therefore hide behind the first PR's section. All three conditions, zero live instances (probe 3), and not a regression — that arc escapes under today's rule too, since none of its bases reaches the threshold either. Monotonicity (§1.1.5) is what guarantees that reading.
 3. **A clause-B filing's heading declares its own base's count, not the arc sum** (§1.1.4). `## diff — 1 rounds` on a five-base arc is legal and reads oddly; the `**Examined:**` line carries the real span, and the gate does not judge prose (2026-08-04 §7.2).
 4. **The grandfather set is 11 pairs of merged arcs and will never be complied with.** It is frozen evidence, not a queue. It shrinks only if one of those arcs is retroactively filed or its rows are deleted.
 5. **`_roundAtPreviousBase` is unvalidated and unconsulted** (§1.1.7). A wrong value, or its absence, changes no gate outcome.
@@ -191,6 +198,7 @@ The filing-duty section gains: the threshold is reached either by one base's rou
 - Rounds `1,2` at A and `1,2` at B → fires: four pairs from colliding round values.
 - 4 rounds at one base, no filing → `missing_filing` and **not** `missing_arc_filing` (no double report).
 - 5 at A unfiled + 2 at B → exactly one problem, from clause A.
+- 4 at A **with a section at A**, + 2 at B + 2 at C → clean. The §3.1 equivalence fixture: a threshold base whose obligation is already discharged, plus later bases the sum can see. It is also limit 2's accepting direction, so the fence is executable rather than asserted.
 - 3 + 0 across two bases → passes (below threshold).
 - 2 + 2 of `stage: "task"`, and 2 + 2 of `status: "no_verdict"` → pass.
 - A grandfathered `(branch, stage)` at 2 + 2 → passes; the identical shape on a non-grandfathered branch → fires. One fixture, two directories, so the exemption cannot pass by accident.
@@ -217,7 +225,7 @@ The filing-duty section gains: the threshold is reached either by one base's rou
 - No change to `round` semantics, to `--round`, or to the wrapper's emission path. `codex-guard.mjs` is untouched.
 - No retroactive filings, no backfilled rows, no edits to any merged filing.
 - No git-ancestry partitioning of a directory's bases (§4 limit 1 — unavailable on a shallow clone).
-- No arc-sum requirement on a filing heading's declared count (§1.1.4).
+- No arc-sum requirement on a filing heading's declared count (§1.1.4), and no new cross-base total field on a filing. Either would red the 37 sections probe 2 measured, and both are the repair §4 limit 2 fences off.
 - No anti-tamper posture; the 2026-08-04 spec §8.1 fence is inherited whole.
 - No third ledger, no registration of arcs (§1.1.8).
 
