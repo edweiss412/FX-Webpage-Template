@@ -283,11 +283,24 @@ neither targets both:
 | the `#`-comment rule (parser growth) | **20/22** | **4/5** — `L2` moves | 4/4 | 1 |
 | the SHIPPED scanner, under `--expect-repaired` | **11/22** | VACUOUS | **2/4** | 1 |
 
-**Every walk in this table now also fails the accept-set**, because `P4` and `P5` — round 4's rows —
-are ones the merge-base fabricates and every partial repair inherits. Before round 4 the last four
-rows read `20/20`, i.e. clean on that population; the two new rows are what turned a column of
-passes into a column of failures, which is the clearest statement available of how much an acceptance
-set depends on someone having thought of the input.
+**An acceptance set bounds what someone has thought of, and this table measured exactly that.**
+Before round 4, `w4`, `w6`, `w7` and the `#` widening each scored a clean **20/20** on the
+accept-set — four distinct wrong implementations, all passing that population, three of them
+UNDER-repairs of the very rule under design. Round 4 added two rows and the same four now score
+**20/22**. Nothing about those implementations changed; the set caught up.
+
+The rows were not clever. `P4` is round 1's own spelling with its inner `}` deleted, and `P5` is that
+one lexical context deeper — both one ordinary edit from an input already in the set, both inside the
+threat fence, and both fabricating on the MERGE-BASE scanner, so they were live defects before this
+arc opened. Four candidate implementations were clean on that population purely because nobody had
+written the input down.
+
+**This is the arc's most transferable measurement, and it cuts against the instrument this design
+leans on hardest.** The accept-set is where AC-1 lives; it is the population that decides whether the
+repair landed. A perfect score on it means the repair satisfies every input its author imagined, and
+round 4 is the receipt for how far that is from meaning correct. The two populations added later —
+the merge-base comparison and the recorded bash-rejected movements — exist because they are keyed to
+something OTHER than the author's imagination: an immutable prior revision, and the shell itself.
 
 **Four of the eight candidates are invisible to the accept-set.** `w4`, `w6` and `w7` pass every
 accept-set row and die only in the bash-rejected population; the `#` widening passes both of those
