@@ -238,7 +238,7 @@ that the second one's advisory survives.
 
 ## Task 3 — retire the declared limit
 
-<!-- task: red=`pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-quoted-run-claim-sweep.mts` red-state=live why=`the sweep gates REPAIR rather than its own existence: every live claim that a quoted executable scalar is not read must carry a supersession marker within twelve lines, or sit in an EXEMPT entry with the reason it may stand. On the pre-implementation tree it exits 1 listing 26 unmarked live claims across the predecessor specs, the deciding suite and the scanner module header; the six edits of this task are exactly what turns the same command green` ac=AC-10 -->
+<!-- task: red=`pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-quoted-run-claim-sweep.mts` red-state=live why=`the sweep gates REPAIR rather than its own existence: every site in the scripts DECLARED list must carry a supersession marker within twelve lines. On the pre-implementation tree not one of them does, so it exits 1 naming every declared site across the two predecessor specs, the deciding suite and the scanner module header; the edits of this task are exactly what turns the same command green. The count lives in the script rather than being repeated here, so the two cannot drift` ac=AC-10 -->
 
 **What is red and why:** the claim sweep exits 1 on the current tree naming all six declared claim
 sites as carrying no supersession marker. The six edits below are exactly what turns the same
@@ -269,11 +269,17 @@ arms — PROSE (a claim about a quoted executable scalar near a not-read word) a
 zero-assertion within eight lines of a quoted fixture) — over every tracked `.ts`, `.mts` and `.md`,
 with dated execution records excluded by path.
 
-**It self-tests against all five known instances and exits 2 if it misses any**, because a sweep is
-only trustworthy where it has been shown to fire. Two of the five were found by plan review AFTER
-the first sweep reported clean, and they are in the self-test for exactly that reason. Narrowing the
-matcher back to its first form makes the self-test abort naming the instance it lost, so the
-self-test is itself non-vacuous.
+**It self-tests against every site in its `DECLARED` list and exits 2 if the matcher misses one**,
+because a discovery arm is only trustworthy where it has been shown to fire. Several of those sites
+were found by plan review AFTER an earlier sweep reported clean, which is why they are listed.
+Narrowing the matcher back to an earlier form makes the self-test abort naming the site it lost, so
+the self-test is itself non-vacuous.
+
+One declared site is exempt from the self-test and says so in the script: the documented-limit
+bullet at lines 322-328 of the predecessor spec wraps its claim across three lines and the matcher's
+window is two. It is still GATED — the gate reads the file directly and never consults the matcher —
+so the exemption costs coverage of the discovery arm only, and it is recorded rather than silent.
+Widening the window to reach it is the ratchet this sweep already stopped climbing once.
 
 Result: 50 hits over 4111 files. The ones that are claims about this scanner's current behaviour:
 
@@ -289,7 +295,7 @@ Result: 50 hits over 4111 files. The ones that are claims about this scanner's c
 | predecessor PLAN line 666, `docs/review-rounds/**`, `tests/docs/_retiredIdentifiers.ts`, the `declaredLimitPins` spec-lint FIXTURES | LEAVE. Execution records and copied fixtures — the first are never corrected, the second pin a document's shape rather than the scanner's behaviour. |
 | `tests/cross-cutting/workflowActivation.test.ts:104-106` | LEAVE. Different subject; matched on shape, not on this claim. |
 
-Six edits, all in this task's commit:
+The edits, all in this task's commit:
 
 1. Re-pin both rows as HITS rather than deleting them. A retired limit stays visible as a pin.
 2. Correct their comment. It currently attributes the miss to the flag criterion; the actual cause
@@ -336,7 +342,7 @@ each is probed against a failing input rather than trusted:
 | AC-6 `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-quoted-scalar-census.mts --expect-quoted 0` | zero quoted executable scalars | **RUN, not described.** A `- run: "echo quoted"` step was appended to `.github/workflows/admin-layout-e2e.yml`; the census reported `run:QUOTE_DOUBLE = 1` and named the planted step by file and line. The workflow was then restored and the census returned to `0`. No line is cited for the planted step: it existed only while the mutant was, and the restored file is shorter. |
 | AC-7 `pnpm mutation:sites` | all registry keys resolve — measured clean at base, "all accepted rows resolve" | observed red after every `scan.ts` edit, before the re-key. Concrete: `psqlStartupScan` carries **30** accepted rows, line-anchored. Task 2 inserts helpers above `scanShellIndirection` (~line 3391) and edits at 3416, so every row anchored below shifts — 4 of them sit below 3416 alone. This is why a comment-only edit re-keys exactly as code does. |
 | AC-8 `node docs/superpowers/specs/ci/probes/2026-08-22-seam-check.mjs` | this arc's diff | **RUN. Two earlier versions of this gate could not fail; the third is proved against a deletion and against the outer walk.** See below. |
-| AC-10 `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-quoted-run-claim-sweep.mts` | the corpus after the six edits | Self-tests against five known instances and exits 2 on a miss. Narrowing its matcher back to the first version aborts naming the instance lost, so the self-test is itself non-vacuous. |
+| AC-10 `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-quoted-run-claim-sweep.mts` | the corpus after Task 3 | Gates the script's `DECLARED` list, every site of which is unmarked before the repair, so it exits 1 today. Self-tests the matcher against that same list and exits 2 on a miss. Narrowing the matcher back to an earlier version aborts naming the site lost, so the self-test is non-vacuous. |
 
 ### AC-8: three denylists, then an allowlist
 

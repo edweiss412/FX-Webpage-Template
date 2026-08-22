@@ -101,16 +101,21 @@ for (const m of diff.matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm)) 
 const violations = [];
 const judge = (lines, decls, side) => {
   for (const line of lines) {
-    // The INNERMOST enclosing top-level statement. A line outside every one is
-    // trivia — a comment or blank space — which cannot move behaviour, and this
-    // arc edits the module header deliberately. Every STATEMENT is owned, so
-    // trivia is all that reaches this branch.
-    const owner = decls
-      .filter(({ range: [lo, hi] }) => line >= lo && line <= hi)
-      .sort((a, b) => a.range[1] - a.range[0] - (b.range[1] - b.range[0]))[0];
-    if (!owner) continue;
-    if (!PERMITTED.has(owner.name))
-      violations.push(`${side} ${FILE}:${line} in \`${owner.name}\` (${owner.range[0]}-${owner.range[1]}), which this arc may not touch`);
+    // EVERY owner of the line, and the line fails if ANY of them is forbidden.
+    //
+    // Selecting one owner was the previous cut and review found two escapes in
+    // it, both valid TypeScript: `const PERMITTED_NAME = ..., PLANTED = false;`
+    // puts two declarators in one statement with one range, and
+    // `const PERMITTED_NAME = ...; export const PLANTED = false;` puts two
+    // statements on one physical line. Either way a forbidden declaration
+    // shares a line with a permitted one, and picking either owner is picking
+    // wrong half the time. A line outside every owner is trivia — a comment or
+    // blank space — which cannot move behaviour, and this arc edits the module
+    // header deliberately.
+    const owners = decls.filter(({ range: [lo, hi] }) => line >= lo && line <= hi);
+    for (const owner of owners)
+      if (!PERMITTED.has(owner.name))
+        violations.push(`${side} ${FILE}:${line} in \`${owner.name}\` (${owner.range[0]}-${owner.range[1]}), which this arc may not touch`);
   }
 };
 judge(sides.new, headDecls, "added/changed");

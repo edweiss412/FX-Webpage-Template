@@ -87,6 +87,7 @@ const DECLARED: [file: string, nearLine: number, what: string][] = [
   ["tests/cross-cutting/psqlStartupFileSuppression.test.ts", 5156, "the declared-limit pin itself"],
   ["tests/cross-cutting/psqlStartupFiles/scan.ts", 232, "the scanner's own module header"],
   ["docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md", 292, "the recall-table note"],
+  ["docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md", 322, "the documented-limit bullet"],
   ["docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md", 346, "§6 item 2, the canonical record"],
   ["docs/superpowers/specs/ci/2026-08-20-shell-lexer-quoted-value-recall-design.md", 566, "disposition rows 6-8"],
   ["docs/superpowers/specs/ci/2026-08-20-shell-lexer-quoted-value-recall-design.md", 615, "the limits list"],
@@ -101,9 +102,22 @@ const linesOf = (f: string) => {
   return fileLines.get(f)!;
 };
 
-// SELF-TEST: the discovery arm must reach every declared site.
+// SELF-TEST: the discovery arm must reach every declared site it CAN reach.
+//
+// One declared site is exempt from this arm and says so: the documented-limit
+// bullet at lines 322-328 of the predecessor spec wraps "quoted `run:`" and
+// "documented limit" across three lines, and the matcher's window is two. It is
+// gated like every other declared site — the GATE reads the file directly and
+// does not consult the matcher — and it is listed here so the omission is a
+// recorded limit rather than a silent one. Widening the window to catch it is
+// the ratchet this sweep already stopped climbing once.
+const MATCHER_CANNOT_REACH = new Set([
+  "docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md:322",
+]);
 const unfound = DECLARED.filter(
-  ([file, near]) => !hits.some((h) => h.file === file && Math.abs(h.line - near) <= FIND_WINDOW),
+  ([file, near]) =>
+    !MATCHER_CANNOT_REACH.has(`${file}:${near}`) &&
+    !hits.some((h) => h.file === file && Math.abs(h.line - near) <= FIND_WINDOW),
 );
 if (unfound.length > 0) {
   console.error(
@@ -115,11 +129,12 @@ if (unfound.length > 0) {
 }
 
 // REPORT: candidates the gate does not range over.
-const declaredFiles = new Set(DECLARED.map(([f]) => f));
+// Only the declared sites themselves are removed. Suppressing every hit in a
+// DECLARED FILE was the previous cut, and it hid a live claim in the very file
+// the arc was editing — the class of defect where naming part of a file exempts
+// the rest of it.
 const candidates = hits.filter(
-  (h) =>
-    !DECLARED.some(([file, near]) => h.file === file && Math.abs(h.line - near) <= MARKER_WINDOW) &&
-    !declaredFiles.has(h.file),
+  (h) => !DECLARED.some(([file, near]) => h.file === file && Math.abs(h.line - near) <= MARKER_WINDOW),
 );
 console.log(`\ncandidates the gate does not range over (${candidates.length}) — read, do not trust:`);
 for (const c of candidates) console.log(`  ${c.file}:${c.line} [${c.arm}] ${c.text}`);
