@@ -118,7 +118,7 @@ distinction this record exists to keep:
 Both repaired, and the final run classifies every obligation:
 
 ```
-LIVE BASELINE GREEN: 7 passed, 0 failed
+LIVE BASELINE GREEN: 8 passed, 0 failed
 TALLY: {"PROVEN":41,"ABSENT":4}
 TOTAL OBLIGATIONS: 45
 ```

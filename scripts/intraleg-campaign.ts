@@ -186,12 +186,33 @@ export function main(): number {
     return 2;
   }
 
+  // ATTEST BEFORE CREATING ANYTHING. `mkdirSync` ran first, so the campaign's own
+  // output directory appeared in BOTH snapshots as the same `??` line and the
+  // comparison passed over it — a differential guard cannot see what preceded
+  // both of its ends (probed at diff review round 3).
+  const treeBefore = attestTree();
+  const dirtyScannable = treeBefore.dirty.filter((l) =>
+    /\.(ts|tsx|mts|cts|js|mjs|cjs|sh|ya?ml)$/.test(l),
+  );
+  if (dirtyScannable.length > 0) {
+    // A CLEAN START IS A SEPARATE ASSERTION from "nothing changed". An already-
+    // modified file can change bytes again and keep the same porcelain line, so
+    // the diff of two snapshots is blind to it. The deciding suite walks the
+    // repository, so any dirty scannable file can move a verdict.
+    process.stderr.write(
+      `REFUSING: the working tree is dirty over ${dirtyScannable.length} file(s) the deciding ` +
+        `suite scans:\n${dirtyScannable.join("\n")}\n` +
+        `A campaign attests that the tree did not MOVE; it cannot attest that an already-\n` +
+        `modified file kept its bytes, because the porcelain line is identical either way.\n`,
+    );
+    return CAMPAIGN_EXIT_USAGE;
+  }
+
   mkdirSync(recordDir, { recursive: true });
   // AC-6's production-isolation evidence on the REAL run. A spawner that omits
   // the override from the CHILD env writes production records into the gate's
   // own channel while every in-process pair stays green, so the default
   // channel's listing is captured before and compared after.
-  const treeBefore = attestTree();
   const defaultBefore = existsSync(DEFAULT_RECORD_DIR)
     ? readdirSync(DEFAULT_RECORD_DIR).sort()
     : [];
@@ -325,6 +346,10 @@ export function main(): number {
       treeBefore.head === treeAfter.head &&
       JSON.stringify(treeBefore.dirty) === JSON.stringify(treeAfter.dirty),
     campaignRecordCount: campaignRecords.length,
+    // The DURABLE evidence has to be complete, not merely present. A nonempty
+    // directory passed with 19 records for 20 planned trials, and a reused
+    // directory's stale records satisfied the same check.
+    plannedTrialCount: plan.trials.length,
   });
   if (verdict.code !== 0) process.stderr.write(`${verdict.detail}\n`);
   return verdict.code;
@@ -344,6 +369,8 @@ export function campaignVerdict(state: {
   refusedTrials: number;
   defaultChannelIdentical: boolean;
   campaignRecordCount: number;
+  /** How many trials the plan holds. The durable records must cover every one. */
+  plannedTrialCount: number;
   /** False when HEAD or the uncommitted file list moved between the two attestations. */
   treeUnchanged: boolean;
 }): { code: number; detail: string } {
@@ -353,6 +380,15 @@ export function campaignVerdict(state: {
   // observed by nobody, and a green result on top of it. The deciding suite walks
   // the whole repository, so a tree that moved mid-run is a campaign whose trials
   // measured different programs.
+  // Zero keeps its OWN named refusal below — an empty channel makes the isolation
+  // comparison vacuous rather than failed, which is a different thing to tell an
+  // operator than "short by one".
+  if (state.campaignRecordCount > 0 && state.campaignRecordCount !== state.plannedTrialCount) {
+    reasons.push(
+      `the durable record channel holds ${state.campaignRecordCount} record(s) for ` +
+        `${state.plannedTrialCount} planned trial(s)`,
+    );
+  }
   if (!state.treeUnchanged) {
     reasons.push("the WORKING TREE moved mid-campaign (HEAD or the uncommitted file list)");
   }

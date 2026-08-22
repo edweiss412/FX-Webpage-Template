@@ -2312,6 +2312,7 @@ describe("campaign driver verdict — every gate probed against a constructed fa
     defaultChannelIdentical: true,
     campaignRecordCount: 20,
     treeUnchanged: true,
+    plannedTrialCount: 20,
   };
 
   it("campaign verdict is 0 only on a complete run — the green control", () => {
@@ -2336,6 +2337,15 @@ describe("campaign driver verdict — every gate probed against a constructed fa
     const verdict = campaignVerdict({ ...clean, ...over });
     expect(verdict.code).toBe(1);
     expect(verdict.detail).toContain(names);
+  });
+
+  it("campaign verdict FAILS on a SHORT durable record count", () => {
+    // A nonempty directory passed with 19 records for 20 planned trials, and a
+    // reused directory's stale records satisfied the same check. Presence is not
+    // completeness.
+    const verdict = campaignVerdict({ ...clean, campaignRecordCount: 19 });
+    expect(verdict.code).toBe(1);
+    expect(verdict.detail).toMatch(/19 record\(s\) for 20 planned/);
   });
 
   it("campaign verdict FAILS when the tree moved mid-campaign", () => {

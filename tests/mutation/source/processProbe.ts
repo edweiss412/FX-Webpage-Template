@@ -725,6 +725,22 @@ export function runTrial(
   const planVerdict = validatePlan(plan);
   if (!planVerdict.ok) return refuse("plan", planVerdict.detail);
 
+  // THE RESOLVED SITE AND THE PLAN'S SITE MUST BE THE SAME SITE. The operator
+  // names `--site`, the child resolves it into a `Target`, and the plan travels
+  // separately — and nothing compared them, so a run could resolve the primary
+  // site and then trial a DIFFERENT registered mutant, returning a valid report
+  // for a site nobody asked about. Being "some mutant of this surface" was the
+  // only thing checked, and every mutant satisfies that.
+  if (plan.targetSiteId !== target.siteId) {
+    return refuse(
+      "plan",
+      `the plan targets ${JSON.stringify(plan.targetSiteId)} but the resolved target is ` +
+        `${JSON.stringify(target.siteId)}. Both are mutants of ` +
+        `${JSON.stringify(target.surface.id)}, which is why "is it a mutant of this surface" ` +
+        `could not tell them apart — the report would be valid evidence about the wrong site.`,
+    );
+  }
+
   const byId = new Map(target.mutants.map((m) => [siteId(m.site), m.text] as const));
   for (const site of plan.prefix) {
     if (!byId.has(site)) {
@@ -882,16 +898,24 @@ export function runTrial(
   if (deps.writeRecord !== undefined) {
     const dir = options.recordDir ?? recordDir();
     const scored = report.steps.filter((s) => s.role !== "baseline");
+    const trialScore =
+      scored.length === 0 ? 0 : scored.filter((s) => s.verdict === "KILLED").length / scored.length;
+    const passedByContract = trialScore >= target.surface.scoreFloor;
     deps.writeRecord(
       {
         surfaceId: target.surface.id,
         runId: options.runId ?? `trial-${plan.arm}-${plan.index}-${spawnedAt}`,
         startedAt: new Date(spawnedAt).toISOString(),
-        passed: derivedEligibility(report).usable,
-        score:
-          scored.length === 0
-            ? 0
-            : scored.filter((s) => s.verdict === "KILLED").length / scored.length,
+        // `passed` BELONGS TO THE SHARED CONTRACT, and there it means the gate
+        // result: the score met the surface's floor. This wrote trial VALIDITY
+        // into it instead, so all 20 records in the campaign said `passed: true`
+        // while every one of their scores sat below `psqlStartupScan`'s floor of
+        // 1 and fourteen were exactly zero. The durable channel was asserting
+        // passes nobody measured. A probe trial is not a gate run — it scores a
+        // prefix and one target, not the surface — so this is normally FALSE,
+        // and that is the truthful value rather than a flattering one.
+        passed: passedByContract,
+        score: trialScore,
         outcomes: scored.map((s) => ({
           siteId: s.siteId,
           verdict: s.verdict,
@@ -1452,6 +1476,13 @@ const trialKey = (t: CampaignTrial): string =>
  * measured different programs.
  */
 export function aggregateCampaign(input: {
+  /**
+   * Declared per-arm counts. ENFORCED against `plan` when one is given — a
+   * declaration nothing checks is decoration, which is how a self-shrunk plan
+   * passed as complete. Without a `plan` there is nothing to check it against,
+   * and that is stated rather than papered over: the campaign driver always
+   * passes one, so the unchecked path is test scaffolding only.
+   */
   plannedPerArm: Partial<Record<Arm, number>>;
   trials: readonly CampaignTrial[];
   /**
@@ -1492,6 +1523,22 @@ export function aggregateCampaign(input: {
         `trial keys REPEAT: ${[...new Set(dupes)].join(", ")}. One plan member observed twice ` +
           `is not two observations, and it hides whichever member was never run.`,
       );
+    }
+    // `plannedPerArm` was RENDERED and never enforced, so a plan that had already
+    // shrunk passed as complete: drop B#5 from the plan and the observations,
+    // leave plannedPerArm.B at 6, and the campaign reported "5 of 6" beside
+    // CAMPAIGN COMPLETE. A declared count that nothing checks is not a claim, it
+    // is decoration.
+    for (const [armId, count] of Object.entries(input.plannedPerArm)) {
+      const inPlan = input.plan.trials.filter((t) => t.arm === armId).length;
+      if (count !== undefined && inPlan !== count) {
+        return refuse(
+          "population",
+          `arm ${armId} declares ${count} planned trials and the PLAN holds ${inPlan}. The plan ` +
+            `itself already fell short of the declaration, so no count taken from it can show ` +
+            `the shortfall.`,
+        );
+      }
     }
     const missing = planned.filter((k) => !got.includes(k));
     const extra = got.filter((k) => !planned.includes(k));
@@ -1663,7 +1710,13 @@ export function aggregateCampaign(input: {
     // The WHOLE arm-C set, not the eligible subset. Stamp eligibility is
     // enforced AT THE PAIR: dropping a cross-stamp half upstream would report
     // the pair "incomplete" and lose the two digests the refusal must name.
-    load: adjudicateLoad(trials.filter((t) => t.observation.plan.arm === "C")),
+    // The WHOLE arm-C set, with the campaign's anchor handed DOWN rather than
+    // filtered upstream: dropping a cross-stamp half here would report the pair
+    // "incomplete" and lose the two digests the refusal must name.
+    load: adjudicateLoad(
+      trials.filter((t) => t.observation.plan.arm === "C"),
+      anchorDigest,
+    ),
   };
 }
 
@@ -1675,7 +1728,16 @@ export function aggregateCampaign(input: {
  * same-stamp, and both margins. On any shortfall this REFUSES and reports every
  * condition's truth value rather than adjudicating on the ones that held.
  */
-export function adjudicateLoad(trials: readonly CampaignTrial[]): LoadAdjudication {
+export function adjudicateLoad(
+  trials: readonly CampaignTrial[],
+  /**
+   * The campaign's agreed stamp. A pair that agrees with EACH OTHER on some other
+   * stamp is not evidence about this campaign: it adjudicated happily while its
+   * own arm reported 0 eligible, and the renderer then said the load column
+   * advances (probed at diff review round 3).
+   */
+  anchorDigest: string | null = null,
+): LoadAdjudication {
   const quiet = trials.find((t) => t.observation.plan.half === "quiet");
   const loaded = trials.find((t) => t.observation.plan.half === "loaded");
   if (quiet === undefined || loaded === undefined) {
@@ -1720,6 +1782,19 @@ export function adjudicateLoad(trials: readonly CampaignTrial[]): LoadAdjudicati
       detail:
         `the halves carry DIFFERENT stamps (quiet ${qDigest}, loaded ${lDigest}), so they ` +
         `measured different programs and a margin over them adjudicates nothing`,
+    };
+  }
+  // AGREEING WITH EACH OTHER IS NOT AGREEING WITH THE CAMPAIGN. The check above
+  // compares the halves to one another and passes when both sit on the same
+  // WRONG stamp — the pair then adjudicated while its own arm reported 0
+  // eligible, and the renderer said the load column advances.
+  if (anchorDigest !== null && qDigest !== anchorDigest) {
+    return {
+      kind: "refused",
+      detail:
+        `both halves carry stamp ${qDigest}, which is NOT the campaign anchor ${anchorDigest}. ` +
+        `They agree with each other and not with the campaign, so they are evidence about some ` +
+        `other program`,
     };
   }
   if (q.length < MIN_IN_WINDOW_SAMPLES || l.length < MIN_IN_WINDOW_SAMPLES) {

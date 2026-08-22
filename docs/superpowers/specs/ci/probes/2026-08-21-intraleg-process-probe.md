@@ -57,8 +57,15 @@ run over either would have been worthless:
 is reproducible from the command alone:
 
 ```
+# The FIRST campaign, whose artifact this record no longer reads:
 pnpm heavy pnpm exec tsx scripts/intraleg-campaign.ts \
   --out .mutation-records/campaign-2026-08-21 --seed 20260821 --trials 12
+
+# The SECOND campaign — every number below is read from THIS artifact, and it is
+# the one the diff under review produced. See "This is the SECOND campaign" below
+# for why the first was voided.
+pnpm heavy pnpm exec tsx scripts/intraleg-campaign.ts \
+  --out .mutation-records/campaign-2026-08-21-r2 --seed 20260821 --trials 12
 ```
 
 | Arm | Planned | Varies |
