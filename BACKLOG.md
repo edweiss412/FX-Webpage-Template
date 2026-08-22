@@ -302,12 +302,21 @@ The alert pill has two branches. Monitoring-only ("clearing on their own, no act
 
 `matchBrace` (`tests/cross-cutting/psqlStartupFiles/scan.ts`) tracks quotes and escapes but counts only its own `open`/`close` pair, so a delimiter belonging to a DIFFERENT construct is counted as its own. A `}` inside a nested `$()` therefore closes the enclosing `${` early, and a `)` inside a nested `${}` closes the enclosing `$()` early.
 
-Two observable shapes, both with bash confirming the command really runs:
+Three observable shapes, each paired with what bash actually did:
 
-| input                                 | bash        | scanner                                      |
-| ------------------------------------- | ----------- | -------------------------------------------- |
-| `cat >"$(echo ${A:-)}; psql -c 'x')"` | RAN, exit 0 | **0 sites AND 0 advisories** — a silent miss |
-| `cat >${OUT:-$(echo }; psql -c 'x')}` | RAN         | 1 site, `nested: false` — wrong attribution  |
+| input                                  | bash             | scanner                                      |
+| -------------------------------------- | ---------------- | -------------------------------------------- |
+| `cat >"$(echo ${A:-)}; psql -c 'x')"`  | RAN, exit 0      | **0 sites AND 0 advisories** — a silent miss |
+| `cat >${OUT:-$(echo }; psql -c 'x')}`  | RAN              | 1 site, `nested: false` — wrong attribution  |
+| ``cat >$(echo `echo x; psql -c 'x')``  | **RAN NOTHING**  | **1 site** — a FABRICATED call               |
+
+**The third was found on 2026-08-22 by `fix/shell-brace-cross-construct` and is the sharpest of the
+three.** The unclosed backtick means bash dies on the unexpected EOF and executes nothing at all, so
+the scanner is not mis-attributing a real call — it is reporting one that does not exist. Over-reporting
+is permitted for the ADVISORY channel and never for a site claiming a call site exists. It surfaced
+while measuring a deliberately weaker candidate walk rather than from the row's own shapes, which is
+why the row did not carry it: an implementation that keeps counting through an unclosed construct
+passes every fixture the first two shapes generate.
 
 **PRE-EXISTING, proven rather than assumed.** The identical inputs were run against `scan.ts` at the merge-base on the DETACHED path, which that arc did not change: base and HEAD agree byte for byte on both shapes. The attached-target work extends an existing defect to a new surface; it does not introduce it. The payload placement is what makes it visible — with psql BEFORE the crossing delimiter the attribution is correct, which is why the reviewer's own three probes did not discriminate.
 

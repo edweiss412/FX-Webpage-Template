@@ -86,6 +86,35 @@ const ROWS: Row[] = [
   { id: "C5-nested-same-pair", b64: b(`cat > "$(echo $(echo x); psql -c 'x')"`), bash: "runs",
     after: { sites: 1, nested: true, nestedInBacktick: false, indirections: 0 },
     note: "CONTROL: same-pair nesting, depth counting" },
+  // ── the $$ precedence class (spec review round 1 finding 2) ───────────────
+  //    `$$` is bash's PID parameter and consumes BOTH characters, so the `$`
+  //    that follows it is ordinary text and the `(` after THAT opens nothing.
+  //    Reading the second `$` as opening `$(` resolves a span bash never
+  //    parses, and both the shipped walk and the first cut of the repair
+  //    report a site for input bash refuses to run.
+  { id: "P1-dollardollar-in-brace", b64: b(`echo \${OUT:-$$(echo }; psql -c "x")}`), bash: "silent", limit: true,
+    after: { sites: 1, nested: false, nestedInBacktick: false, indirections: 0 },
+    note: "LIMIT: bash -n exits 2 and NOTHING runs, yet a site reports - an instance of the general syntax-error limit (design section 7 item 6), not of the crossing. The $$ precedence rule is what keeps it UNCHANGED: without it the repair resolves the same site with MORE confidence (nested:true), which would be a regression inside a limit" },
+  { id: "P2-dollardollar-attached", b64: b(`cat >$$(echo \${A:-)}; psql -c 'x')`), bash: "silent", limit: true,
+    after: { sites: 1, nested: false, nestedInBacktick: false, indirections: 0 },
+    note: "LIMIT: the same, on the attached-target path - one character from R1-attached. It is why the $$ rule lands in BOTH recognizers: taught to the delimiter walk alone, this row MOVES to nested:true" },
+  { id: "P3-dollardollar-control", b64: b(`echo $\${A:-y}; psql -c 'x'`), bash: "runs",
+    after: { sites: 1, nested: false, nestedInBacktick: false, indirections: 0 },
+    note: "CONTROL: $$ followed by an ordinary brace expansion parses fine and the psql after the `;` is a real top-level call — the $$ rule must not silence it" },
+
+  // ── rows that discriminate a repair of the RIGHT shape that stops one step
+  //    short. Both were added after building four strictly weaker walks and
+  //    measuring that two of them passed the set as first authored.
+  { id: "W2k-squote-in-dq-in-subst", b64: b(`cat >$(echo "it\'s"; psql -c 'x')`), bash: "runs",
+    after: { sites: 1, nested: true, nestedInBacktick: false, indirections: 0 },
+    note: "a single quote inside DOUBLE quotes inside $(): literal to bash, so the span ends at the closing double quote. One recognizer shared across both contexts reads it as an opener and loses the site" },
+  { id: "W2k-squote-in-dq-in-dq-target", b64: b(`cat >"$(echo "'"; psql -c 'x')"`), bash: "runs",
+    after: { sites: 1, nested: true, nestedInBacktick: false, indirections: 0 },
+    note: "the same crossing one layer deeper, inside a double-quoted attached target" },
+  { id: "W4k-unclosed-backtick-in-subst", b64: b("cat >$(echo `echo x; psql -c 'x')"), bash: "silent",
+    after: { sites: 0, indirections: 1 },
+    note: "an UNCLOSED backtick inside $(): bash dies on the unexpected EOF and runs NOTHING, so a resolved site is a FABRICATED call. Shipped resolves one today; the repair must REPORT instead" },
+
   // ── documented limits: OUTSIDE the accept-set, must stay exactly as today ──
   { id: "L1-ansi-c-inside-subst", b64: b(`echo $(echo $'\\''; psql -c 'x')`), bash: "runs", limit: true,
     after: { sites: 1, nested: true, nestedInBacktick: false, indirections: 0 },
@@ -108,19 +137,59 @@ const ROWS: Row[] = [
 ];
 
 const ROOT = resolve(import.meta.dirname, "../../../../../..");
-const modulePath = process.env.SCAN_MODULE
-  ? resolve(process.env.SCAN_MODULE)
-  : join(ROOT, "tests/cross-cutting/psqlStartupFiles/scan.ts");
-const scan = (await import(pathToFileURL(modulePath).href)) as {
+const TRACKED = "tests/cross-cutting/psqlStartupFiles/scan.ts";
+const modulePath = process.env.SCAN_MODULE ? resolve(process.env.SCAN_MODULE) : join(ROOT, TRACKED);
+type Scanner = {
   scanSource: (source: string, file: string) => Array<Record<string, unknown>>;
   scanShellIndirection: (source: string, file: string) => Array<Record<string, unknown>>;
 };
+const scan = (await import(pathToFileURL(modulePath).href)) as Scanner;
 console.log(`scanner module: ${modulePath}`);
-const shippedPath = join(ROOT, "tests/cross-cutting/psqlStartupFiles/scan.ts");
-const shipped =
-  process.env.SCAN_MODULE === undefined
-    ? null
-    : ((await import(pathToFileURL(shippedPath).href)) as typeof scan);
+
+/**
+ * The documented-limit baseline is the MERGE-BASE scanner, extracted with git.
+ *
+ * It was the WORKING TREE's `scan.ts` until spec review round 1 finding 1, and
+ * that is a control which supplies the mechanism under test: once the repair
+ * lands in that file, candidate and baseline are the same module and every
+ * limit row reports UNCHANGED by construction. The §2.1b widening defect was
+ * caught only because the prototype happened to live outside the tree — an
+ * accident of when the probe was written, not a property of the check.
+ *
+ * Extracted into `node_modules/`, which the scanner's walk skips at every depth
+ * (`IGNORED_ANYWHERE`), so the baseline copy can never enter the corpus it is
+ * used to measure. A copy beside the original would be scanned like source.
+ *
+ * Failure to obtain it ABORTS. A limit comparison that silently degrades to
+ * comparing the candidate with itself is the defect this repair removes.
+ */
+const baseSha = execFileSync("git", ["-C", ROOT, "merge-base", "origin/main", "HEAD"], {
+  encoding: "utf8",
+}).trim();
+const baselineDir = join(ROOT, "node_modules/.cache/bracecross-baseline");
+mkdirSync(baselineDir, { recursive: true });
+const baselinePath = join(baselineDir, `scan.${baseSha.slice(0, 12)}.ts`);
+let baselineSource: string;
+try {
+  baselineSource = execFileSync("git", ["-C", ROOT, "show", `${baseSha}:${TRACKED}`], {
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+} catch (error) {
+  console.error(`ABORT: cannot read ${TRACKED} at merge-base ${baseSha}: ${(error as Error).message}`);
+  console.error("The documented-limit rows have no baseline to compare against, so they prove nothing.");
+  process.exit(2);
+}
+writeFileSync(baselinePath, baselineSource);
+const shipped = (await import(pathToFileURL(baselinePath).href)) as Scanner;
+console.log(`limit baseline: ${TRACKED} at merge-base ${baseSha.slice(0, 12)}`);
+/** True when candidate and baseline are the same bytes — the limit rows then
+ *  cannot discriminate anything, and saying so beats printing UNCHANGED. */
+const baselineIsCandidate = readFileSync(modulePath, "utf8") === baselineSource;
+if (baselineIsCandidate)
+  console.log(
+    "NOTE: the candidate is byte-identical to the merge-base scanner, so the documented-limit rows are VACUOUS in this run (nothing has changed yet for them to detect).",
+  );
 
 const FAKE = "#!/bin/bash\nprintf 'RAN argv=%s\\n' \"$*\" >> \"$LOGFILE\"\necho out.txt\n";
 const dir = mkdtempSync(join(tmpdir(), "bracecross-"));
@@ -166,13 +235,27 @@ for (const row of ROWS) {
   const btNone = sites.every((s) => s.nestedInBacktick === false);
   const nestedCol = sites.length === 0 ? "-" : nestedAll ? "true" : nestedNone ? "false" : "MIXED";
   const btCol = sites.length === 0 ? "-" : btAll ? "true" : btNone ? "false" : "MIXED";
-  const summarise = (ss: Array<Record<string, unknown>>, hs: Array<Record<string, unknown>>): string =>
-    JSON.stringify([ss.map((x) => [x.line, x.offset, x.nested, x.nestedInBacktick, x.tokens]), hs.map((h) => [h.line, h.text])]);
-  const unchanged =
-    shipped === null
-      ? null
-      : summarise(sites, hits) ===
-        summarise(shipped.scanSource(source, "probe.sh"), shipped.scanShellIndirection(source, "probe.sh"));
+  // EVERY field, DERIVED from each record rather than hand-listed. AC-3 promises
+  // byte-identical records and the earlier five-field summary could not keep it:
+  // a moved `form`, `tokens`, `precedingWords`, `hasDynamicTokens`,
+  // `suppressesStartupFiles` or `exemptReason` compared equal (round 1 finding 1,
+  // second half). Deriving the field set also covers a field added to PsqlSite
+  // later, instead of silently omitting it.
+  const summarise = (records: Array<Record<string, unknown>>): string =>
+    JSON.stringify(
+      records.map((r) =>
+        Object.keys(r)
+          .sort()
+          .map((f) => (r[f] === undefined ? `${f}=<undefined>` : `${f}=${JSON.stringify(r[f])}`))
+          .join("\t"),
+      ),
+    );
+  const both = (ss: Array<Record<string, unknown>>, hs: Array<Record<string, unknown>>): string =>
+    `${summarise(ss)}||${summarise(hs)}`;
+  const unchanged = baselineIsCandidate
+    ? null
+    : both(sites, hits) ===
+      both(shipped.scanSource(source, "probe.sh"), shipped.scanShellIndirection(source, "probe.sh"));
   const ok = row.limit
     ? unchanged !== false
     :
@@ -185,7 +268,7 @@ for (const row of ROWS) {
     else unmetAccept++;
   }
   console.log(
-    `${pad(row.id, 36)} ${pad(String(ran), 5)} ${pad(String(sites.length), 6)} ${pad(nestedCol, 7)} ${pad(btCol, 6)} ${pad(String(hits.length), 5)} ${row.limit ? (unchanged === null ? "(limit; shipped)" : unchanged ? "UNCHANGED" : "MOVED") : ok ? "MEETS after" : "UNMET"}  ${row.note}`,
+    `${pad(row.id, 36)} ${pad(String(ran), 5)} ${pad(String(sites.length), 6)} ${pad(nestedCol, 7)} ${pad(btCol, 6)} ${pad(String(hits.length), 5)} ${row.limit ? (unchanged === null ? "(limit; vacuous)" : unchanged ? "UNCHANGED" : "MOVED") : ok ? "MEETS after" : "UNMET"}  ${row.note}`,
   );
   if (hits.length > 0) for (const h of hits) console.log(`    hit: ${JSON.stringify(h.text)}`);
 }
@@ -202,7 +285,7 @@ console.log(`ROWS: ${ROWS.length} total = ${accept} accept-set + ${limits} docum
 // observed nothing wrong.
 console.log(`${accept - unmetAccept}/${accept} accept-set rows meet their post-repair expectation`);
 console.log(
-  `${limits - movedLimits}/${limits} documented-limit rows ${shipped === null ? "reported (shipped module, nothing to compare against)" : "UNCHANGED against the shipped module"}`,
+  `${limits - movedLimits}/${limits} documented-limit rows ${baselineIsCandidate ? "VACUOUS (candidate is byte-identical to the merge-base scanner)" : `UNCHANGED against ${TRACKED} at ${baseSha.slice(0, 12)}`}`,
 );
 if (expectRepaired && (unmetAccept > 0 || movedLimits > 0)) {
   console.error(
