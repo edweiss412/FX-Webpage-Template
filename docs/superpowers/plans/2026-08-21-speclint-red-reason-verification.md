@@ -137,10 +137,6 @@ gain a union member, so every citation below them moves. And the observed distan
 round-4 prediction, because that probe modelled two one-token additions while each shipped member
 carries a comment explaining why it exists.
 
-Diff round 6 found this very paragraph asserting a wrong row count and repeating a wrong ordering,
-which is the same defect one level up: a replacement that restates is still a restatement. Both are
-gone rather than corrected.
-
 Anyone who wants the numbers regenerates them rather than reading a copy:
 
 ```

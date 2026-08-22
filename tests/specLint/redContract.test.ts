@@ -588,9 +588,9 @@ describe("parseCheckPlan", () => {
 /**
  * Collection-probe derivation (verdict-capability spec §5.1). Everything here
  * is pure: the plan says WHICH probes may run and WHAT text each one is; the
- * adapter alone spawns. Two guarantees are structural rather than behavioral —
- * a declined entry carries no probe text at all (so nothing downstream can
- * spawn it), and an out-of-accept-set command derives no entry whatsoever.
+ * adapter alone spawns. One guarantee here is structural rather than
+ * behavioral: a declined entry carries no probe text at all, so nothing
+ * downstream can spawn it.
  */
 
 const TRACKED = new Set([
