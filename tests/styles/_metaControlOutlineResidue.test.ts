@@ -1557,19 +1557,53 @@ describe("what the second score found unpinned", () => {
   // covers: AC-11
   it("requires a painted side before demanding a focus ring", () => {
     // `p != null && …some(Boolean)` decides whether an alternative carries a weak token at all.
-    // Flipped to `||`, every non-null paint reports weak, so a focus-state-chrome row whose tokens
-    // paint NO side would be told to add a ring it does not need.
-    const SKIP = "app/help/layout.tsx";
-    const el = liveElement(SKIP);
-    const row: ResidueRow = {
-      file: SKIP,
-      tag: el.tag,
-      paint: [""],
-      category: "focus-state-chrome",
-      reason: "no painted side on this alternative; the ring requirement must not fire",
+    // Flipped to `||`, every non-null paint reports weak, so an element that paints only NON-weak
+    // colours is told to add a ring it does not need.
+    //
+    // This is the one case here whose element cannot be live, and the premise below is why: the
+    // branch needs an alternative that PAINTS but paints nothing WEAK, and a residue element
+    // carries a weak token on the alternative that put it in the census by definition. All twelve
+    // live elements were checked and none discriminates. So the element is constructed, and the
+    // assertion above it pins the fact that forced the construction — if the census ever admits a
+    // discriminating element, that premise reds and this fixture should become a live one.
+    const ringed = (t: string) => /^focus(-visible)?:ring-/.test(t);
+    const discriminating = LIVE.elements.filter((el) => {
+      const lp = classify(oracle, tokensOf([el]));
+      const per = el.paths.map((path) => {
+        const toks = path.flatMap((str) => str.split(/\s+/)).filter(Boolean);
+        return {
+          paints: toks.some((t) => lp.get(t) != null),
+          weak: toks.some((t) => {
+            const p = lp.get(t);
+            return p != null && [...p.sides.values()].some(Boolean);
+          }),
+          ring: toks.some(ringed),
+        };
+      });
+      // `unringed` is a `.some` over alternatives, so the comparison is at ELEMENT level: an
+      // element whose other alternative is already weak-and-unringed reports the same verdict
+      // under both spellings even when one alternative paints without painting weak.
+      return per.some((x) => x.weak && !x.ring) !== per.some((x) => x.paints && !x.ring);
+    });
+    expect(discriminating).toEqual([]);
+
+    const el: ScanElement = {
+      file: "components/admin/PublishedToggle.tsx",
+      line: 1,
+      tag: "button",
+      // paints (`border`, `bg-surface-sunken`), nothing weak, and no ring token.
+      paths: [["border bg-surface-sunken px-3 py-1"]],
+      unresolved: false,
+      hasClassName: true,
+      allowlisted: false,
     };
-    expect(validateRow(row, el, oracle, ledger)).not.toContain(
-      `${SKIP}: focus-state-chrome weak token lacks a focus variant: `,
-    );
+    const row: ResidueRow = {
+      file: el.file,
+      tag: el.tag,
+      paint: ["focus:border-border-strong"],
+      category: "focus-state-chrome",
+      reason: "focus chrome; the ring requirement must not fire without a painted weak side",
+    };
+    expect(validateRow(row, el, oracle, ledger)).toEqual([]);
   });
 });

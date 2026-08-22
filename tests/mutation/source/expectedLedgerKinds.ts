@@ -314,6 +314,16 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // resolver, and the pin's own suite reds on every site — a row appearing here
   // later is a coverage regression to repair, not a number to bump.
   controlOutlineScan: {},
+  // Enrolled 2026-08-22. The first scored run reported 45 unaccepted survivors at 0.8052; nine
+  // cases took it to 22 at 0.912, and eight more close every survivor that is KILLABLE. The
+  // fourteen that remain are all EQUIVALENCES and there is NO accepted gap: three loop bounds
+  // whose extra index reads `undefined`, a sentinel comparison whose two branches coincide, two
+  // guards over mandatory capture groups, two `??` fallbacks whose left side is never nullish, a
+  // tie-break over a total order, two boundaries dominated by the conjunct beside them, two more
+  // dominated one step downstream, and a float boundary outside its function's domain — that last
+  // one enumerated over all 256 inputs rather than argued. Per-site arguments, each with its
+  // falsifier, are on the registry rows.
+  controlOutlineResidue: { equivalent: 14 },
   // The shared core is this arc's mutation-relevant surface: the in-scope
   // predicate, the resolver and both token grammars live here, and three suites
   // decide its verdicts. Its eleven blessed survivors are all ONE shape — a
