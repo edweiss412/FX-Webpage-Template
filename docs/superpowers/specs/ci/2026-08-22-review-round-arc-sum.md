@@ -29,6 +29,8 @@ The corpus also **forbids the honest workaround**, which is how the row confirme
 
 Every number below is produced by command over the live corpus at merge base `50ca72a56`. Scripts are committed at `scripts/probes/reviewRoundArcSum/` so each is re-runnable, and §5 pins the two decisive counts as executable assertions rather than prose.
 
+**Every count here carries an at-authoring-time qualifier, and the reason is not boilerplate: this arc's own dispatches enlarge the corpus it is measuring.** The figures below were taken before this arc's first review round wrote its row; that one row moves the arc-stage population from 281 to 282 and the per-base population from 345 to 346, which is exactly the discrepancy between probe 5's numbers and the ones spec review round 1 measured minutes earlier. Numerators are unaffected. The decisive counts — 11 newly owing, and 37 of 37 on probe 2 — are unaffected too, because a single spec round is four short of the threshold. Re-run the probes rather than quoting these after any merge into main.
+
 ### Probe 1 — how many arcs newly owe
 
 `pnpm exec tsx scripts/probes/reviewRoundArcSum/arcSum.ts .`
@@ -94,6 +96,19 @@ latest startedAt anywhere in the corpus:            2026-08-22T05:41:59.637Z
 ```
 
 `ARC_SUM_FREEZE` is set between them (§3.3).
+
+### Probe 5 — the report's trigger rate under both units
+
+Added after spec review round 1, which found the report's headline metric still on the per-base model.
+
+`pnpm exec tsx scripts/probes/reviewRoundArcSum/triggerRate.ts .`
+
+```
+per-base   (branch, baseSha, stage): 199/346  57.5%
+per-arc    (branch directory, stage): 212/282  75.2%
+```
+
+Both parts of the fraction move, so the published rate jumps ~18 points with nothing about the repo's behavior having changed. The 13-pair numerator difference is the arc-only threshold crossings: probe 1's 11 that owe a filing, plus 2 that already carry one. §3.4 makes the report label the change rather than let a reader take it for improvement.
 
 ## §3 Design
 
@@ -167,7 +182,16 @@ Fixture-planted arcs are never in the set, so meta-test fixtures exercise clause
 
 The report is the reader that made the defect invisible. It prints one line per `(branch, base)` — `chore/archive-duplicate-ids` appears as two `diff 2/2` lines with nothing showing the 4 — so a reader scanning it sees two short arcs and no obligation.
 
-For every branch directory with more than one base, the report gains a **totals line** listing each counted stage's arc sum, marked when the sum reaches `ROUND_THRESHOLD` and no section for that stage exists anywhere in the directory. It gates nothing; the meta-test does.
+For every branch directory with more than one base, the report gains a **totals line** listing each counted stage's arc sum. It gates nothing; the meta-test does.
+
+**The report never reimplements a gate predicate — it imports the one the gate uses.** This is the structural rule, stated before the two sites it fixes, because a second copy of the obligation test is what let the report and the gate disagree in the first place. Spec review round 1 found both instances of that one class, and it has exactly two:
+
+1. **The mark on the totals line is clause B's own predicate**, grandfather included. Marking on "sum at threshold and no section" alone would flag all 11 frozen pairs, permanently, in a report whose whole job is to be read — the standing false signal §1.1.6 rejects, reintroduced one section later by the same document. Grandfathered pairs print on their own line, labelled as frozen evidence, so they stay visible as history rather than as debt.
+2. **`triggerRateByMonth` moves to the arc unit** (`scripts/review-economy.ts:196`). It currently populates per `(branch, baseSha, stage)` and tests the threshold within one base file, so it is the defective model in the report's headline number. Population becomes `(branch directory, stage)`, bucketed by the first counted row's month across the whole directory, and the test becomes the sum.
+
+Both numerator and denominator move, so the published figure changes without any behavior changing (probe 5). The report says so on the line itself rather than leaving a reader to conclude the repo got better at filing.
+
+**What deliberately does NOT move.** The per-`(branch, base)` listing stays — it names where rows actually live, and the totals line sits above it rather than replacing it. `silentArcs` stays joined on `(branch, baseSha)`: a silent arc is a merge that recorded nothing at all, which is a per-merge question that applies no threshold, and `scripts/review-economy.ts:267` joins on `arcKey`, and the comment above it already records why joining on branch alone would be wrong there. The derived cover for "did anything else move" is every site comparing against `ROUND_THRESHOLD` outside `constants.ts` and the fixtures — `lib/reviewRounds/corpus.ts:236` (clause A, unchanged), the two sites above, and `scripts/review-economy.ts:395`, whose prose line stops describing one base as the unit.
 
 ### §3.5 Author-facing contract (`docs/review-rounds/README.md`)
 
@@ -208,7 +232,7 @@ The filing-duty section gains: the threshold is reached either by one base's rou
 - **Live corpus is clean** (existing case, line 1020) stays green — the acceptance for the whole change.
 - **Walker default:** a brand-new fixture directory at 2 + 2 fires with no test edit, pinning §1.1.8.
 
-**`tests/reviewRounds/report.test.ts`** — the totals line appears for a multi-base directory, is absent for a single-base one, and is marked when the sum is at threshold with no section.
+**`tests/reviewRounds/report.test.ts`** — the totals line appears for a multi-base directory and is absent for a single-base one; a stage at threshold by sum with no section anywhere is MARKED; a **grandfathered** pair in the same state is NOT marked and prints on the frozen line instead (spec review R1 finding 1, in its accepting direction, so the fence is executable); `triggerRateByMonth` populates per `(branch directory, stage)` and counts a spanning arc as triggered where the per-base unit counted it as two untriggered pairs (R1 finding 2); and the rate line carries the unit change on its face. The mark and clause B are asserted to come from ONE predicate — the report's marked set equals the gate's `missing_arc_filing` set over the same fixture corpus — which is the executable form of §3.4's structural rule and the assertion that would have caught both R1 findings.
 
 **Mutation enrolment (enrolment precedes review).** `lib/reviewRounds/count.ts` (`reviewRoundCount`, `tests/mutation/source/registry.ts:1343`) and `lib/reviewRounds/corpus.ts` (`reviewRoundCorpus`, `tests/mutation/source/registry.ts:1767`) are already enrolled, and this change edits both. `pnpm mutation:guards` runs **before** the round-1 diff dispatch, and the brief carries a `GUARD SURFACE:` line per surface with its score and "0 unaccepted survivors". The new grandfather module is a data literal with no branching and is not enrolled; the assertions that police it are the three in §3.3.
 

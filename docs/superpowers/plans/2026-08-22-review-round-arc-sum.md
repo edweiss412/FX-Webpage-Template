@@ -49,6 +49,8 @@ Two mechanical constraints follow from the enrolment, and both are easy to trip:
 | AC-8 | Monotonicity: every per-base problem the gate reports today is still reported, by kind, after the change. | `pnpm vitest run tests/docs/_metaReviewRoundEconomy.test.ts` |
 | AC-9 | The live corpus is clean. | `pnpm vitest run tests/docs/_metaReviewRoundEconomy.test.ts` |
 | AC-10 | `pnpm review:economy` prints a totals line for a multi-base directory, omits it for a single-base one, and marks a stage at threshold with no section anywhere. | `pnpm vitest run tests/reviewRounds/report.test.ts` |
+| AC-13 | The report never reimplements a gate predicate: its marked set equals the gate's `missing_arc_filing` set over the same fixture corpus, so a grandfathered pair is not marked. | `pnpm vitest run tests/reviewRounds/report.test.ts` |
+| AC-14 | `triggerRateByMonth` populates per `(branch directory, stage)` and tests the arc sum, and the rate line says the unit changed. | `pnpm vitest run tests/reviewRounds/report.test.ts` |
 | AC-11 | Both enrolled surfaces score at their `scoreFloor` of 1 with an empty unaccepted-survivor set, and `expectedLedgerKinds` matches the re-derived accepted sets. | `VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy pnpm exec vitest run --project mutation tests/mutation/guardSurfaces.gates.test.ts` |
 | AC-12 | This arc's own corpus rows satisfy the rule it ships (eat-your-own-cooking; §1.1 of the spec is written against it). | `pnpm vitest run tests/docs/_metaReviewRoundEconomy.test.ts` |
 
@@ -133,11 +135,13 @@ Monotonicity is asserted by kind: the pre-change gate's problems over a fixture 
 
 ### Task 6 — the report learns the sum
 
-<!-- task: red=`pnpm vitest run tests/reviewRounds/report.test.ts` red-state=authored red-target=`scripts/review-economy.ts:196` why=`the trigger bucket counts new Set(rows.map(r => r.round)).size within one base, so a two-base spanning arc increments nothing and the totals-line case reads a report with no such line` ac=AC-10 -->
+<!-- task: red=`pnpm vitest run tests/reviewRounds/report.test.ts` red-state=authored red-target=`scripts/review-economy.ts:196` why=`the trigger bucket counts new Set(rows.map(r => r.round)).size within one base, so a two-base spanning arc increments nothing and the totals-line case reads a report with no such line` ac=AC-10,AC-13,AC-14 -->
 
-**RED.** Cases: a multi-base directory gets a totals line naming each counted stage's arc sum; a single-base one does not; a stage at threshold by sum with no section anywhere is marked. `tests/reviewRounds/report.test.ts:373` already plants a `feat/spanner` multi-base fixture — extend it rather than planting a second.
+Both spec review R1 findings landed here, and they are one class: the report had its own copy of the obligation test. The structural repair ships in this same task rather than waiting for a recurrence — the report imports clause B's predicate instead of restating it.
 
-**GREEN.** The totals line, plus the trigger bucket keyed on the pair. `review-economy.ts:395`'s prose line stops saying "in one stage" as if one base were the unit.
+**RED.** Cases: a multi-base directory gets a totals line naming each counted stage's arc sum; a single-base one does not; a stage at threshold by sum with no section anywhere is marked; a **grandfathered** pair in that same state is NOT marked and appears on the frozen line (R1 finding 1's accepting direction); `triggerRateByMonth` counts a spanning arc as one triggered `(directory, stage)` where the per-base unit counted two untriggered pairs (R1 finding 2); and the marked set equals the gate's `missing_arc_filing` set over one shared fixture corpus, which is the assertion that would have caught both findings. `tests/reviewRounds/report.test.ts:373` already plants a `feat/spanner` multi-base fixture — extend it rather than planting a second.
+
+**GREEN.** The totals line reading the gate's predicate; the trigger bucket populated per `(branch directory, stage)` and tested against the sum; the rate line naming the unit change, since both parts of the fraction move and the published figure jumps about 18 points with no behavior change (spec probe 5). `review-economy.ts:395`'s prose line stops saying "in one stage" as if one base were the unit. `silentArcs` is deliberately untouched — it applies no threshold, and `review-economy.ts:264` already records why it joins on `(branch, baseSha)`.
 
 ### Task 7 — mutation re-run and siteId re-derivation
 
