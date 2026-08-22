@@ -44,6 +44,7 @@ around a scanner: the obligation is real, ratified, and Task 9 owns it.
 | existing workflow describe block | `tests/cross-cutting/ci-workflow-speedup.test.ts:84` | yes |
 | capture step forwards only `-e CI=true` | `.github/workflows/screenshots-drift.yml:113` | yes |
 | gate fails on untracked files there | `.github/workflows/screenshots-drift.yml:137` | yes |
+| new scripts absent from the job's paths allow-list | `.github/workflows/screenshots-drift.yml:35` and the five entries under it | yes, probed |
 | mutation registry row shape | `tests/mutation/source/registry.ts:12` (type), `tests/mutation/source/registry.ts:151` (membership) | yes |
 
 **Measured, not assumed.** The widened accept-set (six guard forms) matches **21** JSX-returning fault
@@ -113,7 +114,9 @@ figure appears in this plan only as a measurement, never as the assertion.)
 
 <!-- task: red=`pnpm vitest run tests/help/renderFaultDetector.test.ts` red-state=authored red-target=`scripts/capture-core.ts:96` why=`quiescence gates paint only, so nothing reports a marked node` ac=AC-1,AC-7 -->
 
-`detectRenderFaults(page, rootSelector?)` in a NEW module, not appended to `scripts/capture-core.ts`.
+`detectRenderFaults(page, rootSelector?)` in a NEW module at **scripts/capture-render-fault.ts** (a file this task creates) — named
+here, not left to the implementer, because the path determines whether the drift job fires on changes to it
+(see Task 7's path-filter enrolment). Not appended to `scripts/capture-core.ts`.
 
 **The red cycle is test-first, in four observed steps.** Write the test; observe it fail on module
 resolution; add the minimal stub returning `[]`; observe it now fail on the ASSERTION. The stub is not
@@ -154,8 +157,21 @@ Catch the `waitFor` timeout; scan the DOCUMENT (not the absent subtree); write t
 `admin-preview-crew-infra-error`; the admin-layout branch can blank all 14. Detection placed after
 `waitForQuiescence` never runs, and Playwright times out first without entry key, theme or reason.
 
+**`waitFor` precedence opens a second path to the same outcome, and the timeout catch does not cover it.**
+`ManifestEntry` permits `waitFor` and `captureSelector` independently, and quiescence resolves
+`entry.waitFor ?? entry.captureSelector ?? "body"` (`scripts/help-screenshots.ts:103`). One ordinary
+manifest edit — `waitFor: "body"` on an entry whose `captureSelector` is a page-specific testid — makes
+quiescence SUCCEED under the very replacement fault this task exists for, because `body` is present while
+the capture selector is not. The timeout never fires, so a catch around the wait writes nothing, and the
+absence surfaces later as Task 2's present-but-unmatched-root throw with no `selector-absent` record.
+
+So layer 0 has TWO triggers, and both write the same record: the quiescence timeout, and the capture
+selector resolving to nothing at screenshot time. The second is asserted explicitly with a fixture where
+`waitFor` differs from `captureSelector` and only the latter is missing — the case every stated test would
+otherwise pass while AC-1 fails.
+
 **The assertion that discriminates:** an evidence entry EXISTS with `refusedReason: "selector-absent"` when
-the selector never appears. A test asserting only that the capture throws passes against the unrepaired
+the selector never appears, **through either trigger**. A test asserting only that the capture throws passes against the unrepaired
 code, which already threw.
 
 **And a second assertion, because the obvious implementation over-claims.** `waitForQuiescence` can also
@@ -252,6 +268,15 @@ explicitly not this layer's job.
 
 Workflow edits join the existing `screenshots-drift` describe block at
 `tests/cross-cutting/ci-workflow-speedup.test.ts:84`.
+
+**Both new scripts must join the job's own `pull_request.paths` allow-list**, and this is a correctness
+requirement rather than tidiness. Probed: the parser path scripts/verify-capture-evidence.ts matches none of the six
+`scripts/` patterns currently listed (`.github/workflows/screenshots-drift.yml:35` and the five entries
+below it), and scripts/capture-render-fault.ts would not either. Without the entries, a later PR that edits only the
+detector or only the parser changes what the gate DOES while the gate never runs — which is precisely the
+defect the workflow's own comment records against `public/fonts/**`, a render input that silently fell out
+of this filter when a file moved. The allow-list additions are asserted by name in the same describe block,
+so a third instrument added later fails the test rather than going dark.
 
 **Failure mode this catches:** the capture runs inside `docker run` forwarding only `-e CI=true`, so the
 three runner variables never reach the process writing the record — the instrument would record empty
@@ -358,8 +383,13 @@ Every id below is claimed by a task marker above.
 - **AC-3** The meta-test fails when a manifest-reachable JSX-returning fault branch lacks the attribute.
 - **AC-4** The population is derived from the manifest, proven by a mutant introducing a **distinct root**
   via a template-literal route, plus an assertion on the parsed route set itself.
-- **AC-5** The record is written and uploaded on both outcomes, and a CI step parses it and fails on a short
-  record, an empty runner field, or a post-encode field non-null on a refused entry.
+- **AC-5** The record is written and uploaded on both outcomes, and a CI step parses it **branching on the
+  run's outcome**: on a clean run it fails on a record short of the manifest-derived expectation, a missing
+  pre- or post-encode field, an empty runner field, or a hash not matching the staging artifact; on a
+  refused run it requires the record to end with exactly one refused entry carrying a reason, every earlier
+  entry complete and none after it. **It must NOT reject a short record unconditionally** — the capture
+  aborts on the first refusal, so a short record is the correct shape for a genuine refusal, and an
+  always-reject-short parser would fail every one of them while satisfying a carelessly worded AC.
 - **AC-6** `pixelSha256` is computed over decoded RGB, not the PNG container.
 - **AC-7** `data-degraded` does not trigger a refusal.
 - **AC-8** A guard form outside the accept-set is reported by name rather than discarded.
@@ -398,21 +428,40 @@ scoped vitest runs stay unwrapped.
 ```
 pnpm vitest run tests/help/ tests/cross-cutting/ci-workflow-speedup.test.ts
 pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerMintBar.test.ts
-
-# AC-2. The TEST_DATABASE_URL override is REQUIRED, not optional - see below.
-TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres \
-  pnpm heavy pnpm screenshot:help && git diff --exit-code public/help/screenshots/
-
-pnpm tsx scripts/verify-capture-evidence.ts   # Task 7's parser, the same command CI runs
-pnpm heavy pnpm mutation:guards               # Task 8, before the first diff dispatch
+pnpm tsx scripts/verify-capture-evidence.ts --local   # Task 7 parser; --local REQUIRED off a runner
+pnpm heavy pnpm mutation:guards                       # Task 8, before the first diff dispatch
 ```
 
-**Why the override is load-bearing.** `playwright.screenshots.config.ts:167` forwards
-`process.env.TEST_DATABASE_URL` and only falls back to loopback when it is UNSET. This checkout's
+**AC-2 splits across two environments, and running its byte half locally is a DEFECT.** This host is
+Darwin arm64; CI captures inside the pinned `linux/amd64` Playwright image. This arc's own occurrence B is
+the proof that the two rasterize differently — identical geometry, identical content, sub-pixel deltas
+across every text run — so a local `git diff --exit-code public/help/screenshots/` would report drift that
+means nothing about the change under test. That is the byte-comparison environment rule (`AGENTS.md:221`)
+applied to this plan's own verification step.
+
+So:
+
+- **The production half of AC-2 runs locally** — the identity set derived from the staging directory,
+  which is environment-independent and is the half this arc spent four rounds getting right.
+- **The byte-equality half is CI-only**, in the pinned image, where the committed baselines were made.
+
+If a local capture is run anyway for any reason, it MUST be followed by
+`git restore public/help/screenshots/` (`AGENTS.md:306`) — host-architecture bytes overwrite the committed
+x64-Linux baselines and leave a dirty tree that looks like proposed changes and is not.
+
+**If a local capture IS run, the DB override is load-bearing.** `playwright.screenshots.config.ts:167`
+forwards `process.env.TEST_DATABASE_URL` and only falls back to loopback when it is UNSET. This checkout's
 `.env.local` points it at the remote validation project, and `pnpm preflight` warns about exactly this.
-Without the override the seed writes locally while the captured app reads remotely, so AC-2 fails against
-content unrelated to the change. The capture is a heavy phase behind a 2-slot semaphore, so a misconfigured
-run pays its full queue wait before it can fail.
+Without the override the seed writes locally while the captured app reads remotely. The capture is a heavy
+phase behind a 2-slot semaphore, so a misconfigured run pays its full queue wait before it can fail:
+
+```
+TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres \
+  pnpm heavy pnpm screenshot:help ; git restore public/help/screenshots/
+```
+
+The `git restore` is sequenced with `;` and not `&&` so it runs whether or not the capture succeeded — a
+failed capture is exactly when dirty baselines are most likely.
 
 Real CI green is a separate gate from local green. This branch edits
 `.github/workflows/screenshots-drift.yml`, which is in that job's own path filter, so the job fires on this
