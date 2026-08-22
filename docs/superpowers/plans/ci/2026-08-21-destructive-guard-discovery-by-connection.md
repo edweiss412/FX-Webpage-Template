@@ -747,6 +747,55 @@ and no test can distinguish — and the guard was DEAD besides, since `flattenCh
 empty list. The repair was subtraction plus a type (`[ts.Expression, ...ts.Expression[]]`), which
 makes the empty chain unrepresentable and lets the sweep reach the mutant.
 
+### 6.4 Mutation score, and how it got there
+
+Measured on the enrolled surface with the provenance stamp printed INSIDE the measuring invocation,
+before and after; both stamps read the same 15-file blob (`6a18421bff01c1b2`), so nothing in the
+input set moved while the run was in flight.
+
+**Final: `320/320` killed, score `1.0`, gate PASSED, ZERO unaccepted survivors.** 324 mutants were
+enumerated; two are accepted equivalences and excluded from the denominator by the ledger's own
+design, which is what keeps a provably unkillable mutant from capping the surface below 100% forever.
+
+Four scored runs, and each one moved the code rather than the number:
+
+| run | score | unaccepted | what the run bought |
+| --- | --- | --- | --- |
+| 1 | 0.7898 | 74 | Six branches of a declaration-position predicate that NO input could reach — a second declaration makes a binding `shadowed`, and a shadowed binding reports only its calls. Deleted, not blessed. |
+| 2 | 0.9288 | 24 | Type-position and non-source-edge false reports; the second run's survivors killed with cases. |
+| 3 | 0.9784 (317/324) | 7 | The dead `initializer === cur` conjunct deleted; the aliased RE-EXPORT of the driver killed. |
+| 4 | 1.0 (320/320) | 0 | The two fixpoint REACH signals and both edge-kind spellings, after the first attempt at all three passed for the wrong reason. |
+
+Run 4 exists because run 3's kills did not land, and the miss is worth recording: two fixtures
+PASSED while proving nothing, each because a second mechanism supplied the right answer. The chain
+fixtures marked only the deepest file `undisposed`, but that marker is itself a class, so class
+propagation kept the fixpoint's `grew` flag alive and hid the removed reach signal; and
+`admissibleKindsFor` falls through to `argIsCall ? [...] : ["unclassifiable"]`, so a fixture built
+with the default `argIsCall: false` reached the same answer by the wrong route. The protocol that
+followed: hand-apply each mutant and OBSERVE the suite red before claiming a kill. A case that stays
+green under its own hand-applied mutant names the second mechanism to remove.
+
+**Timeout kills are their own row class.** Eight mutants score KILLED because the child hit the
+180s wall-clock ceiling, and the harness says plainly that this is not evidence the suite rejected
+them. They are real kills with an environment-dependent mechanism, recorded separately so a future
+re-measure that flips one reads as an attribution change and not as a suite regression:
+
+| site | mechanism |
+| --- | --- |
+| `statement-removal:365:7:cur = parent;` | timeout |
+| `statement-removal:375:7:cur = parent;` | timeout |
+| `statement-removal:383:7:cur = parent;` | timeout |
+| `statement-removal:629:5:cur = cur.parent;` | timeout |
+| `statement-removal:1208:5:grew = false;` | timeout |
+| `statement-removal:1216:11:myReach.add(target);` | timeout |
+| `statement-removal:1221:13:myReach.add(reached);` | timeout |
+| `statement-removal:1227:13:mine.add(cls);` | timeout |
+
+Every one removes the statement that advances a walk or a worklist, so the mutant does not compute a
+wrong answer — it never terminates. Converting each hang into a fast failure is the standing
+improvement; it is not free here, because a non-terminating function cannot be rejected by an
+assertion that calls it.
+
 ### 6.4 Scratch-shard hygiene
 
 The scoped scratch shard (`guardSurfaces.shardTMP`, beside the four real shard files and gitignored

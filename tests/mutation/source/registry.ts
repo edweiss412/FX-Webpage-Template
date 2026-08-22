@@ -2963,7 +2963,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
     sourcePath: "tests/db/_connectionCensus.ts",
     suitePaths: ["tests/db/connectionCensus.test.ts"],
     operators: [...OPERATOR_NAMES],
-    scoreFloor: 0.8,
+    scoreFloor: 0.95,
     // Inverts the exact-match that decides `validation-env`: under `!==` no environment
     // chain matches its accept-set entry, so every validation-env fixture — the largest
     // class in the suite — reds. Verified unique on the current source (grep -c -F = 1),
