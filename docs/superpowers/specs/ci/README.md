@@ -55,5 +55,6 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-08-21-mutation-outcome-attribution-design.md`](./2026-08-21-mutation-outcome-attribution-design.md) | 2026-08-21 |
 | [`2026-08-21-sendauth-arm-classifier-unification-design.md`](./2026-08-21-sendauth-arm-classifier-unification-design.md) | 2026-08-21 |
 | [`2026-08-21-destructive-guard-discovery-by-connection-design.md`](./2026-08-21-destructive-guard-discovery-by-connection-design.md) | 2026-08-21 |
+| [`2026-08-21-shell-attached-redirection-target-design.md`](./2026-08-21-shell-attached-redirection-target-design.md) | 2026-08-21 |
 | [`2026-08-21-speclint-red-reason-verification-design.md`](./2026-08-21-speclint-red-reason-verification-design.md) | 2026-08-21 |
 | [`probes`](./probes) | 2026-08-04 |

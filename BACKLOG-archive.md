@@ -1,70 +1,24 @@
-## BL-DESTRUCTIVE-GUARD-DISCOVERY-BY-CONNECTION — discover destructive-analysis files by connection, not by SQL spelling — CLOSED 2026-08-21
+## BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION — a command substitution inside an ATTACHED redirection target hides an executing psql from both scanners
 
-**Status:** SHIPPED 2026-08-21 · **Effort (as shipped):** L · **Severity (as filed):** MEDIUM · **Class:** structural guard · **Facing:** process · **Shipped by:** `feat/destructive-guard-discovery-by-connection`
+**Status:** RESOLVED 2026-08-21 (`fix/shell-attached-redirection-target`, PR #873) · **Filed:** 2026-08-20 (`fix/shell-lexer-quoted-value-recall`, spec adversarial round 1 finding 1) · **Facing:** process · **Severity:** MEDIUM · **Class:** guard coverage · **Effort:** M
 
-**THE ROW GRADUATES ON A RE-SCOPE, AND THE RE-SCOPE IS STATED FIRST.** The row's terminating
-framing was "ask whether the file OPENS A DATABASE CONNECTION, then require the loopback guard of
-all of them." The census REFUTES the second half. Of the 179 connection-opening files under
-`tests/`, **99 target the validation project by declared environment variable** (63 directly, 36
-through a helper) — by this repository's ratified posture, not by accident
-(`scripts/preflight-env.mjs:146`, "TEST_DATABASE_URL is DELIBERATELY validation"; the destructive
-guard's own header). Requiring `assertLocalDbUrl` of them is requiring the suite to stop running
-against validation, which is a product decision outside a structural-guard row. What shipped is the
-row's own second paragraph instead: a CLASSIFICATION of every connection-opening file, with a
-validation-target accept-set and per-site dispositions.
+Closed on the reading this row ratified, and on no other. `lexShellWords` consumed an ATTACHED redirection target with a character-class run and discarded the match, so a target containing a command SUBSTITUTION was never lexed and its body never reached `scanShellText` — zero sites and zero indirection hits for a command bash really runs, which is a missed SITE rather than a missed discovery hit.
 
-**What shipped.** `tests/db/_connectionCensus.ts` walks `tests/`, finds every acquisition of the
-`postgres` driver, classifies every call of it by where its URL argument comes from
-(`guard-bound` / `validation-env` / `loopback-literal` / `remote-literal` / `unclassifiable`),
-propagates classes through the import graph to a fixpoint, and REPORTS anything it cannot classify.
-`tests/db/_metaConnectionCensusGuard.test.ts` runs it over the live tree in `unit-suite-db`;
-`tests/db/_connectionCensusDispositions.ts` carries the per-site rows, keyed on source text so a
-site that moves REDS as stale.
+**What shipped.** `attachedTargetEnd` delimits the target BY CONSTRUCT, using the handlers the lexer already had, and the slice is handed back to `lexShellWords` so dequoting, ANSI-C decoding, escape handling and nested-body collection come from ONE implementation rather than a second grammar beside it. The bodies are re-anchored into the outer array exactly as the `${…}` branch does; the dequoted target is retained in `targets` for the here-string reader. **Both readings this row REFUSED are still refused**: the target's text never becomes an argv word, and the site path is byte-identical BY CONSTRUCTION because `scanShellText` passes no `targets` array and therefore cannot see it.
 
-**The probe record, measured through the SHIPPED census rather than a probe script:**
+**The measurement that decided the design, and it refuted the obvious model.** The old pattern was not a target recognizer, it was a character-run muncher: through the shipped matcher at the base revision, `` >`psql -c 'x'` `` consumed only `` `psql `` and `>$(psql)` consumed only `$`, handing a FRAGMENT to the outer loop which then mis-lexed it. A repair that merely re-lexed the old match would have inherited both, and case I's ATTRIBUTION predicate is what kills it. G and H were named as killers too and the implementation-time audit refuted both: `"[^"]*"` matches G's target whole, and H's escaped backtick never reaches that path.
 
-    2565 files walked · 140 hold a driver binding · 175 connect sites · 5 connecting helpers
-    39 files inherit a class through the helper graph · 7 destructive-discovered, 0 off-channel
-    guard-bound 85 / validation-env 79 / loopback-literal 9 / remote-literal 0 / unclassifiable 2
-    8 disposition rows · 0 undisposed · 4856 production edges counted, never red
+**Also measured against bash rather than declared.** Ten of the twelve shipped redirection operators expand an attached substitution — `<&` included, which expands the word and only then fails the descriptor check — while `<<` and `<<-` take a here-DOCUMENT delimiter literally and execute nothing. Collecting bodies there would have been a FALSE advisory, so `LITERAL_TARGET_REDIRECTIONS` declines those two over a declared closed set, and `operator-oracle.mts` re-derives the split from the shell on every run.
 
-**Both refutations stay in the row, because a row is a claim and these two were false as filed.**
+**Consequence bound held: the guard got stricter without getting louder.** The live-corpus finding set is unchanged — 76 sites, 0 indirections, digest `8ebe8b08d43e6308aa471112d9f086d0118e6238` over every field of every record — and the digest was proven to discriminate on all five fields §5 forbids moving. The three-surface census still reports ZERO substitution-bearing attached targets. The first implementation of the unlexable report DID get louder, firing on nine live JS template literals, and the digest is what caught it.
 
-1. **"Require the loopback guard of all of them" is refuted**, above, and the deliverable is the
-   classification the row's own second paragraph asked for.
-2. **The row's census command over-counted and under-described.** `rg -l 'from "postgres"|require("postgres")' tests/`
-   returns 145: the 139 value default importers, five files whose only import is a TYPE, and one
-   that carries the import as FIXTURE TEXT inside string literals. It misses the dynamic
-   acquisition, and says nothing about the 39 files that never import the driver and still open a
-   connection. The chokepoint is the CALL, not the import, and the helper graph is part of the
-   population — neither is derivable by `rg`.
+**Three declared-limit pins retired, two controls held**, in the same commit as the recognizer change: `A3` the attached here-string, `F2` the attached substitution target, and the `F3` block's attached-target-no-override row now report; `F11` is unchanged at 1 site `[false]`, and the overridden here-string sibling still reports nothing, because a later `< /dev/null` on fd 0 means bash makes no binding.
 
-**The motivating defect is a CONSTRUCTED fixture, and that is recorded rather than smoothed over.**
-Both incident spellings (`select prune_sync_log()`, `select "public"."prune_sync_log"()`) were
-replayed against the shipped recognizer: both confirmed as discovery misses, the positive control
-fires, and the analyzer WOULD reject a constructed file if discovery handed it over. The live
-corpus has **zero executing instances** — 14 textual hits, every one a test title or an assertion
-message. So what this row closes is not the spelling miss but the SILENT PASS: a connection-opening
-file that no recognizer discovers now sits in a named class in a counted population, which nobody
-could enumerate before.
+**Four coverage axes closed that no fixture had crossed**, from the handover's own inventory: same-command resume, end of file, position in file, and CRLF. None was a repair — every spelling probed already behaved correctly, and the single disagreement was a predicted value of mine, on a fixture written with an unterminated quote while meaning a terminated one. Each of the four is proven load-bearing against a BUILT variant with a no-defect baseline first, and the variant that kills both same-command rows leaves the other two quiet, so they discriminate independently. Recorded because the off-by-one resume variant escapes the COUNT rows and dies to the coordinate row — the same finding this arc's killer audit reached twice before, that a presence-or-count assertion does not discriminate a delimiting weakening while a coordinate assertion does.
 
-**The documented limit, and its successor.** A `validation-env` file that executes a destructive RPC
-in a spelling `DESTRUCTIVE_STATEMENT_PATTERNS` does not match is still not discovered — unchanged in
-substance, and no longer silent. The terminating answer is DB-side and is filed as
-`BL-VALIDATION-PRUNE-DB-SIDE-GATE` (class-sweep exception (c): a migration plus RPC change on a
-surface this arc does not touch), carrying the eliminations so the next reader does not re-derive
-them.
+**What remains, narrower, and recorded where the code is READ** (`tests/cross-cutting/psqlStartupFiles/scan.ts`, documented-limits block) rather than only here: an undelimitable target is REPORTED and never resolved on the spec's REPORT CONDITION (design §3 part 4), which is where that rule is defined and the only place it is stated; that report is scoped to the surfaces production reads, so shell embedded in a JS string is outside it and carries a re-file trigger; and a here-document delimiter's bodies are deliberately not collected. None is a silent miss — each is a conservative direction with a surfaced signal or a measured shell fact behind it.
 
-**What implementation measured that the spec's probes had not**, recorded in the spec's §3.11: a
-driver name in a TYPE position is not a value reference (50+ live files), an edge to a non-source
-file is a decided non-edge (3), NodeNext `.js` specifiers name their `.ts` sources (5), the walk
-includes `__generated__` (2 edges into it), and an unresolvable path-shaped specifier is a class the
-probes never ranged over (1 — the eighth disposition row). FOUR of the five were FALSE REPORTS
-waiting to happen, which the consequence bound makes a defect exactly as a missed file is. The fifth
-is the opposite and is worth stating as such: the unresolvable `./state` edge is a report the census
-SHOULD make and does, and it is the reason an eighth disposition row exists rather than seven.
-
----
+Spec `docs/superpowers/specs/ci/2026-08-21-shell-attached-redirection-target-design.md`; plan `docs/superpowers/plans/ci/2026-08-21-shell-attached-redirection-target.md`; probe record `docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-redirection-target-probes.md`.
 
 ## BL-SENDAUTH-ARM-CLASSIFIER-UNIFICATION — four arms of one scanner each decide independently what a receiver and a raw binding are — CLOSED 2026-08-21
 
@@ -10315,6 +10269,74 @@ the first is now trusted.
 **MEASURED CORRECTION 2026-08-21 (`feat/speclint-red-reason-verification`), recorded so nobody re-derives it.** Two of this row's claims are FALSE under this repo's toolchain, established by running all eight shapes as real vitest fixtures. (a) A missing NAMED EXPORT does not fail before the assertions run: under Vite's SSR transform it binds `undefined`, the case EXECUTES, and the failure is `AssertionError: expected undefined to be <N>`. Only a missing MODULE dies at the loader. (b) That shape is therefore NOT separable from the repair round 1 ratified for it -- importing the module and asserting on the missing export -- whose verdict line is BYTE-IDENTICAL. A classifier keying on the failure text would condemn the repo's own accepted form. (c) The row's SECOND blind spot is not a live defect: `synthesizeCollectionFindings`'s `probes === null` return is unreachable from the shipped CLI, because `lib/specLint/run.ts:151` gates the call and the adapter always builds a non-null `ProbeResults` under `--exec-red`. (d) The reach of the SURVIVING blind spot is FIFTEEN markers, not 25 and not 9. The 16 heavy-wrapped v1 markers exit at `lib/specLint/redContract.ts:717` before the `none` drop at 721, so the repair can neither fix nor signal them; that correction is right. (e) But the drop is keyed on the DERIVATION, not on the wrapper, so its reach is every v2 marker whose command is not vitest-shaped at the anchor: nine `pnpm heavy`-wrapped plus six ordinary unprobeable commands (four `pnpm exec tsx single-mutant.ts`, one `sh -c` grep, one `pnpm spec:lint`), all enumerated in the design §1.1. Both the 25 and the 9 were a SUBSET read as a total, which is the shape worth remembering: when a change sits on a branch, its reach is everything arriving at that branch, not the subset that motivated it. **AND THE ROW'S OWN DIRECTION IS RETIRED.** An executed-case COUNT looked like the closable observable and is not: a module-scope `premise()` failure throws during collection, so vitest reports ZERO cases while an assertion ran and FAILED — an honest red a count-based arm would hard-fail — and conversely a `beforeEach` throw yields FAILED entries whose bodies never ran. Both were already measured one spec over, at `docs/superpowers/specs/2026-08-18-planlint-fixture-satisfiability.md` §2.7 and §2.9, with a live corpus instance. So what ships is the fifteen-marker silent drop alone; the reason-classifying arm is retired by ratified scope decision. Design, carrying all five refutations: `docs/superpowers/specs/ci/2026-08-21-speclint-red-reason-verification-design.md`.
 
 **Reachability: PROBED.** Both instances are quoted from reviewer output on a real arc, not constructed. The `pnpm heavy` blind spot is a static reading of the two cited lines and was confirmed by a third party the same night; it is a documented limit of the arm rather than a hypothetical.
+
+## BL-DESTRUCTIVE-GUARD-DISCOVERY-BY-CONNECTION — discover destructive-analysis files by connection, not by SQL spelling — CLOSED 2026-08-21
+
+**Status:** SHIPPED 2026-08-21 · **Effort (as shipped):** L · **Severity (as filed):** MEDIUM · **Class:** structural guard · **Facing:** process · **Shipped by:** `feat/destructive-guard-discovery-by-connection`
+
+**THE ROW GRADUATES ON A RE-SCOPE, AND THE RE-SCOPE IS STATED FIRST.** The row's terminating
+framing was "ask whether the file OPENS A DATABASE CONNECTION, then require the loopback guard of
+all of them." The census REFUTES the second half. Of the 179 connection-opening files under
+`tests/`, **99 target the validation project by declared environment variable** (63 directly, 36
+through a helper) — by this repository's ratified posture, not by accident
+(`scripts/preflight-env.mjs:146`, "TEST_DATABASE_URL is DELIBERATELY validation"; the destructive
+guard's own header). Requiring `assertLocalDbUrl` of them is requiring the suite to stop running
+against validation, which is a product decision outside a structural-guard row. What shipped is the
+row's own second paragraph instead: a CLASSIFICATION of every connection-opening file, with a
+validation-target accept-set and per-site dispositions.
+
+**What shipped.** `tests/db/_connectionCensus.ts` walks `tests/`, finds every acquisition of the
+`postgres` driver, classifies every call of it by where its URL argument comes from
+(`guard-bound` / `validation-env` / `loopback-literal` / `remote-literal` / `unclassifiable`),
+propagates classes through the import graph to a fixpoint, and REPORTS anything it cannot classify.
+`tests/db/_metaConnectionCensusGuard.test.ts` runs it over the live tree in `unit-suite-db`;
+`tests/db/_connectionCensusDispositions.ts` carries the per-site rows, keyed on source text so a
+site that moves REDS as stale.
+
+**The probe record, measured through the SHIPPED census rather than a probe script:**
+
+    2565 files walked · 140 hold a driver binding · 175 connect sites · 5 connecting helpers
+    39 files inherit a class through the helper graph · 7 destructive-discovered, 0 off-channel
+    guard-bound 85 / validation-env 79 / loopback-literal 9 / remote-literal 0 / unclassifiable 2
+    8 disposition rows · 0 undisposed · 4856 production edges counted, never red
+
+**Both refutations stay in the row, because a row is a claim and these two were false as filed.**
+
+1. **"Require the loopback guard of all of them" is refuted**, above, and the deliverable is the
+   classification the row's own second paragraph asked for.
+2. **The row's census command over-counted and under-described.** `rg -l 'from "postgres"|require("postgres")' tests/`
+   returns 145: the 139 value default importers, five files whose only import is a TYPE, and one
+   that carries the import as FIXTURE TEXT inside string literals. It misses the dynamic
+   acquisition, and says nothing about the 39 files that never import the driver and still open a
+   connection. The chokepoint is the CALL, not the import, and the helper graph is part of the
+   population — neither is derivable by `rg`.
+
+**The motivating defect is a CONSTRUCTED fixture, and that is recorded rather than smoothed over.**
+Both incident spellings (`select prune_sync_log()`, `select "public"."prune_sync_log"()`) were
+replayed against the shipped recognizer: both confirmed as discovery misses, the positive control
+fires, and the analyzer WOULD reject a constructed file if discovery handed it over. The live
+corpus has **zero executing instances** — 14 textual hits, every one a test title or an assertion
+message. So what this row closes is not the spelling miss but the SILENT PASS: a connection-opening
+file that no recognizer discovers now sits in a named class in a counted population, which nobody
+could enumerate before.
+
+**The documented limit, and its successor.** A `validation-env` file that executes a destructive RPC
+in a spelling `DESTRUCTIVE_STATEMENT_PATTERNS` does not match is still not discovered — unchanged in
+substance, and no longer silent. The terminating answer is DB-side and is filed as
+`BL-VALIDATION-PRUNE-DB-SIDE-GATE` (class-sweep exception (c): a migration plus RPC change on a
+surface this arc does not touch), carrying the eliminations so the next reader does not re-derive
+them.
+
+**What implementation measured that the spec's probes had not**, recorded in the spec's §3.11: a
+driver name in a TYPE position is not a value reference (50+ live files), an edge to a non-source
+file is a decided non-edge (3), NodeNext `.js` specifiers name their `.ts` sources (5), the walk
+includes `__generated__` (2 edges into it), and an unresolvable path-shaped specifier is a class the
+probes never ranged over (1 — the eighth disposition row). FOUR of the five were FALSE REPORTS
+waiting to happen, which the consequence bound makes a defect exactly as a missed file is. The fifth
+is the opposite and is worth stating as such: the unresolvable `./state` edge is a report the census
+SHOULD make and does, and it is the reason an eighth disposition row exists rather than seven.
+
+---
 
 ## BL-SPECLINT-SELFLINT-NOT-IN-PREDISPATCH-GATE — MERGED into BL-CODEX-GUARD-SPECLINT-PREDISPATCH-GATE
 
