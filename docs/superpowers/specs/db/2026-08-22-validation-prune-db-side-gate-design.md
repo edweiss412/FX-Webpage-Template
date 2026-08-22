@@ -6,29 +6,34 @@
 
 ## §0 The bound this arc is held to
 
-**Consequence bound.** On a database whose prune gate is disabled, `public.prune_sync_log()` and
-`public.prune_app_events()` delete zero rows and raise, through every client and every spelling. On a
-database whose gate is enabled they behave exactly as they do today, including the cron rows and both
-existing suites. There is no third outcome: the gate is read on every call, and a gate that cannot be
-read is a refusal (`coalesce(..., false)`), never a silent pass.
+**Consequence bound.** On a database that declares the validation posture — or declares no posture at
+all — `public.prune_sync_log()` and `public.prune_app_events()` delete zero rows and raise, through
+every client and every spelling. On a database that declares the production posture they behave exactly
+as they do today, including the cron rows and both existing suites. There is no third outcome: the
+posture is read on every call, and anything other than an explicit `false` is a refusal.
 
 **Probe domain.** The two function bodies (`supabase/migrations/20260809000000_sync_log_show_attribution.sql`
 `prune_sync_log`, `supabase/migrations/20260629000002_app_events.sql` `prune_app_events`), their callers
 (the two `cron.job` rows, `tests/db/syncLogIndexesAndPrune.db.test.ts`, `tests/log/appEventsSchema.test.ts`),
-and the live grant/gate/population state of the validation project `vzakgrxqwcalbmagufjh` and the local
-stack, as probed in §3. A probe outside that domain — a hypothetical database posture nobody operates, a
-hostile actor who already holds service-role credentials — files to §4, not to a round.
+the posture marker `public.destructive_reset_gate` and its ratified contract
+(`docs/superpowers/specs/admin/2026-06-22-validation-reset-button-design.md:32`), and the live
+grant/marker/population state of the validation project `vzakgrxqwcalbmagufjh` and the local stack, as
+probed in §3. A probe outside that domain — a database posture nobody operates, a hostile actor who
+already holds service-role credentials — files to §4, not to a round.
 
-**Threat fence.** The gate defends against **accidental test-authored deletion**: a suite, script, or
-one-off that reaches a prune through a connection that happens to point at validation. It does **not**
-defend against a hostile actor holding the validation service-role key or the pooler DSN; such an actor
-can flip the gate, and that is out of scope by declaration. This is the same fence
-`destructive_reset_gate` carries (`tests/db/destructiveResetGate.test.ts` header).
+**Threat fence.** The gate defends against **accidental deletion by a caller that legitimately holds
+service-role reach**: a suite, script, or one-off whose connection happens to point at validation. That
+is the whole live population, because `anon` and `authenticated` have no EXECUTE on either function
+already (§3.1) — the gap this closes is not a missing grant, it is that every holder of the grant the
+system does hand out (the pooler DSN in `.env.local`, the service-role key) can prune validation by
+accident. It does **not** defend against a hostile holder of those credentials, who can flip the posture
+marker; that is out of scope by declaration, the same fence `destructive_reset_gate` carries
+(`tests/db/destructiveResetGate.test.ts` header).
 
-**Closed criterion.** Both prunes refuse on the validation project with the gate disabled; every
-legitimate caller on local and prod is unaffected; proven by executable tests (§6) plus a re-run of the
-§3 live probe showing refusal where it previously showed deletion. That criterion is finite and settled
-by running two commands, not by enumerating inputs.
+**Closed criterion.** Both prunes refuse on the validation project; every legitimate caller on local and
+prod is unaffected; proven by the executable criteria in §6 plus a re-run of the §3.3 live probe showing
+refusal for BOTH functions. That criterion is finite and settled by running commands, not by enumerating
+inputs.
 
 **This is not a recognizer.** Nothing here reads SQL text, file paths, connection URLs, or anything a
 test authors. The gate is one boolean read inside the function body, so the spelling axis that produced
@@ -46,11 +51,12 @@ the filing row's limit is not merely narrowed, it is absent.
 | **Discovery by connection** is not the repair | filing spec §4.1 | It shipped as the census; its documented limit IS this row. |
 | **A psql-side or REST-side guard** is not the repair | `BACKLOG.md` row | Different channels, same spelling problem. Both channels are probed live in §3.4 and §3.5. |
 | **The gate lives at the database, inside the function body** | filing spec §4.1 "The terminating answer is DB-side" | Every client, spelling and channel converges there. |
-| **The mechanism mirrors `destructive_reset_gate`** — dedicated table, no anon/authenticated grant, RLS-deny, read through `coalesce(..., false)`, flipped out of band | `supabase/migrations/20260622000001_validation_reset_rpc.sql:6-13` and `supabase/migrations/20260622000001_validation_reset_rpc.sql:23-25` | Proven pattern with a shipped test surface. |
-| **The POLARITY is inverted relative to `destructive_reset_gate`, deliberately** | §2.2 of this spec | The reset must never run on prod; the prunes MUST run on prod. Same mechanism, opposite default. Argued, not assumed. |
-| **The seed is DERIVED at apply time, not flipped by hand** | §2.3 | Removes the out-of-band step that the reset gate needs, and with it the window where a fresh validation project is unprotected. |
-| **A failing prune cron on validation is the intended end state**, not a regression | §2.6 | The refusal in `cron.job_run_details` is the durable evidence the gate holds. |
+| **The posture marker is the EXISTING `destructive_reset_gate`, read at runtime — this arc adds no second marker** | §2.2, and the R1 finding that killed the two-marker design (§3.9) | Two rows encoding one fact can disagree, and every lifecycle hole R1 found was an instance of that disagreement. |
+| **A database that declares no posture refuses** (`enabled IS NOT FALSE`, so NULL refuses too) | §2.3 | The failure direction that matters is a validation project silently pruning. |
+| **Retention pausing while a database declares the validation posture is intended, not a regression** | §2.5, §4.2 | The refusal in `cron.job_run_details` is the gate's own durable evidence. |
+| **The threat fence** — a caller who can already flip the marker is out of scope | §0, §4.1 | Same fence `destructive_reset_gate` ships with. |
 | **No mutation-registry enrolment** | §4.4 | `tests/mutation/source/registry.ts:15` keys a surface by a TypeScript `sourcePath`; a SQL function is not expressible there. Stated, not enrolled symbolically. |
+| **"Delete-then-raise" is NOT a live wrong-implementation for AC-2** | §3.9, R1 reviewer refutation | An uncaught exception rolls the statement back, so the ordering is unobservable in Postgres. Recorded so no later round re-derives it; AC-2 asserts the committed outcome instead. |
 
 ### §1.2 What the filing row inferred, and what the probe measured
 
@@ -63,7 +69,8 @@ service-role key is accepted (§3.5). No layer in either probed channel refuses 
 The incident is not hypothetical either: `tests/log/appEventsSchema.test.ts:5-9` records that this file
 once resolved its URL from `TEST_DATABASE_URL` and "a plain `pnpm test` therefore pruned live validation
 history". That was repaired client-side, on that one file, by `assertLocalDbUrl`
-(`tests/log/appEventsSchema.test.ts:10-12`, `const url = assertLocalDbUrl(`) — the exact class of repair this row exists to terminate.
+(`tests/log/appEventsSchema.test.ts:10-12`, `const url = assertLocalDbUrl(`) — the exact class of repair
+this row exists to terminate.
 
 ---
 
@@ -71,84 +78,41 @@ history". That was repaired client-side, on that one file, by `assertLocalDbUrl`
 
 ### §2.1 One sentence
 
-A `public.prune_gate` table carrying one boolean, seeded at migration time from the database's existing
-posture marker, read by both prune functions before they delete anything.
+Both prune functions call `public.assert_prune_enabled()` before deleting anything, and it refuses
+unless this database's existing posture marker says, explicitly, that this is not a validation database.
 
-### §2.2 Polarity, argued rather than mirrored
+### §2.2 The marker already exists, and adding a second one was the R1 P0
 
-`destructive_reset_gate` ships `enabled=false` everywhere and validation flips it **true**, because
-`reset_validation_data()` is a feature that must never run on production. The prunes are the opposite:
-they are production retention (`supabase/migrations/20260629000002_app_events.sql:53-64`,
-`supabase/migrations/20260809000000_sync_log_show_attribution.sql:58-69` schedule them daily), and the
-database that must not run them is validation.
+`destructive_reset_gate.enabled` is this repo's in-database statement of "this is the validation
+database". Its contract is ratified and durable, not a temporary arm:
+`docs/superpowers/specs/admin/2026-06-22-validation-reset-button-design.md:32` (D4) specifies the row is
+migration-owned at `false` **in every environment**, and that it is set `true` "**only in the validation
+DB, out-of-band** (one-time `update ...`, exactly like the `ALLOW_DESTRUCTIVE_RESET` env var)", with prod
+keeping `false` permanently and no runtime session able to flip it.
 
-So the mechanism is copied and the default is inverted:
+The first draft of this spec introduced a second table, `prune_gate`, seeded at migration-apply time from
+that marker. Spec review R1 refuted it with three lifecycle states in which the two markers disagree and
+the disagreement is silently permissive (§3.9). The repair is subtraction: there is one fact — the
+database's posture — so there is one row that records it, read where it is needed.
 
-- **The read is fail-closed.** `coalesce((select enabled from public.prune_gate where id = 'default'), false)`
-  — a missing row, a truncated table, or a gate nobody seeded means REFUSE. The column default is
-  `false` for the same reason.
-- **The seeded VALUE is per-database**, derived in §2.3. On local and prod it is `true`, so retention
-  is unchanged. On validation it is `false`, so the prunes refuse.
+What this deliberately accepts, stated plainly: while a database declares the validation posture, its
+retention prunes refuse. On validation that is permanent and intended. On production it can only happen
+if someone flips a marker that D4 says production never flips, and the consequence would be paused
+retention with a daily error in `cron.job_run_details` — conservative and loud, never a silent deletion.
+§4.2 records it as a limit rather than hiding it.
 
-Stating it as the brief does: default DISABLED is the code path's fallback whenever the gate cannot be
-read; the shipped row is what decides an actual database, and it is computed rather than remembered.
-
-### §2.3 The seed is derived, so no database is unprotected between two operator actions
-
-```sql
-insert into public.prune_gate (id, enabled)
-select 'default',
-       not coalesce((select enabled from public.destructive_reset_gate where id = 'default'), false)
-where exists (select 1 from public.destructive_reset_gate where id = 'default')
-on conflict (id) do nothing;
-
-do $$
-begin
-  if not exists (select 1 from public.prune_gate where id = 'default') then
-    raise exception 'prune_gate seed: no destructive_reset_gate row to derive posture from';
-  end if;
-end;
-$$;
-```
-
-`destructive_reset_gate.enabled = true` is already this repo's in-database statement of "this is a
-validation project": it is seeded false by `supabase/migrations/20260622000001_validation_reset_rpc.sql:13`
-and only validation flips it. Reading it ONCE, at apply time, gives the new gate the right value on every
-database with no out-of-band step and no window in which a freshly-provisioned validation project prunes
-freely.
-
-The derivation is **apply-time only**. After the insert the two gates are independent rows; flipping the
-reset gate later does not move the prune gate. That is deliberate: coupling them at read time would mean
-enabling a one-off reset silently stops retention that day, which is lesson 300's "reusing a code
-inherits its promise" in table form.
-
-The `raise` is the loud half. If `destructive_reset_gate` has no `'default'` row the migration FAILS
-rather than seeding a permissive default, because the failure direction that matters here is a validation
-project silently seeded `true`.
-
-### §2.4 The table
-
-```sql
-create table if not exists public.prune_gate (
-  id text primary key default 'default' check (id = 'default'),
-  enabled boolean not null default false
-);
-revoke all on table public.prune_gate from anon, authenticated, public;
-grant all on table public.prune_gate to service_role;
-alter table public.prune_gate enable row level security; -- no policy => PostgREST deny-all
-```
-
-Byte-for-byte the shape of `destructive_reset_gate`
-(`supabase/migrations/20260622000001_validation_reset_rpc.sql:6-12`), including the single-row CHECK, so
-the lockdown registry row (§2.7) is the same shape too.
-
-### §2.5 The check, and the two function bodies
+### §2.3 The check
 
 ```sql
 create or replace function public.assert_prune_enabled() returns void
   language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_validation boolean;
 begin
-  if not coalesce((select enabled from public.prune_gate where id = 'default'), false) then
+  select enabled into v_validation from public.destructive_reset_gate where id = 'default';
+  -- true => this database declares the validation posture (D4) => refuse
+  -- null => no posture marker at all                           => refuse
+  if v_validation is not false then
     raise exception 'prune not enabled for this database';
   end if;
 end;
@@ -157,7 +121,15 @@ revoke all on function public.assert_prune_enabled() from public, anon, authenti
 grant execute on function public.assert_prune_enabled() to service_role;
 ```
 
-Both prunes gain one statement and keep every property their tests pin:
+`is not false` is the whole fail-closed contract in one predicate: `true` refuses because the database
+said it is validation, `null` refuses because the database said nothing. Only an explicit `false` — the
+value D4 ships to every environment and prod keeps forever — allows a prune. R1's third hole was exactly
+the state a `coalesce(..., false)` read would have waved through, and this predicate is why it cannot
+recur.
+
+### §2.4 The two function bodies
+
+Each gains one statement:
 
 ```sql
 create or replace function public.prune_sync_log(retain interval default interval '60 days')
@@ -166,7 +138,8 @@ create or replace function public.prune_sync_log(retain interval default interva
   security definer
   set search_path = public, pg_temp
 as $$
-declare v_deleted integer;
+declare
+  v_deleted integer;
 begin
   perform public.assert_prune_enabled();
   with deleted as (
@@ -180,46 +153,45 @@ $$;
 
 `prune_app_events` changes identically against `public.app_events`.
 
-**What must not move**, because live assertions pin it:
+**What must not move**, because live assertions pin it — every row re-measured after the rewrite in §3.8:
 
 | Property | Pinned at | After this change |
 | --- | --- | --- |
 | `prosecdef = true` | `tests/db/syncLogIndexesAndPrune.db.test.ts:109` (`expect(fn!.prosecdef)`) | unchanged (`security definer`) |
 | `proconfig = ["search_path=public, pg_temp"]` | `tests/db/syncLogIndexesAndPrune.db.test.ts:110` (`expect(fn!.config)`) | unchanged |
 | argument list `retain interval DEFAULT '60 days'` | `tests/db/syncLogIndexesAndPrune.db.test.ts:114` (`expect(fn!.args)`) | unchanged |
-| `service_role` execute yes, `anon`/`authenticated` no | `tests/db/syncLogIndexesAndPrune.db.test.ts:117-129` | unchanged (`create or replace` preserves grants) |
+| `service_role` execute yes, `anon`/`authenticated` no | `tests/db/syncLogIndexesAndPrune.db.test.ts:117-129` | unchanged (`create or replace` preserves grants; measured in §3.8) |
 | return equals the global deleted count | `tests/db/syncLogIndexesAndPrune.db.test.ts:154-157` | unchanged; the count is computed the same way |
 | the explicit-cutoff parameter is read | `tests/db/syncLogIndexesAndPrune.db.test.ts:200-206` | unchanged |
 | cron command is the no-argument form | `tests/db/syncLogIndexesAndPrune.db.test.ts:219` | unchanged; the cron rows are not touched |
 
 The language changes from `sql` to `plpgsql` because a `language sql` body cannot raise. No assertion in
-the corpus pins `prolang`; §6 AC-7 adds one for the new state so the change is declared rather than
+the corpus pins `prolang`; §6 AC-5 adds one for the new state so the change is declared rather than
 incidental.
 
-### §2.6 What happens to the daily cron on validation
+### §2.5 What happens to the daily cron on validation
 
 It fails, daily, with `prune not enabled for this database`, recorded in `cron.job_run_details`. That is
 the intended end state and it is the gate's own durable evidence. Three consequences, all stated so no
 reviewer has to guess:
 
 - **Validation telemetry stops being pruned.** Measured population at probe time: 149,861 `sync_log`
-  rows and 45,261 `app_events` rows (§3.1). Growth is bounded by validation traffic, which is test
+  rows and 45,261 `app_events` rows (§3.1, §3.3). Growth is bounded by validation traffic, which is test
   traffic. This is the accepted cost of the row.
 - **Nothing in the repo reads cron success**, so no suite reds. `tests/cross-cutting/pg-cron-coverage.test.ts:111-118`
   asserts these two jobs exist and are deliberately outside the `fxav_cron_` namespace; it makes no claim
   about their outcome, and the repo has no reader of `cron.job_run_details` under `app/`, `lib/`, or
   `supabase/`.
-- **Deliberate pruning of validation stays possible**, by the same motion the reset gate already
-  documents: flip `prune_gate.enabled` to true via a service-role connection, run the prune, flip it
-  back. §4.2 records why that is not automated.
+- **Deliberate pruning of validation stays possible**, by one motion an operator already knows: set the
+  posture marker to `false`, run the prune, set it back to `true`. §4.2 records why that is not automated.
 
-### §2.7 Registry and parity obligations this change inherits
+### §2.6 Obligations this change inherits
 
 | Obligation | Where | Action |
 | --- | --- | --- |
-| PostgREST DML lockdown registry | `tests/db/postgrest-dml-lockdown.test.ts` `RPC_GATED_TABLES`, Layer 4 at `tests/db/postgrest-dml-lockdown.test.ts:1007-1055` | Add a `prune_gate` row (`table`, `closed_at`, `selectAnon: false`, `selectAuthenticated: false`, `postBody`, `rowFilter`). Layer 4 walks `supabase/migrations/` for table-level REVOKEs and fails on any REVOKE'd table with no row, so the row is not optional — the guard fails by default. |
+| PostgREST DML lockdown registry | `tests/db/postgrest-dml-lockdown.test.ts` `RPC_GATED_TABLES` | **None.** No table is created and no table-level REVOKE is added, so Layer 4's migration walk (`tests/db/postgrest-dml-lockdown.test.ts:1007-1055`) has nothing new to register. This is a saving the two-marker draft did not have. |
 | Schema manifest | `supabase/__generated__/schema-manifest.json` | Regenerate with `pnpm gen:schema-manifest` after the local apply and commit in the same PR. |
-| Validation parity | `tests/db/validation-schema-parity.test.ts` | Apply the migration surgically to `vzakgrxqwcalbmagufjh` (`supabase db push` is blocked) and `notify pgrst, 'reload schema';`. |
+| Validation parity | `tests/db/validation-schema-parity.test.ts` | Apply the migration surgically to `vzakgrxqwcalbmagufjh` (`supabase db push` is blocked) in ONE `psql -v ON_ERROR_STOP=1 -1` invocation, then `notify pgrst, 'reload schema';`. Atomicity matters because parity compares signatures, not bodies (§4.3), so a half-applied file would not be caught by the gate — only by AC-6, which probes both functions live. |
 
 ---
 
@@ -364,10 +336,80 @@ proves by execution rather than by this paragraph.
 
 This worktree holds no production credentials (`SUPABASE_URL` resolves to `http://127.0.0.1:54321`).
 Prod's behaviour is derived, not measured: prod has never flipped `destructive_reset_gate`
-(`tests/db/destructiveResetGate.test.ts` header, "Production never flips the gate"), so §2.3 seeds
-`prune_gate.enabled = true` there and retention is unchanged. The derivation's single premise — that
-prod's reset gate is `false` — is exactly what the §2.3 `raise` makes loud if it is ever wrong, since a
-missing row aborts the migration rather than seeding a guess.
+(`tests/db/destructiveResetGate.test.ts` header, "Production never flips the gate"; D4 at
+`docs/superpowers/specs/admin/2026-06-22-validation-reset-button-design.md:32`), so the marker reads
+`false` there and both prunes keep running exactly as today. The derivation has one premise — prod's
+marker is `false` — and it is the same premise the reset RPC has depended on since 2026-06-22, so this
+arc adds no new assumption about production. If it were ever wrong the consequence is §4.2's: retention
+pauses loudly, nothing is deleted.
+
+---
+
+### §3.8 The shipped design, dry-run against local inside a rolled-back transaction
+
+Run 2026-08-22, after R1, from a scratchpad SQL script reproduced by the four states below. Four states, one transaction, `rollback` at the
+end; the local database was re-read afterward and holds neither the function change nor any probe row.
+
+```
+--- state A: marker false (local/prod posture) => prune runs ---
+ reset_gate
+ f
+ expected            1
+ pruned_state_a      1
+
+--- state B: marker true (validation posture) => refuses ---
+ UPDATE 1
+ NOTICE:  state B refused as designed: prune not enabled for this database
+ p7_b_row_survived   1
+
+--- state C: marker row ABSENT => refuses (fail-closed, R1's third hole) ---
+ DELETE 1
+ NOTICE:  state C refused as designed: prune not enabled for this database
+
+--- state D: explicit-cutoff form is gated in every state ---
+ NOTICE:  state D refused as designed: prune not enabled for this database
+ ROLLBACK
+```
+
+An earlier run of the same shape, against the two-marker draft, measured the property table §2.4
+promises, and those measurements carry unchanged because the function bodies are identical apart from
+the check they call:
+
+```
+     proname      | prosecdef |            proconfig            | lanname |                    args                     | service_role | anon | authenticated
+ prune_app_events | t         | {"search_path=public, pg_temp"} | plpgsql | retain interval DEFAULT '60 days'::interval | t            | f    | f
+ prune_sync_log   | t         | {"search_path=public, pg_temp"} | plpgsql | retain interval DEFAULT '60 days'::interval | t            | f    | f
+```
+
+`create or replace` preserved both function-level grants: `anon` and `authenticated` stay `f` without
+the migration restating a REVOKE.
+
+### §3.9 Spec round 1 — two findings, both admissible, both repaired
+
+**P0 — the seed lifecycle could leave validation pruning.** The draft created a second table,
+`prune_gate`, seeded from `destructive_reset_gate` at apply time. The reviewer produced three states in
+which the two rows disagree permissively: a fresh validation project seeded before its one-time posture
+flip; a production dump restored into validation, where `on conflict do nothing` blocks any repair on
+re-apply; and a missing SOURCE row with an existing TARGET row, where the draft's `raise` guard checked
+the target and therefore passed while claiming the migration would fail. The third is the sharpest,
+because the draft's prose asserted the opposite of what its SQL did.
+
+Repaired by subtraction, not by patching the seed: the second table is gone (§2.2), the one existing
+marker is read at runtime, and `is not false` refuses on both `true` and `null` (§2.3). All three states
+are now refusals; states B and C of §3.8 are the executable form of the reviewer's second and third.
+
+**P1 — the closeout proved only one of the two bodies landed.** AC-8 in the draft re-ran the §3.3 probe,
+which calls only `prune_sync_log`, and the parity gate compares tables, columns and function SIGNATURES
+(`tests/db/validation-schema-parity.test.ts:25`), so a partial surgical apply that updated one body and
+not the other passed every criterion while validation's `prune_app_events` kept deleting. Repaired in
+§2.6 (one atomic `psql -v ON_ERROR_STOP=1 -1` invocation) and AC-6 (the live probe covers BOTH functions,
+and asserts `prolang` on both).
+
+**Refuted, recorded so no later round re-derives it.** The reviewer refuted the draft's claim that AC-2
+kills a "delete-then-raise" body: an uncaught exception rolls back the statement's deletion, so the
+ordering is unobservable in Postgres and no such wrong implementation is distinguishable. AC-2 is
+restated in §6 to assert what is actually observable — the committed outcome — and §1.1 carries the
+refutation.
 
 ---
 
@@ -375,33 +417,40 @@ missing row aborts the migration rather than seeding a guess.
 
 Each is conservative-plus-loud or out of the threat fence; none is silent.
 
-### §4.1 A caller who can flip the gate can prune
+### §4.1 A caller who can flip the posture marker can prune
 
-Anything holding the validation service-role key or the pooler DSN can `update public.prune_gate set
-enabled = true` and then prune. This is the declared threat fence (§0) and the identical limit
-`destructive_reset_gate` carries. What the gate buys is that the deletion is no longer reachable by
-ACCIDENT: it takes a deliberate, separately-spelled write to a table whose name says what it is.
+Anything holding the validation service-role key or the pooler DSN can `update
+public.destructive_reset_gate set enabled = false` and then prune. This is the declared threat fence
+(§0) and the identical limit `destructive_reset_gate` already carries for the reset itself. What the
+gate buys is that the deletion is no longer reachable by ACCIDENT: it takes a deliberate, separately
+spelled write to a table whose name says what it is.
 
-### §4.2 Validation retention becomes a manual operation
+### §4.2 Retention pauses wherever the validation posture is declared
 
-Stated in §2.6. Automating it — a nightly job that flips the gate, prunes, and flips back — would
-reinstate exactly the unguarded window this row closes, on a schedule. Declined. Re-file trigger:
+Stated in §2.2 and §2.5. On validation that is the point. On production it requires flipping a marker
+that D4 says production never flips, and its worst case is accumulating rows plus a daily error in
+`cron.job_run_details` — never a silent deletion. Automating a flip-prune-unflip cycle on validation
+would reinstate exactly the unguarded window this row closes, on a schedule. Declined. Re-file trigger:
 validation `sync_log` growth becoming an operational problem, which is a storage measurement, not a
 review finding.
 
-### §4.3 The gate is per-database, not per-table
+### §4.3 A database that has declared no posture at all refuses, and parity cannot see a body
 
-One row governs both prunes. They are one class (time-window telemetry retention) and no operator has
-ever wanted one without the other. If that changes the repair is a second row keyed by function name, not
-a redesign.
+Two limits with one shape — the gate is only as good as what the database records:
+
+- A brand-new database, before any migration seeds the marker, has no posture and therefore refuses.
+  That is the correct direction (nothing to prune yet, and no silent deletion), and it is loud.
+- `tests/db/validation-schema-parity.test.ts` compares tables, columns and function signatures, not
+  bodies. A validation project holding an OLD body with a current signature passes parity. That is why
+  §2.6 applies the migration atomically and AC-6 probes behaviour live rather than trusting the gate.
 
 ### §4.4 The surface is not mutation-registry expressible
 
 `tests/mutation/source/registry.ts:15` keys every enrolled surface on a TypeScript `sourcePath` overlaid
 into a Vitest run; every current row points at a `.ts` file. A SQL function in a migration cannot be
 overlaid by that runner, so this arc enrols nothing rather than enrolling symbolically — the disposition
-the step3 tap-target probe reached for its Playwright surface. The equivalent proof here is AC-1/AC-2:
-the refusal is asserted by execution against a real database, in both gate states.
+the step3 tap-target probe reached for its Playwright surface. The equivalent proof here is AC-1 to AC-5:
+the refusal is asserted by execution against a real database, in every posture state.
 
 ### §4.5 `dev.*` is untouched
 
@@ -415,74 +464,76 @@ Out of scope, no action.
 
 Every affected domain × layer. Every cell is an action or an `N/A — reason`.
 
-| Layer | `prune_gate` | `prune_sync_log` | `prune_app_events` | `sync_log` / `app_events` tables |
-| --- | --- | --- | --- | --- |
-| Table DDL | CREATE (§2.4) | N/A — function | N/A — function | N/A — unchanged |
-| Inline CHECK | `id = 'default'` single-row CHECK | N/A | N/A | N/A — no CHECK change |
-| Grants / REVOKE | REVOKE anon+authenticated+public; GRANT service_role | unchanged (`create or replace` preserves) | unchanged | N/A — unchanged |
-| RLS | ENABLE, no policy (deny-all) | N/A | N/A | N/A — already enabled |
-| RPC read path | read by `assert_prune_enabled()` | reads gate before deleting | reads gate before deleting | N/A |
-| RPC write path | seeded once at apply time (§2.3); no runtime writer | N/A | N/A | N/A |
-| Trigger | N/A — no propagation | N/A | N/A | N/A |
-| Cleanup / cron | N/A — no retention on a one-row table | cron row unchanged; refuses on validation (§2.6) | same | N/A |
-| Advisory lock (invariant 2) | N/A — `prune_gate` is not in the invariant-2 table set (`shows`, `crew_members`, `crew_member_auth`, `pending_syncs`, `pending_ingestions`) and the prune is not show-keyed | N/A — same | N/A — same | N/A — same |
-| Mutation-surface telemetry (invariant 10) | N/A — no HTTP route, no `"use server"` action; this diff is DDL, SQL functions, tests and docs | N/A | N/A | N/A |
-| PostgREST lockdown registry | ADD row (§2.7) | N/A — function-level grants already asserted | N/A — same | N/A — already registered (`sync_log` at `tests/db/postgrest-dml-lockdown.test.ts:199-200`) |
-| Schema manifest | regenerate + commit | regenerate + commit | regenerate + commit | N/A — unchanged |
-| Validation project | surgical apply + `notify pgrst` | same | same | N/A |
-| Frontend | N/A — no UI surface in this diff | N/A | N/A | N/A |
-| Tests | new `tests/db/pruneGate.db.test.ts (new)` (§6) | AC-1..AC-3, AC-7 | AC-1..AC-3, AC-7 | AC-4 (existing suites stay green) |
+| Layer | `assert_prune_enabled` | `prune_sync_log` | `prune_app_events` | `destructive_reset_gate` | `sync_log` / `app_events` |
+| --- | --- | --- | --- | --- | --- |
+| Table DDL | N/A — function | N/A — function | N/A — function | N/A — unchanged; created at `supabase/migrations/20260622000001_validation_reset_rpc.sql:6` | N/A — unchanged |
+| Inline CHECK | N/A | N/A | N/A | N/A — existing `id = 'default'` CHECK unchanged | N/A |
+| Grants / REVOKE | REVOKE public/anon/authenticated; GRANT service_role | unchanged (`create or replace` preserves; measured §3.8) | unchanged (same) | N/A — unchanged | N/A |
+| RLS | N/A — function | N/A | N/A | N/A — already enabled, no policy | N/A — already enabled |
+| RPC read path | reads the marker | calls the assert before deleting | calls the assert before deleting | read by the assert AND by the existing reset RPCs | N/A |
+| RPC write path | N/A — never writes | N/A | N/A | N/A — this arc writes it never; the one-time posture flip is the existing out-of-band step (D4) | N/A |
+| Trigger | N/A — no propagation | N/A | N/A | N/A | N/A |
+| Cleanup / cron | N/A | cron row unchanged; refuses under validation posture (§2.5) | same | N/A | N/A |
+| Advisory lock (invariant 2) | N/A — not in the invariant-2 table set (`shows`, `crew_members`, `crew_member_auth`, `pending_syncs`, `pending_ingestions`); acquires nothing | N/A — same; the prune is not show-keyed | N/A — same | N/A — unchanged | N/A — same |
+| Mutation-surface telemetry (invariant 10) | N/A — no HTTP route, no `"use server"` action; this diff is SQL functions, tests and docs | N/A | N/A | N/A | N/A |
+| PostgREST lockdown registry | N/A — no new table, no new table-level REVOKE (§2.6) | N/A — function-level grants already asserted | N/A — same | N/A — already registered (`tests/db/postgrest-dml-lockdown.test.ts:552`) | N/A — `sync_log` already registered at `tests/db/postgrest-dml-lockdown.test.ts:199` |
+| Schema manifest | regenerate + commit | regenerate + commit | regenerate + commit | N/A — unchanged | N/A — unchanged |
+| Validation project | atomic surgical apply + `notify pgrst` | same | same | N/A — its row is already `true` there (§3.1) | N/A |
+| Frontend | N/A — no UI surface in this diff | N/A | N/A | N/A | N/A |
+| Tests | `tests/db/pruneGate.db.test.ts (new)` (§6) | AC-1..AC-5 | AC-1..AC-5 | AC-3 forces each posture state | AC-4 (existing suites stay green, unedited) |
 
-**CHECK/enum migration matrix:** the only CHECK introduced is `id = 'default'` on a new table. No
-existing CHECK or enum changes, so there is no transitional window and no old/new value overlap to model.
-Apply-twice idempotency is carried by `create table if not exists` + `on conflict (id) do nothing` +
-`create or replace function`; the §2.3 `raise` is the one non-idempotent-looking statement and it is a
-read-only assertion, so a second apply re-passes.
+**CHECK/enum migration matrix:** no CHECK and no enum changes anywhere in this diff — the only new
+object is a function. There is therefore no transitional window, no old/new value overlap, and no
+`DROP ... IF EXISTS` + `ADD` idempotency question. Apply-twice idempotency is carried by
+`create or replace function` alone, and re-applying the migration is a no-op on an already-current
+database.
 
-**Flag lifecycle table** (the one boolean this spec introduces):
+**Flag lifecycle table** (this spec introduces no new flag; it adds a reader to an existing one):
 
 | Flag | Storage | Write path(s) | Read path(s) | Effect on output |
 | --- | --- | --- | --- | --- |
-| `prune_gate.enabled` | `public.prune_gate`, one row `id='default'` | seeded once by the migration from `destructive_reset_gate` (§2.3); afterwards only a service-role/owner `update` — no application code writes it | `public.assert_prune_enabled()`, called by both prune functions | `false` → both prunes raise `prune not enabled for this database` and delete zero rows; `true` → today's behaviour exactly |
+| `destructive_reset_gate.enabled` | `public.destructive_reset_gate`, one row `id='default'`, migration-owned at `false` everywhere (`supabase/migrations/20260622000001_validation_reset_rpc.sql:13`) | the one-time out-of-band `update` on the validation DB (D4); no application code and no migration in this arc writes it | existing: `assert_destructive_reset_enabled()`, `reset_validation_data()` (`supabase/migrations/20260622000001_validation_reset_rpc.sql:23`). **New: `assert_prune_enabled()`**, via both prune functions | `false` → the reset refuses and both prunes run (today's behaviour); `true` → the reset is permitted and both prunes refuse; row absent → the reset refuses and both prunes refuse |
 
-No column is empty, so this is not a zombie flag.
+No column is empty, so this is not a zombie flag. The last row of that table is the whole design.
 
 ---
 
 ## §6 Acceptance criteria
 
 All assertions run against a real database (`tests/db/pruneGate.db.test.ts (new)`, loopback-pinned via
-`assertLocalDbUrl` like `tests/db/destructiveResetGate.test.ts:49-51` (`const DB_URL = assertLocalDbUrl(`)), with a `withPruneGate(enabled, …)`
-helper that restores the gate afterward and always leaves it `true` locally.
+`assertLocalDbUrl` exactly as `tests/db/destructiveResetGate.test.ts:49` does), with a
+`withPosture(marker, …)` helper that restores the marker to `false` in a `finally` so a crashed run
+cannot leave the local stack refusing its own prunes.
 
-- **AC-1 — refusal, both functions, gate disabled.** With `prune_gate.enabled = false`,
-  `select public.prune_sync_log()` and `select public.prune_app_events()` both raise, and the raised
-  message contains `prune not enabled for this database`.
-- **AC-2 — refusal is a NON-DELETION, not just an error.** With the gate disabled, seed a row older than
-  the default cutoff in each table, call the prune, assert it raises AND that the seeded row is still
-  present. An assertion on the exception alone would pass against a function that raises after deleting.
-- **AC-3 — the explicit-cutoff form is gated too.** `prune_sync_log(interval '5 days')` and
-  `prune_app_events(interval '5 days')` raise while the gate is disabled. The killer this excludes: a gate
-  placed on the default path only, which the no-argument cron call would satisfy while any parameterised
-  test call walked past it.
-- **AC-4 — every existing caller is unaffected with the gate enabled.**
-  `tests/db/syncLogIndexesAndPrune.db.test.ts` and `tests/log/appEventsSchema.test.ts` pass unchanged
-  against the local stack, whose seeded value is `true` (§3.6). Not a new test: the criterion is that
-  those two suites stay green with no edit.
-- **AC-5 — the gate table is PostgREST-unreachable.** `prune_gate` appears in `RPC_GATED_TABLES` and the
-  existing Layers 1-4 of `tests/db/postgrest-dml-lockdown.test.ts` pass for it: no anon/authenticated
-  SELECT or DML, RLS enabled with no policy.
-- **AC-6 — the seed derives, and derives BOTH ways.** Executable: with `destructive_reset_gate.enabled`
-  set to each value in turn, run the seed statement against a scratch copy of `prune_gate` and assert the
-  derived value is its negation. A one-directional test would pass against a seed hardcoded to the local
-  answer.
-- **AC-7 — the pinned function properties survive.** `prosecdef`, `proconfig`, the
-  `retain interval DEFAULT '60 days'` argument list, and the `service_role`-only execute grant are asserted
-  for BOTH functions after the change, plus `prolang = 'plpgsql'` so the language move is declared.
-- **AC-8 — the live probe re-runs to a refusal.** After the surgical validation apply, the §3.3 command
-  re-run against validation raises `prune not enabled for this database` instead of reporting 2,488. The
-  transcript lands in §7 of the plan's closeout.
-- **AC-9 — parity gates pass.** `pnpm gen:schema-manifest` output is committed and
+- **AC-1 — refusal under the validation posture, both functions.** With the marker `true`,
+  `select public.prune_sync_log()` and `select public.prune_app_events()` each reject with a message
+  containing `prune not enabled for this database`.
+- **AC-2 — the refusal is a NON-DELETION at the committed outcome.** With the marker `true`, seed a row
+  past the default cutoff in each table, call the prune, assert it rejects AND that the row is still
+  present when read back. The wrong implementations this excludes are the live ones: a gate wired into
+  only one call path, and a "gate" that never reaches the database at all. (It does NOT claim to exclude
+  delete-then-raise — §1.1 records why that is not a distinguishable implementation in Postgres.)
+- **AC-3 — every posture state, including the absent marker.** Three states asserted per function:
+  marker `false` → the prune runs and returns the global count measured in the same transaction; marker
+  `true` → rejects; marker row DELETED → rejects. The wrong implementation this excludes is a
+  `coalesce(..., false)` read, which waves the third state through — R1's P0 hole 3, now executable.
+- **AC-4 — the explicit-cutoff form is gated too, and every existing caller is unaffected.**
+  `prune_sync_log(interval '5 days')` and `prune_app_events(interval '5 days')` reject under the
+  validation posture (excluding a gate placed on the default-argument path only, which the no-argument
+  cron call would satisfy while every parameterised test call walked past it). With the marker `false`,
+  `tests/db/syncLogIndexesAndPrune.db.test.ts` and `tests/log/appEventsSchema.test.ts` pass UNCHANGED —
+  a no-edit criterion: any edit to either file to accommodate the gate is a design failure, not a repair.
+- **AC-5 — the pinned function properties survive, for BOTH functions.** `prosecdef`, `proconfig`, the
+  `retain interval DEFAULT '60 days'` argument list, and `service_role`-only execute are asserted after
+  the change, plus `prolang` = `plpgsql` so the language move is declared. The wrong implementation this
+  excludes is a rewrite that quietly drops `security definer`, the pinned `search_path`, or the shipped
+  default while every refusal assertion still passes.
+- **AC-6 — the live probe re-runs to a refusal, on BOTH functions.** After the atomic surgical apply,
+  `select public.prune_sync_log()` AND `select public.prune_app_events()` against validation each raise
+  `prune not enabled for this database`, where the first previously reported 2,488 (§3.3); and both
+  report `prolang = plpgsql` there. This is the criterion the parity gate structurally cannot provide
+  (§4.3), and the R1 P1 finding is why it names both functions rather than one.
+- **AC-7 — parity gates pass.** `pnpm gen:schema-manifest` output is committed and
   `tests/db/validation-schema-parity.test.ts` passes at all three layers.
 
 ---
