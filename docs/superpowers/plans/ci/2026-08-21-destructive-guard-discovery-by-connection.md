@@ -767,7 +767,7 @@ makes the empty chain unrepresentable and lets the sweep reach the mutant.
 ### 6.4 Mutation score, and how it got there
 
 Measured with the provenance stamp printed INSIDE the measuring invocation, before and after; both
-stamps read the same 15-file blob (`35be4586dc2e1b7b`), so nothing in the input set moved while the
+stamps read the same 15-file blob (`a43c58944a519999`), so nothing in the input set moved while the
 run was in flight.
 
 **Final: `331/331` killed, score `1.0`, gate PASSED, ZERO unaccepted survivors.** 333 mutants were
@@ -784,6 +784,9 @@ Six scored runs. Every one of them changed the code rather than the number:
 | 4 | 1.0 | 0 | Both fixpoint REACH signals and both edge-kind spellings — after a first attempt at all three passed for the wrong reason. |
 | 5 | 0.9735 | 9 | Everything the whole-diff round-1 repairs introduced, plus the twin of a dead guard the first sweep missed. |
 | 6 | 1.0 | 0 | Cases for `ownClassesFor`'s site branch in both directions and for the acquisition-side undecidable report. |
+| 7 | 0.994 | 2 | Nothing. The two survivors WERE the accepted rows, whose keys `EDGE_REPORT_KINDS` had shifted — a run spent discovering the ledger was stale. |
+| 8 | — | — | Killed at ten minutes: #873 landed on three closure files, so the number was retired before it existed. |
+| 9 | 1.0 | 0 | The round-3 repairs, re-measured on the merged tree. |
 
 Two of those runs are worth reading rather than counting.
 
@@ -813,10 +816,10 @@ re-measure that flips one reads as an attribution change and not as a suite regr
 | `statement-removal:420:7:cur = parent;` | timeout |
 | `statement-removal:428:7:cur = parent;` | timeout |
 | `statement-removal:684:5:cur = cur.parent;` | timeout |
-| `statement-removal:1324:5:grew = false;` | timeout |
-| `statement-removal:1332:11:myReach.add(target);` | timeout |
-| `statement-removal:1337:13:myReach.add(reached);` | timeout |
-| `statement-removal:1343:13:mine.add(cls);` | timeout |
+| `statement-removal:1338:5:grew = false;` | timeout |
+| `statement-removal:1346:11:myReach.add(target);` | timeout |
+| `statement-removal:1351:13:myReach.add(reached);` | timeout |
+| `statement-removal:1357:13:mine.add(cls);` | timeout |
 
 Every one removes the statement that advances a walk or a worklist, so the mutant does not compute a
 wrong answer — it never terminates. These are STRUCTURALLY assertion-unreachable: nothing downstream
