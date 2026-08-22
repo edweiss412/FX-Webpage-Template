@@ -1061,15 +1061,19 @@ describe("the grammar the module does not model (AC-13)", () => {
   });
 
   // covers: AC-13, W16, W22
-  //
-  // 120s rather than the default 30s. This case builds THIRTY-TWO scratch roots at ~11 MB each,
-  // and the roots cannot be shared: the scanner caches parsed files by absolute path and never
-  // invalidates (spec §5.6), so a second form read under a reused root would be answered from the
-  // first form's cache. Scoped, the whole file runs in ~33s; under a full-suite run competing for
-  // I/O it crossed 30s and CI runs the full suite, so the default was a latent red on a REQUIRED
-  // context rather than a slow test. The limit is patience, not a weaker assertion -- every
-  // expectation below is unchanged.
   it("classifies all thirty-two forms as the spec's tables state, one scratch root each", () => {
+    // 120s rather than the default 30s, declared at the end of this call. The case builds
+    // THIRTY-TWO scratch roots at ~11 MB each and they cannot be shared: the scanner caches parsed
+    // files by absolute path and never invalidates (spec §5.6), so a second form read under a
+    // reused root would be answered from the first form's cache and this case would assert
+    // thirty-two times against one parse. Scoped, the whole file runs in ~33s and this case sits
+    // well inside the default; under a full-suite run competing for I/O it crossed 30s, and CI
+    // runs the full suite, so the default was a latent red on a REQUIRED context rather than a
+    // slow test. The limit is patience, not a weaker assertion — every expectation is unchanged.
+    //
+    // The explanation lives INSIDE the body deliberately: `// covers:` must be the line directly
+    // above the `it(`, and putting these lines between them made the coverage-map totality case
+    // report this one as unmapped.
     const verdicts = FORMS.map(([form, expected]) => {
       const { el, paint } = formOnUnignore(form);
       const residue = isResidue(el, paint);
