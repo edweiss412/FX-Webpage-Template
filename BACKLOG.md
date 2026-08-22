@@ -934,6 +934,12 @@ is now false, so the pin cannot be defended on its original grounds.
 Fix candidate, by the same arithmetic: **n = 8 fits** at roughly 2885 s for the longest leg. `n = 5`
 and `n = 6` are both still over, so a one-notch bump buys nothing.
 
+**Per-leg ceiling proximity is trending, not just the aggregate.** One shard measured 111 minutes and
+then 118 minutes on consecutive runs against a 125-minute ceiling (`panecompact`, 2026-08-22). The
+aggregate says the budget is wrong; that pair says a single leg is now close enough to the ceiling
+that ordinary variance reaches it, and a leg that CANCELS at the ceiling reports nothing — the silent
+form this row exists to prevent.
+
 **The first scheduled step is the shard-count decision as a FLEET item, not a unilateral edit.**
 `shardPartition` is a shared surface and the LPT partition re-packs whenever the surface set changes,
 so a shard-count change moves which shard every enrolled surface lands in, and every arc holding a
@@ -950,6 +956,7 @@ its error boundary while the rest of the page is fine:
 - [32561531983](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32561531983) — `admin-parse-panel`, snapshot is the whole page as "Admin session unavailable" at the Re-sync assertion.
 - [32563705156](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32563705156) — `warning-panel-polish`, announcer empty after Ignore; no trace at `--retries=0`, so this one is the least attributed of the three.
 - [32564772189](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32564772189) — `needs-attention-page`, nav and badge render (badge reads "2"), `main` is "This admin page couldn't load".
+- [32571008405](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32571008405) — TWO members in one run: `published-show-attention`, where the ratified open-time recovery FIRED AND STILL FAILED ("error boundary persisted after one retry … grep the server log for `show_review_snapshot_failed`"), and `telemetry-layout`, whose snapshot ends at `status: Loading your dashboard…` with the sidebar and log both at zero rects. The second is the same class arriving as a loader that never resolves rather than one that faults, and it is the first evidence that the existing one-retry recovery is not sufficient.
 
 Every one of them reproduces GREEN locally under the CI posture (`CI=1`, so `pnpm build && pnpm
 start`, both DSNs pinned): parse-panel 10 of 10, warning-panel 4 of 4 with `--trace on`,
