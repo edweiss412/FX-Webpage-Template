@@ -1,88 +1,112 @@
-# Plan — screenshots-drift: refuse to encode a degraded render
+# Plan — screenshots-drift: refuse to encode a faulted render, and instrument both outcomes
 
-**Status:** DRAFT (pending spec APPROVE) · **Spec:** `docs/superpowers/specs/ci/2026-08-22-screenshots-drift-degraded-render-design.md` · **Branch:** `fix/screenshots-drift-instrument`
+**Status:** DRAFT (matches spec r1-repaired) · **Spec:** `docs/superpowers/specs/ci/2026-08-22-screenshots-drift-degraded-render-design.md` · **Branch:** `fix/screenshots-drift-instrument`
 
-Closes `BL-SCREENSHOTS-DRIFT-CAPTURE-NONDETERMINISM`; moves `BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED` to PROBED-INSTRUMENTED with the trap set.
+Closes `BL-SCREENSHOTS-DRIFT-CAPTURE-NONDETERMINISM`. Re-dispositions
+`BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED` — mechanism named, distinct class, stays OPEN.
 
-**impeccable-gate: N/A — no UI surface.** The only product-source edit is a `data-degraded` attribute on
-branches that already render (spec §4.4/§4.5: no element added, moved, or resized; AC-2 asserts every
-committed baseline byte is unchanged). Everything else is workflow, scripts, tests and docs.
+**impeccable-gate: N/A — no UI surface.** The only product-source edit is one `data-render-fault`
+attribute on branches that already render (spec §4.6/§4.7: no element added, moved or resized; AC-2
+asserts every committed baseline byte is unchanged). Everything else is workflow, scripts, tests and docs.
 
 ---
 
 ## Pre-draft code verification
 
-Every file, symbol and line below was verified against the live tree before drafting.
+Every anchor below was checked against the live tree before drafting.
 
 | claim | anchor | verified |
 | --- | --- | --- |
 | capture loops manifest x theme, fresh context each | `scripts/help-screenshots.ts:116`, `scripts/help-screenshots.ts:133` | yes |
-| per-entry render: goto, then quiescence, then screenshot | `scripts/help-screenshots.ts:94`, `scripts/help-screenshots.ts:98`, `scripts/help-screenshots.ts:104` | yes |
+| per-entry render: goto, quiescence, screenshot | `scripts/help-screenshots.ts:98`, `scripts/help-screenshots.ts:104` | yes |
 | quiescence gates paint only | `scripts/capture-core.ts:96` | yes |
 | webp encode | `scripts/capture-core.ts:115` | yes |
 | animations neutralised pre-navigation | `scripts/capture-core.ts:66` | yes |
-| degradation branch + testid | `components/admin/RecentAutoAppliedStrip.tsx:746` | yes |
+| shape-1 degradation branch | `components/admin/RecentAutoAppliedStrip.tsx:726` | yes |
 | healthy-empty renders null | `components/admin/RecentAutoAppliedStrip.tsx:756` | yes |
-| loader infra_error returns, five of them | `lib/admin/loadRecentAutoApplied.ts:145` (peers at lines 170, 176, 231, 241) | yes |
-| strip mounted inside captured `<main>` | `components/admin/Dashboard.tsx:618`, `components/admin/Dashboard.tsx:826` | yes |
-| manifest routes all under `/admin` | `scripts/help-screenshots.manifest.ts:51` (six peers through line 113) | yes |
+| shape-4 flag consumers | `components/admin/Dashboard.tsx:489`, `components/admin/Dashboard.tsx:491` | yes |
+| crew soft-error channel | `lib/data/getShowForViewer.ts:224` | yes |
+| `data-degraded` is TAKEN, product state | `components/crew/RightNowHero.tsx:472` | yes |
+| and pinned by a test | `tests/components/crew/rightNowHero.test.tsx:311` | yes |
 | guard population derivation to mirror | `tests/help/_metaServerTimeGuard.test.ts:11` | yes |
-| assertion-spec project runs beside capture | `playwright.screenshots.config.ts:25`, `playwright.screenshots.config.ts:44` | yes |
-| capture step passes only `-e CI=true` | `.github/workflows/screenshots-drift.yml:113` | yes |
+| existing workflow describe block | `tests/cross-cutting/ci-workflow-speedup.test.ts:84` | yes |
+| capture step forwards only `-e CI=true` | `.github/workflows/screenshots-drift.yml:113` | yes |
+| gate fails on untracked files there | `.github/workflows/screenshots-drift.yml:137` | yes |
 | artifact uploads on failure only | `.github/workflows/screenshots-drift.yml:172` | yes |
 
-**Probed, not read:** an untracked file under `public/help/screenshots/` IS listed by
-`git ls-files --others --exclude-standard` and would fail the gate's own untracked check
-(`.github/workflows/screenshots-drift.yml:137`); adding it to ignore suppresses the listing. Both
-directions run on this tree. This is why Task 5 gitignores the evidence file, and why that is a
-correctness requirement rather than tidiness.
+**Probed, not read.** Three facts were measured rather than inferred, each of which would otherwise have
+become an implementation bug:
+
+1. An untracked file under `public/help/screenshots/` IS listed by
+   `git ls-files --others --exclude-standard` and fails the gate; adding it to ignore suppresses the
+   listing. Both directions run on this tree.
+2. A ts-morph scan of the consumer sites returns four structural shapes, only one of which has JSX at the
+   comparison (spec §4.2).
+3. Four of seven manifest routes are template literals, so a quote-only route parser derives three of
+   seven.
 
 ---
 
 <!-- tasks: depth=2 red-contract -->
 
-## Task 1 — the detector, red first against a real degraded render
+## Task 1 — the fault detector
 
-<!-- task: red=`pnpm vitest run tests/help/degradedRenderDetector.test.ts` red-state=authored red-target=`scripts/capture-core.ts:96` why=`quiescence gates paint only, so nothing reports a marked node` ac=AC-1 -->
+<!-- task: red=`pnpm vitest run tests/help/renderFaultDetector.test.ts` red-state=authored red-target=`scripts/capture-core.ts:96` why=`quiescence gates paint only, so nothing reports a marked node` ac=AC-1,AC-7 -->
 
-Add `detectDegradedNodes(page, rootSelector)` to `scripts/capture-core.ts`, returning
-`{ testId, reason }[]` for every `[data-degraded]` inside the captured subtree.
+Add `detectRenderFaults(page, rootSelector)` to `scripts/capture-core.ts`, returning
+`{ testId, reason }[]` for every `[data-render-fault]` inside the captured subtree.
 
-**Failure mode this catches:** a detector scoped to the document instead of the captured subtree would
-fire on chrome outside the capture and red every run; one scoped too narrowly would miss the card. The
-test asserts both directions against fixture HTML — a marked node inside the root is found, an
-identically marked node outside it is not.
+**Failure modes this catches:** a detector scoped to the document rather than the captured subtree fires
+on chrome outside the capture and reds every run; one scoped too narrowly misses the card. The test
+asserts both directions against fixture HTML. It also asserts `data-degraded="false"` does **not** match
+(AC-7) — that attribute is a legitimate product state and a presence selector on the wrong name would
+refuse a healthy `crew-preview-today-mobile` capture on every run.
 
-Guard conditions from spec §4.3: empty attribute value reports `(unspecified)`; a root selector matching
-nothing throws rather than returning an empty list, because "no root" and "clean root" must never be the
-same answer.
+Guard conditions per spec §4.5: empty value reports `(unspecified)`; a root selector matching nothing
+throws rather than returning an empty list, because "no root" and "clean root" must never be one answer.
 
-## Task 2 — the capture refuses, and writes nothing
+## Task 2 — the capture refuses, before it writes
 
 <!-- task: red=`pnpm vitest run tests/help/captureRefusal.test.ts` red-state=authored red-target=`scripts/help-screenshots.ts:104` why=`the screenshot is taken with no check that the render succeeded` ac=AC-1 -->
 
-Wire the detector into `captureEntryTheme` between `waitForQuiescence` and `screenshotPng`
-(`scripts/help-screenshots.ts:104`). On a hit, throw naming entry key, theme, and every reason.
+Wire the detector into `captureEntryTheme` between `waitForQuiescence` and `screenshotPng`. On a hit,
+throw naming entry key, theme and every reason.
 
-**Failure mode this catches:** placing the check after `encodeWebp`/`writeFile` would still overwrite
-the baseline before failing — the drift would be reported AND the bytes replaced. The test asserts the
-output file is not written when the detector fires, not merely that the function throws.
+**Failure mode this catches:** placing the check after `encodeWebp`/`writeFile` still overwrites the
+baseline before failing. The test asserts the output file is **not written**, not merely that the function
+throws. It separately asserts the evidence record IS still written on a refusal (spec §5) — "writes no
+image bytes" and "writes no bytes at all" are different contracts and the second one would delete the
+instrument exactly when it is most needed.
 
-## Task 3 — mark the degradation branches, derived cover
+## Task 3a — mark shape-1 branches, and enumerate the residue
 
-<!-- task: red=`pnpm vitest run tests/help/_metaDegradedRenderMarking.test.ts` red-state=authored red-target=`components/admin/RecentAutoAppliedStrip.tsx:746` why=`the degradation branch carries no structural marker` ac=AC-3,AC-4 -->
+<!-- task: red=`pnpm vitest run tests/help/_metaRenderFaultMarking.test.ts` red-state=authored red-target=`components/admin/RecentAutoAppliedStrip.tsx:726` why=`the degradation branch carries no structural marker` ac=AC-3,AC-4 -->
 
-Meta-test mirroring `discoverScanRoots()` (`tests/help/_metaServerTimeGuard.test.ts:11`): derive roots
-from the manifest, walk them, find every `infra_error` consumer branch, assert each renders an element
-carrying `data-degraded`. Then add the attribute to the branches it names.
+AST meta-test mirroring `discoverScanRoots()` (`tests/help/_metaServerTimeGuard.test.ts:11`): derive roots
+from the manifest, classify every consumer by the four shapes in spec §4.2, demand `data-render-fault` on
+shape 1, skip shapes 2 and 3 with a recorded reason, and report shape 4 plus the non-`infra_error` shapes
+as a named residue registry. Then add the attribute to the branches it names.
 
-**Failure modes this catches:** (a) a branch added later with no attribute — proven by a mutant that
-removes one; (b) the population silently freezing into a snapshot — proven by a mutant that adds a
-manifest entry routing outside `/admin` and asserts the sign-in page's branch becomes enforced.
-Mutant (b) is the one that matters: without it the derivation is indistinguishable from a hardcoded list.
+**Failure modes this catches:** (a) a shape-1 branch added later with no attribute, proven by a mutant
+removing one; (b) the population freezing into a snapshot, proven by a mutant adding a manifest entry —
+**one plain-string route and one template-literal route, because only the second fails a quote-only
+parser**, and four of the seven current routes are template literals. Mutant (b) is the one that matters:
+without it the meta-test passes identically against a hardcoded list.
 
-Excluded set and both exclusion reasons per spec §4.2 — 22 non-rendering handlers, plus one rendering
-page excluded only because no manifest entry captures its route.
+The residue registry is asserted non-empty and its rows checked against spec §4.2's table, so shrinking
+coverage silently is not possible either.
+
+## Task 3b — the geometry layer
+
+<!-- task: red=`pnpm vitest run tests/help/captureGeometry.test.ts` red-state=authored red-target=`scripts/help-screenshots.ts:104` why=`a layout-changing fault is encoded with no dimension check` ac=AC-1 -->
+
+Before encoding, compare captured dimensions against the committed baseline's via `sharp().metadata()`.
+Mismatch throws naming both. Missing baseline skips with a recorded reason.
+
+**Failure mode this catches:** layer 1 reaches only shape 1, which leaves 10 of the 14 capture outputs able
+to fault silently (spec §4.2). Geometry covers any fault that moves layout regardless of shape. The test
+asserts it fires on a 320x164-against-320x291 pair — occurrence A's real dimensions — and does NOT fire
+when dimensions match but bytes differ, which is occurrence B and explicitly not this layer's job.
 
 ## Task 4 — the instrument, on both outcomes
 
@@ -90,39 +114,54 @@ page excluded only because no manifest entry captures its route.
 
 Write the evidence record per spec §5.
 
-**Failure mode this catches:** hashing the WebP twice, or deriving one hash from the other, would make
-every recurrence read as a content change and silently delete the encoder-bimodality row from the §6
-table. The test fixes the PNG, changes only encoder settings, and asserts `pngSha256` holds while
-`webpSha256` moves — the assertion is against the two hashes, not against a container that computes both.
+**Failure mode this catches:** hashing the PNG **container** instead of decoded pixels. Identical pixels
+re-encoded at two compression levels produce different container hashes (probed: 2337672 against 156312
+bytes, container hashes differ, decoded-pixel hashes equal), so a container hash reports a render change
+whenever only encoding moved — collapsing three distinct rows of spec §6 into each other. The test
+re-encodes one committed baseline at two compression levels and asserts `pixelSha256` holds where a
+container hash would not. The assertion is against the two hash kinds behaving differently, not against
+one path computing both.
 
-## Task 5 — workflow: env passthrough, upload on both outcomes, ignore the evidence file
+Post-encode fields are `null` exactly on refused entries; the test asserts that, and that the record is
+written on both outcomes.
 
-<!-- task: red=`pnpm vitest run tests/cross-cutting/screenshotsDriftWorkflow.test.ts` red-state=authored red-target=`.github/workflows/screenshots-drift.yml:113` why=`only CI is forwarded, so runner identity cannot reach the capture` ac=AC-5 -->
+## Task 5 — workflow: env passthrough, upload always, ignore the record
 
-Three edits to `.github/workflows/screenshots-drift.yml`, plus a `.gitignore` entry.
+<!-- task: red=`pnpm vitest run tests/cross-cutting/ci-workflow-speedup.test.ts` red-state=authored red-target=`.github/workflows/screenshots-drift.yml:113` why=`only CI is forwarded, so runner identity cannot reach the capture` ac=AC-5 -->
 
-**Failure mode this catches:** the capture runs inside `docker run` with only `-e CI=true`
-(`.github/workflows/screenshots-drift.yml:113` and the five lines under it), so `RUNNER_NAME`, `RUNNER_ARCH` and `RUNNER_OS` do not reach it and the instrument would record
-empty runner fields on every run — leaving §6 rows 3 and 4 permanently unfirable. The test asserts the
-capture step forwards all three by name. Note `-e VAR=value` sets a literal while `-e VAR` forwards the
-host value; both forms appear in the step and the test distinguishes them.
+Three workflow edits plus a `.gitignore` entry. Assertions join the existing `screenshots-drift` describe
+block at `tests/cross-cutting/ci-workflow-speedup.test.ts:84` rather than opening a second file for one
+workflow's contract.
 
-Upload changes `if: failure()` to `if: always()` (spec §5). The evidence file is gitignored — required,
-per the probe above, or it fails the gate's untracked check.
+**Failure mode this catches:** the capture runs inside `docker run` forwarding only `-e CI=true`, so
+`RUNNER_NAME`, `RUNNER_ARCH` and `RUNNER_OS` never reach the process writing the record — the instrument
+would record empty runner fields on every run and spec §6 rows 3 and 5 could never fire. The test asserts
+all three are forwarded by name, and distinguishes `-e VAR` (forwards the host value) from `-e VAR=value`
+(sets a literal); both forms appear in the step.
+
+Upload moves from `if: failure()` to `if: always()`. The record is gitignored — a correctness requirement,
+not tidiness: without it the instrument reds the gate's own untracked check.
+
+**Expected, not a defect:** `.github/workflows/screenshots-drift.yml` is in its own paths allow-list
+(`tests/cross-cutting/ci-workflow-speedup.test.ts:111`) and its cache-key census, so editing it busts that
+cache and re-triggers the job on this PR. That is a cold build and a live capture of the instrument under
+test — the proof this plan wants, at a price worth naming so nobody reads the cache miss as a regression.
 
 <!-- tasks: end -->
 
 ## Task 6 — ledger and peers
 
-Outside the red-contract region deliberately: its subject is the ledger, and the marker grammar requires
-`red-state=authored` to name a production surface by full path. `BACKLOG.md` is root-level, which the
-classifier rejects as bare-filename shorthand, and there is no production file whose defect this task
-repairs. Verified by `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerMintBar.test.ts`.
+Outside the red-contract region deliberately: the marker grammar requires `red-state=authored` to name a
+production surface by full path, `BACKLOG.md` is root-level and the classifier rejects it as bare-filename
+shorthand, and no production file's defect this task repairs. Verified by
+`pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerMintBar.test.ts`.
 
-Archive `BL-SCREENSHOTS-DRIFT-CAPTURE-NONDETERMINISM` with the refutation and its evidence. Update
-`BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED` to PROBED-INSTRUMENTED, mechanism COMPATIBLE-not-PROVEN,
-§6 recorded as its reading procedure. File both peers from spec §8 with their named class-sweep
-exceptions and, for the telemetry-silent loader, this arc's own diagnosis as the incident.
+Archive `BL-SCREENSHOTS-DRIFT-CAPTURE-NONDETERMINISM` with the refutation and its evidence. Rewrite
+`BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED` per spec §7: mechanism named as rasterization variance,
+upgraded to PROBED, distinct class, still OPEN, with §6 row 3 as its reading procedure, this arc's
+instrument named as its first scheduled step, and the repair question stated without being opened. Correct
+the one-class assertion on **both** rows. File both spec §8 peers with their named class-sweep exceptions
+and, for the telemetry-silent loader, this arc's own diagnosis as the incident.
 
 Both in-progress markers come off in this branch's LAST commit, before the merge, per invariant 12.
 
@@ -130,33 +169,33 @@ Both in-progress markers come off in this branch's LAST commit, before the merge
 
 ## Acceptance criteria
 
-Mirrors spec §9; the ids are the ones the task markers above reference.
+Mirrors spec §9; these ids are what the task markers reference.
 
-- **AC-1** A capture whose surface renders an `infra_error` branch throws, names the entry key, theme and
-  reason, and writes no bytes. Proven by an injected loader failure, not by a mocked component.
-- **AC-2** A healthy capture is byte-identical to today's output: `git diff --exit-code
-  public/help/screenshots/` after a full local capture on an unchanged tree.
-- **AC-3** The derived-cover meta-test fails when a manifest-reachable `infra_error` branch lacks
-  `data-degraded`, proven by a mutant removing the attribute.
-- **AC-4** The meta-test's population is derived from the manifest, proven by a mutant adding a manifest
-  entry whose route pulls in an unmarked branch.
-- **AC-5** The evidence record is written and uploaded on both a passing and a failing run, with every
-  spec §5 field populated — including the three runner fields, which requires the passthrough in Task 5.
-  Proven against a real dispatched run, not locally only.
-- **AC-6** `pngSha256` and `webpSha256` are recorded separately and move independently.
+- **AC-1** A capture rendering a marked fault throws, names entry key, theme and reason, writes **no image
+  bytes**, and still writes the evidence record. Proven by an injected loader failure.
+- **AC-2** A healthy capture is byte-identical to today's output **and every manifest entry and theme was
+  produced**. `git diff --exit-code` alone exits 0 when the capture wrote nothing — the green-but-empty
+  trap — so a produced-count equal to the manifest's expected output count is asserted first.
+- **AC-3** The meta-test fails when a manifest-reachable shape-1 branch lacks the attribute.
+- **AC-4** The population is derived from the manifest including template-literal routes.
+- **AC-5** The record is written and uploaded on both outcomes, every applicable field populated, runner
+  fields non-empty, post-encode fields null exactly on refused entries. Proven on a real dispatched run.
+- **AC-6** `pixelSha256` is computed over decoded RGB, not the PNG container.
+- **AC-7** `data-degraded` does not trigger a refusal.
 
 ## Anti-tautology notes
 
-- Task 2 asserts **no file written**, not merely that a throw occurred — a detector that throws after
-  writing has already destroyed the baseline.
-- Task 3's mutant (b) is what proves the population is derived rather than enumerated. Without it the
-  meta-test passes identically against a hardcoded list, which is the exact defect the derived-cover rule
-  exists to prevent.
-- Task 4 asserts the two hashes independently. Extracting both from one render and comparing them to each
-  other would pass whatever the implementation did.
-- **AC-2 is the whole-class check:** on an unchanged tree the capture must reproduce every committed
-  baseline byte-for-byte. It is the assertion that catches "the gate now passes because it stopped
-  looking," and it runs against real captured bytes, not a mock.
+- Task 2 asserts **no image written**, not merely that a throw occurred, and separately that the record IS
+  written — a detector that throws after writing has already destroyed the baseline, and one that writes
+  nothing at all destroys the instrument.
+- Task 3a's template-literal mutant is what proves the population is derived rather than enumerated. The
+  plain-string mutant alone passes against a quote-only parser that is already wrong on four of seven live
+  routes.
+- Task 3b asserts the geometry layer does NOT fire on occurrence B's shape. A layer that fires on
+  everything discriminates nothing.
+- Task 4 asserts the two hash kinds behave differently rather than extracting both from one path.
+- **AC-2 is the whole-class check** — it catches a gate that passes because it stopped looking, and it runs
+  against real captured bytes.
 
 ## Verification
 
@@ -164,12 +203,11 @@ Local, in order. The capture is a heavy phase (inner 8192 MB build) and runs und
 outermost entry; scoped vitest runs stay unwrapped.
 
 ```
-pnpm vitest run tests/help/ tests/cross-cutting/screenshotsDriftWorkflow.test.ts
+pnpm vitest run tests/help/ tests/cross-cutting/ci-workflow-speedup.test.ts
 pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerMintBar.test.ts
 pnpm heavy pnpm screenshot:help && git diff --exit-code public/help/screenshots/   # AC-2
 ```
 
-Real CI green is a separate gate from local green (AGENTS.md: local-passes-CI-fails is its own bug
-class). This branch touches `scripts/ci/**`-adjacent paths and `.github/workflows/screenshots-drift.yml`,
-which is itself in the job's path filter — so the job fires on this PR and the run is a live capture of
-the instrument under test. That is the intended proof, not a hazard.
+Real CI green is a separate gate from local green. This branch edits
+`.github/workflows/screenshots-drift.yml`, which is in that job's own path filter, so the job fires on this
+PR and the run is a live capture of the instrument under test.
