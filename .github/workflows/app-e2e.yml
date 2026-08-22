@@ -1,4 +1,4 @@
-name: App e2e batch 1 (mobile-safari + desktop-chromium)
+name: App e2e (mobile-safari + desktop-chromium)
 # Un-darkens batch 1 of BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — nine specs that
 # existed, matched a Playwright testMatch, and proved nothing on any PR (spec
 # docs/superpowers/specs/ci/2026-08-09-app-e2e-batch1-design.md).
@@ -18,6 +18,24 @@ name: App e2e batch 1 (mobile-safari + desktop-chromium)
 # annotation the executed-count oracle prints below (spec
 # docs/superpowers/specs/ci/2026-08-15-changes-feed-modal-batch-flake-design.md,
 # BL-CHANGES-FEED-MODAL-BATCH-FLAKE). Nine wired specs.
+#
+# BATCH 2 joins 2026-08-22 (spec docs/superpowers/specs/ci/2026-08-21-app-e2e-batch2-design.md,
+# probe record docs/superpowers/specs/ci/probes/2026-08-21-app-e2e-batch2-membership-probe.md):
+# fourteen more specs, membership derived from three real runs rather than from a
+# reading — admin-parse-panel, admin-route-boundaries, admin-settings-admins-refresh,
+# dev-capture, developer-tier, needs-attention-page, no-raw-codes,
+# published-show-attention, roles-settings-layout, sign-in-page,
+# source-link-dimensional, staged-preview, telemetry-layout, warning-panel-polish.
+# Seven were green on a run; seven took a named test-only repair first (spec §6,
+# R1-R7, plus R8/R9 which only became reachable once R1 and R7 unblocked their
+# cases). The post-fix run of all 23 measured 181 executed identities in 3.2
+# minutes locally, every per-spec count equal to Playwright's own resolution.
+#
+# This workflow is EXTENDED rather than duplicated (spec §1.1): batch 2's members
+# have batch 1's requirement class exactly (the :3000 baseline server plus the
+# seeded local Supabase), so a second workflow would pay a second cold build, a
+# second Supabase bootstrap, a second oracle and a second wiring test to buy what
+# the AC-4 fallback already buys.
 #
 # Deliberately NO pull_request filter of any kind — no paths, paths-ignore,
 # types, or branches. Any configuration under `pull_request:` voids coverage
@@ -144,10 +162,22 @@ jobs:
       # `retries: process.env.CI ? 2 : 0`, so without the flag a fail-then-pass
       # retry would read as a green run and silently defeat AC-3's zero-retry
       # bar. The flag pins first-attempt semantics in the one place the job runs.
-      - name: Run app-e2e batch 1 (both projects; each project's testMatch claims its own subset)
+      - name: Run app-e2e (both projects; each project's testMatch claims its own subset)
         env:
           PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/app-e2e-report.json
-        run: pnpm exec playwright test tests/e2e/sample.spec.ts tests/e2e/root-landing.spec.ts tests/e2e/admin-layout.spec.ts tests/e2e/admin-phase2-surfaces.spec.ts tests/e2e/notify-toggles.spec.ts tests/e2e/me-page.spec.ts tests/e2e/report-modal.spec.ts tests/e2e/help-pages.spec.ts tests/e2e/admin-changes-feed-layout.spec.ts --project=mobile-safari --project=desktop-chromium --retries=0 --reporter=list,json
+          # DATABASE_URL, not TEST_DATABASE_URL: the latter is this repo's name for
+          # the REMOTE validation project, and pointing it at the local stack here
+          # would read as that (the rationale lifecycle-layout-e2e.yml:193 records
+          # for the same pair). Batch 2's members reach the app's postgres.js paths
+          # — the staged discard route, the wizard's session lifecycle, the staged
+          # flows in needs-attention-page — and those resolve
+          # `TEST_DATABASE_URL ?? DATABASE_URL` and THROW under production posture
+          # when neither is set, which is what `pnpm build && pnpm start` is here.
+          # Batch 1's nine never reached them, which is why this job carried no DSN
+          # until now (spec §5.2; the same split-brain contaminated the local
+          # membership probe, probe record §4.3).
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+        run: pnpm exec playwright test tests/e2e/sample.spec.ts tests/e2e/root-landing.spec.ts tests/e2e/admin-layout.spec.ts tests/e2e/admin-phase2-surfaces.spec.ts tests/e2e/notify-toggles.spec.ts tests/e2e/me-page.spec.ts tests/e2e/report-modal.spec.ts tests/e2e/help-pages.spec.ts tests/e2e/admin-changes-feed-layout.spec.ts tests/e2e/developer-tier.spec.ts tests/e2e/source-link-dimensional.spec.ts tests/e2e/staged-preview.spec.ts tests/e2e/telemetry-layout.spec.ts tests/e2e/admin-parse-panel.spec.ts tests/e2e/dev-capture.spec.ts tests/e2e/published-show-attention.spec.ts tests/e2e/no-raw-codes.spec.ts tests/e2e/sign-in-page.spec.ts tests/e2e/admin-route-boundaries.spec.ts tests/e2e/needs-attention-page.spec.ts tests/e2e/roles-settings-layout.spec.ts tests/e2e/admin-settings-admins-refresh.spec.ts tests/e2e/warning-panel-polish.spec.ts --project=mobile-safari --project=desktop-chromium --retries=0 --reporter=list,json
       # No `if:` — this must run on the success path, which is the only path
       # where a vacuously-green run is dangerous. A runtime `test.skip()` skips
       # every case while --list still reports them, so the run exits 0 having

@@ -32,6 +32,12 @@ import { collectInfraRecoveries, printInfraRecoveries } from "./lib/infraRecover
 // docs/superpowers/specs/ci/2026-08-15-changes-feed-modal-batch-flake-design.md), adding a fourth
 // case, so it returns at 8 rather than its old 6 — NINE wired specs, 77 executions.
 //
+// BATCH 2 joins 2026-08-22 (spec docs/superpowers/specs/ci/2026-08-21-app-e2e-batch2-design.md):
+// fourteen more specs, +104 identities, measured on one post-fix run of all 23 with both projects
+// and --retries=0 — 181 executed identities, zero skipped, zero flaky, every per-spec count equal
+// to Playwright's own --list resolution for that spec. The counts below are derived from that
+// run's JSON report through this script's own walk, never by arithmetic over the file list.
+//
 // Each count is the spec's FULL executable set, not a floor of 1: a floor of 1 would let a nested
 // `beforeEach(() => test.skip())` runtime-skip every case but one while the job stayed green, and a
 // partially dark suite is the same defect as a wholly dark one, just quieter.
@@ -40,9 +46,25 @@ export const REQUIRED = {
   "admin-changes-feed-layout.spec.ts": 8,
   // 2 cases x 2 projects.
   "admin-layout.spec.ts": 4,
+  // 5 cases x 2 projects. Measured 2026-08-22, post-fix run of all 23 specs, both
+  // projects, --retries=0: 181 executed identities, zero skipped.
+  "admin-parse-panel.spec.ts": 10,
   // 4 cases x 1 project — admin-phase2-surfaces resolves under mobile-safari only
   // (playwright.config.ts testMatch), so 4 is the whole suite, not half of it.
   "admin-phase2-surfaces.spec.ts": 4,
+  // 5 cases x 1 project — it resolves under desktop-chromium only
+  // (playwright.config.ts testMatch). Measured 2026-08-22, post-fix run of all 23 specs, both
+  // projects, --retries=0: 181 executed identities, zero skipped.
+  "admin-route-boundaries.spec.ts": 5,
+  // 1 case x 1 project (desktop-chromium). Measured 2026-08-22, post-fix run of all 23 specs, both
+  // projects, --retries=0: 181 executed identities, zero skipped.
+  "admin-settings-admins-refresh.spec.ts": 1,
+  // 4 cases x 1 project (desktop-chromium). Measured 2026-08-22, post-fix run of all 23 specs, both
+  // projects, --retries=0: 181 executed identities, zero skipped.
+  "dev-capture.spec.ts": 4,
+  // 7 cases x 1 project (desktop-chromium). Measured 2026-08-22, post-fix run of all 23 specs, both
+  // projects, --retries=0: 181 executed identities, zero skipped.
+  "developer-tier.spec.ts": 7,
   // 14 NAV routes + the NAV-parity guard, x 1 project — help-pages resolves under mobile-safari
   // only (playwright.config.ts testMatch), and the route list derives from app/help/_nav.ts, so a
   // NAV row added without a HELP_ROUTES row fails the parity guard rather than quietly lowering
@@ -50,14 +72,42 @@ export const REQUIRED = {
   "help-pages.spec.ts": 15,
   // 7 cases x 2 projects.
   "me-page.spec.ts": 14,
+  // 6 flows x 2 projects. Measured 2026-08-22, post-fix run of all 23 specs, both
+  // projects, --retries=0: 181 executed identities, zero skipped.
+  "needs-attention-page.spec.ts": 12,
+  // 10 cases x 1 project — it resolves under mobile-safari only. Measured 2026-08-22, post-fix run of all 23 specs, both
+  // projects, --retries=0: 181 executed identities, zero skipped.
+  "no-raw-codes.spec.ts": 10,
   // 6 width bands + the dispatch case, x 2 projects.
   "notify-toggles.spec.ts": 14,
+  // 6 cases x 1 project (desktop-chromium). Measured 2026-08-22, post-fix run of all 23 specs, both
+  // projects, --retries=0: 181 executed identities, zero skipped.
+  "published-show-attention.spec.ts": 6,
   // 4 cases x 2 projects.
   "report-modal.spec.ts": 8,
+  // 5 cases x 1 project (desktop-chromium). Measured 2026-08-22, post-fix run of all 23 specs, both
+  // projects, --retries=0: 181 executed identities, zero skipped.
+  "roles-settings-layout.spec.ts": 5,
   // 4 cases x 2 projects.
   "root-landing.spec.ts": 8,
   // 1 case x 2 projects.
   "sample.spec.ts": 2,
+  // 12 cases x 2 projects. Measured 2026-08-22, post-fix run of all 23 specs, both
+  // projects, --retries=0: 181 executed identities, zero skipped.
+  "sign-in-page.spec.ts": 24,
+  // 5 cases x 1 project (desktop-chromium). Measured 2026-08-22, post-fix run of all 23 specs, both
+  // projects, --retries=0: 181 executed identities, zero skipped.
+  "source-link-dimensional.spec.ts": 5,
+  // 8 cases x 1 project (desktop-chromium). Measured 2026-08-22, post-fix run of all 23 specs, both
+  // projects, --retries=0: 181 executed identities, zero skipped.
+  "staged-preview.spec.ts": 8,
+  // 3 cases x 1 project (desktop-chromium). Measured 2026-08-22, post-fix run of all 23 specs, both
+  // projects, --retries=0: 181 executed identities, zero skipped.
+  "telemetry-layout.spec.ts": 3,
+  // 3 polish cases + the overflow-reveal case x 1 project
+  // (desktop-chromium); the reveal case ran for the first time on the post-fix run. Measured 2026-08-22, post-fix run of all 23 specs, both
+  // projects, --retries=0: 181 executed identities, zero skipped.
+  "warning-panel-polish.spec.ts": 4,
 };
 
 // Importable table, runnable script — no side effects on import, so a guard can pin these
