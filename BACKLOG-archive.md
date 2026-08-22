@@ -21,8 +21,8 @@ all, since one unrelated object id anywhere makes a whole document pass, and spe
 retired a draft that read it as a certificate.
 
 **Why no test, measured rather than argued.** The gate the row sketched — a bare count near an
-artifact path must name its producing command — reds 23 times on the corpus at `b52481446` with **zero
-true positives**. Its reds are probe and task ordinals, arithmetic demonstrated in place,
+artifact path must name its producing command — reds 23 times on the corpus at `b52481446`, at least
+15 of them on lines that state no artifact figure at all. Its reds are probe and task ordinals, arithmetic demonstrated in place,
 control-outcome table cells, a retraction and an environment note — seventeen that are not artifact
 figures at all — plus seven that are, and would be no safer for passing, because the gate demands a
 producing COMMAND on the line and a producing command is not a binding. It is also blind to the one

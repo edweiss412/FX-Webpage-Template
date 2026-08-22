@@ -41,7 +41,9 @@ The population this protects is narrow and worth naming: a figure asserting a pr
 tree** with nothing immutable saying which tree. Those are the ones that pass through a person between
 the measurement and the page.
 
-There is no lint for this, and `2026-08-22-derived-number-population-census.md` is why: the gate that
-was sketched for it reds 23 times on this corpus with zero true positives, and misses the one record
-that is actually unbound. The convention is the mechanism. The census script beside this README prints
+There is no lint for this, and `2026-08-22-derived-number-population-census.md` is why. Measured on
+this directory at `b52481446`: the gate that was sketched for it reds 23 times, at least 15 of those
+on lines that are not figures about artifacts at all, and it misses the one record the anchor screen
+flags. It also enforces the wrong rule — it asks for a producing command, and a producing command is
+not a binding. The convention is the mechanism. The census script beside this README prints
 the mutable-only list on every run if you want to check a record against it.

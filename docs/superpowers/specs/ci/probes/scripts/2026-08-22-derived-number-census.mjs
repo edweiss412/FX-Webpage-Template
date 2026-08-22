@@ -46,7 +46,10 @@ const NUM = /(?<![\w.])\d+(?:[.,]\d+)*(?![\w.])/g;
 // A figure bound to a tree cannot rot: it is permanently true of the revision
 // it names. This is the only classification in this file that inspection did
 // not overturn.
-const TREE_BINDING = /\b(?:at|on|base|blob|sha|commit|revision|branch point)\b[^.\n]{0,40}`?\b[0-9a-f]{7,40}\b/i;
+// The `g` flag is load-bearing: without it `String.match` returns a single-match
+// array, so a per-record COUNT silently reads 0 or 1 no matter how many phrases a
+// record carries. Round 3 caught that printing 1 for records holding six.
+const TREE_BINDING = /\b(?:at|on|base|blob|sha|commit|revision|branch point)\b[^.\n]{0,40}`?\b[0-9a-f]{7,40}\b/gi;
 
 // A binding is only as good as the anchor it names. A hex object id is IMMUTABLE:
 // the tree it names cannot change. A branch or remote ref is MUTABLE: it moves,
@@ -182,7 +185,9 @@ console.log('## Three readings of "derived" — three variants of ONE heuristic'
 console.log('');
 console.log('- **A** — the figure appears in a fenced block that PRINTS its command as a transcript line.');
 console.log('- **B** — A, plus blocks whose producing command is named in the prose above them.');
-console.log('- **C** — B, restricted to figures >= 100, where token collision is negligible.');
+console.log('- **C** — B, restricted to figures >= 100. Collision is EXPECTED below 100; nothing');
+console.log('        here measures how often it happens above, so C is a different population,');
+console.log('        not a cleaner reading of the same one.');
 console.log('');
 console.log('| record | figures | derived A | derived B | figures >=100 | derived C | blocks | commanded |');
 console.log('| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');

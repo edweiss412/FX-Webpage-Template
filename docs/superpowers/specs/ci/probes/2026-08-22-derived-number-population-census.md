@@ -40,7 +40,7 @@ $ node docs/superpowers/specs/ci/probes/scripts/2026-08-22-derived-number-census
 | every rate, count and per-record row in §1 | the census script, first command above |
 | the anchor screen in §3 | the census script |
 | the 23 gate reds and their line numbers in §4 | the census script |
-| `docs/superpowers` file counts (1,127 / 1,173) | `git ls-tree` at two named commits, printed inline in §3. **Not `git ls-files`** — that reads the working tree and returns 1,176 here, which is a different question |
+| `docs/superpowers` file counts (1,127 / 1,173) | `git ls-tree` at two named commits, printed inline in §3. **Not `git ls-files`** — that reads the mutable working tree rather than a named commit, so it answers a different question and its value is deliberately not quoted here |
 | whether `origin/fix/scanner-scope-totality` still exists | `git ls-remote`, printed inline in §3 |
 | which of the 23 reds is a genuine figure about a live artifact | **hand classification**, §4 — the script produces the population, a person produces the verdict, and all 23 are printed so the verdict can be checked by reading |
 | that three of the parent row's four incidents were in ledger-class documents | read off that row's `**Incident:**` field, quoted in §3 |
@@ -71,7 +71,8 @@ records naming a mutable ref and NO immutable anchor — the screen's only posit
 
 - **A** — the figure appears in a fenced block that prints its command as a transcript line.
 - **B** — A, plus blocks whose producing command is named in the prose above them.
-- **C** — B, restricted to figures >= 100.
+- **C** — B, restricted to figures >= 100. Collision is EXPECTED below 100; nothing here measures
+  how often it happens above, so C is a different population, not a cleaner reading of the same one.
 
 **Two things this spread is NOT, both corrected from the first draft.** A and B and C are three
 variants of ONE heuristic — does this numeric token also appear in a block over there — so their
@@ -149,7 +150,8 @@ moves and can be deleted.
 **A note on the recognizer, found by attacking it rather than by waiting for review.** "Names an
 immutable anchor" is decided by a regex, and the first version required only that a 7-to-40 character
 run of `[0-9a-f]` contain a digit. That matches millisecond timestamps and CI run ids: 43 of the 87
-anchors it reported in `2026-08-21-intraleg-process-probe.md` were epoch-ms values. It now requires a
+anchors it reported in `2026-08-21-intraleg-process-probe.md` were all-digit values — 40 of them
+13-digit epoch timestamps, the other three a seed and two numeric UUID prefixes. It now requires a
 hex LETTER as well as a digit. Documented limit: a genuinely all-digit short sha is not recognized
 (about 3.7% of ids at 7 characters, falling off fast with length), and the error it causes is calling a
 bound record unbound, which is the safe direction. The companion `MUTABLE_REF` recognizes
@@ -213,20 +215,33 @@ checked by reading rather than trusted.
 
 Round 2 corrected this partition twice: `gate-weight:125` and `finding-format:15` were filed as
 narrative when both state figures about measured runs, and the intraleg lines are bound by a base in a
-later section rather than by the record's header. The counts above are the corrected ones.
+later section rather than by the record's header. The counts above are the corrected ones and they sum
+to 23.
 
-**23 reds, 0 true positives — and the reason does not depend on which of them are adequately bound.**
-An earlier draft argued the six were all bound by their headers, which §3 has now retired as more than
-the screen can support. The durable argument is simpler and survives that retraction: **the gate
-enforces the wrong rule.** It demands a producing COMMAND on the line, and §3's counterexample shows a
-producing command is not a binding — `2026-08-16-timing-scan-binding-probes.md` prints its `git show`
-and is still unfetchable. A figure could satisfy this gate on every line and remain exactly as rotten.
-Seventeen of the 23 are not artifact figures at all, and the other six would be no safer for passing.
+**What the gate's yield is, stated to the limit of the evidence.** Round 3 retired the phrase "zero
+true positives", and was right to: an exact zero requires knowing that none of the seven artifact
+figures is inadequately bound, and that is the per-figure judgment §3 has already said this arc does
+not make. What the partition does establish, by reading lines anyone can re-read:
+
+- **15 of the 23 are not artifact figures at all** — five ordinals, three in-place derivations, six
+  control-outcome cells or data tuples, one hedged environment note. On these the gate is simply
+  wrong, with no judgment required.
+- **1 more states a figure in order to retract it**, which a provenance rule has no business demanding
+  a command for.
+- **7 are real figures about real artifacts.** How many are adequately bound is not decided here.
+
+**And it does not need to be, because the gate is the wrong rule.** It demands a producing COMMAND on
+the line. §3's counterexample shows a producing command is not a binding:
+`2026-08-16-timing-scan-binding-probes.md` prints its `git show` and is still unfetchable. So a figure
+can satisfy this gate on every line and remain exactly as rotten, and if any of the seven IS
+inadequately bound, passing the gate would not fix it. A rule whose satisfaction does not imply the
+property it exists to protect cannot be repaired by tiering — at best 15 of 23 reds are certainly
+noise, and the remaining 8 would not be made safe by compliance.
 
 **And the gate misses the one record the screen does flag.** Not one of the 23 reds comes from the
 unbound content of `2026-08-16-timing-scan-binding-probes.md` — its single red, at line 1652, is a task
-ordinal. The rot in this corpus is a deleted branch name in a header, and a rule about bare counts near
-artifact paths cannot see it.
+ordinal. The rot the screen can see is a deleted branch name in a header, and a rule about bare counts
+near artifact paths cannot see it.
 
 Widening the recognizer to fix the precision is this fleet's measured losing move: the speclint arc
 grew a JavaScript lexer one grammar corner per round across 20 diff rounds with the finding rate flat.
@@ -244,7 +259,9 @@ differently tomorrow. A figure is bound when the record names an **immutable** a
 or a declaration that the measurement is not reproducible and why. A branch name is not one, as
 `2026-08-16-timing-scan-binding-probes.md` now demonstrates.
 
-**No test**, for §4's measurement: zero true positives, and blind to the corpus's one real instance.
+**No test**, for §4's measurement: the gate is the wrong rule (satisfying it does not establish
+binding), at least 15 of its 23 reds are certainly noise, and it is blind to the corpus's one
+screen-flagged instance.
 
 **No corpus repair.** `2026-08-16-timing-scan-binding-probes.md` is a dated record of a measurement
 taken against a branch that no longer exists, and no edit can recover the tree it named. Rewriting its

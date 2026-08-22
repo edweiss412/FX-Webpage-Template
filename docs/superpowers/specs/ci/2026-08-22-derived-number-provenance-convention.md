@@ -85,11 +85,16 @@ at the commit it measures.
    demonstration is that the record scoring zero under every variant is on inspection one of the
    best-provenanced in the corpus, because it uses indented transcript and blob ids instead of fenced
    blocks. No adjustment to a token rule reaches that.
-2. **The gate the row sketches has zero true positives, and the reason does not rest on any binding
-   claim.** 39 lines match its shape and 23 would red: seventeen are ordinals, in-place arithmetic,
-   control-outcome cells, a retraction and an environment note, none of them artifact figures at all.
-   The other seven are real figures, and they would be no safer for passing — the gate demands a
-   producing COMMAND on the line, and §3's counterexample shows a producing command is not a binding.
+2. **The gate the row sketches enforces the wrong rule.** It demands a producing COMMAND on the line,
+   and §3's counterexample shows a producing command is not a binding — that record prints its
+   `git show` and is still unfetchable, so a figure can satisfy the gate on every line and be exactly
+   as rotten. Of the 23 lines it would red at `b52481446`, **15 do not state artifact figures at all**
+   (ordinals, in-place derivations, control-outcome cells, an environment note) and one more states a
+   figure in order to retract it. The remaining seven are real figures; how many are adequately bound
+   is a per-figure judgment this arc does not make, and does not need to, because compliance with the
+   gate would not settle it either. An earlier draft claimed an exact "zero true positives"; round 3
+   retired that as more than the evidence carries.
+
 3. **One record is genuinely unbound, and the gate cannot see it.** The anchor screen has exactly one
    positive finding: `2026-08-16-timing-scan-binding-probes.md` names `origin/fix/scanner-scope-totality`,
    no sha, and that branch has been deleted. Its single gate red is a task ordinal, so the rule fires
@@ -140,7 +145,8 @@ wearing provenance's clothes. It stands as the README's worked counterexample, w
 
 1. **The convention is unenforced, deliberately.** A record can violate it and merge. The alternative
    was measured and declined in the probe record's §4: at base `b52481446` the sketched gate reds 23
-   times with **zero true positives**, and it is blind to the corpus's one genuinely unbound record.
+   times, at least 15 of them on lines that are not artifact figures at all, it enforces a rule whose
+   satisfaction does not establish binding, and it is blind to the corpus's one screen-flagged record.
    A record-level presence check fares worse — one red, and it is a false one.
 2. **The census script is not a guard and must not be promoted into one.** Its three readings exist
    to show that a token-matching classifier is unreliable here; an arc that picks one and gates on it
