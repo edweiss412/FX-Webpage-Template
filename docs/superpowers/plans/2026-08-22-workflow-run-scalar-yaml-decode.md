@@ -234,7 +234,22 @@ The key itself is destroyed, so that step stops being a `run:` scalar and its bi
 shape is a required test case**: a multiline flow scalar, a following plain scalar, and an assertion
 that the second one's advisory survives.
 
-**Also in this task — AC-10, the limit this change retires.** Running the deciding suite under the
+**Then, in the same task:** `pnpm mutation:sites`.
+
+## Task 3 — retire the declared limit
+
+<!-- task: red=`pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-quoted-run-claim-sweep.mts` red-state=live why=`the sweep gates REPAIR rather than its own existence: every live claim that a quoted executable scalar is not read must carry a supersession marker within twelve lines, or sit in an EXEMPT entry with the reason it may stand. On the pre-implementation tree it exits 1 listing 26 unmarked live claims across the predecessor specs, the deciding suite and the scanner module header; the six edits of this task are exactly what turns the same command green` ac=AC-10 -->
+
+**What is red and why:** the claim sweep exits 1 on the current tree naming all six declared claim
+sites as carrying no supersession marker. The six edits below are exactly what turns the same
+command green.
+
+**This work was in Task 2 and plan review round 4 was right to reject that.** Executed in order,
+the sweep would have gone green inside Task 2's commit, before Task 3 began — the invalid RED shape
+where an earlier task, not this one, changes the result. It also split one unit of work across two
+commits, against the per-task commit rule. The work and its marker now live together.
+
+**The limit this change retires.** Running the deciding suite under the
 prototype flipped two declared-limit rows at
 `tests/cross-cutting/psqlStartupFileSuppression.test.ts:5153-5157` from their pinned zero to one hit
 each: `- run: "PG=psql; $PG -qAt mydb"` and its `PG=p'sql'` spelling. That is the improving
@@ -292,11 +307,6 @@ Six edits, all in this task's commit:
 6. Point the 2026-08-20 spec's two live sites (disposition rows 6-8, and the limits list at lines
    615-616) at the same canonical note.
 
-**Then, in the same task:** `pnpm mutation:sites`.
-
-## Task 3 — retire the declared limit
-
-<!-- task: red=`pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-quoted-run-claim-sweep.mts` red-state=live why=`the sweep gates REPAIR rather than its own existence: every live claim that a quoted executable scalar is not read must carry a supersession marker within twelve lines, or sit in an EXEMPT entry with the reason it may stand. On the pre-implementation tree it exits 1 listing 26 unmarked live claims across the predecessor specs, the deciding suite and the scanner module header; the six edits of this task are exactly what turns the same command green` ac=AC-10 -->
 
 <!-- tasks: end -->
 
@@ -328,52 +338,46 @@ each is probed against a failing input rather than trusted:
 | AC-8 `node docs/superpowers/specs/ci/probes/2026-08-22-seam-check.mjs` | this arc's diff | **RUN. Two earlier versions of this gate could not fail; the third is proved against a deletion and against the outer walk.** See below. |
 | AC-10 `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-quoted-run-claim-sweep.mts` | the corpus after the six edits | Self-tests against five known instances and exits 2 on a miss. Narrowing its matcher back to the first version aborts naming the instance lost, so the self-test is itself non-vacuous. |
 
-### AC-8: a gate that could not fail, twice, and what finally works
+### AC-8: three denylists, then an allowlist
 
-This gate has now been attacked three times and failed the first two. Recording all three, because
-each defect is a different way for a check to report clean over something it cannot see.
+This gate was found vacuous three times, each in a new direction, and plan review round 4 caught a
+fourth hole in the first allowlist. Recording all of it, because the pattern is the point.
 
-**First version — a `git diff` hunk-header pattern.** Found vacuous by running its own mutant-red:
-git's `@@` header names the ENCLOSING function, and most of this seam is nested arrows inside
-`attachedTargetEnd`, so a header pattern can never match one. A planted edit inside
-`closeDoubleQuoted` returned `PASS`.
+**The three denylists.** Each said "the diff must not touch the delimiter walk", and a denylist
+accepts whatever it did not model.
 
-**Second version — AST line ranges over a hand-written six-name list.** Plan review found two holes
-in it, both real:
+1. Keyed on git's `@@` hunk header, which names the ENCLOSING function. Most of the walk is nested
+   arrows, so a mutant planted inside `closeDoubleQuoted` passed. The header is wrong in both
+   directions: run against real history it also blames `closingBacktick` for a constant declared
+   after it.
+2. AST ranges over a hand-written name list. It missed `closeAnsiC`, `closingBacktick` and
+   `attachedTargetEnd` — the 95-line outer walk lexically CONTAINING four of the members it did
+   name — and it missed pure deletions, whose new-side hunk count is zero.
+3. A derived closure, callees plus lexical ancestors. It collected only function-VALUED
+   declarations, so `ATTACHED_TARGET_TERMINATOR`, a module-level regex deciding where the walk ends,
+   escaped with a live mutant.
 
-- **Deletions were invisible.** A pure deletion has a new-side hunk count of zero, so a new-side-only
-  parse collected no changed lines at all and every deletion inside the seam passed.
-- **The list missed `attachedTargetEnd`** (95 lines), the OUTER walk that lexically CONTAINS four of
-  the six members it did name. An edit in its main loop, outside every nested helper, passed. The
-  list had already missed `closeAnsiC` and `closingBacktick` for the same reason: it was written by
-  hand.
+**The allowlist, and the hole review found in its first cut.** The question is inverted: what this
+arc may touch is small, known and mine to declare, so the check names those five declarations and
+denies the rest of the file. But the first cut skipped `ImportDeclaration` and `ExportDeclaration`
+when collecting owners, and accepted any changed line with no owner — so two statement classes were
+unowned and therefore exempt. Review demonstrated it with a live wrong report: swapping the imported
+`isPair` and `isScalar` bindings flips both predicates from true to false, and the gate said PASS. A
+default-deny that leaves a statement class unowned is not default-deny. Every statement class is now
+owned; only trivia — comments and blank lines — reaches the unowned branch, which is what lets this
+arc edit the module header.
 
-**Third version, shipped.** The cover is DERIVED: the callee closure of `openerEnd` plus the
-`matchBrace*` / `closingBacktick` family, then each member's LEXICAL ANCESTORS. Nine members.
-
-Containment, not calling, is the owner relation, and the difference is the whole file. A caller step
-was tried first: `lexShellWords` CALLS `matchBrace` but does not contain it, so pulling callers in
-drags `lexShellWords` and then its callee closure — measured at **90 members** against a real seam
-of nine, and the run before that never terminated inside four minutes. Lexical ancestors are bounded
-by nesting depth by construction. A ceiling of 20 members exits 2 rather than reporting clean, on
-the principle that a derivation which has stopped discriminating must say so.
-
-Both hunk sides are read, each judged against the seam as it exists in ITS OWN revision — the base
-file comes from `git show`, so a deletion is checked against where the seam was, not where it now
-is.
-
-Observed:
+**Observed, against the CURRENT allowlist.** All four historical escapes plus the two review found:
 
 ```
-derived seam, HEAD (9 members):
-  matchBraceSpan 973-1005   matchBrace 1009-1011   matchBraceEnd 1025-1028
-  closingBacktick 1042-1051  attachedTargetEnd 1085-1179  closeAnsiC 1088-1097
-  closeDoubleQuoted 1102-1116  substitutionOpenerEnd 1127-1135  openerEnd 1139-1148
-
-clean tree                     -> PASS, exit 0
-4-line DELETION in closeAnsiC  -> FAIL, "deleted/changed scan.ts:1093 inside closeAnsiC", exit 1
-edit at 1150, attachedTargetEnd's
-  main loop, outside every helper -> FAIL, "added/changed scan.ts:1150 inside attachedTargetEnd", exit 1
+clean tree                                        PASS, exit 0
+edit inside closeDoubleQuoted (escape 1)          FAIL  scan.ts:1103 in `attachedTargetEnd`
+4-line DELETION inside closeAnsiC (escape 2)      FAIL  scan.ts:1092 in `attachedTargetEnd`
+edit at 1150, attachedTargetEnd's main loop       FAIL  scan.ts:1150 in `attachedTargetEnd`
+edit to ATTACHED_TARGET_TERMINATOR (escape 3)     FAIL  scan.ts:1064 in `ATTACHED_TARGET_TERMINATOR`
+swap the isPair/isScalar imports (escape 4)       FAIL  scan.ts:407  in `<ImportDeclaration>`
+append a new top-level export                     FAIL  scan.ts:4438 in `PLANTED`
+edit inside scanWorkflowSource (permitted)        PASS, exit 0
 ```
 
 Adding the script moved no finding: the AC-5 digest still reads

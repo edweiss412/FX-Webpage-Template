@@ -56,88 +56,86 @@ for (const file of files) {
   }
 }
 
-// The self-test ranges over EVERY known instance, not one. A sweep is only
-// trustworthy where it has been shown to fire, and each of these was a place an
-// earlier version of this sweep missed.
-const SELF_TEST: [file: string, nearLine: number][] = [
-  ["tests/cross-cutting/psqlStartupFileSuppression.test.ts", 5156],
-  ["tests/cross-cutting/psqlStartupFiles/scan.ts", 232],
-  ["docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md", 346],
-  ["docs/superpowers/specs/ci/2026-08-20-shell-lexer-quoted-value-recall-design.md", 566],
-  ["docs/superpowers/specs/ci/2026-08-20-shell-lexer-quoted-value-recall-design.md", 615],
-  ["docs/superpowers/specs/ci/probes/2026-08-17-shell-binding-mixed-quoted-probes.md", 178],
+// ---------------------------------------------------------------------------
+// TWO JOBS, AND ONLY ONE OF THEM IS A GATE.
+//
+// The previous version gated on EVERY hit carrying a supersession marker, and
+// plan review showed that gate is unsatisfiable: 13 of 26 hits are false
+// positives in unrelated files — BACKLOG.md, four other specs — where "quoted",
+// "limit" and "zero" merely co-occur near each other. No edit to this arc's six
+// claim sites can ever mark them, so the gate could never go green.
+//
+// Tightening the matcher until those 13 disappear is the ratchet: two rounds
+// have already gone into this regex, and a prose recognizer over an open corpus
+// does not converge. So the recognizer stops being an oracle. It DISCOVERS, and
+// the gate ranges over a finite DECLARED list instead:
+//
+//   GATE      - the six known claim sites each carry a supersession marker.
+//               Finite, exact, closable.
+//   SELF-TEST - the matcher must still FIND all six. A discovery arm that has
+//               gone blind reports clean for the wrong reason.
+//   REPORT    - everything else is printed as a CANDIDATE for a human to
+//               disposition. Surfaced, never enforced.
+//
+// Documented limit, stated rather than engineered away: the PROSE arm
+// over-matches on word co-occurrence. It is a discovery aid whose false
+// positives cost a reading, which is the conservative direction.
+
+/** The claim sites this arc must supersede. Line numbers are drafting-time
+ *  locators; the marker search is windowed, so a small drift is tolerated. */
+const DECLARED: [file: string, nearLine: number, what: string][] = [
+  ["tests/cross-cutting/psqlStartupFileSuppression.test.ts", 5156, "the declared-limit pin itself"],
+  ["tests/cross-cutting/psqlStartupFiles/scan.ts", 232, "the scanner's own module header"],
+  ["docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md", 292, "the recall-table note"],
+  ["docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md", 346, "§6 item 2, the canonical record"],
+  ["docs/superpowers/specs/ci/2026-08-20-shell-lexer-quoted-value-recall-design.md", 566, "disposition rows 6-8"],
+  ["docs/superpowers/specs/ci/2026-08-20-shell-lexer-quoted-value-recall-design.md", 615, "the limits list"],
 ];
-const SELF_TEST_WINDOW = 3;
-const missed = SELF_TEST.filter(
-  ([file, near]) => !hits.some((h) => h.file === file && Math.abs(h.line - near) <= SELF_TEST_WINDOW),
+const MARKER = /BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE|Superseded in part, 2026-08-22/;
+const MARKER_WINDOW = 12;
+const FIND_WINDOW = 3;
+
+const fileLines = new Map<string, string[]>();
+const linesOf = (f: string) => {
+  if (!fileLines.has(f)) fileLines.set(f, readFileSync(f, "utf8").split("\n"));
+  return fileLines.get(f)!;
+};
+
+// SELF-TEST: the discovery arm must reach every declared site.
+const unfound = DECLARED.filter(
+  ([file, near]) => !hits.some((h) => h.file === file && Math.abs(h.line - near) <= FIND_WINDOW),
 );
-if (missed.length > 0) {
+if (unfound.length > 0) {
   console.error(
-    `\nABORT: the sweep missed ${missed.length} of ${SELF_TEST.length} KNOWN instances, so it cannot be ` +
-      `trusted where it reports nothing:`,
+    `\nABORT: the matcher missed ${unfound.length} of ${DECLARED.length} DECLARED claim sites, so it ` +
+      `cannot be trusted as a discovery arm anywhere it reports nothing:`,
   );
-  for (const [file, near] of missed) console.error(`  ${file}:~${near}`);
+  for (const [file, near, what] of unfound) console.error(`  ${file}:~${near}  (${what})`);
   process.exit(2);
 }
 
-// ---------------------------------------------------------------------------
-// The gate. Finding the claim is half the job; the earlier version stopped
-// there and so the ENTIRELY UNREPAIRED tree passed it — it proved the sweep
-// worked, never that the work was done. Every LIVE hit must now carry a
-// supersession marker near it, and every file that carries none must be an
-// EXPLICITLY exempt one with its reason recorded here. Default-deny: a file
-// nobody has thought about fails.
-const MARKER = /BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE|Superseded in part, 2026-08-22/;
-const MARKER_WINDOW = 12;
+// REPORT: candidates the gate does not range over.
+const declaredFiles = new Set(DECLARED.map(([f]) => f));
+const candidates = hits.filter(
+  (h) =>
+    !DECLARED.some(([file, near]) => h.file === file && Math.abs(h.line - near) <= MARKER_WINDOW) &&
+    !declaredFiles.has(h.file),
+);
+console.log(`\ncandidates the gate does not range over (${candidates.length}) — read, do not trust:`);
+for (const c of candidates) console.log(`  ${c.file}:${c.line} [${c.arm}] ${c.text}`);
 
-/** Files where the claim stands uncorrected, each with the reason it may. */
-const EXEMPT: [pattern: RegExp, reason: string][] = [
-  [/^docs\/review-rounds\//, "dated round record; those are never corrected"],
-  [
-    /^docs\/superpowers\/plans\/2026-08-17-shell-binding-mixed-quoted-value\.md$/,
-    "execution record of a completed arc",
-  ],
-  [
-    /^docs\/superpowers\/specs\/ci\/probes\/2026-08-17-/,
-    "dated probe record; its 'scores 0 today' is scoped to its own date, which is what makes a dated record safe to leave",
-  ],
-  [/^tests\/specLint\/__fixtures__\//, "copied fixture pinning a document's shape, not the scanner's behaviour"],
-  [/^tests\/docs\/_retiredIdentifiers\.ts$/, "ledger reconciliation record"],
-  [
-    /^docs\/superpowers\/(specs\/ci\/2026-08-22-workflow-run-scalar-yaml-decode-design|plans\/2026-08-22-workflow-run-scalar-yaml-decode)\.md$/,
-    "this arc's own spec and plan; they describe the retirement rather than assert the zero",
-  ],
-  [/^tests\/cross-cutting\/workflowActivation\.test\.ts$/, "different subject; matched on shape, not on this claim"],
-  [/^docs\/superpowers\/specs\/ci\/probes\/2026-08-22-/, "this arc's own probes"],
-];
+// GATE: every declared site carries a marker.
+const unmarked = DECLARED.filter(([file, near]) => {
+  const lines = linesOf(file);
+  const from = Math.max(0, near - 1 - MARKER_WINDOW);
+  const to = Math.min(lines.length, near - 1 + MARKER_WINDOW);
+  return !lines.slice(from, to).some((l) => MARKER.test(l));
+});
 
-const fileText = new Map<string, string[]>();
-const linesOf = (f: string) => {
-  if (!fileText.has(f)) fileText.set(f, readFileSync(f, "utf8").split("\n"));
-  return fileText.get(f)!;
-};
-
-const unrepaired: string[] = [];
-for (const h of hits) {
-  const exemption = EXEMPT.find(([re]) => re.test(h.file));
-  if (exemption) continue;
-  const lines = linesOf(h.file);
-  const from = Math.max(0, h.line - 1 - MARKER_WINDOW);
-  const to = Math.min(lines.length, h.line - 1 + MARKER_WINDOW);
-  if (!lines.slice(from, to).some((l) => MARKER.test(l)))
-    unrepaired.push(`${h.file}:${h.line} [${h.arm}] ${h.text}`);
-}
-
-console.log(`\nexemptions in force:`);
-for (const [re, reason] of EXEMPT) console.log(`  ${re.source}  -- ${reason}`);
-
-if (unrepaired.length > 0) {
-  console.error(
-    `\nFAIL: ${unrepaired.length} live claim(s) carry no supersession marker within ${MARKER_WINDOW} lines. ` +
-      `Each must be superseded, or added to EXEMPT with the reason it may stand:`,
-  );
-  for (const u of unrepaired) console.error("  " + u);
+console.log(`\nself-test: all ${DECLARED.length} declared sites found by the matcher.`);
+if (unmarked.length > 0) {
+  console.error(`\nFAIL: ${unmarked.length} of ${DECLARED.length} declared claim sites carry no supersession marker:`);
+  for (const [file, near, what] of unmarked) console.error(`  ${file}:~${near}  (${what})`);
   process.exit(1);
 }
-console.log(`self-test: all ${SELF_TEST.length} known instances found — the sweep discriminates.`);
-console.log("PASS: every live claim carries a supersession marker.");
+console.log(`PASS: all ${DECLARED.length} declared claim sites are superseded.`);

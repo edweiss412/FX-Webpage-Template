@@ -56,8 +56,13 @@ function topLevel(text, label) {
     else if (ts.isVariableStatement(st))
       for (const d of st.declarationList.declarations)
         out.push({ name: ts.isIdentifier(d.name) ? d.name.text : "<destructured>", range });
-    else if (!ts.isImportDeclaration(st) && !ts.isExportDeclaration(st))
-      out.push({ name: `<${ts.SyntaxKind[st.kind]}>`, range });
+    // EVERY other statement class is owned too, imports and exports included.
+    // They were skipped in the first allowlist and review demonstrated the hole
+    // with a live wrong report: swapping the imported `isPair` and `isScalar`
+    // bindings flips both predicates from true to false, and the gate said PASS
+    // because the changed line belonged to no owner. A default-deny that leaves
+    // a statement class unowned is not default-deny.
+    else out.push({ name: `<${ts.SyntaxKind[st.kind]}>`, range });
   }
   return out;
 }
@@ -97,7 +102,9 @@ const violations = [];
 const judge = (lines, decls, side) => {
   for (const line of lines) {
     // The INNERMOST enclosing top-level statement. A line outside every one is
-    // a comment, an import or blank space, and cannot move behaviour.
+    // trivia — a comment or blank space — which cannot move behaviour, and this
+    // arc edits the module header deliberately. Every STATEMENT is owned, so
+    // trivia is all that reaches this branch.
     const owner = decls
       .filter(({ range: [lo, hi] }) => line >= lo && line <= hi)
       .sort((a, b) => a.range[1] - a.range[0] - (b.range[1] - b.range[0]))[0];
