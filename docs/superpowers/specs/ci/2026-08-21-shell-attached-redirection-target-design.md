@@ -461,7 +461,6 @@ survive. A repair that reported BOTH rows would be loud in a direction the shell
 2. **A target whose construct the accept-set cannot delimit is REPORTED, not resolved**, on the
    REPORT CONDITION of §3 part 4. The
    report names the target as unlexable; it does not say what the target would have evaluated to.
-   Without a substitution opener the span can execute nothing, and it stays deliberately quiet.
    Conservative-and-loud is the permitted direction; wrongly-silent is not.
 
 2b. **That report is scoped to the surfaces production READS, and shell inside JS is not one.**

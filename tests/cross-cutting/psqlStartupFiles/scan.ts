@@ -3478,6 +3478,22 @@ export function scanShellIndirection(source: string, file: string): IndirectionH
     for (const bound of assignmentBindingLines(innerWords, file)) {
       bindingLines.add(body.line + bound);
     }
+    // A nested body has its OWN targets, and an undelimitable one among them was
+    // never read - so it surfaced only as the enclosing body's hit, at the BODY's
+    // line and carrying the whole body as its text. The channel fired, which is
+    // why no silence test caught it; it fired pointing at the wrong place, and
+    // line is a field AC-5's digest covers. Same predicate and same shape as the
+    // top-level loop above, offset back to the physical line (diff round 3 at the
+    // settled base).
+    for (const innerTarget of innerTargets) {
+      if (innerTarget.unlexable === null) continue;
+      if (!SUBSTITUTION_OPENER.test(innerTarget.unlexable)) continue;
+      hits.push({
+        file,
+        line: body.line + innerTarget.line + 1,
+        text: innerTarget.unlexable.trim(),
+      });
+    }
     // The same treatment for the here-string word route, and for the same
     // reason: the outer lex replaced the whole substitution with the opaque
     // `${}` word and so retained no target for anything inside it, which is why

@@ -6822,6 +6822,19 @@ describe("an executing psql inside an ATTACHED redirection target", () => {
     );
   });
 
+  // Diff round 3 at the settled base. `visitBody` lexes a nested body into its
+  // OWN `innerTargets`, and nothing ever read their `unlexable` entries - so an
+  // undelimitable target INSIDE a substitution was reported at the enclosing
+  // body's line, with the whole body as its text, instead of at the target's own
+  // opening line. The channel fired, which is why no silence test caught it; it
+  // fired pointing somewhere else. Wrong attribution is a forbidden direction,
+  // and line is a field AC-5's digest covers.
+  test("an undelimitable target NESTED in a substitution body reports at its own line", () => {
+    const source = "X=$(\ncat >\"$(psql -c 'select 1')\n)\n";
+    const hits = scanShellIndirection(source, "x.sh");
+    expect(hits.map((hit) => hit.line)).toContain(2);
+  });
+
   // §5a items 4 and 7. Every acceptance fixture is a whole small file whose
   // construct starts at line 1 under LF. Line is a field AC-5's digest covers,
   // so this asserts the COORDINATE and not the presence - the killer audit's
