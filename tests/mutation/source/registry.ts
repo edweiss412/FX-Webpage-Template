@@ -341,12 +341,22 @@ export const GUARD_SURFACES: GuardSurface[] = [
         reason: "The `2` of the same `0 | 1 | 2` return-type annotation on `checkExitCode`.",
       },
       {
-        // Re-keyed 700 -> 801 by the send-authorization arc, and RE-VALIDATED by
-        // reading line 801 rather than by the key resolving: a resolving key
-        // proves the site still exists, never that the reason still holds.
-        // Line 801 reads `export type Refusal = { exitCode: 1; sends: never[];
-        // message: string };`, so it is the same annotation under a new line.
-        siteId: "integer-literal:801:35:1>2",
+        // Re-keyed 700 -> 801 -> 828, each time RE-VALIDATED by READING the new
+        // line rather than by the key resolving: a resolving key proves the site
+        // still exists, never that the reason still holds. Line 828 reads
+        // `export type Refusal = { exitCode: 1; sends: never[]; message: string
+        // };`, so it is the same annotation under a new line. The 801 -> 828 move
+        // is diff round 3's refusal-cause split, whose comment block sits above
+        // this declaration and pushed it down 27 lines.
+        //
+        // Third re-key on one row, and the pattern is the point: this ledger is
+        // keyed by LINE, so any edit above a row silently invalidates it and the
+        // gate reports the same site as one unaccepted survivor plus one stale
+        // row. That pair -- an unaccounted site and an unmatched row, both
+        // integer-literal, same column, same mutation -- is the signature of a
+        // MOVE rather than a regression, and it is worth recognising before
+        // treating it as a new gap.
+        siteId: "integer-literal:828:35:1>2",
         kind: "equivalent",
         reason:
           "`export type Refusal = { exitCode: 1; ... }` -- a type alias. The refusal objects that " +

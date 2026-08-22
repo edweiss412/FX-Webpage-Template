@@ -73,7 +73,10 @@ describe("the classifier core is enrolled", () => {
       "integer-literal:557:53:0>1",
       "integer-literal:557:57:1>2",
       "integer-literal:557:61:2>3",
-      "integer-literal:801:35:1>2",
+      // 801 -> 828: diff round 3's refusal-cause split pushed the `Refusal` type
+      // alias down 27 lines. Declared here INDEPENDENTLY of the registry, which is
+      // why this list caught the one-sided edit rather than agreeing with it.
+      "integer-literal:828:35:1>2",
     ]);
     // Not a formality: an empty reason would let a future row be waved through.
     for (const r of accepted) expect(r.reason.length).toBeGreaterThan(40);
