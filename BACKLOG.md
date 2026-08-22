@@ -10,7 +10,7 @@ Last reconciled: 2026-08-17 — `fix/shell-binding-mixed-quoted-value` graduated
 
 ## BL-SCREENSHOTS-DRIFT-CAPTURE-NONDETERMINISM — the byte gate fails on a diff that changes no render input, and the same branch passed an hour earlier
 
-**Status:** OPEN · **Filed:** 2026-08-21 (reported by the `fix/shell-attached-redirection-target` arc; probed further here) · **Facing:** process · **Severity:** MEDIUM (a merge-blocking gate firing on arcs that touch nothing it measures; no shipped-behavior defect) · **Class:** CI gate fidelity · **Effort:** M · **Incident:** run [32528532727](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32528532727) FAILED screenshots-drift on 2026-08-21 at 21:26Z while the nightly backstop on `main`, run [32472312764](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32472312764), PASSED the same day at 10:22Z. · **Reachability:** PROBED — see the same-branch pair below.
+**Status:** IN PROGRESS · **Branch:** fix/screenshots-drift-instrument · **Filed:** 2026-08-21 (reported by the `fix/shell-attached-redirection-target` arc; probed further here) · **Facing:** process · **Severity:** MEDIUM (a merge-blocking gate firing on arcs that touch nothing it measures; no shipped-behavior defect) · **Class:** CI gate fidelity · **Effort:** M · **Incident:** run [32528532727](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32528532727) FAILED screenshots-drift on 2026-08-21 at 21:26Z while the nightly backstop on `main`, run [32472312764](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32472312764), PASSED the same day at 10:22Z. · **Reachability:** PROBED — see the same-branch pair below.
 
 The failing job recaptured `public/help/screenshots/review-queues-empty-state-light.webp` at **11408 bytes against a committed baseline of 6148** — a near-doubling of an EMPTY-STATE image. The reporting arc's diff touches ZERO render inputs: nothing under `app/`, `components/`, `lib/`, `fixtures/`, `supabase/` or `public/`.
 
@@ -760,7 +760,7 @@ ParsePanel was not alone. Shape swept: **a file under `components/` that no file
 
 ## BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED — one `dashboard-overview-light.webp` byte drift that a nine-run probe could not reproduce
 
-**Severity:** LOW (advisory job; not a required context) · **Class:** CI-INFRA · **Effort:** S (the first step is a capture, not a repair) · **Filed:** 2026-08-18 (`fix/rowactions-submenu-reveal-flake`, as the surviving half of `BL-ADVISORY-E2E-JOBS-FLAKE-ACROSS-IDENTICAL-CODE`) · **Reachability:** INFERRED, NOT PROBED.
+**Status:** IN PROGRESS · **Branch:** fix/screenshots-drift-instrument · **Severity:** LOW (advisory job; not a required context) · **Class:** CI-INFRA · **Effort:** S (the first step is a capture, not a repair) · **Filed:** 2026-08-18 (`fix/rowactions-submenu-reveal-flake`, as the surviving half of `BL-ADVISORY-E2E-JOBS-FLAKE-ACROSS-IDENTICAL-CODE`) · **Reachability:** INFERRED, NOT PROBED.
 
 `screenshots-drift` failed once on `dashboard-overview-light.webp` at `b5aa6ef7` — Bin 77670 to 82600 — and passed at a head whose only delta was one markdown file. Nine `workflow_dispatch` runs at one fixed sha, distinct-ref method, then returned **0/9** reproductions.
 
