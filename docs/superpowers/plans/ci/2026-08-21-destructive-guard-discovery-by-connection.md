@@ -767,7 +767,7 @@ makes the empty chain unrepresentable and lets the sweep reach the mutant.
 ### 6.4 Mutation score, and how it got there
 
 Measured with the provenance stamp printed INSIDE the measuring invocation, before and after; both
-stamps read the same 15-file blob (`a43c58944a519999`), so nothing in the input set moved while the
+stamps read the same 15-file blob (`bb83cd184d5ef683`), which is the blob at HEAD, so nothing in the input set moved while the
 run was in flight.
 
 **Final: `331/331` killed, score `1.0`, gate PASSED, ZERO unaccepted survivors.** 333 mutants were
@@ -787,6 +787,7 @@ Six scored runs. Every one of them changed the code rather than the number:
 | 7 | 0.994 | 2 | Nothing. The two survivors WERE the accepted rows, whose keys `EDGE_REPORT_KINDS` had shifted — a run spent discovering the ledger was stale. |
 | 8 | — | — | Killed at ten minutes: #873 landed on three closure files, so the number was retired before it existed. |
 | 9 | 1.0 | 0 | The round-3 repairs, re-measured on the merged tree. |
+| 10 | 1.0 | 0 | Nothing but a matching stamp. Prettier reformatted the deciding suite, which is inside the closure, so the blob moved and the previous run stopped describing HEAD. |
 
 Two of those runs are worth reading rather than counting.
 
