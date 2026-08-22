@@ -148,8 +148,7 @@ quotes.
 prototype flipped two declared-limit rows at
 `tests/cross-cutting/psqlStartupFileSuppression.test.ts:5153-5157` from their pinned zero to one hit
 each: `- run: "PG=psql; $PG -qAt mydb"` and its `PG=p'sql'` spelling. That is the improving
-direction, and the predecessor arc predicted it — its own spec says recall there "needs YAML-aware
-value extraction, a different surface"
+direction, and the predecessor arc predicted it: its own spec says recall there needs YAML-aware value extraction on a different surface
 (`docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md:322-328`). Three
 edits, all in this task's commit:
 
@@ -191,9 +190,9 @@ each is probed against a failing input rather than trusted:
 | Gate | Passes on | Constructed failure |
 | --- | --- | --- |
 | AC-5 digest probe with `--expect` | the clean tree at base and at HEAD | already observed: a stray `.mts` in the worktree holding a psql fixture string injected 7 indirections and the probe exited 2. Recorded in spec §2. |
-| AC-6 census | zero quoted executable scalars | add one quoted `run:` scalar to a workflow, confirm the census reports it, remove it |
+| AC-6 census | zero quoted executable scalars | **RUN, not described.** A `- run: "echo quoted"` step was appended to `.github/workflows/admin-layout-e2e.yml`; the census reported `run:QUOTE_DOUBLE = 1` and named the planted step by file and line. The workflow was then restored and the census returned to `0`. No line is cited for the planted step: it existed only while the mutant was, and the restored file is shorter. |
 | AC-7 `pnpm mutation:sites` | all registry keys resolve | observed red after every `scan.ts` edit in Tasks 1-3, before the re-key |
-| AC-8 `git diff origin/main -- tests/cross-cutting/psqlStartupFiles/scan.ts` shows no hunk inside `matchBrace` / `closeDoubleQuoted` / `openerEnd` / `substitutionOpenerEnd` | this arc's diff | trivially fails if the seam is touched |
+| AC-8 `git diff origin/main -- tests/cross-cutting/psqlStartupFiles/scan.ts` shows no hunk inside `matchBrace` / `closeDoubleQuoted` / `openerEnd` / `substitutionOpenerEnd` | this arc's diff | fails if the seam is touched. Constructed at implementation time by adding a one-character edit inside `closeDoubleQuoted`, confirming the check names it, and reverting — the same plant-observe-restore shape AC-6 above already ran. |
 
 Run the AC-5 digest on a CLEAN tree. Then `pnpm heavy pnpm mutation:guards` for the score, and state
 the score plus the unaccepted-survivor set in the round-1 diff brief's GUARD SURFACE line.
