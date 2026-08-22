@@ -80,7 +80,8 @@
     "ledger:mass": "tsx scripts/ledger-mass.ts",
     "plan:fences": "tsx scripts/plan-fences.ts",
     "panes:compact": "tsx scripts/pane-compaction.ts",
-    "mutation:process-probe": "tsx scripts/mutation-process-probe.ts"
+    "mutation:process-probe": "tsx scripts/mutation-process-probe.ts",
+    "intraleg:claims": "node scripts/intraleg-claim-audit.mjs"
   },
   "dependencies": {
     "@mdx-js/loader": "^3.1.1",

@@ -487,7 +487,7 @@ export const KILLS = [
     id: "AC-9.k1",
     named: "a CLI-shaped surface the runner cannot overlay",
     absent:
-      "The core is an importable module with a referring in-process suite (169 cases), and both " +
+      "The core is an importable module with a referring in-process suite (170 cases), and both " +
       "adapters are thin `main(argv, deps)` entries holding no decision. A CLI-shaped surface " +
       "would score as if untested; this one is imported directly by its suite.",
   },

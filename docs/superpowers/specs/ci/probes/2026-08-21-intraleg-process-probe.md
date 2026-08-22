@@ -249,14 +249,38 @@ every open round FIRST, then run the campaign once, on the committed
 post-formatter tree. Running it earlier feels like progress and buys an artifact
 the next repair throws away.
 
-**Why a MERGE afterwards did not void this one.** `origin/main` advanced after
-the third run and was merged in. The campaign's stamped inputs — the surface's
-source, its deciding suite, and the operator set — are byte-identical across that
-merge (`git diff --name-only HEAD^1..HEAD` over those three paths is empty), and
-the deciding suite, which walks the whole repository and so CAN be moved by files
-outside the stamp, was re-run on the merged tree and reports the same 976 passed.
-Both halves are needed: the stamp covers the declared inputs, and the suite run
-covers everything the stamp cannot see.
+**Why a MERGE afterwards did not void this one — with both halves' commands.**
+`origin/main` advanced after the third run and was merged in. Two independent
+checks, because neither settles it alone.
+
+The stamped inputs are byte-identical across the merge:
+
+```
+$ git diff --name-only HEAD^1..HEAD -- \
+    tests/cross-cutting/psqlStartupFiles/scan.ts \
+    tests/cross-cutting/psqlStartupFileSuppression.test.ts \
+    tests/mutation/source/registry.ts
+(no output)
+```
+
+And the deciding suite — which walks the whole repository, so files OUTSIDE the
+stamp can move it — reports the same result on the merged tree:
+
+```
+$ pnpm exec vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts
+ Test Files  1 passed (1)
+      Tests  976 passed (976)
+   Duration  13.64s
+```
+
+**What that second command is and is NOT.** It is the deciding suite on the
+UNMUTATED tree — the same green-baseline check every trial runs before its
+mutants, and the thing that would break if a merged-in file changed what the walk
+finds. It is NOT a re-run of the target mutant, and it does not re-derive the
+verdict. The claim it supports is exactly: the walk's input set still produces the
+same baseline, so the r3 trials' baseline premise holds on this tree. Round 4
+caught the earlier version of this paragraph quoting "976 passed" with no command
+at all, which left a reader unable to tell those two things apart.
 
 ## The load column REFUSED again — the same structural reason, now three for three
 

@@ -82,7 +82,10 @@ describe("fixtures are never discovered, and every one has a live owner", () => 
     // The across-process probe's control surface (design §5.3): a deliberately
     // UNENROLLED source plus the two suites that decide it, which is why it
     // lives in its own directory rather than as five loose files here.
-    "processProbe/source.ts": "tests/mutation/source/processProbe.ts",
+    // The live suite pins this path as a string literal (the AC-4 control-surface
+    // shape assertion). The core only NAMES it in a comment, which is the mention
+    // this check exists to reject — round 4 caught the row resting on exactly that.
+    "processProbe/source.ts": "tests/mutation/source/processProbe.live.test.ts",
     "processProbe/state.ts": "tests/mutation/source/processProbe.test.ts",
     "processProbe/surface.ts": "tests/mutation/source/processProbe.test.ts",
     "processProbe/suite1.fixture.ts": "tests/mutation/source/processProbe.live.test.ts",
@@ -132,10 +135,15 @@ describe("fixtures are never discovered, and every one has a live owner", () => 
       // behind would keep this green — the precise hole this guard exists to
       // close. Quote characters on both sides is the cheap, parser-free way to
       // require a citation rather than a mention.
+      // STRING-LITERAL QUOTES ONLY. The first version accepted BACKTICKS too, and a
+      // backticked span in an explanatory comment is precisely the mention this
+      // check claims to reject — the core's own comment names
+      // `processProbe/source.ts` and satisfied its owner row on that alone
+      // (round 4). Template literals are not how these fixtures are cited, so
+      // dropping the backtick costs nothing real and closes the hole the
+      // assertion advertised as closed.
       const quoted = (needle: string): boolean =>
-        new RegExp(`["'\`][^"'\`]*${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["'\`]`).test(
-          source,
-        );
+        new RegExp(`["'][^"']*${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']`).test(source);
       expect(quoted(fixture) || quoted(bare), `${owner} must invoke ${fixture}`).toBe(true);
     }
   });

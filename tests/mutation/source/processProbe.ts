@@ -1676,7 +1676,12 @@ export function aggregateCampaign(input: {
         arm,
         planned: input.plannedPerArm[arm] ?? 0,
         produced: mine.length,
-        completed: mine.filter((t) => t.observation.report.completed).length,
+        // DERIVED, like eligibility. This counted the child's own `completed`
+        // boolean and rendered it as a campaign number, so the pessimistic
+        // disagreement fixture — `completed:false` with no infra faults — rendered
+        // zero completed while the evidence derives one. The disputed boolean was
+        // removed from eligibility and left in the headline count.
+        completed: mine.filter((t) => derivedEligibility(t.observation.report).completed).length,
         eligible,
         excluded,
       };
