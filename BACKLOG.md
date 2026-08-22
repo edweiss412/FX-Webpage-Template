@@ -38,6 +38,16 @@ Both fit every fact here. The same-branch pair narrows the variable to something
 
 **DO NOT recapture the baseline from a branch.** The byte-pin discipline stands: baselines are regenerated from the pinned amd64 Docker image, never from a host, and never as a way to make a red gate green. A recapture here would overwrite the pinned bytes with whatever the nondeterminism produced and destroy the evidence that something varies.
 
+## BL-SPECLINT-AC-UNCLAIMED — a plan can declare an acceptance criterion that no task is scheduled to prove
+
+**Status:** OPEN · **Filed:** 2026-08-22 (`fix/screenshots-drift-instrument`) · **Facing:** process · **Severity:** LOW (an unwritten assertion; caught downstream by review rather than shipped) · **Class:** spec-lint arm · **Effort:** S · **Incident:** plan review round 1 of this arc raised "AC-2 has no executable owner" as a BLOCKING finding against a plan `pnpm spec:lint` had just passed at **0 hard**; the round is recorded in `docs/review-rounds/fix/screenshots-drift-instrument/50ca72a566b0.jsonl`. · **Reachability:** PROBED — the asymmetry is at `lib/specLint/taskContract.ts:376`, and the missing direction was written and run against this arc's own plan before filing.
+
+`spec:lint` checks marker to AC but not AC to marker. `TASK_AC_UNRESOLVED` fires when a task marker cites an `ac=` id that appears nowhere in the plan's text. Nothing fires when a plan DECLARES an acceptance criterion in its own list and no task marker claims it — which means no task is scheduled to write that assertion, and the plan still lints clean.
+
+**The check is the existing traversal read in the other direction**, and it was executed rather than proposed: collect the ids from every `ac=` field, collect the ids declared in the plan's acceptance-criteria list, report the set difference both ways. Run against this arc's pre-repair plan it reproduces the finding (AC-2 declared, unclaimed); run against the repaired plan it reports clean in both directions.
+
+**The reverse direction is a second real defect,** not a symmetry nicety. `TASK_AC_UNRESOLVED` fires on an id absent from the plan's TEXT, which a passing mention in prose satisfies — so a marker may cite `ac=AC-9` against a plan that merely mentions AC-9 in a sentence, without AC-9 ever being a declared criterion.
+
 ## BL-DERIVED-NUMBERS-IN-DOCS-ROT — a number a document states about an artifact goes stale unless a command produces it at write time
 
 **Status:** OPEN · **Filed:** 2026-08-21 (PR #874, diff review rounds 1-3) · **Facing:** process · **Severity:** LOW (stale prose in records and ledger entries; no shipped behavior) · **Class:** documentation fidelity · **Effort:** M · **Incident:** diff review round 3 of PR #874 raised THREE findings that were all one shape — the archive quoted the first campaign's arm-C durations after the second superseded them, the probe record's producing command named the superseded output directory while every number came from the new one, and the audit transcript said 7 live cases against a tier of 8. A fourth instance, a case count stale at 151 against 169, was corrected separately in the same arc. Corpus rows: `docs/review-rounds/feat/mutation-verdict-intraleg-probe/c9c71b947a85.jsonl`. · **Reachability:** PROBED — four measured instances on one arc.

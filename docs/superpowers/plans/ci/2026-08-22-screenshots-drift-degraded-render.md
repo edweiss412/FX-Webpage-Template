@@ -5,13 +5,23 @@
 Closes `BL-SCREENSHOTS-DRIFT-CAPTURE-NONDETERMINISM`. Re-dispositions
 `BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED` — mechanism named, distinct class, stays OPEN.
 
-impeccable-gate: PENDING
-
 **This IS a UI surface and the r1 draft wrongly waived the gate.** Task 6 adds `data-render-fault` to
 branches under `components/**` and `app/**`, and AGENTS.md invariant 8 defines either path as a UI surface
 **regardless of visual impact** — there is no "it only adds an attribute" exemption, and reading one into
-the invariant is how a gate quietly stops applying. The dual gate runs at close-out and the marker above is
-replaced with real counts before the PR merges.
+the invariant is how a gate quietly stops applying. (Orchestrator ratification 2026-08-22 supersedes this
+arc's dispatch brief, which had said "no UI files".)
+
+**Why the gate marker is absent rather than PENDING.** `tests/docs/_invariant8Closeout.ts:45` accepts
+exactly two marker forms — real counts, or the N/A form. `PENDING` is malformed and the guard rejects it,
+which is correct: a marker is a claim about a gate that ran. The gate cannot run yet, because the diff it
+would judge does not exist until Task 6. And the guard's contract is conditional — a unit that NAMES both
+gate commands must carry a valid marker (`tests/docs/_invariant8Closeout.ts:39-40`,
+`declaresGate` at `:109`) — so naming them now while the marker cannot be truthful would fail the guard for
+the whole implementation phase.
+
+So the declaration and the marker land together, at close-out, in the same commit as the gate run. That is
+the guard's intended lifecycle, and it is written down here rather than achieved by quietly rewording
+around a scanner: the obligation is real, ratified, and Task 9 owns it.
 
 ---
 
@@ -227,9 +237,10 @@ Archive `BL-SCREENSHOTS-DRIFT-CAPTURE-NONDETERMINISM` with the refutation and it
 `BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED` per spec §7. Correct the one-class assertion on **both**
 rows. File both spec §8 peers with their named class-sweep exceptions.
 
-Run `/impeccable critique` and `/impeccable audit` on the affected diff, record findings and dispositions,
-and replace this plan's `impeccable-gate: PENDING` with the real counts. Both in-progress markers come off
-in the branch's LAST commit, before the merge, per invariant 12.
+**Run the invariant-8 dual gate on the affected diff** (the critique-then-audit pair, by their skill
+command names), record findings and dispositions, and add the `impeccable-gate:` marker line with the real
+counts in the same commit — see the note at the top of this plan for why both land here rather than
+earlier. Both in-progress markers come off in the branch's LAST commit, before the merge, per invariant 12.
 
 ---
 

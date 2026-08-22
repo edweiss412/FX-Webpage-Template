@@ -486,18 +486,30 @@ what surfaced both mechanisms; closing them together would have shipped a false 
   when the capture wrote nothing — the empty-capture trap. And a directory count exits 0 too, because the
   fourteen committed baselines are already on disk before capture begins and are overwritten in place: a
   run that completes one entry and silently skips thirteen still leaves fourteen files and an empty diff.
-  So the oracle is not a count of files but a **set of completion events emitted by the capture loop
-  itself**, one per `(entry.key, theme)`; the test asserts that set equals the fourteen expected
-  identities, then asserts the diff is empty. Identity equality, never cardinality.
+  So the oracle is a **set of identities derived from a directory that began the run empty**, one per
+  `(entry.key, theme)`; the test asserts that set equals the fourteen expected identities, then asserts the
+  diff is empty. Identity equality over provably-new artifacts, never cardinality and never a property the
+  previous run's output already satisfies.
 
-  **And each event is derived from a VERIFIED artifact, not from reaching the end of a function.** An event
-  emitted merely because `captureEntryTheme` returned certifies nothing: deleting or no-oping the single
-  `writeFile` at `scripts/help-screenshots.ts:111` is one ordinary edit, the function still returns
-  normally, all fourteen events still fire, the fourteen committed baselines are untouched, and the diff
-  stays green — a run that produced no files at all reported as a clean pass. So the event carries the byte
-  length and `webpSha256` **read back from the file after writing**, and the test asserts every event has a
-  non-zero length and a hash matching the buffer that was encoded. An event that cannot prove its artifact
-  exists is not a completion.
+  **And production must be structurally provable, because three assertion-level attempts each failed.** The
+  history is worth keeping, since each fix looked sufficient: a directory count passes because the fourteen
+  baselines are already on disk; completion events emitted when `captureEntryTheme` returns pass because
+  deleting the single `writeFile` at `scripts/help-screenshots.ts:111` leaves the function returning
+  normally; and reading the file back after writing ALSO passes, because a healthy capture reproduces the
+  committed baseline byte-for-byte — which is AC-2's own premise — so the pre-existing file satisfies both
+  the non-zero length and the matching hash. **Read-back proves matching bytes exist, not that this run
+  produced them.**
+
+  No assertion over `public/help/screenshots/` can distinguish the two, because the capture overwrites in
+  place and the correct output is byte-identical to what is already there. So the repair is structural
+  rather than another assertion: **the capture writes each image into a fresh output directory created
+  empty at the start of the run**, and the completion set is derived from files present in that directory.
+  A no-op writer yields an empty directory and therefore zero completions, which fails loudly instead of
+  silently. The images are copied into `public/help/screenshots/` afterwards, so the existing byte gate at
+  `.github/workflows/screenshots-drift.yml:136` is unchanged and keeps doing exactly what it does today.
+
+  Emptiness at start is the load-bearing property: it is what makes "this file exists" mean "this run wrote
+  it". The directory is created fresh per run and is gitignored alongside the evidence record.
 - **AC-3** The meta-test fails when a manifest-reachable shape-1 branch lacks `data-render-fault`, proven
   by a mutant removing the attribute.
 - **AC-4** The population is derived from the manifest **including template-literal routes**, proven by two

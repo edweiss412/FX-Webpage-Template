@@ -128,6 +128,14 @@ const KNOWN_DANGLING: Record<string, string> = {
   // not exempted — the stale-row ratchet below is what proves that.
   "BL-RESOLVED":
     "cited in docs/audits/pr-38-217-bug-audit-2026-07-02.md — no entry as of 2026-08-02",
+  // Sibling-class cross-reference from the screenshots-drift spec. The entry is
+  // DEFINED on PR #875 (ci/app-e2e-batch2), in flight as of 2026-08-22, and this
+  // arc was instructed not to edit that branch's row. The citation is deliberate:
+  // both rows describe transient admin-loader failures in CI, and dropping the
+  // cross-reference to satisfy the guard would lose the only link between them.
+  // Repaid by the merge that lands #875 — the stale-row ratchet forces removal.
+  "BL-ADMIN-LOADER-CI-TRANSIENT":
+    "cited in docs/superpowers/specs/ci/2026-08-22-screenshots-drift-degraded-render-design.md as sibling class — defined on PR #875, in flight",
   // L-wave forward references (spec 2026-08-06-l-wave-design.md + its plan): ids the
   // wave's W-LDOCS branch FILES as part of its ratified decompositions/filings. Each
   // row is debt that the filing commit repays — the stale-row ratchet forces removal
