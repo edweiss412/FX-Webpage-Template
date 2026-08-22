@@ -101,10 +101,6 @@ export const REQUIRED = {
   // 3 cases x 1 project (desktop-chromium). Measured 2026-08-22, post-fix run of all 23 specs, both
   // projects, --retries=0: 181 executed identities, zero skipped.
   "telemetry-layout.spec.ts": 3,
-  // 3 polish cases + the overflow-reveal case x 1 project
-  // (desktop-chromium); the reveal case ran for the first time on the post-fix run. Measured 2026-08-22, post-fix run of all 23 specs, both
-  // projects, --retries=0: 181 executed identities, zero skipped.
-  "warning-panel-polish.spec.ts": 4,
 };
 
 // Importable table, runnable script — no side effects on import, so a guard can pin these

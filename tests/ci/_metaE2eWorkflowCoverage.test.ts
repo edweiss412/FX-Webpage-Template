@@ -141,6 +141,17 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/attention-modal-gallery.spec.ts":
     "runs in dev-gate-e2e.yml via a project-only --project invocation (invisible to the scanner), which since 2026-08-09 carries a PATH-FILTERED pull_request trigger over the tested surfaces PLUS the daily schedule backstop for out-of-filter drift (24h bound). Not PR-blocking-capable: the job is absent on non-matching PRs, so it cannot join the required set. Gate-placement decision ratified at BL-DEV-GATE-GALLERY-SPEC-ROT close-out (BACKLOG-archive.md): the spec's value is the built ADMIN_DEV_PANEL_ENABLED=true artifact, so the dedicated project stays.",
   "tests/e2e/bell-panel-layout.spec.ts": PATH_GATED,
+  // LEFT BATCH 2 UNDER AC-4, 2026-08-22. Wired and green on five CI runs
+  // (32558218336, 32559183296, 32559865786, 32560300422, 32563331361), then red on
+  // 32563705156: the announcer stayed empty after Ignore, WITH the R7 hydration
+  // gate present. Mechanism UNDETERMINED and recorded as such — `--retries=0`
+  // leaves no trace, the artifact carries no snapshot, and the same case under the
+  // CI posture locally (CI=1, `pnpm build && pnpm start`, --trace on) passed 4 of
+  // 4. So neither the pre-hydration click loss (spec section 9's falsifier) nor
+  // the transient admin-session infra class is proven, and an unattributed red is
+  // exactly what the five-green bar refuses to wire. The falsifier stays OPEN with
+  // this run id as its only observation.
+  "tests/e2e/warning-panel-polish.spec.ts": UNSEEN,
   "tests/e2e/crew-layout-dimensions.spec.ts": PATH_GATED,
   "tests/e2e/alert-action-links.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/crew-section-toggle.spec.ts": PATH_GATED_BY_EXCLUSION,
