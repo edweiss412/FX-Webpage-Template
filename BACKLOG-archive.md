@@ -1,3 +1,58 @@
+## BL-DERIVED-NUMBERS-IN-DOCS-ROT — a number a document states about an artifact goes stale unless a command produces it at write time — CLOSED 2026-08-22 (`docs/derived-numbers-provenance`, CONVENTION)
+
+**Status:** RESOLVED 2026-08-22 — CONVENTION, NO TEST · **Effort (as shipped):** S (filed M; the count retired the test that made it M) · **Facing:** process · **Class:** documentation fidelity · **Shipped by:** `docs/derived-numbers-provenance` · **Spec:** `docs/superpowers/specs/ci/2026-08-22-derived-number-provenance-convention.md` · **Probe record:** `docs/superpowers/specs/ci/probes/2026-08-22-derived-number-population-census.md`
+
+**Resolution.** The row's own first scheduled step decided it, and overturned both halves of the
+reasoning that scheduled it. A `## Stating a figure` section now sits in the probe directory's README
+saying that a figure about an artifact is bound — to a revision, a dated run, or a producing command
+or committed script — and that a header line binds a whole record in one sentence. No lint, no
+meta-test, no CI wiring.
+
+**The count, at base `b52481446`, by `node docs/superpowers/specs/ci/probes/scripts/2026-08-22-derived-number-census.mjs`:**
+
+**Half one — the hand-carried set's SIZE is not measurable.** Three defensible readings of "derived"
+give 31.7%, 59.7% and 35.1% over the same 16 records. Reading B beats reading A only because 653 of
+its 725 derived figures are single-digit token collisions; restricting to figures >= 100 collapses
+the corpus's best-scoring record from 166 derived to zero. And the decisive one: the record scoring
+0 of 7 under every reading, `2026-08-21-abort-reachability-correction.md`, is on inspection one of
+the best-provenanced in the corpus — it binds by blob hash and indented transcript instead of by
+fenced block, and every classifier built here is blind to the difference. A classifier that inverts
+the ranking on its clearest case is measuring a formatting habit, not provenance. This is rule 358's
+boundary-dependent-counts form arriving in documents instead of code, and the repair is the same:
+stop reporting the count, shift to the predicate that survives every reading.
+
+**Half two — it does not matter, because the population has nothing to catch.** All 16 records bind
+their figures to a run context, four of them by means the census's own regex cannot see (a branch
+pin with its `git show`, a dated run with a declared no-re-run scope, a named driver script). The
+gate the row sketched would fire 23 times with a yield of ZERO: its reds are ordinals, inline
+arithmetic, control-outcome table cells, and figures already bound by their record's header. A
+record-level presence check fares no better — one red, and it is the false one above.
+
+**The row's own near-miss, recorded because it is the defect the row is about.** A first pass called
+`2026-08-20-claim-sweep-after-repair-probes.md:56` live rot: it states 1127 tracked
+`docs/superpowers` markdown files and the tree says 1173. The record's header says "each number here
+is dated to its commit" and names the base. Checking a figure against the tree without checking it
+against its own record's binding is half a check, and it produced a confident wrong answer first.
+
+**Where the rot actually is, and it is not here.** Three of this row's four measured instances
+happened in ledger-class documents, not probe records. The same instrument over `BACKLOG.md`,
+`BACKLOG-archive.md` and `DEFERRED.md`: 35 of 1038 collision-resistant figures derived, 3.4%, against
+the probe records' 72 of 205, 35.1% — five times the population at a tenth the rate. The row was
+scoped at the one population that already does this. Filed as `BL-LEDGER-FIGURE-PROVENANCE` on the
+orchestrator's ruling of 2026-08-22, fenced against `BL-CLOSEOUT-COUNT-PROSE-DRIFT`, which owns
+closeout certifications rather than ledger figures.
+
+**Re-open trigger, one, conjunctive with nothing.** A probe record ships stating a figure with no run
+context. The convention is written down now, so that is a convention violation with a named home
+rather than a detection problem. The row's other candidate trigger — the ledger population getting
+an owner — is DISCHARGED, not recorded: it got one in the same PR.
+
+**Declined and fenced so it is not rebuilt.** The per-figure detector, for the measurement above.
+Widening a recognizer to rescue its precision is this fleet's measured losing move, and the census
+script must not be promoted into a gate without re-deriving half one — its three readings exist to
+show they disagree, and an arc that picks one and gates on it ships the instability rather than
+removing it.
+
 ## BL-PANE-COMPACTION-SEND-AUTHORIZATION — the pane-compaction send path needs its own arc — CLOSED 2026-08-21
 
 **Status:** SHIPPED 2026-08-21 · **Effort (as shipped):** L · **Severity (as filed):** the six probe chains below each exited 0 and SENT bytes before their repair · **Class:** authorization model · **Facing:** product · **Shipped by:** `feat/pane-compaction-send-auth`
