@@ -51,7 +51,8 @@ Two mechanical constraints follow from the enrolment, and both are easy to trip:
 | AC-10 | `pnpm review:economy` prints a totals line for a multi-base directory, omits it for a single-base one, and marks a stage at threshold with no section anywhere. | `pnpm vitest run tests/reviewRounds/report.test.ts` |
 | AC-13 | The report never reimplements a gate predicate: its marked set equals the gate's `missing_arc_filing` set over the same fixture corpus, so a grandfathered pair is not marked. | `pnpm vitest run tests/reviewRounds/report.test.ts` |
 | AC-14 | `triggerRateByMonth` populates per `(branch directory, stage)` and tests the arc sum, and the rate line says the unit changed. | `pnpm vitest run tests/reviewRounds/report.test.ts` |
-| AC-15 | Coordinate controls, one per coordinate of every compound key: a grandfathered branch carrying a DIFFERENT counted stage at 2+2 still reports; a directory holding 2 counted `diff` and 2 counted `spec` rounds stays clean; a counted `spec` row never raises `diff`'s count. | `pnpm vitest run tests/docs/_metaReviewRoundEconomy.test.ts tests/reviewRounds/count.test.ts` |
+| AC-15 | **All nine cells** of the spec's coordinate-control matrix are implemented, one per `(key, coordinate)` across K1-K4. The matrix is copied verbatim into Task 3's body; a cell without a test is an unmet AC. | `pnpm vitest run tests/docs/_metaReviewRoundEconomy.test.ts tests/reviewRounds/count.test.ts tests/reviewRounds/report.test.ts` |
+| AC-16 | Every value this change makes the report compute is asserted BY VALUE, not by presence: the totals line's per-stage sums, the rate line's fraction and denominator, and the sum quoted in the `missing_arc_filing` message. | `pnpm vitest run tests/reviewRounds/report.test.ts tests/docs/_metaReviewRoundEconomy.test.ts` |
 | AC-11 | Both enrolled surfaces score at their `scoreFloor` of 1 with an empty unaccepted-survivor set, and `expectedLedgerKinds` matches the re-derived accepted sets. | `VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy pnpm exec vitest run --project mutation tests/mutation/guardSurfaces.gates.test.ts` |
 | AC-12 | This arc's own corpus rows satisfy the rule it ships (eat-your-own-cooking; §1.1 of the spec is written against it). | `pnpm vitest run tests/docs/_metaReviewRoundEconomy.test.ts` |
 
@@ -107,9 +108,16 @@ The concrete failure mode: without the base in the key, an arc that renumbers af
 <!-- spec-lint: ignore — new file created by this task; not yet tracked -->
 **GREEN.** New `lib/reviewRounds/arcSumGrandfather.ts` exporting `ARC_SUM_FREEZE = "2026-08-22T00:00:00.000Z"`, the 11 `{ branch, stage }` pairs from the spec's probe 1, and `isArcSumGrandfathered`. Header comment carries the §3.3 contract: closed historical set, frozen at this arc's landing, never added to (the freeze makes that structural, not aspirational), removed only when a pair stops owing. Then clause B in `checkCorpus`, grouping the already-read arcs by `arc.branch`, reported with the directory, the sum, and the per-base breakdown in the message.
 
-### Task 3 — suppression, satisfaction, and the §3.1 equivalence
+### Task 3 — suppression, satisfaction, and the coordinate-control matrix
 
 <!-- task: red=`pnpm vitest run tests/docs/_metaReviewRoundEconomy.test.ts` red-state=authored red-target=`lib/reviewRounds/corpus.ts:236` why=`clause A returns before clause B is consulted for that stage only if Task 2 wired the suppression, and at this point it has not, so the base-at-threshold fixture reports both missing_filing and missing_arc_filing where the case asserts exactly one` ac=AC-3,AC-4,AC-5,AC-15 -->
+
+**Copy the spec's coordinate-control matrix into this task body verbatim and implement every row.** Nine cells across four compound keys. Spec rounds 2 and 3 both landed on this one axis, and the second time was because R2's repair was a prose rule instantiated by hand — so the matrix, not the rule, is what this task follows. A cell with no test is an unmet AC-15, visible as an empty row rather than as something a reviewer must re-derive.
+
+The two cells that hand-instantiation missed, since they are the ones most likely to be skipped again:
+
+- **K2 `directory`** — an owing directory PLUS a later below-threshold directory; the owing one must still report. Excludes a clause-B accumulator keyed on stage alone, where each directory overwrites the last. Both stated two-directory fixtures elsewhere in this plan give their directories the same obligation state, so none of them discriminates this.
+- **K4 `stage`** — one directory with two counted stages must give a population of 2, not 1. Excludes a trigger-rate population keyed on directory alone, which over the live corpus reports 125 where the unit gives 282.
 
 **RED.** Three fixtures: the Task 2 directory with a `.md` at base A carrying a diff section → clean; the same with the section at base B instead → clean; a directory with `ROUND_THRESHOLD` rounds at base A and two at base B, no filing → exactly `["missing_filing"]`. Then the equivalence fixture from spec §5: `ROUND_THRESHOLD` rounds at A **with** a section at A, plus two at B and two at C → clean.
 
@@ -142,7 +150,7 @@ Monotonicity is asserted by kind: the pre-change gate's problems over a fixture 
 
 ### Task 6 — the report learns the sum
 
-<!-- task: red=`pnpm vitest run tests/reviewRounds/report.test.ts` red-state=authored red-target=`scripts/review-economy.ts:196` why=`the trigger bucket counts new Set(rows.map(r => r.round)).size within one base, so a two-base spanning arc increments nothing and the totals-line case reads a report with no such line` ac=AC-10,AC-13,AC-14 -->
+<!-- task: red=`pnpm vitest run tests/reviewRounds/report.test.ts` red-state=authored red-target=`scripts/review-economy.ts:196` why=`the trigger bucket counts new Set(rows.map(r => r.round)).size within one base, so a two-base spanning arc increments nothing and the totals-line case reads a report with no such line` ac=AC-10,AC-13,AC-14,AC-15,AC-16 -->
 
 Both spec review R1 findings landed here, and they are one class: the report had its own copy of the obligation test. The structural repair ships in this same task rather than waiting for a recurrence — the report imports clause B's predicate instead of restating it.
 

@@ -234,10 +234,31 @@ The filing-duty section gains: the threshold is reached either by one base's rou
 - 3 + 0 across two bases → passes (below threshold).
 - 2 + 2 of `stage: "task"`, and 2 + 2 of `status: "no_verdict"` → pass.
 - A grandfathered `(branch, stage)` at 2 + 2 → passes; the identical shape on a non-grandfathered branch → fires. One fixture, two directories, so the exemption cannot pass by accident.
-- **Coordinate controls, one per coordinate of every compound key in this design (R2).** The class was found on the exemption key and swept across the other two rather than patched where it was reported:
-  - *exemption key `(branch, stage)`* — the branch control is the case above; the STAGE control is a grandfathered branch carrying a DIFFERENT counted stage at 2 + 2 with no filing, which must report `missing_arc_filing`. Without it a `branch`-keyed predicate passes the whole battery.
-  - *clause B's obligation key `(directory, stage)`* — a directory holding 2 counted `diff` rounds and 2 counted `spec` rounds and nothing else must stay clean. A stage-blind clause B sums them to `ROUND_THRESHOLD` and reports, and no other fixture in this battery separates the two.
-  - *`arcCountedRounds`'s stage keying* — a counted `spec` row at a third base must not raise `diff`'s count (asserted in `tests/reviewRounds/count.test.ts`, below).
+#### The coordinate-control matrix
+
+Rounds 2 and 3 both landed here, and the second time was my fault rather than the reviewer's: R2's repair stated the rule as prose ("one control per coordinate") and then instantiated it by hand, which missed two cells. **A rule a human applies by hand is not a mechanism.** So the battery is DERIVED from the key list instead, as a table with one row per `(key, coordinate)`. A missing control is then a visibly empty cell in this document rather than something a reviewer has to re-derive, and adding a key or a coordinate later adds rows rather than requiring anyone to remember the rule.
+
+Every compound key in this design, exhaustively:
+
+| key | coordinate | control - vary this one, hold the others fixed | must |
+| --- | --- | --- | --- |
+| K1 `arcCountedRounds`: stage to a set of `(baseSha, round)` | `baseSha` | one round number, two bases | count 2 |
+| K1 | `round` | one base, two round numbers | count 2 |
+| K1 | `stage` | a counted `spec` row at a third base | not raise `diff`'s count |
+| K2 clause B obligation: `(directory, stage)` | `directory` | an owing directory, plus a LATER below-threshold directory | the owing one still reports |
+| K2 | `stage` | one directory, 2 counted `diff` plus 2 counted `spec` | stay clean |
+| K3 grandfather exemption: `(branch, stage)` | `branch` | the grandfathered shape on a non-grandfathered branch | report |
+| K3 | `stage` | a grandfathered branch carrying a DIFFERENT counted stage | report |
+| K4 trigger-rate population: `(directory, stage)` | `directory` | one stage spanning two bases of one directory | population 1, triggered |
+| K4 | `stage` | one directory with two counted stages | population 2, not 1 |
+
+Nine controls. K2's `directory` row and K4's `stage` row are R3 findings 1 and 2, and both are cells the hand-instantiated version left empty. The two wrong implementations they exclude are worth naming, because neither is exotic: a clause-B accumulator keyed on stage alone, where each directory's state overwrites the last, and a trigger-rate population keyed on directory alone, which reports a denominator of 125 where the unit gives 282.
+
+#### Values are asserted, never presences
+
+R3 finding 3, and a different class from the matrix: the report battery asserted that the totals line APPEARS and is MARKED, never what number it displays. The gate and `arcCountedRounds` can both be correct while the report computes its own total by deduplicating bare `round` values, and every specified assertion still passes over a line stating the wrong number. Measured over the live corpus, **44 of 282 arc-stage totals** differ between distinct `round` and distinct `(baseSha, round)`, the largest being `chore/guard-completeness-wave diff` at 7 against 4. (The reviewer reported 264, with sample rows showing `roundOnly=1`; re-derived by command it is 44 and those values are 2, 4, 2, 5, 2, 3. The gap is real, the magnitude was not, and it is recorded here so a later round does not inherit the wrong figure.)
+
+Every value this change makes the report compute is therefore asserted BY VALUE: the totals line's per-stage sums, the rate line's fraction and its denominator, and the sum quoted in the `missing_arc_filing` message. A presence-only assertion is what lets a wrong number through.
 - **Addition guard:** a grandfathered pair with one row `startedAt` after `ARC_SUM_FREEZE` fails; the same with `startedAt: null` fails.
 - **Set hygiene over the real corpus:** all 11 pairs still owe; all their rows predate the freeze; the set is exactly 11.
 - **Monotonicity:** every fixture that fires a per-base problem today fires the same problem after the change, asserted by kind.
