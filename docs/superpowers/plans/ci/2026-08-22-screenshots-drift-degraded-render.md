@@ -78,6 +78,39 @@ throws. It separately asserts the evidence record IS still written on a refusal 
 image bytes" and "writes no bytes at all" are different contracts and the second one would delete the
 instrument exactly when it is most needed.
 
+### How AC-1 injects a REAL fault, probed two ways
+
+"Injected loader failure, not a mocked component" needs a concrete mechanism, and the obvious ones are
+traps. Two probes settled it.
+
+**Probe 1 — what a real failure actually looks like.** Against the local database, inside a transaction so
+nothing persists and no concurrent arc is disturbed:
+
+```
+BEGIN;
+SET LOCAL ROLE service_role;  SELECT count(*) FROM public.show_change_log;   -- 1 row
+RESET ROLE;  REVOKE SELECT ON public.show_change_log FROM service_role;
+SET LOCAL ROLE service_role;  SELECT count(*) FROM public.show_change_log;
+-- ERROR: permission denied for table show_change_log
+ROLLBACK;
+```
+
+Grant verified intact afterwards. This fixes the error SHAPE the stub must reproduce, so the stub is
+faithful rather than invented.
+
+**Probe 2 — the loader is already injectable.** `loadRecentAutoApplied(deps)` takes
+`deps.supabase?: SupabaseClient` and only falls back to `createSupabaseServiceRoleClient()` when it is
+absent (`lib/admin/loadRecentAutoApplied.ts:136`). So a failing client stub drives the **real** loader
+through its **real** error path at `lib/admin/loadRecentAutoApplied.ts:170`, returning a real
+`infra_error`, which the **real** component renders through its **real** branch at
+`components/admin/RecentAutoAppliedStrip.tsx:726`.
+
+**Why not commit the revoke and run the live capture.** A committed `REVOKE` would inject into the
+capture's separate server process, but the local database is shared across concurrently running arcs, so
+it would flake whatever else is mid-run. The transactional form proves the shape and cannot leak; the
+dependency injection proves the path. Neither requires disturbing the shared database, and between them
+nothing about the assertion is mocked except the transport that genuinely failed in production.
+
 ## Task 3a — mark shape-1 branches, and enumerate the residue
 
 <!-- task: red=`pnpm vitest run tests/help/_metaRenderFaultMarking.test.ts` red-state=authored red-target=`components/admin/RecentAutoAppliedStrip.tsx:726` why=`the degradation branch carries no structural marker` ac=AC-3,AC-4 -->
