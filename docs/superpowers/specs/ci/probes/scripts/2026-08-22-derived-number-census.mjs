@@ -1,15 +1,18 @@
 #!/usr/bin/env node
 // Census of stated figures in probe records, for BL-DERIVED-NUMBERS-IN-DOCS-ROT.
 //
-// The ledger row's first scheduled step is "grep the probe records for stated
-// figures and classify each as derived or hand-carried". This script is that
-// step. Its headline result is that the classification IS NOT STABLE: three
-// defensible readings of "derived" give three different answers over the same
-// corpus, so the size of the hand-carried set is not a measurement.
+// WHAT THIS INSTRUMENT CAN AND CANNOT DO. It can size a population, print every
+// line a proposed gate would fire on, and detect a record that names NO immutable
+// anchor anywhere. It CANNOT decide whether a given figure is derived, and it
+// CANNOT establish that an anchor present somewhere in a record binds any
+// particular figure in it — one unrelated object id makes a whole document pass
+// the screen. Both of those are per-figure judgments, and the record beside this
+// script argues they are not mechanizable here.
 //
-// It therefore reports every reading rather than picking one, and separately
-// reports the discriminator that IS stable — whether a figure is bound to the
-// tree it was measured on.
+// So every number below is a screen or a population, never a verdict. The three
+// "derived" readings exist to show that a token-matching classifier disagrees
+// with itself; they are three variants of ONE heuristic, and reading C changes
+// the denominator, so they are not three answers to one question.
 //
 // Usage: node docs/superpowers/specs/ci/probes/scripts/2026-08-22-derived-number-census.mjs [root]
 
@@ -50,6 +53,12 @@ const TREE_BINDING = /\b(?:at|on|base|blob|sha|commit|revision|branch point)\b[^
 // and it can be deleted, at which point the record names nothing at all. Spec
 // review round 1 found exactly that case, so the distinction is mechanized here
 // rather than left to a reader.
+// Recognizes remote-qualified refs only. A bare local branch name is not matched,
+// so this UNDER-counts mutable refs — which matters only for a record naming no
+// immutable anchor, since the mutable-only verdict is the conjunction of the two.
+// Probed at b52481446: the one record with no immutable anchor and no detected
+// mutable ref (2026-08-04-finding-format-probe.md) names no ref-shaped token at
+// all, so the narrowness costs nothing on this corpus.
 const MUTABLE_REF = /`?\b(?:origin|upstream)\/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*\b`?/g;
 // A hex object id needs BOTH a digit and a hex letter. Requiring only a digit
 // matches millisecond timestamps and CI run ids — 43 of one record's 87 reported
@@ -126,12 +135,18 @@ for (const file of files) {
   const proseText = prose.map((l) => l.text).join('\n');
   rawTokens += (proseText.match(NUM) ?? []).length;
 
+  // Removal is measured as the DROP IN THE POPULATION after each exclusion is
+  // applied, cumulatively, so the column sums to raw-minus-surviving. Counting
+  // numeric matches inside each excised span does not: replacing a span with a
+  // space also re-tokenizes its neighbours, and round 2 caught that column
+  // failing to reconcile by 45 tokens.
   let stripped = proseText;
+  let running = (stripped.match(NUM) ?? []).length;
   for (const [name, re] of EXCLUSIONS) {
-    stripped = stripped.replace(re, (m) => {
-      excised.set(name, excised.get(name) + (m.match(NUM) ?? []).length);
-      return ' ';
-    });
+    stripped = stripped.replace(re, ' ');
+    const after = (stripped.match(NUM) ?? []).length;
+    excised.set(name, excised.get(name) + (running - after));
+    running = after;
   }
 
   const tokensOf = (blocks) =>
@@ -163,7 +178,7 @@ const pct = (n, d) => (d ? `${((100 * n) / d).toFixed(1)}%` : '-');
 console.log(`# derived-number census — ${ROOT}`);
 console.log(`# records walked: ${files.length}`);
 console.log('');
-console.log('## Three readings of "derived", same corpus');
+console.log('## Three readings of "derived" — three variants of ONE heuristic');
 console.log('');
 console.log('- **A** — the figure appears in a fenced block that PRINTS its command as a transcript line.');
 console.log('- **B** — A, plus blocks whose producing command is named in the prose above them.');
@@ -185,7 +200,8 @@ console.log(`derived rate, reading B: ${sum('derivedB')}/${sum('figures')} = ${p
 console.log(`derived rate, reading C: ${sum('bigDerivedB')}/${sum('bigFigures')} = ${pct(sum('bigDerivedB'), sum('bigFigures'))}`);
 console.log('');
 console.log(
-  `single-digit share of reading B's derived set: ${sum('derivedB') - sum('bigDerivedB') - 0} of ${sum('derivedB')} are below 100`,
+  `reading B's derived set below 100: ${sum('derivedB') - sum('bigDerivedB')} of ${sum('derivedB')}` +
+    ` (the range where token collision is expected — this counts magnitude, it does not prove collision)`,
 );
 
 console.log('');
@@ -199,10 +215,11 @@ for (const [name] of EXCLUSIONS) console.log(`| ${name} | ${excised.get(name)} |
 console.log(`| **surviving population** | **${sum('figures')}** |`);
 
 console.log('');
-console.log('## Tree binding — the stable discriminator');
+console.log('## Anchor screen — NOT a binding verdict');
 console.log('');
-console.log('A figure that names the revision it was measured on is permanently true of that');
-console.log('revision and cannot rot. Records carrying at least one such binding:');
+console.log('This detects a record that names no immutable anchor ANYWHERE. It cannot show that');
+console.log('an anchor it does find binds any particular figure: one unrelated object id makes a');
+console.log('whole document pass. Read a record before calling it bound.');
 console.log('');
 console.log('| record | tree-binding phrases | immutable anchors | mutable refs |');
 console.log('| --- | ---: | ---: | ---: |');
@@ -213,11 +230,12 @@ console.log(
   `records with at least one tree-binding phrase: ${rows.filter((r) => r.treeBound > 0).length} of ${rows.length}`,
 );
 console.log(
-  `records naming at least one IMMUTABLE anchor: ${rows.filter((r) => r.immutableAnchors > 0).length} of ${rows.length}`,
+  `records naming at least one immutable anchor SOMEWHERE: ${rows.filter((r) => r.immutableAnchors > 0).length} of ${rows.length}` +
+    ' (passes the screen; says nothing about which figure it binds)',
 );
 const mutableOnly = rows.filter((r) => r.mutableRefs > 0 && r.immutableAnchors === 0);
 console.log(
-  `records whose ONLY named anchor is a MUTABLE ref: ${mutableOnly.length}` +
+  `records naming a mutable ref and NO immutable anchor — the screen's only positive finding: ${mutableOnly.length}` +
     (mutableOnly.length ? ` — ${mutableOnly.map((r) => r.file).join(', ')}` : ''),
 );
 

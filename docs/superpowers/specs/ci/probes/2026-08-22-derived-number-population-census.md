@@ -12,10 +12,12 @@ It did not, and the correction belongs at the top rather than in a limits list, 
 than its evidence is the defect this whole record is about.
 
 **Reproduce the corpus measurement.** A bare re-run at HEAD does not match: this arc's own commits add
-a record and a script to the population, so HEAD walks 17 records and prints different rates. The
-measured corpus has to be materialised:
+a record and a script to the population, so HEAD walks more records and prints different rates. The
+measured corpus has to be materialised, into a directory the commands themselves clear — round 2
+caught the first draft depending on `/tmp` being clean:
 
 ```
+$ rm -rf /tmp/probes-at-base && mkdir -p /tmp/probes-at-base
 $ git archive b52481446 docs/superpowers/specs/ci/probes | tar -x -C /tmp/probes-at-base
 $ node docs/superpowers/specs/ci/probes/scripts/2026-08-22-derived-number-census.mjs \
     /tmp/probes-at-base/docs/superpowers/specs/ci/probes
@@ -25,7 +27,7 @@ $ node docs/superpowers/specs/ci/probes/scripts/2026-08-22-derived-number-census
 are materialised into one:
 
 ```
-$ mkdir -p /tmp/ledger-at-base
+$ rm -rf /tmp/ledger-at-base && mkdir -p /tmp/ledger-at-base
 $ for f in BACKLOG.md BACKLOG-archive.md DEFERRED.md; do \
     git show "b52481446:$f" > "/tmp/ledger-at-base/$f"; done
 $ node docs/superpowers/specs/ci/probes/scripts/2026-08-22-derived-number-census.mjs /tmp/ledger-at-base
@@ -36,30 +38,35 @@ $ node docs/superpowers/specs/ci/probes/scripts/2026-08-22-derived-number-census
 | claim | producer |
 | --- | --- |
 | every rate, count and per-record row in §1 | the census script, first command above |
-| the binding census in §3, including which record's only anchor is mutable | the census script |
+| the anchor screen in §3 | the census script |
 | the 23 gate reds and their line numbers in §4 | the census script |
-| `docs/superpowers` file counts (1,127 / 1,173) | `git ls-files`, printed inline in §3 |
+| `docs/superpowers` file counts (1,127 / 1,173) | `git ls-tree` at two named commits, printed inline in §3. **Not `git ls-files`** — that reads the working tree and returns 1,176 here, which is a different question |
 | whether `origin/fix/scanner-scope-totality` still exists | `git ls-remote`, printed inline in §3 |
 | which of the 23 reds is a genuine figure about a live artifact | **hand classification**, §4 — the script produces the population, a person produces the verdict, and all 23 are printed so the verdict can be checked by reading |
-| the four-incident location table in §3 | read off the ledger row's own `**Incident:**` field |
+| that three of the parent row's four incidents were in ledger-class documents | read off that row's `**Incident:**` field, quoted in §3 |
 
 ## 1. The population and the readings over it
 
 Population: every numeric token in prose (outside fenced blocks) of every `*.md` under the probe
 directory, files walked from disk. Structural exclusions remove dates, clock times, URLs, shas,
 `file:line` citations, section refs, issue refs, list ordinals, heading ordinals and version tags;
-each exclusion's removal count is printed so the tokenizer's contribution is visible. 1,709 raw tokens
-reduce to **1,214 figures**.
+each exclusion's removal count is printed so the tokenizer's contribution is visible, measured as the
+DROP IN THE POPULATION after that exclusion is applied rather than as matches inside the excised span
+(round 2 caught the first draft's column failing to reconcile). 1,709 raw tokens less 495 removed
+leave **1,214 figures**.
 
 ```
 derived rate, reading A: 385/1214 = 31.7%
 derived rate, reading B: 725/1214 = 59.7%
 derived rate, reading C:   72/205 = 35.1%
 
-single-digit share of reading B's derived set: 653 of 725 are below 100
-records with at least one tree-binding phrase: 12 of 16
-records naming at least one IMMUTABLE anchor: 13 of 16
-records whose ONLY named anchor is a MUTABLE ref: 1 — 2026-08-16-timing-scan-binding-probes.md
+reading B's derived set below 100: 653 of 725 (the range where token collision is expected —
+  this counts magnitude, it does not prove collision)
+
+records naming at least one immutable anchor SOMEWHERE: 13 of 16
+  (passes the screen; says nothing about which figure it binds)
+records naming a mutable ref and NO immutable anchor — the screen's only positive finding:
+  1 — 2026-08-16-timing-scan-binding-probes.md
 ```
 
 - **A** — the figure appears in a fenced block that prints its command as a transcript line.
@@ -81,8 +88,8 @@ producing command in prose at line 12 — `` `pnpm exec tsx probe-mixed-quoted.t
 output in the fence below, which is the convention this arc was sent to write down. Teaching the
 classifier to read the preamble moves the corpus total from 385 to 725.
 
-**(b) Most of what that buys is coincidence.** 653 of reading B's 725 derived figures are below 100.
-In a 50 KB record full of numeric output the token `2` appears in some fence with near-certainty, so a
+**(b) Most of what that buys sits where the instrument cannot be believed.** 653 of reading B's 725 derived figures are below 100 — two-digit values included, so "single-digit" would be the wrong word and an earlier draft used it.
+In a long record full of numeric output the token `2` appears in some fence with near-certainty, so a
 prose `2` classifies as derived by accident. Stated exactly for the clearest case: of
 `2026-08-17-shell-binding-mixed-quoted-probes.md`'s 192 figures only **2** are >= 100, and **neither
 is derived**. Its whole reading-B score of 166 sits in the range where the instrument is known to be
@@ -139,20 +146,32 @@ and described this one as "pinned"; it is not pinned, and the census now decides
 mechanically rather than by a reader's charity — a hex object id is immutable, a branch or remote ref
 moves and can be deleted.
 
-**A note on the recognizer, found by attacking it rather than by review.** "Names an immutable anchor"
-is decided by a regex, and the first version required only that a 7-to-40 character run of `[0-9a-f]`
-contain a digit. That matches millisecond timestamps and CI run ids: 43 of the 87 anchors it reported
-in `2026-08-21-intraleg-process-probe.md` were epoch-ms values. It now requires a hex LETTER as well as
-a digit. Per-record counts fell — that record reads 44 — and **no record crossed zero**, so every
-conclusion below is unchanged. Documented limit: a genuinely all-digit short sha is not recognized
+**A note on the recognizer, found by attacking it rather than by waiting for review.** "Names an
+immutable anchor" is decided by a regex, and the first version required only that a 7-to-40 character
+run of `[0-9a-f]` contain a digit. That matches millisecond timestamps and CI run ids: 43 of the 87
+anchors it reported in `2026-08-21-intraleg-process-probe.md` were epoch-ms values. It now requires a
+hex LETTER as well as a digit. Documented limit: a genuinely all-digit short sha is not recognized
 (about 3.7% of ids at 7 characters, falling off fast with length), and the error it causes is calling a
-bound record unbound, which is the safe direction for a convention.
+bound record unbound, which is the safe direction. The companion `MUTABLE_REF` recognizes
+remote-qualified refs only, so it under-counts; that matters only for a record naming no immutable
+anchor, and the one such record names no ref-shaped token at all.
 
-**The corrected count.** 16 files; `README.md` states no figures, leaving 15 records. Fourteen are
-bound: thirteen name an immutable anchor, and `2026-08-04-finding-format-probe.md` binds by
-declaration instead — its corpus is stated to be machine-local, deliberately uncommitted, and never
-re-run, which is an honest documented limit rather than a figure pretending to be reproducible. One,
-`2026-08-16-timing-scan-binding-probes.md`, is unbound, and its anchor has already died.
+**The screen is a screen, and round 2 was right to press on this.** A first draft read the output as
+"fourteen of fifteen records are bound." It does not support that. **One unrelated object id anywhere
+in a document makes the whole document pass**, and the reviewer named two records where the anchor
+present does not cover the measurement in question — `2026-08-16-mutation-gate-weight-probe.md`, whose
+only sha dates a merge while two of its probes read an unnamed worktree revision, and
+`2026-08-21-intraleg-killer-audit.md`, whose only sha is a merge base for a closeout diff rather than
+the HEAD its audit ran on. Deciding whether a given anchor binds a given figure is a per-figure
+judgment, which is exactly what §2 argues is not mechanizable here. The instrument is not going to be
+widened until it can do that; that is the ratchet this fleet has measured as losing.
+
+**So the claim is narrowed to what the screen can carry.** It has exactly one positive finding:
+`2026-08-16-timing-scan-binding-probes.md` names a mutable ref and no immutable anchor at all — and
+reading it confirms the screen, which is the point of a screen. It is the only record in the corpus
+where a reader can say "this names nothing fetchable" without a per-figure judgment. How many of the
+other fourteen are adequately bound is not a question this instrument answers, and this record no
+longer claims a number for it.
 
 ### The ledger comparison, and why it is not a ratio
 
@@ -185,23 +204,29 @@ checked by reading rather than trusted.
 
 | verdict | count | lines |
 | --- | ---: | --- |
-| genuine figure about a live artifact — and every one is bound by its record's header | 6 | `shell-binding-mixed-quoted:364`, `nested-hook:18`, `nested-hook:20`, `intraleg-process:173`, `intraleg-process:177`, `hook-population:298` |
+| a real figure about a real artifact | 7 | `shell-binding-mixed-quoted:364`, `nested-hook:18`, `nested-hook:20`, `intraleg-process:173`, `intraleg-process:177`, `hook-population:298`, `gate-weight:125` |
+| a figure stated in order to RETRACT it | 1 | `finding-format:15` (states the superseded `n=45` while declaring it wrong) |
 | probe or task ordinal, not a count | 5 | `import-edge:206`, `:300`, `:756`, `:899`, `timing-scan:1652` |
 | arithmetic or derivation demonstrated in place | 3 | `gate-weight:134`, `:152`, `nested-hook:21` |
 | control-outcome table cell or data tuple | 6 | `shell-attached:144`, `:145`, `:146`, `:148`, `:149`, `hook-population:143` |
-| narrative or environment description, no artifact figure | 3 | `finding-format:15`, `gate-weight:125`, `browser-child:104` |
+| environment description, hedged | 1 | `browser-child:104` |
 
-**23 reds, 0 true positives — 100% false positives.** The six in the first row are real figures about
-real artifacts, and every one of them is already bound by its record's header, so the gate would be
-demanding provenance that is present three inches higher up the page. An earlier draft of this record
-called those six positives and reported 22% precision; §3's binding analysis retires all six, and 0%
-is the number.
+Round 2 corrected this partition twice: `gate-weight:125` and `finding-format:15` were filed as
+narrative when both state figures about measured runs, and the intraleg lines are bound by a base in a
+later section rather than by the record's header. The counts above are the corrected ones.
 
-**And the gate misses the one record that is actually unbound.** Not one of the 23 reds comes from the
-unbound content of `2026-08-16-timing-scan-binding-probes.md` — its single red, at line 1652, is a
-task ordinal. The rot in this corpus is a deleted branch name in a header, and a rule about bare counts
-near artifact paths cannot see it. A gate with no true positives that also misses the only true defect
-is not a tiering question; advisory-first gives noise a longer lifetime and still misses the thing.
+**23 reds, 0 true positives — and the reason does not depend on which of them are adequately bound.**
+An earlier draft argued the six were all bound by their headers, which §3 has now retired as more than
+the screen can support. The durable argument is simpler and survives that retraction: **the gate
+enforces the wrong rule.** It demands a producing COMMAND on the line, and §3's counterexample shows a
+producing command is not a binding — `2026-08-16-timing-scan-binding-probes.md` prints its `git show`
+and is still unfetchable. A figure could satisfy this gate on every line and remain exactly as rotten.
+Seventeen of the 23 are not artifact figures at all, and the other six would be no safer for passing.
+
+**And the gate misses the one record the screen does flag.** Not one of the 23 reds comes from the
+unbound content of `2026-08-16-timing-scan-binding-probes.md` — its single red, at line 1652, is a task
+ordinal. The rot in this corpus is a deleted branch name in a header, and a rule about bare counts near
+artifact paths cannot see it.
 
 Widening the recognizer to fix the precision is this fleet's measured losing move: the speclint arc
 grew a JavaScript lexer one grammar corner per round across 20 diff rounds with the finding rate flat.

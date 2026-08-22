@@ -19,24 +19,24 @@ wrong verdict.
 2. **Closing as a convention with no test is a first-class outcome**, named by the row itself as its
    preferred one. It is not a descoping and does not need to be defended as one.
 3. **The count is what decides the fork, and it was run before anything was built.** Its figures live
-   in the probe record, dated to base `b52481446`, and are not restated here — §1.2 says why.
+   in the probe record, dated to base `b52481446`, and are not restated here — §1.2 explains why.
 4. **`BL-CLOSEOUT-COUNT-PROSE-DRIFT` and the count-drift repairs of PR #875 are not this arc's
    ground.** That arc owns closeout certification; this one owns the probe-record population. The
    ledger-file measurement in the probe record's §3 is FILED here as its own row and REPAIRED by
    nobody here — filing is the deliverable, the repair is a scheduled queue item.
-5. **The row's two branches were both reached, and neither by the route the row expected.** The
-   hand-carried set's size is not measurable (probe record §2) and separately does not matter,
-   because the population contains no unbound figure (probe record §3). A reviewer arguing the set
-   is in fact small, or in fact large, is arguing about a quantity this arc measured as undefined.
+5. **The row's two branches were both reached, and neither by the route the row expected.** The row's
+   condition for closing as a convention was a hand-carried set that is small and shrinking. That
+   condition cannot be evaluated: the classification it presumes is a per-figure judgment, and §2
+   records why no mechanical reading of this corpus delivers one. **The size is unmeasured, which is
+   not the same as undefined** — round 1 corrected the first draft on exactly that point, and a
+   reviewer arguing the set is in fact large or in fact small is arguing about a quantity nothing in
+   this arc measured.
 
    **This is rule 358's boundary-dependent-counts form, arriving in documents instead of code.** Two
-   honest counters got different answers there because the UNIT was arbitrary; here three honest
-   readings of one instrument did, for the same reason. The repair is the same in both places: stop
-   reporting the count, and shift to the predicate that survives every reading. That predicate is
-   **every record binds its figures to a run context** — true under all three readings, decided by
-   reading sixteen headers, and not a number at all. A convergence criterion built on the count
-   would have moved every time someone added a fenced block; built on the predicate it does not
-   move.
+   honest counters got different answers there because the UNIT was arbitrary; here three variants of
+   one heuristic did. The repair is the same in both places: stop reporting the count, and shift to a
+   predicate the instrument can actually carry. That predicate is narrow — **one record in the corpus
+   names no immutable anchor at all** — and §2 is explicit about what it does not cover.
 
 6. **The sibling row this arc files is `BL-LEDGER-FIGURE-PROVENANCE`**, on the orchestrator's
    ruling of 2026-08-22, and its boundary against `BL-CLOSEOUT-COUNT-PROSE-DRIFT` is written into
@@ -78,20 +78,23 @@ commands that reproduce them — including the `git archive` step, since the cen
 at the commit it measures.
 
 1. **A token-matching classifier cannot decide provenance here.** Three variants of one heuristic
-   disagree, and 653 of the best variant's 725 hits are single-digit coincidences. The spread is not
-   the argument, though, and round 1 was right to say so: three variants of one heuristic disagreeing
-   shows the heuristic is unreliable, not that the quantity is undefined. The decisive demonstration
-   is that the record scoring zero under every variant is on inspection one of the best-provenanced in
-   the corpus, because it uses indented transcript and blob ids instead of fenced blocks. No
-   adjustment to a token rule reaches that.
+   disagree, and 653 of the best variant's 725 hits are below 100, the range where token collision is
+   expected — that counts magnitude and does not prove coincidence, which is round 2's correction to
+   an earlier draft's wording. The spread is not the argument either: three variants of one heuristic
+   disagreeing shows the heuristic is unreliable, not that the quantity is undefined. The decisive
+   demonstration is that the record scoring zero under every variant is on inspection one of the
+   best-provenanced in the corpus, because it uses indented transcript and blob ids instead of fenced
+   blocks. No adjustment to a token rule reaches that.
 2. **The gate the row sketches has zero true positives.** 39 lines match its shape and 23 would red:
    ordinals, in-place arithmetic, control-outcome cells, narrative, and six real figures that are
    already bound by their record's header.
-3. **One record is genuinely unbound, and the gate cannot see it.** Fourteen of the fifteen
-   figure-stating records name an immutable anchor, or declare honestly why the measurement is not
-   reproducible. The fifteenth anchors to `origin/fix/scanner-scope-totality`, names no sha, and that
-   branch has been deleted. Its single gate red is a task ordinal — the rule reds on the wrong lines
-   of the right file.
+3. **One record is genuinely unbound, and the gate cannot see it.** The anchor screen has exactly one
+   positive finding: `2026-08-16-timing-scan-binding-probes.md` names `origin/fix/scanner-scope-totality`,
+   no sha, and that branch has been deleted. Its single gate red is a task ordinal, so the rule fires
+   on the wrong lines of the right file. **The screen does not certify the other records as bound** —
+   round 2 retired that reading, since one unrelated object id anywhere makes a whole document pass —
+   and the convention does not depend on a count of them.
+
 4. **The rot the row was filed from is in the documents that quote probe records** — three of its four
    measured instances. A first draft sized that population with the census and reported a tenfold
    ratio; round 1 refuted the inference and the comparison is **withdrawn**. The instrument's bias

@@ -13,10 +13,12 @@ tomorrow. The corpus supplied the counterexample: `2026-08-16-timing-scan-bindin
 every probe in it to `origin/fix/scanner-scope-totality` and prints the `git show` that materialises the
 scanner from it — a producing command, exactly as the row asked — and names no sha anywhere. That branch
 has since been deleted (`git ls-remote origin 'refs/heads/fix/scanner-scope-totality'` returns nothing),
-so the record now names nothing a reader can fetch. Fourteen of the fifteen figure-stating records are
-bound; that one is not, and it is unrepairable — no edit recovers the tree it measured, and inventing a
-plausible sha would be a guess wearing provenance's clothes. It stands as the README's worked
-counterexample.
+so the record now names nothing a reader can fetch. It is unrepairable — no edit recovers the tree it
+measured, and inventing a plausible sha would be a guess wearing provenance's clothes — so it stands as
+the README's worked counterexample. **What the arc does NOT claim** is a count of how many other
+records are adequately bound: the anchor screen only detects a record naming no immutable anchor at
+all, since one unrelated object id anywhere makes a whole document pass, and spec review round 2
+retired a draft that read it as a certificate.
 
 **Why no test, measured rather than argued.** The gate the row sketched — a bare count near an
 artifact path must name its producing command — reds 23 times on the corpus at `b52481446` with **zero
@@ -28,8 +30,8 @@ that also misses the only true defect is not a tiering question. A record-level 
 worse still — one red, and it is false.
 
 **And the classification the row asked for is not mechanizable.** Three variants of one token-matching
-heuristic give 31.7%, 59.7% and 35.1%; 653 of the best variant's 725 hits are single-digit
-coincidences. The spread alone proves only that the heuristic is unreliable — that correction came
+heuristic give 31.7%, 59.7% and 35.1%; 653 of the best variant's 725 hits are below 100, the range
+where token collision is expected — magnitude, not proven coincidence. The spread alone proves only that the heuristic is unreliable — that correction came
 from spec review round 1 and is carried in the record. What settles it is that the record scoring zero
 under every variant, `2026-08-21-abort-reachability-correction.md`, is on inspection one of the
 best-provenanced in the corpus: it names the blob it mutated and the blob it produced, the exact
