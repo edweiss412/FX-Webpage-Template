@@ -1061,6 +1061,14 @@ describe("the grammar the module does not model (AC-13)", () => {
   });
 
   // covers: AC-13, W16, W22
+  //
+  // 120s rather than the default 30s. This case builds THIRTY-TWO scratch roots at ~11 MB each,
+  // and the roots cannot be shared: the scanner caches parsed files by absolute path and never
+  // invalidates (spec §5.6), so a second form read under a reused root would be answered from the
+  // first form's cache. Scoped, the whole file runs in ~33s; under a full-suite run competing for
+  // I/O it crossed 30s and CI runs the full suite, so the default was a latent red on a REQUIRED
+  // context rather than a slow test. The limit is patience, not a weaker assertion -- every
+  // expectation below is unchanged.
   it("classifies all thirty-two forms as the spec's tables state, one scratch root each", () => {
     const verdicts = FORMS.map(([form, expected]) => {
       const { el, paint } = formOnUnignore(form);
@@ -1073,7 +1081,7 @@ describe("the grammar the module does not model (AC-13)", () => {
       FORMS.map(([form, expected]) => [form, expected]),
     );
     expect(verdicts.filter(([, , projected]) => !projected).map(([form]) => form)).toEqual([]);
-  });
+  }, 120_000);
 
   // covers: AC-13, W22
   it("gives each compiled value of the second table the class the table states", () => {
