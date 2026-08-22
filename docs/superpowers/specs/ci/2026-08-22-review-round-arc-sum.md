@@ -274,6 +274,14 @@ R4 then landed two more instances of the same class, which means the R3 repair h
 | V7 | the trigger-rate population | the report test |
 | V8 | the trigger-rate triggered count | the report test |
 | V9 | the trigger-rate month bucket — the directory-wide EARLIEST counted row, never the first base enumerated | the report test — **R4 F3** |
+| V10 | the trigger-rate `rate` — a THIRD stored field on the bucket (`scripts/review-economy.ts:197`), rendered independently of the fraction beside it | the report test — **R5 F1** |
+| V11 | the rate line as RENDERED, verbatim (`  2026-08  213/282  75.5%`) | the report test |
+
+**V10 is R5's finding, and the way the inventory failed a third time is the point.** `triggerRateByMonth[month]` stores three fields — `population`, `triggered`, `rate` — and the hand-written inventory listed the first two. A hybrid implementation updates both, leaves `rate` computed from the per-base model, and publishes `213/282  57.8%`: a fraction and a percentage on one line that disagree, each individually passing its row.
+
+**So the inventory is now derived from the `Report` type rather than from memory** (`scripts/review-economy.ts:11-25`), field by field over every structure this change writes: `triggerRateByMonth` contributes three fields plus its key, and `arcs`, `malformedRows`, `findingsByStage` and `silentArcs` are untouched.
+
+**And V11 is the belt the field inventory cannot be, which is why it exists.** Asserting the rendered LINE verbatim catches `population`, `triggered`, `rate` and the month simultaneously, including any disagreement between the struct and its rendering — the exact shape of R5's finding. A field inventory can always omit a field; a rendered-line assertion cannot omit anything the reader sees. **Every line this change adds or alters is asserted verbatim as rendered**, and the field rows above are the diagnosis when one fails.
 
 V3 and V9 are R4's findings and were the two rows the hand-written list omitted. V3 matters because the breakdown is a new diagnostic computed per `(baseSha, stage)`, and a stage-blind rendering is wrong on **7 of the 11** newly-owing pairs while every matrix cell still passes. V9 matters because "first enumerated base" and "earliest across the directory" disagree the moment a directory's bases are not in chronological order, and K4's population-and-triggered control cannot see the difference.
 
