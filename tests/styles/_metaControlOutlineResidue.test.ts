@@ -22,6 +22,7 @@ import { describe, expect, it } from "vitest";
 import { premise, premiseHolds } from "../_shared/premise";
 import { normalizeToken } from "./_childlessGrowableScan";
 import {
+  CATEGORY_BARS,
   classify,
   classifyValue,
   isResidue,
@@ -38,6 +39,7 @@ import {
   utilityOf,
   validateCensus,
   validateRow,
+  variantsOf,
   weakSides,
   type ResidueCategory,
   type ResidueRow,
@@ -1297,5 +1299,147 @@ describe("this suite", () => {
       .filter(([, i]) => !/\/\/ covers: (W\d+|AC-\d+|spec §)/.test(lines[i - 1] ?? ""))
       .map(([line]) => line.slice(0, 60));
     expect(unmapped).toEqual([]);
+  });
+});
+
+/* ------------------------------------------- gaps the mutation score exposed */
+
+/**
+ * The first scored run came back 186/231 with 45 unaccepted survivors, and the survivor map was
+ * diagnostic rather than scattered: it named exactly the code no case reached. These cases close
+ * that, and each one states the mutant it kills so a later reader can tell an assertion that earns
+ * its place from one that merely passes.
+ */
+describe("what the mutation score found unpinned", () => {
+  // covers: W14
+  it("normalises the token itself, not only its residue verdict", () => {
+    // AC-13's normaliser pin compares `utilityOf` against `normalizeToken` on LIVE residue tokens,
+    // and no live token carries an important marker, so the whole bang-stripping path was unpinned
+    // while thirty-two forms exercised `isResidue` around it. Kills the `slice(1)` and `slice(0,-1)`
+    // mutants; the bracket and paren depth cases kill the `||`-to-`&&` mutants in both walkers.
+    const cases: ReadonlyArray<readonly [string, string, readonly string[]]> = [
+      ["border-border", "border-border", []],
+      ["!border-border", "border-border", []],
+      ["border-border!", "border-border", []],
+      ["focus:border-border-strong", "border-border-strong", ["focus"]],
+      ["focus:!border-border", "border-border", ["focus"]],
+      ["sm:!border-border/25", "border-border/25", ["sm"]],
+      ["max-sm:border-border/50", "border-border/50", ["max-sm"]],
+      ["[&:hover]:border-border", "border-border", ["[&:hover]"]],
+      ["has-[:checked]:border-border-strong", "border-border-strong", ["has-[:checked]"]],
+      ["group-hover:focus:border-border", "border-border", ["group-hover", "focus"]],
+      ["border-[rgb(207,205,199)]", "border-[rgb(207,205,199)]", []],
+      ["border-(--color-border-strong)", "border-(--color-border-strong)", []],
+    ];
+    expect(cases.map(([t]) => [t, utilityOf(t)])).toEqual(cases.map(([t, u]) => [t, u]));
+    expect(cases.map(([t]) => [t, variantsOf(t)])).toEqual(cases.map(([t, , v]) => [t, v]));
+  });
+
+  // covers: spec §3.6
+  it("prints the whole paste-ready row for a plain weak outline", () => {
+    // Seven survivors lived in `printPasteReadyRow` because every case asserted DERIVED FIELDS and
+    // none asserted the printed lines. §3.6 calls this message the guard's whole user interface.
+    const printed = printPasteReadyRow(liveElement(PT), LIVE.paint);
+    expect(printed.split("\n")[0]).toBe(
+      `{ file: "${PT}", tag: "button", paint: ["bg-accent border border-accent-edge","bg-surface-sunken border border-border-strong"], category: "TODO", reason: "TODO" },`,
+    );
+    expect(printed.split("\n").slice(1)).toEqual([...CATEGORY_BARS]);
+  });
+
+  // covers: spec §3.6, W23
+  it("leads with the repair when the residue is a literal, and marks the row literal-outline", () => {
+    const { el, paint } = literalElement();
+    const lines = printPasteReadyRow(el, paint).split("\n");
+    expect(lines[0]).toBe("replace rgb(207 205 199) with a theme token");
+    expect(lines[1]).toBe(
+      "or file it as a BL-/DEF- entry naming this file and rgb(207 205 199), and cite it",
+    );
+    expect(lines[2]).toContain(`category: "literal-outline"`);
+    expect(lines[2]).toContain(`backlogRef: "TODO"`);
+    expect(lines.slice(3)).toEqual([...CATEGORY_BARS]);
+  });
+
+  // covers: AC-4, W12
+  it("refuses a filed-defect row that cites no ledger entry at all", () => {
+    // Every ref-shaped refusal supplied a ref, so the "requires backlogRef" branch never ran.
+    const el = liveElement("components/admin/BellPanel.tsx");
+    const row = rowFor(el, "filed-defect", "a genuine weak resting outline, filed");
+    expect(validateRow(row, el, oracle, ledger)).toEqual([
+      `${el.file}: filed-defect requires backlogRef`,
+    ]);
+  });
+
+  // covers: AC-4, W8
+  it("refuses a switch-track reason that records the ratio but cites no ruling", () => {
+    // Every switch-track case carried a well-formed reason, so the citation branch never ran.
+    const el = liveElement(PT);
+    const row = rowFor(el, "switch-track", "the OFF ring measures 1.43:1 light / 1.75:1 dark");
+    expect(validateRow(row, el, oracle, ledger)).toEqual([
+      `${PT}: switch-track reason must cite DESIGN.md §1.2a`,
+    ]);
+  });
+
+  // covers: AC-4, W8
+  it("refuses a switch-track alternative whose outline paints only one side", () => {
+    // `sides.size > 0` counts an outline; a single-side token is still an outline, and the mutant
+    // that raises the threshold to 1 makes it invisible. Directional tokens are the live case.
+    const el = liveElement(PT);
+    const row: ResidueRow = {
+      file: PT,
+      tag: "button",
+      paint: [
+        "bg-accent border border-t-accent-edge",
+        "bg-surface-sunken border border-border-strong",
+      ],
+      category: "switch-track",
+      reason: TRACK_REASON,
+    };
+    expect(validateRow(row, el, oracle, ledger)).toEqual([]);
+  });
+
+  // covers: AC-4, W13
+  it("accepts focus-visible as a focus variant, not only focus", () => {
+    // The equality flip on the second arm is invisible while every case uses `focus:`.
+    const el = liveElement("app/help/layout.tsx");
+    const row: ResidueRow = {
+      file: el.file,
+      tag: el.tag,
+      paint: ["focus-visible:border-border-strong"],
+      category: "focus-state-chrome",
+      reason: "focus-visible:ring-2 carries the focus indication",
+    };
+    expect(validateRow(row, el, oracle, ledger)).toEqual([]);
+  });
+
+  // covers: spec §3.4
+  it("reds when two rows sharing a key disagree about their category", () => {
+    // §3.4 requires rows sharing a key to share a category. Nothing exercised it.
+    const el = liveElement("components/admin/BellPanel.tsx");
+    const a = rowFor(el, "side-divider", "border-t separates the panel footer link");
+    const b = { ...a, category: "filed-defect" as ResidueCategory, backlogRef: "BL-TEST-ROW" };
+    const problems = validateCensus([a, b], LIVE, oracle, ledger);
+    expect(problems.filter((p) => p.includes("disagree about category"))).toEqual([
+      `${el.file}: rows sharing a key disagree about category: side-divider vs filed-defect`,
+    ]);
+  });
+
+  // covers: spec §3.6
+  it("finds the nearest live key in the row's OWN file, not merely one with the same tag", () => {
+    // The nearest-key filter is `file === row.file && tag === row.tag`. Widening it to `||` is
+    // invisible when the row's own element is the first of its tag in scan order, which is what the
+    // AC-6 fixture happens to be. RecentAutoAppliedStrip is NOT: PublishedToggle sorts before it and
+    // shares the tag, so a widened filter reports PublishedToggle's key for it.
+    const strip = "components/admin/RecentAutoAppliedStrip.tsx";
+    const stale: ResidueRow = {
+      file: strip,
+      tag: "button",
+      paint: ["bg-surface-sunken border-b border-border hover:bg-surface", "moved"],
+      category: "side-divider",
+      reason: "border-b separates the rows of the open strip",
+    };
+    const line = validateCensus([stale], LIVE, oracle, ledger).find((p) => p.startsWith("stale: "));
+    expect(line?.split("nearest live key in this file by tag: ")[1]).toBe(
+      projectionsOf(liveElement(strip), LIVE.paint).join(" || "),
+    );
   });
 });

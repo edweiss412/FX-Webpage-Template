@@ -65,7 +65,29 @@ export function variantsOf(token: string): string[] {
     else if (c === "]" || c === ")") depth--;
     else if (c === ":" && depth === 0) cut = i;
   }
-  return cut === -1 ? [] : raw.slice(0, cut).split(":");
+  if (cut === -1) return [];
+  // Split the chain at DEPTH-0 colons only, the same rule that found the cut. A plain `.split(":")`
+  // here reads the depth walk's own answer and then discards it: `[&:hover]:border-border` came back
+  // as ["[&", "hover]"] rather than ["[&:hover]"]. Grouping survived that, because `weakSides`
+  // rejoins the segments with a colon, but the category bars compare SEGMENTS — `some(v => v ===
+  // "focus")`, `/^(max-)?(sm|md|lg|xl|2xl)$/` — so a bracketed variant reached them as fragments and
+  // was refused. Conservative, never a false clear, and still the "one predicate read two ways"
+  // shape that spec §6 forbids and that the accept-set fix removed elsewhere.
+  const chain = raw.slice(0, cut);
+  const segments: string[] = [];
+  let chainDepth = 0;
+  let start = 0;
+  for (let i = 0; i < chain.length; i++) {
+    const c = chain[i];
+    if (c === "[" || c === "(") chainDepth++;
+    else if (c === "]" || c === ")") chainDepth--;
+    else if (c === ":" && chainDepth === 0) {
+      segments.push(chain.slice(start, i));
+      start = i + 1;
+    }
+  }
+  segments.push(chain.slice(start));
+  return segments;
 }
 
 /* ------------------------------------------------------------------- oracle */
@@ -442,18 +464,6 @@ export function rowKey(row: ResidueRow): string {
   return JSON.stringify([row.file, row.tag, [...row.paint].sort()]);
 }
 
-/**
- * The compiled border-colour values the oracle declines to classify, read off `classify`'s
- * single pass so the literal bar and the key cannot disagree about which rules paint the
- * element (a literal in a rule that paints a CHILD is not this element's outline).
- */
-export function unclassifiedValues(oracle: Oracle, tokens: readonly string[]): string[] {
-  const paint = classify(oracle, [...tokens]);
-  const out: string[] = [];
-  for (const token of tokens) for (const v of paint.get(token)?.unclassified ?? []) out.push(v);
-  return [...new Set(out)];
-}
-
 /* --------------------------------------------------------------------- bars */
 
 /** WCAG relative luminance, the six-line form of `tests/styles/secondary-action-contrast.test.ts`
@@ -693,7 +703,7 @@ export function validateRow(
 /* ------------------------------------------------------------- the messages */
 
 /** One line per category, naming its bar. The failure message is the guard's whole interface. */
-const CATEGORY_BARS: readonly string[] = [
+export const CATEGORY_BARS: readonly string[] = [
   "switch-track: exactly two alternatives, each with exactly one fill and one outline colour declaration; reason cites DESIGN.md §1.2a and records the OFF ring ratio as n.nn:1 light / n.nn:1 dark",
   "side-divider: every border token is a side width (border-t/b/l/r, optionally -<n>) or the weak colour itself; reason names the side utility",
   "focus-state-chrome: every weak token carries focus: or focus-visible:, and the element carries a focus ring token; reason states what carries the focus indication",
