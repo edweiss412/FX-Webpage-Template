@@ -48,6 +48,25 @@ Both fit every fact here. The same-branch pair narrows the variable to something
 
 **First scheduled step:** count the population before building anything — grep the probe records for stated figures and classify each as derived or hand-carried. If the hand-carried set is small and shrinking, this closes as a convention with no test at all.
 
+## BL-LEDGER-FIGURE-PROVENANCE — the ledger states five times as many figures about artifacts as the probe records, with a tenth the provenance
+
+**Status:** OPEN · **Filed:** 2026-08-22 (`docs/derived-numbers-provenance`, the count `BL-DERIVED-NUMBERS-IN-DOCS-ROT` scheduled as its first step) · **Facing:** process · **Severity:** LOW (stale prose in the ledger and its archive; no shipped behavior) · **Class:** documentation fidelity · **Effort:** M · **Incident:** diff review round 3 of PR #874 raised three findings of one shape, and **three of those four measured instances happened in ledger-class documents, not in probe records** — the archive quoting the first campaign's arm-C durations after the second superseded them, the audit transcript saying 7 live cases against a tier of 8, and a case count stale at 151 against 169. Corpus rows: `docs/review-rounds/feat/mutation-verdict-intraleg-probe/c9c71b947a85.jsonl`. · **Reachability:** PROBED — census below, command-produced.
+
+**The parent row scoped its check at the population that did not need it.** `BL-DERIVED-NUMBERS-IN-DOCS-ROT` proposed a structural test over `docs/superpowers/specs/ci/probes/`. Running the count first found every record in that directory already binds its figures to a run context, so the proposed gate reds 23 times on it with a yield of zero. The same instrument over the ledger files says the opposite:
+
+| corpus                                              | figures >=100 | derived |  rate |
+| --------------------------------------------------- | ------------: | ------: | ----: |
+| `docs/superpowers/specs/ci/probes/**`               |           205 |      72 | 35.1% |
+| `BACKLOG.md` + `BACKLOG-archive.md` + `DEFERRED.md` |          1038 |      35 |  3.4% |
+
+Produced at base `b52481446` by `node docs/superpowers/specs/ci/probes/scripts/2026-08-22-derived-number-census.mjs <root>`; the reading and its limits are `docs/superpowers/specs/ci/probes/2026-08-22-derived-number-population-census.md` §3. **The ratio is the claim, not either rate** — the instrument is imprecise for both corpora and the same biases ran over each, so a repair proposal quoting 3.4% as the ledger's true provenance rate has misread it.
+
+The asymmetry has a cause worth stating, because it decides what a repair can look like. A probe record is written to hold a measurement, so its author binds it by habit and one header line covers the whole document. A ledger entry is written to hold an ARGUMENT, and its figures arrive by quotation from somewhere else — which is exactly the parent row's population definition, the numbers that pass through a person between the measurement and the page.
+
+**Boundary against `BL-CLOSEOUT-COUNT-PROSE-DRIFT`:** that row owns closeout certifications — the counts a closeout asserts about the work it certifies; this row owns figures stated in ledger entries and their archives. Neither relitigates the other, and a finding on one is not a round on the other.
+
+**First scheduled step, and it is a question rather than an implementation.** The parent row's own lesson transfers: do not build a per-figure detector. Three defensible readings of "derived" disagreed by 2x over the probe corpus and inspection overturned the best-scoring one, and nothing about the ledger makes that easier — entries quote figures whose producing command lives in another document entirely. So: **is there a binding form a ledger entry can carry that a walker can check?** A probe record binds with one header line because it describes one run. An entry citing six arcs has no single tree to name. If the answer is no, this closes as a documented limit the way the parent closed as a convention, and the honest outcome is recorded rather than a recognizer grown to reach it.
+
 ## BL-ACCEPTSET-CONSUMER-COVERAGE — an accept-set widened without its consumers is a change that reads as adoption and behaves as nothing
 
 **Status:** OPEN · **Severity:** MEDIUM (silent FREE: a widened set that no consumer ranges over leaves the construct unclassified while the diff shows the widening) · **Class:** guard fidelity · **Effort:** S · **Filed:** 2026-08-21 (`fix/premisescan-registrar-accept-sets`, spec rounds 1-3) · **Facing:** process · **Mint-exception:** invariant · **Reachability:** PROBED — three separate consumers measured below.

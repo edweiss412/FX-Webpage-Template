@@ -175,10 +175,11 @@ instrument with the same biases ran over both.
 not.** That is not a criticism the row could have made of itself — it was filed from an arc whose own
 rot happened to surface in a probe record. It is what counting first was for.
 
-The ledger population is NOT repaired here. It is adjacent to `BL-CLOSEOUT-COUNT-PROSE-DRIFT`, in
-flight on another branch, and deciding who owns it is a scope call above this arc — class-sweep
-exception (a), a decision this PR cannot settle. Routed to the orchestrator with this measurement
-attached.
+The ledger population is NOT repaired here — class-sweep exception (a): the repair needs a scope
+decision this arc cannot make, since `BL-CLOSEOUT-COUNT-PROSE-DRIFT` is in flight on another branch
+and the boundary between the two had to be drawn by someone above both. It was: the orchestrator
+ruled on 2026-08-22 that this measurement meets the mint bar and the row is filed here, as
+`BL-LEDGER-FIGURE-PROVENANCE`, fenced against the closeout row in its own text.
 
 ## 4. The sketched gate, sized and declined
 
@@ -240,6 +241,7 @@ this record's finding. Two triggers, either sufficient:
 
 1. **A probe record ships stating a figure with no run context.** The convention is written down now,
    so this is a convention violation with a named home, not a detection problem.
-2. **The ledger population gets an owner.** 1,038 collision-resistant figures at 3.4% provenance is
-   where the row's own incidents live, and it is five times the size of the population the row scopes.
-   That is a real queue item; it is not this one.
+2. ~~The ledger population gets an owner.~~ **Discharged in this PR** — 1,038 collision-resistant
+   figures at 3.4% provenance is where three of the row's four incidents live, and it is five times
+   the size of the population the row scopes. Filed as `BL-LEDGER-FIGURE-PROVENANCE` rather than
+   left as a trigger, so the first trigger above is the only one outstanding.
