@@ -1,247 +1,222 @@
-# Derived-number population census — and why the sketched gate does not ship
+# Derived-number population census — and what the sketched gate would and would not catch
 
 **Probe for:** `BL-DERIVED-NUMBERS-IN-DOCS-ROT`. Run 2026-08-22 on the origin machine by
-`arc-derivednums`, branch `docs/derived-numbers-provenance`, base `b52481446`.
+`arc-derivednums`, branch `docs/derived-numbers-provenance`. **The corpus measured is the probe
+directory at `b52481446`**; the instrument is the script committed beside this record, which did not
+exist at that commit.
 
-**Producing command**, for every figure in sections 1 through 4:
+## 0. How to reproduce, and what each figure's producer actually is
+
+Spec review round 1 found this section's first draft claiming one command produced every figure below.
+It did not, and the correction belongs at the top rather than in a limits list, because a claim wider
+than its evidence is the defect this whole record is about.
+
+**Reproduce the corpus measurement.** A bare re-run at HEAD does not match: this arc's own commits add
+a record and a script to the population, so HEAD walks 17 records and prints different rates. The
+measured corpus has to be materialised:
 
 ```
-node docs/superpowers/specs/ci/probes/scripts/2026-08-22-derived-number-census.mjs
+$ git archive b52481446 docs/superpowers/specs/ci/probes | tar -x -C /tmp/probes-at-base
+$ node docs/superpowers/specs/ci/probes/scripts/2026-08-22-derived-number-census.mjs \
+    /tmp/probes-at-base/docs/superpowers/specs/ci/probes
 ```
 
-**Question.** The ledger row's first scheduled step: "grep the probe records for stated figures and
-classify each as derived or hand-carried. If the hand-carried set is small and shrinking, this closes
-as a convention with no test at all."
+**Reproduce the ledger comparison** in §3. The script walks one directory, so the three ledger files
+are materialised into one:
 
-**Answer.** The arc closes as a convention with no test, and both halves of the row's reasoning turn out
-to be wrong on the way there.
+```
+$ mkdir -p /tmp/ledger-at-base
+$ for f in BACKLOG.md BACKLOG-archive.md DEFERRED.md; do \
+    git show "b52481446:$f" > "/tmp/ledger-at-base/$f"; done
+$ node docs/superpowers/specs/ci/probes/scripts/2026-08-22-derived-number-census.mjs /tmp/ledger-at-base
+```
 
-The size of the hand-carried set is **not measurable**: three defensible readings of "derived" give
-31.7%, 59.7% and 35.1% over the same 16 records, and inspection overturns the reading that scores each
-record highest (section 2). So the row's stated condition — "small and shrinking" — cannot be evaluated.
+**Producers, stated per claim rather than in one sweeping line:**
 
-It also does not need to be. **Every one of the 16 records binds its figures to a run context**, so the
-population the row scopes contains no unbound figure to catch, and the gate it sketches fires 23 times
-with a yield of zero (sections 3, 4). The rot the row was filed from lives in the documents that QUOTE
-probe records — archives, ledger entries, audit transcripts — a population five times larger at a tenth
-the provenance rate.
+| claim | producer |
+| --- | --- |
+| every rate, count and per-record row in §1 | the census script, first command above |
+| the binding census in §3, including which record's only anchor is mutable | the census script |
+| the 23 gate reds and their line numbers in §4 | the census script |
+| `docs/superpowers` file counts (1,127 / 1,173) | `git ls-files`, printed inline in §3 |
+| whether `origin/fix/scanner-scope-totality` still exists | `git ls-remote`, printed inline in §3 |
+| which of the 23 reds is a genuine figure about a live artifact | **hand classification**, §4 — the script produces the population, a person produces the verdict, and all 23 are printed so the verdict can be checked by reading |
+| the four-incident location table in §3 | read off the ledger row's own `**Incident:**` field |
 
----
+## 1. The population and the readings over it
 
-## 1. The population, and the three readings that disagree about it
+Population: every numeric token in prose (outside fenced blocks) of every `*.md` under the probe
+directory, files walked from disk. Structural exclusions remove dates, clock times, URLs, shas,
+`file:line` citations, section refs, issue refs, list ordinals, heading ordinals and version tags;
+each exclusion's removal count is printed so the tokenizer's contribution is visible. 1,709 raw tokens
+reduce to **1,214 figures**.
 
-Population: every numeric token in prose (outside fenced blocks) of every `*.md` under
-`docs/superpowers/specs/ci/probes/`, files walked from disk. Structural exclusions remove dates, clock
-times, URLs, shas, `file:line` citations, section refs, issue refs, list ordinals, heading ordinals and
-version tags; each exclusion's removal count is printed by the command so the tokenizer's contribution
-to the population size is visible rather than asserted. 1,709 raw tokens reduce to **1,214 figures**.
+```
+derived rate, reading A: 385/1214 = 31.7%
+derived rate, reading B: 725/1214 = 59.7%
+derived rate, reading C:   72/205 = 35.1%
 
-Three readings of "derived":
+single-digit share of reading B's derived set: 653 of 725 are below 100
+records with at least one tree-binding phrase: 12 of 16
+records naming at least one IMMUTABLE anchor: 13 of 16
+records whose ONLY named anchor is a MUTABLE ref: 1 — 2026-08-16-timing-scan-binding-probes.md
+```
 
 - **A** — the figure appears in a fenced block that prints its command as a transcript line.
 - **B** — A, plus blocks whose producing command is named in the prose above them.
-- **C** — B, restricted to figures >= 100, where token collision is negligible.
+- **C** — B, restricted to figures >= 100.
 
-```
-| record | figures | derived A | derived B | figures >=100 | derived C | blocks | commanded |
-| `2026-08-04-finding-format-probe.md` | 16 | 2 | 2 | 3 | 0 | 2 | 1 |
-| `2026-08-04-mergebase-stability-probe.md` | 1 | 0 | 0 | 0 | 0 | 2 | 1 |
-| `2026-08-16-mutation-gate-weight-probe.md` | 127 | 60 | 60 | 49 | 10 | 6 | 6 |
-| `2026-08-16-premisescan-import-edge-probe.md` | 145 | 80 | 97 | 26 | 6 | 14 | 9 |
-| `2026-08-16-timing-scan-binding-probes.md` | 32 | 16 | 17 | 6 | 2 | 35 | 15 |
-| `2026-08-17-shell-binding-mixed-quoted-probes.md` | 192 | 0 | 166 | 2 | 0 | 18 | 10 |
-| `2026-08-19-premisescan-nested-hook-leak-probe.md` | 23 | 6 | 6 | 4 | 1 | 5 | 4 |
-| `2026-08-20-browser-child-wallclock-probe.md` | 97 | 0 | 36 | 47 | 36 | 4 | 3 |
-| `2026-08-20-claim-sweep-after-repair-probes.md` | 73 | 45 | 45 | 23 | 6 | 17 | 10 |
-| `2026-08-21-abort-reachability-correction.md` | 7 | 0 | 0 | 0 | 0 | 0 | 0 |
-| `2026-08-21-intraleg-killer-audit.md` | 121 | 87 | 97 | 6 | 0 | 4 | 3 |
-| `2026-08-21-intraleg-process-probe.md` | 102 | 31 | 31 | 11 | 0 | 9 | 6 |
-| `2026-08-21-mutation-outcome-attribution.md` | 119 | 0 | 56 | 9 | 1 | 7 | 4 |
-| `2026-08-21-premisescan-hook-population.md` | 69 | 58 | 59 | 16 | 10 | 17 | 12 |
-| `2026-08-21-shell-attached-redirection-target-probes.md` | 90 | 0 | 53 | 3 | 0 | 8 | 5 |
-| `README.md` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **total** | **1214** | **385** | **725** | **205** | **72** | **148** | **89** |
+**Two things this spread is NOT, both corrected from the first draft.** A and B and C are three
+variants of ONE heuristic — does this numeric token also appear in a block over there — so their
+disagreement shows that heuristic is unreliable, not that the quantity the ledger row asked for is
+undefined. And C is not a third answer to the same question: it changes the denominator from 1,214 to
+205, so it measures a subset. The honest reading of the block above is that a token-matching
+classifier cannot be trusted here, which §2 demonstrates directly; the call in §5 does not rest on it.
 
-derived rate, reading A: 385/1214 = 31.7%
-derived rate, reading B: 725/1214 = 59.7%
-derived rate, reading C: 72/205 = 35.1%
-
-single-digit share of reading B's derived set: 653 of 725 are below 100
-```
-
-**The spread is the result.** A hand-carried set of 829, 489, or 133 depending on which reading you
-take is not a measurement of anything — rule 358's "when two honest counters disagree, suspect the unit
-before either counter," arrived at here by disagreeing with myself three times.
-
-## 2. Four demonstrations that the per-figure classification is unsound
-
-Each was found by building the classifier and then checking what it had decided. They are independent.
+## 2. Why a token-matching classifier cannot do this job
 
 **(a) The command lives above the fence, not inside it.** Reading A scores
-`2026-08-17-shell-binding-mixed-quoted-probes.md` at 0 derived out of 192. The record names its
+`2026-08-17-shell-binding-mixed-quoted-probes.md` at 0 derived out of 192. That record names its
 producing command in prose at line 12 — `` `pnpm exec tsx probe-mixed-quoted.ts` `` — and prints its
-output in the fence below. That is the convention this arc was sent to write down, already in use, and
-the first classifier scored it zero. Moving to reading B swings the corpus total from 385 to 725.
+output in the fence below, which is the convention this arc was sent to write down. Teaching the
+classifier to read the preamble moves the corpus total from 385 to 725.
 
-**(b) Reading B's win is almost entirely token collision.** 653 of its 725 derived figures are below
-100. In a 50 KB record full of numeric output, the token `2` appears in some fence with near-certainty,
-so a prose `2` classifies as derived by coincidence. Restricting to figures >= 100 collapses
-`2026-08-17-shell-binding-mixed-quoted-probes.md` from 166 derived to **0** — its entire score under
-reading B was noise.
+**(b) Most of what that buys is coincidence.** 653 of reading B's 725 derived figures are below 100.
+In a 50 KB record full of numeric output the token `2` appears in some fence with near-certainty, so a
+prose `2` classifies as derived by accident. Stated exactly for the clearest case: of
+`2026-08-17-shell-binding-mixed-quoted-probes.md`'s 192 figures only **2** are >= 100, and **neither
+is derived**. Its whole reading-B score of 166 sits in the range where the instrument is known to be
+unreliable. That is not proof each of the 166 is a collision — no instrument here can establish that —
+it is that the score lives entirely where the instrument cannot be believed.
 
-**(c) The row's own sketched gate has 22% precision.** Section 4.
-
-**(d) The worst-scoring record in the corpus is one of the best-provenanced.**
+**(c) The decisive one: the ranking inverts on the clearest case.**
 `2026-08-21-abort-reachability-correction.md` scores 0 derived out of 7 under every reading, because it
 has no fenced blocks at all. Read it: it names the blob it mutated and the blob it produced
 (`82bdd092 -> 1d457dfb`), the exact condition it neutralised, the verbatim vitest line
 (`Tests  1 failed | 41 passed (42)`), and the assertion message. It is more reproducible than most
-records that score well. It uses indented blocks instead of fences, and every classifier here is
-blind to the difference.
+records that score well. No adjustment to a token-matching rule reaches it, because the difference is
+that it uses indented transcript instead of fenced transcript.
 
-Demonstration (d) is the one that settles it. A classifier that inverts the ranking on its clearest
-case is not measuring provenance; it is measuring a formatting habit.
+A reviewer proposed a fourth reading: classify by source context, with command output derived, locally
+demonstrated arithmetic derived, and copied prose hand-carried. That is the right partition — §4 uses
+it — and it is a **hand** classification. Separating "arithmetic demonstrated in place" from "figure
+copied from elsewhere" is a judgment about what a sentence is doing, and building a recognizer for it
+is the growth this fleet has measured as losing. The classification is done by reading, on a printed
+population, at the one scale where that is affordable: 23 lines.
 
-## 3. There is no live rot in the probe records, and that is the real finding
+## 3. Binding, and the one record that is not bound
 
-Provenance is a proxy for rot, so the rot itself was checked directly rather than assumed.
+A figure that names the revision it was measured on is permanently true of that revision. **But the
+anchor has to be immutable**, and that distinction is the round's most useful finding.
 
-The first candidate looked decisive and was wrong, which is worth recording because the mistake is the
-one this row exists to prevent. `2026-08-20-claim-sweep-after-repair-probes.md:56` states, with no
-revision on the line:
-
-> Over the 1127 tracked `docs/superpowers` markdown files:
-
-Two independent counts on this branch's base `b52481446`:
+**The near-miss first, because it is the defect this row is about.**
+`2026-08-20-claim-sweep-after-repair-probes.md:56` states, with no revision on the line, "Over the 1127
+tracked `docs/superpowers` markdown files". The tree disagrees:
 
 ```
-$ git ls-files 'docs/superpowers/**.md' | wc -l
+$ git ls-tree -r --name-only 039533373 docs/superpowers | grep -c '\.md$'   # the record's own base
+1127
+$ git ls-tree -r --name-only b52481446 docs/superpowers | grep -c '\.md$'   # this census's base
 1173
-$ git ls-files docs/superpowers | grep -c '\.md$'
-1173
 ```
 
-Stale by 46 — until you read the record's own header, which says "each number here is dated to its
-commit" and "Run 2026-08-20 on `feat/speclint-claim-sweep-after-repair` at `039533373`". The figure is
-bound at the document level. It is a correct dated measurement whose subject has since grown, which is
-the disposition rule 353 endorses, not rot. Checking the figure against the tree without checking it
-against the record's own binding is half a check, and it produced a confident wrong answer first.
+Stale by 46 — until you read that record's header, which says "each number here is dated to its
+commit" and names `039533373`. The figure is bound at document level and is correct about the tree it
+names. Checking a figure against today's tree without checking it against its own record's binding is
+half a check, and it produced a confident wrong answer first.
 
-**Re-checked properly: 16 of 16 records declare their run context.** The census's `TREE_BINDING` regex
-reports 12, because it only recognises a hex sha near a keyword. The four it misses bind by other
-means, verified by reading:
-
-| record | how it binds |
-| --- | --- |
-| `2026-08-04-finding-format-probe.md` | dated run; corpus declared machine-local and deliberately not committed; measurement declared a draft-time input that nothing re-runs |
-| `2026-08-16-timing-scan-binding-probes.md` | pinned to `origin/fix/scanner-scope-totality` (PR #827, unmerged) with the `git show` command that materialises it |
-| `2026-08-21-intraleg-killer-audit.md` | named driver script `scripts/intraleg-killer-audit.mjs` plus date |
-| `README.md` | states no figures |
-
-Zero probe records state a figure about the live tree with no run context. The convention the row asks
-this arc to write down is **already universal in the population the row scopes it to**.
-
-### Where the rot actually is
-
-The row's four measured instances name their homes, and three of them are not probe records:
-
-| instance | document |
-| --- | --- |
-| first campaign's arm-C durations quoted after the second superseded them | archive entry |
-| producing command naming the superseded output directory | probe record — and the stale token is a PATH, not a figure |
-| audit transcript said 7 live cases against a tier of 8 | audit transcript |
-| case count stale at 151 against 169 | corrected separately in the arc |
-
-Same census, same command, pointed at the three ledger files:
+**Now the one that is genuinely unbound.** `2026-08-16-timing-scan-binding-probes.md` binds its probes
+to `origin/fix/scanner-scope-totality` and prints the `git show` that materialises the scanner from it.
+No sha anywhere in the record. That branch is gone:
 
 ```
-$ node docs/superpowers/specs/ci/probes/scripts/2026-08-22-derived-number-census.mjs <dir holding BACKLOG.md, BACKLOG-archive.md, DEFERRED.md>
-
-| record | figures | derived A | derived B | figures >=100 | derived C |
-| `BACKLOG-archive.md` | 4075 | 1048 | 1688 | 800 | 34 |
-| `BACKLOG.md` | 1014 | 302 | 389 | 235 | 1 |
-| `DEFERRED.md` | 89 | 0 | 0 | 3 | 0 |
-| **total** | **5178** | **1350** | **2077** | **1038** | **35** |
-
-derived rate, reading C: 35/1038 = 3.4%
+$ git ls-remote origin 'refs/heads/fix/scanner-scope-totality' | wc -l
+0
 ```
 
-Under the collision-resistant reading, probe records sit at **35.1%** (72/205) and the ledger files at
-**3.4%** (35/1038) — a tenth the provenance rate over five times the population. Reading C is not a
-precision instrument for either corpus, per section 2; what it supports is the RATIO, since the same
-instrument with the same biases ran over both.
+The record names nothing a reader can fetch. A first draft of this section called all 16 records bound
+and described this one as "pinned"; it is not pinned, and the census now decides the question
+mechanically rather than by a reader's charity — a hex object id is immutable, a branch or remote ref
+moves and can be deleted.
 
-**So the row is scoped at the one population that already does this, and away from the one that does
-not.** That is not a criticism the row could have made of itself — it was filed from an arc whose own
-rot happened to surface in a probe record. It is what counting first was for.
+**The corrected count.** 16 files; `README.md` states no figures, leaving 15 records. Fourteen are
+bound: thirteen name an immutable anchor, and `2026-08-04-finding-format-probe.md` binds by
+declaration instead — its corpus is stated to be machine-local, deliberately uncommitted, and never
+re-run, which is an honest documented limit rather than a figure pretending to be reproducible. One,
+`2026-08-16-timing-scan-binding-probes.md`, is unbound, and its anchor has already died.
 
-The ledger population is NOT repaired here — class-sweep exception (a): the repair needs a scope
-decision this arc cannot make, since `BL-CLOSEOUT-COUNT-PROSE-DRIFT` is in flight on another branch
-and the boundary between the two had to be drawn by someone above both. It was: the orchestrator
-ruled on 2026-08-22 that this measurement meets the mint bar and the row is filed here, as
-`BL-LEDGER-FIGURE-PROVENANCE`, fenced against the closeout row in its own text.
+### The ledger comparison, and why it is not a ratio
 
-## 4. The sketched gate, sized and declined
+The first draft reported reading C over the three ledger files as 3.4% against the probe records'
+35.1% and called it a tenfold provenance gap. **That comparison is withdrawn.** Reading C measures
+whether a prose token reappears in a commanded block in the same file. Probe records structurally
+contain commanded fences; ledger prose structurally does not. The instrument's bias is not constant
+across the two genres, so "same instrument" does not license the ratio.
+
+The binding census does not transfer either, and the reason is a unit mismatch worth stating: it asks
+whether a DOCUMENT names an anchor, and a probe record is one measurement while `BACKLOG-archive.md`
+is hundreds of entries carrying 203 distinct object ids between them. At file granularity every ledger
+file passes trivially and the question is not being asked.
+
+What survives is not a measurement at all, and it is enough: **three of the parent row's four measured
+rot instances happened in ledger-class documents** — an archive entry quoting superseded durations, an
+audit transcript saying 7 live cases against a tier of 8, and a case count stale at 151 against 169.
+Sizing that population needs an entry-grained instrument that does not exist, which is why
+`BL-LEDGER-FIGURE-PROVENANCE` schedules building one as its first step rather than proposing a repair.
+
+## 4. The sketched gate, sized, and what it misses
 
 The row sketches: "a structural test can then require, for documents under
 `docs/superpowers/specs/ci/probes/`, that any line asserting a bare count near a `campaign.json`-shaped
 path also names the command that produced it."
 
-Sized against the live corpus: **39 lines match, 16 name a command on the line, 23 would red.** The
-command prints all 23 so precision can be judged by reading rather than by estimate.
+Sized against the corpus at `b52481446`: **39 lines match, 16 name a command on the line, 23 would
+red.** The script prints all 23 with their file line numbers so the classification below can be
+checked by reading rather than trusted.
 
-Classifying them by hand, the first pass found five that looked like genuine unprovenanced figures:
-`…shell-binding:189` (3425 files scanned), `…nested-hook:18` (11 literals, 16 sites) and `:20` (300
-cases), `…intraleg-process:130` (4049 lines), `…hook-population:184` (399 to 400). Section 3 retires all
-five — each record binds its figures in its own header, so none of the five is rot. The other 18 were
-never candidates:
-
-| verdict | count | shape |
+| verdict | count | lines |
 | --- | ---: | --- |
-| bound at document level by the record's header | 5 | the five above |
-| ordinal, not a count | 4 | probe / task / PR ordinals |
-| arithmetic shown inline, self-deriving | 3 | `1,847 − 57 − 40 = 1,750` and kin |
-| scenario or control-outcome table cell | 7 | `exit 2`, `0/7 perturbations`, `5/18` |
-| narrative about an earlier wrong figure | 4 | the probe reporting its own correction |
+| genuine figure about a live artifact — and every one is bound by its record's header | 6 | `shell-binding-mixed-quoted:364`, `nested-hook:18`, `nested-hook:20`, `intraleg-process:173`, `intraleg-process:177`, `hook-population:298` |
+| probe or task ordinal, not a count | 5 | `import-edge:206`, `:300`, `:756`, `:899`, `timing-scan:1652` |
+| arithmetic or derivation demonstrated in place | 3 | `gate-weight:134`, `:152`, `nested-hook:21` |
+| control-outcome table cell or data tuple | 6 | `shell-attached:144`, `:145`, `:146`, `:148`, `:149`, `hook-population:143` |
+| narrative or environment description, no artifact figure | 3 | `finding-format:15`, `gate-weight:125`, `browser-child:104` |
 
-**23 reds, 0 of them rot.** Not a tiering question: advisory-first does not rescue a signal with no true
-positives in its population, it just gives the noise a longer lifetime. The spec-lint citation arc
-already measured where this threshold sits — a hard code with an 11% false-positive floor gets waived
-reflexively (`BACKLOG.md`, 2026-08-15 reconciliation segment). This is 100%.
+**23 reds, 0 true positives — 100% false positives.** The six in the first row are real figures about
+real artifacts, and every one of them is already bound by its record's header, so the gate would be
+demanding provenance that is present three inches higher up the page. An earlier draft of this record
+called those six positives and reported 22% precision; §3's binding analysis retires all six, and 0%
+is the number.
 
-Widening the recognizer to fix the precision is the move this fleet has measured as losing: the
-speclint arc grew a JavaScript lexer one grammar corner per round across 20 diff rounds with the
-finding rate flat. Declined here before the first round rather than after the twentieth.
+**And the gate misses the one record that is actually unbound.** Not one of the 23 reds comes from the
+unbound content of `2026-08-16-timing-scan-binding-probes.md` — its single red, at line 1652, is a
+task ordinal. The rot in this corpus is a deleted branch name in a header, and a rule about bare counts
+near artifact paths cannot see it. A gate with no true positives that also misses the only true defect
+is not a tiering question; advisory-first gives noise a longer lifetime and still misses the thing.
+
+Widening the recognizer to fix the precision is this fleet's measured losing move: the speclint arc
+grew a JavaScript lexer one grammar corner per round across 20 diff rounds with the finding rate flat.
+Declined before round 1 rather than after round 20.
 
 **Also declined: a record-level presence check** ("every probe record names at least one producing
-command"). It has 100% precision on its own terms and reds on exactly one record of 16 —
-`2026-08-21-abort-reachability-correction.md`, which demonstration (d) shows is a false red, being one
-of the best-provenanced records in the corpus. A gate whose entire live yield is one false positive is
-theater.
+command"). It reds on exactly one record, `2026-08-21-abort-reachability-correction.md`, which §2(c)
+shows is a false red. One red, and it is wrong.
 
 ## 5. What ships
 
-**The convention, written down** — in the probe-directory README, because it is currently transmitted
-by imitation and a 16-for-16 practice with nothing stating it survives exactly as long as the people
-who learned it by reading their neighbours. Sharpened past the row's sketch by section 3: a producing
-command is necessary but not sufficient, because a commanded figure about the live tree rots the moment
-the tree moves. A figure is safe when it is **bound** — to a revision, a branch, a dated run, or a
-named script that re-derives it.
+**The convention**, in the probe directory's README, with the round's correction folded in: naming a
+producing command is not by itself a binding, because a command run against a moving tree answers
+differently tomorrow. A figure is bound when the record names an **immutable** anchor — an object id,
+or a declaration that the measurement is not reproducible and why. A branch name is not one, as
+`2026-08-16-timing-scan-binding-probes.md` now demonstrates.
 
-**No test**, for the reason section 2 gives rather than the one the row expected. The row's condition
-for closing as a convention was a small and shrinking hand-carried set; the honest answer is that the
-set's size is not measurable, and separately that the population has no unbound figures to catch.
+**No test**, for §4's measurement: zero true positives, and blind to the corpus's one real instance.
 
-**No repair to the corpus**, because there is nothing to repair. The 1127 in section 3 is correctly
-bound and stays as written; updating it to 1173 would re-arm the rot that binding prevents.
+**No corpus repair.** `2026-08-16-timing-scan-binding-probes.md` is a dated record of a measurement
+taken against a branch that no longer exists, and no edit can recover the tree it named. Rewriting its
+header now would be a guess dressed as provenance. It stands as the worked example the README's
+convention points at, which is worth more than a fabricated sha.
 
-**Re-open trigger for the ledger row**, stated so a future reader does not re-run this census to learn
-what it already answered. Not "the hand-carried set grew" — that quantity is not measurable, which is
-this record's finding. Two triggers, either sufficient:
-
-1. **A probe record ships stating a figure with no run context.** The convention is written down now,
-   so this is a convention violation with a named home, not a detection problem.
-2. ~~The ledger population gets an owner.~~ **Discharged in this PR** — 1,038 collision-resistant
-   figures at 3.4% provenance is where three of the row's four incidents live, and it is five times
-   the size of the population the row scopes. Filed as `BL-LEDGER-FIGURE-PROVENANCE` rather than
-   left as a trigger, so the first trigger above is the only one outstanding.
+**Re-open trigger:** a probe record ships stating a figure whose only anchor is mutable. The convention
+is written down now, so that is a convention violation with a named home rather than a detection
+problem. The census script prints the mutable-only list on every run for anyone who wants to check.

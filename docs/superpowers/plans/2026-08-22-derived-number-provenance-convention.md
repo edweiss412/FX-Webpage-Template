@@ -82,7 +82,14 @@ Steps:
    `**Reachability:** PROBED`, and the fence sentence against `BL-CLOSEOUT-COUNT-PROSE-DRIFT`).
 
 **Anti-tautology.** The acceptance for AC-3 is not "the record contains numbers." It is a re-run of
-the census at the recorded base with the output compared to the record — the failure mode it catches
+the census against the corpus at the recorded base with the output compared to the record. **A bare
+re-run at HEAD is the tautology to avoid here** — this arc's own commits added a record and a script
+to the population, so HEAD gives different figures and matching them would prove nothing. The corpus
+is materialised with `git archive b52481446 docs/superpowers/specs/ci/probes` and the instrument
+pointed at it; the record carries that recipe because the script did not exist at the base it names.
+Run 2026-08-22 after the round-1 repairs: both reproduction commands in the record's §0 were executed
+verbatim and every figure matched — the three rates, the 653-of-725 split, 13 of 16 immutable, the one
+mutable-only record, and 39/16/23 on the gate. Comparing that output to the record — the failure mode it catches
 is the one this whole arc is about, an author who wrote figures that his own command does not
 produce. Eating this row's cooking is the acceptance, so the check is executed, not described. The
 distinction is rule 360's: naming an audit is not running it, and the arc that first named this rot
@@ -90,13 +97,37 @@ population was caught by three of its members one hour later.
 
 <!-- tasks: end -->
 
+## 1.5 Spec review round 1 — what it changed
+
+Round 1 returned BLOCKING with 9 findings and every one was accepted; the repairs are in the commit
+that follows this plan's revision. Four are worth carrying here because they changed the deliverable
+rather than its prose:
+
+- **The census printed wrong line numbers for 19 of the 23 gate reds.** `split()` stripped fences
+  before numbering, so the reported line was an index into the stripped array. Fixed at the source;
+  the hand classification in the record's §4 was then redone against correct locations and its
+  partition changed.
+- **A producing command is not a binding**, and the corpus had the counterexample all along. This is
+  now the convention's central rule rather than one of two alternatives, and the census mechanizes
+  the immutable-versus-mutable anchor distinction it turns on.
+- **The probe-versus-ledger provenance ratio is withdrawn.** The instrument's bias is not constant
+  across the two genres. `BL-LEDGER-FIGURE-PROVENANCE` now rests on its incidents alone.
+- **The record claimed one command produced every figure in it.** It did not — `git` commands and a
+  hand classification produce several. The record's §0 now names a producer per claim, which is the
+  arc's own subject applied to the arc.
+
 ## 2. What is deliberately not in this plan
 
 - **No test task**, because no test ships. §4 limit 1 of the spec carries the reasoning and the
   measurement that declined it.
-- **No corpus repair task.** The population has nothing to repair — §2.2 of the spec — and the one
-  figure that looked stale is correctly bound by its record's header, which the probe record records
-  as a wrong first answer rather than quietly dropping.
+- **No corpus repair task, and this is a decision rather than an absence.** Spec review round 1 found
+  one record that IS unbound: `2026-08-16-timing-scan-binding-probes.md` anchors its probes to
+  `origin/fix/scanner-scope-totality`, names no sha, and that branch has been deleted. It is
+  unrepairable — no edit recovers the tree it measured, and writing a plausible sha into its header
+  would be a guess wearing provenance's clothes. It ships as the README's worked counterexample
+  instead, which is worth more than a fabricated anchor. Separately, the figure that LOOKED stale (a
+  1127-vs-1173 file count) is correctly bound by its record's header; the probe record keeps that as
+  a recorded wrong first answer rather than quietly dropping it.
 - **No layout-dimensions or transition-audit task.** No UI surface.
 - **AC-7** (the in-progress marker comes off in the PR's last commit before merge) is a merge-time
   step under invariant 12, not a task here.

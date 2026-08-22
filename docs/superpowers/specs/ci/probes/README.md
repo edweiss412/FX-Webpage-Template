@@ -18,22 +18,30 @@ Written under the probe-before-argue rule in [`../../../../agents/spec-self-revi
 ## Stating a figure
 
 A figure a record states about an artifact — a count, a duration, a score, a size — is **bound** or it
-rots. Bound means a reader can tell what the figure was measured against:
+rots. Bound means a reader can still tell, later, what the figure was measured against.
 
-- **a revision** — a sha, a branch plus a base, a dated run. A measurement is permanently true of the
-  tree it measured, so a bound figure never goes stale; its subject moves and the figure stays correct
-  about the tree it names.
-- **a producing command or committed script**, so it can be re-derived. Name it beside the figure, or
-  once in the record's header covering every figure below.
+**The anchor has to be immutable.** A commit sha, a blob id, a tag that does not move. A branch or a
+remote ref is not an anchor: it moves, and it can be deleted, and then the record names nothing at
+all. `2026-08-16-timing-scan-binding-probes.md` is the worked example — it pins its probes to
+`origin/fix/scanner-scope-totality` and prints the `git show` that materialises them, names no sha
+anywhere, and that branch no longer exists.
 
-Either satisfies it. A header line — *"Run 2026-08-21 on `branch` at `abc1234`"* — binds a whole record
-in one sentence, and that is how every record here already does it.
+**Naming the producing command is not by itself a binding.** It says how the figure was derived, not
+what it was derived from, and a command run against a moving tree answers differently tomorrow. Name
+the command *and* the revision. One header line does both for a whole record:
+
+> Run 2026-08-21 on `fix/some-branch` at `abc1234`.
+
+**A measurement that genuinely cannot be reproduced binds by declaration instead** — say so, and say
+why. `2026-08-04-finding-format-probe.md` does this: its corpus is machine-local, deliberately
+uncommitted, and nothing re-runs it. An honest documented limit beats a figure pretending to be
+reproducible.
 
 The population this protects is narrow and worth naming: a figure asserting a property of the **live
-tree** with nothing saying which tree. Those are the ones that pass through a person between the
-measurement and the page, and they are the ones that rot. A figure the record derives and prints
-alongside its command was never at risk.
+tree** with nothing immutable saying which tree. Those are the ones that pass through a person between
+the measurement and the page.
 
-There is no lint for this. `2026-08-22-derived-number-population-census.md` measured the alternative:
-the per-figure classification is not stable across three defensible readings, and the gate that was
-sketched for it fires 23 times on this corpus with a yield of zero. The convention is the mechanism.
+There is no lint for this, and `2026-08-22-derived-number-population-census.md` is why: the gate that
+was sketched for it reds 23 times on this corpus with zero true positives, and misses the one record
+that is actually unbound. The convention is the mechanism. The census script beside this README prints
+the mutable-only list on every run if you want to check a record against it.

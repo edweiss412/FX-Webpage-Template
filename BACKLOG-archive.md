@@ -2,56 +2,59 @@
 
 **Status:** RESOLVED 2026-08-22 — CONVENTION, NO TEST · **Effort (as shipped):** S (filed M; the count retired the test that made it M) · **Facing:** process · **Class:** documentation fidelity · **Shipped by:** `docs/derived-numbers-provenance` · **Spec:** `docs/superpowers/specs/ci/2026-08-22-derived-number-provenance-convention.md` · **Probe record:** `docs/superpowers/specs/ci/probes/2026-08-22-derived-number-population-census.md`
 
-**Resolution.** The row's own first scheduled step decided it, and overturned both halves of the
-reasoning that scheduled it. A `## Stating a figure` section now sits in the probe directory's README
-saying that a figure about an artifact is bound — to a revision, a dated run, or a producing command
-or committed script — and that a header line binds a whole record in one sentence. No lint, no
-meta-test, no CI wiring.
+**Resolution.** The row's own first scheduled step decided it. A `## Stating a figure` section now sits
+in the probe directory's README requiring an IMMUTABLE anchor — an object id, or an honest declaration
+that a measurement is not reproducible and why. No lint, no meta-test, no CI wiring.
 
-**The count, at base `b52481446`, by `node docs/superpowers/specs/ci/probes/scripts/2026-08-22-derived-number-census.mjs`:**
+**The sharpening the count produced, and it is the part worth keeping.** The row proposed that a figure
+either carry its producing command or be script-assembled. **That is not sufficient.** A command says
+how a figure was derived, not what from, and a command run against a moving tree answers differently
+tomorrow. The corpus supplied the counterexample: `2026-08-16-timing-scan-binding-probes.md` anchors
+every probe in it to `origin/fix/scanner-scope-totality` and prints the `git show` that materialises the
+scanner from it — a producing command, exactly as the row asked — and names no sha anywhere. That branch
+has since been deleted (`git ls-remote origin 'refs/heads/fix/scanner-scope-totality'` returns nothing),
+so the record now names nothing a reader can fetch. Fourteen of the fifteen figure-stating records are
+bound; that one is not, and it is unrepairable — no edit recovers the tree it measured, and inventing a
+plausible sha would be a guess wearing provenance's clothes. It stands as the README's worked
+counterexample.
 
-**Half one — the hand-carried set's SIZE is not measurable.** Three defensible readings of "derived"
-give 31.7%, 59.7% and 35.1% over the same 16 records. Reading B beats reading A only because 653 of
-its 725 derived figures are single-digit token collisions; restricting to figures >= 100 collapses
-the corpus's best-scoring record from 166 derived to zero. And the decisive one: the record scoring
-0 of 7 under every reading, `2026-08-21-abort-reachability-correction.md`, is on inspection one of
-the best-provenanced in the corpus — it binds by blob hash and indented transcript instead of by
-fenced block, and every classifier built here is blind to the difference. A classifier that inverts
-the ranking on its clearest case is measuring a formatting habit, not provenance. This is rule 358's
-boundary-dependent-counts form arriving in documents instead of code, and the repair is the same:
-stop reporting the count, shift to the predicate that survives every reading.
+**Why no test, measured rather than argued.** The gate the row sketched — a bare count near an
+artifact path must name its producing command — reds 23 times on the corpus at `b52481446` with **zero
+true positives**. Its reds are probe and task ordinals, arithmetic demonstrated in place,
+control-outcome table cells, narrative, and six genuine figures that are each already bound by their
+record's header. It is also blind to the one genuinely unbound record above: that file's single red is
+a task ordinal, so the rule fires on the wrong lines of the right file. A gate with no true positives
+that also misses the only true defect is not a tiering question. A record-level presence check fares
+worse still — one red, and it is false.
 
-**Half two — it does not matter, because the population has nothing to catch.** All 16 records bind
-their figures to a run context, four of them by means the census's own regex cannot see (a branch
-pin with its `git show`, a dated run with a declared no-re-run scope, a named driver script). The
-gate the row sketched would fire 23 times with a yield of ZERO: its reds are ordinals, inline
-arithmetic, control-outcome table cells, and figures already bound by their record's header. A
-record-level presence check fares no better — one red, and it is the false one above.
+**And the classification the row asked for is not mechanizable.** Three variants of one token-matching
+heuristic give 31.7%, 59.7% and 35.1%; 653 of the best variant's 725 hits are single-digit
+coincidences. The spread alone proves only that the heuristic is unreliable — that correction came
+from spec review round 1 and is carried in the record. What settles it is that the record scoring zero
+under every variant, `2026-08-21-abort-reachability-correction.md`, is on inspection one of the
+best-provenanced in the corpus: it names the blob it mutated and the blob it produced, the exact
+condition edit, and the verbatim vitest line, using indented transcript instead of fenced blocks. No
+adjustment to a token rule reaches that, and the partition that does work is a hand classification,
+affordable at 23 lines and nowhere beyond.
 
-**The row's own near-miss, recorded because it is the defect the row is about.** A first pass called
-`2026-08-20-claim-sweep-after-repair-probes.md:56` live rot: it states 1127 tracked
-`docs/superpowers` markdown files and the tree says 1173. The record's header says "each number here
-is dated to its commit" and names the base. Checking a figure against the tree without checking it
-against its own record's binding is half a check, and it produced a confident wrong answer first.
+**The rot is not in the population the row scoped.** Three of its four measured instances happened in
+ledger-class documents. A first draft sized that with the same census and reported a tenfold
+provenance gap; **that comparison was withdrawn in review** — the instrument asks whether a prose
+figure reappears in a commanded block in the same file, probe records structurally carry such blocks
+and ledger prose does not, so no ratio between the genres is licensed, and the binding census that
+replaced it has a document-sized unit while a ledger file holds hundreds of entries. Filed as
+`BL-LEDGER-FIGURE-PROVENANCE` on the orchestrator's 2026-08-22 ruling, resting on the incidents rather
+than on a number, with its overlap against `BL-CLOSEOUT-COUNT-PROSE-DRIFT` allocated by a stated rule
+(the owner is the document a figure is STATED IN) rather than declared absent.
 
-**Where the rot actually is, and it is not here.** Three of this row's four measured instances
-happened in ledger-class documents, not probe records. The same instrument over `BACKLOG.md`,
-`BACKLOG-archive.md` and `DEFERRED.md`: 35 of 1038 collision-resistant figures derived, 3.4%, against
-the probe records' 72 of 205, 35.1% — five times the population at a tenth the rate. The row was
-scoped at the one population that already does this. Filed as `BL-LEDGER-FIGURE-PROVENANCE` on the
-orchestrator's ruling of 2026-08-22, fenced against `BL-CLOSEOUT-COUNT-PROSE-DRIFT`, which owns
-closeout certifications rather than ledger figures.
+**Re-open trigger:** a probe record ships stating a figure whose only anchor is mutable. The convention
+is written down now, so that is a convention violation with a named home rather than a detection
+problem, and the census script prints the mutable-only list on every run.
 
-**Re-open trigger, one, conjunctive with nothing.** A probe record ships stating a figure with no run
-context. The convention is written down now, so that is a convention violation with a named home
-rather than a detection problem. The row's other candidate trigger — the ledger population getting
-an owner — is DISCHARGED, not recorded: it got one in the same PR.
-
-**Declined and fenced so it is not rebuilt.** The per-figure detector, for the measurement above.
-Widening a recognizer to rescue its precision is this fleet's measured losing move, and the census
-script must not be promoted into a gate without re-deriving half one — its three readings exist to
-show they disagree, and an arc that picks one and gates on it ships the instability rather than
-removing it.
+**Declined and fenced so it is not rebuilt.** The per-figure detector, for the measurement above. The
+census script must not be promoted into a gate without re-deriving that measurement — its three
+readings exist to show a token-matching classifier cannot be trusted here, and an arc that picks one
+and gates on it ships the unreliability instead of removing it.
 
 ## BL-PANE-COMPACTION-SEND-AUTHORIZATION — the pane-compaction send path needs its own arc — CLOSED 2026-08-21
 

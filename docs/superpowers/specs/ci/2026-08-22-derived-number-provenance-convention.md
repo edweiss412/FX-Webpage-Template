@@ -5,9 +5,12 @@
 ## §0 The bound this arc is held to
 
 A probe record states figures about artifacts. Each figure is either bound to what it was measured
-against — a revision, a dated run, a named script — or it silently stops being true when its subject
-moves. This arc makes the binding a written convention. It ships no detector, so it has no false
-positives to bound; the failure it can produce is a convention nobody follows, not a wrong verdict.
+against or it silently stops being true when its subject moves — and **the anchor has to be
+immutable**, which is the round-1 correction this spec now carries: naming a producing command says
+how a figure was derived, not what it was derived from, and a command run against a moving tree
+answers differently tomorrow. This arc makes that a written convention. It ships no detector, so it
+has no false positives to bound; the failure it can produce is a convention nobody follows, not a
+wrong verdict.
 
 ## §1.1 Resolved scope — do not relitigate
 
@@ -43,8 +46,12 @@ positives to bound; the failure it can produce is a convention nobody follows, n
 
 - **Consequence bound.** No document is silently corrupted by this arc, because this arc reads
   documents and writes one paragraph of convention plus one record. The bound it must meet is that
-  every claim it makes about the corpus is produced by the committed census script and dated to the
-  base it ran on.
+  **every claim it makes about the corpus names its own producer**, and the producer set is mixed by
+  design: the census script produces the population, the rates, the binding census and the 23 reds;
+  `git` commands produce the file counts and the dead-ref check; and a person produces the verdict on
+  which reds are genuine. The probe record's §0 states this per claim in a table. Round 1 found the
+  first draft claiming one command produced all of it — a claim wider than its evidence, which is the
+  exact defect this row is about.
 - **PROBE DOMAIN.** `docs/superpowers/specs/ci/probes/**` at base `b52481446`, files walked from
   disk. A probe outside that domain, or more than one ordinary edit from an input in it, files to
   documented limits rather than to a finding. The ledger files appear in the probe record's §3 as a
@@ -65,91 +72,109 @@ positives to bound; the failure it can produce is a convention nobody follows, n
 
 ## §2 What the count found
 
-Summarised for a reader who will not open the record. **Every figure in this section is an observation
-at base `b52481446`**, produced by
-`docs/superpowers/specs/ci/probes/scripts/2026-08-22-derived-number-census.mjs` and recorded with its
-full method in the probe record. They are bound, not current: the corpus grows, and a later reader
-re-runs the command rather than trusting these. That is this arc's own convention applied to this arc's
-own spec, and it is the reason these figures may stand here at all.
+Summarised for a reader who will not open the record. **Every figure here is an observation of the
+probe directory at `b52481446`**, and the probe record's §0 names the producer of each and gives the
+commands that reproduce them — including the `git archive` step, since the census script did not exist
+at the commit it measures.
 
-1. **Per-figure classification is not stable.** Three defensible readings of "derived" disagree by
-   roughly 2x over the same corpus, and inspection overturns the reading that scores each record
-   highest. Four independent demonstrations, the decisive one being that the corpus's
-   worst-scoring record is on reading one of its best-provenanced — it binds by blob hash and
-   indented transcript instead of by fenced block, and every classifier built here is blind to the
-   difference.
-2. **The population has no unbound figures.** Every record in the domain declares its run context,
-   four of them by means the census's own regex cannot see (branch pin, dated run with a declared
-   no-re-run scope, named driver script).
-3. **The gate the row sketches would fire and catch nothing.** Its reds are ordinals, inline
-   arithmetic, control-outcome table cells, and figures already bound by their record's header.
-4. **The rot is in the documents that quote probe records**, not in probe records. Three of the
-   row's own four incidents live there, and the comparison group measures an order of magnitude
-   worse provenance over several times the population.
+1. **A token-matching classifier cannot decide provenance here.** Three variants of one heuristic
+   disagree, and 653 of the best variant's 725 hits are single-digit coincidences. The spread is not
+   the argument, though, and round 1 was right to say so: three variants of one heuristic disagreeing
+   shows the heuristic is unreliable, not that the quantity is undefined. The decisive demonstration
+   is that the record scoring zero under every variant is on inspection one of the best-provenanced in
+   the corpus, because it uses indented transcript and blob ids instead of fenced blocks. No
+   adjustment to a token rule reaches that.
+2. **The gate the row sketches has zero true positives.** 39 lines match its shape and 23 would red:
+   ordinals, in-place arithmetic, control-outcome cells, narrative, and six real figures that are
+   already bound by their record's header.
+3. **One record is genuinely unbound, and the gate cannot see it.** Fourteen of the fifteen
+   figure-stating records name an immutable anchor, or declare honestly why the measurement is not
+   reproducible. The fifteenth anchors to `origin/fix/scanner-scope-totality`, names no sha, and that
+   branch has been deleted. Its single gate red is a task ordinal — the rule reds on the wrong lines
+   of the right file.
+4. **The rot the row was filed from is in the documents that quote probe records** — three of its four
+   measured instances. A first draft sized that population with the census and reported a tenfold
+   ratio; round 1 refuted the inference and the comparison is **withdrawn**. The instrument's bias
+   differs by genre (probe records structurally carry commanded fences, ledger prose does not) and its
+   unit is a document while a ledger file holds hundreds of entries. What stands is the incident
+   evidence, which is what `BL-LEDGER-FIGURE-PROVENANCE` rests on.
 
 ## §3 What ships
 
-**One paragraph of convention** in `docs/superpowers/specs/ci/probes/README.md`, under a
-`## Stating a figure` heading: a figure about an artifact is bound to a revision, a dated run, or a
-producing command or committed script; a header line binds a whole record in one sentence; the
-narrow population it protects is a figure asserting a property of the live tree with nothing saying
-which tree.
+**The convention** in `docs/superpowers/specs/ci/probes/README.md`, under a `## Stating a figure`
+heading: the anchor must be **immutable** (an object id, or an honest declaration that the measurement
+is not reproducible and why); a branch or remote ref is not one; naming a producing command says how a
+figure was derived, not what from, so the command and the revision are named together; one header line
+does both for a whole record. `2026-08-16-timing-scan-binding-probes.md` is cited in the README as the
+worked counterexample.
 
 **The census script**, committed as probe apparatus at
-`docs/superpowers/specs/ci/probes/scripts/2026-08-22-derived-number-census.mjs`. It is re-runnable
-and takes a root argument, which is how the comparison group was measured. It is not wired into any
-gate and nothing runs it automatically.
+`docs/superpowers/specs/ci/probes/scripts/2026-08-22-derived-number-census.mjs`. It takes a root
+argument, prints file-accurate line numbers for every gate red, and prints the mutable-only binding
+list on every run. It is wired into no gate and nothing runs it automatically.
 
-**The probe record**, with its index row in the directory README.
+**The probe record**, with its index row in the directory README. Its §0 names the producer of every
+claim in it and carries the exact reproduction commands, since the script postdates the corpus it
+measures.
 
-**The ledger row archived** to `BACKLOG-archive.md` with the count as its evidence, and its re-open
-trigger recorded: a probe record shipping an unbound figure. The row's second trigger is discharged
-rather than recorded, because the ledger population gets an owner in this same PR.
+**The parent row archived** to `BACKLOG-archive.md` with the count as its evidence and one re-open
+trigger: a probe record shipping a figure whose only anchor is mutable.
 
-**A new ledger row, `BL-LEDGER-FIGURE-PROVENANCE`**, filed in `BACKLOG.md` for the comparison group.
-It carries the census as probe evidence and the parent row's incidents as its cost event — three of
-those four happened in ledger files — and a boundary sentence fencing it against
-`BL-CLOSEOUT-COUNT-PROSE-DRIFT`, which owns closeout certifications rather than ledger figures.
+**A new ledger row, `BL-LEDGER-FIGURE-PROVENANCE`**, for the population the parent row's own incidents
+actually came from. It rests on those incidents, not on the withdrawn ratio, and it allocates its
+overlap with `BL-CLOSEOUT-COUNT-PROSE-DRIFT` explicitly rather than asserting there is none.
 
-Nothing else. No lint, no meta-test, no CI wiring, no corpus repair — the corpus has nothing to
-repair, which is §2.2.
+Nothing else. No lint, no meta-test, no CI wiring.
+
+**And no corpus repair, which is a decision rather than an absence.**
+`2026-08-16-timing-scan-binding-probes.md` is unbound and unrepairable: the branch it names is gone, so
+no edit recovers the tree it measured, and writing a plausible sha into its header would be a guess
+wearing provenance's clothes. It stands as the README's worked counterexample, which is worth more.
 
 ## §4 Documented limits
 
-1. **The convention is unenforced, deliberately.** A record can violate it and merge. The
-   alternative was measured and declined in the probe record's §4: at base `b52481446` the sketched
-   gate reds 23 times with a yield of zero, and a record-level presence check yields one false
-   positive and nothing else. An unenforced convention that every existing record already follows is a weaker mechanism
-   than a lint and a stronger one than a lint nobody trusts.
-2. **The census script is not a guard and must not be promoted into one** without re-deriving §2.1.
-   Its three readings exist to show they disagree. A future arc that picks one and gates on it will
-   ship the instability, not remove it.
-3. **The ledger-file comparison is a ratio, not a precision measurement.** Reading C is not accurate
-   for either corpus; it supports the comparison because the same instrument with the same biases
-   ran over both. A finding that quotes either rate as a corpus's true provenance rate has misread
-   the instrument, and `BL-LEDGER-FIGURE-PROVENANCE` says so on the row.
+1. **The convention is unenforced, deliberately.** A record can violate it and merge. The alternative
+   was measured and declined in the probe record's §4: at base `b52481446` the sketched gate reds 23
+   times with **zero true positives**, and it is blind to the corpus's one genuinely unbound record.
+   A record-level presence check fares worse — one red, and it is a false one.
+2. **The census script is not a guard and must not be promoted into one.** Its three readings exist
+   to show that a token-matching classifier is unreliable here; an arc that picks one and gates on it
+   ships that unreliability rather than removing it. The binding census it also prints is a different
+   and sounder signal, but it answers a per-DOCUMENT question and would need a new unit before it
+   could gate anything finer.
+3. **The ledger comparison is withdrawn, not weakened.** Reading C measures whether a prose token
+   reappears in a commanded block in the same file; probe records structurally carry such blocks and
+   ledger prose does not, so the instrument's bias is not constant across the genres and no ratio
+   between them is licensed. The binding census does not transfer either — its unit is a document,
+   and a ledger file holds hundreds of entries. Sizing the ledger population needs an entry-grained
+   instrument that does not exist, which is `BL-LEDGER-FIGURE-PROVENANCE`'s first scheduled step.
 4. **`README.md`'s index table omits several records that predate this arc** (observed at base
-   `b52481446`). That is an index
-   completeness defect, a different class from figure provenance, and it is left alone rather than
-   swept in — this arc adds only its own row. Named here so it is a decision rather than an
-   oversight.
+   `b52481446`). An index-completeness defect, a different class from figure provenance, left alone
+   rather than swept in — this arc adds only its own row. Named here so it is a decision rather than
+   an oversight.
+5. **The hand classification in the probe record's §4 is a judgment, and is checkable because the
+   population is printed.** Twenty-three lines is the scale at which that is affordable. It does not
+   generalise, and nothing here proposes it should.
 
 ## §5 Acceptance criteria
 
 - **AC-1.** `docs/superpowers/specs/ci/probes/README.md` carries a `## Stating a figure` section
-  naming both binding forms (revision and producing command/script) and stating that a header line
-  binds a whole record.
+  requiring an IMMUTABLE anchor, stating that a branch or remote ref is not one, stating that a
+  producing command alone is not a binding, and citing the corpus's worked counterexample.
 - **AC-2.** The census script runs from a clean checkout with no arguments and exits 0, printing the
   three readings, the tokenizer sensitivity table, the tree-binding census, and every line the
   sketched gate would red on.
-- **AC-3.** The probe record states its base sha and its producing command, and every figure in it
-  is reproducible by running that command at that base. This arc is subject to its own convention.
+- **AC-3.** The probe record names the corpus it measured (`b52481446`), names a producer for every
+  claim it makes, and carries commands that actually reproduce them — including the `git archive` step
+  the script's own later arrival makes necessary. Verified by running them, not by reading them. This
+  arc is subject to its own convention.
 - **AC-4.** The probe record has an index row in the directory README.
 - **AC-5.** `BL-DERIVED-NUMBERS-IN-DOCS-ROT` is absent from `BACKLOG.md` and present in
   `BACKLOG-archive.md`, carrying the count as evidence and both re-open triggers.
-- **AC-6.** `BL-LEDGER-FIGURE-PROVENANCE` is present in `BACKLOG.md` with `**Facing:** process`, an
-  `**Incident:**` field citing the parent row's measured findings, a `**Reachability:** PROBED` field
-  citing this arc's census, and one sentence fencing it against `BL-CLOSEOUT-COUNT-PROSE-DRIFT`.
+- **AC-6.** `BL-LEDGER-FIGURE-PROVENANCE` is present in `BACKLOG.md` with `**Facing:** process` and
+  an `**Incident:**` field citing the parent row's measured findings; it does NOT cite the withdrawn
+  ratio as evidence; and it ALLOCATES the overlap with `BL-CLOSEOUT-COUNT-PROSE-DRIFT` — a closeout
+  count stated inside a ledger entry belongs to exactly one of them, and the row says which.
 - **AC-7.** The ledger row's in-progress marker is removed in the PR's last commit before merge.
 
 ## §6 Lint disposition

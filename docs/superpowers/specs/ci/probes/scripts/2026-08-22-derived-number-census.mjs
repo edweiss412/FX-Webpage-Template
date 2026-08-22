@@ -45,6 +45,14 @@ const NUM = /(?<![\w.])\d+(?:[.,]\d+)*(?![\w.])/g;
 // not overturn.
 const TREE_BINDING = /\b(?:at|on|base|blob|sha|commit|revision|branch point)\b[^.\n]{0,40}`?\b[0-9a-f]{7,40}\b/i;
 
+// A binding is only as good as the anchor it names. A hex object id is IMMUTABLE:
+// the tree it names cannot change. A branch or remote ref is MUTABLE: it moves,
+// and it can be deleted, at which point the record names nothing at all. Spec
+// review round 1 found exactly that case, so the distinction is mechanized here
+// rather than left to a reader.
+const MUTABLE_REF = /`?\b(?:origin|upstream)\/[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*\b`?/g;
+const IMMUTABLE_ANCHOR = /`?\b(?=[0-9a-f]*\d)[0-9a-f]{7,40}\b`?/g;
+
 const norm = (t) => t.replace(/,/g, '').replace(/\.$/, '');
 
 function walk(dir, out = []) {
@@ -66,7 +74,10 @@ function split(text) {
   let fence = null;
   let buf = [];
   let preamble = [];
-  for (const line of text.split('\n')) {
+  const lines = text.split('\n');
+  let lineNo = 0;
+  for (const line of lines) {
+    lineNo += 1;
     if (/^\s*```/.test(line)) {
       if (fence === null) {
         fence = line;
@@ -83,11 +94,17 @@ function split(text) {
       continue;
     }
     if (fence === null) {
-      prose.push(line);
+      prose.push({ text: line, lineNo });
       preamble.push(line);
     } else buf.push(line);
   }
-  if (fence !== null) prose.push(...buf);
+  // An unterminated fence is content nobody fenced deliberately; it is prose,
+  // and its lines keep the numbers they have in the file.
+  if (fence !== null) {
+    for (let k = 0; k < buf.length; k += 1) {
+      prose.push({ text: buf[k], lineNo: lines.length - buf.length + k + 1 });
+    }
+  }
   return { prose, withCmdInside, withCmdInPreamble, bare };
 }
 
@@ -99,7 +116,7 @@ let rawTokens = 0;
 for (const file of files) {
   const text = readFileSync(file, 'utf8');
   const { prose, withCmdInside, withCmdInPreamble, bare } = split(text);
-  const proseText = prose.join('\n');
+  const proseText = prose.map((l) => l.text).join('\n');
   rawTokens += (proseText.match(NUM) ?? []).length;
 
   let stripped = proseText;
@@ -128,6 +145,8 @@ for (const file of files) {
     blocks: withCmdInside.length + withCmdInPreamble.length + bare.length,
     commandedBlocks: withCmdInside.length + withCmdInPreamble.length,
     treeBound: (text.match(TREE_BINDING) ?? []).length,
+    immutableAnchors: new Set(text.match(IMMUTABLE_ANCHOR) ?? []).size,
+    mutableRefs: new Set(text.match(MUTABLE_REF) ?? []).size,
   });
 }
 
@@ -178,12 +197,21 @@ console.log('');
 console.log('A figure that names the revision it was measured on is permanently true of that');
 console.log('revision and cannot rot. Records carrying at least one such binding:');
 console.log('');
-console.log('| record | tree-binding phrases |');
-console.log('| --- | ---: |');
-for (const r of rows) console.log(`| \`${r.file}\` | ${r.treeBound} |`);
+console.log('| record | tree-binding phrases | immutable anchors | mutable refs |');
+console.log('| --- | ---: | ---: | ---: |');
+for (const r of rows)
+  console.log(`| \`${r.file}\` | ${r.treeBound} | ${r.immutableAnchors} | ${r.mutableRefs} |`);
 console.log('');
 console.log(
-  `records with at least one tree binding: ${rows.filter((r) => r.treeBound > 0).length} of ${rows.length}`,
+  `records with at least one tree-binding phrase: ${rows.filter((r) => r.treeBound > 0).length} of ${rows.length}`,
+);
+console.log(
+  `records naming at least one IMMUTABLE anchor: ${rows.filter((r) => r.immutableAnchors > 0).length} of ${rows.length}`,
+);
+const mutableOnly = rows.filter((r) => r.mutableRefs > 0 && r.immutableAnchors === 0);
+console.log(
+  `records whose ONLY named anchor is a MUTABLE ref: ${mutableOnly.length}` +
+    (mutableOnly.length ? ` — ${mutableOnly.map((r) => r.file).join(', ')}` : ''),
 );
 
 // The population the ledger row's sketched test would range over.
@@ -192,16 +220,16 @@ const BARE_COUNT = /(?<![\w.$])\d+(?![\w.%])/;
 const anchored = [];
 for (const file of files) {
   const { prose } = split(readFileSync(file, 'utf8'));
-  prose.forEach((line, i) => {
-    let s = line;
-    for (const [, re] of EXCLUSIONS) s = s.replace(re, ' ');
-    if (!ARTIFACT_PATH.test(line) || !BARE_COUNT.test(s)) return;
+  for (const { text: line, lineNo } of prose) {
+    let stripped = line;
+    for (const [, re] of EXCLUSIONS) stripped = stripped.replace(re, ' ');
+    if (!ARTIFACT_PATH.test(line) || !BARE_COUNT.test(stripped)) continue;
     anchored.push({
-      loc: `${relative(ROOT, file)}:${i + 1}`,
+      loc: `${relative(ROOT, file)}:${lineNo}`,
       named: COMMAND_IN_PROSE.test(line),
       text: line.trim(),
     });
-  });
+  }
 }
 console.log('');
 console.log("## The row's sketched test, sized against the live corpus");
