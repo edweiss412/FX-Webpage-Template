@@ -433,8 +433,13 @@ together when they differ:
 ```
 
 `sync_log` retains `anon`/`authenticated` SELECT behind its `admin_only` policy; `app_events` grants
-them nothing. Neither grants DELETE to either role, so the prune functions remain the only DELETE path
-for both — which is what makes a gate inside those functions a complete gate for accidental deletion.
+them nothing. Neither grants DELETE to `anon` or `authenticated`, so no runtime session can delete from either table.
+`service_role` holds full DML on both (`supabase/migrations/20260629000002_app_events.sql:29`,
+`supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:54`), so a direct
+`delete from public.sync_log` remains reachable to a service-role caller: this gate closes the PRUNE
+path, not every path. That residue is the client-side destructive-statement guard's subject (a literal
+DELETE is exactly the shape `DESTRUCTIVE_STATEMENT_PATTERNS` does match), which is why the filing row
+scoped this work to the prunes — the functions no recognizer reliably sees. Recorded as §4.6.
 
 ---
 
@@ -476,6 +481,16 @@ into a Vitest run; every current row points at a `.ts` file. A SQL function in a
 overlaid by that runner, so this arc enrols nothing rather than enrolling symbolically — the disposition
 the step3 tap-target probe reached for its Playwright surface. The equivalent proof here is AC-1 to AC-5:
 the refusal is asserted by execution against a real database, in every posture state.
+
+### §4.6 A direct `delete from` remains reachable to a service-role caller
+
+`service_role` holds full DML on both tables (`supabase/migrations/20260629000002_app_events.sql:29`,
+`supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:54`), so this gate closes the PRUNE
+path and not every path: a caller who writes `delete from public.sync_log where …` still deletes. That
+is deliberate scope, not an oversight. A literal DELETE is the shape the client-side
+destructive-statement recognizer DOES match reliably, which is why the filing row scoped this arc to the
+two functions — the calls no recognizer sees. Re-file trigger: a measured incident where a literal
+DELETE reaches validation despite that recognizer.
 
 ### §4.5 `dev.*` is untouched
 
@@ -532,11 +547,16 @@ prunes delete GLOBALLY: an ungated call takes every row past the cutoff, not the
 or half-applied gate is therefore a probe that PERFORMS that deletion when the gate is broken — the
 exact failure the arc exists to prevent, committed by its own acceptance test. So:
 
-1. Every call in AC-1 to AC-5 that could delete — including the marker-`false` cases that are SUPPOSED
-   to delete — runs inside a transaction that is ALWAYS rolled back, and the suite asserts the rollback
-   happened by re-reading outside it (`tests/db/syncLogIndexesAndPrune.db.test.ts:180-186` is the
-   precedent, and its header at `tests/db/syncLogIndexesAndPrune.db.test.ts:6-8` records why: a committing prune permanently deletes unrelated
-   local rows and nothing notices).
+1. **Every call to either prune function, in every criterion, probe and script this arc ships, runs
+   inside a transaction that is ALWAYS rolled back** — including the marker-`false` cases that are
+   SUPPOSED to delete, and including the live validation limb of AC-6. No call is exempted by an
+   argument that it cannot delete: R3 and R4 each found one such argument to be wrong (an unbounded
+   default call, then a 100-year window whose emptiness was checked in a separate autocommitted
+   statement), so the rule is structural and admits no per-call reasoning. The rollback is asserted by
+   re-reading outside the transaction and the suite asserts the rollback
+   happened by re-reading outside it (`tests/db/syncLogIndexesAndPrune.db.test.ts:180-186` is the precedent, and its header at
+   `tests/db/syncLogIndexesAndPrune.db.test.ts:6-8` records why: a committing prune permanently deletes
+   unrelated rows and nothing notices).
 2. Each EXPECTED exception is isolated — its own transaction, savepoint, or plpgsql block with an
    exception handler that re-raises anything not matching `prune not enabled%`. An uncaught exception
    aborts the enclosing transaction, so a naive shared transaction would make every assertion after the
@@ -566,27 +586,31 @@ exact failure the arc exists to prevent, committed by its own acceptance test. S
   `tests/db/syncLogIndexesAndPrune.db.test.ts` and `tests/log/appEventsSchema.test.ts` pass UNCHANGED —
   a no-edit criterion: any edit to either file to accommodate the gate is a design failure, not a repair.
 - **AC-5 — the pinned function properties survive, for BOTH functions.** `prosecdef`, `proconfig`, the
-  `retain interval DEFAULT '60 days'` argument list, and `service_role`-only execute are asserted after
-  the change, plus `prolang` = `plpgsql` so the language move is declared. This criterion reads the
+  `retain interval DEFAULT '60 days'` argument list, and the execute grants (`service_role` yes,
+  `anon`/`authenticated` no — the owner `postgres` executes too, as every `security definer` function's
+  owner does, §3.1) are asserted after the change, plus `prolang` = `plpgsql` so the language move is declared. This criterion reads the
   catalog and calls nothing, so it carries no deletion risk at all. The wrong implementation it excludes
   is a rewrite that quietly drops `security definer`, the pinned `search_path`, or the shipped default
   while every refusal assertion still passes.
-- **AC-6 — the live validation probe, in three limbs ordered by risk.** Run after the atomic surgical
-  apply, in ONE `psql -v ON_ERROR_STOP=1` script against `vzakgrxqwcalbmagufjh`:
-  1. **Catalog limb, no call.** For both functions: `prolang` = `plpgsql` and `prosrc` contains
-     `assert_prune_enabled`. If this limb fails the apply did not land, and limbs 2 and 3 do not run.
-  2. **Zero-collateral limb.** Re-assert the §3.1 precondition in the same script
-     (`count(*) where occurred_at < now() - interval '100 years'` = 0 for both tables), then call
-     `prune_sync_log(interval '100 years')` and `prune_app_events(interval '100 years')` and require the
-     refusal. A gate that is missing or inverted deletes nothing here, because nothing is that old.
-  3. **Fidelity limb, rollback-bounded.** `begin;` … the default no-argument form of each function,
-     each inside its own plpgsql block that re-raises anything not matching `prune not enabled%` … then
-     `rollback;`. This is the only limb that would delete under a broken gate, and the rollback is what
-     bounds it — the same shape §3.3 used to measure 2,488 rows without losing one.
+- **AC-6 — the live validation probe, two limbs, and NO call outside a transaction.** Run after the
+  atomic surgical apply, in ONE `psql -v ON_ERROR_STOP=1` script against `vzakgrxqwcalbmagufjh`:
+  1. **Catalog limb — reads only, calls nothing.** For both functions: `prolang` = `plpgsql` and
+     `prosrc` contains `assert_prune_enabled`. If this limb fails the apply did not land and limb 2
+     does not run.
+  2. **Behavioural limb — the ENTIRE limb inside one `begin;` … `rollback;`.** Both functions, in both
+     the default no-argument form and the `interval '5 days'` form, each call inside its own plpgsql
+     block that re-raises anything not matching `prune not enabled%`. Four calls, one transaction, one
+     rollback.
 
-  Together they answer what the parity gate structurally cannot (§4.3): parity compares signatures, not
-  bodies, so only a live behavioural probe distinguishes an applied migration from a half-applied one.
-  The R1 P1 finding is why all three limbs name BOTH functions.
+  There is no third limb and no precondition count, because R4 showed why both were the wrong shape: a
+  count taken outside a transaction bounds nothing — a row satisfying the window can arrive between the
+  count and the call, and validation takes concurrent test traffic (§3.3). The rollback is the only
+  bound that holds regardless of what the gate does or what else is writing, so every calling limb is
+  inside it and none is argued to be safe on its own.
+
+  Together the two limbs answer what the parity gate structurally cannot (§4.3): parity compares
+  signatures, not bodies, so only a live behavioural probe distinguishes an applied migration from a
+  half-applied one. The R1 P1 finding is why both limbs name BOTH functions.
 - **AC-7 — parity gates pass.** `pnpm gen:schema-manifest` output is committed and
   `tests/db/validation-schema-parity.test.ts` passes at all three layers.
 

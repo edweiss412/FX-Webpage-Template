@@ -8,6 +8,20 @@ Last reconciled: 2026-08-17 — `fix/shell-binding-mixed-quoted-value` graduated
 
 ---
 
+## BL-SPECLINT-MATRIX-BARE-NA — a completeness-matrix cell that says only `N/A` hides the claim it should have had to make
+
+**Status:** OPEN · **Severity:** LOW (no shipped defect; review-economy waste) · **Class:** spec lint / author discipline · **Effort:** S · **Filed:** 2026-08-22 (`feat/validation-prune-db-side-gate`, spec review R2 P1) · **Facing:** process · **Class-sweep exception:** (c) — the repair is a rule inside `lib/specLint/`, a surface this arc does not otherwise touch · **Reachability:** PROBED — the failing document is a committed blob on this branch and the two false cells are quoted below.
+
+`docs/agents/spec-self-review.md` requires every cell of a tier × domain completeness matrix to carry an action or an `N/A — reason`. Nothing checks it. The rule is load-bearing in a way that reads as pedantry until you watch it fail: writing the reason forces the author to CHECK, so a bare `N/A` is not a terse correct cell, it is an unexamined one.
+
+**Incident:** `docs/superpowers/specs/db/2026-08-22-validation-prune-db-side-gate-design.md` dispatched with **21 bare `N/A` cells** in its §5 matrix. Spec review R2 P1 found **two of them false**: both prune functions were marked `N/A` under "RPC write path" while each is a `delete from` on the table in that column, and the two target tables were marked `N/A` under "Cleanup / cron" while a daily `cron.job` row prunes each. The reviewer also caught the grouped PostgREST cell naming one of the two registry rows. Corpus row: `docs/review-rounds/feat/validation-prune-db-side-gate/50ca72a566b0.jsonl`, round 2 — a whole round whose findings were both of this class.
+
+**The check has no grammar.** Inside a markdown table block, a cell whose entire content is `N/A` (no following em dash, no reason) is a finding. That is a split on `|` and a string compare — not a recognizer over prose, and not a claim about whether the reason is TRUE, which stays review's job.
+
+**First scheduled step:** decide whether it lives in `lib/specLint/` as a document rule or in the pre-dispatch gate alongside `BL-CODEX-GUARD-SPECLINT-PREDISPATCH-GATE`, which shares a trigger point.
+
+---
+
 ## BL-SCREENSHOTS-DRIFT-CAPTURE-NONDETERMINISM — the byte gate fails on a diff that changes no render input, and the same branch passed an hour earlier
 
 **Status:** OPEN · **Filed:** 2026-08-21 (reported by the `fix/shell-attached-redirection-target` arc; probed further here) · **Facing:** process · **Severity:** MEDIUM (a merge-blocking gate firing on arcs that touch nothing it measures; no shipped-behavior defect) · **Class:** CI gate fidelity · **Effort:** M · **Incident:** run [32528532727](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32528532727) FAILED screenshots-drift on 2026-08-21 at 21:26Z while the nightly backstop on `main`, run [32472312764](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32472312764), PASSED the same day at 10:22Z. · **Reachability:** PROBED — see the same-branch pair below.
