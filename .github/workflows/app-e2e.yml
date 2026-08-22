@@ -90,6 +90,13 @@ concurrency:
 jobs:
   app-e2e:
     runs-on: ubuntu-latest
+    # Measured, not felt (spec section 5.3): the first CI run carrying all 23
+    # specs, run 32558218336 on 2026-08-22, took D = 435 s for this job
+    # (bootstrap + cold `pnpm build` + 181 identities across both projects).
+    # ceil(D * 1.5 / 60) + 5 = 16, floored at the existing 30, so the ceiling
+    # does not move. A job that CANCELS at this bound reports nothing and is a
+    # ceiling defect, not a spec defect: re-derive from the run above before any
+    # member is dropped.
     timeout-minutes: 30
     env:
       # Same env contract as lifecycle-layout-e2e.yml / crew-e2e.yml: the app
