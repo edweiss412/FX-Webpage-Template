@@ -573,7 +573,7 @@ Every affected domain × layer. Every cell is an action or an `N/A — reason`.
 | Schema manifest | regenerate + commit | regenerate + commit | regenerate + commit | N/A — unchanged | N/A — unchanged |
 | Validation project | atomic surgical apply + `notify pgrst` | same | same | N/A — its row already reads `true` there (§3.1); this arc does not write it | N/A — no DDL reaches either table |
 | Frontend | N/A — no UI surface in this diff | N/A — no component or route reads either prune | N/A — same | N/A — the admin reset UI that reads this marker is untouched | N/A — this diff changes no UI; existing admin readers of `sync_log` are untouched |
-| Tests | `tests/db/pruneGate.db.test.ts (new)` (§6) | AC-1..AC-5 | AC-1..AC-5 | AC-3 forces each posture state | AC-4 (existing suites stay green, unedited) + AC-8 (both cron rows pinned) |
+| Tests | `tests/db/pruneGate.db.test.ts (new)` (§6) | AC-1..AC-5 | AC-1..AC-5 | AC-3 forces each posture state | AC-10 (existing suites stay green, unedited) + AC-8 (both cron rows pinned) |
 
 **CHECK/enum migration matrix:** no CHECK and no enum changes anywhere in this diff — the only new
 object is a function. There is therefore no transitional window, no old/new value overlap, and no
@@ -632,12 +632,15 @@ exact failure the arc exists to prevent, committed by its own acceptance test. S
   excludes is a `coalesce(..., false)` read, which waves the third state through — R1's P0 hole 3, now
   executable. The marker deletion and the prune both live inside the rolled-back transaction, so the
   marker is restored by the rollback as well as by `withPosture`.
-- **AC-4 — the explicit-cutoff form is gated too, and every existing caller is unaffected.**
-  `prune_sync_log(interval '5 days')` and `prune_app_events(interval '5 days')` reject under the
-  validation posture (excluding a gate placed on the default-argument path only, which the no-argument
-  cron call would satisfy while every parameterised test call walked past it). With the marker `false`,
-  `tests/db/syncLogIndexesAndPrune.db.test.ts` and `tests/log/appEventsSchema.test.ts` pass UNCHANGED —
-  a no-edit criterion: any edit to either file to accommodate the gate is a design failure, not a repair.
+- **AC-4 — the explicit-cutoff form is gated too.** `prune_sync_log(interval '5 days')` and
+  `prune_app_events(interval '5 days')` reject under the validation posture. The wrong implementation
+  this excludes is a gate placed on the default-argument path only, which the no-argument cron call
+  would satisfy while every parameterised test call walked past it.
+- **AC-10 — every existing caller is unaffected, and this is a NO-EDIT criterion.** With the marker
+  `false`, `tests/db/syncLogIndexesAndPrune.db.test.ts` and `tests/log/appEventsSchema.test.ts` pass
+  UNCHANGED. Any edit to either file to accommodate the gate is a design failure, not a repair. Split
+  out of AC-4 at plan review R1, which observed that the two halves are proven by different tasks and a
+  criterion owned by two tasks is owned by neither.
 - **AC-5 — the pinned function properties survive, for BOTH functions.** `prosecdef`, `proconfig`, the
   `retain interval DEFAULT '60 days'` argument list, and the execute grants (`service_role` yes,
   `anon`/`authenticated` no — the owner `postgres` executes too, as every `security definer` function's
