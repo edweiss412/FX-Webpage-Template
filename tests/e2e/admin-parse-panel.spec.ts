@@ -55,6 +55,9 @@ async function lookupSeed(): Promise<{ slug: string; driveFileId: string }> {
     .select("slug, drive_file_id")
     .eq("published", true)
     .eq("archived", false)
+    // Same scope as admin-route-boundaries: order alone does not keep a foreign
+    // published show out of the pick on a shared local database.
+    .like("drive_file_id", "seed-fixture:%")
     .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
