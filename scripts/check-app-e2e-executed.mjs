@@ -98,9 +98,6 @@ export const REQUIRED = {
   // 8 cases x 1 project (desktop-chromium). Measured 2026-08-22, post-fix run of all 23 specs, both
   // projects, --retries=0: 181 executed identities, zero skipped.
   "staged-preview.spec.ts": 8,
-  // 3 cases x 1 project (desktop-chromium). Measured 2026-08-22, post-fix run of all 23 specs, both
-  // projects, --retries=0: 181 executed identities, zero skipped.
-  "telemetry-layout.spec.ts": 3,
 };
 
 // Importable table, runnable script — no side effects on import, so a guard can pin these

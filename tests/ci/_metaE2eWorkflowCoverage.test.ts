@@ -198,6 +198,15 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   // same way rather than PR-covered.
   "tests/e2e/theme-persistence-note.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/theme-toggle.spec.ts": PATH_GATED_BY_EXCLUSION,
+  // LEFT BATCH 2 UNDER AC-4, 2026-08-22, on the second red for one spec (the
+  // batch-1 threshold). Both reds are the same case and the same shape: run
+  // 32571008405 and run 32573475808, `console body stacks single-column below xl`,
+  // measuring a sidebar and a log that both sit at zero rects while the page's own
+  // snapshot still reads "Loading your dashboard…". That is the admin-loader class
+  // (BL-ADMIN-LOADER-CI-TRANSIENT) arriving as a loader that never resolves, so the
+  // spec is not defective — but two reds on one spec is where this batch stops
+  // re-rolling, and re-entry needs the same five-green bar.
+  "tests/e2e/telemetry-layout.spec.ts": UNSEEN,
 };
 
 describe("e2e workflow coverage (spec §6 item 6)", () => {

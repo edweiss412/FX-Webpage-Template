@@ -766,7 +766,7 @@ ParsePanel was not alone. Shape swept: **a file under `components/` that no file
 
 **RECURRENCE OBSERVED 2026-08-21 — the capture this row schedules now has an occurrence to run against.** `BL-SCREENSHOTS-DRIFT-CAPTURE-NONDETERMINISM` records a second flip, on `review-queues-empty-state-light.webp`, with something this row's occurrence lacked: a SAME-BRANCH pass/fail pair sixty-five minutes apart with zero render inputs changed between the two shas. That pair does what 0/9 dispatched runs could not — it establishes that the varying input is outside the repository — while still not choosing between this row's runner-population reading and the new row's time-of-day one. The two rows are one class. Schedule the identity capture described above TOGETHER with the new row's time axis; running either alone can only half-answer it.
 
-## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — 4 app-dependent e2e specs are named by no CI workflow
+## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — 5 app-dependent e2e specs are named by no CI workflow
 
 **Status:** OPEN · **Severity:** MEDIUM (dark regression coverage) · **Class:** CI wiring · **Effort:** L · **Filed:** 2026-08-06 (L-wave, refile of `BL-E2E-LIFECYCLE-SPECS-CI-DARK` at honest scope)
 
@@ -778,12 +778,12 @@ the 2026-08-06 counts are kept alongside so the delta is auditable):
 
 | Allowlist rows                                                          | 2026-08-06 | 2026-08-09 | 2026-08-22 |
 | ----------------------------------------------------------------------- | ---------- | ---------- | ---------- |
-| `UNSEEN` — named by no workflow, **this entry's population**            | 43         | **25**     | **4**      |
+| `UNSEEN` — named by no workflow, **this entry's population**            | 43         | **25**     | **5**      |
 | `PATH_GATED` — named by a workflow, runs when its filter matches        | 13         | 13         | 14         |
 | `PATH_GATED_BY_EXCLUSION` — named, runs unless the change is prose-only | 6          | 8          | 10         |
 | `LOCAL_ONLY` — local artifact by design                                 | 1          | 1          | 1          |
 | custom-reason rows                                                      | 3          | 3          | 10         |
-| **Total rows**                                                          | 66         | **50**     | **39**     |
+| **Total rows**                                                          | 66         | **50**     | **40**     |
 
 **The 2026-08-22 column is produced by the commands below, not typed.** Pasted from the run at the
 batch-2 closeout head, invocations included, so it reproduces rather than being taken on trust:
@@ -794,9 +794,9 @@ $ rows(){ awk '/^const LOCAL_ONLY_ALLOWLIST/,/^};/' "$F" | grep -E '^ +"tests/e2
 $ cls(){ rows | sed -E 's/^ +"[^"]+":[[:space:]]*//' \
     | awk '{ v=$0; sub(/,$/,"",v); if (v ~ /^(UNSEEN|PATH_GATED|PATH_GATED_BY_EXCLUSION|LOCAL_ONLY_GALLERY_CAPTURE)$/) print v; else print "custom-reason" }'; }
 $ chk(){ n=$(cls | grep -c "^$1\$"); [ "$n" -eq "$2" ] && echo "ok $1=$n" || { echo "FAIL $1=$n expected $2"; exit 1; }; }
-$ d=2
+$ d=3
 $ chk UNSEEN $((2 + d))
-ok UNSEEN=4
+ok UNSEEN=5
 $ chk PATH_GATED 14
 ok PATH_GATED=14
 $ chk PATH_GATED_BY_EXCLUSION 10
@@ -806,23 +806,24 @@ ok LOCAL_ONLY_GALLERY_CAPTURE=1
 $ chk custom-reason 10
 ok custom-reason=10
 $ t=$(rows | wc -l | tr -d ' '); [ "$t" -eq $((37 + d)) ] && echo "ok total=$t" || echo "FAIL total=$t"
-ok total=39
+ok total=40
 $ rows | grep -E ': UNSEEN,$' | grep -oE 'tests/e2e/[^"]+'
 tests/e2e/admin-parse-panel.spec.ts
 tests/e2e/empty-state-reachability.spec.ts
 tests/e2e/onboarding-wizard-step1.spec.ts
+tests/e2e/telemetry-layout.spec.ts
 tests/e2e/warning-panel-polish.spec.ts
 ```
 
-Those four names are the whole remaining population of this entry: the two AC-4 drops below, plus
+Those five names are the whole remaining population of this entry: the three AC-4 drops below, plus
 the two this batch never claimed.
 
-The 23 → 4 drop is TWELVE row deletions (batch 2's members, which move the total 51 → 39) plus
+The 23 → 5 drop is ELEVEN row deletions (batch 2's members, which move the total 51 → 40) plus
 SEVEN reclassifications out of `UNSEEN` into custom reasons (which move no total). A fourteenth
-TWO more were wired, ran green four and five times respectively, and left under AC-4 mid-count —
-their rows are back, so they are two of the four the last command prints. The pre-closeout total reads 51 where the 2026-08-10
+THREE more were wired, ran green repeatedly, and left under AC-4 mid-count — their rows are back, so
+they are three of the five the last command prints. The pre-closeout total reads 51 where the 2026-08-10
 restatement said 50: `staged-preview.spec.ts` joined the allowlist as `UNSEEN` after that
-restatement, and is one of the twelve deleted here.
+restatement, and is one of the eleven deleted here.
 
 The 11-row drop in `UNSEEN` and the 9-row drop in the total are `BL-RESURRECT-MOBILE-SAFARI-E2E`
 (archived 2026-08-09): NINE rows removed with their deleted spec files, and TWO reclassified
@@ -858,13 +859,13 @@ Five of the nine specced members were RED when first run — the spec had verifi
 
 **A second member was dropped mid-acceptance under AC-4 — `admin-changes-feed-layout.spec.ts`, and RE-ENTERED 2026-08-15.** The cross-spec-interaction reading recorded below is DISPROVEN; the measured cause was a transient gateway 502 reaching the `/admin` error boundary, and the repair plus the spec's re-entry are recorded in `BACKLOG-archive.md` under `BL-CHANGES-FEED-MODAL-BATCH-FLAKE`. The AC-4 bar itself is vindicated either way — it caught a real CI-reproducible failure that local runs could not see. Unlike help-pages this one is a genuine FLAKE, and it was caught by exactly the bar that exists to catch it: it passed the first two `pull_request` runs of the five-green loop and then failed two of the next three, on a DIFFERENT width band each time (`@720`, then `@1280`, both mobile-safari), with `published-show-review-modal` never appearing inside a 30s wait after `/admin?show=<slug>`. It appeared to pass standalone (6/6 locally, repeatedly) and to fail only inside the batch — read at the time as a cross-spec interaction, and now known to be a sampling artifact: standalone ran only LOCALLY, where the CI-hosted fault environment does not exist, so the batch runs were the only samples that could ever fail (spec §2.3). Filed as `BL-CHANGES-FEED-MODAL-BATCH-FLAKE`. Recorded because the local signal was misleading in BOTH directions here: the same spec's local reds were correctly attributed to a shared-database collision with a concurrent agent session, and that correct diagnosis then masked a real CI-reproducible flake underneath. **Only CI settles a flake question — AC-4 exists so an admitted flake never rides in.**
 
-**Batch 2 — TWELVE specs wired, census 23 → 4** (this entry is restated in the same PR that wires
+**Batch 2 — ELEVEN specs wired, census 23 → 5** (this entry is restated in the same PR that wires
 them, so it describes that PR's content, not a merge that has already happened) (PR #875,
 `.github/workflows/app-e2e.yml` EXTENDED rather than duplicated, since these members have batch 1's
 requirement class exactly). Wired: `admin-route-boundaries`, `admin-settings-admins-refresh`,
 `dev-capture`, `developer-tier`, `needs-attention-page`, `no-raw-codes`,
 `published-show-attention`, `roles-settings-layout`, `sign-in-page`, `source-link-dimensional`,
-`staged-preview`, `telemetry-layout` — +90 executed identities on top of batch 1's 77, each carrying its own `REQUIRED` row derived from a real run's report through the
+`staged-preview` — +87 executed identities on top of batch 1's 77, each carrying its own `REQUIRED` row derived from a real run's report through the
 oracle's own walk. Spec:
 `docs/superpowers/specs/ci/2026-08-21-app-e2e-batch2-design.md`; probe record:
 `docs/superpowers/specs/ci/probes/2026-08-21-app-e2e-batch2-membership-probe.md`.
@@ -886,6 +887,13 @@ firing**: `--retries=0` leaves no trace, the artifact carries no snapshot, and t
 the CI posture locally (`CI=1`, `pnpm build && pnpm start`, `--trace on`) passed 4 of 4. One CI red,
 one green CI-posture reproduction, no trace. The falsifier stays open with that run id as its only
 observation, and the row carries both readings. **Only CI settles a flake question.**
+
+`telemetry-layout.spec.ts` is the third drop, and the first taken on the SECOND red for one spec
+rather than the first: runs 32571008405 and 32573475808, the same case both times, measuring a
+sidebar and a log at zero rects while the page's own snapshot still reads "Loading your dashboard…".
+That is `BL-ADMIN-LOADER-CI-TRANSIENT` again, so the spec is not defective — but two reds on one spec
+is where this batch stops re-rolling, which is the threshold batch 1 set with the changes-feed
+spec.
 
 Batch 1's lesson held: **membership was derived from three real runs, not from a reading**, and seven
 of the fourteen candidates were RED on first run. All seven were test-only staleness repaired in-branch (a
@@ -957,7 +965,7 @@ its error boundary while the rest of the page is fine:
 - [32563705156](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32563705156) — `warning-panel-polish`, announcer empty after Ignore; no trace at `--retries=0`, so this one is the least attributed of the three.
 - [32564772189](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32564772189) — `needs-attention-page`, nav and badge render (badge reads "2"), `main` is "This admin page couldn't load".
 - [32571008405](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32571008405) — TWO members in one run: `published-show-attention`, where the ratified open-time recovery FIRED AND STILL FAILED ("error boundary persisted after one retry … grep the server log for `show_review_snapshot_failed`"), and `telemetry-layout`, whose snapshot ends at `status: Loading your dashboard…` with the sidebar and log both at zero rects. The second is the same class arriving as a loader that never resolves rather than one that faults, and it is the first evidence that the existing one-retry recovery is not sufficient.
-- [32572200250](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32572200250) — `notify-toggles`, **a BATCH-1 member wired on main since 2026-08-09**: the toggle's server action plus `router.refresh()` did not settle inside a 10 s poll (`aria-checked` still "true"). Nothing about batch 2 is in that spec's path, so this is the observation that separates the two readings cleanly: the variable is the runner, and main's own app-e2e job carries the same exposure.
+- [32572200250](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32572200250) — `notify-toggles`, **a BATCH-1 member wired on main since 2026-08-09**: the toggle's server action plus `router.refresh()` did not settle inside a 10 s poll (`aria-checked` still "true"). Nothing about batch 2 is in that spec's path, so this is the observation that separates the two readings cleanly: the variable is the runner, and main's own app-e2e job carries the same exposure. The pair is cross-PR: `dbconn`'s own app-e2e run [32557812890](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32557812890) on `feat/destructive-guard-discovery-by-connection` failed the SAME spec, the same case and at the same 10.7 s earlier the same night, and resolved green on one re-run. Two unrelated branches, one spec, one shape.
 
 Every one of them reproduces GREEN locally under the CI posture (`CI=1`, so `pnpm build && pnpm
 start`, both DSNs pinned): parse-panel 10 of 10, warning-panel 4 of 4 with `--trace on`,
