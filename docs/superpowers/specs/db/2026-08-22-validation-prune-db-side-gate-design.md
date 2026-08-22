@@ -31,8 +31,10 @@ marker; that is out of scope by declaration, the same fence `destructive_reset_g
 (`tests/db/destructiveResetGate.test.ts` header).
 
 **Closed criterion.** Both prunes refuse on the validation project; every legitimate caller on local and
-prod is unaffected; proven by the executable criteria in §6 plus a re-run of the §3.3 live probe showing
-refusal for BOTH functions. That criterion is finite and settled by running commands, not by enumerating
+prod is unaffected; proven by the executable criteria in §6, of which AC-6 is the live half: BOTH functions, in both call
+forms, refusing on the validation project. §3.3 is the BEFORE half of that comparison and covers
+`prune_sync_log` only, so it is cited as the measurement of what the gate prevents (2,488 rows), never
+as the closing evidence. That criterion is finite and settled by running commands, not by enumerating
 inputs.
 
 **This is not a recognizer.** Nothing here reads SQL text, file paths, connection URLs, or anything a
@@ -199,6 +201,22 @@ reviewer has to guess:
 ---
 
 ## §3 Probes
+
+**What §3 is, and the one thing it is not.** These are the one-time reachability measurements that
+settled the filing row's `INFERRED, NOT PROBED` field. They ran BEFORE any gate existed, against a
+database where every call was expected to succeed, and two of them committed deliberately: §3.2's seeded
+round-trip committed its own two seeds and their deletion, and the 100-year calls in §3.2 and §3.5
+committed a delete of zero rows guarded by the §3.1 precondition rather than by a transaction. §3.3 is
+the exception that proves the shape — the one measurement whose magnitude made rollback mandatory used
+one.
+
+They are therefore a RECORD, not a harness, and the §6 rollback rule does not reach backwards to claim
+otherwise. **Do not re-run §3.2 or §3.5 as written**: a precondition counted in a separate autocommitted
+statement bounds nothing on a live project (R4's finding, and R6's when the same shape was left standing
+in the history). The re-runnable form of every one of these questions is AC-6, whose calls are inside one
+`begin; … rollback;` and whose blocks fail on success.
+
+
 
 All commands were run 2026-08-22 from the branch worktree. The validation DSN is
 `TEST_DATABASE_URL` from `.env.local` (host `aws-1-us-east-2.pooler.supabase.com`, user
@@ -570,8 +588,8 @@ prunes delete GLOBALLY: an ungated call takes every row past the cutoff, not the
 or half-applied gate is therefore a probe that PERFORMS that deletion when the gate is broken — the
 exact failure the arc exists to prevent, committed by its own acceptance test. So:
 
-1. **Every call to either prune function, in every criterion, probe and script this arc ships, runs
-   inside a transaction that is ALWAYS rolled back** — including the marker-`false` cases that are
+1. **Every call to either prune function in every EXECUTABLE ARTIFACT this arc ships — the suite, the
+   acceptance criteria, the closeout script — runs inside a transaction that is ALWAYS rolled back** — including the marker-`false` cases that are
    SUPPOSED to delete, and including the live validation limb of AC-6. No call is exempted by an
    argument that it cannot delete: R3 and R4 each found one such argument to be wrong (an unbounded
    default call, then a 100-year window whose emptiness was checked in a separate autocommitted
