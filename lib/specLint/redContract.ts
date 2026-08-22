@@ -602,9 +602,20 @@ const FILTER_STRIP =
 
 const TEST_FILE_SUFFIXES = [".test.ts", ".test.tsx"] as const;
 
+/**
+ * Every derivation carries either a probe or a REASON there is none. There is
+ * deliberately no reasonless member: one used to exist (`{ kind: "none" }`) and
+ * `collectionProbePlan` dropped it entirely, so fifteen live v2 markers drew
+ * neither a FAIL nor an advisory. A decline without a reason has nowhere to be
+ * reported to, which is what made that hole silent rather than merely
+ * conservative.
+ */
 export type ProbeDerivation =
-  | { kind: "none" }
-  | { kind: "skipped"; skipped: "compound-command" | "unstrippable-filter"; detail: string }
+  | {
+      kind: "skipped";
+      skipped: "compound-command" | "unstrippable-filter" | "not-vitest-shaped";
+      detail: string;
+    }
   | { kind: "probe"; probe: string };
 
 export type CollectionProbeEntry =
@@ -618,7 +629,7 @@ export type CollectionProbeEntry =
   | {
       line: number;
       state: "live" | "authored";
-      skipped: "compound-command" | "unstrippable-filter";
+      skipped: "compound-command" | "unstrippable-filter" | "not-vitest-shaped";
       detail: string;
     };
 
@@ -639,7 +650,21 @@ export function deriveCollectionProbe(
   state: "live" | "authored",
 ): ProbeDerivation {
   const m = VITEST_SHAPE.exec(command);
-  if (m === null) return { kind: "none" };
+  if (m === null) {
+    // The decline is keyed on the DERIVATION, not on the wrapper. Nine of the
+    // fifteen live v2 markers that land here are `pnpm heavy`-wrapped, which is
+    // what made this hole rule-mandated — AGENTS.md requires that wrapper for
+    // every heavy phase, and the wrapper is exactly what puts the command out
+    // of VITEST_SHAPE's reach at the anchor. The other six are ordinary
+    // unprobeable commands, and the advisory is truthful for all fifteen rather
+    // than merely conservative for nine, so no wrapper recognizer is added to
+    // narrow it. This surface's whole defect history is recognizer growth.
+    return {
+      kind: "skipped",
+      skipped: "not-vitest-shaped",
+      detail: "command is not vitest-shaped at the anchor, so no collection probe can be derived",
+    };
+  }
 
   const control = CONTROL_TOKENS.find((token) => command.includes(token));
   if (control !== undefined) {
@@ -695,12 +720,18 @@ function partitionTestArgs(
 }
 
 /**
- * The collection-probe plan (spec §5.2): one entry per OWNED, v2, vitest-shaped
- * marker of a `red-contract` region, in doc order.
+ * The collection-probe plan (spec §5.2): one entry per OWNED, v2 marker of a
+ * `red-contract` region, in doc order.
+ *
+ * NOT only the vitest-shaped ones. A marker whose command cannot yield a probe
+ * still gets an entry, carrying a `skipped` reason instead of probe text, and
+ * that is the whole point of this arm: the reasonless drop it replaced emitted
+ * neither a finding nor an entry, so fifteen live markers went silently
+ * unexamined.
  *
  * `excludeLines` is the parse-failed set (spec §3): executing a command the
  * shell cannot parse observes nothing, and executing one whose parseability was
- * never observed is the same gamble. Ownership binds the declines too — an
+ * never observed is the same gamble. Ownership binds the declines too: an
  * unowned marker draws nothing at all, not an unauthorized advisory.
  */
 export function collectionProbePlan(
@@ -718,7 +749,6 @@ export function collectionProbePlan(
     if (parsed.red.trim() === "") continue;
 
     const derived = deriveCollectionProbe(parsed.red, state);
-    if (derived.kind === "none") continue;
     if (derived.kind === "skipped") {
       out.push({ line, state, skipped: derived.skipped, detail: derived.detail });
       continue;
