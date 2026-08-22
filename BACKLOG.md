@@ -179,20 +179,6 @@ It survives the suite, and is carried as an `accepted-gap` row on the `premiseSc
 
 **First scheduled step:** add a committed two-file fixture under the recognizer's own fixture directory — a module reached via `@/` whose exported helper spawns — and assert `environment-touching`. That kills the mutant and lets the row graduate from `accepted-gap` to killed.
 
-## BL-DESTRUCTIVE-GUARD-DISCOVERY-BY-CONNECTION — discover destructive-analysis files by connection, not by SQL spelling
-
-**Severity:** MEDIUM · **Class:** structural guard · **Effort:** L · **Filed:** 2026-08-14 (`chore/guard-completeness-wave`, spec `docs/superpowers/specs/ci/2026-08-14-guard-completeness-wave-design.md` §2.5)
-
-Discovery in `tests/db/_metaDestructiveDbTargetGuard.test.ts` is spelling-sensitive, and its own header has recorded that as a documented limit since r16: the patterns require the schema-qualified, unquoted `public.<name>(` form, so an unqualified `select prune_sync_log()` or a quoted `select "public"."prune_sync_log"()` is never discovered and NO analysis runs on that file. The 2026-08-14 execution-site redesign closed the acquisition question inside a discovered file; it does not touch which files are discovered.
-
-The terminating framing is the same one that closed acquisition: stop asking how the statement is spelled and ask whether the file OPENS A DATABASE CONNECTION, then require the loopback guard of all of them.
-
-**Probe (2026-08-14), which is why this is an L and not a follow-up commit:** `rg -l 'from "postgres"|require\("postgres"\)' tests/` — about 150 test files import the driver, and roughly 60 of them never call `assertLocalDbUrl`. Many connect through shared helpers (`tests/db/_b2Helpers.ts`, `tests/sync/_holdAwareTestkit.ts`) rather than directly, and many legitimately target the validation project. Requiring the analyzer of all of them needs per-file dispositions, helper-module modeling, and a validation-target accept-set the loopback-only guard deliberately does not have.
-
-**Prereq:** its own spec. Do not attempt this as a widening of the existing guard — that is the recognizer ratchet the analyzer's own history documents.
-
----
-
 ## BL-PRIVATE-IMAGE-POSTMERGE-PROBE — the private-image-pipeline shipped without its post-merge validation evidence
 
 **Status:** OPEN — owed close-out evidence, not speculative work · **Severity:** medium · **Class:** VERIFICATION DEBT · **Effort:** XS
@@ -1635,20 +1621,6 @@ mutation-surface registry.
 exemption row, since a rule that starts with a large exemption list is a rule
 nobody trusts.
 
-## BL-CODEX-GUARD-SPECLINT-PREDISPATCH-GATE — a dispatch spends reviewer attention on lint the wrapper could have refused
-
-**Status:** OPEN · **Severity:** LOW (no shipped defect; this is review-economy waste) · **Class:** review tooling / dispatch hygiene · **Effort:** S · **Filed:** 2026-08-18 (`fix/control-outline-border-token`, spec review R1 F2 + R2 F5) · **Facing:** process · **Class-sweep exception:** (c) — the repair is a change to `scripts/codex-guard.mjs`, a surface this arc does not otherwise touch · **Reachability:** PROBED — both incidents are committed corpus rows, and the failing lint reproduces on the pre-repair blobs.
-
-`node scripts/codex-guard.mjs review` already refuses a round-1 `--stage diff` brief whose `GUARD SURFACE:` line carries no mutation score, exiting 2 before any dispatch. It makes no equivalent check on the ARTIFACT under review. So a spec or plan carrying hard `pnpm spec:lint` failures dispatches normally, and the reviewer spends a finding — and the arc spends a round — on a class the repo already detects mechanically in under a minute.
-
-**Incident.** This arc, twice. Spec review R1 F2 reported **18 hard citation failures** (all the empty-path `` `:213` `` form) against `docs/superpowers/specs/2026-08-18-control-outline-border-token-design.md`; R2 F5 reported **13 more** in the sibling probe record. Both were `CITATION_MALFORMED`, both are what `pnpm spec:lint` prints, and neither needed a reviewer to find. Corpus rows: `docs/review-rounds/fix/control-outline-border-token/2ddbf038bdf4.jsonl`, rounds 1 and 2. Two findings out of sixteen across four rounds — roughly an eighth of the arc's total reviewer attention — spent on a mechanical class.
-
-**Shape of the repair.** In `review`, when `--stage` is `spec` or `plan`, resolve the artifact path(s) the brief cites, run the existing lint, and exit 2 naming the failing file and count if any HARD failure is present. Advisory failures do not block — the probe-record artifacts show advisory noise is normal and blocking on it would be its own waste. The escape hatch matches the existing ones in that script (an explicit flag), because a brief may legitimately review an artifact that is mid-repair.
-
-**Why the wrapper and not a habit.** The habit is already written down and was not followed on this arc by the session that wrote this entry. `codex-guard` is the single choke point every dispatch passes through, which is exactly why the mutation-score check lives there rather than in a checklist.
-
-**First scheduled step:** confirm the lint's exit contract is stable enough to gate on (it currently exits 1 on hard failures and prints a `summary: N hard, M advisory` line), then add the check beside the existing `GUARD SURFACE:` refusal so both live in one place.
-
 ## BL-SPECLINT-ORPHANED-TASK-MARKERS — a plan whose markers sit outside a region lints as `0 hard` while checking nothing
 
 **Status:** OPEN · **Severity:** MEDIUM (no shipped defect; the gate reports a pass over an empty set, which is the failure mode `spec:lint` exists to prevent) · **Class:** spec-lint grammar / review tooling · **Effort:** S · **Filed:** 2026-08-19 (`fix/premisescan-nested-hook-sibling-leak`, spec review R2 F1) · **Facing:** process · **Class-sweep exception:** (c) — the repair is an arm inside `lib/specLint/`, a surface this arc does not otherwise touch · **Reachability:** PROBED — the reviewer's own probe reproduces, and both figures come from data the linter already computes.
@@ -1812,27 +1784,6 @@ The second is the worse one: `` $` `` splices the entire preceding text into the
 
 **First scheduled step:** confirm the AC-table grammar is stable across the plan corpus (`rg -l '^\| AC-' docs/superpowers/plans/`), then draft the arm against this arc's plan as the fixture.
 
-## BL-SPECLINT-SELFLINT-NOT-IN-PREDISPATCH-GATE — a plan declares its own lint obligation in prose, so nothing runs it
-
-**Status:** OPEN · **Filed:** 2026-08-21 (`feat/speclint-red-reason-verification`, from that arc's diff round 3) · **Facing:** process · **Severity:** LOW (it costs review rounds; it ships nothing wrong) · **Class:** spec-lint gate · **Effort:** S
-
-**Incident:** diff round 3 on `feat/speclint-red-reason-verification` spent a finding on the plan failing its OWN `spec:lint`. The corpus row is `docs/review-rounds/feat/speclint-red-reason-verification/c9c71b947a85.jsonl`, `diff` round 3, `findingCount` 2. A cross-model reviewer, dispatched to attack the shipped behaviour, was instead spent running a lint the arc had already committed to running. The round also carried a second finding, so the round is not chargeable to this gap alone; the reviewer attention is.
-
-**Probe:**
-
-```
-node --import tsx scripts/spec-lint.ts --json docs/superpowers/plans/2026-08-21-speclint-red-reason-verification.md
-CITATION_MALFORMED at line 72: malformed citation `:837` (empty path)
-```
-
-The failing line was the sentence announcing that a stale citation had been REMOVED, which reproduced it while saying so. That is the shape worth noticing: the defect was in prose whose entire subject was the defect.
-
-**Why prose was not enough.** That plan declares a pre-dispatch lint obligation in a sentence, and it also declares two oracles, `pnpm probe:citations` and `pnpm probe:reach`. Both oracles ran at every gate on that arc, several times each, because they are COMMANDS someone types. The lint obligation ran zero times, because it is a paragraph. The arc's own §3 makes the same argument about re-reads ("the re-read is a COMMAND, not a habit") and then left this one a habit.
-
-**Shape of the repair.** The plan and spec self-lint belongs in whatever pre-dispatch step already runs the arc's oracles, so a `fail`-severity finding in either document blocks a review dispatch the way an unreadable citation does. Cheapest form: one line in the arc's verification block, next to the existing oracle invocations. It is deliberately NOT a new mechanism, and deliberately not a widening of `spec:lint` itself.
-
-**First scheduled step:** decide the home — the invariant-8 style closeout checklist, or the codex-guard brief preflight, which already refuses a dispatch on a missing `GUARD SURFACE:` arm and is the closest existing gate in kind.
-
 ## BL-SPECLINT-DOC-BARE-LINE-NUMBERS-UNCOVERED — a document's raw line numbers rot where the citation oracle cannot look
 
 **Status:** OPEN · **Filed:** 2026-08-21 (`feat/speclint-red-reason-verification`, from that arc's diff rounds 2 and 5) · **Facing:** process · **Severity:** LOW (prose rots; nothing ships wrong) · **Class:** spec-lint gate · **Effort:** S
@@ -1853,3 +1804,31 @@ Each candidate resolves to the line it names, so a human can separate a live cla
 **Three repair shapes were used on this arc and only two are durable.** Symbol-naming retires the site (best, but impossible for a table whose content IS line numbers). Binding the block to a named commit makes it permanently true (used at round 5). Re-pointing the number resets the clock and is the losing move; it was declined every time.
 
 **First scheduled step:** decide whether the prohibition lives in `probe/citations.mts` as a second assertion or in the pre-dispatch gate alongside `BL-SPECLINT-SELFLINT-NOT-IN-PREDISPATCH-GATE`, which shares an owner and a trigger point.
+
+## BL-VALIDATION-PRUNE-DB-SIDE-GATE — gate prune_sync_log / prune_app_events on the validation project at the database, not the client
+
+**Status:** OPEN · **Filed:** 2026-08-21 (`feat/destructive-guard-discovery-by-connection`, spec `docs/superpowers/specs/ci/2026-08-21-destructive-guard-discovery-by-connection-design.md` §4.1 / §7) · **Facing:** product · **Severity:** MEDIUM · **Class:** DB safety posture · **Effort:** M · **Class-sweep exception:** (c) — a migration plus RPC change on a surface the filing arc does not touch · **Reachability:** INFERRED, NOT PROBED — the settling probe is a live `select public.prune_sync_log()` against the validation project from an unguarded client, observing rows deleted; that probe is the first scheduled step, not this row.
+
+Every client-side guard on the validation wipe/prune surface keys on something a test AUTHORS — a SQL spelling (`tests/db/_destructiveStatements.ts`), a connection's URL provenance (the connection census the filing spec designs) — and the census's documented limit §4.1 is exactly the file that executes a prune under a spelling no recognizer matches. `reset_validation_data()` already has the terminating answer at the DATABASE: `destructive_reset_gate` refuses the wipe unless enabled (`tests/db/destructiveResetGate.test.ts` header). `prune_sync_log()` and `prune_app_events()` have no such gate on validation, so a test that reaches them through ANY client, any spelling, any channel, deletes rows by time window. A gate there closes the class regardless of spelling and regardless of client, which no guard in `tests/` can reach.
+
+**Eliminated on the way here** (so the next reader does not re-derive them): widening the SQL recognizer — the spelling axis is open and `_metaDestructiveDbTargetGuard.test.ts`'s r15/r16 history is the ratchet; discovery by connection — ships as the census, and its §4.1 limit is this row; a psql-side or REST-side guard — different channels, same spelling problem.
+
+---
+
+## BL-CODEX-GUARD-SPECLINT-PREDISPATCH-GATE — a dispatch spends reviewer attention on lint the wrapper could have refused
+
+**Status:** OPEN · **Severity:** LOW (no shipped defect; this is review-economy waste) · **Class:** review tooling / dispatch hygiene · **Effort:** S · **Filed:** 2026-08-18 (`fix/control-outline-border-token`, spec review R1 F2 + R2 F5) · **Facing:** process · **Class-sweep exception:** (c) — the repair is a change to `scripts/codex-guard.mjs`, a surface this arc does not otherwise touch · **Reachability:** PROBED — both incidents are committed corpus rows, and the failing lint reproduces on the pre-repair blobs.
+
+`node scripts/codex-guard.mjs review` already refuses a round-1 `--stage diff` brief whose `GUARD SURFACE:` line carries no mutation score, exiting 2 before any dispatch. It makes no equivalent check on the ARTIFACT under review. So a spec or plan carrying hard `pnpm spec:lint` failures dispatches normally, and the reviewer spends a finding — and the arc spends a round — on a class the repo already detects mechanically in under a minute.
+
+**Incident.** This arc, twice. Spec review R1 F2 reported **18 hard citation failures** (all the empty-path `` `:213` `` form) against `docs/superpowers/specs/2026-08-18-control-outline-border-token-design.md`; R2 F5 reported **13 more** in the sibling probe record. Both were `CITATION_MALFORMED`, both are what `pnpm spec:lint` prints, and neither needed a reviewer to find. Corpus rows: `docs/review-rounds/fix/control-outline-border-token/2ddbf038bdf4.jsonl`, rounds 1 and 2. Two findings out of sixteen across four rounds — roughly an eighth of the arc's total reviewer attention — spent on a mechanical class.
+
+**Incident, second class (2026-08-21, cross-arc).** `pnpm typecheck` is a SECOND mechanical gate the same refusal could cover. Three arcs in one day (`feat/speclint-red-reason-verification`, `fix/shell-attached-redirection-target`, `feat/destructive-guard-discovery-by-connection`) independently committed probe scripts that import with a `.ts` extension (TS5097) or call `ts.isImportKeyword` (runtime-only, TS2339); `tsx` resolves both, so every local run passed, and the third arc's probes survived twelve commits and four adversarial rounds — because reviewers run sandboxed and read-only and never execute the gates, so a round is BLIND to a gate-red by construction. Caught only by `pnpm typecheck`, which docs-stage work rarely runs. Same wrapper, same exit-2 refusal, one more gate in the list.
+
+**Incident, third instance (2026-08-21, independently filed).** `feat/speclint-red-reason-verification` spent a diff-round-3 finding on its plan failing its OWN `spec:lint` — `CITATION_MALFORMED at line 72: malformed citation \`:837\` (empty path)`, the same empty-path form as the eighteen above. Corpus row: `docs/review-rounds/feat/speclint-red-reason-verification/c9c71b947a85.jsonl`, `diff`round 3,`findingCount`2 (the round carried a second finding, so the round is not chargeable here; the reviewer attention is). That arc filed it as`BL-SPECLINT-SELFLINT-NOT-IN-PREDISPATCH-GATE`, blind to this row, which sat on an unmerged branch at the time — which is itself the point: the same defect was independently rediscovered by a session reading `origin/main` to choose work. Its own diagnosis is worth keeping verbatim: that plan declared two oracles as COMMANDS and this obligation as a PARAGRAPH, and the commands ran several times each while the paragraph ran zero times.
+
+**Shape of the repair.** In `review`, when `--stage` is `spec` or `plan`, resolve the artifact path(s) the brief cites, run the existing lint, and exit 2 naming the failing file and count if any HARD failure is present. Advisory failures do not block — the probe-record artifacts show advisory noise is normal and blocking on it would be its own waste. The escape hatch matches the existing ones in that script (an explicit flag), because a brief may legitimately review an artifact that is mid-repair.
+
+**Why the wrapper and not a habit.** The habit is already written down and was not followed on this arc by the session that wrote this entry. `codex-guard` is the single choke point every dispatch passes through, which is exactly why the mutation-score check lives there rather than in a checklist.
+
+**First scheduled step:** confirm the lint's exit contract is stable enough to gate on (it currently exits 1 on hard failures and prints a `summary: N hard, M advisory` line), then add the check beside the existing `GUARD SURFACE:` refusal so both live in one place.

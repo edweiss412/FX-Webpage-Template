@@ -403,4 +403,20 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // is not behaviour-preserving by definition. Any row appearing here later is
   // this surface's first and owes its own written argument.
   sendAuthScan: {},
+  // The connection census, enrolled 2026-08-21. TWO proven equivalences and NO accepted gap.
+  // The first scored run reported 74 survivors (0.7898) and the arc repaid them across three
+  // measured rounds — 74, then 24, then 7 — with cases, or by DELETING code no input could
+  // reach (six unreachable branches in a declaration-position predicate; a dead
+  // `initializer === cur` conjunct). Nothing was blessed to lift the number: an
+  // `accepted-gap` row would DEPRESS the score by design, and there are none.
+  //
+  // The two equivalences are structural, each argued in full on its registry row. An
+  // out-of-population import target is unobservable because every consumer of `edges` and
+  // `reaches` keys on members of `files`, which such a target is by definition not. And the
+  // fixpoint's CLASS-growth signal can never be a pass's last growth: classes and reach
+  // cross the same edges at the same one-hop-per-pass rate, so a class arriving at distance
+  // N implies a node at distance N, which grows reach in that same pass. The converse does
+  // not hold, which is why the two REACH signals are killed rather than accepted, each by
+  // its own chain fixture. A third row appearing here owes its own written argument.
+  connectionCensus: { equivalent: 2 },
 };
