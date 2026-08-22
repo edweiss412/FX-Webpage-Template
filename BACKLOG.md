@@ -1649,6 +1649,27 @@ Both runs were from the repo root with the paths valid and readable; relative an
 
 **First scheduled step:** confirm the behaviour against the current upstream release, then decide wrapper-versus-report — a local wrapper is worth it either way, since this repo's gate cannot wait on an upstream fix.
 
+## BL-REVIEW-ROUND-COUNT-RESETS-ON-REMERGE — an arc's round accounting restarts at every re-merge, so the cap is avoidable for free
+
+**Status:** OPEN · **Filed:** 2026-08-21 (`feat/pane-compaction-send-auth`, observed on its own base move) · **Severity:** MEDIUM (the gate under-reports rather than mis-fires; nothing ships wrong, but the economy's only enforcement point stops firing exactly on the arcs it was built for) · **Class:** review-round economy · **Effort:** M · **Facing:** process · **Incident:** this arc re-merged `origin/main` after diff round 3, moving its merge-base `c9c71b947` -> `0ba72c237`. Rounds 1-3 stay in `c9c71b947a85.jsonl` and round 4 records in a NEW `0ba72c23774f.jsonl`, so the arc will have burned FOUR diff rounds with the threshold reached in neither file and no filing ever mechanically owed. The filing at `c9c71b947a85.md` was written voluntarily, and says so in its own opening. · **Reachability:** PROBED — the split already exists on disk, below.
+
+**Probe.** The corpus is keyed by `<baseSha12>` = `git merge-base origin/main HEAD`, and this one arc already spans two files:
+
+```
+c9c71b947a85.jsonl   {'diff': [1, 2, 3]}
+e5d1d723d69c.jsonl   {'spec': [1, 2, 3, 4], 'plan': [1, 2, 3, 4]}
+```
+
+Round 4 will add a third with `{'diff': [4]}` — one counted round at that base. `ROUND_THRESHOLD` is 4 and `tests/docs/_metaReviewRoundEconomy.test.ts` counts distinct `round` values PER BASE FILE, so no diff filing is owed at any of the three.
+
+**Why this is worse than a miss.** Re-merging is not an exotic act; AGENTS.md's own closure-hit rule REQUIRES it whenever main touches a file the branch touched. So the incentive runs backwards: the arcs most likely to re-merge are the long ones, which are exactly the arcs the cap exists to make account for themselves. An arc can also reach the cap, re-merge, and continue with a fresh counter without ever deciding anything — no bad faith required, which is what makes it a gate defect rather than a discipline problem.
+
+**Shape of the repair.** Count per ARC (the branch directory), not per base file, for the threshold decision — the corpus is already laid out branch-first, so the sum is a directory read rather than a new key. The filing's LOCATION can stay per-base (it names the head the rounds examined); only the obligation needs to sum. Two details the implementation has to settle rather than assume: a rebase can renumber rounds so `round` values may collide across bases (sum distinct `(base, round)` pairs, not distinct `round`), and an arc that legitimately re-bases onto a much later main is still the same arc for accounting purposes.
+
+**Interim rule, until the gate learns to sum** (this is what the arc did, and it is the filer's obligation meanwhile): file where the rounds actually happened, name the reset as a merge-timing artifact inside the filing, and never time a re-merge to dodge a filing.
+
+**First scheduled step:** confirm the branch-directory sum against the live corpus (`pnpm review:economy` already walks it) and count how many existing arcs would newly owe a filing — that number decides whether the gate change ships hard or advisory-first.
+
 ## BL-REPLACEMENT-STRING-CLASS-SWEEP — a runtime value in `String.replace`'s replacement position is a mini-language, and the repo has never swept for it
 
 **Status:** OPEN · **Filed:** 2026-08-21 (`feat/pane-compaction-send-auth`, diff round 3 F1) · **Severity:** MEDIUM (silent wrong output, not a crash: the call succeeds and the text is wrong) · **Class:** correctness sweep · **Effort:** M · **Facing:** process · **Incident:** diff round 3 on `feat/pane-compaction-send-auth` spent a P1 on this class — `addressPayload` passed the branch and session into `String.replace` as REPLACEMENT STRINGS, so a valid branch named `feat/$&` produced an address line naming `feat/<BRANCH>` and the command exited 0 having told every recipient to ignore a message it reported sending. Corpus row: `docs/review-rounds/feat/pane-compaction-send-auth/c9c71b947a85.jsonl`, `diff` round 3, core scope, `findingCount` 4. · **Reachability:** PROBED — the branch names are accepted by git, and the shipped behaviour was reproduced before repair.
