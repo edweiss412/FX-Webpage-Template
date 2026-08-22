@@ -93,7 +93,7 @@ vitest.projects.ts:8-16                               tests/db runs in the SERIA
 ```
 
 Census numbers the tasks rely on are the spec's §1.1 values, produced by the committed probes
-(`docs/superpowers/specs/ci/probes/2026-08-21-connection-census/*.out`), re-run at authoring time
+(`docs/superpowers/specs/ci/probes/2026-08-21-connection-census/*.txt`), re-run at authoring time
 and byte-identical to the committed outputs.
 
 ---
@@ -406,7 +406,10 @@ imports over the tracked tree (`git ls-files` is NOT used — the resolver stats
 the specifier plus each of `.ts`, `.mts`, `.tsx`, and an `index.ts` inside a directory of that name, on disk, so an untracked scratch file is visible, which is the
 conservative direction), propagates, reconciles against `CONNECTION_CENSUS_DISPOSITIONS`, joins
 with the destructive guard, and asserts: premises of spec §2.9 (each via `premise`/`premiseHolds`,
-unconditionally, above the assertions they license); `undisposed`, `stale`, `ambiguous`,
+unconditionally, above the assertions they license -- the BARE call, deliberately, because
+`t.premise(…)` is not seen either, and that stays a documented limit of the premise scan, so a
+premise written in the test-context form would not be discovered and would read as a surface with
+no premises at all); `undisposed`, `stale`, `ambiguous`,
 `inadmissible`, `remote-literal`, `unresolved-import`, `channel` all EMPTY, each assertion's message
 the rendered report; the anti-vacuity names: `tests/db/_b2Helpers.ts` is a connecting helper,
 `tests/db/validation-schema-parity.test.ts` holds a DRIVER BINDING through its const-bound dynamic
@@ -523,7 +526,7 @@ CLASSIFICATION of every connection-opening file with a validation accept-set and
 dispositions, NOT on loopback-everywhere, because the census measured 99 of 179 connection-opening
 files targeting validation by declared env (63 directly, 36 through a helper; a further 5 are
 loopback literals, 2 resolver sites, 3 dispositioned consumers, 70 guard-bound — the per-FILE tally
-in `probe-url-classes.out`; "108 with no guard call" is a different quantity and is not the claim). The census numbers and the zero-live-incident
+in `probe-url-classes.txt`; "108 with no guard call" is a different quantity and is not the claim). The census numbers and the zero-live-incident
 replay are the probe record. Both refutations stay in the entry.
 
 **The peer row** (spec §7): `BL-VALIDATION-PRUNE-DB-SIDE-GATE` is ALREADY FILED in `BACKLOG.md` by

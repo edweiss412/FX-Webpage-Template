@@ -80,7 +80,7 @@ exception) and the brief says `RETIRED` rather than quoting the last number.
 ### §1.1 The census, derived at BASE
 
 Run from the worktree root with `pnpm tsx docs/superpowers/specs/ci/probes/2026-08-21-connection-census/probe-population.mts`
-and `pnpm tsx docs/superpowers/specs/ci/probes/2026-08-21-connection-census/probe-url-classes.mts`; full outputs committed beside them as `*.out`. Numbers below are
+and `pnpm tsx docs/superpowers/specs/ci/probes/2026-08-21-connection-census/probe-url-classes.mts`; full outputs committed beside them as `*.txt`. Numbers below are
 copied from those outputs, not re-derived by hand.
 
 | quantity | value | extractor |
@@ -128,8 +128,8 @@ it alongside Supabase REST variables, and 1 (`validation-schema-parity.test.ts`)
 `SCHEMA_MANIFEST_DB_URL`. **"No guard call" is not "targets validation"** (plan round 2 F5 caught the
 conflation): BY SITE CLASS, the 179 files are 70 `guard-bound` (direct), **99 `validation-env`** (63
 direct + 36 through `_b2Helpers`/`_holdsHelpers`/`_mi11Helpers`), 5 `loopback-literal`, 2 `resolver`
-(direct, dispositioned) and 3 `dispositioned` through `devCaptureStaged` — `probe-url-classes.out`,
-per-FILE tally, with the 39 helper-only files from `probe-population.out`. The 99 are the
+(direct, dispositioned) and 3 `dispositioned` through `devCaptureStaged` — `probe-url-classes.txt`,
+per-FILE tally, with the 39 helper-only files from `probe-population.txt`. The 99 are the
 validation-targeting files, none is a defect, and they are why "loopback of all of them" is not a
 design.
 
@@ -137,7 +137,7 @@ design.
 
 Rule 337: a ledger row is a hypothesis set, and its incidents are its cheapest probes. Both incidents
 the row names were replayed against the shipped recognizer before a line of this design was written
-(`probe-population.out`, tail):
+(`probe-population.txt`, tail):
 
 ```
 shipped DISCOVERY_PATTERNS on constructed spellings:
@@ -567,7 +567,7 @@ correction the committed output did not carry**: its helper label was filename-s
 counted four `tests/e2e/*.spec.ts` consumers as helpers (committed output said 9, prose said 5), and it
 counted a type-only default import as an acquisition (140 where the value count is 139). Both are
 REPAIRED IN THE SCRIPT — `isSuiteFile` excludes `.spec.` as well as `.test.`, and the default binding
-is collected only when `importClause.isTypeOnly` is false — and the committed `.out` was regenerated
+is collected only when `importClause.isTypeOnly` is false — and the committed `.txt` was regenerated
 from the repaired script at this branch's HEAD, so every number in §1.1 is now copied from a committed
 output the committed script reproduces. A probe is a spec input and rots like one; prose that
 describes a correction the artifact does not carry is the claim-without-its-evidence shape, and it
@@ -596,7 +596,7 @@ executing instances across the corpus (14 textual hits, all prose).
 
 ### §3.4 Refuting the loopback-everywhere reading
 
-The 108 unguarded connection-opening files are enumerated in `probe-population.out` with their env
+The 108 unguarded connection-opening files are enumerated in `probe-population.txt` with their env
 reads and helper routes. Sampled by reading, not by count: `tests/db/resetValidationDataFkAudit.test.ts`
 connects to `TEST_DATABASE_URL ?? DATABASE_URL` and runs a read-only FK audit whose test titles name
 `reset_validation_data()` — it is the canonical validation-targeting read, it is one of the 14 prose
