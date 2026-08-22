@@ -687,8 +687,31 @@ export function addressPayload(
   const addressed =
     opts.session === null
       ? text.replace(SESSION_PARENTHETICAL, "")
-      : text.replace("<SESSION>", opts.session);
-  return addressed.replace("<BRANCH>", opts.branch);
+      : substituteLiteral(text, "<SESSION>", opts.session);
+  return substituteLiteral(addressed, "<BRANCH>", opts.branch);
+}
+
+/**
+ * Put `value` where `token` is, as CHARACTERS.
+ *
+ * Diff round 3, core finding 1 (P1). Every substitution here passed the value as
+ * `String.replace`'s REPLACEMENT STRING, where `$&`, "$`", "$'" and `$1` are
+ * syntax rather than text. `git check-ref-format --branch` accepts `feat/$&`,
+ * "feat/a$`b" and "feat/x$'y", so these are ordinary branches an ordinary
+ * contributor can create -- squarely inside the threat fence, not forged input.
+ *
+ * The consequence was silent and total: `feat/$&` addressed the payload to
+ * `feat/<BRANCH>`, a branch nobody drives, so §3.6's own addressing told every
+ * recipient to ignore a message the tool had just reported sending with exit 0.
+ * "$`" is worse still -- it splices the entire preceding sentence in.
+ *
+ * A REPLACER FUNCTION is the fix rather than escaping the value, because the
+ * function form has no substitution grammar to escape: whatever it returns is
+ * inserted verbatim. Escaping would leave the grammar live and one missed
+ * character away from the same bug.
+ */
+export function substituteLiteral(text: string, token: string, value: string): string {
+  return text.replace(token, () => value);
 }
 
 export type SendPlan = { sends: string[] };
@@ -739,7 +762,9 @@ export function planSends(opts: {
     case "checkpoint": {
       const nonce = opts.nonce;
       if (nonce === undefined) throw new Error("--checkpoint requires a nonce");
-      return { sends: [address(CHECKPOINT_TEXT, "checkpoint").replace("<NONCE>", nonce), "\r"] };
+      return {
+        sends: [substituteLiteral(address(CHECKPOINT_TEXT, "checkpoint"), "<NONCE>", nonce), "\r"],
+      };
     }
     case "compact":
       // NO address, and none is needed. `/compact` is a slash command -- a
@@ -767,8 +792,10 @@ export type RefusalCause =
    * is that it requires neither verdict (diff round 1, finding 7).
    */
   | { kind: "observation-stop"; rule: number; verdict: Verdict; detail: string | null }
-  | { kind: "nonce-absent" }
+  | { kind: "nonce-record-absent" }
+  | { kind: "nonce-marker-absent" }
   | { kind: "nonce-mismatch" }
+  | { kind: "nonce-record-changed" }
   /**
    * A VALID, uncontested claim held by a different session.
    *
@@ -824,10 +851,14 @@ export function refuse(cause: RefusalCause): Refusal {
         const extra = cause.detail === null ? "" : `: ${cause.detail}`;
         return `refusing: rule ${cause.rule} — ${why}${extra} (verdict ${cause.verdict})`;
       }
-      case "nonce-absent":
+      case "nonce-record-absent":
+        return "refusing: this command holds no checkpoint record for the target";
+      case "nonce-marker-absent":
         return "refusing: the target's marker carries no checkpointNonce";
       case "nonce-mismatch":
         return "refusing: the target's checkpointNonce is not the one this command recorded";
+      case "nonce-record-changed":
+        return "refusing: the checkpoint record changed after this command authorized it";
       case "owned-by-other":
         return `refusing: ${cause.paneId} is claimed by ${cause.sessionId}, not by ${cause.as}`;
       case "not-in-purview":
@@ -995,7 +1026,15 @@ export function authorizeSend(input: AuthorizationInput): AuthorizationDecision 
   if (input.mode === "compact") {
     const nonce = input.nonce;
     if (nonce === undefined) throw new Error("--compact requires the pass's nonce pair");
-    if (nonce.recorded === null || nonce.marker === null) return no({ kind: "nonce-absent" });
+    // Diff round 3, core finding 2 (P1). These were ONE row, and it named the
+    // marker. A run with a live marker nonce and no record of its own refused
+    // with "the target's marker carries no checkpointNonce" -- a refusal
+    // describing a condition that had not fired, about a pane that was fine.
+    // That is the same lying-refusal shape this arc already fixed once for the
+    // roster (§2's restored pin), and one message covering two conditions is
+    // how it comes back.
+    if (nonce.recorded === null) return no({ kind: "nonce-record-absent" });
+    if (nonce.marker === null) return no({ kind: "nonce-marker-absent" });
     if (nonce.recorded !== nonce.marker) return no({ kind: "nonce-mismatch" });
   }
 

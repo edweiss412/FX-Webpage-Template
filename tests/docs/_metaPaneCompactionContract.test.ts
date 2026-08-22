@@ -11,7 +11,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { premise } from "@/tests/_shared/premise";
+import { premise, premiseHolds } from "@/tests/_shared/premise";
 
 const ROOT = join(__dirname, "..", "..");
 const AGENTS = readFileSync(join(ROOT, "AGENTS.md"), "utf8");
@@ -144,6 +144,41 @@ describe("the bounded decay classes are stated as BOUNDED (AC-15)", () => {
     expect(WRITEUP).toContain("verdict or purview decayed");
     expect(WRITEUP).toContain("ADDRESS LINE naming the target's branch");
     expect(WRITEUP).toContain("re-read its own");
+  });
+
+  it("the SUPERSEDED design is scoped at the TOP, so its stale claims cannot be read as live", () => {
+    // Diff round 3, suites finding 2 (P2). The two cases above compare the spec
+    // and the write-up, and the design document was read only for its fence
+    // annotation -- so a THIRD document could contradict both while this file
+    // stayed green, which is exactly what it did. It still says the driver
+    // "never [sends] on a stale verdict" and that each command "revalidates
+    // immediately before it sends", both false of the shipped tool.
+    //
+    // The repair is scope, not sentence-editing: the supersession note lived at
+    // line 630 inside a §7 limit, where a reader arriving at §1.1 or §5.2 never
+    // meets it. A banner is only load-bearing if it is met FIRST, so its
+    // position is asserted, not just its presence.
+    const lines = DESIGN_2026_08_16.split("\n");
+    const banner = lines.findIndex((l) => l.includes("SUPERSEDED 2026-08-21 for the SEND PATH"));
+    expect(banner).toBeGreaterThanOrEqual(0);
+    expect(banner).toBeLessThan(12);
+
+    // It must name the authority and the direction of the correction, so the
+    // reader is sent somewhere rather than merely warned off.
+    const scope = lines.slice(banner, banner + 24).join("\n");
+    expect(scope).toContain("2026-08-21-pane-compaction-send-authorization");
+    expect(scope).toContain("bounded, not closed");
+
+    // And it must precede every stale claim it exists to scope -- derived from
+    // the document, not from a list someone kept up to date.
+    const stale = lines
+      .map((l, i) => ({ i, l }))
+      .filter(({ l }) => /revalidat|never .*stale verdict/i.test(l))
+      .filter(({ i }) => i !== banner);
+    premiseHolds("the stale claims this banner scopes are still present", stale.length > 0);
+    for (const { i, l } of stale) {
+      expect(banner, `stale claim above the banner at line ${i + 1}: ${l.trim()}`).toBeLessThan(i);
+    }
   });
 
   it("every needle this file pins occurs EXACTLY ONCE in its document", () => {

@@ -542,7 +542,13 @@ describe("--dry-run shows the refusal it would hit, and spends nothing", () => {
     expect(store.get("sess-1 wM:p1")).toBe("new");
     expect(run.sent).toEqual([]);
     expect(code).toBe(1);
-    expect(run.lines.join("\n")).toContain("not the one this command recorded");
+    // Names the condition that FIRED: the RECORD moved. The marker still holds
+    // exactly what this command authorized, so the mismatch message -- which
+    // round 2 reused here -- was false about both halves (diff r3 F2).
+    const said = run.lines.join("\n");
+    expect(said).toContain("the checkpoint record changed after this command authorized it");
+    expect(said).not.toContain("is not the one this command recorded");
+    expect(said).not.toContain("carries no checkpointNonce");
   });
 });
 
@@ -1089,6 +1095,67 @@ describe("the three commands", () => {
     expect(branchOnly.sent).toEqual([]);
   });
 
+  it.each(READ_MEMBERS.filter((m) => m !== "roster"))(
+    "a %s that throws is a FAULT (exit 2), never a refusal (exit 1)",
+    (member) => {
+      // Diff round 3, core finding 3 (P1). `main` converted only
+      // `NonceMintExhausted` and `SendFailed` into exit 2, so every other fault
+      // escaped and the runtime picked the code -- 1, which the ratified
+      // taxonomy reserves for "asked and answered: not now". An operator reads a
+      // broken `git worktree list` as a refusal and waits for a condition that
+      // will never change.
+      //
+      // Reachable in the REAL adapter, not only under a double:
+      // `realSurface().branches()` throws by construction when the git call
+      // fails. Derived over the read set rather than spot-checked on one member,
+      // minus `roster`, whose failure is handled locally and separately.
+      const { surface, run } = fakeSurface({
+        ...DRIVABLE,
+        [member]: () => {
+          throw new Error(`boom-${member}`);
+        },
+      } as Partial<Surface>);
+      let code: number | "THREW" = "THREW";
+      try {
+        code = main(["--compact", "wM:p1", "--as", "sess-1"], surface);
+      } catch {
+        code = "THREW";
+      }
+      expect(code).toBe(2);
+      expect(run.sent).toEqual([]);
+      expect(run.lines.join("\n")).toContain(`boom-${member}`);
+    },
+  );
+
+  it.each([
+    ["feat/$&", "the whole matched placeholder"],
+    ["feat/a$`b", "everything before the match"],
+    ["feat/x$'y", "everything after the match"],
+  ])("addresses a branch containing %s literally", (branch) => {
+    // Diff round 3, core finding 1 (P1). The substitution went through
+    // `String.replace` with the value as the REPLACEMENT STRING, where `$&`,
+    // "$`" and "$'" are substitution syntax rather than characters. `git
+    // check-ref-format --branch` accepts all three, so these are ordinary valid
+    // branches, not forged labels -- inside the threat fence.
+    //
+    // The consequence was silent: the command exited 0 having sent an address
+    // naming a branch nobody drives, so §3.6's addressee ignores it and the
+    // checkpoint quietly does nothing. "$`" is the worst of them -- it splices
+    // the entire preceding sentence into the address line.
+    const out = addressPayload(CHECKPOINT_TEXT, { branch, session: "sess-target" });
+    expect(out).toContain(branch);
+    expect(out).not.toContain("<BRANCH>");
+  });
+
+  it("addresses a SESSION containing replacement syntax literally", () => {
+    // Same defect, second site. The session id comes from the target's marker,
+    // so it is data this tool reads rather than data it mints.
+    const session = "sess-$&-$'";
+    const out = addressPayload(CHECKPOINT_TEXT, { branch: "feat/alpha", session });
+    expect(out).toContain(session);
+    expect(out).not.toContain("<SESSION>");
+  });
+
   it("--resume refuses when an OBSERVATION stopped the pane, not merely when banding says WAIT", () => {
     // Rule 7 (a non-empty blockedOn) and rules 11/12 (banding) both yield WAIT,
     // so a verdict-based gate cannot tell them apart and would drive a pane an
@@ -1328,6 +1395,49 @@ describe("one read-once pass per sending invocation (AC-1, AC-2)", () => {
     );
     expect(Object.fromEntries([...counts].sort())).toEqual(first);
   });
+
+  it.each(SENDING_MODES)(
+    "%s DECIDES on the second invocation's answers, not the first's",
+    (mode) => {
+      // Diff round 3, suites finding 1 (P1). The case above counts CALLS, and a
+      // build that calls `observe()` every invocation while caching the first
+      // `PaneReport` satisfies it exactly -- same members, same counts, scanner
+      // clean -- then sends on a world that no longer exists. The reviewer built
+      // that and all three modes passed.
+      //
+      // Calling is a PROXY for using. This asserts the property instead: change
+      // the world between invocations and the DECISION has to change with it. It
+      // is the third time this arc has needed the distinction -- round 1 was a
+      // read at the wrong time, round 2 a read outside the pass, and this is a
+      // read whose answer is discarded.
+      let live = "sess-target";
+      const { surface, run } = fakeSurface({
+        ...DRIVABLE,
+        roster: () => [
+          {
+            paneId: "wM:p1",
+            agentName: "feat/alpha",
+            cwd: "/w/alpha",
+            status: "working" as const,
+            agentSession: live,
+          },
+        ],
+      });
+      expect(main([mode, "wM:p1", "--as", "sess-1"], surface)).toBe(0);
+      const sentAfterFirst = run.sent.length;
+      premiseHolds(
+        "the first invocation actually sent, so the second has something to differ from",
+        sentAfterFirst > 0,
+      );
+
+      // A takeover lands BETWEEN the invocations. Nothing about the first run's
+      // answers is valid for the second.
+      live = "sess-successor";
+      expect(main([mode, "wM:p1", "--as", "sess-1"], surface)).toBe(1);
+      expect(run.sent.length).toBe(sentAfterFirst);
+      expect(run.lines.join("\n")).toContain("rule 5");
+    },
+  );
 
   it("AC-2: --compact's nonce comes from the pass's single marker read", () => {
     // The marker changes AFTER the pass has read it. Under one pass the change

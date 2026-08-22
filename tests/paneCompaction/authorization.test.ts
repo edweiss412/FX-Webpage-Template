@@ -260,21 +260,46 @@ describe("authorizeSend — nonce equality, --compact only (spec §3.1 step 4, A
   // absence down the mismatch branch, where it still refuses with a message the
   // weak needle accepted, and the mutant survived. Each row now names its own
   // phrase and denies the other's.
-  const ABSENT = "carries no checkpointNonce";
+  //
+  // Diff round 3, core finding 2 (P1) widened this. Two DIFFERENT conditions --
+  // no record of our own, and a marker carrying none -- shared one row and one
+  // message, and the message named the MARKER. So a run holding no record of a
+  // perfectly healthy pane was told "the target's marker carries no
+  // checkpointNonce", which was false about the target. The table encoded the
+  // lie rather than catching it: the record-absent row EXPECTED the marker's
+  // phrase.
+  //
+  // Each condition now has its own phrase and the matrix is mutual: every row
+  // denies every OTHER row's phrase, derived from the table rather than listed,
+  // so a fifth condition cannot be added with a borrowed message.
+  const RECORD_ABSENT = "holds no checkpoint record";
+  const MARKER_ABSENT = "carries no checkpointNonce";
   const MISMATCH = "is not the one this command recorded";
-  const MISMATCHES: ReadonlyArray<readonly [string, string | null, string | null, string, string]> =
-    [
-      ["the record was never written", null, NONCE, ABSENT, MISMATCH],
-      ["the marker carries none", NONCE, null, ABSENT, MISMATCH],
-      ["they differ", NONCE, OTHER_NONCE, MISMATCH, ABSENT],
-    ];
+  const PHRASES = [RECORD_ABSENT, MARKER_ABSENT, MISMATCH] as const;
+  const MISMATCHES: ReadonlyArray<readonly [string, string | null, string | null, string]> = [
+    ["the record was never written", null, NONCE, RECORD_ABSENT],
+    ["the marker carries none", NONCE, null, MARKER_ABSENT],
+    ["they differ", NONCE, OTHER_NONCE, MISMATCH],
+  ];
 
-  it.each(MISMATCHES)("refuses when %s", (_label, recorded, marker, expected, forbidden) => {
+  it.each(MISMATCHES)("refuses when %s, naming ONLY that", (_label, recorded, marker, expected) => {
     const message = refusalOf(
       authorizeSend(anInput({ mode: "compact", nonce: { recorded, marker } })),
     );
     expect(message).toContain(expected);
-    expect(message).not.toContain(forbidden);
+    for (const other of PHRASES.filter((x) => x !== expected)) {
+      expect(message, `must not also claim: ${other}`).not.toContain(other);
+    }
+  });
+
+  it("every nonce condition has a DISTINCT phrase, so no two can be confused", () => {
+    // The matrix above is only as strong as the phrases being unique. If two
+    // entries shared a substring the deny-the-others assertions would be
+    // unsatisfiable or vacuous depending on direction, and this says which.
+    expect(new Set(PHRASES).size).toBe(PHRASES.length);
+    for (const a of PHRASES) {
+      for (const b of PHRASES.filter((x) => x !== a)) expect(a.includes(b)).toBe(false);
+    }
   });
 
   it("--checkpoint and --resume do not consult the nonce at all", () => {

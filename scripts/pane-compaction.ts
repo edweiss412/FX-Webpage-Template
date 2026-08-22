@@ -667,7 +667,23 @@ export function main(argv: string[], s: Surface): number {
         }
         return 2;
       }
-      throw e;
+      // Diff round 3, core finding 3 (P1). Everything else used to RETHROW, and
+      // the comment three blocks up already named the hazard -- "an UNCAUGHT
+      // throw would exit with whatever code the runtime picks, which the
+      // taxonomy reads as a refusal" -- while closing it for two classes only.
+      // This completes that reasoning over the rest.
+      //
+      // Reachable without a test double: `realSurface().branches()` throws when
+      // `git worktree list` fails, and every read member can fail the same way.
+      //
+      // NOT a silent catch-all: the message carries the original fault, so a
+      // programming error surfaces as a named exit 2 rather than being swallowed
+      // into a clean-looking refusal. The two classes above stay separate
+      // because their REMEDIES differ, which is the only reason to name a fault
+      // specially.
+      const detail = e instanceof Error ? e.message : String(e);
+      s.out(`refusing: the tool could not complete -- ${detail}`);
+      return 2;
     }
   }
 
@@ -875,10 +891,14 @@ function driveSend(opts: Parsed, mode: SendMode, s: Surface): number {
     },
   });
   if (!spent) {
-    // The grant moved between the decision and the spend. Same CONDITION as the
-    // gate's -- the record is not the one this command recorded -- so it reuses
-    // that catalog row rather than minting a second name for one fact.
-    pass.out(refuse({ kind: "nonce-mismatch" }).message);
+    // Diff round 3, core finding 2 (P1). Round 2 reused `nonce-mismatch` here on
+    // the reasoning that it was "the same condition". It is not. The gate's
+    // condition is that the marker and the record DISAGREED when we decided;
+    // this one is that the RECORD moved between deciding and spending, while
+    // the marker still holds exactly what we authorized -- so the mismatch
+    // message was false about both halves. Naming the condition that fired
+    // outranks keeping the catalog short.
+    pass.out(refuse({ kind: "nonce-record-changed" }).message);
     return 1;
   }
   return 0;

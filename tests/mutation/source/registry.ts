@@ -304,9 +304,13 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // the emitted JavaScript is byte-identical and no test could ever kill one.
     //
     // Eight until 2026-08-21. The send-authorization arc deleted `runCompact`'s
-    // `{ exitCode: 0 | 1; message: string }` return type -- the function no
-    // longer gates, so it returns nothing -- and the two rows keyed to that
-    // annotation went with the code they described. `pnpm mutation:sites`
+    // `{ exitCode: 0 | 1; message: string }` return type -- the function stopped
+    // GATING, and the two rows keyed to that annotation went with the code they
+    // described. It returns `boolean` today (diff round 3, finding 4 corrected
+    // this sentence, which said "returns nothing" and was falsified by the round
+    // 2 repair that made the send conditional on the consume's answer). What
+    // retired those two rows is the loss of the RICHER annotation, not the
+    // absence of a return type. `pnpm mutation:sites`
     // reported them as `(none -- the site is gone)` rather than as moved, which
     // is the distinction that separates a re-key from a deletion.
     //

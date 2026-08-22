@@ -271,8 +271,19 @@ the defect class, and each was individually a review finding:
   ownership refusals — the shipped refusal catalog keeps covering them).
 - The **second in-send revalidation** in `runCompact` (`revalidate: revalidateNow` invoked
   again at the moment of the send). `runCompact`'s signature drops the `revalidate` thunk;
-  its nonce inputs come from the snapshot. The consume-before-send ordering and the
-  refusal catalog rows (`nonce-absent`, `nonce-mismatch`) are unchanged.
+  its nonce inputs come from the snapshot. The consume-before-send ordering is unchanged.
+
+  **The refusal catalog rows are NOT unchanged, corrected at diff round 3.** This sentence
+  said `nonce-absent` and `nonce-mismatch` were untouched, and round 2 leaned on it to
+  justify reusing `nonce-mismatch` for a failed consume. Both parts were wrong. `nonce-absent`
+  covered two DIFFERENT conditions under one message that named only the marker, so a run
+  holding no record of a healthy pane was told "the target's marker carries no
+  checkpointNonce" — the lying-refusal shape §2 already records this arc fixing once. And the
+  failed consume is a third condition again: the record moved after authorization while the
+  marker still holds what was authorized, which the mismatch message describes falsely in both
+  halves. The catalog now carries four rows — `nonce-record-absent`, `nonce-marker-absent`,
+  `nonce-mismatch`, `nonce-record-changed` — each naming the condition that fired, per §6's
+  third guarantee, which outranks keeping the catalog short.
 - The `mintNonce` collision compare reads the snapshot marker's nonce, not an entry-time
   copy.
 

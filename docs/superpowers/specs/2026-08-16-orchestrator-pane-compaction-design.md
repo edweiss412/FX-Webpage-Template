@@ -2,6 +2,27 @@
 
 **Status:** DRAFT · **Date:** 2026-08-16 · **Branch:** `feat/orchestrator-pane-compaction`
 
+> **SUPERSEDED 2026-08-21 for the SEND PATH — read this before any statement below about
+> `--checkpoint`, `--compact` or `--resume`.**
+>
+> Every present-tense claim in this document about how a sending command behaves describes the
+> TWO-PASS model: an observe pass, then a revalidation immediately before the send. That model
+> was DELETED. `docs/superpowers/specs/2026-08-21-pane-compaction-send-authorization.md` is the
+> authority, and the shipped path authorizes from ONE read-once pass per invocation with no
+> second read to revalidate against.
+>
+> Sentences here saying a command "revalidates immediately before it sends", that the driver
+> "never sends on a stale verdict", or that state going stale between report and command
+> necessarily refuses are **superseded and now false of the shipped tool**. The current contract
+> prices same-recipient verdict and purview decay as **bounded, not closed**: such a send can
+> and does proceed (send-auth spec §7 limit 1; write-up "BOUNDED, NOT CLOSED.").
+>
+> This document is kept as the dated record of a decision, not as operator guidance. It is not
+> edited claim-by-claim because a reader who trusts one sentence would have to be trusted to
+> find every other, and the whole-document scope is the only form that does not depend on this
+> banner's author having enumerated them correctly.
+
+
 An orchestrator session compacts the arc panes under its purview: it ranks eligible panes by
 context pressure, selects the moment by arc position, and queues a checkpoint-then-compact
 sequence onto the target pane through `herdr`.
