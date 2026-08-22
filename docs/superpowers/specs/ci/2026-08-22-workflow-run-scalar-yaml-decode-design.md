@@ -170,7 +170,7 @@ on spelling.
 | `BLOCK_FOLDED` | Yes, after the header line is blanked | Unchanged, by the same `scan.ts:4062` header blanking. |
 | `QUOTE_SINGLE` | **No** | Raw pass SUPPRESSED. Decoded value only. |
 | `QUOTE_DOUBLE` | **No** | Raw pass SUPPRESSED. Decoded value only. |
-| anything else | Unknown | Raw pass SUPPRESSED; the scalar is REPORTED by name. Never silently accepted. |
+| anything else | Unknown | Raw pass SUPPRESSED. Never silently treated as shell text. |
 
 `spec:lint` reports `CITATION_SYMBOL_ABSENT` on the two block rows, and the report is right about
 the fact: `BLOCK_LITERAL` and `BLOCK_FOLDED` are `yaml` library values (verified in §2.5) and appear
@@ -179,9 +179,12 @@ Dispositioned, not repaired — renaming the rows to match the code would lose t
 discriminator, which is the style.
 
 The last row is the accept-set discipline made explicit: a `type` this design did not model is not
-assumed to be shell text. `yaml@2.9.0` emits exactly the five above for scalars, so the row is
-unreachable today and exists so a library upgrade that adds a sixth fails loud rather than lexing
-YAML as shell.
+assumed to be shell text. `yaml@2.9.0` emits exactly the five above for scalars, so that branch is
+unreachable today — which is precisely why the completeness of the set is stated EXECUTABLY rather
+than in prose. AC-9 pins the styles the installed library actually emits against the five modelled
+here, so an upgrade introducing a sixth fails by name instead of silently taking the not-shell-text
+branch for a style that IS shell text. An unreachable "report it" branch was the first draft of this
+row and was replaced: a criterion nothing can run is a description.
 
 ### 3.2 Site channel — `scanWorkflowSource`
 
@@ -299,6 +302,7 @@ EVERY edit to `scan.ts`, comment-only edits included, because registry keys are 
 | AC-5 | The live-corpus finding set is unchanged: 76 sites, 0 indirections, 0 unreadable, digest `8ebe8b08d43e6308aa471112d9f086d0118e6238`. | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/baseline-corpus.mts --expect 8ebe8b08d43e6308aa471112d9f086d0118e6238` — exits 1 when the set moves, 2 on a thin or zero-row read. Run on a CLEAN tree; see §2's contamination note. |
 | AC-6 | The census of §2.3 is restated by command, not by memory, and still reports zero quoted executable scalars. | The census probe, re-run at HEAD. A non-zero result retires AC-5's reasoning and is a finding against this spec, not against the diff. |
 | AC-7 | Every registry key for `psqlStartupScan` resolves after the final edit. | `pnpm mutation:sites` clean, then `pnpm heavy pnpm mutation:guards` with the score and the unaccepted-survivor set stated in the round-1 diff brief's GUARD SURFACE line. |
+| AC-9 | The accept-set of §3.1 is complete over what the installed `yaml` emits. The distinct scalar `type` values produced over the §2.5 spelling corpus equal exactly the five modelled styles. | Test in the deciding suite. Fails by name on a library upgrade that adds a sixth style, which would otherwise take the not-shell-text branch silently. |
 | AC-8 | `matchBrace` and the delimiter walk are untouched. | `git diff origin/main -- tests/cross-cutting/psqlStartupFiles/scan.ts` shows no hunk inside those functions. |
 
 ---
