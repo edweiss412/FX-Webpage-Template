@@ -242,6 +242,23 @@ export function isFamilyReference(text: string, end: number, stem: string, defin
  * as dead, and a row whose id becomes real fails as stale.
  */
 const NOT_A_CITATION: Record<string, Record<string, string>> = {
+  "tests/styles/_metaControlOutlineResidue.test.ts": {
+    "BL-TEST-ROW": "the constructed ledger entry the filed-defect and literal-outline bars resolve against",
+    "BL-OTHER": "the neighbouring entry in that constructed ledger, which must NOT answer the ref",
+    "BL-NEXT": "the trailing entry, so the body-extraction stops at the next heading",
+    "BL-NO-SUCH-ENTRY": "the ref that must resolve to nothing, for the does-not-resolve refusal",
+    "BL-PREFIX": "the short id in the prefix pair proving a ref matches a WHOLE id",
+    "BL-PREFIX-CHILD": "the longer id sharing its prefix, which must not answer the short ref",
+  },
+  "docs/superpowers/specs/2026-08-21-control-outline-forward-guard-design.md": {
+    "BL-LIT-1": "the constructed ledger id in §1.5's literal-outline bar transcript",
+    "BL-LIT-9": "the ref that resolves to nothing in that same transcript",
+  },
+  "docs/superpowers/plans/2026-08-21-control-outline-forward-guard.md": {
+    "BL-LIT-1": "quoted from the spec's literal-outline probe transcript",
+    "BL-LIT-9": "quoted from the same transcript, the unresolvable ref",
+    "BL-TEST-ROW": "the constructed entry the plan's bar cases cite",
+  },
   "tests/docs/_metaLedgerClaimCollision.test.ts": {
     "BL-PLANTED-COLLISION": "planted declared claim proving the backstop reads one",
     "BL-PLANTED-OPEN": "planted OPEN entry proving it does not read one",
