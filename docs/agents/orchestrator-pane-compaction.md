@@ -1,10 +1,11 @@
 # Orchestrator pane compaction (project-scoped)
 
-> **The sending modes are disabled in this release.** `--checkpoint`, `--compact` and
-> `--resume` refuse immediately and name `BL-PANE-COMPACTION-SEND-AUTHORIZATION`. What ships
-> is the classifier and the read-only surfaces: the default report, `--check` and `--json`.
-> Everything below about the three-step protocol describes the design those modes will
-> implement when the authorization arc lands; it is not what the shipped binary does today.
+> **All five surfaces ship enabled.** `--checkpoint`, `--compact` and `--resume` send, and
+> each authorizes from ONE read-once pass over its world: every decision input is read at
+> most once per invocation and nothing is carried in from an earlier command. The design is
+> `docs/superpowers/specs/2026-08-21-pane-compaction-send-authorization.md`; the fence those
+> modes shipped behind through 2026-08-20, and why, is a dated record in §7 of the
+> 2026-08-16 design.
 
 
 Extracted so it loads on demand instead of in every session. This file is canonical for its
@@ -12,6 +13,61 @@ subject and carries the same authority as `AGENTS.md`; `AGENTS.md` links here. A
 agent harness working in this repo.
 
 Read this before compacting any pane other than your own.
+
+## Operator procedure between commands
+
+**Exit 0 means authorized and sent. It does not mean delivered, and the tool will never
+claim otherwise.** `herdr agent send` returning `{"type":"ok"}` describes the transport, not
+the delivery: an unsubmitted `[Pasted text #N]` and a dropped first send both return ok. The
+tool takes no post-send read and prints no echo, deliberately — a read-back would be a
+second `screen` read inside the pass, and classifying what came back would mean reading pane
+text for meaning, which this surface does not do. So the verification is yours:
+
+- **After every live command, read the target pane back** (`herdr pane read <paneId>`) before
+  sequencing the next step. A send that returns ok is not a send until a pane read shows it.
+- **Send `/compact` into an EMPTY queue.** A `/compact` queued behind other pending input can
+  merge into one combined message and arrive as prose rather than executing as a command. The
+  nonce is already consumed at that point, so the recovery is a fresh `--checkpoint`.
+- **A freshly launched pane drops its first send** while its TUI is not yet accepting input
+  (measured three-for-three on kickoff briefs). Compaction targets are established panes, so
+  this is off the ordinary path; where it happens, the pane read shows an unmoved pane and
+  the command is re-run.
+- **A usage-walled target cannot compact.** Compaction is itself an API call, so a pane idle
+  at a quota wall accepts the text and cannot act on it. Not detectable from outside; the
+  pane read shows the staged text, and the procedure is to compact after the reset.
+
+## What the authorization does and does not close
+
+Every sending invocation authorizes from ONE read-once pass. The pass is not an
+instant, though: its members are read one after another, so a world change
+landing between the first read and the bytes arriving is not seen by that
+invocation. That window is real and is priced per decay class rather than
+claimed away.
+
+- **Wrong recipient** (a takeover swapping the session). Closed by mechanism.
+  Both prose payloads open with an ADDRESS LINE naming the target's branch and,
+  when its marker carries one, its session id, and instructing any other session
+  to ignore the message entirely. A misdirected send self-neutralizes.
+- **Same recipient, `blockedOn` decayed** (a concurrent marker write). Closed by
+  mechanism. The resume payload tells the recipient to re-read its own
+  `.claude/ship-state.json` FIRST and stop if `blockedOn` is non-empty, so the
+  decayed state itself refuses. It is the one decay signal a recipient can read.
+- **Same recipient, verdict or purview decayed.** **BOUNDED, NOT CLOSED.** The
+  recipient cannot see either signal: purview lives in the orchestrator's own
+  registry, and verdicts derive from roster, `gh` and git reads the recipient
+  never performs. An addressed resume landing in this class IS obeyed. The
+  bounded consequence is one resumed-or-stopped turn the recipient's own driver
+  reconciles, never corrupted state, and the `--compact` that would follow
+  refuses on its own fresh pass.
+- **`/compact` specifically** carries no address, because a prefix line would
+  strip it of its status as a slash command. Its worst mis-delivery is a
+  compaction the operator no longer wanted, which is what auto-compaction does
+  on its own schedule anyway.
+
+One ordering detail is load-bearing rather than incidental: target resolution
+happens BEFORE the roster read, so the roster feeding rules 1, 2, 5 and 7 is the
+freshest value the decision can have. A takeover landing after that read is the
+residual above; one landing before it is refused by rule 5.
 
 ## Why this exists
 
@@ -111,7 +167,7 @@ panes:compact --compact    <target> --as <sessionId>   # requires the nonce back
 panes:compact --resume     <target> --as <sessionId>   # sends the resume prompt
 ```
 
-Each revalidates independently and returns immediately. **You sequence them**, re-running the plain
+Each authorizes from its own read-once pass and returns immediately. **You sequence them**, re-running the plain
 report in between to see where the target got to — that re-run is the wait, and putting it in your
 judgement rather than in a timeout inside a script is what keeps each command's failure mode
 singular.
@@ -176,7 +232,9 @@ later command cannot tell which pane it would reach.
 
 **This adds one optional field to the ship-state marker.** `checkpointNonce` joins `{branch, stage,
 tasksRemaining, next, blockedOn, cronJobId, sessionId}`. It is written only by a target responding
-to a checkpoint prompt and read only by `--compact`; its absence is normal.
+to a checkpoint prompt. `--compact` COMPARES it -- that is the whole proof the checkpoint landed --
+and `--checkpoint` also READS it, to avoid minting the value already sitting there (`mintNonce`'s
+collision compare). Its absence is normal.
 
 **The checkpoint never commits.** Invariant 1 permits a task commit only after the implementation
 passes its test, and a target mid-task has not. It writes the marker — gitignored, so it dirties

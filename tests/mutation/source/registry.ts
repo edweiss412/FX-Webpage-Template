@@ -261,6 +261,11 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // loop bound nothing counted.
       "tests/paneCompaction/mutantKills.test.ts",
       "tests/paneCompaction/revalidate.test.ts",
+      // The send-authorization arc's deciding suite (BL-PANE-COMPACTION-SEND-AUTHORIZATION).
+      // Enrolled in the SAME task that authors it: a deciding suite outside
+      // `suitePaths` runs, passes, and buys zero score, which is how eight #831
+      // survivors existed under a green suite.
+      "tests/paneCompaction/authorization.test.ts",
     ],
     // Five of the six. `regex-quantifier-bound` is EXCLUDED, and the exclusion
     // is probed rather than assumed: it recognizes only `{m,n}` quantifiers
@@ -290,14 +295,24 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // as eligible, which bands.test.ts asserts IN PROCESS. Run, not merely
     // asserted non-equal to the source.
     control: { from: "export const ELIGIBLE_AT = 5;", to: "export const ELIGIBLE_AT = 0;" },
-    // Eight survivors, every one argued rather than deferred. NO `accepted-gap`
+    // Six survivors, every one argued rather than deferred. NO `accepted-gap`
     // rows: a gap is real coverage debt and owes a BL- ref, and none of these is
     // debt.
     //
-    // SIX are TYPE ANNOTATIONS (`: 0 | 1 | 2`, `exitCode: 1`,
-    // `{ exitCode: 0 | 1 }`). TypeScript erases them and the runner's children
-    // transpile without typechecking, so the emitted JavaScript is byte-identical
-    // and no test could ever kill one.
+    // FOUR are TYPE ANNOTATIONS (`: 0 | 1 | 2`, `exitCode: 1`). TypeScript
+    // erases them and the runner's children transpile without typechecking, so
+    // the emitted JavaScript is byte-identical and no test could ever kill one.
+    //
+    // Eight until 2026-08-21. The send-authorization arc deleted `runCompact`'s
+    // `{ exitCode: 0 | 1; message: string }` return type -- the function stopped
+    // GATING, and the two rows keyed to that annotation went with the code they
+    // described. It returns `boolean` today (diff round 3, finding 4 corrected
+    // this sentence, which said "returns nothing" and was falsified by the round
+    // 2 repair that made the send conditional on the consume's answer). What
+    // retired those two rows is the loss of the RICHER annotation, not the
+    // absence of a return type. `pnpm mutation:sites`
+    // reported them as `(none -- the site is gone)` rather than as moved, which
+    // is the distinction that separates a re-key from a deletion.
     //
     // TWO are counter details inside `newestVerdictTie`, which reports
     // `count > 1`. Neither the initial value nor the increment SIZE can move that
@@ -326,22 +341,28 @@ export const GUARD_SURFACES: GuardSurface[] = [
         reason: "The `2` of the same `0 | 1 | 2` return-type annotation on `checkExitCode`.",
       },
       {
-        siteId: "integer-literal:700:35:1>2",
+        // Re-keyed 700 -> 801 -> 828 -> 854, each time RE-VALIDATED by READING the new
+        // line rather than by the key resolving: a resolving key proves the site
+        // still exists, never that the reason still holds. Line 854 reads
+        // `export type Refusal = { exitCode: 1; sends: never[]; message: string
+        // };`, so it is the same annotation under a new line. 801 -> 828 was diff
+        // round 3's refusal-cause split; 828 -> 854 was round 4's one-pass
+        // substitution block, MY OWN commit, which moved it again while I was
+        // still describing the previous move. Checked because the merge prompted
+        // a re-key sweep, not because anything flagged it -- CI would have.
+        //
+        // Third re-key on one row, and the pattern is the point: this ledger is
+        // keyed by LINE, so any edit above a row silently invalidates it and the
+        // gate reports the same site as one unaccepted survivor plus one stale
+        // row. That pair -- an unaccounted site and an unmatched row, both
+        // integer-literal, same column, same mutation -- is the signature of a
+        // MOVE rather than a regression, and it is worth recognising before
+        // treating it as a new gap.
+        siteId: "integer-literal:854:35:1>2",
         kind: "equivalent",
         reason:
           "`export type Refusal = { exitCode: 1; ... }` -- a type alias. The refusal objects that " +
           "carry a real `exitCode: 1` are constructed elsewhere and asserted by cli.test.ts.",
-      },
-      {
-        siteId: "integer-literal:798:17:0>1",
-        kind: "equivalent",
-        reason: "The `0` of the `{ exitCode: 0 | 1; message: string }` return-type annotation.",
-      },
-      {
-        siteId: "integer-literal:798:21:1>2",
-        kind: "equivalent",
-        reason:
-          "The `1` of the same `{ exitCode: 0 | 1; message: string }` return-type annotation.",
       },
       {
         siteId: "integer-literal:386:15:0>1",

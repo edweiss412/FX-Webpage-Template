@@ -92,6 +92,14 @@ Accepted-survivor rows are keyed `operator:line:column:replacement`, so the key 
 
 Close condition: `mutation:sites` runs unconditionally after any edit to a file named by a `GUARD_SURFACES` row — as a pre-commit hook, a CI job on the changed-file set, or a meta-test that fails when a registered surface's blob differs from the revision its keys were derived at.
 
+**Seventh incident, and the one that shows per-incident re-keying never converges (2026-08-22, `feat/pane-compaction-send-auth`).** One row on `paneCompactionCore` — the `Refusal` type alias, an `integer-literal` whose mutation emits byte-identical JavaScript — moved FOUR times in a day: `700 -> 801 -> 828 -> 854`. The last move is the instructive one: it was made by the very comment block that documented the PREVIOUS move. The arc was writing "re-keyed 801 -> 828, re-validated by reading line 828" and that edit pushed the declaration to 854 in the same commit. Nothing local flagged it. CI did, one full cycle later, and it reported the site the way this class always reports: one unaccepted survivor plus one stale row, same operator, same column, same mutation.
+
+**That pair IS the signature of a MOVE rather than a coverage regression** — a real regression does not arrive with a matching orphaned row — and recognising it is what separates a re-key from a new gap.
+
+**Concrete repair candidate, and this row's natural close: `mutation:sites` gains a COLUMN-LITERAL assertion.** Resolving a key proves the site still EXISTS; reading the column proves the reason still HOLDS, and only the second is worth anything. The arc shipped a working implementation as `scripts/verify-mutation-site-keys.ts` — for every accepted row it resolves `operator:line:column:from>to` back to the source, slices `from.length` characters at that column, and compares. Whole-ledger rather than per-incident, which is the property that converges: each per-instance re-key is itself an edit that can move the next row, while a whole-ledger column check is correct after every edit. Run over the entire corpus it reports every enrolled surface clean.
+
+One implementation trap worth inheriting: parse the key with a NON-GREEDY `from`. Both halves may contain `>` — `relational-boundary:...:>>>=` is `>` becoming `>=` — and a greedy split reported 28 healthy rows as MOVED on the first run. A verifier's false positive is worse than its silence, because it is acted on.
+
 ## BL-MUTATION-SCORE-JURISDICTION-GAP-ARITHMETIC-BRANCH — a guard surface's declared operators produce ZERO sites over a whole branch, so the score cannot see code it is reported against
 
 **Status:** OPEN · **Filed:** 2026-08-21 (`fix/shell-attached-redirection-target`, diff round 3) · **Severity:** MEDIUM (the score is reported as the surface's convergence criterion while a branch of that surface is outside it; the number is honest and its jurisdiction is not stated) · **Class:** mutation harness fidelity · **Effort:** L · **Facing:** process · **Class-sweep exception:** (c) — closing it means widening a registry operator set file-wide, which is a measurement-scope decision about the harness rather than a repair to this arc's code. · **Reachability:** PROBED — the numbers below were measured, not estimated. · **Incident:** diff round 3 of this arc found a REGRESSION the arc itself introduced — `$((...))` arithmetic read as a `$()` command substitution, yielding a resolved site for a command bash never runs — after FOUR earlier review rounds and a `49/49` score with zero unaccepted survivors had all passed over it. A reviewer probing bash found it; the score structurally could not.
@@ -1613,50 +1621,6 @@ mutation-surface registry.
 exemption row, since a rule that starts with a large exemption list is a rule
 nobody trusts.
 
-## BL-PANE-COMPACTION-SEND-AUTHORIZATION — the pane-compaction send path needs its own arc
-
-**Status:** OPEN. · **Effort:** L — an authorization redesign plus its own review arc; five diff
-rounds could not close it as a sub-part of the classifier PR.
-
-`pnpm panes:compact` ships with `--checkpoint`, `--compact` and `--resume` DISABLED. The classifier
-and the read-only surfaces (default report, `--check`, `--json`) ship enabled and mutation-scored.
-The three sending modes refuse before any observation and name this row.
-
-**Which deferral exception applies: (c)** — a redesign of a surface the PR does not otherwise
-settle. Not "same defect, different file": the send path needs an authorization model, and five
-adversarial rounds demonstrated that it does not converge as a sub-part of this diff.
-
-**Reachability: PROBED, repeatedly, by the reviewer.** Every one of these exited 0 and SENT bytes
-before its repair:
-
-- `--compact` authorized against a nonce captured before revalidation (AC-19).
-- Revalidation compared only the verdict, so a purview TRANSFER passed through (AC-13).
-- Revalidation ran against the ORIGINAL roster, freezing rules 1, 2, 5 and 7, so a takeover
-  swapping `agent_session` was invisible (AC-17).
-- The marker was read TWICE per authorization, so a `sessionId` change between the two reads
-  preserved the nonce and passed rule 5 on the stale copy (AC-13/AC-17).
-- `--checkpoint` and `--resume` never revalidated at all: they observed once and then sent, so a
-  marker that changed in between was never seen (§6 guarantee 1).
-- A labelled non-arc was driven and a checkpoint SENT to an orchestrator pane (AC-16).
-
-**Why this is a row and not more rounds.** Findings per diff round were 9, 5, 4, 4, 4 — flat, with
-a P0 in every round, and from round 3 on every P0 was in this path. The round cap is 4. Decisively,
-**two repairs introduced the following round's defect**: one added dead code the mutation gate
-caught, and one made a refusal LIE — roster disappearance encoded as a stale report with a null
-nonce, refusing with "marker carries no checkpointNonce" while a matching nonce sat in the marker,
-which would send an operator to re-checkpoint a pane that no longer exists. That is the ratchet: each
-repair is a bigger target for the next round.
-
-**First scheduled step:** decide the authorization model before writing code — specifically whether
-one atomic snapshot per authorization is sufficient, or whether the target must acknowledge before
-any byte is sent. Every defect above is an instance of "the decision and the send were separated by
-a window", and four incremental repairs narrowed that window without closing it.
-
-**Evidence:** the round-economy filing at
-`docs/review-rounds/feat/orchestrator-pane-compaction/7d332074ec97.md` carries the full round-by-round
-account. The adapter-level tests for the send path were removed when the fence landed and are
-recoverable from git history on this branch; restore them with the arc rather than rewriting them.
-
 ## BL-SPECLINT-ORPHANED-TASK-MARKERS — a plan whose markers sit outside a region lints as `0 hard` while checking nothing
 
 **Status:** OPEN · **Severity:** MEDIUM (no shipped defect; the gate reports a pass over an empty set, which is the failure mode `spec:lint` exists to prevent) · **Class:** spec-lint grammar / review tooling · **Effort:** S · **Filed:** 2026-08-19 (`fix/premisescan-nested-hook-sibling-leak`, spec review R2 F1) · **Facing:** process · **Class-sweep exception:** (c) — the repair is an arm inside `lib/specLint/`, a surface this arc does not otherwise touch · **Reachability:** PROBED — the reviewer's own probe reproduces, and both figures come from data the linter already computes.
@@ -1760,6 +1724,65 @@ Both runs were from the repo root with the paths valid and readable; relative an
 **Shape of the repair.** Upstream: exit non-zero when a requested path could not be read, so inability-to-look is never spelled the same as nothing-found. Locally, cheaper and available now: a wrapper that refuses a non-directory argument, or an invariant-8 checklist line requiring the directory form and a non-zero exit before "detector clean" may be recorded.
 
 **First scheduled step:** confirm the behaviour against the current upstream release, then decide wrapper-versus-report — a local wrapper is worth it either way, since this repo's gate cannot wait on an upstream fix.
+
+## BL-REVIEW-ROUND-COUNT-RESETS-ON-REMERGE — an arc's round accounting restarts at every re-merge, so the cap is avoidable for free
+
+**Status:** OPEN · **Filed:** 2026-08-21 (`feat/pane-compaction-send-auth`, observed on its own base move) · **Severity:** MEDIUM (the gate under-reports rather than mis-fires; nothing ships wrong, but the economy's only enforcement point stops firing exactly on the arcs it was built for) · **Class:** review-round economy · **Effort:** M · **Facing:** process · **Incident:** this arc re-merged `origin/main` after diff round 3, moving its merge-base `c9c71b947` -> `0ba72c237`. Rounds 1-3 stay in `c9c71b947a85.jsonl` and round 4 records in a NEW `0ba72c23774f.jsonl`, so the arc will have burned FOUR diff rounds with the threshold reached in neither file and no filing ever mechanically owed. The filing at `c9c71b947a85.md` was written voluntarily, and says so in its own opening. · **Reachability:** PROBED — the split already exists on disk, below.
+
+**Probe.** The corpus is keyed by `<baseSha12>` = `git merge-base origin/main HEAD`, and this one arc already spans two files:
+
+```
+c9c71b947a85.jsonl   {'diff': [1, 2, 3]}
+e5d1d723d69c.jsonl   {'spec': [1, 2, 3, 4], 'plan': [1, 2, 3, 4]}
+```
+
+Round 4 will add a third with `{'diff': [4]}` — one counted round at that base. `ROUND_THRESHOLD` is 4 and `tests/docs/_metaReviewRoundEconomy.test.ts` counts distinct `round` values PER BASE FILE, so no diff filing is owed at any of the three.
+
+**It also FORBIDS the honest workaround, which is how it was confirmed.** Declaring the arc-honest number at the new base does not work: the gate requires each base file's rounds to be a contiguous `1..N`, so a row recording "diff round 4" as the first row at a new base fails with `round_gap`. The corpus therefore does not merely fail to sum across bases; it actively requires base-local renumbering, which is the reset. Observed on this arc — round 4's two rows were written as `round: 4`, rejected, and renumbered to `round: 1` to pass.
+
+**Why this is worse than a miss.** Re-merging is not an exotic act; AGENTS.md's own closure-hit rule REQUIRES it whenever main touches a file the branch touched. So the incentive runs backwards: the arcs most likely to re-merge are the long ones, which are exactly the arcs the cap exists to make account for themselves. An arc can also reach the cap, re-merge, and continue with a fresh counter without ever deciding anything — no bad faith required, which is what makes it a gate defect rather than a discipline problem.
+
+**Shape of the repair.** Count per ARC (the branch directory), not per base file, for the threshold decision — the corpus is already laid out branch-first, so the sum is a directory read rather than a new key. The filing's LOCATION can stay per-base (it names the head the rounds examined); only the obligation needs to sum. Two details the implementation has to settle rather than assume: a rebase can renumber rounds so `round` values may collide across bases (sum distinct `(base, round)` pairs, not distinct `round`), and an arc that legitimately re-bases onto a much later main is still the same arc for accounting purposes.
+
+**Interim rule, until the gate learns to sum** (this is what the arc did, and it is the filer's obligation meanwhile): file where the rounds actually happened, name the reset as a merge-timing artifact inside the filing, and never time a re-merge to dodge a filing.
+
+**First scheduled step:** confirm the branch-directory sum against the live corpus (`pnpm review:economy` already walks it) and count how many existing arcs would newly owe a filing — that number decides whether the gate change ships hard or advisory-first.
+
+## BL-REPLACEMENT-STRING-CLASS-SWEEP — a runtime value in `String.replace`'s replacement position is a mini-language, and the repo has never swept for it
+
+**Status:** OPEN · **Filed:** 2026-08-21 (`feat/pane-compaction-send-auth`, diff round 3 F1) · **Severity:** MEDIUM (silent wrong output, not a crash: the call succeeds and the text is wrong) · **Class:** correctness sweep · **Effort:** M · **Facing:** process · **Incident:** diff round 3 on `feat/pane-compaction-send-auth` spent a P1 on this class — `addressPayload` passed the branch and session into `String.replace` as REPLACEMENT STRINGS, so a valid branch named `feat/$&` produced an address line naming `feat/<BRANCH>` and the command exited 0 having told every recipient to ignore a message it reported sending. Corpus row: `docs/review-rounds/feat/pane-compaction-send-auth/c9c71b947a85.jsonl`, `diff` round 3, core scope, `findingCount` 4. · **Reachability:** PROBED — the branch names are accepted by git, and the shipped behaviour was reproduced before repair.
+
+**The shape.** `String.prototype.replace` and `replaceAll` treat `$&`, `` $` ``, `$'`, `$1` and `$<name>` in the REPLACEMENT ARGUMENT as substitution syntax. Any runtime value placed there is therefore interpreted, not inserted. It is the same shape as SQL injection or format-string injection with a different mini-language: a data position that is secretly a grammar.
+
+**Probe.**
+
+```
+$ git check-ref-format --branch 'feat/$&'   -> feat/$&        (valid)
+$ git check-ref-format --branch 'feat/a$`b' -> feat/a$`b      (valid)
+
+"For the session driving <BRANCH> ONLY".replace("<BRANCH>", "feat/$&")
+  -> "For the session driving feat/<BRANCH> ONLY"
+"For the session driving <BRANCH> ONLY".replace("<BRANCH>", "a$`b")
+  -> "For the session driving aFor the session driving b ONLY"
+```
+
+The second is the worse one: `` $` `` splices the entire preceding text into the output.
+
+**Shape of the repair.** A replacer FUNCTION — `text.replace(token, () => value)` — rather than escaping the value, because the function form has no substitution grammar to escape at all; escaping leaves the grammar live and one missed character away from the same defect. The sweep is an AST walk that judges every `.replace`/`.replaceAll` call's second argument: a string literal is fine (no runtime value), a function is fine, anything else is the defect. `tests/paneCompaction/literalSubstitution.test.ts` is the shipped instance of exactly that walk over two files, and is the template.
+
+**Scope note.** This arc closed the class for `scripts/lib/pane-compaction-core.ts` and `scripts/pane-compaction.ts` only. Deferred per the class-sweep disposition rule, exception (c): the repair spans a tree the PR does not otherwise touch, and a repo-wide AST gate is its own reviewable surface rather than a rider on a send-authorization diff.
+
+**First scheduled step:** run the walk repo-wide in report-only mode (`rg -l '\.replace(All)?\('` to bound the file set, then the AST judge over it) and count offenders before deciding whether the gate ships as `fail` or advisory.
+
+## BL-PLANLINT-AC-COMMAND-OBSERVABILITY — an AC row can name a command that runs green yet cannot observe its criterion
+
+**Status:** OPEN · **Filed:** 2026-08-21 (`feat/pane-compaction-send-auth`, plan rounds r2 F4 / r3 F5 / r4 F2 — three consecutive rounds each landing an instance of this one class) · **Severity:** MEDIUM (the AC table is the plan's proof surface; a row whose command cannot see its criterion certifies the criterion unobserved, in the silent direction) · **Class:** plan lint · **Effort:** M · **Facing:** process · **Incident:** three review rounds on `feat/pane-compaction-send-auth` each burned a finding on this class — r2 F4 (two rows with non-runnable command cells, plus two vague cells the sweep caught), r3 F5 (one remaining prose cell), r4 F2 (a runnable command whose file list omitted the suite holding the criterion's executable pin, `tests/paneCompaction/driver.test.ts:72`) — corpus rows in `docs/review-rounds/feat/pane-compaction-send-auth/e5d1d723d69c.jsonl`, filing §"plan — 4 rounds". · **Reachability:** PROBED — the three findings above are live instances, each verified against the plan text at its dispatch head.
+
+**The shape.** A plan's AC coverage table asserts per row: criterion, proving task, producing command. Two failure modes recurred: (a) a cell that is prose, not a command (`task commits carry the outputs`, `both red commands above`, `the three red commands`) — runnable by nobody; (b) a runnable command whose resolved file list does not include the file holding the row's criterion-specific pin, so the command passes while the criterion goes unobserved.
+
+**Shape of the repair.** A plan-lint arm over documents carrying an AC coverage table: (a) every producing-command cell must parse as a command (`sh -nc`, the existing red-arm machinery); (b) when the row's cited pin names a `file:line`, that file must appear in the command's argument list. Advisory for (b) — a criterion can legitimately be proved by a new case the plan authors — hard for (a). Reuses `spec-lint`'s existing table walker and command parser; no new recognizer over open English.
+
+**First scheduled step:** confirm the AC-table grammar is stable across the plan corpus (`rg -l '^\| AC-' docs/superpowers/plans/`), then draft the arm against this arc's plan as the fixture.
 
 ## BL-SPECLINT-DOC-BARE-LINE-NUMBERS-UNCOVERED — a document's raw line numbers rot where the citation oracle cannot look
 

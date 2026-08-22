@@ -88,6 +88,10 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   "tests/paneCompaction/revalidate.test.ts": 0,
   "tests/paneCompaction/ruleIdentity.test.ts": 0,
   "tests/paneCompaction/mutantKills.test.ts": 0,
+  // The send-authorization suite, enrolled 2026-08-21. 0 because the predicate
+  // is pure over injected pass data and the payload cases drive string
+  // constants: no case reaches a member of ENVIRONMENT_SOURCES.
+  "tests/paneCompaction/authorization.test.ts": 0,
   // The send-auth gate, enrolled 2026-08-20 with the sendAuthScan surface. 0
   // honestly and structurally: it reads fixture FILES and walks source roots,
   // but ENVIRONMENT_SOURCES.modules is ["node:child_process",
