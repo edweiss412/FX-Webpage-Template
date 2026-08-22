@@ -6728,7 +6728,9 @@ describe("an executing psql inside an ATTACHED redirection target", () => {
   // source-mutation registry cannot reach the `$((` branch at all: BOTH declared
   // operators produce ZERO sites over it. Four UNdeclared operators do reach it,
   // the cheapest file-wide being `logical-connector` at +195 sites; the row
-  // carries the full per-operator census.
+  // carries the per-operator census, stated as reaches/does-not-reach plus a
+  // file-wide cost, because an exact in-branch count depends on where the
+  // branch is cut and two honest enumerations disagreed on it.
   // Filed as BL-MUTATION-SCORE-JURISDICTION-GAP-ARITHMETIC-BRANCH rather than
   // enrolled, so this test IS the coverage for that branch.
   //

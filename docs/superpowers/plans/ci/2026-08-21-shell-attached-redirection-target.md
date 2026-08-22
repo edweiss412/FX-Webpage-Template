@@ -215,7 +215,9 @@ observed FAILING under W1 and W10, so the check is live even though this particu
 constructible.
 
 The split is stated rather than rounded up, because "I checked" and "it discriminates" are
-different claims and only one of them was made for eight of these rows.
+different claims. The table above now stands at twenty PROVEN rows and two that could not be
+expressed at all, W5 and W7 - an earlier draft of this sentence described an eight-row state the
+audit had already moved past.
 
 **W6 was the audit's real yield: no shipped check caught it, and one now does.** Honouring the escape pair at top
 level only leaves 24 of 24 holding, and the killer this plan named — H — does not exercise that

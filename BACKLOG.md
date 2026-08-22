@@ -60,19 +60,21 @@ Close condition: `mutation:sites` runs unconditionally after any edit to a file 
 
 **Measured cost of closing it as-is.** The first version of this row said `integer-literal` is the ONLY operator reaching the branch, at +375. **That was wrong and diff round 5 caught it:** the measurement behind it was a FILE-WIDE delta, which answers "what does adding this operator cost" and not "does this operator reach the branch". Two different questions, and I reported one as the other.
 
-Re-censused per operator, counting sites INSIDE the two `$((` branch bodies as well as file-wide:
+Re-censused per operator. **The file-wide column is the load-bearing one and the only one stated as a count:**
 
-| operator                            | file-wide | inside the `$((` branches |
-| ----------------------------------- | --------: | ------------------------: |
-| `relational-boundary` (declared)    |        71 |                     **0** |
-| `regex-quantifier-bound` (declared) |         8 |                     **0** |
-| `logical-connector`                 |       195 |                         5 |
-| `equality-flip`                     |       278 |                         8 |
-| `integer-literal`                   |       375 |                        20 |
-| `statement-removal`                 |       414 |                        13 |
-| `arithmetic-operator`               |         0 |                         0 |
+| operator                            | file-wide | reaches the `$((` branches? |
+| ----------------------------------- | --------: | --------------------------- |
+| `relational-boundary` (declared)    |        71 | **no**                      |
+| `regex-quantifier-bound` (declared) |         8 | **no**                      |
+| `logical-connector`                 |       195 | yes                         |
+| `equality-flip`                     |       278 | yes                         |
+| `integer-literal`                   |       375 | yes                         |
+| `statement-removal`                 |       414 | yes                         |
+| `arithmetic-operator`               |         0 | no                          |
 
-FOUR operators reach the branch, not one, and the cheapest is `logical-connector` at +195 file-wide rather than `integer-literal` at +375. What SURVIVES the correction is the finding itself: both DECLARED operators reach it zero times, so the branch is outside the score's jurisdiction as configured, and every operator that would reach it is file-wide on a surface that already runs ~24 minutes.
+An earlier version of this row gave exact in-branch COUNTS. They are deliberately gone: diff round 6 enumerated the same branches and got different numbers, and both enumerations were honest — the count depends entirely on where you cut the branch, and a neighbouring ordinary `$()` arm sits immediately after it. A number whose value depends on an arbitrary boundary is not a measurement, so what remains is the predicate that does not: **which operators reach the branch at all**, and what each costs file-wide.
+
+FOUR operators reach it, not the one this row first named, and the cheapest is `logical-connector` at +195 file-wide rather than `integer-literal` at +375. What survives every correction is the finding: both DECLARED operators reach it ZERO times, so the branch is outside the score's jurisdiction as configured, and every operator that would reach it is file-wide on a surface that already runs ~24 minutes.
 
 **Why it was NOT enrolled in the arc that found it.** Enrolling buys mutants weaker than the verifier already built: the branch's terminal check is a bash-oracle matrix that derives every expectation from whether the shell actually executed the command, promoted into the deciding suite so it is a standing gate rather than a session artifact. Enrolment would add hundreds of mutants over unrelated integer literals to reach one branch a stronger instrument already covers, and it would land that decision under review pressure at diff round 4.
 
