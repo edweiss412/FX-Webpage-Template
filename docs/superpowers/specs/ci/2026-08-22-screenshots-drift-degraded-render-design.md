@@ -510,6 +510,14 @@ what surfaced both mechanisms; closing them together would have shipped a false 
 
   Emptiness at start is the load-bearing property: it is what makes "this file exists" mean "this run wrote
   it". The directory is created fresh per run and is gitignored alongside the evidence record.
+
+  **The principle, stated because three rounds were spent rediscovering it.** Read-back proves matching
+  bytes EXIST; it cannot prove which run produced them, and no stronger property of the bytes closes that
+  gap — a hash, a length, a re-decode, a checksum of a checksum all describe content, and the content is
+  *supposed* to be identical. **Production is certified by the provenance of the workspace, not by any
+  property of the artifact.** A location that provably started empty is what converts "these bytes are
+  correct" into "this run made them". Any future oracle over capture output is measured against that
+  sentence rather than against a better comparison.
 - **AC-3** The meta-test fails when a manifest-reachable shape-1 branch lacks `data-render-fault`, proven
   by a mutant removing the attribute.
 - **AC-4** The population is derived from the manifest **including template-literal routes**, proven by two
