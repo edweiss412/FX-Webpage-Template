@@ -14,7 +14,7 @@
  * the corpus cannot grow a case without a reason.
  */
 
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -112,18 +112,28 @@ function replaceOnce(path: string, anchor: string, replacement: string): void {
  * for every later one — which is exactly what corrupted the first probe run (spec §5.6). `lib` is
  * copied because the resolver reaches into it: dropping it moves the unresolved pool from 13 to 21.
  */
-function scratchCorpus(mutate: (root: string) => void): string {
+function withScratchCorpus<T>(mutate: (root: string) => void, read: (root: string) => T): T {
   const root = mkdtempSync(join(tmpdir(), "control-outline-residue-"));
-  for (const dir of ["app", "components", "lib"])
-    cpSync(join(ROOT, dir), join(root, dir), { recursive: true });
-  cpSync(join(ROOT, "tsconfig.json"), join(root, "tsconfig.json"));
-  mutate(root);
-  return root;
+  try {
+    for (const dir of ["app", "components", "lib"])
+      cpSync(join(ROOT, dir), join(root, dir), { recursive: true });
+    cpSync(join(ROOT, "tsconfig.json"), join(root, "tsconfig.json"));
+    mutate(root);
+    return read(root);
+  } finally {
+    // Every scratch root is ~11 MB and this suite builds EIGHTY-ONE of them per run. Under the
+    // mutation harness that is one full set per mutant, so leaking them costs ~900 MB a mutant and
+    // fills the disk long before the run ends: measured 5113 leaked roots, about 51 GB, before this
+    // cleanup existed. `finally` rather than `afterAll` because a throwing case must clean up too.
+    // Deleting is safe for the parse-cache hazard of spec §5.6: `mkdtemp` never reissues a name, so
+    // a later root cannot inherit a deleted one's cached SourceFiles.
+    rmSync(root, { recursive: true, force: true });
+  }
 }
 
 /** The residue keys of a mutated corpus, through the same code path the live tree uses. */
 function keysAfter(mutate: (root: string) => void): Map<string, number> {
-  return residueOf(scratchCorpus(mutate), oracle).keys;
+  return withScratchCorpus(mutate, (root) => residueOf(root, oracle).keys);
 }
 
 const sameKeys = (a: Map<string, number>, b: Map<string, number>): boolean =>
@@ -162,8 +172,10 @@ function scratchElement(
   form: string,
   pick: (elements: ScanElement[]) => ScanElement | undefined,
 ): { el: ScanElement; paint: Map<string, TokenPaint | null> } {
-  const root = scratchCorpus((r) => replaceOnce(join(r, file), anchor, replacement));
-  const elements = scanInteractiveElements(root);
+  const elements = withScratchCorpus(
+    (r) => replaceOnce(join(r, file), anchor, replacement),
+    (root) => scanInteractiveElements(root),
+  );
   const el = pick(elements);
   premiseHolds(`the mutated element was found for ${form}`, el !== undefined);
   premiseHolds(
@@ -194,10 +206,14 @@ function extraOnToggle(alternative: "on" | "off", extra: string) {
 /** The same six-line shape as `_metaControlOutlineFill.test.ts`, replicated on purpose. */
 function scanFixture(source: string): ScanElement[] {
   const dir = mkdtempSync(join(tmpdir(), "control-outline-residue-fixture-"));
-  const path = join(dir, "components/Fx.tsx");
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, source);
-  return scanInteractiveElements(dir);
+  try {
+    const path = join(dir, "components/Fx.tsx");
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, source);
+    return scanInteractiveElements(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 const liveElement = (file: string, line?: number): ScanElement => {
@@ -489,8 +505,10 @@ describe("acceptance floor: ten source mutations red, two control edits green", 
 
 /** The appended `Extra` control, picked by its own recipe rather than by a line number. */
 function cascadeElement(cls: string) {
-  const root = scratchCorpus((r) => appendTo(join(r, UNIGNORE), extraControl(cls)));
-  const elements = scanInteractiveElements(root);
+  const elements = withScratchCorpus(
+    (r) => appendTo(join(r, UNIGNORE), extraControl(cls)),
+    (root) => scanInteractiveElements(root),
+  );
   const el = elements.find(
     (e) => e.file === UNIGNORE && allStrings(e).some((s) => s.includes("rounded-md")),
   );
@@ -560,15 +578,14 @@ describe("cascade winners, pinned by mechanism (spec §3.2)", () => {
 describe("the second direction: a registered element that moved", () => {
   // covers: AC-6
   it("the draft escape reds as an unregistered key AND a stale row naming PublishedToggle", () => {
-    const draft = residueOf(
-      scratchCorpus((root) =>
+    const draft = withScratchCorpus(
+      (root) =>
         replaceOnce(
           join(root, PT),
           ON_OFF,
           'on ? "border-accent-edge bg-accent" : "border-border-strong bg-surface",',
         ),
-      ),
-      oracle,
+      (root) => residueOf(root, oracle),
     );
     const problems = validateCensus(RESIDUE_CENSUS, draft, oracle, ledger);
     const unregistered = problems.filter((p) => p.startsWith("unregistered: "));
@@ -1137,7 +1154,10 @@ describe("a defect planted in the theme, not in the module (AC-16)", () => {
     const dir = mkdtempSync(join(tmpdir(), "control-outline-residue-theme-"));
     const brokenPath = join(dir, "globals.css");
     writeFileSync(brokenPath, broken);
+    // `loadOracle` reads the stylesheet once and builds the design system in memory, so the copy on
+    // disk is finished with the moment it resolves and the directory can go immediately.
     const blind = await loadOracle(brokenPath);
+    rmSync(dir, { recursive: true, force: true });
     expect(classify(blind, ["border-border-strong"]).get("border-border-strong")).toBeNull();
 
     const under = residueOf(ROOT, blind);
@@ -1171,14 +1191,15 @@ describe("a key shared by two elements is evaluated per occurrence (§3.4)", () 
   it("reds on the ringless jump-list anchor while the skip link above it passes", () => {
     const JUMP_ANCHOR = "<a href={`#${family.id}`}>{family.title}</a>";
     const errors = "app/help/errors/page.tsx";
-    const root = scratchCorpus((r) =>
-      replaceOnce(
-        join(r, errors),
-        JUMP_ANCHOR,
-        '<a href={`#${family.id}`} className="sr-only focus:border focus:border-border-strong focus:bg-surface-raised focus-visible:outline-none">{family.title}</a>',
-      ),
+    const under = withScratchCorpus(
+      (r) =>
+        replaceOnce(
+          join(r, errors),
+          JUMP_ANCHOR,
+          '<a href={`#${family.id}`} className="sr-only focus:border focus:border-border-strong focus:bg-surface-raised focus-visible:outline-none">{family.title}</a>',
+        ),
+      (root) => residueOf(root, oracle),
     );
-    const under = residueOf(root, oracle);
     const shared = under.elements.filter((e) => e.file === errors);
     premise("the mutation produced a second element in that file", shared.length, 1);
     expect(new Set(shared.map((e) => residueKey(e, under.paint))).size).toBe(1);
