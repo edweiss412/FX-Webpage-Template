@@ -253,9 +253,9 @@ each is probed against a failing input rather than trusted:
 
 ### AC-8: the gate that could not fail, and why
 
-The plan first stated AC-8 as "`git diff` shows no hunk inside `matchBrace` / `closeDoubleQuoted` /
-`openerEnd` / `substitutionOpenerEnd`", called it "trivially fails if the seam is touched", and left
-its mutant-red as a description. Running that mutant-red is what found the gate was VACUOUS.
+The plan first stated AC-8 as a `git diff` showing no hunk inside `matchBrace`, `closeDoubleQuoted`,
+`openerEnd` or `substitutionOpenerEnd`, called that trivially failing if the seam is touched, and
+left its mutant-red as a description. Running that mutant-red is what found the gate was VACUOUS.
 
 Two independent defects, both measured:
 
