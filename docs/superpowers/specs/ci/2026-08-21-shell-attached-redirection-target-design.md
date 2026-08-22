@@ -267,8 +267,8 @@ satisfy case F at all, and finding 1 is why.
    `scanShellText` reads them as it reads every other substitution body. This is the ledger's
    ratified closing reading, and it serves the SUBSTITUTION family (cases A–E, G, H).
 
-4. **Report the unlexable, on a named channel.** A slice the accept-set cannot delimit — an
-   unterminated backtick, brace or quote — emits an **`IndirectionHit`**
+4. **Report the unlexable, on a named channel.** A slice the accept-set cannot delimit, on the
+   REPORT CONDITION defined below, emits an **`IndirectionHit`**
    (`tests/cross-cutting/psqlStartupFiles/scan.ts:438`) from `scanShellIndirection`, carrying
    `{ file, line, text }` where `text` names the undelimitable target.
 
@@ -348,7 +348,7 @@ nothing, and an AC citing prose is decoration.
 |---|---|---|
 | AC-1 | All eleven §2.2 subjects meet their expectation. | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/probe-attached.mts --expect-report` — exits 1 naming every subject still unmet |
 | AC-2 | All four §2.2 positive controls still report. | same command — a silent control ABORTS the run with exit 2, so a subject pass can never rest on a broken read |
-| AC-3 | An attached target carrying an unterminated backtick, brace or quote emits an `IndirectionHit` naming it; its terminated sibling emits none. | a paired case per opener in the deciding suite: `pnpm exec vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts` |
+| AC-3 | An attached target that meets the REPORT CONDITION (§3 part 4) emits an `IndirectionHit` naming it; its terminated sibling emits none. | a paired case per opener in the deciding suite: `pnpm exec vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts` |
 | AC-4 | `F11 a psql call, ATTACHED output redirection` still reports 1 site with `suppressesStartupFiles === false`. | the same suite — the row is an executable `toEqual` at `tests/cross-cutting/psqlStartupFileSuppression.test.ts:5566` |
 | AC-5 | The live-corpus finding set is unchanged: 76 rows, digest `8ebe8b08d43e6308aa471112d9f086d0118e6238`, over EVERY field of every record. | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/baseline-corpus.mts --expect 8ebe8b08d43e6308aa471112d9f086d0118e6238` — exits 1 printing expected and actual when the set moves, exits 2 on a zero-row or thin-record read |
 | AC-5b | That digest DISCRIMINATES on the fields §5 forbids moving — a flipped `suppressesStartupFiles`, `nested`, `nestedInBacktick`, `exemptReason` or `hasDynamicTokens` must change it. | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/digest-sensitivity.mts` — exits 1 naming any field the digest is blind to |

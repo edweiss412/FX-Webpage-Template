@@ -2657,19 +2657,19 @@ export const GUARD_SURFACES: GuardSurface[] = [
         siteId: "relational-boundary:1088:26:<><=",
         kind: "equivalent",
         reason:
-          "See the SHARED INVARIANT on relational-boundary:1012:29 - one argument, four sites, voided together.  APPLIED HERE: the ANSI-C close-quote scan inside `attachedTargetEnd`.",
+          "See the SHARED INVARIANT on relational-boundary:1043:29 - one argument, four sites, voided together.  APPLIED HERE: the ANSI-C close-quote scan inside `attachedTargetEnd`.",
       },
       {
         siteId: "relational-boundary:1102:26:<><=",
         kind: "equivalent",
         reason:
-          "See the SHARED INVARIANT on relational-boundary:1012:29 - one argument, four sites, voided together.  APPLIED HERE: the double-quoted span walk inside `attachedTargetEnd`, which is where the accept-set recurses.",
+          "See the SHARED INVARIANT on relational-boundary:1043:29 - one argument, four sites, voided together.  APPLIED HERE: the double-quoted span walk inside `attachedTargetEnd`, which is where the accept-set recurses.",
       },
       {
         siteId: "relational-boundary:1150:12:<><=",
         kind: "equivalent",
         reason:
-          "See the SHARED INVARIANT on relational-boundary:1012:29 - one argument, four sites, voided together.  APPLIED HERE: `attachedTargetEnd`'s own top-level walk, the one whose `end` the caller consumes.",
+          "See the SHARED INVARIANT on relational-boundary:1043:29 - one argument, four sites, voided together.  APPLIED HERE: `attachedTargetEnd`'s own top-level walk, the one whose `end` the caller consumes.",
       },
       // The surface carries NO accepted gap. It carried one - the `spliced`
       // continuation bound, then at relational-boundary:2167:54 - and cross-model

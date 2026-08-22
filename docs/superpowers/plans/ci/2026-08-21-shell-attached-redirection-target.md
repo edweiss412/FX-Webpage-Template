@@ -539,8 +539,8 @@ varying nothing else. Three separate implementations pass that:
   Task 1's derived rule. Round 4 found the EOF heuristic on this surface and the final-line
   heuristic on Task 1's; they are one family and the rule closes both.
 
-**The firing condition is narrow and is part of the red:** the report fires only when the
-undelimitable span carries a substitution opener, so the corpus's ordinary attached targets (53 at base `e5d1d723d`; see §0)
+**The firing condition is narrow and is part of the red:** it is the spec's REPORT CONDITION
+(§3 part 4), so the corpus's ordinary attached targets (53 at base `e5d1d723d`; see §0)
 stay quiet. A case asserting that `cat >"${OUT}"` emits NOTHING is the half that pins it.
 
 **This is the half that makes the bound true rather than aspirational.** Spec §5: *correct or
