@@ -56,9 +56,9 @@ run over either would have been worthless:
 `scripts/intraleg-campaign.ts`, one child process per trial, seeded so the plan
 is reproducible from the command alone:
 
-The campaign ran THREE times. Each of the first two was voided by the diff-review
+The campaign ran FOUR times. Each of the first three was voided by the diff-review
 repairs that followed it — the plan says a production edit after a campaign
-invalidates it — so only the third describes the code under review. All three
+invalidates it — so only the fourth describes the code under review. All four
 commands are recorded, because a record that shows only the surviving run hides
 what the arc actually cost:
 
@@ -71,9 +71,13 @@ pnpm heavy pnpm exec tsx scripts/intraleg-campaign.ts \
 pnpm heavy pnpm exec tsx scripts/intraleg-campaign.ts \
   --out .mutation-records/campaign-2026-08-21-r2 --seed 20260821 --trials 12
 
-# 3 — THE ONE EVERY NUMBER BELOW COMES FROM
+# 3 — voided by the round-4 repairs
 pnpm heavy pnpm exec tsx scripts/intraleg-campaign.ts \
   --out .mutation-records/campaign-2026-08-21-r3 --seed 20260821 --trials 12
+
+# 4 — THE ONE EVERY NUMBER BELOW COMES FROM
+pnpm heavy pnpm exec tsx scripts/intraleg-campaign.ts \
+  --out .mutation-records/campaign-2026-08-21-r4 --seed 20260821 --trials 12
 ```
 
 | Arm | Planned | Varies |
@@ -147,7 +151,7 @@ Producing command:
 
 ```
 node scratchpad/render-campaign-results.mjs \
-  .mutation-records/campaign-2026-08-21-r3/campaign.json
+  .mutation-records/campaign-2026-08-21-r4/campaign.json
 ```
 
 Campaign anchor stamp: `46fd37cf0f07`
@@ -179,29 +183,29 @@ Load column: REFUSED — in-window samples: quiet 0, loaded 0; each half needs a
 Every eligible trial's whole condition:
 
 ```
-{"arm":"A","seed":20260821,"index":0,"prefix":[],"position":1,"parentPid":70378,"childPid":70378,"nonce":"52d944c2-3533-4ebe-9828-1a38addf3d36","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787362062434,"exitedAt":1787362091269},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":14167}]}
-{"arm":"A","seed":20260821,"index":1,"prefix":[],"position":1,"parentPid":71786,"childPid":71786,"nonce":"0fdd5e73-907a-4144-b1d6-083bf9ffaed4","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787362091648,"exitedAt":1787362119945},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":14148}]}
-{"arm":"A","seed":20260821,"index":2,"prefix":[],"position":1,"parentPid":73142,"childPid":73142,"nonce":"79546951-6194-4035-9ea0-9ee5a110622c","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787362120309,"exitedAt":1787362148140},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":13666}]}
-{"arm":"A","seed":20260821,"index":3,"prefix":[],"position":1,"parentPid":74319,"childPid":74319,"nonce":"949478ad-969d-49f4-b128-8156319f8bd3","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787362148510,"exitedAt":1787362176842},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":14677}]}
-{"arm":"A","seed":20260821,"index":4,"prefix":[],"position":1,"parentPid":76710,"childPid":76710,"nonce":"ff464cc4-1e9f-47e1-a218-cf59c4008c4f","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787362177216,"exitedAt":1787362204553},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":13666}]}
-{"arm":"A","seed":20260821,"index":5,"prefix":[],"position":1,"parentPid":77990,"childPid":77990,"nonce":"af55da61-de16-4201-a015-25405a86a6ad","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787362204932,"exitedAt":1787362232756},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":14186}]}
-{"arm":"A","seed":20260821,"index":6,"prefix":[],"position":1,"parentPid":80665,"childPid":80665,"nonce":"a1802792-5ed4-4ab5-b43e-351527a54541","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787362233123,"exitedAt":1787362265492},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":18688}]}
-{"arm":"A","seed":20260821,"index":7,"prefix":[],"position":1,"parentPid":81790,"childPid":81790,"nonce":"e79380df-1456-445d-bde1-7c2e2a3820db","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787362265877,"exitedAt":1787362294728},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":14691}]}
-{"arm":"A","seed":20260821,"index":8,"prefix":[],"position":1,"parentPid":83031,"childPid":83031,"nonce":"79ca9193-ead1-4ac0-9161-068df8cd7ba7","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787362295128,"exitedAt":1787362322952},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":13661}]}
-{"arm":"A","seed":20260821,"index":9,"prefix":[],"position":1,"parentPid":83969,"childPid":83969,"nonce":"141424f3-7b43-4e17-80d7-3e41e5d611c1","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787362323323,"exitedAt":1787362351673},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":13677}]}
-{"arm":"A","seed":20260821,"index":10,"prefix":[],"position":1,"parentPid":85250,"childPid":85250,"nonce":"018accbc-d3ff-4e57-9065-f78a57ca3cfd","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787362352059,"exitedAt":1787362383540},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":17777}]}
-{"arm":"A","seed":20260821,"index":11,"prefix":[],"position":1,"parentPid":86138,"childPid":86138,"nonce":"82c17912-101a-4a4f-a812-80a585782f05","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787362383916,"exitedAt":1787362411394},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":13720}]}
-{"arm":"B","seed":20260821,"index":0,"prefix":["relational-boundary:3246:59:>>>=","relational-boundary:1003:12:>=>>","relational-boundary:1142:53:>>>=","relational-boundary:2206:23:<><=","relational-boundary:694:47:>>>=","regex-quantifier-bound:2870:41:{1,2}>{1,3}","relational-boundary:1926:38:<><=","relational-boundary:1186:64:>=>>"],"position":9,"parentPid":86610,"childPid":86610,"nonce":"4d566e32-d2fa-4cf0-a7fc-d869bfed90ed","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787362411753,"exitedAt":1787362568301},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":14223}]}
-{"arm":"B","seed":20260821,"index":1,"prefix":["relational-boundary:1291:23:<><=","relational-boundary:2467:49:<=><","relational-boundary:1400:29:<><=","relational-boundary:1948:19:>>>=","relational-boundary:2812:24:<><=","relational-boundary:1003:27:<=><","relational-boundary:694:47:>>>=","relational-boundary:2412:16:>>>="],"position":9,"parentPid":89350,"childPid":89350,"nonce":"e49429fc-742c-4594-9b26-994341337c58","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787362568673,"exitedAt":1787362708397},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":13664}]}
-{"arm":"B","seed":20260821,"index":2,"prefix":["relational-boundary:3933:74:>>>=","regex-quantifier-bound:2864:38:{1,2}>{1,3}","relational-boundary:2812:24:<><=","relational-boundary:1142:26:<><=","relational-boundary:2514:21:<><=","relational-boundary:861:69:>=>>","relational-boundary:3005:23:<><=","regex-quantifier-bound:1008:30:{1,2}>{1,3}"],"position":9,"parentPid":94734,"childPid":94734,"nonce":"8188a7c5-0df0-455b-95b8-f0997e5cec23","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787362708778,"exitedAt":1787362846389},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":13642}]}
-{"arm":"B","seed":20260821,"index":3,"prefix":["regex-quantifier-bound:2441:17:{1,2}>{1,3}","relational-boundary:1417:16:<><=","relational-boundary:1926:38:<><=","relational-boundary:1186:64:>=>>","regex-quantifier-bound:2870:41:{1,2}>{1,3}","relational-boundary:2765:29:<><=","relational-boundary:694:47:>>>=","regex-quantifier-bound:1004:26:{1,3}>{1,4}","relational-boundary:2394:12:>>>=","relational-boundary:1948:19:>>>=","relational-boundary:2203:26:>>>=","regex-quantifier-bound:3675:32:{0,2}>{0,3}","relational-boundary:871:23:>>>=","relational-boundary:2251:33:>>>=","relational-boundary:949:25:<><=","relational-boundary:3933:74:>>>=","relational-boundary:1953:31:<><=","relational-boundary:3246:59:>>>=","relational-boundary:861:69:>=>>","regex-quantifier-bound:2864:38:{1,2}>{1,3}","relational-boundary:2465:26:<=><","relational-boundary:1976:36:<><=","regex-quantifier-bound:1008:30:{1,2}>{1,3}","relational-boundary:3446:31:<><="],"position":25,"parentPid":98954,"childPid":98954,"nonce":"872fc8c1-154e-4aa1-809e-cdaf8059eedb","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787362846776,"exitedAt":1787363204262},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":14240}]}
-{"arm":"B","seed":20260821,"index":4,"prefix":["relational-boundary:2802:24:<><=","relational-boundary:2202:22:>>>=","relational-boundary:1953:31:<><=","relational-boundary:1186:64:>=>>","relational-boundary:2812:24:<><=","relational-boundary:2765:29:<><=","relational-boundary:1417:16:<><=","relational-boundary:694:47:>>>=","relational-boundary:861:83:<><=","relational-boundary:2203:26:>>>=","regex-quantifier-bound:2437:45:{1,2}>{1,3}","regex-quantifier-bound:2870:41:{1,2}>{1,3}","relational-boundary:676:21:<><=","relational-boundary:1976:36:<><=","relational-boundary:1282:23:<><=","relational-boundary:2028:46:>>>=","relational-boundary:1448:16:<><=","relational-boundary:3172:66:>=>>","relational-boundary:3005:46:>>>=","relational-boundary:3172:88:<=><","relational-boundary:1003:12:>=>>","relational-boundary:1857:22:>>>=","relational-boundary:1298:21:<><=","relational-boundary:1902:38:<><="],"position":25,"parentPid":12194,"childPid":12194,"nonce":"bd709bdf-9a52-497f-9f2f-324f2034075d","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787363204667,"exitedAt":1787363596105},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":13751}]}
-{"arm":"B","seed":20260821,"index":5,"prefix":["relational-boundary:676:21:<><=","relational-boundary:694:47:>>>=","relational-boundary:752:35:<><=","relational-boundary:752:50:<><=","relational-boundary:753:17:<><=","relational-boundary:801:23:<><=","relational-boundary:861:69:>=>>","relational-boundary:861:83:<><=","relational-boundary:871:23:>>>=","relational-boundary:949:25:<><=","relational-boundary:1003:12:>=>>","relational-boundary:1003:27:<=><","regex-quantifier-bound:1004:26:{1,3}>{1,4}","regex-quantifier-bound:1008:30:{1,2}>{1,3}","relational-boundary:1021:37:<=><","relational-boundary:1142:26:<><=","relational-boundary:1142:53:>>>=","relational-boundary:1145:50:>>>=","relational-boundary:1186:64:>=>>","relational-boundary:1186:85:<=><","relational-boundary:1282:23:<><=","relational-boundary:1291:23:<><=","relational-boundary:1298:21:<><=","relational-boundary:1400:29:<><=","relational-boundary:1417:16:<><=","relational-boundary:1448:16:<><=","relational-boundary:1709:32:<><=","relational-boundary:1848:26:>>>=","relational-boundary:1857:22:>>>=","relational-boundary:1902:38:<><=","relational-boundary:1926:38:<><=","relational-boundary:1938:30:>>>=","relational-boundary:1948:19:>>>=","relational-boundary:1953:31:<><=","relational-boundary:1976:36:<><=","relational-boundary:2028:46:>>>=","relational-boundary:2202:22:>>>=","relational-boundary:2203:26:>>>=","relational-boundary:2206:23:<><=","relational-boundary:2208:12:<><=","relational-boundary:2251:33:>>>=","relational-boundary:2394:12:>>>=","relational-boundary:2395:12:>>>=","relational-boundary:2411:16:>>>=","relational-boundary:2412:16:>>>=","regex-quantifier-bound:2437:45:{1,2}>{1,3}","regex-quantifier-bound:2441:17:{1,2}>{1,3}","relational-boundary:2465:26:<=><","relational-boundary:2467:49:<=><","relational-boundary:2514:21:<><=","relational-boundary:2765:29:<><=","relational-boundary:2802:24:<><=","relational-boundary:2812:24:<><=","relational-boundary:2819:22:>>>=","regex-quantifier-bound:2864:38:{1,2}>{1,3}","relational-boundary:2866:72:>>>=","relational-boundary:2868:20:>>>=","regex-quantifier-bound:2870:41:{1,2}>{1,3}","regex-quantifier-bound:2915:21:{1,2}>{1,3}","relational-boundary:2936:52:<><=","relational-boundary:2981:29:<><=","relational-boundary:3005:23:<><=","relational-boundary:3005:46:>>>=","relational-boundary:3128:50:>>>=","relational-boundary:3144:54:<><=","relational-boundary:3172:66:>=>>","relational-boundary:3172:88:<=><","relational-boundary:3246:59:>>>=","relational-boundary:3446:31:<><="],"position":70,"parentPid":25939,"childPid":25939,"nonce":"acd9aad1-27f4-4b6e-b86b-2322eac9a24c","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787363596482,"exitedAt":1787364651622},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":13658}]}
-{"arm":"C","seed":20260821,"index":0,"prefix":[],"position":1,"parentPid":64080,"childPid":64080,"nonce":"251fb19a-7f6b-465c-91b5-2b4aada1027f","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787364652068,"exitedAt":1787364680913},"half":"quiet","loadSampleCount":1,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":14160}]}
-{"arm":"C","seed":20260821,"index":1,"prefix":[],"position":1,"parentPid":65554,"childPid":65554,"nonce":"a2a9de60-2aa2-4151-bed5-82907009fe7a","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787364681665,"exitedAt":1787364738121},"half":"loaded","loadSampleCount":1,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":29214}]}
+{"arm":"A","seed":20260821,"index":0,"prefix":[],"position":1,"parentPid":186,"childPid":186,"nonce":"4fd59c19-7989-4034-9b64-3d643ad687df","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787368239690,"exitedAt":1787368268525},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":14161}]}
+{"arm":"A","seed":20260821,"index":1,"prefix":[],"position":1,"parentPid":2262,"childPid":2262,"nonce":"f2770191-ee65-4e6a-8414-498e34093c02","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787368268910,"exitedAt":1787368297738},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":14670}]}
+{"arm":"A","seed":20260821,"index":2,"prefix":[],"position":1,"parentPid":5483,"childPid":5483,"nonce":"e7fecaf5-5709-45de-be75-614a3baca74d","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787368298111,"exitedAt":1787368327439},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":14660}]}
+{"arm":"A","seed":20260821,"index":3,"prefix":[],"position":1,"parentPid":6813,"childPid":6813,"nonce":"745923ad-af1d-420b-a13f-40095a6bc77c","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787368327828,"exitedAt":1787368356142},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":14177}]}
+{"arm":"A","seed":20260821,"index":4,"prefix":[],"position":1,"parentPid":7908,"childPid":7908,"nonce":"469d29ec-d5e1-4ff6-917e-a1f14f7bed0e","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787368356519,"exitedAt":1787368385335},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":14156}]}
+{"arm":"A","seed":20260821,"index":5,"prefix":[],"position":1,"parentPid":11027,"childPid":11027,"nonce":"d838e785-7e19-4d59-98cb-20fba985f7d2","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787368385716,"exitedAt":1787368414054},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":14156}]}
+{"arm":"A","seed":20260821,"index":6,"prefix":[],"position":1,"parentPid":13122,"childPid":13122,"nonce":"e60e115d-26d3-4839-8306-053a8c9df688","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787368414427,"exitedAt":1787368447800},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":18211}]}
+{"arm":"A","seed":20260821,"index":7,"prefix":[],"position":1,"parentPid":13941,"childPid":13941,"nonce":"7e88c922-a8c7-4a7f-a75a-cb62481211bc","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787368448420,"exitedAt":1787368484250},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":17655}]}
+{"arm":"A","seed":20260821,"index":8,"prefix":[],"position":1,"parentPid":14730,"childPid":14730,"nonce":"56438591-5ad2-4d48-be78-80763a4ef2b3","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787368484713,"exitedAt":1787368515572},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":15176}]}
+{"arm":"A","seed":20260821,"index":9,"prefix":[],"position":1,"parentPid":15238,"childPid":15238,"nonce":"4a2d7cbe-736c-4b28-99ec-1e7ac8946a97","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787368516001,"exitedAt":1787368552386},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":21219}]}
+{"arm":"A","seed":20260821,"index":10,"prefix":[],"position":1,"parentPid":16083,"childPid":16083,"nonce":"99e1acd0-9054-4a3c-b624-23ebe7227710","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787368552958,"exitedAt":1787368597406},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":22737}]}
+{"arm":"A","seed":20260821,"index":11,"prefix":[],"position":1,"parentPid":17438,"childPid":17438,"nonce":"59cedf5a-e1c2-4a0f-909e-e1acb7927839","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787368597916,"exitedAt":1787368637289},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":19187}]}
+{"arm":"B","seed":20260821,"index":0,"prefix":["relational-boundary:3246:59:>>>=","relational-boundary:1003:12:>=>>","relational-boundary:1142:53:>>>=","relational-boundary:2206:23:<><=","relational-boundary:694:47:>>>=","regex-quantifier-bound:2870:41:{1,2}>{1,3}","relational-boundary:1926:38:<><=","relational-boundary:1186:64:>=>>"],"position":9,"parentPid":19214,"childPid":19214,"nonce":"19119308-ab74-4e30-b60f-d58df4b54e58","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787368637902,"exitedAt":1787368827270},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":15166}]}
+{"arm":"B","seed":20260821,"index":1,"prefix":["relational-boundary:1291:23:<><=","relational-boundary:2467:49:<=><","relational-boundary:1400:29:<><=","relational-boundary:1948:19:>>>=","relational-boundary:2812:24:<><=","relational-boundary:1003:27:<=><","relational-boundary:694:47:>>>=","relational-boundary:2412:16:>>>="],"position":9,"parentPid":27686,"childPid":27686,"nonce":"41591b26-fea7-4618-bd1b-a721cac5413d","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787368827687,"exitedAt":1787368987440},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":23707}]}
+{"arm":"B","seed":20260821,"index":2,"prefix":["relational-boundary:3933:74:>>>=","regex-quantifier-bound:2864:38:{1,2}>{1,3}","relational-boundary:2812:24:<><=","relational-boundary:1142:26:<><=","relational-boundary:2514:21:<><=","relational-boundary:861:69:>=>>","relational-boundary:3005:23:<><=","regex-quantifier-bound:1008:30:{1,2}>{1,3}"],"position":9,"parentPid":34081,"childPid":34081,"nonce":"2361cdd2-d777-4a5d-83f7-4fa30e439317","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787368987894,"exitedAt":1787369200189},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":15678}]}
+{"arm":"B","seed":20260821,"index":3,"prefix":["regex-quantifier-bound:2441:17:{1,2}>{1,3}","relational-boundary:1417:16:<><=","relational-boundary:1926:38:<><=","relational-boundary:1186:64:>=>>","regex-quantifier-bound:2870:41:{1,2}>{1,3}","relational-boundary:2765:29:<><=","relational-boundary:694:47:>>>=","regex-quantifier-bound:1004:26:{1,3}>{1,4}","relational-boundary:2394:12:>>>=","relational-boundary:1948:19:>>>=","relational-boundary:2203:26:>>>=","regex-quantifier-bound:3675:32:{0,2}>{0,3}","relational-boundary:871:23:>>>=","relational-boundary:2251:33:>>>=","relational-boundary:949:25:<><=","relational-boundary:3933:74:>>>=","relational-boundary:1953:31:<><=","relational-boundary:3246:59:>>>=","relational-boundary:861:69:>=>>","regex-quantifier-bound:2864:38:{1,2}>{1,3}","relational-boundary:2465:26:<=><","relational-boundary:1976:36:<><=","regex-quantifier-bound:1008:30:{1,2}>{1,3}","relational-boundary:3446:31:<><="],"position":25,"parentPid":38675,"childPid":38675,"nonce":"d1d026ab-a4d1-4fc7-8ec9-c0e1fabded2a","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787369200735,"exitedAt":1787369579090},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":15175}]}
+{"arm":"B","seed":20260821,"index":4,"prefix":["relational-boundary:2802:24:<><=","relational-boundary:2202:22:>>>=","relational-boundary:1953:31:<><=","relational-boundary:1186:64:>=>>","relational-boundary:2812:24:<><=","relational-boundary:2765:29:<><=","relational-boundary:1417:16:<><=","relational-boundary:694:47:>>>=","relational-boundary:861:83:<><=","relational-boundary:2203:26:>>>=","regex-quantifier-bound:2437:45:{1,2}>{1,3}","regex-quantifier-bound:2870:41:{1,2}>{1,3}","relational-boundary:676:21:<><=","relational-boundary:1976:36:<><=","relational-boundary:1282:23:<><=","relational-boundary:2028:46:>>>=","relational-boundary:1448:16:<><=","relational-boundary:3172:66:>=>>","relational-boundary:3005:46:>>>=","relational-boundary:3172:88:<=><","relational-boundary:1003:12:>=>>","relational-boundary:1857:22:>>>=","relational-boundary:1298:21:<><=","relational-boundary:1902:38:<><="],"position":25,"parentPid":56560,"childPid":56560,"nonce":"7f832f7f-0fb8-4097-8834-dc88f7300730","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787369579536,"exitedAt":1787369983466},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":14674}]}
+{"arm":"B","seed":20260821,"index":5,"prefix":["relational-boundary:676:21:<><=","relational-boundary:694:47:>>>=","relational-boundary:752:35:<><=","relational-boundary:752:50:<><=","relational-boundary:753:17:<><=","relational-boundary:801:23:<><=","relational-boundary:861:69:>=>>","relational-boundary:861:83:<><=","relational-boundary:871:23:>>>=","relational-boundary:949:25:<><=","relational-boundary:1003:12:>=>>","relational-boundary:1003:27:<=><","regex-quantifier-bound:1004:26:{1,3}>{1,4}","regex-quantifier-bound:1008:30:{1,2}>{1,3}","relational-boundary:1021:37:<=><","relational-boundary:1142:26:<><=","relational-boundary:1142:53:>>>=","relational-boundary:1145:50:>>>=","relational-boundary:1186:64:>=>>","relational-boundary:1186:85:<=><","relational-boundary:1282:23:<><=","relational-boundary:1291:23:<><=","relational-boundary:1298:21:<><=","relational-boundary:1400:29:<><=","relational-boundary:1417:16:<><=","relational-boundary:1448:16:<><=","relational-boundary:1709:32:<><=","relational-boundary:1848:26:>>>=","relational-boundary:1857:22:>>>=","relational-boundary:1902:38:<><=","relational-boundary:1926:38:<><=","relational-boundary:1938:30:>>>=","relational-boundary:1948:19:>>>=","relational-boundary:1953:31:<><=","relational-boundary:1976:36:<><=","relational-boundary:2028:46:>>>=","relational-boundary:2202:22:>>>=","relational-boundary:2203:26:>>>=","relational-boundary:2206:23:<><=","relational-boundary:2208:12:<><=","relational-boundary:2251:33:>>>=","relational-boundary:2394:12:>>>=","relational-boundary:2395:12:>>>=","relational-boundary:2411:16:>>>=","relational-boundary:2412:16:>>>=","regex-quantifier-bound:2437:45:{1,2}>{1,3}","regex-quantifier-bound:2441:17:{1,2}>{1,3}","relational-boundary:2465:26:<=><","relational-boundary:2467:49:<=><","relational-boundary:2514:21:<><=","relational-boundary:2765:29:<><=","relational-boundary:2802:24:<><=","relational-boundary:2812:24:<><=","relational-boundary:2819:22:>>>=","regex-quantifier-bound:2864:38:{1,2}>{1,3}","relational-boundary:2866:72:>>>=","relational-boundary:2868:20:>>>=","regex-quantifier-bound:2870:41:{1,2}>{1,3}","regex-quantifier-bound:2915:21:{1,2}>{1,3}","relational-boundary:2936:52:<><=","relational-boundary:2981:29:<><=","relational-boundary:3005:23:<><=","relational-boundary:3005:46:>>>=","relational-boundary:3128:50:>>>=","relational-boundary:3144:54:<><=","relational-boundary:3172:66:>=>>","relational-boundary:3172:88:<=><","relational-boundary:3246:59:>>>=","relational-boundary:3446:31:<><="],"position":70,"parentPid":74616,"childPid":74616,"nonce":"0b5bc8d9-8ec3-415a-8cdb-aaf57d3496be","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787369983895,"exitedAt":1787371069413},"half":null,"loadSampleCount":0,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":13715}]}
+{"arm":"C","seed":20260821,"index":0,"prefix":[],"position":1,"parentPid":20399,"childPid":20399,"nonce":"d36f84ab-7cbc-408c-bfc5-0d7336631345","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787371069878,"exitedAt":1787371098340},"half":"quiet","loadSampleCount":1,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":13712}]}
+{"arm":"C","seed":20260821,"index":1,"prefix":[],"position":1,"parentPid":21269,"childPid":21269,"nonce":"94270f22-0f6b-4cbf-ba57-1f25b461d4db","stampBefore":"46fd37cf0f07","stampAfter":"46fd37cf0f07","window":{"spawnedAt":1787371099022,"exitedAt":1787371150305},"half":"loaded","loadSampleCount":1,"verdict":"SURVIVED","children":[{"suite":"tests/cross-cutting/psqlStartupFileSuppression.test.ts","kind":"exit","exitCode":0,"durationMs":25864}]}
 ```
 
-Record isolation: the default `.mutation-records` listing is BYTE-IDENTICAL before and after the campaign (52 entries), so the campaign wrote nothing into the record space the gate itself reads.
+Record isolation: the default `.mutation-records` listing is BYTE-IDENTICAL before and after the campaign (61 entries), so the campaign wrote nothing into the record space the gate itself reads.
 
 
 ## The driver's own report, verbatim
@@ -212,48 +216,41 @@ ARM A: 12 eligible of 12 planned (12 of 12 produced, 12 completed)
   BOUND: p > 0.2209 one-sided at alpha 0.05, over 12 eligible trials, CONDITIONAL on cross-process independence
 ARM B: 6 eligible of 6 planned (6 of 6 produced, 6 completed)
 ARM C: 2 eligible of 2 planned (2 of 2 produced, 2 completed)
-TRIAL A#0: seed 20260821, prefix 0, position 1, pid 70378/70378, stamps 46fd37cf0f07/46fd37cf0f07, window [1787362062434, 1787362091269], half n/a, load samples 0, verdict SURVIVED
-TRIAL A#1: seed 20260821, prefix 0, position 1, pid 71786/71786, stamps 46fd37cf0f07/46fd37cf0f07, window [1787362091648, 1787362119945], half n/a, load samples 0, verdict SURVIVED
-TRIAL A#2: seed 20260821, prefix 0, position 1, pid 73142/73142, stamps 46fd37cf0f07/46fd37cf0f07, window [1787362120309, 1787362148140], half n/a, load samples 0, verdict SURVIVED
-TRIAL A#3: seed 20260821, prefix 0, position 1, pid 74319/74319, stamps 46fd37cf0f07/46fd37cf0f07, window [1787362148510, 1787362176842], half n/a, load samples 0, verdict SURVIVED
-TRIAL A#4: seed 20260821, prefix 0, position 1, pid 76710/76710, stamps 46fd37cf0f07/46fd37cf0f07, window [1787362177216, 1787362204553], half n/a, load samples 0, verdict SURVIVED
-TRIAL A#5: seed 20260821, prefix 0, position 1, pid 77990/77990, stamps 46fd37cf0f07/46fd37cf0f07, window [1787362204932, 1787362232756], half n/a, load samples 0, verdict SURVIVED
-TRIAL A#6: seed 20260821, prefix 0, position 1, pid 80665/80665, stamps 46fd37cf0f07/46fd37cf0f07, window [1787362233123, 1787362265492], half n/a, load samples 0, verdict SURVIVED
-TRIAL A#7: seed 20260821, prefix 0, position 1, pid 81790/81790, stamps 46fd37cf0f07/46fd37cf0f07, window [1787362265877, 1787362294728], half n/a, load samples 0, verdict SURVIVED
-TRIAL A#8: seed 20260821, prefix 0, position 1, pid 83031/83031, stamps 46fd37cf0f07/46fd37cf0f07, window [1787362295128, 1787362322952], half n/a, load samples 0, verdict SURVIVED
-TRIAL A#9: seed 20260821, prefix 0, position 1, pid 83969/83969, stamps 46fd37cf0f07/46fd37cf0f07, window [1787362323323, 1787362351673], half n/a, load samples 0, verdict SURVIVED
-TRIAL A#10: seed 20260821, prefix 0, position 1, pid 85250/85250, stamps 46fd37cf0f07/46fd37cf0f07, window [1787362352059, 1787362383540], half n/a, load samples 0, verdict SURVIVED
-TRIAL A#11: seed 20260821, prefix 0, position 1, pid 86138/86138, stamps 46fd37cf0f07/46fd37cf0f07, window [1787362383916, 1787362411394], half n/a, load samples 0, verdict SURVIVED
-TRIAL B#0: seed 20260821, prefix 8, position 9, pid 86610/86610, stamps 46fd37cf0f07/46fd37cf0f07, window [1787362411753, 1787362568301], half n/a, load samples 0, verdict SURVIVED
-TRIAL B#1: seed 20260821, prefix 8, position 9, pid 89350/89350, stamps 46fd37cf0f07/46fd37cf0f07, window [1787362568673, 1787362708397], half n/a, load samples 0, verdict SURVIVED
-TRIAL B#2: seed 20260821, prefix 8, position 9, pid 94734/94734, stamps 46fd37cf0f07/46fd37cf0f07, window [1787362708778, 1787362846389], half n/a, load samples 0, verdict SURVIVED
-TRIAL B#3: seed 20260821, prefix 24, position 25, pid 98954/98954, stamps 46fd37cf0f07/46fd37cf0f07, window [1787362846776, 1787363204262], half n/a, load samples 0, verdict SURVIVED
-TRIAL B#4: seed 20260821, prefix 24, position 25, pid 12194/12194, stamps 46fd37cf0f07/46fd37cf0f07, window [1787363204667, 1787363596105], half n/a, load samples 0, verdict SURVIVED
-TRIAL B#5: seed 20260821, prefix 69, position 70, pid 25939/25939, stamps 46fd37cf0f07/46fd37cf0f07, window [1787363596482, 1787364651622], half n/a, load samples 0, verdict SURVIVED
-TRIAL C#0: seed 20260821, prefix 0, position 1, pid 64080/64080, stamps 46fd37cf0f07/46fd37cf0f07, window [1787364652068, 1787364680913], half quiet, load samples 1, verdict SURVIVED
-TRIAL C#1: seed 20260821, prefix 0, position 1, pid 65554/65554, stamps 46fd37cf0f07/46fd37cf0f07, window [1787364681665, 1787364738121], half loaded, load samples 1, verdict SURVIVED
+TRIAL A#0: seed 20260821, prefix 0, position 1, pid 186/186, stamps 46fd37cf0f07/46fd37cf0f07, window [1787368239690, 1787368268525], half n/a, load samples 0, verdict SURVIVED
+TRIAL A#1: seed 20260821, prefix 0, position 1, pid 2262/2262, stamps 46fd37cf0f07/46fd37cf0f07, window [1787368268910, 1787368297738], half n/a, load samples 0, verdict SURVIVED
+TRIAL A#2: seed 20260821, prefix 0, position 1, pid 5483/5483, stamps 46fd37cf0f07/46fd37cf0f07, window [1787368298111, 1787368327439], half n/a, load samples 0, verdict SURVIVED
+TRIAL A#3: seed 20260821, prefix 0, position 1, pid 6813/6813, stamps 46fd37cf0f07/46fd37cf0f07, window [1787368327828, 1787368356142], half n/a, load samples 0, verdict SURVIVED
+TRIAL A#4: seed 20260821, prefix 0, position 1, pid 7908/7908, stamps 46fd37cf0f07/46fd37cf0f07, window [1787368356519, 1787368385335], half n/a, load samples 0, verdict SURVIVED
+TRIAL A#5: seed 20260821, prefix 0, position 1, pid 11027/11027, stamps 46fd37cf0f07/46fd37cf0f07, window [1787368385716, 1787368414054], half n/a, load samples 0, verdict SURVIVED
+TRIAL A#6: seed 20260821, prefix 0, position 1, pid 13122/13122, stamps 46fd37cf0f07/46fd37cf0f07, window [1787368414427, 1787368447800], half n/a, load samples 0, verdict SURVIVED
+TRIAL A#7: seed 20260821, prefix 0, position 1, pid 13941/13941, stamps 46fd37cf0f07/46fd37cf0f07, window [1787368448420, 1787368484250], half n/a, load samples 0, verdict SURVIVED
+TRIAL A#8: seed 20260821, prefix 0, position 1, pid 14730/14730, stamps 46fd37cf0f07/46fd37cf0f07, window [1787368484713, 1787368515572], half n/a, load samples 0, verdict SURVIVED
+TRIAL A#9: seed 20260821, prefix 0, position 1, pid 15238/15238, stamps 46fd37cf0f07/46fd37cf0f07, window [1787368516001, 1787368552386], half n/a, load samples 0, verdict SURVIVED
+TRIAL A#10: seed 20260821, prefix 0, position 1, pid 16083/16083, stamps 46fd37cf0f07/46fd37cf0f07, window [1787368552958, 1787368597406], half n/a, load samples 0, verdict SURVIVED
+TRIAL A#11: seed 20260821, prefix 0, position 1, pid 17438/17438, stamps 46fd37cf0f07/46fd37cf0f07, window [1787368597916, 1787368637289], half n/a, load samples 0, verdict SURVIVED
+TRIAL B#0: seed 20260821, prefix 8, position 9, pid 19214/19214, stamps 46fd37cf0f07/46fd37cf0f07, window [1787368637902, 1787368827270], half n/a, load samples 0, verdict SURVIVED
+TRIAL B#1: seed 20260821, prefix 8, position 9, pid 27686/27686, stamps 46fd37cf0f07/46fd37cf0f07, window [1787368827687, 1787368987440], half n/a, load samples 0, verdict SURVIVED
+TRIAL B#2: seed 20260821, prefix 8, position 9, pid 34081/34081, stamps 46fd37cf0f07/46fd37cf0f07, window [1787368987894, 1787369200189], half n/a, load samples 0, verdict SURVIVED
+TRIAL B#3: seed 20260821, prefix 24, position 25, pid 38675/38675, stamps 46fd37cf0f07/46fd37cf0f07, window [1787369200735, 1787369579090], half n/a, load samples 0, verdict SURVIVED
+TRIAL B#4: seed 20260821, prefix 24, position 25, pid 56560/56560, stamps 46fd37cf0f07/46fd37cf0f07, window [1787369579536, 1787369983466], half n/a, load samples 0, verdict SURVIVED
+TRIAL B#5: seed 20260821, prefix 69, position 70, pid 74616/74616, stamps 46fd37cf0f07/46fd37cf0f07, window [1787369983895, 1787371069413], half n/a, load samples 0, verdict SURVIVED
+TRIAL C#0: seed 20260821, prefix 0, position 1, pid 20399/20399, stamps 46fd37cf0f07/46fd37cf0f07, window [1787371069878, 1787371098340], half quiet, load samples 1, verdict SURVIVED
+TRIAL C#1: seed 20260821, prefix 0, position 1, pid 21269/21269, stamps 46fd37cf0f07/46fd37cf0f07, window [1787371099022, 1787371150305], half loaded, load samples 1, verdict SURVIVED
 LOAD: load column unchanged at one, pair refused — in-window samples: quiet 0, loaded 0; each half needs at least 2
 BRANCH NULL: no eligible trial flipped. The local reproduction is bounded at the figure each arm's own eligible count supports above.
 ```
 
-## Three campaigns, and what the first two cost
+## Four campaigns, and the sequencing rule that would have bought one
 
-The first ran before diff review round 1; its repairs changed verdict
-classification, eligibility and report binding, which voided it. The second ran
-before round 3; its repairs changed the aggregate's enforcement, the load
-adjudicator, the attestation ordering and the durable record's `passed`
-semantics, which voided it too. Only the third describes the code under review.
+Each of the first three was voided by the diff-review repairs that followed it.
+The rule is cheap to state and I did not follow it until it had cost three runs:
+land every fix from every open round FIRST, then run the campaign once, on the
+committed post-formatter tree. Running earlier feels like progress and buys an
+artifact the next repair discards.
 
-The lesson is a sequencing one and it is cheap to state: land every fix from
-every open round FIRST, then run the campaign once, on the committed
-post-formatter tree. Running it earlier feels like progress and buys an artifact
-the next repair throws away.
-
-**Why a MERGE afterwards did not void this one — with both halves' commands.**
-`origin/main` advanced after the third run and was merged in. Two independent
-checks, because neither settles it alone.
-
-The stamped inputs are byte-identical across the merge:
+**Why the merge between runs three and four did not void run three** — recorded
+because the reasoning is reusable, not because run three's numbers survive (they
+do not; round 4's repairs replaced them). Two checks, each with its command:
 
 ```
 $ git diff --name-only HEAD^1..HEAD -- \
@@ -261,37 +258,23 @@ $ git diff --name-only HEAD^1..HEAD -- \
     tests/cross-cutting/psqlStartupFileSuppression.test.ts \
     tests/mutation/source/registry.ts
 (no output)
-```
 
-And the deciding suite — which walks the whole repository, so files OUTSIDE the
-stamp can move it — reports the same result on the merged tree:
-
-```
 $ pnpm exec vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts
  Test Files  1 passed (1)
       Tests  976 passed (976)
-   Duration  13.64s
 ```
 
-**What that second command is and is NOT.** It is the deciding suite on the
-UNMUTATED tree — the same green-baseline check every trial runs before its
-mutants, and the thing that would break if a merged-in file changed what the walk
-finds. It is NOT a re-run of the target mutant, and it does not re-derive the
-verdict. The claim it supports is exactly: the walk's input set still produces the
-same baseline, so the r3 trials' baseline premise holds on this tree. Round 4
-caught the earlier version of this paragraph quoting "976 passed" with no command
-at all, which left a reader unable to tell those two things apart.
+The first shows the stamped inputs did not move. The second re-runs the deciding
+suite, which walks the whole repository and therefore CAN be moved by files the
+stamp never sees. That second command is the UNMUTATED baseline — the same green
+check every trial runs before its mutants — not a re-derivation of the verdict.
+Round 4 caught an earlier version of this paragraph quoting the count with no
+command, which left the two indistinguishable.
 
-## The load column REFUSED again — the same structural reason, now three for three
+## The load column REFUSED in all four, for one structural reason
 
-Zero in-window samples in both halves, in all three campaigns. `setInterval`
-schedules its callback on the event loop; the child runs under `spawnSync`, which
-blocks that loop for the entire window. No in-window sample is reachable at any
-cadence, so the load arm cannot advance as built. Repairing it needs a sampler
-off the blocked thread — a child process, or a synchronous sample taken around
-the spawn by the trial runner itself.
-
-The loaded half's deciding child took 29 214 ms against the quiet half's
-14 160 ms. That is a duration difference, duration is the axis the predecessor
-arc already eliminated, and the refusal is what keeps it from being written up as
-evidence about verdicts.
+`setInterval` schedules on the event loop; the child runs under `spawnSync`,
+which blocks that loop for the whole window. No in-window sample is reachable at
+any cadence, so the load arm cannot advance as built. Repairing it needs a
+sampler off the blocked thread. Documented limit of the arm; the refusal itself
+is correct and has now behaved identically across four independent runs.

@@ -6,7 +6,7 @@
 // it). Round 4's finding 9 was instance five of the hand-carried class, filed one
 // commit after the ledger row about that class — which is what "describing the
 // list is not running it" means. This RUNS it.
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 
 const DOCS = [
@@ -14,7 +14,24 @@ const DOCS = [
   "docs/superpowers/specs/ci/probes/2026-08-21-intraleg-killer-audit.md",
   "BACKLOG-archive.md",
 ];
-const ART = ".mutation-records/campaign-2026-08-21-r3/campaign.json";
+// The artifact is DISCOVERED, not named. A hardcoded path made the auditor's own
+// reference hand-carried — the very class it audits — and it silently compared
+// the r4 documents against the r3 campaign. Newest campaign directory wins;
+// override with `--artifact <path>` when auditing a specific run.
+const flagIdx = process.argv.indexOf("--artifact");
+const ART =
+  flagIdx > -1
+    ? process.argv[flagIdx + 1]
+    : (() => {
+        const root = ".mutation-records";
+        const dirs = readdirSync(root, { withFileTypes: true })
+          .filter((e) => e.isDirectory() && e.name.startsWith("campaign-"))
+          .map((e) => e.name)
+          .sort();
+        if (dirs.length === 0) throw new Error("no campaign-* directory under .mutation-records");
+        return `${root}/${dirs[dirs.length - 1]}/campaign.json`;
+      })();
+console.log(`auditing against ${ART}`);
 const doc = JSON.parse(readFileSync(ART, "utf8"));
 const agg = doc.aggregate;
 const bound = (n) => (1 - Math.pow(0.05, 1 / n)).toFixed(4);
