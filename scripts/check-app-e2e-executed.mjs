@@ -35,9 +35,10 @@ import { collectInfraRecoveries, printInfraRecoveries } from "./lib/infraRecover
 // BATCH 2 joins 2026-08-22 (spec docs/superpowers/specs/ci/2026-08-21-app-e2e-batch2-design.md).
 // Fourteen specs were measured green on one post-fix run of all 23 with both projects and
 // --retries=0 (181 executed identities, zero skipped, zero flaky, every per-spec count equal to
-// Playwright's own --list resolution). THREE of them then left under AC-4 during the five-green
-// loop — admin-parse-panel, warning-panel-polish and telemetry-layout, all to the admin-loader
-// class BL-ADMIN-LOADER-CI-TRANSIENT — so the rows below are the ELEVEN that ride. The count of
+// Playwright's own --list resolution). Several then left under AC-4 during the five-green loop —
+// admin-parse-panel, warning-panel-polish, telemetry-layout and published-show-attention, all to
+// the admin-loader
+// class BL-ADMIN-LOADER-CI-TRANSIENT — so the rows below are the ones that ride. The count of
 // rows in this table is the authority for "how many joined"; this comment does not restate it,
 // because a narrative copy of a machine-held count is exactly what goes stale.
 //
@@ -80,9 +81,6 @@ export const REQUIRED = {
   "no-raw-codes.spec.ts": 10,
   // 6 width bands + the dispatch case, x 2 projects.
   "notify-toggles.spec.ts": 14,
-  // 6 cases x 1 project (desktop-chromium). Measured 2026-08-22, post-fix run of all 23 specs, both
-  // projects, --retries=0: 181 executed identities, zero skipped.
-  "published-show-attention.spec.ts": 6,
   // 4 cases x 2 projects.
   "report-modal.spec.ts": 8,
   // 5 cases x 1 project (desktop-chromium). Measured 2026-08-22, post-fix run of all 23 specs, both

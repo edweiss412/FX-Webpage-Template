@@ -175,6 +175,15 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   // PR-C directive resolver (BL-HARNESS-PACKLIST-SERVER-GRAPH graduated) — no
   // longer local-only.
   "tests/e2e/picker-flow.spec.ts": PATH_GATED_BY_EXCLUSION,
+  // LEFT BATCH 2 UNDER AC-4, 2026-08-22, on its second red (the batch-1 threshold,
+  // kept explicitly by the 2026-08-22 ruling that made signature reds non-events
+  // for the COUNT while still letting them accumulate per spec). Run 32571008405:
+  // the ratified open-time recovery fired and the error boundary persisted
+  // ("show_review_snapshot_failed"). Run 32578122375: "fan-out context update
+  // failed: An invalid response was received from the upstream server", the
+  // transient gateway 502 of BL-CHANGES-FEED-MODAL-BATCH-FLAKE, on the spec's own
+  // fixture write. Two families of the same environment, neither a spec defect.
+  "tests/e2e/published-show-attention.spec.ts": UNSEEN,
   "tests/e2e/published-review-modal.closeFreshness.spec.ts": PATH_GATED,
   "tests/e2e/published-review-modal.crew-actions.spec.ts": PATH_GATED,
   "tests/e2e/published-review-modal.deeplink.spec.ts": PATH_GATED,

@@ -774,7 +774,7 @@ ParsePanel was not alone. Shape swept: **a file under `components/` that no file
 
 **RECURRENCE OBSERVED 2026-08-21 — the capture this row schedules now has an occurrence to run against.** `BL-SCREENSHOTS-DRIFT-CAPTURE-NONDETERMINISM` records a second flip, on `review-queues-empty-state-light.webp`, with something this row's occurrence lacked: a SAME-BRANCH pass/fail pair sixty-five minutes apart with zero render inputs changed between the two shas. That pair does what 0/9 dispatched runs could not — it establishes that the varying input is outside the repository — while still not choosing between this row's runner-population reading and the new row's time-of-day one. The two rows are one class. Schedule the identity capture described above TOGETHER with the new row's time axis; running either alone can only half-answer it.
 
-## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — 5 app-dependent e2e specs are named by no CI workflow
+## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — 6 app-dependent e2e specs are named by no CI workflow
 
 **Status:** OPEN · **Severity:** MEDIUM (dark regression coverage) · **Class:** CI wiring · **Effort:** L · **Filed:** 2026-08-06 (L-wave, refile of `BL-E2E-LIFECYCLE-SPECS-CI-DARK` at honest scope)
 
@@ -786,12 +786,12 @@ the 2026-08-06 counts are kept alongside so the delta is auditable):
 
 | Allowlist rows                                                          | 2026-08-06 | 2026-08-09 | 2026-08-22 |
 | ----------------------------------------------------------------------- | ---------- | ---------- | ---------- |
-| `UNSEEN` — named by no workflow, **this entry's population**            | 43         | **25**     | **5**      |
+| `UNSEEN` — named by no workflow, **this entry's population**            | 43         | **25**     | **6**      |
 | `PATH_GATED` — named by a workflow, runs when its filter matches        | 13         | 13         | 14         |
 | `PATH_GATED_BY_EXCLUSION` — named, runs unless the change is prose-only | 6          | 8          | 10         |
 | `LOCAL_ONLY` — local artifact by design                                 | 1          | 1          | 1          |
 | custom-reason rows                                                      | 3          | 3          | 10         |
-| **Total rows**                                                          | 66         | **50**     | **40**     |
+| **Total rows**                                                          | 66         | **50**     | **41**     |
 
 **The 2026-08-22 column is produced by the commands below, not typed.** Pasted from the run at the
 batch-2 closeout head, invocations included, so it reproduces rather than being taken on trust:
@@ -802,9 +802,9 @@ $ rows(){ awk '/^const LOCAL_ONLY_ALLOWLIST/,/^};/' "$F" | grep -E '^ +"tests/e2
 $ cls(){ rows | sed -E 's/^ +"[^"]+":[[:space:]]*//' \
     | awk '{ v=$0; sub(/,$/,"",v); if (v ~ /^(UNSEEN|PATH_GATED|PATH_GATED_BY_EXCLUSION|LOCAL_ONLY_GALLERY_CAPTURE)$/) print v; else print "custom-reason" }'; }
 $ chk(){ n=$(cls | grep -c "^$1\$"); [ "$n" -eq "$2" ] && echo "ok $1=$n" || { echo "FAIL $1=$n expected $2"; exit 1; }; }
-$ d=3
+$ d=4
 $ chk UNSEEN $((2 + d))
-ok UNSEEN=5
+ok UNSEEN=6
 $ chk PATH_GATED 14
 ok PATH_GATED=14
 $ chk PATH_GATED_BY_EXCLUSION 10
@@ -814,24 +814,25 @@ ok LOCAL_ONLY_GALLERY_CAPTURE=1
 $ chk custom-reason 10
 ok custom-reason=10
 $ t=$(rows | wc -l | tr -d ' '); [ "$t" -eq $((37 + d)) ] && echo "ok total=$t" || echo "FAIL total=$t"
-ok total=40
+ok total=41
 $ rows | grep -E ': UNSEEN,$' | grep -oE 'tests/e2e/[^"]+'
 tests/e2e/admin-parse-panel.spec.ts
 tests/e2e/empty-state-reachability.spec.ts
 tests/e2e/onboarding-wizard-step1.spec.ts
+tests/e2e/published-show-attention.spec.ts
 tests/e2e/telemetry-layout.spec.ts
 tests/e2e/warning-panel-polish.spec.ts
 ```
 
-Those five names are the whole remaining population of this entry: the three AC-4 drops below, plus
-the two this batch never claimed.
+Those names are the whole remaining population of this entry: the AC-4 drops below, plus the two this
+batch never claimed.
 
-The 23 → 5 drop is ELEVEN row deletions (batch 2's members, which move the total 51 → 40) plus
-SEVEN reclassifications out of `UNSEEN` into custom reasons (which move no total). THREE further
-members were wired, ran green repeatedly, and then left under AC-4 mid-count — their rows are back,
-so they are three of the five the last command prints. The pre-closeout total reads 51 where the 2026-08-10
+The 23 → 6 drop is TEN row deletions (batch 2's members, which move the total 51 → 41) plus
+SEVEN reclassifications out of `UNSEEN` into custom reasons (which move no total). The rest of the
+fourteen were wired, ran green repeatedly, and then left under AC-4 mid-count — their rows are back,
+so they are among the names the last command prints. The pre-closeout total reads 51 where the 2026-08-10
 restatement said 50: `staged-preview.spec.ts` joined the allowlist as `UNSEEN` after that
-restatement, and is one of the eleven deleted here.
+restatement, and is one of the ten deleted here.
 
 The 11-row drop in `UNSEEN` and the 9-row drop in the total are `BL-RESURRECT-MOBILE-SAFARI-E2E`
 (archived 2026-08-09): NINE rows removed with their deleted spec files, and TWO reclassified
@@ -867,18 +868,18 @@ Five of the nine specced members were RED when first run — the spec had verifi
 
 **A second member was dropped mid-acceptance under AC-4 — `admin-changes-feed-layout.spec.ts`, and RE-ENTERED 2026-08-15.** The cross-spec-interaction reading recorded below is DISPROVEN; the measured cause was a transient gateway 502 reaching the `/admin` error boundary, and the repair plus the spec's re-entry are recorded in `BACKLOG-archive.md` under `BL-CHANGES-FEED-MODAL-BATCH-FLAKE`. The AC-4 bar itself is vindicated either way — it caught a real CI-reproducible failure that local runs could not see. Unlike help-pages this one is a genuine FLAKE, and it was caught by exactly the bar that exists to catch it: it passed the first two `pull_request` runs of the five-green loop and then failed two of the next three, on a DIFFERENT width band each time (`@720`, then `@1280`, both mobile-safari), with `published-show-review-modal` never appearing inside a 30s wait after `/admin?show=<slug>`. It appeared to pass standalone (6/6 locally, repeatedly) and to fail only inside the batch — read at the time as a cross-spec interaction, and now known to be a sampling artifact: standalone ran only LOCALLY, where the CI-hosted fault environment does not exist, so the batch runs were the only samples that could ever fail (spec §2.3). Filed as `BL-CHANGES-FEED-MODAL-BATCH-FLAKE`. Recorded because the local signal was misleading in BOTH directions here: the same spec's local reds were correctly attributed to a shared-database collision with a concurrent agent session, and that correct diagnosis then masked a real CI-reproducible flake underneath. **Only CI settles a flake question — AC-4 exists so an admitted flake never rides in.**
 
-**Batch 2 — ELEVEN specs wired, census 23 → 5** (this entry is restated in the same PR that wires
+**Batch 2 — TEN specs wired, census 23 → 6** (this entry is restated in the same PR that wires
 them, so it describes that PR's content, not a merge that has already happened) (PR #875,
 `.github/workflows/app-e2e.yml` EXTENDED rather than duplicated, since these members have batch 1's
 requirement class exactly). Wired: `admin-route-boundaries`, `admin-settings-admins-refresh`,
 `dev-capture`, `developer-tier`, `needs-attention-page`, `no-raw-codes`,
-`published-show-attention`, `roles-settings-layout`, `sign-in-page`, `source-link-dimensional`,
-`staged-preview` — +87 executed identities on top of batch 1's 77, each carrying its own `REQUIRED` row derived from a real run's report through the
+`roles-settings-layout`, `sign-in-page`, `source-link-dimensional`, `staged-preview` — +81 executed
+identities on top of batch 1's 77, each carrying its own `REQUIRED` row derived from a real run's report through the
 oracle's own walk. Spec:
 `docs/superpowers/specs/ci/2026-08-21-app-e2e-batch2-design.md`; probe record:
 `docs/superpowers/specs/ci/probes/2026-08-21-app-e2e-batch2-membership-probe.md`.
 
-**THREE members were wired and then left under AC-4 mid-count, exactly as batch 1's changes-feed did,
+**FOUR members were wired and then left under AC-4 mid-count, exactly as batch 1's changes-feed did,
 and the count restarted from zero each time rather than taking an almost-done exception.** The third
 drop is also where the reds stopped being read per-spec: see `BL-ADMIN-LOADER-CI-TRANSIENT`, whose
 run list is why AC-3's bar was re-scoped by ruling rather than met by
@@ -942,10 +943,11 @@ required set. This changes no workflow, no run and no total; it stops the census
 
 ## BL-MUTATION-SHARD-BUDGET-AGGREGATE-OVER — the source-mutation shards are 60% over budget in AGGREGATE, and the four-shard pin's premise no longer holds
 
-**Status:** OPEN · **Filed:** 2026-08-22 (queued by `bl-orch` onto `ci/app-e2e-batch2`'s closeout commit, from `dbconn`'s arithmetic) · **Facing:** process · **Severity:** MEDIUM (the budget gate is FAILURE on main itself, so every arc reads its own leg against a red baseline and cannot tell a regression from the inherited state) · **Class:** CI capacity · **Effort:** M · **Reachability:** PROBED — the shard wall-clocks below, from the runs linked as the incident. · **Incident:** the `mutation-harness` budget gate is red on MAIN, not on a branch: confirmed on `a99a1500`, on `3cf9f...`, on #872's head and on #872's own run. Those are cost events that already happened, not a constructed hypothetical.
+**Status:** OPEN · **Filed:** 2026-08-22 (queued by `bl-orch` onto `ci/app-e2e-batch2`'s closeout commit, from `dbconn`'s arithmetic) · **Facing:** process · **Severity:** MEDIUM (the budget gate is FAILURE on main itself, so every arc reads its own leg against a red baseline and cannot tell a regression from the inherited state) · **Class:** CI capacity · **Effort:** M · **Reachability:** PROBED — the main-red runs linked in the incident are this row's own evidence; the shard wall-clocks below were measured by `dbconn` on its own legs and are recorded here as ROUTED figures, attributed rather than re-derived, because the arc that measured them holds the artifacts. · **Incident:** the `mutation-harness` workflow is red on MAIN, not on a branch, and has been for days — the last five scheduled runs on `main` all failed: [32559529251](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32559529251) (2026-08-22), [32459382957](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32459382957), [32344648722](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32344648722), [32228276600](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32228276600) and [32111856491](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32111856491), listed by `gh run list --workflow=mutation-harness.yml --branch main`. Those are cost events that already happened, not a constructed hypothetical.
 
-Measured shard wall-clocks: **4669 s, 6958 s, 4667 s, 6786 s = 23080 s** of work against a budget of
-`4 x 3600 s`. That is 60% over IN AGGREGATE, and — the part that matters for the fix — **all four
+Shard wall-clocks, measured by `dbconn` and routed here by the orchestrator (that arc holds the run
+artifacts; this row does not re-derive them): **4669 s, 6958 s, 4667 s, 6786 s = 23080 s** of work
+against a budget of `4 x 3600 s`. That is 60% over IN AGGREGATE, and — the part that matters for the fix — **all four
 legs are over**, with no single surface dominating any of them. The spec's §2.4 premise for pinning
 `SOURCE_SHARD_COUNT = 4` was that a small number of expensive surfaces set the ceiling; that premise
 is now false, so the pin cannot be defended on its original grounds.
@@ -987,9 +989,9 @@ so a live gate was reading prose nothing verified.
 
 ## BL-ADMIN-LOADER-CI-TRANSIENT — admin page and modal loaders fault transiently on the app-e2e runner, and the failure is indistinguishable from a spec defect
 
-**Status:** OPEN · **Filed:** 2026-08-22 (`ci/app-e2e-batch2`, from the counted runs of that arc's five-green loop) · **Facing:** process · **Severity:** MEDIUM (it costs a full five-green restart per occurrence, and read per-spec it drops members that are not defective) · **Class:** CI flake · **Effort:** M · **Reachability:** PROBED — the runs listed below, each with the failing page's own snapshot or its error text; three of them also carry a local CI-posture reproduction that passes, and which three is stated rather than implied. · **Incident:** the runs listed below died on this shape in one evening, across three PRs, and three batch-2 members left under AC-4 because of it. Those are cost events that already happened.
+**Status:** OPEN · **Filed:** 2026-08-22 (`ci/app-e2e-batch2`, from the counted runs of that arc's five-green loop) · **Facing:** process · **Severity:** MEDIUM (it costs a full five-green restart per occurrence, and read per-spec it drops members that are not defective) · **Class:** CI flake · **Effort:** M · **Reachability:** PROBED — the runs listed below, each with the failing page's own snapshot or its error text; three of them also carry a local CI-posture reproduction that passes, and which three is stated rather than implied. · **Incident:** the runs listed below died on this shape in one evening, across two PRs, and three batch-2 members left under AC-4 because of it. Those are cost events that already happened.
 
-Every run below is one occurrence — seven links, six of them counted runs of PR #875's own loop and one from an unrelated branch — across three PRs, one shape — an admin loader faulting, never
+Every run below is one occurrence, and the list is the count: six counted runs of PR #875's own AC-3 loop plus one from an unrelated branch (`feat/destructive-guard-discovery-by-connection`), so TWO PRs, one shape — an admin loader faulting, never
 resolving, or leaving a server round-trip unsettled, while the rest of the page renders fine. The
 list is the row's evidence and the amended AC-3 exception reads its SIGNATURE from it, so every
 occurrence lands here as it happens:
@@ -1010,7 +1012,7 @@ which is why reading it per-spec drops members that are not defective and emptie
 nothing. Same family as `BL-CHANGES-FEED-MODAL-BATCH-FLAKE`, which measured the transient gateway
 502 reaching the `/admin` error boundary on this same job.
 
-**`admin-parse-panel`, `warning-panel-polish` and `telemetry-layout` stay dropped for batch 2.** All three drops were
+**`admin-parse-panel`, `warning-panel-polish`, `telemetry-layout` and `published-show-attention` stay dropped for batch 2.** All of those drops were
 procedurally valid when they were made — one red on a counted run, no attribution, AC-4's own
 procedure — and re-adding them tonight would be churn on an arc whose bar is five consecutive green
 runs. Their restoration is **batch 3's first question**, and their allowlist rows already carry every
@@ -1022,7 +1024,7 @@ hardening. Both are fleet decisions; neither belongs to a wiring arc.
 
 ## BL-E2E-EMPTY-STATE-REACHABILITY-RETIRED-ROUTE — the empty-state catalog's only real-browser proof navigates a route the picker pivot retired
 
-**Status:** OPEN · **Filed:** 2026-08-22 (`ci/app-e2e-batch2`, deferred out of batch 2 by that spec's section 10) · **Facing:** product · **Severity:** MEDIUM (the §8.3 empty-state catalog has no live proof; the spec runs nowhere and would fail everywhere) · **Class:** e2e coverage · **Effort:** M · **Class-sweep exception:** (c) — re-targeting the route and replacing five `toHaveScreenshot` assertions with behaviour assertions is a rewrite of a spec batch 2 does not otherwise touch. · **Reachability:** PROBED — the run line below.
+**Status:** OPEN · **Filed:** 2026-08-22 (`ci/app-e2e-batch2`, deferred out of batch 2 by that spec's section 10) · **Facing:** product · **Severity:** MEDIUM (the §8.3 empty-state catalog has no live proof; the spec runs nowhere and would fail everywhere) · **Class:** e2e coverage · **Effort:** M · **Class-sweep exception:** (c) — re-targeting the route and replacing its four `toHaveScreenshot` assertions with behaviour assertions is a rewrite of a spec batch 2 does not otherwise touch. · **Reachability:** PROBED — the run line below.
 
 `tests/e2e/empty-state-reachability.spec.ts` navigates `/show/<slug>` (line 154). The M11.5 picker
 pivot retired that route: there is no `page.tsx` under `app/show/[slug]/`, the crew route is
@@ -1032,7 +1034,7 @@ pivot retired that route: there is no `page.tsx` under `app/show/[slug]/`, the c
 (probe record section 4.1, rows 2-5 and 17-20).
 
 Two independent blockers, either sufficient, which is why this is a rewrite rather than a wiring gap:
-the retired route above, and five `toHaveScreenshot` assertions comparing bytes against committed
+the retired route above, and four `toHaveScreenshot` assertions comparing bytes against committed
 `-darwin.png` baselines, which the byte-comparison discipline forbids on `app-e2e.yml`'s native Linux
 runner. Closing it means re-targeting the route AND either replacing the pixel assertions with
 behaviour assertions or moving the spec to the pinned-Docker screenshots job.
