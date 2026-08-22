@@ -1229,18 +1229,6 @@ for (const s of GUARD_SURFACES) { const k = s.accepted.reduce((a,r)=>{a[r.kind]=
 
 **What these four runs do NOT establish is the budget half**, which on 08-18 and 08-19 failed the `budget` job for reasons that are not this row's coverage failures. That is `BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH`.
 
-## BL-SPECLINT-RED-REASON-VERIFICATION — the red-contract arm checks that a command fails, never that it failed for the reason the task named
-
-**Status:** OPEN. · **Filed:** 2026-08-20 (`fix/mutation-browser-child-lifetime`, from that arc's plan rounds 1 and 2) · **Facing:** process · **Severity:** MEDIUM (it does not fail anything; it lets a task ship a RED that no later edit can make fail) · **Class:** spec-lint arm · **Effort:** M
-
-**Incident:** two of four plan rounds on `fix/mutation-browser-child-lifetime` were spent on ONE shape, and it recurred after being named. Round 1 rejected Task 1's red — an unresolved import, which fails before any assertion runs. Round 2 rejected Task 2's red for the same shape in a different costume: `runChild` is private, so a suite calling it fails on missing ACCESS rather than on the defect. Both rows are in the corpus at `docs/review-rounds/fix/mutation-browser-child-lifetime/03953337388b.jsonl` (`plan` rounds 1 and 2, `findingCount` 7 and 2). The plan carried a section rejecting exactly this shape two headings above the task that committed it, so authoring discipline had already been applied and did not hold.
-
-**What the current arm can and cannot see.** `spec:lint --exec-red` decides whether a `red=` command COLLECTS its target, which is a different question from whether it failed for the stated reason. A command that collects, runs, and dies on an unresolved import or a missing export exits non-zero and **looks healthy to every "did it exit non-zero" check there is**. Two further blind spots make the gap wider than it reads: the collection arm returns nothing at all when no probes ran (`lib/specLint/redContract.ts:754`), and it is SILENT for any command wrapped in `pnpm heavy` — `deriveCollectionProbe` yields `none` and `collectionProbePlan` continues past it (`lib/specLint/redContract.ts:721`) — emitting neither a FAIL nor the `RED_PROBE_UNVERIFIED` advisory. AGENTS.md mandates `pnpm heavy` for every heavy phase, so the arm cannot see the class the repo requires wrapping.
-
-**Direction, stated not implemented.** The v2 marker already carries `why=`, a prose statement of what is red and why. An arm could run the `red=` under `--exec-red` and compare the observed failure against that field — at minimum rejecting the mechanically recognizable non-reasons (module-resolution failure, missing export, config error, zero tests collected) rather than attempting to match prose. That is a narrower and closable claim than "the failure matches the stated reason", and it is the half that both incidents above would have failed.
-
-**Reachability: PROBED.** Both instances are quoted from reviewer output on a real arc, not constructed. The `pnpm heavy` blind spot is a static reading of the two cited lines and was confirmed by a third party the same night; it is a documented limit of the arm rather than a hypothetical.
-
 ## BL-MUTATION-SOURCE-SHARD-BUDGET-BREACH — the source shards blew the 3600s budget on main, four days after the row that closed the wall-clock ceiling was archived
 
 **Status:** OPEN. · **Filed:** 2026-08-20 (`docs/mutation-harness-main-red-filing`, from arc-browser's pre-task verification of the nightly reds) · **Facing:** process · **Severity:** MEDIUM (it fails a non-required gate today; the same growth censors a quarter of the source gate's annotations at the next enrolment) · **Class:** CI capacity · **Effort:** S-M
@@ -1593,6 +1581,8 @@ recoverable from git history on this branch; restore them with the arc rather th
 
 **Incident, second class (2026-08-21, cross-arc).** `pnpm typecheck` is a SECOND mechanical gate the same refusal could cover. Three arcs in one day (`feat/speclint-red-reason-verification`, `fix/shell-attached-redirection-target`, `feat/destructive-guard-discovery-by-connection`) independently committed probe scripts that import with a `.ts` extension (TS5097) or call `ts.isImportKeyword` (runtime-only, TS2339); `tsx` resolves both, so every local run passed, and the third arc's probes survived twelve commits and four adversarial rounds — because reviewers run sandboxed and read-only and never execute the gates, so a round is BLIND to a gate-red by construction. Caught only by `pnpm typecheck`, which docs-stage work rarely runs. Same wrapper, same exit-2 refusal, one more gate in the list.
 
+**Incident, third instance (2026-08-21, independently filed).** `feat/speclint-red-reason-verification` spent a diff-round-3 finding on its plan failing its OWN `spec:lint` — `CITATION_MALFORMED at line 72: malformed citation \`:837\` (empty path)`, the same empty-path form as the eighteen above. Corpus row: `docs/review-rounds/feat/speclint-red-reason-verification/c9c71b947a85.jsonl`, `diff` round 3, `findingCount` 2 (the round carried a second finding, so the round is not chargeable here; the reviewer attention is). That arc filed it as `BL-SPECLINT-SELFLINT-NOT-IN-PREDISPATCH-GATE`, blind to this row, which sat on an unmerged branch at the time — which is itself the point: the same defect was independently rediscovered by a session reading `origin/main` to choose work. Its own diagnosis is worth keeping verbatim: that plan declared two oracles as COMMANDS and this obligation as a PARAGRAPH, and the commands ran several times each while the paragraph ran zero times.
+
 **Shape of the repair.** In `review`, when `--stage` is `spec` or `plan`, resolve the artifact path(s) the brief cites, run the existing lint, and exit 2 naming the failing file and count if any HARD failure is present. Advisory failures do not block — the probe-record artifacts show advisory noise is normal and blocking on it would be its own waste. The escape hatch matches the existing ones in that script (an explicit flag), because a brief may legitimately review an artifact that is mid-repair.
 
 **Why the wrapper and not a habit.** The habit is already written down and was not followed on this arc by the session that wrote this entry. `codex-guard` is the single choke point every dispatch passes through, which is exactly why the mutation-score check lives there rather than in a checklist.
@@ -1702,3 +1692,24 @@ Both runs were from the repo root with the paths valid and readable; relative an
 **Shape of the repair.** Upstream: exit non-zero when a requested path could not be read, so inability-to-look is never spelled the same as nothing-found. Locally, cheaper and available now: a wrapper that refuses a non-directory argument, or an invariant-8 checklist line requiring the directory form and a non-zero exit before "detector clean" may be recorded.
 
 **First scheduled step:** confirm the behaviour against the current upstream release, then decide wrapper-versus-report — a local wrapper is worth it either way, since this repo's gate cannot wait on an upstream fix.
+
+## BL-SPECLINT-DOC-BARE-LINE-NUMBERS-UNCOVERED — a document's raw line numbers rot where the citation oracle cannot look
+
+**Status:** OPEN · **Filed:** 2026-08-21 (`feat/speclint-red-reason-verification`, from that arc's diff rounds 2 and 5) · **Facing:** process · **Severity:** LOW (prose rots; nothing ships wrong) · **Class:** spec-lint gate · **Effort:** S
+
+**Incident:** THREE diff rounds on one arc, on one vector. `probe:citations` derives its population as `path:line` citations into a named file and is complete over it. A bare `line 742`, or a fenced movement table whose entire content is line numbers, carries no path, so the oracle cannot see it and reports OK while the document states something false. Round 2 found a bare prose instance, round 5 found a fenced-table instance claiming HEAD. Corpus rows: `docs/review-rounds/feat/speclint-red-reason-verification/c9c71b947a85.jsonl`, `diff` rounds 2 and 5. The limit was DECLARED in that plan's §3 and in the PR body before either round found an instance, so this is a known blind spot producing repeat findings, not a surprise.
+
+**Probe.** A derived cover over both documents, rather than the regex sweeps that missed instances two rounds running:
+
+```
+redContract.ts has 965 lines; scanning both docs for integers in [500,965]
+32 candidate(s)
+```
+
+Each candidate resolves to the line it names, so a human can separate a live claim from a historical one. Run after the round-5 repair, all 32 classify as correct: derived §0 table rows, explicitly historical narrative, quoted past values, or the two snapshot blocks now bound to a named commit.
+
+**Why not teach the oracle.** Parsing prose for line references is recognizer growth on a doc scanner, which this repo has measured as the losing move, and the arc's own review rounds are the measurement. The narrowing repair is a PROHIBITION rather than a recognizer: a raw line number for a tracked file may appear only inside the derived table, or inside a block explicitly bound to a named commit. That is a scan for integers in a numeric range plus a location test, and it needs no grammar.
+
+**Three repair shapes were used on this arc and only two are durable.** Symbol-naming retires the site (best, but impossible for a table whose content IS line numbers). Binding the block to a named commit makes it permanently true (used at round 5). Re-pointing the number resets the clock and is the losing move; it was declined every time.
+
+**First scheduled step:** decide whether the prohibition lives in `probe/citations.mts` as a second assertion or in the pre-dispatch gate alongside `BL-CODEX-GUARD-SPECLINT-PREDISPATCH-GATE`, which shares an owner and a trigger point (it absorbed the duplicate `BL-SPECLINT-SELFLINT-NOT-IN-PREDISPATCH-GATE`, archived 2026-08-21).
