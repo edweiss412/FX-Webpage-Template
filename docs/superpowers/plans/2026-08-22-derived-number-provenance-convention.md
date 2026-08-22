@@ -48,13 +48,18 @@ The plan exists for the residue and for the acceptance run, not to re-derive eit
 
 ## Task 1 — index the spec, archive the parent row, run acceptance
 
-<!-- task: red=`pnpm vitest run tests/docs/specsReadmeIndexParity.test.ts tests/docs/_metaLedgerMintBar.test.ts tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerReferentialIntegrity.test.ts` ac=AC-1,AC-2,AC-3,AC-4,AC-5,AC-6 -->
+<!-- task: red=`pnpm vitest run tests/docs/specsReadmeIndexParity.test.ts tests/docs/_metaLedgerMintBar.test.ts tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerReferentialIntegrity.test.ts` ac=AC-1,AC-2,AC-3,AC-4,AC-5,AC-6,AC-7 -->
 
 **The red is real and was observed before the fix.** `specsReadmeIndexParity` failed on the new spec
 with `docs/superpowers/specs/ci/README.md is missing a row for: 2026-08-22-derived-number-provenance-convention.md`.
-The index row closes it. This is the only assertion in the arc that went red on work this arc did,
-and it is recorded rather than manufactured — the other gates were green throughout, which is the
-honest state for an arc that ships prose.
+The index row closes it, and it still reproduces on demand: strip that row and the assertion reds with
+that message, restore it and 21 pass.
+
+**It was not the only red, and the first draft of this paragraph said it was.** Plan review round 1
+found the second: `8d9462fa4` added two citations of `BL-CLOSEOUT-COUNT-PROSE-DRIFT` to `BACKLOG.md`
+and no `KNOWN_DANGLING` row, so `_metaLedgerReferentialIntegrity` was red across that commit and was
+closed one commit later at `573c72abc`. That is a real gate red on this arc's own work, and the
+"same change that broke them" claim below holds for the retired-identifier registry only.
 
 Steps:
 
@@ -64,9 +69,13 @@ Steps:
    an unbound figure). The second trigger is discharged, not recorded: the ledger population got an
    owner in this PR. **AC-5.**
 3. Add a reconciliation-log segment naming what the count overturned, per the file's own convention.
-4. **Two content-keyed registries own rows this arc's edits break, and both were repaired in the
-   same change that broke them** — the guard's own rule, `tests/docs/_retiredIdentifiers.ts:143`
-   ("ANY task that edits, moves, or deletes an exempted line owns its row in the same commit").
+4. **Two content-keyed registries own rows this arc's edits break.** The guard's own rule is
+   `tests/docs/_retiredIdentifiers.ts:143` — `ANY task that edits, moves, or deletes an exempted line
+   owns its row in the same commit`. **Only one of the two met it.** The retired-identifier exemption
+   was re-keyed in `573c72abc`, the same commit whose reconciliation segment rewrote the line it keys
+   on. The `KNOWN_DANGLING` row did NOT: its citations landed in `8d9462fa4` and the row followed in
+   `573c72abc`, leaving one commit red. Recorded rather than smoothed over, because a plan that
+   describes its own discipline more tidily than it practised it is the defect this arc is about.
    Prepending a reconciliation segment rewrites `BACKLOG.md`'s line 7, which carries a
    `RETIRED_IDENTIFIER_EXEMPTIONS` row keyed on its exact content; the row now carries the new line.
    And `BL-CLOSEOUT-COUNT-PROSE-DRIFT`, which the fence sentence must name, is filed on
@@ -80,6 +89,9 @@ Steps:
    and every figure in it reproduces at that base), **AC-4** (the probe record has its index row),
    and **AC-6** (`BL-LEDGER-FIGURE-PROVENANCE` carries `**Facing:** process`, an `**Incident:**`, a
    `**Reachability:** PROBED`, and the fence sentence against `BL-CLOSEOUT-COUNT-PROSE-DRIFT`).
+   **AC-7** is discharged by the archive move in step 2 rather than by a later commit, per invariant
+   12's graduating-entry clause; verify the archived entry carries `**Status:** RESOLVED` and that
+   `BACKLOG.md` holds no in-progress marker for it.
 
 **Anti-tautology.** The acceptance for AC-3 is not "the record contains numbers." It is a re-run of
 the census against the corpus at the recorded base with the output compared to the record. **A bare
@@ -130,5 +142,8 @@ rather than its prose:
   the probe record keeps that as
   a recorded wrong first answer rather than quietly dropping it.
 - **No layout-dimensions or transition-audit task.** No UI surface.
-- **AC-7** (the in-progress marker comes off in the PR's last commit before merge) is a merge-time
-  step under invariant 12, not a task here.
+- **AC-7 is already discharged and is not a merge-time step**, which plan review round 1 corrected.
+  Invariant 12's graduating-entry clause puts a graduating row's marker removal in the same commit
+  that archives it, not in the PR's last commit — an archived entry cannot carry an in-progress
+  marker, and the generic rule is unsatisfiable here because archiving moves the row the marker lives
+  on. `573c72abc` did both together.

@@ -192,9 +192,9 @@ wearing provenance's clothes. It stands as the README's worked counterexample, w
   an `**Incident:**` field citing the parent row's measured findings; it does NOT cite the withdrawn
   ratio as evidence; and it ALLOCATES the overlap with `BL-CLOSEOUT-COUNT-PROSE-DRIFT` — a closeout
   count stated inside a ledger entry belongs to exactly one of them, and the row says which.
-- **AC-7.** The ledger row's in-progress marker is removed in the PR's last commit before merge.
-
-## §6 Lint disposition
-
-`pnpm spec:lint` is expected clean on this document. It carries no task markers and no citation to a
-plan, being a one-task arc whose plan is the acceptance criteria above.
+- **AC-7.** The parent row's in-progress marker is removed **in the same commit that archives the
+  entry**, per invariant 12's graduating-entry clause: `a graduating entry's marker comes off in the
+  same commit that archives it, archives categorically reject in-progress entries, so it cannot ride
+  along`. NOT the generic last-commit-before-merge rule, which a graduating entry cannot satisfy: the
+  marker lives on the `BACKLOG.md` row, and archiving moves that row away. Discharged at `573c72abc`,
+  which rewrote the entry to `**Status:** RESOLVED` as it moved it.
