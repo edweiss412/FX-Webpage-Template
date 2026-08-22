@@ -6,7 +6,7 @@ Outcome (c) is ratified (spec §1.4). This plan is the L-effort close the spec s
 
 impeccable-gate: N/A — no UI surface
 
-**Files:** `scripts/codex-guard.mjs`, `tests/codexGuard/guardSurfaceGate.test.ts`, a NEW fixture module at tests/codexGuard/fixtures/guardSurfaceHeadingCorpus.ts (named in plain text because it does not exist yet), `AGENTS.md`, `docs/superpowers/specs/ci/2026-08-15-round-economy-enforcement-pair.md`, `docs/superpowers/specs/2026-07-19-codex-guard.md`, `docs/superpowers/specs/ci/2026-08-04-source-mutation-guard-gate.md`, `docs/superpowers/specs/ci/README.md`, `BACKLOG.md`, `BACKLOG-archive.md`. Nothing under `app/`, `components/`, `app/globals.css`, `tailwind.config.*`, or `DESIGN.md`.
+**Files:** `scripts/codex-guard.mjs`, `tests/codexGuard/guardSurfaceGate.test.ts`, a NEW fixture module at tests/codexGuard/fixtures/guardSurfaceHeadingCorpus.ts (named in plain text because it does not exist yet), `tests/docs/_metaDeferralLedgerGraduation.test.ts`, `AGENTS.md`, `docs/superpowers/specs/ci/2026-08-15-round-economy-enforcement-pair.md`, `docs/superpowers/specs/2026-07-19-codex-guard.md`, `docs/superpowers/specs/ci/2026-08-04-source-mutation-guard-gate.md`, `docs/superpowers/specs/ci/README.md`, `BACKLOG.md`, `BACKLOG-archive.md`. Nothing under `app/`, `components/`, `app/globals.css`, `tailwind.config.*`, or `DESIGN.md`.
 
 ---
 
@@ -80,28 +80,28 @@ git grep -n -E "GUARD SURFACE|MUTATION SCORE|MUTATION_SCORE_ARM" -- . ':!docs/re
 for d in $HOME/.claude $HOME/.claude-account*; do grep -l -E "GUARD SURFACE|MUTATION SCORE" "$d"/hooks/* 2>/dev/null; done
 ```
 
-The first command returned 113 lines across 41 files at the spec's first commit and gains only this plan's lines since; the second returned NOTHING: no per-machine hook in any of the four config dirs scans the line (the review-convergence-gate hook checks bound, domain and fence only). Disposition of every hit:
+Run at `c34a86487` with this arc's own spec and plan excluded (`':!docs/superpowers/specs/ci/2026-08-22-mutation-score-jurisdiction-gap.md' ':!docs/superpowers/plans/2026-08-22-mutation-score-jurisdiction-gap.md'` appended to the pathspec, then `| cut -d: -f1 | sort | uniq -c | awk '{n++; l+=$1} END {print "files="n" lines="l}'`), the first command returns `files=45 lines=119`; of those 45 files, 35 are other plans and specs under `docs/superpowers/` (the same command with the pathspec narrowed to `docs/superpowers/plans docs/superpowers/specs` and the two owning specs also excluded, `| wc -l`). The second command returned NOTHING: no per-machine hook in any of the four config dirs scans the line (the review-convergence-gate hook checks bound, domain and fence only). Disposition of every hit:
 
 | copy                                                                                         | kind                                                     | disposition                                                                                           |
 | -------------------------------------------------------------------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | `scripts/codex-guard.mjs` (trigger at line 525, `MUTATION_SCORE_ARM`, the arms, the message) | the gate                                                 | **CHANGED, Task 1**                                                                                   |
-| `tests/codexGuard/guardSurfaceGate.test.ts`                                                  | the gate's fixtures                                      | **CHANGED, Task 1** (new cases, three updated fixtures, the corpus replay)                             |
+| `tests/codexGuard/guardSurfaceGate.test.ts`                                                  | the gate's fixtures AND its header docblock (lines 9 to 14 state the two-arm contract) | **CHANGED, Task 1** (new cases, three updated fixtures, the corpus replay, and the docblock rewritten to the three-element contract plus the heading form; a live normative copy plan review round 1 found unscheduled) |
 | `docs/superpowers/specs/ci/2026-08-15-round-economy-enforcement-pair.md` §2.1 items 3, 4, 5; §5 | owns the grammar                                       | **CHANGED, Task 1**                                                                                   |
 | `AGENTS.md` line 188 and bullet 4                                                            | the durable cross-CLI contract                           | **CHANGED, Task 1**                                                                                   |
 | `docs/superpowers/specs/2026-07-19-codex-guard.md` §14                                       | the wrapper's canonical spec, cross-reference only       | **CHANGED, Task 1** (one sentence; §14 defers the grammar to the pair spec by design)                  |
 | `docs/superpowers/specs/ci/2026-08-22-mutation-score-jurisdiction-gap.md`                    | this arc's spec                                          | already states the new grammar                                                                        |
 | per-machine hooks under each config dir's `hooks/`                                           | none scan the line                                       | nothing to change; recorded here so the next reader does not re-grep                                  |
-| 34 other files under `docs/superpowers/plans/` and `docs/superpowers/specs/`                  | dated plan/spec records quoting the old grammar for their own arcs | untouched: dated records are never corrected (`docs/agents/spec-self-review.md`, numeric sweep rule) |
+| 35 other files under `docs/superpowers/plans/` and `docs/superpowers/specs/`                  | dated plan/spec records quoting the old grammar for their own arcs | untouched: dated records are never corrected (`docs/agents/spec-self-review.md`, numeric sweep rule) |
 | `BACKLOG.md` lines 1822 and 1834 (the speclint-predispatch-gate row's prose)                 | a ledger row describing the gate                         | untouched: descriptive, not a grammar statement                                                       |
 | `tests/mutation/source/registry.ts` lines 242 and 1799; `tests/paneCompaction/enrolment.test.ts` line 12 | comments naming the line                     | untouched: the registry is the fenced seam (spec R5); neither states the grammar                      |
 | `tests/specLint/fixtures/claimSweep/` plan fixtures                                          | spec-lint fixtures                                       | untouched: fixture corpora are frozen evidence                                                        |
 | `docs/review-rounds/`, `BACKLOG-archive.md`                                                  | historical corpus                                        | excluded from the grep by design; never edited                                                        |
 
-Re-run both commands at closeout; the only NEW hits must be Task 1's files, the new fixture module, and this plan.
+Re-run both commands at closeout with the same exclusions; the only NEW hits must be Task 1's files and the new fixture module.
 
 ## 2. Meta-test inventory
 
-- **EXTENDS:** `tests/codexGuard/guardSurfaceGate.test.ts` (AC-1, AC-2, AC-3, AC-9). `tests/docs/specsReadmeIndexParity.test.ts` is satisfied by the spec branch's README row (Task 3 retired).
+- **EXTENDS:** `tests/codexGuard/guardSurfaceGate.test.ts` (AC-1, AC-2, AC-3, AC-9); `tests/docs/_metaDeferralLedgerGraduation.test.ts`, the `BACKLOG_GRADUATED` registry, which is what enrolls a graduation in the archive-only and section-provenance assertions (running the suite after the move enrolls nothing; plan review round 1). `tests/docs/specsReadmeIndexParity.test.ts` is satisfied by the spec branch's README row (Task 3 retired).
 - **CREATES:** the fixture module tests/codexGuard/fixtures/guardSurfaceHeadingCorpus.ts (new; plain text because it does not exist yet), the 24 corpus heading lines with their expected verdicts, derived by the Task 1 sweep command and frozen as evidence.
 - Supabase call boundaries, sentinel hiding, admin-alert catalog, advisory-lock topology, no-inline-email: none applies (no Supabase call, no tile, no alert, no lock, no email path). `AUDITABLE_MUTATIONS` (invariant 10): N/A, no mutation surface under `app/`.
 - Mutation registry: no row added or edited (spec R5). The round-1 diff brief declares `GUARD SURFACE: scripts/codex-guard.mjs` with `CANNOT-EXPRESS: spawn-only surface, no Vitest import edge (tests/codexGuard/harness.ts)`; no enrolled source is edited, so no score is stated and none is retired (spec §3).
@@ -121,15 +121,15 @@ Re-run both commands at closeout; the only NEW hits must be Task 1's files, the 
 
 ## 4. Tasks
 
-Sequence: Task 1 (code + every grammar copy, one commit) → Task 2 (harness-spec limit) → closeout (§5, not a task marker) → Task 4 (graduation + marker strip, the PR's last commit). Task 3, the index row, is already landed on the spec branch (see below). Task 2 is docs-only and may be authored before Task 1's review lands, but it commits after it.
+Sequence: Task 1 (code + every grammar copy, one commit) → Task 2 (harness-spec limit) → Task 4 (graduation + registry row + marker strip) → closeout (§5, not a task marker: gates, push, the whole-diff review of the FULL tree including the graduation, CI on the final head, readiness). Task 3, the index row, is already landed on the spec branch (see below). Task 2 is docs-only and may be authored before Task 1's review lands, but it commits after it.
 
 <!-- tasks: depth=3 red-contract -->
 
 ### Task 1: the `OPERATORS:` arm and the heading-form trigger, in the gate and in every normative copy of its grammar (one commit)
 
-<!-- task: red=`pnpm vitest run tests/codexGuard/guardSurfaceGate.test.ts -t "OPERATORS"` red-state=authored red-target=`scripts/codex-guard.mjs:528` why=`the new cases write briefs whose GUARD SURFACE line carries a conforming score arm and no OPERATORS: tail, one in plain form and one as a ## heading, and assert exit 2 with zero fake-codex calls; at scripts/codex-guard.mjs:528 the score arm's safe-integer branch ends in an unconditional continue, and the trigger three lines above it never matches a heading, so the live gate dispatches both briefs (exit 0, one call each) and the cases fail on the exit code` ac=AC-1,AC-2,AC-3,AC-5,AC-9 -->
+<!-- task: red=`pnpm vitest run tests/codexGuard/guardSurfaceGate.test.ts` red-state=authored red-target=`scripts/codex-guard.mjs:528` why=`the new cases write briefs whose GUARD SURFACE line carries a conforming score arm and no OPERATORS: tail, one in plain form and one as a ## heading, and assert exit 2 with zero fake-codex calls; at scripts/codex-guard.mjs:528 the score arm's safe-integer branch ends in an unconditional continue, and the trigger three lines above it never matches a heading, so the live gate dispatches both briefs (exit 0, one call each) and the cases fail on the exit code` ac=AC-1,AC-2,AC-3,AC-5,AC-9 -->
 
-**What is red and why.** On the live tree `checkGuardSurfaceDeclarations` accepts any canonical score arm (the `continue` at `scripts/codex-guard.mjs:543`) and its trigger (`scripts/codex-guard.mjs:525`) never matches a line that begins with `## `. So a plain score line without `OPERATORS:` dispatches, and a heading-form score line dispatches whatever it carries. The new cases assert exit 2 and zero calls for both; they fail with `expected 0 to be 2`. The `-t` filter draws the name-filter advisory the writing-plans rule predicts; the filter matches exactly the new titles and no existing one (`grep -c OPERATORS tests/codexGuard/guardSurfaceGate.test.ts` is 0 at plan time), the observed red must report failures rather than `0 passed`, and the full-file command below is the GREEN criterion.
+**What is red and why.** On the live tree `checkGuardSurfaceDeclarations` accepts any canonical score arm (the `continue` at `scripts/codex-guard.mjs:543`) and its trigger (`scripts/codex-guard.mjs:525`) never matches a line that begins with `## `. So a plain score line without `OPERATORS:` dispatches, and a heading-form score line dispatches whatever it carries. The new cases assert exit 2 and zero calls; they fail with `expected 0 to be 2` (the replay case on `resAll.code`). The red and the green are the SAME command, the full file, so no name filter can hide a case (plan review round 1: a `-t "OPERATORS"` filter matched five of the seven new titles and would have excluded the replay and the non-canonical cases from the red).
 
 **RED, part 1: the fixture module.** Create the new file tests/codexGuard/fixtures/guardSurfaceHeadingCorpus.ts from the sweep (authored-and-run at plan time; output in spec §2.2 and below). It exports `HEADING_CORPUS: ReadonlyArray<{ readonly source: string; readonly line: string; readonly verdict: "reject-no-operators" | "reject-non-canonical" | "reject-bare" | "dispatch-cannot-express" }>` with the 24 lines VERBATIM (em dashes included; it is evidence) and the classification the canonical grammar gives each, derived by this command and frozen:
 
@@ -255,7 +255,7 @@ All brief stems are dated 2026-08-17 to 2026-08-20 and live in the briefs direct
 
 with `import { HEADING_CORPUS } from "./fixtures/guardSurfaceHeadingCorpus";` at the top. Three spawns for the replay, not 24: the enumeration assertion is the per-line classification (exact set equality on line numbers, so a conforming line listed or a nonconforming line omitted both fail), and the two dispatching briefs are its positive twins, so "accepted" is never proven by absence alone.
 
-Run `pnpm vitest run tests/codexGuard/guardSurfaceGate.test.ts -t "OPERATORS"` and record the observed output in the commit message. Expected at RED: the plain no-tail case, the heading no-tail case, the empty-tail case, the score-plus-cannot-express case and the non-canonical-plus-cannot-express case fail with `expected 0 to be 2`; the replay case fails on `resAll.code` (the shipped trigger reads none of the 24 lines, so the brief dispatches: the incident in executable form); the with-tail case passes on the live tree, which is the stays-green direction and is expected.
+Run `pnpm vitest run tests/codexGuard/guardSurfaceGate.test.ts` (the full file, the same command the GREEN criterion names) and record the observed output in the commit message. Expected at RED: exactly the five new rejecting cases fail and every pre-existing case passes, namely: the plain no-tail case, the heading no-tail case, the empty-tail case, the score-plus-cannot-express case and the non-canonical-plus-cannot-express case fail with `expected 0 to be 2`; the replay case fails on `resAll.code` (the shipped trigger reads none of the 24 lines, so the brief dispatches: the incident in executable form); the with-tail case passes on the live tree, which is the stays-green direction and is expected.
 
 **GREEN, the gate.** In `scripts/codex-guard.mjs`:
 
@@ -289,7 +289,7 @@ Run `pnpm vitest run tests/codexGuard/guardSurfaceGate.test.ts -t "OPERATORS"` a
 (the closing brace of the `if (score !== null)` block moves up accordingly; the cannot-express check that follows is untouched).
 
 3. The `usageError` message's second segment becomes `(<killed>/<total> plus "0 unaccepted survivors" plus OPERATORS: <declared names, or all>) ` and its first and third segments are unchanged.
-4. The header comment above `checkGuardSurfaceDeclarations` says the score arm carries the operator set and the trigger reads the ATX heading form.
+4. The header comment above `checkGuardSurfaceDeclarations` says the score arm carries the operator set and the trigger reads the ATX heading form. The header docblock of `tests/codexGuard/guardSurfaceGate.test.ts` (lines 9 to 14) is rewritten to the same contract in the same commit: it is a normative copy of the grammar and the plan's §1 grep lists it.
 
 **GREEN, the fixtures that became rejecting inputs**, each by appending `; OPERATORS: all` to the line (a full-set row's honest tail): `tests/codexGuard/guardSurfaceGate.test.ts:56`, `tests/codexGuard/guardSurfaceGate.test.ts:159`, and the fenced line at `tests/codexGuard/guardSurfaceGate.test.ts:240` (so that case keeps testing a CONFORMING fenced line against a live bare one). Line 101 (the mixed brief) is not touched: it exits 2 on its bare line before and after.
 
@@ -319,7 +319,7 @@ git grep -c -F 'OPERATORS:' -- AGENTS.md                                        
 git grep -c -F 'OPERATORS:' -- docs/superpowers/specs/ci/2026-08-15-round-economy-enforcement-pair.md   # now: exit 1 -> after: >= 2
 git grep -c -F 'OPERATORS:' -- docs/superpowers/specs/2026-07-19-codex-guard.md                   # now: exit 1 -> after: 1
 git grep -c -F 'OPERATORS:' -- scripts/codex-guard.mjs                                            # now: exit 1 -> after: >= 2
-git grep -c -F '#{1,6}' -- scripts/codex-guard.mjs docs/superpowers/specs/ci/2026-08-15-round-economy-enforcement-pair.md   # now: exit 1 -> after: 1 each
+git grep -c -F '(?:#{1,6}\s+)?GUARD SURFACE:' -- scripts/codex-guard.mjs docs/superpowers/specs/ci/2026-08-15-round-economy-enforcement-pair.md   # now: exit 1 (a bare `#{1,6}` already occurs twice in the wrapper, at unrelated regexes, so the gate keys on the full trigger literal) -> after: 1 each
 git grep -c -F 'neither a matter of opinion' -- AGENTS.md                                         # now: 1 -> after: exit 1 (deleted, not appended)
 ```
 
@@ -341,27 +341,7 @@ Commit: `feat(codex-guard): OPERATORS: on the GUARD SURFACE score arm, heading-f
 
 Commit: `docs(spec): harness spec L-11, score jurisdiction is declared operators over existing code`.
 
-<!-- tasks: end -->
-
-### Task 3 (retired): the index row
-
-Landed on the spec branch itself, because the spec file ships there and `tests/docs/specsReadmeIndexParity.test.ts` ("every doc has an index row") is red on that branch until the row exists. AC-8 is satisfied before implementation starts; nothing for the implementation pane to do. No marker: there is no red left to observe.
-
-## 5. Closeout: gates, the freeze diff, the round-1 diff review, CI (not a task marker; every command here is a gate that passes, proved able to fail)
-
-1. `pnpm typecheck`; `pnpm exec eslint .`; `pnpm format:check`, all unwrapped.
-2. `pnpm vitest run tests/codexGuard/ tests/docs/`, scoped, unwrapped.
-3. `pnpm heavy pnpm test:fast`: the full default suite, WRAPPED at the outermost entry (AGENTS.md heavy-slot rule), one run, `run_in_background`.
-4. `pnpm mutation:sites psqlStartupScan` prints zero stale rows (spec §2.6's checkable consequence); `pnpm exec tsx probe/jurisdiction-census.mts` diffed against the committed `.out.txt` is byte-identical, because no enrolled input moved.
-5. **The freeze diff (AC-7):** `test -z "$(git diff --name-only origin/main...HEAD -- tests/cross-cutting/psqlStartupFiles/scan.ts tests/cross-cutting/psqlStartupFileSuppression.test.ts tests/mutation/source/registry.ts tests/mutation/source/shardPartition.ts tests/mutation/source/operators.ts)"` exits 0. Proved able to fail at plan time by a CONSTRUCTED failing input: the identical command with `docs/superpowers/specs/ci/2026-08-22-mutation-score-jurisdiction-gap.md` appended to the path list prints that path and exits 1 (run 2026-08-22 at `48ad0ad30`: `gate rc=0`, `constructed rc=1`). `git diff --name-only origin/main...HEAD` is exactly the ten files in `**Files:**` plus `probe/jurisdiction-census.mts`, `probe/jurisdiction-census.out.txt`, the spec, this plan, and the round corpus under `docs/review-rounds/docs/mutation-score-jurisdiction-gap/`.
-6. Re-run the §1 grep pair; the only new hits are Task 1's files, the fixture module, and this plan.
-7. **Round-1 `--stage diff` brief** (one scope; the diff is ten files and needs no split): REVIEWER ONLY; consequence bound, PROBE DOMAIN and threat fence copied from spec §3, each on ONE line (the convergence hook greps per line); `GUARD SURFACE: scripts/codex-guard.mjs` with `CANNOT-EXPRESS: spawn-only surface, no Vitest import edge (tests/codexGuard/harness.ts)` on that same line; the do-not-relitigate list from spec §1.1 R1 to R7 plus "presence not membership (§4 L-A)" and "the heading-form widening is bounded by the sweep (§4 L-E)" and "marker precedence: a score-shaped line is never rescued (§2.2 matrix)"; the four pre-dispatch string-presence mutants for the new cases' `toContain("OPERATORS:")` (value emptied; suffix appended; the word present only inside a fence; the `OPERATORS` regex varied) run against the wrapper by editing a SCRATCH brief, never the tree, and recorded in the brief. **Dispatch through the MAIN checkout's wrapper**, `~/.claude/bin/codex-guard` (it execs `$HOME/FX-Webpage-Template/scripts/codex-guard.mjs`), so the file under review is not the file running the review; dry-run the convergence hook first; `run_in_background`; fresh timestamped `--out`. Cap 4; a fourth counted diff round files the round-economy record in the arc's corpus directory.
-8. Push; real CI green BY NAME (the twelve required contexts in both vocabularies, sha-keyed to the head; Vercel FAILURE is the deploy rate limit and is not required; a rollup PENDING with every named check green is suppressed).
-9. Task 4 below, then the readiness report to `bl-orch` naming the head sha and the twelve checks; the merge word is the orchestrator's.
-
-<!-- tasks: depth=3 red-contract -->
-
-### Task 4: graduation and marker strip (the PR's last commit, after the whole-diff APPROVE, before the merge word is used)
+### Task 4: graduation, registry row and marker strip (lands BEFORE the whole-diff review, so the review covers what merges)
 
 <!-- task: red=`git grep -q -F '## BL-MUTATION-SCORE-JURISDICTION-GAP-ARITHMETIC-BRANCH' -- BACKLOG-archive.md` red-state=live why=`the row lives in BACKLOG.md on the live tree and the archive has no heading for it, so the grep exits 1 until the graduation moves it` ac=AC-6 -->
 
@@ -373,13 +353,33 @@ Move the row (`BACKLOG.md:103` through the "Close condition" paragraph at line 1
 - Meta line: replace `**Status:** IN PROGRESS · **Branch:** docs/mutation-score-jurisdiction-gap` with `**Status:** CLOSED <date> · **Resolution:** re-scoped 2026-08-22 (orchestrator ruling, wave-6 arc brief) to admit a documented-limit close, then closed as documented limit (harness spec §7 L-11) plus the OPERATORS: disclosure arm on the GUARD SURFACE score line, the heading-form trigger, and the bullet-4 admissibility correction · **Shipped by:** docs/mutation-score-jurisdiction-gap`; keep every other field (`Filed`, `Severity`, `Class`, `Effort`, `Facing`, `Class-sweep exception`, `Reachability`, `Incident`) verbatim.
 - Body: verbatim, including the operator table, its correction history, and the original two-outcome close condition (kept, not edited).
 - Closing paragraph, RE-SCOPE FIRST: the original close condition named only (a) a per-region mechanism and (b) a ratified widening; the orchestrator's wave-6 arc brief of 2026-08-22 added (c) a documented-limit close with a required disclosure as a first-class outcome, on the row's own finding that the general shape outranks the instance (spec §1, opening paragraph); then the three-way decision and where it is argued (spec §1); the re-censused numbers at `50ca72a56` (four reaching operators, cheapest `logical-connector` at 195 file-wide, widening 80 to 275 boots and 20 surfaces repartitioned); why (a) and (b) were declined, one sentence each; the round-1 incident (24 heading-form declarations the gate never read, 10 of 24 declaring round-1 briefs dark) and the round-2 rule, swept into the §2.2 marker-precedence matrix (a score-shaped line is never rescued); the re-file triggers verbatim from L-11 and L-E.
+- The graduation registry: append to `BACKLOG_GRADUATED` in `tests/docs/_metaDeferralLedgerGraduation.test.ts` (the `as const` array whose last rows carry `provenance: "chore/guard-completeness-wave"`) one row, `{ id: "BL-MUTATION-SCORE-JURISDICTION-GAP-ARITHMETIC-BRANCH", provenance: "docs/mutation-score-jurisdiction-gap" }`, with a comment naming the re-scope. The `provenance` string must appear inside the archive section (it does: the `**Shipped by:**` field carries the branch name); the suite's "every graduated id is archive-only" and the per-id provenance case then bind this graduation, which merely running the suite after the move would not.
 - The in-progress marker is gone with the move. `pnpm ledger:claims --check BL-MUTATION-SCORE-JURISDICTION-GAP-ARITHMETIC-BRANCH` then reports the id as archived.
 
-This commit lands AFTER the whole-diff APPROVE and BEFORE the merge word (invariant 12; a marker that reaches `main` names a branch the merge deletes). The diff reviewer has seen everything except this move; the move is mechanical and the graduation meta-tests are its review.
+This commit lands BEFORE the whole-diff review is dispatched (plan review round 1: a final commit created after review and CI is an unreviewed, untested merge candidate, and the readiness report would attach its parent's checks to it). Invariant 12 is satisfied: the marker is off from this commit onward and never reaches `main`, and nothing the reviewer has not seen lands after it, because any repair commit a review round demands is itself followed by a re-review of the final head and a fresh sha-keyed CI read (§5). The closeout-overlap corollary says the same: commit the closeout early so its CI cycle overlaps the one already running.
 
 Commit: `docs(ledger): graduate BL-MUTATION-SCORE-JURISDICTION-GAP-ARITHMETIC-BRANCH, documented limit plus OPERATORS: disclosure`.
 
 <!-- tasks: end -->
+
+### Task 3 (retired): the index row
+
+Landed on the spec branch itself, because the spec file ships there and `tests/docs/specsReadmeIndexParity.test.ts` ("every doc has an index row") is red on that branch until the row exists. AC-8 is satisfied before implementation starts; nothing for the implementation pane to do. No marker: there is no red left to observe.
+
+## 5. Closeout: gates, the freeze diff, the whole-diff review of the final tree, CI on the final head (not a task marker; every command here is a gate that passes, proved able to fail)
+
+1. `pnpm typecheck`; `pnpm exec eslint .`; `pnpm format:check`, all unwrapped.
+2. `pnpm vitest run tests/codexGuard/ tests/docs/`, scoped, unwrapped.
+3. `pnpm heavy pnpm test:fast`: the full default suite, WRAPPED at the outermost entry (AGENTS.md heavy-slot rule), one run, `run_in_background`.
+4. `pnpm mutation:sites psqlStartupScan` prints zero stale rows (spec §2.6's checkable consequence); `pnpm exec tsx probe/jurisdiction-census.mts` diffed against the committed `.out.txt` is byte-identical, because no enrolled input moved.
+5. **The freeze diff (AC-7), run after Task 4 has landed:** `test -z "$(git diff --name-only origin/main...HEAD -- tests/cross-cutting/psqlStartupFiles/scan.ts tests/cross-cutting/psqlStartupFileSuppression.test.ts tests/mutation/source/registry.ts tests/mutation/source/shardPartition.ts tests/mutation/source/operators.ts)"` exits 0. Proved able to fail at plan time by a CONSTRUCTED failing input: the identical command with `docs/superpowers/specs/ci/2026-08-22-mutation-score-jurisdiction-gap.md` appended to the path list prints that path and exits 1 (run 2026-08-22 at `48ad0ad30`: `gate rc=0`, `constructed rc=1`). `git diff --name-only origin/main...HEAD` is exactly the eleven files in `**Files:**` plus the new fixture module, `probe/jurisdiction-census.mts`, `probe/jurisdiction-census.out.txt`, the spec, this plan, and the round corpus under `docs/review-rounds/docs/mutation-score-jurisdiction-gap/`.
+6. Re-run the §1 grep pair; the only new hits are Task 1's files, the fixture module, and this plan.
+7. **Round-1 `--stage diff` brief**, dispatched against the tree that includes Task 4's graduation commit (one scope; the diff is eleven files and needs no split): REVIEWER ONLY; consequence bound, PROBE DOMAIN and threat fence copied from spec §3, each on ONE line (the convergence hook greps per line); `GUARD SURFACE: scripts/codex-guard.mjs` with `CANNOT-EXPRESS: spawn-only surface, no Vitest import edge (tests/codexGuard/harness.ts)` on that same line; the do-not-relitigate list from spec §1.1 R1 to R7 plus "presence not membership (§4 L-A)" and "the heading-form widening is bounded by the sweep (§4 L-E)" and "marker precedence: a score-shaped line is never rescued (§2.2 matrix)"; the four pre-dispatch string-presence mutants for the new cases' `toContain("OPERATORS:")` (value emptied; suffix appended; the word present only inside a fence; the `OPERATORS` regex varied) run against the wrapper by editing a SCRATCH brief, never the tree, and recorded in the brief. **Dispatch through the MAIN checkout's wrapper**, `~/.claude/bin/codex-guard` (it execs `$HOME/FX-Webpage-Template/scripts/codex-guard.mjs`), so the file under review is not the file running the review; dry-run the convergence hook first; `run_in_background`; fresh timestamped `--out`. Cap 4; a fourth counted diff round files the round-economy record in the arc's corpus directory.
+8. If a review round demands a repair, the repair lands, the SAME whole-diff review is re-dispatched against the new head, and the round count continues; the final APPROVE is always on the head that merges.
+9. Push the final head; real CI green BY NAME on THAT sha (the twelve required contexts in both vocabularies, sha-keyed; Vercel FAILURE is the deploy rate limit and is not required; a rollup PENDING with every named check green is suppressed). No commit lands after the APPROVE'd, CI-green head.
+10. Readiness report to `bl-orch` naming the head sha and the twelve checks; the merge word is the orchestrator's.
+
+
 
 ## 6. Rules that bind the implementation pane
 
@@ -387,14 +387,14 @@ Commit: `docs(ledger): graduate BL-MUTATION-SCORE-JURISDICTION-GAP-ARITHMETIC-BR
 - **The wrapper under change is not the wrapper that reviews it.** Dispatch every review of this branch through the main checkout's wrapper (`~/.claude/bin/codex-guard`) and say so in the brief.
 - **One commit for Task 1.** The gate, its fixtures, the pair spec, the codex-guard spec, and AGENTS.md move together or not at all (§1).
 - **No edit to any enrolled input.** Spec §2.6; AC-7 is the gate. `pnpm mutation:sites psqlStartupScan` zero stale before and after.
-- **Dated records are not corrected.** The 34 historical plans and specs quoting the old grammar stay as they are (§1 table).
+- **Dated records are not corrected.** The 35 historical plans and specs quoting the old grammar stay as they are (§1 table).
 - **Heavy phases wrapped at the outermost entry**, `run_in_background`; CI read by name, both vocabularies, sha-keyed.
 - **Fleet notice in the readiness report:** from the merge, every round-1 diff brief's score arm needs an `OPERATORS:` tail, and heading-form declarations are now read and held to the whole canonical grammar (separator included); the wrapper exits 2 naming the missing element; in-flight arcs past round 1 are unaffected.
 
 ## 7. Self-review transcript (writing-plans passes, run at plan time)
 
 - Pre-draft verification: §0, every row read at `9102025c5`.
-- Declared task contract: two `depth=3 red-contract` regions (Tasks 1 to 3; Task 4), with the closeout between them as plain prose because its commands are gates that pass today and were proved able to fail by constructed input (§5 item 5), which is the gate treatment rather than a `red=`. Every marker carries `red-state` and `why`; the authored one carries `red-target`. `pnpm spec:lint --exec-red` on this plan: the three `red-state=live` greps exit 1 (red observed); the `-t`-filtered authored red draws the name-filter advisory the rule predicts, and the body states why the filter is total over the new titles.
+- Declared task contract: one `depth=3 red-contract` region (Tasks 1, 2, 4), the retired Task 3 note and the closeout as plain prose after it, because the closeout's commands are gates that pass today and were proved able to fail by constructed input (§5 item 5), which is the gate treatment rather than a `red=`. Every marker carries `red-state` and `why`; the authored one carries `red-target`. `pnpm spec:lint --exec-red` on this plan: the two `red-state=live` greps exit 1 (red observed); the authored red is the full-file suite command, the same command as the GREEN criterion, with no name filter.
 - Anti-tautology: every red is a VALUE assertion on the exit code with a zero-call twin; the replay's "accepted" class is proven by a dispatching brief, not by absence from the rejection list; the empty-tail case pins the `\S` in the regex; the heading case pins the trigger and the plain case pins the arm, so neither can pass for the other's reason.
 - String-presence mutants for `toContain("OPERATORS:")`: listed in §5 item 7 for the implementer to run before dispatch.
 - Reconciliation sweep: §1, authored and run, per-hit disposition; re-run at closeout (§5 item 6).
