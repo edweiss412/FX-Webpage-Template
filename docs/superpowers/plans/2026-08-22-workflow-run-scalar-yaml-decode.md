@@ -149,6 +149,17 @@ quotes.
   hard-red assertion at `psqlStartupFileSuppression.test.ts:1609` from breaking correct authoring,
   and it is the AC-4 twin for this channel.
 
+**RED validity, measured.** The block was spliced into a throwaway suite, run against the current
+tree, and removed: **2 failed, 4 passed of 6.** Both failures are the AC-2 cases — single-quoted and
+double-quoted — each `expected [] to have a length of 1`, which is exactly the silence the marker's
+`why=` names, caused by the whole-file lex at `scan.ts:3416-3421`.
+
+The four passes are regression guards for behaviour that is already correct: the three
+fire-on-content-not-on-quoting cases, and the `.sh` case that pins the declared-limit pin's input
+family as untouched. That last one is load-bearing rather than decorative — it returns one hit on
+the current tree, so §4a's "a `.sh` file never reaches the new code" is verified against the tree
+BEFORE the change and re-verified after, instead of being argued from the gate's source.
+
 **GREEN.** In `scanShellIndirection`, for a YAML file only:
 
 1. Parse the document with the same `parseDocument` the workflow reader uses and collect the source
