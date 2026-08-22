@@ -164,8 +164,9 @@ locally (`CI=1`, `--trace on`) passed 4 of 4. `telemetry-layout` left third, on 
 case (runs 32571008405 and 32573475808, a sidebar and a log at zero rects while the page still reads
 "Loading your dashboard…"), which is batch 1's threshold rather than a first-red drop. **ELEVEN ride;
 `d = 3` in section 7.2's census**, and all three allowlist rows are restored carrying every run id.
-All three drops belong to one class, `BL-ADMIN-LOADER-CI-TRANSIENT`, whose six occurrences across
-three PRs are also why AC-3's bar was re-scoped by orchestrator ruling (the plan's close-out states
+All three drops belong to one class, `BL-ADMIN-LOADER-CI-TRANSIENT`, whose run list (the row is the
+authority for how many; this sentence does not restate it) is also why AC-3's bar was re-scoped by
+orchestrator ruling (the plan's close-out states
 both forms of the bar).
 
 Two repairs beyond R1 to R7 were needed, both test-only and both first reachable only once an earlier

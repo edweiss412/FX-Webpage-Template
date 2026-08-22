@@ -881,7 +881,7 @@ oracle's own walk. Spec:
 **THREE members were wired and then left under AC-4 mid-count, exactly as batch 1's changes-feed did,
 and the count restarted from zero each time rather than taking an almost-done exception.** The third
 drop is also where the reds stopped being read per-spec: see `BL-ADMIN-LOADER-CI-TRANSIENT`, whose
-six occurrences across three PRs are why AC-3's bar was re-scoped by ruling rather than met by
+run list is why AC-3's bar was re-scoped by ruling rather than met by
 re-rolling.
 `admin-parse-panel.spec.ts` was green on four CI runs (32558218336, 32559183296, 32559865786, 32560300422) and every local one, then red on 32561531983 at its Re-sync assertion, where the run's
 own artifact shows the whole page rendering the admin error boundary ("Admin session unavailable").
@@ -987,9 +987,9 @@ so a live gate was reading prose nothing verified.
 
 ## BL-ADMIN-LOADER-CI-TRANSIENT — admin page and modal loaders fault transiently on the app-e2e runner, and the failure is indistinguishable from a spec defect
 
-**Status:** OPEN · **Filed:** 2026-08-22 (`ci/app-e2e-batch2`, from the counted runs of that arc's five-green loop) · **Facing:** process · **Severity:** MEDIUM (it costs a full five-green restart per occurrence, and read per-spec it drops members that are not defective) · **Class:** CI flake · **Effort:** M · **Reachability:** PROBED — the runs listed below, each with the failing page's own snapshot or its error text; three of them also carry a local CI-posture reproduction that passes, and which three is stated rather than implied. · **Incident:** SIX counted runs across THREE PRs died on this shape in one evening, and three batch-2 members left under AC-4 because of it. Those are cost events that already happened.
+**Status:** OPEN · **Filed:** 2026-08-22 (`ci/app-e2e-batch2`, from the counted runs of that arc's five-green loop) · **Facing:** process · **Severity:** MEDIUM (it costs a full five-green restart per occurrence, and read per-spec it drops members that are not defective) · **Class:** CI flake · **Effort:** M · **Reachability:** PROBED — the runs listed below, each with the failing page's own snapshot or its error text; three of them also carry a local CI-posture reproduction that passes, and which three is stated rather than implied. · **Incident:** the runs listed below died on this shape in one evening, across three PRs, and three batch-2 members left under AC-4 because of it. Those are cost events that already happened.
 
-Six runs, six specs' worth of failures across three PRs, one shape — an admin loader faulting, never
+Every run below is one occurrence — seven links, six of them counted runs of PR #875's own loop and one from an unrelated branch — across three PRs, one shape — an admin loader faulting, never
 resolving, or leaving a server round-trip unsettled, while the rest of the page renders fine. The
 list is the row's evidence and the amended AC-3 exception reads its SIGNATURE from it, so every
 occurrence lands here as it happens:
