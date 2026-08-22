@@ -162,11 +162,14 @@ document's own falsifier — recorded as UNATTRIBUTED rather than as the falsifi
 `--retries=0` leaves no trace, the artifact has no snapshot, and the same case under the CI posture
 locally (`CI=1`, `--trace on`) passed 4 of 4. `telemetry-layout` left third, on the SECOND red for one
 case (runs 32571008405 and 32573475808, a sidebar and a log at zero rects while the page still reads
-"Loading your dashboard…"), which is batch 1's threshold rather than a first-red drop. **ELEVEN ride;
-`d = 3` in section 7.2's census**, and all three allowlist rows are restored carrying every run id.
-All three drops belong to one class, `BL-ADMIN-LOADER-CI-TRANSIENT`, whose run list (the row is the
-authority for how many; this sentence does not restate it) is also why AC-3's bar was re-scoped by
-orchestrator ruling (the plan's close-out states
+"Loading your dashboard…"), which is batch 1's threshold rather than a first-red drop; and
+`published-show-attention` left fourth on that same threshold (run 32571008405, where the ratified
+open-time recovery fired and the boundary persisted, then run 32578122375, a transient gateway 502 on
+its own fixture write — the `BL-CHANGES-FEED-MODAL-BATCH-FLAKE` family rather than the loader
+signature, which is why it restarted the count instead of being recorded as a non-event). **TEN ride;
+`d = 4` in section 7.2's census.** Every dropped spec's restored allowlist row carries its run ids and
+its class and is the authority for which spec left and why; this section keeps no second copy. Those
+classes are also why AC-3's bar was re-scoped by orchestrator ruling (the plan's close-out states
 both forms of the bar).
 
 Two repairs beyond R1 to R7 were needed, both test-only and both first reachable only once an earlier
@@ -308,8 +311,8 @@ Every AC names the command that proves it. A green suite is not read as proof wh
 - Local posture versus CI posture: the membership probe runs `pnpm dev`; CI runs `pnpm build && pnpm start`. Env gaps that only production posture surfaces (section 5.2) are found by the first CI run, which is why AC-6 is a separate gate.
 - `screenshots-help-capture.spec.ts` resolves under no default-config project; its reclassified row records that it runs only under `playwright.screenshots.config.ts` through `screenshots-drift.yml`, so `pnpm test:e2e` never executes it by design (the comment above `playwright.config.ts`'s `help-docs-setup` project). That is the row's reason, not a gap this batch leaves.
 - **CSS-generated text is outside the runtime crawl, and always was.** The AC-X.2 collector reads
-  DOM text nodes, so `content:` on `::before`, `::after` or `::marker` is user-visible text the crawl
-  never sees. Whole-diff review round 1 (scope A) raised this against R8's non-rendered-node change;
+  DOM text nodes, so a CSS `content` declaration on a before, after or marker
+  pseudo-element is user-visible text the crawl never sees. Whole-diff review round 1 (scope A) raised this against R8's non-rendered-node change;
   the probe in that finding shows `textContent` empty for all three pseudo-elements, which is the
   pre-R8 behaviour too, so it is a standing limit of the collector rather than a narrowing this batch
   introduced. R8 was narrowed to `SCRIPT` alone in response, so a code written into a stylesheet's
