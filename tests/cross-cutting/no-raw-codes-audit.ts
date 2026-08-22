@@ -354,17 +354,21 @@ export async function collectRawCodeLeaksInPage(
           }
         }
       };
-      // Nodes whose text the browser never renders. A Next.js page inlines its
+      // SCRIPT ONLY, and the narrowness is the point. A Next.js page inlines its
       // RSC flight payload as `self.__next_f.push([...])` <script> text, and that
       // payload carries serialized props verbatim: /admin's own payload holds 45
-      // §12.4 codes (measured 2026-08-22, batch-2 R8). Invariant 5 is about copy a
-      // person reads, so script/style text is out of scope for the textContent
-      // phase. Attributes and live DOM properties are unaffected.
-      const NON_RENDERED = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE"]);
+      // §12.4 codes (measured 2026-08-22, batch-2 R8), which no reader ever sees.
+      // STYLE stays in scope — whole-diff review round 1 (scope A) is right that a
+      // stylesheet is a place a code can appear (`content: "CODE"`), and this walk
+      // caught that before the R8 repair, so excluding it would have been a
+      // narrowing this arc has no measurement for. NOSCRIPT and TEMPLATE likewise
+      // stay: their text is cheap to scan and neither carries a serialized payload.
+      // Attributes and live DOM properties are unaffected either way.
+      const NON_RENDERED = new Set(["SCRIPT"]);
       const renderedText = (node: Element): string => {
         // Fast path: no non-rendered descendant, so textContent is already the
         // rendered text (native, and this runs once per element on the page).
-        if (!node.querySelector("script, style, noscript, template")) {
+        if (!node.querySelector("script")) {
           return node.textContent ?? "";
         }
         // nodeType literals, not the `Node` global: this body is serialized into

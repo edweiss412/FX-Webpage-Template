@@ -124,7 +124,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   /**
    * file basename -> set of UNIQUE (case x project) identities that passed ON THEIR FIRST ATTEMPT.
    *
-   * The identity is `file:line:title|projectId`, NOT `spec.id`. Whole-diff review round 1
+   * The identity is `<describe path>::file:line:title|projectId`, NOT `spec.id`. Whole-diff review round 1
    * (finding 3) probed the id-based form this script first shipped with and it does not hold:
    * repeating seven mobile-safari cases produced FOURTEEN distinct ids while only SEVEN logical
    * cases ran, so `--grep` selecting half the cases plus `--repeat-each=2` kept the count at its
@@ -148,8 +148,15 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
    * quarantined suite that looks executed. A test that proves something ends green.
    */
   const executed = new Map();
-  const walk = (suites) => {
+  const walk = (suites, suitePath = []) => {
     for (const suite of suites ?? []) {
+      // The enclosing describe titles are part of the identity. Whole-diff review
+      // round 1 (batch 2, scope B finding 1) probed the unqualified form: two cases
+      // sharing a file, a line and a leaf title under DIFFERENT describes collapse
+      // into one key, so a member can gain a case, have it runtime-skip, and still
+      // meet its floor — the partially-dark run this oracle exists to refuse. The
+      // reporter preserves the nesting; this walk now carries it.
+      const here = suite.title ? [...suitePath, String(suite.title)] : suitePath;
       for (const spec of suite.specs ?? []) {
         const base = String(spec.file ?? "")
           .split("/")
@@ -161,10 +168,12 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
           if (!executed.has(base)) executed.set(base, new Set());
           executed
             .get(base)
-            .add(`${spec.file}:${spec.line}:${spec.title}|${test.projectId ?? "?"}`);
+            .add(
+              `${here.join(" > ")}::${spec.file}:${spec.line}:${spec.title}|${test.projectId ?? "?"}`,
+            );
         }
       }
-      walk(suite.suites);
+      walk(suite.suites, here);
     }
   };
   walk(report.suites);

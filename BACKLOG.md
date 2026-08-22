@@ -703,20 +703,27 @@ the 2026-08-06 counts are kept alongside so the delta is auditable):
 | custom-reason rows                                                      | 3          | 3          | 10         |
 | **Total rows**                                                          | 66         | **50**     | **39**     |
 
-**The 2026-08-22 column is produced by the commands below, not typed.** Run at the batch-2 closeout
-head; every line printed `ok`, and the two names the last command prints are the whole remaining
-population of this entry:
+**The 2026-08-22 column is produced by the commands below, not typed.** Pasted from the run at the
+batch-2 closeout head, invocations included, so it reproduces rather than being taken on trust:
 
 ```
 $ F=tests/ci/_metaE2eWorkflowCoverage.test.ts
 $ rows(){ awk '/^const LOCAL_ONLY_ALLOWLIST/,/^};/' "$F" | grep -E '^ +"tests/e2e/'; }
 $ cls(){ rows | sed -E 's/^ +"[^"]+":[[:space:]]*//' \
     | awk '{ v=$0; sub(/,$/,"",v); if (v ~ /^(UNSEEN|PATH_GATED|PATH_GATED_BY_EXCLUSION|LOCAL_ONLY_GALLERY_CAPTURE)$/) print v; else print "custom-reason" }'; }
+$ chk(){ n=$(cls | grep -c "^$1\$"); [ "$n" -eq "$2" ] && echo "ok $1=$n" || { echo "FAIL $1=$n expected $2"; exit 1; }; }
+$ d=2
+$ chk UNSEEN $((2 + d))
 ok UNSEEN=4
+$ chk PATH_GATED 14
 ok PATH_GATED=14
+$ chk PATH_GATED_BY_EXCLUSION 10
 ok PATH_GATED_BY_EXCLUSION=10
+$ chk LOCAL_ONLY_GALLERY_CAPTURE 1
 ok LOCAL_ONLY_GALLERY_CAPTURE=1
+$ chk custom-reason 10
 ok custom-reason=10
+$ t=$(rows | wc -l | tr -d ' '); [ "$t" -eq $((37 + d)) ] && echo "ok total=$t" || echo "FAIL total=$t"
 ok total=39
 $ rows | grep -E ': UNSEEN,$' | grep -oE 'tests/e2e/[^"]+'
 tests/e2e/admin-parse-panel.spec.ts
@@ -724,6 +731,9 @@ tests/e2e/empty-state-reachability.spec.ts
 tests/e2e/onboarding-wizard-step1.spec.ts
 tests/e2e/warning-panel-polish.spec.ts
 ```
+
+Those four names are the whole remaining population of this entry: the two AC-4 drops below, plus
+the two this batch never claimed.
 
 The 23 → 4 drop is TWELVE row deletions (batch 2's members, which move the total 51 → 39) plus
 SEVEN reclassifications out of `UNSEEN` into custom reasons (which move no total). A fourteenth
