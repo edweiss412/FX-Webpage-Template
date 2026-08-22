@@ -88,7 +88,10 @@ database". Its contract is ratified and durable, not a temporary arm:
 `docs/superpowers/specs/admin/2026-06-22-validation-reset-button-design.md:32` (D4) specifies the row is
 migration-owned at `false` **in every environment**, and that it is set `true` "**only in the validation
 DB, out-of-band** (one-time `update ...`, exactly like the `ALLOW_DESTRUCTIVE_RESET` env var)", with prod
-keeping `false` permanently and no runtime session able to flip it.
+keeping `false` permanently and no runtime session able to flip it **through PostgREST** — D4 grants the
+marker to `service_role` and describes the flip itself as a service-role/psql `update`
+(`supabase/migrations/20260622000001_validation_reset_rpc.sql:10-11`). §4.1 states that boundary as the
+threat fence; this paragraph does not widen it.
 
 The first draft of this spec introduced a second table, `prune_gate`, seeded at migration-apply time from
 that marker. Spec review R1 refuted it with three lifecycle states in which the two markers disagree and
@@ -413,6 +416,28 @@ refutation.
 
 ---
 
+### §3.10 Grants, RLS and triggers on the two prune targets, derived rather than recalled
+
+Run 2026-08-22 against the local stack, because R3 found two matrix claims that lumped the tables
+together when they differ:
+
+```
+        relname         | rls | policies | policy_names | anon_sel | anon_del | auth_sel | auth_del | svc_del
+ app_events             | t   |        0 |              | f        | f        | f        | f        | t
+ destructive_reset_gate | t   |        0 |              | f        | f        | f        | f        | t
+ sync_log               | t   |        1 | admin_only   | t        | f        | t        | f        | t
+
+  relname   | triggers        -- non-internal only
+ app_events |        0
+ sync_log   |        0
+```
+
+`sync_log` retains `anon`/`authenticated` SELECT behind its `admin_only` policy; `app_events` grants
+them nothing. Neither grants DELETE to either role, so the prune functions remain the only DELETE path
+for both — which is what makes a gate inside those functions a complete gate for accidental deletion.
+
+---
+
 ## §4 Documented limits
 
 Each is conservative-plus-loud or out of the threat fence; none is silent.
@@ -468,18 +493,18 @@ Every affected domain × layer. Every cell is an action or an `N/A — reason`.
 | --- | --- | --- | --- | --- | --- |
 | Table DDL | N/A — a function, not a relation | N/A — a function | N/A — a function | N/A — unchanged; created at `supabase/migrations/20260622000001_validation_reset_rpc.sql:6` | N/A — unchanged; no column, index or constraint moves |
 | Inline CHECK | N/A — functions carry no CHECK | N/A — same | N/A — same | N/A — existing `id = 'default'` CHECK unchanged | N/A — the existing `*_drive_file_id_nonblank` and `app_events_level_check` CHECKs are unchanged; this diff adds none |
-| Grants / REVOKE | REVOKE public/anon/authenticated; GRANT service_role | unchanged (`create or replace` preserves; measured §3.8) | unchanged (same) | N/A — unchanged | N/A — table grants unchanged; `service_role` keeps DML, `anon`/`authenticated` keep none |
-| RLS | N/A — functions have no row security | N/A — same | N/A — same | N/A — already enabled, no policy | N/A — already enabled with no policy on both tables |
+| Grants / REVOKE | REVOKE public/anon/authenticated; GRANT service_role | unchanged (`create or replace` preserves; measured §3.8) | unchanged (same) | N/A — unchanged | N/A — table grants unchanged, and they DIFFER by table: `app_events` gives `anon`/`authenticated` nothing (`supabase/migrations/20260629000002_app_events.sql:28`), while `sync_log` deliberately RETAINS their SELECT behind RLS (`supabase/migrations/20260803000000_lockdown_admin_only_tables.sql:31-32`, registry `selectAnon: true` at `tests/db/postgrest-dml-lockdown.test.ts:201-206`). Neither grants DELETE to either role; measured in §3.10 |
+| RLS | N/A — functions have no row security | N/A — same | N/A — same | N/A — already enabled, no policy | N/A — RLS already enabled on both, but only `app_events` has zero policies; `sync_log` carries the `admin_only` policy (`supabase/migrations/20260501002000_rls_policies.sql:67-73`) that gates its retained SELECT. Measured in §3.10 |
 | RPC read path | reads the marker | calls the assert before deleting | calls the assert before deleting | read by the assert AND by the existing reset RPCs | read by each prune's `occurred_at < now() - retain` cutoff predicate, unchanged |
 | RPC write path | N/A — never writes anything | **the write this whole spec is about**: `delete from public.sync_log where occurred_at < now() - retain` (`supabase/migrations/20260809000000_sync_log_show_attribution.sql:46`), now reached only after the assert | same against `public.app_events` (`supabase/migrations/20260629000002_app_events.sql:39`) | N/A — this arc never writes it; the one-time posture flip is the existing out-of-band step (D4) | written by exactly those two deletes and by nothing else this arc adds; both are gated |
-| Trigger | N/A — no trigger fires on or from it | N/A — no propagation trigger exists on either prune path | N/A — same | N/A — no trigger on the marker table | N/A — neither table carries a trigger; retention is the cron, not a trigger |
+| Trigger | N/A — no trigger fires on or from it | N/A — no propagation trigger exists on either prune path | N/A — same | N/A — no trigger on the marker table | N/A — neither table carries a non-internal trigger (measured, §3.10); retention is the cron, not a trigger |
 | Cleanup / cron | N/A — not a cron target | cron row `sync_log_prune` unchanged (`supabase/migrations/20260809000000_sync_log_show_attribution.sql:63-67`); the job now refuses under the validation posture (§2.5) | cron row `app_events_prune` unchanged (`supabase/migrations/20260629000002_app_events.sql:58-62`); same refusal | N/A — no retention on a one-row marker table | these ARE the cleanup targets: pruned daily at 60 days on a production-posture database, never pruned on a validation-posture one |
 | Advisory lock (invariant 2) | N/A — acquires nothing | N/A — not in the invariant-2 table set (`shows`, `crew_members`, `crew_member_auth`, `pending_syncs`, `pending_ingestions`) and the prune is not show-keyed | N/A — same | N/A — unchanged; the reset RPC's own lock topology is untouched | N/A — neither table is in the invariant-2 set, so no holder is added at any layer |
-| Mutation-surface telemetry (invariant 10) | N/A — no HTTP route and no `"use server"` action; this diff is SQL functions, tests and docs | N/A — same, and its caller is a `cron.job` row, not a route | N/A — same | N/A — untouched by this arc | N/A — no mutating route or action reaches either table in this diff |
+| Mutation-surface telemetry (invariant 10) | N/A — no HTTP route and no `"use server"` action; this diff is SQL functions, tests and docs | N/A — same, and its caller is a `cron.job` row, not a route | N/A — same | N/A — untouched by this arc | N/A — this diff adds no mutating route and no `"use server"` action; the existing sync writers to `sync_log` are untouched |
 | PostgREST lockdown registry | N/A — no new table and no new table-level REVOKE (§2.6) | N/A — function-level grants are asserted by `tests/db/syncLogIndexesAndPrune.db.test.ts:117-129`, not by the table registry | N/A — same | N/A — already registered (`tests/db/postgrest-dml-lockdown.test.ts:552`) | N/A — both already registered: `sync_log` at `tests/db/postgrest-dml-lockdown.test.ts:199`, `app_events` at `tests/db/postgrest-dml-lockdown.test.ts:323` |
 | Schema manifest | regenerate + commit | regenerate + commit | regenerate + commit | N/A — unchanged | N/A — unchanged |
 | Validation project | atomic surgical apply + `notify pgrst` | same | same | N/A — its row already reads `true` there (§3.1); this arc does not write it | N/A — no DDL reaches either table |
-| Frontend | N/A — no UI surface in this diff | N/A — no component or route reads either prune | N/A — same | N/A — the admin reset UI that reads this marker is untouched | N/A — no UI reads these tables in this diff |
+| Frontend | N/A — no UI surface in this diff | N/A — no component or route reads either prune | N/A — same | N/A — the admin reset UI that reads this marker is untouched | N/A — this diff changes no UI; existing admin readers of `sync_log` are untouched |
 | Tests | `tests/db/pruneGate.db.test.ts (new)` (§6) | AC-1..AC-5 | AC-1..AC-5 | AC-3 forces each posture state | AC-4 (existing suites stay green, unedited) |
 
 **CHECK/enum migration matrix:** no CHECK and no enum changes anywhere in this diff — the only new
@@ -500,10 +525,25 @@ No column is empty, so this is not a zombie flag. The last row of that table is 
 
 ## §6 Acceptance criteria
 
-All assertions run against a real database (`tests/db/pruneGate.db.test.ts (new)`, loopback-pinned via
-`assertLocalDbUrl` exactly as `tests/db/destructiveResetGate.test.ts:49` does), with a
-`withPosture(marker, …)` helper that restores the marker to `false` in a `finally` so a crashed run
-cannot leave the local stack refusing its own prunes.
+**Rollback discipline — binding on every criterion below, and the reason it is stated first.** These
+prunes delete GLOBALLY: an ungated call takes every row past the cutoff, not the fixture's rows
+(`supabase/migrations/20260809000000_sync_log_show_attribution.sql:45-48`,
+`supabase/migrations/20260629000002_app_events.sql:38-41`). A probe written to CATCH a missing, inverted
+or half-applied gate is therefore a probe that PERFORMS that deletion when the gate is broken — the
+exact failure the arc exists to prevent, committed by its own acceptance test. So:
+
+1. Every call in AC-1 to AC-5 that could delete — including the marker-`false` cases that are SUPPOSED
+   to delete — runs inside a transaction that is ALWAYS rolled back, and the suite asserts the rollback
+   happened by re-reading outside it (`tests/db/syncLogIndexesAndPrune.db.test.ts:180-186` is the
+   precedent, and its header at `tests/db/syncLogIndexesAndPrune.db.test.ts:6-8` records why: a committing prune permanently deletes unrelated
+   local rows and nothing notices).
+2. Each EXPECTED exception is isolated — its own transaction, savepoint, or plpgsql block with an
+   exception handler that re-raises anything not matching `prune not enabled%`. An uncaught exception
+   aborts the enclosing transaction, so a naive shared transaction would make every assertion after the
+   first vacuous.
+3. `withPosture(marker, body)` restores `destructive_reset_gate.enabled = false` in a `finally`, so a
+   crashed run cannot leave the local stack refusing its own prunes — and it never leaves it `true`,
+   which would also disable the reset gate's own suite.
 
 - **AC-1 — refusal under the validation posture, both functions.** With the marker `true`,
   `select public.prune_sync_log()` and `select public.prune_app_events()` each reject with a message
@@ -514,9 +554,11 @@ cannot leave the local stack refusing its own prunes.
   only one call path, and a "gate" that never reaches the database at all. (It does NOT claim to exclude
   delete-then-raise — §1.1 records why that is not a distinguishable implementation in Postgres.)
 - **AC-3 — every posture state, including the absent marker.** Three states asserted per function:
-  marker `false` → the prune runs and returns the global count measured in the same transaction; marker
-  `true` → rejects; marker row DELETED → rejects. The wrong implementation this excludes is a
-  `coalesce(..., false)` read, which waves the third state through — R1's P0 hole 3, now executable.
+  marker `false` → the prune runs and returns the global count measured in the same rolled-back
+  transaction; marker `true` → rejects; marker row DELETED → rejects. The wrong implementation this
+  excludes is a `coalesce(..., false)` read, which waves the third state through — R1's P0 hole 3, now
+  executable. The marker deletion and the prune both live inside the rolled-back transaction, so the
+  marker is restored by the rollback as well as by `withPosture`.
 - **AC-4 — the explicit-cutoff form is gated too, and every existing caller is unaffected.**
   `prune_sync_log(interval '5 days')` and `prune_app_events(interval '5 days')` reject under the
   validation posture (excluding a gate placed on the default-argument path only, which the no-argument
@@ -525,18 +567,28 @@ cannot leave the local stack refusing its own prunes.
   a no-edit criterion: any edit to either file to accommodate the gate is a design failure, not a repair.
 - **AC-5 — the pinned function properties survive, for BOTH functions.** `prosecdef`, `proconfig`, the
   `retain interval DEFAULT '60 days'` argument list, and `service_role`-only execute are asserted after
-  the change, plus `prolang` = `plpgsql` so the language move is declared. The wrong implementation this
-  excludes is a rewrite that quietly drops `security definer`, the pinned `search_path`, or the shipped
-  default while every refusal assertion still passes.
-- **AC-6 — the live probe re-runs to a refusal, on BOTH functions.** After the atomic surgical apply,
-  `select public.prune_sync_log()` AND `select public.prune_app_events()` against validation each raise
-  `prune not enabled for this database`, where the first previously reported 2,488 (§3.3); and both
-  report `prolang = plpgsql` there. This is the criterion the parity gate structurally cannot provide
-  (§4.3), and the R1 P1 finding is why it names both functions rather than one.
+  the change, plus `prolang` = `plpgsql` so the language move is declared. This criterion reads the
+  catalog and calls nothing, so it carries no deletion risk at all. The wrong implementation it excludes
+  is a rewrite that quietly drops `security definer`, the pinned `search_path`, or the shipped default
+  while every refusal assertion still passes.
+- **AC-6 — the live validation probe, in three limbs ordered by risk.** Run after the atomic surgical
+  apply, in ONE `psql -v ON_ERROR_STOP=1` script against `vzakgrxqwcalbmagufjh`:
+  1. **Catalog limb, no call.** For both functions: `prolang` = `plpgsql` and `prosrc` contains
+     `assert_prune_enabled`. If this limb fails the apply did not land, and limbs 2 and 3 do not run.
+  2. **Zero-collateral limb.** Re-assert the §3.1 precondition in the same script
+     (`count(*) where occurred_at < now() - interval '100 years'` = 0 for both tables), then call
+     `prune_sync_log(interval '100 years')` and `prune_app_events(interval '100 years')` and require the
+     refusal. A gate that is missing or inverted deletes nothing here, because nothing is that old.
+  3. **Fidelity limb, rollback-bounded.** `begin;` … the default no-argument form of each function,
+     each inside its own plpgsql block that re-raises anything not matching `prune not enabled%` … then
+     `rollback;`. This is the only limb that would delete under a broken gate, and the rollback is what
+     bounds it — the same shape §3.3 used to measure 2,488 rows without losing one.
+
+  Together they answer what the parity gate structurally cannot (§4.3): parity compares signatures, not
+  bodies, so only a live behavioural probe distinguishes an applied migration from a half-applied one.
+  The R1 P1 finding is why all three limbs name BOTH functions.
 - **AC-7 — parity gates pass.** `pnpm gen:schema-manifest` output is committed and
   `tests/db/validation-schema-parity.test.ts` passes at all three layers.
-
----
 
 ## §7 Ledger disposition
 
