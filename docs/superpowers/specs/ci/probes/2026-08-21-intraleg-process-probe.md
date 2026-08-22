@@ -168,6 +168,36 @@ producing command") is what it failed. Found at diff review r5.
 
 Campaign anchor stamp: `46fd37cf0f07`
 
+**Which REVISION this measures, and why that sentence is now load-bearing.** The
+campaign ran against `psqlStartupScan` at merge-base `0ba72c23774f`, where
+`scan.ts` is 4049 lines and the primary target site
+`relational-boundary:3578:35:<><=` is the inner `for (let depth = 0; depth < 32;
+depth++)`. PR #873 then landed attached-redirection-target substitution on main
+(`2f1071b28`), changing BOTH of this surface's declared and stamped inputs —
+`scan.ts` by +473 lines and the deciding suite by +914 — and moving that same
+construct to line 3965. So against the merged tree the stamp `46fd37cf0f07` does
+not reproduce, and the site id does not name the same construct.
+
+Nothing above is retracted by that: a measurement is permanently true of the
+tree it measured, which is the plan's own rule read in the other direction. What
+changes is the scope sentence. The arm-A bound is a bound on THAT revision of
+that surface, not a standing property of the file that now ships. The campaign
+was NOT re-run for it, and that is a decision rather than an omission: on a
+branch that merges main, re-dating the measurement lasts until the next merge,
+and this arc already spent four campaigns learning what that treadmill costs.
+Re-file trigger: the next campaign of any kind runs against the tree it will
+describe, and states its base sha here the way this paragraph does.
+
+Derive both halves rather than trusting this prose:
+
+```
+git show 0ba72c23774f:tests/cross-cutting/psqlStartupFiles/scan.ts | sed -n '3578p'
+git show 2f1071b28:tests/cross-cutting/psqlStartupFiles/scan.ts    | sed -n '3965p'
+git diff 0ba72c23774f..2f1071b28 --stat -- \
+  tests/cross-cutting/psqlStartupFiles/scan.ts \
+  tests/cross-cutting/psqlStartupFileSuppression.test.ts
+```
+
 Arm B, one row per trial, derived from `campaign.json`:
 
 | trial | prefix length | sites AFTER the target | source |
