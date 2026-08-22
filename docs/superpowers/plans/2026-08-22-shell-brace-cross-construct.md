@@ -125,7 +125,7 @@ acceptance set assembled from the ledger row's own shapes saw none of them:
 
 **An implementer weakening any of these fixtures is removing the only thing that catches its
 impostor.** Kill attribution here is measured, not assumed: each row above is the fixture set that
-actually failed when that walk was run, with the §3 design passing all 28 rows as the no-defect
+actually failed when that walk was run, with the §3 design passing all 31 rows as the no-defect
 baseline.
 
 ## Every assertion about a scanner outcome asserts ATTRIBUTION, never counts alone
@@ -216,13 +216,14 @@ Outputs, not intentions, at `50ca72a56`:
 - Live census: **76 sites, 0 indirections, 0 unreadable**, digest `8ebe8b08d43e6308aa471112d9f086d0118e6238`.
 - Median CPU over the live corpus: **14222 ms** shipped, **14132 ms** for the prototype.
 - Registry: `psqlStartupScan`, thirty `equivalent` rows, no accepted gap, `scoreFloor: 1`.
-- `shapes.mts` against the shipped walk: **8/17 accept-set**, 5/5 limits reported.
+- `shapes.mts` against the shipped walk: **11/22 accept-set**, limits VACUOUS (the shipped walk IS
+  the merge-base, so that population certifies nothing until Task 3 lands), **2/4 bash-rejected**.
 
 <!-- tasks: depth=2 red-contract -->
 
 ## Task 3: the walk delegates to the constructs it crosses
 
-<!-- task: red=`pnpm exec vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:998` why=`matchBraceSpan counts ONLY its own delimiter pair - the else-if on the closing character that decrements depth, at scan.ts:998-1002 in the base commit 50ca72a56, cited by CONTENT because this task edits that function and a line number in it still resolves after the edit while pointing elsewhere. It tracks quotes and escapes and knows no other construct, so a } belonging to a nested $() decrements the ${ walk to zero. Step 1 authors every accept-set case of design section 2.1 in the deciding suite, each ALONE, each asserting sites AND nested/nestedInBacktick because a presence assertion cannot discriminate a delimiting defect. Step 2 observes them red against that counting: measured today, nine of seventeen fail, four of them reporting a site with the wrong nested value rather than no site at all, which is why the assertions are attribution-shaped. Step 3 adds the delegation plus the two per-context helpers. Step 4 re-runs the SAME command green and asserts both nearest pin blocks unmoved` ac=AC-1,AC-2,AC-4 -->
+<!-- task: red=`pnpm exec vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:1000` why=`matchBraceSpan counts ONLY its own delimiter pair. The target line is the depth-decrement inside the else-if on the closing character - VERIFIED BY READING it at the base commit 50ca72a56, not merely by confirming the citation resolves, which establishes nothing: the line above it is the matching depth-increment and an off-by-one would still have resolved. Cited by CONTENT because this task edits that function. It tracks quotes and escapes and knows no other construct, so a } belonging to a nested $() decrements the ${ walk to zero. Step 1 authors every accept-set case of design section 2.1 in the deciding suite, each ALONE, each asserting sites AND nested/nestedInBacktick because a presence assertion cannot discriminate a delimiting defect. Step 2 observes them red against that counting: measured today, nine of seventeen fail, four of them reporting a site with the wrong nested value rather than no site at all, which is why the assertions are attribution-shaped. Step 3 adds the delegation plus the two per-context helpers. Step 4 re-runs the SAME command green and asserts both nearest pin blocks unmoved` ac=AC-1,AC-2,AC-4 -->
 
 RED: the §2.1 accept-set cases authored in the deciding suite, failing against `matchBraceSpan`'s
 bare `depth--`. GREEN: the delegation.
@@ -277,7 +278,7 @@ scanner, the measurement from HEAD, the ratio asserted at 1.5×. Both gates were
 
 ## Task 6: re-key the registry and score the surface
 
-<!-- task: red=`pnpm mutation:sites` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:998` why=`RUN AT PLAN TIME AND IT EXITS 0 - all accepted rows resolve on the untouched tree, so this is an AUTHORED red and NOT a live one. The failing case is created inside the arc, by Task 3 editing the delimiter walk at the target line above (matchBraceSpan's depth decrement, cited by CONTENT since the edit moves it): every psqlStartupScan row keyed below the walk goes stale. The sibling arc measured that failure twice, once after a behavioural fix and once through a COMMENT-only edit, 28 of 30 rows stale the first time and all 30 the second. Step 2 of THIS task runs the command against the post-Task-3 tree and observes it naming those rows; Step 3 re-reads each equivalent row AT ITS NEW SITE; Step 4 runs the SAME command green. Re-reading is the work - no row is carried across on the strength of having been true before, because a source edit voids the argument as well as the key` ac=AC-7 -->
+<!-- task: red=`pnpm mutation:sites` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:1000` why=`RUN AT PLAN TIME AND IT EXITS 0 - all accepted rows resolve on the untouched tree, so this is an AUTHORED red and NOT a live one. The failing case is created inside the arc, by Task 3 editing the delimiter walk at the target line above (the depth-decrement in matchBraceSpan, read at the base rather than assumed): every psqlStartupScan row keyed below the walk goes stale. The sibling arc measured that failure twice, once after a behavioural fix and once through a COMMENT-only edit, 28 of 30 rows stale the first time and all 30 the second. Step 2 of THIS task runs the command against the post-Task-3 tree and observes it naming those rows; Step 3 re-reads each equivalent row AT ITS NEW SITE; Step 4 runs the SAME command green. Re-reading is the work - no row is carried across on the strength of having been true before, because a source edit voids the argument as well as the key` ac=AC-7 -->
 
 `pnpm mutation:sites`, then every `equivalent` row re-read AT ITS NEW SITE — none carried across on
 the strength of having been true before — then `pnpm heavy pnpm mutation:guards`. The
