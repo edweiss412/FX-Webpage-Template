@@ -127,7 +127,9 @@ arcCounted(D, S) = |{ (row.baseSha, row.round)
                         row.stage === S }|
 ```
 
-When `arcCounted(D, S) >= ROUND_THRESHOLD`, the directory owes **at least one** filing section for *S* in **any one** `.md` under *D*. Clause B reports when no such section exists anywhere under *D*, as a new `ProblemKind`, `missing_arc_filing`, whose message names the directory, the sum, and the per-base breakdown that produced it.
+When `arcCounted(D, S) >= ROUND_THRESHOLD`, the directory owes **at least one** filing section for *S* in a filing **`readArcs` recognizes** under *D* — that is, an `arc.filingPath`, whose name matches `^[0-9a-f]{12}\.md$` (`lib/reviewRounds/corpus.ts:65`). Clause B reports when no such section exists anywhere under *D*, as a new `ProblemKind`, `missing_arc_filing`, whose message names the directory, the sum, and the per-`(baseSha, stage)` breakdown that produced it.
+
+**"Any `.md`" would be a silent satisfaction path, and the corpus already contains the shape that exploits it (R4 finding 1).** A stray `.md` under a branch directory is deliberately IGNORED prose, not data — `docs/review-rounds/README.md` says so, and `tests/docs/_metaReviewRoundEconomy.test.ts:589` pins a stray prose file under a branch directory as an accepted ignored file. An implementation reading the loose wording would let such a file, carrying a parseable `## diff` section, discharge a real obligation, while the canonical reader sees no filing at all: an obliged arc reported compliant, which is the one outcome the consequence bound forbids. Sections come from the same `arc.filingText` the rest of `checkCorpus` reads, and from nothing else.
 
 **Suppression.** Clause B does not report for `(D, S)` when clause A is already reporting `missing_filing` for *S* at any base under *D*. Its only job is to keep one unmet obligation from producing two messages.
 
@@ -138,7 +140,7 @@ Two properties follow, and each is a test in §5.
 - **Monotonicity (§1.1.5).** Clause A is untouched and clause B only adds, so the problem set can only grow. This is what makes the change safe over 126 historical directories without inspecting them one at a time.
 - **No new satisfaction path for a clause-A obligation.** A filing elsewhere in the directory never discharges a base that reached the threshold on its own. This is the property that keeps branch-name reuse from *weakening* the gate: a reused name whose second PR burns 4 rounds at one base still owes at that base, exactly as today.
 
-**Where clause B's filing goes.** Any `.md` under the directory. The gate does not pick, because the filer knows which head the rounds actually examined and the 2026-08-04 spec §7.2 keeps the gate out of prose judgment. The convention the README states is the **latest** base holding rows for that stage.
+**Where clause B's filing goes.** Any arc-shaped `.md` under the directory, by the recognizer above. The gate does not pick, because the filer knows which head the rounds actually examined and the 2026-08-04 spec §7.2 keeps the gate out of prose judgment. The convention the README states is the **latest** base holding rows for that stage.
 
 ### §3.2 What stays per base, and why the contiguity rule survives
 
@@ -227,6 +229,7 @@ The filing-duty section gains: the threshold is reached either by one base's rou
 
 - 2 counted diff rounds at base A + 2 at base B, no filing → `missing_arc_filing`. **The core new assertion.**
 - The same arc with a filing section at A → passes. Again with it at B → passes.
+- **The satisfaction recognizer (R4 F1):** the same 2 + 2 directory plus a NON-arc-shaped `.md` under it carrying a parseable `## diff` section → still reports `missing_arc_filing`. The stray file is ignored prose to `readArcs`, and a "any `.md`" implementation would let it discharge a real obligation while the canonical reader sees no filing. Paired with the accepting direction already in the suite, so the recognizer is pinned from both sides.
 - Rounds `1,2` at A and `1,2` at B → fires: four pairs from colliding round values.
 - 4 rounds at one base, no filing → `missing_filing` and **not** `missing_arc_filing` (no double report).
 - 5 at A unfiled + 2 at B → exactly one problem, from clause A.
@@ -258,7 +261,23 @@ Nine controls. K2's `directory` row and K4's `stage` row are R3 findings 1 and 2
 
 R3 finding 3, and a different class from the matrix: the report battery asserted that the totals line APPEARS and is MARKED, never what number it displays. The gate and `arcCountedRounds` can both be correct while the report computes its own total by deduplicating bare `round` values, and every specified assertion still passes over a line stating the wrong number. Measured over the live corpus, **44 of 282 arc-stage totals** differ between distinct `round` and distinct `(baseSha, round)`, the largest being `chore/guard-completeness-wave diff` at 7 against 4. (The reviewer reported 264, with sample rows showing `roundOnly=1`; re-derived by command it is 44 and those values are 2, 4, 2, 5, 2, 3. The gap is real, the magnitude was not, and it is recorded here so a later round does not inherit the wrong figure.)
 
-Every value this change makes the report compute is therefore asserted BY VALUE: the totals line's per-stage sums, the rate line's fraction and its denominator, and the sum quoted in the `missing_arc_filing` message. A presence-only assertion is what lets a wrong number through.
+R4 then landed two more instances of the same class, which means the R3 repair had the same defect as the R2 one: a rule stated in prose and instantiated by hand. **Third occurrence of that pattern, so the vector is declared and closed the way the matrix closed its own** — by enumeration of the thing itself rather than of the tests. The question "what does this change make the code compute?" is finite and answerable, so here is all of it, and every row is asserted by value:
+
+| # | computed value | asserted by value in |
+| --- | --- | --- |
+| V1 | `arcCountedRounds`'s per-stage sum | `tests/reviewRounds/count.test.ts` |
+| V2 | the `missing_arc_filing` message's total | the meta-test |
+| V3 | that message's per-`(baseSha, stage)` breakdown, each entry | the meta-test — **R4 F2** |
+| V4 | the totals line's per-stage arc sums | `tests/reviewRounds/report.test.ts` |
+| V5 | the totals line's mark, as set equality with the gate's `missing_arc_filing` set | the report test |
+| V6 | the frozen line's membership | the report test |
+| V7 | the trigger-rate population | the report test |
+| V8 | the trigger-rate triggered count | the report test |
+| V9 | the trigger-rate month bucket — the directory-wide EARLIEST counted row, never the first base enumerated | the report test — **R4 F3** |
+
+V3 and V9 are R4's findings and were the two rows the hand-written list omitted. V3 matters because the breakdown is a new diagnostic computed per `(baseSha, stage)`, and a stage-blind rendering is wrong on **7 of the 11** newly-owing pairs while every matrix cell still passes. V9 matters because "first enumerated base" and "earliest across the directory" disagree the moment a directory's bases are not in chronological order, and K4's population-and-triggered control cannot see the difference.
+
+A presence-only assertion is what lets a wrong number through, and a hand-written list of values is what lets a whole value through.
 - **Addition guard:** a grandfathered pair with one row `startedAt` after `ARC_SUM_FREEZE` fails; the same with `startedAt: null` fails.
 - **Set hygiene over the real corpus:** all 11 pairs still owe; all their rows predate the freeze; the set is exactly 11.
 - **Monotonicity:** every fixture that fires a per-base problem today fires the same problem after the change, asserted by kind.
