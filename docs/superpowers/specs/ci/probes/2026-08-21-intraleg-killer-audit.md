@@ -10,10 +10,24 @@ This arc's convergence criterion is UNAVAILABLE in its usual form. Spec §8 stat
 the reason and it is not a preference: a mutation score for this probe would be
 computed by the very runner machinery the probe audits, so the number would be
 circular. The substitute, pre-registered in §8 before any of this ran, is a
-three-state classification of every weaker implementation the spec and plan
-name — ABSENT, PRESENT-BUT-UNPROVEN, or PROVEN — where PROVEN means the mutant
-was applied to the SHIPPED source, the named case was observed RED for the
-asserted reason, and the file was restored byte-exact.
+four-state classification of every weaker implementation the spec and plan
+name — ABSENT, PRESENT-BUT-UNPROVEN, OFF-TARGET, or PROVEN — where PROVEN means
+the mutant was applied to the SHIPPED source, the case NAMED by the obligation's
+filter was observed RED, no case outside that filter failed, and the file was
+restored byte-exact.
+
+**What PROVEN does NOT mean, stated because this record claimed it for four
+review rounds.** Until diff review r5 the classifier read `outcome.failed > 0`
+and nothing else, so PROVEN meant "some case under this filter went red" — the
+wording above promised "RED for the asserted reason", which the code never
+checked. Two things changed. The classifier now reads WHICH cases failed and
+requires the named one among them, with anything outside the filter classified
+OFF-TARGET rather than absorbed into a pass; and this sentence now describes the
+test that runs. The `reason` column remains a human-authored description of the
+expected failure — it is matched by CASE NAME, never against assertion text —
+and that is the limit, named rather than implied. Reading a prose reason out of
+test output would be a text recognizer, which is the shape this arc's review
+economy is a case study in not building.
 
 A survivor-based finding is therefore not available to a reviewer of this arc,
 and the diff-review briefs say so.

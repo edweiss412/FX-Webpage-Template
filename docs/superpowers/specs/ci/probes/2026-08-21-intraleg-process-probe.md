@@ -83,7 +83,7 @@ pnpm heavy pnpm exec tsx scripts/intraleg-campaign.ts \
 | Arm | Planned | Varies |
 | --- | --- | --- |
 | A | 12 | the process boundary alone — one fresh child per trial, target site only, no prefix |
-| B | 6 | the ORDERING — the target runs after the gate-order prefix of its 69 generation-order predecessors |
+| B | 6 | the ORDERING — the target runs at position 9, 25 or 70, behind prefixes of 8, 8, 8, 24, 24 and 69 mutants. FIVE are seeded shuffles over the other mutants; ONE (B#5) is the gate-order prefix of all 69 generation-order predecessors |
 | C | 2 | the LOAD — one quiet half and one half under a CPU burner per reported core, adjudicated as a pair |
 
 Arm C is a PAIR, not two independent trials: the §5.2 load column advances only
@@ -150,9 +150,21 @@ grep -nF -e '**Graduation precondition' -e '**Branch NULL' -e '**Branch POSITIVE
 Producing command:
 
 ```
-node scratchpad/render-campaign-results.mjs \
+# per-arm populations
+jq -r '.aggregate.arms[] | "\(.arm) \(.planned) \(.produced) \(.completed) \(.eligible) \(.excluded|length)"' \
   .mutation-records/campaign-2026-08-21-r4/campaign.json
+# arm B, one row per trial
+jq -r '.trials[].observation.plan | select(.arm=="B") | "B#\(.index) prefix=\(.prefix|length) position=\(.position)"' \
+  .mutation-records/campaign-2026-08-21-r4/campaign.json
+# and the standing check that every figure below still matches the artifact
+pnpm intraleg:claims
 ```
+
+The earlier draft of this line cited `node scratchpad/render-campaign-results.mjs`,
+which exists only in one session's scratchpad and cannot be run from a checkout.
+A producing command nobody else can run is not a producing command, and this
+section's own pre-registration ("no number from it is quoted anywhere without its
+producing command") is what it failed. Found at diff review r5.
 
 Campaign anchor stamp: `46fd37cf0f07`
 
