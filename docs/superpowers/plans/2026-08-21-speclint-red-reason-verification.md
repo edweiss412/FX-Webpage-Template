@@ -114,12 +114,13 @@ already has.
 ## 3. Citation lifetime — this plan's own execution moves its own red-target
 
 **Round 4 corrected this section, and the correction matters more than the original claim.** Earlier
-drafts said line 717 was above the edit and therefore unaffected. That was WRONG. The edit does not
-begin at the drop: `ProbeDerivation` and `CollectionProbeEntry` each gain a union member, and both sit
-above every other line this plan cites.
+drafts said the v1 exit was above the edit and therefore unaffected. That was WRONG. The edit does
+not begin at the drop: `ProbeDerivation` and `CollectionProbeEntry` each gain a union member, and
+every citation BELOW them moves. `VITEST_SHAPE` is the one this plan cites that sits above the edit
+point, which is why it is the one whose coordinate never changed.
 
 **Both line-movement tables that stood here are DELETED, and that is the repair.** They recorded a
-prediction and then the measured result, twelve rows of `before -> after` between them. Every row
+prediction and then the measured result, as rows of `before -> after`. Every row
 had to track a source it did not own, so each was a fresh target: diff rounds 2, 4 and 5 each found
 one stale, and rounds 4 and 5 found staleness that the previous round's own repair had written or
 left. Adding precision made them likelier to rot, one round at a time, which is the trajectory
@@ -130,11 +131,15 @@ verification table is the single owner of every structured citation into `lib/sp
 `pnpm probe:citations` asserts each row still holds the content it claims, and the derivation fails on
 any citation absent from that table. A second copy could only ever agree with it or be wrong.
 
-The two facts those tables existed to establish survive as prose that owns no numbers. The edit does
-NOT begin at the drop: `ProbeDerivation` and `CollectionProbeEntry` each gain a union member and both
-sit above every other line this plan cites, so citations below them move. And the observed distance
-exceeded the round-4 prediction, because that probe modelled two one-token additions while each
-shipped member carries a comment explaining why it exists.
+The two facts those tables existed to establish survive as prose that owns no numbers, no counts and
+no orderings. The edit does NOT begin at the drop: `ProbeDerivation` and `CollectionProbeEntry` each
+gain a union member, so every citation below them moves. And the observed distance exceeded the
+round-4 prediction, because that probe modelled two one-token additions while each shipped member
+carries a comment explaining why it exists.
+
+Diff round 6 found this very paragraph asserting a wrong row count and repeating a wrong ordering,
+which is the same defect one level up: a replacement that restates is still a restatement. Both are
+gone rather than corrected.
 
 Anyone who wants the numbers regenerates them rather than reading a copy:
 
@@ -159,7 +164,7 @@ the rest are bare prose references carrying no file, and they stay a manual re-r
 | site | what it cites | covered by |
 | ---- | ------------- | ---------- |
 | the `red-target=` in Task 1's marker | the repair line | DERIVED |
-| §0's verification table, all ten rows | every structured citation this plan makes | DERIVED |
+| §0's verification table, every row | every structured citation this plan makes | DERIVED |
 | the spec's §1.1, §2, §3 and §5.3 citations | the v1 exit, `VITEST_SHAPE`, `probesToSpawn` | DERIVED |
 | Task 1's prose after the assertion table | the v1 exit | SYMBOL-named, no line to go stale |
 | Task 2's edit map fenced block | the lines this arc edits | prose, manual |
@@ -192,8 +197,8 @@ including the only citation of line 906. A hand list gets it wrong again the nex
 citation; a derivation does not.
 
 **What the derivation does NOT cover, stated so nobody reads the command as total:** bare prose
-references of the form "line 717", which carry no file and cannot be resolved mechanically. §3's table
-below lists those sites and they stay a manual re-read.
+references of the form "line 717", which carry no file and cannot be resolved mechanically. The
+site table in this section lists them and they stay a manual re-read.
 
 ## 4. The cycle the red-carrying task runs, stated once
 
@@ -340,7 +345,7 @@ Round 1's second blocking finding was that `probe/reach.mts` was cited as the cl
 then never scheduled: no task command and no package script invoked it, so every declared command
 could pass without the criterion being satisfied. A criterion nothing runs is a description.
 
-**It is scheduled at three sites.**
+**It is scheduled at each of the sites below.**
 
 1. A package script `probe:reach`, with body `node --import tsx probe/reach.mts`, so the oracle is
    invocable by name rather than by remembering an interpreter flag. Its sibling `probe:citations`
