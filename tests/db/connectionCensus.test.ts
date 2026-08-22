@@ -2020,6 +2020,35 @@ describe("connection census — cases authored against SURVIVING MUTANTS", () =>
     expect(ownClassesFor(shadowed, () => true), "undisposed").toEqual(["undisposed"]);
   });
 
+  test("ownClassesFor carries an accepted SITE class through verbatim", () => {
+    // Kills: the site branch of the class derivation. The reports branch alone was covered,
+    // so nothing pinned that an accepted class survives the pass unchanged.
+    const rec = classifyFile(P, [IMPORT, `const sql = postgres(${ENV});`].join("\n"));
+    expect(rec.sites.map((s) => s.cls)).toEqual(["validation-env"]);
+    expect(ownClassesFor(rec, () => false)).toEqual(["validation-env"]);
+    expect(ownClassesFor(rec, () => true), "an accepted class is NOT a disposition").toEqual([
+      "validation-env",
+    ]);
+  });
+
+  test("an unresolvable SITE takes its disposition, in both directions", () => {
+    // Kills: the `unclassifiable`/`remote-literal` test and the disposition call under it.
+    // Both directions, because a derivation stuck on either answer passes a one-sided check.
+    const rec = classifyFile(P, [IMPORT, `const sql = postgres(pickUrl());`].join("\n"));
+    expect(rec.sites.map((s) => s.cls)).toEqual(["unclassifiable"]);
+    expect(ownClassesFor(rec, () => false), "row present").toEqual(["dispositioned"]);
+    expect(ownClassesFor(rec, () => true), "no row").toEqual(["undisposed"]);
+  });
+
+  test("a loader naming the DRIVER with an unclassifiable second argument reports", () => {
+    // Kills: the acquisition-side half of the undecidable split. The edge-side half was
+    // covered; this is the same decision made where the specifier names the driver itself,
+    // and it reports rather than being read as a replacement factory.
+    const rec = classifyFile(P, [`vi.mock("postgres", opts);`].join("\n"));
+    expect(rec.reports.map((r) => r.kind)).toEqual(["acquisition"]);
+    expect(rec.reports[0]?.detail).toContain("cannot classify as a replacement factory");
+  });
+
   test("an EDGE report seeds no class, because it is not about that file's own driver", () => {
     // The boundary of the rule above. `unresolved-import` and `loader-call` are reported
     // against the IMPORTING file about an edge; seeding from them would attribute a

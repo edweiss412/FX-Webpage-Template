@@ -536,8 +536,8 @@ export function acquisitionsIn(sf: ts.SourceFile): {
     // dynamic-import / require-call / loader-call: an acquisition EXPRESSION.
     if (ref.position === "loader-call") {
       const loader = ref.loader;
-      if (loader === undefined || !loaderLoads(loader)) {
-        if (loader !== undefined && loaderUndecidable(loader)) {
+      if (!loaderLoads(loader)) {
+        if (loaderUndecidable(loader)) {
           reports.push(
             acquisitionReport(
               sf,
@@ -547,7 +547,7 @@ export function acquisitionsIn(sf: ts.SourceFile): {
                 "function or an object literal, or add an `acquisition` disposition row",
             ),
           );
-        } else if (loader !== undefined && !loaderKnown(loader.member)) {
+        } else if (!loaderKnown(loader.member)) {
           reports.push(
             acquisitionReport(
               sf,
