@@ -208,14 +208,32 @@ parses YAML, so a quoted scalar's delimiters reach the lexer as shell quotes.
 For a YAML file:
 
 1. Parse the document (the same `parseDocument` the workflow reader already uses) and locate every
-   executable scalar whose `type` is `QUOTE_SINGLE` or `QUOTE_DOUBLE`.
-2. **Blank** each such span in the lexed source: replace every non-newline character with a space,
-   preserving newlines. Byte count and line count are both preserved exactly, so every other word's
-   physical line is unchanged, and the lexer sees whitespace where it would otherwise see YAML
-   syntax. This removes the channel's ability to fabricate on the double-quoted spelling as well.
+   EXECUTABLE scalar whose `type` is `QUOTE_SINGLE` or `QUOTE_DOUBLE`. Executable means all four
+   keys the scanner already treats as text that runs: `run` and `shell`
+   (`EXECUTABLE_WORKFLOW_KEYS`, `scan.ts:3690`) plus `entrypoint` and `args` (`CONTAINER_ARGV_KEYS`).
+   The container-argv pair is included because this channel lexes the whole FILE, so their YAML
+   delimiters reach the shell lexer exactly as a `run:` scalar's do — probed at base, `args:` PLAIN
+   reports one advisory while `args:` DOUBLE and `args:` SINGLE report none. Their SITE channel is
+   already correct and is not touched: the container-argv path composes decoded values
+   (`scan.ts:3997`), never a raw slice.
+2. **Blank each span in SOURCE COORDINATES, before any length-changing transform.** Replace every
+   non-newline character with a space and keep newlines: byte count and line count are both
+   preserved, so every other word's physical line is unchanged and the lexer sees whitespace where
+   YAML syntax used to be. This also removes the channel's ability to fabricate on the double-quoted
+   spelling.
+
+   The ordering is load-bearing and easy to get backwards. This channel already rewrites its input
+   once — `source.replace(/\\\n[ \t]+/g, "\\\n")` at `scan.ts:3416-3418` strips indentation after
+   a continuation — and that rewrite REMOVES BYTES. Parser ranges are offsets into the original
+   source, so applying them to the shortened string blanks the wrong region. Measured on a flow
+   scalar carrying one physical continuation, with a plain binding on the step after it: the
+   transform removes 10 bytes, and the reversed order overruns by exactly that much into the next
+   line, leaving `         un: PG=psql; $PG -qAt mydb` where `      - run: PG=psql; ...` stood. The
+   key itself is destroyed, so that step stops being a `run:` scalar at all and its binding is never
+   read. Blank first, then transform.
 3. **Rescan** each blanked scalar's DECODED value through the same indirection machinery, pinning
-   every resulting hit to the `run:` key's line — the anchoring contract §3.2's decoded site pass
-   already follows.
+   every resulting hit to the key's line — the anchoring contract §3.2's decoded site pass already
+   follows.
 
 Per-scalar rescanning is more faithful than the file-wide lex, not less: each `run:` scalar is a
 separate script that GitHub writes to its own temporary file, so cross-step binding context is
@@ -305,15 +323,15 @@ EVERY edit to `scan.ts`, comment-only edits included, because registry keys are 
 | AC | Claim | How it is settled |
 | --- | --- | --- |
 | AC-1 | A double-quoted `run:` scalar produces NO fabricated site. The §2.1 canonical body, double-quoted, yields 0 sites. | Fixture in the deciding suite asserting `scanWorkflowSource` returns `[]` for that workflow. Red on the current tree, which returns one site with `nested: true`; green once the accept-set check of §3.2 is in. |
-| AC-2 | Both QUOTED styles emit the advisory the plain spelling emits — single-quoted AND double-quoted — each exactly one indirection hit at the `run:` key's line. | Fixtures for BOTH quoted styles, not only the single. The double-quoted row is the swept twin of AC-4's gap: an implementation correct on one quote style and blind on the other passes a single-style acceptance. Red on the current tree, which returns none for either. |
+| AC-2 | Both QUOTED styles emit the advisory the plain spelling emits — single-quoted AND double-quoted — each exactly one indirection hit at the key's line, for every EXECUTABLE key: `run`, `shell`, `entrypoint` and `args`. | Fixtures for both quote styles. The `args:`/`entrypoint:` rows are the class sweep: probed at base, `args` PLAIN reports one advisory while `args` DOUBLE and `args` SINGLE report none, which is the same silence on a different key. The SITE channel is already correct there — the container-argv path composes decoded values (`scan.ts:3997`), not a raw slice — so only the advisory channel is widened. Red on the current tree, which returns none for any quoted spelling. |
 | AC-3 | Plain and block spellings are unchanged. The plain spelling still yields 0 sites and 1 advisory; a `BLOCK_LITERAL` body still yields its sites at their physical lines. | Fixtures pinning both, plus AC-5. |
 | AC-4 | Decoding is not SILENCING, and it is not silencing PER QUOTE STYLE. Six rows, each asserted on `suppressesStartupFiles` rather than on presence: `'psql -X mydb'` (site, protected), `'psql -qAt mydb'` (site, unprotected), **`"psql -qAt mydb"` (site, unprotected)**, **`"\x70sql -qAt mydb"` (site, unprotected)**, `"echo hello"` (nothing), `psql -qAt mydb` plain (site, unprotected). | Fixture table. The two bolded rows are QUOTE_DOUBLE positives and they are what rules out the degenerate implementation: one that handles single quotes correctly and suppresses BOTH passes for double quotes satisfies every other AC, because every other double-quoted assertion expects nothing and the live corpus has no quoted scalar to contradict it. `bash -n` accepts `psql -qAt mydb`, so losing its decoded pass is silent corruption. The `\x70sql` row is decoded-only: its raw slice holds no literal `psql`. |
 | AC-5 | The live-corpus finding set is unchanged: 76 sites, 0 indirections, 0 unreadable, digest `8ebe8b08d43e6308aa471112d9f086d0118e6238`. | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/baseline-corpus.mts --expect 8ebe8b08d43e6308aa471112d9f086d0118e6238` — exits 1 when the set moves, 2 on a thin or zero-row read. Run on a CLEAN tree; see §2's contamination note. |
-| AC-6 | The census of §2.3 is restated by command, not by memory, and still reports zero quoted executable scalars. | The census probe, re-run at HEAD. A non-zero result retires AC-5's reasoning and is a finding against this spec, not against the diff. |
+| AC-6 | The census of §2.3 is restated by command and still reports zero quoted executable scalars. | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-quoted-scalar-census.mts --expect-quoted 0` — exits 1 naming any quoted scalar it finds, and exits 2 if it finds no executable scalar of any style, because a zero over an empty population describes nothing. A non-zero result retires AC-5's reasoning and is a finding against this spec, not against the diff. |
 | AC-7 | Every registry key for `psqlStartupScan` resolves after the final edit. | `pnpm mutation:sites` clean, then `pnpm heavy pnpm mutation:guards` with the score and the unaccepted-survivor set stated in the round-1 diff brief's GUARD SURFACE line. |
-| AC-9 | The accept-set of §3.1 is a NAMED exported constant, and it partitions what the installed `yaml` emits: the constant is DISJOINT from the two quoted styles, and their union COVERS every scalar `type` the library produces over the §2.5 spelling corpus. | Test in the deciding suite, shipped in the commit that introduces the constant. Both directions discriminate — adding `QUOTE_SINGLE` to the constant breaks disjointness, dropping `BLOCK_FOLDED` breaks coverage. A bare "the library emits five styles" assertion would not: it never mentions the constant, and it is true before any of this arc's code exists, which is why it is a structural pin shipped alongside rather than a red-then-green task of its own. |
-| AC-10 | The two declared-limit rows at `tests/cross-cutting/psqlStartupFileSuppression.test.ts:5153-5157` are RETIRED and re-pinned as HITS, and NO present-tense claim of that zero survives anywhere in the corpus. | The rows flip to a hit assertion and their comment's stated cause is corrected. A swept grep over `tests/` and `docs/` found no other executable assertion and five prose hits: three in the predecessor spec are superseded (one canonical note at its §6 item 2, two cross-references), and two are left alone as dated execution records — a completed arc's plan and a review-round row, which are never corrected. |
-| AC-8 | The delimiter-walk seam reserved for `arc-bracecross` is untouched: no changed line falls inside `matchBraceSpan`, `matchBrace`, `matchBraceEnd`, `closeDoubleQuoted`, `substitutionOpenerEnd` or `openerEnd`. | `node docs/superpowers/specs/ci/probes/2026-08-22-seam-check.mjs` — line ranges from the TypeScript parser, not from git's `@@` header, which names the ENCLOSING function and so can never match a nested arrow. Exits 1 naming the file, line and seam function; exits 2 when it locates fewer than all six, because a check that cannot find what it ranges over must not report clean. |
+| AC-9 | The accept-set of §3.1 is a NAMED exported constant, and it PARTITIONS what the installed `yaml` emits: the constant is DISJOINT from the two quoted styles, and their union EQUALS the set of scalar `type` values the library produces over the §2.5 spelling corpus. | Test in the deciding suite. **Equality, not coverage** — coverage plus disjointness admits an arbitrary extra member in the constant (a `NOT_A_YAML_STYLE` passes both), so a change that weakens default-deny stays green. Under equality, adding a member breaks the union and dropping one breaks it the other way. |
+| AC-10 | The two declared-limit rows at `tests/cross-cutting/psqlStartupFileSuppression.test.ts` are RETIRED and re-pinned as HITS, and no present-tense claim of that zero survives in any non-historical file. | The rows flip to a hit assertion and their comment's stated cause is corrected. `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-quoted-run-claim-sweep.mts` enumerates the claim across all tracked `.ts`/`.mts`/`.md`, windowed rather than line-bound, and SELF-TESTS against five known instances — exiting 2 if it misses any, because a sweep is only trustworthy where it has been shown to fire. Dated execution records are excluded and stay uncorrected. |
+| AC-8 | The delimiter-walk seam reserved for `arc-bracecross` is untouched by ANY line the diff touches, added or deleted. | `node docs/superpowers/specs/ci/probes/2026-08-22-seam-check.mjs`. The seam is DERIVED, never listed: the callee closure of `openerEnd` plus the `matchBrace*` / `closingBacktick` family, then each member's LEXICAL ANCESTORS — which is how `attachedTargetEnd`, the outer walk containing four of the helpers, is reached without naming it. Nine members. Both hunk sides are read, each against the seam of its own revision, because a pure deletion has a new-side count of zero. Exits 2 if the seed is absent or the derived set exceeds 20 — a derivation that has stopped discriminating must not report clean. |
 
 ---
 

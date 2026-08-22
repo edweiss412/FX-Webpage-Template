@@ -1,0 +1,82 @@
+// AC-10: every place in the corpus that asserts a quoted executable YAML scalar
+// is NOT read — the claim this arc's repair falsifies.
+//
+// The first version of this sweep was two greps, and it was NON-DISCRIMINATING
+// in the way this whole arc keeps finding: it required the fixture text and
+// `toHaveLength(0)` on the SAME LINE, and in the known instance they are four
+// lines apart, so it reported "no other executable assertion" for the wrong
+// reason. It also matched a case-sensitive phrase and so missed a capitalized
+// hit in a document its own disposition table claimed to have read.
+//
+// Two arms now, and both are windowed rather than line-bound:
+//   PROSE      - a claim about a quoted run:/shell:/args:/entrypoint: scalar
+//                sitting near a not-read word.
+//   EXECUTABLE - a zero-assertion within a window of a quoted executable
+//                scalar fixture.
+//
+// The sweep prints a SELF-TEST first: it must find the known instance at
+// tests/cross-cutting/psqlStartupFileSuppression.test.ts. A sweep that cannot
+// find the case that motivated it reports clean for the wrong reason, so a
+// missing self-test hit exits 2 rather than 0.
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+
+/** Dated execution records. Never corrected, so never swept. */
+const HISTORICAL = [/^docs\/review-rounds\//, /^docs\/agents\/.*-\d{4}-\d{2}-\d{2}\.md$/];
+
+const SCALAR = /quoted[^.\n]{0,60}\b(run|shell|args|entrypoint)\b|\b(run|shell|args|entrypoint):[^.\n]{0,60}quoted/i;
+const NOT_READ =
+  /\b(stays? (a )?(zero|limit)|declared miss|documented limit|not (read|recognized|seen)|declined|one word|unsignaled|no(t| ) report|unchanged|no flag|flag-shaped|left alone)/i;
+const ZERO_ASSERT = /toHaveLength\(0\)|toEqual\(\[\]\)|\.length\)\.toBe\(0\)/;
+const QUOTED_FIXTURE = /run:\s*["']|args:\s*["']|entrypoint:\s*["']|shell:\s*["']/;
+const WINDOW = 8;
+
+const files = execFileSync("git", ["ls-files", "*.ts", "*.mts", "*.md"], { encoding: "utf8" })
+  .split("\n")
+  .filter(Boolean)
+  .filter((f) => !HISTORICAL.some((re) => re.test(f)));
+
+type Hit = { file: string; line: number; arm: "PROSE" | "EXECUTABLE"; text: string };
+const hits: Hit[] = [];
+
+for (const file of files) {
+  const lines = readFileSync(file, "utf8").split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    // PROSE: the claim may wrap, so look at this line joined with the next.
+    const joined = `${line} ${lines[i + 1] ?? ""}`;
+    if (SCALAR.test(joined) && NOT_READ.test(joined))
+      hits.push({ file, line: i + 1, arm: "PROSE", text: line.trim().slice(0, 110) });
+    // EXECUTABLE: a zero-assertion within WINDOW lines of a quoted fixture.
+    if (ZERO_ASSERT.test(line)) {
+      const from = Math.max(0, i - WINDOW);
+      if (lines.slice(from, i + 1).some((l) => QUOTED_FIXTURE.test(l)))
+        hits.push({ file, line: i + 1, arm: "EXECUTABLE", text: line.trim().slice(0, 110) });
+    }
+  }
+}
+
+// The self-test ranges over EVERY known instance, not one. A sweep is only
+// trustworthy where it has been shown to fire, and each of these was a place an
+// earlier version of this sweep missed — two of them found by a reviewer after
+// the sweep reported clean.
+const SELF_TEST: [file: string, nearLine: number][] = [
+  ["tests/cross-cutting/psqlStartupFileSuppression.test.ts", 5156],
+  ["tests/cross-cutting/psqlStartupFiles/scan.ts", 232],
+  ["docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md", 346],
+  ["docs/superpowers/specs/ci/2026-08-20-shell-lexer-quoted-value-recall-design.md", 566],
+  ["docs/superpowers/specs/ci/2026-08-20-shell-lexer-quoted-value-recall-design.md", 615],
+];
+const SELF_TEST_WINDOW = 3;
+const missed = SELF_TEST.filter(
+  ([file, near]) => !hits.some((h) => h.file === file && Math.abs(h.line - near) <= SELF_TEST_WINDOW),
+);
+if (missed.length > 0) {
+  console.error(
+    `\nABORT: the sweep missed ${missed.length} of ${SELF_TEST.length} KNOWN instances, so it cannot be ` +
+      `trusted where it reports nothing:`,
+  );
+  for (const [file, near] of missed) console.error(`  ${file}:~${near}`);
+  process.exit(2);
+}
+console.log(`self-test: all ${SELF_TEST.length} known instances found — the sweep discriminates.`);

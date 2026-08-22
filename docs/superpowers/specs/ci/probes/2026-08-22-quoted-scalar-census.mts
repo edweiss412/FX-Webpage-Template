@@ -1,0 +1,76 @@
+// AC-6: the live-corpus census of executable YAML scalar styles.
+//
+// The spec's digest-neutrality argument rests on this reading zero quoted
+// executable scalars: with no such input in the corpus, a repair scoped to the
+// quoted path cannot move the AC-5 finding set. That makes the census a GATE,
+// not a note, so it lives here as a runnable program rather than as a number
+// quoted in prose. `--expect-quoted <n>` turns it from a reporter into a check.
+//
+// Keys mirror the scanner's own two sets — `EXECUTABLE_WORKFLOW_KEYS`
+// (`run`, `shell`) and `CONTAINER_ARGV_KEYS` (`entrypoint`, `args`) — because
+// every one of them is text that RUNS, and all four are exposed to the same
+// YAML-quoting defect.
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { parseDocument, visit, isPair, isScalar } from "yaml";
+
+const EXECUTABLE_KEYS = new Set(["run", "shell", "entrypoint", "args"]);
+const QUOTED = new Set(["QUOTE_SINGLE", "QUOTE_DOUBLE"]);
+
+const argv = process.argv.slice(2);
+const at = argv.indexOf("--expect-quoted");
+const expected = at === -1 ? null : Number(argv[at + 1]);
+
+const files = execFileSync("git", ["ls-files", "*.yml", "*.yaml"], { encoding: "utf8" })
+  .split("\n")
+  .filter(Boolean);
+
+const tally = new Map<string, number>();
+const quoted: string[] = [];
+let parseFailures = 0;
+
+for (const file of files) {
+  const source = readFileSync(file, "utf8");
+  let doc;
+  try {
+    doc = parseDocument(source);
+  } catch {
+    parseFailures++;
+    continue;
+  }
+  visit(doc, {
+    Pair(_k: unknown, pair: unknown) {
+      if (!isPair(pair as never)) return;
+      const key = (pair as { key?: { value?: unknown } }).key?.value as string;
+      if (!EXECUTABLE_KEYS.has(key)) return;
+      const value = (pair as { value?: unknown }).value as {
+        type?: string;
+        range?: [number, number, number];
+      };
+      if (!isScalar(value as never)) return;
+      const type = value.type ?? "UNKNOWN";
+      const row = `${key}:${type}`;
+      tally.set(row, (tally.get(row) ?? 0) + 1);
+      if (QUOTED.has(type) && value.range)
+        quoted.push(`${file}:${source.slice(0, value.range[0]).split("\n").length} ${row}`);
+    },
+  });
+}
+
+console.log(`tracked YAML files: ${files.length} (parse failures: ${parseFailures})`);
+for (const [row, count] of [...tally].sort()) console.log(`  ${row} = ${count}`);
+console.log(`QUOTED executable scalars: ${quoted.length}`);
+for (const q of quoted) console.log(`  ${q}`);
+
+// A zero over an empty population is not a pass: if the walk found no
+// executable scalar at all, the zero above describes nothing.
+if (tally.size === 0) {
+  console.error("ABORT: no executable scalar of any style was found — the census describes nothing.");
+  process.exit(2);
+}
+
+if (expected !== null && quoted.length !== expected) {
+  console.error(`FAIL: expected ${expected} quoted executable scalar(s), found ${quoted.length}.`);
+  process.exit(1);
+}
+if (expected !== null) console.log(`PASS: quoted executable scalar count is ${expected}, as expected.`);

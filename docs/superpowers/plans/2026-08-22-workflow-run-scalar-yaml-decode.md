@@ -133,11 +133,15 @@ reader and a mutant can both find:
 export const RAW_IS_SHELL_TEXT_STYLES = new Set(["PLAIN", "BLOCK_LITERAL", "BLOCK_FOLDED"]);
 ```
 
-and the pin asserts two properties over the §2.5 spelling corpus: the constant is DISJOINT from the
-two quoted styles, and their union COVERS every `type` the installed `yaml` actually emits. Both
-directions discriminate — adding `QUOTE_SINGLE` to the constant breaks disjointness, dropping
-`BLOCK_FOLDED` breaks coverage — which a bare "the library emits five styles" assertion does not,
-since it never mentions the constant at all.
+and the pin asserts a PARTITION over the §2.5 spelling corpus: the constant is DISJOINT from the two
+quoted styles, and their union EQUALS the set of `type` values the installed `yaml` emits.
+
+**Equality, not coverage — plan review found the weaker form and it is worth stating why.** The
+first draft asserted the union COVERS what the library emits, which together with disjointness still
+admits an arbitrary extra member: a constant holding `NOT_A_YAML_STYLE` is disjoint from the quoted
+styles and still covers everything emitted, so both assertions pass while default-deny has been
+weakened. Under equality an added member breaks the union in one direction and a dropped one breaks
+it in the other.
 
 **This was a separate task and is not one any more, because its RED could not exist.** Drafted as
 Task 3 with its own red-then-green marker, it was pre-run against the current tree and **passed on
@@ -184,16 +188,35 @@ BEFORE the change and re-verified after, instead of being argued from the gate's
 
 **GREEN.** In `scanShellIndirection`, for a YAML file only:
 
-1. Parse the document with the same `parseDocument` the workflow reader uses and collect the source
-   ranges of every executable scalar whose `type` is `QUOTE_SINGLE` or `QUOTE_DOUBLE`.
-2. Blank each range in `lexedSource`: every non-newline character becomes a space, newlines are
-   kept. Byte count and line count are both preserved, so every other word's physical line is
-   unchanged and the lexer sees whitespace where YAML syntax used to be. Spec §2.5 measures why the
-   alternative — splicing the decoded value in at the same offsets — is wrong: a double-quoted `\n`
-   escape has zero raw newlines and one decoded newline, so splicing shifts every line after it.
-3. Rescan each blanked scalar's decoded value through the same lexer-and-report path, pinning every
-   resulting hit to the `run:` key's line — the anchoring contract `scan.ts:4109-4113` already
-   states for decoded findings.
+1. Parse the document and collect the source ranges of every EXECUTABLE scalar whose `type` is
+   `QUOTE_SINGLE` or `QUOTE_DOUBLE` — all four keys, `run` and `shell`
+   (`EXECUTABLE_WORKFLOW_KEYS`, `scan.ts:3690`) plus `entrypoint` and `args`
+   (`CONTAINER_ARGV_KEYS`). The container-argv pair is in scope for THIS channel because it lexes
+   the whole file, so their YAML delimiters reach the shell lexer exactly as a `run:` scalar's do.
+   Probed at base: `args:` PLAIN reports one advisory, `args:` DOUBLE and `args:` SINGLE report
+   none. Their site channel is already correct (`scan.ts:3997` composes decoded values) and is not
+   touched. The repair is a set union, so the class-sweep default applies — the marginal cost of the
+   second key is one identifier while holding the context.
+2. Blank each range **in SOURCE COORDINATES, before the continuation transform**: every non-newline
+   character becomes a space, newlines are kept, so byte count and line count both survive.
+3. Rescan each blanked scalar's decoded value through the same lexer-and-report path, pinning hits
+   to the key's line — the contract `scan.ts:4109-4113` already states for decoded findings.
+
+**Step 2's ordering is the finding plan review caught, and it is measured.** This channel already
+rewrites its input once, at `scan.ts:3416-3418`, and that rewrite REMOVES BYTES. Parser ranges are
+offsets into the original source. On a flow scalar carrying one physical continuation with a plain
+binding on the next step, the transform removes 10 bytes, and blanking afterwards overruns by
+exactly that much into the following line:
+
+```
+RIGHT (blank, then transform): "      - run: PG=psql; $PG -qAt mydb"
+WRONG (transform, then blank):  "         un: PG=psql; $PG -qAt mydb"
+```
+
+The key itself is destroyed, so that step stops being a `run:` scalar and its binding is never read
+— a silent erasure of a real finding, in the channel this task exists to un-silence. **That exact
+shape is a required test case**: a multiline flow scalar, a following plain scalar, and an assertion
+that the second one's advisory survives.
 
 **Also in this task — AC-10, the limit this change retires.** Running the deciding suite under the
 prototype flipped two declared-limit rows at
@@ -202,27 +225,40 @@ each: `- run: "PG=psql; $PG -qAt mydb"` and its `PG=p'sql'` spelling. That is th
 direction, and the predecessor arc predicted it: its own spec says recall there needs YAML-aware value extraction on a different surface
 (`docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md:322-328`).
 
-**The corpus was swept for every other place asserting that zero, and the sweep is why this is four
-edits rather than three.** Commands and dispositions:
+**The corpus was swept for every other place asserting that zero, and the first sweep was WRONG in
+the way this arc keeps finding.** It was two greps. One required the fixture text and
+`toHaveLength(0)` on the SAME LINE; in the known instance they are four lines apart, so it reported
+"no other executable assertion" for the wrong reason. The other was case-sensitive and phrase-bound
+and missed a hit in a document the disposition table claimed to have read. A sweep that reports
+clean because it cannot match is the vacuity class, not a sweep.
 
-```
-grep -rn 'run: \\"' tests/ --include='*.ts' | grep -i 'toHaveLength(0)\|toEqual(\[\])'
-  -> no other executable assertion of the zero
-grep -rn 'quoted YAML `run:`\|quoted workflow `run:`' docs/ --include='*.md'
-  -> 5 prose hits
-```
+The replacement is committed and runnable:
+`pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-quoted-run-claim-sweep.mts`. Two windowed
+arms — PROSE (a claim about a quoted executable scalar near a not-read word) and EXECUTABLE (a
+zero-assertion within eight lines of a quoted fixture) — over every tracked `.ts`, `.mts` and `.md`,
+with dated execution records excluded by path.
 
-The prose hits, each dispositioned:
+**It self-tests against all five known instances and exits 2 if it misses any**, because a sweep is
+only trustworthy where it has been shown to fire. Two of the five were found by plan review AFTER
+the first sweep reported clean, and they are in the self-test for exactly that reason. Narrowing the
+matcher back to its first form makes the self-test abort naming the instance it lost, so the
+self-test is itself non-vacuous.
+
+Result: 50 hits over 4111 files. The ones that are claims about this scanner's current behaviour:
 
 | Hit | Disposition |
 | --- | --- |
-| predecessor spec, line 292 — "the quoted workflow `run:` scalar ... **stays ZERO**" | SUPERSEDE. A present-tense claim this change falsifies. |
-| predecessor spec, lines 322-328 — the documented-limit bullet | SUPERSEDE by cross-reference to §6 item 2. |
-| predecessor spec, line 346 — §6 item 2 | SUPERSEDE. This is the canonical record and carries the note. |
-| predecessor PLAN, line 666 — the test comment, quoted verbatim | LEAVE. An execution record of a completed arc, like a probe transcript. |
-| `docs/review-rounds/fix/shell-attached-redirection-target/0ba72c23774f.md:33` | LEAVE. A dated round record; those are never corrected. |
+| `tests/cross-cutting/psqlStartupFiles/scan.ts` line 232 — the module header's own limits list, "This covers a quoted YAML `run:` scalar read as one word" | SUPERSEDE. The guard's own header describing behaviour this task removes. |
+| predecessor spec, line 292 — "the quoted workflow `run:` scalar ... stays ZERO" | SUPERSEDE. Present tense, falsified. |
+| predecessor spec, lines 322-328 — the documented-limit bullet | SUPERSEDE by cross-reference. |
+| predecessor spec, line 346 — §6 item 2 | SUPERSEDE. The canonical record; carries the note. |
+| 2026-08-20 spec, lines 565-566, disposition rows 6-8, which leave the pin alone and give the flag criterion as the reason | SUPERSEDE the reason clause by cross-reference. The rows record that arc's action truthfully; the clause asserts current behaviour. |
+| 2026-08-20 spec, lines 615-616 — "including a quoted YAML `run:` scalar ... Unchanged." | SUPERSEDE. A live limits list. |
+| the pin at `psqlStartupFileSuppression.test.ts` | RE-PIN as hits. |
+| predecessor PLAN line 666, `docs/review-rounds/**`, `tests/docs/_retiredIdentifiers.ts`, the `declaredLimitPins` spec-lint FIXTURES | LEAVE. Execution records and copied fixtures — the first are never corrected, the second pin a document's shape rather than the scanner's behaviour. |
+| `tests/cross-cutting/workflowActivation.test.ts:104-106` | LEAVE. Different subject; matched on shape, not on this claim. |
 
-Four edits, all in this task's commit:
+Six edits, all in this task's commit:
 
 1. Re-pin both rows as HITS rather than deleting them. A retired limit stays visible as a pin.
 2. Correct their comment. It currently attributes the miss to the flag criterion; the actual cause
@@ -231,9 +267,14 @@ Four edits, all in this task's commit:
 3. Add a "Superseded in part, 2026-08-22" note to §6 item 2 of the predecessor spec, naming this row
    — the same form item 1 of that section already carries from 2026-08-20. The flag criterion for
    `.sh` input is untouched and stands.
-4. Point line 292 and the lines 322-328 bullet at that note, so no present-tense "stays ZERO" survives
-   uncorrected. One canonical record, two cross-references — not three independent rewrites that can
-   drift apart.
+4. Point line 292 and the lines 322-328 bullet at that note, so no present-tense "stays ZERO"
+   survives uncorrected. One canonical record, cross-references everywhere else — not independent
+   rewrites that can drift apart.
+5. Correct the module header at `tests/cross-cutting/psqlStartupFiles/scan.ts` line 232. This one
+   matters most of the six: it is the guard's OWN description of itself, and a reader checking what
+   the scanner does starts there.
+6. Point the 2026-08-20 spec's two live sites (disposition rows 6-8, and the limits list at lines
+   615-616) at the same canonical note.
 
 **Then, in the same task:** `pnpm mutation:sites`.
 
@@ -247,45 +288,61 @@ each is probed against a failing input rather than trusted:
 | Gate | Passes on | Constructed failure |
 | --- | --- | --- |
 | AC-5 digest probe with `--expect` | the clean tree at base and at HEAD | already observed: a stray `.mts` in the worktree holding a psql fixture string injected 7 indirections and the probe exited 2. Recorded in spec §2. |
-| AC-6 census | zero quoted executable scalars | **RUN, not described.** A `- run: "echo quoted"` step was appended to `.github/workflows/admin-layout-e2e.yml`; the census reported `run:QUOTE_DOUBLE = 1` and named the planted step by file and line. The workflow was then restored and the census returned to `0`. No line is cited for the planted step: it existed only while the mutant was, and the restored file is shorter. |
+| AC-6 `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-quoted-scalar-census.mts --expect-quoted 0` | zero quoted executable scalars | **RUN, not described.** A `- run: "echo quoted"` step was appended to `.github/workflows/admin-layout-e2e.yml`; the census reported `run:QUOTE_DOUBLE = 1` and named the planted step by file and line. The workflow was then restored and the census returned to `0`. No line is cited for the planted step: it existed only while the mutant was, and the restored file is shorter. |
 | AC-7 `pnpm mutation:sites` | all registry keys resolve — measured clean at base, "all accepted rows resolve" | observed red after every `scan.ts` edit, before the re-key. Concrete: `psqlStartupScan` carries **30** accepted rows, line-anchored. Task 2 inserts helpers above `scanShellIndirection` (~line 3391) and edits at 3416, so every row anchored below shifts — 4 of them sit below 3416 alone. This is why a comment-only edit re-keys exactly as code does. |
-| AC-8 `node docs/superpowers/specs/ci/probes/2026-08-22-seam-check.mjs` | this arc's diff | **RUN, and the first version of this gate FAILED to fire.** See below. |
+| AC-8 `node docs/superpowers/specs/ci/probes/2026-08-22-seam-check.mjs` | this arc's diff | **RUN. Two earlier versions of this gate could not fail; the third is proved against a deletion and against the outer walk.** See below. |
+| AC-10 `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-quoted-run-claim-sweep.mts` | the corpus after the six edits | Self-tests against five known instances and exits 2 on a miss. Narrowing its matcher back to the first version aborts naming the instance lost, so the self-test is itself non-vacuous. |
 
-### AC-8: the gate that could not fail, and why
+### AC-8: a gate that could not fail, twice, and what finally works
 
-The plan first stated AC-8 as a `git diff` showing no hunk inside `matchBrace`, `closeDoubleQuoted`,
-`openerEnd` or `substitutionOpenerEnd`, called that trivially failing if the seam is touched, and
-left its mutant-red as a description. Running that mutant-red is what found the gate was VACUOUS.
+This gate has now been attacked three times and failed the first two. Recording all three, because
+each defect is a different way for a check to report clean over something it cannot see.
 
-Two independent defects, both measured:
+**First version — a `git diff` hunk-header pattern.** Found vacuous by running its own mutant-red:
+git's `@@` header names the ENCLOSING function, and most of this seam is nested arrows inside
+`attachedTargetEnd`, so a header pattern can never match one. A planted edit inside
+`closeDoubleQuoted` returned `PASS`.
 
-1. **Git's `@@` hunk header names the ENCLOSING function.** Every member of this seam except the
-   `matchBrace*` family is a nested arrow inside `lexShellWords`, so a header-pattern check can
-   never match one. A one-character edit planted inside `closeDoubleQuoted` returned `PASS (no seam
-   hunk)`.
-2. **The seam list was under-scoped to a thin wrapper.** It named `matchBrace` (3 lines, a
-   pass-through) and missed `matchBraceSpan` (33 lines, the actual delimiter walk) and
-   `matchBraceEnd`. An edit to the implementation would have passed a gate named after its wrapper.
+**Second version — AST line ranges over a hand-written six-name list.** Plan review found two holes
+in it, both real:
 
-The replacement keys on LINE RANGES from the TypeScript parser — the suite already imports
-`typescript`, so this delegates to a real parser rather than growing a second one. A hand-rolled
-brace-balance walk was tried first and is recorded as the third trap: it put `substitutionOpenerEnd`
-at 952 lines, because braces inside strings, regex literals and comments are not structure.
+- **Deletions were invisible.** A pure deletion has a new-side hunk count of zero, so a new-side-only
+  parse collected no changed lines at all and every deletion inside the seam passed.
+- **The list missed `attachedTargetEnd`** (95 lines), the OUTER walk that lexically CONTAINS four of
+  the six members it did name. An edit in its main loop, outside every nested helper, passed. The
+  list had already missed `closeAnsiC` and `closingBacktick` for the same reason: it was written by
+  hand.
 
-Observed, clean tree and planted mutant:
+**Third version, shipped.** The cover is DERIVED: the callee closure of `openerEnd` plus the
+`matchBrace*` / `closingBacktick` family, then each member's LEXICAL ANCESTORS. Nine members.
+
+Containment, not calling, is the owner relation, and the difference is the whole file. A caller step
+was tried first: `lexShellWords` CALLS `matchBrace` but does not contain it, so pulling callers in
+drags `lexShellWords` and then its callee closure — measured at **90 members** against a real seam
+of nine, and the run before that never terminated inside four minutes. Lexical ancestors are bounded
+by nesting depth by construction. A ceiling of 20 members exits 2 rather than reporting clean, on
+the principle that a derivation which has stopped discriminating must say so.
+
+Both hunk sides are read, each judged against the seam as it exists in ITS OWN revision — the base
+file comes from `git show`, so a deletion is checked against where the seam was, not where it now
+is.
+
+Observed:
 
 ```
-seam matchBraceSpan: 973-1005 (33)   matchBrace: 1009-1011 (3)   matchBraceEnd: 1025-1028 (4)
-seam closeDoubleQuoted: 1102-1116 (15)  substitutionOpenerEnd: 1127-1135 (9)  openerEnd: 1139-1148 (10)
-clean:  changed lines: 0 -> PASS, exit 0
-mutant: FAIL: 1 changed line(s) inside the arc-bracecross seam:
-          tests/cross-cutting/psqlStartupFiles/scan.ts:1010 inside matchBrace (1009-1012)
-        exit 1
+derived seam, HEAD (9 members):
+  matchBraceSpan 973-1005   matchBrace 1009-1011   matchBraceEnd 1025-1028
+  closingBacktick 1042-1051  attachedTargetEnd 1085-1179  closeAnsiC 1088-1097
+  closeDoubleQuoted 1102-1116  substitutionOpenerEnd 1127-1135  openerEnd 1139-1148
+
+clean tree                     -> PASS, exit 0
+4-line DELETION in closeAnsiC  -> FAIL, "deleted/changed scan.ts:1093 inside closeAnsiC", exit 1
+edit at 1150, attachedTargetEnd's
+  main loop, outside every helper -> FAIL, "added/changed scan.ts:1150 inside attachedTargetEnd", exit 1
 ```
 
-The script also exits 2 rather than passing when it locates fewer than all six seam functions: a
-check that cannot find what it ranges over must not report clean. Adding it moved no finding — the
-AC-5 digest still reads `8ebe8b08d43e6308aa471112d9f086d0118e6238` over 76 rows.
+Adding the script moved no finding: the AC-5 digest still reads
+`8ebe8b08d43e6308aa471112d9f086d0118e6238` over 76 rows.
 
 Run the AC-5 digest on a CLEAN tree. Then `pnpm heavy pnpm mutation:guards` for the score, and state
 the score plus the unaccepted-survivor set in the round-1 diff brief's GUARD SURFACE line.
