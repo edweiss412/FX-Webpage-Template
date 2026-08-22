@@ -187,8 +187,8 @@ never made against a snippet whose behaviour is unestablished.
 its own tally, and those two lines are the figures to read:
 
 ```
-ROWS: 29 total = 20 accept-set + 5 documented-limit + 4 bash-rejected
-11/20 accept-set rows meet their post-repair expectation
+ROWS: 31 total = 22 accept-set + 5 documented-limit + 4 bash-rejected
+11/22 accept-set rows meet their post-repair expectation
 5/5 documented-limit rows VACUOUS (candidate is byte-identical to the merge-base scanner)
 2/4 bash-rejected rows hold their RECORDED base -> candidate movement
 ```
@@ -202,7 +202,7 @@ repair stayed inside its scope. An earlier cut of this probe folded a moved limi
 accept-set tally and reported `16/17 accept-set` for a run in which every accept-set row passed and
 one LIMIT had moved — one population's failure against the other's denominator.
 
-**Against the §3 prototype the same probe prints `20/20 accept-set rows meet their post-repair
+**Against the §3 prototype the same probe prints `22/22 accept-set rows meet their post-repair
 expectation`, `5/5 documented-limit rows UNCHANGED against
 tests/cross-cutting/psqlStartupFiles/scan.ts at 50ca72a566b0`, and `4/4 bash-rejected rows hold their
 RECORDED base -> candidate movement`.**
@@ -273,15 +273,21 @@ neither targets both:
 
 | candidate walk | accept-set | limits | bash-rejected | exit |
 |---|---|---|---|---|
-| **the §3 design** | 20/20 | 5/5 | 4/4 | 0 |
-| `w1` — quotes are not openers | **18/20** | 5/5 | **2/4** | 1 |
-| `w2` — ONE recognizer for both contexts | **18/20** | 5/5 | **2/4** | 1 |
-| `w3` — backticks are not openers | **18/20** | 5/5 | **1/4** | 1 |
-| `w4` — an unclosed foreign construct keeps counting | 20/20 | 5/5 | **1/4** | 1 |
-| `w6` — `$$` taught to the walk but NOT to `attachedTargetEnd` | 20/20 | 5/5 | **3/4** | 1 |
-| `w7` — `$$` taught nowhere | 20/20 | 5/5 | **2/4** | 1 |
-| the `#`-comment rule (parser growth) | 20/20 | **4/5** — `L2` moves | 4/4 | 1 |
-| the SHIPPED scanner, under `--expect-repaired` | 11/20 | VACUOUS | 2/4 | 1 |
+| **the §3 design** | 22/22 | 5/5 | 4/4 | 0 |
+| `w1` — quotes are not openers | **18/22** | 5/5 | **2/4** | 1 |
+| `w2` — ONE recognizer for both contexts | **18/22** | 5/5 | **2/4** | 1 |
+| `w3` — backticks are not openers | **18/22** | 5/5 | **1/4** | 1 |
+| `w4` — an unclosed foreign construct keeps counting | **20/22** | 5/5 | **1/4** | 1 |
+| `w6` — `$$` taught to the walk but NOT to `attachedTargetEnd` | **20/22** | 5/5 | **3/4** | 1 |
+| `w7` — `$$` taught nowhere | **20/22** | 5/5 | **2/4** | 1 |
+| the `#`-comment rule (parser growth) | **20/22** | **4/5** — `L2` moves | 4/4 | 1 |
+| the SHIPPED scanner, under `--expect-repaired` | **11/22** | VACUOUS | **2/4** | 1 |
+
+**Every walk in this table now also fails the accept-set**, because `P4` and `P5` — round 4's rows —
+are ones the merge-base fabricates and every partial repair inherits. Before round 4 the last four
+rows read `20/20`, i.e. clean on that population; the two new rows are what turned a column of
+passes into a column of failures, which is the clearest statement available of how much an acceptance
+set depends on someone having thought of the input.
 
 **Four of the eight candidates are invisible to the accept-set.** `w4`, `w6` and `w7` pass every
 accept-set row and die only in the bash-rejected population; the `#` widening passes both of those
@@ -438,7 +444,21 @@ defect the sibling arc measured when `'` inside a double-quoted target was read 
 | `"` | CLOSES the span |
 | `'`, `$'`, `$"` | **literal text — not openers** |
 
-**`$$` earns its own row because review round 1 found the walk without it.** `echo ${OUT:-$$(echo }; psql -c "x")}` is one character from an accept-set row; bash exits 2 and runs nothing, while a walk that reads the second `$` as opening `$(` follows that span to its `)` and resolves the psql — and resolves it with MORE confidence than the shipped scanner does (`nested: true` against `nested: false`). The rule lands in BOTH recognizers, this walk's and `attachedTargetEnd`'s: taught to the walk alone, the attached spelling still moves. Measured — a walk with the rule in only one of the two is `w6` in §2.1b, and the documented-limit rows are the only population that catches it.
+**`$$` is required in THREE recognizers, and each round found one more of them.** Round 1 put it in
+this walk; round 3 found `attachedTargetEnd`'s recognizer still missing it; round 4 found that a
+`${…}` operand is RE-LEXED by `lexShellWords`, whose own `$`-branches are a third recognizer that
+read the second `$` as an opener. `echo ${OUT:-$$(echo ; psql -c "x")}` — one ordinary edit from the
+round-1 spelling, with its inner `}` deleted — is ACCEPTED by bash, prints `<pid>(echo ; psql -c x)`,
+runs psql zero times, and the merge-base resolves a nested site for it. That is inside the
+consequence bound, not a documented limit.
+
+**The repair is ONE GUARD PER LEXICAL CONTEXT, not a patch per branch.** `lexShellWords` has five
+`$`-branches in bare text (`${`, `$((`, `$(`, `$'`, `$"`) and two more inside double quotes; the rule
+is about the FIRST `$`, so it is stated once at the head of each context, ahead of all of them. A
+per-branch fix would have to be repeated by whoever adds the next branch, which is how this rule came
+to be missing from two recognizers in the first place.
+
+**`$$` earns its own row because review round 1 found the walk without it.** `echo ${OUT:-$$(echo }; psql -c "x")}` is one character from an accept-set row; bash exits 2 and runs nothing, while a walk that reads the second `$` as opening `$(` follows that span to its `)` and resolves the psql — and resolves it with MORE confidence than the shipped scanner does (`nested: true` against `nested: false`). The rule lands in all THREE recognizers named above. Measured, one partial application per round: with the rule in only the walk, the attached spelling still moves (`w6`, caught by the documented-limit rows alone); with it in the walk and `attachedTargetEnd` but not `lexShellWords`, the re-lexed operand still fabricates (round 4, `P4`/`P5`).
 
 **The complement is default-denied**: an opener nobody listed terminates nothing and is counted as
 ordinary text, which is exactly today's behaviour, so a spelling outside the set cannot regress. That
@@ -543,7 +563,7 @@ differ by 3.5 s on the identical shipped module.
 
 - **PROBE DOMAIN:** the execution surfaces production READS — whole-file shell (`.sh`/`.bash`) and
   workflow `run:` scalars, per `SCANNED_EXTENSIONS` (`tests/cross-cutting/psqlStartupFiles/scan.ts:474`)
-  — plus the rows of `shapes.mts` (29 at `50ca72a56`: 20 accept-set, 5 documented-limit, 4
+  — plus the rows of `shapes.mts` (31 at `50ca72a56`: 22 accept-set, 5 documented-limit, 4
   bash-rejected), the eight of `consumers.mts` and the five of `syntax-error-class.mts`, each with its bash run as
   oracle, and the three families of `cost-curve.mts`. The probe prints its own inventory, which is
   the authority; the parenthetical above is that line as it read at `50ca72a56`, not a count this
@@ -659,7 +679,7 @@ five:** a live-corpus instance, which `2.3`'s greps report on every run.
 
 | file | change |
 |---|---|
-| `tests/cross-cutting/psqlStartupFiles/scan.ts` | `matchBraceSpan` (`tests/cross-cutting/psqlStartupFiles/scan.ts:973`) gains construct-aware delegation plus its two context helpers; `attachedTargetEnd`'s `substitutionOpenerEnd` (`tests/cross-cutting/psqlStartupFiles/scan.ts:1131`) gains the same `$$` precedence rule, because a rule applied in one of the two recognizers is `w6`; the six prose sites in §6 |
+| `tests/cross-cutting/psqlStartupFiles/scan.ts` | `matchBraceSpan` (`tests/cross-cutting/psqlStartupFiles/scan.ts:973`) gains construct-aware delegation plus its two context helpers; `attachedTargetEnd`'s `substitutionOpenerEnd` (`tests/cross-cutting/psqlStartupFiles/scan.ts:1131`) and `lexShellWords` itself — one guard at the head of each of its two lexical contexts, bare and double-quoted — gain the same `$$` precedence rule, because a rule applied in one recognizer of three is `w6` and a rule applied in two of three is round 4's finding; the six prose sites in §6 |
 | `tests/cross-cutting/psqlStartupFileSuppression.test.ts` | new cases for the §2.1 shapes and the §7 limits; no existing pin retired (§2.2) |
 | `tests/mutation/source/registry.ts` | `psqlStartupScan` rows re-keyed — the source edit moves every site below the walk; every argument re-read at its new site, none carried over on the strength of having been true before |
 | `docs/superpowers/specs/ci/probes/2026-08-22-shell-brace-cross-construct/` | the five probes, committed with the arc |

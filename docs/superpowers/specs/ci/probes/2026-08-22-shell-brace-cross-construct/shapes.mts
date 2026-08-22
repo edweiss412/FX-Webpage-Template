@@ -112,6 +112,20 @@ const ROWS: Row[] = [
   { id: "C5-nested-same-pair", b64: b(`cat > "$(echo $(echo x); psql -c 'x')"`), bash: "runs",
     after: { sites: 1, nested: true, nestedInBacktick: false, indirections: 0 },
     note: "CONTROL: same-pair nesting, depth counting" },
+  // ── the $$ precedence class, THIRD context (spec review round 4) ──────────
+  //    Rounds 1 and 3 put the rule in the delimiter walk and in
+  //    attachedTargetEnd. A `${…}` operand is RE-LEXED by lexShellWords, whose
+  //    own `$(` branch is a third recognizer, and it read the second `$` as an
+  //    opener. bash ACCEPTS this input, so it is inside the consequence bound
+  //    rather than a documented limit -- and the merge-base fabricates it too,
+  //    which is why the row is here rather than in the bash-rejected class.
+  { id: "P4-dollardollar-relexed-operand", b64: b(`echo \${OUT:-$$(echo ; psql -c "x")}`), bash: "silent",
+    after: { sites: 0, indirections: 0 },
+    note: "bash PARSES this and prints `<pid>(echo ; psql -c x)` -- psql NEVER runs, because $$ consumes both characters and the rest of the operand is literal. One ordinary edit from P1 (its inner `}` deleted). The merge-base resolves a nested site at offset 22; the repair must report nothing" },
+  { id: "P5-dollardollar-relexed-in-dq", b64: b(`cat >"\${OUT:-$$(echo ; psql -c 'x')}"`), bash: "silent",
+    after: { sites: 0, indirections: 0 },
+    note: "the same, one lexical context deeper -- inside double quotes, where lexShellWords keeps a SEPARATE set of `$` branches. The rule is one guard per context, not a patch per branch" },
+
   // ── the $$ precedence class (spec review round 1 finding 2) ───────────────
   //    `$$` is bash's PID parameter and consumes BOTH characters, so the `$`
   //    that follows it is ordinary text and the `(` after THAT opens nothing.
