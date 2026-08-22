@@ -51,7 +51,15 @@ function check(surfaceId: string): number {
       bad += 1;
       continue;
     }
+    // Narrowed rather than asserted: the regex guarantees all three groups, but
+    // `noUncheckedIndexedAccess` does not know that, and a bare `!` would hide a
+    // future grammar change instead of failing on it.
     const [, , lineNo, col, from] = m;
+    if (lineNo === undefined || col === undefined || from === undefined) {
+      console.log(`  UNPARSED  ${row.siteId}`);
+      bad += 1;
+      continue;
+    }
     const line = src[Number(lineNo) - 1] ?? "";
     const held = line.slice(Number(col) - 1, Number(col) - 1 + from.length);
     const ok = held === from;
