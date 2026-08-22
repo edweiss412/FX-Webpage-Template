@@ -115,8 +115,20 @@ const LOCAL_ONLY_GALLERY_CAPTURE =
   "local review artifact by design - the gallery capture sweep runs only via pnpm screenshot:gallery; no CI job, no committed baselines (docs/superpowers/specs/2026-07-26-gallery-screenshot-capture-design.md section 1.1)";
 const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/screenshots-gallery-capture.spec.ts": LOCAL_ONLY_GALLERY_CAPTURE,
-  "tests/e2e/admin-dev.spec.ts": UNSEEN,
+  "tests/e2e/admin-dev.spec.ts":
+    'runs in dev-gate-e2e.yml through the project-only invocation at .github/workflows/dev-gate-e2e.yml:153 (--project=dev-build --project=prod-build --project=prod-runtime-flip), which the scanner cannot see by its own contract. That workflow carries a PATH-FILTERED pull_request trigger naming this spec (:52 ff.) plus a daily schedule backstop (:42) for out-of-filter drift. Not PR-blocking-capable: the job is absent on non-matching PRs, so it cannot join the required set. Reclassified from UNSEEN by batch 2 (spec docs/superpowers/specs/ci/2026-08-21-app-e2e-batch2-design.md section 7.3): it is out of the app-e2e batches by requirement class (a different build server), and a workflow does name it, so the census cannot call it "runs nowhere".',
   "tests/e2e/admin-layout-dimensions.spec.ts": PATH_GATED,
+  // LEFT BATCH 2 UNDER AC-4, 2026-08-22. It was wired and green on four CI runs
+  // (32559183296, 32559865786, 32560300422 and the ceiling run 32558218336), then
+  // red on run 32561531983 with the whole page rendering the admin error boundary
+  // ("Admin session unavailable") at the Re-sync assertion — the transient
+  // admin-session infra class BL-CHANGES-FEED-MODAL-BATCH-FLAKE measured on this
+  // same job, not a defect in the spec. An admitted flake never rides in (batch-1
+  // AC-4, inherited verbatim), and recovering mid-case would be new machinery
+  // rather than the ratified open-time recovery, so the spec stays dark until that
+  // is designed. Re-entry needs the same bar every member clears: five consecutive
+  // green pull_request runs.
+  "tests/e2e/admin-parse-panel.spec.ts": UNSEEN,
   "tests/e2e/admin-lifecycle-transitions.spec.ts":
     "its lifecycle-layout-e2e.yml run block validates the REPEATS input in a case/if block, and the R12 scanner refuses control-flow run blocks (both branches DO run the spec on every PR — REPEATS defaults to '1' — but the scanner cannot prove branch liveness by regex; the census pins the same block via complex-invocation registry rows). NOT the BL-E2E-APP-DEPENDENT-SPECS-CI-DARK population: this spec runs on every PR.",
   "tests/e2e/admin-nav-layout-dimensions.spec.ts": PATH_GATED,
@@ -126,38 +138,52 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   // surface this spec guards (ShowRowActions, AnchoredPortal, ShowsTable and the
   // lib/popover placement core), so a regression in any of them fires the gate.
   "tests/e2e/rowactions-geometry.spec.ts": PATH_GATED,
-  "tests/e2e/admin-parse-panel.spec.ts": UNSEEN,
-  "tests/e2e/admin-route-boundaries.spec.ts": UNSEEN,
-  // Staged crew preview (spec 2026-08-15-step3-crew-preview §7): app-dependent
-  // (dev server + seeded pending_syncs row), so wiring it into a workflow belongs
-  // to the BL-E2E-APP-DEPENDENT-SPECS-CI-DARK batch, not to this arc.
-  "tests/e2e/staged-preview.spec.ts": UNSEEN,
-  "tests/e2e/admin-settings-admins-refresh.spec.ts": UNSEEN,
   "tests/e2e/attention-modal-gallery.spec.ts":
     "runs in dev-gate-e2e.yml via a project-only --project invocation (invisible to the scanner), which since 2026-08-09 carries a PATH-FILTERED pull_request trigger over the tested surfaces PLUS the daily schedule backstop for out-of-filter drift (24h bound). Not PR-blocking-capable: the job is absent on non-matching PRs, so it cannot join the required set. Gate-placement decision ratified at BL-DEV-GATE-GALLERY-SPEC-ROT close-out (BACKLOG-archive.md): the spec's value is the built ADMIN_DEV_PANEL_ENABLED=true artifact, so the dedicated project stays.",
   "tests/e2e/bell-panel-layout.spec.ts": PATH_GATED,
+  // LEFT BATCH 2 UNDER AC-4, 2026-08-22. Wired and green on five CI runs
+  // (32558218336, 32559183296, 32559865786, 32560300422, 32563331361), then red on
+  // 32563705156: the announcer stayed empty after Ignore, WITH the R7 hydration
+  // gate present. Mechanism UNDETERMINED and recorded as such — `--retries=0`
+  // leaves no trace, the artifact carries no snapshot, and the same case under the
+  // CI posture locally (CI=1, `pnpm build && pnpm start`, --trace on) passed 4 of
+  // 4. So neither the pre-hydration click loss (spec section 9's falsifier) nor
+  // the transient admin-session infra class is proven, and an unattributed red is
+  // exactly what the five-green bar refuses to wire. The falsifier stays OPEN with
+  // this run id as its only observation.
+  "tests/e2e/warning-panel-polish.spec.ts": UNSEEN,
   "tests/e2e/crew-layout-dimensions.spec.ts": PATH_GATED,
   "tests/e2e/alert-action-links.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/crew-section-toggle.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/font-binding.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/font-rendering-census.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/crew-page.spec.ts": PATH_GATED_BY_EXCLUSION,
-  "tests/e2e/deep-link-walker.spec.ts": UNSEEN,
-  "tests/e2e/dev-capture.spec.ts": UNSEEN,
-  "tests/e2e/developer-tier.spec.ts": UNSEEN,
+  "tests/e2e/deep-link-walker.spec.ts":
+    "runs in help-affordances.yml through the project-only invocation at .github/workflows/help-affordances.yml:97 (--project=help-docs-setup --project=help-docs --project=help-docs-desktop), which the scanner cannot see by its own contract. That workflow carries a PATH-FILTERED pull_request trigger over the surfaces it guards (:3 ff., including tests/e2e/**). Not PR-blocking-capable: the job is absent on non-matching PRs. It resolves 19 cases under each of help-docs and help-docs-desktop. Reclassified from UNSEEN by batch 2 (spec docs/superpowers/specs/ci/2026-08-21-app-e2e-batch2-design.md section 7.3).",
   "tests/e2e/empty-state-reachability.spec.ts": UNSEEN,
-  "tests/e2e/help-auth.spec.ts": UNSEEN,
-  "tests/e2e/help-mobile.spec.ts": UNSEEN,
-  "tests/e2e/help-screenshots-clock-pipeline.spec.ts": UNSEEN,
-  "tests/e2e/help-typography.spec.ts": UNSEEN,
+  "tests/e2e/help-auth.spec.ts":
+    "runs in help-affordances.yml through the project-only invocation at .github/workflows/help-affordances.yml:97 (--project=help-docs-setup --project=help-docs --project=help-docs-desktop), which the scanner cannot see by its own contract. That workflow carries a PATH-FILTERED pull_request trigger over the surfaces it guards (:3 ff., including tests/e2e/**). Not PR-blocking-capable: the job is absent on non-matching PRs. It resolves 13 cases under help-docs. Reclassified from UNSEEN by batch 2 (spec docs/superpowers/specs/ci/2026-08-21-app-e2e-batch2-design.md section 7.3).",
+  "tests/e2e/help-mobile.spec.ts":
+    "runs in help-affordances.yml through the project-only invocation at .github/workflows/help-affordances.yml:97 (--project=help-docs-setup --project=help-docs --project=help-docs-desktop), which the scanner cannot see by its own contract. That workflow carries a PATH-FILTERED pull_request trigger over the surfaces it guards (:3 ff., including tests/e2e/**). Not PR-blocking-capable: the job is absent on non-matching PRs. It resolves 1 case under help-docs. Reclassified from UNSEEN by batch 2 (spec docs/superpowers/specs/ci/2026-08-21-app-e2e-batch2-design.md section 7.3).",
+  "tests/e2e/help-screenshots-clock-pipeline.spec.ts":
+    "runs in screenshots-drift.yml through the docker block at .github/workflows/screenshots-drift.yml:118, which invokes `pnpm screenshot:help` (package.json:50) and therefore playwright.screenshots.config.ts's screenshots-help (:25-26) and screenshots-help-capture (:44-45) projects — a form the scanner refuses for the same reason as the section-header-visual row above (the spec path is not in command position). That workflow carries a PATH-FILTERED pull_request trigger (:12-13) and a schedule (:44), so it is named-by-a-workflow rather than dark, and it is not PR-blocking-capable. It resolves 1 case under screenshots-help. Reclassified from UNSEEN by batch 2 (spec docs/superpowers/specs/ci/2026-08-21-app-e2e-batch2-design.md section 7.3).",
+  "tests/e2e/help-typography.spec.ts":
+    "runs in help-affordances.yml through the project-only invocation at .github/workflows/help-affordances.yml:97 (--project=help-docs-setup --project=help-docs --project=help-docs-desktop), which the scanner cannot see by its own contract. That workflow carries a PATH-FILTERED pull_request trigger over the surfaces it guards (:3 ff., including tests/e2e/**). Not PR-blocking-capable: the job is absent on non-matching PRs. It resolves 6 cases under each of help-docs and help-docs-desktop. Reclassified from UNSEEN by batch 2 (spec docs/superpowers/specs/ci/2026-08-21-app-e2e-batch2-design.md section 7.3).",
   "tests/e2e/needs-attention-holds.spec.ts": PATH_GATED,
-  "tests/e2e/needs-attention-page.spec.ts": UNSEEN,
-  "tests/e2e/no-raw-codes.spec.ts": UNSEEN,
   "tests/e2e/onboarding-wizard-step1.spec.ts": UNSEEN,
   // packlist-rescan-recovery returned to the standalone CI project under the
   // PR-C directive resolver (BL-HARNESS-PACKLIST-SERVER-GRAPH graduated) — no
   // longer local-only.
   "tests/e2e/picker-flow.spec.ts": PATH_GATED_BY_EXCLUSION,
+  // LEFT BATCH 2 UNDER AC-4, 2026-08-22, on its second red (the batch-1 threshold,
+  // kept explicitly by the 2026-08-22 ruling that made signature reds non-events
+  // for the COUNT while still letting them accumulate per spec). Run 32571008405:
+  // the ratified open-time recovery fired and the error boundary persisted
+  // ("show_review_snapshot_failed"). Run 32578122375: "fan-out context update
+  // failed: An invalid response was received from the upstream server", the
+  // transient gateway 502 of BL-CHANGES-FEED-MODAL-BATCH-FLAKE, on the spec's own
+  // fixture write. Two families of the same environment, neither a spec defect.
+  "tests/e2e/published-show-attention.spec.ts": UNSEEN,
   "tests/e2e/published-review-modal.closeFreshness.spec.ts": PATH_GATED,
   "tests/e2e/published-review-modal.crew-actions.spec.ts": PATH_GATED,
   "tests/e2e/published-review-modal.deeplink.spec.ts": PATH_GATED,
@@ -165,27 +191,31 @@ const LOCAL_ONLY_ALLOWLIST: Record<string, string> = {
   "tests/e2e/published-review-modal.prefetch.spec.ts": PATH_GATED,
   "tests/e2e/published-review-modal.realtime.spec.ts": PATH_GATED,
   "tests/e2e/published-review-modal.reopen.spec.ts": PATH_GATED,
-  "tests/e2e/published-show-attention.spec.ts": UNSEEN,
   // Wired 2026-08-10 (M-wave 2 W-E2E): named in crew-e2e.yml's run command.
   "tests/e2e/right-now-transitions.spec.ts": PATH_GATED_BY_EXCLUSION,
-  "tests/e2e/roles-settings-layout.spec.ts": UNSEEN,
   "tests/e2e/section-header-visual.spec.ts":
     "invoked only through the section-header-visual.yml docker run … bash -lc '…' block, which the R13 scanner refuses (spec path inside a quoted string is not a command-position invocation, and the block carries $PWD expansion). The census routes that same block through the complex-invocation registry, and the spec's LIVENESS is owned by the byte-comparing visual drift gate itself (a dead run has no fresh capture to compare); BL-SECTION-HEADER-VISUAL-REQUIRED-CONTEXT tracks required-set promotion",
-  "tests/e2e/screenshots-help-capture.spec.ts": UNSEEN,
-  "tests/e2e/sign-in-page.spec.ts": UNSEEN,
-  "tests/e2e/source-link-dimensional.spec.ts": UNSEEN,
+  "tests/e2e/screenshots-help-capture.spec.ts":
+    "runs in screenshots-drift.yml through the docker block at .github/workflows/screenshots-drift.yml:118, which invokes `pnpm screenshot:help` (package.json:50) and therefore playwright.screenshots.config.ts's screenshots-help (:25-26) and screenshots-help-capture (:44-45) projects — a form the scanner refuses for the same reason as the section-header-visual row above (the spec path is not in command position). That workflow carries a PATH-FILTERED pull_request trigger (:12-13) and a schedule (:44), so it is named-by-a-workflow rather than dark, and it is not PR-blocking-capable. It resolves under NO project in the default config, so `pnpm test:e2e` never executes it by design; the screenshots config above is the only resolver. Reclassified from UNSEEN by batch 2 (spec docs/superpowers/specs/ci/2026-08-21-app-e2e-batch2-design.md section 7.3).",
   // Named in crew-e2e.yml's run command as of this branch (resolved by desktop-chromium — it
   // moved off mobile-safari when the first CI run measured every non-admin viewer dark on Linux
   // WebKit), so it is paths-ignore-gated like its three siblings rather than unseen.
   "tests/e2e/stage-restricted-crew-schedule.spec.ts": PATH_GATED_BY_EXCLUSION,
-  "tests/e2e/telemetry-layout.spec.ts": UNSEEN,
   // Named in crew-e2e.yml's run command beside theme-toggle — the two cover the
   // same control from opposite ends (persistence behavior, and the geometry of
   // the note that reports a failed persist), so they are paths-ignore-gated the
   // same way rather than PR-covered.
   "tests/e2e/theme-persistence-note.spec.ts": PATH_GATED_BY_EXCLUSION,
   "tests/e2e/theme-toggle.spec.ts": PATH_GATED_BY_EXCLUSION,
-  "tests/e2e/warning-panel-polish.spec.ts": UNSEEN,
+  // LEFT BATCH 2 UNDER AC-4, 2026-08-22, on the second red for one spec (the
+  // batch-1 threshold). Both reds are the same case and the same shape: run
+  // 32571008405 and run 32573475808, `console body stacks single-column below xl`,
+  // measuring a sidebar and a log that both sit at zero rects while the page's own
+  // snapshot still reads "Loading your dashboard…". That is the admin-loader class
+  // (BL-ADMIN-LOADER-CI-TRANSIENT) arriving as a loader that never resolves, so the
+  // spec is not defective — but two reds on one spec is where this batch stops
+  // re-rolling, and re-entry needs the same five-green bar.
+  "tests/e2e/telemetry-layout.spec.ts": UNSEEN,
 };
 
 describe("e2e workflow coverage (spec §6 item 6)", () => {
