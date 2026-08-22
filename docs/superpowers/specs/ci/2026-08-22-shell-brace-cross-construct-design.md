@@ -187,9 +187,8 @@ never made against a snippet whose behaviour is unestablished.
 its own tally, and those two lines are the figures to read:
 
 ```
-ROWS: 22 total = 17 accept-set + 5 documented-limit
-8/17 accept-set rows meet their post-repair expectation
-5/5 documented-limit rows reported (shipped module, nothing to compare against)
+ROWS: 28 total = 21 accept-set + 7 documented-limit
+11/21 accept-set rows meet their post-repair expectation
 ```
 
 at `50ca72a56` against the shipped scanner. A count written here would go stale the next time a row
@@ -198,11 +197,12 @@ is added; the lines above are dated evidence of one run, and the probe re-derive
 **The two populations reconcile against their own denominators**, because they answer different
 questions: an accept-set row asks whether the repair LANDED, a documented-limit row asks whether the
 repair stayed inside its scope. An earlier cut of this probe folded a moved limit into the
-accept-set tally and reported `16/17 accept-set` for a run in which all seventeen accept-set rows
-passed and one LIMIT had moved — one population's failure against the other's denominator.
+accept-set tally and reported `16/17 accept-set` for a run in which every accept-set row passed and
+one LIMIT had moved — one population's failure against the other's denominator.
 
-**Against the §3 prototype the same probe prints `17/17 accept-set rows meet their post-repair
-expectation` and `5/5 documented-limit rows UNCHANGED against the shipped module`.**
+**Against the §3 prototype the same probe prints `21/21 accept-set rows meet their post-repair
+expectation` and `7/7 documented-limit rows UNCHANGED against tests/cross-cutting/psqlStartupFiles/scan.ts
+at 50ca72a566b0`.**
 
 ### 2.1b The probes are proven to fail, in both populations
 
@@ -210,17 +210,33 @@ A probe that only prints cannot be an acceptance criterion, so each gate was run
 defect and against a no-defect baseline. Two defects, chosen so that each targets one population and
 neither targets both:
 
-| planted defect | accept-set | documented limits | exit |
+| candidate walk | accept-set | documented limits | exit |
 |---|---|---|---|
-| none (the §3 prototype) | 17/17 | 5/5 UNCHANGED | 0 |
-| the bare walk stops delimiting `'` | **16/17** — control C4, the quoted `)` | 5/5 UNCHANGED | **1** |
-| the walk grows a `#`-comment rule (parser growth) | 17/17 | **4/5** — L2 reports `MOVED` | **1** |
+| **the §3 design** | 21/21 | 7/7 UNCHANGED | 0 |
+| `w1` — quotes are not openers | **19/21** | **5/7** | 1 |
+| `w2` — ONE recognizer for both contexts | **19/21** | **5/7** | 1 |
+| `w3` — backticks are not openers | **18/21** | **5/7** | 1 |
+| `w4` — an unclosed foreign construct keeps counting | **20/21** | **5/7** | 1 |
+| `w6` — `$$` taught to the walk but NOT to `attachedTargetEnd` | 21/21 | **6/7** | 1 |
+| `w7` — `$$` taught nowhere | 21/21 | **5/7** | 1 |
+| the `#`-comment rule (parser growth) | 21/21 | **6/7** — `L2` moves | 1 |
 
-**The second defect is the one worth having.** It is not a bug in the ordinary sense — it makes the
-walk agree with bash on a case where today it does not — and it is exactly the scope creep §1.2 row
-2 forbids. Nothing in the accept-set notices it; only the limit rows do. That is what those five
-rows are for, and it is why they compare against the shipped module rather than against a written
-expectation.
+**Three of the seven are invisible to the accept-set and caught ONLY by the limit rows** — `w6`,
+`w7`, and the `#`-comment widening. Two of those three are UNDER-repairs and the third is an
+OVER-repair, which is the case for keeping both populations: an acceptance set measures whether the
+repair landed, and only a comparison against the merge-base measures whether it stayed inside its
+scope.
+
+**The `#`-comment row is the one worth dwelling on.** It is not a bug in the ordinary sense — it
+makes the walk agree with bash where today it does not — and it is still refused, because it is the
+parser growth §1.2 row 2 fences. A fence that only rejects mistakes is easy; this one rejects an
+improvement, and the limit rows are what make that executable rather than aspirational.
+
+**These numbers are also why AC-3's baseline is the MERGE-BASE and not the working tree.** Round 1
+finding 1: the first cut compared against the tree's own `scan.ts`, which after implementation IS
+the candidate, so every limit row would report `UNCHANGED` by construction. `w6` and `w7` are the
+proof that this is not theoretical — both pass the entire accept-set, and the only thing standing
+between them and a green run is a comparison the earlier probe could not make.
 
 `corpus-time.mts`'s ratio gate was proved the same way: `--max-cpu-ratio 1.5 --baseline-cpu-ms 10`
 exits 1 printing `median cpu 16636 ms exceeds 1.5 x baseline 10 ms = 15 ms`; the same command at a
@@ -237,7 +253,7 @@ SCAN_MODULE=<candidate> pnpm exec tsx \
 With the §3 prototype swapped in for `scan.ts`, `tests/cross-cutting/psqlStartupFileSuppression.test.ts`
 reports **1009 passed (1009)**. No pinned zero moves, including the six rows of
 `a construct whose LAST character is its delimiter without closing is REPORTED, not resolved`
-(`tests/cross-cutting/psqlStartupFileSuppression.test.ts:6674`) and the seven of
+(`tests/cross-cutting/psqlStartupFileSuppression.test.ts:6674`) and the four of
 `a quote character that is LITERAL inside a double-quoted target does not open a span`
 (`tests/cross-cutting/psqlStartupFileSuppression.test.ts:6700`), which are the two blocks nearest
 this walk.
@@ -257,6 +273,16 @@ grep -rEn … '\$\{[^}]*\$\([^)]*\}|\$\([^)]*\$\{[^}]*\)' .   # 0 hits — a cro
 **Zero live instances of the defect, six live instances of the shape branch C would fire on.** The
 first zero is what makes this a prospective repair; the six are what make an advisory-only closure
 worse than the defect it would announce.
+
+**This census is WIDER than the ledger row's, and the widening is this arc's, so the two are not in
+tension.** The row's zero was established over ATTACHED redirection targets carrying a substitution
+(`BACKLOG.md:278`, citing the 2026-08-21 three-surface census). §2.1 shows the crossing also
+misreports in ordinary ARGUMENT position, with no redirection anywhere — which makes the row's
+population the wrong set to ask about, since a census scoped to targets cannot see an argument. The
+greps above are therefore position-agnostic: they range over every mixed `${…}`/`$(…)` nesting in
+shell and workflow text, whatever construct encloses it. **The answer is still zero**, so the row's
+conclusion survives its own scope being widened — which is the only way a reader should accept a
+zero whose question changed.
 
 ### 2.4 Live-corpus cost and the AC-5 digest, both modules
 
@@ -321,6 +347,7 @@ defect the sibling arc measured when `'` inside a double-quoted target was read 
 | opener | delimited by | precedence |
 |---|---|---|
 | `\` | the escape pair: consumes the NEXT character whatever it is | **highest** |
+| `$$` | consumes BOTH characters — it is the PID parameter, so the second `$` is ordinary text and the `(` or `{` after it opens NOTHING | above `${`/`$(` |
 | `'` | the next `'`; no escapes inside, as POSIX single quotes have none | |
 | `"` | the double-quoted scan of context 2 | |
 | `` ` `` | `closingBacktick` (`tests/cross-cutting/psqlStartupFiles/scan.ts:1042`), which is escape-aware | |
@@ -334,9 +361,12 @@ defect the sibling arc measured when `'` inside a double-quoted target was read 
 | opener | delimited by |
 |---|---|
 | `\` | the escape pair |
+| `$$` | as context 1 — consumes both characters |
 | `` ` ``, `${`, `$(` | as context 1 |
 | `"` | CLOSES the span |
 | `'`, `$'`, `$"` | **literal text — not openers** |
+
+**`$$` earns its own row because review round 1 found the walk without it.** `echo ${OUT:-$$(echo }; psql -c "x")}` is one character from an accept-set row; bash exits 2 and runs nothing, while a walk that reads the second `$` as opening `$(` follows that span to its `)` and resolves the psql — and resolves it with MORE confidence than the shipped scanner does (`nested: true` against `nested: false`). The rule lands in BOTH recognizers, this walk's and `attachedTargetEnd`'s: taught to the walk alone, the attached spelling still moves. Measured — a walk with the rule in only one of the two is `w6` in §2.1b, and the documented-limit rows are the only population that catches it.
 
 **The complement is default-denied**: an opener nobody listed terminates nothing and is counted as
 ordinary text, which is exactly today's behaviour, so a spelling outside the set cannot regress. That
@@ -354,10 +384,18 @@ sibling arc deleted exactly such a counter rather than write a fixture for it.
   unclosed span still yields the last index. Only `matchBraceEnd` reads `closed`, and it keeps
   reading the walk's OWN flag rather than re-deriving closure from the character it landed on —
   the defect the sibling arc's diff round 1 found.
-- **The unlexable report's firing condition.** A construct opened and never closed still makes the
-  enclosing span unclosed, so `attachedTargetEnd` still reports it through `SUBSTITUTION_OPENER`
-  (`tests/cross-cutting/psqlStartupFiles/scan.ts:1058`). The repair changes WHERE a construct ends,
-  never WHICH spans are reportable.
+- **The unlexable report's FIRING CONDITION.** `SUBSTITUTION_OPENER`
+  (`tests/cross-cutting/psqlStartupFiles/scan.ts:1058`) is untouched: a span is reportable when it is
+  undelimitable AND carries one of the three openers, before and after.
+
+  **What DOES move is which spans are undelimitable, and that is the repair working rather than a
+  side effect** — round 1 finding 3 caught an earlier draft claiming the stronger thing, which the
+  probe set contradicts in both directions. `Q3` loses an advisory it should never have had (the
+  span is delimitable once the backtick is respected, and bash executes nothing there), and
+  `W4k-unclosed-backtick-in-subst` GAINS one, replacing a fabricated site. Both movements are the
+  predicate applied to a correctly delimited span; neither is the predicate changing. The
+  distinction is worth the paragraph because "no advisory count changes" and "the repair works" are
+  incompatible, and the first is the easier sentence to write.
 - **The `${…}` word is still opaque**, targets still never reach `words`, and `scanShellText` still
   passes no `targets` array — so the site path stays byte-identical by construction, as
   `tests/cross-cutting/psqlStartupFiles/scan.ts:291` states and
@@ -387,7 +425,7 @@ AC-5, AC-6 or AC-8; each names its own instrument.
 |---|---|---|
 | AC-1 | EVERY accept-set row of §2.1 meets its post-repair expectation, including the ledger row's four shapes in both placements. The probe's own tally is the count. | `SCAN_MODULE=<candidate> pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-shell-brace-cross-construct/shapes.mts --expect-repaired` — exits 1 naming every unmet row |
 | AC-2 | Every §2.1 control still reports, and the bash column holds for EVERY row. | the same command — a bash disagreement ABORTS with exit 2, so no subject result rests on an unestablished snippet |
-| AC-3 | Every §7 documented limit reports byte-identically to the merge-base scanner, so the repair has not grown into a shell grammar. | the same command with `SCAN_MODULE` set: each limit row is compared against the shipped module, prints `MOVED` on divergence, and is counted in its OWN tally line. Proven to fire by the §2.1b widening defect |
+| AC-3 | Every §7 documented limit reports byte-identically to the merge-base scanner, so the repair has not grown into a shell grammar. | the same command: each limit row is compared against `scan.ts` AS OF `git merge-base origin/main HEAD`, extracted with `git show` into `node_modules/` (which the walk skips at every depth) — never against the working tree, which after implementation IS the candidate. Every field of every record is compared, derived from the record rather than listed. The probe ABORTS if the baseline cannot be obtained, and SAYS SO rather than printing `UNCHANGED` when candidate and baseline are byte-identical. Proven to fire by three of the §2.1b defects |
 | AC-4 | The deciding suite is green, with the two nearest pin blocks (`tests/cross-cutting/psqlStartupFileSuppression.test.ts:6674` and `tests/cross-cutting/psqlStartupFileSuppression.test.ts:6700`) unmoved. | `pnpm exec vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts` |
 | AC-5 | The live-corpus finding set is unchanged: 76 rows, digest `8ebe8b08d43e6308aa471112d9f086d0118e6238`, over every field of every record. **This is the ledger row's close condition (c).** | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/baseline-corpus.mts --expect 8ebe8b08d43e6308aa471112d9f086d0118e6238` — exits 1 printing expected and actual, exit 2 on a zero-row or thin-record read |
 | AC-6 | **The ledger row's close condition (b).** The repaired walk's median CPU over the live corpus is within **1.5×** the shipped walk's, both measured in the SAME session so heavy-slot contention cancels. | `SCAN_MODULE=<a checkout of the merge-base scanner> pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-shell-brace-cross-construct/corpus-time.mts` for the baseline, then the same probe against HEAD with `--max-cpu-ratio 1.5 --baseline-cpu-ms <that number>`; exits 1 printing both |
@@ -412,7 +450,8 @@ differ by 3.5 s on the identical shipped module.
 
 - **PROBE DOMAIN:** the execution surfaces production READS — whole-file shell (`.sh`/`.bash`) and
   workflow `run:` scalars, per `SCANNED_EXTENSIONS` (`tests/cross-cutting/psqlStartupFiles/scan.ts:474`)
-  — plus the rows of `shapes.mts` (22 at `50ca72a56`: 17 accept-set, 5 documented-limit), each with its bash run as
+  — plus the rows of `shapes.mts` (28 at `50ca72a56`: 21 accept-set, 7 documented-limit) and the five
+  of `syntax-error-class.mts`, each with its bash run as
   oracle, and the three families of `cost-curve.mts`. The probe prints its own inventory, which is
   the authority; the parenthetical above is that line as it read at `50ca72a56`, not a count this
   document maintains. A constructed input more than
@@ -488,7 +527,22 @@ semantics inside expansions. That is branch A wearing a smaller hat, and the sta
 direction under same-axis recurrence is narrowing, not parser growth. **Re-file trigger for all
 five:** a live-corpus instance, which `2.3`'s greps report on every run.
 
-6. **Shell text inside JS strings** is not separately censused, exactly as the sibling arc records
+6. **An input bash REJECTS may still yield a site, and this is general rather than a property of the
+   crossing.** Round 1 finding 2 raised `echo ${OUT:-$$(echo }; psql -c "x")}`, on which bash exits 2
+   and the scanner resolves a site. The scope question is settled by measurement rather than by
+   argument: `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-shell-brace-cross-construct/syntax-error-class.mts`
+   runs five ORDINARY syntax errors — an unterminated quote, a stray `)`, a bare `done`, a bare `fi`,
+   a stray `}` — none of them a crossing and none carrying a `$$`, and **all five yield a site on the
+   SHIPPED scanner**. The probe ASSERTS that 5-of-5, so the limit cannot go stale silently.
+
+   The scanner is a lexer and does not validate; closing this means it becomes a bash parser, which
+   is the growth §1.2 row 2 fences. What this arc DOES owe, and pays, is that the repair must not
+   make it worse: the `$$` precedence rule of §3.1 exists precisely so the two `$$` spellings keep
+   reporting exactly what they report today, rather than gaining a confident `nested: true`. Both are
+   pinned as documented-limit rows (`P1`, `P2`), so a future repair that moves either one fails AC-3.
+   **Re-file trigger:** a live-corpus instance, or any arc that gives this surface a parse check.
+
+7. **Shell text inside JS strings** is not separately censused, exactly as the sibling arc records
    (`docs/superpowers/specs/ci/2026-08-21-shell-attached-redirection-target-design.md:455`). AC-5's
    before/after corpus equality covers it operationally, since any movement there fails the digest.
 
@@ -498,10 +552,10 @@ five:** a live-corpus instance, which `2.3`'s greps report on every run.
 
 | file | change |
 |---|---|
-| `tests/cross-cutting/psqlStartupFiles/scan.ts` | `matchBraceSpan` (`tests/cross-cutting/psqlStartupFiles/scan.ts:973`) gains construct-aware delegation plus its two context helpers; the six prose sites in §6 |
+| `tests/cross-cutting/psqlStartupFiles/scan.ts` | `matchBraceSpan` (`tests/cross-cutting/psqlStartupFiles/scan.ts:973`) gains construct-aware delegation plus its two context helpers; `attachedTargetEnd`'s `substitutionOpenerEnd` (`tests/cross-cutting/psqlStartupFiles/scan.ts:1131`) gains the same `$$` precedence rule, because a rule applied in one of the two recognizers is `w6`; the six prose sites in §6 |
 | `tests/cross-cutting/psqlStartupFileSuppression.test.ts` | new cases for the §2.1 shapes and the §7 limits; no existing pin retired (§2.2) |
 | `tests/mutation/source/registry.ts` | `psqlStartupScan` rows re-keyed — the source edit moves every site below the walk; every argument re-read at its new site, none carried over on the strength of having been true before |
-| `docs/superpowers/specs/ci/probes/2026-08-22-shell-brace-cross-construct/` | the four probes, committed with the arc |
+| `docs/superpowers/specs/ci/probes/2026-08-22-shell-brace-cross-construct/` | the five probes, committed with the arc |
 | `docs/superpowers/specs/ci/README.md` | index row for this document |
 | `BACKLOG.md` / `BACKLOG-archive.md` | ledger closeout, one commit before whole-diff review |
 
