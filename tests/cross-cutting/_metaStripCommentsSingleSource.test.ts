@@ -60,6 +60,29 @@ export type StandingRow = { file: string; family: string; marker: string; reason
  *  false positives). NEVER file-wide: an unlisted (family, marker) in the same file
  *  still fails. This list is EXACTLY the plan-time simulation's offender set. */
 export const STANDING_ALLOWLIST: StandingRow[] = [
+  {
+    file: "tests/mutation/source/processProbe.ts",
+    family: "startswith-filter",
+    marker: "#",
+    reason:
+      "NOT source-comment handling. This strips annotation lines from the PROBE " +
+      "RENDERER'S OWN PLAIN-TEXT REPORT before a forbidden-vocabulary scan reads it -- " +
+      "the report is not a TypeScript, SQL, CSS or MDX document, and the shared module " +
+      "parses source, so there is nothing here for it to do. The annotations exist " +
+      "because a prose scan over the whole render cannot tell a claim from an " +
+      "explanation of why the claim is NOT made; stripping them leaves exactly what " +
+      "the instrument asserts.",
+  },
+  {
+    file: "tests/mutation/source/processProbe.ts",
+    family: "name-family",
+    marker: "stripRenderComments",
+    reason:
+      "Same site, flagged twice: the name trips the family scan and the body trips " +
+      "the startsWith filter above. Both describe one function that removes `#` lines " +
+      "from a generated report. Renaming it to dodge the name scan would leave the " +
+      "behaviour and lose the record that the question was asked.",
+  },
   ...(["/*", "*/"] as const).map((marker) => ({
     file: "tests/specLint/declaredLimitPins.test.ts",
     family: "two-char-literal" as const,
