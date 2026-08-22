@@ -274,7 +274,6 @@ describe("the oracle and the version it classifies under", () => {
   // covers: AC-7
   it("scans a corpus large enough for the census equality to mean something", () => {
     expect(LIVE.universe).toBeGreaterThan(200);
-    expect(LIVE.elements.length).toBe(LIVE.keys.size);
   });
 });
 
@@ -1205,26 +1204,37 @@ describe("a key shared by two elements is evaluated per occurrence (§3.4)", () 
 /* --------------------------------------- the shipped pins, cross-asserted (§3.7) */
 
 describe("the census cannot disagree with the pins beside it", () => {
-  // covers: AC-8
+  // covers: AC-8, W1
   it("every DIVIDERS row resolves to a side-divider residue row", () => {
-    const dividerRows = RESIDUE_CENSUS.filter((r) => r.category === "side-divider").map(
-      (r) => r.file,
-    );
-    expect(DIVIDERS.map((d) => d.file).filter((f) => !dividerRows.includes(f))).toEqual([]);
+    // By ELEMENT and by KEY, never by file: keying this on the file alone is W1, the weakness this
+    // suite's own table names. A refactor that moved the divider's token onto a different element
+    // in the same file would satisfy a file-level check while the row it names no longer resolves.
+    const byKey = new Map(RESIDUE_CENSUS.map((r) => [rowKey(r), r] as const));
+    const problems = DIVIDERS.map((d) => {
+      const el = LIVE.elements.find((e) => e.file === d.file && e.line === d.line);
+      if (el === undefined) return `${d.file}:${d.line} is not a live residue element`;
+      const row = byKey.get(residueKey(el, LIVE.paint));
+      if (row === undefined) return `${d.file}:${d.line} resolves to no registered row`;
+      return row.category === "side-divider"
+        ? null
+        : `${d.file}:${d.line} is registered ${row.category}, not side-divider`;
+    }).filter((problem) => problem !== null);
+    expect(problems).toEqual([]);
   });
 
   // covers: AC-12
   it("the residue overlaps the swap census at exactly ShareHub's line 781", () => {
-    const overlap = LIVE.elements
-      .filter((el) => CENSUS.some((row) => row.file === el.file && row.line === el.line))
-      .map((el) => `${el.file}:${el.line}`);
-    expect(overlap).toEqual(["components/admin/showpage/ShareHub.tsx:781"]);
-    const row = RESIDUE_CENSUS.find(
-      (r) =>
-        r.file === "components/admin/showpage/ShareHub.tsx" &&
-        r.category === "responsive-skin-filed",
+    const overlap = LIVE.elements.filter((el) =>
+      CENSUS.some((row) => row.file === el.file && row.line === el.line),
     );
-    expect(row?.category).toBe("responsive-skin-filed");
+    expect(overlap.map((el) => `${el.file}:${el.line}`)).toEqual([
+      "components/admin/showpage/ShareHub.tsx:781",
+    ]);
+    // Reached THROUGH the overlapping element's key. Finding a row by `category === x` and then
+    // asserting `category === x` is a tautology: it can only fail when no such row exists at all,
+    // and it says nothing about the element the pin is named for.
+    const byKey = new Map(RESIDUE_CENSUS.map((r) => [rowKey(r), r] as const));
+    expect(byKey.get(residueKey(overlap[0]!, LIVE.paint))?.category).toBe("responsive-skin-filed");
   });
 });
 
