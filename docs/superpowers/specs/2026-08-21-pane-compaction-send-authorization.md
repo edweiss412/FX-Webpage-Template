@@ -606,7 +606,38 @@ bounded, not surfaced at the moment it occurs; **[residual]** accepted gap.
    split producing a send, a silent success, or a destroyed grant — none of which this one
    does, and the round-2 repair to `nonceConsume` closes the destruction path specifically.
 
-7. **Inherited unchanged** from the 2026-08-16 design §7: purview collision detection is a
+7. **[demote] Exotic-but-VALID input to the substitution and record layers — the ship-and-fence
+   family.** Three review rounds each found one instance of a single shape: an input that is
+   legal by its own domain's rules and unusual enough that nothing exercised it. Round 3: a
+   branch named `feat/$&`, where `git check-ref-format` accepts `$&` and `String.replace` read
+   it as substitution syntax. Round 4: a branch named `feat/<NONCE>`, also accepted by git,
+   which the NEXT substitution pass then rewrote. Round 4 again: a nonce record that exists but
+   will not parse, which a torn concurrent write leaves behind.
+
+   **Both repairs NARROW rather than widen, which is why this family is fenced rather than
+   hunted further.** Substitution is now ONE pass over a token map: `replace` never re-examines
+   what it has inserted, so no value can be read as a token whatever it contains — a property
+   that holds for tokens nobody has invented yet, verified by planting each token inside every
+   other token's value plus a `<UNBORN>` token that does not exist, all eight surviving
+   literally. Records now distinguish ABSENT from UNREADABLE at the read/write seam, so a torn
+   file is a fault rather than an absence, and `nonceWrite` can no longer overwrite a record it
+   could not read.
+
+   What is FENCED is the search, not the guarantee: this arc stops sampling the space of
+   exotic-valid inputs at the round cap, because the finding rate stayed flat (5, 3, 6, 6)
+   while the repairs converged structurally, and a stopping rule for sampling is not a claim of
+   exhaustion. Another round would probably find another instance; that is what the cap exists
+   to stop.
+
+   **Re-file triggers — any ONE re-opens this as a defect, not a limit.** (a) An address line
+   observed in the wild naming a branch nobody drives, or a payload delivered to the wrong
+   session. (b) A one-shot grant lost or destroyed without the operator having spent it.
+   (c) Any input that reaches the substitution or record layer and produces a WRONG value
+   rather than a refusal or a named fault. The first two are observable by the operator
+   procedure §3.3 already requires; the third is what the guards in
+   `tests/paneCompaction/literalSubstitution.test.ts` and `recordReads.test.ts` assert.
+
+8. **Inherited unchanged** from the 2026-08-16 design §7: purview collision detection is a
    report, not a lock (two orchestrators can both send `/compact`, benign); rule 5's yield
    depends on herdr populating `agent_session`; `gh`'s no-PR signature is matched on stderr
    text and demotes to `UNDETERMINED` on reword; a marker-less worktree classifies from git

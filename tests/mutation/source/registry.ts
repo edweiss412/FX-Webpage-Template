@@ -341,13 +341,15 @@ export const GUARD_SURFACES: GuardSurface[] = [
         reason: "The `2` of the same `0 | 1 | 2` return-type annotation on `checkExitCode`.",
       },
       {
-        // Re-keyed 700 -> 801 -> 828, each time RE-VALIDATED by READING the new
+        // Re-keyed 700 -> 801 -> 828 -> 854, each time RE-VALIDATED by READING the new
         // line rather than by the key resolving: a resolving key proves the site
-        // still exists, never that the reason still holds. Line 828 reads
+        // still exists, never that the reason still holds. Line 854 reads
         // `export type Refusal = { exitCode: 1; sends: never[]; message: string
-        // };`, so it is the same annotation under a new line. The 801 -> 828 move
-        // is diff round 3's refusal-cause split, whose comment block sits above
-        // this declaration and pushed it down 27 lines.
+        // };`, so it is the same annotation under a new line. 801 -> 828 was diff
+        // round 3's refusal-cause split; 828 -> 854 was round 4's one-pass
+        // substitution block, MY OWN commit, which moved it again while I was
+        // still describing the previous move. Checked because the merge prompted
+        // a re-key sweep, not because anything flagged it -- CI would have.
         //
         // Third re-key on one row, and the pattern is the point: this ledger is
         // keyed by LINE, so any edit above a row silently invalidates it and the
@@ -356,7 +358,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
         // integer-literal, same column, same mutation -- is the signature of a
         // MOVE rather than a regression, and it is worth recognising before
         // treating it as a new gap.
-        siteId: "integer-literal:828:35:1>2",
+        siteId: "integer-literal:854:35:1>2",
         kind: "equivalent",
         reason:
           "`export type Refusal = { exitCode: 1; ... }` -- a type alias. The refusal objects that " +
