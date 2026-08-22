@@ -75,7 +75,7 @@ others, so they are not separable into different tasks.
 
 ## Task 1 — accept-set gate on the site channel
 
-<!-- task: red=`pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:4076` why=`the raw pass at scan.ts:4076 runs unconditionally, so for a QUOTE_DOUBLE scalar the YAML delimiters reach the shell lexer, the leading quote opens a double-quoted span, the $( inside it consumes the YAML closing quote, and a psql command word is recovered from a substitution body that exists only because two YAML delimiters were read as shell — the new AC-1 case requires zero sites there and the current tree returns one with nested true` ac=AC-1,AC-3,AC-4 -->
+<!-- task: red=`pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:4076` why=`the raw pass at scan.ts:4076 runs unconditionally, so for a QUOTE_DOUBLE scalar the YAML delimiters reach the shell lexer, the leading quote opens a double-quoted span, the $( inside it consumes the YAML closing quote, and a psql command word is recovered from a substitution body that exists only because two YAML delimiters were read as shell — the new AC-1 case requires zero sites there and the current tree returns one with nested true` ac=AC-1,AC-3,AC-4,AC-9 -->
 
 **What is red and why:** the new case for AC-1 asserts `scanWorkflowSource` returns no site for a
 double-quoted `run:` scalar carrying the spec's canonical body; the current tree returns one
@@ -124,6 +124,28 @@ const rawIsShellText =
 `found` is `[]` when `rawIsShellText` is false; the decoded pass below is unchanged and becomes the
 only pass for a quoted scalar. `verdictIdentity` needs no change: with no raw findings its `seen`
 set is empty and every decoded site is kept.
+
+**Also in this task — AC-9, the accept-set pinned against the library.** The three styles go in a
+NAMED exported constant rather than an inline disjunction, so the accept-set is one declaration a
+reader and a mutant can both find:
+
+```ts
+export const RAW_IS_SHELL_TEXT_STYLES = new Set(["PLAIN", "BLOCK_LITERAL", "BLOCK_FOLDED"]);
+```
+
+and the pin asserts two properties over the §2.5 spelling corpus: the constant is DISJOINT from the
+two quoted styles, and their union COVERS every `type` the installed `yaml` actually emits. Both
+directions discriminate — adding `QUOTE_SINGLE` to the constant breaks disjointness, dropping
+`BLOCK_FOLDED` breaks coverage — which a bare "the library emits five styles" assertion does not,
+since it never mentions the constant at all.
+
+**This was a separate task and is not one any more, because its RED could not exist.** Drafted as
+Task 3 with its own red-then-green marker, it was pre-run against the current tree and **passed on
+the first authoring** — the installed library does emit exactly those five, so the assertion is true
+before any of this arc's code exists. That is the marker shape the task contract rejects outright: a
+guard test that passes the moment it is authored can never be observed failing for the reason its
+`why=` names. A structural pin being green from birth is fine; dressing it in a red-then-green
+marker is not. It ships here, in the commit that introduces the thing it pins.
 
 **Then, in the same task:** `pnpm mutation:sites`. Every edit to `scan.ts` moves line-anchored
 registry keys.
@@ -191,25 +213,7 @@ edits, all in this task's commit:
 
 **Then, in the same task:** `pnpm mutation:sites`.
 
-## Task 3 — pin the accept-set against the library
-
-<!-- task: red=`pnpm vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:4076` why=`the accept-set introduced in Task 1 is an allowlist of three style names with no executable statement of what the library can emit, so a yaml upgrade that adds a sixth scalar style would silently take the not-shell-text branch for a style that IS shell text, losing sites with nothing reported — the new case requires the set of styles the installed library produces over a spelling corpus to equal the five the accept-set models, and no such assertion exists on the tree` ac=AC-9 -->
-
-**What is red and why:** nothing on the tree states executably which scalar styles `yaml` can
-produce, so the accept-set's completeness rests on a reading of the library rather than on a check.
-
-The spec's §3.1 last row said an unmodelled style is "REPORTED by name". That branch is unreachable
-with `yaml@2.9.0` and a report mechanism nothing can execute is a description, not a criterion
-(`docs/agents/writing-plans.md` — a criterion nothing runs). It is replaced by an executable pin
-with the same intent and a reachable failure: parse the §2.5 spelling corpus, collect the distinct
-`type` values the installed library actually emits, and assert the set equals the five the
-accept-set models. A library upgrade introducing a sixth fails this by name instead of silently
-taking the wrong branch.
-
-**AC-9** is that pin, and it supersedes the prose in spec §3.1's last row. The spec is amended in
-the same commit rather than left contradicting the plan.
-
-## Task 4 — score and close-out
+## Task 3 — score and close-out
 
 <!-- task: red=`pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/baseline-corpus.mts --expect 8ebe8b08d43e6308aa471112d9f086d0118e6238` red-state=live why=`this is a GATE command, not an authored red — it asserts the live finding set has not moved and it passes on the clean tree at base, which is the state this task must preserve; its mutant-red is constructed below rather than observed on the tree` ac=AC-5,AC-6,AC-7,AC-8 -->
 
