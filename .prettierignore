@@ -118,3 +118,6 @@ tests/fixtures/venueSectionRawWifi.html
 # fidelity are opposite requirements here. Byte-identity against the two blobs
 # is asserted by tests/specLint/claimSweepFixtures.ts's own integrity case.
 tests/specLint/fixtures/claimSweep/
+
+# Draft-time probe outputs are evidence; never reflow them
+docs/superpowers/specs/ci/probes/2026-08-21-connection-census/*.out

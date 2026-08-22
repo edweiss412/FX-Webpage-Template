@@ -261,6 +261,11 @@ export const GUARD_SURFACES: GuardSurface[] = [
       // loop bound nothing counted.
       "tests/paneCompaction/mutantKills.test.ts",
       "tests/paneCompaction/revalidate.test.ts",
+      // The send-authorization arc's deciding suite (BL-PANE-COMPACTION-SEND-AUTHORIZATION).
+      // Enrolled in the SAME task that authors it: a deciding suite outside
+      // `suitePaths` runs, passes, and buys zero score, which is how eight #831
+      // survivors existed under a green suite.
+      "tests/paneCompaction/authorization.test.ts",
     ],
     // Five of the six. `regex-quantifier-bound` is EXCLUDED, and the exclusion
     // is probed rather than assumed: it recognizes only `{m,n}` quantifiers
@@ -290,14 +295,24 @@ export const GUARD_SURFACES: GuardSurface[] = [
     // as eligible, which bands.test.ts asserts IN PROCESS. Run, not merely
     // asserted non-equal to the source.
     control: { from: "export const ELIGIBLE_AT = 5;", to: "export const ELIGIBLE_AT = 0;" },
-    // Eight survivors, every one argued rather than deferred. NO `accepted-gap`
+    // Six survivors, every one argued rather than deferred. NO `accepted-gap`
     // rows: a gap is real coverage debt and owes a BL- ref, and none of these is
     // debt.
     //
-    // SIX are TYPE ANNOTATIONS (`: 0 | 1 | 2`, `exitCode: 1`,
-    // `{ exitCode: 0 | 1 }`). TypeScript erases them and the runner's children
-    // transpile without typechecking, so the emitted JavaScript is byte-identical
-    // and no test could ever kill one.
+    // FOUR are TYPE ANNOTATIONS (`: 0 | 1 | 2`, `exitCode: 1`). TypeScript
+    // erases them and the runner's children transpile without typechecking, so
+    // the emitted JavaScript is byte-identical and no test could ever kill one.
+    //
+    // Eight until 2026-08-21. The send-authorization arc deleted `runCompact`'s
+    // `{ exitCode: 0 | 1; message: string }` return type -- the function stopped
+    // GATING, and the two rows keyed to that annotation went with the code they
+    // described. It returns `boolean` today (diff round 3, finding 4 corrected
+    // this sentence, which said "returns nothing" and was falsified by the round
+    // 2 repair that made the send conditional on the consume's answer). What
+    // retired those two rows is the loss of the RICHER annotation, not the
+    // absence of a return type. `pnpm mutation:sites`
+    // reported them as `(none -- the site is gone)` rather than as moved, which
+    // is the distinction that separates a re-key from a deletion.
     //
     // TWO are counter details inside `newestVerdictTie`, which reports
     // `count > 1`. Neither the initial value nor the increment SIZE can move that
@@ -326,22 +341,28 @@ export const GUARD_SURFACES: GuardSurface[] = [
         reason: "The `2` of the same `0 | 1 | 2` return-type annotation on `checkExitCode`.",
       },
       {
-        siteId: "integer-literal:700:35:1>2",
+        // Re-keyed 700 -> 801 -> 828 -> 854, each time RE-VALIDATED by READING the new
+        // line rather than by the key resolving: a resolving key proves the site
+        // still exists, never that the reason still holds. Line 854 reads
+        // `export type Refusal = { exitCode: 1; sends: never[]; message: string
+        // };`, so it is the same annotation under a new line. 801 -> 828 was diff
+        // round 3's refusal-cause split; 828 -> 854 was round 4's one-pass
+        // substitution block, MY OWN commit, which moved it again while I was
+        // still describing the previous move. Checked because the merge prompted
+        // a re-key sweep, not because anything flagged it -- CI would have.
+        //
+        // Third re-key on one row, and the pattern is the point: this ledger is
+        // keyed by LINE, so any edit above a row silently invalidates it and the
+        // gate reports the same site as one unaccepted survivor plus one stale
+        // row. That pair -- an unaccounted site and an unmatched row, both
+        // integer-literal, same column, same mutation -- is the signature of a
+        // MOVE rather than a regression, and it is worth recognising before
+        // treating it as a new gap.
+        siteId: "integer-literal:854:35:1>2",
         kind: "equivalent",
         reason:
           "`export type Refusal = { exitCode: 1; ... }` -- a type alias. The refusal objects that " +
           "carry a real `exitCode: 1` are constructed elsewhere and asserted by cli.test.ts.",
-      },
-      {
-        siteId: "integer-literal:798:17:0>1",
-        kind: "equivalent",
-        reason: "The `0` of the `{ exitCode: 0 | 1; message: string }` return-type annotation.",
-      },
-      {
-        siteId: "integer-literal:798:21:1>2",
-        kind: "equivalent",
-        reason:
-          "The `1` of the same `{ exitCode: 0 | 1; message: string }` return-type annotation.",
       },
       {
         siteId: "integer-literal:386:15:0>1",
@@ -3135,5 +3156,60 @@ export const GUARD_SURFACES: GuardSurface[] = [
       to: "if (handedOn) return;",
     },
     accepted: [],
+  },
+  /**
+   * The connection census (BL-DESTRUCTIVE-GUARD-DISCOVERY-BY-CONNECTION). Pure AST over a
+   * source string plus an INJECTED import resolver, DB-free and subprocess-free, with a
+   * deciding suite that is entirely constructed sources — the shape the registry can
+   * express, enrolled BEFORE the first diff-review round because "the guard does not pin
+   * what it claims" is exactly the finding class a score plus an empty survivor set
+   * settles mechanically.
+   *
+   * The LIVE gate (`_metaConnectionCensusGuard.test.ts`) is deliberately NOT a deciding
+   * suite: it reads the whole `tests/` tree, and a score whose input set includes the
+   * repository is not closable. What it proves — that the corpus needs exactly the
+   * disposition rows it carries — is a measurement, not a behaviour.
+   */
+  {
+    id: "connectionCensus",
+    sourcePath: "tests/db/_connectionCensus.ts",
+    suitePaths: ["tests/db/connectionCensus.test.ts"],
+    operators: [...OPERATOR_NAMES],
+    scoreFloor: 0.95,
+    // Inverts the exact-match that decides `validation-env`: under `!==` no environment
+    // chain matches its accept-set entry, so every validation-env fixture — the largest
+    // class in the suite — reds. Verified unique on the current source (grep -c -F = 1),
+    // and the deciding suite asserts that uniqueness executably rather than in prose.
+    control: {
+      from: "chain.every((n, i) => n === r.names[i])",
+      to: "chain.every((n, i) => n !== r.names[i])",
+    },
+    accepted: [
+      {
+        siteId: "statement-removal:1326:9:continue;>(removed)",
+        kind: "equivalent",
+        reason:
+          "Removing the `continue` also pushes an out-of-population target onto `targets`, " +
+          "so it reaches `edges` and then a file's `reaches` set. Nothing downstream can " +
+          "observe it: `reaches.get(target)` and `classes.get(target)` are both absent for a " +
+          "path that is not in `files` and fall through their `?? []`, and `affected` " +
+          "(tests/db/_connectionCensus.ts:1367) only ever asks `reaches.get(f)?.has(input.file)` " +
+          "for an `input` drawn from `files` — which an out-of-population target is, by the " +
+          "definition of the branch, not a member of. The report is pushed on both sides.",
+      },
+      {
+        siteId: "statement-removal:1358:13:grew = true;>(removed)",
+        kind: "equivalent",
+        reason:
+          "Class growth can never be the LAST growth of a pass, so its signal is never the " +
+          "one that keeps the loop alive. Classes and reach travel the same edge relation at " +
+          "the same rate — one hop per pass — because both read the target's already-" +
+          "propagated map in the same iteration. If `mine` gains a class at distance N, a " +
+          "node exists at distance N, and that node grows `myReach` in the same pass " +
+          "(tests/db/_connectionCensus.ts:1347,1352), which signals. The converse does not " +
+          "hold, which is why the reach sites at 1211 and 1216 ARE killed, each by its own " +
+          "chain fixture in the deciding suite.",
+      },
+    ],
   },
 ];

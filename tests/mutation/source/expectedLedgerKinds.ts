@@ -104,7 +104,16 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // classifier over injected fixtures, so every survivor is repayable by a test
   // rather than blessable. A row appearing here later is a coverage regression
   // to explain, not a number to bump.
-  paneCompactionCore: { equivalent: 8 },
+  // 8 -> 6 (2026-08-21): `runCompact`'s `{ exitCode: 0 | 1; message: string }`
+  // return type is gone -- the function stopped GATING -- and the two rows keyed
+  // to that annotation went with it. It returns `boolean` today; this sentence
+  // said "returns nothing" until diff round 3 finding 4, where the round 2
+  // repair had falsified it in BOTH independent copies at once, which is exactly
+  // the drift this file's independence is supposed to expose. Declared
+  // INDEPENDENTLY of the registry, which is the whole point: this number and the
+  // rows are two statements of one fact, and the parity gate is what stops them
+  // drifting apart silently.
+  paneCompactionCore: { equivalent: 6 },
   // 18/2 → 22/0 (2026-08-04, BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY). The two
   // `accepted-gap` rows were the comparator's equal-key blind spot, and adding
   // the message as a third key removed the gap rather than re-accepting it. The
@@ -404,4 +413,20 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // is not behaviour-preserving by definition. Any row appearing here later is
   // this surface's first and owes its own written argument.
   sendAuthScan: {},
+  // The connection census, enrolled 2026-08-21. TWO proven equivalences and NO accepted gap.
+  // The first scored run reported 74 survivors (0.7898) and the arc repaid them across three
+  // measured rounds — 74, then 24, then 7 — with cases, or by DELETING code no input could
+  // reach (six unreachable branches in a declaration-position predicate; a dead
+  // `initializer === cur` conjunct). Nothing was blessed to lift the number: an
+  // `accepted-gap` row would DEPRESS the score by design, and there are none.
+  //
+  // The two equivalences are structural, each argued in full on its registry row. An
+  // out-of-population import target is unobservable because every consumer of `edges` and
+  // `reaches` keys on members of `files`, which such a target is by definition not. And the
+  // fixpoint's CLASS-growth signal can never be a pass's last growth: classes and reach
+  // cross the same edges at the same one-hop-per-pass rate, so a class arriving at distance
+  // N implies a node at distance N, which grows reach in that same pass. The converse does
+  // not hold, which is why the two REACH signals are killed rather than accepted, each by
+  // its own chain fixture. A third row appearing here owes its own written argument.
+  connectionCensus: { equivalent: 2 },
 };

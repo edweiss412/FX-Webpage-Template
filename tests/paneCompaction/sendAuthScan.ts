@@ -54,7 +54,13 @@ export const SEND_AUTH_SURFACES: readonly SendAuthSurface[] = [
     sinks: ["send"],
     effects: ["out", "outRaw", "nonceWrite", "nonceConsume"],
     ambient: ["now", "random"],
-    derivationHelpers: ["cacheOf", "memoize"],
+    // `readOnce` joins the two shipped helpers: it is a derivation by the same
+    // definition -- surface in, derived surface out -- and it is what
+    // ESTABLISHES the pass, so the binding every other callee receives is
+    // already derived. Adding it widens the accept set by one MECHANISM, not by
+    // one example: a consumer like `observe` stays a RAW-HANDOFF, which is what
+    // caught this arc's first attempt at wiring the pass.
+    derivationHelpers: ["cacheOf", "memoize", "readOnce"],
   },
 ];
 

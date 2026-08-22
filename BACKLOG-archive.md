@@ -1,3 +1,80 @@
+## BL-PANE-COMPACTION-SEND-AUTHORIZATION — the pane-compaction send path needs its own arc — CLOSED 2026-08-21
+
+**Status:** SHIPPED 2026-08-21 · **Effort (as shipped):** L · **Severity (as filed):** the six probe chains below each exited 0 and SENT bytes before their repair · **Class:** authorization model · **Facing:** product · **Shipped by:** `feat/pane-compaction-send-auth`
+
+**Resolution.** The fence is deleted WHOLE -- no flag, no environment gate -- and every sending
+invocation authorizes from ONE read-once pass over its world. `readOnce` memoizes each read member
+by member and arguments, with the read set taken as the COMPLEMENT of a declared non-read set, so
+the wrapper is total: a member added to `Surface` joins the pass by default. `authorizeSend` is a
+pure predicate over that pass -- ownership, the rule 1-8 observation stop, the mode verdict gate,
+and `--compact`'s nonce equality, in that order, each refusing by name. There is nowhere in its
+input to put a value taken at another instant.
+
+Deleted rather than kept as belt-and-braces, because each was a decision assembled across instants
+and each had already been a review finding: the preliminary observe pass, the entry-time marker
+read, `authorize()`, `revalidateNow()` and its three stale-versus-fresh comparisons, the
+`stale-verdict` refusal cause, and `runCompact`'s revalidation thunk. A comparison that exists can
+be incomplete; a comparison that does not exist cannot be the next round's finding.
+
+**The first scheduled step was a QUESTION, and it was answered before any code.** This row asked
+whether one atomic snapshot per authorization is sufficient or whether the target must acknowledge
+before any byte is sent. The answer, in the spec's §1.2 and §1.3: a literally atomic snapshot is
+UNOBTAINABLE over a multi-source world and claiming one would be the same overclaim the 2026-08-16
+design spent rounds removing; the solicited acknowledgment is strictly worse (the ack is itself a
+read, at a second instant, so the flow has MORE reads than the code it replaces); and the coherent
+PRE-ISSUED form is not a rival model at all -- it collapses into the decided one as a candidate
+additional predicate, declined with reasons and fenced.
+
+**How the six chains are closed, stated honestly rather than claimed preserved.** Chains 1-5 are
+UNREPRESENTABLE under the pass model, and that is evidence FOR it. Every historical fixture for
+those chains encoded a TWO-READ premise -- a constructed `Surface` answering differently on the
+second read -- and there is no second read for the mutation to ride on. Those premises RETIRE with
+the two-pass code; an earlier draft claimed every historical behavioral kill was preserved and that
+claim was withdrawn. Each chain is covered twice instead:
+
+- **The structural cover**, shared by chains 1-5: a spy over every read member, asserting SET
+  EQUALITY against each mode's declared expected-read set and exactly one call per member per
+  invocation, plus a two-invocation case proving nothing carries between commands. It is a GENUINE
+  red against the shipped structure -- measured with only the fence deleted, `--compact` read the
+  marker THREE times and roster/purview/branches/screen/gh/git/corpus twice each.
+- **The behavioral pins**, adapted to a single-read premise and PROVEN rather than assumed: each
+  kills a NAMED weakened build (ownership-check-deleted, rule-1-8-stop-deleted, verdict-gate-deleted,
+  nonce-equality-deleted, rule-1-deleted), applied in place and restored byte-exact, all five PROVEN
+  with the failing assertion line recorded.
+
+**What is NOT closed, priced rather than hidden.** The pass is not an instant: its members are read
+sequentially, so a world change landing between the first read and the bytes landing is unobserved
+by that invocation. No reachable orchestrator-side mechanism closes it -- an acknowledgment read
+merely moves the window, and the shipped two-pass code carried the identical window inside its own
+revalidation. It is priced per decay class: the WRONG-RECIPIENT class self-neutralizes, because both
+prompts now open with an address line naming the branch and session and telling any other session to
+ignore the message; the `blockedOn` class is closed by the resume payload deferring to the
+recipient's own marker at execution time; and a verdict or purview change with branch, session and
+`blockedOn` unchanged is **[bounded], not closed** -- the recipient cannot see those signals by
+construction. The bounded consequence is one resumed-or-stopped turn the recipient's own driver
+reconciles, never corrupted state, and a prose meta-test pins that both documents keep saying
+bounded so the round-4 overclaim cannot silently return.
+
+**Two repair-introduced defects travelled with the floor and both are pinned.** The dead code the
+mutation gate caught, and the refusal that LIED -- roster disappearance encoded as a stale report
+with a null nonce, refusing with "marker carries no checkpointNonce" while a matching nonce sat in
+the marker. The lying-refusal pin survives the adaptation with its force intact: the nonce is
+deliberately present and matching, so a refusal naming it would be provably false.
+
+**Restored, not rewritten, and checkable rather than asserted.** The baseline is
+`git show 9eaa6d6eb^:tests/paneCompaction/adapter.test.ts`, copied in whole and then adapted. The
+class table was DERIVED and reconciles: 65 baseline cases = 39 deleted + 1 body-changed + 25
+retained; 30 live = 25 + 1 + 4 added-by-the-fence. Two earlier derivations were wrong and both
+looked clean -- a brace-counting parser mis-grouped ten cases, and header-to-next-header regions bled
+the following `describe(` into each block's last case -- so the shipped one asserts three things
+about itself and found the single body-changed case a title diff cannot see.
+
+**Review disposition, stated plainly.** Spec and plan both closed **DISPOSITIONED, not CONVERGED**,
+on an orchestrator ruling at the 4-round cap; each carries a final repair unreviewed by a codex
+round, cleared because the spec's was a subtractive prose narrowing and the plan's were additive
+facts. Four spec rounds (3/2/3/1) and four plan rounds (5/5/5/2) are recorded at
+`docs/review-rounds/feat/pane-compaction-send-auth/`.
+
 ## BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION — a command substitution inside an ATTACHED redirection target hides an executing psql from both scanners
 
 **Status:** RESOLVED 2026-08-21 (`fix/shell-attached-redirection-target`, PR #873) · **Filed:** 2026-08-20 (`fix/shell-lexer-quoted-value-recall`, spec adversarial round 1 finding 1) · **Facing:** process · **Severity:** MEDIUM · **Class:** guard coverage · **Effort:** M
@@ -105,6 +182,44 @@ schedule for an outcome already inside the bound.
 produced ZERO false advisories on the live corpus. Silence was not buying correctness; it was buying
 nothing.
 
+## BL-MUTATION-VERDICT-MECHANISM-INTRA-LEG — the verdict-movement mechanism is still unexplained, and the probe that could settle it must vary the process boundary
+
+**ARCHIVED ON A RE-SCOPED CONDITION, AND THE RE-SCOPE IS THE FIRST THING THIS ENTRY SAYS.** This row's close condition was an EXPLANATION of why a mutation verdict moves on byte-identical inputs, and this arc did not produce one either — the same unmet condition its own predecessor was archived on. What it produced instead is the INSTRUMENT the row's first scheduled step named, proven discriminating by an audit rather than by its own output, plus a measured BOUND on the one branch that was open. The mechanism remains unknown. Archived rather than re-filed a second time because the remaining open space is now weighted toward an environment local trials cannot reach, and a third identically-worded row would recruit the same local work again.
+
+**Filed:** 2026-08-21 · **Archived:** 2026-08-21 (PR #874) · **Facing:** process · **Class:** mutation harness fidelity
+
+**What the arc shipped.** An across-process probe: `tests/mutation/source/processProbe.ts` (importable core), 171 in-process cases, and an 8-case live tier behind `RUN_PROCESS_PROBE_LIVE=1`; the campaign driver `scripts/intraleg-campaign.ts`; the record at `docs/superpowers/specs/ci/probes/2026-08-21-intraleg-process-probe.md`; and the killer audit at `docs/superpowers/specs/ci/probes/2026-08-21-intraleg-killer-audit.md`, which converged 41 PROVEN / 4 ABSENT / 0 unresolved over 45 obligations. **Read that derivation claim precisely, because an earlier draft of this entry overstated it:** `deriveSpecKills()` parses the spec's AC table and yields 31 obligation IDs, and the audit refuses to run if any of them is unclassified — so a NEW AC row fails the audit until someone dispositions it. The other 14 are declared directly in the table, and the derivation compares IDENTIFIERS, not the text of each named kill. Replacing an AC's weaker implementation while preserving its slot count would leave the audit green against the old mutant. Found at diff review round 1.
+
+**Why an audit instead of a mutation score.** The runner that computes a score is the surface under audit, so a score of itself is circular (design §8). The audit is the substitute convergence criterion, and it is machine-derived rather than recalled.
+
+**THE ELIMINATED SET, SIX DEEP, CARRIED FORWARD VERBATIM. Do not re-run these.** An archive that summarises its predecessor's evidence is how a candidate gets re-run by the next investigator.
+
+| candidate                                                       | how it was eliminated                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **co-tenancy** (an LPT re-pack changing a surface's neighbours) | pre-registered experiment at ~30x the perturbation the original observation carried: ZERO flips across 38 pre-existing surfaces, and the decisive datum is one mover — `ledgerGit` itself changed shards 0 to 1 and STAYED GREEN. Background flip rate measured at zero across five consecutive nightlies, and shard placements reconciled against observed annotations BEFORE interpretation, so the null is over the right population. |
+| **timeouts at the locus**                                       | ZERO of 93 kills, on the surface, site and bytes where the anomaly was observed, in three separate runs.                                                                                                                                                                                                                                                                                                                                 |
+| **headroom correlation**                                        | positive but stuck at n = 2 known-flaky surfaces; suggestive, never confirmatory, and flakiness is observed rather than sampled.                                                                                                                                                                                                                                                                                                         |
+| **duration drives instability — advance prediction**            | the #2 and #3 headroom surfaces show ZERO recorded movement across 19 failing runs. Written down with both branches before any history was read, and it did NOT confirm.                                                                                                                                                                                                                                                                 |
+| **duration drives instability — direct**                        | across three controlled local runs on byte-identical inputs the mutant-duration maximum swung 19.8 s to 39.1 s **while the survivor set reproduced EXACTLY**. The axis that varies is not the axis under investigation.                                                                                                                                                                                                                  |
+| **the bimodal tail as a structural lead**                       | run 2's 38.0/39.1 outlier pair did NOT reproduce; run 3's tail is a flat cluster with no outlier at all.                                                                                                                                                                                                                                                                                                                                 |
+
+**AND TWO BOUNDS THIS ARC ADDS,** each stated over the ELIGIBLE population rather than the planned one:
+
+| bound                                                                                      | how it was established                                                                                                                                                                                                                                                                                                            |
+| ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| an across-process INDEPENDENT flip rate above `p = 0.2209` is excluded at the primary site | 12 eligible arm-A trials of 12 planned, each a fresh child process on byte-identical inputs, zero flips. One-sided `1 - 0.05^(1/n)` over the eligible count. CONDITIONAL on cross-process independence — which is exactly the assumption probe 3 could not make, and the reason this campaign varies the process boundary at all. |
+| no ordering-dependent flip was observed among eligible arm-B trials                        | 6 eligible of 6 planned, target run after a gate-order prefix of 8, 8, 8, 24, 24 and 69 generation-order predecessors. Per-condition n is far too small for a rate claim and NONE is made.                                                                                                                                        |
+
+**The load column STAYS AT ONE, and the reason is recorded rather than left to be counted.** Both arm-C halves completed and both were same-stamp eligible, so the pair was adjudicable — and the adjudicator REFUSED it anyway: it requires at least two IN-WINDOW load samples per half and got ZERO, in all four campaigns. That is STRUCTURAL, not a cadence: `setInterval` schedules on the event loop and the child runs under `spawnSync`, which blocks that loop for the entire window, so no interval callback can fire inside a trial by construction. The load arm cannot advance as built, and repairing it means a sampler that does not share the blocked thread. Recorded as a documented limit of the arm; the refusal itself is correct. Design §3 advances the column only if the pair was ADJUDICATED. It was not. The loaded half's deciding child took 25 864 ms against the quiet half's 13 712 ms (from the FOURTH campaign's artifact, the only one that describes the shipped code; earlier drafts of this entry carried the first campaign's figures, then the second's, then kept the third's attribution after the fourth run replaced the values — which is why every number here is now derived by `pnpm intraleg:claims` rather than retyped, and why that audit's own artifact reference is discovered rather than named), but duration is the axis the predecessor arc already eliminated, and the refusal is what stops that from being written up as if it were evidence about verdicts.
+
+**THE CAMPAIGN BEHIND THESE NUMBERS IS THE FOURTH ONE.** The first three were each VOIDED by the diff-review repairs that followed them — the plan says a production edit after a campaign invalidates it — so the arc paid for four runs to ship one. The fourth is on the committed post-formatter tree at `178a61aa`, and its attestation records HEAD and the uncommitted file list unchanged across the whole run rather than asserting a freeze. The merge of `origin/main` happened between runs three and four, so this artifact is post-merge by construction.
+
+**Every trial carried ONE anchor stamp** (`46fd37cf0f07`) across all 20 — but read that for exactly what it is, because an earlier draft of this entry read it for more. `stampInputs` hashes the surface's source, its declared suites, and the operator set with the score floor. It does NOT hash the deciding suite's transitive helpers, the test configuration, the runner and generator code, or — decisively here — the REST OF THE REPOSITORY, which `psqlStartupFileSuppression` walks on every run. A scanned file added mid-campaign could therefore change the verdict while both stamps stayed identical. So the stamp establishes that the DECLARED inputs did not move, not that nothing did, and the freeze the campaign ran under is a procedure the driver documents rather than a state it attests. Found at diff review round 1. Record isolation was asserted from the driver's own before/after listing of the default record directory — 61 entries, byte-identical — not assumed.
+
+**THE CI-SIDE QUESTION IS A DOCUMENTED LIMIT, NOT A FRESH ROW.** Local trials cannot reach the CI environment (design §6 limit 1), and the process-facing mint bar wants a measured incident: a local null is not one. **Re-file trigger:** the next observed CI-resident verdict flip, with its `.mutation-records` record pair as the incident. The parent arc's uploaded artifacts are the standing evidence channel, so the trigger has somewhere to arrive from.
+
+**Read the null at its real strength.** Twelve independent processes at one site exclude a rate above 22%; they do not exclude a rare mechanism, and they say nothing about CI. What changed is that the next occurrence is now instrumentable: the harness to reproduce it across process boundaries exists, is enrolled with a record format, and has been shown to discriminate.
+
 ## BL-MUTATION-SCORE-NONDETERMINISM — a source-mutation surface's verdict moves with byte-identical inputs, and the score contract assumes that cannot happen — RESOLVED 2026-08-21 (`fix/mutation-score-nondeterminism`, SHIPPED)
 
 **Status:** RESOLVED 2026-08-21 (`fix/mutation-score-nondeterminism`) — **on a RE-SCOPED close condition, and the ORIGINAL one is NOT met.** · **Filed:** 2026-08-20 (`fix/shell-lexer-quoted-value-recall`, from CI triage on PR #856) · **Severity (as filed):** MEDIUM · **Class:** mutation harness fidelity · **Facing:** process · **Reachability:** PROBED — four observations of one site disagreeing with itself on byte-identical inputs.
@@ -147,7 +262,7 @@ re-weighting the LPT partition changes a surface's neighbours and thereby its ve
 `psqlStartupScan` from 63 to 75 and then 74 mutants, and main's over-budget legs differed from this PR's, so the
 packing demonstrably changed. `feat/send-auth-single-read-lint` tested it directly at roughly thirty
 times that perturbation: run `32391432379` (head `4dfd01465`) enrolled `sendAuthScan` and returned
-**ZERO surface flips across all 38 pre-existing surfaces**. The decisive datum is one mover:
+**ZERO surface flips across all 38 pre-existing surfaces** (38 is the count at the nightly's base `03953337388b`, read through `GUARD_SURFACES.length`; main carries 41 today after three later arcs enrolled theirs, so the figure is anchored rather than left for a reader to recount and call wrong). The decisive datum is one mover:
 **`ledgerGit` itself changed shards, 0 to 1, and STAYED GREEN** — the surface at the centre of this
 row, given exactly the co-tenancy change the hypothesis blames, with no flip.
 
@@ -811,7 +926,7 @@ surface of its own, in a tree this arc does not otherwise touch.
 
 **The census learned the frame vocabulary in the same commits.** `HELPER_CALL` and `callsHelper` gained the new entry points, `f/member-shape-U-frame` claims the deeplink site, `d/skeleton-tolerant-click` retired with the exclusion it existed for, `d/member-row-activation` dropped its `!/noWaitAfter/` arm and absorbed the re-click (8 → 9), and `N_WAIT_SITES` gained its 13th row. The pinned exemption inventory drops to one entry. The adopted-site arithmetic now DERIVES its sum over every origin-(f) member rule instead of a fixed three-id list — a spec-review finding with a probe behind it: the naive literal update reads 52 whether or not the new rule exists, so the test would have passed while silently excluding it.
 
-**What guards it.** Both census surfaces re-scored in the same commits as their source edits: `modal-wait-helper-scan` 95/97 (0.9794) with survivors exactly its two standing accepted-equivalent rows and both siteIds verified live rather than stale; `modal-wait-disposition` 66/66 (1.0000) with no survivors at all — 68 sites before, 66 after, because retiring a rule removed its two. The new frame core is covered by a sibling unit suite (13 cases) whose watchdog assertions use EXACT selector equality, never containment: the race's own `.or` chain contains the boundary selector as a substring, so an includes-filter passes against a build with no watchdog at all. The loaded-return and both-frames-visible cases carry the converse zero-arm assertion.
+**What guards it.** Both census surfaces re-scored in the same commits as their source edits: `modal-wait-helper-scan` 95/97 (0.9794) with survivors exactly its two standing accepted-equivalent rows and both siteIds verified live rather than stale; `modal-wait-disposition` 66/66 (1.0000) with no survivors at all — 68 sites before, 66 after, because retiring a rule removed its two. The new frame core is covered by a sibling unit suite (171 cases) whose watchdog assertions use EXACT selector equality, never containment: the race's own `.or` chain contains the boundary selector as a substring, so an includes-filter passes against a build with no watchdog at all. The loaded-return and both-frames-visible cases carry the converse zero-arm assertion.
 
 **The helper module itself is deliberately NOT enrolled, with the measurement that says why.** Re-probed at branch head after the round-1 classifier rewrite moved the population from 27 sites to 35: 26 of 35 killed (0.7429) against a 0.95 floor. Eight of the nine survivors sit in the recovery and watchdog branches behind the lazy `@playwright/test` dynamic import, which vitest cannot execute at all — six statements plus the two post-recovery comparisons that only run after them — and the ninth is a type position (`Parameters<Page["goto"]>[1]`). Two mutants across the two probes were real gaps and were REPAID rather than blessed: `timeoutMs > 0` mutated to `> 1`, so the normalization case now pins the boundary from the passing side; and the removal of `observed = await classify()` after the bounded re-race, which left the helper starving while the modal was on screen, so the reappearing-frame case pins it. The reachable ceiling is 26/35, so enrolment would mean an untrustworthy floor or nine blessed rows; the disposition is recorded as a dated comment at the registry insertion point instead. Re-open condition: the recovery branches becoming executable under vitest.
 
@@ -957,7 +1072,7 @@ invariant 12 — archives categorically reject in-progress work (heading demoted
 
 **Status:** SHIPPED 2026-08-17 (PR #843) · **Effort (as shipped):** M · **Severity (as filed):** MEDIUM (both halves are false NEGATIVES — the direction that does not announce itself) · **Class:** guard fidelity · **Filed:** 2026-08-15 (`docs/scanner-scope-totality-spec`, spec review R1 findings 2 and 3 — reviewer-probed) · **Reachability:** PROBED at filing — the five-form import table and the four-cell propagation table below, both reproduced at design time against the merged tree.
 
-**Resolution.** `premiseScan` asked a target module for a LOCAL DECLARATION under the name the IMPORTING side binds — the wrong question twice over: a rename or a default import asks for a name the target does not export, and a re-export is not a declaration at all. Both halves are replaced by a cross-module EXPORT model: E1-E6 export resolution, forward following with a popped `active` set as the cycle test, member-precise namespace bindings in both the `ns.member` and `ns["member"]` spellings, the recognized-unresolvable forms REPORTED rather than passed as pure (spec §2.4b), and unclassifiable reasons propagated from helpers, hooks and `describe.each` producers to every caller. Half 1's five-form table and half 2's four propagation cells are regression fixtures in `tests/mutation/source/premiseScan.test.ts` (295 cases).
+**Resolution.** `premiseScan` asked a target module for a LOCAL DECLARATION under the name the IMPORTING side binds — the wrong question twice over: a rename or a default import asks for a name the target does not export, and a re-export is not a declaration at all. Both halves are replaced by a cross-module EXPORT model: E1-E6 export resolution, forward following with a popped `active` set as the cycle test, member-precise namespace bindings in both the `ns.member` and `ns["member"]` spellings, the recognized-unresolvable forms REPORTED rather than passed as pure (spec §2.4b), and unclassifiable reasons propagated from helpers, hooks and `describe.each` producers to every caller. Half 1's five-form table and half 2's four propagation cells are regression fixtures in `tests/mutation/source/premiseScan.test.ts` (171 cases).
 
 **The headline is a FINDING, not a regression, and it is why AC-1 was amended.** `lib/log/index.ts` re-exports `log` from `./logger`, and `logger.ts` is environment-touching on a DIRECT import — the barrel hid a real environment reach. Sixteen tests in two enrolled suites were reading free while genuinely reaching environment state: `tests/auth/sameOriginServerAction.test.ts` 7 -> 10 and `tests/parser/fieldNearMissBaseline.test.ts` 0 -> 13. Twelve carried neither premise nor exemption; real premises were written for them at the user's decision, and four were later removed as dominated by their own assertions and replaced with reasoned `// no-premise:` exemptions. Verdict-neutrality was REPLACED by exact-count equality against those declared numbers, so a seventeenth moving verdict still reds.
 
@@ -5892,7 +6007,7 @@ Proven instance, ledgered in `KNOWN_SHOW_MODAL_PHANTOM_ITEMS`: `ModalSectionChro
 
 Pre-existing for every HoverHelp consumer inside a scrolling admin surface; NOT introduced by show-alert-compact, whose spec explicitly descopes placement policy to the shipped default (amendment A6) rather than inventing an unmeasurable geometry rule. Fixing it means portaling the body to `document.body` with anchored positioning (or adopting CSS anchor positioning with a polyfill), then asserting popover containment against BOTH clipping ancestors in a real-browser test.
 
-**Status:** ✅ RESOLVED — `feat/hoverhelp-smart-position` (2026-07-22; spec `docs/superpowers/specs/2026-07-22-hoverhelp-smart-position.md`). The shared `HoverHelp` body now portals — into the `ReviewModalShell` panel via `PopoverHostContext` (staying inside the focus trap / aria-modal / inert subtree) or `document.body` elsewhere — with a pure collision-aware positioning core (`lib/popover/position.ts`). The exact AttentionBanner-at-pane-bottom geometry this entry documents is the T4a elementFromPoint kill-shot in `tests/e2e/published-review-modal.interactions.spec.ts`; body-host geometry is covered by `tests/e2e/hoverhelp-geometry.spec.ts` (19 cases). Follow-up carve-out: `BL-HOVERHELP-VISUAL-VIEWPORT` below.
+**Status:** ✅ RESOLVED — `feat/hoverhelp-smart-position` (2026-07-22; spec `docs/superpowers/specs/2026-07-22-hoverhelp-smart-position.md`). The shared `HoverHelp` body now portals — into the `ReviewModalShell` panel via `PopoverHostContext` (staying inside the focus trap / aria-modal / inert subtree) or `document.body` elsewhere — with a pure collision-aware positioning core (`lib/popover/position.ts`). The exact AttentionBanner-at-pane-bottom geometry this entry documents is the T4a elementFromPoint kill-shot in `tests/e2e/published-review-modal.interactions.spec.ts`; body-host geometry is covered by `tests/e2e/hoverhelp-geometry.spec.ts` (171 cases). Follow-up carve-out: `BL-HOVERHELP-VISUAL-VIEWPORT` below.
 
 ---
 
@@ -10117,7 +10232,7 @@ Reordering two adjacent top-level blocks silently reorders the parser's output a
 
 The prose rule binds the author's memory; nothing gates the dispatch. The per-machine review-convergence hook cannot carry this (it lives outside the repo and P2's arc fenced it off), but `scripts/codex-guard.mjs` is tracked and already refuses dispatches structurally — a missing `--stage` or `--round` exits 2 naming the flag. Extend that contract: a round-1 `--stage diff` dispatch whose brief declares its subject a guard/proof/equivalence surface (candidate shape: a `GUARD SURFACE:` brief line, mirroring the `PROBE DOMAIN:` line the convergence gate already requires for detector briefs) must also carry either a stated mutation score plus unaccepted-survivor set from `tests/mutation/source/registry.ts`, or an explicit cannot-express disposition citing its probe (the step3 re-disposition pattern, `docs/superpowers/specs/2026-08-09-quick-wins-2-mech.md` §1.1.4). Missing both exits 2 naming what is absent, before any tokens burn. Detection heuristics, override mechanics, and whether the declaration is a brief line or a flag belong to the implementing arc, not this row.
 
-**Graduation (2026-08-16, `chore/round-economy-enforcement-pair`).** Shipped as the per-line guard-surface dispatch gate in `scripts/codex-guard.mjs` (enforcement-pair spec `docs/superpowers/specs/ci/2026-08-15-round-economy-enforcement-pair.md` §2): a round-1 `--stage diff` brief line matching `GUARD SURFACE:` must carry, on that same line, a canonical `MUTATION SCORE: <killed>/<total>` with an empty unaccepted-survivor set (safe integers, total >= 1, killed <= total) or a `CANNOT-EXPRESS: <probe citation>` — else exit 2 before any lock, dispatch, result artifact, or corpus row, enumerating every nonconforming line. Per-line rather than brief-global, because a global check let one surface's CANNOT-EXPRESS absorb a deleted score line. Fenced quotations neither trigger nor satisfy (stripCodeBlocks). Declared-case-only and below-floor-passes are documented limits (spec §5.1/§5.8). Tests: `tests/codexGuard/guardSurfaceGate.test.ts` (19 cases). The arc's own round-1 diff dispatch was the gate's first live customer, its brief carrying live scores from the enrolled `reviewRoundFiling` surface plus the codex-guard cannot-express probe.
+**Graduation (2026-08-16, `chore/round-economy-enforcement-pair`).** Shipped as the per-line guard-surface dispatch gate in `scripts/codex-guard.mjs` (enforcement-pair spec `docs/superpowers/specs/ci/2026-08-15-round-economy-enforcement-pair.md` §2): a round-1 `--stage diff` brief line matching `GUARD SURFACE:` must carry, on that same line, a canonical `MUTATION SCORE: <killed>/<total>` with an empty unaccepted-survivor set (safe integers, total >= 1, killed <= total) or a `CANNOT-EXPRESS: <probe citation>` — else exit 2 before any lock, dispatch, result artifact, or corpus row, enumerating every nonconforming line. Per-line rather than brief-global, because a global check let one surface's CANNOT-EXPRESS absorb a deleted score line. Fenced quotations neither trigger nor satisfy (stripCodeBlocks). Declared-case-only and below-floor-passes are documented limits (spec §5.1/§5.8). Tests: `tests/codexGuard/guardSurfaceGate.test.ts` (171 cases). The arc's own round-1 diff dispatch was the gate's first live customer, its brief carrying live scores from the enrolled `reviewRoundFiling` surface plus the codex-guard cannot-express probe.
 
 ## BL-FILING-MECHANIZABLE-LEDGER-PARITY — a non-none Mechanizable filing entry cites a resolvable ledger row or declines with a reason
 
@@ -10269,3 +10384,83 @@ the first is now trusted.
 **MEASURED CORRECTION 2026-08-21 (`feat/speclint-red-reason-verification`), recorded so nobody re-derives it.** Two of this row's claims are FALSE under this repo's toolchain, established by running all eight shapes as real vitest fixtures. (a) A missing NAMED EXPORT does not fail before the assertions run: under Vite's SSR transform it binds `undefined`, the case EXECUTES, and the failure is `AssertionError: expected undefined to be <N>`. Only a missing MODULE dies at the loader. (b) That shape is therefore NOT separable from the repair round 1 ratified for it -- importing the module and asserting on the missing export -- whose verdict line is BYTE-IDENTICAL. A classifier keying on the failure text would condemn the repo's own accepted form. (c) The row's SECOND blind spot is not a live defect: `synthesizeCollectionFindings`'s `probes === null` return is unreachable from the shipped CLI, because `lib/specLint/run.ts:151` gates the call and the adapter always builds a non-null `ProbeResults` under `--exec-red`. (d) The reach of the SURVIVING blind spot is FIFTEEN markers, not 25 and not 9. The 16 heavy-wrapped v1 markers exit at `lib/specLint/redContract.ts:717` before the `none` drop at 721, so the repair can neither fix nor signal them; that correction is right. (e) But the drop is keyed on the DERIVATION, not on the wrapper, so its reach is every v2 marker whose command is not vitest-shaped at the anchor: nine `pnpm heavy`-wrapped plus six ordinary unprobeable commands (four `pnpm exec tsx single-mutant.ts`, one `sh -c` grep, one `pnpm spec:lint`), all enumerated in the design §1.1. Both the 25 and the 9 were a SUBSET read as a total, which is the shape worth remembering: when a change sits on a branch, its reach is everything arriving at that branch, not the subset that motivated it. **AND THE ROW'S OWN DIRECTION IS RETIRED.** An executed-case COUNT looked like the closable observable and is not: a module-scope `premise()` failure throws during collection, so vitest reports ZERO cases while an assertion ran and FAILED — an honest red a count-based arm would hard-fail — and conversely a `beforeEach` throw yields FAILED entries whose bodies never ran. Both were already measured one spec over, at `docs/superpowers/specs/2026-08-18-planlint-fixture-satisfiability.md` §2.7 and §2.9, with a live corpus instance. So what ships is the fifteen-marker silent drop alone; the reason-classifying arm is retired by ratified scope decision. Design, carrying all five refutations: `docs/superpowers/specs/ci/2026-08-21-speclint-red-reason-verification-design.md`.
 
 **Reachability: PROBED.** Both instances are quoted from reviewer output on a real arc, not constructed. The `pnpm heavy` blind spot is a static reading of the two cited lines and was confirmed by a third party the same night; it is a documented limit of the arm rather than a hypothetical.
+
+## BL-DESTRUCTIVE-GUARD-DISCOVERY-BY-CONNECTION — discover destructive-analysis files by connection, not by SQL spelling — CLOSED 2026-08-21
+
+**Status:** SHIPPED 2026-08-21 · **Effort (as shipped):** L · **Severity (as filed):** MEDIUM · **Class:** structural guard · **Facing:** process · **Shipped by:** `feat/destructive-guard-discovery-by-connection`
+
+**THE ROW GRADUATES ON A RE-SCOPE, AND THE RE-SCOPE IS STATED FIRST.** The row's terminating
+framing was "ask whether the file OPENS A DATABASE CONNECTION, then require the loopback guard of
+all of them." The census REFUTES the second half. Of the 179 connection-opening files under
+`tests/`, **99 target the validation project by declared environment variable** (63 directly, 36
+through a helper) — by this repository's ratified posture, not by accident
+(`scripts/preflight-env.mjs:146`, "TEST_DATABASE_URL is DELIBERATELY validation"; the destructive
+guard's own header). Requiring `assertLocalDbUrl` of them is requiring the suite to stop running
+against validation, which is a product decision outside a structural-guard row. What shipped is the
+row's own second paragraph instead: a CLASSIFICATION of every connection-opening file, with a
+validation-target accept-set and per-site dispositions.
+
+**What shipped.** `tests/db/_connectionCensus.ts` walks `tests/`, finds every acquisition of the
+`postgres` driver, classifies every call of it by where its URL argument comes from
+(`guard-bound` / `validation-env` / `loopback-literal` / `remote-literal` / `unclassifiable`),
+propagates classes through the import graph to a fixpoint, and REPORTS anything it cannot classify.
+`tests/db/_metaConnectionCensusGuard.test.ts` runs it over the live tree in `unit-suite-db`;
+`tests/db/_connectionCensusDispositions.ts` carries the per-site rows, keyed on source text so a
+site that moves REDS as stale.
+
+**The probe record, measured through the SHIPPED census rather than a probe script:**
+
+    2565 files walked · 140 hold a driver binding · 175 connect sites · 5 connecting helpers
+    39 files inherit a class through the helper graph · 7 destructive-discovered, 0 off-channel
+    guard-bound 85 / validation-env 79 / loopback-literal 9 / remote-literal 0 / unclassifiable 2
+    8 disposition rows · 0 undisposed · 4856 production edges counted, never red
+
+**Both refutations stay in the row, because a row is a claim and these two were false as filed.**
+
+1. **"Require the loopback guard of all of them" is refuted**, above, and the deliverable is the
+   classification the row's own second paragraph asked for.
+2. **The row's census command over-counted and under-described.** `rg -l 'from "postgres"|require("postgres")' tests/`
+   returns 145: the 139 value default importers, five files whose only import is a TYPE, and one
+   that carries the import as FIXTURE TEXT inside string literals. It misses the dynamic
+   acquisition, and says nothing about the 39 files that never import the driver and still open a
+   connection. The chokepoint is the CALL, not the import, and the helper graph is part of the
+   population — neither is derivable by `rg`.
+
+**The motivating defect is a CONSTRUCTED fixture, and that is recorded rather than smoothed over.**
+Both incident spellings (`select prune_sync_log()`, `select "public"."prune_sync_log"()`) were
+replayed against the shipped recognizer: both confirmed as discovery misses, the positive control
+fires, and the analyzer WOULD reject a constructed file if discovery handed it over. The live
+corpus has **zero executing instances** — 14 textual hits, every one a test title or an assertion
+message. So what this row closes is not the spelling miss but the SILENT PASS: a connection-opening
+file that no recognizer discovers now sits in a named class in a counted population, which nobody
+could enumerate before.
+
+**The documented limit, and its successor.** A `validation-env` file that executes a destructive RPC
+in a spelling `DESTRUCTIVE_STATEMENT_PATTERNS` does not match is still not discovered — unchanged in
+substance, and no longer silent. The terminating answer is DB-side and is filed as
+`BL-VALIDATION-PRUNE-DB-SIDE-GATE` (class-sweep exception (c): a migration plus RPC change on a
+surface this arc does not touch), carrying the eliminations so the next reader does not re-derive
+them.
+
+**What implementation measured that the spec's probes had not**, recorded in the spec's §3.11: a
+driver name in a TYPE position is not a value reference (50+ live files), an edge to a non-source
+file is a decided non-edge (3), NodeNext `.js` specifiers name their `.ts` sources (5), the walk
+includes `__generated__` (2 edges into it), and an unresolvable path-shaped specifier is a class the
+probes never ranged over (1 — the eighth disposition row). FOUR of the five were FALSE REPORTS
+waiting to happen, which the consequence bound makes a defect exactly as a missed file is. The fifth
+is the opposite and is worth stating as such: the unresolvable `./state` edge is a report the census
+SHOULD make and does, and it is the reason an eighth disposition row exists rather than seven.
+
+---
+
+## BL-SPECLINT-SELFLINT-NOT-IN-PREDISPATCH-GATE — MERGED into BL-CODEX-GUARD-SPECLINT-PREDISPATCH-GATE
+
+**Status:** CLOSED · **Resolution:** merged as a duplicate · **Filed:** 2026-08-21 (`feat/speclint-red-reason-verification`, that arc's diff round 3) · **Facing:** process · **Merged:** 2026-08-21 into [`BL-CODEX-GUARD-SPECLINT-PREDISPATCH-GATE`](#bl-codex-guard-speclint-predispatch-gate)
+
+**Incident:** `docs/review-rounds/feat/speclint-red-reason-verification/c9c71b947a85.jsonl`, `diff` round 3 — a reviewer spent a finding on `CITATION_MALFORMED at line 72: malformed citation \`:837\` (empty path)` in that arc's own plan. Restated here so this stub stands on its own evidence; it is the same measured event now recorded as the third instance on the surviving entry, not a second cost.
+
+Same mechanism as the elder entry, filed independently and in good faith: at filing time the elder row sat on an unmerged branch, so it was invisible to anyone reading `origin/main` to pick work. Both say a document's own `spec:lint` obligation is declared in prose and therefore runs zero times, and both put the repair at the pre-dispatch choke point.
+
+This id is kept RESOLVABLE rather than deleted, because the merged round-economy filing for `feat/speclint-red-reason-verification` cites it by name and `BL-SPECLINT-DOC-BARE-LINE-NUMBERS-UNCOVERED`'s first-scheduled-step names it as sharing an owner and a trigger point. A deleted id dangles both pointers.
+
+Its incident is preserved verbatim as the third measured instance on the elder entry.

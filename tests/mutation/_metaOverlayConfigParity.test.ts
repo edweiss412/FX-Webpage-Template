@@ -54,7 +54,22 @@ describe("the per-mutant config is at parity with the root config", () => {
  */
 describe("fixtures are never discovered, and every one has a live owner", () => {
   const FIXTURE_DIR = "tests/mutation/source/fixtures";
-  const files = readdirSync(join(ROOT, FIXTURE_DIR)).map((f) => `${FIXTURE_DIR}/${f}`);
+  /**
+   * RECURSIVE, and keyed on the path relative to the fixture root.
+   *
+   * A flat `readdirSync` puts a fixture SUBDIRECTORY into this list as if it
+   * were a file, and then every fixture inside it is invisible to the owner
+   * check — the guard would be blind to exactly the shape that first broke it.
+   * Filtering directories out buys a green suite and the same blindness.
+   */
+  const fixtureFiles = (dir: string): string[] =>
+    readdirSync(join(ROOT, FIXTURE_DIR, dir), { withFileTypes: true }).flatMap((e) => {
+      const rel = dir === "" ? e.name : `${dir}/${e.name}`;
+      return e.isDirectory() ? fixtureFiles(rel) : [rel];
+    });
+
+  const relatives = fixtureFiles("");
+  const files = relatives.map((rel) => `${FIXTURE_DIR}/${rel}`);
 
   /** Declared per spec §3.3.2.3. Rows land as their tasks land. */
   const OWNERS: Record<string, string> = {
@@ -64,6 +79,17 @@ describe("fixtures are never discovered, and every one has a live owner", () => 
     "emptyTestEach.fixture.ts": "tests/mutation/_metaPremiseContract.test.ts",
     "emptyDescribeEach.fixture.ts": "tests/mutation/_metaPremiseContract.test.ts",
     "associatedPlacement.fixture.ts": "tests/mutation/_metaPremiseContract.test.ts",
+    // The across-process probe's control surface (design §5.3): a deliberately
+    // UNENROLLED source plus the two suites that decide it, which is why it
+    // lives in its own directory rather than as five loose files here.
+    // The live suite pins this path as a string literal (the AC-4 control-surface
+    // shape assertion). The core only NAMES it in a comment, which is the mention
+    // this check exists to reject — round 4 caught the row resting on exactly that.
+    "processProbe/source.ts": "tests/mutation/source/processProbe.live.test.ts",
+    "processProbe/state.ts": "tests/mutation/source/processProbe.test.ts",
+    "processProbe/surface.ts": "tests/mutation/source/processProbe.test.ts",
+    "processProbe/suite1.fixture.ts": "tests/mutation/source/processProbe.live.test.ts",
+    "processProbe/suite2.fixture.ts": "tests/mutation/source/processProbe.live.test.ts",
   };
 
   it("has fixtures to reason about", () => {
@@ -86,12 +112,39 @@ describe("fixtures are never discovered, and every one has a live owner", () => 
     }
   });
 
-  it("names a live owner for every fixture on disk, and no others", () => {
-    expect(Object.keys(OWNERS).sort()).toEqual(files.map((f) => f.split("/").pop()!).sort());
+  // WHAT THIS PROVES, exactly: every fixture on disk is CITED as a string literal
+  // by a file that claims it, and no fixture is unclaimed. What it does NOT prove
+  // is that the citation is live — a quoted mention inside a comment fails the
+  // check (that was the round-1 repair), but a dead `const X = "…fixture.ts"` that
+  // nothing reads still passes. Proving liveness means resolving imports and uses,
+  // which is a parser, and the standing direction on this surface is to narrow the
+  // claim rather than grow a recognizer. Recorded as a documented limit at diff
+  // review round 2, where the weaker guarantee was mistaken for the stronger one.
+  it("every fixture on disk is CITED by a declared owner, and none is unclaimed", () => {
+    expect(Object.keys(OWNERS).sort()).toEqual([...relatives].sort());
     for (const [fixture, owner] of Object.entries(OWNERS)) {
-      expect(readFileSync(join(ROOT, owner), "utf8"), `${owner} must invoke ${fixture}`).toContain(
-        fixture,
-      );
+      // The owner must NAME the fixture, with or without the `.ts`. Requiring
+      // the extension would fail every TypeScript import of a fixture, since
+      // those are written extensionless — and "fix" it by adding `.ts` to the
+      // import and the guard starts rewarding TS5097.
+      const source = readFileSync(join(ROOT, owner), "utf8");
+      const bare = fixture.replace(/\.ts$/, "");
+      // The reference must be a STRING LITERAL, not any occurrence. A bare
+      // substring test passes on an explanatory comment that merely names the
+      // fixture, so deleting the last real consumer while leaving the sentence
+      // behind would keep this green — the precise hole this guard exists to
+      // close. Quote characters on both sides is the cheap, parser-free way to
+      // require a citation rather than a mention.
+      // STRING-LITERAL QUOTES ONLY. The first version accepted BACKTICKS too, and a
+      // backticked span in an explanatory comment is precisely the mention this
+      // check claims to reject — the core's own comment names
+      // `processProbe/source.ts` and satisfied its owner row on that alone
+      // (round 4). Template literals are not how these fixtures are cited, so
+      // dropping the backtick costs nothing real and closes the hole the
+      // assertion advertised as closed.
+      const quoted = (needle: string): boolean =>
+        new RegExp(`["'][^"']*${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["']`).test(source);
+      expect(quoted(fixture) || quoted(bare), `${owner} must invoke ${fixture}`).toBe(true);
     }
   });
 });

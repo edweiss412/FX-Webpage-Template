@@ -601,25 +601,142 @@ export function renderRow(p: PaneReport): string {
 // ---------------------------------------------------------------------------
 
 /**
- * The checkpoint prompt. `<NONCE>` is the only substitution.
+ * The ADDRESS LINE both prose payloads open with (spec §3.6).
+ *
+ * The queue property alone does not price the pass-to-send window. A takeover
+ * landing inside it swaps the session behind an authorization that was correct
+ * when it was taken, and the prompts used to carry no addressee — so actionable
+ * stop/resume instructions would have been delivered to a session they were
+ * never authorized for. Naming the recipient makes the wrong-recipient delivery
+ * SELF-NEUTRALIZING: a session can always answer "am I driving this branch"
+ * from its own worktree, and per this repo's Stage 0 contract it knows its own
+ * session id, so the ignore instruction is executable by whoever reads it.
+ *
+ * `--` and not an em dash: these bytes are typed into another agent's TUI.
+ */
+const ADDRESS_LINE =
+  "For the session driving <BRANCH> (session <SESSION>) ONLY -- any other session must ignore";
+
+/**
+ * The parenthetical, as ONE definition.
+ *
+ * A marker-less or session-less target is addressed by branch alone, and the
+ * omission is of the WHOLE parenthetical rather than of the token inside it —
+ * `(session )` addresses nobody while looking like it addresses someone. Spelt
+ * once here because `addressPayload` removes exactly this substring, so a
+ * second copy in the removal would be free to drift out of the constant.
+ */
+const SESSION_PARENTHETICAL = " (session <SESSION>)";
+
+/**
+ * The checkpoint prompt.
  *
  * It instructs against committing because invariant 1 permits a task commit
  * only after the implementation passes its test, and an interrupted target is
  * by construction mid-task. It writes the gitignored marker and leaves the tree.
+ *
+ * Its ask is benign under every decay class the pass-to-send window admits — a
+ * truthful self-record plus a stop at the recipient's own turn boundary — which
+ * is why it needs no deference line of its own (spec §3.6, §7 limit 1).
  */
 export const CHECKPOINT_TEXT = [
-  "Checkpoint before compaction. Do not commit. Update .claude/ship-state.json in your worktree:",
-  "set `stage` to where you actually are, set `next` to the literal command or action that resumes",
-  "this work, and set `checkpointNonce` to exactly <NONCE>. Leave the working tree exactly as it",
-  "is. Then stop.",
+  ADDRESS_LINE,
+  "this message entirely. Checkpoint before compaction. Do not commit. Update",
+  ".claude/ship-state.json in your worktree: set `stage` to where you actually are, set `next`",
+  "to the literal command or action that resumes this work, and set `checkpointNonce` to",
+  "exactly <NONCE>. Leave the working tree exactly as it is. Then stop.",
 ].join("\n");
 
+/**
+ * The resume prompt, which DEFERS to the recipient's own marker.
+ *
+ * That deference is the round-3 repair, not a courtesy. The address line
+ * neutralizes a WRONG-recipient delivery; it cannot neutralize a SAME-recipient
+ * authorization decay — a `blockedOn` written concurrently after the pass read
+ * it, with branch and session unchanged. An earlier text told exactly that
+ * recipient to discard its blocked framing, overriding the one piece of state
+ * that would have refused the send. Re-reading the marker FIRST makes the
+ * recipient's own `blockedOn` the gate, at its own execution instant.
+ *
+ * It closes the `blockedOn` decay class and NO OTHER: a verdict or purview
+ * change is invisible to the recipient by construction, and those classes are
+ * priced as bounded consequences in spec §7 limit 1 rather than claimed closed.
+ */
 export const RESUME_TEXT = [
-  "Run `date` first; the shell clock is the only source of truth. Discard any stale blocked or",
-  "standing-down framing. Re-read .claude/ship-state.json in your worktree and resume its `next`",
-  "action immediately, in this turn. You were compacted by the orchestrator; approval already",
-  "given, do not re-ask.",
+  ADDRESS_LINE,
+  "this message entirely. Run `date` first; the shell clock is the only source of truth.",
+  "Re-read .claude/ship-state.json in your worktree FIRST: if its blockedOn is non-empty, honor",
+  "it and stop -- your marker outranks this message. Otherwise discard any stale blocked or",
+  "standing-down framing from your conversation and resume the marker's `next` action",
+  "immediately, in this turn. You were compacted by the orchestrator; approval already given,",
+  "do not re-ask.",
 ].join("\n");
+
+/**
+ * Substitute the address line's targets into a prose payload.
+ *
+ * The session is omitted by removing the parenthetical WHOLE, so a target whose
+ * marker carries no `sessionId` is addressed by branch alone rather than by an
+ * empty id. Rule 5 already governs the mismatch cases the id would catch, so
+ * branch-alone is a narrower address rather than an absent one.
+ */
+export function addressPayload(
+  text: string,
+  opts: { branch: string; session: string | null; nonce?: string },
+): string {
+  // The parenthetical is REMOVED structurally before any value is placed, so
+  // this is a shape edit rather than a substitution and cannot carry a value.
+  const shaped = opts.session === null ? text.replace(SESSION_PARENTHETICAL, "") : text;
+  return substituteTokens(shaped, {
+    "<BRANCH>": opts.branch,
+    ...(opts.session === null ? {} : { "<SESSION>": opts.session }),
+    ...(opts.nonce === undefined ? {} : { "<NONCE>": opts.nonce }),
+  });
+}
+
+/**
+ * Put `value` where `token` is, as CHARACTERS.
+ *
+ * Diff round 3, core finding 1 (P1). Every substitution here passed the value as
+ * `String.replace`'s REPLACEMENT STRING, where `$&`, "$`", "$'" and `$1` are
+ * syntax rather than text. `git check-ref-format --branch` accepts `feat/$&`,
+ * "feat/a$`b" and "feat/x$'y", so these are ordinary branches an ordinary
+ * contributor can create -- squarely inside the threat fence, not forged input.
+ *
+ * The consequence was silent and total: `feat/$&` addressed the payload to
+ * `feat/<BRANCH>`, a branch nobody drives, so §3.6's own addressing told every
+ * recipient to ignore a message the tool had just reported sending with exit 0.
+ * "$`" is worse still -- it splices the entire preceding sentence in.
+ *
+ * A REPLACER FUNCTION is the fix rather than escaping the value, because the
+ * function form has no substitution grammar to escape: whatever it returns is
+ * inserted verbatim. Escaping would leave the grammar live and one missed
+ * character away from the same bug.
+ */
+export function substituteTokens(text: string, values: Readonly<Record<string, string>>): string {
+  return text.replace(TOKEN_PATTERN, (token) => values[token] ?? token);
+}
+
+/**
+ * Every token the payloads carry, matched in ONE pass.
+ *
+ * Diff round 4, core finding 1 (P1). Round 3 fixed VALUE-AS-GRAMMAR by using a
+ * replacer function, and that fix holds. It did not fix VALUE-CONTAINS-THE-NEXT-
+ * TOKEN: the substitutions ran in sequence, so a branch named `feat/<NONCE>` was
+ * inserted by the first pass and then REWRITTEN by the nonce pass. `git
+ * check-ref-format --branch 'feat/<NONCE>'` accepts it, so it is an ordinary
+ * branch, and both halves failed at once while the command exited 0 -- the
+ * address named a branch nobody drives, and the instruction told the target to
+ * record the literal text `<NONCE>`.
+ *
+ * One pass is the NARROWING repair rather than ordering the passes cleverly or
+ * escaping tokens out of values: `replace` never re-examines what it has already
+ * inserted, so no value can be read as a token no matter what it contains, and
+ * the property holds for tokens added later without anyone re-deriving the safe
+ * order. An unknown token is returned unchanged rather than deleted, so a
+ * payload that names a token nobody supplied still SHOWS it.
+ */
+const TOKEN_PATTERN = /<BRANCH>|<SESSION>|<NONCE>/g;
 
 export type SendPlan = { sends: string[] };
 
@@ -647,17 +764,43 @@ export type SendPlan = { sends: string[] };
 export function planSends(opts: {
   command: "checkpoint" | "compact" | "resume";
   nonce?: string;
+  /**
+   * The target's branch, and its marker's `sessionId` when the pass read one.
+   *
+   * OPTIONAL in the type and REQUIRED at runtime for the two prose commands,
+   * the same shape `nonce` already uses. `/compact` is address-exempt by
+   * construction (below), so a required field would force every compact caller
+   * to supply an argument no branch reads — the zombie shape the comment above
+   * `planSends` exists to refuse. An absent branch THROWS rather than
+   * defaulting: an empty address addresses nobody while looking addressed.
+   */
+  branch?: string;
+  session?: string | null;
 }): SendPlan {
+  const address = (text: string, command: string, nonce?: string): string => {
+    const branch = opts.branch;
+    if (branch === undefined) throw new Error(`--${command} requires the target's branch`);
+    return addressPayload(text, {
+      branch,
+      session: opts.session ?? null,
+      ...(nonce === undefined ? {} : { nonce }),
+    });
+  };
   switch (opts.command) {
     case "checkpoint": {
       const nonce = opts.nonce;
       if (nonce === undefined) throw new Error("--checkpoint requires a nonce");
-      return { sends: [CHECKPOINT_TEXT.replace("<NONCE>", nonce), "\r"] };
+      return { sends: [address(CHECKPOINT_TEXT, "checkpoint", nonce), "\r"] };
     }
     case "compact":
+      // NO address, and none is needed. `/compact` is a slash command -- a
+      // prefix line would strip it of that status and deliver prose. Its worst
+      // mis-delivery is a compaction, which is the same outcome auto-compaction
+      // produces on its own schedule and a near no-op on an already-compacted
+      // session (spec §3.6).
       return { sends: ["/compact", "\r"] };
     case "resume":
-      return { sends: [RESUME_TEXT, "\r"] };
+      return { sends: [address(RESUME_TEXT, "resume"), "\r"] };
   }
 }
 
@@ -675,9 +818,20 @@ export type RefusalCause =
    * is that it requires neither verdict (diff round 1, finding 7).
    */
   | { kind: "observation-stop"; rule: number; verdict: Verdict; detail: string | null }
-  | { kind: "nonce-absent" }
+  | { kind: "nonce-record-absent" }
+  | { kind: "nonce-marker-absent" }
   | { kind: "nonce-mismatch" }
-  | { kind: "stale-verdict"; was: Verdict; now: Verdict }
+  | { kind: "nonce-record-changed" }
+  /**
+   * A VALID, uncontested claim held by a different session.
+   *
+   * Rule 3 asks whether the pane is claimed AT ALL, so a pane validly claimed
+   * by another orchestrator passes it. Refusing that here, by its own name,
+   * rather than folding it into `not-drivable` -- which would tell an operator
+   * the verdict is wrong when the verdict is fine and the CALLER is wrong.
+   */
+  | { kind: "owned-by-other"; paneId: string; sessionId: string; as: string }
+  | { kind: "not-in-purview"; paneId: string; reason: string }
   | { kind: "contested" };
 
 /**
@@ -723,12 +877,18 @@ export function refuse(cause: RefusalCause): Refusal {
         const extra = cause.detail === null ? "" : `: ${cause.detail}`;
         return `refusing: rule ${cause.rule} — ${why}${extra} (verdict ${cause.verdict})`;
       }
-      case "nonce-absent":
+      case "nonce-record-absent":
+        return "refusing: this command holds no checkpoint record for the target";
+      case "nonce-marker-absent":
         return "refusing: the target's marker carries no checkpointNonce";
       case "nonce-mismatch":
         return "refusing: the target's checkpointNonce is not the one this command recorded";
-      case "stale-verdict":
-        return `refusing: verdict changed from ${cause.was} to ${cause.now} before sending`;
+      case "nonce-record-changed":
+        return "refusing: the checkpoint record changed after this command authorized it";
+      case "owned-by-other":
+        return `refusing: ${cause.paneId} is claimed by ${cause.sessionId}, not by ${cause.as}`;
+      case "not-in-purview":
+        return `refusing: ${cause.paneId} is not in your purview: ${cause.reason}`;
       case "contested":
         return "refusing: purview is contested; another orchestrator also claims this pane";
     }
@@ -737,14 +897,179 @@ export function refuse(cause: RefusalCause): Refusal {
 }
 
 // ---------------------------------------------------------------------------
-// §5.2 / §5.5 — the nonce, and per-command revalidation
+// §3.1 — the read-once pass
 // ---------------------------------------------------------------------------
 
-/** The outstanding-nonce record for one target. Injected, so no test needs a real file. */
-export type NonceStore = {
-  read(): string | null;
-  consume(): void;
+/**
+ * ONE read-once pass over an injected surface.
+ *
+ * Every read member answers from its FIRST call for the remainder of the pass,
+ * so "the same member read twice at two instants" stops being expressible.
+ * That is the whole repair: six shipped defects were inter-pass skew, and four
+ * incremental repairs narrowed the window by comparing MORE FIELDS rather than
+ * by removing the second read. A comparison that exists can be incomplete; a
+ * comparison that does not exist cannot.
+ *
+ * The read set is the COMPLEMENT of `nonRead`, never a list of reads, so the
+ * wrapper is TOTAL over the surface: a member added later is memoized by
+ * default and only a deliberate edit to the exclusion set can take it out of
+ * the pass. A hand-list of reads would fail the other way -- the new member
+ * would sit outside the pass silently, which is the shape this whole arc is
+ * about.
+ *
+ * Keyed by member AND arguments, because `marker(cwd)` for two different
+ * worktrees is two questions rather than one asked twice.
+ *
+ * It is NOT an instant, and nothing here claims it is: members are called
+ * sequentially, so a change landing between two DIFFERENT calls is unobserved
+ * by this pass. That residual is spec §7 limit 1, priced there by the queue
+ * property and the addressed payloads rather than claimed closed.
+ *
+ * Generic over the surface's shape and free of I/O, so it lives here rather
+ * than in the adapter: the mutation gate can attack it, and the send-auth
+ * scanner -- which reasons about MEMBER ACCESSES on a surface binding -- cannot
+ * classify a wrapper that iterates members reflectively. In the adapter it is a
+ * declared derivation helper, which is exactly what it is.
+ */
+export function readOnce<T extends object>(surface: T, nonRead: ReadonlySet<string>): T {
+  const memo = new Map<string, unknown>();
+  const pass: Record<string, unknown> = { ...(surface as unknown as Record<string, unknown>) };
+  for (const [member, value] of Object.entries(surface as unknown as Record<string, unknown>)) {
+    if (nonRead.has(member) || typeof value !== "function") continue;
+    const read = value as (...args: unknown[]) => unknown;
+    pass[member] = (...args: unknown[]): unknown => {
+      const key = `${member}(${JSON.stringify(args)})`;
+      const hit = memo.get(key);
+      if (hit !== undefined || memo.has(key)) return hit;
+      const answer = read.apply(surface, args);
+      memo.set(key, answer);
+      return answer;
+    };
+  }
+  return pass as unknown as T;
+}
+
+// ---------------------------------------------------------------------------
+// §3.1 — the authorization predicate
+// ---------------------------------------------------------------------------
+
+/** The three modes that send bytes. The read-only surfaces never reach here. */
+export type SendMode = "checkpoint" | "compact" | "resume";
+
+/**
+ * Everything the decision is allowed to consult, as ONE value.
+ *
+ * The type is the point. Every field is derived from the invocation's own
+ * read-once pass, and there is nowhere to put a value taken at another instant
+ * -- no thunk to be consulted later, no `was`/`now` pair to compare. Six
+ * shipped defects were all inter-pass skew, and four incremental repairs
+ * narrowed the window without closing it; the closure is structural rather than
+ * another comparison, because a comparison that exists can be incomplete and a
+ * second read that exists can skew (spec §1.2, §3.2).
+ */
+export type AuthorizationInput = {
+  mode: SendMode;
+  paneId: string;
+  /** The `--as <sessionId>` the caller supplied. Explicit, never inferred. */
+  as: string;
+  /** Resolved from the pass's purview read. */
+  ownership: Ownership;
+  /** `observe()` over the pass. Carries the deciding rule, not merely the verdict. */
+  report: PaneReport;
+  /**
+   * `--compact` only: the record this orchestrator wrote, and the `checkpointNonce`
+   * the PASS's marker copy carries. Both from this invocation; there is no
+   * earlier capture for them to disagree with.
+   */
+  nonce?: { recorded: string | null; marker: string | null };
 };
+
+export type AuthorizationDecision = { authorized: true } | { authorized: false; message: string };
+
+/**
+ * Whether this invocation may send, and if not, WHICH condition refused it.
+ *
+ * Pure over pass data, so the whole gate is assertable without a live herdr,
+ * git or network -- and so the mutation gate can attack it, which a decision
+ * spread across the adapter's I/O could not be.
+ *
+ * ORDER IS PART OF THE CONTRACT, and it is the ordering half of §6's
+ * name-the-condition guarantee. A round-5 defect refused with "marker carries
+ * no checkpointNonce" while a matching nonce sat in the marker, sending an
+ * operator to re-checkpoint a pane that had already been stopped for another
+ * reason. Checking the cheapest-to-explain condition first means the reason an
+ * operator reads is the FIRST one that held, not whichever check happened to
+ * run last.
+ */
+export function authorizeSend(input: AuthorizationInput): AuthorizationDecision {
+  const no = (cause: RefusalCause): AuthorizationDecision => ({
+    authorized: false,
+    message: refuse(cause).message,
+  });
+
+  // 1. Ownership by THIS caller. A contested pane is deliberately NOT refused
+  //    here: rule 3 already saw it, and naming it twice would give an operator
+  //    two different sentences for one condition.
+  if (input.ownership.kind === "owned-by-other") {
+    return no({
+      kind: "owned-by-other",
+      paneId: input.paneId,
+      sessionId: input.ownership.sessionId,
+      as: input.as,
+    });
+  }
+  if (input.ownership.kind === "unowned") {
+    return no({ kind: "not-in-purview", paneId: input.paneId, reason: input.ownership.reason });
+  }
+
+  // 2. The rule 1-8 observation stop, for EVERY mode including `--resume`.
+  //    Read off the rule number rather than the verdict: WAIT is produced by
+  //    rules 7 and 8 (observations) AND by 11 and 12 (banding), so a
+  //    verdict-based gate would let `--resume` drive a pane rule 7 had stopped.
+  const OBSERVATION_RULES = 8;
+  if (input.report.rule <= OBSERVATION_RULES) {
+    return no({
+      kind: "observation-stop",
+      rule: input.report.rule,
+      verdict: input.report.verdict,
+      detail: input.report.rejectedField,
+    });
+  }
+
+  // 3. The mode verdict gate. `--resume` deliberately does not require
+  //    COMPACT/FORCE: a successful compaction makes both false exactly when
+  //    resuming is the correct next act.
+  if (
+    input.mode !== "resume" &&
+    input.report.verdict !== "COMPACT" &&
+    input.report.verdict !== "FORCE"
+  ) {
+    return no({ kind: "not-drivable", verdict: input.report.verdict });
+  }
+
+  // 4. `--compact` only: the nonce proves this orchestrator's checkpoint was
+  //    executed by the target before this orchestrator compacts it.
+  if (input.mode === "compact") {
+    const nonce = input.nonce;
+    if (nonce === undefined) throw new Error("--compact requires the pass's nonce pair");
+    // Diff round 3, core finding 2 (P1). These were ONE row, and it named the
+    // marker. A run with a live marker nonce and no record of its own refused
+    // with "the target's marker carries no checkpointNonce" -- a refusal
+    // describing a condition that had not fired, about a pane that was fine.
+    // That is the same lying-refusal shape this arc already fixed once for the
+    // roster (§2's restored pin), and one message covering two conditions is
+    // how it comes back.
+    if (nonce.recorded === null) return no({ kind: "nonce-record-absent" });
+    if (nonce.marker === null) return no({ kind: "nonce-marker-absent" });
+    if (nonce.recorded !== nonce.marker) return no({ kind: "nonce-mismatch" });
+  }
+
+  return { authorized: true };
+}
+
+// ---------------------------------------------------------------------------
+// §5.2 / §5.5 — the nonce, and per-command revalidation
+// ---------------------------------------------------------------------------
 
 /**
  * Mint a nonce that is not the one already in the target's marker.
@@ -754,64 +1079,80 @@ export type NonceStore = {
  * had executed. Spec round 7's finding: "128-bit random, therefore different"
  * is a probability argument, not a proof. One local comparison, not a return of
  * the cross-orchestrator machinery round 6 removed.
+ *
+ * `markerNonce` comes from the PASS's marker copy, not from an entry-time read
+ * (spec §3.2): a collision compare against a stale copy could re-mint against a
+ * nonce the target had already replaced.
+ *
+ * It THROWS when the budget is exhausted, which is reachable exactly when
+ * `random()` is broken -- a tool fault, not a refusal. The adapter catches it
+ * and exits 2 naming the condition (spec §3.7); letting it escape `main` would
+ * exit with a code the taxonomy assigns to refusals.
  */
+export class NonceMintExhausted extends Error {
+  // No `this.name` assignment. Nothing reads it -- the adapter discriminates by
+  // `instanceof`. (This comment ALSO claimed `SendFailed` sets none either; it
+  // does, at its own declaration. Corrected at diff round 4: the claim about
+  // this class stands on its own and never needed the sibling.) The mutation gate caught its removal as a SURVIVOR,
+  // which is the honest signal that the line has no differing case: deleted
+  // rather than defended with an equivalence row or a test for a property no
+  // caller consumes.
+  constructor(readonly attempts: number) {
+    super(`mintNonce: the random source returned the marker's nonce ${attempts} times running`);
+  }
+}
+
 export function mintNonce(opts: { markerNonce: string | null; random: () => string }): string {
-  for (let attempt = 0; attempt < 8; attempt += 1) {
+  const ATTEMPTS = 8;
+  for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
     const candidate = opts.random();
     if (candidate !== opts.markerNonce) return candidate;
   }
-  throw new Error("mintNonce: generator kept colliding with the marker's nonce");
+  // A CLASS, not a message the adapter greps. Matching on error text is the
+  // shape this repo already carries as a documented limit (`gh`'s no-PR
+  // signature demotes on a reword), and here the caller must distinguish a
+  // broken generator from every other throw in order to pick an exit code.
+  throw new NonceMintExhausted(ATTEMPTS);
 }
 
-export type Revalidation = { ok: true } | { ok: false; message: string };
-
 /**
- * `--compact`: revalidate, verify the nonce, consume, then send.
+ * `--compact`: consume the outstanding record, then send.
  *
  * ORDER MATTERS AND IS ASSERTED FROM INSIDE THE SEND. Consuming before the send
  * means a crash costs a re-checkpoint; consuming after would leave a replayable
  * record on every failure path. `try { send() } finally { consume() }` produces
- * identical POST-HOC observations — both end with the record gone — so only an
+ * identical POST-HOC observations -- both end with the record gone -- so only an
  * observation taken while the send executes can tell them apart.
  *
- * Revalidation precedes consumption so a refusal does not burn the checkpoint:
- * the orchestrator can fix the condition and retry without re-checkpointing.
+ * It no longer GATES. Under the single-pass model the whole decision, nonce
+ * equality included, is `authorizeSend`'s (spec §3.1 step 4), and this runs only
+ * once that has authorized. The revalidation thunk, the record read and the
+ * comparison are deleted rather than kept as belt-and-braces: two checks of one
+ * condition means one of them is dead, and a dead check is exactly the survivor
+ * class the mutation gate already caught once on this surface. The refusal rows
+ * The refusal rows are emitted from the catalog by the predicate instead of from
+ * here. This sentence named `nonce-absent` as unchanged until diff round 4;
+ * round 3 had already split that row into `nonce-record-absent` and
+ * `nonce-marker-absent` because one message was covering two conditions, so the
+ * cause it named no longer existed.
+ *
+ * A refusal therefore cannot burn the checkpoint, and that is now structural
+ * rather than an ordering to maintain: nothing reaches this function unless the
+ * authorization already passed.
  */
-export function runCompact(opts: {
-  store: NonceStore;
-  /**
-   * A THUNK, not a value, and that is the whole point (AC-19).
-   *
-   * Taking the marker's nonce as a value meant it was read BEFORE
-   * `revalidate()`, so the revalidation re-read the marker, compared only the
-   * verdict, and then authorized the send against a nonce that could already
-   * have changed underneath it. Diff round 1 probed exactly that: three marker
-   * reads returning `recorded`, `recorded`, `changed-before-revalidation`, and
-   * the command still exited 0 having sent `/compact`.
-   *
-   * Read AFTER revalidation, so the value compared is the one true at the
-   * moment of the send rather than at the moment the command started.
-   */
-  markerNonce: () => string | null;
-  send: (s: string) => void;
-  revalidate: () => Revalidation;
-}): { exitCode: 0 | 1; message: string } {
-  const fresh = opts.revalidate();
-  if (!fresh.ok) return { exitCode: 1, message: fresh.message };
-
-  const recorded = opts.store.read();
-  if (recorded === null) {
-    return { exitCode: 1, message: refuse({ kind: "nonce-absent" }).message };
-  }
-  const current = opts.markerNonce();
-  if (current === null) {
-    return { exitCode: 1, message: refuse({ kind: "nonce-absent" }).message };
-  }
-  if (current !== recorded) {
-    return { exitCode: 1, message: refuse({ kind: "nonce-mismatch" }).message };
-  }
-
-  opts.store.consume(); // BEFORE the send, deliberately
+export function runCompact(opts: { consume: () => boolean; send: (s: string) => void }): boolean {
+  // BEFORE the send, deliberately -- and the send is CONDITIONAL on it, which
+  // is the round 2 repair. `consume` answers whether it spent THE authorized
+  // grant; a false answer means the record moved under us, so the right move is
+  // to send nothing and destroy nothing rather than compact on a grant we were
+  // never given.
+  //
+  // This is NOT the deleted gate returning. The gate answered "was this grant
+  // valid when we decided"; this answers "is the grant we authorized still the
+  // one present at the moment we spend it". Different instants, so neither is
+  // dead code -- the distinction the docblock above draws about belt-and-braces
+  // turns on two checks of ONE condition, and these are two conditions.
+  if (!opts.consume()) return false;
   for (const s of planSends({ command: "compact" }).sends) opts.send(s);
-  return { exitCode: 0, message: "" };
+  return true;
 }
