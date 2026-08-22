@@ -19,6 +19,15 @@ import ts from "typescript";
 
 import { premiseHolds } from "@/tests/_shared/premise";
 
+// DELIBERATELY NOT ENROLLED in `paneCompactionCore`'s `suitePaths`, and that is a
+// claim rather than an oversight. The mutant overlay is a Vite plugin that
+// rewrites the MODULE GRAPH; this file reads the source off DISK with
+// `readFileSync`, so under a mutant run it would read the unmutated bytes and
+// pass unconditionally. Enrolling it would buy zero kills, cost a run per
+// mutant, and -- the part that matters -- would show up in the suite list as
+// coverage it cannot provide. It is a static guard about the shape of the
+// source, which is a different job from pinning behaviour, and it belongs
+// outside the mutation loop.
 const FILES = ["scripts/lib/pane-compaction-core.ts", "scripts/pane-compaction.ts"];
 
 type Call = { file: string; line: number; text: string; ok: boolean };
