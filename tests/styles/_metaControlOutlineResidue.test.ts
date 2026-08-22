@@ -769,6 +769,23 @@ describe("category bars: refusals (spec §1.5, AC-4)", () => {
     ]);
   });
 
+  // covers: AC-4, W12
+  it("a backlogRef must match the WHOLE id, not a prefix of a longer entry", () => {
+    // Six strict-prefix pairs are live in the ledger today (BL-OPS-LOG before three BL-OPS-LOG-*
+    // rows, and four more), so a resolver anchored on \b resolves the SHORT ref against the LONG
+    // entry and then reads that entry's body for the names-this-file check. That is a false PASS
+    // whenever the wrong entry happens to name the file, which is a silent wrong clear rather than
+    // a conservative one. Paired: the same ref against a ledger that really declares it resolves.
+    const el = liveElement("components/admin/BellPanel.tsx");
+    const row = rowFor(el, "filed-defect", "a genuine weak resting outline, filed", "BL-PREFIX");
+    const onlyTheChild = `## BL-PREFIX-CHILD — a longer id sharing the prefix\nthe defect lives in ${el.file}\n## BL-NEXT — another\nx\n`;
+    const theRefItself = `## BL-PREFIX — the id actually cited\nthe defect lives in ${el.file}\n## BL-NEXT — another\nx\n`;
+    expect(validateRow(row, el, oracle, onlyTheChild)).toEqual([
+      `${el.file}: backlogRef BL-PREFIX does not resolve to a ledger heading`,
+    ]);
+    expect(validateRow(row, el, oracle, theRefItself)).toEqual([]);
+  });
+
   // covers: AC-4
   it("refuses a row whose category is not one of the six", () => {
     const el = track();

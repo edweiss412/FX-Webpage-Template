@@ -504,12 +504,25 @@ export function recordedRatio(
   };
 }
 
-/** A `^## <id>` heading's body, or null. A mention in ANOTHER entry's prose is not a declaration. */
+/**
+ * A `^## <id>` heading's body, or null. A mention in ANOTHER entry's prose is not a declaration.
+ *
+ * The id must END where the ref ends. `\b` is NOT sufficient: a ledger id's charset is
+ * `[A-Z0-9-]`, and `-` is a non-word character, so `\b` puts a boundary between `BL-OPS-LOG` and
+ * the `-` of `## BL-OPS-LOG-OAUTH-EMITS`, and a ref to the SHORTER id resolves against the LONGER
+ * entry — then reads that entry's body for the names-this-file check, which is a false PASS
+ * whenever the wrong entry happens to name the file. Six strict-prefix pairs are live in the ledger
+ * today (`BL-OPS-LOG` before three `BL-OPS-LOG-*` rows, `BL-SPEC-LINT` before
+ * `BL-SPEC-LINT-CITATION-INTENT`, `BL-COPY-CRON-SWEEP` before `BL-COPY-CRON-SWEEP-2`,
+ * `BL-SERVER-ACTION-ORIGIN-GATE` before its `-SWEEP`), so this is live-corpus reachable rather than
+ * a constructed hazard.
+ */
 function ledgerEntryBody(ledgerText: string, ref: string): string | null {
   const esc = ref.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const m = new RegExp(`^## ${esc}\\b[^\\n]*\\n([\\s\\S]*?)(?=^## |(?![\\s\\S]))`, "m").exec(
-    ledgerText,
-  );
+  const m = new RegExp(
+    `^## ${esc}(?![A-Z0-9-])[^\\n]*\\n([\\s\\S]*?)(?=^## |(?![\\s\\S]))`,
+    "m",
+  ).exec(ledgerText);
   return m ? (m[1] ?? "") : null;
 }
 
