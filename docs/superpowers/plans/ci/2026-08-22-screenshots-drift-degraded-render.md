@@ -15,8 +15,7 @@ arc's dispatch brief, which had said "no UI files".)
 exactly two marker forms — real counts, or the N/A form. `PENDING` is malformed and the guard rejects it,
 which is correct: a marker is a claim about a gate that ran. The gate cannot run yet, because the diff it
 would judge does not exist until Task 6. And the guard's contract is conditional — a unit that NAMES both
-gate commands must carry a valid marker (`tests/docs/_invariant8Closeout.ts:39-40`,
-`declaresGate` at `:109`) — so naming them now while the marker cannot be truthful would fail the guard for
+gate commands must carry a valid marker (`tests/docs/_invariant8Closeout.ts:39` and the line below it, with `declaresGate` at line 109) — so naming them now while the marker cannot be truthful would fail the guard for
 the whole implementation phase.
 
 So the declaration and the marker land together, at close-out, in the same commit as the gate run. That is
@@ -88,16 +87,28 @@ of spec §6. The test re-encodes a committed baseline at two levels and asserts 
 container hash would not — asserting the two hash kinds behave differently, not extracting both from one
 path.
 
-And the AC-2 oracle: a directory count is vacuous because the fourteen baselines exist before capture and
-are overwritten in place, so one entry completed and thirteen skipped still leaves fourteen files and an
-empty diff. The oracle is a SET of emitted completion identities asserted equal to the fourteen expected
-`(key, theme)` pairs. Identity equality, never cardinality.
+**The hash assertion must name an independent value.** Asserting only that the two encodings agree and
+that both differ from the container hashes is satisfied by a CONSTANT — every relation holds and nothing is
+computed. The test compares `pixelSha256` against an independently derived SHA-256 of the decoded RGB
+buffer, obtained without calling the implementation under test.
+
+And the AC-2 oracle, which spec §9 makes structural rather than assertional: the completion set is derived
+from the contents of an output directory **created empty at the start of the run**, never from events the
+capture loop emits. An emitted event can be pre-emitted for all fourteen identities while one image is
+written; a file in a directory that began empty cannot. The test asserts the derived set equals the
+fourteen expected `(key, theme)` pairs, then asserts the diff is empty. Identity equality over
+provably-new artifacts.
 
 ## Task 2 — the fault detector, as its own importable module
 
 <!-- task: red=`pnpm vitest run tests/help/renderFaultDetector.test.ts` red-state=authored red-target=`scripts/capture-core.ts:96` why=`quiescence gates paint only, so nothing reports a marked node` ac=AC-1,AC-7 -->
 
 `detectRenderFaults(page, rootSelector?)` in a NEW module, not appended to `scripts/capture-core.ts`.
+
+**The RED step creates the module as a stub returning `[]`, then writes the test.** A test written against
+a module that does not exist fails on resolution, which is not the failure this task names and would go
+green the moment any file appeared at that path. The stub makes the red a genuine BEHAVIOURAL red: the
+module resolves, the export exists, and the assertion fails because nothing is detected.
 Mutation operators are file-wide, so enrolling `capture-core.ts` would drag `installDeterminism`,
 `disableAnimations`, `waitForQuiescence` and `encodeWebp` into the mutant population (Task 8).
 
@@ -135,31 +146,14 @@ Catch the `waitFor` timeout; scan the DOCUMENT (not the absent subtree); write t
 the selector never appears. A test asserting only that the capture throws passes against the unrepaired
 code, which already threw.
 
-## Task 4 — the capture refuses, before it writes
+**And a second assertion, because the obvious implementation over-claims.** `waitForQuiescence` can also
+fail at `networkidle` (`scripts/capture-core.ts:101`), and at the `page.evaluate` and stable-wait steps
+below it in the same function. An implementation that catches the whole rejection and always records `selector-absent` passes
+the first assertion while mislabelling every later failure — attributing a network fault to a missing
+selector. So the test drives a failure at each later stage and asserts the reason is NOT
+`selector-absent`. The catch is narrowed to the selector wait, not wrapped around the function.
 
-<!-- task: red=`pnpm vitest run tests/help/captureRefusal.test.ts` red-state=authored red-target=`scripts/help-screenshots.ts:104` why=`the screenshot is taken with no check that the render succeeded` ac=AC-1 -->
-
-Wire the detector between `waitForQuiescence` and `screenshotPng`. On a hit, throw naming entry key, theme
-and every reason.
-
-**Failure mode this catches:** placing the check after `encodeWebp`/`writeFile` still overwrites the
-baseline before failing. The test asserts the output file is **not written**, not merely that the function
-throws. It also asserts the evidence entry IS written — that contract is owned by Task 1 and consumed here,
-so the assertion is legal in this order.
-
-## Task 5 — the geometry layer
-
-<!-- task: red=`pnpm vitest run tests/help/captureGeometry.test.ts` red-state=authored red-target=`scripts/help-screenshots.ts:104` why=`a layout-changing fault is encoded with no dimension check` ac=AC-1 -->
-
-Compare captured dimensions against the committed baseline's via `sharp().metadata()` before encoding.
-Mismatch throws naming both. A missing baseline records a skip reason into the Task 1 record.
-
-**Failure mode this catches:** layer 1 reaches only branches that return JSX, leaving flag-shaped faults
-(spec §4.2 shape 4) able to move layout silently. Asserted to fire on 320x164-against-320x291 — occurrence
-A's real dimensions — and NOT to fire when dimensions match but bytes differ, which is occurrence B and
-explicitly not this layer's job.
-
-## Task 6 — mark the branches, and prove the population is derived
+## Task 4 — mark the branches, and prove the population is derived
 
 <!-- task: red=`pnpm vitest run tests/help/_metaRenderFaultMarking.test.ts` red-state=authored red-target=`components/admin/RecentAutoAppliedStrip.tsx:726` why=`the degradation branch carries no structural marker` ac=AC-3,AC-4,AC-8 -->
 
@@ -178,15 +172,57 @@ template-literal route under the crew show segment, which a quote-only parser ca
 add `app/show`. The test additionally asserts the parsed **route set** itself, not merely the derived
 roots, so the parser is pinned even when two routes happen to share a segment.
 
+**Both mutants are required, and the r1 repair wrongly dropped the plain-string one.** A parser that
+freezes the three currently-quoted routes while parsing template literals generically passes the route-set
+assertion AND the distinct-template mutant — measured: current expected 7 against bad 7, distinct-template
+expected 8 against bad 8, distinct-plain expected 8 against bad 7. Only the plain-string mutant separates
+that implementation. The template mutant catches a quote-only parser, the plain mutant catches a
+frozen-quoted-set parser, and each is blind to the other's target.
+
 **Failure mode (c): an unknown guard form silently discarded.** The accept-set covers six forms — literal
 comparison; a call to a locally-defined `infra_error` predicate resolved through its declaration
 (`components/admin/Dashboard.tsx:282` defines one, `components/admin/Dashboard.tsx:491` calls it, and a
 comparison-only scan misses it); `"kind" in result`; a `catch` clause whose `try` reaches a throwing
 loader; `tileErrors` population; and a `switch` case on `result.kind`
 (`app/show/[slug]/[shareToken]/page.tsx:220`, one manifest entry under the crew show segment away). A seventh form
-must be **reported by name**, and that is asserted directly with a fixture carrying a construct outside all
-six — otherwise a scanner can discard the unknown and still satisfy (a) and (b). This is the accept-set
-discipline's own test: a recognizer that enumerates known forms is a denylist.
+must be **reported by name**. This is the accept-set discipline's own test: a recognizer that enumerates
+known forms is a denylist.
+
+**One fixture proves that fixture, not the boundary.** The assertion is over a declared CANDIDATE UNIVERSE
+— every JSX-returning branch the scan locates by structure alone, independent of guard form — and requires
+each member to be either accepted under one of the six named forms or reported by name. A scanner that
+special-cases the single chosen fixture satisfies a one-fixture test and still drops the next unknown
+construct; it cannot satisfy a partition assertion over a derived universe.
+
+## Task 5 — the capture refuses, before it writes
+
+<!-- task: red=`pnpm vitest run tests/help/captureRefusal.test.ts` red-state=authored red-target=`scripts/help-screenshots.ts:104` why=`the screenshot is taken with no check that the render succeeded` ac=AC-1 -->
+
+Wire the detector between `waitForQuiescence` and `screenshotPng`. On a hit, throw naming entry key, theme
+and every reason.
+
+**Failure mode this catches:** placing the check after `encodeWebp`/`writeFile` still overwrites the
+baseline before failing. The test asserts the output file is **not written**, not merely that the function
+throws. It also asserts the evidence entry IS written — that contract is owned by Task 1 and consumed here.
+
+**Marking now precedes this task, and the ordering is load-bearing.** Spec AC-1 requires the proof to run
+through an INJECTED LOADER FAILURE rather than hand-authored marked HTML, so the real branch executes and
+the real component renders. That chain only closes once the branch carries `data-render-fault`, which is
+Task 4's output. With marking after this task, the injected-failure test could not go green, and a
+synthetic marked fixture would prove the wiring while skipping the causal chain the AC names. So: mark,
+then refuse.
+
+## Task 6 — the geometry layer
+
+<!-- task: red=`pnpm vitest run tests/help/captureGeometry.test.ts` red-state=authored red-target=`scripts/help-screenshots.ts:104` why=`a layout-changing fault is encoded with no dimension check` ac=AC-1 -->
+
+Compare captured dimensions against the committed baseline's via `sharp().metadata()` before encoding.
+Mismatch throws naming both. A missing baseline records a skip reason into the Task 1 record.
+
+**Failure mode this catches:** layer 1 reaches only branches that return JSX, leaving flag-shaped faults
+(spec §4.2 shape 4) able to move layout silently. Asserted to fire on 320x164-against-320x291 — occurrence
+A's real dimensions — and NOT to fire when dimensions match but bytes differ, which is occurrence B and
+explicitly not this layer's job.
 
 ## Task 7 — workflow, plus an executable check on the artifact
 
@@ -201,21 +237,36 @@ runner fields forever and spec §6 rows 3 and 5 could never fire. Asserted by na
 (forwards) from `-e VAR=value` (sets a literal).
 
 **AC-5 needs an assertion that can fail, not an observation.** A green workflow proves only that the steps
-exited zero; it says nothing about the artifact's schema or values. So the job gains a step that parses the
-written capture-evidence record and fails on: fewer than the expected applicable entry records, any empty
-runner field, or a post-encode field non-null on a refused entry. That step runs in CI and locally, so
-AC-5 is proven by a command rather than by a green tick.
+exited zero; it says nothing about the artifact's schema or values. So the job gains a parser step, and
+three things about it are load-bearing:
+
+1. **`if: always()`.** The capture step uses the default success condition, so a marked-fault refusal fails
+   it and every ordinary later step is skipped — including the parser, exactly when a refusal is what the
+   record needs to describe. Changing only the upload condition does not fix this.
+2. **Checks that a null-heavy record cannot satisfy.** Fourteen entries with non-empty runner fields and
+   ALL post-encode fields null passes "no short record, no empty runner, no non-null-on-refused" — measured:
+   `records=14 encoded=0` and all three predicates green. So the parser additionally requires post-encode
+   fields **present on every successful entry**, the identity set to be **exactly** the expected fourteen
+   with no duplicates, and each recorded hash to match the artifact in the run's fresh output directory.
+3. **A named local invocation.** The verification section runs it by command locally, so "runs locally" is
+   a step someone can execute rather than a claim.
 
 Upload moves to `if: always()`. The record is gitignored — required, or the instrument reds the gate's own
 untracked check.
 
 ## Task 8 — mutation enrolment, BEFORE the whole-diff review
 
-<!-- task: red=`pnpm heavy pnpm mutation:guards` red-state=authored red-target=`tests/mutation/source/registry.ts:12` why=`the detector module is not enrolled, so no score exists for the diff brief` ac=AC-9 -->
+<!-- task: red=`pnpm vitest run tests/mutation/source/registryMembership.test.ts` red-state=authored red-target=`tests/mutation/source/registry.ts:12` why=`enrolment is opt-in, so an unenrolled surface is silently untouched by the harness` ac=AC-9 -->
 
 The round-1 diff brief is gated on a `GUARD SURFACE:` line carrying `MUTATION SCORE: <killed>/<total>` plus
 zero unaccepted survivors, and `scripts/codex-guard.mjs` exits 2 before dispatching without it. Enrolment is
 therefore a blocker on the first diff review, not a close-out chore.
+
+**Why the red is a membership assertion and not the harness itself.** Enrolment is opt-in and a surface
+absent from the registry is "untouched by the harness" (`tests/mutation/source/registry.ts:8`), so
+`pnpm mutation:guards` has no reason to fail before the row exists and may pass immediately after it. A
+command that is green on both sides of the change is not a red. The red is an assertion that the detector
+module IS a registered surface, which fails by construction until the row lands.
 
 Add the registry row per `tests/mutation/source/registry.ts:12`, run the harness, record the score and the
 unaccepted-survivor set. Two shape constraints must already hold: the detector is its own importable module
@@ -237,10 +288,20 @@ Archive `BL-SCREENSHOTS-DRIFT-CAPTURE-NONDETERMINISM` with the refutation and it
 `BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED` per spec §7. Correct the one-class assertion on **both**
 rows. File both spec §8 peers with their named class-sweep exceptions.
 
-**Run the invariant-8 dual gate on the affected diff** (the critique-then-audit pair, by their skill
-command names), record findings and dispositions, and add the `impeccable-gate:` marker line with the real
-counts in the same commit — see the note at the top of this plan for why both land here rather than
-earlier. Both in-progress markers come off in the branch's LAST commit, before the merge, per invariant 12.
+**Run the invariant-8 dual gate on the affected diff**, in full, with the canonical v3 setup gates rather
+than the commands alone:
+
+1. The skill's context load step, which reads `PRODUCT.md` and `DESIGN.md`.
+2. The register reference read (the brand or product register file the skill names).
+3. The critique-then-audit pair, by their skill command names, on the affected diff.
+4. Findings and dispositions recorded in a **`## 12`** section of this plan — this is a flat plan, so the
+   marker and the dispositions live in an in-plan `## 12` section rather than a handoff doc or a
+   stem-named closeout sibling.
+5. The `impeccable-gate:` marker line with the real counts, added in the same commit as the gate run —
+   see the note at the top of this plan for why the marker and the gate declaration land together here
+   rather than earlier.
+
+P0 and P1 findings are fixed or explicitly deferred with a `DEFERRED.md` entry. Both in-progress markers come off in the branch's LAST commit, before the merge, per invariant 12.
 
 ---
 
@@ -292,7 +353,8 @@ pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerM
 TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres \
   pnpm heavy pnpm screenshot:help && git diff --exit-code public/help/screenshots/
 
-pnpm heavy pnpm mutation:guards        # Task 8, before the first diff dispatch
+pnpm tsx scripts/verify-capture-evidence.ts   # Task 7's parser, the same command CI runs
+pnpm heavy pnpm mutation:guards               # Task 8, before the first diff dispatch
 ```
 
 **Why the override is load-bearing.** `playwright.screenshots.config.ts:167` forwards
