@@ -682,13 +682,16 @@ export const RESUME_TEXT = [
  */
 export function addressPayload(
   text: string,
-  opts: { branch: string; session: string | null },
+  opts: { branch: string; session: string | null; nonce?: string },
 ): string {
-  const addressed =
-    opts.session === null
-      ? text.replace(SESSION_PARENTHETICAL, "")
-      : substituteLiteral(text, "<SESSION>", opts.session);
-  return substituteLiteral(addressed, "<BRANCH>", opts.branch);
+  // The parenthetical is REMOVED structurally before any value is placed, so
+  // this is a shape edit rather than a substitution and cannot carry a value.
+  const shaped = opts.session === null ? text.replace(SESSION_PARENTHETICAL, "") : text;
+  return substituteTokens(shaped, {
+    "<BRANCH>": opts.branch,
+    ...(opts.session === null ? {} : { "<SESSION>": opts.session }),
+    ...(opts.nonce === undefined ? {} : { "<NONCE>": opts.nonce }),
+  });
 }
 
 /**
@@ -710,9 +713,30 @@ export function addressPayload(
  * inserted verbatim. Escaping would leave the grammar live and one missed
  * character away from the same bug.
  */
-export function substituteLiteral(text: string, token: string, value: string): string {
-  return text.replace(token, () => value);
+export function substituteTokens(text: string, values: Readonly<Record<string, string>>): string {
+  return text.replace(TOKEN_PATTERN, (token) => values[token] ?? token);
 }
+
+/**
+ * Every token the payloads carry, matched in ONE pass.
+ *
+ * Diff round 4, core finding 1 (P1). Round 3 fixed VALUE-AS-GRAMMAR by using a
+ * replacer function, and that fix holds. It did not fix VALUE-CONTAINS-THE-NEXT-
+ * TOKEN: the substitutions ran in sequence, so a branch named `feat/<NONCE>` was
+ * inserted by the first pass and then REWRITTEN by the nonce pass. `git
+ * check-ref-format --branch 'feat/<NONCE>'` accepts it, so it is an ordinary
+ * branch, and both halves failed at once while the command exited 0 -- the
+ * address named a branch nobody drives, and the instruction told the target to
+ * record the literal text `<NONCE>`.
+ *
+ * One pass is the NARROWING repair rather than ordering the passes cleverly or
+ * escaping tokens out of values: `replace` never re-examines what it has already
+ * inserted, so no value can be read as a token no matter what it contains, and
+ * the property holds for tokens added later without anyone re-deriving the safe
+ * order. An unknown token is returned unchanged rather than deleted, so a
+ * payload that names a token nobody supplied still SHOWS it.
+ */
+const TOKEN_PATTERN = /<BRANCH>|<SESSION>|<NONCE>/g;
 
 export type SendPlan = { sends: string[] };
 
@@ -753,18 +777,20 @@ export function planSends(opts: {
   branch?: string;
   session?: string | null;
 }): SendPlan {
-  const address = (text: string, command: string): string => {
+  const address = (text: string, command: string, nonce?: string): string => {
     const branch = opts.branch;
     if (branch === undefined) throw new Error(`--${command} requires the target's branch`);
-    return addressPayload(text, { branch, session: opts.session ?? null });
+    return addressPayload(text, {
+      branch,
+      session: opts.session ?? null,
+      ...(nonce === undefined ? {} : { nonce }),
+    });
   };
   switch (opts.command) {
     case "checkpoint": {
       const nonce = opts.nonce;
       if (nonce === undefined) throw new Error("--checkpoint requires a nonce");
-      return {
-        sends: [substituteLiteral(address(CHECKPOINT_TEXT, "checkpoint"), "<NONCE>", nonce), "\r"],
-      };
+      return { sends: [address(CHECKPOINT_TEXT, "checkpoint", nonce), "\r"] };
     }
     case "compact":
       // NO address, and none is needed. `/compact` is a slash command -- a
@@ -1065,8 +1091,9 @@ export function authorizeSend(input: AuthorizationInput): AuthorizationDecision 
  */
 export class NonceMintExhausted extends Error {
   // No `this.name` assignment. Nothing reads it -- the adapter discriminates by
-  // `instanceof` -- and `SendFailed`, the sibling fault class beside it, does
-  // not set one either. The mutation gate caught its removal as a SURVIVOR,
+  // `instanceof`. (This comment ALSO claimed `SendFailed` sets none either; it
+  // does, at its own declaration. Corrected at diff round 4: the claim about
+  // this class stands on its own and never needed the sibling.) The mutation gate caught its removal as a SURVIVOR,
   // which is the honest signal that the line has no differing case: deleted
   // rather than defended with an equivalence row or a test for a property no
   // caller consumes.
@@ -1103,8 +1130,11 @@ export function mintNonce(opts: { markerNonce: string | null; random: () => stri
  * comparison are deleted rather than kept as belt-and-braces: two checks of one
  * condition means one of them is dead, and a dead check is exactly the survivor
  * class the mutation gate already caught once on this surface. The refusal rows
- * `nonce-absent` and `nonce-mismatch` are unchanged -- they are emitted from the
- * catalog by the predicate instead of from here.
+ * The refusal rows are emitted from the catalog by the predicate instead of from
+ * here. This sentence named `nonce-absent` as unchanged until diff round 4;
+ * round 3 had already split that row into `nonce-record-absent` and
+ * `nonce-marker-absent` because one message was covering two conditions, so the
+ * cause it named no longer existed.
  *
  * A refusal therefore cannot burn the checkpoint, and that is now structural
  * rather than an ordering to maintain: nothing reaches this function unless the

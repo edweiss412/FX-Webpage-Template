@@ -25,6 +25,7 @@ import {
   CHECKPOINT_TEXT,
   RESUME_TEXT,
   addressPayload,
+  planSends,
   classifyGh,
 } from "@/scripts/lib/pane-compaction-core";
 import {
@@ -1147,6 +1148,28 @@ describe("the three commands", () => {
     expect(out).not.toContain("<BRANCH>");
   });
 
+  it("a branch containing ANOTHER token is not rewritten by the later substitution", () => {
+    // Diff round 4, core finding 1 (P1). Round 3 made each substitution insert
+    // CHARACTERS, which closed "the value is read as grammar". It did not close
+    // "the value contains the NEXT token": the substitutions ran in sequence, so
+    // a branch named `feat/<NONCE>` was inserted first and the later `<NONCE>`
+    // pass then rewrote the ADDRESS instead of the checkpoint instruction.
+    //
+    // `git check-ref-format --branch 'feat/<NONCE>'` accepts it, so this is an
+    // ordinary branch inside the threat fence. Both halves came out wrong at
+    // once and the command still exited 0: the address named a branch nobody
+    // drives, and the instruction told the target to record the literal text
+    // `<NONCE>`.
+    const branch = "feat/<NONCE>";
+    const { sends } = planSends({ command: "checkpoint", nonce: "abc123", branch, session: "s1" });
+    const text = sends.join("");
+    expect(text).toContain(branch);
+    expect(text).toContain("exactly abc123");
+    expect(text).not.toContain("<NONCE>abc123");
+    // No token may survive into a payload the tool reports as sent.
+    for (const token of ["<BRANCH>", "<SESSION>"]) expect(text).not.toContain(token);
+  });
+
   it("addresses a SESSION containing replacement syntax literally", () => {
     // Same defect, second site. The session id comes from the target's marker,
     // so it is data this tool reads rather than data it mints.
@@ -1201,6 +1224,43 @@ describe("the three commands", () => {
     });
     premiseHolds("the live path actually sent something", live.sent.length > 0);
     const hex = (s: string): string => Buffer.from(s, "utf8").toString("hex");
+    expect(hex(dry.raw.join(""))).toBe(hex(live.sent.map((x) => x.text).join("")));
+    expect(dry.sent).toEqual([]);
+  });
+
+  it.each([
+    ["with a session", "sess-target"],
+    ["branch-only (marker carries no sessionId)", null],
+  ])("AC-6: --checkpoint --dry-run emits the live bytes EXACTLY, %s", (_label, sessionId) => {
+    const NONCE = "deadbeefdeadbeefdeadbeefdeadbeef";
+    // Diff round 4, suites finding 1 (P1). AC-6 was byte-compared for --compact
+    // and NOT for --checkpoint, and the gap was invisible because the existing
+    // checkpoint dry-run cases assert what it does NOT do (no nonce written,
+    // nothing sent) rather than what it emits. A weakened build appending "X" to
+    // the checkpoint dry-run's `outRaw` passed all 112 executable assertions in
+    // this suite.
+    //
+    // Both address forms, because §3.6 omits the session parenthetical WHOLE
+    // when the marker carries none -- a different payload, and the one the
+    // compact case can never exercise since /compact carries no address at all.
+    //
+    // `random` is pinned so the two runs mint the SAME nonce; without that the
+    // payloads differ by construction and the comparison would be meaningless.
+    // Branch-only is a MARKER-LESS pane (the ship gate's soft tier), not a
+    // marker with a null sessionId -- that trips the §4.3 completeness rule and
+    // sends nothing, which the premise below caught when this case first tried it.
+    const fixture =
+      sessionId === null
+        ? { marker: (): null => null, random: () => NONCE }
+        : {
+            marker: () => fullMarker({ checkpointNonce: "n1", sessionId }),
+            nonceRead: () => "n1",
+            random: () => NONCE,
+          };
+    const dry = drive(["--checkpoint", "wM:p1", "--as", "sess-1", "--dry-run"], fixture);
+    const live = drive(["--checkpoint", "wM:p1", "--as", "sess-1"], fixture);
+    premiseHolds("the live path actually sent something to compare against", live.sent.length > 0);
+    const hex = (x: string): string => Buffer.from(x, "utf8").toString("hex");
     expect(hex(dry.raw.join(""))).toBe(hex(live.sent.map((x) => x.text).join("")));
     expect(dry.sent).toEqual([]);
   });

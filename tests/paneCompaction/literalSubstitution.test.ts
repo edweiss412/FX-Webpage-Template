@@ -68,6 +68,28 @@ describe("every substitution inserts its value as CHARACTERS (diff r3 F1)", () =
     expect(calls.length).toBeGreaterThan(0);
   });
 
+  it("substitutes payload TOKENS in one place, so no pass can rewrite another's output", () => {
+    // Diff round 4, core finding 1 (P1). The argument-shape check below closes
+    // "the value is read as grammar". It cannot see the ORDERING defect: two
+    // correct-looking replacer-function calls in sequence, where the first
+    // inserts a value CONTAINING the second's token. A branch named
+    // `feat/<NONCE>` (git accepts it) made the nonce pass rewrite the address.
+    //
+    // The property that closes it is single-pass substitution, and the
+    // structural form of that property is that no site outside `substituteTokens`
+    // replaces a `<TOKEN>` literal at all.
+    const offenders = FILES.flatMap((file) => {
+      const abs = join(process.cwd(), file);
+      const src = readFileSync(abs, "utf8");
+      return src
+        .split("\n")
+        .map((line, i) => ({ line: i + 1, text: line.trim() }))
+        .filter((l) => /\.replace(All)?\(\s*["'`]<[A-Z]+>["'`]/.test(l.text))
+        .map((l) => `${file}:${l.line}  ${l.text.slice(0, 80)}`);
+    });
+    expect(offenders).toEqual([]);
+  });
+
   it("passes no runtime value as a replacement STRING", () => {
     const offenders = calls.filter((c) => !c.ok).map((c) => `${c.file}:${c.line}  ${c.text}`);
     expect(offenders).toEqual([]);

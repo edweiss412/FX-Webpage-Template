@@ -999,6 +999,53 @@ function readJson(path: string): unknown {
 }
 
 /**
+ * A file that EXISTS but cannot be read as a record.
+ *
+ * Diff round 4, core finding 2 (P1) -- and the same class round 1 finding 2 (P0)
+ * already fixed for the MARKER, which is the point worth recording: that repair
+ * built `readMarker` beside `readJson` and left every other consumer collapsing
+ * ABSENT and MALFORMED into one `null`. The instance was closed and the class
+ * was not.
+ *
+ * A record being written while we read it is ordinary operation here, exactly as
+ * it is for the marker: this adapter's own `nonceWrite` rewrites the file, so
+ * two invocations in one session interleave on it.
+ *
+ * The three consumers below each got the wrong answer from that collapse, and
+ * only one was reported:
+ *   - `nonceRead`   -> "this command holds no checkpoint record", naming a
+ *                      condition that did not fire, at exit 1 (a refusal) where
+ *                      an unreadable file is a FAULT (exit 2).
+ *   - `nonceConsume`-> read as absent, so it declines to spend and refuses with
+ *                      a record-changed reason that also did not fire.
+ *   - `nonceWrite`  -> `?? {}` SILENTLY REPLACED the whole record, destroying
+ *                      every other pane's outstanding grant in that session
+ *                      file. Not reported by the round-4 reviewer; found by
+ *                      sweeping the class rather than repairing the instance.
+ */
+class RecordUnreadable extends Error {
+  constructor(path: string) {
+    super(`the record at ${path} exists but could not be read`);
+    this.name = "RecordUnreadable";
+  }
+}
+
+/** `null` = genuinely absent. Throws when the file exists and will not parse. */
+export function readRecord(path: string): Record<string, string> | null {
+  if (!existsSync(path)) return null;
+  let body: unknown;
+  try {
+    body = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    throw new RecordUnreadable(path);
+  }
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    throw new RecordUnreadable(path);
+  }
+  return body as Record<string, string>;
+}
+
+/**
  * The marker a pane's worktree holds, with MALFORMED kept distinct from ABSENT.
  *
  * Diff round 1, finding 2 (P0). `readJson` returns null for both, and the two
@@ -1171,19 +1218,21 @@ export function realSurface(): Surface {
     out: (line) => process.stdout.write(`${line}\n`),
     outRaw: (bytes) => process.stdout.write(bytes),
     nonceRead: (sessionId, paneId) => {
-      const body = readJson(join(NONCE_DIR, `${sessionId}.json`)) as Record<string, string> | null;
+      const body = readRecord(join(NONCE_DIR, `${sessionId}.json`));
       return body?.[paneId] ?? null;
     },
     nonceWrite: (sessionId, paneId, nonce) => {
       mkdirSync(NONCE_DIR, { recursive: true });
       const path = join(NONCE_DIR, `${sessionId}.json`);
-      const body = (readJson(path) as Record<string, string> | null) ?? {};
+      // NOT `?? {}`: that turned an unreadable record into an empty one and
+      // wrote it back, destroying every other pane's grant in this session.
+      const body = readRecord(path) ?? {};
       body[paneId] = nonce;
       writeFileSync(path, JSON.stringify(body, null, 2));
     },
     nonceConsume: (sessionId, paneId, expected) => {
       const path = join(NONCE_DIR, `${sessionId}.json`);
-      const body = readJson(path) as Record<string, string> | null;
+      const body = readRecord(path);
       if (body === null) return false;
       // A grant that is not the one we authorized is not ours to destroy.
       if (body[paneId] !== expected) return false;

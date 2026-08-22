@@ -232,7 +232,9 @@ later command cannot tell which pane it would reach.
 
 **This adds one optional field to the ship-state marker.** `checkpointNonce` joins `{branch, stage,
 tasksRemaining, next, blockedOn, cronJobId, sessionId}`. It is written only by a target responding
-to a checkpoint prompt and read only by `--compact`; its absence is normal.
+to a checkpoint prompt. `--compact` COMPARES it -- that is the whole proof the checkpoint landed --
+and `--checkpoint` also READS it, to avoid minting the value already sitting there (`mintNonce`'s
+collision compare). Its absence is normal.
 
 **The checkpoint never commits.** Invariant 1 permits a task commit only after the implementation
 passes its test, and a target mid-task has not. It writes the marker — gitignored, so it dirties
