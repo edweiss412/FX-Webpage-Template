@@ -140,8 +140,9 @@ and falls through to the existing byte comparison, which fails without attributi
 limit (§8.1), not a silent wrong answer: the gate still goes red, it just cannot say why.
 
 **Convergence criterion.** The instrument records runner identity, wall clock and decoded-pixel hashes on
-**both** outcomes; the marker scan covers every JSX-returning `infra_error` branch reachable from the
-manifest and enumerates its residue by name; §6 assigns one mechanism per reading. Settled by §9’s
+**both** outcomes; the marker scan covers every JSX-returning fault branch reachable from the manifest and
+enumerates its residue by name; §6 assigns one mechanism per reading **except the geometry row, which
+narrows to a bounded candidate set** (§8.5) — a ceiling stated rather than claimed away. Settled by §9’s
 acceptance tests.
 
 ---
@@ -158,7 +159,7 @@ acceptance tests.
 
 ### 4.2 What a source scan can and cannot see — measured, not assumed
 
-A ts-morph probe over the consumer sites returned **four structural shapes**, not one:
+A ts-morph probe over the consumer sites returned **six structural shapes**, not one:
 
 | shape | example | scan result |
 | --- | --- | --- |
@@ -167,6 +168,7 @@ A ts-morph probe over the consumer sites returned **four structural shapes**, no
 | 3. type-guard predicate definition | `components/admin/Dashboard.tsx:282` | not a consumer — skipped with a reason |
 | 4. **degradation flag assigned to a variable** | `components/admin/Dashboard.tsx:489` | no JSX at the comparison site — **not enforceable** |
 | 5. **`try`/`catch` returning JSX, no comparison at all** | `app/admin/show/[slug]/preview/[crewId]/page.tsx:202` | there is no `infra_error` comparison anywhere — **invisible to a comparison scan** |
+| 6. **guarded by an IMPORTED type-guard predicate** | `app/admin/page.tsx:177` calling `isInfraError` from `app/admin/_finalizeCheckpoint.ts:38` | the predicate is defined in another module — **invisible to a scan that resolves only local declarations** |
 
 Shape 4 has no JSX at the comparison: `ignoredDegraded` and `dataGapsDegraded` are booleans consumed by
 JSX elsewhere, so branch and render are decoupled. Tracing flag to render is dataflow analysis this arc
@@ -204,6 +206,7 @@ pixel hash, and no evidence record. The operator sees a bare missing-selector ti
 | --- | --- |
 | `app/admin/layout.tsx:94` — `admin-layout-infra-error`, after an `is_session_live` or `is_admin` RPC failure | **all 14** |
 | `components/admin/Dashboard.tsx:598` — `admin-dashboard-infra-error` replaces `components/admin/Dashboard.tsx:618` | 4 (`dashboard-overview`, `review-queues-empty-state`, both themes) |
+| `app/admin/page.tsx:178` — `CheckpointInfraErrorPlaceholder` (`app/admin/page.tsx:72`, testid at `app/admin/page.tsx:75`) replaces the dashboard when `readFinalizeCheckpoint` yields an infra result, for both returned and thrown Supabase faults | 4 (`dashboard-overview`, `review-queues-empty-state`, both themes) |
 | `app/admin/show/[slug]/preview/[crewId]/page.tsx:144` and two peers below it (show lookup, crew lookup, and the `getShowForViewer` catch) — replace the preview banner and crew shell | 8 (four entries, both themes) |
 
 This is the worst case available to the design: the fault class the gate exists for, arriving in the one
@@ -234,12 +237,19 @@ replacement branches alike.
 **The accept-set is keyed on the rendering construct, not on the comparison spelling.** A recognizer that
 enumerates comparison forms is a denylist, and shape 5 is the proof: it has no comparison to enumerate.
 The scan accepts a JSX-returning branch whose guard is any of — a literal `infra_error` comparison; a call
-to a locally-defined `infra_error` type-guard predicate, resolved through the predicate's own declaration
-rather than by name (`components/admin/Dashboard.tsx:282` is such a predicate, and
-`components/admin/Dashboard.tsx:491` calls it, which a comparison-only scan misses entirely);
-`in`-operator narrowing on `"kind"`; a `catch` clause whose `try` reaches a throwing loader; or
+to an `infra_error` type-guard predicate resolved through the predicate's own **declaration**, whether that
+declaration is local (`components/admin/Dashboard.tsx:282`, called at
+`components/admin/Dashboard.tsx:491`) or **imported from another module**
+(`app/admin/_finalizeCheckpoint.ts:38`, called at `app/admin/page.tsx:177`); `in`-operator narrowing on
+`"kind"`; a `catch` clause whose `try` reaches a throwing loader; a `switch` case on a result kind; or
 `tileErrors` population (`lib/data/getShowForViewer.ts:224`). Anything outside the accept-set is
 **reported by name**, never silently dropped.
+
+**Resolution is through the declaration, never through the name.** A scan keyed on the identifier
+`isInfraError` is a denylist with one entry: it breaks on a rename, on an alias at the import site, and on
+a second predicate spelled differently. Two live predicates already differ in spelling and in module
+(`isInfra` local to `components/admin/Dashboard.tsx`, `isInfraError` exported from
+`app/admin/_finalizeCheckpoint.ts`), which is the corpus evidence that name-keying would not have held.
 
 A derived-cover meta-test walks the manifest-derived roots, classifies every consumer, and:
 
@@ -363,7 +373,7 @@ Read in order; the first matching row wins.
 | --- | --- |
 | `refusedReason` is `selector-absent` | **replacement-class fault** (§4.2.1). The named markers, if any, say which branch replaced the surface; none means an unmarked replacement, still attributed as selector-absent. |
 | `faultHits` non-empty | **faulted render**, mechanism A. Refused; no drift reported. |
-| `refusedReason` is geometry and `faultHits` is empty | **an unmarked layout-changing fault, or a real UI change.** The diff separates them: if no render input moved it is a shape-4 residue member (§4.2), and the record names which. |
+| `refusedReason` is geometry and `faultHits` is empty | **an unmarked layout-changing fault, or a real UI change — and the record NARROWS this rather than deciding it.** See the note below; do not read this row as unique attribution. |
 | `pixelSha256` differs, geometry identical, deltas concentrated below 32 in short runs | **rasterization variance**, mechanism B. Compare `cpuModel` across the passing and failing records. |
 | `pixelSha256` differs, geometry identical, long runs and large deltas | **content change at fixed geometry.** Correlate `capturedAtUtc` for a time-dependent render. |
 | `pixelSha256` identical, `webpSha256` differs | **encoder difference.** `cpuModel` names the population. |
@@ -371,6 +381,19 @@ Read in order; the first matching row wins.
 
 Rows 3 and 4 are distinguishable only because the record carries decoded-pixel identity; a container hash
 would collapse them into each other and into row 5.
+
+**The geometry row narrows; it does not attribute, and the r2 draft overclaimed that it did.** On a
+geometry refusal no image is written, so there is no candidate image to diff, and `faultHits` is empty by
+definition — the entry key identifies the capture, not the branch that broke it. Several unmarked flags
+reach one identity: `ignoredDegraded` (`components/admin/Dashboard.tsx:489`) and `dataGapsDegraded`
+(`components/admin/Dashboard.tsx:491`) both reach `dashboard-overview`, and rooms, hotel and contacts
+failures all reach `crew-preview-today-mobile`. A source diff cannot separate them either, because a
+legitimate UI edit and a transient fault can arrive in the same run.
+
+What the record CAN do is list, for the refused entry, the residue members statically known to reach it —
+that mapping is derived by §4.3's meta-test and costs nothing to carry. So the operator gets a bounded
+candidate set plus the dimensions, which is narrowing, and the honest ceiling. Unique attribution for the
+flag-shaped residue would need the dataflow analysis §4.2 declines; §8.5 records the limit.
 
 ---
 
@@ -429,6 +452,11 @@ what surfaced both mechanisms; closing them together would have shipped a false 
    (`lib/onboarding/sessionLifecycle.ts:351`, and again at lines 352, 355 and 388). The frozen-now header
    cannot reach Postgres. It explains neither occurrence — both render the Dashboard branch — but it is a
    real time-dependent input to a captured route. The repair is a time-source decision outside this arc.
+5. **A geometry refusal narrows to a candidate set, never to one branch.** No image is written and
+   `faultHits` is empty, so the evidence names the capture and the statically-reachable residue members,
+   not the branch that fired. Unique attribution for flag-shaped faults needs the dataflow analysis §4.2
+   declines to carry. Re-file trigger: a recurrence where the candidate set is large enough that an
+   operator cannot act on it.
 4. **The instrument records; it does not retry.** A retry-on-fault policy would mask fault *rate*, which is
    what the successor arc for row 2 needs.
 
@@ -461,6 +489,15 @@ what surfaced both mechanisms; closing them together would have shipped a false 
   So the oracle is not a count of files but a **set of completion events emitted by the capture loop
   itself**, one per `(entry.key, theme)`; the test asserts that set equals the fourteen expected
   identities, then asserts the diff is empty. Identity equality, never cardinality.
+
+  **And each event is derived from a VERIFIED artifact, not from reaching the end of a function.** An event
+  emitted merely because `captureEntryTheme` returned certifies nothing: deleting or no-oping the single
+  `writeFile` at `scripts/help-screenshots.ts:111` is one ordinary edit, the function still returns
+  normally, all fourteen events still fire, the fourteen committed baselines are untouched, and the diff
+  stays green — a run that produced no files at all reported as a clean pass. So the event carries the byte
+  length and `webpSha256` **read back from the file after writing**, and the test asserts every event has a
+  non-zero length and a hash matching the buffer that was encoded. An event that cannot prove its artifact
+  exists is not a completion.
 - **AC-3** The meta-test fails when a manifest-reachable shape-1 branch lacks `data-render-fault`, proven
   by a mutant removing the attribute.
 - **AC-4** The population is derived from the manifest **including template-literal routes**, proven by two
