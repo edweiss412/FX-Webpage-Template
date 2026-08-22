@@ -131,7 +131,13 @@ chmodSync(join(bin, "psql"), 0o755);
 
 const expectRepaired = process.argv.includes("--expect-repaired");
 let bashMismatch = 0;
-let unmet = 0;
+/** Accept-set rows that do not meet their post-repair expectation. */
+let unmetAccept = 0;
+/** Documented-limit rows whose reading MOVED against the shipped module.
+ *  Counted separately: a moved limit is scope creep, not an unmet expectation,
+ *  and folding it into the accept-set tally reports one population's failure
+ *  against the other's denominator. */
+let movedLimits = 0;
 const pad = (s: string, n: number): string => s.padEnd(n);
 console.log(`\n${pad("id", 36)} ${pad("ran", 5)} ${pad("sites", 6)} ${pad("nested", 7)} ${pad("bt", 6)} ${pad("hits", 5)} today-vs-after`);
 for (const row of ROWS) {
@@ -174,7 +180,10 @@ for (const row of ROWS) {
     hits.length === row.after.indirections &&
     (row.after.nested === undefined || (row.after.nested ? nestedAll : nestedNone)) &&
     (row.after.nestedInBacktick === undefined || (row.after.nestedInBacktick ? btAll : btNone));
-  if (!ok) unmet++;
+  if (!ok) {
+    if (row.limit) movedLimits++;
+    else unmetAccept++;
+  }
   console.log(
     `${pad(row.id, 36)} ${pad(String(ran), 5)} ${pad(String(sites.length), 6)} ${pad(nestedCol, 7)} ${pad(btCol, 6)} ${pad(String(hits.length), 5)} ${row.limit ? (unchanged === null ? "(limit; shipped)" : unchanged ? "UNCHANGED" : "MOVED") : ok ? "MEETS after" : "UNMET"}  ${row.note}`,
   );
@@ -186,9 +195,18 @@ if (bashMismatch > 0) {
   process.exit(2);
 }
 const limits = ROWS.filter((r) => r.limit).length;
-console.log(`ROWS: ${ROWS.length} total = ${ROWS.length - limits} accept-set + ${limits} documented-limit`);
-console.log(`${ROWS.length - limits - unmet}/${ROWS.length - limits} accept-set rows meet their post-repair expectation; ${limits} documented-limit rows ${shipped === null ? "reported (shipped module, nothing to compare)" : "compared against the shipped module"}`);
-if (expectRepaired && unmet > 0) {
-  console.error(`FAIL: ${unmet} row(s) unmet under --expect-repaired`);
+const accept = ROWS.length - limits;
+console.log(`ROWS: ${ROWS.length} total = ${accept} accept-set + ${limits} documented-limit`);
+// Each population reconciles against its OWN denominator. Reported even when
+// zero, so a run that observed nothing is distinguishable from one that
+// observed nothing wrong.
+console.log(`${accept - unmetAccept}/${accept} accept-set rows meet their post-repair expectation`);
+console.log(
+  `${limits - movedLimits}/${limits} documented-limit rows ${shipped === null ? "reported (shipped module, nothing to compare against)" : "UNCHANGED against the shipped module"}`,
+);
+if (expectRepaired && (unmetAccept > 0 || movedLimits > 0)) {
+  console.error(
+    `FAIL under --expect-repaired: ${unmetAccept} accept-set row(s) unmet, ${movedLimits} documented-limit row(s) MOVED`,
+  );
   process.exit(1);
 }
