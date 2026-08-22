@@ -126,7 +126,8 @@ rather than its prose:
   unrepairable — no edit recovers the tree it measured, and writing a plausible sha into its header
   would be a guess wearing provenance's clothes. It ships as the README's worked counterexample
   instead, which is worth more than a fabricated anchor. Separately, the figure that LOOKED stale (a
-  1127-vs-1173 file count) is correctly bound by its record's header; the probe record keeps that as
+  1127-vs-1173 file count) is correctly bound by its own record's header, which names `039533373`;
+  the probe record keeps that as
   a recorded wrong first answer rather than quietly dropping it.
 - **No layout-dimensions or transition-audit task.** No UI surface.
 - **AC-7** (the in-progress marker comes off in the PR's last commit before merge) is a merge-time

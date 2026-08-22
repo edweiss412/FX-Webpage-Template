@@ -85,9 +85,11 @@ at the commit it measures.
    demonstration is that the record scoring zero under every variant is on inspection one of the
    best-provenanced in the corpus, because it uses indented transcript and blob ids instead of fenced
    blocks. No adjustment to a token rule reaches that.
-2. **The gate the row sketches has zero true positives.** 39 lines match its shape and 23 would red:
-   ordinals, in-place arithmetic, control-outcome cells, narrative, and six real figures that are
-   already bound by their record's header.
+2. **The gate the row sketches has zero true positives, and the reason does not rest on any binding
+   claim.** 39 lines match its shape and 23 would red: seventeen are ordinals, in-place arithmetic,
+   control-outcome cells, a retraction and an environment note, none of them artifact figures at all.
+   The other seven are real figures, and they would be no safer for passing — the gate demands a
+   producing COMMAND on the line, and §3's counterexample shows a producing command is not a binding.
 3. **One record is genuinely unbound, and the gate cannot see it.** The anchor screen has exactly one
    positive finding: `2026-08-16-timing-scan-binding-probes.md` names `origin/fix/scanner-scope-totality`,
    no sha, and that branch has been deleted. Its single gate red is a task ordinal, so the rule fires
