@@ -142,6 +142,38 @@ Three runs, each ONE heavy-wrapped invocation (probe record sections 4 to 6): ru
 
 Every disposition above is measured, not read, and the table is meant to be re-derivable on its own: each row names its runs, its numbers, the mechanism of any red, and the repair or deferral that follows. MEMBER rows need no change. "MEMBER after repair" rows enter the batch as red-then-green: the run above is the observed red, section 6 names the repair, and the plan's first task re-runs the full member set once with both DSNs on the local stack and records the green (the post-fix run is the measurement the batch derives from; a member that is not green there leaves the batch under AC-4 before the PR opens). A single red on a shared local database was not treated as a classification: every undetermined red was re-measured before it was dispositioned (probe record sections 4.3 and 5; batch 1's `report-modal` lesson cuts both ways).
 
+**Post-fix run, 2026-08-22 (the measurement membership derives from).** One heavy-wrapped
+invocation over all 23 specs (the nine batch-1 members plus the fourteen above) with both projects at
+`--retries=0`, after R1 to R7 and the two repairs their unblocking exposed (R8, R9): **rc 0, 181
+passed, 0 skipped, 0 flaky, 3.2 minutes wall**. All fourteen were green there; one left later, in
+CI, under AC-4 (below). Per-member executed identities, derived from that
+run's JSON report through the oracle's own walk rather than by arithmetic, each equal to the `--list`
+resolution in section 3: `admin-parse-panel` 10, `admin-route-boundaries` 5,
+`admin-settings-admins-refresh` 1, `dev-capture` 4, `developer-tier` 7, `needs-attention-page` 12,
+`no-raw-codes` 10, `published-show-attention` 6, `roles-settings-layout` 5, `sign-in-page` 24,
+`source-link-dimensional` 5, `staged-preview` 8, `telemetry-layout` 3, `warning-panel-polish` 4. All fourteen were green
+before the PR opened. **`admin-parse-panel` then left under AC-4 mid-count**: green on four CI runs
+(32558218336, 32559183296, 32559865786, 32560300422), red on 32561531983 at its Re-sync assertion
+with the run's artifact showing the whole page rendering the admin error boundary ("Admin session
+unavailable") — the transient admin-session infra class, not a spec defect, and not something a
+test-side wait outlasts. `warning-panel-polish` left the same way one run later: green on five CI runs,
+red on 32563705156 with the announcer still empty after Ignore WITH the gate present, which is this
+document's own falsifier — recorded as UNATTRIBUTED rather than as the falsifier firing, because
+`--retries=0` leaves no trace, the artifact has no snapshot, and the same case under the CI posture
+locally (`CI=1`, `--trace on`) passed 4 of 4. Twelve ride; `d = 2` in section 7.2's census, and both
+allowlist rows are restored carrying every run id.
+
+Two repairs beyond R1 to R7 were needed, both test-only and both first reachable only once an earlier
+repair unblocked their case, which is why the run measured them rather than the spec predicting them.
+**R8**, `no-raw-codes`: with R1 in, the route crawl runs for the first time and finds 45 catalog codes
+in the inlined RSC flight payload (script text, which no reader sees) and 11 in the telemetry event
+log, which renders each event's raw `code` by design (`components/admin/telemetry/EventRow.tsx:73`)
+over whatever `app_events` holds. The crawl's textContent phase now skips non-rendered nodes and the
+telemetry route is crawled under a filter matching no event. **R9**, `warning-panel-polish`: the
+serially-skipped reveal case at line 340 ran for the first time and lost its click in the same
+pre-hydration window R7 names, so it takes the same gate; the class sweep then extended that gate to
+the two other members that click a client island straight after opening the modal.
+
 Disposition vocabulary, fixed: **MEMBER** (green on first attempt, all resolved identities), **MEMBER after repair** (red on a test-only defect batch 1 §4 already ratifies repairing in-branch; the repair is named in section 6 and the spec re-run green before the PR opens), **DEFERRED** (red on an app defect, or a repair that is a redesign; its own row with the exception it names), **EXCLUDED** (section 1.1).
 
 ## 5. Workflow wiring
