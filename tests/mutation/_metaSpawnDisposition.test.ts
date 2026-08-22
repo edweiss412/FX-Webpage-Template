@@ -2,7 +2,10 @@ import * as childProcess from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
+
+import { stripCommentsSafely } from "../_shared/stripComments";
 import { premiseHolds } from "../_shared/premise";
 
 /**
@@ -101,7 +104,35 @@ type Sweep = {
  * name is not "unrecognized and therefore fine", it is refused until someone
  * adds it here and pins it.
  */
-const CEILING_NAMES = ["BROWSER_MUTANT_TIMEOUT_MS", "WIRING_CHILD_TIMEOUT_MS"] as const;
+/**
+ * Accepted ceiling NAMES — and the accept-set is lexical, which is its limit.
+ *
+ * `timeout: PROBE_CHILD_TIMEOUT_MS` counts as bounded in ANY member file, even
+ * one where that identifier is locally bound to zero; the scan reads text, not
+ * bindings (round 4 of the intra-leg probe arc). Each name therefore carries the
+ * file that DEFINES it, and a member file using a name it does not define is
+ * reported — so the blessing cannot travel silently to a surface nobody checked.
+ */
+const CEILING_NAMES = [
+  "BROWSER_MUTANT_TIMEOUT_MS",
+  "WIRING_CHILD_TIMEOUT_MS",
+  "PROBE_CHILD_TIMEOUT_MS",
+] as const;
+
+/**
+ * Where each accepted name is defined. A use outside its home file is reported.
+ *
+ * TOTAL over `CEILING_NAMES`, and the test below proves it. Shipped with only
+ * one of the three names mapped, which made the home rule silently inapplicable
+ * to the other two: either could be locally rebound to zero in any member file
+ * and pass (diff review r5 finding 7). A partial map is worse than none here,
+ * because the comment above it promises a guarantee the data does not deliver.
+ */
+const CEILING_HOME: Record<(typeof CEILING_NAMES)[number], string> = {
+  BROWSER_MUTANT_TIMEOUT_MS: "tests/mutation/browser/runner.ts",
+  WIRING_CHILD_TIMEOUT_MS: "tests/mutation/browser/overlayWiring.test.ts",
+  PROBE_CHILD_TIMEOUT_MS: "tests/mutation/source/processProbe.ts",
+};
 
 /**
  * An ACCEPTED ceiling occurrence: a positive integer literal, or a named
@@ -217,6 +248,19 @@ type Disposition =
   | { kind: "site"; file: string; line: number; member: boolean; reason: string };
 
 const DISPOSITIONS: readonly Disposition[] = [
+  {
+    // The across-process probe's ONE child spawn. A member: this really is an
+    // executed harness child, and the row's ceiling claim is checked per hit —
+    // `PROBE_CHILD_TIMEOUT_MS` at the call site is what satisfies it, and
+    // deleting that ceiling re-reds this row rather than passing quietly.
+    kind: "file",
+    file: "tests/mutation/source/processProbe.ts",
+    member: true,
+    reason:
+      "MEMBER — the trial child of the intra-leg process-boundary probe, spawned once " +
+      "per trial by `makeParentDeps`. Bounded by `PROBE_CHILD_TIMEOUT_MS` (600 s by " +
+      "default, overridable per campaign), so a hung child cannot outlive its trial.",
+  },
   {
     // A REGEX LITERAL, not a call. `/run (\d+)/` matches the sweep's own shape —
     // a spawn name followed by an open paren — because the shape reads TEXT and
@@ -443,6 +487,53 @@ describe("every spawn site under tests/mutation/ is disposed of", () => {
   // registry's rows still resolve to real sites — which passes happily while a
   // NEW undispositioned site sits uncovered, an enumeration failure wearing a
   // guard's clothes. This is the one that must fail on a new site.
+  it("an accepted ceiling NAME is not blessed outside the file that defines it", () => {
+    // The accept-set is lexical: any member file writing `timeout: <name>` counts
+    // as bounded, even where the identifier is bound to zero. This cannot check
+    // bindings without a parser, so it checks the weaker thing it CAN — that a
+    // blessed name is used only where it is defined — and names the limit rather
+    // than implying the stronger guarantee.
+    for (const [name, home] of Object.entries(CEILING_HOME)) {
+      // COMMENTS STRIPPED, through the shared module. Without it this very test's
+      // doc comment — which quotes `timeout: PROBE_CHILD_TIMEOUT_MS` to explain
+      // the hazard — counted as a second user, and the case failed on its own
+      // prose. That is the fourth use-versus-mention miss on this machine today,
+      // and the reason `tests/_shared/stripComments` is the single source.
+      const users = [...sources.entries()]
+        .filter(([file, src]) =>
+          new RegExp(`timeout\\s*:\\s*${name}\\b`).test(
+            stripCommentsSafely(src, file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS),
+          ),
+        )
+        .map(([file]) => file);
+      expect(users, `${name} is accepted as a ceiling only in ${home}`).toEqual(
+        users.length === 0 ? [] : [home],
+      );
+    }
+  });
+
+  // The PREMISE of the case above, stated executably. It compares users against
+  // `[home]`, so a wrong or stale home path fails it only when that name has a
+  // user; with none, `users.length === 0` short-circuits and a home pointing at
+  // a file that never declares the constant passes forever. Round 5 shipped
+  // exactly that hazard the other way round — two of three names had no home at
+  // all — so the map is now TOTAL by type, and this is the half the type cannot
+  // check: that each home actually declares its name.
+  it("every accepted ceiling name is declared in the file CEILING_HOME names", () => {
+    for (const name of CEILING_NAMES) {
+      const home = CEILING_HOME[name];
+      const src = sources.get(home);
+      expect(src, `${name}'s home ${home} is not among the scanned sources`).toBeDefined();
+      const declared = new RegExp(`\\bconst\\s+${name}\\b`).test(
+        stripCommentsSafely(src as string, ts.ScriptKind.TS),
+      );
+      expect(
+        declared,
+        `${home} does not declare ${name}; CEILING_HOME points at the wrong file`,
+      ).toBe(true);
+    }
+  });
+
   it("every SWEPT site maps to a disposition row", () => {
     const undispositioned = hits
       .filter((hit) => rowsFor(hit).length === 0)
