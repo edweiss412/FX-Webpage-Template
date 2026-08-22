@@ -32,11 +32,14 @@ import { collectInfraRecoveries, printInfraRecoveries } from "./lib/infraRecover
 // docs/superpowers/specs/ci/2026-08-15-changes-feed-modal-batch-flake-design.md), adding a fourth
 // case, so it returns at 8 rather than its old 6 — NINE wired specs, 77 executions.
 //
-// BATCH 2 joins 2026-08-22 (spec docs/superpowers/specs/ci/2026-08-21-app-e2e-batch2-design.md):
-// fourteen more specs, +104 identities, measured on one post-fix run of all 23 with both projects
-// and --retries=0 — 181 executed identities, zero skipped, zero flaky, every per-spec count equal
-// to Playwright's own --list resolution for that spec. The counts below are derived from that
-// run's JSON report through this script's own walk, never by arithmetic over the file list.
+// BATCH 2 joins 2026-08-22 (spec docs/superpowers/specs/ci/2026-08-21-app-e2e-batch2-design.md).
+// Fourteen specs were measured green on one post-fix run of all 23 with both projects and
+// --retries=0 (181 executed identities, zero skipped, zero flaky, every per-spec count equal to
+// Playwright's own --list resolution). THREE of them then left under AC-4 during the five-green
+// loop — admin-parse-panel, warning-panel-polish and telemetry-layout, all to the admin-loader
+// class BL-ADMIN-LOADER-CI-TRANSIENT — so the rows below are the ELEVEN that ride. The count of
+// rows in this table is the authority for "how many joined"; this comment does not restate it,
+// because a narrative copy of a machine-held count is exactly what goes stale.
 //
 // Each count is the spec's FULL executable set, not a floor of 1: a floor of 1 would let a nested
 // `beforeEach(() => test.skip())` runtime-skip every case but one while the job stayed green, and a

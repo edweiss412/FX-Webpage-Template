@@ -827,9 +827,9 @@ Those five names are the whole remaining population of this entry: the three AC-
 the two this batch never claimed.
 
 The 23 → 5 drop is ELEVEN row deletions (batch 2's members, which move the total 51 → 40) plus
-SEVEN reclassifications out of `UNSEEN` into custom reasons (which move no total). A fourteenth
-THREE more were wired, ran green repeatedly, and left under AC-4 mid-count — their rows are back, so
-they are three of the five the last command prints. The pre-closeout total reads 51 where the 2026-08-10
+SEVEN reclassifications out of `UNSEEN` into custom reasons (which move no total). THREE further
+members were wired, ran green repeatedly, and then left under AC-4 mid-count — their rows are back,
+so they are three of the five the last command prints. The pre-closeout total reads 51 where the 2026-08-10
 restatement said 50: `staged-preview.spec.ts` joined the allowlist as `UNSEEN` after that
 restatement, and is one of the eleven deleted here.
 
@@ -878,8 +878,11 @@ oracle's own walk. Spec:
 `docs/superpowers/specs/ci/2026-08-21-app-e2e-batch2-design.md`; probe record:
 `docs/superpowers/specs/ci/probes/2026-08-21-app-e2e-batch2-membership-probe.md`.
 
-**TWO members were wired and then left under AC-4 mid-count, exactly as batch 1's changes-feed did,
-and the count restarted from zero both times rather than taking an almost-done exception.**
+**THREE members were wired and then left under AC-4 mid-count, exactly as batch 1's changes-feed did,
+and the count restarted from zero each time rather than taking an almost-done exception.** The third
+drop is also where the reds stopped being read per-spec: see `BL-ADMIN-LOADER-CI-TRANSIENT`, whose
+six occurrences across three PRs are why AC-3's bar was re-scoped by ruling rather than met by
+re-rolling.
 `admin-parse-panel.spec.ts` was green on four CI runs (32558218336, 32559183296, 32559865786, 32560300422) and every local one, then red on 32561531983 at its Re-sync assertion, where the run's
 own artifact shows the whole page rendering the admin error boundary ("Admin session unavailable").
 That is the transient admin-session infra class `BL-CHANGES-FEED-MODAL-BATCH-FLAKE` already records
@@ -964,25 +967,30 @@ this same partition and make every number above worse before any repair lands.
 
 ## BL-ADMIN-LOADER-CI-TRANSIENT — admin page and modal loaders fault transiently on the app-e2e runner, and the failure is indistinguishable from a spec defect
 
-**Status:** OPEN · **Filed:** 2026-08-22 (`ci/app-e2e-batch2`, from three counted runs of that arc's five-green loop) · **Facing:** process · **Severity:** MEDIUM (it costs a full five-green restart per occurrence, and read per-spec it drops members that are not defective) · **Class:** CI flake · **Effort:** M · **Reachability:** PROBED — three CI runs below, each with the failing page's own snapshot, against local CI-posture reproductions that pass. · **Incident:** three counted runs of PR #875's AC-3 loop died on it in one evening, and two batch-2 members were dropped under AC-4 before the shape was recognized. Those are cost events that already happened.
+**Status:** OPEN · **Filed:** 2026-08-22 (`ci/app-e2e-batch2`, from the counted runs of that arc's five-green loop) · **Facing:** process · **Severity:** MEDIUM (it costs a full five-green restart per occurrence, and read per-spec it drops members that are not defective) · **Class:** CI flake · **Effort:** M · **Reachability:** PROBED — the runs listed below, each with the failing page's own snapshot or its error text; three of them also carry a local CI-posture reproduction that passes, and which three is stated rather than implied. · **Incident:** SIX counted runs across THREE PRs died on this shape in one evening, and three batch-2 members left under AC-4 because of it. Those are cost events that already happened.
 
-Three CI runs, three DIFFERENT specs, one shape — an admin loader faulting and the segment rendering
-its error boundary while the rest of the page is fine:
+Six runs, six specs' worth of failures across three PRs, one shape — an admin loader faulting, never
+resolving, or leaving a server round-trip unsettled, while the rest of the page renders fine. The
+list is the row's evidence and the amended AC-3 exception reads its SIGNATURE from it, so every
+occurrence lands here as it happens:
 
 - [32561531983](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32561531983) — `admin-parse-panel`, snapshot is the whole page as "Admin session unavailable" at the Re-sync assertion.
 - [32563705156](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32563705156) — `warning-panel-polish`, announcer empty after Ignore; no trace at `--retries=0`, so this one is the least attributed of the three.
 - [32564772189](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32564772189) — `needs-attention-page`, nav and badge render (badge reads "2"), `main` is "This admin page couldn't load".
 - [32571008405](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32571008405) — TWO members in one run: `published-show-attention`, where the ratified open-time recovery FIRED AND STILL FAILED ("error boundary persisted after one retry … grep the server log for `show_review_snapshot_failed`"), and `telemetry-layout`, whose snapshot ends at `status: Loading your dashboard…` with the sidebar and log both at zero rects. The second is the same class arriving as a loader that never resolves rather than one that faults, and it is the first evidence that the existing one-retry recovery is not sufficient.
+- [32573475808](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32573475808) — `telemetry-layout` AGAIN, the same case and the same zero-rect stall as 32571008405. This is the observation that dropped it (the second red on one spec, batch 1's threshold), and it is listed here because the drop's reason lives in this class, not in the spec.
 - [32572200250](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32572200250) — `notify-toggles`, **a BATCH-1 member wired on main since 2026-08-09**: the toggle's server action plus `router.refresh()` did not settle inside a 10 s poll (`aria-checked` still "true"). Nothing about batch 2 is in that spec's path, so this is the observation that separates the two readings cleanly: the variable is the runner, and main's own app-e2e job carries the same exposure. The pair is cross-PR: `dbconn`'s own app-e2e run [32557812890](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32557812890) on `feat/destructive-guard-discovery-by-connection` failed the SAME spec, the same case and at the same 10.7 s earlier the same night, and resolved green on one re-run. Two unrelated branches, one spec, one shape.
 
-Every one of them reproduces GREEN locally under the CI posture (`CI=1`, so `pnpm build && pnpm
-start`, both DSNs pinned): parse-panel 10 of 10, warning-panel 4 of 4 with `--trace on`,
-needs-attention 12 of 12. So the domain of the defect is the LOADER on that runner, not the specs —
+THREE of them were reproduced locally under the CI posture (`CI=1`, so `pnpm build && pnpm start`,
+both DSNs pinned) and passed: parse-panel 10 of 10, warning-panel 4 of 4 with `--trace on`,
+needs-attention 12 of 12. The later three were not re-probed locally, and the row says so rather than
+generalizing: by then the shape was established, and a fourth green reproduction would have added a
+data point to a question already answered. So the domain of the defect is the LOADER on that runner, not the specs —
 which is why reading it per-spec drops members that are not defective and empties a batch to certify
 nothing. Same family as `BL-CHANGES-FEED-MODAL-BATCH-FLAKE`, which measured the transient gateway
 502 reaching the `/admin` error boundary on this same job.
 
-**`admin-parse-panel` and `warning-panel-polish` stay dropped for batch 2.** Both drops were
+**`admin-parse-panel`, `warning-panel-polish` and `telemetry-layout` stay dropped for batch 2.** Both drops were
 procedurally valid when they were made — one red on a counted run, no attribution, AC-4's own
 procedure — and re-adding them tonight would be churn on an arc whose bar is five consecutive green
 runs. Their restoration is **batch 3's first question**, and their allowlist rows already carry every
