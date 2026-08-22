@@ -187,8 +187,10 @@ never made against a snippet whose behaviour is unestablished.
 its own tally, and those two lines are the figures to read:
 
 ```
-ROWS: 28 total = 21 accept-set + 7 documented-limit
-11/21 accept-set rows meet their post-repair expectation
+ROWS: 29 total = 20 accept-set + 5 documented-limit + 4 bash-rejected
+11/20 accept-set rows meet their post-repair expectation
+5/5 documented-limit rows VACUOUS (candidate is byte-identical to the merge-base scanner)
+2/4 bash-rejected rows hold their RECORDED base -> candidate movement
 ```
 
 at `50ca72a56` against the shipped scanner. A count written here would go stale the next time a row
@@ -200,9 +202,68 @@ repair stayed inside its scope. An earlier cut of this probe folded a moved limi
 accept-set tally and reported `16/17 accept-set` for a run in which every accept-set row passed and
 one LIMIT had moved — one population's failure against the other's denominator.
 
-**Against the §3 prototype the same probe prints `21/21 accept-set rows meet their post-repair
-expectation` and `7/7 documented-limit rows UNCHANGED against tests/cross-cutting/psqlStartupFiles/scan.ts
-at 50ca72a566b0`.**
+**Against the §3 prototype the same probe prints `20/20 accept-set rows meet their post-repair
+expectation`, `5/5 documented-limit rows UNCHANGED against
+tests/cross-cutting/psqlStartupFiles/scan.ts at 50ca72a566b0`, and `4/4 bash-rejected rows hold their
+RECORDED base -> candidate movement`.**
+
+### 2.1c Three populations, because they answer three questions
+
+Each row belongs to exactly one, and the tallies never share a denominator.
+
+| population | input | what is asserted |
+|---|---|---|
+| **accept-set** | bash EXECUTES it | an absolute outcome: sites, advisories AND attribution |
+| **documented limit** | bash executes it | the candidate reports what the MERGE-BASE scanner reports, over every field of every record |
+| **bash-rejected** | bash REFUSES TO PARSE it | the recorded base → candidate MOVEMENT, as a digest of the full records on BOTH halves |
+
+**The third exists because the consequence bound ranges over inputs bash executes**, and on an input
+the shell rejects no site is "correct": the walk cannot know a stray token later on the line
+invalidates the command, and the scanner has fabricated on such input since long before this arc
+(§7 limit 6). Asserting an absolute there would bless a fabrication; asserting "unchanged" would
+forbid the repair from improving one. So the movement is RECORDED, in both directions.
+
+**Membership is CHECKED, not declared.** Round 3 finding 1: the class originally verified only that
+psql did not RUN, which is a different fact — a perfectly valid script can fail to run psql — so a
+valid-but-silent input could be labelled bash-rejected and thereby exempted from the bound with
+nothing objecting. Every row is now put through `bash -n` and the declared class must match in BOTH
+directions; a mismatch ABORTS the probe. Proven to fire: labelling the plain `psql -c 'x'` control
+bash-rejected prints `CLASS MISMATCH C3-plain-call: bash PARSES this` and exits 2.
+
+**Two weaker forms of this population were built and rejected, both by measurement.** As first
+written the movement was a pair of COUNTS, and `w6` and `w7` — the two `$$` under-repairs — passed
+the entire probe, because their defect flips `nested` while leaving one site and zero advisories
+exactly where they were. The second cut compared counts plus aggregate `nested` flags, and round 3
+finding 2 named what that still misses: hit text and line, site offset, tokens,
+`suppressesStartupFiles`, `exemptReason`. Both halves are now a digest of the FULL records, and a
+mismatch prints both records so the digest costs nothing in diagnosability.
+
+### 2.1d The other consumers of the changed matcher, measured
+
+`matchBraceSpan` feeds six call sites besides the two the acceptance set exercises (§1), and round 3
+finding 4 is right that opacity of the returned word does not by itself prove those consumers are
+unaffected. So they are measured rather than argued: eight inputs covering the assignment/binding
+route, the here-string route, `acceptedExpansionOperand`'s whole-value decision, compound arrays,
+an alias binding and a `$GITHUB_ENV` write, run against the merge-base scanner and the §3 prototype
+(`docs/superpowers/specs/ci/probes/2026-08-22-shell-brace-cross-construct/consumers.mts`).
+
+**Seven are byte-identical; ONE moves, and the movement is the repair working.** The here-string
+route reached through a crossing — `read -r PG <<< ${U:-$(echo }; psql -c x)}` — reports
+`nested: false` on the merge-base and `nested: true` on the candidate. Bash PARSES that line and runs
+psql once inside the substitution (probed: it binds `}` and invokes psql), so the site really is
+nested and the merge-base attribution was wrong. It is the ledger row's own defect arriving through a
+consumer the acceptance set does not exercise, which is precisely the coverage round 3 finding 4
+asked for.
+
+The probe ASSERTS both halves rather than printing them: an undeclared route that moves exits 1, and
+a route DECLARED to move that stops moving also exits 1 — a recorded movement that silently stops
+applying reads as a pass while proving nothing.
+
+**A count-based reading of these same eight routes reported all eight identical.** That reading was
+mine, taken while repairing round 3, and the full-record comparison overturned it. It is the third
+time in this arc that presence hid an attribution change, and the first time it happened inside the
+verification rather than inside the thing being verified — which is the strongest argument available
+for why every comparison here is over full records.
 
 ### 2.1b The probes are proven to fail, in both populations
 
@@ -210,16 +271,17 @@ A probe that only prints cannot be an acceptance criterion, so each gate was run
 defect and against a no-defect baseline. Two defects, chosen so that each targets one population and
 neither targets both:
 
-| candidate walk | accept-set | documented limits | exit |
-|---|---|---|---|
-| **the §3 design** | 21/21 | 7/7 UNCHANGED | 0 |
-| `w1` — quotes are not openers | **19/21** | **5/7** | 1 |
-| `w2` — ONE recognizer for both contexts | **19/21** | **5/7** | 1 |
-| `w3` — backticks are not openers | **18/21** | **5/7** | 1 |
-| `w4` — an unclosed foreign construct keeps counting | **20/21** | **5/7** | 1 |
-| `w6` — `$$` taught to the walk but NOT to `attachedTargetEnd` | 21/21 | **6/7** | 1 |
-| `w7` — `$$` taught nowhere | 21/21 | **5/7** | 1 |
-| the `#`-comment rule (parser growth) | 21/21 | **6/7** — `L2` moves | 1 |
+| candidate walk | accept-set | limits | bash-rejected | exit |
+|---|---|---|---|---|
+| **the §3 design** | 20/20 | 5/5 | 4/4 | 0 |
+| `w1` — quotes are not openers | **18/20** | 5/5 | **2/4** | 1 |
+| `w2` — ONE recognizer for both contexts | **18/20** | 5/5 | **2/4** | 1 |
+| `w3` — backticks are not openers | **18/20** | 5/5 | **1/4** | 1 |
+| `w4` — an unclosed foreign construct keeps counting | 20/20 | 5/5 | **1/4** | 1 |
+| `w6` — `$$` taught to the walk but NOT to `attachedTargetEnd` | 20/20 | 5/5 | **3/4** | 1 |
+| `w7` — `$$` taught nowhere | 20/20 | 5/5 | **2/4** | 1 |
+| the `#`-comment rule (parser growth) | 20/20 | **4/5** — `L2` moves | 4/4 | 1 |
+| the SHIPPED scanner, under `--expect-repaired` | 11/20 | VACUOUS | 2/4 | 1 |
 
 **Four of the eight candidates are invisible to the accept-set.** `w4`, `w6` and `w7` pass every
 accept-set row and die only in the bash-rejected population; the `#` widening passes both of those
@@ -406,10 +468,21 @@ sibling arc deleted exactly such a counter rather than write a fixture for it.
   predicate applied to a correctly delimited span; neither is the predicate changing. The
   distinction is worth the paragraph because "no advisory count changes" and "the repair works" are
   incompatible, and the first is the easier sentence to write.
-- **The `${…}` word is still opaque**, targets still never reach `words`, and `scanShellText` still
-  passes no `targets` array — so the site path stays byte-identical by construction, as
-  `tests/cross-cutting/psqlStartupFiles/scan.ts:291` states and
-  `tests/cross-cutting/psqlStartupFiles/scan.ts:1862` implements.
+- **The `${…}` word is still opaque** and targets still never reach `words`:
+  `scanShellText` passes no `targets` array
+  (`tests/cross-cutting/psqlStartupFiles/scan.ts:291`,
+  `tests/cross-cutting/psqlStartupFiles/scan.ts:1862`).
+
+  **What that property does NOT say, and an earlier draft of this bullet did.** It says a retained
+  TARGET's text never becomes an argv word. It does not say the site path is byte-identical, and the
+  site path is emphatically NOT byte-identical — `R1-attached` moves from zero sites to one, which
+  is the entire point of the arc. Round 3 finding 4 caught the overclaim, inherited verbatim from
+  the sibling arc where it was about target retention and true. The site path changes exactly where
+  nested-body collection changes, because a correctly delimited construct yields a body the old walk
+  never handed to `scanShellText`.
+
+  **The six OTHER consumers of the walk are covered by measurement rather than by this argument**
+  (§2.1d): seven of eight routes byte-identical, one recorded movement, asserted in both directions.
 - **`ATTACHED_TARGET_TERMINATOR`** (`tests/cross-cutting/psqlStartupFiles/scan.ts:1064`) is
   untouched: which characters END an ordinary attached target is a different question from where a
   construct closes.
@@ -456,9 +529,13 @@ differ by 3.5 s on the identical shipped module.
 
 ## 5. Convergence criterion
 
-- **Consequence bound.** Every delimiter the walk resolves is the delimiter bash resolves, or the
-  span is REPORTED as unlexable through the existing `IndirectionHit` channel: **correct or
-  signaled, never silently wrong.** Silent discard and wrong attribution are the two forbidden
+- **Consequence bound, over inputs bash ACCEPTS.** Every delimiter the walk resolves is the
+  delimiter bash resolves, or the span is REPORTED as unlexable through the existing
+  `IndirectionHit` channel: **correct or signaled, never silently wrong.** The scope clause is not a
+  softening: on an input bash REFUSES TO PARSE nothing executes, so there is no call site to be
+  right or wrong about, and the walk cannot detect the rejection without becoming a parser (§7
+  limit 6, probe-backed). Those inputs are held by their own population, whose membership is checked
+  against `bash -n` and whose base → candidate movement is RECORDED in both directions (§2.1c). Silent discard and wrong attribution are the two forbidden
   directions. A worst case of conservative-over-report-plus-surfaced-signal is a DOCUMENTED LIMIT,
   not a finding. Zero false advisories on the live corpus, and the AC-5 finding set unmoved —
   the corpus holds ZERO instances of this family (§2.3), so the digest is the executable form of
@@ -466,8 +543,8 @@ differ by 3.5 s on the identical shipped module.
 
 - **PROBE DOMAIN:** the execution surfaces production READS — whole-file shell (`.sh`/`.bash`) and
   workflow `run:` scalars, per `SCANNED_EXTENSIONS` (`tests/cross-cutting/psqlStartupFiles/scan.ts:474`)
-  — plus the rows of `shapes.mts` (28 at `50ca72a56`: 21 accept-set, 7 documented-limit) and the five
-  of `syntax-error-class.mts`, each with its bash run as
+  — plus the rows of `shapes.mts` (29 at `50ca72a56`: 20 accept-set, 5 documented-limit, 4
+  bash-rejected), the eight of `consumers.mts` and the five of `syntax-error-class.mts`, each with its bash run as
   oracle, and the three families of `cost-curve.mts`. The probe prints its own inventory, which is
   the authority; the parenthetical above is that line as it read at `50ca72a56`, not a count this
   document maintains. A constructed input more than
