@@ -1005,8 +1005,8 @@ occurrence lands here as it happens:
 
 THREE of them were reproduced locally under the CI posture (`CI=1`, so `pnpm build && pnpm start`,
 both DSNs pinned) and passed: parse-panel 10 of 10, warning-panel 4 of 4 with `--trace on`,
-needs-attention 12 of 12. The later three were not re-probed locally, and the row says so rather than
-generalizing: by then the shape was established, and a fourth green reproduction would have added a
+needs-attention 12 of 12. The occurrences not named in that sentence were not re-probed locally, and the row
+says so rather than generalizing: by then the shape was established, and a fourth green reproduction would have added a
 data point to a question already answered. So the domain of the defect is the LOADER on that runner, not the specs —
 which is why reading it per-spec drops members that are not defective and empties a batch to certify
 nothing. Same family as `BL-CHANGES-FEED-MODAL-BATCH-FLAKE`, which measured the transient gateway

@@ -145,8 +145,9 @@ Every disposition above is measured, not read, and the table is meant to be re-d
 **Post-fix run, 2026-08-22 (the measurement membership derives from).** One heavy-wrapped
 invocation over all 23 specs (the nine batch-1 members plus the fourteen above) with both projects at
 `--retries=0`, after R1 to R7 and the two repairs their unblocking exposed (R8, R9): **rc 0, 181
-passed, 0 skipped, 0 flaky, 3.2 minutes wall**. All fourteen were green there; THREE left later, in
-CI, under AC-4 (below). Per-member executed identities, derived from that
+passed, 0 skipped, 0 flaky, 3.2 minutes wall**. All fourteen were green there; some left later, in
+CI, under AC-4, and the paragraph below names each one with its runs (the restored allowlist rows are
+the authority; nothing here keeps a count of them). Per-member executed identities, derived from that
 run's JSON report through the oracle's own walk rather than by arithmetic, each equal to the `--list`
 resolution in section 3: `admin-parse-panel` 10, `admin-route-boundaries` 5,
 `admin-settings-admins-refresh` 1, `dev-capture` 4, `developer-tier` 7, `needs-attention-page` 12,
