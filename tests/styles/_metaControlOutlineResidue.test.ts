@@ -592,6 +592,13 @@ describe("the second direction: a registered element that moved", () => {
     const stale = problems.filter((p) => p.startsWith("stale: "));
     expect(unregistered.filter((p) => p.includes(PT))).toHaveLength(1);
     expect(stale.filter((p) => p.includes(PT))).toHaveLength(1);
+    // §3.6: the stale message prints the NEAREST live key so a token edit reads as "this row moved"
+    // rather than "this row vanished". Pinned in the row's own readable shape, because the two
+    // halves exist to be COMPARED and a reader cannot diff `A || B` against a JSON array. Asserted
+    // by equality on the rendered tail, so a regression to `residueKey`'s JSON reds here.
+    expect(stale[0]?.split("nearest live key in this file by tag: ")[1]).toBe(
+      "bg-accent border border-accent-edge || bg-surface border border-border-strong",
+    );
   });
 });
 

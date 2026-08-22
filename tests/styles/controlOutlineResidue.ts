@@ -768,9 +768,13 @@ export function validateCensus(
     if (held > live) {
       const row = rows.find((r) => rowKey(r) === key);
       if (row === undefined) continue;
+      // Rendered in the SAME shape as the registered paint beside it. These two strings exist to
+      // be COMPARED — "this row moved" versus "this row vanished" is the whole point of printing
+      // the nearest key — and a reader cannot diff a readable `A || B` against a JSON array. §3.6
+      // names the message the guard's entire user interface, so the two halves match.
       const nearest = residue.elements
         .filter((e) => e.file === row.file && e.tag === row.tag)
-        .map((e) => residueKey(e, residue.paint));
+        .map((e) => projectionsOf(e, residue.paint).join(" || "));
       problems.push(
         `stale: ${row.file} <${row.tag}> ${row.paint.join(" || ")} — registered ${held}, live ${live}; nearest live key in this file by tag: ${nearest[0] ?? "(none)"}`,
       );
