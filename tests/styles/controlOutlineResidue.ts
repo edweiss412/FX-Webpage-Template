@@ -633,7 +633,12 @@ export function validateRow(
   if (row.category === "side-divider") {
     for (const alternative of alternatives) {
       if (!alternative.some(weakOn)) continue;
-      const sides = alternative.filter((t) => /^border-[tblr]$/.test(utilityOf(t)));
+      // The SAME shape the accept-set below admits. They disagreed: the accept-set allowed
+      // `border-[tblr]-<n>` while this list required a bare `border-[tblr]`, so a divider drawn with
+      // only `border-t-2` was refused for "no side utility" while its token was perfectly
+      // acceptable two lines down. Conservative, so not a silent clear, but the two readings of one
+      // accept-set are exactly the fork §6 says there must not be.
+      const sides = alternative.filter((t) => /^border-[tblr](-\d+)?$/.test(utilityOf(t)));
       if (sides.length === 0)
         problems.push(
           `${row.file}: side-divider alternative carries the weak token without a side utility (${alternative.join(" ")})`,
