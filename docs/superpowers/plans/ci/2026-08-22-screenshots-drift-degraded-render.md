@@ -205,8 +205,22 @@ outermost entry; scoped vitest runs stay unwrapped.
 ```
 pnpm vitest run tests/help/ tests/cross-cutting/ci-workflow-speedup.test.ts
 pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts tests/docs/_metaLedgerMintBar.test.ts
-pnpm heavy pnpm screenshot:help && git diff --exit-code public/help/screenshots/   # AC-2
+
+# AC-2. The TEST_DATABASE_URL override is REQUIRED, not optional - see below.
+TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres \
+  pnpm heavy pnpm screenshot:help && git diff --exit-code public/help/screenshots/
 ```
+
+**Why the override is load-bearing.** `playwright.screenshots.config.ts:167` forwards
+`process.env.TEST_DATABASE_URL` to the capture web server and only falls back to loopback when it is
+UNSET. This checkout's `.env.local` sets it to the remote validation project, and `pnpm preflight` warns
+about exactly this ("TEST_DATABASE_URL is NON-LOOPBACK ... local runs that read it will target remote").
+Without the override the seed writes the local database while the captured app reads the remote one, so
+AC-2 fails against content that has nothing to do with the change under test.
+
+That failure is expensive in a way worth naming: the capture is a heavy phase behind a 2-slot machine-wide
+semaphore, so a misconfigured run pays its full queue wait before it can fail. Set the override in the
+same command, never as a separate export that a later shell can lose.
 
 Real CI green is a separate gate from local green. This branch edits
 `.github/workflows/screenshots-drift.yml`, which is in that job's own path filter, so the job fires on this
