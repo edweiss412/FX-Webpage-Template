@@ -65,8 +65,10 @@ the filing row's limit is not merely narrowed, it is absent.
 The row shipped `**Reachability:** INFERRED, NOT PROBED`. §3 settles it: reachability is **CONFIRMED**,
 and the magnitude is larger than the row assumed. A default `select public.prune_sync_log()` issued
 against the validation project from the DSN that `.env.local` hands every `tests/**` file deletes
-**2,488 live rows** (§3.3). The same call through the PostgREST `rpc` endpoint with the validation
-service-role key is accepted (§3.5). No layer in either probed channel refuses it.
+**2,488 live rows** (§3.3). The PostgREST `rpc` endpoint with the validation service-role key reaches
+the same two functions and is accepted — in the parameterised form `{"retain":"100 years"}`, which is
+what §3.5 actually sent; the default form was never issued over REST, because a REST call cannot be
+wrapped in a transaction and nothing would have bounded it. No layer in either probed channel refuses it.
 
 The incident is not hypothetical either: `tests/log/appEventsSchema.test.ts:5-9` records that this file
 once resolved its URL from `TEST_DATABASE_URL` and "a plain `pnpm test` therefore pruned live validation
@@ -533,6 +535,16 @@ destructive-statement recognizer DOES match reliably, which is why the filing ro
 two functions — the calls no recognizer sees. Re-file trigger: a measured incident where a literal
 DELETE reaches validation despite that recognizer.
 
+### §4.7 The PostgREST channel is proven statically, not behaviourally, after the change
+
+§3.5 measured that channel live BEFORE the gate existed, when every call was expected to succeed. After
+the change it is covered by AC-9's body pin rather than by a post-change REST call, because a REST
+request cannot be wrapped in a rolled-back transaction and the arc's binding rule admits no call that
+would commit under a broken gate (§6). What this leaves open: a defect that makes the function behave
+differently under PostgREST WITHOUT changing its body — which requires the body to already read
+something session-scoped, and the pin is exactly what forbids that. Re-file trigger: a mechanism found
+that varies a `security definer` body's behaviour by channel without appearing in `prosrc`.
+
 ### §4.5 `dev.*` is untouched
 
 The shadow schema is local-seed infrastructure and holds no prune function; `to_regclass('dev.sync_log')`
@@ -670,6 +682,23 @@ exact failure the arc exists to prevent, committed by its own acceptance test. S
   Together the two limbs answer what the parity gate structurally cannot (§4.3): parity compares
   signatures, not bodies, so only a live behavioural probe distinguishes an applied migration from a
   half-applied one. The R1 P1 finding is why both limbs name BOTH functions.
+- **AC-9 — the gate cannot discriminate by channel, proven by pinning the body rather than by calling
+  over REST.** The shipped `prosrc` of `assert_prune_enabled()` equals the migration's body (whitespace
+  normalised), and each prune's `prosrc` contains `perform public.assert_prune_enabled();` before any
+  `delete`. Asserted on local, and on validation as part of AC-6's pre-check limb.
+
+  **The wrong implementation this excludes** is the one R8 named: a gate that raises only when
+  `current_setting('request.jwt.claims', true)` is absent would pass every psql-driven criterion while
+  letting both PostgREST RPCs — which carry request claims, and which §3.5 proves are live on
+  validation — delete rows. Any such logic changes the body, and a body pinned to one exact program has
+  an accept-set of exactly one.
+
+  **Why not a post-change REST call instead.** A PostgREST `rpc` request cannot be enclosed in a
+  transaction the probe controls, so a REST limb would commit whatever a broken gate lets through —
+  which is precisely the exemption-by-argument the §6 rollback rule forbids. Choosing a static proof
+  over a committing behavioural one is the arc's own rule applied to its last channel, not an omission.
+  The residue is stated in §4.7.
+
 - **AC-8 — both cron rows are pinned, not just one.** `app_events_prune`'s `command`, `schedule` and
   `active` are asserted, mirroring what `sync_log_prune` already has at
   `tests/db/syncLogIndexesAndPrune.db.test.ts:214-223`. Today only its NAME is checked
