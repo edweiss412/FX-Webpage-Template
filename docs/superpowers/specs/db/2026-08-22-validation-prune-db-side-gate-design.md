@@ -329,8 +329,8 @@ psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -f probe/p5.sql
 ```
 
 The same two cron rows exist on validation with identical schedules and commands. Local's reset gate is
-`false`, so §2.3 seeds the prune gate `true` locally and every existing suite keeps passing — which AC-4
-proves by execution rather than by this paragraph.
+`false` — the production posture — so `assert_prune_enabled()` (§2.3) permits both prunes locally and
+every existing suite keeps passing, which AC-4 proves by execution rather than by this paragraph.
 
 ### §3.7 Prod was NOT probed
 
@@ -466,20 +466,20 @@ Every affected domain × layer. Every cell is an action or an `N/A — reason`.
 
 | Layer | `assert_prune_enabled` | `prune_sync_log` | `prune_app_events` | `destructive_reset_gate` | `sync_log` / `app_events` |
 | --- | --- | --- | --- | --- | --- |
-| Table DDL | N/A — function | N/A — function | N/A — function | N/A — unchanged; created at `supabase/migrations/20260622000001_validation_reset_rpc.sql:6` | N/A — unchanged |
-| Inline CHECK | N/A | N/A | N/A | N/A — existing `id = 'default'` CHECK unchanged | N/A |
-| Grants / REVOKE | REVOKE public/anon/authenticated; GRANT service_role | unchanged (`create or replace` preserves; measured §3.8) | unchanged (same) | N/A — unchanged | N/A |
-| RLS | N/A — function | N/A | N/A | N/A — already enabled, no policy | N/A — already enabled |
-| RPC read path | reads the marker | calls the assert before deleting | calls the assert before deleting | read by the assert AND by the existing reset RPCs | N/A |
-| RPC write path | N/A — never writes | N/A | N/A | N/A — this arc writes it never; the one-time posture flip is the existing out-of-band step (D4) | N/A |
-| Trigger | N/A — no propagation | N/A | N/A | N/A | N/A |
-| Cleanup / cron | N/A | cron row unchanged; refuses under validation posture (§2.5) | same | N/A | N/A |
-| Advisory lock (invariant 2) | N/A — not in the invariant-2 table set (`shows`, `crew_members`, `crew_member_auth`, `pending_syncs`, `pending_ingestions`); acquires nothing | N/A — same; the prune is not show-keyed | N/A — same | N/A — unchanged | N/A — same |
-| Mutation-surface telemetry (invariant 10) | N/A — no HTTP route, no `"use server"` action; this diff is SQL functions, tests and docs | N/A | N/A | N/A | N/A |
-| PostgREST lockdown registry | N/A — no new table, no new table-level REVOKE (§2.6) | N/A — function-level grants already asserted | N/A — same | N/A — already registered (`tests/db/postgrest-dml-lockdown.test.ts:552`) | N/A — `sync_log` already registered at `tests/db/postgrest-dml-lockdown.test.ts:199` |
+| Table DDL | N/A — a function, not a relation | N/A — a function | N/A — a function | N/A — unchanged; created at `supabase/migrations/20260622000001_validation_reset_rpc.sql:6` | N/A — unchanged; no column, index or constraint moves |
+| Inline CHECK | N/A — functions carry no CHECK | N/A — same | N/A — same | N/A — existing `id = 'default'` CHECK unchanged | N/A — the existing `*_drive_file_id_nonblank` and `app_events_level_check` CHECKs are unchanged; this diff adds none |
+| Grants / REVOKE | REVOKE public/anon/authenticated; GRANT service_role | unchanged (`create or replace` preserves; measured §3.8) | unchanged (same) | N/A — unchanged | N/A — table grants unchanged; `service_role` keeps DML, `anon`/`authenticated` keep none |
+| RLS | N/A — functions have no row security | N/A — same | N/A — same | N/A — already enabled, no policy | N/A — already enabled with no policy on both tables |
+| RPC read path | reads the marker | calls the assert before deleting | calls the assert before deleting | read by the assert AND by the existing reset RPCs | read by each prune's `occurred_at < now() - retain` cutoff predicate, unchanged |
+| RPC write path | N/A — never writes anything | **the write this whole spec is about**: `delete from public.sync_log where occurred_at < now() - retain` (`supabase/migrations/20260809000000_sync_log_show_attribution.sql:46`), now reached only after the assert | same against `public.app_events` (`supabase/migrations/20260629000002_app_events.sql:39`) | N/A — this arc never writes it; the one-time posture flip is the existing out-of-band step (D4) | written by exactly those two deletes and by nothing else this arc adds; both are gated |
+| Trigger | N/A — no trigger fires on or from it | N/A — no propagation trigger exists on either prune path | N/A — same | N/A — no trigger on the marker table | N/A — neither table carries a trigger; retention is the cron, not a trigger |
+| Cleanup / cron | N/A — not a cron target | cron row `sync_log_prune` unchanged (`supabase/migrations/20260809000000_sync_log_show_attribution.sql:63-67`); the job now refuses under the validation posture (§2.5) | cron row `app_events_prune` unchanged (`supabase/migrations/20260629000002_app_events.sql:58-62`); same refusal | N/A — no retention on a one-row marker table | these ARE the cleanup targets: pruned daily at 60 days on a production-posture database, never pruned on a validation-posture one |
+| Advisory lock (invariant 2) | N/A — acquires nothing | N/A — not in the invariant-2 table set (`shows`, `crew_members`, `crew_member_auth`, `pending_syncs`, `pending_ingestions`) and the prune is not show-keyed | N/A — same | N/A — unchanged; the reset RPC's own lock topology is untouched | N/A — neither table is in the invariant-2 set, so no holder is added at any layer |
+| Mutation-surface telemetry (invariant 10) | N/A — no HTTP route and no `"use server"` action; this diff is SQL functions, tests and docs | N/A — same, and its caller is a `cron.job` row, not a route | N/A — same | N/A — untouched by this arc | N/A — no mutating route or action reaches either table in this diff |
+| PostgREST lockdown registry | N/A — no new table and no new table-level REVOKE (§2.6) | N/A — function-level grants are asserted by `tests/db/syncLogIndexesAndPrune.db.test.ts:117-129`, not by the table registry | N/A — same | N/A — already registered (`tests/db/postgrest-dml-lockdown.test.ts:552`) | N/A — both already registered: `sync_log` at `tests/db/postgrest-dml-lockdown.test.ts:199`, `app_events` at `tests/db/postgrest-dml-lockdown.test.ts:323` |
 | Schema manifest | regenerate + commit | regenerate + commit | regenerate + commit | N/A — unchanged | N/A — unchanged |
-| Validation project | atomic surgical apply + `notify pgrst` | same | same | N/A — its row is already `true` there (§3.1) | N/A |
-| Frontend | N/A — no UI surface in this diff | N/A | N/A | N/A | N/A |
+| Validation project | atomic surgical apply + `notify pgrst` | same | same | N/A — its row already reads `true` there (§3.1); this arc does not write it | N/A — no DDL reaches either table |
+| Frontend | N/A — no UI surface in this diff | N/A — no component or route reads either prune | N/A — same | N/A — the admin reset UI that reads this marker is untouched | N/A — no UI reads these tables in this diff |
 | Tests | `tests/db/pruneGate.db.test.ts (new)` (§6) | AC-1..AC-5 | AC-1..AC-5 | AC-3 forces each posture state | AC-4 (existing suites stay green, unedited) |
 
 **CHECK/enum migration matrix:** no CHECK and no enum changes anywhere in this diff — the only new
