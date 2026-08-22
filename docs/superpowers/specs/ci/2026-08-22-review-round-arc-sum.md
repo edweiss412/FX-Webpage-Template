@@ -300,7 +300,7 @@ A presence-only assertion is what lets a wrong number through, and a hand-writte
 
 - `docs/review-rounds/README.md` — §3.5.
 - `AGENTS.md`, round-economy bullet — the counted-rounds sentence gains the arc sum and cites this spec.
-- `docs/superpowers/specs/ci/2026-08-04-review-round-economy.md` — dated cross-reference lines at §4.3, §5.2 and §8.3 limit 3 pointing here. No restatement; two copies drift.
+- `docs/superpowers/specs/ci/2026-08-04-review-round-economy.md` — dated cross-reference lines at §4.3 (the threshold's unit), §5.2 (which currently ratifies a base move splitting the arc and under-obliging it), §5.4 (the counting rule) and §8.3 limit 3, each pointing here. Four places, matching the sweep that found them. No restatement; two copies drift.
 - `docs/superpowers/specs/ci/README.md` — index row.
 - `BACKLOG.md` — `BL-REVIEW-ROUND-COUNT-RESETS-ON-REMERGE` archived on merge, its interim rule retired.
 

@@ -2,7 +2,7 @@
 
 **Spec:** `docs/superpowers/specs/ci/2026-08-22-review-round-arc-sum.md` (canonical; §3.1 is the rule, §3.3 the grandfather contract, §4 the documented limits) · **Ledger row:** `BL-REVIEW-ROUND-COUNT-RESETS-ON-REMERGE` (`BACKLOG.md`) · **Branch:** `feat/review-round-arc-sum` · **Implementer:** Opus / Claude Code
 
-Docs plus tests plus two `lib/` modules. No UI surface, no DB, no advisory locks, no Playwright.
+Docs plus tests plus three `lib/reviewRounds/` modules: `count.ts`, `corpus.ts`, and one this arc creates. No UI surface, no DB, no advisory locks, no Playwright.
 
 **impeccable-gate: N/A — no UI surface** (nothing under `app/`, `components/`, `app/globals.css`, `DESIGN.md`, or a Tailwind config).
 
@@ -51,8 +51,9 @@ Two mechanical constraints follow from the enrolment, and both are easy to trip:
 | AC-10 | `pnpm review:economy` prints a totals line for a multi-base directory, omits it for a single-base one, and marks a stage at threshold with no section anywhere. | `pnpm vitest run tests/reviewRounds/report.test.ts` |
 | AC-13 | The report never reimplements a gate predicate: its marked set equals the gate's `missing_arc_filing` set over the same fixture corpus, so a grandfathered pair is not marked. | `pnpm vitest run tests/reviewRounds/report.test.ts` |
 | AC-14 | `triggerRateByMonth` populates per `(branch directory, stage)` and tests the arc sum, and the rate line says the unit changed. | `pnpm vitest run tests/reviewRounds/report.test.ts` |
-| AC-15 | **All nine cells** of the spec's coordinate-control matrix are implemented, one per `(key, coordinate)` across K1-K4. The matrix is copied verbatim into Task 3's body; a cell without a test is an unmet AC. | `pnpm vitest run tests/docs/_metaReviewRoundEconomy.test.ts tests/reviewRounds/count.test.ts tests/reviewRounds/report.test.ts` |
-| AC-16 | **All eleven rows** of the spec's computed-value inventory (V1-V11), including V11's verbatim rendered-line assertion for every line this change adds or alters are asserted BY VALUE, not by presence. The inventory is copied verbatim into Task 6's body; a row without a by-value assertion is an unmet AC. | `pnpm vitest run tests/reviewRounds/report.test.ts tests/docs/_metaReviewRoundEconomy.test.ts tests/reviewRounds/count.test.ts` |
+| AC-15 | **All nine cells** of the spec's coordinate-control matrix are implemented, one per `(key, coordinate)` across K1-K4. The matrix is reproduced verbatim above the task list with an owner column; a cell without a test is an unmet AC, and a cell whose owner's command does not run its suite is the same failure. | `pnpm vitest run tests/docs/_metaReviewRoundEconomy.test.ts tests/reviewRounds/count.test.ts tests/reviewRounds/report.test.ts` |
+| AC-16 | **All eleven rows** of the spec's computed-value inventory (V1-V11) are asserted BY VALUE, not by presence, and every line the change adds or alters is additionally asserted verbatim as rendered (L1-L4, Task 5). The inventory is reproduced verbatim above the task list with an owner column; a row without a by-value assertion is an unmet AC. | `pnpm vitest run tests/reviewRounds/report.test.ts tests/docs/_metaReviewRoundEconomy.test.ts tests/reviewRounds/count.test.ts` |
+| AC-18 | The documentation fan-out lands: `docs/superpowers/specs/ci/README.md` carries an index row for the new spec, the mechanically observable half of spec §6's five-item list. | `pnpm vitest run tests/docs/specsReadmeIndexParity.test.ts` |
 | AC-17 | A non-arc-shaped `.md` under a branch directory carrying a parseable `## diff` section does NOT discharge a clause-B obligation: only a filing `readArcs` recognizes does. | `pnpm vitest run tests/docs/_metaReviewRoundEconomy.test.ts` |
 | AC-11 | Both enrolled surfaces score at their `scoreFloor` of 1 with an empty unaccepted-survivor set, and `expectedLedgerKinds` matches the re-derived accepted sets. Both resolve to **shard 3**, and only the shard files run `registerSurfaceCases`. | `VITEST_INCLUDE_MUTATION_HARNESS=1 pnpm heavy pnpm exec vitest run --project mutation tests/mutation/guardSurfaces.shard3.test.ts` |
 | AC-12 | This arc's own corpus rows satisfy the rule it ships (eat-your-own-cooking; §1.1 of the spec is written against it). | `pnpm vitest run tests/docs/_metaReviewRoundEconomy.test.ts` |
@@ -136,7 +137,7 @@ Every count above is asserted BY VALUE, which is V1.
 
 ### Task 2 — clause B, the grandfather literal, K2, V2 and V3
 
-<!-- task: red=`pnpm vitest run tests/docs/_metaReviewRoundEconomy.test.ts` red-state=authored red-target=`lib/reviewRounds/corpus.ts:24` why=`the ProblemKind union ends at mechanizable_untracked with no missing_arc_filing member, so the clause-B fixture's expected kind is a value checkCorpus can never return and the array comparison fails against an empty result` ac=AC-2,AC-7,AC-12,AC-15,AC-16 -->
+<!-- task: red=`pnpm vitest run tests/docs/_metaReviewRoundEconomy.test.ts` red-state=authored red-target=`lib/reviewRounds/corpus.ts:24` why=`the ProblemKind union ends at mechanizable_untracked with no missing_arc_filing member, so the clause-B fixture's expected kind is a value checkCorpus can never return and the array comparison fails against an empty result` ac=AC-2,AC-7,AC-9,AC-12,AC-15,AC-16 -->
 
 Owns K2's two rows and V2, V3. **It also owns the live-corpus set-hygiene assertions**, which were a separate task until plan review round 1 showed that task could have no RED: this task's command already includes the existing live-corpus case, so clause B cannot go green here unless the eleven-pair literal is already correct. Those assertions are guards over data this task lands, not a TDD step of their own, and giving them their own marker would author a test that passes the moment it is written.
 
@@ -195,7 +196,16 @@ Both spec-review findings on the report were one class: it had its own copy of t
 - **K4/`directory`** — one stage spanning two bases of one directory: population 1, triggered.
 - **K4/`stage`** — one directory with two counted stages: population 2, not 1. Excludes a population keyed on directory alone, which over the live corpus reports 125 where the unit gives 282.
 
-Every value in inventory rows V4-V11 is asserted BY VALUE, and V11 asserts the rate line **verbatim as rendered**, which catches a struct-versus-rendering disagreement whatever the field list omits — the shape of the last spec finding, where `rate` stayed on the per-base model while `population` and `triggered` moved.
+Every value in inventory rows V4-V11 is asserted BY VALUE. **And the spec's rendering rule is "every line this change adds or alters", not the rate line alone**, so the lines are enumerated here the same way the values are — a rule stated without its enumeration is the defect this arc has now paid for four times:
+
+| # | line | state |
+| --- | --- | --- |
+| L1 | the totals line | new |
+| L2 | the frozen-evidence line | new |
+| L3 | the trigger-rate line | altered (population, triggered and rate all move) |
+| L4 | the `filing threshold: …` prose line | altered wording |
+
+Each is asserted VERBATIM as rendered. That catches a struct-versus-rendering disagreement whatever the field list omits — the shape of the last spec finding, where `rate` stayed on the per-base model while `population` and `triggered` moved — and it catches malformed operator-facing output that correct values alone would not.
 
 **GREEN.** The totals line reading the gate's predicate; the trigger bucket populated per `(branch directory, stage)`, tested against the sum, bucketed by the directory-wide earliest counted row; `rate` recomputed from the moved fields; the rate line naming the unit change, since both parts of the fraction move and the published figure jumps about 18 points with no behavior change. `scripts/review-economy.ts:395`'s prose line stops saying "in one stage" as if one base were the unit. `silentArcs` is deliberately untouched — it applies no threshold, and `scripts/review-economy.ts:267` joins on `arcKey` for a reason the comment above it records.
 
@@ -211,11 +221,16 @@ Re-derive the accepted siteIds **from the run's own output**, never by editing t
 
 ### Task 7 — documentation fan-out
 
-<!-- task: red=`pnpm vitest run tests/docs/specsReadmeIndexParity.test.ts` red-state=live why=`the index has no row for either new document, and the suite already fails on the live tree naming 2026-08-22-review-round-arc-sum.md as missing` ac=AC-9 -->
+<!-- task: red=`pnpm vitest run tests/docs/specsReadmeIndexParity.test.ts` red-state=live why=`the ci index has no row for this spec, and the suite already fails on the live tree naming 2026-08-22-review-round-arc-sum.md as missing` ac=AC-18 -->
 
-**This red is `live`, not `authored`, and was run at plan time.** The command currently exits 1 with `docs/superpowers/specs/ci/README.md is missing a row for: | [2026-08-22-review-round-arc-sum.md](./2026-08-22-review-round-arc-sum.md) | <date> |`. An earlier draft named a `spec:lint` invocation over the already-ratified spec, which exits 0 with every fan-out edit still absent and could never have gone red.
+**This red is `live`, not `authored`, and was run at plan time.** It observes AC-18, not AC-9 — AC-9 is the live-corpus assertion inside the meta-test, which this command never runs, and claiming it here would be the ownership failure round 1 found. Only the SPEC needs an index row: `specsReadmeIndexParity` reads `docs/superpowers/specs` only (`tests/docs/specsReadmeIndexParity.test.ts:36`), so the plan document is out of its scope. The command currently exits 1 with `docs/superpowers/specs/ci/README.md is missing a row for: | [2026-08-22-review-round-arc-sum.md](./2026-08-22-review-round-arc-sum.md) | <date> |`. An earlier draft named a `spec:lint` invocation over the already-ratified spec, which exits 0 with every fan-out edit still absent and could never have gone red.
 
-The index row is the mechanically observable half. The rest of the fan-out lands in the same commit and is verified by reading: the four sweep-1 hits (`docs/review-rounds/README.md:22` and `AGENTS.md:190` gain the arc sum; `docs/superpowers/specs/ci/2026-08-04-review-round-economy.md` §4.3 and §5.4 gain dated cross-references, not restatements), plus that spec's §8.3 limit 3, which currently ratifies the under-obligation this arc repairs and would otherwise leave two live contracts in the corpus.
+The index row is the mechanically observable half. The rest of the fan-out lands in the same commit and is verified by reading. It is the spec's §6 list, item for item, because a fan-out that drifts from the spec that ratified it is how a superseded contract stays live in the corpus:
+
+- **`docs/review-rounds/README.md`** gains all five author-facing rules spec §3.5 states, not just the first: the threshold is reached by one base's rounds OR the arc's rounds summed across bases, counting distinct `(base, round)` pairs; a re-merge restarts `--round` at 1 by design and the arc sum is unaffected; the first row at a new base should carry `_roundAtPreviousBase` for traceability; a filing owed by the arc sum goes at the latest base holding rows for that stage; its heading declares THAT FILE's count while its `**Examined:**` line names the cross-base total.
+- **`AGENTS.md:190`**, round-economy bullet — the counted-rounds sentence gains the arc sum and cites this spec.
+- **`docs/superpowers/specs/ci/2026-08-04-review-round-economy.md`** — dated cross-references at **four** places, matching spec §6: §4.3 (the threshold's unit), **§5.2** (which currently ratifies a base move splitting the arc and under-obliging it, and is the one that most needs superseding), §5.4 (the counting rule), and §8.3 limit 3. No restatements.
+- **`docs/superpowers/specs/ci/README.md`** — the index row, the half this task's command observes.
 
 <!-- tasks: end -->
 
@@ -227,7 +242,7 @@ Archive `BL-REVIEW-ROUND-COUNT-RESETS-ON-REMERGE` to `BACKLOG-archive.md`, retir
 
 ## Checklist
 
-- [ ] Tasks 1-8, TDD each, one commit per task
+- [ ] Tasks 1-7, TDD each, one commit per task; Task 8 is bookkeeping with no RED and closes the ledger in the PR's last commit
 - [ ] Self-review (numeric sweep, citation pass, self-consistency sweep)
 - [ ] Adversarial review (cross-model, Codex) to APPROVE
 - [ ] Whole-diff cross-model review to APPROVE
