@@ -352,7 +352,9 @@ Every id below is claimed by a task marker above.
   bytes**, and still writes the evidence entry. Holds for the replacement class too: with the selector
   absent the run produces an attributed `selector-absent` refusal, never a bare timeout.
 - **AC-2** A healthy capture is byte-identical to today's output **and the set of completion identities
-  emitted by this run equals the fourteen expected `(key, theme)` pairs**. Identity equality, not a count.
+  produced by this run into a directory that began empty equals the manifest-derived expectation** —
+  `MANIFEST` crossed with `themesFor(entry)`, computed by the test rather than written down. Identity
+  equality over provably-new artifacts, not a count and not a literal.
 - **AC-3** The meta-test fails when a manifest-reachable JSX-returning fault branch lacks the attribute.
 - **AC-4** The population is derived from the manifest, proven by a mutant introducing a **distinct root**
   via a template-literal route, plus an assertion on the parsed route set itself.
