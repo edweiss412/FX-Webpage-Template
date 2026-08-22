@@ -965,6 +965,26 @@ so a shard-count change moves which shard every enrolled surface lands in, and e
 stamped score is affected at once. Note also that `arc-ctloutline`'s incoming **231 sites** land on
 this same partition and make every number above worse before any repair lands.
 
+## BL-CLOSEOUT-COUNT-PROSE-DRIFT — close-out prose states counts a moving tree invalidates, and only a reviewer notices
+
+**Status:** OPEN · **Filed:** 2026-08-22 (`ci/app-e2e-batch2`, from that arc's diff rounds 4 and 5) · **Facing:** process · **Severity:** MEDIUM (it burns whole review rounds on prose against a correct tree, and a stale count in a row a GATE reads is worse than cosmetic) · **Class:** review economy · **Effort:** M · **Reachability:** PROBED — the two rounds below, each with the reviewer's own command output beside the contradicted sentence. · **Incident:** PR #875's diff rounds 4 and 5 were spent entirely on this: round 4 found four stale count claims (the oracle's header comment, spec section 4, plan section 12, and a merge-corrupted phrase in this file), round 5 found three MORE that the first repair pass missed. Two full dispatch cycles, zero executable defects, and the corpus rows are at `docs/review-rounds/ci/app-e2e-batch2/50ca72a566b0.jsonl`.
+
+An arc's close-out states counts — members shipped, rows deleted, runs linked — and every one of them is a
+copy of something the tree holds. When the tree moves (a member drops, a merge lands, a run is added
+to an evidence row), the copies go stale silently, and the only instrument that notices is a reviewer
+spending a round on it. The repair that works is not "be careful": it is the one this arc's oracle
+comment now uses, which is to state NO count and name the table that holds it.
+
+**What would close it.** A check that, for an arc's close-out documents, extracts every numeral-bearing
+claim and requires it to be produced by a command in the same document — the shape `pnpm intraleg:claims`
+already has for one arc's campaign figures, generalized. The hard part is not the extraction; it is
+deciding which numerals are claims about the tree and which are prose (`five-green`, `44px`, a run id),
+which is why this is filed rather than hand-waved into the next arc's checklist.
+
+**Related:** `BL-ADMIN-LOADER-CI-TRANSIENT` is the row whose overclaim round 4 caught, and it is the
+case that makes this more than tidiness: the amended AC-3 exception reads its signature from that row,
+so a live gate was reading prose nothing verified.
+
 ## BL-ADMIN-LOADER-CI-TRANSIENT — admin page and modal loaders fault transiently on the app-e2e runner, and the failure is indistinguishable from a spec defect
 
 **Status:** OPEN · **Filed:** 2026-08-22 (`ci/app-e2e-batch2`, from the counted runs of that arc's five-green loop) · **Facing:** process · **Severity:** MEDIUM (it costs a full five-green restart per occurrence, and read per-spec it drops members that are not defective) · **Class:** CI flake · **Effort:** M · **Reachability:** PROBED — the runs listed below, each with the failing page's own snapshot or its error text; three of them also carry a local CI-posture reproduction that passes, and which three is stated rather than implied. · **Incident:** SIX counted runs across THREE PRs died on this shape in one evening, and three batch-2 members left under AC-4 because of it. Those are cost events that already happened.
@@ -990,7 +1010,7 @@ which is why reading it per-spec drops members that are not defective and emptie
 nothing. Same family as `BL-CHANGES-FEED-MODAL-BATCH-FLAKE`, which measured the transient gateway
 502 reaching the `/admin` error boundary on this same job.
 
-**`admin-parse-panel`, `warning-panel-polish` and `telemetry-layout` stay dropped for batch 2.** Both drops were
+**`admin-parse-panel`, `warning-panel-polish` and `telemetry-layout` stay dropped for batch 2.** All three drops were
 procedurally valid when they were made — one red on a counted run, no attribution, AC-4's own
 procedure — and re-adding them tonight would be churn on an arc whose bar is five consecutive green
 runs. Their restoration is **batch 3's first question**, and their allowlist rows already carry every
