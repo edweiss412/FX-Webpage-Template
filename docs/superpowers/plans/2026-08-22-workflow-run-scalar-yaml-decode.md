@@ -94,6 +94,24 @@ fabricated site, because `scan.ts:4076` scans the raw slice regardless of the sc
   its decoded pass would be silent corruption. The `\x70sql` row is decoded-only — its raw slice
   holds no literal `psql`.
 
+**RED validity, measured rather than claimed.** The block above was spliced into a throwaway suite
+beside the real one, run against the current tree, and removed. Result: **1 failed, 8 passed of 9.**
+
+The one failure is AC-1 — `expected [ { …(11) } ] to deeply equal []`, the fabricated site. That is
+the marker's red and it is caused by `scan.ts:4076`, the line the marker's `red-target=` names.
+
+**The eight that pass are green at authoring BY DESIGN and that is not an invalid RED.** AC-3 and
+AC-4 assert that behaviour which is already correct SURVIVES the change; they are regression guards
+for the gate, not red-then-green cases. Splitting them into their own task to give them a red of
+their own is the defect §4 warns about: AC-1 asserts an empty result, which a scanner broken in the
+other direction satisfies for free, so the two must fail and pass as one unit. The marker's `red=`
+runs the whole suite, the suite is red on AC-1 alone, and the same command passes after the gate
+lands.
+
+Pre-running it also confirmed the fixtures reach their assertions: the block-literal case really does
+report line 8 and the plain advisory really does report line 7, so neither assertion is satisfied by
+a degenerate zero.
+
 **GREEN.** In `scanWorkflowSource`, read the scalar's style from the node the `yaml` parser already
 produced and gate the raw pass on it:
 
