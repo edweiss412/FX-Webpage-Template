@@ -1143,6 +1143,17 @@ describe("processProbe trial provenance — two independent sides (AC-2, AC-3)",
     expect(seen[0]?.timeout).not.toBe(0);
   });
 
+  it("a report for another SURFACE is refused, even at the same arm#index and site", () => {
+    // Site ids are not globally unique. Nothing compared surfaces, so a trial
+    // that executed and stamped surface B while reporting surface A produced a
+    // sealed, internally consistent verdict about the wrong program.
+    const report = realReport();
+    const asked = { ...report.plan, surfaceId: "premiseScan" };
+    const out = observeTrial(asked, wideTargetOf(), parentDepsFor(report), REQUEST);
+    expect(inputOf(out)).toBe("provenance");
+    expect(detailOf(out)).toContain("premiseScan");
+  });
+
   it("a report for ANOTHER trial is refused, however perfect it is in itself", () => {
     // Everything else verifies the report is internally consistent and freshly
     // produced. None of it notices that a flawless report describes a different

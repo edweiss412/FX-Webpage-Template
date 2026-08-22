@@ -137,7 +137,33 @@ function startBurners(): { count: number; kill: () => void } {
 
 type RefusedTrial = { plan: TrialPlan; input: string; detail: string };
 
+/** Flags this driver understands. Anything else `--`-shaped is an operator error. */
+const KNOWN_FLAGS = new Set(["surface", "site", "anomaly", "seed", "trials", "out"]);
+
 export function main(): number {
+  // DEFAULT-DENY on the flag names. The reader takes the FIRST occurrence of a
+  // recognized flag and ignores every other token, so `--trail 13` silently ran
+  // the default 12-trial campaign and `--trials 5 --trials 9` silently took 5
+  // (round 4). A typo that changes what runs while reporting success is the
+  // worst shape available to a measuring instrument.
+  const flagTokens = process.argv.filter((a) => a.startsWith("--"));
+  const unknown = flagTokens.filter((a) => !KNOWN_FLAGS.has(a.slice(2)));
+  if (unknown.length > 0) {
+    process.stderr.write(
+      `unknown flag(s): ${unknown.join(", ")}. Known: ${[...KNOWN_FLAGS].map((f) => `--${f}`).join(", ")}. ` +
+        `Refusing rather than running a default campaign the operator did not ask for.\n`,
+    );
+    return CAMPAIGN_EXIT_USAGE;
+  }
+  const repeated = flagTokens.filter((a, i) => flagTokens.indexOf(a) !== i);
+  if (repeated.length > 0) {
+    process.stderr.write(
+      `flag(s) given more than once: ${[...new Set(repeated)].join(", ")}. The reader takes the ` +
+        `first occurrence, so the later value would be silently discarded.\n`,
+    );
+    return CAMPAIGN_EXIT_USAGE;
+  }
+
   const surfaceId = arg("surface", "psqlStartupScan");
   const site = arg("site", "relational-boundary:3578:35:<><=");
   // THE ANOMALY IS A PROPERTY OF THE SITE, and this driver accepts any surface
@@ -191,9 +217,18 @@ export function main(): number {
   // comparison passed over it — a differential guard cannot see what preceded
   // both of its ends (probed at diff review round 3).
   const treeBefore = attestTree();
-  const dirtyScannable = treeBefore.dirty.filter((l) =>
-    /\.(ts|tsx|mts|cts|js|mjs|cjs|sh|ya?ml)$/.test(l),
-  );
+  // The extension set is the SCAN'S, not a hand-typed subset: the first version
+  // omitted `.jsx` and `.bash`, both of which the deciding suite scans (round 4).
+  // Porcelain has two more shapes it missed — a path containing spaces arrives
+  // QUOTED, so the extension is not at the end of the line, and an untracked
+  // directory collapses to `?? scratch/`, hiding every file beneath it. Both are
+  // treated as dirty rather than parsed: a refusal that is occasionally too
+  // strict costs one commit, and the alternative costs a whole campaign.
+  const SCANNED_DIRTY = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|sh|bash|ya?ml)"?$/;
+  const dirtyScannable = treeBefore.dirty.filter((l) => {
+    const path = l.slice(3).trim();
+    return path.endsWith("/") || SCANNED_DIRTY.test(path);
+  });
   if (dirtyScannable.length > 0) {
     // A CLEAN START IS A SEPARATE ASSERTION from "nothing changed". An already-
     // modified file can change bytes again and keep the same porcelain line, so
@@ -307,11 +342,28 @@ export function main(): number {
 
   const treeAfter = attestTree();
   const defaultAfter = existsSync(DEFAULT_RECORD_DIR) ? readdirSync(DEFAULT_RECORD_DIR).sort() : [];
-  const campaignRecords = existsSync(recordDir) ? readdirSync(recordDir) : [];
+  // MATCHED TO THE PLAN'S TRIALS, not counted. A raw directory listing let 20
+  // stale, malformed, unrelated or directory entries satisfy a 20-trial campaign
+  // — and it composes with a child whose record write failed, since 20 stale
+  // files plus 20 failed writes still counts 20 (round 4). Each planned trial's
+  // record is identified by the runId this driver gives it.
+  const recordFiles = existsSync(recordDir)
+    ? readdirSync(recordDir, { withFileTypes: true })
+        .filter((e) => e.isFile())
+        .map((e) => e.name)
+    : [];
+  const campaignRecords = plan.trials.filter((t) =>
+    recordFiles.some((f) => f.includes(`trial-${t.arm}-${t.index}-`)),
+  );
+  const unmatchedFiles = recordFiles.filter(
+    (f) => !plan.trials.some((t) => f.includes(`trial-${t.arm}-${t.index}-`)),
+  );
   const identical = JSON.stringify(defaultBefore) === JSON.stringify(defaultAfter);
   process.stdout.write(
     `\nRECORD ISOLATION (AC-6, on the real run)\n` +
-      `  campaign dir ${recordDir}: ${campaignRecords.length} record(s)\n` +
+      `  campaign dir ${recordDir}: ${campaignRecords.length} of ${plan.trials.length} ` +
+      `planned trials matched a record; ${unmatchedFiles.length} file(s) matched no ` +
+      `planned trial\n` +
       `  default dir ${DEFAULT_RECORD_DIR}: ${defaultBefore.length} before, ${defaultAfter.length} after\n` +
       `  byte-identical listings: ${identical}\n` +
       `TREE ATTESTATION (the freeze, observed rather than asserted)\n` +

@@ -123,7 +123,7 @@ TALLY: {"PROVEN":41,"ABSENT":4}
 TOTAL OBLIGATIONS: 45
 ```
 
-## What the LIVE tier caught that 170 in-process cases could not
+## What the LIVE tier caught that 171 in-process cases could not
 
 Four defects, each a real fault in the harness rather than a flake, and worth
 recording because the in-process tier had every opportunity to see them:
@@ -193,7 +193,7 @@ recording because the in-process tier had every opportunity to see them:
 | `AC-13.k1` — the widening §1.1 forbids, arriving as an "innocent" helper edit | ABSENT | Checked mechanically rather than argued: the AC-13 freeze diff is empty at closeout. See the closeout section of this record for the command and its output. |
 | `AC-13.k2` — a closeout check that reports without gating | ABSENT | The closeout script exits non-zero on every failure branch and is dry-run against a constructed failing input before it is depended on. See the closeout section. |
 | `AC-5.k1` — a reimplemented runner whose verdicts agree by luck | ABSENT | No runner is reimplemented. Every verdict comes from the shipped `runMutantRecorded` through the `runMutant` seam, and `DEFAULT_TRIAL_DEPS` is asserted bound to it. There is no second implementation for luck to operate on. |
-| `AC-9.k1` — a CLI-shaped surface the runner cannot overlay | ABSENT | The core is an importable module with a referring in-process suite (170 cases), and both adapters are thin `main(argv, deps)` entries holding no decision. A CLI-shaped surface would score as if untested; this one is imported directly by its suite. |
+| `AC-9.k1` — a CLI-shaped surface the runner cannot overlay | ABSENT | The core is an importable module with a referring in-process suite (171 cases), and both adapters are thin `main(argv, deps)` entries holding no decision. A CLI-shaped surface would score as if untested; this one is imported directly by its suite. |
 
 **Tally.** 41 PROVEN, 4 ABSENT — 45 obligations.
 

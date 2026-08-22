@@ -2,7 +2,10 @@ import * as childProcess from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
+
+import { stripCommentsSafely } from "../_shared/stripComments";
 import { premiseHolds } from "../_shared/premise";
 
 /**
@@ -101,11 +104,25 @@ type Sweep = {
  * name is not "unrecognized and therefore fine", it is refused until someone
  * adds it here and pins it.
  */
+/**
+ * Accepted ceiling NAMES — and the accept-set is lexical, which is its limit.
+ *
+ * `timeout: PROBE_CHILD_TIMEOUT_MS` counts as bounded in ANY member file, even
+ * one where that identifier is locally bound to zero; the scan reads text, not
+ * bindings (round 4 of the intra-leg probe arc). Each name therefore carries the
+ * file that DEFINES it, and a member file using a name it does not define is
+ * reported — so the blessing cannot travel silently to a surface nobody checked.
+ */
 const CEILING_NAMES = [
   "BROWSER_MUTANT_TIMEOUT_MS",
   "WIRING_CHILD_TIMEOUT_MS",
   "PROBE_CHILD_TIMEOUT_MS",
 ] as const;
+
+/** Where each accepted name is defined. A use outside its home file is reported. */
+const CEILING_HOME: Record<string, string> = {
+  PROBE_CHILD_TIMEOUT_MS: "tests/mutation/source/processProbe.ts",
+};
 
 /**
  * An ACCEPTED ceiling occurrence: a positive integer literal, or a named
@@ -460,6 +477,31 @@ describe("every spawn site under tests/mutation/ is disposed of", () => {
   // registry's rows still resolve to real sites — which passes happily while a
   // NEW undispositioned site sits uncovered, an enumeration failure wearing a
   // guard's clothes. This is the one that must fail on a new site.
+  it("an accepted ceiling NAME is not blessed outside the file that defines it", () => {
+    // The accept-set is lexical: any member file writing `timeout: <name>` counts
+    // as bounded, even where the identifier is bound to zero. This cannot check
+    // bindings without a parser, so it checks the weaker thing it CAN — that a
+    // blessed name is used only where it is defined — and names the limit rather
+    // than implying the stronger guarantee.
+    for (const [name, home] of Object.entries(CEILING_HOME)) {
+      // COMMENTS STRIPPED, through the shared module. Without it this very test's
+      // doc comment — which quotes `timeout: PROBE_CHILD_TIMEOUT_MS` to explain
+      // the hazard — counted as a second user, and the case failed on its own
+      // prose. That is the fourth use-versus-mention miss on this machine today,
+      // and the reason `tests/_shared/stripComments` is the single source.
+      const users = [...sources.entries()]
+        .filter(([file, src]) =>
+          new RegExp(`timeout\\s*:\\s*${name}\\b`).test(
+            stripCommentsSafely(src, file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS),
+          ),
+        )
+        .map(([file]) => file);
+      expect(users, `${name} is accepted as a ceiling only in ${home}`).toEqual(
+        users.length === 0 ? [] : [home],
+      );
+    }
+  });
+
   it("every SWEPT site maps to a disposition row", () => {
     const undispositioned = hits
       .filter((hit) => rowsFor(hit).length === 0)

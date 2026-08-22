@@ -731,6 +731,15 @@ export function runTrial(
   // site and then trial a DIFFERENT registered mutant, returning a valid report
   // for a site nobody asked about. Being "some mutant of this surface" was the
   // only thing checked, and every mutant satisfies that.
+  if (plan.surfaceId !== target.surface.id) {
+    return refuse(
+      "plan",
+      `the plan names surface ${JSON.stringify(plan.surfaceId)} and the resolved target is ` +
+        `${JSON.stringify(target.surface.id)}. Site ids are not globally unique, so a site that ` +
+        `exists on both surfaces would execute and stamp one while the report named the other — ` +
+        `a sealed verdict about the wrong program.`,
+    );
+  }
   if (plan.targetSiteId !== target.siteId) {
     return refuse(
       "plan",
@@ -1182,6 +1191,7 @@ export function observeTrial(
   const got = `${report.plan.arm}#${report.plan.index}`;
   if (
     asked !== got ||
+    report.plan.surfaceId !== plan.surfaceId ||
     report.plan.targetSiteId !== plan.targetSiteId ||
     report.plan.position !== plan.position ||
     report.plan.seed !== plan.seed ||
@@ -1190,11 +1200,13 @@ export function observeTrial(
   ) {
     return refuse(
       "provenance",
-      `the child reported trial ${got} (target ${JSON.stringify(report.plan.targetSiteId)}, ` +
-        `prefix ${report.plan.prefix.length}, position ${report.plan.position}) but the parent ` +
-        `asked for ${asked} (target ${JSON.stringify(plan.targetSiteId)}, prefix ` +
-        `${plan.prefix.length}, position ${plan.position}). A report that is internally perfect ` +
-        `is still the wrong evidence if it describes another trial.`,
+      `the child reported trial ${got} (surface ${JSON.stringify(report.plan.surfaceId)}, ` +
+        `target ${JSON.stringify(report.plan.targetSiteId)}, prefix ` +
+        `${report.plan.prefix.length}, position ${report.plan.position}) but the parent ` +
+        `asked for ${asked} (surface ${JSON.stringify(plan.surfaceId)}, target ` +
+        `${JSON.stringify(plan.targetSiteId)}, prefix ${plan.prefix.length}, position ` +
+        `${plan.position}). A report that is internally perfect is still the wrong evidence if ` +
+        `it describes another trial.`,
     );
   }
 
@@ -1514,8 +1526,13 @@ export function aggregateCampaign(input: {
   const { trials } = input;
 
   if (input.plan !== undefined) {
-    const planned = input.plan.trials.map((t) => `${t.arm}#${t.index}`).sort();
-    const got = trials.map(trialKey).sort();
+    // Keyed on SURFACE plus arm#index. `arm#index` alone reconciled observations to
+    // the campaign without noticing that a trial had run against another enrolled
+    // surface entirely (round 4).
+    const memberKey = (t: { arm: string; index: number; surfaceId: string }): string =>
+      `${t.surfaceId}::${t.arm}#${t.index}`;
+    const planned = input.plan.trials.map(memberKey).sort();
+    const got = trials.map((t) => memberKey(t.observation.plan)).sort();
     const dupes = got.filter((k, i) => got.indexOf(k) !== i);
     if (dupes.length > 0) {
       return refuse(
