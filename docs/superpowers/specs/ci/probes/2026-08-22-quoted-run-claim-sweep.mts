@@ -26,7 +26,7 @@ const HISTORICAL = [/^docs\/review-rounds\//, /^docs\/agents\/.*-\d{4}-\d{2}-\d{
 
 const SCALAR = /quoted[^.\n]{0,60}\b(run|shell|args|entrypoint)\b|\b(run|shell|args|entrypoint):[^.\n]{0,60}quoted/i;
 const NOT_READ =
-  /\b(stays? (a )?(zero|limit)|declared miss|documented limit|not (read|recognized|seen)|declined|one word|unsignaled|no(t| ) report|unchanged|no flag|flag-shaped|left alone)/i;
+  /\b(stays? (a )?(zero|limit)|declared miss|documented limit|not (read|recognized|seen)|declined|one word|unsignaled|no(t| ) report|unchanged|no flag|flag-shaped|left alone|never reached|scores? 0|zero persists)/i;
 const ZERO_ASSERT = /toHaveLength\(0\)|toEqual\(\[\]\)|\.length\)\.toBe\(0\)/;
 const QUOTED_FIXTURE = /run:\s*["']|args:\s*["']|entrypoint:\s*["']|shell:\s*["']/;
 const WINDOW = 8;
@@ -58,14 +58,14 @@ for (const file of files) {
 
 // The self-test ranges over EVERY known instance, not one. A sweep is only
 // trustworthy where it has been shown to fire, and each of these was a place an
-// earlier version of this sweep missed — two of them found by a reviewer after
-// the sweep reported clean.
+// earlier version of this sweep missed.
 const SELF_TEST: [file: string, nearLine: number][] = [
   ["tests/cross-cutting/psqlStartupFileSuppression.test.ts", 5156],
   ["tests/cross-cutting/psqlStartupFiles/scan.ts", 232],
   ["docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md", 346],
   ["docs/superpowers/specs/ci/2026-08-20-shell-lexer-quoted-value-recall-design.md", 566],
   ["docs/superpowers/specs/ci/2026-08-20-shell-lexer-quoted-value-recall-design.md", 615],
+  ["docs/superpowers/specs/ci/probes/2026-08-17-shell-binding-mixed-quoted-probes.md", 178],
 ];
 const SELF_TEST_WINDOW = 3;
 const missed = SELF_TEST.filter(
@@ -79,4 +79,65 @@ if (missed.length > 0) {
   for (const [file, near] of missed) console.error(`  ${file}:~${near}`);
   process.exit(2);
 }
+
+// ---------------------------------------------------------------------------
+// The gate. Finding the claim is half the job; the earlier version stopped
+// there and so the ENTIRELY UNREPAIRED tree passed it — it proved the sweep
+// worked, never that the work was done. Every LIVE hit must now carry a
+// supersession marker near it, and every file that carries none must be an
+// EXPLICITLY exempt one with its reason recorded here. Default-deny: a file
+// nobody has thought about fails.
+const MARKER = /BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE|Superseded in part, 2026-08-22/;
+const MARKER_WINDOW = 12;
+
+/** Files where the claim stands uncorrected, each with the reason it may. */
+const EXEMPT: [pattern: RegExp, reason: string][] = [
+  [/^docs\/review-rounds\//, "dated round record; those are never corrected"],
+  [
+    /^docs\/superpowers\/plans\/2026-08-17-shell-binding-mixed-quoted-value\.md$/,
+    "execution record of a completed arc",
+  ],
+  [
+    /^docs\/superpowers\/specs\/ci\/probes\/2026-08-17-/,
+    "dated probe record; its 'scores 0 today' is scoped to its own date, which is what makes a dated record safe to leave",
+  ],
+  [/^tests\/specLint\/__fixtures__\//, "copied fixture pinning a document's shape, not the scanner's behaviour"],
+  [/^tests\/docs\/_retiredIdentifiers\.ts$/, "ledger reconciliation record"],
+  [
+    /^docs\/superpowers\/(specs\/ci\/2026-08-22-workflow-run-scalar-yaml-decode-design|plans\/2026-08-22-workflow-run-scalar-yaml-decode)\.md$/,
+    "this arc's own spec and plan; they describe the retirement rather than assert the zero",
+  ],
+  [/^tests\/cross-cutting\/workflowActivation\.test\.ts$/, "different subject; matched on shape, not on this claim"],
+  [/^docs\/superpowers\/specs\/ci\/probes\/2026-08-22-/, "this arc's own probes"],
+];
+
+const fileText = new Map<string, string[]>();
+const linesOf = (f: string) => {
+  if (!fileText.has(f)) fileText.set(f, readFileSync(f, "utf8").split("\n"));
+  return fileText.get(f)!;
+};
+
+const unrepaired: string[] = [];
+for (const h of hits) {
+  const exemption = EXEMPT.find(([re]) => re.test(h.file));
+  if (exemption) continue;
+  const lines = linesOf(h.file);
+  const from = Math.max(0, h.line - 1 - MARKER_WINDOW);
+  const to = Math.min(lines.length, h.line - 1 + MARKER_WINDOW);
+  if (!lines.slice(from, to).some((l) => MARKER.test(l)))
+    unrepaired.push(`${h.file}:${h.line} [${h.arm}] ${h.text}`);
+}
+
+console.log(`\nexemptions in force:`);
+for (const [re, reason] of EXEMPT) console.log(`  ${re.source}  -- ${reason}`);
+
+if (unrepaired.length > 0) {
+  console.error(
+    `\nFAIL: ${unrepaired.length} live claim(s) carry no supersession marker within ${MARKER_WINDOW} lines. ` +
+      `Each must be superseded, or added to EXEMPT with the reason it may stand:`,
+  );
+  for (const u of unrepaired) console.error("  " + u);
+  process.exit(1);
+}
 console.log(`self-test: all ${SELF_TEST.length} known instances found — the sweep discriminates.`);
+console.log("PASS: every live claim carries a supersession marker.");

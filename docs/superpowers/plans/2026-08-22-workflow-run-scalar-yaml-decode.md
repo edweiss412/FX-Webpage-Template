@@ -163,17 +163,33 @@ single-quoted spelling of the canonical body; the current tree returns none, bec
 `scan.ts:3416-3421` hands the raw YAML to the lexer and the YAML quotes are consumed as shell
 quotes.
 
-**RED.** Add a `describe("YAML quoted scalar advisory")` block:
+**RED.** Add a `describe("YAML quoted scalar advisory")` block. Plan review round 3 found the first
+draft covered only `run`, which a `run`-only implementation passes while violating AC-2, so the
+matrix is stated as a matrix:
 
-- **AC-2** — the canonical body single-quoted yields exactly one indirection hit, at the `run:`
-  key's line, with the same `text` the plain spelling reports.
-- **AC-2, second style** — the DOUBLE-quoted spelling of the same body also yields exactly one
-  advisory at the key's line. This is the swept twin of Task 1's AC-4 gap: a single-style acceptance
-  passes an implementation that is correct on one quote style and blind on the other. It also yields
-  no fabricated advisory for a body with no unlexable target.
-- A benign quoted scalar (`run: "echo hello"`) yields no advisory. This is the case that keeps the
-  hard-red assertion at `psqlStartupFileSuppression.test.ts:1609` from breaking correct authoring,
-  and it is the AC-4 twin for this channel.
+- **AC-2, the full key x style matrix.** Every EXECUTABLE key under BOTH quoted styles: `run`,
+  `shell`, `entrypoint`, `args`, each `QUOTE_SINGLE` and `QUOTE_DOUBLE`. Eight cells. Probed at
+  base, all four keys behave identically — `plain=1 single=0 double=0` — so all eight are red now
+  and none is redundant. Six of the eight were missing from the first draft.
+- **The key line and the value line must DIFFER in at least one fixture.** YAML accepts
+
+  ```yaml
+        - run:
+            "echo >$(psql -qAt mydb"
+  ```
+
+  with the key on line 7 and the scalar starting on line 8. Every fixture in the first draft put
+  them on one line, so an implementation anchoring on `value.range[0]` instead of the key's range
+  passed every line assertion. The spec's anchoring contract says the KEY's line, and this is the
+  only fixture shape that can tell the two apart.
+- **A multiline flow scalar followed by a plain scalar**, asserting the second one's advisory
+  survives. This is the coordinate-space case measured above: get the ordering wrong and the blank
+  overruns into the next step and erases it.
+- A benign quoted scalar (`run: "echo hello"`) draws no advisory. The channel fires on CONTENT,
+  never on quoting — this is what keeps the hard-red assertion at
+  `psqlStartupFileSuppression.test.ts:1609` from breaking correct authoring.
+- A `.sh` file is unaffected, pinning §4a's claim that the declared-limit pin at line 6173 is out of
+  reach of this change.
 
 **RED validity, measured.** The block was spliced into a throwaway suite, run against the current
 tree, and removed: **2 failed, 4 passed of 6.** Both failures are the AC-2 cases — single-quoted and
@@ -278,9 +294,28 @@ Six edits, all in this task's commit:
 
 **Then, in the same task:** `pnpm mutation:sites`.
 
-## Task 3 — score and close-out
+## Task 3 — retire the declared limit
 
-<!-- task: red=`pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/baseline-corpus.mts --expect 8ebe8b08d43e6308aa471112d9f086d0118e6238` red-state=live why=`this is a GATE command, not an authored red — it asserts the live finding set has not moved and it passes on the clean tree at base, which is the state this task must preserve; its mutant-red is constructed below rather than observed on the tree` ac=AC-5,AC-6,AC-7,AC-8 -->
+<!-- task: red=`pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-quoted-run-claim-sweep.mts` red-state=live why=`the sweep gates REPAIR rather than its own existence: every live claim that a quoted executable scalar is not read must carry a supersession marker within twelve lines, or sit in an EXEMPT entry with the reason it may stand. On the pre-implementation tree it exits 1 listing 26 unmarked live claims across the predecessor specs, the deciding suite and the scanner module header; the six edits of this task are exactly what turns the same command green` ac=AC-10 -->
+
+<!-- tasks: end -->
+
+---
+
+## Close-out gates (deliberately OUTSIDE the declared task region)
+
+Plan review round 3 found the previous Task 3 marker invalid, and it was right: it declared
+`red-state=live` for the AC-5 digest command, which passes on the pre-implementation tree and passes
+after. The contract is red-then-green on the SAME command, and a command that is green at both ends
+expresses no cycle. Substituting separately constructed mutant evidence does not repair that — it
+answers a different question.
+
+The honest reading is that these are GATES, not tasks. A gate asserts a state is preserved; a task
+has a red. So the declared region closes above, and they live here where the contract does not reach
+them. What used to be Task 3 is now real work with a real live red: the claim sweep genuinely fails
+on the current tree and its six edits are what turn it green.
+
+Each gate still carries its constructed mutant-red, and each has been OBSERVED rather than described:
 
 **Gate commands, each with its constructed mutant-red.** A gate that cannot fail is not a gate, so
 each is probed against a failing input rather than trusted:
@@ -347,7 +382,6 @@ Adding the script moved no finding: the AC-5 digest still reads
 Run the AC-5 digest on a CLEAN tree. Then `pnpm heavy pnpm mutation:guards` for the score, and state
 the score plus the unaccepted-survivor set in the round-1 diff brief's GUARD SURFACE line.
 
-<!-- tasks: end -->
 
 ---
 
