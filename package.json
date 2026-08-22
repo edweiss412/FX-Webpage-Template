@@ -26,6 +26,8 @@
     "gen:execution-methods": "tsx scripts/generate-execution-methods.ts",
     "observe": "tsx scripts/observe.ts",
     "spec:lint": "tsx scripts/spec-lint.ts",
+    "probe:reach": "node --import tsx probe/reach.mts",
+    "probe:citations": "node --import tsx probe/citations.mts",
     "ledger:claims": "tsx scripts/ledger-claims.ts",
     "review:economy": "tsx scripts/review-economy.ts",
     "pretypecheck": "node scripts/pretest-gen.mjs",
