@@ -28,8 +28,23 @@ type Row = {
   note: string;
   /** A DOCUMENTED LIMIT row: outside the accept-set, so the expectation is not
    * `after` but UNCHANGED — the module under test must report exactly what the
-   * shipped scan.ts reports. Checked only when SCAN_MODULE names another module. */
+   * merge-base scanner reports. */
   limit?: true;
+  /** A row whose input bash REFUSES TO PARSE.
+   *
+   * The consequence bound ranges over inputs bash EXECUTES: on an input the
+   * shell rejects, no site is "correct", the walk cannot know a later stray
+   * token invalidates the command, and the scanner has fabricated on such input
+   * since long before this arc (`syntax-error-class.mts`: five ordinary syntax
+   * errors, five sites). So these rows assert neither an absolute outcome nor
+   * "unchanged" — they RECORD THE MOVEMENT as an exact pair, base then
+   * candidate, and fail when either half moves.
+   *
+   * That is the honest instrument, because the movement runs in BOTH directions
+   * and neither direction can be argued away: the repair adds a site on one
+   * spelling and removes a fabricated one on another. Recording it means a
+   * later change to either is visible instead of discovered. */
+  rejectedByBash?: { base: [sites: number, hits: number]; candidate: [sites: number, hits: number] };
 };
 
 const b = (s: string): string => Buffer.from(s + "\n", "utf8").toString("base64");
@@ -92,10 +107,12 @@ const ROWS: Row[] = [
   //    Reading the second `$` as opening `$(` resolves a span bash never
   //    parses, and both the shipped walk and the first cut of the repair
   //    report a site for input bash refuses to run.
-  { id: "P1-dollardollar-in-brace", b64: b(`echo \${OUT:-$$(echo }; psql -c "x")}`), bash: "silent", limit: true,
+  { id: "P1-dollardollar-in-brace", b64: b(`echo \${OUT:-$$(echo }; psql -c "x")}`), bash: "silent",
+    rejectedByBash: { base: [1, 0], candidate: [1, 0] },
     after: { sites: 1, nested: false, nestedInBacktick: false, indirections: 0 },
     note: "LIMIT: bash -n exits 2 and NOTHING runs, yet a site reports - an instance of the general syntax-error limit (design section 7 item 6), not of the crossing. The $$ precedence rule is what keeps it UNCHANGED: without it the repair resolves the same site with MORE confidence (nested:true), which would be a regression inside a limit" },
-  { id: "P2-dollardollar-attached", b64: b(`cat >$$(echo \${A:-)}; psql -c 'x')`), bash: "silent", limit: true,
+  { id: "P2-dollardollar-attached", b64: b(`cat >$$(echo \${A:-)}; psql -c 'x')`), bash: "silent",
+    rejectedByBash: { base: [1, 0], candidate: [1, 0] },
     after: { sites: 1, nested: false, nestedInBacktick: false, indirections: 0 },
     note: "LIMIT: the same, on the attached-target path - one character from R1-attached. It is why the $$ rule lands in BOTH recognizers: taught to the delimiter walk alone, this row MOVES to nested:true" },
   { id: "P3-dollardollar-control", b64: b(`echo $\${A:-y}; psql -c 'x'`), bash: "runs",
@@ -112,8 +129,13 @@ const ROWS: Row[] = [
     after: { sites: 1, nested: true, nestedInBacktick: false, indirections: 0 },
     note: "the same crossing one layer deeper, inside a double-quoted attached target" },
   { id: "W4k-unclosed-backtick-in-subst", b64: b("cat >$(echo `echo x; psql -c 'x')"), bash: "silent",
+    rejectedByBash: { base: [1, 0], candidate: [0, 1] },
     after: { sites: 0, indirections: 1 },
-    note: "an UNCLOSED backtick inside $(): bash dies on the unexpected EOF and runs NOTHING, so a resolved site is a FABRICATED call. Shipped resolves one today; the repair must REPORT instead" },
+    note: "an UNCLOSED backtick inside $(): bash dies on the unexpected EOF and runs NOTHING. The merge-base FABRICATES a site; the repair replaces it with an advisory. Movement recorded, and it is the direction the bound prefers" },
+  { id: "X1-stray-paren-after-crossing", b64: b(`cat >"$(echo \${A:-)}; psql -c 'x')" )`), bash: "silent",
+    rejectedByBash: { base: [0, 0], candidate: [1, 0] },
+    after: { sites: 1, nested: true, nestedInBacktick: false, indirections: 0 },
+    note: "spec review r2 finding 1. One ordinary edit from R1-attached: a trailing stray `)` makes the whole command a syntax error. The base is SILENT here and the repair REPORTS -- but the base's silence was its own early-closing defect coincidentally hiding the psql, not correctness: delete the stray paren and the identical input PARSES, runs psql, and the base is still silent (that is R1-attached, the row's own defect). The movement is recorded rather than argued away" },
 
   // ── documented limits: OUTSIDE the accept-set, must stay exactly as today ──
   { id: "L1-ansi-c-inside-subst", b64: b(`echo $(echo $'\\''; psql -c 'x')`), bash: "runs", limit: true,
@@ -202,6 +224,8 @@ const expectRepaired = process.argv.includes("--expect-repaired");
 let bashMismatch = 0;
 /** Accept-set rows that do not meet their post-repair expectation. */
 let unmetAccept = 0;
+/** bash-REJECTED rows whose recorded base->candidate movement no longer holds. */
+let movedRejected = 0;
 /** Documented-limit rows whose reading MOVED against the shipped module.
  *  Counted separately: a moved limit is scope creep, not an unmet expectation,
  *  and folding it into the accept-set tally reports one population's failure
@@ -252,23 +276,42 @@ for (const row of ROWS) {
     );
   const both = (ss: Array<Record<string, unknown>>, hs: Array<Record<string, unknown>>): string =>
     `${summarise(ss)}||${summarise(hs)}`;
-  const unchanged = baselineIsCandidate
-    ? null
-    : both(sites, hits) ===
-      both(shipped.scanSource(source, "probe.sh"), shipped.scanShellIndirection(source, "probe.sh"));
-  const ok = row.limit
-    ? unchanged !== false
-    :
+  const baseSites = shipped.scanSource(source, "probe.sh");
+  const baseHits = shipped.scanShellIndirection(source, "probe.sh");
+  const unchanged = baselineIsCandidate ? null : both(sites, hits) === both(baseSites, baseHits);
+  /** The BASE half of a recorded movement. Counts are enough here and only here:
+   *  the merge-base scanner is immutable, so this half exists to pin WHICH
+   *  movement the row records, not to detect drift in it. */
+  const movementBaseHolds = (): boolean => {
+    const r = row.rejectedByBash!;
+    return baseSites.length === r.base[0] && baseHits.length === r.base[1];
+  };
+  /** The candidate side, for accept-set AND bash-rejected rows alike: sites,
+   *  advisories AND attribution. Counts alone cannot discriminate a defect that
+   *  moves only `nested` — measured, not assumed: an earlier cut of the
+   *  bash-rejected class compared the movement as a COUNT PAIR, and both `w6`
+   *  and `w7` passed the whole probe, because their defect flips `nested` while
+   *  leaving 1 site / 0 advisories exactly where it was. Presence cannot see a
+   *  boundary defect; that is this arc's own recurring lesson, and it bit the
+   *  instrument built to teach it. */
+  const afterHolds = (): boolean =>
     sites.length === row.after.sites &&
     hits.length === row.after.indirections &&
     (row.after.nested === undefined || (row.after.nested ? nestedAll : nestedNone)) &&
     (row.after.nestedInBacktick === undefined || (row.after.nestedInBacktick ? btAll : btNone));
+
+  const ok = row.rejectedByBash
+    ? movementBaseHolds() && afterHolds()
+    : row.limit
+      ? unchanged !== false
+      : afterHolds();
   if (!ok) {
-    if (row.limit) movedLimits++;
+    if (row.rejectedByBash) movedRejected++;
+    else if (row.limit) movedLimits++;
     else unmetAccept++;
   }
   console.log(
-    `${pad(row.id, 36)} ${pad(String(ran), 5)} ${pad(String(sites.length), 6)} ${pad(nestedCol, 7)} ${pad(btCol, 6)} ${pad(String(hits.length), 5)} ${row.limit ? (unchanged === null ? "(limit; vacuous)" : unchanged ? "UNCHANGED" : "MOVED") : ok ? "MEETS after" : "UNMET"}  ${row.note}`,
+    `${pad(row.id, 36)} ${pad(String(ran), 5)} ${pad(String(sites.length), 6)} ${pad(nestedCol, 7)} ${pad(btCol, 6)} ${pad(String(hits.length), 5)} ${row.rejectedByBash ? (ok ? `RECORDED ${baseSites.length}s/${baseHits.length}a -> ${sites.length}s/${hits.length}a` : `MOVEMENT CHANGED (recorded ${row.rejectedByBash.base.join("s/")}a -> ${row.rejectedByBash.candidate.join("s/")}a, observed ${baseSites.length}s/${baseHits.length}a -> ${sites.length}s/${hits.length}a${movementBaseHolds() ? "; base half holds, so the CANDIDATE moved" : ""})`) : row.limit ? (unchanged === null ? "(limit; vacuous)" : unchanged ? "UNCHANGED" : "MOVED") : ok ? "MEETS after" : "UNMET"}  ${row.note}`,
   );
   if (hits.length > 0) for (const h of hits) console.log(`    hit: ${JSON.stringify(h.text)}`);
 }
@@ -278,8 +321,11 @@ if (bashMismatch > 0) {
   process.exit(2);
 }
 const limits = ROWS.filter((r) => r.limit).length;
-const accept = ROWS.length - limits;
-console.log(`ROWS: ${ROWS.length} total = ${accept} accept-set + ${limits} documented-limit`);
+const rejectedRows = ROWS.filter((r) => r.rejectedByBash).length;
+const accept = ROWS.length - limits - rejectedRows;
+console.log(
+  `ROWS: ${ROWS.length} total = ${accept} accept-set + ${limits} documented-limit + ${rejectedRows} bash-rejected`,
+);
 // Each population reconciles against its OWN denominator. Reported even when
 // zero, so a run that observed nothing is distinguishable from one that
 // observed nothing wrong.
@@ -287,9 +333,32 @@ console.log(`${accept - unmetAccept}/${accept} accept-set rows meet their post-r
 console.log(
   `${limits - movedLimits}/${limits} documented-limit rows ${baselineIsCandidate ? "VACUOUS (candidate is byte-identical to the merge-base scanner)" : `UNCHANGED against ${TRACKED} at ${baseSha.slice(0, 12)}`}`,
 );
-if (expectRepaired && (unmetAccept > 0 || movedLimits > 0)) {
+console.log(
+  `${rejectedRows - movedRejected}/${rejectedRows} bash-rejected rows hold their RECORDED base -> candidate movement`,
+);
+
+// `--expect-repaired` asserts that the repair HAS LANDED. A byte-identical
+// candidate and baseline means it has not, so the documented-limit population
+// certified nothing and the run must not exit 0 on the accept-set alone.
+//
+// Spec review round 2 finding 2: the round-1 repair added the VACUOUS LABEL but
+// left the exit path, so a checkout where the repaired scanner is also the
+// merge-base -- repaired `main`, most obviously -- printed VACUOUS and exited 0.
+// A clearer message in front of the same false pass is not the repair.
+//
+// This makes the probe an ACCEPTANCE INSTRUMENT rather than a standing gate: it
+// is run once, at the gate it certifies, against a tree whose merge-base still
+// holds the pre-repair scanner. After the arc merges there is no pre-repair
+// reference on main and the probe says so instead of passing.
+if (expectRepaired && baselineIsCandidate) {
   console.error(
-    `FAIL under --expect-repaired: ${unmetAccept} accept-set row(s) unmet, ${movedLimits} documented-limit row(s) MOVED`,
+    "FAIL under --expect-repaired: candidate and merge-base are byte-identical, so the documented-limit population is VACUOUS and certifies nothing. This probe is an ACCEPTANCE INSTRUMENT: run it where the merge-base still holds the pre-repair scanner.",
+  );
+  process.exit(1);
+}
+if (expectRepaired && (unmetAccept > 0 || movedLimits > 0 || movedRejected > 0)) {
+  console.error(
+    `FAIL under --expect-repaired: ${unmetAccept} accept-set row(s) unmet, ${movedLimits} documented-limit row(s) MOVED, ${movedRejected} bash-rejected row(s) whose movement CHANGED`,
   );
   process.exit(1);
 }
