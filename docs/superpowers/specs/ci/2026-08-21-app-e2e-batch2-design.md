@@ -99,7 +99,7 @@ Sum of the two columns is 114, which is the listing's total. Zero `waitForTimeou
 
 - **Class A, the batch-1 shape:** port 3000 baseline server + seeded local Supabase + `signInAs`. Every one of the 16 above except `empty-state-reachability` and the excluded `onboarding-wizard-step1`. These are the batch-2 candidates; section 4 runs them.
 - **Class B, pixel baselines:** `empty-state-reachability.spec.ts`. Two independent blockers, either sufficient: it navigates a retired route (404 by construction), and it asserts bytes against `-darwin.png` baselines, which the byte-comparison discipline (AGENTS.md, "Byte-comparison CI gates must pin BOTH the Docker image AND the host architecture") forbids on this native-runner job. Not a candidate; disposition in section 10.
-- **Class C, other build servers:** the 7 `UNSEEN` paths that resolve under no baseline project. `admin-dev.spec.ts` resolves under `dev-build`/`prod-build`/`prod-runtime-flip` (port 3001-port 3003; 6 each); `deep-link-walker`, `help-auth`, `help-mobile`, `help-typography` under `help-docs`/`help-docs-desktop` (port 3004); `help-screenshots-clock-pipeline` under `screenshots-help` (port 3004); `screenshots-help-capture` resolves under NO project in the default config (only under `playwright.screenshots.config.ts`). Out of batch 2 by requirement class. Five of the seven are ALREADY RUN by a workflow through a project-only invocation the scanner cannot see; section 7.3 records that and disposes of it as bookkeeping, not wiring.
+- **Class C, other build servers:** the 7 `UNSEEN` paths that resolve under no baseline project. `admin-dev.spec.ts` resolves under `dev-build`/`prod-build`/`prod-runtime-flip` (port 3001-port 3003; 6 each); `deep-link-walker`, `help-auth`, `help-mobile`, `help-typography` under `help-docs`/`help-docs-desktop` (port 3004); `help-screenshots-clock-pipeline` under `screenshots-help` (port 3004); `screenshots-help-capture` resolves under NO project in the default config (only under `playwright.screenshots.config.ts`). Out of batch 2 by requirement class. All seven are ALREADY RUN by a path-filtered workflow through an invocation the scanner cannot see, five through a project-only `--project=` run step and two through the screenshots docker block; section 7.3 records the evidence and disposes of all seven as bookkeeping, not wiring.
 
 ## 4. Membership: derived from a real run
 
@@ -205,23 +205,38 @@ Update `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK` in `BACKLOG.md`: a batch-2 paragraph
 
 ### 7.3 Class-C rows that already run: bookkeeping, not wiring
 
-Five `UNSEEN` rows name specs a workflow already runs through a project-only `--project=` invocation, which the scanner is blind to by its own contract (`UNSEEN`'s reason text at `tests/ci/_metaE2eWorkflowCoverage.test.ts:112` says so). Evidence, by command:
+Seven `UNSEEN` rows name specs a path-filtered workflow already runs through an invocation the scanner is blind to by its own contract (`UNSEEN`'s reason text at `tests/ci/_metaE2eWorkflowCoverage.test.ts` line 112 names the project-only form; the docker-block form is the `section-header-visual` row's, line 172). Evidence, by command:
 
 ```
 $ grep -nE 'run: pnpm exec playwright test' .github/workflows/dev-gate-e2e.yml .github/workflows/help-affordances.yml
 .github/workflows/dev-gate-e2e.yml:153:        run: pnpm exec playwright test --project=dev-build --project=prod-build --project=prod-runtime-flip
 .github/workflows/help-affordances.yml:97:        run: pnpm exec playwright test --project=help-docs-setup --project=help-docs --project=help-docs-desktop
+$ grep -nE '^  pull_request:|^    paths:|^  schedule:|pnpm screenshot:help' .github/workflows/screenshots-drift.yml
+12:  pull_request:
+13:    paths:
+44:  schedule:
+118:            bash -lc "apt-get update && apt-get install -y postgresql-client && corepack enable && pnpm screenshot:help"
+$ grep -n '"screenshot:help"' package.json
+50:    "screenshot:help": "... playwright test -c playwright.screenshots.config.ts --project=screenshots-help --project=screenshots-help-capture",
+$ grep -nE 'name: "screenshots-help"|name: "screenshots-help-capture"|testMatch: /help-screenshots-clock-pipeline|testMatch: /screenshots-help-capture' playwright.screenshots.config.ts
+25:      name: "screenshots-help",
+26:      testMatch: /help-screenshots-clock-pipeline\.spec\.ts/,
+44:      name: "screenshots-help-capture",
+45:      testMatch: /screenshots-help-capture\.spec\.ts/,
 $ pnpm exec playwright test --list <the 7 class-C paths>   # per (project,file), from the listing
       6 dev-build admin-dev.spec.ts   6 prod-build admin-dev.spec.ts   6 prod-runtime-flip admin-dev.spec.ts
      19 help-docs deep-link-walker.spec.ts   19 help-docs-desktop deep-link-walker.spec.ts
      13 help-docs help-auth.spec.ts   1 help-docs help-mobile.spec.ts
       6 help-docs help-typography.spec.ts   6 help-docs-desktop help-typography.spec.ts
       1 screenshots-help help-screenshots-clock-pipeline.spec.ts
+   NOWHERE: screenshots-help-capture.spec.ts   (default config; the screenshots config above resolves it)
 ```
 
-Both workflows carry a PATH-FILTERED `pull_request` trigger; `dev-gate-e2e.yml` also carries a daily `schedule`. So `admin-dev`, `deep-link-walker`, `help-auth`, `help-mobile` and `help-typography` are "named by a workflow, runs when its filter matches", the property the row's text assigns to the path-gated buckets, not to this population. The `attention-modal-gallery.spec.ts` row (line 136) is the precedent: a custom reason stating the project-only invocation, the filter, the schedule bound, and why it cannot join the required set.
+`dev-gate-e2e.yml` and `help-affordances.yml` carry a PATH-FILTERED `pull_request` trigger (`dev-gate-e2e.yml` also a daily `schedule`) and run their projects by name; `screenshots-drift.yml` carries a PATH-FILTERED `pull_request` trigger and a `schedule` and runs `pnpm screenshot:help`, which runs the two screenshot projects under `playwright.screenshots.config.ts`. So all seven are "named by a workflow, runs when its filter matches", the property the row's text assigns to the path-gated buckets, not to this population. The `attention-modal-gallery.spec.ts` row (line 136) is the precedent for the project-only five; the `section-header-visual.spec.ts` row (line 172) is the precedent for the docker-block two.
 
-Disposition, ratified here: batch 2 rewrites those five rows to the `attention-modal-gallery` shape with the commands above as their evidence. This moves five rows OUT of `UNSEEN` and changes no workflow, no run, and no total. It is in this PR because the section-7.2 census cannot honestly call them "runs nowhere" once the evidence is in the same document. The two remaining class-C rows stay `UNSEEN` with a measured reason: `help-screenshots-clock-pipeline.spec.ts` runs only under `playwright.screenshots.config.ts` via `pnpm screenshot:help` (the `screenshot:help` script in the root package.json, line 50) inside `screenshots-drift.yml`'s docker block (line 118), which the scanner refuses (the `section-header-visual` row shape, line 172); `screenshots-help-capture.spec.ts` resolves under no default-config project at all and is the WebP-writing capture the default config keeps out by design (the comment above `playwright.config.ts`'s `help-docs-setup` project). Whether those two become custom-reason rows is a census question for the owner of `screenshots-drift.yml`, not this batch; stated in section 9.
+Disposition, ratified here: batch 2 rewrites all seven rows to those two precedents' shape, each carrying the invocation line, the filter, the schedule where one exists, why it cannot join the required set, and the commands above as evidence. This moves seven rows OUT of `UNSEEN` and changes no workflow, no run, and no total. It is in this PR because the section-7.2 census cannot honestly call them "runs nowhere" once the evidence is in the same document.
+
+Spec review round 1 found that this section's first draft stopped at five, fencing the two screenshot rows as "a census question for the owner of `screenshots-drift.yml`". That was the sweep stopping at an invocation FORM (project-only) instead of at the CLASS (already run by a path-filtered workflow's invocation the scanner cannot see); the finding was accepted and repaired for the whole class. Fenced in both directions so it is not relitigated: the class is exactly those seven, enumerated by the commands above; its complement inside the 23, after this batch, is the two rows section 4 leaves `UNSEEN` on a recorded run line (`onboarding-wizard-step1`, `empty-state-reachability`), and nothing else.
 
 ### 7.4 Docs
 
@@ -240,7 +255,7 @@ Every AC names the command that proves it. A green suite is not read as proof wh
 - **AC-5 (oracle):** every `REQUIRED` value equals the member's live resolution under the final run command (the wiring test asserts this at line 203); every value is a positive integer; the oracle reds on a constructed shortfall (`--report` pointed at a report with one member's cases removed exits 1 naming the spec).
 - **AC-6 (real CI, inherited):** all required contexts green BY NAME on the final head, read sha-keyed in both vocabularies (check-runs and commit statuses); `app-e2e` green on that same head. Local green is not sufficient.
 - **AC-7 (ceiling):** the first CI run's job duration with all members is recorded in the PR body and the YAML comment; `timeout-minutes` satisfies section 5.3's formula against it. A run that CANCELS at the ceiling is read as a ceiling defect, not a spec defect, and the formula is re-applied before any member is dropped.
-- **AC-8 (census):** the ledger row's census table is regenerated by the section-2 commands at the closeout head and pasted with the commands; the `UNSEEN` count equals `23 - members - 5` (the five class-C reclassifications) and the total equals 51.
+- **AC-8 (census):** the ledger row's census table is regenerated by the section-2 commands at the closeout head and pasted with the commands; the `UNSEEN` count equals `23 - members - 7` (the seven class-C reclassifications), which with the fourteen members of section 4 is 2 (`onboarding-wizard-step1`, `empty-state-reachability`), and the total equals 51.
 - **AC-9 (closeout ordering):** the ledger closeout commit (members' rows deleted, census restated, deferred rows filed, marker removed) lands BEFORE the whole-diff review dispatch; `pnpm vitest run tests/docs/_metaLedgerInProgress.test.ts` green at that head.
 
 ## 9. Documented limits
@@ -249,7 +264,7 @@ Every AC names the command that proves it. A green suite is not read as proof wh
 - Port literals: `tests/e2e/sign-in-page.spec.ts:39` hardcodes 127.0.0.1 port 3000; `source-link-dimensional.spec.ts` and `telemetry-layout.spec.ts` navigate dev-panel harness routes. Correct in CI (default `E2E_PORT`, `ADMIN_DEV_PANEL_ENABLED=true` on the port 3000 server in both postures); the local sibling-worktree `E2E_PORT` escape hatch breaks the first one, as batch 1 §7 already recorded. Not this arc's class sweep.
 - Serialization: `signInAs` deletes and recreates fixture `auth.users` rows per call, so members must stay serialized (`playwright.config.ts:34`, line 49: `fullyParallel: false`, `workers: 1`). A local probe red that coincides with another session's e2e run on the shared local Supabase is contaminated signal, not membership evidence (batch 1's `report-modal` lesson); the probe record notes which other playwright/next processes were live at launch.
 - Local posture versus CI posture: the membership probe runs `pnpm dev`; CI runs `pnpm build && pnpm start`. Env gaps that only production posture surfaces (section 5.2) are found by the first CI run, which is why AC-6 is a separate gate.
-- The two screenshot-family class-C rows (section 7.3) keep `UNSEEN`; whether they become custom-reason rows is outside this batch.
+- `screenshots-help-capture.spec.ts` resolves under no default-config project; its reclassified row records that it runs only under `playwright.screenshots.config.ts` through `screenshots-drift.yml`, so `pnpm test:e2e` never executes it by design (the comment above `playwright.config.ts`'s `help-docs-setup` project). That is the row's reason, not a gap this batch leaves.
 - The wall-clock formula (section 5.3) is derived from twelve runs on one day; a runner-pool change re-measures it. The YAML comment names the run id it was derived from so the derivation can be re-run.
 
 ## 10. Deferred, with the exception each names
