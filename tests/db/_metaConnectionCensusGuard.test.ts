@@ -32,6 +32,7 @@ import {
   classCounts,
   classifyFile,
   discoveredByDestructiveGuard,
+  ownClassesFor,
   SOURCE_EXTENSIONS,
   propagateThroughImports,
   reconcileDispositions,
@@ -130,22 +131,20 @@ const undisposedKeys = new Set(
 
 const byPath = new Map(records.map((r) => [r.file, r]));
 
-/** A file's OWN classes: accepted site classes, plus how each reported site was disposed. */
+/**
+ * A file's OWN classes. The derivation lives in the census MODULE, where the mutation gate
+ * ranges over it — this file is a live-tree meta-test and nothing here is under mutation,
+ * which is precisely how the sites-only version shipped: it read correct reports, dropped
+ * every one of them, and stayed green.
+ */
 function ownClassesOf(file: string): FileClass[] {
   // Indexed, not searched: this runs once per walked file, and a linear scan inside it
   // makes the pass quadratic over a 2560-file corpus for no reason.
   const record = byPath.get(file);
   if (record === undefined) return [];
-  const own = new Set<FileClass>();
-  for (const site of record.sites) {
-    if (site.cls === "unclassifiable" || site.cls === "remote-literal") {
-      const key = `${file}\u0000${site.line}\u0000${site.argText}`;
-      own.add(undisposedKeys.has(key) ? "undisposed" : "dispositioned");
-    } else {
-      own.add(site.cls);
-    }
-  }
-  return [...own];
+  return ownClassesFor(record, (f, line, site) =>
+    undisposedKeys.has(`${f}\u0000${line}\u0000${site}`),
+  );
 }
 
 // PASS 2 propagates the RESOLVED classes, so a consumer of a helper whose only site is

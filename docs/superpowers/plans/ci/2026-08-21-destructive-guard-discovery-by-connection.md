@@ -107,7 +107,7 @@ and byte-identical to the committed outputs.
 | AC-C3 site accept-set, default-deny env names | `task:acquisition-and-sites` |
 | AC-C4 compiler-defined wrappers, axis parity | `task:acquisition-and-sites` |
 | AC-C5 helper graph fixpoint, unresolved-import | `task:helper-graph` |
-| AC-C6 live census at HEAD: exactly the seven §2.5 rows, premises, printed counts, production-edge tally | `task:live-census-gate` |
+| AC-C6 live census at HEAD: exactly the EIGHT disposition rows the shipped gate needs (spec §3.11 records the eighth, a path-shaped specifier resolving to no file, as a class the spec's probes never ranged over), premises, printed counts, production-edge tally | `task:live-census-gate` |
 | AC-C7 registry both directions, kind admissibility, remote-literal never excusable | `task:dispositions-both-directions` |
 | AC-C8 join with the destructive guard | `task:destructive-join` (constructed) + `task:live-census-gate` (live) |
 | AC-C9 enrolment, control uniqueness, derived score with provenance | `task:enrol-and-score` |
@@ -346,9 +346,9 @@ round 2 F1 showed the earlier text-only key could not reach green on that pair);
 for the report it matches is `inadmissible` (`resolver` only for a site whose argument is a call;
 `acquisition` only for an acquisition report; `channel` only for a join report; `unclassifiable` for
 any site report OR any edge report — `unresolved-import` and `loader-call` are edge reports, and
-five of the seven BASE rows are non-literal import edges, spec §2.5). A `remote-literal` site is ALWAYS `undisposed` regardless of rows. The module
-exports `CONNECTION_CENSUS_DISPOSITIONS` EMPTY in this task; the seven BASE rows land in
-`task:live-census-gate`, where they are observed to turn seven live reports green one at a time.
+six of the eight BASE rows are non-literal import edges, spec §2.5 as corrected by §3.11). A `remote-literal` site is ALWAYS `undisposed` regardless of rows. The module
+exports `CONNECTION_CENSUS_DISPOSITIONS` EMPTY in this task; the eight BASE rows land in
+`task:live-census-gate`, where they are observed to turn eight live reports green one at a time.
 
 **Cases,** each proven in both directions on constructed registries: undisposed / disposed twin;
 stale / live twin; two identical sites in one file with one `nth: 1` row → the second `undisposed`,
@@ -392,7 +392,7 @@ full rendered line, derived from the report's own fields, so a superset wording 
 
 <!-- tasks: end -->
 
-## Task 6 — the live census gate, with its seven BASE rows  `[task:live-census-gate]`
+## Task 6 — the live census gate, with its eight BASE rows  `[task:live-census-gate]`
 
 **Files:** `tests/db/_metaConnectionCensusGuard.test.ts (new)`, `tests/db/_connectionCensusDispositions.ts (new)`
 
@@ -400,8 +400,10 @@ full rendered line, derived from the report's own fields, so a superset wording 
 `pnpm vitest run tests/db/_metaConnectionCensusGuard.test.ts` passes at HEAD with the per-class
 counts printed (AC-C6), AND the both-directions proof below is recorded in the task's commit message.
 
-**The gate.** Walks `tests/` (the destructive meta-test's `walk`, re-stated — skip `node_modules`,
-`__generated__`; the TypeScript and JavaScript extensions the spec lists), builds every file's records through the module, resolves
+**The gate.** Walks `tests/` (the destructive meta-test's `walk`, re-stated — skip `node_modules`;
+the TypeScript and JavaScript extensions the spec lists). `__generated__` is deliberately WALKED, not
+skipped: the corpus imports from `tests/db/__generated__/`, and excluding a directory the population
+imports from manufactures a gap rather than closing one (spec §3.11), builds every file's records through the module, resolves
 imports over the tracked tree (`git ls-files` is NOT used — the resolver stats the path candidates
 the specifier plus each of `.ts`, `.mts`, `.tsx`, and an `index.ts` inside a directory of that name, on disk, so an untracked scratch file is visible, which is the
 conservative direction), propagates, reconciles against `CONNECTION_CENSUS_DISPOSITIONS`, joins
@@ -416,7 +418,7 @@ the rendered report; the anti-vacuity names: `tests/db/_b2Helpers.ts` is a conne
 acquisition and its site at line 407 classifies `validation-env` with NO row, `galleryDatabaseUrl` is
 dispositioned at both sites, and each of the five non-literal import edges has its row.
 
-**The seven rows**, added one at a time in this task's commit history so each is observed to retire
+**The eight rows**, added one at a time in this task's commit history so each is observed to retire
 exactly one report:
 
 ```
@@ -675,9 +677,9 @@ in commit messages and a PR body. Nothing here changes a contract above it.
 
 ### 6.1 The live census, measured through the SHIPPED code
 
-    connection census: 2560 files walked, 2560 in the population, 175 connect sites,
+    connection census: 2565 files walked, 2565 in the population, 175 connect sites,
     5 connecting helpers, 39 inheriting files, 7 destructive-discovered, 0 undisposed,
-    8 disposition rows, 4855 production edges
+    8 disposition rows, 4856 production edges
     guard-bound 85 / validation-env 79 / loopback-literal 9 / remote-literal 0 / unclassifiable 2
 
 Visible under `pnpm vitest run tests/db/_metaConnectionCensusGuard.test.ts --reporter=verbose`; the
@@ -696,7 +698,7 @@ gate, not in the perturbation.
 | `second-identical-site` | AssertionError: tests/admin/step3StateGallery.test.ts:202 site#2 unclassifiable — add a CONNECTION_CENSUS_DISPOSITIONS… |
 | `planted-remote-literal` | AssertionError: tests/db/__censusRemoteProbe.probe.ts:2 site#1 remote-literal — read the target from TEST_DATABASE_URL… |
 | `premise-destructive-discovered` | Error: premise not met: files the destructive guard discovers. Got 7, which does not exceed 999999. The assertion belo… |
-| `premise-files-walked` | Error: premise not met: files walked under tests/. Got 2560, which does not exceed 999999. The assertion below this li… |
+| `premise-files-walked` | Error: premise not met: files walked under tests/. Got 2565, which does not exceed 999999. The assertion below this li… |
 | `premise-driver-bindings` | Error: premise not met: files holding a driver binding. Got 140, which does not exceed 999999. The assertion below thi… |
 | `premise-connect-sites` | Error: premise not met: connect sites. Got 175, which does not exceed 999999. The assertion below this line proves not… |
 | `premise-helpers` | Error: premise not met: connecting helper modules. Got 5, which does not exceed 999999. The assertion below this line … |

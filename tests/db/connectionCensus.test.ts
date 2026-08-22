@@ -49,6 +49,7 @@ import {
   classCounts,
   discoveredByDestructiveGuard,
   moduleSpecifiersIn,
+  ownClassesFor,
   propagateThroughImports,
   reconcileDispositions,
   renderReport,
@@ -2000,6 +2001,98 @@ describe("connection census — cases authored against SURVIVING MUTANTS", () =>
       own: entry.own ?? ([] as FileClass[]),
     }));
   }
+
+  test("a file whose driver contact is REPORTED still carries a class", () => {
+    // Kills / whole-diff R1 scope B P0: deriving own-classes from `sites` alone. A correctly
+    // reported acquisition or shadowed-driver call is not a site, so a helper whose entire
+    // driver contact is reported contributed NO class -- and because those reports are
+    // dutifully dispositioned, every gate condition stayed green while each of its consumers
+    // silently left the classified graph. The importing tests still evaluate a module that
+    // opens a connection, and nothing classified or named them.
+    const shadowed = classifyFile(
+      P,
+      [IMPORT, `function f(postgres) {`, `  return postgres(process.env.DB_URL);`, `}`].join("\n"),
+    );
+    expect(shadowed.sites, "the premise: this file has NO site, only reports").toEqual([]);
+    expect(shadowed.reports.map((r) => r.kind)).toEqual(["shadowed-driver"]);
+
+    expect(ownClassesFor(shadowed, () => false), "disposed").toEqual(["dispositioned"]);
+    expect(ownClassesFor(shadowed, () => true), "undisposed").toEqual(["undisposed"]);
+  });
+
+  test("an EDGE report seeds no class, because it is not about that file's own driver", () => {
+    // The boundary of the rule above. `unresolved-import` and `loader-call` are reported
+    // against the IMPORTING file about an edge; seeding from them would attribute a
+    // helper's behaviour to every file that failed to resolve any specifier.
+    const record = {
+      file: P,
+      sites: [],
+      reports: (["unresolved-import", "loader-call"] as const).map((kind) => ({
+        file: P,
+        line: 3,
+        ordinal: null,
+        kind,
+        site: "./_helper",
+        detail: "",
+        argIsCall: false,
+      })),
+    };
+    expect(ownClassesFor(record, () => false)).toEqual([]);
+  });
+
+  test("a conditional loader's second argument decides by ROLE, never by arity", () => {
+    // Kills / whole-diff R1 scope A: `arguments.length > 1` read every second argument as a
+    // replacement factory. The position is overloaded — Vitest takes a factory OR
+    // ModuleMockOptions — and only the factory keeps the original module from evaluating.
+    // Reading autospy as a factory drops a live edge with no class and no report, which is
+    // the silence the consequence bound forbids. The autospy spelling is already in the
+    // corpus at tests/admin/test-auth-gate.test.ts:161.
+    const cases: Array<[string, string, boolean]> = [
+      ["absent", `vi.mock("./_helper.js");`, true],
+      ["autospy", `vi.mock("./_helper.js", { spy: true });`, true],
+      ["automock, empty options", `vi.mock("./_helper.js", {});`, true],
+      ["automock, spy false", `vi.mock("./_helper.js", { spy: false });`, true],
+      ["explicit undefined", `vi.mock("./_helper.js", undefined);`, true],
+      ["arrow factory", `vi.mock("./_helper.js", () => ({}));`, false],
+      ["function factory", `vi.mock("./_helper.js", function () { return {}; });`, false],
+      ["doMock autospy", `vi.doMock("./_helper.js", { spy: true });`, true],
+    ];
+    for (const [label, source, loads] of cases) {
+      const result = propagateThroughImports(
+        chainFiles({
+          "tests/db/consumer.test.ts": { source },
+          "tests/db/_helper.ts": { source: `const sql = 1;`, own: ["validation-env"] },
+        }),
+        chainResolver({ "./_helper.js": "tests/db/_helper.ts" }),
+        "/repo",
+      );
+      expect([...(result.classes.get("tests/db/consumer.test.ts") ?? [])], label).toEqual(
+        loads ? ["validation-env"] : [],
+      );
+      expect(result.reports.map((r) => r.kind), label).toEqual([]);
+    }
+  });
+
+  test("a second argument the census cannot classify REPORTS rather than being guessed", () => {
+    // The other half of the same split. An identifier or a call could be either role, and
+    // the census resolves no values -- guessing `factory` drops a live edge, guessing
+    // `options` invents one. Neither is acceptable, so it reports and owes a row.
+    for (const source of [
+      `vi.mock("./_helper.js", opts);`,
+      `vi.mock("./_helper.js", makeOptions());`,
+      `vi.doMock("./_helper.js", opts);`,
+    ]) {
+      const result = propagateThroughImports(
+        chainFiles({
+          "tests/db/consumer.test.ts": { source },
+          "tests/db/_helper.ts": { source: `const sql = 1;`, own: ["validation-env"] },
+        }),
+        chainResolver({ "./_helper.js": "tests/db/_helper.ts" }),
+        "/repo",
+      );
+      expect(result.reports.map((r) => r.kind), source).toEqual(["loader-call"]);
+    }
+  });
 
   test("a helper two hops away names its far consumer as affected", () => {
     // Kills: a fixpoint whose DIRECT-edge growth does not re-trigger a pass. Every direct

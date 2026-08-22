@@ -69,7 +69,7 @@ export type ModuleSpecifierRef = {
   node: ts.Node;
   /** The declaration or call the specifier belongs to. */
   declaration: ts.Node;
-  loader?: { member: string; hasFactory: boolean };
+  loader?: { member: string; second: SecondArgRole };
 };
 
 export type DriverBinding = {
@@ -274,7 +274,7 @@ export function moduleSpecifiersIn(sf: ts.SourceFile): ModuleSpecifierRef[] {
           literal: literalTextOf(first),
           node: first ?? node,
           declaration: node,
-          loader: { member: callee.name.text, hasFactory: node.arguments.length > 1 },
+          loader: { member: callee.name.text, second: secondArgRole(node) },
         });
       }
     }
@@ -284,10 +284,41 @@ export function moduleSpecifiersIn(sf: ts.SourceFile): ModuleSpecifierRef[] {
   return out;
 }
 
+/**
+ * What a conditional loader's SECOND argument is, when the census can tell.
+ *
+ * Arity does not decide this and never did (whole-diff R1 scope A): the position is
+ * overloaded, so the presence of an argument says nothing about its role. Vitest accepts
+ * either a replacement factory or `ModuleMockOptions` there, and only the factory keeps
+ * the original module from evaluating — automock (`{}`, `{ spy: false }`, an explicit
+ * `undefined`) and autospy (`{ spy: true }`) both evaluate it. The live corpus already
+ * carries the autospy spelling at `tests/admin/test-auth-gate.test.ts:161`.
+ */
+export type SecondArgRole = "absent" | "factory" | "options" | "undecidable";
+
+function secondArgRole(node: ts.CallExpression): SecondArgRole {
+  const arg = node.arguments[1];
+  if (arg === undefined) return "absent";
+  const inner = skipTransparent(arg);
+  if (ts.isFunctionExpression(inner) || ts.isArrowFunction(inner)) return "factory";
+  if (ts.isObjectLiteralExpression(inner)) return "options";
+  if (ts.isIdentifier(inner) && inner.text === "undefined") return "options";
+  // An identifier, a call, a spread, a conditional: the census resolves no values, so the
+  // role is UNDECIDABLE and reports rather than being guessed in either direction. Guessing
+  // `factory` drops a live edge silently; guessing `options` invents one.
+  return "undecidable";
+}
+
 /** True when this loader position EVALUATES the module it names. */
-export function loaderLoads(loader: { member: string; hasFactory: boolean }): boolean {
+export function loaderLoads(loader: { member: string; second: SecondArgRole }): boolean {
   if (LOADER_MEMBERS_LOAD.has(loader.member)) return true;
-  return LOADER_MEMBERS_CONDITIONAL.has(loader.member) && !loader.hasFactory;
+  if (!LOADER_MEMBERS_CONDITIONAL.has(loader.member)) return false;
+  return loader.second === "absent" || loader.second === "options";
+}
+
+/** True when the census cannot decide whether this loader position evaluates the module. */
+export function loaderUndecidable(loader: { member: string; second: SecondArgRole }): boolean {
+  return LOADER_MEMBERS_CONDITIONAL.has(loader.member) && loader.second === "undecidable";
 }
 
 /** True when the member is one the census has a decided answer for. */
@@ -492,7 +523,17 @@ export function acquisitionsIn(sf: ts.SourceFile): {
     if (ref.position === "loader-call") {
       const loader = ref.loader;
       if (loader === undefined || !loaderLoads(loader)) {
-        if (loader !== undefined && !loaderKnown(loader.member)) {
+        if (loader !== undefined && loaderUndecidable(loader)) {
+          reports.push(
+            acquisitionReport(
+              sf,
+              ref.declaration,
+              `\`vi.${loader.member}\` naming the driver with a second argument the census ` +
+                "cannot classify as a replacement factory or as mock options: pass a " +
+                "function or an object literal, or add an `acquisition` disposition row",
+            ),
+          );
+        } else if (loader !== undefined && !loaderKnown(loader.member)) {
           reports.push(
             acquisitionReport(
               sf,
@@ -1035,6 +1076,57 @@ export function classifyFile(filePath: string, source: string): FileRecord {
 /** A file's class after dispositions are applied to its reported sites. */
 export type FileClass = SiteClass | "dispositioned" | "undisposed";
 
+/**
+ * Report kinds that mean the FILE ITSELF touches the driver in a way no classified site
+ * captured: it acquires the driver and the census could not follow the acquisition, it
+ * hands the binding somewhere as a value, or it calls a name the driver shares with a
+ * local declaration. Each is a file that may open a connection, so it seeds a class
+ * exactly as an `unclassifiable` SITE does.
+ *
+ * The edge kinds are deliberately absent — `unresolved-import` and `loader-call` are
+ * reported against the IMPORTING file about an edge, not about that file's own driver
+ * contact, and seeding a class from them would attribute a helper's behaviour to every
+ * file that failed to resolve any specifier.
+ */
+export const DRIVER_CONTACT_REPORT_KINDS: ReadonlySet<ReportKind> = new Set([
+  "acquisition",
+  "value-reference",
+  "shadowed-driver",
+]);
+
+/**
+ * A file's OWN classes: its accepted site classes, plus how each thing the census REPORTED
+ * about it was disposed.
+ *
+ * Deriving these from `sites` alone is the defect this function exists to make
+ * unrepresentable (whole-diff R1 scope B P0). A correctly reported acquisition or
+ * `shadowed-driver` call is not a site, so a helper whose entire driver contact is
+ * reported would contribute NO class — and because its reports are dutifully dispositioned,
+ * every gate condition stays green while each of its consumers silently leaves the
+ * classified graph. That is the forbidden direction: the importing tests still evaluate a
+ * module that opens a connection, and nothing classifies or names them.
+ */
+export function ownClassesFor(
+  record: Pick<FileRecord, "file" | "sites" | "reports">,
+  isUndisposed: (file: string, line: number, site: string) => boolean,
+): FileClass[] {
+  const own = new Set<FileClass>();
+  const disposition = (line: number, site: string): FileClass =>
+    isUndisposed(record.file, line, site) ? "undisposed" : "dispositioned";
+  for (const site of record.sites) {
+    if (site.cls === "unclassifiable" || site.cls === "remote-literal") {
+      own.add(disposition(site.line, site.argText));
+    } else {
+      own.add(site.cls);
+    }
+  }
+  for (const report of record.reports) {
+    if (!DRIVER_CONTACT_REPORT_KINDS.has(report.kind)) continue;
+    own.add(disposition(report.line, report.site));
+  }
+  return [...own];
+}
+
 export type CensusFileInput = {
   file: string;
   sf: ts.SourceFile;
@@ -1137,7 +1229,18 @@ export function propagateThroughImports(
         if (loader === undefined) continue;
         if (!loaderLoads(loader)) {
           const pathShaped = ref.literal !== null && isPathShaped(ref.literal, root);
-          if (!loaderKnown(loader.member) && pathShaped) {
+          if (loaderUndecidable(loader) && pathShaped) {
+            reports.push(
+              edgeReport(
+                input,
+                ref,
+                "loader-call",
+                `\`vi.${loader.member}\` with a second argument the census cannot classify as ` +
+                  "a replacement factory or as mock options: pass a function or an object " +
+                  "literal, or add an `unclassifiable` disposition row",
+              ),
+            );
+          } else if (!loaderKnown(loader.member) && pathShaped) {
             reports.push(
               edgeReport(
                 input,
