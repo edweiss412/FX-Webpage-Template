@@ -221,11 +221,12 @@ neither targets both:
 | `w7` — `$$` taught nowhere | 21/21 | **5/7** | 1 |
 | the `#`-comment rule (parser growth) | 21/21 | **6/7** — `L2` moves | 1 |
 
-**Three of the seven are invisible to the accept-set and caught ONLY by the limit rows** — `w6`,
-`w7`, and the `#`-comment widening. Two of those three are UNDER-repairs and the third is an
-OVER-repair, which is the case for keeping both populations: an acceptance set measures whether the
-repair landed, and only a comparison against the merge-base measures whether it stayed inside its
-scope.
+**Four of the eight candidates are invisible to the accept-set.** `w4`, `w6` and `w7` pass every
+accept-set row and die only in the bash-rejected population; the `#` widening passes both of those
+and dies only to the merge-base limit comparison. Three are UNDER-repairs and one is an OVER-repair,
+which is why the populations are separate: the accept-set measures whether the repair landed, the
+limit rows whether it stayed in scope, and the bash-rejected rows whether it moved anything on input
+the shell refuses to parse.
 
 **The `#`-comment row is the one worth dwelling on.** It is not a bug in the ordinary sense — it
 makes the walk agree with bash where today it does not — and it is still refused, because it is the
@@ -237,6 +238,15 @@ finding 1: the first cut compared against the tree's own `scan.ts`, which after 
 the candidate, so every limit row would report `UNCHANGED` by construction. `w6` and `w7` are the
 proof that this is not theoretical — both pass the entire accept-set, and the only thing standing
 between them and a green run is a comparison the earlier probe could not make.
+
+**And a LABEL is not a gate.** Round 1's repair named that case `VACUOUS` instead of `UNCHANGED` and
+left the exit path alone, so a checkout where the repaired scanner is also the merge-base — repaired
+`main`, most obviously — printed the honest word and still exited 0 (round 2 finding 2). Under
+`--expect-repaired` a vacuous limit population is now a FAILURE: the flag asserts the repair has
+landed, and if candidate and baseline are the same bytes it has not. The last row of the table above
+is that path, measured. This makes the probe an ACCEPTANCE INSTRUMENT — run once, at the gate it
+certifies, against a tree whose merge-base still holds the pre-repair scanner — and not a standing
+CI gate, which is the lifetime a pinned reference can actually support.
 
 `corpus-time.mts`'s ratio gate was proved the same way: `--max-cpu-ratio 1.5 --baseline-cpu-ms 10`
 exits 1 printing `median cpu 16636 ms exceeds 1.5 x baseline 10 ms = 15 ms`; the same command at a
@@ -425,12 +435,18 @@ AC-5, AC-6 or AC-8; each names its own instrument.
 |---|---|---|
 | AC-1 | EVERY accept-set row of §2.1 meets its post-repair expectation, including the ledger row's four shapes in both placements. The probe's own tally is the count. | `SCAN_MODULE=<candidate> pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-shell-brace-cross-construct/shapes.mts --expect-repaired` — exits 1 naming every unmet row |
 | AC-2 | Every §2.1 control still reports, and the bash column holds for EVERY row. | the same command — a bash disagreement ABORTS with exit 2, so no subject result rests on an unestablished snippet |
-| AC-3 | Every §7 documented limit reports byte-identically to the merge-base scanner, so the repair has not grown into a shell grammar. | the same command: each limit row is compared against `scan.ts` AS OF `git merge-base origin/main HEAD`, extracted with `git show` into `node_modules/` (which the walk skips at every depth) — never against the working tree, which after implementation IS the candidate. Every field of every record is compared, derived from the record rather than listed. The probe ABORTS if the baseline cannot be obtained, and SAYS SO rather than printing `UNCHANGED` when candidate and baseline are byte-identical. Proven to fire by three of the §2.1b defects |
+| AC-3 | Every §7 documented limit reports byte-identically to the merge-base scanner, so the repair has not grown into a shell grammar. | the same command: each limit row is compared against `scan.ts` AS OF `git merge-base origin/main HEAD`, extracted with `git show` into `node_modules/` (which the walk skips at every depth) — never against the working tree, which after implementation IS the candidate. Every field of every record is compared, derived from the record rather than listed. The probe ABORTS if the baseline cannot be obtained, and under `--expect-repaired` a byte-identical candidate FAILS rather than passing vacuously. Proven to fire by the `#`-widening defect of §2.1b |
 | AC-4 | The deciding suite is green, with the two nearest pin blocks (`tests/cross-cutting/psqlStartupFileSuppression.test.ts:6674` and `tests/cross-cutting/psqlStartupFileSuppression.test.ts:6700`) unmoved. | `pnpm exec vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts` |
+| AC-3b | Every bash-REJECTED row holds its RECORDED base → candidate movement, so a repair that moves one on input the shell refuses is visible rather than discovered. | the same command's THIRD tally line, `N/N bash-rejected rows hold their RECORDED base -> candidate movement`. The candidate half carries the same attribution check the accept-set uses — a count-only comparison let `w6` and `w7` pass the whole probe (§2.1c) |
 | AC-5 | The live-corpus finding set is unchanged: 76 rows, digest `8ebe8b08d43e6308aa471112d9f086d0118e6238`, over every field of every record. **This is the ledger row's close condition (c).** | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/baseline-corpus.mts --expect 8ebe8b08d43e6308aa471112d9f086d0118e6238` — exits 1 printing expected and actual, exit 2 on a zero-row or thin-record read |
 | AC-6 | **The ledger row's close condition (b).** The repaired walk's median CPU over the live corpus is within **1.5×** the shipped walk's, both measured in the SAME session so heavy-slot contention cancels. | `SCAN_MODULE=<a checkout of the merge-base scanner> pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-shell-brace-cross-construct/corpus-time.mts` for the baseline, then the same probe against HEAD with `--max-cpu-ratio 1.5 --baseline-cpu-ms <that number>`; exits 1 printing both |
 | AC-7 | `psqlStartupScan` scores at or above its floor with an EMPTY unaccepted-survivor set, after `pnpm mutation:sites` re-keys every row the edit moved. | `pnpm heavy pnpm mutation:guards` |
 | AC-8 | No prose in `scan.ts` or the deciding suite still describes the pre-repair walk. | the §6 sweep, run and pasted in the plan, not described |
+
+**AC-3 is an ACCEPTANCE instrument, not a standing gate.** Its reference is a fixed pre-repair
+revision, so it certifies once, at the gate, on a tree whose merge-base still holds that scanner —
+and says so rather than passing after the arc merges. A gate whose routine maintenance is re-pinning
+teaches everyone to re-pin, which is the reflex that deletes the signal.
 
 **AC-5 and AC-6 are the row's close condition; AC-1 is (a).** AC-6 is a RATIO and not a wall-clock
 figure on purpose: this machine runs nine arcs against two heavy slots, and §2.4's own two passes
@@ -527,8 +543,8 @@ semantics inside expansions. That is branch A wearing a smaller hat, and the sta
 direction under same-axis recurrence is narrowing, not parser growth. **Re-file trigger for all
 five:** a live-corpus instance, which `2.3`'s greps report on every run.
 
-6. **An input bash REJECTS may still yield a site, and this is general rather than a property of the
-   crossing.** Round 1 finding 2 raised `echo ${OUT:-$$(echo }; psql -c "x")}`, on which bash exits 2
+6. **An input bash REJECTS may still yield a site; this is general, pre-existing, and the repair
+   moves individual instances in BOTH directions.** Round 1 finding 2 raised `echo ${OUT:-$$(echo }; psql -c "x")}`, on which bash exits 2
    and the scanner resolves a site. The scope question is settled by measurement rather than by
    argument: `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-22-shell-brace-cross-construct/syntax-error-class.mts`
    runs five ORDINARY syntax errors — an unterminated quote, a stray `)`, a bare `done`, a bare `fi`,
@@ -536,10 +552,24 @@ five:** a live-corpus instance, which `2.3`'s greps report on every run.
    SHIPPED scanner**. The probe ASSERTS that 5-of-5, so the limit cannot go stale silently.
 
    The scanner is a lexer and does not validate; closing this means it becomes a bash parser, which
-   is the growth §1.2 row 2 fences. What this arc DOES owe, and pays, is that the repair must not
-   make it worse: the `$$` precedence rule of §3.1 exists precisely so the two `$$` spellings keep
-   reporting exactly what they report today, rather than gaining a confident `nested: true`. Both are
-   pinned as documented-limit rows (`P1`, `P2`), so a future repair that moves either one fails AC-3.
+   is the growth §1.2 row 2 fences.
+
+   **What this arc owes is not "no movement" but "no movement that is unrecorded", and round 2
+   finding 1 is why the weaker promise is the honest one.** `cat >"$(echo ${A:-)}; psql -c 'x')" )`
+   is one ordinary edit from `R1-attached`: the merge-base is SILENT and the repair REPORTS, which
+   reads as the repair making an input worse. It is not, and the discriminating measurement is one
+   character away — delete the trailing stray `)` and the identical input PARSES, runs psql once,
+   and the merge-base is STILL silent. That silence was never correctness; it was the early-closing
+   defect coincidentally hiding an executing call, and no repair can preserve it without preserving
+   the defect. The movement also runs the other way on
+   `` cat >$(echo `echo x; psql -c 'x') ``, where the merge-base fabricates a site and the repair
+   replaces it with an advisory.
+
+   So all four spellings are held as BASH-REJECTED rows (§2.1c) recording their base → candidate
+   movement exactly — `X1` gaining a report, `W4k` losing a fabrication, `P1` and `P2` unchanged —
+   with the candidate half carrying the full attribution check. A later change to any of them fails
+   AC-3b. The `$$` precedence rule of §3.1 is what keeps `P1` and `P2` in the unchanged column
+   rather than gaining a confident `nested: true`.
    **Re-file trigger:** a live-corpus instance, or any arc that gives this surface a parse check.
 
 7. **Shell text inside JS strings** is not separately censused, exactly as the sibling arc records
