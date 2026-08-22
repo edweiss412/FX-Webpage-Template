@@ -13,3 +13,27 @@ Written under the probe-before-argue rule in [`../../../../agents/spec-self-revi
 | [`2026-08-19-premisescan-nested-hook-leak-probe.md`](./2026-08-19-premisescan-nested-hook-leak-probe.md) | Does narrowing `hookBodies` to stop at nested `describe`s move any live verdict? | [`../2026-08-19-premisescan-nested-hook-sibling-leak-design.md`](../2026-08-19-premisescan-nested-hook-sibling-leak-design.md) §3 |
 | [`2026-08-20-browser-child-wallclock-probe.md`](./2026-08-20-browser-child-wallclock-probe.md) | What is the per-child wall clock of a healthy browser-gate run, and what ceiling does it support? | [`../2026-08-20-browser-child-lifetime-design.md`](../2026-08-20-browser-child-lifetime-design.md) §3 |
 | [`2026-08-21-connection-census/`](./2026-08-21-connection-census/) | Which files under `tests/` open a `postgres` connection, through which helpers, with which URL provenance, and do the ledger row's two incident spellings have any live instance? | [`../2026-08-21-destructive-guard-discovery-by-connection-design.md`](../2026-08-21-destructive-guard-discovery-by-connection-design.md) §1, §3 |
+| [`2026-08-22-derived-number-population-census.md`](./2026-08-22-derived-number-population-census.md) | Are the figures these records state derived or hand-carried, and is that classification stable enough to gate on? | `BL-DERIVED-NUMBERS-IN-DOCS-ROT` |
+
+## Stating a figure
+
+A figure a record states about an artifact — a count, a duration, a score, a size — is **bound** or it
+rots. Bound means a reader can tell what the figure was measured against:
+
+- **a revision** — a sha, a branch plus a base, a dated run. A measurement is permanently true of the
+  tree it measured, so a bound figure never goes stale; its subject moves and the figure stays correct
+  about the tree it names.
+- **a producing command or committed script**, so it can be re-derived. Name it beside the figure, or
+  once in the record's header covering every figure below.
+
+Either satisfies it. A header line — *"Run 2026-08-21 on `branch` at `abc1234`"* — binds a whole record
+in one sentence, and that is how every record here already does it.
+
+The population this protects is narrow and worth naming: a figure asserting a property of the **live
+tree** with nothing saying which tree. Those are the ones that pass through a person between the
+measurement and the page, and they are the ones that rot. A figure the record derives and prints
+alongside its command was never at risk.
+
+There is no lint for this. `2026-08-22-derived-number-population-census.md` measured the alternative:
+the per-figure classification is not stable across three defensible readings, and the gate that was
+sketched for it fires 23 times on this corpus with a yield of zero. The convention is the mechanism.
