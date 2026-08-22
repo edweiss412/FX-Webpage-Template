@@ -21,13 +21,14 @@ name: App e2e (mobile-safari + desktop-chromium)
 #
 # BATCH 2 joins 2026-08-22 (spec docs/superpowers/specs/ci/2026-08-21-app-e2e-batch2-design.md,
 # probe record docs/superpowers/specs/ci/probes/2026-08-21-app-e2e-batch2-membership-probe.md):
-# ten more specs, membership derived from three real runs rather than from a
-# reading — admin-route-boundaries, admin-settings-admins-refresh,
-# dev-capture, developer-tier, needs-attention-page, no-raw-codes,
-# roles-settings-layout, sign-in-page,
-# source-link-dimensional, staged-preview.
-# Seven were green on a run; seven took a named test-only repair first (spec §6,
-# R1-R7, plus R8/R9 which only became reachable once R1 and R7 unblocked their
+# more specs join the run step below, which is the authority for WHICH ones — this
+# comment names no membership list and no count, because both moved during the arc
+# and a copy here would be the first thing to go stale.
+#
+# Membership was derived from three real runs rather than from a reading, over
+# FOURTEEN candidates: some were green on a run, seven took a named test-only
+# repair first (spec §6, R1-R7, plus R8/R9 which only became reachable once R1 and
+# R7 unblocked their
 # cases). The post-fix run of all 23 measured 181 executed identities in 3.2
 # minutes locally, every per-spec count equal to Playwright's own resolution.
 #
