@@ -27,6 +27,7 @@ import {
   classifyValue,
   isResidue,
   loadOracle,
+  ownDeclarations,
   paintProjection,
   printPasteReadyRow,
   projectionsOf,
@@ -1440,6 +1441,135 @@ describe("what the mutation score found unpinned", () => {
     const line = validateCensus([stale], LIVE, oracle, ledger).find((p) => p.startsWith("stale: "));
     expect(line?.split("nearest live key in this file by tag: ")[1]).toBe(
       projectionsOf(liveElement(strip), LIVE.paint).join(" || "),
+    );
+  });
+});
+
+/* ------------------------------ what the SECOND score found unpinned (round 2) */
+
+/**
+ * The first score reported 45 unaccepted survivors and nine cases took it to 22 at 0.912. These
+ * eight close the eight that remain KILLABLE; the other fourteen are equivalences argued on the
+ * registry rows, and every one of those arguments is a claim about a closed domain rather than
+ * about what the suite happens to cover.
+ */
+describe("what the second score found unpinned", () => {
+  // covers: W3
+  it("drops only the leading bang before reading the variant chain", () => {
+    // The token table exercises `!border-border` (no chain, so both slice widths return []) and
+    // `focus:!border-border` (the bang is not leading, so the branch never runs). Neither reaches
+    // the slice WIDTH. A leading bang IN FRONT OF a chain does.
+    expect(variantsOf("!focus:border-border")).toEqual(["focus"]);
+    expect(variantsOf("!group-hover:focus:border-border")).toEqual(["group-hover", "focus"]);
+    expect(utilityOf("!focus:border-border")).toBe("border-border");
+  });
+
+  // covers: W3
+  it("closes a bracket variant before looking for the next chain separator", () => {
+    // The depth-aware chain split landed in this arc and left its own repair untested: it differs
+    // from the depth-BLIND walker only when a depth-0 colon FOLLOWS a closing bracket. Without
+    // this, the mutant that makes the decrement unreachable keeps the depth pinned above zero and
+    // returns the whole chain as one segment.
+    expect(variantsOf("[&:hover]:focus:border-border")).toEqual(["[&:hover]", "focus"]);
+    expect(variantsOf("has-[:checked]:sm:border-border")).toEqual(["has-[:checked]", "sm"]);
+  });
+
+  // covers: W20
+  it("resolves a relative import against the importing sheet, not the module require path", () => {
+    // Production `app/globals.css` imports one bare specifier, so the relative arm never runs when
+    // the real oracle loads and nothing else here reaches it. A sheet importing a sibling does.
+    const dir = mkdtempSync(join(tmpdir(), "control-outline-oracle-"));
+    try {
+      writeFileSync(join(dir, "child.css"), "@theme { --color-probe-edge: #cfcdc7; }\n");
+      writeFileSync(join(dir, "root.css"), '@import "tailwindcss";\n@import "./child.css";\n');
+      return expect(loadOracle(join(dir, "root.css"))).resolves.toBeDefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // covers: W26
+  it("emits a nested rule's declarations with neither brace attached", () => {
+    // Both `continue`s exist to keep the brace character itself out of the buffer. Drop either and
+    // the brace is appended to the emitted text, where `PAINT_PROP` reads `{` as a legal prefix
+    // and a stray `}` truncates a `BORDER_COLOUR_DECL` value.
+    //
+    // The expected string also pins the DOCUMENTED LIMIT below it: declarations standing before a
+    // nested rule are discarded with the selector, so `color: red` is absent here by design. The
+    // premise case that follows is what keeps that limit from becoming a silent miss.
+    expect(ownDeclarations(".x { color: red; &:hover { color: blue; } }")).toBe(" color: blue; ; ");
+    expect(ownDeclarations(".x { color: red; &:hover { color: blue; } }")).not.toMatch(/[{}]/);
+  });
+
+  // covers: W26
+  it("has no live token whose own declarations stand before a nested rule", () => {
+    // The limit pinned above is a FALSE-CLEAR direction, not a conservative one: a weak outline
+    // painted in that leading run would be dropped and the element would read clean. It is
+    // tolerable only while unreachable, so reachability is asserted rather than asserted-once and
+    // commented. If a token ever compiles to that shape this reds, and the limit becomes a defect.
+    const reaching = [...new Set(tokensOf(scanInteractiveElements(ROOT)))].filter((t) => {
+      const compiled = oracle.ds.candidatesToCss([t])[0];
+      if (compiled == null) return false;
+      const body = compiled.replace(/^[^{]*\{/, "").replace(/\}\s*$/, "");
+      let buf = "";
+      for (const ch of body) {
+        if (ch === "{") {
+          const cut = buf.lastIndexOf(";");
+          if (cut !== -1 && buf.slice(0, cut + 1).trim().length > 0) return true;
+          buf = "";
+          continue;
+        }
+        if (ch === "}") {
+          buf = "";
+          continue;
+        }
+        buf += ch;
+      }
+      return false;
+    });
+    expect(reaching).toEqual([]);
+  });
+
+  // covers: W22
+  it("names the missing theme token when a ratio cannot be read", () => {
+    // `!m || !m[1]` guards a MANDATORY capture group, so the second disjunct is dead and the
+    // conjunction mutant never throws the named error — it throws a TypeError off the null match
+    // instead. Only asserting the MESSAGE separates the two; `toThrow()` alone accepts both.
+    const css = [
+      ":root {\n  --color-border-strong-runtime: #cfcdc7;\n}",
+      "@media (prefers-color-scheme: dark) {\n}",
+      '[data-theme="dark"] {\n  --color-border-strong-runtime: #3a3a3a;\n}',
+    ].join("\n");
+    expect(() => recordedRatio("border-strong", "surface-sunken", css)).toThrow(
+      /token --color-surface-sunken not found/,
+    );
+  });
+
+  // covers: W22
+  it("names the missing anchor when the stylesheet has no theme block", () => {
+    // Same shape one function up: `m.index === undefined` is unreachable for a successful match,
+    // so the mutant reads `.index` off null and reports a TypeError instead of the anchor.
+    expect(() => recordedRatio("border-strong", "surface-sunken", "")).toThrow(
+      /anchor .* not found/,
+    );
+  });
+
+  // covers: AC-11
+  it("requires a painted side before demanding a focus ring", () => {
+    // `p != null && …some(Boolean)` decides whether an alternative carries a weak token at all.
+    // Flipped to `||`, every non-null paint reports weak, so a focus-state-chrome row whose tokens
+    // paint NO side would be told to add a ring it does not need.
+    const SKIP = "app/help/layout.tsx";
+    const el = liveElement(SKIP);
+    const row: ResidueRow = {
+      file: SKIP,
+      tag: el.tag,
+      paint: [""],
+      category: "focus-state-chrome",
+      reason: "no painted side on this alternative; the ring requirement must not fire",
+    };
+    expect(validateRow(row, el, oracle, ledger)).not.toContain(
+      `${SKIP}: focus-state-chrome weak token lacks a focus variant: `,
     );
   });
 });
