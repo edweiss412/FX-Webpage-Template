@@ -87,7 +87,12 @@ fabricated site, because `scan.ts:4076` scans the raw slice regardless of the sc
 - **AC-3** — the same body plain still yields `[]` sites and exactly one advisory at the `run:` key's
   line; a `BLOCK_LITERAL` body still yields its site at its physical line, not at the key's.
 - **AC-4** — all six rows of §3's table, asserted on `suppressesStartupFiles` and not merely on
-  presence. The `"\x70sql -qAt mydb"` row is the decoded-only case and is mandatory.
+  presence. Two of them are QUOTE_DOUBLE POSITIVES (`"psql -qAt mydb"` and `"\x70sql -qAt mydb"`)
+  and both are mandatory: without them an implementation that handles single quotes correctly and
+  suppresses both passes for double quotes satisfies every other assertion in this plan, because
+  every other double-quoted assertion expects nothing. `bash -n` accepts `psql -qAt mydb`, so losing
+  its decoded pass would be silent corruption. The `\x70sql` row is decoded-only — its raw slice
+  holds no literal `psql`.
 
 **GREEN.** In `scanWorkflowSource`, read the scalar's style from the node the `yaml` parser already
 produced and gate the raw pass on it:
@@ -118,8 +123,10 @@ quotes.
 
 - **AC-2** — the canonical body single-quoted yields exactly one indirection hit, at the `run:`
   key's line, with the same `text` the plain spelling reports.
-- The double-quoted spelling of a body whose target carries a substitution opener also yields its
-  advisory, and yields no fabricated one for a body that has no unlexable target.
+- **AC-2, second style** — the DOUBLE-quoted spelling of the same body also yields exactly one
+  advisory at the key's line. This is the swept twin of Task 1's AC-4 gap: a single-style acceptance
+  passes an implementation that is correct on one quote style and blind on the other. It also yields
+  no fabricated advisory for a body with no unlexable target.
 - A benign quoted scalar (`run: "echo hello"`) yields no advisory. This is the case that keeps the
   hard-red assertion at `psqlStartupFileSuppression.test.ts:1609` from breaking correct authoring,
   and it is the AC-4 twin for this channel.
@@ -136,6 +143,23 @@ quotes.
 3. Rescan each blanked scalar's decoded value through the same lexer-and-report path, pinning every
    resulting hit to the `run:` key's line — the anchoring contract `scan.ts:4109-4113` already
    states for decoded findings.
+
+**Also in this task — AC-10, the limit this change retires.** Running the deciding suite under the
+prototype flipped two declared-limit rows at
+`tests/cross-cutting/psqlStartupFileSuppression.test.ts:5153-5157` from their pinned zero to one hit
+each: `- run: "PG=psql; $PG -qAt mydb"` and its `PG=p'sql'` spelling. That is the improving
+direction, and the predecessor arc predicted it — its own spec says recall there "needs YAML-aware
+value extraction, a different surface"
+(`docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md:322-328`). Three
+edits, all in this task's commit:
+
+1. Re-pin both rows as HITS rather than deleting them. A retired limit stays visible as a pin.
+2. Correct their comment. It currently attributes the miss to the flag criterion; the actual cause
+   was the quoted scalar lexing to one word, which is this arc's defect. Leaving the old cause in
+   place would leave a true-looking explanation of a behaviour that no longer exists.
+3. Add a "Superseded in part, 2026-08-22" note to §6 item 2 of the predecessor spec, naming this row
+   — the same form item 1 of that section already carries from 2026-08-20. The flag criterion for
+   `.sh` input is untouched and stands.
 
 **Then, in the same task:** `pnpm mutation:sites`.
 
@@ -178,19 +202,28 @@ the score plus the unaccepted-survivor set in the round-1 diff brief's GUARD SUR
 
 ---
 
-## 4a. Declared-limit pin — named, and left alone
+## 4a. Declared-limit pins — one left alone, one retired
 
-`spec:lint` reports `DECLARED_LIMIT_PIN_UNNAMED`: this plan moves a recognizer on `psqlStartupScan`,
-and the deciding suite carries a declared-limit pin at
+Two pins on this surface, with opposite dispositions. Both are named here in full; neither is
+assumed.
+
+**Left alone.** `spec:lint` reports `DECLARED_LIMIT_PIN_UNNAMED` for
 `tests/cross-cutting/psqlStartupFileSuppression.test.ts:6173`, whose title is
-"each quote-concatenated keyword/operand spelling is a declared miss" — named here in full.
-
-**It is left alone, and it is not merely believed to be unaffected.** That pin ranges over `.sh`
+"each quote-concatenated keyword/operand spelling is a declared miss". That pin ranges over `.sh`
 input: every row in it calls `scanShellIndirection(source, "x.sh")`. Task 2's change is gated on
 `YAML_EXTENSIONS.includes(extensionOf(file))`, the same predicate that already selects the dedent
-branch at `scan.ts:3416`, so a `.sh` file never reaches the new code at all. The obligation is
-discharged by naming it; the verification is that the block runs green after Task 2, recorded in the
-task's own closure rather than assumed here.
+branch at `scan.ts:3416`, so a `.sh` file never reaches the new code. The verification is that the
+block runs green after Task 2, recorded in the task's closure rather than assumed here.
+
+**Retired.** The pin at `tests/cross-cutting/psqlStartupFileSuppression.test.ts:5153-5157`, whose title is "multiword binding value: a quoted run: scalar (%s) stays a limit" — named here in full.
+Task 2 retires it and re-pins both rows as hits; the three required edits are in that task, and
+AC-10 is the acceptance.
+
+**The linter found the first and was silent on the second.** Its arm reads plan text against pin
+titles; it cannot know which pins a change will move. What found the second was running the deciding
+suite under the prototype — 2 failures out of 1009, both in that block. This is the reason §3's
+prototype is part of the plan rather than an optional nicety, and it is worth stating plainly: a
+plan that had trusted the linter's pin list would have shipped a silent limit retirement.
 
 ## 5. Fix-round regression budget
 

@@ -255,7 +255,16 @@ wrong, and each files here rather than as a review round.
    assembled by a GitHub expression is not resolved by this design any more than by the current one.
 4. **A `type` outside the five modelled styles is reported, not read.** §3.1's last row. Unreachable
    with `yaml@2.9.0`.
-5. **Shell text embedded in JS remains documented limit 1 of the predecessor design.** Unchanged
+5. **A limit this repair RETIRES, recorded because retiring one is a change of behaviour.** The
+   predecessor arc `fix/shell-binding-mixed-quoted-value` declared quoted YAML `run:` scalars a
+   documented miss for its binding family, and said in as many words that "recall here needs
+   YAML-aware value extraction, a different surface"
+   (`docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md:322-328`). This
+   arc IS that surface, so the miss becomes a hit — the improving direction. It was found by running
+   the deciding suite under a throwaway prototype, not by reading: `spec:lint`'s
+   `DECLARED_LIMIT_PIN_UNNAMED` arm named a DIFFERENT pin and was silent on this one. AC-10 is the
+   obligation discharged.
+6. **Shell text embedded in JS remains documented limit 1 of the predecessor design.** Unchanged
    here (`docs/superpowers/specs/ci/2026-08-21-shell-attached-redirection-target-design.md:457`).
 
 ---
@@ -296,13 +305,14 @@ EVERY edit to `scan.ts`, comment-only edits included, because registry keys are 
 | AC | Claim | How it is settled |
 | --- | --- | --- |
 | AC-1 | A double-quoted `run:` scalar produces NO fabricated site. The §2.1 canonical body, double-quoted, yields 0 sites. | Fixture in the deciding suite asserting `scanWorkflowSource` returns `[]` for that workflow. Red on the current tree, which returns one site with `nested: true`; green once the accept-set check of §3.2 is in. |
-| AC-2 | A single-quoted `run:` scalar emits the advisory the plain spelling emits. Both yield exactly one indirection hit, at the `run:` key's line. | Fixture asserting `scanShellIndirection` returns one hit for the single-quoted spelling. Red on the current tree, which returns none; green once the blank-and-rescan of §3.3 is in. |
+| AC-2 | Both QUOTED styles emit the advisory the plain spelling emits — single-quoted AND double-quoted — each exactly one indirection hit at the `run:` key's line. | Fixtures for BOTH quoted styles, not only the single. The double-quoted row is the swept twin of AC-4's gap: an implementation correct on one quote style and blind on the other passes a single-style acceptance. Red on the current tree, which returns none for either. |
 | AC-3 | Plain and block spellings are unchanged. The plain spelling still yields 0 sites and 1 advisory; a `BLOCK_LITERAL` body still yields its sites at their physical lines. | Fixtures pinning both, plus AC-5. |
-| AC-4 | A benign quoted scalar (`run: "echo hello"`, `run: 'psql -X mydb'`) produces neither a false advisory nor a lost site. The second must still yield its site — decoding is not silencing. | Fixture pair. The second is the anti-tautology case: a design that suppressed quoted scalars entirely would pass both of the rows above it and fail this. |
+| AC-4 | Decoding is not SILENCING, and it is not silencing PER QUOTE STYLE. Six rows, each asserted on `suppressesStartupFiles` rather than on presence: `'psql -X mydb'` (site, protected), `'psql -qAt mydb'` (site, unprotected), **`"psql -qAt mydb"` (site, unprotected)**, **`"\x70sql -qAt mydb"` (site, unprotected)**, `"echo hello"` (nothing), `psql -qAt mydb` plain (site, unprotected). | Fixture table. The two bolded rows are QUOTE_DOUBLE positives and they are what rules out the degenerate implementation: one that handles single quotes correctly and suppresses BOTH passes for double quotes satisfies every other AC, because every other double-quoted assertion expects nothing and the live corpus has no quoted scalar to contradict it. `bash -n` accepts `psql -qAt mydb`, so losing its decoded pass is silent corruption. The `\x70sql` row is decoded-only: its raw slice holds no literal `psql`. |
 | AC-5 | The live-corpus finding set is unchanged: 76 sites, 0 indirections, 0 unreadable, digest `8ebe8b08d43e6308aa471112d9f086d0118e6238`. | `pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-21-shell-attached-target-scripts/baseline-corpus.mts --expect 8ebe8b08d43e6308aa471112d9f086d0118e6238` — exits 1 when the set moves, 2 on a thin or zero-row read. Run on a CLEAN tree; see §2's contamination note. |
 | AC-6 | The census of §2.3 is restated by command, not by memory, and still reports zero quoted executable scalars. | The census probe, re-run at HEAD. A non-zero result retires AC-5's reasoning and is a finding against this spec, not against the diff. |
 | AC-7 | Every registry key for `psqlStartupScan` resolves after the final edit. | `pnpm mutation:sites` clean, then `pnpm heavy pnpm mutation:guards` with the score and the unaccepted-survivor set stated in the round-1 diff brief's GUARD SURFACE line. |
 | AC-9 | The accept-set of §3.1 is complete over what the installed `yaml` emits. The distinct scalar `type` values produced over the §2.5 spelling corpus equal exactly the five modelled styles. | Test in the deciding suite. Fails by name on a library upgrade that adds a sixth style, which would otherwise take the not-shell-text branch silently. |
+| AC-10 | The two declared-limit rows at `tests/cross-cutting/psqlStartupFileSuppression.test.ts:5153-5157` are RETIRED and re-pinned as HITS. `- run: "PG=psql; $PG -qAt mydb"` and its `PG=p'sql'` spelling each report a binding once the scalar is decoded before the lexer sees it. | The two rows flip from `toHaveLength(0)` to a hit assertion, their comment's stated cause is corrected, and §6 item 2 of `docs/superpowers/specs/ci/2026-08-17-shell-binding-mixed-quoted-value-design.md` gains a "Superseded in part" note — the same form item 1 of that section already carries from 2026-08-20. |
 | AC-8 | `matchBrace` and the delimiter walk are untouched. | `git diff origin/main -- tests/cross-cutting/psqlStartupFiles/scan.ts` shows no hunk inside those functions. |
 
 ---
