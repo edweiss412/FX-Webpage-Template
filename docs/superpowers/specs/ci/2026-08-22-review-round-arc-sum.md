@@ -178,6 +178,12 @@ export function isArcSumGrandfathered(branch: string, stage: string): boolean;
 
 Fixture-planted arcs are never in the set, so meta-test fixtures exercise clause B by default; one fixture plants a grandfathered pair to cover the exemption branch, and one plants a pair with a post-freeze row to cover the addition guard.
 
+**Every coordinate of a compound key gets its own control (spec review R2).** The exemption key is `(branch, stage)`, and a battery that varies only the branch cannot tell it from a key on `branch` alone — under which every OTHER counted stage on a grandfathered branch becomes silently exempt, and the report-equals-gate assertion passes too, because both consumers share the one widened predicate. So each coordinate is varied with the others held fixed, and the rule generalizes to any coordinate added later.
+
+**Mutation cannot stand in for these controls, and this is why.** The declared operator set is `relational-boundary`, `equality-flip`, `logical-connector`, `integer-literal`, `regex-quantifier-bound`, `statement-removal` (`tests/mutation/source/operators.ts:17`). None of them can drop a coordinate from a key expression, so no mutant of any enrolled file expresses this defect and no score would have fallen. That is a **documented limit of the mutation gate on this surface** (§4 limit 8), not a gap in the registry, and it is the reason the coordinate controls are executable fixtures rather than a scoring claim.
+
+The same reasoning is why the grandfather module stays out of the registry: with the predicate's conjunction living in the enrolled `corpus.ts`, the module holds a frozen list and a timestamp and nothing an operator could meaningfully mutate.
+
 ### §3.4 The report (`pnpm review:economy`)
 
 The report is the reader that made the defect invisible. It prints one line per `(branch, base)` — `chore/archive-duplicate-ids` appears as two `diff 2/2` lines with nothing showing the 4 — so a reader scanning it sees two short arcs and no obligation.
@@ -211,9 +217,11 @@ The filing-duty section gains: the threshold is reached either by one base's rou
 6. **Rows never committed stay invisible**, inherited unchanged from the 2026-08-04 spec §8.3 limit 2. Clause B reads the committed corpus like clause A.
 7. **A branch directory renamed or deleted loses its history**, inherited from §8.3 limit 3's rename half. Only the base-move half of that limit is repaired here.
 
+8. **The mutation gate cannot express coordinate omission on these surfaces.** No operator in the declared set (`tests/mutation/source/operators.ts:17`) drops a coordinate from a key expression, so a predicate silently keyed on `branch` alone, or a stage-blind clause B, produces no surviving mutant and costs no score. The coordinate controls in §5 are the guard; the score is not, and `scoreFloor: 1` must not be read as covering it.
+
 ## §5 Testing (TDD per task)
 
-**`tests/reviewRounds/count.test.ts`** — `arcCountedRounds(rowsByBase)`: distinct `(base, round)` pairs; the same round number at two bases counts **twice** (the renumbering case, the exact defect); the same `(base, round)` at two rows counts **once** (a parallel wave); `no_verdict` rows and `stage: "task"` rows never contribute; an empty directory is 0, not `NaN`.
+**`tests/reviewRounds/count.test.ts`** — `arcCountedRounds(rows)`: distinct `(baseSha, round)` pairs; the same round number at two bases counts **twice** (the renumbering case, the exact defect); the same `(base, round)` at two rows counts **once** (a parallel wave); `no_verdict` rows and `stage: "task"` rows never contribute; a counted `spec` row never raises `diff`'s count (the stage coordinate control); an empty input is 0, not `NaN`.
 
 **`tests/docs/_metaReviewRoundEconomy.test.ts`** — fixtures, each a planted branch directory:
 
@@ -226,6 +234,10 @@ The filing-duty section gains: the threshold is reached either by one base's rou
 - 3 + 0 across two bases → passes (below threshold).
 - 2 + 2 of `stage: "task"`, and 2 + 2 of `status: "no_verdict"` → pass.
 - A grandfathered `(branch, stage)` at 2 + 2 → passes; the identical shape on a non-grandfathered branch → fires. One fixture, two directories, so the exemption cannot pass by accident.
+- **Coordinate controls, one per coordinate of every compound key in this design (R2).** The class was found on the exemption key and swept across the other two rather than patched where it was reported:
+  - *exemption key `(branch, stage)`* — the branch control is the case above; the STAGE control is a grandfathered branch carrying a DIFFERENT counted stage at 2 + 2 with no filing, which must report `missing_arc_filing`. Without it a `branch`-keyed predicate passes the whole battery.
+  - *clause B's obligation key `(directory, stage)`* — a directory holding 2 counted `diff` rounds and 2 counted `spec` rounds and nothing else must stay clean. A stage-blind clause B sums them to `ROUND_THRESHOLD` and reports, and no other fixture in this battery separates the two.
+  - *`arcCountedRounds`'s stage keying* — a counted `spec` row at a third base must not raise `diff`'s count (asserted in `tests/reviewRounds/count.test.ts`, below).
 - **Addition guard:** a grandfathered pair with one row `startedAt` after `ARC_SUM_FREEZE` fails; the same with `startedAt: null` fails.
 - **Set hygiene over the real corpus:** all 11 pairs still owe; all their rows predate the freeze; the set is exactly 11.
 - **Monotonicity:** every fixture that fires a per-base problem today fires the same problem after the change, asserted by kind.
