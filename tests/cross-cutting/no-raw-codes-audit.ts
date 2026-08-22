@@ -354,13 +354,40 @@ export async function collectRawCodeLeaksInPage(
           }
         }
       };
+      // Nodes whose text the browser never renders. A Next.js page inlines its
+      // RSC flight payload as `self.__next_f.push([...])` <script> text, and that
+      // payload carries serialized props verbatim: /admin's own payload holds 45
+      // §12.4 codes (measured 2026-08-22, batch-2 R8). Invariant 5 is about copy a
+      // person reads, so script/style text is out of scope for the textContent
+      // phase. Attributes and live DOM properties are unaffected.
+      const NON_RENDERED = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE"]);
+      const renderedText = (node: Element): string => {
+        // Fast path: no non-rendered descendant, so textContent is already the
+        // rendered text (native, and this runs once per element on the page).
+        if (!node.querySelector("script, style, noscript, template")) {
+          return node.textContent ?? "";
+        }
+        // nodeType literals, not the `Node` global: this body is serialized into
+        // the browser, where `Node` is the DOM interface, while tsc resolves the
+        // repo's Node.js `Node` type and rejects `Node.TEXT_NODE`.
+        const TEXT_NODE = 3;
+        const ELEMENT_NODE = 1;
+        let text = "";
+        for (const child of node.childNodes) {
+          if (child.nodeType === TEXT_NODE) text += child.nodeValue ?? "";
+          else if (child.nodeType === ELEMENT_NODE && !NON_RENDERED.has((child as Element).tagName))
+            text += renderedText(child as Element);
+        }
+        return text;
+      };
       const walk = (root: Element | ShadowRoot) => {
         const children =
           root instanceof Element
             ? [root, ...root.querySelectorAll("*")]
             : [...root.querySelectorAll("*")];
         for (const node of children) {
-          check("textContent", node.tagName.toLowerCase(), node.textContent ?? "");
+          if (NON_RENDERED.has(node.tagName)) continue;
+          check("textContent", node.tagName.toLowerCase(), renderedText(node));
           for (const attr of attrs) check("attribute", `@${attr}`, node.getAttribute(attr));
           if (node instanceof HTMLInputElement)
             check("live-dom-property", "input.value", node.value);
