@@ -248,7 +248,7 @@ each is probed against a failing input rather than trusted:
 | --- | --- | --- |
 | AC-5 digest probe with `--expect` | the clean tree at base and at HEAD | already observed: a stray `.mts` in the worktree holding a psql fixture string injected 7 indirections and the probe exited 2. Recorded in spec §2. |
 | AC-6 census | zero quoted executable scalars | **RUN, not described.** A `- run: "echo quoted"` step was appended to `.github/workflows/admin-layout-e2e.yml`; the census reported `run:QUOTE_DOUBLE = 1` and named the planted step by file and line. The workflow was then restored and the census returned to `0`. No line is cited for the planted step: it existed only while the mutant was, and the restored file is shorter. |
-| AC-7 `pnpm mutation:sites` | all registry keys resolve | observed red after every `scan.ts` edit in Tasks 1-3, before the re-key |
+| AC-7 `pnpm mutation:sites` | all registry keys resolve — measured clean at base, "all accepted rows resolve" | observed red after every `scan.ts` edit, before the re-key. Concrete: `psqlStartupScan` carries **30** accepted rows, line-anchored. Task 2 inserts helpers above `scanShellIndirection` (~line 3391) and edits at 3416, so every row anchored below shifts — 4 of them sit below 3416 alone. This is why a comment-only edit re-keys exactly as code does. |
 | AC-8 `node docs/superpowers/specs/ci/probes/2026-08-22-seam-check.mjs` | this arc's diff | **RUN, and the first version of this gate FAILED to fire.** See below. |
 
 ### AC-8: the gate that could not fail, and why
