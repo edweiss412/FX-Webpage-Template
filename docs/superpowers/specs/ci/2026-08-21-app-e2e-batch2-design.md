@@ -46,17 +46,21 @@ $ grep -cE '^ +"tests/e2e/[^"]+": UNSEEN,' tests/ci/_metaE2eWorkflowCoverage.tes
 ```
 
 ```
-$ awk '/^const LOCAL_ONLY_ALLOWLIST/,/^};/' tests/ci/_metaE2eWorkflowCoverage.test.ts \
-    | grep -E '^ +"tests/e2e/' | sed -E 's/^ +"([^"]+)":\s*(.*)$/\2/' \
-    | sed -E 's/^"[^"]{0,40}.*/"<custom>"/' | sort | uniq -c
-      3 "<custom>"
-      1  LOCAL_ONLY_GALLERY_CAPTURE,
-     10  PATH_GATED_BY_EXCLUSION,
-     14  PATH_GATED,
-     23  UNSEEN,
-$ awk '/^const LOCAL_ONLY_ALLOWLIST/,/^};/' tests/ci/_metaE2eWorkflowCoverage.test.ts | grep -cE '^ +"tests/e2e/'
+$ F=tests/ci/_metaE2eWorkflowCoverage.test.ts
+$ awk '/^const LOCAL_ONLY_ALLOWLIST/,/^};/' "$F" | grep -E '^ +"tests/e2e/' \
+    | sed -E 's/^ +"[^"]+":[[:space:]]*//' \
+    | awk '{ v=$0; sub(/,$/,"",v); if (v ~ /^(UNSEEN|PATH_GATED|PATH_GATED_BY_EXCLUSION|LOCAL_ONLY_GALLERY_CAPTURE)$/) print v; else print "custom-reason" }' \
+    | sort | uniq -c
+      3 custom-reason
+      1 LOCAL_ONLY_GALLERY_CAPTURE
+     14 PATH_GATED
+     10 PATH_GATED_BY_EXCLUSION
+     23 UNSEEN
+$ awk '/^const LOCAL_ONLY_ALLOWLIST/,/^};/' "$F" | grep -cE '^ +"tests/e2e/'
 51
 ```
+
+The classifier keys on the VALUE TOKEN: a row whose value is one of the four constants is that bucket, and every other row is `custom-reason`, whether its reason sits on the same line or on a continuation line (the layout of the three current custom rows and of the seven section-7.3 rewrites). Spec review round 4 found the first draft's pipeline printed an unlabeled `3` for those rows while the draft quoted a labelled line the command never produced; the block above is pasted from the run. Positive control, run beside it: a constructed one-line `"short custom reason",` row, a constant row and a bare `path:` row classify as 2 `custom-reason` and 1 `UNSEEN`.
 
 The row's 2026-08-10 table reads "total unchanged at 50". The allowlist holds 51 rows today; `staged-preview.spec.ts` joined as `UNSEEN` after that restatement (its row comment cites the step3 crew-preview spec §7). Not a defect in this arc, but the section-7 restatement carries the corrected total with its command, and does not inherit the 50.
 
