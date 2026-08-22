@@ -138,7 +138,7 @@ const byCls = new Map<string, number>();
 for (const s of sites) byCls.set(s.cls, (byCls.get(s.cls) ?? 0) + 1);
 console.log(`connect call sites: ${sites.length} across ${new Set(sites.map((s) => s.file)).size} files`);
 for (const [k, n] of [...byCls].sort((a, b) => b[1] - a[1])) console.log(`  ${String(n).padStart(4)}  ${k}`);
-console.log(`\nUNCLASSIFIABLE sites (class other):`);
+console.log(`\nSites the URL walk did not resolve to an env chain (classes other + literal):`);
 for (const s of sites.filter((s) => s.cls === "other" || s.cls === "literal")) console.log(`  ${s.file}:${s.line}  ${s.detail}`);
 console.log(`\nacquisition shapes: namespace=${acquisition.namespace.length} dynamicImport=${acquisition.dynamicImport.length} require=${acquisition.require.length} namedValue=${acquisition.namedValue.length} typeOnlyNamed=${acquisition.typeOnlyNamed}`);
 for (const x of [...acquisition.namespace, ...acquisition.dynamicImport, ...acquisition.require, ...acquisition.namedValue]) console.log(`  ${x}`);

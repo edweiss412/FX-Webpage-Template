@@ -23,10 +23,10 @@ site that moves REDS as stale.
 
 **The probe record, measured through the SHIPPED census rather than a probe script:**
 
-    2560 files walked · 140 hold a driver binding · 175 connect sites · 5 connecting helpers
+    2565 files walked · 140 hold a driver binding · 175 connect sites · 5 connecting helpers
     39 files inherit a class through the helper graph · 7 destructive-discovered, 0 off-channel
     guard-bound 85 / validation-env 79 / loopback-literal 9 / remote-literal 0 / unclassifiable 2
-    8 disposition rows · 0 undisposed · 4855 production edges counted, never red
+    8 disposition rows · 0 undisposed · 4856 production edges counted, never red
 
 **Both refutations stay in the row, because a row is a claim and these two were false as filed.**
 

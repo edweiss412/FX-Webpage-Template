@@ -608,7 +608,7 @@ correct file.
 Derived from §3.1-§3.2, §3.8 and the round-3 AST census: 2 `unclassifiable` sites (one function, in
 `devCaptureStaged` and in `step3StateGallery`), 5 `unresolved-import` edges (non-literal dynamic
 specifiers), 0 `acquisition`, 0 `remote-literal`, 0 `channel`, 0 `shadowed-driver`, 0 `loader-call`,
-0 option-set violations. EIGHT disposition rows (see §3.11: the eighth is an unresolvable path-shaped specifier, a class this section's probes never measured), all named in §2.5; the three consumers of `devCaptureStaged` inherit `dispositioned` and owe nothing
+0 option-set violations. SEVEN disposition rows, all named in §2.5 — that is what THIS section's probes predict, and it is left standing rather than edited, because §3.11 records the shipped census reporting EIGHT and a prediction quietly rewritten to match its outcome stops being evidence of anything; the three consumers of `devCaptureStaged` inherit `dispositioned` and owe nothing
 (§2.4). A census that reports anything else at BASE has a
 false report, which §0 makes a finding.
 

@@ -5,7 +5,7 @@ connect call sites: 175 across 140 files
      9  literal
      2  other
 
-UNCLASSIFIABLE sites (class other):
+Sites the URL walk did not resolve to an env chain (classes other + literal):
   tests/admin/extractAgenda.test.ts:76  LOCAL_DB_URL
   tests/admin/extractAgenda.test.ts:563  LOCAL_DB_URL
   tests/admin/step3StateGallery.test.ts:201  galleryDatabaseUrl()

@@ -435,6 +435,8 @@ exactly one report:
   reason: "non-literal dynamic import of a parser module by a computed path under lib/parser; opens no connection" }
 { file: "tests/parser/_metaTransformSitesWalker.test.ts", site: "path", kind: "unclassifiable",
   reason: "non-literal dynamic import of a parser module by a computed path under lib/parser; opens no connection" }
+{ file: "tests/cross-cutting/fixtures/no-global-cursor/bad-aliased.ts", site: "./state", kind: "unclassifiable",
+  reason: "a fixture for no-global-cursor.test.ts, read with readFileSync and never imported; `./state` names no file in that directory, so the census cannot follow the edge, and the fixture opens no connection" }
 ```
 
 **Both-directions proof** (recorded, restored byte-exact): delete one row → the gate reds naming that

@@ -66,6 +66,8 @@ const files = walk(TESTS_ROOT).map((absolute) => ({
 }));
 
 const records = files.map(({ path, source }) => classifyFile(path, source));
+// Every walked file. Printed for the walk/population identity, NEVER used to decide the
+// channel arm -- see `accounted` below for why that distinction is load-bearing.
 const population = new Set(records.map((r) => r.file));
 
 /**
@@ -116,17 +118,18 @@ const edgePass = propagateThroughImports(
 );
 
 const discovered = discoveredByDestructiveGuard(files);
-const channel = channelReports(discovered, population);
 
-const allReports: Report[] = [
-  ...records.flatMap((r) => r.reports),
-  ...edgePass.reports,
-  ...channel,
-];
+// The reports that exist BEFORE the census knows which files it accounted for. `channel`
+// is deliberately absent here: it can only be decided once pass 2 has resolved classes,
+// and it is folded into `allReports` below.
+const preChannelReports: Report[] = [...records.flatMap((r) => r.reports), ...edgePass.reports];
 
-const reconciliation = reconcileDispositions(allReports, CONNECTION_CENSUS_DISPOSITIONS);
+const preChannelReconciliation = reconcileDispositions(
+  preChannelReports,
+  CONNECTION_CENSUS_DISPOSITIONS,
+);
 const undisposedKeys = new Set(
-  reconciliation.undisposed.map((r) => `${r.file}\u0000${r.line}\u0000${r.site}`),
+  preChannelReconciliation.undisposed.map((r) => `${r.file}\u0000${r.line}\u0000${r.site}`),
 );
 
 const byPath = new Map(records.map((r) => [r.file, r]));
@@ -154,6 +157,26 @@ const propagation = propagateThroughImports(
   resolveSpecifier,
   ROOT,
 );
+
+/**
+ * The files the census ACCOUNTED FOR: it resolved a class for them, or it said something
+ * about them by name.
+ *
+ * Defining this as "every file walked" made the channel arm TAUTOLOGICAL (whole-diff R2
+ * scope B P0) -- `discovered` is drawn from the same array, so no discovered file could
+ * ever be off-channel and the assertion could never fail. The channel arm exists for the
+ * file the DESTRUCTIVE guard sees opening a connection that the census does not: one whose
+ * only driver contact runs through PRODUCTION code, which the census counts as an edge and
+ * deliberately does not follow (spec §1.3 item 8). Such a file now REPORTS and owes a row.
+ */
+const accounted = new Set<string>([
+  ...[...propagation.classes.entries()].filter(([, cls]) => cls.size > 0).map(([file]) => file),
+  ...preChannelReports.map((r) => r.file),
+]);
+const channel = channelReports(discovered, accounted);
+
+const allReports: Report[] = [...preChannelReports, ...channel];
+const reconciliation = reconcileDispositions(allReports, CONNECTION_CENSUS_DISPOSITIONS);
 
 const counts = classCounts(records.flatMap((r) => r.sites));
 const connectingFiles = records.filter((r) => r.sites.length > 0).map((r) => r.file);
@@ -191,7 +214,7 @@ describe("connection census — the live tree", () => {
     // Printed, not merely counted: a zero renders beside its population, so `0 of 0`
     // cannot read as a pass.
     console.log(
-      `connection census: ${files.length} files walked, ${population.size} in the population, ` +
+      `connection census: ${files.length} files walked, ${population.size} in the population, ${accounted.size} accounted for, ` +
         `${records.reduce((n, r) => n + r.sites.length, 0)} connect sites, ` +
         `${connectingHelpers.length} connecting helpers, ${inheritingFiles.length} inheriting files, ` +
         `${discovered.length} destructive-discovered, ${reported.length} undisposed, ` +
@@ -223,10 +246,16 @@ describe("connection census — the live tree", () => {
     expect(remote).toEqual([]);
   });
 
-  test("every file the destructive guard discovers is in the census population", () => {
-    // The premise keeps the subset claim from holding vacuously: an empty discovered set
-    // is a subset of anything.
+  test("every file the destructive guard discovers is ACCOUNTED FOR by the census", () => {
+    // Two premises, because this assertion had a tautological version. `discovered` must be
+    // non-empty (an empty set is a subset of anything), and `accounted` must be a PROPER
+    // subset of the walked files -- if it were every walked file, no discovered file could
+    // ever be off-channel and the expectation below could never fail.
     premise("files the destructive guard discovers", discovered.length, 3);
+    premiseHolds(
+      "the accounted set is narrower than the walk, so this arm can discriminate",
+      accounted.size < population.size,
+    );
     expect(channel.map((r) => r.site)).toEqual([]);
   });
 
