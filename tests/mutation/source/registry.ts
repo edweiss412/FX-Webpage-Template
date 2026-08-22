@@ -2974,19 +2974,19 @@ export const GUARD_SURFACES: GuardSurface[] = [
     },
     accepted: [
       {
-        siteId: "statement-removal:1312:9:continue;>(removed)",
+        siteId: "statement-removal:1326:9:continue;>(removed)",
         kind: "equivalent",
         reason:
           "Removing the `continue` also pushes an out-of-population target onto `targets`, " +
           "so it reaches `edges` and then a file's `reaches` set. Nothing downstream can " +
           "observe it: `reaches.get(target)` and `classes.get(target)` are both absent for a " +
           "path that is not in `files` and fall through their `?? []`, and `affected` " +
-          "(tests/db/_connectionCensus.ts:1353) only ever asks `reaches.get(f)?.has(input.file)` " +
+          "(tests/db/_connectionCensus.ts:1367) only ever asks `reaches.get(f)?.has(input.file)` " +
           "for an `input` drawn from `files` — which an out-of-population target is, by the " +
           "definition of the branch, not a member of. The report is pushed on both sides.",
       },
       {
-        siteId: "statement-removal:1344:13:grew = true;>(removed)",
+        siteId: "statement-removal:1358:13:grew = true;>(removed)",
         kind: "equivalent",
         reason:
           "Class growth can never be the LAST growth of a pass, so its signal is never the " +
@@ -2994,7 +2994,7 @@ export const GUARD_SURFACES: GuardSurface[] = [
           "the same rate — one hop per pass — because both read the target's already-" +
           "propagated map in the same iteration. If `mine` gains a class at distance N, a " +
           "node exists at distance N, and that node grows `myReach` in the same pass " +
-          "(tests/db/_connectionCensus.ts:1333,1338), which signals. The converse does not " +
+          "(tests/db/_connectionCensus.ts:1347,1352), which signals. The converse does not " +
           "hold, which is why the reach sites at 1211 and 1216 ARE killed, each by its own " +
           "chain fixture in the deciding suite.",
       },
