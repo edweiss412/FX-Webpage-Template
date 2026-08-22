@@ -6769,24 +6769,37 @@ describe("an executing psql inside an ATTACHED redirection target", () => {
       ["a real substitution NESTED in arithmetic", "cat >\"$((1 + $(psql -c 'x')))\"\n"],
       ["control, ordinary substitution", "cat >\"$(psql -c 'select 1')\"\n"],
     ];
-    // The floor: if NOTHING executes, the fake psql or PATH is broken and every
-    // "agrees" below would be two zeros agreeing about nothing.
-    const executed = rows.filter(([label, source], n) => bashRuns(source, `f${n}`)).length;
-    expect(executed, "no row executed - the oracle cannot see its own subject").toBeGreaterThan(0);
+    // ONE spawn per row, memoised. The first draft called `bashRuns` FOUR times
+    // per row - a floor pass plus three inside the assertion - which is 28 bash
+    // processes for 7 rows, and it was quietly TAUTOLOGICAL: the EXPECTED array
+    // called `bashRuns` a second time, so it compared bash against itself and
+    // the scanner's answer rode along without ever being the thing under test.
+    const ran = new Map(rows.map(([, source], n) => [n, bashRuns(source, `r${n}`)]));
+
+    // Floor 1, non-vacuity: if NOTHING executes, the fake psql or PATH is broken
+    // and every "agrees" below is two zeros agreeing about nothing.
     expect(
-      rows.map(([label, source], n) => [
-        label,
-        bashRuns(source, `b${n}`),
-        sitesIn(source, "x.sh").length > 0,
-      ]),
-    ).toEqual(
-      rows.map(([label, source], n) => [
-        label,
-        bashRuns(source, `e${n}`),
-        bashRuns(source, `x${n}`),
-      ]),
+      [...ran.values()].filter(Boolean).length,
+      "no row executed - the oracle cannot see its own subject",
+    ).toBeGreaterThan(0);
+
+    // Floor 2, PLANTED DEFECT. A gate whose expected and actual share a producer
+    // is vacuous however principled that producer is, and the double-call above
+    // is what that looks like in practice. So a deliberately wrong classifier -
+    // one that calls every spelling a site - is run through the SAME comparison
+    // and must DISAGREE with bash. If this ever stops disagreeing, the matrix has
+    // stopped discriminating and its green means nothing.
+    const alwaysSite = rows.map(([label]) => [label, true]);
+    const fromBash = rows.map(([label], n) => [label, ran.get(n)]);
+    expect(
+      alwaysSite,
+      "a classifier that reports EVERYTHING still matched bash - the matrix cannot discriminate",
+    ).not.toEqual(fromBash);
+
+    expect(rows.map(([label, source]) => [label, sitesIn(source, "x.sh").length > 0])).toEqual(
+      fromBash,
     );
-  });
+  }, 30_000);
 
   test("$(( )) is arithmetic and yields no site, while a substitution nested INSIDE it still does", () => {
     const rows: Array<[label: string, source: string, sites: number]> = [
