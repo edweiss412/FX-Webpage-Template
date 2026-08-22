@@ -96,6 +96,38 @@ without it the meta-test passes identically against a hardcoded list.
 The residue registry is asserted non-empty and its rows checked against spec §4.2's table, so shrinking
 coverage silently is not possible either.
 
+### Task 3a measured population — a floor, not a census
+
+Ran the classifier over the manifest-derived roots (`components/**` plus `app/admin/**`) before
+implementing. Matching `=== "infra_error"` / `!== "infra_error"` only:
+
+| shape | count |
+| --- | --- |
+| 1, branch returns JSX — enforceable | 15 |
+| 2, no JSX in scope | 11 |
+| 3, type-guard predicate definition | 1 |
+| 4, flag-shaped — residue | 9 |
+
+Shape 1 includes `app/admin/show/[slug]/preview/[crewId]/page.tsx:141` and a second site 32 lines below it, which is the route
+four manifest entries capture, so the marking work reaches the crew-preview outputs directly.
+
+**The recognizer is not yet total, and the probe proves it against a known case.**
+`components/admin/Dashboard.tsx:491` assigns `dataGapsDegraded` from `isInfra(dataGapsResult)` — a call to
+the type-guard defined at `components/admin/Dashboard.tsx:282` — so a comparison-only scan does not see it
+at all. That is precisely the consumer that reaches `dashboard-overview` in spec §4.2's table. Two further
+shapes are equally invisible to it: `"kind" in result` and `tileErrors` population
+(`lib/data/getShowForViewer.ts:224`).
+
+**Consequence for Task 3a.** The accept-set is declared structurally and covers four forms: a literal
+comparison; a call to a locally-defined `infra_error` type-guard predicate, resolved through the
+predicate's own declaration rather than by name; an `in`-operator narrowing on `"kind"`; and `tileErrors`
+population. Everything outside the accept-set is reported by name, never silently dropped — a scan that
+enumerates only the forms it already knows is the denylist this project's accept-set discipline forbids.
+
+The table above is therefore a **floor on shape counts, measured at authoring time**, not a census. The
+meta-test derives the real numbers each run and asserts the residue registry against them, so these figures
+never need updating by hand.
+
 ## Task 3b — the geometry layer
 
 <!-- task: red=`pnpm vitest run tests/help/captureGeometry.test.ts` red-state=authored red-target=`scripts/help-screenshots.ts:104` why=`a layout-changing fault is encoded with no dimension check` ac=AC-1 -->
