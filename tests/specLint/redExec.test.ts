@@ -622,6 +622,11 @@ describe("synthesizeCollectionFindings — non-observations and declines (spec �
   it.each([
     ["compound-command", "carries the control/substitution token &&"],
     ["unstrippable-filter", "name filter -t does not match the strip grammar"],
+    // The third reason is why this arc exists. It rides the SAME branch as the
+    // two above rather than getting a code, a predicate or a severity of its
+    // own, which is the whole argument for routing the drop through the
+    // decline path that already ships.
+    ["not-vitest-shaped", "command is not vitest-shaped at the anchor"],
   ])("a %s skip record is the same advisory, naming the reason", (skipped, detail) => {
     const found = synthesizeCollectionFindings(
       [{ line: 3, state: "authored", skipped, detail } as CollectionProbeEntry],
@@ -920,13 +925,22 @@ describe("corpus distillations through runLint (spec §2.4, AC-7)", () => {
     ).toEqual(["RED_SUITE_UNVERIFIED"]);
   });
 
-  it("the pnpm heavy wrapper shape is outside the accept-set — no collection finding", () => {
+  it("the pnpm heavy wrapper shape is declined with a surfaced advisory", () => {
+    // The wrapper is still outside the accept-set. What changed is that the
+    // decline is now REPORTED: this used to assert `[]`, which is the silent
+    // drop this arc repaired. AGENTS.md mandates `pnpm heavy` for every heavy
+    // phase, so the arm was structurally blind to exactly the class the repo
+    // requires wrapping.
+    //
+    // It draws the SAME advisory as the compound shape below, because both
+    // ride one decline path. That equality is the mechanism claim made
+    // executable: no new code, no new predicate, no new severity.
     expect(
       lintDistillation(
         "<!-- task: red=`pnpm heavy pnpm vitest run tests/serializeErrors.test.ts` red-state=authored red-target=`lib/a.ts:1` why=`w` ac=AC-1 -->",
         "",
       ),
-    ).toEqual([]);
+    ).toEqual(["RED_PROBE_UNVERIFIED"]);
   });
 
   it("the compound shape is declined with a surfaced advisory", () => {
