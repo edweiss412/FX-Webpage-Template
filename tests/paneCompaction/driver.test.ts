@@ -4,6 +4,7 @@ import {
   CHECKPOINT_TEXT,
   RESUME_TEXT,
   type SendPlan,
+  addressPayload,
   planSends,
   refuse,
 } from "@/scripts/lib/pane-compaction-core";
@@ -18,11 +19,27 @@ import { premiseHolds } from "@/tests/_shared/premise";
  */
 
 const NONCE = "0123456789abcdef0123456789abcdef";
+const BRANCH = "feat/example";
+const SESSION = "11111111-2222-4333-8444-555555555555";
+
+/**
+ * The address arguments spec §3.6 requires of the two prose commands.
+ *
+ * These expectations are DERIVED from the shipped constants deliberately: this
+ * suite's subject is the send PLAN (nonce substitution, the `\r` submit byte,
+ * the absence of ESC), and an independent byte-exact transcription of §3.6's
+ * literal texts lives in `authorization.test.ts`, where a constant that lost
+ * its address line reds. Two transcriptions would drift.
+ */
+const ADDRESSED = { branch: BRANCH, session: SESSION };
 
 describe("dry-run bytes", () => {
   it("--checkpoint sends the prompt then a carriage return, with the nonce substituted", () => {
-    const plan = planSends({ command: "checkpoint", nonce: NONCE });
-    expect(plan.sends).toEqual([CHECKPOINT_TEXT.replace("<NONCE>", NONCE), "\r"]);
+    const plan = planSends({ command: "checkpoint", nonce: NONCE, ...ADDRESSED });
+    expect(plan.sends).toEqual([
+      addressPayload(CHECKPOINT_TEXT, ADDRESSED).replace("<NONCE>", NONCE),
+      "\r",
+    ]);
     expect(plan.sends[0]).toContain(NONCE);
     expect(plan.sends[0]).not.toContain("<NONCE>");
   });
@@ -33,13 +50,13 @@ describe("dry-run bytes", () => {
   });
 
   it("--resume sends the resume prompt", () => {
-    const plan = planSends({ command: "resume" });
-    expect(plan.sends).toEqual([RESUME_TEXT, "\r"]);
+    const plan = planSends({ command: "resume", ...ADDRESSED });
+    expect(plan.sends).toEqual([addressPayload(RESUME_TEXT, ADDRESSED), "\r"]);
   });
 
   it("`\\n` is never used to submit — only `\\r` does, in the Claude TUI", () => {
     for (const command of ["checkpoint", "compact", "resume"] as const) {
-      const plan = planSends({ command, nonce: NONCE });
+      const plan = planSends({ command, nonce: NONCE, ...ADDRESSED });
       expect(plan.sends.at(-1)).toBe("\r");
     }
   });
@@ -47,7 +64,7 @@ describe("dry-run bytes", () => {
 
 describe("AC-18 — no ESC byte, on BOTH paths", () => {
   const ALL: SendPlan[] = (["checkpoint", "compact", "resume"] as const).map((command) =>
-    planSends({ command, nonce: NONCE }),
+    planSends({ command, nonce: NONCE, ...ADDRESSED }),
   );
 
   it("the dry-run plan contains no \\x1b for any command", () => {

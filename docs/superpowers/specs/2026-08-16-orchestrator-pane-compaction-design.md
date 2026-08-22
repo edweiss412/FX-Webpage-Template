@@ -2,6 +2,27 @@
 
 **Status:** DRAFT · **Date:** 2026-08-16 · **Branch:** `feat/orchestrator-pane-compaction`
 
+> **SUPERSEDED 2026-08-21 for the SEND PATH — read this before any statement below about
+> `--checkpoint`, `--compact` or `--resume`.**
+>
+> Every present-tense claim in this document about how a sending command behaves describes the
+> TWO-PASS model: an observe pass, then a revalidation immediately before the send. That model
+> was DELETED. `docs/superpowers/specs/2026-08-21-pane-compaction-send-authorization.md` is the
+> authority, and the shipped path authorizes from ONE read-once pass per invocation with no
+> second read to revalidate against.
+>
+> Sentences here saying a command "revalidates immediately before it sends", that the driver
+> "never sends on a stale verdict", or that state going stale between report and command
+> necessarily refuses are **superseded and now false of the shipped tool**. The current contract
+> prices same-recipient verdict and purview decay as **bounded, not closed**: such a send can
+> and does proceed (send-auth spec §7 limit 1; write-up "BOUNDED, NOT CLOSED.").
+>
+> This document is kept as the dated record of a decision, not as operator guidance. It is not
+> edited claim-by-claim because a reader who trusts one sentence would have to be trusted to
+> find every other, and the whole-document scope is the only form that does not depend on this
+> banner's author having enumerated them correctly.
+
+
 An orchestrator session compacts the arc panes under its purview: it ranks eligible panes by
 context pressure, selects the moment by arc position, and queues a checkpoint-then-compact
 sequence onto the target pane through `herdr`.
@@ -626,10 +647,17 @@ about what this surface declines to promise.
    orchestrator believed cheaper than it was, which is the same class of outcome as the
    auto-compaction it replaces.
 
-2. **[SHIPPED DISABLED] The three sending modes are fenced in this release.** `--checkpoint`,
-   `--compact` and `--resume` refuse before any observation and name
+2. **[SHIPPED DISABLED] The three sending modes are fenced in this release.**
+   **SUPERSEDED 2026-08-21.** `--checkpoint`, `--compact` and `--resume` refuse before any observation and name
    `BL-PANE-COMPACTION-SEND-AUTHORIZATION`. The classifier and the read-only surfaces (default
    report, `--check`, `--json`) ship enabled.
+
+   **Superseded 2026-08-21** by
+   `docs/superpowers/specs/2026-08-21-pane-compaction-send-authorization.md`, which removed
+   the fence whole and rebuilt the send path on one read-once pass per invocation. This limit
+   is kept rather than deleted because it is the dated record of WHY the modes were fenced,
+   which is the context a later reader needs in order to judge whether the replacement was the
+   right one. Everything below in this entry describes the state through 2026-08-20.
 
    This is a conservative behaviour plus a surfaced signal, which is what a documented limit
    requires: the refusal is a real disable rather than a note, and its message names the COMMAND

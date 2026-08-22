@@ -1,3 +1,80 @@
+## BL-PANE-COMPACTION-SEND-AUTHORIZATION — the pane-compaction send path needs its own arc — CLOSED 2026-08-21
+
+**Status:** SHIPPED 2026-08-21 · **Effort (as shipped):** L · **Severity (as filed):** the six probe chains below each exited 0 and SENT bytes before their repair · **Class:** authorization model · **Facing:** product · **Shipped by:** `feat/pane-compaction-send-auth`
+
+**Resolution.** The fence is deleted WHOLE -- no flag, no environment gate -- and every sending
+invocation authorizes from ONE read-once pass over its world. `readOnce` memoizes each read member
+by member and arguments, with the read set taken as the COMPLEMENT of a declared non-read set, so
+the wrapper is total: a member added to `Surface` joins the pass by default. `authorizeSend` is a
+pure predicate over that pass -- ownership, the rule 1-8 observation stop, the mode verdict gate,
+and `--compact`'s nonce equality, in that order, each refusing by name. There is nowhere in its
+input to put a value taken at another instant.
+
+Deleted rather than kept as belt-and-braces, because each was a decision assembled across instants
+and each had already been a review finding: the preliminary observe pass, the entry-time marker
+read, `authorize()`, `revalidateNow()` and its three stale-versus-fresh comparisons, the
+`stale-verdict` refusal cause, and `runCompact`'s revalidation thunk. A comparison that exists can
+be incomplete; a comparison that does not exist cannot be the next round's finding.
+
+**The first scheduled step was a QUESTION, and it was answered before any code.** This row asked
+whether one atomic snapshot per authorization is sufficient or whether the target must acknowledge
+before any byte is sent. The answer, in the spec's §1.2 and §1.3: a literally atomic snapshot is
+UNOBTAINABLE over a multi-source world and claiming one would be the same overclaim the 2026-08-16
+design spent rounds removing; the solicited acknowledgment is strictly worse (the ack is itself a
+read, at a second instant, so the flow has MORE reads than the code it replaces); and the coherent
+PRE-ISSUED form is not a rival model at all -- it collapses into the decided one as a candidate
+additional predicate, declined with reasons and fenced.
+
+**How the six chains are closed, stated honestly rather than claimed preserved.** Chains 1-5 are
+UNREPRESENTABLE under the pass model, and that is evidence FOR it. Every historical fixture for
+those chains encoded a TWO-READ premise -- a constructed `Surface` answering differently on the
+second read -- and there is no second read for the mutation to ride on. Those premises RETIRE with
+the two-pass code; an earlier draft claimed every historical behavioral kill was preserved and that
+claim was withdrawn. Each chain is covered twice instead:
+
+- **The structural cover**, shared by chains 1-5: a spy over every read member, asserting SET
+  EQUALITY against each mode's declared expected-read set and exactly one call per member per
+  invocation, plus a two-invocation case proving nothing carries between commands. It is a GENUINE
+  red against the shipped structure -- measured with only the fence deleted, `--compact` read the
+  marker THREE times and roster/purview/branches/screen/gh/git/corpus twice each.
+- **The behavioral pins**, adapted to a single-read premise and PROVEN rather than assumed: each
+  kills a NAMED weakened build (ownership-check-deleted, rule-1-8-stop-deleted, verdict-gate-deleted,
+  nonce-equality-deleted, rule-1-deleted), applied in place and restored byte-exact, all five PROVEN
+  with the failing assertion line recorded.
+
+**What is NOT closed, priced rather than hidden.** The pass is not an instant: its members are read
+sequentially, so a world change landing between the first read and the bytes landing is unobserved
+by that invocation. No reachable orchestrator-side mechanism closes it -- an acknowledgment read
+merely moves the window, and the shipped two-pass code carried the identical window inside its own
+revalidation. It is priced per decay class: the WRONG-RECIPIENT class self-neutralizes, because both
+prompts now open with an address line naming the branch and session and telling any other session to
+ignore the message; the `blockedOn` class is closed by the resume payload deferring to the
+recipient's own marker at execution time; and a verdict or purview change with branch, session and
+`blockedOn` unchanged is **[bounded], not closed** -- the recipient cannot see those signals by
+construction. The bounded consequence is one resumed-or-stopped turn the recipient's own driver
+reconciles, never corrupted state, and a prose meta-test pins that both documents keep saying
+bounded so the round-4 overclaim cannot silently return.
+
+**Two repair-introduced defects travelled with the floor and both are pinned.** The dead code the
+mutation gate caught, and the refusal that LIED -- roster disappearance encoded as a stale report
+with a null nonce, refusing with "marker carries no checkpointNonce" while a matching nonce sat in
+the marker. The lying-refusal pin survives the adaptation with its force intact: the nonce is
+deliberately present and matching, so a refusal naming it would be provably false.
+
+**Restored, not rewritten, and checkable rather than asserted.** The baseline is
+`git show 9eaa6d6eb^:tests/paneCompaction/adapter.test.ts`, copied in whole and then adapted. The
+class table was DERIVED and reconciles: 65 baseline cases = 39 deleted + 1 body-changed + 25
+retained; 30 live = 25 + 1 + 4 added-by-the-fence. Two earlier derivations were wrong and both
+looked clean -- a brace-counting parser mis-grouped ten cases, and header-to-next-header regions bled
+the following `describe(` into each block's last case -- so the shipped one asserts three things
+about itself and found the single body-changed case a title diff cannot see.
+
+**Review disposition, stated plainly.** Spec and plan both closed **DISPOSITIONED, not CONVERGED**,
+on an orchestrator ruling at the 4-round cap; each carries a final repair unreviewed by a codex
+round, cleared because the spec's was a subtractive prose narrowing and the plan's were additive
+facts. Four spec rounds (3/2/3/1) and four plan rounds (5/5/5/2) are recorded at
+`docs/review-rounds/feat/pane-compaction-send-auth/`.
+
 ## BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION — a command substitution inside an ATTACHED redirection target hides an executing psql from both scanners
 
 **Status:** RESOLVED 2026-08-21 (`fix/shell-attached-redirection-target`, PR #873) · **Filed:** 2026-08-20 (`fix/shell-lexer-quoted-value-recall`, spec adversarial round 1 finding 1) · **Facing:** process · **Severity:** MEDIUM · **Class:** guard coverage · **Effort:** M

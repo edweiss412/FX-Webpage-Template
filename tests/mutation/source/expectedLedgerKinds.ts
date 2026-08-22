@@ -104,7 +104,16 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // classifier over injected fixtures, so every survivor is repayable by a test
   // rather than blessable. A row appearing here later is a coverage regression
   // to explain, not a number to bump.
-  paneCompactionCore: { equivalent: 8 },
+  // 8 -> 6 (2026-08-21): `runCompact`'s `{ exitCode: 0 | 1; message: string }`
+  // return type is gone -- the function stopped GATING -- and the two rows keyed
+  // to that annotation went with it. It returns `boolean` today; this sentence
+  // said "returns nothing" until diff round 3 finding 4, where the round 2
+  // repair had falsified it in BOTH independent copies at once, which is exactly
+  // the drift this file's independence is supposed to expose. Declared
+  // INDEPENDENTLY of the registry, which is the whole point: this number and the
+  // rows are two statements of one fact, and the parity gate is what stops them
+  // drifting apart silently.
+  paneCompactionCore: { equivalent: 6 },
   // 18/2 → 22/0 (2026-08-04, BL-TASKCONTRACT-SORT-COMPARATOR-EQUALKEY). The two
   // `accepted-gap` rows were the comparator's equal-key blind spot, and adding
   // the message as a third key removed the gap rather than re-accepting it. The

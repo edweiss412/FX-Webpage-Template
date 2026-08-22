@@ -41,7 +41,11 @@ import {
   corpusHasMalformedRow,
   MALFORMED_CORPUS_STATUS,
   GH_BUCKETS,
+  type SendMode,
+  NonceMintExhausted,
+  authorizeSend,
   planSends,
+  readOnce,
   positionFor,
   refuse,
   renderRow,
@@ -117,7 +121,17 @@ export type Surface = {
   outRaw(bytes: string): void;
   nonceRead(sessionId: string, paneId: string): string | null;
   nonceWrite(sessionId: string, paneId: string, nonce: string): void;
-  nonceConsume(sessionId: string, paneId: string): void;
+  /**
+   * Spend the grant `expected`, and ONLY that one. Answers whether it did.
+   *
+   * Diff round 2, core finding 1 (P1). This took `(sessionId, paneId)` and
+   * deleted whatever the record held, so the effect was never tied to the value
+   * that authorized it: a `--compact` whose grant was replaced between the
+   * decision and the spend exited 0 having destroyed a NEWER one-shot grant
+   * that nobody authorized and nobody used. Identity alone cannot express
+   * "the one I was authorized for", so the VALUE is a parameter.
+   */
+  nonceConsume(sessionId: string, paneId: string, expected: string): boolean;
   /**
    * `<target>` to a pane id, through herdr rather than through our own guess.
    *
@@ -550,6 +564,31 @@ export function parseArgv(argv: string[]): Parsed {
 const SENDING = new Set(["checkpoint", "compact", "resume"]);
 
 /**
+ * The `Surface` members that are NOT reads: the sink, the effects, and the
+ * ambient generators.
+ *
+ * Stated as the EXCLUSION rather than as a list of reads, so the core's
+ * `readOnce` is total over the surface: a member added to `Surface` is
+ * memoized by default, and only a deliberate edit here can take it out of the
+ * pass. A hand-list of reads would fail the other way, leaving the new member
+ * outside the pass silently.
+ *
+ * It mirrors the enrolled send-auth row's `sinks` + `effects` + `ambient`
+ * (`tests/paneCompaction/sendAuthScan.ts`), and the adapter suite asserts the
+ * two agree, so the runtime pass and the static scanner cannot disagree about
+ * what counts as a read.
+ */
+export const NON_READ_MEMBERS: ReadonlySet<string> = new Set([
+  "send",
+  "out",
+  "outRaw",
+  "nonceWrite",
+  "nonceConsume",
+  "now",
+  "random",
+]);
+
+/**
  * The whole program, as a function of argv and its world.
  *
  * Returns the exit code rather than calling `process.exit`, so every mode is
@@ -558,44 +597,6 @@ const SENDING = new Set(["checkpoint", "compact", "resume"]);
  */
 export function main(argv: string[], s: Surface): number {
   const opts = parseArgv(argv);
-
-  // ---------------------------------------------------------------------------
-  // FENCE: the three sending modes are DISABLED in this release.
-  // ---------------------------------------------------------------------------
-  //
-  // Placed here, before argv is validated any further and before ANY observation,
-  // and the position is the point rather than an implementation convenience.
-  //
-  // Five adversarial rounds produced findings at a flat rate (9, 5, 4, 4, 4) with
-  // a P0 in every one, and from round 3 onward EVERY P0 was in this send path.
-  // Two of the repairs introduced the next round's defect. One of those made a
-  // refusal LIE: roster disappearance was encoded as a stale report with a null
-  // nonce, so the command refused with "marker carries no checkpointNonce" while
-  // a matching nonce sat in the marker, and an operator reading it would go
-  // re-checkpoint a pane that no longer exists.
-  //
-  // That is exactly the failure a careless fence would reproduce. If this check
-  // ran AFTER observation, the tool could refuse a disabled mode by naming
-  // whatever pane condition it happened to find -- a true-sounding sentence about
-  // the wrong subject. Refusing before anything is observed means the only reason
-  // available is the real one.
-  //
-  // The classifier and the read-only surfaces (the default report, `--check`,
-  // `--json`) ship: they carry the same five rounds of repairs and are pinned by
-  // a mutation score rather than by reviewer opinion. Authorization gets its own
-  // arc; see BL-PANE-COMPACTION-SEND-AUTHORIZATION.
-  if (SENDING.has(opts.mode)) {
-    s.out(
-      "refusing: --checkpoint, --compact and --resume are disabled in this release. " +
-        "The classifier and the read-only report ship; the send path is deferred to its own arc " +
-        "(BL-PANE-COMPACTION-SEND-AUTHORIZATION). This refusal is about the COMMAND, not about " +
-        "this pane -- nothing was observed and no pane state was consulted.",
-    );
-    // 2, not 1. A refusal (1) means "asked and answered: not now"; this is
-    // "cannot answer", which is what the untrusted code has always meant, and
-    // `--check`'s contract already gives 2 that reading.
-    return 2;
-  }
 
   if (opts.all) {
     s.out(refuse({ kind: "all-rejected" }).message);
@@ -618,60 +619,44 @@ export function main(argv: string[], s: Surface): number {
   }
 
   // An unreadable roster is a DEGRADED report, not a stack trace and not an
-  // empty one. Letting the read throw would end the process on whatever `herdr`
-  // printed; returning an empty roster silently would be worse still, since a
-  // report of no panes and a report of no ANSWER look identical to a reader and
-  // `--check` would say 0, meaning "nothing needs you". The envelope carries a
-  // `degraded` channel for exactly this, and untrusted is exit 2.
-  let roster: RosterPane[];
-  try {
-    roster = s.roster();
-  } catch (e) {
-    const detail = e instanceof Error ? e.message : String(e);
-    const reason = `herdr roster unreadable: ${detail}`;
-    if (opts.json) s.out(JSON.stringify(reportEnvelope([], [reason]), null, 2));
-    else s.out(`refusing: ${reason}`);
-    return 2;
-  }
-
-  if (SENDING.has(opts.mode)) {
-    const target = opts.target;
-    if (target === null) {
-      // ABSENT is not UNRESOLVABLE, and neither is a missing `--as`. Routing
-      // this through either of those causes would print a message naming the
-      // wrong condition — the absent-versus-mismatched conflation the repo has
-      // been bitten by before — so the adapter states its own, and the core's
-      // catalog keeps covering only the causes the core can observe.
-      s.out("refusing: name a single target; none was given");
-      return 1;
-    }
-    const resolved = s.resolveTarget(target);
-    if ("fault" in resolved) {
-      // A broken herdr is not a typo. Reporting it as "not found" would send an
-      // operator to check their spelling while the tool is what is wrong.
-      s.out(`refusing: could not resolve target ${target}: ${resolved.fault}`);
-      return 2;
-    }
-    if ("notFound" in resolved) {
-      s.out(refuse({ kind: "unresolvable-target", target }).message);
-      return 1;
-    }
-    const pane = roster.find((r) => r.paneId === resolved.paneId);
-    if (pane === undefined) {
-      // herdr knows the target but it is absent from the roster we classified —
-      // a race with a closing pane. Not drivable, and said as its own condition.
-      s.out(
-        `refusing: target ${target} resolved to ${resolved.paneId}, which is not on the roster`,
-      );
-      return 1;
-    }
+  // SENDING MODES LEAVE HERE, BEFORE ANY READ.
+  //
+  // This return is the round-1 repair and its POSITION is the whole content of
+  // it. `main` used to read the roster and resolve the target on the RAW
+  // surface and hand both to `drive()`, which only then opened the pass -- so
+  // the roster feeding rules 1, 2, 5 and 7 PREDATED the pass, which spec §1.2
+  // forbids outright. A takeover landing during `resolveTarget()` was therefore
+  // invisible: the stale roster still carried the old `agent_session`, rule 5
+  // compared it against the marker naming that same old session, matched, and
+  // `/compact` went to the pane the successor now held. Probed, exit 0, two
+  // bytes sent, `rosterReads: 1`.
+  //
+  // It is NOT the §7 limit-1 residual, which is scoped from the pass's FIRST
+  // read to the send. This was earlier than that, and the structural cover
+  // could not see it: set equality and at-most-one-call are both satisfied by a
+  // read taken at the wrong TIME.
+  //
+  // The disjunction rather than `SENDING.has`, because it NARROWS: the pass
+  // function takes a `SendMode`, and a Set membership test tells the compiler
+  // nothing.
+  if (opts.mode !== "report" && opts.mode !== "check") {
     // A refused send is a FAULT (exit 2), not a refusal (exit 1): the command
     // was authorized and the tool underneath failed, which is a different thing
     // for an operator to do something about. Caught here so it cannot escape
     // `main` as an unhandled throw, which is what the round-1 probe observed.
     try {
-      return drive(opts, pane, roster, s);
+      return driveSend(opts, opts.mode, s);
     } catch (e) {
+      if (e instanceof NonceMintExhausted) {
+        // A TOOL fault (2), never a refusal (1). Nothing is wrong with the
+        // pane: the generator is. Routing this through exit 1 would tell an
+        // operator "asked and answered: not now" about a condition that no
+        // amount of waiting or re-checkpointing fixes, and an UNCAUGHT throw
+        // would exit with whatever code the runtime picks -- which the taxonomy
+        // reads as a refusal.
+        s.out(`refusing: the random source is broken -- ${e.message}`);
+        return 2;
+      }
       if (e instanceof SendFailed) {
         s.out(`refusing: ${e.message}`);
         // Said explicitly, because the retry is NOT obvious: --compact consumes
@@ -682,8 +667,40 @@ export function main(argv: string[], s: Surface): number {
         }
         return 2;
       }
-      throw e;
+      // Diff round 3, core finding 3 (P1). Everything else used to RETHROW, and
+      // the comment three blocks up already named the hazard -- "an UNCAUGHT
+      // throw would exit with whatever code the runtime picks, which the
+      // taxonomy reads as a refusal" -- while closing it for two classes only.
+      // This completes that reasoning over the rest.
+      //
+      // Reachable without a test double: `realSurface().branches()` throws when
+      // `git worktree list` fails, and every read member can fail the same way.
+      //
+      // NOT a silent catch-all: the message carries the original fault, so a
+      // programming error surfaces as a named exit 2 rather than being swallowed
+      // into a clean-looking refusal. The two classes above stay separate
+      // because their REMEDIES differ, which is the only reason to name a fault
+      // specially.
+      const detail = e instanceof Error ? e.message : String(e);
+      s.out(`refusing: the tool could not complete -- ${detail}`);
+      return 2;
     }
+  }
+
+  // The REPORT path's roster read. An unreadable roster is a DEGRADED report,
+  // not a stack trace and not an empty one: a report of no panes and a report
+  // of no ANSWER look identical to a reader, and `--check` would say 0, meaning
+  // "nothing needs you". The envelope carries a `degraded` channel for exactly
+  // this, and untrusted is exit 2.
+  let roster: RosterPane[];
+  try {
+    roster = s.roster();
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    const reason = `herdr roster unreadable: ${detail}`;
+    if (opts.json) s.out(JSON.stringify(reportEnvelope([], [reason]), null, 2));
+    else s.out(`refusing: ${reason}`);
+    return 2;
   }
 
   const cache = cacheOf(s);
@@ -696,8 +713,19 @@ export function main(argv: string[], s: Surface): number {
   return opts.mode === "check" ? checkExitCode(panes) : 0;
 }
 
-/** The three one-shot commands, each revalidating on its own predicate (§5.2). */
-function drive(opts: Parsed, pane: RosterPane, roster: RosterPane[], s: Surface): number {
+/**
+ * The three one-shot commands, each authorized from ONE read-once pass (§3.1).
+ *
+ * There is no preliminary observation, no stale-versus-fresh comparison and no
+ * second revalidation inside the send. Those were the four incremental repairs
+ * of one class -- r1 froze the nonce, r2 compared only the verdict, r3 froze the
+ * roster, r4 read the marker twice -- and each was a decision assembled across
+ * instants. The FIRST act here is `readOnce`, so every value below comes from
+ * this invocation's own pass, `s` is not consulted again after that line, and
+ * nothing is read between the decision and the send.
+ */
+// send-auth: pass
+function driveSend(opts: Parsed, mode: SendMode, s: Surface): number {
   // NOT `opts.as ?? ""`. Every sending mode is refused with `missing-as` before
   // drive() is reachable (the guard above, on mode), so the null branch is dead
   // — and defaulting it to empty would be the wrong death: an empty `as` yields
@@ -705,204 +733,175 @@ function drive(opts: Parsed, pane: RosterPane, roster: RosterPane[], s: Surface)
   // than failing. Narrow on the established guarantee, so a future edit that
   // breaks it fails here instead of quietly driving an unowned pane.
   const as = opts.as!;
-  const cache = cacheOf(s);
-  const report = observe(pane, roster, as, s, cache);
+  // THE PASS, established as the FIRST ACT and before every read it decides on.
+  // `s` is not touched again after this line -- roster and target resolution
+  // included, which is what round 1 found missing.
+  const pass = readOnce(s, NON_READ_MEMBERS);
 
-  // OWNERSHIP BY THIS CALLER, asked here rather than by rule 3.
+  // TARGET RESOLUTION FIRST, ROSTER SECOND, and the order is load-bearing.
   //
-  // Rule 3 now answers spec §4.2's question -- is the pane claimed AT ALL --
-  // because the report has no caller and must not label other people's panes
-  // unclaimed. That correction would otherwise open a hole in the other
-  // direction: a pane validly claimed by ANOTHER orchestrator passes rule 3 and
-  // would be drivable. It is refused here, before any send, and named as its own
-  // condition rather than folded into `not-drivable`.
+  // Resolution picks WHICH pane; it feeds no rule. The roster feeds rules 1, 2,
+  // 5 and 7 -- `agent_session` above all -- so it is read as LATE as the
+  // decision allows, which puts the freshest possible value under rule 5. The
+  // reverse order let a takeover landing during `resolveTarget()` sit
+  // unobserved behind an already-captured roster.
+  //
+  // This NARROWS the window; it does not close it, and nothing can. A takeover
+  // landing after the roster read is still unobserved by this invocation --
+  // that is spec §7 limit 1, the declared intra-pass residual, priced there per
+  // decay class rather than claimed away. For `/compact` specifically the
+  // priced worst case is a compaction the operator no longer wanted, which is
+  // what auto-compaction does on its own schedule anyway.
+  const target = opts.target;
+  if (target === null) {
+    // ABSENT is not UNRESOLVABLE, and neither is a missing `--as`. Routing this
+    // through either of those causes would print a message naming the wrong
+    // condition -- the absent-versus-mismatched conflation the repo has been
+    // bitten by before -- so the adapter states its own, and the core's catalog
+    // keeps covering only the causes the core can observe.
+    s.out("refusing: name a single target; none was given");
+    return 1;
+  }
+  const resolved = pass.resolveTarget(target);
+  if ("fault" in resolved) {
+    // A broken herdr is not a typo. Reporting it as "not found" would send an
+    // operator to check their spelling while the tool is what is wrong.
+    s.out(`refusing: could not resolve target ${target}: ${resolved.fault}`);
+    return 2;
+  }
+  if ("notFound" in resolved) {
+    s.out(refuse({ kind: "unresolvable-target", target }).message);
+    return 1;
+  }
+  // An unreadable roster is a FAULT here rather than a degraded report: a
+  // sending mode has no envelope to carry a `degraded` channel, and driving on
+  // a roster we could not read is the one thing this arc exists to prevent.
+  let roster: RosterPane[];
+  try {
+    roster = pass.roster();
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    s.out(`refusing: herdr roster unreadable: ${detail}`);
+    return 2;
+  }
+
+  const pane = roster.find((r) => r.paneId === resolved.paneId);
+  if (pane === undefined) {
+    // herdr knows the target but the pass's roster does not carry it -- a race
+    // with a closing pane. Not drivable, and said as its own condition.
+    s.out(`refusing: target ${target} resolved to ${resolved.paneId}, which is not on the roster`);
+    return 1;
+  }
+
+  const cache = cacheOf(pass);
+  const report = observe(pane, roster, as, pass, cache);
+
+  // OWNERSHIP BY THIS CALLER, which rule 3 deliberately does not answer.
+  //
+  // Rule 3 answers spec §4.2's question -- is the pane claimed AT ALL -- because
+  // the report has no caller and must not label other people's panes unclaimed.
+  // That correction would otherwise open a hole in the other direction: a pane
+  // validly claimed by ANOTHER orchestrator passes rule 3. The predicate refuses
+  // it by its own name.
   const ownership = resolveOwnership(
     pane.paneId,
     pane.agentName !== null && cache.branches.has(pane.agentName) ? pane.agentName : null,
     cache.purview,
     as,
   );
-  if (ownership.kind === "owned-by-other") {
-    s.out(`refusing: ${pane.paneId} is claimed by ${ownership.sessionId}, not by ${as}`);
-    return 1;
-  }
-  if (ownership.kind === "unowned") {
-    s.out(`refusing: ${pane.paneId} is not in your purview: ${ownership.reason}`);
-    return 1;
-  }
-  const marker = s.marker(pane.cwd);
+
+  const marker = pass.marker(pane.cwd);
   const markerNonce =
     typeof marker?.["checkpointNonce"] === "string" ? marker["checkpointNonce"] : null;
+  // The addressee, when the marker names one. A marker-less or session-less
+  // target is addressed by BRANCH alone (spec §3.6) -- rule 5 already governs
+  // the mismatch cases the id would catch, so branch-alone is a narrower
+  // address rather than an absent one.
+  const markerSessionId = typeof marker?.["sessionId"] === "string" ? marker["sessionId"] : null;
 
-  // "An observation says stop" is RULES 1-8, and it has to be read off the rule
-  // number rather than the verdict. `WAIT` is produced by rule 7 (blocked or
-  // unknown status) and rule 8 (a HardWait position) — both observations — AND
-  // by rules 11 and 12, which are banding. Testing the verdict cannot tell those
-  // apart, so a verdict-based gate would let `--resume` drive a pane that rule 7
-  // had stopped. §6's first guarantee is that no pane is driven, `--resume`
-  // included, while any rule 1-8 condition holds.
-  const OBSERVATION_RULES = 8;
-  if (report.rule <= OBSERVATION_RULES) {
-    // Named by RULE, not by verdict. The old message said "which is not COMPACT
-    // or FORCE" for every stop, which is false for an observation and wrong for
-    // `--resume`, which requires neither verdict (diff round 1, finding 7).
-    s.out(
-      refuse({
-        kind: "observation-stop",
-        rule: report.rule,
-        verdict: report.verdict,
-        detail: report.rejectedField,
-      }).message,
-    );
-    return 1;
-  }
-  // `--resume` stops there, deliberately: a successful compaction makes
-  // COMPACT/FORCE false exactly when resuming is the correct next act, so
-  // requiring them would refuse in precisely the case the command exists for.
-  if (opts.mode !== "resume" && report.verdict !== "COMPACT" && report.verdict !== "FORCE") {
-    s.out(refuse({ kind: "not-drivable", verdict: report.verdict }).message);
+  // Read for `--compact` alone, because only `--compact` compares it. Reading
+  // it for every mode would put a member in the pass that no decision uses.
+  // HELD IN A NAME rather than read inline, because the consume below must
+  // spend THIS value and not whatever the record holds by then (diff round 2,
+  // core finding 1). Its position is unchanged -- still immediately before the
+  // decision -- so the read ORDER round 1 fixed is untouched.
+  const recorded = mode === "compact" ? pass.nonceRead(as, pane.paneId) : null;
+  const decision = authorizeSend({
+    mode,
+    paneId: pane.paneId,
+    as,
+    ownership,
+    report,
+    ...(mode === "compact" ? { nonce: { recorded, marker: markerNonce } } : {}),
+  });
+  if (!decision.authorized) {
+    pass.out(decision.message);
     return 1;
   }
 
-  // ONE ATOMIC AUTHORIZATION READ, and this is the FOURTH repair of one class.
-  //
-  // r1: the marker was re-read but the NONCE came from an earlier capture.
-  // r2: the pane was re-observed but only the VERDICT was compared.
-  // r3: the comparison was complete but ran against the ORIGINAL roster.
-  // r4: everything above was fixed and the marker was still read TWICE -- once
-  //     inside revalidation's observe, once by the nonce thunk. A takeover that
-  //     changed `sessionId` between those two reads preserved the nonce, so rule
-  //     5 held on the stale copy and `/compact` was sent (AC-13/AC-17).
-  //
-  // Three rounds of adding another field or another re-read did not close it,
-  // because the defect is not WHICH inputs are refreshed -- it is that the
-  // decision was assembled from SEVERAL reads taken at different instants. So
-  // authorization now takes exactly one snapshot: the marker is read once per
-  // pass and both the classification and the nonce are derived from that same
-  // copy. Two reads cannot disagree if there is only one.
-  type Authz = { gone: true } | { gone: false; report: PaneReport; nonce: string | null };
-  let pass: Authz | null = null;
-  // send-auth: pass
-  const authorize = (): Authz => {
-    const freshRoster = s.roster();
-    const freshPane = freshRoster.find((r) => r.paneId === pane.paneId);
-    // EXPLICIT, not encoded as a stale report with a null nonce. That encoding
-    // was my own round-4 repair and it was wrong twice over: the caller compared
-    // `fresh.paneId` against the pane it already had, so the "left the roster"
-    // branch was unreachable, and the null nonce then refused with
-    // "marker carries no checkpointNonce" -- a reason that is FALSE while a
-    // matching nonce sits in the marker (diff round 5, finding 4). A refusal
-    // that names the wrong condition sends an operator to fix the wrong thing.
-    if (freshPane === undefined) return { gone: true };
-    let markerOnce: Record<string, unknown> | null | undefined;
-    const snapshot: Surface = {
-      ...s,
-      marker: (cwd) => {
-        if (markerOnce === undefined) markerOnce = s.marker(cwd);
-        return markerOnce;
-      },
-    };
-    const fresh = observe(freshPane, freshRoster, as, snapshot, cacheOf(snapshot));
-    const m = snapshot.marker(freshPane.cwd);
-    const nonce = typeof m?.["checkpointNonce"] === "string" ? m["checkpointNonce"] : null;
-    return { gone: false, report: fresh, nonce };
-  };
+  // Rule 1 stopped every pane whose label resolves to no worktree branch, so
+  // the label is a string from here down. NARROWED on that guarantee rather
+  // than defaulted to the empty string: an empty address addresses nobody while
+  // looking addressed, which is the one thing §3.6's address line exists to
+  // prevent -- and a future edit that breaks the guarantee fails here instead.
+  const branch = pane.agentName;
+  if (branch === null) throw new Error("unreachable: rule 1 stops a pane with no agent label");
 
-  /**
-   * The freshness check EVERY sending mode runs, not just `--compact`.
-   *
-   * `--checkpoint` and `--resume` observed once and then sent, so a marker that
-   * changed in between was never seen: a probe flipped `blockedOn` on the second
-   * read and both commands exited 0 having sent (diff round 5, finding 1). §6's
-   * first guarantee is that no pane is driven while any rule 1-8 condition
-   * holds, and "held when we looked" is not that guarantee.
-   */
-  const revalidateNow = (): { ok: true } | { ok: false; message: string } => {
-    pass = authorize();
-    if (pass.gone) {
-      return { ok: false, message: `refusing: ${pane.paneId} left the roster before sending` };
-    }
-    const fresh = pass.report;
-    if (fresh.verdict !== report.verdict) {
-      return {
-        ok: false,
-        message: refuse({ kind: "stale-verdict", was: report.verdict, now: fresh.verdict }).message,
-      };
-    }
-    if (fresh.rule !== report.rule) {
-      return {
-        ok: false,
-        message: `refusing: the deciding rule changed from ${report.rule} to ${fresh.rule} before sending`,
-      };
-    }
-    if (!fresh.inPurview) {
-      return { ok: false, message: `refusing: ${pane.paneId} left ${as}'s purview before sending` };
-    }
-    return { ok: true };
-  };
-
-  if (opts.mode === "checkpoint") {
-    // Revalidate first: observing once and then sending is not §6's guarantee.
-    const freshOk = revalidateNow();
-    if (!freshOk.ok) {
-      s.out(freshOk.message);
-      return 1;
-    }
-    const nonce = mintNonce({ markerNonce, random: s.random });
-    const sends = planSends({ command: "checkpoint", nonce }).sends;
+  // The effects, with NOTHING read between the decision and the send.
+  if (mode === "checkpoint") {
+    const nonce = mintNonce({ markerNonce, random: pass.random });
+    const sends = planSends({
+      command: "checkpoint",
+      nonce,
+      branch,
+      session: markerSessionId,
+    }).sends;
     if (opts.dryRun) {
-      for (const line of sends) s.outRaw(line);
+      for (const line of sends) pass.outRaw(line);
       return 0;
     }
-    s.nonceWrite(as, pane.paneId, nonce);
-    for (const line of sends) s.send(pane.paneId, line);
+    pass.nonceWrite(as, pane.paneId, nonce);
+    for (const line of sends) pass.send(pane.paneId, line);
     return 0;
   }
 
-  if (opts.mode === "resume") {
-    // `--resume` has its own PREDICATE (it deliberately does not require
-    // COMPACT/FORCE), but it has the same freshness obligation as every other
-    // sending mode: rules 1-8 must still be quiet at the moment of the send.
-    const freshOk = revalidateNow();
-    if (!freshOk.ok) {
-      s.out(freshOk.message);
-      return 1;
-    }
-    const sends = planSends({ command: "resume" }).sends;
+  if (mode === "resume") {
+    const sends = planSends({ command: "resume", branch, session: markerSessionId }).sends;
     for (const line of sends) {
-      if (opts.dryRun) s.outRaw(line);
-      else s.send(pane.paneId, line);
+      if (opts.dryRun) pass.outRaw(line);
+      else pass.send(pane.paneId, line);
     }
     return 0;
   }
 
-  // `--dry-run` goes through the SAME gate rather than around it. Printing
-  // `/compact` unconditionally would tell an operator the command is ready when
-  // the real one would refuse — an absent or mismatched nonce exits 1 and sends
-  // nothing (AC-19), and a dry run that cannot show that refusal is worse than
-  // no dry run at all. What it must not do is CONSUME: reading and comparing
-  // the record is the gate, spending it is the side effect, so the dry run gets
-  // a no-op consume and a send that prints.
-
-  const result = runCompact({
-    store: {
-      read: () => s.nonceRead(as, pane.paneId),
-      consume: opts.dryRun ? (): void => {} : (): void => s.nonceConsume(as, pane.paneId),
-    },
-    // From the SAME snapshot the revalidation classified, never a second read.
-    markerNonce: () => {
-      const p = pass ?? authorize();
-      return p.gone ? null : p.nonce;
-    },
+  // `--dry-run` went through the SAME gate above rather than around it, so it
+  // shows the refusal the real command would hit. What it must not do is SPEND:
+  // reading and comparing the record is the gate, consuming it is the side
+  // effect, so the dry run gets a no-op consume and a send that prints.
+  // The gate above proved `recorded` equals the marker copy and that both are
+  // non-null, so this is the authorized grant, narrowed on that guarantee.
+  if (recorded === null) throw new Error("unreachable: the nonce gate admits no null recorded");
+  const spent = runCompact({
+    consume: opts.dryRun
+      ? (): boolean => true
+      : (): boolean => pass.nonceConsume(as, pane.paneId, recorded),
     send: (text) => {
-      if (opts.dryRun) s.outRaw(text);
-      else s.send(pane.paneId, text);
+      if (opts.dryRun) pass.outRaw(text);
+      else pass.send(pane.paneId, text);
     },
-    // Revalidated a second time at the moment of the send, per §5.2.
-    revalidate: revalidateNow,
   });
-  if (result.message !== "") s.out(result.message);
-  return result.exitCode;
+  if (!spent) {
+    // Diff round 3, core finding 2 (P1). Round 2 reused `nonce-mismatch` here on
+    // the reasoning that it was "the same condition". It is not. The gate's
+    // condition is that the marker and the record DISAGREED when we decided;
+    // this one is that the RECORD moved between deciding and spending, while
+    // the marker still holds exactly what we authorized -- so the mismatch
+    // message was false about both halves. Naming the condition that fired
+    // outranks keeping the catalog short.
+    pass.out(refuse({ kind: "nonce-record-changed" }).message);
+    return 1;
+  }
+  return 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -997,6 +996,53 @@ function readJson(path: string): unknown {
   } catch {
     return null;
   }
+}
+
+/**
+ * A file that EXISTS but cannot be read as a record.
+ *
+ * Diff round 4, core finding 2 (P1) -- and the same class round 1 finding 2 (P0)
+ * already fixed for the MARKER, which is the point worth recording: that repair
+ * built `readMarker` beside `readJson` and left every other consumer collapsing
+ * ABSENT and MALFORMED into one `null`. The instance was closed and the class
+ * was not.
+ *
+ * A record being written while we read it is ordinary operation here, exactly as
+ * it is for the marker: this adapter's own `nonceWrite` rewrites the file, so
+ * two invocations in one session interleave on it.
+ *
+ * The three consumers below each got the wrong answer from that collapse, and
+ * only one was reported:
+ *   - `nonceRead`   -> "this command holds no checkpoint record", naming a
+ *                      condition that did not fire, at exit 1 (a refusal) where
+ *                      an unreadable file is a FAULT (exit 2).
+ *   - `nonceConsume`-> read as absent, so it declines to spend and refuses with
+ *                      a record-changed reason that also did not fire.
+ *   - `nonceWrite`  -> `?? {}` SILENTLY REPLACED the whole record, destroying
+ *                      every other pane's outstanding grant in that session
+ *                      file. Not reported by the round-4 reviewer; found by
+ *                      sweeping the class rather than repairing the instance.
+ */
+class RecordUnreadable extends Error {
+  constructor(path: string) {
+    super(`the record at ${path} exists but could not be read`);
+    this.name = "RecordUnreadable";
+  }
+}
+
+/** `null` = genuinely absent. Throws when the file exists and will not parse. */
+export function readRecord(path: string): Record<string, string> | null {
+  if (!existsSync(path)) return null;
+  let body: unknown;
+  try {
+    body = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    throw new RecordUnreadable(path);
+  }
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    throw new RecordUnreadable(path);
+  }
+  return body as Record<string, string>;
 }
 
 /**
@@ -1172,23 +1218,28 @@ export function realSurface(): Surface {
     out: (line) => process.stdout.write(`${line}\n`),
     outRaw: (bytes) => process.stdout.write(bytes),
     nonceRead: (sessionId, paneId) => {
-      const body = readJson(join(NONCE_DIR, `${sessionId}.json`)) as Record<string, string> | null;
+      const body = readRecord(join(NONCE_DIR, `${sessionId}.json`));
       return body?.[paneId] ?? null;
     },
     nonceWrite: (sessionId, paneId, nonce) => {
       mkdirSync(NONCE_DIR, { recursive: true });
       const path = join(NONCE_DIR, `${sessionId}.json`);
-      const body = (readJson(path) as Record<string, string> | null) ?? {};
+      // NOT `?? {}`: that turned an unreadable record into an empty one and
+      // wrote it back, destroying every other pane's grant in this session.
+      const body = readRecord(path) ?? {};
       body[paneId] = nonce;
       writeFileSync(path, JSON.stringify(body, null, 2));
     },
-    nonceConsume: (sessionId, paneId) => {
+    nonceConsume: (sessionId, paneId, expected) => {
       const path = join(NONCE_DIR, `${sessionId}.json`);
-      const body = readJson(path) as Record<string, string> | null;
-      if (body === null) return;
+      const body = readRecord(path);
+      if (body === null) return false;
+      // A grant that is not the one we authorized is not ours to destroy.
+      if (body[paneId] !== expected) return false;
       delete body[paneId];
       if (Object.keys(body).length === 0) rmSync(path, { force: true });
       else writeFileSync(path, JSON.stringify(body, null, 2));
+      return true;
     },
   };
 }
