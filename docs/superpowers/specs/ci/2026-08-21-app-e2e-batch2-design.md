@@ -180,7 +180,7 @@ in the inlined RSC flight payload (script text, which no reader sees) and 11 in 
 log, which renders each event's raw `code` by design (`components/admin/telemetry/EventRow.tsx:73`)
 over whatever `app_events` holds. The crawl's textContent phase now skips non-rendered nodes and the
 telemetry route is crawled under a filter matching no event. **R9**, `warning-panel-polish`: the
-serially-skipped reveal case at line 340 ran for the first time and lost its click in the same
+serially-skipped reveal case (`tests/e2e/warning-panel-polish.spec.ts:348` at this head) ran for the first time and lost its click in the same
 pre-hydration window R7 names, so it takes the same gate; the class sweep then extended that gate to
 the two other members that click a client island straight after opening the modal.
 

@@ -907,8 +907,10 @@ That is `BL-ADMIN-LOADER-CI-TRANSIENT` again, so the spec is not defective — b
 is where this batch stops re-rolling, which is the threshold batch 1 set with the changes-feed
 spec.
 
-Batch 1's lesson held: **membership was derived from three real runs, not from a reading**, and seven
-of the fourteen candidates were RED on first run. All seven were test-only staleness repaired in-branch (a
+Batch 1's lesson held: **membership was derived from three real runs, not from a reading**, and the
+spec's section-4 table is the record of what each run said: four of the fourteen were green on the
+first run, some more went green on run 2 under nothing but a pinned DSN (the split-brain finding
+below), and seven needed a named test-only repair before they went green. All seven were test-only staleness repaired in-branch (a
 retired `/` route; a `/show/<slug>` `next` the validator has rejected since the picker pivot; two
 fixture selections that raced another suite's rows on a shared database; badge literals that assumed
 an otherwise-empty pending population; a width measured against an `sr-only` placeholder; an add form
@@ -1012,9 +1014,10 @@ which is why reading it per-spec drops members that are not defective and emptie
 nothing. Same family as `BL-CHANGES-FEED-MODAL-BATCH-FLAKE`, which measured the transient gateway
 502 reaching the `/admin` error boundary on this same job.
 
-**`admin-parse-panel`, `warning-panel-polish`, `telemetry-layout` and `published-show-attention` stay dropped for batch 2.** All of those drops were
-procedurally valid when they were made — one red on a counted run, no attribution, AC-4's own
-procedure — and re-adding them tonight would be churn on an arc whose bar is five consecutive green
+**`admin-parse-panel`, `warning-panel-polish`, `telemetry-layout` and `published-show-attention` stay dropped for batch 2.** Each drop was
+procedurally valid when it was made — the first two on a first red with no attribution, the last two
+on a SECOND red for one spec, which is batch 1's threshold and the ruling's boundary (d) — and
+re-adding them tonight would be churn on an arc whose bar is five consecutive green
 runs. Their restoration is **batch 3's first question**, and their allowlist rows already carry every
 run id a batch-3 reader needs.
 
