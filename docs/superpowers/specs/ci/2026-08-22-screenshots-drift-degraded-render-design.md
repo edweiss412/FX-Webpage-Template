@@ -130,10 +130,14 @@ is handled by §7’s re-disposition, not by the guard.
 that domain or be one ordinary edit away from an input in it.
 
 **Consequence bound — closable, and narrower than the r1 draft claimed.** Over that domain a capture is
-either encoded, or **refused with a named reason**, under two independent detectors (§4). A fault that is
-both unmarked and geometry-neutral is caught by neither and falls through to the existing byte comparison,
-which fails without attribution. That is a documented limit (§8.1), not a silent wrong answer: the gate
-still goes red, it just cannot say why.
+either encoded, or **refused with a named reason**, under three detectors (§4): layer 0 for a surface that
+never rendered, layer 1 for a marked fault, layer 2 for a change in geometry. Layer 0 is what makes the
+bound true rather than aspirational — without it the replacement class (§4.2.1) produces a bare timeout,
+which names nothing.
+
+A fault that is unmarked, geometry-neutral, and still renders its selector is caught by none of the three
+and falls through to the existing byte comparison, which fails without attribution. That is a documented
+limit (§8.1), not a silent wrong answer: the gate still goes red, it just cannot say why.
 
 **Convergence criterion.** The instrument records runner identity, wall clock and decoded-pixel hashes on
 **both** outcomes; the marker scan covers every JSX-returning `infra_error` branch reachable from the
@@ -162,10 +166,17 @@ A ts-morph probe over the consumer sites returned **four structural shapes**, no
 | 2. comparison in `useEffect`, announces only | `components/admin/RecentAutoAppliedStrip.tsx:721` | renders no JSX — skipped with a reason |
 | 3. type-guard predicate definition | `components/admin/Dashboard.tsx:282` | not a consumer — skipped with a reason |
 | 4. **degradation flag assigned to a variable** | `components/admin/Dashboard.tsx:489` | no JSX at the comparison site — **not enforceable** |
+| 5. **`try`/`catch` returning JSX, no comparison at all** | `app/admin/show/[slug]/preview/[crewId]/page.tsx:202` | there is no `infra_error` comparison anywhere — **invisible to a comparison scan** |
 
-Shape 4 is the one that matters. `ignoredDegraded` and `dataGapsDegraded` are booleans consumed by JSX
-elsewhere; branch and render are decoupled, so there is nothing to mark at the comparison. Tracing flag to
-render is dataflow analysis this arc does not carry.
+Shape 4 has no JSX at the comparison: `ignoredDegraded` and `dataGapsDegraded` are booleans consumed by
+JSX elsewhere, so branch and render are decoupled. Tracing flag to render is dataflow analysis this arc
+does not carry.
+
+Shape 5 has no comparison at all. `getShowForViewer` **throws** on a hard Supabase failure
+(`lib/data/getShowForViewer.ts:390`, and again at `lib/data/getShowForViewer.ts:475`), and the preview
+route catches it (`app/admin/show/[slug]/preview/[crewId]/page.tsx:202`) and returns JSX. A recognizer
+built on `infra_error` comparisons cannot see a `catch` clause, so the accept-set is keyed on the
+**rendering** construct, not on the comparison — see §4.3.
 
 **The recognizer is narrower than `infra_error` besides.** Manifest-reachable faults also arrive as
 `"kind" in result` and as `tileErrors` population, which no `infra_error` comparison names. Known
@@ -182,13 +193,57 @@ instances, all inside the threat fence and all reachable from current manifest e
 **Consequence, stated plainly:** layer 1 alone would leave 10 of the 14 capture outputs able to fault
 silently. That is why layer 2 exists, and why §3’s consequence bound is narrower than the r1 draft’s.
 
+### 4.2.1 The replacement class — a fault that defeats every detector by never rendering the selector
+
+The detectors above all run *after* `waitForQuiescence` has found `captureSelector`
+(`scripts/capture-core.ts:100`). Several manifest-reachable faults **replace** that selector instead of
+rendering inside it, so the wait times out and the capture reaches no detector, no geometry check, no
+pixel hash, and no evidence record. The operator sees a bare missing-selector timeout.
+
+| replacement branch | outputs it can blank |
+| --- | --- |
+| `app/admin/layout.tsx:94` — `admin-layout-infra-error`, after an `is_session_live` or `is_admin` RPC failure | **all 14** |
+| `components/admin/Dashboard.tsx:598` — `admin-dashboard-infra-error` replaces `components/admin/Dashboard.tsx:618` | 4 (`dashboard-overview`, `review-queues-empty-state`, both themes) |
+| `app/admin/show/[slug]/preview/[crewId]/page.tsx:144` and two peers below it (show lookup, crew lookup, and the `getShowForViewer` catch) — replace the preview banner and crew shell | 8 (four entries, both themes) |
+
+This is the worst case available to the design: the fault class the gate exists for, arriving in the one
+form that silences every instrument the gate adds. It is squarely inside the threat fence and the probe
+domain, and a bare timeout is **not** the "conservative refusal with the reason surfaced" the consequence
+bound permits — nothing names what happened.
+
+**Layer 0 answers it, and it is a precondition of the other two.** The capture treats a missing
+`captureSelector` as a first-class outcome rather than an exception:
+
+1. Catch the wait timeout instead of letting it propagate.
+2. Scan the **document** — not the subtree, which does not exist — for `[data-render-fault]`.
+3. Record the evidence entry with `refusedReason: "selector-absent"`, the selector that was missing, and
+   every marker found.
+4. Throw naming all of it.
+
+Because the replacement branches are themselves fault renders, they carry `data-render-fault` like any
+other shape-1 branch, so step 2 attributes them by the same mechanism rather than a second registry. A
+replacement that carries no marker still produces an attributed `selector-absent` refusal with an evidence
+record — degraded attribution, never silence.
+
 ### 4.3 Layer 1 — `data-render-fault`, honestly scoped
 
-Every **shape-1** branch reachable from the manifest carries `data-render-fault="<reason>"` on the element
-it already renders. A derived-cover meta-test walks the manifest-derived roots, classifies every consumer
-by shape, and:
+Every fault branch reachable from the manifest that **directly returns JSX** carries
+`data-render-fault="<reason>"` on the element it already renders — shape 1, shape 5, and the §4.2.1
+replacement branches alike.
 
-- demands the attribute on shape 1;
+**The accept-set is keyed on the rendering construct, not on the comparison spelling.** A recognizer that
+enumerates comparison forms is a denylist, and shape 5 is the proof: it has no comparison to enumerate.
+The scan accepts a JSX-returning branch whose guard is any of — a literal `infra_error` comparison; a call
+to a locally-defined `infra_error` type-guard predicate, resolved through the predicate's own declaration
+rather than by name (`components/admin/Dashboard.tsx:282` is such a predicate, and
+`components/admin/Dashboard.tsx:491` calls it, which a comparison-only scan misses entirely);
+`in`-operator narrowing on `"kind"`; a `catch` clause whose `try` reaches a throwing loader; or
+`tileErrors` population (`lib/data/getShowForViewer.ts:224`). Anything outside the accept-set is
+**reported by name**, never silently dropped.
+
+A derived-cover meta-test walks the manifest-derived roots, classifies every consumer, and:
+
+- demands the attribute on every JSX-returning fault branch (shapes 1 and 5, and the replacements);
 - skips shapes 2 and 3 with a recorded reason;
 - **reports shape 4 and the non-`infra_error` shapes as an enumerated residue**, pinned in a reasoned
   registry naming each flag and each capture output it can reach. The §4.2 table is that registry’s initial
@@ -228,6 +283,7 @@ silent. §8.1 records that limit.
 | marked element outside the captured subtree | not a hit — scoped to what the gate pins |
 | geometry differs | throw naming both dimensions; write no image |
 | no committed baseline for this entry | geometry check skipped with a recorded reason; layer 1 still applies |
+| `captureSelector` never appears | **layer 0**: caught, document scanned for markers, evidence written with `refusedReason: selector-absent`, throw names the missing selector and any markers found |
 | entry has no `captureSelector` | subtree is the document; in scope |
 | `data-degraded` present | **ignored** — a different attribute and a legitimate product state (§1.4) |
 
@@ -278,6 +334,11 @@ the process that writes the record. The step gains `-e RUNNER_NAME -e RUNNER_ARC
 value-less form forwards the host value while `-e CI=true` sets a literal, and both forms appear in the
 step. `os.cpus()` needs no passthrough.
 
+**The record is written even when nothing renders.** The §4.2.1 replacement class produces no
+`captureSelector`, and the r1 draft would have produced no record either — the one outcome most in need of
+evidence would have left none. Layer 0 writes the entry with `refusedReason: "selector-absent"` and null
+geometry and hashes, so AC-5's both-outcomes promise holds on the worst case rather than only the easy one.
+
 **Writing the record is not writing a baseline.** §4’s refusal means no **image** is encoded or written.
 The evidence record is written on every outcome, including a refused one — that is the point of it. AC-1
 and AC-5 are worded to that distinction; post-encode fields are `null` on a refused entry, and AC-5
@@ -300,6 +361,7 @@ Read in order; the first matching row wins.
 
 | reading | mechanism |
 | --- | --- |
+| `refusedReason` is `selector-absent` | **replacement-class fault** (§4.2.1). The named markers, if any, say which branch replaced the surface; none means an unmarked replacement, still attributed as selector-absent. |
 | `faultHits` non-empty | **faulted render**, mechanism A. Refused; no drift reported. |
 | `refusedReason` is geometry and `faultHits` is empty | **an unmarked layout-changing fault, or a real UI change.** The diff separates them: if no render input moved it is a shape-4 residue member (§4.2), and the record names which. |
 | `pixelSha256` differs, geometry identical, deltas concentrated below 32 in short runs | **rasterization variance**, mechanism B. Compare `cpuModel` across the passing and failing records. |
@@ -322,11 +384,18 @@ would collapse them into each other and into row 5.
   candidate was closer to right than its successor’s, and it is upgraded from `INFERRED, NOT PROBED` to
   PROBED with the measurement recorded.
 
-  **This arc ships its first scheduled step.** The row asked for runner identity captured on both outcomes;
-  §5 delivers exactly that, plus the decoded-pixel hash — and `runnerName` + `cpuModel` + `pixelSha256` is
-  precisely the triple that settles a runner-keyed rasterization difference, because it separates “the
-  pixels moved” from “the encoding moved” and then keys the population. §6 row 3 is the row’s reading
-  procedure. The trap this arc sets is the row’s instrument, not an unrelated one.
+  **This arc ships its first scheduled step — and ships it as an instrument, not as an answer.** The row
+  asked for runner identity captured on both outcomes; §5 delivers that plus the decoded-pixel hash.
+  `runnerName` + `cpuModel` + `pixelSha256` is the triple that makes a runner-keyed reading **testable**,
+  because it separates “the pixels moved” from “the encoding moved” and then keys the population. §6 row 3
+  is the row’s reading procedure. The trap this arc sets is the row’s instrument, not an unrelated one.
+
+  **What is proven and what is not.** The replay proves *rasterization variance*: identical geometry,
+  identical content, sub-pixel deltas. It does **not** prove the variance is keyed to runner or CPU rather
+  than some other per-run condition — no runner identity was recorded for occurrence B or for its nine
+  dispatched probes, so no population comparison is possible even in principle. Runner population remains
+  the leading hypothesis and stays a hypothesis; the row keeps its unprobed status on that specific
+  question, which is why it stays open rather than closing on a named mechanism.
 
   **What makes the class hard, and why the repair is not opened here.** The variance survived both pins the
   byte-comparison discipline prescribes: the image tag is pinned and the run passes
@@ -336,8 +405,10 @@ would collapse them into each other and into row 5.
   tolerance. Those are different products with different failure modes, and choosing between them needs the
   population data §5 begins collecting. This spec states the question and does not answer it.
 
-  The 0/9 dispatched non-reproductions are explained rather than mysterious: a runner-population effect
-  reproduces only when a dispatch lands on the minority population.
+  The 0/9 dispatched non-reproductions are **consistent with** a runner-population effect, which reproduces
+  only when a dispatch lands on the minority population. They are equally consistent with any other rare
+  per-run condition, and with no runner identity recorded for those nine runs they discriminate nothing.
+  This is the reading the instrument is built to settle, stated as a reading.
 
 **The rows’ shared one-class assertion is corrected, not honored.** Working them together was right and is
 what surfaced both mechanisms; closing them together would have shipped a false certification.
@@ -346,12 +417,13 @@ what surfaced both mechanisms; closing them together would have shipped a false 
 
 ## 8. Documented limits
 
-1. **An unmarked, geometry-neutral fault is caught by neither layer.** It falls through to the existing
+1. **An unmarked, geometry-neutral fault that still renders its selector is caught by none of the three.** It falls through to the existing
    byte comparison, which fails without attribution. Shape-4 members that remove and add content in
    compensating amounts are the realistic instance. Re-file trigger: a recurrence whose `faultHits` is
    empty, whose geometry matches, and whose pixel deltas are long-run.
-2. **Layer 1 covers shape 1 only.** Shapes 2-4 and the non-`infra_error` fault shapes are an enumerated
-   residue (§4.2), not a covered population. Named, not silent.
+2. **Layer 1 covers branches that directly return JSX.** Shapes 2, 3 and 4 are an enumerated residue
+   (§4.2), not a covered population — named, not silent. Shape 5 and the §4.2.1 replacements ARE covered,
+   because the accept-set is keyed on the rendering construct rather than on a comparison spelling.
 3. **A live Postgres wall-clock dependency is left in place.** `purgeAndRotateIfStale`, called on every
    `/admin` request, runs `now()` and `now() - interval '24 hours'` in inline SQL
    (`lib/onboarding/sessionLifecycle.ts:351`, and again at lines 352, 355 and 388). The frozen-now header
@@ -377,12 +449,18 @@ what surfaced both mechanisms; closing them together would have shipped a false 
 ## 9. Acceptance criteria
 
 - **AC-1** A capture whose surface renders a marked fault throws, names entry key, theme and each reason,
-  and writes **no image bytes**. The evidence record is still written — that distinction is the assertion,
+  and writes **no image bytes**. Proven for the replacement class too (§4.2.1): with `captureSelector`
+  absent the run still produces an attributed `selector-absent` refusal and an evidence entry, never a bare
+  timeout. The evidence record is still written — that distinction is the assertion,
   not an exception to it. Proven by an injected loader failure, not a mocked component.
-- **AC-2** A healthy capture is byte-identical to today’s output **and every manifest entry and theme was
-  actually produced**. `git diff --exit-code` alone is insufficient: it exits 0 when the capture wrote
-  nothing at all, which is the green-but-empty trap. The test asserts a produced-count equal to the
-  manifest’s expected output count, then asserts the diff is empty.
+- **AC-2** A healthy capture is byte-identical to today’s output **and every expected entry-theme identity
+  completed in THIS run**. Two traps, and a count alone catches neither. `git diff --exit-code` exits 0
+  when the capture wrote nothing — the empty-capture trap. And a directory count exits 0 too, because the
+  fourteen committed baselines are already on disk before capture begins and are overwritten in place: a
+  run that completes one entry and silently skips thirteen still leaves fourteen files and an empty diff.
+  So the oracle is not a count of files but a **set of completion events emitted by the capture loop
+  itself**, one per `(entry.key, theme)`; the test asserts that set equals the fourteen expected
+  identities, then asserts the diff is empty. Identity equality, never cardinality.
 - **AC-3** The meta-test fails when a manifest-reachable shape-1 branch lacks `data-render-fault`, proven
   by a mutant removing the attribute.
 - **AC-4** The population is derived from the manifest **including template-literal routes**, proven by two
