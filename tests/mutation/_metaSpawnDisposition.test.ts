@@ -119,8 +119,18 @@ const CEILING_NAMES = [
   "PROBE_CHILD_TIMEOUT_MS",
 ] as const;
 
-/** Where each accepted name is defined. A use outside its home file is reported. */
-const CEILING_HOME: Record<string, string> = {
+/**
+ * Where each accepted name is defined. A use outside its home file is reported.
+ *
+ * TOTAL over `CEILING_NAMES`, and the test below proves it. Shipped with only
+ * one of the three names mapped, which made the home rule silently inapplicable
+ * to the other two: either could be locally rebound to zero in any member file
+ * and pass (diff review r5 finding 7). A partial map is worse than none here,
+ * because the comment above it promises a guarantee the data does not deliver.
+ */
+const CEILING_HOME: Record<(typeof CEILING_NAMES)[number], string> = {
+  BROWSER_MUTANT_TIMEOUT_MS: "tests/mutation/browser/runner.ts",
+  WIRING_CHILD_TIMEOUT_MS: "tests/mutation/browser/overlayWiring.test.ts",
   PROBE_CHILD_TIMEOUT_MS: "tests/mutation/source/processProbe.ts",
 };
 
@@ -499,6 +509,28 @@ describe("every spawn site under tests/mutation/ is disposed of", () => {
       expect(users, `${name} is accepted as a ceiling only in ${home}`).toEqual(
         users.length === 0 ? [] : [home],
       );
+    }
+  });
+
+  // The PREMISE of the case above, stated executably. It compares users against
+  // `[home]`, so a wrong or stale home path fails it only when that name has a
+  // user; with none, `users.length === 0` short-circuits and a home pointing at
+  // a file that never declares the constant passes forever. Round 5 shipped
+  // exactly that hazard the other way round — two of three names had no home at
+  // all — so the map is now TOTAL by type, and this is the half the type cannot
+  // check: that each home actually declares its name.
+  it("every accepted ceiling name is declared in the file CEILING_HOME names", () => {
+    for (const name of CEILING_NAMES) {
+      const home = CEILING_HOME[name];
+      const src = sources.get(home);
+      expect(src, `${name}'s home ${home} is not among the scanned sources`).toBeDefined();
+      const declared = new RegExp(`\\bconst\\s+${name}\\b`).test(
+        stripCommentsSafely(src as string, ts.ScriptKind.TS),
+      );
+      expect(
+        declared,
+        `${home} does not declare ${name}; CEILING_HOME points at the wrong file`,
+      ).toBe(true);
     }
   });
 

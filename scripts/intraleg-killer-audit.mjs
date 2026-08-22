@@ -603,10 +603,26 @@ function runSuite(suite, filter, live = false) {
   });
   const text = `${r.stdout ?? ""}${r.stderr ?? ""}`;
   const m = text.match(/Tests\s+(?:(\d+) failed)?[ |]*(?:(\d+) passed)?/);
+  // WHICH cases failed, not just how many. `failed > 0` alone proves "a test
+  // under this filter went red" and nothing about WHICH — so a mutant that
+  // broke some unrelated case in the same file scored identically to one the
+  // named case caught. Diff review r5 finding 9. Vitest marks a failing case
+  // with `×` and prints its full `file > case` path.
+  const failingCases = [...text.matchAll(/^\s*(?:×|✗|FAIL)\s+(.+?)\s*$/gm)]
+    .map((x) => x[1])
+    .filter((l) => l.includes(" > "))
+    .map((l) =>
+      l
+        .slice(l.indexOf(" > ") + 3)
+        .replace(/\s+\d+ms$/, "")
+        .trim(),
+    )
+    .filter((l) => l.length > 0);
   return {
     status: r.status,
     failed: m?.[1] ? Number(m[1]) : 0,
     passed: m?.[2] ? Number(m[2]) : 0,
+    failingCases: [...new Set(failingCases)],
     text,
   };
 }
@@ -760,12 +776,25 @@ export function main() {
       throw new Error(`RESTORE FAILED for ${kill.id}: ${kill.file} is not byte-identical`);
     }
     const matched = outcome.failed + outcome.passed;
+    // PROVEN requires the NAMED case to be among the failures, not merely that
+    // the count went positive. With a filter set, every failing case must also
+    // match it: a mutant that reddens something outside the filter has not
+    // demonstrated this obligation, and before r5 it scored the same as one
+    // that did. `OFF-TARGET` is its own state so that case is visible rather
+    // than absorbed into either verdict.
+    const named = outcome.failingCases ?? [];
+    const offTarget = kill.filter ? named.filter((n) => !n.includes(kill.filter)) : [];
+    const onTarget = kill.filter ? named.filter((n) => n.includes(kill.filter)) : named;
     const state =
       matched === 0
         ? "FILTER-MATCHED-NOTHING"
-        : outcome.failed > 0
-          ? "PROVEN"
-          : "PRESENT-BUT-UNPROVEN";
+        : outcome.failed === 0
+          ? "PRESENT-BUT-UNPROVEN"
+          : onTarget.length === 0 && named.length > 0
+            ? "OFF-TARGET"
+            : offTarget.length > 0
+              ? "OFF-TARGET"
+              : "PROVEN";
     results.push({
       ...kill,
       state,

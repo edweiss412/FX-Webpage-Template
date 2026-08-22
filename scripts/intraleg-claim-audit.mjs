@@ -24,10 +24,16 @@ const ART =
     ? process.argv[flagIdx + 1]
     : (() => {
         const root = ".mutation-records";
+        // NOT a lexical sort: `campaign-…-r10` sorts BEFORE `…-r4`, so the
+        // tenth campaign would never be "newest" and the audit would silently
+        // compare against an older run — the same defect as the hardcoded path
+        // it replaced, one release later. Ordered by the trailing run number
+        // when there is one, then by name.
+        const runNo = (n) => Number((n.match(/-r(\d+)$/) ?? [])[1] ?? -1);
         const dirs = readdirSync(root, { withFileTypes: true })
           .filter((e) => e.isDirectory() && e.name.startsWith("campaign-"))
           .map((e) => e.name)
-          .sort();
+          .sort((a, b) => runNo(a) - runNo(b) || a.localeCompare(b));
         if (dirs.length === 0) throw new Error("no campaign-* directory under .mutation-records");
         return `${root}/${dirs[dirs.length - 1]}/campaign.json`;
       })();
@@ -65,19 +71,97 @@ const truth = new Map([
 ]);
 
 // Every figure the docs state, extracted and checked against the truth above.
+//
+// ONE table, and the loop below iterates IT. The previous shape built a `checks`
+// array and then bypassed it with hardcoded regexes in the loop, so the array was
+// computed and never read — the same derive-and-discard defect this audit exists
+// to catch, sitting inside the auditor. Diff review r5 found it, and the
+// self-check under the loop is what stops it coming back: a truth nothing
+// consumes is a FAILURE here, not a quiet no-op.
+//
+// `scan` takes the scoped document text and returns the values it states for this
+// figure. `want` is the truth. A check that finds nothing is silent by design —
+// not every document states every figure — which is exactly why the self-check
+// below tests CONSUMPTION of the truth key rather than presence of a match.
 const checks = [
   {
-    label: "arm-A bound",
-    re: /p > (0\.\d{4})/g,
-    want: truth.get("arm-A bound").replace("p > ", ""),
+    key: "arm-A bound",
+    scan: (src) => [...src.matchAll(/p > (0\.\d{4})/g)].map((m) => m[1]),
+    want: () => truth.get("arm-A bound").replace("p > ", ""),
+    noun: "bound",
   },
   {
-    label: "anchor stamp",
-    re: /\b(46fd37cf0f07|[0-9a-f]{12})\b/g,
-    want: truth.get("anchor stamp"),
-    only: /anchor stamp/i,
+    key: "anchor stamp",
+    // Scoped to lines that NAME the stamp: a bare 12-hex pattern also matches
+    // commit shas, receipt prefixes and nonces, none of which are this figure.
+    scan: (src) =>
+      src
+        .split("\n")
+        .filter((l) => /anchor stamp/i.test(l))
+        .flatMap((l) => [...l.matchAll(/\b([0-9a-f]{12})\b/g)].map((m) => m[1])),
+    want: () => truth.get("anchor stamp"),
+    noun: "anchor stamp",
   },
-  { label: "arm-C quiet ms", re: /(\d{2}) ?(\d{3}) ms/g, want: null },
+  {
+    key: "arm-C quiet ms",
+    scan: (src) => [...src.matchAll(/(\d{1,3}(?: \d{3})+) ms/g)].map((m) => m[1].replace(/ /g, "")),
+    // Durations are checked as a SET: prose quotes either half, and which one
+    // appears is not a property of the figure.
+    want: () => [truth.get("arm-C quiet ms"), truth.get("arm-C loaded ms")],
+    noun: "duration (ms)",
+  },
+  {
+    key: "default dir entries",
+    scan: (src) => [...src.matchAll(/(\d+) entries, byte-identical/g)].map((m) => m[1]),
+    want: () => truth.get("default dir entries"),
+    noun: "default-channel entries",
+  },
+  {
+    key: "in-process cases",
+    scan: (src) => [...src.matchAll(/(\d+) in-process cases/g)].map((m) => m[1]),
+    want: () => inProcessCases(),
+    noun: "in-process cases",
+  },
+  // ── added at r5: derived since the first version, compared by none of it ──
+  //
+  // The arm table row `| A | 12 | 12 | 12 | 12 | 0 |` and the `12/6/2` prose
+  // form are the two places these appear. Both are read, because a document
+  // that updates one and not the other is precisely the drift being audited.
+  ...["A", "B", "C"].map((arm) => ({
+    key: `arm ${arm} eligible`,
+    scan: (src) => {
+      const rows = [
+        ...src.matchAll(
+          new RegExp(
+            `^\\|\\s*${arm}\\s*\\|\\s*\\d+\\s*\\|\\s*\\d+\\s*\\|\\s*\\d+\\s*\\|\\s*(\\d+)\\s*\\|`,
+            "gm",
+          ),
+        ),
+      ].map((m) => m[1]);
+      const idx = { A: 1, B: 2, C: 3 }[arm];
+      const prose = [...src.matchAll(/\b(\d+)\/(\d+)\/(\d+)\b(?=[^\n]{0,40}eligible)/g)].map(
+        (m) => m[idx],
+      );
+      return [...rows, ...prose];
+    },
+    want: () => truth.get(`arm ${arm} eligible`),
+    noun: `arm ${arm} eligible count`,
+  })),
+  {
+    key: "flips",
+    // "zero flips" and "no eligible trial flipped" are the prose forms of 0.
+    // A numeric form is read too, so a future POSITIVE campaign is covered
+    // rather than silently unaudited.
+    scan: (src) => {
+      const worded = /zero flips|no eligible trial (?:in any arm )?flip(?:ped|s)/i.test(src)
+        ? ["0"]
+        : [];
+      const numeric = [...src.matchAll(/(\d+) (?:eligible )?flips?\b/gi)].map((m) => m[1]);
+      return [...worded, ...numeric];
+    },
+    want: () => truth.get("flips"),
+    noun: "flip count",
+  },
 ];
 
 let bad = 0;
@@ -102,38 +186,40 @@ const scoped = (file, src) => {
   return noQuotes.slice(start, end < 0 ? undefined : end);
 };
 
+// SELF-CHECK, and the reason this file cannot regrow the defect r5 found in it.
+// A figure computed into `truth` and consumed by no check is DEAD DERIVATION —
+// it reads as covered and audits nothing. Four of the nine were exactly that
+// before r5 (the three arm eligible counts and the flip count), and the audit
+// still printed CLEAN. Aliases are declared, never inferred: the loaded-half
+// duration is consumed inside the quiet-half check, which compares both as a
+// set, so it is named here rather than given a check of its own.
+const CONSUMED_BY_ALIAS = new Map([["arm-C loaded ms", "arm-C quiet ms"]]);
+{
+  const covered = new Set(checks.map((c) => c.key));
+  const dead = [...truth.keys()].filter(
+    (k) => !covered.has(k) && !covered.has(CONSUMED_BY_ALIAS.get(k)),
+  );
+  if (dead.length > 0) {
+    console.log(
+      `AUDIT DEFECT: ${dead.length} derived truth(s) that no check consumes: ${dead.join(", ")}`,
+    );
+    console.log("A figure this audit computes and never compares is not coverage.");
+    process.exit(2);
+  }
+}
+
 for (const f of DOCS) {
   const src = scoped(f, readFileSync(f, "utf8"));
-  // the bound, wherever it appears
-  for (const m of src.matchAll(/p > (0\.\d{4})/g)) {
-    if (m[1] !== truth.get("arm-A bound").replace("p > ", "")) {
-      console.log(`STALE  ${f}: bound ${m[1]} != ${truth.get("arm-A bound")}`);
-      bad++;
-    }
-  }
-  // durations, written with a thin space in prose (e.g. "29 214 ms")
-  for (const m of src.matchAll(/(\d{1,3}(?: \d{3})+) ms/g)) {
-    const n = m[1].replace(/ /g, "");
-    if (n !== truth.get("arm-C quiet ms") && n !== truth.get("arm-C loaded ms")) {
-      console.log(
-        `STALE  ${f}: duration ${n} ms is in NEITHER half of the r3 artifact ` +
-          `(quiet ${truth.get("arm-C quiet ms")}, loaded ${truth.get("arm-C loaded ms")})`,
-      );
-      bad++;
-    }
-  }
-  // "N entries" for the default record channel
-  for (const m of src.matchAll(/(\d+) entries, byte-identical/g)) {
-    if (m[1] !== truth.get("default dir entries")) {
-      console.log(`STALE  ${f}: ${m[1]} entries != ${truth.get("default dir entries")}`);
-      bad++;
-    }
-  }
-  // suite counts must match a live run
-  for (const m of src.matchAll(/(\d+) in-process cases/g)) {
-    if (m[1] !== inProcessCases()) {
-      console.log(`STALE  ${f}: ${m[1]} in-process cases != ${inProcessCases()}`);
-      bad++;
+  for (const check of checks) {
+    const want = check.want();
+    const accept = Array.isArray(want) ? want : [want];
+    for (const found of check.scan(src)) {
+      if (!accept.includes(found)) {
+        console.log(
+          `STALE  ${f}: ${check.noun} ${found} != ${accept.join(" or ")} ` + `(from ${ART})`,
+        );
+        bad++;
+      }
     }
   }
 }
