@@ -106,7 +106,13 @@ dupes=$({ grep -hoE '^#{2,3} (BL|DEF)-[A-Z0-9][A-Z0-9-]*' "${OPEN_LEDGERS[@]}" |
 [ -z "$dupes" ] || fail "duplicate open ledger headings: $(printf '%s' "$dupes" | tr '\n' ' ')"
 
 # ------------------------------------------- 5. the in-progress marker is off
-marker=$({ grep -hoF "$BRANCH" "${OPEN_LEDGERS[@]}" "$ARCHIVE" || true; } | wc -l | tr -d ' ')
+# The MARKER, not the branch name anywhere. Invariant 12's form is
+# `**Branch:** <name>` (or `**PR:** #n`), and a bare `grep -F "$BRANCH"` cannot
+# tell that from a legitimate citation — it fired on
+# `docs/review-rounds/<branch>/<sha>.jsonl`, a corpus path this arc's own
+# economy filing has to name. Over-matching a guard into blocking correct work
+# is the same defect class as under-matching it.
+marker=$({ grep -hoE "\\*\\*Branch:\\*\\* *$BRANCH" "${OPEN_LEDGERS[@]}" "$ARCHIVE" || true; } | wc -l | tr -d ' ')
 [ "$marker" -eq 0 ] ||
   fail "the in-progress marker for $BRANCH still appears $marker time(s) in the ledgers. It comes off in this commit, so it never reaches main — where the origin-existence rule would fail on a branch the merge deleted."
 
