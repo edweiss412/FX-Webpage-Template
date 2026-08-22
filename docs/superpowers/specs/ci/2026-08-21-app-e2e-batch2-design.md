@@ -103,8 +103,6 @@ Sum of the two columns is 114, which is the listing's total. Zero `waitForTimeou
 
 ## 4. Membership: derived from a real run
 
-> PENDING: filled from the probe when it returns. The probe is ONE heavy-wrapped invocation (one queue position, one slot hold), seeding inside the hold, exit codes captured at the producer, nothing carried through `tail`. Its command, stamps, per-spec results and log paths land in the probe record; this section carries the membership table and the disposition per candidate.
-
 Command shape (the exact invocation, with its recorded rc, is in the probe record):
 
 ```
