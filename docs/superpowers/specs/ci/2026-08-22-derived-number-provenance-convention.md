@@ -58,8 +58,11 @@ wrong verdict.
   COMPARISON GROUP under the same instrument; they are not in the domain and no finding about them
   is admissible here.
 
-  **The corpus figures are never quoted in this spec.** They are dated observations in the probe
-  record. A spec that restates a corpus count acquires the exact defect this row is about, and the
+  **The corpus figures this spec quotes are bound by §2's preamble to `b52481446`, and their
+  derivations are not restated.** §2 and §4 do quote several; an earlier draft claimed the spec never
+  quotes any, which was plainly false and is the same over-claim this arc keeps catching in itself.
+  The rule that holds: a quoted figure carries its base and points at the probe record for method. A
+  spec that restates a corpus DERIVATION acquires the exact defect this row is about, and the
   nested-hook arc already paid for that lesson three times in one arc
   (`docs/superpowers/specs/ci/2026-08-19-premisescan-nested-hook-sibling-leak-design.md` §1.2).
 - **Threat fence.** Ordinary authoring of probe records by someone who has read the directory's
@@ -181,7 +184,10 @@ wearing provenance's clothes. It stands as the README's worked counterexample, w
   arc is subject to its own convention.
 - **AC-4.** The probe record has an index row in the directory README.
 - **AC-5.** `BL-DERIVED-NUMBERS-IN-DOCS-ROT` is absent from `BACKLOG.md` and present in
-  `BACKLOG-archive.md`, carrying the count as evidence and both re-open triggers.
+  `BACKLOG-archive.md`, carrying the count as evidence and its ONE surviving re-open trigger (a probe
+  record shipping a figure whose only anchor is mutable). The row's other candidate trigger — the
+  ledger population getting an owner — is discharged in this PR, not recorded, so an AC demanding
+  "both" would be unmeetable by construction.
 - **AC-6.** `BL-LEDGER-FIGURE-PROVENANCE` is present in `BACKLOG.md` with `**Facing:** process` and
   an `**Incident:**` field citing the parent row's measured findings; it does NOT cite the withdrawn
   ratio as evidence; and it ALLOCATES the overlap with `BL-CLOSEOUT-COUNT-PROSE-DRIFT` — a closeout

@@ -23,12 +23,13 @@ retired a draft that read it as a certificate.
 **Why no test, measured rather than argued.** The gate the row sketched — a bare count near an
 artifact path must name its producing command — reds 23 times on the corpus at `b52481446`, at least
 15 of them on lines that state no artifact figure at all. Its reds are probe and task ordinals, arithmetic demonstrated in place,
-control-outcome table cells, a retraction and an environment note — seventeen that are not artifact
-figures at all — plus seven that are, and would be no safer for passing, because the gate demands a
+control-outcome table cells, a retraction and an environment note. Fifteen state no artifact figure at
+all and one more states a figure in order to retract it; the remaining seven are real figures whose
+binding this arc does not decide, and they would be no safer for passing, because the gate demands a
 producing COMMAND on the line and a producing command is not a binding. It is also blind to the one
-genuinely unbound record above: that file's single red is
-a task ordinal, so the rule fires on the wrong lines of the right file. A gate with no true positives
-that also misses the only true defect is not a tiering question. A record-level presence check fares
+record the anchor screen flags: that file's single red is a task ordinal, so the rule fires on the
+wrong lines of the right file. A rule whose satisfaction does not imply the property it protects
+cannot be repaired by tiering. A record-level presence check fares
 worse still — one red, and it is false.
 
 **And the classification the row asked for is not mechanizable.** Three variants of one token-matching

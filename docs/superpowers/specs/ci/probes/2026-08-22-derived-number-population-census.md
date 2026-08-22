@@ -44,6 +44,7 @@ $ node docs/superpowers/specs/ci/probes/scripts/2026-08-22-derived-number-census
 | whether `origin/fix/scanner-scope-totality` still exists | `git ls-remote`, printed inline in §3 |
 | which of the 23 reds is a genuine figure about a live artifact | **hand classification**, §4 — the script produces the population, a person produces the verdict, and all 23 are printed so the verdict can be checked by reading |
 | that three of the parent row's four incidents were in ledger-class documents | read off that row's `**Incident:**` field, quoted in §3 |
+| the 87 / 43 / 40 breakdown of what the RETIRED anchor regex matched | a hand `node -e` one-liner, printed in full in §3 with its output — the shipped script cannot emit a recognizer it no longer contains |
 
 ## 1. The population and the readings over it
 
@@ -149,14 +150,31 @@ moves and can be deleted.
 
 **A note on the recognizer, found by attacking it rather than by waiting for review.** "Names an
 immutable anchor" is decided by a regex, and the first version required only that a 7-to-40 character
-run of `[0-9a-f]` contain a digit. That matches millisecond timestamps and CI run ids: 43 of the 87
-anchors it reported in `2026-08-21-intraleg-process-probe.md` were all-digit values — 40 of them
-13-digit epoch timestamps, the other three a seed and two numeric UUID prefixes. It now requires a
-hex LETTER as well as a digit. Documented limit: a genuinely all-digit short sha is not recognized
-(about 3.7% of ids at 7 characters, falling off fast with length), and the error it causes is calling a
-bound record unbound, which is the safe direction. The companion `MUTABLE_REF` recognizes
-remote-qualified refs only, so it under-counts; that matters only for a record naming no immutable
-anchor, and the one such record names no ref-shaped token at all.
+run of `[0-9a-f]` contain a digit. That matches millisecond timestamps and CI run ids. It now requires
+a hex LETTER as well as a digit.
+
+The breakdown of what the retired form matched is a HAND observation, not census output — the shipped
+script cannot emit a recognizer it no longer contains — so it carries its own command:
+
+```
+$ node -e '
+const t = require("fs").readFileSync(
+  "/tmp/probes-at-base/docs/superpowers/specs/ci/probes/2026-08-21-intraleg-process-probe.md", "utf8");
+const RETIRED = /`?\b(?=[0-9a-f]*\d)[0-9a-f]{7,40}\b`?/g;
+const u = [...new Set(t.match(RETIRED) ?? [])];
+const digits = u.filter((x) => /^`?\d+`?$/.test(x));
+const epoch = digits.filter((x) => x.replace(/`/g, "").length === 13);
+console.log(u.length, digits.length, epoch.length,
+  digits.filter((x) => x.replace(/`/g, "").length !== 13).join(" "));'
+87 43 40 20260821 56438591 19119308
+```
+
+So: 87 unique matches, 43 of them all-digit, 40 of those 13-digit epoch timestamps, and the other
+three a seed and two numeric UUID prefixes. Documented limit of the current form: a genuinely
+all-digit short sha is not recognized (about 3.7% of ids at 7 characters, falling off fast with
+length), and the error it causes is calling a bound record unbound, which is the safe direction. The
+companion `MUTABLE_REF` recognizes remote-qualified refs only, so it under-counts; that matters only
+for a record naming no immutable anchor, and the one such record names no ref-shaped token at all.
 
 **The screen is a screen, and round 2 was right to press on this.** A first draft read the output as
 "fourteen of fifteen records are bound." It does not support that. **One unrelated object id anywhere
