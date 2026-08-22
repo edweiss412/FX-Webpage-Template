@@ -42,6 +42,7 @@ if (surfaces.length === 0) {
 }
 
 let staleTotal = 0;
+let duplicateTotal = 0;
 for (const surface of surfaces) {
   const source = readFileSync(surface.sourcePath, "utf8");
   const live = new Set(
@@ -50,12 +51,32 @@ for (const surface of surfaces) {
   const stale = surface.accepted.filter((row) => !live.has(row.siteId));
   staleTotal += stale.length;
 
+  // DISTINCTNESS, not just resolution. A duplicated siteId RESOLVES - twice -
+  // so the stale check above reports green while two rows claim one site and
+  // some other site silently has none. That is not hypothetical: a line-text
+  // re-key on this repo matched an `index > 1` clause against its `index > 0`
+  // twin on the previous line and collapsed two row PAIRS onto one key each,
+  // and the mutation gate caught it only later as unaccepted survivors. The
+  // sweep is the wrong place to catch a duplicate; the checker is.
+  const duplicated = [
+    ...surface.accepted
+      .reduce(
+        (counts, row) => counts.set(row.siteId, (counts.get(row.siteId) ?? 0) + 1),
+        new Map<string, number>(),
+      )
+      .entries(),
+  ].filter(([, n]) => n > 1);
+  duplicateTotal += duplicated.length;
+
   console.log(`\n# ${surface.id} — ${surface.sourcePath}`);
   if (surface.accepted.length === 0) {
     console.log("  (no accepted rows)");
   }
   for (const row of surface.accepted) {
     console.log(`  ${live.has(row.siteId) ? "ok    " : "STALE "} ${row.siteId}`);
+  }
+  for (const [id, n] of duplicated) {
+    console.log(`  DUPLICATE ${id} — declared ${n} times; each duplicate hides a site with no row`);
   }
   if (stale.length > 0) {
     // Everything except the LINE is stable across an edit, so matching on
@@ -82,6 +103,9 @@ for (const surface of surfaces) {
 }
 
 console.log(
-  `\n${staleTotal === 0 ? "all accepted rows resolve" : `${staleTotal} stale row(s) — update the registry`}`,
+  `\n${staleTotal === 0 ? "all accepted rows resolve" : `${staleTotal} stale row(s) — update the registry`}` +
+    (duplicateTotal === 0
+      ? ""
+      : `\n${duplicateTotal} duplicated siteId(s) — each hides a site with no row`),
 );
-process.exit(staleTotal === 0 ? 0 : 1);
+process.exit(staleTotal === 0 && duplicateTotal === 0 ? 0 : 1);
