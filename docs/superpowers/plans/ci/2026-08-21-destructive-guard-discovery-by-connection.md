@@ -371,7 +371,7 @@ UNION-of-views rule the destructive meta-test documents at its `destructive` fil
 by identity (`toBe`, rule 193), then INJECTS a pattern set matching a sentinel string and asserts
 the discovered set moves to exactly the sentinel file (spec round 4 F2: a `new RegExp` copy passes a
 literal-only structural check and reproduces the live seven; it cannot respond to an injected set).
-`channelReports(discovered, population)` = discovered files not in the population.
+`channelReports(discovered, accounted)` = discovered files the census did not account for. The second argument is deliberately NOT the walked population — see AC-C8; joining against the walk cannot fail, and accounting on any report at all lets an unrelated edge report cover a connection added beside it.
 
 **Cases.** The constructed destructive non-acquirer → one `channel` report; twin: the same file with
 a default import and a guarded call → zero. A file naming the destructive function only in a
@@ -679,9 +679,9 @@ in commit messages and a PR body. Nothing here changes a contract above it.
 
 ### 6.1 The live census, measured through the SHIPPED code
 
-    connection census: 2565 files walked, 2565 in the population, 175 connect sites,
-    5 connecting helpers, 39 inheriting files, 7 destructive-discovered, 0 undisposed,
-    8 disposition rows, 4856 production edges
+    connection census: 2565 files walked, 2565 in the population, 179 accounted for,
+    175 connect sites, 5 connecting helpers, 39 inheriting files, 7 destructive-discovered,
+    0 undisposed, 8 disposition rows, 4856 production edges
     guard-bound 85 / validation-env 79 / loopback-literal 9 / remote-literal 0 / unclassifiable 2
 
 Visible under `pnpm vitest run tests/db/_metaConnectionCensusGuard.test.ts --reporter=verbose`; the
@@ -712,6 +712,19 @@ gate, not in the perturbation.
 
 The eight rows were added ONE AT A TIME, each observed to retire exactly one report: undisposed
 8 → 7 → 6 → 5 → 4 → 3 → 2 → 1 → 0, one commit per row.
+
+**A fifteenth perturbation, added after whole-diff round 3.** The channel arm's join target is now
+`accounted` rather than the walked population, and `accounted` excludes edge-report kinds. Both
+narrowings were proved the same way: append a destructive-SQL call reaching a connection only through
+PRODUCTION code to a live test file, observe the gate red by name (`<file>:1 channel`), restore, observe
+green. The round-2 version was proved on a fresh file; the round-3 version on
+`tests/help/render.test.ts`, which ALREADY carries a dispositioned `unresolved-import` report — that
+file is the discriminating case, because under the round-2 rule its existing unrelated report accounted
+for the whole file and swallowed the new connection silently.
+
+The properness premise is the other half and is asserted, not assumed: `accounted.size <
+population.size` (179 against 2565). A subset assertion whose superset is everything cannot fail, which
+is what round 2 found and what this premise makes impossible to reintroduce.
 
 ### 6.3 Killer audit (spec §6, fourth column) — `task:enrol-and-score`
 

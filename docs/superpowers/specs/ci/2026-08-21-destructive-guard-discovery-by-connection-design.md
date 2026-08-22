@@ -489,11 +489,19 @@ added later to a file that already carries a row is not absorbed by it.
 
 `discoveredByDestructiveGuard = files whose stripped source matches any DESTRUCTIVE_STATEMENT_PATTERNS, minus GUARD_OWN_FILES`
 — computed by the same walk, the same stripper, and the same patterns the destructive meta-test uses.
-The census asserts `discoveredByDestructiveGuard ⊆ censusPopulation`, reporting each violation as
-`channel` — a file that executes destructive SQL without acquiring the driver the census models. At
-BASE the difference is empty and the assertion carries a premise that the discovered set is non-empty
-(four known files, `_metaDestructiveDbTargetGuard.test.ts` anti-vacuity list) so the subset claim
-cannot hold vacuously.
+The census asserts `discoveredByDestructiveGuard ⊆ accounted`, reporting each violation as `channel`
+— a file that executes destructive SQL without acquiring the driver the census models. `accounted` is
+the files the census resolved a class for, or named in a report about that file's OWN driver contact;
+it is NOT the walked population, and it is NOT every file any report mentions. Both of those were
+tried and both were wrong: `discovered` comes from the same walk, so joining against the population
+makes the arm tautological, and accounting on any report at all lets an unrelated dispositioned edge
+report cover a connection added beside it (whole-diff R2 and R3, scope B). Edge kinds are excluded by
+name — an edge the census could not follow is the opposite of evidence about that file's connections.
+
+At BASE the difference is empty. The assertion carries TWO premises so the subset claim cannot hold
+vacuously: the discovered set is non-empty (four known files, `_metaDestructiveDbTargetGuard.test.ts`
+anti-vacuity list), and `accounted` is strictly narrower than the walk — 179 against 2565 at HEAD —
+because a subset assertion whose superset is everything is not an assertion.
 
 This is the only place the census and the recognizer meet, and it closes the one silent pass the
 census alone cannot see: a destructive statement reaching the database through something that is not
@@ -849,8 +857,11 @@ None. No UI surface.
 
 **Creates.**
 
-- `tests/db/_connectionCensus.ts (new)` — the importable module: `walkTests`, `acquisitionsIn`,
-  `classifySite`, `classifyFile`, `propagateThroughImports`, `censusReport`. Pure functions of
+- `tests/db/_connectionCensus.ts (new)` — the importable module: `moduleSpecifiersIn`,
+  `acquisitionsIn`, `sitesIn`, `classifySite`, `classifyFile`, `propagateThroughImports`,
+  `ownClassesFor`, `reconcileDispositions`, `discoveredByDestructiveGuard`, `channelReports`,
+  `renderReport`. There is no `walkTests` and no `censusReport`: the walk lives in the live gate,
+  which is the only caller that has a tree to walk, and the rendering export is `renderReport`. Pure functions of
   `(filePath, source)` plus an import resolver injected for the graph, so the unit suite drives them
   on constructed sources and the meta-test drives them on the live tree. No subprocess anywhere
   (rule 102).
@@ -889,10 +900,24 @@ None. No UI surface.
 
 ### §5.1 Score inputs, stamped as a set derived from the contract
 
-Source, declared operators (`tests/mutation/source/operators.ts`), the registry row, the ledger-kinds
-row, the deciding suite, and every local module the suite transitively imports (`tests/_shared/premise.ts`,
-`tests/_shared/stripComments.ts`, `tests/db/_localDbUrl.ts`, `tests/db/_localDbUrlScan.ts`,
-`tests/db/_destructiveStatements.ts`, and the new dispositions module). The deciding suite reads NO live tree — that is the meta-test's
+Source, declared operators, the registry row, the ledger-kinds row, the deciding suite, and every
+local module the suite transitively imports. As measured, that derivation yields exactly FIFTEEN
+files, and the stamp prints them:
+
+    tests/_shared/outerExpressions.ts        tests/db/connectionCensus.test.ts
+    tests/_shared/premise.ts                 tests/mutation/_metaPremiseContract.test.ts
+    tests/_shared/stripComments.ts           tests/mutation/source/expectedLedgerKinds.ts
+    tests/db/_connectionCensus.ts            tests/mutation/source/ledger.ts
+    tests/db/_connectionCensusDispositions.ts  tests/mutation/source/operators.ts
+    tests/db/_destructiveStatements.ts       tests/mutation/source/registry.ts
+    tests/db/_localDbUrl.ts                  vitest.projects.ts
+    tests/db/_localDbUrlScan.ts
+
+An earlier version of this section listed only part of that set from memory and omitted four members
+(`outerExpressions.ts`, `ledger.ts`, `vitest.projects.ts`, `_metaPremiseContract.test.ts`), which is
+why the list above is stated as the derivation's OUTPUT: the stamp aborts on any missing normative
+member and enforces a floor on the length, so the enumeration here is a record of what it printed,
+not a second hand-maintained copy. The deciding suite reads NO live tree — that is the meta-test's
 job — so the repository is NOT a score input, which is what keeps the stamp closable. Provenance is
 printed inside the measuring invocation, before and after, over that derived list with a floor on its
 length.
@@ -914,7 +939,7 @@ AC-C6 or AC-C9; see their rows.
 | **AC-C5** | The helper graph reaches a fixpoint over EVERY module-specifier position the parser has — import with a clause, **import WITHOUT a clause** (`import "./_b2Helpers"`), `export … from`, `import x = require(…)`, `import("…")`, `require("…")` — for every PATH-SHAPED specifier: `./`, `../`, root-relative (a leading slash, Vite's project-root form), and `<key>/` for each key of the imported `REPO_ALIAS` — on a constructed 3-module cycle; a path-shaped specifier that resolves to no file reports `unresolved-import`; a bare specifier is not an edge. One fixture per specifier position AND one per specifier shape, each asserting the consumer inherits the helper's RESOLVED class; the side-effect-import fixture is one ordinary edit from `tests/db/_b2Helpers.ts:25` (spec round 1 F2); the root-relative fixture is one ordinary edit from `tests/api/show-unpublish-route.realdb.test.ts`'s `@/tests/db/_b2Helpers` (spec round 2 F3). One fixture per LOADER form: `await vi.importActual("./_helper")` inside a `vi.mock` factory → edge (one ordinary edit from `tests/app/admin/setDeveloperAction.test.ts:42`, spec round 3 F1); `vi.mock("./_helper")` without a factory → edge; `vi.mock("./_helper", () => ({}))` → no edge; `vi.unmock("./_helper")` → no edge; `vi.somethingElse("./_helper")` → one `loader-call` report; `vi.stubEnv("X", "y")` → nothing. A consumer of a helper whose only site is DISPOSITIONED inherits `dispositioned` and is absent from every report; a consumer of a helper with an UNDISPOSED site appears as AFFECTED under the helper's single report (spec round 2 F2). | unit suite with an injected resolver | a one-level import walk (passes a helper-of-a-helper); a walk that drops unresolvable specifiers; **a walk keyed on `import … from` that never sees `import "x"`**; **a resolver that filters to `./` and `@/tests/` and silently ignores the root-relative form**; **an edge walk that sees only the parser's own specifier positions and never a `vi.importActual` argument** (spec round 3 F1); an inheritance that propagates the helper's RAW report to every consumer (three false obligations at BASE) or that suppresses it (three silent files) |
 | **AC-C6** | The live census at HEAD reports exactly the disposition rows of §2.5 (EIGHT: two `resolver`, six `unclassifiable` edges) and nothing else. Every count below is of UNDISPOSED reports, which is the distinction the row-count makes: 0 undisposed, 0 stale, 0 ambiguous, 0 `remote-literal`, 0 `channel`, 0 `shadowed-driver`, 0 `acquisition`, and 0 unresolved-import edge WITHOUT a row (six carry one); the three `devCaptureStaged` consumers inherit `dispositioned` and appear in no report. **Not proved by green alone:** every population premise of §2.9 must hold and is asserted unconditionally above the report assertions; the suite prints the per-class site counts so `0 of 0` cannot render as a pass. | meta-test; counts printed and pasted into the PR body | a census whose walk matches nothing (premises red); a census that routes every site to `validation-env` (per-class floors red) |
 | **AC-C7** | A disposition row matching no live site is red (stale); a row matching two is red (ambiguous); a report with no row is red (undisposed); a `remote-literal` site is red regardless of rows. Each proved on a constructed registry + constructed sources, both directions. | unit suite | a forward-only registry check (passes a dead row) |
-| **AC-C8** | The §2.7 join: the set of files the destructive guard discovers — computed by calling `stripCommentsForFile` then the shared `DESTRUCTIVE_STATEMENT_PATTERNS`, minus `GUARD_OWN_FILES` — is a subset of the census population, with a premise that the discovered set has ≥ 4 members. A constructed destructive file that acquires no driver is reported `channel`. **The recognizer and the stripper are INJECTED**: `discoveredByDestructiveGuard(files, { patterns, strip })` defaults to the imported objects, the suite asserts the defaults ARE the imported objects by identity (rule 193: an injectable seam certifies a path production never takes unless the default binding is asserted), and a METAMORPHIC case injects a pattern set matching a sentinel string and asserts the discovered set MOVES to exactly the sentinel file — a join deciding membership with a private copy does not respond to the injection. | meta-test (live) + unit suite (constructed) | a join that re-implements the recognizer with `new RegExp(...)` copies while importing the shared objects for show (spec round 4 F2 — declares no regex LITERAL, imports both symbols, reproduces the live seven, and passes a literal-only structural check); killed by the identity assertion on the default plus the injected-sentinel case, which a copy cannot pass |
+| **AC-C8** | The §2.7 join: the set of files the destructive guard discovers — computed by calling `stripCommentsForFile` then the shared `DESTRUCTIVE_STATEMENT_PATTERNS`, minus `GUARD_OWN_FILES` — is a subset of the files the census ACCOUNTED FOR — resolved a class for, or named in a report about that file's own driver contact — with a premise that the discovered set has ≥ 4 members AND that the accounted set is strictly narrower than the walk. **Not the walked population** (whole-diff R2/R3 scope B): `discovered` is drawn from the same file array the walk produces, so joining against the walk makes the arm TAUTOLOGICAL, and accounting on ANY report lets an unrelated dispositioned edge report suppress the warning for a connection added beside it. Edge reports (`unresolved-import`, `loader-call`) are excluded: an edge the census could not follow is the opposite of evidence about that file's connections. Measured at HEAD: 179 accounted, 2565 walked. A constructed destructive file that acquires no driver is reported `channel`. **The recognizer and the stripper are INJECTED**: `discoveredByDestructiveGuard(files, { patterns, strip })` defaults to the imported objects, the suite asserts the defaults ARE the imported objects by identity (rule 193: an injectable seam certifies a path production never takes unless the default binding is asserted), and a METAMORPHIC case injects a pattern set matching a sentinel string and asserts the discovered set MOVES to exactly the sentinel file — a join deciding membership with a private copy does not respond to the injection. | meta-test (live) + unit suite (constructed) | a join that re-implements the recognizer with `new RegExp(...)` copies while importing the shared objects for show (spec round 4 F2 — declares no regex LITERAL, imports both symbols, reproduces the live seven, and passes a literal-only structural check); killed by the identity assertion on the default plus the injected-sentinel case, which a copy cannot pass |
 | **AC-C9** | `connectionCensus` is enrolled with a control line occurring exactly once, asserted by the suite; `EXPECTED_LEDGER_KINDS` carries its row; the first measured score is derived through the shipped `score()` and stated in the PR body with provenance stamped inside the measuring invocation over the §5.1 input set. **Not proved by green:** the number is READ from the score function's return, not from the gate log. | `pnpm mutation:guards` on a scoped scratch shard (deleted after; `_metaSourceShardIntegrity` proven red with it present and green without) | — (measurement, not a behaviour) |
 | **AC-C10** | `_destructiveFileAnalysis.ts`, `_destructiveStatements.ts`, `_metaDestructiveDbTargetGuard.test.ts` are byte-identical to `origin/main` at merge. | `git diff origin/main...HEAD --stat -- <three paths>` empty, run at closeout | — |
 | **AC-C11** | No binder dependence: the module never names `createProgram` or `getTypeChecker`, and every `createSourceFile` call passes `setParentNodes` true. | a structural assertion in the deciding suite over the module's own source (comment-stripped via the shared stripper), plus a positive control that the assertion reds on a constructed source containing `getTypeChecker(` | a module whose upward walks silently no-op on an unparented tree (rule 333) |

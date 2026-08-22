@@ -59,8 +59,10 @@ them.
 driver name in a TYPE position is not a value reference (50+ live files), an edge to a non-source
 file is a decided non-edge (3), NodeNext `.js` specifiers name their `.ts` sources (5), the walk
 includes `__generated__` (2 edges into it), and an unresolvable path-shaped specifier is a class the
-probes never ranged over (1 — the eighth disposition row). Every one of them was a FALSE REPORT
-waiting to happen, which the consequence bound makes a defect exactly as a missed file is.
+probes never ranged over (1 — the eighth disposition row). FOUR of the five were FALSE REPORTS
+waiting to happen, which the consequence bound makes a defect exactly as a missed file is. The fifth
+is the opposite and is worth stating as such: the unresolvable `./state` edge is a report the census
+SHOULD make and does, and it is the reason an eighth disposition row exists rather than seven.
 
 ---
 

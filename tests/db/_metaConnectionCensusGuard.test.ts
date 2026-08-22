@@ -32,6 +32,7 @@ import {
   classCounts,
   classifyFile,
   discoveredByDestructiveGuard,
+  EDGE_REPORT_KINDS,
   ownClassesFor,
   SOURCE_EXTENSIONS,
   propagateThroughImports,
@@ -171,7 +172,12 @@ const propagation = propagateThroughImports(
  */
 const accounted = new Set<string>([
   ...[...propagation.classes.entries()].filter(([, cls]) => cls.size > 0).map(([file]) => file),
-  ...preChannelReports.map((r) => r.file),
+  // EDGE reports do not account for a file (whole-diff R3 scope B P0). Round 2's version
+  // counted ANY report, so an unrelated `unresolved-import` -- already dispositioned, and
+  // about a specifier rather than a connection -- accounted for the whole file and
+  // suppressed the channel warning for a NEW production connection added beside it. An edge
+  // the census could not follow is the opposite of evidence about that file's connections.
+  ...preChannelReports.filter((r) => !EDGE_REPORT_KINDS.has(r.kind)).map((r) => r.file),
 ]);
 const channel = channelReports(discovered, accounted);
 

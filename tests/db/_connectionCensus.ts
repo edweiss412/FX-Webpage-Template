@@ -1102,6 +1102,20 @@ export type FileClass = SiteClass | "dispositioned" | "undisposed";
  * contact, and seeding a class from them would attribute a helper's behaviour to every
  * file that failed to resolve any specifier.
  */
+/**
+ * Report kinds that are about an EDGE rather than about the reporting file's own driver
+ * contact. `unresolved-import` and `loader-call` say the census could not follow a
+ * specifier; they say nothing at all about whether that file opens a connection.
+ *
+ * This is the same distinction `DRIVER_CONTACT_REPORT_KINDS` draws below, named from the
+ * other side because two callers need opposite halves of it, and stated once so they
+ * cannot drift apart.
+ */
+export const EDGE_REPORT_KINDS: ReadonlySet<ReportKind> = new Set([
+  "unresolved-import",
+  "loader-call",
+]);
+
 export const DRIVER_CONTACT_REPORT_KINDS: ReadonlySet<ReportKind> = new Set([
   "acquisition",
   "value-reference",
