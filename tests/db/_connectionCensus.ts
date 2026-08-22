@@ -61,16 +61,30 @@ export type SpecifierPosition =
   | "require-call"
   | "loader-call";
 
+export type LoaderInfo = { member: string; second: SecondArgRole };
+
+/**
+ * DISCRIMINATED on `position`, so a `loader-call` carries its loader BY TYPE.
+ *
+ * An optional `loader?` let a downstream `if (loader === undefined) continue` sit in the
+ * edge pass forever: `moduleSpecifiersIn` sets the field on every loader-call it emits, so
+ * the guard could never fire, and a dead guard that silently CONTINUES is the shape the
+ * killer audit already caught once at row 19 -- a permissive check downstream of the real
+ * one, making the outcome right for a reason nobody chose and no test can distinguish.
+ * Subtraction plus a type, the same repair, so the state is unrepresentable rather than
+ * merely unreached.
+ */
 export type ModuleSpecifierRef = {
-  position: SpecifierPosition;
   /** Null for a specifier the census cannot read statically — never dropped. */
   literal: string | null;
   /** The specifier node itself, or the call when the specifier is absent. */
   node: ts.Node;
   /** The declaration or call the specifier belongs to. */
   declaration: ts.Node;
-  loader?: { member: string; second: SecondArgRole };
-};
+} & (
+  | { position: Exclude<SpecifierPosition, "loader-call">; loader?: undefined }
+  | { position: "loader-call"; loader: LoaderInfo }
+);
 
 export type DriverBinding = {
   name: string;
@@ -1226,7 +1240,6 @@ export function propagateThroughImports(
     for (const ref of moduleSpecifiersIn(input.sf)) {
       if (ref.position === "loader-call") {
         const loader = ref.loader;
-        if (loader === undefined) continue;
         if (!loaderLoads(loader)) {
           const pathShaped = ref.literal !== null && isPathShaped(ref.literal, root);
           if (loaderUndecidable(loader) && pathShaped) {
