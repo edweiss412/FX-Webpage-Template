@@ -52,8 +52,11 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-08-20-browser-child-lifetime-design.md`](./2026-08-20-browser-child-lifetime-design.md) | 2026-08-20 |
 | [`2026-08-20-claim-sweep-after-repair.md`](./2026-08-20-claim-sweep-after-repair.md) | 2026-08-20 |
 | [`2026-08-20-shell-lexer-quoted-value-recall-design.md`](./2026-08-20-shell-lexer-quoted-value-recall-design.md) | 2026-08-20 |
+| [`2026-08-21-intraleg-process-boundary-probe-design.md`](./2026-08-21-intraleg-process-boundary-probe-design.md) | 2026-08-21 |
 | [`2026-08-21-mutation-outcome-attribution-design.md`](./2026-08-21-mutation-outcome-attribution-design.md) | 2026-08-21 |
 | [`2026-08-21-sendauth-arm-classifier-unification-design.md`](./2026-08-21-sendauth-arm-classifier-unification-design.md) | 2026-08-21 |
+| [`2026-08-21-destructive-guard-discovery-by-connection-design.md`](./2026-08-21-destructive-guard-discovery-by-connection-design.md) | 2026-08-21 |
+| [`2026-08-21-shell-attached-redirection-target-design.md`](./2026-08-21-shell-attached-redirection-target-design.md) | 2026-08-21 |
 | [`2026-08-21-speclint-red-reason-verification-design.md`](./2026-08-21-speclint-red-reason-verification-design.md) | 2026-08-21 |
 | [`2026-08-21-app-e2e-batch2-design.md`](./2026-08-21-app-e2e-batch2-design.md) | 2026-08-21 |
 | [`probes`](./probes) | 2026-08-04 |

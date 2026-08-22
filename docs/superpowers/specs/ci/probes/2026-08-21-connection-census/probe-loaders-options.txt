@@ -1,0 +1,13 @@
+(a) non-literal specifiers in import()/require(): 5
+    tests/e2e/helpers/useServerDirectivePlugin.test.ts:153:import(pathToFileURL(out).href)
+    tests/help/render.test.ts:41:import(/* @vite-ignore */ pathToFileURL(file).href)
+    tests/parser/_metaKnownSectionsWalker.test.ts:142:import(/* @vite-ignore */ path)
+    tests/parser/_metaTransformSitesWalker.test.ts:67:import(/* @vite-ignore */ path)
+    tests/parser/fieldNearMiss.test.ts:180:import(`../../lib/parser/blocks/${stem}.ts`)
+(b) connect sites: 175; arity 2=174 1=1
+    outer option keys: max=173 prepare=168 idle_timeout=79 connect_timeout=69 connection=1
+    connection sub-keys: statement_timeout=1
+    non-plain shapes (spread/computed/shorthand/identifier/third arg): 0
+(c) vi.<member>(<literal>) calls: mock=1136 stubGlobal=206 stubEnv=147 doMock=64 importActual=15 doUnmock=15
+    by member and target class: mock production=834 mock bare=301 stubGlobal bare=206 stubEnv bare=147 doMock production=49 doMock bare=15 importActual production=11 doUnmock bare=10 doUnmock production=5 importActual bare=4 mock tests=1
+    mock tests ../source/spawnBounded +factory

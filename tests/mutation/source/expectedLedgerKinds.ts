@@ -60,7 +60,17 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // arrives together with a floor edit and its own written argument, rather than
   // slipping under coarse-floor slack.
   spawnBounded: {},
-  // psqlStartupScan: TWENTY-FOUR equivalence arguments and NO accepted gap. SIX arrived
+  // psqlStartupScan: THIRTY equivalence arguments and NO accepted gap. FOUR arrived
+  // 2026-08-21 with BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION, and they are
+  // ONE argument at four sites rather than four stories: a character-indexing loop's
+  // widened bound adds an iteration where `text[index]` is undefined and every branch
+  // compares against a one-character literal. A FIFTH survivor of the same family was
+  // DELETED rather than blessed -- the dangling-backslash branch it sat in could not
+  // change any observable, probed across that family with every case ending WITHOUT a
+  // trailing newline -- so the ledger carries four rows where it could have carried
+  // five. TOTALISING these four is deliberately REFUSED: it moves termination into the
+  // predicate, where an equality-flip mutant hangs and costs the whole measurement.
+  // psqlStartupScan (historical): TWENTY-FOUR equivalence arguments and NO accepted gap. SIX arrived
   // with the 2026-08-17 arc, and only one of the six is a disposition rather than new
   // code. Its first re-measure surfaced six survivors: two were
   // repaid with tests pinning the octal escape's digit range at both ends, three are new
@@ -89,7 +99,7 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // counted survivor at all: an `accepted-gap` appearing here would be this surface's
   // first, owing its own filing AND a `scoreFloor` edit, and a new equivalent row is a
   // coverage regression to explain.
-  psqlStartupScan: { equivalent: 26 },
+  psqlStartupScan: { equivalent: 30 },
   // The pane-compaction classifier, enrolled with an EMPTY ledger: it is a pure
   // classifier over injected fixtures, so every survivor is repayable by a test
   // rather than blessable. A row appearing here later is a coverage regression
@@ -384,4 +394,20 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // is not behaviour-preserving by definition. Any row appearing here later is
   // this surface's first and owes its own written argument.
   sendAuthScan: {},
+  // The connection census, enrolled 2026-08-21. TWO proven equivalences and NO accepted gap.
+  // The first scored run reported 74 survivors (0.7898) and the arc repaid them across three
+  // measured rounds — 74, then 24, then 7 — with cases, or by DELETING code no input could
+  // reach (six unreachable branches in a declaration-position predicate; a dead
+  // `initializer === cur` conjunct). Nothing was blessed to lift the number: an
+  // `accepted-gap` row would DEPRESS the score by design, and there are none.
+  //
+  // The two equivalences are structural, each argued in full on its registry row. An
+  // out-of-population import target is unobservable because every consumer of `edges` and
+  // `reaches` keys on members of `files`, which such a target is by definition not. And the
+  // fixpoint's CLASS-growth signal can never be a pass's last growth: classes and reach
+  // cross the same edges at the same one-hop-per-pass rate, so a class arriving at distance
+  // N implies a node at distance N, which grows reach in that same pass. The converse does
+  // not hold, which is why the two REACH signals are killed rather than accepted, each by
+  // its own chain fixture. A third row appearing here owes its own written argument.
+  connectionCensus: { equivalent: 2 },
 };

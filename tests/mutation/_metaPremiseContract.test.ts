@@ -183,7 +183,13 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   //
   // Re-measured across every enrolled suite by walking the registry's
   // `suitePaths`, as that row required: this is the only count that moved.
-  "tests/cross-cutting/psqlStartupFileSuppression.test.ts": 2,
+  //
+  // 2 to 3 on 2026-08-21: the attached-redirection arc promoted a bash-oracle
+  // matrix into this suite, which spawns `bash` against a fake `psql` on PATH.
+  // The contract caught it in CI before the author did - the new test carried a
+  // non-vacuity check but not a PREMISE, which is exactly the distinction this
+  // file exists to enforce.
+  "tests/cross-cutting/psqlStartupFileSuppression.test.ts": 3,
   // The heavy-orphan reaper's classifier suite, enrolled 2026-08-16. It declares 0
   // because `classify` is pure by construction — no I/O and no clock, which is the
   // property that made the module the enrolled surface rather than the CLI — so every
@@ -368,6 +374,12 @@ const EXPECTED_ENV_TOUCHING: Record<string, number> = {
   // Also a scanner-rule 0 with the same caveat: it readFileSync's the workflow
   // and the shard files, but imports no member of ENVIRONMENT_SOURCES.
   "tests/mutation/_metaSourceShardIntegrity.test.ts": 0,
+  // The connection census's deciding suite, enrolled 2026-08-21. It drives the pure core
+  // over CONSTRUCTED sources and reads only the module's own text for the structural
+  // assertions, so it reaches no member of ENVIRONMENT_SOURCES: the `process.env` spellings
+  // in its fixtures are STRING LITERALS inside template fixtures, not reads. The count is
+  // what the classifier reports for it, run and read rather than guessed.
+  "tests/db/connectionCensus.test.ts": 0,
 };
 
 const suites = [...new Set(GUARD_SURFACES.flatMap((s) => s.suitePaths))].sort();

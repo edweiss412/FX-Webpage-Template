@@ -8,6 +8,46 @@ Last reconciled: 2026-08-17 — `fix/shell-binding-mixed-quoted-value` graduated
 
 ---
 
+## BL-SCREENSHOTS-DRIFT-CAPTURE-NONDETERMINISM — the byte gate fails on a diff that changes no render input, and the same branch passed an hour earlier
+
+**Status:** OPEN · **Filed:** 2026-08-21 (reported by the `fix/shell-attached-redirection-target` arc; probed further here) · **Facing:** process · **Severity:** MEDIUM (a merge-blocking gate firing on arcs that touch nothing it measures; no shipped-behavior defect) · **Class:** CI gate fidelity · **Effort:** M · **Incident:** run [32528532727](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32528532727) FAILED screenshots-drift on 2026-08-21 at 21:26Z while the nightly backstop on `main`, run [32472312764](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32472312764), PASSED the same day at 10:22Z. · **Reachability:** PROBED — see the same-branch pair below.
+
+The failing job recaptured `public/help/screenshots/review-queues-empty-state-light.webp` at **11408 bytes against a committed baseline of 6148** — a near-doubling of an EMPTY-STATE image. The reporting arc's diff touches ZERO render inputs: nothing under `app/`, `components/`, `lib/`, `fixtures/`, `supabase/` or `public/`.
+
+**The decisive evidence is a SAME-BRANCH pair, not the nightly comparison.** The nightly rules out a stale baseline and no more; it runs on different content, so a defender can always say the branch is what differs. That objection does not survive this:
+
+| run                                                                                       | sha            | conclusion  | at                |
+| ----------------------------------------------------------------------------------------- | -------------- | ----------- | ----------------- |
+| [32523151283](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32523151283) | `f51a96457190` | **success** | 2026-08-21 20:21Z |
+| [32528532727](https://github.com/edweiss412/FX-Webpage-Template/actions/runs/32528532727) | `be5d3d810db2` | **failure** | 2026-08-21 21:26Z |
+
+`git diff --name-only f51a96457190..be5d3d810db2` filtered to render inputs returns NOTHING — the eight changed files are two ledger files, three docs, and three files under `tests/`. One branch, no render input moved, sixty-five minutes apart, pass then fail. Whatever varies is not in the repository.
+
+**THIS IS THE SECOND OCCURRENCE OF A CLASS ALREADY FILED.** `BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED` (filed 2026-08-18) records a `dashboard-overview-light.webp` flip at a fixed tree that nine dispatched runs could not reproduce, and it is filed `INFERRED, NOT PROBED` with its first scheduled step waiting on a recurrence. This is that recurrence, on a different image, with a same-branch pair the earlier occurrence never had. The two rows are ONE class and must be worked together; neither should be scheduled alone.
+
+**TWO CANDIDATE MECHANISMS, and the reporting arc's is not obviously the stronger.**
+
+1. **A time-of-day or date-dependent capture** (the reporting arc's hypothesis, labelled as one). A near-doubled EMPTY-STATE image reads like the queue was not empty at the 21:38Z capture, which follows if the fixture's emptiness depends on a comparison against the wall clock.
+2. **Runner-population bimodality** (the predecessor row's leading candidate, and the repository already carries this as a known byte-gate lesson). A capture environment where some fraction of runners encode differently produces exactly this: same tree, same inputs, different bytes, no reproduction on demand.
+
+Both fit every fact here. The same-branch pair narrows the variable to something outside the repository and does not choose between them.
+
+**The probe settles both at once, and it is the first scheduled step:** at the next capture, record runner identity — `Runner.Name` plus CPU model from the runner context — alongside the wall-clock time, on BOTH outcomes, and capture the same baseline twice from one unchanged tree at two well-separated times of day. Time-varying bytes on one runner names mechanism 1; identical bytes across times but differing bytes across runner identities names mechanism 2; neither is a third thing worth knowing before any repair is designed. This is the predecessor row's scheduled capture with a time axis added, not a new instrument.
+
+**Exposure, which is why this is not merely one arc's bad luck.** screenshots-drift is path-filtered, and `scripts/ci/**` is in its allow-list. The reporting arc tripped the job only because it added a closeout gate under that path. **Any arc adding a file under `scripts/ci/` pays for this job**, and if the capture is genuinely nondeterministic, any of them can draw the failure while changing nothing the gate measures.
+
+**DO NOT recapture the baseline from a branch.** The byte-pin discipline stands: baselines are regenerated from the pinned amd64 Docker image, never from a host, and never as a way to make a red gate green. A recapture here would overwrite the pinned bytes with whatever the nondeterminism produced and destroy the evidence that something varies.
+
+## BL-DERIVED-NUMBERS-IN-DOCS-ROT — a number a document states about an artifact goes stale unless a command produces it at write time
+
+**Status:** OPEN · **Filed:** 2026-08-21 (PR #874, diff review rounds 1-3) · **Facing:** process · **Severity:** LOW (stale prose in records and ledger entries; no shipped behavior) · **Class:** documentation fidelity · **Effort:** M · **Incident:** diff review round 3 of PR #874 raised THREE findings that were all one shape — the archive quoted the first campaign's arm-C durations after the second superseded them, the probe record's producing command named the superseded output directory while every number came from the new one, and the audit transcript said 7 live cases against a tier of 8. A fourth instance, a case count stale at 151 against 169, was corrected separately in the same arc. Corpus rows: `docs/review-rounds/feat/mutation-verdict-intraleg-probe/c9c71b947a85.jsonl`. · **Reachability:** PROBED — four measured instances on one arc.
+
+**The population is sharply defined, which is what makes this filable rather than a wish.** On that arc, every number a RENDERER derived from `campaign.json` was correct at every rewrite; every number a person carried from one document to another went stale at least once. The two sets do not overlap. The rot is not caused by carelessness about numbers in general — it is caused by the ones that pass through a human hand between the measurement and the page.
+
+**What a repair looks like.** Not a linter that recognizes numbers: a convention plus one mechanical check. Records and ledger entries that state figures about a suite, an artifact or a run either (a) carry the producing command beside the figure, or (b) are assembled by a script that reads the artifact. A structural test can then require, for documents under `docs/superpowers/specs/ci/probes/`, that any line asserting a bare count near a `campaign.json`-shaped path also names the command that produced it.
+
+**First scheduled step:** count the population before building anything — grep the probe records for stated figures and classify each as derived or hand-carried. If the hand-carried set is small and shrinking, this closes as a convention with no test at all.
+
 ## BL-ACCEPTSET-CONSUMER-COVERAGE — an accept-set widened without its consumers is a change that reads as adoption and behaves as nothing
 
 **Status:** OPEN · **Severity:** MEDIUM (silent FREE: a widened set that no consumer ranges over leaves the construct unclassified while the diff shows the widening) · **Class:** guard fidelity · **Effort:** S · **Filed:** 2026-08-21 (`fix/premisescan-registrar-accept-sets`, spec rounds 1-3) · **Facing:** process · **Mint-exception:** invariant · **Reachability:** PROBED — three separate consumers measured below.
@@ -40,6 +80,48 @@ in `tests/mutation/source/premiseScan.ts` and confirm the derived count matches 
 one this arc found by hand — if a hand count and a derived count disagree, the derivation is the one
 to trust and the disagreement is the row's first finding.
 
+## BL-MUTATION-REGISTRY-KEYS-STALE-AFTER-ANY-SOURCE-EDIT — nothing runs `mutation:sites` after an edit to a registered surface, and a COMMENT edit invalidates the keys exactly as code does
+
+**Status:** OPEN · **Filed:** 2026-08-21 (`fix/shell-attached-redirection-target`, diff rounds 2 and 3) · **Severity:** MEDIUM (a stale registry fails AC-7 at HEAD while every other gate stays green, so the arc reports itself ready) · **Class:** mutation harness fidelity · **Effort:** S · **Facing:** process · **Reachability:** PROBED — observed twice on one arc, by two different routes. · **Incident:** it cost TWO review rounds on this arc and both are corpus rows at `docs/review-rounds/fix/shell-attached-redirection-target/c9c71b947a85.jsonl`. Diff round 2 found 28 of 30 `psqlStartupScan` rows stale after a behavioural fix — `pnpm mutation:sites` exiting 1 at a HEAD whose suite, AC-5 and AC-8 were all green and had been reported as such. The identical failure then recurred through the COMMENT-only route while repairing round 3, taking all 30 stale.
+
+Accepted-survivor rows are keyed `operator:line:column:replacement`, so the key moves whenever the line moves — and a prose or comment edit moves lines exactly as a behavioural one does. Nothing enforces a re-derivation. The check that catches it, `pnpm mutation:sites`, exists and is cheap; it simply is not wired to the event that invalidates its subject.
+
+**The failure mode is that everything else stays green.** A stale registry does not fail typecheck, the suite, the corpus digest or the census, so an arc that re-runs "the tests" after a fix sees green and reports ready. Both occurrences here were found by a reviewer running the one command the implementer had dropped, not by the implementer's own post-fix pass.
+
+**Why the human step is the wrong place for it.** The rule is already written down and was already known to this arc when the second occurrence happened; what failed was re-deriving the post-fix check set from memory rather than from the blast radius of the edit. That is the shape a gate closes and discipline does not.
+
+Close condition: `mutation:sites` runs unconditionally after any edit to a file named by a `GUARD_SURFACES` row — as a pre-commit hook, a CI job on the changed-file set, or a meta-test that fails when a registered surface's blob differs from the revision its keys were derived at.
+
+## BL-MUTATION-SCORE-JURISDICTION-GAP-ARITHMETIC-BRANCH — a guard surface's declared operators produce ZERO sites over a whole branch, so the score cannot see code it is reported against
+
+**Status:** OPEN · **Filed:** 2026-08-21 (`fix/shell-attached-redirection-target`, diff round 3) · **Severity:** MEDIUM (the score is reported as the surface's convergence criterion while a branch of that surface is outside it; the number is honest and its jurisdiction is not stated) · **Class:** mutation harness fidelity · **Effort:** L · **Facing:** process · **Class-sweep exception:** (c) — closing it means widening a registry operator set file-wide, which is a measurement-scope decision about the harness rather than a repair to this arc's code. · **Reachability:** PROBED — the numbers below were measured, not estimated. · **Incident:** diff round 3 of this arc found a REGRESSION the arc itself introduced — `$((...))` arithmetic read as a `$()` command substitution, yielding a resolved site for a command bash never runs — after FOUR earlier review rounds and a `49/49` score with zero unaccepted survivors had all passed over it. A reviewer probing bash found it; the score structurally could not.
+
+`psqlStartupScan` declares `relational-boundary` and `regex-quantifier-bound`. The arithmetic branch added in diff round 3 uses equality tests and `Math.max`, so those operators enumerate **zero sites over it**: the surface holds 79 sites with the branch present and held 79 without it.
+
+**Measured cost of closing it as-is.** The first version of this row said `integer-literal` is the ONLY operator reaching the branch, at +375. **That was wrong and diff round 5 caught it:** the measurement behind it was a FILE-WIDE delta, which answers "what does adding this operator cost" and not "does this operator reach the branch". Two different questions, and I reported one as the other.
+
+Re-censused per operator. **The file-wide column is the load-bearing one and the only one stated as a count:**
+
+| operator                            | file-wide | reaches the `$((` branches? |
+| ----------------------------------- | --------: | --------------------------- |
+| `relational-boundary` (declared)    |        71 | **no**                      |
+| `regex-quantifier-bound` (declared) |         8 | **no**                      |
+| `logical-connector`                 |       195 | yes                         |
+| `equality-flip`                     |       278 | yes                         |
+| `integer-literal`                   |       375 | yes                         |
+| `statement-removal`                 |       414 | yes                         |
+| `arithmetic-operator`               |         0 | no                          |
+
+An earlier version of this row gave exact in-branch COUNTS. They are deliberately gone: diff round 6 enumerated the same branches and got different numbers, and both enumerations were honest — the count depends entirely on where you cut the branch, and a neighbouring ordinary `$()` arm sits immediately after it. A number whose value depends on an arbitrary boundary is not a measurement, so what remains is the predicate that does not: **which operators reach the branch at all**, and what each costs file-wide.
+
+FOUR operators reach it, not the one this row first named, and the cheapest is `logical-connector` at +195 file-wide rather than `integer-literal` at +375. What survives every correction is the finding: both DECLARED operators reach it ZERO times, so the branch is outside the score's jurisdiction as configured, and every operator that would reach it is file-wide on a surface that already runs ~24 minutes.
+
+**Why it was NOT enrolled in the arc that found it.** Enrolling buys mutants weaker than the verifier already built: the branch's terminal check is a bash-oracle matrix that derives every expectation from whether the shell actually executed the command, promoted into the deciding suite so it is a standing gate rather than a session artifact. Enrolment would add hundreds of mutants over unrelated integer literals to reach one branch a stronger instrument already covers, and it would land that decision under review pressure at diff round 4.
+
+**The general shape, which is worth more than the instance.** A mutation score answers "does the suite pin what is WRITTEN". It cannot answer "is what is written the whole domain", because a construct the code never distinguished is invisible to every mutant of that code. This row is the first measured instance on this repo of a surface being scored against operators that cannot reach part of it.
+
+Close condition: either a per-branch enrolment mechanism (operators scoped to a region rather than a file), or a ratified decision that file-wide widening is worth its runtime, taken outside a review round with these numbers in hand.
+
 ## BL-SENDAUTH-BINDING-IDENTITY-NAME-KEYED — the binding set is a Set of NAMES, so every consumer asks "is something called X in scope" rather than "is this identifier that binding"
 
 **Status:** OPEN · **Filed:** 2026-08-21 (`fix/sendauth-arm-classifier-unification`, promised as a peer by that arc's spec §4.2 and filed on its diff-r1 reviewer noticing the promise had not been kept) · **Severity:** LOW-MEDIUM (a false advisory, which is the survivable direction; the silent direction is closed) · **Class:** detector fidelity · **Effort:** M · **Facing:** process · **Class-sweep exception:** (c) — resolving an identifier to its DECLARATION is a redesign of the binding-discovery layer the unification arc does not otherwise touch, and it needs the `ts.TypeChecker` that predecessor limits 5 and 8(b) both decline. · **Reachability:** PROBED — the false advisory below was measured in that arc's spec §3.6 against source blob `412cadd3`. · **Incident:** the measured false advisory at §3.6 — a name shadowing a surface binding was classified as the surface, because the consumer asks only whether SOME binding carries that name. That is a cost event that already happened, not a constructed hypothetical.
@@ -69,33 +151,6 @@ a design decision rather than a patch — which is what exception (c) records.
 advisory for a silent miss, which is the direction the bound forbids. The only correct repair
 resolves identity; anything else moves the error to the wrong side.
 
-## BL-MUTATION-VERDICT-MECHANISM-INTRA-LEG — the verdict-movement mechanism is still unexplained, and the probe that could settle it must vary the process boundary
-
-**Status:** OPEN · **Filed:** 2026-08-21 (`fix/mutation-score-nondeterminism`, the unmet close condition of the archived `BL-MUTATION-SCORE-NONDETERMINISM`) · **Severity:** MEDIUM (a score that is not reproducible from its declared inputs makes every "0 unaccepted survivors" claim a measurement of something the convergence criterion does not name) · **Class:** mutation harness fidelity · **Effort:** L · **Facing:** process · **Class-sweep exception:** (c) — settling it needs a probe harness that varies process boundary and ordering across trials, which is a NEW INSTRUMENT rather than a repair to any surface the closing PR touched. · **Reachability:** PROBED — four observations of one site disagreeing with itself on byte-identical inputs, recorded on the archived row. · **Incident:** PR #856's `source-shards (0)` leg was triaged as an inherited main-red and is not one (run `32375262145` job `96445004668`, against main's same-day nightly `32344648722` job `96350700409`, where the same surface is green); and separately, a CORRECT ledger row was removed on a single stale-row report and had to be restored after three further observations.
-
-**This row exists because the row it succeeds was archived on a RE-SCOPED close condition.** `BL-MUTATION-SCORE-NONDETERMINISM` said what would close it is an EXPLANATION; the arc that closed it shipped ATTRIBUTION and explicitly did not achieve one. Rather than let the graduation absorb the unmet half silently, the original condition is carried here.
-
-**THE ELIMINATED SET, SIX DEEP. Do not re-run these.**
-
-| candidate                                                       | how it was eliminated                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **co-tenancy** (an LPT re-pack changing a surface's neighbours) | pre-registered experiment at ~30x the perturbation the original observation carried: ZERO flips across 38 pre-existing surfaces, and the decisive datum is one mover — `ledgerGit` itself changed shards 0 to 1 and STAYED GREEN. Background flip rate measured at zero across five consecutive nightlies, and shard placements reconciled against observed annotations BEFORE interpretation, so the null is over the right population. |
-| **timeouts at the locus**                                       | ZERO of 93 kills, on the surface, site and bytes where the anomaly was observed, in three separate runs.                                                                                                                                                                                                                                                                                                                                 |
-| **headroom correlation**                                        | positive but stuck at n = 2 known-flaky surfaces; suggestive, never confirmatory, and flakiness is observed rather than sampled.                                                                                                                                                                                                                                                                                                         |
-| **duration drives instability — advance prediction**            | the #2 and #3 headroom surfaces show ZERO recorded movement across 19 failing runs. Written down with both branches before any history was read, and it did NOT confirm.                                                                                                                                                                                                                                                                 |
-| **duration drives instability — direct**                        | across three controlled local runs on byte-identical inputs the mutant-duration maximum swung 19.8 s to 39.1 s **while the survivor set reproduced EXACTLY**. The axis that varies is not the axis under investigation.                                                                                                                                                                                                                  |
-| **the bimodal tail as a structural lead**                       | run 2's 38.0/39.1 outlier pair did NOT reproduce; run 3's tail is a flat cluster with no outlier at all.                                                                                                                                                                                                                                                                                                                                 |
-
-**READ THE NEGATIVES AT THEIR REAL STRENGTH, not as proof of absence.** The advance prediction's channel is CI-ONLY and FAILURE-ONLY — it cannot see `psqlStartupScan`, the surface with the CLEANEST reproduction in the corpus, because those flips happened in local gate runs and an annotation fires only on a gate FAILURE. So that row is "no recorded gate-failing movement", never "no movement". A ledger row that overstates its own negatives sends the next investigator past the branch that is still open. The durable per-run record the closing arc shipped exists precisely to remove that blind spot for the next attempt.
-
-**AND ONE LOAD OBSERVATION, sized honestly at ONE.** The closing arc's two baselines differed in measured machine load — 100% co-tenanted over 61 samples against a >=49% floor — with every verdict identical, on the least-headroom surface where the load mechanism predicts its largest effect. That is ONE paired observation against the load mechanism, not six: the other runs held load FIXED and unmeasured, so they are evidence for verdict STABILITY and cannot be added to this column. A test requires the independent variable to move.
-
-**The one branch genuinely still open, with the reason it is hard.** Probe 3 ran the known-flaky site six times SERIALLY IN ONE PROCESS and got 6/6 identical. Under independent trials that excludes only a flip rate around 40% per run or more. But `p^6 + (1-p)^6` presumes INDEPENDENCE, and serial runs in one process share cache, ordering, environment and load state — **correlated within-process state is exactly what an intra-leg mechanism WOULD BE**, so a perfectly correlated 50% mechanism yields six identical results with probability 1. **More trials in the same process carry no further information at any sample size.**
-
-**First scheduled step, and it is an INSTRUMENT rather than another run:** a probe that varies the PROCESS BOUNDARY and the ORDERING across trials rather than repeating within one — separate processes, shuffled site order, a deliberate load control — with the per-run record the closing arc shipped as its read-out. `pnpm mutation:determinism --surface <id> --site <siteId> --runs <n>` is the in-process half and already exists; what is missing is the across-process half.
-
-**Do not attempt this by widening the existing determinism harness.** Its core is deliberately in-process so the source-mutation runner can overlay it (AC-9); an across-process probe is a different instrument with a different contract, and merging them would make the in-process assertions unreachable — which is the defect that makes a CLI-shaped surface score as if untested.
-
 ## BL-PREMISESCAN-ALIAS-SLICE-UNCOVERED — the `@/` specifier slice has no killing test
 
 **Status:** OPEN · **Filed:** 2026-08-16 (`fix/scanner-scope-totality`, from the premiseScan mutation-gate enrolment) · **Class:** guard coverage · **Effort:** S · **Class-sweep exception:** (c) — closing it needs a corpus module this PR does not otherwise touch. · **Reachability:** PROBED — a declared mutant that survives the shipped suite.
@@ -115,30 +170,6 @@ It survives the suite, and is carried as an `accepted-gap` row on the `premiseSc
 **Not archived, deliberately.** That is ONE run, and a row removed on a single observation is the mistake this repository has already made and reversed once — the correct posture is to record the observation and let a second one adjudicate. What would settle it: this site surviving, or not, in the next independent gate run of `premiseScan`, at which point the row either graduates with two observations behind it or is corrected again. What is settled NOW is that the row's own description of the ledger is wrong, and a falsely-described row recruits work that does not exist.
 
 **First scheduled step:** add a committed two-file fixture under the recognizer's own fixture directory — a module reached via `@/` whose exported helper spawns — and assert `environment-touching`. That kills the mutant and lets the row graduate from `accepted-gap` to killed.
-
-## BL-SHELL-ATTACHED-REDIRECTION-TARGET-SUBSTITUTION — a command substitution inside an ATTACHED redirection target hides an executing psql from both scanners
-
-**Status:** OPEN · **Filed:** 2026-08-20 (`fix/shell-lexer-quoted-value-recall`, spec adversarial round 1 finding 1) · **Facing:** process · **Severity:** MEDIUM (a MISSED SITE for an executing command, not a conservative non-report; zero corpus instances) · **Class:** guard coverage · **Effort:** M · **Incident:** spec round 1 of `fix/shell-lexer-quoted-value-recall` was burned on this gap — the reviewer's BLOCKING finding is the round, corpus row `docs/review-rounds/fix/shell-lexer-quoted-value-recall/`, and the arc withdrew its attached-target scope in response (design §1.1 row 7, §6 item 3). · **Reachability:** PROBED — see below; zero live corpus instances.
-
-`lexShellWords` (`tests/cross-cutting/psqlStartupFiles/scan.ts`) consumes an ATTACHED redirection target with a regex that matches the whole target and discards it, so a target CONTAINING A COMMAND SUBSTITUTION is never lexed and its body is never collected as a nested shell. Bash executes that body. Probed spellings, each reporting **zero sites and zero indirection hits** while the bash oracle confirms the call really runs: a bare backtick target; `$(…)` or a backtick inside an attached DOUBLE-QUOTED target; a locale-quoted `$"…"` target; and a command substitution inside an attached `${…}` target. The plain attached here-string (`read -r PG <<<p'sql'`) is the same family's benign end and is missed for the same reason.
-
-The failure direction is the bad one — a missed SITE for an executing psql, not a missed discovery hit — which is why this is a ledger row rather than only a limits entry. It is nonetheless PRE-EXISTING and not made worse by the arc that filed it.
-
-**What would close it, and what will not:** collecting the attached target's nested bodies into the lexer's `nested` array so `scanShellText` reads them as it reads every other substitution body. The two readings the filing arc REFUSED, recorded so they are not re-proposed: handing the attached slice to `lexShellWords` recursively and exposing the result to the site path (it breaks the by-construction site-path identity that the detached-target arm rests on), and recursive lexing that keeps the bodies private (machinery with the miss still in place). Closing it belongs to an arc that can re-measure the whole site path, not to a recall arc.
-
-## BL-DESTRUCTIVE-GUARD-DISCOVERY-BY-CONNECTION — discover destructive-analysis files by connection, not by SQL spelling
-
-**Severity:** MEDIUM · **Class:** structural guard · **Effort:** L · **Filed:** 2026-08-14 (`chore/guard-completeness-wave`, spec `docs/superpowers/specs/ci/2026-08-14-guard-completeness-wave-design.md` §2.5)
-
-Discovery in `tests/db/_metaDestructiveDbTargetGuard.test.ts` is spelling-sensitive, and its own header has recorded that as a documented limit since r16: the patterns require the schema-qualified, unquoted `public.<name>(` form, so an unqualified `select prune_sync_log()` or a quoted `select "public"."prune_sync_log"()` is never discovered and NO analysis runs on that file. The 2026-08-14 execution-site redesign closed the acquisition question inside a discovered file; it does not touch which files are discovered.
-
-The terminating framing is the same one that closed acquisition: stop asking how the statement is spelled and ask whether the file OPENS A DATABASE CONNECTION, then require the loopback guard of all of them.
-
-**Probe (2026-08-14), which is why this is an L and not a follow-up commit:** `rg -l 'from "postgres"|require\("postgres"\)' tests/` — about 150 test files import the driver, and roughly 60 of them never call `assertLocalDbUrl`. Many connect through shared helpers (`tests/db/_b2Helpers.ts`, `tests/sync/_holdAwareTestkit.ts`) rather than directly, and many legitimately target the validation project. Requiring the analyzer of all of them needs per-file dispositions, helper-module modeling, and a validation-target accept-set the loopback-only guard deliberately does not have.
-
-**Prereq:** its own spec. Do not attempt this as a widening of the existing guard — that is the recognizer ratchet the analyzer's own history documents.
-
----
 
 ## BL-PRIVATE-IMAGE-POSTMERGE-PROBE — the private-image-pipeline shipped without its post-merge validation evidence
 
@@ -208,6 +239,55 @@ The alert pill has two branches. Monitoring-only ("clearing on their own, no act
 **Why it was not repaired on this branch.** The site is dispositioned SWAP in the ratified census (spec `2026-08-14-ui-interactive-token-policy-design.md` §4.3), and the exemption side is pinned executably — the registry's 14 rows, plus the NEGATIVE guarantee that no other in-scope element carries a bare `text-text-subtle` — by `tests/styles/_metaSubtleOnInteractive.test.ts`. Moving it to a Family D carve-out would edit a user-ratified table, which is the user's call, not the implementer's. The pair is NOT indistinguishable meanwhile: the fills differ (`bg-surface-sunken` vs `bg-warning-bg`) and the dot differs in shape (hollow positive-tone vs filled review-tone), so the §1 colour-blind floor holds either way.
 
 **First scheduled step:** decide whether an interactive pill whose whole message is "nothing to do here" is a Family D dim member (it is a state pair, and it already carries two non-colour cues), or whether the urgent branch should instead gain weight.
+
+## BL-SHEET-ICON-CONTAINMENT-WALK-INGESTS-GITIGNORED — a containment guard walks the repo without honouring gitignore, so local scratch directories enter its censused-consumers map
+
+**Status:** OPEN · **Filed:** 2026-08-21 (routed by `pr2` via the orchestrator; probed by `pr2` on main) · **Severity:** LOW-MEDIUM (never reaches the merge gate — it is green in CI by accident of clean checkouts and red for the humans and agents who have local scratch) · **Class:** guard fidelity · **Effort:** S · **Facing:** process · **Reachability:** PROBED — `pr2` ran it BOTH directions: the identical file PASSES in a clean worktree and FAILS in the dirty main checkout. · **Incident:** a `.validation-local/` directory left in the main checkout since May put `node_modules` into the guard's censused-consumers map and failed the guard's own non-compile-trees assertion, and the resulting investigation is the cost event — time spent on a red that describes the checkout rather than the code.
+
+`tests/components/admin/sheetIconLinkContainment.test.ts` walks the repository and ingests GITIGNORED local directories. Nothing in the walk consults `.gitignore`, so any scratch tree a session leaves behind becomes input to the census. **Whether that is a defect depends on the answer to the owner question below, and this row does not presume it:** the guard describes and performs a raw full-repository walk, so ranging over untracked files is what it currently SAYS it does, not a deviation from a stated tracked-source contract.
+
+**The failure mode is the one that costs the most per unit of severity.** It cannot block a merge, because CI checks out clean — so the guard is permanently green where it is watched and intermittently red where it is worked. A red that depends on the reader's untracked files is worse than a red that depends on the code: it is unreproducible for whoever is asked to confirm it, and the first move it invites is to doubt the diff.
+
+**Same class as `BL-REVIEW-ROUND-REPORT-TEST-TIMEOUT-GROWTH`** — a guard whose expectation is derived from something outside the tracked tree, so it degrades on an axis no reviewer of the diff can see. Cross-referenced deliberately: two instances make it a shape worth naming rather than an incident.
+
+**This row records the owner question rather than answering it:** should that walk honour `.gitignore`? Honouring it makes the guard agree with what CI actually checks out and with what a contributor can reason about. Declining to makes the guard range over everything physically present, which is a defensible reading for a CONTAINMENT check whose point is that nothing unexpected sits in the tree. The two readings disagree about whether an untracked directory is part of the subject at all, and that is a decision for the surface's owner, not a repair to be picked here.
+
+## BL-SHELL-BRACE-MATCHER-CROSS-CONSTRUCT-BLIND — the brace walk counts its own delimiter pair without respecting other constructs, so a `}` inside a nested `$()` closes the `${` early
+
+**Status:** OPEN · **Filed:** 2026-08-21 (`fix/shell-attached-redirection-target`, diff round 1 finding 2) · **Severity:** MEDIUM (one shape is a SILENT MISS, which is a forbidden direction, but the live population is zero) · **Class:** detector fidelity · **Effort:** L · **Facing:** process · **Class-sweep exception:** (c) — `matchBrace` is a PRE-EXISTING shared helper with five callers that this arc does not otherwise touch, and the obvious repair is not viable as written: a construct-aware prototype fixes all four shapes and then TIMES OUT over the live corpus at 400s where the shipped walk finishes in 13s, so making it correct needs memoisation or a single-pass tokeniser rather than a patch. · **Reachability:** PROBED — inputs and observations below, each paired with a bash run. · **Incident:** it reached diff round 1 of this arc as a BLOCKING finding and cost that round (corpus row `docs/review-rounds/fix/shell-attached-redirection-target/`); the reviewer reported it as wrong attribution only, and reproduction found the sharper silent-miss shape underneath it.
+
+`matchBrace` (`tests/cross-cutting/psqlStartupFiles/scan.ts`) tracks quotes and escapes but counts only its own `open`/`close` pair, so a delimiter belonging to a DIFFERENT construct is counted as its own. A `}` inside a nested `$()` therefore closes the enclosing `${` early, and a `)` inside a nested `${}` closes the enclosing `$()` early.
+
+Two observable shapes, both with bash confirming the command really runs:
+
+| input                                 | bash        | scanner                                      |
+| ------------------------------------- | ----------- | -------------------------------------------- |
+| `cat >"$(echo ${A:-)}; psql -c 'x')"` | RAN, exit 0 | **0 sites AND 0 advisories** — a silent miss |
+| `cat >${OUT:-$(echo }; psql -c 'x')}` | RAN         | 1 site, `nested: false` — wrong attribution  |
+
+**PRE-EXISTING, proven rather than assumed.** The identical inputs were run against `scan.ts` at the merge-base on the DETACHED path, which that arc did not change: base and HEAD agree byte for byte on both shapes. The attached-target work extends an existing defect to a new surface; it does not introduce it. The payload placement is what makes it visible — with psql BEFORE the crossing delimiter the attribution is correct, which is why the reviewer's own three probes did not discriminate.
+
+**Exposure is bounded and measured**, not asserted: the three-surface census reports ZERO substitution-bearing attached targets, so no live call site is currently hidden by this. It is a prospective limit on a guard, which is why it is filed rather than shipped hot.
+
+Close condition: a construct-aware delimiter walk that (a) resolves all four shapes above, (b) completes the live-corpus scan within the shipped walk's order of magnitude, and (c) leaves the AC-5 finding-set digest unmoved — the third is currently unprovable for the prototype, because it cannot finish.
+
+## BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE — a QUOTED workflow `run:` scalar is scanned as if its YAML quoting were shell, fabricating a site on one spelling and going silent on another
+
+**Status:** OPEN · **Filed:** 2026-08-21 (`fix/shell-attached-redirection-target`, diff round 5 - raised against that diff, REFUTED against it, and true of the tree either way) · **Severity:** MEDIUM (one spelling FABRICATES a `PsqlSite` for a command bash never runs, which is a forbidden direction; the other is silent, which is the other forbidden direction) · **Class:** detector fidelity · **Effort:** M · **Facing:** process · **Class-sweep exception:** (c) — the repair belongs to the YAML decode path (`scanSource`'s workflow reader), a surface the attached-redirection arc does not otherwise touch, and it needs the scanner to distinguish YAML quoting from shell quoting before the shell lexer ever sees the value. · **Reachability:** PROBED — three spellings, each run against bash and against `scan.ts` at both revisions. · **Incident:** it consumed diff round 5 of this arc (corpus row at `docs/review-rounds/fix/shell-attached-redirection-target/0ba72c23774f.jsonl`), where it was raised as a finding against a diff that does not cause it. The round is the cost event; the defect is real and outlives the refutation.
+
+Production passes the whole YAML file to the scanner, which reads `run:` values. When the scalar is QUOTED, the quoting belongs to YAML and not to the shell, and the scanner does not make that distinction.
+
+| `run:` scalar | bash                        | scanner                                   |
+| ------------- | --------------------------- | ----------------------------------------- |
+| single-quoted | exits 2, never invokes psql | **0 sites, 0 hits** — silently unsignaled |
+| double-quoted | exits 2, never invokes psql | **1 site** — a FABRICATED `PsqlSite`      |
+| plain         | exits 2, never invokes psql | 0 sites, 1 advisory — correct             |
+
+**PRE-EXISTING, proven rather than assumed.** All three spellings were run against `scan.ts` at the merge-base as well as HEAD. The two failing rows are BYTE-IDENTICAL at both revisions. The plain-scalar row is where the attached-redirection arc CHANGED behaviour, and it changed it in the right direction: base is silent, HEAD emits the advisory.
+
+**Why the fabricated site is the worse half.** A silent miss on the single-quoted spelling is the familiar direction and the census bounds it. The double-quoted spelling asserts a psql call site that the shell will never execute — the guard telling a reader that code runs when it does not, which is the direction every other row on this surface treats as forbidden.
+
+Close condition: the workflow reader decodes a `run:` scalar's YAML quoting BEFORE handing the value to the shell lexer, with the three spellings above as its acceptance and bash as the oracle for each.
 
 ## BL-TEXT-FAINT-AS-RESTING-INTERACTIVE-COLOUR — four controls rest one rung BELOW the token this arc retired
 
@@ -683,6 +763,8 @@ ParsePanel was not alone. Shape swept: **a file under `components/` that no file
 **Reachability: INFERRED, NOT PROBED.** The probe that settles it is capturing runner identity — `Runner.Name` plus CPU model, from the runner context — on BOTH outcomes at the next recurrence, and comparing the populations. That capture, not a repair, is the first scheduled step; it is cheap, and it is the only thing that turns the leading reading into a testable one.
 
 **Do NOT open a screenshots repair on the current evidence.** Regenerating or re-pinning a baseline against one unreproduced drift would destroy the signal the capture needs.
+
+**RECURRENCE OBSERVED 2026-08-21 — the capture this row schedules now has an occurrence to run against.** `BL-SCREENSHOTS-DRIFT-CAPTURE-NONDETERMINISM` records a second flip, on `review-queues-empty-state-light.webp`, with something this row's occurrence lacked: a SAME-BRANCH pass/fail pair sixty-five minutes apart with zero render inputs changed between the two shas. That pair does what 0/9 dispatched runs could not — it establishes that the varying input is outside the repository — while still not choosing between this row's runner-population reading and the new row's time-of-day one. The two rows are one class. Schedule the identity capture described above TOGETHER with the new row's time axis; running either alone can only half-answer it.
 
 ## BL-E2E-APP-DEPENDENT-SPECS-CI-DARK — 4 app-dependent e2e specs are named by no CI workflow
 
@@ -1739,20 +1821,6 @@ a window", and four incremental repairs narrowed that window without closing it.
 account. The adapter-level tests for the send path were removed when the fence landed and are
 recoverable from git history on this branch; restore them with the arc rather than rewriting them.
 
-## BL-CODEX-GUARD-SPECLINT-PREDISPATCH-GATE — a dispatch spends reviewer attention on lint the wrapper could have refused
-
-**Status:** OPEN · **Severity:** LOW (no shipped defect; this is review-economy waste) · **Class:** review tooling / dispatch hygiene · **Effort:** S · **Filed:** 2026-08-18 (`fix/control-outline-border-token`, spec review R1 F2 + R2 F5) · **Facing:** process · **Class-sweep exception:** (c) — the repair is a change to `scripts/codex-guard.mjs`, a surface this arc does not otherwise touch · **Reachability:** PROBED — both incidents are committed corpus rows, and the failing lint reproduces on the pre-repair blobs.
-
-`node scripts/codex-guard.mjs review` already refuses a round-1 `--stage diff` brief whose `GUARD SURFACE:` line carries no mutation score, exiting 2 before any dispatch. It makes no equivalent check on the ARTIFACT under review. So a spec or plan carrying hard `pnpm spec:lint` failures dispatches normally, and the reviewer spends a finding — and the arc spends a round — on a class the repo already detects mechanically in under a minute.
-
-**Incident.** This arc, twice. Spec review R1 F2 reported **18 hard citation failures** (all the empty-path `` `:213` `` form) against `docs/superpowers/specs/2026-08-18-control-outline-border-token-design.md`; R2 F5 reported **13 more** in the sibling probe record. Both were `CITATION_MALFORMED`, both are what `pnpm spec:lint` prints, and neither needed a reviewer to find. Corpus rows: `docs/review-rounds/fix/control-outline-border-token/2ddbf038bdf4.jsonl`, rounds 1 and 2. Two findings out of sixteen across four rounds — roughly an eighth of the arc's total reviewer attention — spent on a mechanical class.
-
-**Shape of the repair.** In `review`, when `--stage` is `spec` or `plan`, resolve the artifact path(s) the brief cites, run the existing lint, and exit 2 naming the failing file and count if any HARD failure is present. Advisory failures do not block — the probe-record artifacts show advisory noise is normal and blocking on it would be its own waste. The escape hatch matches the existing ones in that script (an explicit flag), because a brief may legitimately review an artifact that is mid-repair.
-
-**Why the wrapper and not a habit.** The habit is already written down and was not followed on this arc by the session that wrote this entry. `codex-guard` is the single choke point every dispatch passes through, which is exactly why the mutation-score check lives there rather than in a checklist.
-
-**First scheduled step:** confirm the lint's exit contract is stable enough to gate on (it currently exits 1 on hard failures and prints a `summary: N hard, M advisory` line), then add the check beside the existing `GUARD SURFACE:` refusal so both live in one place.
-
 ## BL-SPECLINT-ORPHANED-TASK-MARKERS — a plan whose markers sit outside a region lints as `0 hard` while checking nothing
 
 **Status:** OPEN · **Severity:** MEDIUM (no shipped defect; the gate reports a pass over an empty set, which is the failure mode `spec:lint` exists to prevent) · **Class:** spec-lint grammar / review tooling · **Effort:** S · **Filed:** 2026-08-19 (`fix/premisescan-nested-hook-sibling-leak`, spec review R2 F1) · **Facing:** process · **Class-sweep exception:** (c) — the repair is an arm inside `lib/specLint/`, a surface this arc does not otherwise touch · **Reachability:** PROBED — the reviewer's own probe reproduces, and both figures come from data the linter already computes.
@@ -1857,27 +1925,6 @@ Both runs were from the repo root with the paths valid and readable; relative an
 
 **First scheduled step:** confirm the behaviour against the current upstream release, then decide wrapper-versus-report — a local wrapper is worth it either way, since this repo's gate cannot wait on an upstream fix.
 
-## BL-SPECLINT-SELFLINT-NOT-IN-PREDISPATCH-GATE — a plan declares its own lint obligation in prose, so nothing runs it
-
-**Status:** OPEN · **Filed:** 2026-08-21 (`feat/speclint-red-reason-verification`, from that arc's diff round 3) · **Facing:** process · **Severity:** LOW (it costs review rounds; it ships nothing wrong) · **Class:** spec-lint gate · **Effort:** S
-
-**Incident:** diff round 3 on `feat/speclint-red-reason-verification` spent a finding on the plan failing its OWN `spec:lint`. The corpus row is `docs/review-rounds/feat/speclint-red-reason-verification/c9c71b947a85.jsonl`, `diff` round 3, `findingCount` 2. A cross-model reviewer, dispatched to attack the shipped behaviour, was instead spent running a lint the arc had already committed to running. The round also carried a second finding, so the round is not chargeable to this gap alone; the reviewer attention is.
-
-**Probe:**
-
-```
-node --import tsx scripts/spec-lint.ts --json docs/superpowers/plans/2026-08-21-speclint-red-reason-verification.md
-CITATION_MALFORMED at line 72: malformed citation `:837` (empty path)
-```
-
-The failing line was the sentence announcing that a stale citation had been REMOVED, which reproduced it while saying so. That is the shape worth noticing: the defect was in prose whose entire subject was the defect.
-
-**Why prose was not enough.** That plan declares a pre-dispatch lint obligation in a sentence, and it also declares two oracles, `pnpm probe:citations` and `pnpm probe:reach`. Both oracles ran at every gate on that arc, several times each, because they are COMMANDS someone types. The lint obligation ran zero times, because it is a paragraph. The arc's own §3 makes the same argument about re-reads ("the re-read is a COMMAND, not a habit") and then left this one a habit.
-
-**Shape of the repair.** The plan and spec self-lint belongs in whatever pre-dispatch step already runs the arc's oracles, so a `fail`-severity finding in either document blocks a review dispatch the way an unreadable citation does. Cheapest form: one line in the arc's verification block, next to the existing oracle invocations. It is deliberately NOT a new mechanism, and deliberately not a widening of `spec:lint` itself.
-
-**First scheduled step:** decide the home — the invariant-8 style closeout checklist, or the codex-guard brief preflight, which already refuses a dispatch on a missing `GUARD SURFACE:` arm and is the closest existing gate in kind.
-
 ## BL-SPECLINT-DOC-BARE-LINE-NUMBERS-UNCOVERED — a document's raw line numbers rot where the citation oracle cannot look
 
 **Status:** OPEN · **Filed:** 2026-08-21 (`feat/speclint-red-reason-verification`, from that arc's diff rounds 2 and 5) · **Facing:** process · **Severity:** LOW (prose rots; nothing ships wrong) · **Class:** spec-lint gate · **Effort:** S
@@ -1898,3 +1945,31 @@ Each candidate resolves to the line it names, so a human can separate a live cla
 **Three repair shapes were used on this arc and only two are durable.** Symbol-naming retires the site (best, but impossible for a table whose content IS line numbers). Binding the block to a named commit makes it permanently true (used at round 5). Re-pointing the number resets the clock and is the losing move; it was declined every time.
 
 **First scheduled step:** decide whether the prohibition lives in `probe/citations.mts` as a second assertion or in the pre-dispatch gate alongside `BL-SPECLINT-SELFLINT-NOT-IN-PREDISPATCH-GATE`, which shares an owner and a trigger point.
+
+## BL-VALIDATION-PRUNE-DB-SIDE-GATE — gate prune_sync_log / prune_app_events on the validation project at the database, not the client
+
+**Status:** OPEN · **Filed:** 2026-08-21 (`feat/destructive-guard-discovery-by-connection`, spec `docs/superpowers/specs/ci/2026-08-21-destructive-guard-discovery-by-connection-design.md` §4.1 / §7) · **Facing:** product · **Severity:** MEDIUM · **Class:** DB safety posture · **Effort:** M · **Class-sweep exception:** (c) — a migration plus RPC change on a surface the filing arc does not touch · **Reachability:** INFERRED, NOT PROBED — the settling probe is a live `select public.prune_sync_log()` against the validation project from an unguarded client, observing rows deleted; that probe is the first scheduled step, not this row.
+
+Every client-side guard on the validation wipe/prune surface keys on something a test AUTHORS — a SQL spelling (`tests/db/_destructiveStatements.ts`), a connection's URL provenance (the connection census the filing spec designs) — and the census's documented limit §4.1 is exactly the file that executes a prune under a spelling no recognizer matches. `reset_validation_data()` already has the terminating answer at the DATABASE: `destructive_reset_gate` refuses the wipe unless enabled (`tests/db/destructiveResetGate.test.ts` header). `prune_sync_log()` and `prune_app_events()` have no such gate on validation, so a test that reaches them through ANY client, any spelling, any channel, deletes rows by time window. A gate there closes the class regardless of spelling and regardless of client, which no guard in `tests/` can reach.
+
+**Eliminated on the way here** (so the next reader does not re-derive them): widening the SQL recognizer — the spelling axis is open and `_metaDestructiveDbTargetGuard.test.ts`'s r15/r16 history is the ratchet; discovery by connection — ships as the census, and its §4.1 limit is this row; a psql-side or REST-side guard — different channels, same spelling problem.
+
+---
+
+## BL-CODEX-GUARD-SPECLINT-PREDISPATCH-GATE — a dispatch spends reviewer attention on lint the wrapper could have refused
+
+**Status:** OPEN · **Severity:** LOW (no shipped defect; this is review-economy waste) · **Class:** review tooling / dispatch hygiene · **Effort:** S · **Filed:** 2026-08-18 (`fix/control-outline-border-token`, spec review R1 F2 + R2 F5) · **Facing:** process · **Class-sweep exception:** (c) — the repair is a change to `scripts/codex-guard.mjs`, a surface this arc does not otherwise touch · **Reachability:** PROBED — both incidents are committed corpus rows, and the failing lint reproduces on the pre-repair blobs.
+
+`node scripts/codex-guard.mjs review` already refuses a round-1 `--stage diff` brief whose `GUARD SURFACE:` line carries no mutation score, exiting 2 before any dispatch. It makes no equivalent check on the ARTIFACT under review. So a spec or plan carrying hard `pnpm spec:lint` failures dispatches normally, and the reviewer spends a finding — and the arc spends a round — on a class the repo already detects mechanically in under a minute.
+
+**Incident.** This arc, twice. Spec review R1 F2 reported **18 hard citation failures** (all the empty-path `` `:213` `` form) against `docs/superpowers/specs/2026-08-18-control-outline-border-token-design.md`; R2 F5 reported **13 more** in the sibling probe record. Both were `CITATION_MALFORMED`, both are what `pnpm spec:lint` prints, and neither needed a reviewer to find. Corpus rows: `docs/review-rounds/fix/control-outline-border-token/2ddbf038bdf4.jsonl`, rounds 1 and 2. Two findings out of sixteen across four rounds — roughly an eighth of the arc's total reviewer attention — spent on a mechanical class.
+
+**Incident, second class (2026-08-21, cross-arc).** `pnpm typecheck` is a SECOND mechanical gate the same refusal could cover. Three arcs in one day (`feat/speclint-red-reason-verification`, `fix/shell-attached-redirection-target`, `feat/destructive-guard-discovery-by-connection`) independently committed probe scripts that import with a `.ts` extension (TS5097) or call `ts.isImportKeyword` (runtime-only, TS2339); `tsx` resolves both, so every local run passed, and the third arc's probes survived twelve commits and four adversarial rounds — because reviewers run sandboxed and read-only and never execute the gates, so a round is BLIND to a gate-red by construction. Caught only by `pnpm typecheck`, which docs-stage work rarely runs. Same wrapper, same exit-2 refusal, one more gate in the list.
+
+**Incident, third instance (2026-08-21, independently filed).** `feat/speclint-red-reason-verification` spent a diff-round-3 finding on its plan failing its OWN `spec:lint` — `CITATION_MALFORMED at line 72: malformed citation \`:837\` (empty path)`, the same empty-path form as the eighteen above. Corpus row: `docs/review-rounds/feat/speclint-red-reason-verification/c9c71b947a85.jsonl`, `diff`round 3,`findingCount`2 (the round carried a second finding, so the round is not chargeable here; the reviewer attention is). That arc filed it as`BL-SPECLINT-SELFLINT-NOT-IN-PREDISPATCH-GATE`, blind to this row, which sat on an unmerged branch at the time — which is itself the point: the same defect was independently rediscovered by a session reading `origin/main` to choose work. Its own diagnosis is worth keeping verbatim: that plan declared two oracles as COMMANDS and this obligation as a PARAGRAPH, and the commands ran several times each while the paragraph ran zero times.
+
+**Shape of the repair.** In `review`, when `--stage` is `spec` or `plan`, resolve the artifact path(s) the brief cites, run the existing lint, and exit 2 naming the failing file and count if any HARD failure is present. Advisory failures do not block — the probe-record artifacts show advisory noise is normal and blocking on it would be its own waste. The escape hatch matches the existing ones in that script (an explicit flag), because a brief may legitimately review an artifact that is mid-repair.
+
+**Why the wrapper and not a habit.** The habit is already written down and was not followed on this arc by the session that wrote this entry. `codex-guard` is the single choke point every dispatch passes through, which is exactly why the mutation-score check lives there rather than in a checklist.
+
+**First scheduled step:** confirm the lint's exit contract is stable enough to gate on (it currently exits 1 on hard failures and prints a `summary: N hard, M advisory` line), then add the check beside the existing `GUARD SURFACE:` refusal so both live in one place.

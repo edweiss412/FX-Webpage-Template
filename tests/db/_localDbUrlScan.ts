@@ -37,7 +37,7 @@ const GUARD_MODULES = new Set(["tests/db/_localDbUrl", "tests/db/_remediationHel
  * sibling `./_localDbUrl` next to some other suite would otherwise satisfy
  * provenance while exporting a no-op (whole-diff R2 finding 2).
  */
-function isGuardModule(specifier: string, fileName: string): boolean {
+export function isGuardModule(specifier: string, fileName: string): boolean {
   if (specifier.startsWith("@/")) return GUARD_MODULES.has(specifier.slice(2));
   if (!specifier.startsWith(".")) return false;
   const segments = fileName.replace(/\\/g, "/").split("/").slice(0, -1);

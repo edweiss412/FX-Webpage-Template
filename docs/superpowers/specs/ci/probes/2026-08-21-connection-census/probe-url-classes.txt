@@ -1,0 +1,30 @@
+connect call sites: 175 across 140 files
+    85  guard
+    44  env:DATABASE_URL|TEST_DATABASE_URL
+    35  env:TEST_DATABASE_URL
+     9  literal
+     2  other
+
+Sites the URL walk did not resolve to an env chain (classes other + literal):
+  tests/admin/extractAgenda.test.ts:76  LOCAL_DB_URL
+  tests/admin/extractAgenda.test.ts:563  LOCAL_DB_URL
+  tests/admin/step3StateGallery.test.ts:201  galleryDatabaseUrl()
+  tests/agenda/extractAgendaLease.test.ts:39  LOCAL_DB_URL
+  tests/agenda/extractAgendaLease.test.ts:89  LOCAL_DB_URL
+  tests/agenda/extractAgendaLease.test.ts:90  LOCAL_DB_URL
+  tests/agenda/extractAgendaLease.test.ts:211  LOCAL_DB_URL
+  tests/api/admin/pendingIngestionRetryPrepare.db.test.ts:39  LOCAL_URL
+  tests/e2e/helpers/devCaptureStaged.ts:194  galleryDatabaseUrl(dsn)
+  tests/notify/auto-publish-undo-live-probe-real-db.test.ts:135  LOCAL_DB_URL
+  tests/sync/applyStagedSyncLogEmission.db.test.ts:39  LOCAL_URL
+
+acquisition shapes: namespace=0 dynamicImport=1 require=0 namedValue=0 typeOnlyNamed=50
+  tests/db/validation-schema-parity.test.ts
+
+files with MIXED site classes: 0
+
+env-chain shapes:
+    44  env:DATABASE_URL|TEST_DATABASE_URL
+    35  env:TEST_DATABASE_URL
+
+per-FILE class of the 140 direct-calling files: guard-bound=70 validation-env=63 loopback-literal=5 unclassifiable=2
