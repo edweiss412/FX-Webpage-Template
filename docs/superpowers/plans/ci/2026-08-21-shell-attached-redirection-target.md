@@ -501,7 +501,7 @@ H as taking the universal predicate in its subject row, which the implementation
 between the operator and the target — because a case whose fixture drifted to a detached spelling
 would pass through the arm that already works and prove nothing about this one.
 
-## Task 2 — a target the machinery cannot delimit, and which carries a substitution opener, is REPORTED, not discarded
+## Task 2 — a target the machinery cannot delimit is REPORTED, not discarded, on the spec's REPORT CONDITION
 
 <!-- task: red=`pnpm exec vitest run tests/cross-cutting/psqlStartupFileSuppression.test.ts` red-state=authored red-target=`tests/cross-cutting/psqlStartupFiles/scan.ts:3050` why=`cases derived from the accept-set opener table assert that an attached target carrying an unterminated construct yields an IndirectionHit naming it; the production surface is scanShellIndirection, which emits no such hit for any undelimitable target, so all three cases read an empty hit array until the channel exists` ac=AC-3 -->
 
@@ -690,7 +690,7 @@ both ledger files and can reintroduce a row or a marker.
 |---|---|---|
 | AC-1 | all eleven acceptance-set subjects meet their expectation | Task 1 |
 | AC-2 | four positive controls still report | Task 1 |
-| AC-3 | undelimitable target CARRYING A SUBSTITUTION OPENER reported as unlexable; one without stays quiet | Task 2 |
+| AC-3 | undelimitable target reported as unlexable, on the spec's REPORT CONDITION (§3 part 4) | Task 2 |
 | AC-4 | `F11` control unchanged | Task 1 |
 | AC-5 | corpus finding set unchanged, digest held (`--expect`, not the bare reporter) | Step 3 |
 | AC-5b | the digest still DISCRIMINATES on every field §5 forbids moving | Step 3 |

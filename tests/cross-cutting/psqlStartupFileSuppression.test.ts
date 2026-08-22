@@ -6713,6 +6713,96 @@ describe("an executing psql inside an ATTACHED redirection target", () => {
     ).toEqual(rows.map(([label]) => [label, 1, 0]));
   });
 
+  // Diff round 3. `$((` is ARITHMETIC, not a command substitution, and the
+  // lexer's `$(` branches matched its prefix - so `>"$((psql -c 'x'))"` yielded
+  // a resolved site for a command bash never runs (it exits on an arithmetic
+  // syntax error). A REGRESSION this arc introduced: base reports nothing here.
+  //
+  // The obvious repair is a trap and the last row is what guards it. Bash DOES
+  // execute a command substitution NESTED INSIDE arithmetic, so suppressing the
+  // whole span would trade this false site for a silent miss - the forbidden
+  // direction swapped in while fixing the permitted one. The arithmetic span
+  // contributes no body of its OWN; its interior stays a live lexing context.
+  // PROMOTED from a scratchpad probe, because a scratchpad artifact dies with
+  // the session that wrote it and this is the branch's terminal verifier. The
+  // source-mutation registry cannot reach the `$((` branch at all: its declared
+  // operators produce ZERO sites over it, and the only operator that would is
+  // file-wide `integer-literal`, which takes this surface from 79 sites to 454.
+  // Filed as BL-MUTATION-SCORE-JURISDICTION-GAP-ARITHMETIC-BRANCH rather than
+  // enrolled, so this test IS the coverage for that branch.
+  //
+  // Expectations are DERIVED FROM BASH, not typed in: each row runs under a
+  // fake `psql` on PATH and the scanner must agree with whether the shell
+  // actually executed it. A row that stops executing changes its own
+  // expectation, so the test cannot rot into asserting a stale belief.
+  test("the scanner agrees with BASH on every arithmetic-versus-substitution spelling", () => {
+    const dir = mkdtempSync(join(tmpdir(), "arith-oracle-"));
+    const bin = join(dir, "bin");
+    mkdirSync(bin);
+    const fake = join(bin, "psql");
+    writeFileSync(fake, "#!/bin/bash\nprintf 'RAN\\n' >> \"$LOGFILE\"\necho out.txt\n");
+    chmodSync(fake, 0o755);
+    const bashRuns = (source: string, id: string): boolean => {
+      const script = join(dir, `${id}.sh`);
+      const log = join(dir, `${id}.log`);
+      writeFileSync(script, source);
+      writeFileSync(log, "");
+      try {
+        execFileSync("bash", [script], {
+          cwd: dir,
+          env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, LOGFILE: log },
+          stdio: "ignore",
+          timeout: 10_000,
+        });
+      } catch {
+        // A failed redirection or an arithmetic syntax error is fine - the LOG
+        // is the observation, not the exit status.
+      }
+      return readFileSync(log, "utf8").includes("RAN");
+    };
+    const rows: Array<[label: string, source: string]> = [
+      ["bare arithmetic", "cat >$((psql -c 'select 1'))\n"],
+      ["double-quoted arithmetic", "cat >\"$((psql -c 'select 1'))\"\n"],
+      ["locale-quoted arithmetic", "cat >$\"$((psql -c 'select 1'))\"\n"],
+      ["brace-wrapped arithmetic", "cat >${OUT:-$((psql -c 'select 1'))}\n"],
+      ["fd-prefixed arithmetic", "cat 2>\"$((psql -c 'select 1'))\"\n"],
+      ["a real substitution NESTED in arithmetic", "cat >\"$((1 + $(psql -c 'x')))\"\n"],
+      ["control, ordinary substitution", "cat >\"$(psql -c 'select 1')\"\n"],
+    ];
+    // The floor: if NOTHING executes, the fake psql or PATH is broken and every
+    // "agrees" below would be two zeros agreeing about nothing.
+    const executed = rows.filter(([label, source], n) => bashRuns(source, `f${n}`)).length;
+    expect(executed, "no row executed - the oracle cannot see its own subject").toBeGreaterThan(0);
+    expect(
+      rows.map(([label, source], n) => [
+        label,
+        bashRuns(source, `b${n}`),
+        sitesIn(source, "x.sh").length > 0,
+      ]),
+    ).toEqual(
+      rows.map(([label, source], n) => [
+        label,
+        bashRuns(source, `e${n}`),
+        bashRuns(source, `x${n}`),
+      ]),
+    );
+  });
+
+  test("$(( )) is arithmetic and yields no site, while a substitution nested INSIDE it still does", () => {
+    const rows: Array<[label: string, source: string, sites: number]> = [
+      ["bare arithmetic target", "cat >$((psql -c 'select 1'))\n", 0],
+      ["double-quoted", "cat >\"$((psql -c 'select 1'))\"\n", 0],
+      ["locale-quoted", "cat >$\"$((psql -c 'select 1'))\"\n", 0],
+      ["brace-wrapped", "cat >${OUT:-$((psql -c 'select 1'))}\n", 0],
+      ["fd-prefixed operator", "cat 2>\"$((psql -c 'select 1'))\"\n", 0],
+      ["a real $() NESTED in arithmetic still reports", "cat >\"$((1 + $(psql -c 'x')))\"\n", 1],
+      ["control, ordinary substitution", "cat >\"$(psql -c 'select 1')\"\n", 1],
+    ];
+    expect(rows.map(([label, source]) => [label, sitesIn(source, "x.sh").length])).toEqual(
+      rows.map(([label, , sites]) => [label, sites]),
+    );
+  });
+
   // §5a items 4 and 7. Every acceptance fixture is a whole small file whose
   // construct starts at line 1 under LF. Line is a field AC-5's digest covers,
   // so this asserts the COORDINATE and not the presence - the killer audit's
@@ -6821,7 +6911,7 @@ describe("an executing psql inside an ATTACHED redirection target", () => {
 // `${` exactly as a plain double quote is from the locale form.
 // ---------------------------------------------------------------------------
 
-describe("an ATTACHED target the accept-set cannot delimit, carrying a substitution opener, is REPORTED", () => {
+describe("an ATTACHED target the accept-set cannot delimit is REPORTED on the spec's REPORT CONDITION", () => {
   /** One row per opener in the accept-set table, each with the TERMINATED twin
    *  that is one edit away. Without the twin a channel that reports EVERY
    *  attached target satisfies all seven positives while being maximally

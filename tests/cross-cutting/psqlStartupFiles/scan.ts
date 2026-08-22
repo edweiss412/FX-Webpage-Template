@@ -1589,6 +1589,28 @@ function lexShellWords(
       i = close;
       continue;
     }
+    // `$((` is ARITHMETIC and is NOT a command substitution - matching the `$(`
+    // prefix reported a resolved site for a command bash never runs (diff round
+    // 3). It contributes no body of its OWN, but its interior stays a LIVE
+    // lexing context, because bash really does execute a substitution nested
+    // inside arithmetic: suppressing the whole span would swap a false site for
+    // a silent miss.
+    if (character === "$" && text[i + 1] === "(" && text[i + 2] === "(") {
+      const close = matchBrace(text, i + 1, "(", ")");
+      const inner: NestedShell[] = [];
+      lexShellWords(text.slice(i + 3, Math.max(i + 3, close - 1)), inner);
+      for (const entry of inner)
+        nested.push({
+          text: entry.text,
+          line: line + entry.line,
+          offset: i + 3 + entry.offset,
+          backtick: entry.backtick,
+        });
+      line += (text.slice(i, close + 1).match(/\n/g) ?? []).length;
+      append("${}", i);
+      i = close;
+      continue;
+    }
     if (
       (character === "$" && text[i + 1] === "(") ||
       character === "`" ||
@@ -1698,6 +1720,23 @@ function lexShellWords(
           // Before any other character the backslash is LITERAL and both
           // survive: "p\sql" is p-backslash-sql, never psql.
           append("\\", i, true);
+          continue;
+        }
+        // Arithmetic first, for the reason above: `$((` only PREFIXES `$(`.
+        if (text[i] === "$" && text[i + 1] === "(" && text[i + 2] === "(") {
+          const close = matchBrace(text, i + 1, "(", ")");
+          const inner: NestedShell[] = [];
+          lexShellWords(text.slice(i + 3, Math.max(i + 3, close - 1)), inner);
+          for (const entry of inner)
+            nested.push({
+              text: entry.text,
+              line: line + entry.line,
+              offset: i + 3 + entry.offset,
+              backtick: entry.backtick,
+            });
+          line += (text.slice(i, close + 1).match(/\n/g) ?? []).length;
+          append("${}", i);
+          i = close;
           continue;
         }
         // `"$(psql …)"` and "`psql …`" still EXECUTE inside double quotes.

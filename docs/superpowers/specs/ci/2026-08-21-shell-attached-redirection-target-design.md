@@ -235,7 +235,7 @@ drift detector: the repair must leave it unchanged apart from this arc's own con
 
 **Delimit the attached target with the construct-aware machinery the lexer already ships; RETAIN
 the dequoted target for the callers that ask for one; collect its nested bodies into `nested`; and
-REPORT anything the machinery cannot delimit THAT CARRIES A SUBSTITUTION OPENER.**
+REPORT what the machinery cannot delimit, on the REPORT CONDITION of §3 part 4.**
 
 Four parts, no new grammar. Part 2 is new at spec round 1 — the three-part design could not
 satisfy case F at all, and finding 1 is why.
@@ -279,9 +279,20 @@ satisfy case F at all, and finding 1 is why.
    emit a `PsqlSite`: an unlexable target is a "something here I cannot read" signal, which is what
    an indirection hit already means.
 
-   **The report fires only when the undelimitable span contains a substitution opener** (`$(`,
-   `` ` `` or `${`). A plain `>"${OUT}"` is an ordinary attached target and must stay quiet; the
-   live corpus holds 53 such targets (§2.3) and none may become an advisory.
+   <a id="report-condition"></a>
+   **REPORT CONDITION (the one definition; everywhere else REFERENCES this).** The report fires
+   only when the undelimitable span contains a substitution opener (`$(`, `` ` `` or `${`). A plain
+   `>"${OUT}"` is an ordinary attached target and must stay quiet; the live corpus holds 53 such
+   targets (§2.3) and none may become an advisory. An undelimitable span carrying none of the three
+   can execute nothing, so silence there is correct rather than a miss.
+
+   **This rule is stated HERE and nowhere else.** Diff rounds 3 and 4 found it restated as a
+   universal at seventeen sites and then at ten more, drifting in both passes, because a claim
+   repeated N times drifts N ways. Every other passage now points at REPORT CONDITION instead of
+   paraphrasing it; a future edit changes this paragraph and nothing else. The executable copies
+   are `SUBSTITUTION_OPENER` and the documented-limits block in
+   `tests/cross-cutting/psqlStartupFiles/scan.ts`, which are the code's own record and are
+   deliberately not references.
 
 ### 3.1 Accept-set with default-deny, applied at EVERY depth
 
@@ -316,8 +327,8 @@ STRUCTURE rather than spelling:
   sits inside a backtick body — WRONG ATTRIBUTION, which §5 forbids outright. The escape pair
   taking precedence is what stops a `\`` from terminating anything.
 
-**Everything outside this set that the walk cannot DELIMIT is REPORTED through part 4, by default
-rather than by enumeration.** The default ranges over spellings that leave a construct open. A
+**Everything outside this set that the walk cannot DELIMIT is REPORTED through part 4 on the
+REPORT CONDITION, by default rather than by enumeration.** The default ranges over spellings that leave a construct open. A
 character that simply TERMINATES an attached target is a different case and is correctly silent:
 `<(` and `>(` end the target exactly as the character-run regex did, and bash executes nothing at
 that spelling, so silence agrees with the shell rather than under-reporting it (see the process
@@ -367,12 +378,8 @@ record would otherwise read a finished document as a ratified one.
 ## 5. Convergence criterion
 
 - **Consequence bound.** Every attached-target form is either lexed and its nested bodies scanned,
-  or REPORTED as unlexable: **correct or signaled, never silently wrong.** The report's firing
-  condition is narrower than "undelimitable", and stating it as the universal was wrong: it fires
-  only on an undelimitable span CARRYING A SUBSTITUTION OPENER (`SUBSTITUTION_OPENER` in
-  `tests/cross-cutting/psqlStartupFiles/scan.ts`). An undelimitable span carrying none of the three
-  is unreadable AND harmless - nothing in it can execute - so silence there is correct rather than a
-  miss, and reporting it would have made advisories of the live corpus's ordinary attached targets. A worst case of
+  or REPORTED as unlexable: **correct or signaled, never silently wrong.** "REPORTED" means the REPORT
+  CONDITION of §3 part 4, which is narrower than "undelimitable" and is defined there once. A worst case of
   conservative-over-report-plus-surfaced-signal is a DOCUMENTED LIMIT, not a finding; silent
   discard and wrong attribution are the two forbidden directions. Zero false advisories on the live
   corpus: it holds ZERO instances of this family today (§2.3), so a corpus scan before and after
@@ -451,8 +458,8 @@ survive. A repair that reported BOTH rows would be loud in a direction the shell
    operationally — any movement there fails the digest — but it is not separately censused, and
    that is stated rather than implied.
 
-2. **A target whose construct the accept-set cannot delimit AND which carries a substitution
-   opener is REPORTED, not resolved.** The
+2. **A target whose construct the accept-set cannot delimit is REPORTED, not resolved**, on the
+   REPORT CONDITION of §3 part 4. The
    report names the target as unlexable; it does not say what the target would have evaluated to.
    Without a substitution opener the span can execute nothing, and it stays deliberately quiet.
    Conservative-and-loud is the permitted direction; wrongly-silent is not.

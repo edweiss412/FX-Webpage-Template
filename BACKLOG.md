@@ -52,6 +52,29 @@ Accepted-survivor rows are keyed `operator:line:column:replacement`, so the key 
 
 Close condition: `mutation:sites` runs unconditionally after any edit to a file named by a `GUARD_SURFACES` row — as a pre-commit hook, a CI job on the changed-file set, or a meta-test that fails when a registered surface's blob differs from the revision its keys were derived at.
 
+## BL-MUTATION-SCORE-JURISDICTION-GAP-ARITHMETIC-BRANCH — a guard surface's declared operators produce ZERO sites over a whole branch, so the score cannot see code it is reported against
+
+**Status:** OPEN · **Filed:** 2026-08-21 (`fix/shell-attached-redirection-target`, diff round 3) · **Severity:** MEDIUM (the score is reported as the surface's convergence criterion while a branch of that surface is outside it; the number is honest and its jurisdiction is not stated) · **Class:** mutation harness fidelity · **Effort:** L · **Facing:** process · **Class-sweep exception:** (c) — closing it means widening a registry operator set file-wide, which is a measurement-scope decision about the harness rather than a repair to this arc's code. · **Reachability:** PROBED — the numbers below were measured, not estimated. · **Incident:** diff round 3 of this arc found a REGRESSION the arc itself introduced — `$((...))` arithmetic read as a `$()` command substitution, yielding a resolved site for a command bash never runs — after FOUR earlier review rounds and a `49/49` score with zero unaccepted survivors had all passed over it. A reviewer probing bash found it; the score structurally could not.
+
+`psqlStartupScan` declares `relational-boundary` and `regex-quantifier-bound`. The arithmetic branch added in diff round 3 uses equality tests and `Math.max`, so those operators enumerate **zero sites over it**: the surface holds 79 sites with the branch present and held 79 without it.
+
+**Measured cost of closing it as-is:**
+
+| operator added          | sites |    delta |
+| ----------------------- | ----: | -------: |
+| (declared today)        |    79 |        — |
+| `+ integer-literal`     |   454 | **+375** |
+| `+ statement-removal`   |   493 |     +414 |
+| `+ arithmetic-operator` |    79 |        0 |
+
+The only operator that reaches the branch is `integer-literal`, and it is file-wide: roughly a 6x run on a surface that already takes ~24 minutes, plus a large new accepted-row population to adjudicate. `arithmetic-operator` does not apply.
+
+**Why it was NOT enrolled in the arc that found it.** Enrolling buys mutants weaker than the verifier already built: the branch's terminal check is a bash-oracle matrix that derives every expectation from whether the shell actually executed the command, promoted into the deciding suite so it is a standing gate rather than a session artifact. Enrolment would add hundreds of mutants over unrelated integer literals to reach one branch a stronger instrument already covers, and it would land that decision under review pressure at diff round 4.
+
+**The general shape, which is worth more than the instance.** A mutation score answers "does the suite pin what is WRITTEN". It cannot answer "is what is written the whole domain", because a construct the code never distinguished is invisible to every mutant of that code. This row is the first measured instance on this repo of a surface being scored against operators that cannot reach part of it.
+
+Close condition: either a per-branch enrolment mechanism (operators scoped to a region rather than a file), or a ratified decision that file-wide widening is worth its runtime, taken outside a review round with these numbers in hand.
+
 ## BL-SENDAUTH-BINDING-IDENTITY-NAME-KEYED — the binding set is a Set of NAMES, so every consumer asks "is something called X in scope" rather than "is this identifier that binding"
 
 **Status:** OPEN · **Filed:** 2026-08-21 (`fix/sendauth-arm-classifier-unification`, promised as a peer by that arc's spec §4.2 and filed on its diff-r1 reviewer noticing the promise had not been kept) · **Severity:** LOW-MEDIUM (a false advisory, which is the survivable direction; the silent direction is closed) · **Class:** detector fidelity · **Effort:** M · **Facing:** process · **Class-sweep exception:** (c) — resolving an identifier to its DECLARATION is a redesign of the binding-discovery layer the unification arc does not otherwise touch, and it needs the `ts.TypeChecker` that predecessor limits 5 and 8(b) both decline. · **Reachability:** PROBED — the false advisory below was measured in that arc's spec §3.6 against source blob `412cadd3`. · **Incident:** the measured false advisory at §3.6 — a name shadowing a surface binding was classified as the surface, because the consumer asks only whether SOME binding carries that name. That is a cost event that already happened, not a constructed hypothetical.
