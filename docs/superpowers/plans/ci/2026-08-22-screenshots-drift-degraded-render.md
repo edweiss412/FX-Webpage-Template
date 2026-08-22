@@ -232,6 +232,20 @@ Both in-progress markers come off in this branch's LAST commit, before the merge
 
 ---
 
+## A trap checked and deliberately avoided: no new Playwright spec
+
+Every task's red command above is vitest. That is not incidental — it avoids a dark-test trap in this
+config. The `screenshots-help` project matches its spec by literal filename
+(`testMatch: /help-screenshots-clock-pipeline\.spec\.ts/`, `playwright.screenshots.config.ts:26`), so a new
+spec file dropped into `tests/e2e/` would be picked up by NOTHING: it would not run in the drift job, it
+would not run in CI, and it would land as an `UNSEEN` row in `tests/ci/_metaE2eWorkflowCoverage.test.ts`,
+which is the population `BL-E2E-APP-DEPENDENT-SPECS-CI-DARK` already tracks.
+
+An implementer reaching for an e2e spec here must widen that `testMatch` in the same commit or the test is
+dark on arrival. This plan needs no such spec: the fault injection is in-process (see Task 3a's probe 2),
+and AC-5's real-dispatched-run proof is an observation of the CI run this branch already triggers, not a
+new spec file.
+
 ## Acceptance criteria
 
 Mirrors spec §9; these ids are what the task markers reference.
