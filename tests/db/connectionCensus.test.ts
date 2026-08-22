@@ -1146,9 +1146,10 @@ describe("connection census — dispositions, both directions (AC-C7)", () => {
     // fall-through would answer `["resolver", "unclassifiable"]`, which an EDGE report must
     // never be excused by.
     for (const kind of ["unresolved-import", "loader-call"] as const) {
-      expect(admissibleKindsFor(report({ kind, site: "./_helper", argIsCall: true })), kind).toEqual(
-        ["unclassifiable"],
-      );
+      expect(
+        admissibleKindsFor(report({ kind, site: "./_helper", argIsCall: true })),
+        kind,
+      ).toEqual(["unclassifiable"]);
     }
     // Twin, so the contrast is pinned: on a SITE report the same flag DOES open `resolver`.
     expect(
@@ -2016,8 +2017,14 @@ describe("connection census — cases authored against SURVIVING MUTANTS", () =>
     expect(shadowed.sites, "the premise: this file has NO site, only reports").toEqual([]);
     expect(shadowed.reports.map((r) => r.kind)).toEqual(["shadowed-driver"]);
 
-    expect(ownClassesFor(shadowed, () => false), "disposed").toEqual(["dispositioned"]);
-    expect(ownClassesFor(shadowed, () => true), "undisposed").toEqual(["undisposed"]);
+    expect(
+      ownClassesFor(shadowed, () => false),
+      "disposed",
+    ).toEqual(["dispositioned"]);
+    expect(
+      ownClassesFor(shadowed, () => true),
+      "undisposed",
+    ).toEqual(["undisposed"]);
   });
 
   test("ownClassesFor carries an accepted SITE class through verbatim", () => {
@@ -2026,9 +2033,10 @@ describe("connection census — cases authored against SURVIVING MUTANTS", () =>
     const rec = classifyFile(P, [IMPORT, `const sql = postgres(${ENV});`].join("\n"));
     expect(rec.sites.map((s) => s.cls)).toEqual(["validation-env"]);
     expect(ownClassesFor(rec, () => false)).toEqual(["validation-env"]);
-    expect(ownClassesFor(rec, () => true), "an accepted class is NOT a disposition").toEqual([
-      "validation-env",
-    ]);
+    expect(
+      ownClassesFor(rec, () => true),
+      "an accepted class is NOT a disposition",
+    ).toEqual(["validation-env"]);
   });
 
   test("an unresolvable SITE takes its disposition, in both directions", () => {
@@ -2036,8 +2044,14 @@ describe("connection census — cases authored against SURVIVING MUTANTS", () =>
     // Both directions, because a derivation stuck on either answer passes a one-sided check.
     const rec = classifyFile(P, [IMPORT, `const sql = postgres(pickUrl());`].join("\n"));
     expect(rec.sites.map((s) => s.cls)).toEqual(["unclassifiable"]);
-    expect(ownClassesFor(rec, () => false), "row present").toEqual(["dispositioned"]);
-    expect(ownClassesFor(rec, () => true), "no row").toEqual(["undisposed"]);
+    expect(
+      ownClassesFor(rec, () => false),
+      "row present",
+    ).toEqual(["dispositioned"]);
+    expect(
+      ownClassesFor(rec, () => true),
+      "no row",
+    ).toEqual(["undisposed"]);
   });
 
   test("a loader naming the DRIVER with an unclassifiable second argument reports", () => {
@@ -2098,7 +2112,10 @@ describe("connection census — cases authored against SURVIVING MUTANTS", () =>
       expect([...(result.classes.get("tests/db/consumer.test.ts") ?? [])], label).toEqual(
         loads ? ["validation-env"] : [],
       );
-      expect(result.reports.map((r) => r.kind), label).toEqual([]);
+      expect(
+        result.reports.map((r) => r.kind),
+        label,
+      ).toEqual([]);
     }
   });
 
@@ -2119,7 +2136,10 @@ describe("connection census — cases authored against SURVIVING MUTANTS", () =>
         chainResolver({ "./_helper.js": "tests/db/_helper.ts" }),
         "/repo",
       );
-      expect(result.reports.map((r) => r.kind), source).toEqual(["loader-call"]);
+      expect(
+        result.reports.map((r) => r.kind),
+        source,
+      ).toEqual(["loader-call"]);
     }
   });
 
