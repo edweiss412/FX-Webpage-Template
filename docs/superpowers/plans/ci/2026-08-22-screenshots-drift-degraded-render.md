@@ -1,11 +1,11 @@
 # Plan — screenshots-drift: refuse to encode a faulted render, and instrument both outcomes
 
-**Status:** DRAFT (r1 repaired) · **Spec:** `docs/superpowers/specs/ci/2026-08-22-screenshots-drift-degraded-render-design.md` · **Branch:** `fix/screenshots-drift-instrument`
+**Status:** DRAFT (r3 repaired) · **Spec:** `docs/superpowers/specs/ci/2026-08-22-screenshots-drift-degraded-render-design.md` · **Branch:** `fix/screenshots-drift-instrument`
 
 Closes `BL-SCREENSHOTS-DRIFT-CAPTURE-NONDETERMINISM`. Re-dispositions
 `BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED` — mechanism named, distinct class, stays OPEN.
 
-**This IS a UI surface and the r1 draft wrongly waived the gate.** Task 6 adds `data-render-fault` to
+**This IS a UI surface and the r1 draft wrongly waived the gate.** Task 4 adds `data-render-fault` to
 branches under `components/**` and `app/**`, and AGENTS.md invariant 8 defines either path as a UI surface
 **regardless of visual impact** — there is no "it only adds an attribute" exemption, and reading one into
 the invariant is how a gate quietly stops applying. (Orchestrator ratification 2026-08-22 supersedes this
@@ -14,7 +14,7 @@ arc's dispatch brief, which had said "no UI files".)
 **Why the gate marker is absent rather than PENDING.** `tests/docs/_invariant8Closeout.ts:45` accepts
 exactly two marker forms — real counts, or the N/A form. `PENDING` is malformed and the guard rejects it,
 which is correct: a marker is a claim about a gate that ran. The gate cannot run yet, because the diff it
-would judge does not exist until Task 6. And the guard's contract is conditional — a unit that NAMES both
+would judge does not exist until Task 4. And the guard's contract is conditional — a unit that NAMES both
 gate commands must carry a valid marker (`tests/docs/_invariant8Closeout.ts:39` and the line below it, with `declaresGate` at line 109) — so naming them now while the marker cannot be truthful would fail the guard for
 the whole implementation phase.
 
@@ -28,7 +28,7 @@ around a scanner: the obligation is real, ratified, and Task 9 owns it.
 
 | claim | anchor | verified |
 | --- | --- | --- |
-| capture loops manifest x theme, fresh context each | `scripts/help-screenshots.ts:116`, `scripts/help-screenshots.ts:133` | yes |
+| capture loops manifest x theme, fresh context each | `scripts/help-screenshots.ts:117`, `scripts/help-screenshots.ts:133` | yes |
 | quiescence waits for the selector FIRST | `scripts/capture-core.ts:100` | yes |
 | `captureSelector` is OPTIONAL | `scripts/help-screenshots.manifest.ts:18` | yes |
 | and the capture falls back to full-page | `scripts/help-screenshots.ts:80` | yes |
@@ -49,7 +49,7 @@ around a scanner: the obligation is real, ratified, and Task 9 owns it.
 **Measured, not assumed.** The widened accept-set (six guard forms) matches **21** JSX-returning fault
 branches across `components/**` + `app/admin/**`, reached via three detectable constructs: literal
 comparison, `"kind" in x`, and `catch`. The r1 draft said 15, which counted only literal comparisons. The
-figure is a floor measured at authoring time; Task 6's meta-test derives it each run.
+figure is a floor measured at authoring time; Task 4's meta-test derives it each run.
 
 **Probed, not read.** Four facts measured rather than inferred, each of which would otherwise be a bug:
 
@@ -60,7 +60,7 @@ figure is a floor measured at authoring time; Task 6's meta-test derives it each
 3. `loadRecentAutoApplied` accepts `deps.supabase`, so a failing stub drives the real loader error path.
 4. **All seven manifest routes share the first path segment `/admin`.** A quote-only route parser and a
    complete one therefore derive IDENTICAL roots — `["app/admin", "components"]` either way. This is why
-   Task 6's route mutant must introduce a DISTINCT root; see that task.
+   Task 4's route mutant must introduce a DISTINCT root; see that task.
 
 ---
 
@@ -75,10 +75,16 @@ assertion, so it is built first and everything that refuses writes into it.
 
 ## Task 1 — the evidence record, and the completion oracle
 
-<!-- task: red=`pnpm vitest run tests/help/captureEvidence.test.ts` red-state=authored red-target=`scripts/help-screenshots.ts:116` why=`captureAll records nothing about the run that produced the bytes` ac=AC-2,AC-5,AC-6 -->
+<!-- task: red=`pnpm vitest run tests/help/captureEvidence.test.ts` red-state=authored red-target=`scripts/help-screenshots.ts:117` why=`captureAll records nothing about the run that produced the bytes` ac=AC-2,AC-5,AC-6 -->
 
-Build the record per spec §5 first, because every later refusal writes into it. Includes the per-`(entry.key, theme)`
-completion event the AC-2 oracle reads, and `pixelSha256` over decoded RGB.
+Build the record per spec §5 first, because every later refusal writes into it. Includes `pixelSha256`
+over decoded RGB, and the staging directory the AC-2 oracle reads.
+
+**The oracle reads the directory, not an event — and the r2 draft said both.** An earlier revision of this
+task introduced per-`(entry.key, theme)` completion events and a later revision replaced them with
+fresh-directory artifacts without deleting the first, leaving the task contradicting itself inside one
+body. Deleted rather than reconciled: there are no completion events. The identity set is derived from the
+contents of a staging directory created empty at the start of the run.
 
 **Failure modes this catches.** Hashing the PNG **container** instead of decoded pixels: identical pixels
 re-encoded at two compression levels give different container hashes (probed, 2337672 against 156312
@@ -92,12 +98,16 @@ that both differ from the container hashes is satisfied by a CONSTANT — every 
 computed. The test compares `pixelSha256` against an independently derived SHA-256 of the decoded RGB
 buffer, obtained without calling the implementation under test.
 
-And the AC-2 oracle, which spec §9 makes structural rather than assertional: the completion set is derived
-from the contents of an output directory **created empty at the start of the run**, never from events the
-capture loop emits. An emitted event can be pre-emitted for all fourteen identities while one image is
-written; a file in a directory that began empty cannot. The test asserts the derived set equals the
-fourteen expected `(key, theme)` pairs, then asserts the diff is empty. Identity equality over
-provably-new artifacts.
+And the AC-2 oracle, which spec §9 makes structural rather than assertional: the identity set is derived
+from the contents of an output directory **created empty at the start of the run**, never from anything the
+capture loop reports about itself. An emitted event can be pre-emitted for every identity while one image
+is written; a file in a directory that began empty cannot.
+
+**The expected set is DERIVED from the manifest, never the literal fourteen.** The test computes it as
+`MANIFEST` crossed with `themesFor(entry)` — the same derivation the capture uses — so adding a manifest
+entry moves the expectation automatically. A hardcoded fourteen would pass unchanged the day someone adds
+an eighth entry and the capture silently skips it. (Fourteen is what that derivation yields today; the
+figure appears in this plan only as a measurement, never as the assertion.)
 
 ## Task 2 — the fault detector, as its own importable module
 
@@ -105,10 +115,12 @@ provably-new artifacts.
 
 `detectRenderFaults(page, rootSelector?)` in a NEW module, not appended to `scripts/capture-core.ts`.
 
-**The RED step creates the module as a stub returning `[]`, then writes the test.** A test written against
-a module that does not exist fails on resolution, which is not the failure this task names and would go
-green the moment any file appeared at that path. The stub makes the red a genuine BEHAVIOURAL red: the
-module resolves, the export exists, and the assertion fails because nothing is detected.
+**The red cycle is test-first, in four observed steps.** Write the test; observe it fail on module
+resolution; add the minimal stub returning `[]`; observe it now fail on the ASSERTION. The stub is not
+production work done ahead of the test — it is the minimum that makes the red mean what this task claims,
+and it is authored after the test exists and is seen failing. Skipping straight to a resolution failure
+would satisfy "the test is red" while going green the moment any file appeared at that path, which is the
+tautology the red-contract exists to prevent.
 Mutation operators are file-wide, so enrolling `capture-core.ts` would drag `installDeterminism`,
 `disableAnimations`, `waitForQuiescence` and `encodeWebp` into the mutant population (Task 8).
 
@@ -180,11 +192,21 @@ that implementation. The template mutant catches a quote-only parser, the plain 
 frozen-quoted-set parser, and each is blind to the other's target.
 
 **Failure mode (c): an unknown guard form silently discarded.** The accept-set covers six forms — literal
-comparison; a call to a locally-defined `infra_error` predicate resolved through its declaration
-(`components/admin/Dashboard.tsx:282` defines one, `components/admin/Dashboard.tsx:491` calls it, and a
-comparison-only scan misses it); `"kind" in result`; a `catch` clause whose `try` reaches a throwing
-loader; `tileErrors` population; and a `switch` case on `result.kind`
-(`app/show/[slug]/[shareToken]/page.tsx:220`, one manifest entry under the crew show segment away). A seventh form
+comparison; a call to an `infra_error` type-guard predicate resolved through its DECLARATION wherever that
+declaration lives, **local or imported**; `"kind" in result`; a `catch` clause whose `try` reaches a
+throwing loader; `tileErrors` population; and a `switch` case on `result.kind`
+(`app/show/[slug]/[shareToken]/page.tsx:220`, one manifest entry under the crew show segment away).
+
+**Both predicate variants are live, and only one is marked.** Local: `components/admin/Dashboard.tsx:282`
+defines the predicate, `components/admin/Dashboard.tsx:491` calls it. Imported:
+`app/admin/_finalizeCheckpoint.ts:38` defines `isInfraError`, and `app/admin/page.tsx:177` calls it to guard
+a JSX return that replaces the dashboard — that one is marked. A third use,
+`app/admin/layout.tsx:135`, calls the same imported predicate but ASSIGNS a flag (`inOnboarding`) and
+returns no JSX from that branch, so it belongs to the flag-shaped residue, not the marked population.
+Resolution is by declaration and the marking decision is by whether the branch returns JSX; the three sites
+differ on both axes, which is why neither a name-keyed scan nor a call-site-keyed one gets this right.
+
+A seventh form
 must be **reported by name**. This is the accept-set discipline's own test: a recognizer that enumerates
 known forms is a denylist.
 
@@ -243,13 +265,21 @@ three things about it are load-bearing:
 1. **`if: always()`.** The capture step uses the default success condition, so a marked-fault refusal fails
    it and every ordinary later step is skipped — including the parser, exactly when a refusal is what the
    record needs to describe. Changing only the upload condition does not fix this.
-2. **Checks that a null-heavy record cannot satisfy.** Fourteen entries with non-empty runner fields and
-   ALL post-encode fields null passes "no short record, no empty runner, no non-null-on-refused" — measured:
-   `records=14 encoded=0` and all three predicates green. So the parser additionally requires post-encode
-   fields **present on every successful entry**, the identity set to be **exactly** the expected fourteen
-   with no duplicates, and each recorded hash to match the artifact in the run's fresh output directory.
-3. **A named local invocation.** The verification section runs it by command locally, so "runs locally" is
-   a step someone can execute rather than a claim.
+2. **Checks keyed to the run's OUTCOME, not to a fixed shape.** Two traps here, pulling opposite ways.
+   A null-heavy record — every entry present, runner fields set, all post-encode fields null — satisfies
+   "no short record, no empty runner, no non-null-on-refused" (measured: `records=14 encoded=0`, all three
+   predicates green). But demanding a full-length record is equally wrong: the capture ABORTS on the first
+   refusal, so a legitimate refusal produces a short record by design, and a parser rejecting it would fail
+   every genuine refusal. So the parser branches on outcome: on a **clean** run the identity set must equal
+   the manifest-derived expectation with no duplicates, every entry must carry pre- and post-encode fields,
+   and each hash must match the artifact in the staging directory; on a **refused** run the record must end
+   with exactly one refused entry carrying a `refusedReason`, every earlier entry complete, and none after
+   it.
+3. **A named local invocation that can actually satisfy its own checks.** The runner fields come from
+   `RUNNER_*`, which exist on a GitHub runner and not on a developer machine, so a local run asserting them
+   non-empty fails by construction. The parser takes a `--local` mode that treats the three runner fields
+   as not-applicable and asserts everything else; CI runs it without the flag, where the fields are
+   required. The verification section names the exact command.
 
 Upload moves to `if: always()`. The record is gitignored — required, or the instrument reds the gate's own
 untracked check.
@@ -268,8 +298,17 @@ absent from the registry is "untouched by the harness" (`tests/mutation/source/r
 command that is green on both sides of the change is not a red. The red is an assertion that the detector
 module IS a registered surface, which fails by construction until the row lands.
 
-Add the registry row to `GUARD_SURFACES` (`tests/mutation/source/registry.ts:151`), shaped per the `GuardSurface` type at `tests/mutation/source/registry.ts:12`, run the harness, record the score and the
-unaccepted-survivor set. Two shape constraints must already hold: the detector is its own importable module
+Add the registry row to `GUARD_SURFACES` (`tests/mutation/source/registry.ts:151`), shaped per the
+`GuardSurface` type at `tests/mutation/source/registry.ts:12`, run the harness, record the score and the
+unaccepted-survivor set.
+
+**The `operators` subset is enumerated in the row, not defaulted.** The field is required by the type, and
+the mutation-family rule is that the operator family is CLOSED and hand-enumerated rather than a generic
+recognizer — each widening of a recognizer is a bigger target for the next round. The detector's subset is
+chosen from `OPERATOR_NAMES` by what can actually reach its logic: the attribute-selector string, the
+subtree-versus-document branch, the empty-value branch, and the undefined-root branch. Operators that
+cannot reach any site in the module are omitted deliberately and the omission is stated in the row's
+`accepted` rationale rather than left to inference. Two shape constraints must already hold: the detector is its own importable module
 (Task 2), and its suite genuinely IMPORTS it — a source-scanning suite is not an import, the overlay would
 not apply, and a dead overlay reports a PERFECT score with every other gate condition passing. The `control`
 field is the per-surface proof the overlay is live.
@@ -327,17 +366,26 @@ Every id below is claimed by a task marker above.
 
 ## Anti-tautology notes
 
-- Task 1's oracle is identity equality, because cardinality is satisfiable by the fourteen files already
-  on disk before capture starts.
-- Task 3's assertion is that the evidence entry EXISTS, because asserting only that the capture throws
-  passes against unrepaired code that already threw.
-- Task 4 asserts **no image written**, not merely that a throw occurred.
-- Task 5 asserts the geometry layer does NOT fire on occurrence B's shape. A layer that fires on everything
-  discriminates nothing.
-- Task 6's route mutant must move the derived root SET. A same-segment mutant is vacuous against the exact
-  parser defect it targets — measured, not supposed.
-- Task 6(c) asserts an unknown form is reported, which is the only assertion that distinguishes an
-  accept-set from a denylist.
+- **Task 1** derives its identity set from a directory that began empty, because every property of the
+  BYTES is satisfiable by the baselines already on disk — a count, a length, a hash, a read-back. Three
+  rounds were spent learning that; the spec states it as the standing measure.
+- **Task 1** also derives the expected set from the manifest rather than writing the literal count, so an
+  added entry moves the expectation instead of passing unchanged.
+- **Task 2** asserts the undefined-root case explicitly, since `captureSelector` is optional and an
+  implementation treating undefined as an empty root finds nothing and passes silently.
+- **Task 3** asserts the evidence entry EXISTS, because asserting only that the capture throws passes
+  against unrepaired code that already threw — and separately asserts later quiescence failures are NOT
+  labelled `selector-absent`, since a catch around the whole function would mislabel every one of them.
+- **Task 4**'s route mutants must move the derived root SET, and BOTH are needed: the template mutant
+  catches a quote-only parser, the plain mutant catches a frozen-quoted-set parser, and each is blind to
+  the other's target. A same-segment mutant is vacuous against the exact defect it targets — measured.
+- **Task 4(c)** asserts an unknown form is reported, over a derived candidate universe rather than one
+  fixture. This is the only assertion that distinguishes an accept-set from a denylist.
+- **Task 5** asserts **no image written**, not merely that a throw occurred.
+- **Task 6** asserts the geometry layer does NOT fire on occurrence B's shape. A layer that fires on
+  everything discriminates nothing.
+- **Task 7**'s parser must reject a record that is well-formed but describes a run that did not happen,
+  and must itself run on the refusal path where the record matters most.
 - **AC-2 is the whole-class check** — it catches a gate that passes because it stopped looking.
 
 ## Verification
