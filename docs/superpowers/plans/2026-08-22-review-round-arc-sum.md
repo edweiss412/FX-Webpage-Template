@@ -70,7 +70,7 @@ Four hits, each dispositioned in Task 8: README.md:22 and AGENTS.md:190 gain the
 
 **Sweep 2 — every `ROUND_THRESHOLD` consumer**, so no reader is left counting per base while the gate sums. Run 2026-08-22; the consumers outside `constants.ts` are `lib/reviewRounds/corpus.ts:236` (clause A, unchanged), `scripts/review-economy.ts:196` (the trigger-rate bucket, which counts `new Set(rows.map(r => r.round)).size` **per base** and is dispositioned in Task 6), `scripts/review-economy.ts:395` (the prose line "filing threshold: 4 counted rounds in one stage", reworded in Task 6), `tests/mutation/source/registry.ts:1775` (the control string, constraint 1 above), plus test fixtures that derive from the constant and need no edit.
 
-**Sweep 3 — registry count reconciliation.** `tests/mutation/source/expectedLedgerKinds.ts:204` declares `reviewRoundCount: {}` and `tests/mutation/source/expectedLedgerKinds.ts:210` declares `reviewRoundCorpus: { equivalent: 2 }`, matching the two accepted rows at `tests/mutation/source/registry.ts:1783` and `tests/mutation/source/registry.ts:1790`. Task 7 re-runs the harness and pastes the re-derived set; any delta lands in the same commit as the code that caused it.
+**Sweep 3 — registry count reconciliation.** `tests/mutation/source/expectedLedgerKinds.ts:204` declares `reviewRoundCount: {}` and `tests/mutation/source/expectedLedgerKinds.ts:210` declares `reviewRoundCorpus: { equivalent: 2 }`, matching the two accepted rows at `tests/mutation/source/registry.ts:1783` and `tests/mutation/source/registry.ts:1789`. Task 7 re-runs the harness and pastes the re-derived set; any delta lands in the same commit as the code that caused it.
 
 ## Tasks
 
