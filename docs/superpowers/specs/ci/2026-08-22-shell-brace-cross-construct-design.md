@@ -17,7 +17,7 @@ document owes is **0 hard**; re-derive the advisory count rather than reading a 
 pnpm spec:lint docs/superpowers/specs/ci/2026-08-22-shell-brace-cross-construct-design.md
 ```
 
-**Sequencing.** `arc-yamlquote` (`BL-SHELL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE`, branch
+**Sequencing.** `arc-yamlquote` (`BL-SHELL-YAML-RUN-SCALAR-QUOTING-DECODE`, branch
 `fix/yaml-run-scalar-quoting-decode`) edits the same file's YAML decode path and merges FIRST.
 Implementation of this design starts after that merge and opens with a rebase, a re-key
 (`pnpm mutation:sites`) and a re-run of every probe below. The two diffs do not overlap: that arc
