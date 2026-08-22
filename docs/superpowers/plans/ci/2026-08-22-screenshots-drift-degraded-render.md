@@ -44,7 +44,7 @@ around a scanner: the obligation is real, ratified, and Task 9 owns it.
 | existing workflow describe block | `tests/cross-cutting/ci-workflow-speedup.test.ts:84` | yes |
 | capture step forwards only `-e CI=true` | `.github/workflows/screenshots-drift.yml:113` | yes |
 | gate fails on untracked files there | `.github/workflows/screenshots-drift.yml:137` | yes |
-| mutation registry row shape | `tests/mutation/source/registry.ts:12` | yes |
+| mutation registry row shape | `tests/mutation/source/registry.ts:12` (type), `tests/mutation/source/registry.ts:151` (membership) | yes |
 
 **Measured, not assumed.** The widened accept-set (six guard forms) matches **21** JSX-returning fault
 branches across `components/**` + `app/admin/**`, reached via three detectable constructs: literal
@@ -196,9 +196,9 @@ construct; it cannot satisfy a partition assertion over a derived universe.
 
 ## Task 5 — the capture refuses, before it writes
 
-<!-- task: red=`pnpm vitest run tests/help/captureRefusal.test.ts` red-state=authored red-target=`scripts/help-screenshots.ts:104` why=`the screenshot is taken with no check that the render succeeded` ac=AC-1 -->
+<!-- task: red=`pnpm vitest run tests/help/captureRefusal.test.ts` red-state=authored red-target=`scripts/help-screenshots.ts:107` why=`the screenshot is taken with no check that the render succeeded` ac=AC-1 -->
 
-Wire the detector between `waitForQuiescence` and `screenshotPng`. On a hit, throw naming entry key, theme
+Wire the detector between `waitForQuiescence` and `screenshotPng` (`scripts/help-screenshots.ts:107`). On a hit, throw naming entry key, theme
 and every reason.
 
 **Failure mode this catches:** placing the check after `encodeWebp`/`writeFile` still overwrites the
@@ -214,7 +214,7 @@ then refuse.
 
 ## Task 6 — the geometry layer
 
-<!-- task: red=`pnpm vitest run tests/help/captureGeometry.test.ts` red-state=authored red-target=`scripts/help-screenshots.ts:104` why=`a layout-changing fault is encoded with no dimension check` ac=AC-1 -->
+<!-- task: red=`pnpm vitest run tests/help/captureGeometry.test.ts` red-state=authored red-target=`scripts/help-screenshots.ts:108` why=`a layout-changing fault is encoded with no dimension check` ac=AC-1 -->
 
 Compare captured dimensions against the committed baseline's via `sharp().metadata()` before encoding.
 Mismatch throws naming both. A missing baseline records a skip reason into the Task 1 record.
@@ -256,7 +256,7 @@ untracked check.
 
 ## Task 8 — mutation enrolment, BEFORE the whole-diff review
 
-<!-- task: red=`pnpm vitest run tests/mutation/source/registryMembership.test.ts` red-state=authored red-target=`tests/mutation/source/registry.ts:12` why=`enrolment is opt-in, so an unenrolled surface is silently untouched by the harness` ac=AC-9 -->
+<!-- task: red=`pnpm vitest run tests/mutation/source/registryMembership.test.ts` red-state=authored red-target=`tests/mutation/source/registry.ts:151` why=`enrolment is opt-in, so an unenrolled surface is silently untouched by the harness` ac=AC-9 -->
 
 The round-1 diff brief is gated on a `GUARD SURFACE:` line carrying `MUTATION SCORE: <killed>/<total>` plus
 zero unaccepted survivors, and `scripts/codex-guard.mjs` exits 2 before dispatching without it. Enrolment is
@@ -268,7 +268,7 @@ absent from the registry is "untouched by the harness" (`tests/mutation/source/r
 command that is green on both sides of the change is not a red. The red is an assertion that the detector
 module IS a registered surface, which fails by construction until the row lands.
 
-Add the registry row per `tests/mutation/source/registry.ts:12`, run the harness, record the score and the
+Add the registry row to `GUARD_SURFACES` (`tests/mutation/source/registry.ts:151`), shaped per the `GuardSurface` type at `tests/mutation/source/registry.ts:12`, run the harness, record the score and the
 unaccepted-survivor set. Two shape constraints must already hold: the detector is its own importable module
 (Task 2), and its suite genuinely IMPORTS it — a source-scanning suite is not an import, the overlay would
 not apply, and a dead overlay reports a PERFECT score with every other gate condition passing. The `control`
