@@ -441,6 +441,29 @@ path, not every path. That residue is the client-side destructive-statement guar
 DELETE is exactly the shape `DESTRUCTIVE_STATEMENT_PATTERNS` does match), which is why the filing row
 scoped this work to the prunes — the functions no recognizer reliably sees. Recorded as §4.6.
 
+### §3.11 AC-6's block shape, falsified in both directions
+
+R5 found AC-6 asserting the absence of a wrong error rather than the presence of a refusal. The repaired
+shape was then run against a deliberately UNGATED function and a deliberately GATED one, on local,
+inside transactions that were rolled back:
+
+```
+-- ungated stand-in: `create function ungated_probe_fn() ... select 1`
+ERROR:  GATE MISSING: ungated_probe_fn() succeeded on this database
+psql exit code (ungated, expect nonzero): 3
+
+-- gated stand-in: raises 'prune not enabled for this database'
+psql exit code (gated, expect 0): 0
+
+select to_regproc('public.ungated_probe_fn') is null
+   and to_regproc('public.gated_probe_fn')   is null as both_rolled_back;
+ t
+```
+
+The positive control is the half that matters: without the `raise` on the success path, the ungated run
+also exits 0, which is precisely the false green R5 named. Exit codes were read directly from `$?` on the
+`psql` process, not through a pipe — a pipeline's status is the last command's.
+
 ---
 
 ## §4 Documented limits
@@ -592,21 +615,39 @@ exact failure the arc exists to prevent, committed by its own acceptance test. S
   catalog and calls nothing, so it carries no deletion risk at all. The wrong implementation it excludes
   is a rewrite that quietly drops `security definer`, the pinned `search_path`, or the shipped default
   while every refusal assertion still passes.
-- **AC-6 — the live validation probe, two limbs, and NO call outside a transaction.** Run after the
-  atomic surgical apply, in ONE `psql -v ON_ERROR_STOP=1` script against `vzakgrxqwcalbmagufjh`:
-  1. **Catalog limb — reads only, calls nothing.** For both functions: `prolang` = `plpgsql` and
-     `prosrc` contains `assert_prune_enabled`. If this limb fails the apply did not land and limb 2
-     does not run.
+- **AC-6 — the live validation probe, two limbs, no call outside a transaction, and a SUCCESS is a
+  failure.** Run after the atomic surgical apply, in ONE `psql -v ON_ERROR_STOP=1` script against
+  `vzakgrxqwcalbmagufjh`:
+  1. **Pre-check limb — reads only, calls nothing, and is not the oracle.** Both functions report
+     `prolang` = `plpgsql`. It exists to fail fast when the apply did not land; it is deliberately NOT
+     asserted as proof that the gate is wired, because a substring search over `prosrc` matches a
+     comment or an unreachable branch just as happily as a live `perform`. Limb 2 is the oracle.
   2. **Behavioural limb — the ENTIRE limb inside one `begin;` … `rollback;`.** Both functions, in both
-     the default no-argument form and the `interval '5 days'` form, each call inside its own plpgsql
-     block that re-raises anything not matching `prune not enabled%`. Four calls, one transaction, one
-     rollback.
+     the default no-argument form and the `interval '5 days'` form: four calls, one transaction, one
+     rollback. Each call takes this exact shape, in which a SUCCESSFUL prune is what fails the probe:
 
-  There is no third limb and no precondition count, because R4 showed why both were the wrong shape: a
-  count taken outside a transaction bounds nothing — a row satisfying the window can arrive between the
-  count and the call, and validation takes concurrent test traffic (§3.3). The rollback is the only
-  bound that holds regardless of what the gate does or what else is writing, so every calling limb is
-  inside it and none is argued to be safe on its own.
+     ```sql
+     do $$
+     begin
+       perform public.prune_sync_log();
+       raise exception 'GATE MISSING: prune_sync_log() succeeded on this database';
+     exception when others then
+       if sqlerrm not like 'prune not enabled%' then raise; end if;
+     end;
+     $$;
+     ```
+
+     The `raise` on the success path is the whole point: a handler that only re-raises unexpected errors
+     is an ABSENCE predicate, and an ungated function satisfies it by never erroring at all — every call
+     succeeds, no handler runs, the transaction rolls back, and `psql` exits 0 on a permissive database.
+     `'GATE MISSING: …'` does not match `prune not enabled%`, so the handler re-raises it and the script
+     stops with `ON_ERROR_STOP`.
+
+  **The rule this instance obeys, stated once for the whole arc:** every refusal assertion here fails
+  when the call SUCCEEDS, not merely when it errors wrongly. In the test suite that is
+  `rejects.toThrow(/prune not enabled/i)`, which fails on a resolved promise by construction; in SQL it
+  is the `raise` after the `perform` above. R5 found the SQL half missing while the suite half was
+  already correct.
 
   Together the two limbs answer what the parity gate structurally cannot (§4.3): parity compares
   signatures, not bodies, so only a live behavioural probe distinguishes an applied migration from a
