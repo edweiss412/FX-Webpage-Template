@@ -62,4 +62,5 @@ Post-deployment (v1.X+) specs grouped by subsystem. See [`../README.md`](../READ
 | [`2026-08-22-workflow-run-scalar-yaml-decode-design.md`](./2026-08-22-workflow-run-scalar-yaml-decode-design.md) | 2026-08-22 |
 | [`2026-08-21-app-e2e-batch2-design.md`](./2026-08-21-app-e2e-batch2-design.md) | 2026-08-21 |
 | [`2026-08-22-derived-number-provenance-convention.md`](./2026-08-22-derived-number-provenance-convention.md) | 2026-08-22 |
+| [`2026-08-22-shell-brace-cross-construct-design.md`](./2026-08-22-shell-brace-cross-construct-design.md) | 2026-08-22 |
 | [`probes`](./probes) | 2026-08-04 |

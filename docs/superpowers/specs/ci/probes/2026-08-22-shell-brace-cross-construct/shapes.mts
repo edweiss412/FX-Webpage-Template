@@ -99,9 +99,9 @@ const ROWS: Row[] = [
   { id: "L4-heredoc-inside-subst", b64: b(`echo $(cat <<EOF\n)\nEOF\npsql -c 'x')`), bash: "runs", limit: true,
     after: { sites: 1, nested: true, nestedInBacktick: false, indirections: 0 },
     note: "LIMIT: a here-document body inside $() is literal to bash; the walk reads its `)` — as today" },
-  { id: "C7-squote-in-brace-in-dquote", b64: b(`cat >"\${A:-'}'; psql -c 'x'}"`), bash: "silent",
+  { id: "L5-squote-in-brace-in-dquote", b64: b(`cat >"\${A:-'}'; psql -c 'x'}"`), bash: "silent", limit: true,
     after: { sites: 0, indirections: 0 },
-    note: "CONTROL: bash 5.2 closes the brace AFTER the quoted `}` (probed: `A=; echo \"\${A:-'}'; psql -c x}\"` prints `'}'; psql -c x`), as the walk does; the quotes are literal in the VALUE, which the lexer never reads inside double quotes" },
+    note: "LIMIT: inside double quotes bash reads a single quote in a brace operand as LITERAL (probed: `A=; echo \"${A:-'}'; psql -c x}\"` prints `'}'; psql -c x`); the walk's nested ${} reads it as a quote. The enclosing double quote bounds the span either way" },
   { id: "C6-arith-not-subst", b64: b(`cat >"$((1+2))"; psql -c 'x'`), bash: "runs",
     after: { sites: 1, nested: false, nestedInBacktick: false, indirections: 0 },
     note: "CONTROL: $(( )) is arithmetic; the psql after it is top-level" },
@@ -186,6 +186,7 @@ if (bashMismatch > 0) {
   process.exit(2);
 }
 const limits = ROWS.filter((r) => r.limit).length;
+console.log(`ROWS: ${ROWS.length} total = ${ROWS.length - limits} accept-set + ${limits} documented-limit`);
 console.log(`${ROWS.length - limits - unmet}/${ROWS.length - limits} accept-set rows meet their post-repair expectation; ${limits} documented-limit rows ${shipped === null ? "reported (shipped module, nothing to compare)" : "compared against the shipped module"}`);
 if (expectRepaired && unmet > 0) {
   console.error(`FAIL: ${unmet} row(s) unmet under --expect-repaired`);
