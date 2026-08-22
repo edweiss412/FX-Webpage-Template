@@ -11,6 +11,7 @@
 // would enter the corpus the scanner censuses.
 import { mkdtempSync, writeFileSync, readFileSync, chmodSync, mkdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -44,7 +45,17 @@ type Row = {
    * and neither direction can be argued away: the repair adds a site on one
    * spelling and removes a fabricated one on another. Recording it means a
    * later change to either is visible instead of discovered. */
-  rejectedByBash?: { base: [sites: number, hits: number]; candidate: [sites: number, hits: number] };
+  rejectedByBash?: {
+    /** 12-char sha1 of the FULL-RECORD serialisation the merge-base scanner
+     *  produces, and the one the candidate must produce. Digests rather than
+     *  count pairs because round 3 finding 2 measured what counts miss: hit
+     *  text and line, site offset, tokens, `suppressesStartupFiles` and
+     *  `exemptReason` can all move while the counts and the aggregate `nested`
+     *  flags hold. A mismatch prints both full records, so the digest costs
+     *  nothing in diagnosability. */
+    base: string;
+    candidate: string;
+  };
 };
 
 const b = (s: string): string => Buffer.from(s + "\n", "utf8").toString("base64");
@@ -108,11 +119,11 @@ const ROWS: Row[] = [
   //    parses, and both the shipped walk and the first cut of the repair
   //    report a site for input bash refuses to run.
   { id: "P1-dollardollar-in-brace", b64: b(`echo \${OUT:-$$(echo }; psql -c "x")}`), bash: "silent",
-    rejectedByBash: { base: [1, 0], candidate: [1, 0] },
+    rejectedByBash: { base: "d90fa80600da", candidate: "d90fa80600da" },
     after: { sites: 1, nested: false, nestedInBacktick: false, indirections: 0 },
     note: "LIMIT: bash -n exits 2 and NOTHING runs, yet a site reports - an instance of the general syntax-error limit (design section 7 item 6), not of the crossing. The $$ precedence rule is what keeps it UNCHANGED: without it the repair resolves the same site with MORE confidence (nested:true), which would be a regression inside a limit" },
   { id: "P2-dollardollar-attached", b64: b(`cat >$$(echo \${A:-)}; psql -c 'x')`), bash: "silent",
-    rejectedByBash: { base: [1, 0], candidate: [1, 0] },
+    rejectedByBash: { base: "43084e0f3311", candidate: "43084e0f3311" },
     after: { sites: 1, nested: false, nestedInBacktick: false, indirections: 0 },
     note: "LIMIT: the same, on the attached-target path - one character from R1-attached. It is why the $$ rule lands in BOTH recognizers: taught to the delimiter walk alone, this row MOVES to nested:true" },
   { id: "P3-dollardollar-control", b64: b(`echo $\${A:-y}; psql -c 'x'`), bash: "runs",
@@ -129,11 +140,11 @@ const ROWS: Row[] = [
     after: { sites: 1, nested: true, nestedInBacktick: false, indirections: 0 },
     note: "the same crossing one layer deeper, inside a double-quoted attached target" },
   { id: "W4k-unclosed-backtick-in-subst", b64: b("cat >$(echo `echo x; psql -c 'x')"), bash: "silent",
-    rejectedByBash: { base: [1, 0], candidate: [0, 1] },
+    rejectedByBash: { base: "d8beb9611f6b", candidate: "0e33ae5ed7c9" },
     after: { sites: 0, indirections: 1 },
     note: "an UNCLOSED backtick inside $(): bash dies on the unexpected EOF and runs NOTHING. The merge-base FABRICATES a site; the repair replaces it with an advisory. Movement recorded, and it is the direction the bound prefers" },
   { id: "X1-stray-paren-after-crossing", b64: b(`cat >"$(echo \${A:-)}; psql -c 'x')" )`), bash: "silent",
-    rejectedByBash: { base: [0, 0], candidate: [1, 0] },
+    rejectedByBash: { base: "cd7ee0e059d8", candidate: "c3ef26f78ea4" },
     after: { sites: 1, nested: true, nestedInBacktick: false, indirections: 0 },
     note: "spec review r2 finding 1. One ordinary edit from R1-attached: a trailing stray `)` makes the whole command a syntax error. The base is SILENT here and the repair REPORTS -- but the base's silence was its own early-closing defect coincidentally hiding the psql, not correctness: delete the stray paren and the identical input PARSES, runs psql, and the base is still silent (that is R1-attached, the row's own defect). The movement is recorded rather than argued away" },
 
@@ -214,6 +225,27 @@ if (baselineIsCandidate)
   );
 
 const FAKE = "#!/bin/bash\nprintf 'RAN argv=%s\\n' \"$*\" >> \"$LOGFILE\"\necho out.txt\n";
+
+/**
+ * Does bash PARSE this source at all?
+ *
+ * Round 3 finding 1: the bash-rejected population claimed its inputs are ones
+ * the shell refuses, and verified only that psql did not RUN. Those are
+ * different facts — a perfectly valid script can fail to run psql — so a
+ * valid-but-silent input could be labelled `rejectedByBash` and thereby exempted
+ * from §5's consequence bound with nothing objecting. The class is now checked
+ * against `bash -n` rather than asserted, in BOTH directions.
+ */
+const bashParses = (source: string, id: string): boolean => {
+  const file = join(dir, `${id}.parse.sh`);
+  writeFileSync(file, source);
+  try {
+    execFileSync("bash", ["-n", file], { stdio: "pipe" });
+    return true;
+  } catch {
+    return false;
+  }
+};
 const dir = mkdtempSync(join(tmpdir(), "bracecross-"));
 const bin = join(dir, "bin");
 mkdirSync(bin);
@@ -222,6 +254,8 @@ chmodSync(join(bin, "psql"), 0o755);
 
 const expectRepaired = process.argv.includes("--expect-repaired");
 let bashMismatch = 0;
+/** Rows whose declared class disagrees with `bash -n`. */
+let classMismatch = 0;
 /** Accept-set rows that do not meet their post-repair expectation. */
 let unmetAccept = 0;
 /** bash-REJECTED rows whose recorded base->candidate movement no longer holds. */
@@ -250,6 +284,15 @@ for (const row of ROWS) {
   }
   const ran = readFileSync(log, "utf8").split("\n").filter((l) => l.includes("RAN")).length;
   if ((ran > 0) !== (row.bash === "runs")) bashMismatch++;
+  // The CLASS claim, checked in both directions: a `rejectedByBash` row must be
+  // one bash refuses to parse, and every other row must be one it accepts.
+  const parses = bashParses(source, row.id);
+  if (parses === Boolean(row.rejectedByBash)) {
+    classMismatch++;
+    console.error(
+      `  CLASS MISMATCH ${row.id}: bash ${parses ? "PARSES" : "REJECTS"} this, but the row is ${row.rejectedByBash ? "declared bash-rejected" : "not declared bash-rejected"}`,
+    );
+  }
 
   const sites = scan.scanSource(source, "probe.sh");
   const hits = scan.scanShellIndirection(source, "probe.sh");
@@ -282,9 +325,13 @@ for (const row of ROWS) {
   /** The BASE half of a recorded movement. Counts are enough here and only here:
    *  the merge-base scanner is immutable, so this half exists to pin WHICH
    *  movement the row records, not to detect drift in it. */
-  const movementBaseHolds = (): boolean => {
+  const digestOf = (ss: Array<Record<string, unknown>>, hs: Array<Record<string, unknown>>): string =>
+    createHash("sha1").update(both(ss, hs)).digest("hex").slice(0, 12);
+  const observedBase = digestOf(baseSites, baseHits);
+  const observedCandidate = digestOf(sites, hits);
+  const movementHolds = (): boolean => {
     const r = row.rejectedByBash!;
-    return baseSites.length === r.base[0] && baseHits.length === r.base[1];
+    return observedBase === r.base && observedCandidate === r.candidate;
   };
   /** The candidate side, for accept-set AND bash-rejected rows alike: sites,
    *  advisories AND attribution. Counts alone cannot discriminate a defect that
@@ -301,7 +348,10 @@ for (const row of ROWS) {
     (row.after.nestedInBacktick === undefined || (row.after.nestedInBacktick ? btAll : btNone));
 
   const ok = row.rejectedByBash
-    ? movementBaseHolds() && afterHolds()
+    ? // FULL RECORDS on both halves. `afterHolds()` is deliberately NOT used
+      // here: it reads counts and aggregate flags, which is the weaker check
+      // round 3 finding 2 named.
+      movementHolds()
     : row.limit
       ? unchanged !== false
       : afterHolds();
@@ -311,13 +361,23 @@ for (const row of ROWS) {
     else unmetAccept++;
   }
   console.log(
-    `${pad(row.id, 36)} ${pad(String(ran), 5)} ${pad(String(sites.length), 6)} ${pad(nestedCol, 7)} ${pad(btCol, 6)} ${pad(String(hits.length), 5)} ${row.rejectedByBash ? (ok ? `RECORDED ${baseSites.length}s/${baseHits.length}a -> ${sites.length}s/${hits.length}a` : `MOVEMENT CHANGED (recorded ${row.rejectedByBash.base.join("s/")}a -> ${row.rejectedByBash.candidate.join("s/")}a, observed ${baseSites.length}s/${baseHits.length}a -> ${sites.length}s/${hits.length}a${movementBaseHolds() ? "; base half holds, so the CANDIDATE moved" : ""})`) : row.limit ? (unchanged === null ? "(limit; vacuous)" : unchanged ? "UNCHANGED" : "MOVED") : ok ? "MEETS after" : "UNMET"}  ${row.note}`,
+    `${pad(row.id, 36)} ${pad(String(ran), 5)} ${pad(String(sites.length), 6)} ${pad(nestedCol, 7)} ${pad(btCol, 6)} ${pad(String(hits.length), 5)} ${row.rejectedByBash ? (ok ? `RECORDED ${observedBase} -> ${observedCandidate}` : `MOVEMENT CHANGED (recorded ${row.rejectedByBash.base} -> ${row.rejectedByBash.candidate}, observed ${observedBase} -> ${observedCandidate})`) : row.limit ? (unchanged === null ? "(limit; vacuous)" : unchanged ? "UNCHANGED" : "MOVED") : ok ? "MEETS after" : "UNMET"}  ${row.note}`,
   );
   if (hits.length > 0) for (const h of hits) console.log(`    hit: ${JSON.stringify(h.text)}`);
+  if (row.rejectedByBash && !ok) {
+    console.log(`    base   record: ${both(baseSites, baseHits)}`);
+    console.log(`    cand   record: ${both(sites, hits)}`);
+  }
 }
 console.log(`\nbash oracle: ${bashMismatch === 0 ? "every row executed psql exactly as declared" : `${bashMismatch} row(s) DISAGREE with their declared bash column`}`);
 if (bashMismatch > 0) {
   console.error("ABORT: the bash column is wrong for some row; the scanner comparison is unattributable there");
+  process.exit(2);
+}
+if (classMismatch > 0) {
+  console.error(
+    `ABORT: ${classMismatch} row(s) declare a bash-rejected class that \`bash -n\` contradicts. A row exempted from the consequence bound must be one the shell really refuses.`,
+  );
   process.exit(2);
 }
 const limits = ROWS.filter((r) => r.limit).length;
