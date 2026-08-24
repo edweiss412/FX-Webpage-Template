@@ -55,8 +55,10 @@ claims for them.
 
 Three commands are NOT run, all for one reason: the surgical apply, its `notify pgrst`, and AC-6's
 probe each need an applied migration on `vzakgrxqwcalbmagufjh`, which is Task 2's own deliverable.
-`TEST_DATABASE_URL` resolves and validation answers, and its posture marker reads `enabled=true`, so
-the gate will refuse there once applied.
+They also need a shell that has loaded `.env.local`, which nothing does on its own — Task 2 step 0 is
+that step, added after plan review r4 found these commands relying on a variable no worktree shell
+defines. From such a shell the DSN resolves to the pooler over TCP and validation answers, and its
+posture marker reads `enabled=true`, so the gate will refuse there once applied.
 
 **This section used to be a forty-line table with an extractor, and shrinking it is the repair, not an
 evasion.** The table produced a finding in r2 (it missed the parity suite's ambient form) and two more
@@ -272,6 +274,26 @@ what was there, which is what the step means.
 
 **GREEN.**
 
+0. **Put the validation DSN in the shell, and prove it is validation.** `TEST_DATABASE_URL` lives in
+   `.env.local`, and NOTHING in a worktree shell loads that file: not the shell, and not vitest —
+   `tests/setup.ts` sets several test defaults and reads no dotenv file, which is why
+   `scripts/preflight-env.mjs:12` says so in a comment and parses `.env.local` itself. Every step below
+   that names validation therefore begins from this, once per shell:
+
+   ```
+   $ set -a; . ./.env.local; set +a
+   $ psql "$TEST_DATABASE_URL" -tAc \
+       "select current_database(), inet_server_addr() is not null as over_tcp"
+   postgres|t
+   ```
+
+   **The `over_tcp` column is the point, not decoration.** With `TEST_DATABASE_URL` unset, `psql ""`
+   silently falls back to the local Unix socket and every command below would run against LOCAL while
+   reporting success — the gate applied to the wrong database, AC-6 refusing for the wrong reason, and
+   AC-7 proving nothing. That is the one shape this arc's consequence bound calls silently wrong, and
+   plan review r4 found the plan committing it. A one-line check that the connection is a TCP one to
+   the pooler is what makes the rest of this task's claims mean what they say.
+
 1. `pnpm gen:schema-manifest`; commit the regenerated `supabase/__generated__/schema-manifest.json`.
    The named red command now passes.
 2. Apply to `vzakgrxqwcalbmagufjh` in ONE atomic invocation, then reload PostgREST in a SECOND psql
@@ -284,13 +306,20 @@ what was there, which is what the step means.
 
    `-1` is load-bearing and covers the `do $$` block too: parity compares signatures, not bodies (spec
    §4.3), so a half-applied file would pass the gate.
-3. **AC-6, the closing probe, two limbs, in ONE `psql -v ON_ERROR_STOP=1` script against validation.**
+3. **AC-6, the closing probe, two limbs, in ONE `psql -v ON_ERROR_STOP=1` script against validation**,
+   invoked as `psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f <script>` from the step-0 shell.
    Limb 1 reads the catalog only: `prolang = plpgsql` for both functions plus the body pin. Limb 2 is
    four calls — both functions, default and `interval '5 days'` forms — inside ONE `begin; … rollback;`,
    each in the spec §6 block shape whose `raise` after the `perform` makes a SUCCESSFUL prune fail the
    probe. Transcript into §12. The block shape was falsified in both directions at spec §3.11; re-run
    it rather than re-deriving it.
-4. `pnpm vitest run tests/db/validation-schema-parity.test.ts` passes with the ambient env too (AC-7).
+4. **AC-7, and it needs the exported variable, not an "ambient" one.**
+   `pnpm vitest run tests/db/validation-schema-parity.test.ts` from the step-0 shell. Layer 2 is the
+   layer that reaches validation, and `resolveParityDbUrl()` returns `LOCAL_DB_URL` when
+   `TEST_DATABASE_URL` is undefined (`tests/db/validation-schema-parity.test.ts:92-93`), so run without
+   the export this command passes while comparing local to local — green, and proving nothing about
+   validation. Contrast the RED command at the head of this task, which unsets the variable on purpose
+   to reach Layer 3; the two commands differ ONLY in that variable and prove different things.
 
 **Commit:** `chore(db): regenerate the schema manifest for the prune posture gate`
 
