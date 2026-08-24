@@ -129,18 +129,29 @@ falsifies the record it exists to be — the probes README makes that binding ex
 judge REPORTS the excluded population's site count on every run so the exclusion cannot
 grow in silence.
 
-**A text prefilter is allowed, and must be at least as permissive as the AST matcher.** Walking
-every tracked file is wasteful when most contain no `.replace` at all, so a cheap regex decides
-which files get parsed. That regex is part of the matcher's semantics, not an implementation
-detail beneath them: `/\.replace(All)?\s*\(/` looks obviously right and is wrong, because a
-wrapped callee spells `(s.replace)(a, v)` — `.replace` followed by `)` — so the file is skipped
-before the matcher can see it. This arc shipped exactly that pair for one round: the callee repair
-of §3.3 was unreachable in any file whose only `.replace` had a wrapped callee, because the
-prefilter had already dropped the file.
+**There is no text prefilter. Every file in the population is parsed.**
 
-The rule is therefore stated rather than left to judgement: **an optimization that can change the
-answer is a defect, not an optimization.** The prefilter matches `/\.replace(All)?\b/`, which is
-strictly weaker than the AST test it precedes, and AC-4b pins the pair.
+This is the one place the spec spends a paragraph on something it does NOT do, because the
+alternative cost two review rounds and would have cost more. Walking every tracked file looks
+wasteful when most contain no `.replace`, so the obvious optimization is a cheap regex deciding
+which files get parsed. That regex is part of the matcher's semantics, not an implementation
+detail beneath them, and every version of it was wrong:
+
+| Prefilter | Misses |
+| --- | --- |
+| `/\.replace(All)?\s*\(/` | a wrapped callee, `(s.replace)(a, v)` — `.replace` is followed by `)` |
+| `/\.replace(All)?\b/` | the trivia JavaScript allows between the dot and the name: `a.path. replace(…)`, a newline, a block comment, a line comment |
+| any source-text regex | an escaped identifier, `s.repl\u0061ce(…)`, which no regex over source text can see |
+
+Each fix widened the pattern and the next round found the next spelling. That is the recognizer
+ratchet, and the repair direction under same-axis recurrence is NARROWING, not more grammar. The
+narrowing here is to delete the optimization outright.
+
+Measured over the tracked population: **prefiltered, 508 files in 1235ms; unfiltered, 3670 files
+in 1941ms**, both finding the same 1206 calls. Seven hundred milliseconds does not buy an axis
+that yields a finding every round, and deleting the filter also closes the escaped-identifier
+spelling that no amount of widening could have reached. **The safest optimization is the one that
+is not there.**
 
 ### 3.3 Transparent wrappers are asked of the compiler
 
@@ -533,7 +544,7 @@ than as a round.
 | AC-3 | A call with fewer than two arguments and no spread is not-in-population, counted, and never reported. |
 | AC-3b | A call with a `SpreadElement` at argument index 0 or 1 is REPORTED, not bucketed as not-in-population — asserted for `s.replace(...args)`, `s.replace(...args, b)` where `b` is an accepted literal, and `s.replace(a, ...rest)`. |
 | AC-4 | The population is derived from disk and excludes `node_modules/**` and `docs/**`; a file added under a new top-level directory is scanned without any edit to the scanner. |
-| AC-4b | Any text prefilter admits every file the AST matcher would report on. Asserted by running BOTH over a fixture set that includes each wrapped-callee spelling and comparing the file sets, so a prefilter tightened later fails rather than silently shrinking the population. |
+| AC-4b | The scanner parses every file in the population, with no text prefilter gating the walk. Asserted structurally — the walk has no source-text gate — and behaviourally, over a fixture set covering all seven spellings §3.2 tabulates (baseline, wrapped callee, space, newline, block comment, line comment, escaped identifier), each of which must be reported. A prefilter reintroduced later fails the behavioural half rather than silently shrinking the population. |
 | AC-5 | The repo-wide assertion reports zero offenders at the PR's head. |
 | AC-6 | The guard's premise is executable: the suite fails loudly if the walk finds no call sites at all, so a broken walker cannot read as a clean bill. |
 | AC-7 | All 52 in-population offenders are repaired; the four `docs/**` sites are outside the population by rule, not by an enumerated exemption. |

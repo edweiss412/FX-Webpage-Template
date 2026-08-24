@@ -19,7 +19,7 @@
 // or the spread bucket is ever non-empty, so the claim re-checks itself rather than being asserted.
 import { readFileSync } from "node:fs";
 import ts from "typescript";
-import { DOLLAR, PREFILTER, classify, litText, replaceCallee, trackedFiles } from "./_shared.mjs";
+import { DOLLAR, classify, litText, replaceCallee, trackedFiles } from "./_shared.mjs";
 
 const textual: string[] = [];
 const sameFile: string[] = [];
@@ -44,8 +44,6 @@ for (const file of trackedFiles()) {
     ts.forEachChild(n, scanBindings);
   };
   scanBindings(src);
-
-  if (!PREFILTER.test(source)) continue;
 
   // EVERY binding per name, never last-write-wins. A name bound more than once in a file is
   // ambiguous to a scope-blind pass, and spec R6 declines exactly that guess: it is reported

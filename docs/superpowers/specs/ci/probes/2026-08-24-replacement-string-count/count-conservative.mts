@@ -7,7 +7,7 @@
 // vacuous on exactly the axis under review. Both now come from `_shared.mts`.
 import { readFileSync } from "node:fs";
 import ts from "typescript";
-import { PREFILTER, classify, replaceCallee, trackedFiles, type Verdict } from "./_shared.mjs";
+import { classify, replaceCallee, trackedFiles, type Verdict } from "./_shared.mjs";
 
 const tracked = trackedFiles();
 
@@ -17,7 +17,6 @@ let oneArg = 0;
 
 for (const file of tracked) {
   const source = readFileSync(file, "utf8");
-  if (!PREFILTER.test(source)) continue;
   const src = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
   const visit = (node: ts.Node): void => {
     const callee = replaceCallee(node);

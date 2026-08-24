@@ -3,7 +3,6 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
-import { PREFILTER } from "./_shared.mjs";
 import { skipTransparent } from "../../../../../../tests/_shared/outerExpressions";
 
 const EXT = /\.(ts|tsx|js|jsx|mjs|cjs|mts|cts)$/;
@@ -13,7 +12,6 @@ const tracked = execFileSync("git", ["ls-files"], { encoding: "utf8", maxBuffer:
 let spreadAtOrBefore1 = 0, spreadLater = 0, zeroArg = 0, oneArg = 0, dotCallApply = 0, total = 0;
 for (const file of tracked) {
   const source = readFileSync(file, "utf8");
-  if (!PREFILTER.test(source)) continue;
   const src = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
   const visit = (n: ts.Node): void => {
     if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(skipTransparent(n.expression))) {

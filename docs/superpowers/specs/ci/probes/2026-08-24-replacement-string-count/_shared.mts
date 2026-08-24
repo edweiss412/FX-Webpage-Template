@@ -19,15 +19,23 @@ export const EXT = /\.(ts|tsx|js|jsx|mjs|cjs|mts|cts)$/;
 /** A `$` sequence `String.prototype.replace` interprets in a replacement STRING. */
 export const DOLLAR = /\$(&|`|'|\d|<[A-Za-z_$][\w$]*>|\$)/;
 
-/**
- * Cheap file-level gate deciding which files get parsed.
- *
- * MUST be at least as permissive as `replaceCallee`. `/\.replace\s*\(/` is not: a wrapped callee
- * spells `(s.replace)(a, v)`, where `.replace` is followed by `)`, so the file is skipped before
- * the AST matcher can see it and every downstream repair is unreachable. An optimization that can
- * change the answer is a defect, not an optimization.
- */
-export const PREFILTER = /\.replace(All)?\b/;
+// THERE IS NO TEXT PREFILTER, DELIBERATELY.
+//
+// A cheap regex deciding which files get parsed is the obvious optimization and it cost this arc
+// two review rounds. `/\.replace\s*\(/` misses a wrapped callee `(s.replace)(a, v)`, because
+// `.replace` is followed by `)`. Widening it to `/\.replace\b/` then misses the trivia JavaScript
+// allows between the dot and the property name: `a.path. replace(...)`, a newline, a block
+// comment, a line comment — each still a PropertyAccessExpression named `replace`, each rejected.
+// An ordinary explanatory comment was enough to remove a corrupting live call from the judge.
+//
+// Every fix widened the regex and the next round found the next spelling, which is the recognizer
+// ratchet this repo has measured as the losing move. The narrowing repair is to DELETE the
+// optimization. Measured over the tracked population: prefiltered 508 files / 1235ms, no
+// prefilter 3670 files / 1941ms, both finding 1206 calls. Seven hundred milliseconds is not worth
+// an axis that admits a new finding every round, and deleting it also closes the escaped-
+// identifier spelling (`s.repl\u0061ce(...)`) that no source-text regex can see at all.
+//
+// The safest optimization is the one that is not there.
 
 /** Tracked files with a JS/TS extension, from disk — never an enumerated list. */
 export const trackedFiles = (): string[] =>

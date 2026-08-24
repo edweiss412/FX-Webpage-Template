@@ -307,3 +307,42 @@ after the repair  (this measurement):         calls=1206  offenders=56   <- seen
 
 Unmoved with the edit reverted: 1206 calls, 56 offenders across 32 files, 2 capture-preserving,
 12 receiver-only. Five derivations reach those totals by different routes and agree.
+
+## 10. The prefilter is deleted, and here is the measurement that settled it
+
+Spec round 6 was the SECOND round on the file-level text prefilter, which makes it an axis rather
+than a defect. Round 5 showed `/\.replace(All)?\s*\(/` misses a wrapped callee; round 6 showed
+the widened `/\.replace(All)?\b/` misses the trivia JavaScript allows between the dot and the
+property name, and that an ordinary explanatory comment is enough:
+`a.path./* expand $CODEX_HOME */replace(...)`.
+
+Each repair widened the pattern and the next round found the next spelling. Rather than widen a
+third time, the optimization is deleted.
+
+```
+$ pnpm exec tsx …/count-trivia-spellings.mts
+baseline             old-tight=true  old-wide=true  AST=1
+wrapped callee       old-tight=false old-wide=true  AST=1  <- prefilter would have DROPPED it
+space after dot      old-tight=false old-wide=false AST=1  <- prefilter would have DROPPED it
+newline after dot    old-tight=false old-wide=false AST=1  <- prefilter would have DROPPED it
+block comment        old-tight=false old-wide=false AST=1  <- prefilter would have DROPPED it
+line comment         old-tight=false old-wide=false AST=1  <- prefilter would have DROPPED it
+escaped identifier   old-tight=false old-wide=false AST=1  <- prefilter would have DROPPED it
+```
+
+Six of seven spellings were dropped by one prefilter or both; all seven are found by the walk. The
+last row is the one that decides it: `s.repl\u0061ce(...)` is a `PropertyAccessExpression` named
+`replace` that NO regex over source text can ever match, so no widening could have reached it and
+the axis had no terminating state.
+
+The cost of having no prefilter, measured over the tracked population rather than estimated:
+
+```
+current  /\.replace(All)?\b/       parsed=508    calls=1206   1235ms
+narrowed /\breplace(All)?\b/       parsed=609    calls=1206    751ms
+none (parse every tracked file)    parsed=3670   calls=1206   1941ms
+```
+
+Seven hundred milliseconds against an axis that produced a finding in each of two rounds. Totals
+after the deletion are unmoved: 1206 calls, 56 offenders across 32 files, 2 capture-preserving,
+12 receiver-only.

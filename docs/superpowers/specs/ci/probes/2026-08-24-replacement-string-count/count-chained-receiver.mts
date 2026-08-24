@@ -3,7 +3,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
-import { PREFILTER, replaceCallee } from "./_shared.mjs";
+import { replaceCallee } from "./_shared.mjs";
 import { skipTransparent } from "../../../../../../tests/_shared/outerExpressions";
 const R = ".";
 const EXT = /\.(ts|tsx|js|jsx|mjs|cjs|mts|cts)$/;
@@ -23,7 +23,6 @@ const nested: string[] = [];
 let full = 0;
 for (const file of tracked) {
   const source = readFileSync(file, "utf8");
-  if (!PREFILTER.test(source)) continue;
   const src = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
   const walk = (n: ts.Node, insideMatched: boolean): void => {
     const matched = isRepl(n);

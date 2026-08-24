@@ -4,7 +4,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
-import { PREFILTER, replaceCallee } from "./_shared.mjs";
+import { replaceCallee } from "./_shared.mjs";
 
 const EXT = /\.(ts|tsx|js|jsx|mjs|cjs|mts|cts)$/;
 const tracked = execFileSync("git", ["ls-files"], { encoding: "utf8", maxBuffer: 64 << 20 })
@@ -20,7 +20,6 @@ const isLit = (n: ts.Node): boolean =>
 
 for (const file of tracked) {
   const source = readFileSync(file, "utf8");
-  if (!PREFILTER.test(source)) continue;
   const src = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
 
   // Same-file `const NAME = "literal"` map, threaded DOWN (never via .parent).
