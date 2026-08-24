@@ -45,7 +45,7 @@ function StatCard({
   // Layer 1's marker, threaded as a prop because a DOM attribute cannot cross a
   // component boundary. Passed only by the fault branches, so an unmarked one
   // still fails the meta-test rather than inheriting a marker every card has.
-  renderFault?: string;
+  renderFault?: string | undefined;
   children: React.ReactNode;
 }) {
   return (
@@ -93,6 +93,12 @@ function Unavailable() {
 
 // ── System health ────────────────────────────────────────────────────────────
 function SystemHealthCard({ summary }: { summary: AlertSummary }) {
+  // Flag-shaped: the branch assigns and a later return renders, so the marking
+  // scanner cannot reach it (spec section 4.2, shape 4 -- tracing a flag to its
+  // render is dataflow this arc does not carry). Marked by hand because the
+  // flag is right here and the strip would otherwise encode "Unavailable"
+  // silently. The residue registry records that the scanner cannot enforce it.
+  let unavailable = false;
   let dot: StatDotStatus;
   let word: string;
   let sub: string;
@@ -116,10 +122,15 @@ function SystemHealthCard({ summary }: { summary: AlertSummary }) {
       dot = "idle";
       word = "Unavailable";
       sub = "Health check failed";
+      unavailable = true;
       break;
   }
   return (
-    <StatCard label="System health" testId="stat-system-health">
+    <StatCard
+      label="System health"
+      testId="stat-system-health"
+      renderFault={unavailable ? "telemetry-system-health" : undefined}
+    >
       <ValueWord dot={dot} word={word} />
       <SubLine>{sub}</SubLine>
     </StatCard>
@@ -219,7 +230,11 @@ function EventsCard({ stats }: { stats: LoadTelemetryStatsResult }) {
     sub = segs.length > 0 ? segs.join(" · ") : "No errors or warnings";
   }
   return (
-    <StatCard label="Events · 24h" testId="stat-events">
+    <StatCard
+      label="Events · 24h"
+      testId="stat-events"
+      renderFault={isInfra ? "telemetry-events" : undefined}
+    >
       <div className="flex items-end justify-between gap-2">
         {value}
         <EventVolumeSparkline buckets={buckets} />
