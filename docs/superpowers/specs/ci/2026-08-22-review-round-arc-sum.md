@@ -170,7 +170,7 @@ export const ARC_SUM_GRANDFATHERED: readonly { branch: string; stage: CountedSta
 export function isArcSumGrandfathered(branch: string, stage: string): boolean;
 ```
 
-`(branch, stage)` and not a path, because clause B's obligation is not attached to any one base — that is the whole point of it. The lookup builds a `Set` keyed on `` `${branch} ${stage}` `` at module load, matching the separator `readArcs` already uses for the same reason (`lib/reviewRounds/corpus.ts:124`): the hash, dash and colon characters are all legal in git branch names and would collide.
+`(branch, stage)` and not a path, because clause B's obligation is not attached to any one base — that is the whole point of it. The lookup builds a `Set` keyed on `` `${branch}\u0000${stage}` `` at module load, matching the separator `readArcs` already uses for the same reason (`lib/reviewRounds/corpus.ts:124`): the hash, dash and colon characters are all legal in git branch names and would collide.
 
 **Additions are rejected structurally, not by convention.** Three assertions in the meta-test, each over the *live* corpus:
 
