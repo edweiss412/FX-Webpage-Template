@@ -752,6 +752,27 @@ surface into a PR whose brief scopes it to workflow, scripts and docs.
 **Class-sweep exception (c).** Widening to `lib/**` is a redesign of a guard this PR does not otherwise
 touch, and it pulls an unbounded waiver population into a CI-fidelity diff.
 
+## BL-RENDER-FAULT-TERNARY-RESIDUE-ASYMMETRY — the marking scanner's ternary arm drops what its if-arm reports
+
+**Status:** OPEN · **Filed:** 2026-08-24 (`fix/screenshots-drift-instrument`) · **Facing:** process · **Severity:** MEDIUM · **Class:** guard fidelity · **Effort:** M · **Incident:** the defect shipped INTO this arc's own registry and was caught pre-merge by its self-review. `tests/help/_metaRenderFaultMarking.test.ts` declared `Dashboard.tsx:ignoredDegraded` and `Dashboard.tsx:dataGapsDegraded` as flag-shaped residue on the stated ground that "the guard site returns no JSX". Both are ternaries whose `whenTrue` IS the JSX (`components/admin/Dashboard.tsx:674`, `:858`), so the recorded justification was false and the two entries were filed under the wrong cause. A registry whose reasons are wrong is worse than one with gaps, because it is read as settled. · **Reachability:** PROBED — see the probe below.
+
+**The asymmetry.** `scanCandidates` (`tests/help/_renderFaultScan.ts`) gives its `IfStatement` arm a
+vocabulary fallback: an unclassifiable guard matching `/error|fail|infra|degrad|unavailable|corrupt/i`
+is pushed as `unknown` and lands in `REPORTED_RESIDUE`. The `ConditionalExpression` arm has no fallback
+and does a bare `continue` at `:395`. A ternary whose `whenTrue` is JSX is exactly the shape layer 1
+claims to reach, so this is a gap INSIDE the claimed coverage, not the documented ceiling at spec §4.2.
+
+**Probe** (ts-morph over `scannedFiles()`, live tree, 2026-08-24): **714** ternaries under the derived
+roots return JSX in `whenTrue`; **91** of those carry a fault-vocabulary guard. The classifiable ones are
+enforced; the rest are dropped in silence rather than reported. Reported residue today is 5, every one of
+them from an `IfStatement`.
+
+**Class-sweep exception (c).** Adding the fallback means declaring a reason for every unclassifiable
+ternary it surfaces. Hand-writing that population reduces the registry to boilerplate and destroys the
+signal residue exists to carry, so the repair is a redesign of the recognizer's residue model rather than
+a one-line symmetry fix. Sizing it, and deciding whether the vocabulary probe is even the right filter on
+this arm, is the first scheduled step.
+
 ## BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED — one `dashboard-overview-light.webp` byte drift, now measured as rasterization variance with the population question still open
 
 **Status:** IN PROGRESS · **Branch:** fix/screenshots-drift-instrument · **Severity:** LOW (advisory job; not a required context) · **Class:** CI-INFRA · **Effort:** M (the instrument shipped; the open step is a population comparison) · **Filed:** 2026-08-18 (`fix/rowactions-submenu-reveal-flake`, as the surviving half of `BL-ADVISORY-E2E-JOBS-FLAKE-ACROSS-IDENTICAL-CODE`) · **Facing:** process · **Reachability:** PROBED for the mechanism; the runner-population reading remains unprobed and is what this row now schedules.

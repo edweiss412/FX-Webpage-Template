@@ -103,11 +103,29 @@ describe("CI speedup — screenshots-drift runs per-PR only on render-affecting 
 
   it("runs the evidence parser without --local, and on both outcomes", () => {
     expect(yaml).toContain("scripts/verify-capture-evidence.ts");
+
+    // Scoped to the `run:` lines, NOT to the whole document. The script path
+    // appears three times in this workflow -- the paths allow-list, the
+    // cache-key hashFiles census, and the actual invocation -- and a negative
+    // lookahead over the whole file is satisfied by the FIRST occurrence that
+    // has no `--local` after it on its own line, because `.` does not cross
+    // newlines. That made the assertion unfailable: injecting `--local` into
+    // the run line left it green. Deriving the invocations means the premise
+    // (there IS one) and the claim (none is flagged) are separate failures.
+    const invocations = yaml
+      .split("\n")
+      .filter((line) => /^\s*run:.*verify-capture-evidence\.ts/.test(line));
     expect(
-      /verify-capture-evidence\.ts(?!.*--local)/.test(yaml),
-      "the CI invocation must be flagless: --local waives the four passthrough " +
-        "fields and would silently satisfy AC-5 in CI.",
-    ).toBe(true);
+      invocations.length,
+      "no `run:` line invokes the evidence parser; the assertion below would be vacuous",
+    ).toBeGreaterThan(0);
+    for (const line of invocations) {
+      expect(
+        line.includes("--local"),
+        "the CI invocation must be flagless: --local waives the four passthrough " +
+          `fields and would silently satisfy AC-5 in CI. Offending line: ${line.trim()}`,
+      ).toBe(false);
+    }
     const parserBlock = yaml.slice(yaml.indexOf("Verify capture evidence record"));
     expect(parserBlock.slice(0, 200)).toContain("if: always()");
   });

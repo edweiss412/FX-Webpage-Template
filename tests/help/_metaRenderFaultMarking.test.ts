@@ -18,7 +18,12 @@ const RESIDUE = CANDIDATES.filter((c) => c.form === "unknown");
  * discipline's own test: a recognizer that enumerates known forms is a
  * denylist, and the honest response to an unrecognized form is to name it.
  * Layer 0 and layer 2 are what actually cover these; layer 1 does not pretend
- * to. A new unknown form fails this test rather than passing unnoticed.
+ * to. A new unknown form fails this test rather than passing unnoticed --
+ * WHEN the guard is an if-statement, a switch case or a catch. On a ternary it
+ * does not: that arm has no residue fallback, so an unclassifiable guard is
+ * dropped in silence. The qualifier is here rather than omitted because the
+ * unqualified sentence is what made two Dashboard entries look flag-shaped when
+ * they are not. See BL-RENDER-FAULT-TERNARY-RESIDUE-ASYMMETRY.
  */
 const REPORTED_RESIDUE: Record<string, string> = {
   "app/admin/layout.tsx:83":
@@ -36,9 +41,22 @@ const REPORTED_RESIDUE: Record<string, string> = {
 /**
  * Shape-4 residue: the branch ASSIGNS a flag and a later return renders it.
  *
- * These are invisible to the scanner by construction — the guard site returns
- * no JSX, so it is not a candidate, and it appears in neither the enforced set
- * nor REPORTED_RESIDUE. Tracing a flag to the JSX that consumes it is dataflow
+ * Invisible to the scanner, but for TWO different reasons, and the distinction
+ * is load-bearing because only one of them is "by construction".
+ *
+ * Genuinely flag-shaped (the three telemetry/layout entries): the guard site
+ * returns no JSX at all, so it is not a candidate under any arm, and tracing
+ * the flag to the JSX that consumes it is dataflow this arc does not carry.
+ *
+ * Dropped by a scanner ASYMMETRY (the two Dashboard entries): those guards sit
+ * on a ternary whose `whenTrue` IS the JSX, so they are exactly the shape the
+ * scanner claims to reach. `scanCandidates` gives its `IfStatement` arm a
+ * vocabulary fallback that reports an unclassifiable guard as `unknown`
+ * residue, and gives its `ConditionalExpression` arm no fallback at all
+ * (`_renderFaultScan.ts:395`). Probed on the live tree: 714 ternaries under the
+ * derived roots return JSX, 91 of them on a fault-vocabulary guard, and the
+ * unclassifiable ones are dropped in silence rather than reported. Tracked as
+ * BL-RENDER-FAULT-TERNARY-RESIDUE-ASYMMETRY. Tracing a flag to the JSX that consumes it is dataflow
  * analysis this arc does not carry (spec §4.2), so the registry is the honest
  * substitute: each flag named, with the capture output it can reach.
  *
@@ -48,9 +66,9 @@ const REPORTED_RESIDUE: Record<string, string> = {
  */
 const FLAG_RESIDUE: Record<string, string> = {
   "components/admin/Dashboard.tsx:ignoredDegraded":
-    "reaches dashboard-overview: adds a notice and removes warning badges. Not marked — the render site is a disclosure far from the assignment.",
+    "reaches dashboard-overview: adds a notice and removes warning badges. NOT flag-shaped, despite living in this registry — Dashboard.tsx:858 is a ternary whose whenTrue is the JSX. It is dropped by the ConditionalExpression arm's missing residue fallback, not by shape.",
   "components/admin/Dashboard.tsx:dataGapsDegraded":
-    "reaches dashboard-overview: a shows_internal read failure removes data-quality badges. Not marked, same reason.",
+    "reaches dashboard-overview: a shows_internal read failure removes data-quality badges. Dashboard.tsx:674, same ternary shape and the same asymmetry, not the flag shape this registry is named for.",
   "components/admin/telemetry/TelemetryOverviewStrip.tsx:SystemHealthCard.unavailable":
     "reaches no manifest capture today (/admin/dev/telemetry is unrouted), but renders Unavailable / Health check failed. MARKED BY HAND via the renderFault prop.",
   "components/admin/telemetry/TelemetryOverviewStrip.tsx:EventsCard.isInfra":

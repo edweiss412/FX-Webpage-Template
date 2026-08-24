@@ -392,6 +392,16 @@ export function scanCandidates(): Candidate[] {
       if (jsx === null) continue;
       const guard = conditional.getCondition();
       const form = classifyExpression(guard, predicates);
+      // ASYMMETRY, stated rather than left to be discovered: the IfStatement arm
+      // above falls back to a vocabulary probe and reports an unclassifiable
+      // guard as `unknown` residue. This arm drops it silently. A ternary whose
+      // whenTrue is JSX is exactly the shape layer 1 claims to reach, so this is
+      // a gap INSIDE the claimed coverage, not the documented ceiling at spec
+      // section 4.2. Probed: 714 such ternaries under the derived roots, 91 on a
+      // fault-vocabulary guard. Closing it means declaring every unclassifiable
+      // one, which is a residue population this arc cannot hand-write without
+      // reducing the registry to boilerplate and destroying the signal it
+      // carries. Tracked as BL-RENDER-FAULT-TERNARY-RESIDUE-ASYMMETRY.
       if (form === null) continue;
       push(conditional, jsx, form, guard.getText());
     }
