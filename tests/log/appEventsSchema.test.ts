@@ -105,9 +105,20 @@ describe("app_events schema", () => {
     expect(outsideRow!.n).toBe(0);
   });
 
-  test("prune cron job is registered", async () => {
-    const jobs = await sql<{ jobname: string }[]>`
-      select jobname from cron.job where jobname = 'app_events_prune'`;
+  test("prune cron job is registered, active, and calls the no-argument form", async () => {
+    const jobs = await sql<
+      { jobname: string; command: string; schedule: string; active: boolean }[]
+    >`
+      select jobname, command, schedule, active from cron.job where jobname = 'app_events_prune'`;
     expect(jobs.length).toBe(1);
+    // The posture gate has NO opinion about the argument. A row rewritten to
+    // prune_app_events(interval '5 days') refuses on validation exactly as
+    // designed and silently deletes production events aged 5 to 60 days, so the
+    // argument needs its own pin. Mirrors the sync_log_prune assertions at
+    // tests/db/syncLogIndexesAndPrune.db.test.ts:219-223.
+    expect(jobs[0]!.command).toBe("select public.prune_app_events();");
+    expect(jobs[0]!.schedule).toBe("17 4 * * *");
+    // Its twin: a correct command on a disabled job, where retention never runs.
+    expect(jobs[0]!.active).toBe(true);
   });
 });
