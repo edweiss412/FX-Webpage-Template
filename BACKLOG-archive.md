@@ -1,3 +1,26 @@
+## BL-SCREENSHOTS-DRIFT-CAPTURE-NONDETERMINISM — the byte gate fails on a diff that changes no render input — CLOSED 2026-08-24
+
+**Status:** SHIPPED 2026-08-24 · **Effort (as shipped):** M · **Severity (as filed):** MEDIUM · **Class:** CI gate fidelity · **Facing:** process · **Shipped by:** `fix/screenshots-drift-instrument`
+
+**Resolution — mechanism A named, and BOTH filed candidates refuted by replay.** The failing artifact was
+downloaded inside its retention window and compared against the baseline as committed at that same sha.
+The captured `review-queues-empty-state-light.webp` changed GEOMETRY: content was present that the
+baseline does not have. Neither filed candidate survives that measurement. Encoding cannot change element
+geometry, so the encoder is refuted; and a wall-clock crossing cannot revert between two themes captured
+seconds apart, so the time-of-day reading is refuted as the mechanism for THIS occurrence.
+
+**What shipped is a refusal, not a repair of the byte gate.** Three layers, each with a stated ceiling:
+layer 0 attributes a capture selector that never resolves; layer 1 refuses on a marked
+`data-render-fault` branch inside the captured subtree; layer 2 refuses on a geometry change against the
+committed baseline. A faulted render now fails LOUDLY and attributed instead of encoding a wrong image
+and reporting drift.
+
+**The one-class assertion this row made is RETRACTED.** This row and
+`BL-SCREENSHOTS-DRIFT-SINGLE-FAILURE-UNEXPLAINED` asserted the two occurrences were one class and must be
+scheduled together. Working them together was right and is what surfaced both mechanisms. Closing them
+together would have shipped a false certification: the sibling occurrence changed no geometry, no layout
+and no content, and the repair shipped here would never fire on it. The sibling stays open.
+
 ## BL-PANE-COMPACTION-SEND-AUTHORIZATION — the pane-compaction send path needs its own arc — CLOSED 2026-08-21
 
 **Status:** SHIPPED 2026-08-21 · **Effort (as shipped):** L · **Severity (as filed):** the six probe chains below each exited 0 and SENT bytes before their repair · **Class:** authorization model · **Facing:** product · **Shipped by:** `feat/pane-compaction-send-auth`
