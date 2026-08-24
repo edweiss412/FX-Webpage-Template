@@ -647,6 +647,17 @@ sweep and pastes its output.
   consuming the expansion whole.
 - **The ledger row itself** (`BACKLOG.md:263`), archived at closeout with the measured outcome,
   including the corrected caller count and the 400s statement's disposition per §1.1.
+- **The deciding suite's own `${…}`-whole comment** (`tests/cross-cutting/psqlStartupFileSuppression.test.ts:5323`),
+  the suite-side twin of the branch comment above: "the lexer consumes a `${...}` expansion whole and
+  appends the raw slice as ONE opaque word". The property is PRESERVED, so what moves is the reason.
+- **The diff-round-1 comment on what `matchBraceEnd` asked**
+  (`tests/cross-cutting/psqlStartupFileSuppression.test.ts:6664`), which describes the walk deciding
+  closure by whether the character it LANDED on equals the closing delimiter.
+
+**The last two were found by the sweep, not by this list, and the plan records that** (plan Task 7).
+This section is a reading of the sweep and was two sites short of it; when they disagree the command
+wins, which is the whole reason AC-8's channel is `rg` output with a disposition per hit rather than
+these bullets.
 
 ---
 
