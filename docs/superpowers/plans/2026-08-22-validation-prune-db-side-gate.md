@@ -44,6 +44,24 @@ Every citation was read, not merely resolved.
 | `tests/log/appEventsSchema.test.ts:10` | `const url = assertLocalDbUrl(` |
 | `tests/mutation/source/registry.ts:15` | `sourcePath: string;` |
 
+### 0.2 The shell every command below assumes
+
+Stated once, because plan review r4's finding was a command relying on a shell fact the plan did not
+carry, and the honest version of that repair is to say what the shell IS rather than to fix one
+variable.
+
+Every command runs from the worktree root with the toolchain AGENTS.md invariant 11 already
+establishes: `pnpm install`, `pnpm worktree:link-env`, `pnpm preflight`. `psql` is on `PATH`. The local
+Supabase stack is up, which Task 1's hardcoded loopback DSN needs; if it is not, `psql` refuses the
+connection loudly, so that assumption fails safe and is not the r4 shape.
+
+**The one that does NOT follow from invariant 11, and is the reason §0.2 exists:** `pnpm preflight`
+verifies `.env.local` is present and readable, and it does that by PARSING the file itself
+(`scripts/preflight-env.mjs:12`, whose comment says vitest does not auto-load it either). A green
+preflight therefore says the validation DSN is on disk. It does not put it in your environment, and no
+later step inherits it. Task 2 step 0 is where it enters the shell, and every validation command in
+this plan runs from that shell.
+
 ### 0.1 Every command this plan names was run
 
 Plan review r2 raised two instances of one shape — a command that cannot run as written — and r3 raised
