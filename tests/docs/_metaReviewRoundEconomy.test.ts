@@ -1314,9 +1314,15 @@ describe("clause B's message, asserted by value (mutation survivors)", () => {
     const message = problems.find((p) => p.kind === "missing_arc_filing")?.message ?? "";
     expect(message).toContain(`(aaaaaaaaaaaa 1, bbbbbbbbbbbb 3)`);
     expect(message).not.toContain("cccccccccccc");
-    // Kills integer-literal 0>1 on `group[0]?.dir` - `group[1]` resolves to a
-    // different arc, and the `?? branch` fallback then prints a bare branch
-    // name where a reader needs the path they must go and edit.
+    // Does NOT kill integer-literal 0>1 on `group[0]?.dir`, and the comment
+    // that claimed it did was wrong: `group[1]` is a different BASE of the same
+    // branch, and `dir` is derived from the branch, so both indices name the
+    // identical directory and the `?? branch` fallback is never reached. No
+    // fixture can discriminate - a marked total always holds two or more bases
+    // (a single-base arc reaching the threshold is clause A's, so `marked` is
+    // false). Carried as an `equivalent` ledger row instead. This assertion
+    // still earns its place as a regression test that the message names the
+    // path a reader must go and edit.
     expect(message).toContain("docs/review-rounds/feat/foo");
   });
 });

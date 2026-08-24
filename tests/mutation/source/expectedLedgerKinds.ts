@@ -207,7 +207,7 @@ export const EXPECTED_LEDGER_KINDS: Record<string, Record<string, number>> = {
   // `isFile()` skip, and the one-past-the-end read at :146, which `?? ""` turns
   // into a blank line the parser never sees. No accepted-gap: this surface's
   // floor is 1, so a gap here would have to be repaid, not blessed.
-  reviewRoundCorpus: { equivalent: 3 },
+  reviewRoundCorpus: { equivalent: 4 },
   // Enrolled by the enforcement-pair arc (spec §6.3): the parse contract for
   // Mechanizable parity. Counted from the surface after the diff R1/R2 repairs
   // reshaped the walkers: EIGHT reachability arguments - the visibleText
