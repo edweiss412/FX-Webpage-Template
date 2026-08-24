@@ -184,7 +184,10 @@ output is in §8, stamped.
 positively — `lib/observe/scrubSentryEvent.ts:18`, where `$1` carries the `/show/<slug>/` prefix
 through the Sentry URL scrub, and the already-excepted `docs/**` one. Nine sites vouched
 `$`-free, each resolving to exactly one plain same-file literal. And **45 about which the cover
-is silent**, which is not a clean bill: see spec §6 and its documented limit 6.
+is silent**, which is not a clean bill: see spec §6 and its documented limit 6. (That 45 is
+unrelated to §3's const-folded 45 — the two are different quantities that happen to coincide, and
+the collision is noted here so a reader does not spend time deciding whether it is a copy-paste
+bug.)
 
 `tests/styles/_metaNewTabAnnouncement.test.ts:3697` moved from vouched to silent when pass B
 stopped guessing — its `hid` has eight same-file bindings — which is why the vouched count is

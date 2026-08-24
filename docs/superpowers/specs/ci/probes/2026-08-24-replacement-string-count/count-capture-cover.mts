@@ -37,6 +37,26 @@ const tracked = execFileSync("git", ["ls-files"], { encoding: "utf8", maxBuffer:
   .split("\n")
   .filter((f) => f !== "" && EXT.test(f));
 
+/**
+ * A transparent wrapper denotes the same value as the expression inside it, so EVERY kind test in
+ * this file resolves through `skipTransparent` first. Spec rounds 2 and 4 both landed on this one
+ * class from different directions: round 2 found the ARGUMENT unresolved, round 4 the CALLEE, and
+ * sweeping after round 4 found the BINDING INITIALIZERS unresolved too — a `$`-bearing
+ * `const TOK = ("$1" as string)` was invisible to pass B and to pass C at once. Resolving at one
+ * named helper rather than at each call site is what stops a fourth instance.
+ */
+const litText = (e: ts.Expression | undefined): string | null => {
+  if (e === undefined) return null;
+  const r = skipTransparent(e);
+  return ts.isStringLiteral(r) || ts.isNoSubstitutionTemplateLiteral(r) ? r.text : null;
+};
+
+/** The `.replace` / `.replaceAll` property access a call denotes, wrappers resolved. */
+const replaceCallee = (n: ts.CallExpression): ts.PropertyAccessExpression | null => {
+  const c = skipTransparent(n.expression);
+  return ts.isPropertyAccessExpression(c) && /^replace(All)?$/.test(c.name.text) ? c : null;
+};
+
 const isAccepted = (a: ts.Expression): boolean =>
   ts.isStringLiteral(a) ||
   ts.isNoSubstitutionTemplateLiteral(a) ||
@@ -56,15 +76,12 @@ for (const file of tracked) {
 
   // Pass C's right-hand side: every `$`-bearing string const in the repository, by name.
   const scanBindings = (n: ts.Node): void => {
-    if (
-      ts.isVariableDeclaration(n) &&
-      ts.isIdentifier(n.name) &&
-      n.initializer &&
-      (ts.isStringLiteral(n.initializer) || ts.isNoSubstitutionTemplateLiteral(n.initializer)) &&
-      DOLLAR.test(n.initializer.text)
-    ) {
-      const at = `${file}: ${JSON.stringify(n.initializer.text).slice(0, 46)}`;
-      dollarConsts.set(n.name.text, [...(dollarConsts.get(n.name.text) ?? []), at]);
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name)) {
+      const lit = litText(n.initializer);
+      if (lit !== null && DOLLAR.test(lit)) {
+        const at = `${file}: ${JSON.stringify(lit).slice(0, 46)}`;
+        dollarConsts.set(n.name.text, [...(dollarConsts.get(n.name.text) ?? []), at]);
+      }
     }
     ts.forEachChild(n, scanBindings);
   };
@@ -77,23 +94,16 @@ for (const file of tracked) {
   // unresolved so pass C can catch it, rather than resolved to whichever binding came last.
   const bindings = new Map<string, string[]>();
   const collect = (n: ts.Node): void => {
-    if (
-      ts.isVariableDeclaration(n) &&
-      ts.isIdentifier(n.name) &&
-      n.initializer &&
-      (ts.isStringLiteral(n.initializer) || ts.isNoSubstitutionTemplateLiteral(n.initializer))
-    )
-      bindings.set(n.name.text, [...(bindings.get(n.name.text) ?? []), n.initializer.text]);
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name)) {
+      const lit = litText(n.initializer);
+      if (lit !== null) bindings.set(n.name.text, [...(bindings.get(n.name.text) ?? []), lit]);
+    }
     ts.forEachChild(n, collect);
   };
   collect(src);
 
   const visit = (n: ts.Node): void => {
-    if (
-      ts.isCallExpression(n) &&
-      ts.isPropertyAccessExpression(n.expression) &&
-      (n.expression.name.text === "replace" || n.expression.name.text === "replaceAll")
-    ) {
+    if (ts.isCallExpression(n) && replaceCallee(n) !== null) {
       const args = n.arguments;
       const { line } = src.getLineAndCharacterOfPosition(n.getStart(src));
       const where = `${file}:${line + 1}`;

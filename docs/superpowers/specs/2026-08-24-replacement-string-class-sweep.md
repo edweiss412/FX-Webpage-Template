@@ -136,6 +136,19 @@ same value as the expression inside them. The judge resolves them with
 `skipTransparent` from `tests/_shared/outerExpressions.ts`, which binds TypeScript's own
 `skipOuterExpressions` with `OuterExpressionKinds.All`.
 
+**Wrappers are resolved at EVERY kind test, not just the one that happened to be reviewed.** This
+arc landed on the same class from three directions: spec round 2 found the ARGUMENT unresolved,
+round 4 found the CALLEE unresolved — `(s.replace)(find, repl)` is meaning-preserving, uses no
+alias or reflection, and was matched by nothing, so it was neither classified nor reported — and
+sweeping after round 4 found the BINDING INITIALIZERS unresolved as well, which made a
+`$`-bearing `const TOK = ("$1" as string)` invisible to the cover's pass B and pass C at once.
+
+Three instances of one defect is a signal about placement, not about care. Resolution therefore
+happens inside two named helpers that every kind test goes through, rather than at each call site
+where the next author can forget it. Measured at the reviewed head: zero live calls use a wrapped
+callee and zero `$`-bearing consts use a wrapped initializer, so the repair reds nothing and
+closes the class.
+
 This is deliberate reuse and not a convenience. A hand-written wrapper list is a
 completeness claim nothing checks, and this repo has already paid for one: `premiseScan.ts`
 shipped a list covering three of six kinds and whole-diff review found a false
@@ -353,8 +366,26 @@ ten: its `hid` has EIGHT same-file bindings, so the repaired pass calls it ambig
 guessing which one the call sees. That is the R6 rule doing its job, and it moved a site out of
 the vouched column rather than into it.
 
+**How large is the residual risk?** Small, and measured rather than asserted. Of the 45 silent
+sites, exactly nine mention `$` in the replacement expression at all, and every one of the nine
+is a JavaScript template interpolation — `` `./mod${id}` ``, `` `"${field}":9007199254740993` ``,
+`` `name="DIAGRAMS${ZWSP}"` `` — which JavaScript evaluates before `.replace` ever receives the
+string. None is a `String.replace` capture reference. The other 36 do not mention `$` at all. So
+no silent site carries a STATIC hint of deliberate substitution grammar, and the residual is
+confined to a value that acquires a `$` sequence at runtime AND was meant to be interpreted.
+
 So the repair rule for a silent site is READ IT, one line each, and the reading is what the
-commit records. §8 limit 6 states the boundary and the one-edit shape that makes it bite.
+commit records. **It earned its keep on first use.** Reading the silent bucket surfaced
+`tests/mutation/source/surfaceCases.ts:149`,
+`source.replace(surface.control.from, surface.control.to)` — the source mutation harness applying
+a registry row's control to prove its own overlay is live. `control.to` is registry-authored code
+text, so a `$` sequence in it applies as something other than its declared text and the liveness
+proof silently tests bytes nobody wrote. The project already judged this class worth guarding in
+the SIBLING harness: `tests/mutation/browser/mutate.test.ts:90` asserts `applyEdits` inserts a
+replacement containing `` $& $` $' $1 `` verbatim, its comment reading "the run would score a
+mutant nobody wrote." The browser harness is defended and the source harness is not. No control
+value carries a `$` sequence today, so it is latent; the edit that makes it bite is ordinary,
+since controls are code snippets and this repo's code contains `"$1[shareToken-redacted]"`. §8 limit 6 states the boundary and the one-edit shape that makes it bite.
 
 Against §4's in-population arithmetic: of the two captures one is the excepted `docs/**` site, so
 the 52 repaired here divide as **1 capture-preserving + 9 vouched `$`-free + 42 silent**, and the
