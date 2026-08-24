@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { adoptionBoundary, ROUND_THRESHOLD, isCountedStage } from "../lib/reviewRounds/constants";
-import { readArcs } from "../lib/reviewRounds/corpus";
+import { arcSumTotals, type ArcSumTotal, readArcs } from "../lib/reviewRounds/corpus";
 import { countedRounds, recordedRounds } from "../lib/reviewRounds/count";
 import { mergedArcs, type MergedArc } from "../lib/reviewRounds/mergedArcs";
 import type { ReviewRoundRow } from "../lib/reviewRounds/row";
@@ -17,6 +17,12 @@ export type Report = {
    *  data, and disclosure is what separates a partial answer from one labelled
    *  complete. */
   malformedRows: { arc: string; file: string; line: number }[];
+  /** One row per `(branch directory, stage)` whose rounds SUMMED across every
+   *  base reach the threshold. `marked` comes from the gate's own predicate and
+   *  is never recomputed here: a second copy of an obligation rule drifts from
+   *  the first silently, which is what both spec-review findings on this report
+   *  were. */
+  arcTotals: ArcSumTotal[];
   triggerRateByMonth: Record<string, { population: number; triggered: number; rate: number }>;
   findingsByStage: Record<string, { total: number; declaredRows: number; undeclaredRows: number }>;
   /** null means WITHHELD - a shallow clone or an unset boundary. Never [] for
@@ -176,32 +182,44 @@ export function buildReport(repoRoot: string, opts: ReportOptions = {}): Report 
   // A pair is bucketed by its FIRST counted row's month and counts as triggered
   // if it EVER crossed - a stage that began in one month and crossed in the next
   // must not land in two buckets, which is how a monthly rate exceeds 1.
+  // Straight from the gate's predicate, never a second copy of the rule.
+  const arcTotals = arcSumTotals(arcs);
+
   const triggerRateByMonth: Report["triggerRateByMonth"] = {};
+  // Population is (branch DIRECTORY, stage) pairs, not (branch, baseSha, stage).
+  // A re-merge opens a second file for the same arc, so counting per base
+  // splits one review into two population entries and halves the rate. A pair
+  // is bucketed by its DIRECTORY-WIDE first counted row and counts as triggered
+  // if the ARC SUM ever crossed - a stage that began in one month and crossed
+  // in the next must not land in two buckets, which is how a monthly rate
+  // exceeds 1.
+  const rowsByDirStage = new Map<string, ReviewRoundRow[]>();
   for (const arc of arcs) {
-    const byStage = new Map<string, ReviewRoundRow[]>();
     for (const row of arc.rows) {
       if (row.status !== "verdict" || !isCountedStage(row.stage)) continue;
-      const group = byStage.get(row.stage);
+      const key = `${arc.branch}\u0000${row.stage}`;
+      const group = rowsByDirStage.get(key);
       if (group) group.push(row);
-      else byStage.set(row.stage, [row]);
-    }
-    for (const rows of byStage.values()) {
-      const stamps = rows
-        .map((r) => r.startedAt)
-        .filter((s): s is string => s !== null)
-        .sort();
-      const month = (stamps[0] ?? "unknown").slice(0, 7);
-      const bucket = triggerRateByMonth[month] ?? { population: 0, triggered: 0, rate: 0 };
-      bucket.population += 1;
-      if (new Set(rows.map((r) => r.round)).size >= ROUND_THRESHOLD) bucket.triggered += 1;
-      bucket.rate = bucket.triggered / bucket.population;
-      triggerRateByMonth[month] = bucket;
+      else rowsByDirStage.set(key, [row]);
     }
   }
+  for (const rows of rowsByDirStage.values()) {
+    const stamps = rows
+      .map((r) => r.startedAt)
+      .filter((s): s is string => s !== null)
+      .sort();
+    const month = (stamps[0] ?? "unknown").slice(0, 7);
+    const bucket = triggerRateByMonth[month] ?? { population: 0, triggered: 0, rate: 0 };
+    bucket.population += 1;
+    // The ARC sum, so a stage that reached the threshold only ACROSS bases
+    // counts as triggered - the very case this change exists for.
+    if (new Set(rows.map((r) => `${r.baseSha}\u0000${r.round}`)).size >= ROUND_THRESHOLD) {
+      bucket.triggered += 1;
+    }
+    bucket.rate = bucket.triggered / bucket.population;
+    triggerRateByMonth[month] = bucket;
+  }
 
-  // --- finding totals by stage ----------------------------------------------
-  // `null` is EXCLUDED and counted on its own. Folding it into zero understates
-  // every total and is indistinguishable from "no findings found".
   const findingsByStage: Report["findingsByStage"] = {};
   for (const arc of arcs) {
     for (const row of arc.rows) {
@@ -356,6 +374,7 @@ export function buildReport(repoRoot: string, opts: ReportOptions = {}): Report 
     arcs: arcRows,
     malformedRows,
     triggerRateByMonth,
+    arcTotals,
     findingsByStage,
     silentArcs,
     preAdoptionMergeCount,
@@ -392,7 +411,27 @@ export function render(report: Report): string {
     for (const m of report.malformedRows) out.push(`  ${m.file}:${m.line}  (${m.arc})`);
   }
 
-  out.push("", `filing threshold: ${ROUND_THRESHOLD} counted rounds in one stage`, "");
+  out.push(
+    "",
+    `filing threshold: ${ROUND_THRESHOLD} counted rounds in one stage, summed across every merge base of one arc`,
+    "",
+  );
+
+  // L1 and L2. The totals line is the reason this report changed: without it
+  // a reader sees two bases at 2 and 2 and no number anywhere equals the 4
+  // the gate is about to oblige them for. The frozen count is STATED at zero
+  // rather than omitted, so an empty exemption set reads as a measurement.
+  out.push("rounds summed across every base of one arc:");
+  for (const t of report.arcTotals) {
+    const mark = t.marked ? "  OWES A FILING" : t.frozen ? "  frozen" : "";
+    out.push(`  ${t.branch}  ${t.stage}  ${t.arcSum} across ${t.bases} bases${mark}`);
+  }
+  if (report.arcTotals.length === 0) out.push("  (none at threshold by sum)");
+  out.push(
+    "",
+    `frozen by the arc-sum grandfather set: ${report.arcTotals.filter((t) => t.frozen).length}`,
+  );
+  out.push("");
   out.push("trigger rate by month (triggered / population):");
   for (const month of Object.keys(report.triggerRateByMonth).sort()) {
     const r = report.triggerRateByMonth[month]!;

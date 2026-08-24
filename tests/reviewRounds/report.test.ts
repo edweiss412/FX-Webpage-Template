@@ -6,7 +6,9 @@ import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { premiseHolds } from "../_shared/premise";
+import { ARC_SUM_FREEZE, ARC_SUM_GRANDFATHERED } from "../../lib/reviewRounds/arcSumGrandfather";
 import { ROUND_THRESHOLD } from "../../lib/reviewRounds/constants";
+import { checkCorpus } from "../../lib/reviewRounds/corpus";
 import { mergedArcs } from "../../lib/reviewRounds/mergedArcs";
 import { buildReport, main, render } from "../../scripts/review-economy";
 
@@ -289,6 +291,148 @@ const OBLIGE = Array.from({ length: ROUND_THRESHOLD }, (_, i) => ({ round: i + 1
  *  return null in every fixture repo and change behavior the day this merges. */
 const BOUNDARY = "2026-09-01T00:00:00.000Z";
 const opts = { adoptionBoundary: BOUNDARY };
+
+describe("the arc sum in the report (spec §3.4)", () => {
+  const HALF = ROUND_THRESHOLD / 2;
+  const half = (baseSha: string, over: Record<string, unknown> = {}) =>
+    jrows(...Array.from({ length: HALF }, (_, i) => ({ round: i + 1, baseSha, ...over })));
+
+  const owingRoot = () =>
+    corpus(mkdtempSync(join(tmpdir(), "rep-arcsum-")), [
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: half("aaaaaaaaaaaa") },
+      { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: half("bbbbbbbbbbbb") },
+    ]);
+
+  // V4. The totals line is the report's whole reason to change: without it a
+  // reader sees two bases at 2 and 2 and no number anywhere equals the 4 the
+  // gate is about to oblige them for.
+  it("totals a stage across every base of one directory, BY VALUE", () => {
+    // `detail` is the gate's own message and is asserted by the set-equality
+    // case below; comparing it here would pin one wording in two places.
+    const totals = buildReport(owingRoot(), opts).arcTotals.map(({ detail, ...rest }) => rest);
+    expect(totals).toEqual([
+      {
+        branch: "feat/foo",
+        stage: "diff",
+        arcSum: ROUND_THRESHOLD,
+        bases: 2,
+        marked: true,
+        frozen: false,
+      },
+    ]);
+  });
+
+  // V5. Set equality against the GATE, over one shared corpus. A report that
+  // restates clause B instead of importing it drifts silently, and both spec
+  // review findings on the report were exactly that class.
+  it("marks exactly the pairs the gate reports as missing_arc_filing", () => {
+    const root = owingRoot();
+    const marked = buildReport(root, opts)
+      .arcTotals.filter((t) => t.marked)
+      .map((t) => `${t.branch} ${t.stage}`)
+      .sort();
+    const gate = checkCorpus(root, { resolvableIds: new Set<string>() })
+      .filter((p) => p.kind === "missing_arc_filing")
+      .map((p) => p.message.split(":")[0]!.trim() + " diff")
+      .sort();
+    expect(marked).toEqual(gate);
+    expect(marked.length).toBeGreaterThan(0);
+  });
+
+  // V6. A frozen pair is exempt, and the report says so rather than showing a
+  // clean total that hides an obligation nobody will ever discharge.
+  it("reports a grandfathered pair as frozen, not as owing", () => {
+    const gf = ARC_SUM_GRANDFATHERED[0]!;
+    // The rows must PREDATE the freeze, and this harness's default row does
+    // not - it is 2026-09-03, after ARC_SUM_FREEZE. Overridden explicitly
+    // rather than inherited, because the exemption is a conjunction and a
+    // fixture that leaned on the default would be asserting the wrong half.
+    const preFreeze = { branch: gf.branch, stage: gf.stage, startedAt: "2026-08-01T00:00:00.000Z" };
+    premiseHolds(
+      "the fixture's rows predate ARC_SUM_FREEZE, so the exemption's second half can be satisfied at all",
+      preFreeze.startedAt < ARC_SUM_FREEZE,
+    );
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-frozen-")), [
+      { path: `${gf.branch}/aaaaaaaaaaaa.jsonl`, body: half("aaaaaaaaaaaa", preFreeze) },
+      { path: `${gf.branch}/bbbbbbbbbbbb.jsonl`, body: half("bbbbbbbbbbbb", preFreeze) },
+    ]);
+    const totals = buildReport(root, opts).arcTotals.map(({ detail, ...rest }) => rest);
+    expect(totals).toEqual([
+      {
+        branch: gf.branch,
+        stage: gf.stage,
+        arcSum: ROUND_THRESHOLD,
+        bases: 2,
+        marked: false,
+        frozen: true,
+      },
+    ]);
+  });
+
+  // K4/`directory`. One stage spanning two bases is ONE pair, and it triggered.
+  // A population keyed on (branch, baseSha) counts it twice and halves the rate.
+  it("counts a directory-spanning stage as one population entry", () => {
+    const rate = buildReport(owingRoot(), opts).triggerRateByMonth;
+    expect(rate["2026-09"]).toEqual({ population: 1, triggered: 1, rate: 1 });
+  });
+
+  // K4/`stage`. Two counted stages in one directory are TWO entries. A
+  // population keyed on directory alone reports 125 where the unit gives 282.
+  it("counts two stages in one directory as two population entries", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-k4stage-")), [
+      {
+        path: "feat/foo/aaaaaaaaaaaa.jsonl",
+        body: half("aaaaaaaaaaaa") + half("aaaaaaaaaaaa", { stage: "spec" }),
+      },
+      { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: half("bbbbbbbbbbbb") },
+    ]);
+    // diff reaches the threshold by sum; spec does not. V7, V8 and V10 by value.
+    expect(buildReport(root, opts).triggerRateByMonth["2026-09"]).toEqual({
+      population: 2,
+      triggered: 1,
+      rate: 0.5,
+    });
+  });
+
+  // V9. The bucket is the DIRECTORY-WIDE earliest counted row, never the first
+  // base the walker happened to enumerate - otherwise a stage lands in the
+  // month of whichever file sorted first.
+  it("buckets by the directory-wide earliest counted row", () => {
+    const root = corpus(mkdtempSync(join(tmpdir(), "rep-bucket-")), [
+      // Sorts FIRST by path, but its rows are LATER in time.
+      {
+        path: "feat/foo/aaaaaaaaaaaa.jsonl",
+        body: half("aaaaaaaaaaaa", { startedAt: "2026-10-05T00:00:00.000Z" }),
+      },
+      {
+        path: "feat/foo/bbbbbbbbbbbb.jsonl",
+        body: half("bbbbbbbbbbbb", { startedAt: "2026-09-02T00:00:00.000Z" }),
+      },
+    ]);
+    const rate = buildReport(root, opts).triggerRateByMonth;
+    expect(rate["2026-09"]).toEqual({ population: 1, triggered: 1, rate: 1 });
+    expect(rate["2026-10"]).toBeUndefined();
+  });
+
+  // V11 and L1-L4. Asserted as RENDERED, verbatim, against this fixture's own
+  // derived figures. A struct-versus-rendering disagreement passes every
+  // by-value assertion above and still publishes a wrong line - which is the
+  // exact shape of the last spec finding, where `rate` stayed on the per-base
+  // model while `population` and `triggered` moved.
+  it("renders the four changed lines verbatim", () => {
+    const lines = render(buildReport(owingRoot(), opts)).split("\n");
+    // L1 - the totals line, new.
+    expect(lines).toContain(`  feat/foo  diff  ${ROUND_THRESHOLD} across 2 bases  OWES A FILING`);
+    // L4 - the threshold prose, altered: the unit is the arc, not one base.
+    expect(lines).toContain(
+      `filing threshold: ${ROUND_THRESHOLD} counted rounds in one stage, summed across every merge base of one arc`,
+    );
+    // L3 - the rate line, altered: population, triggered and rate all move.
+    expect(lines).toContain("  2026-09  1/1  100.0%");
+    // L2 - the frozen line, new. Zero here, and stated rather than omitted.
+    expect(lines).toContain("frozen by the arc-sum grandfather set: 0");
+  });
+});
 
 describe("report aggregation (spec §9)", () => {
   // Failure caught: collapsing stages into one number, which cannot be
@@ -1259,21 +1403,32 @@ describe("real history (spec §11.3 layer 2)", () => {
     execFileSync("git", ["rev-parse", "--is-shallow-repository"], { encoding: "utf8" }).trim() ===
     "true";
 
-  it.skipIf(isShallow)("matches the live log when history is available", () => {
-    const expected = execFileSync(
-      "git",
-      ["log", "--merges", "--first-parent", "main", "--format=%s"],
-      { encoding: "utf8" },
-    )
-      .split("\n")
-      .filter(Boolean);
-    const { recognized, unrecognized } = mergedArcs(process.cwd());
-    // Every first-parent merge is accounted for: recognized or reported.
-    expect(recognized.length + unrecognized.length).toBe(expected.length);
-    // The residue is REPORTED, never assumed empty - and every entry carries
-    // its subject, per §9.
-    expect(unrecognized.every((u) => u.subject.length > 0)).toBe(true);
-  });
+  // 120s, not the 30s default. The cost is the ENVIRONMENT, not the assertion:
+  // this walks every first-parent merge on main and `mergedArcs` shells out
+  // over that history, which on a loaded machine runs past 30s and fails as a
+  // timeout that reads exactly like a regression. Measured 2026-08-24 at 35s
+  // with nine concurrent worktrees, and confirmed to fail identically on a
+  // tree without this branch's changes, so raising the bound is not papering
+  // over anything this arc introduced.
+  it.skipIf(isShallow)(
+    "matches the live log when history is available",
+    () => {
+      const expected = execFileSync(
+        "git",
+        ["log", "--merges", "--first-parent", "main", "--format=%s"],
+        { encoding: "utf8" },
+      )
+        .split("\n")
+        .filter(Boolean);
+      const { recognized, unrecognized } = mergedArcs(process.cwd());
+      // Every first-parent merge is accounted for: recognized or reported.
+      expect(recognized.length + unrecognized.length).toBe(expected.length);
+      // The residue is REPORTED, never assumed empty - and every entry carries
+      // its subject, per §9.
+      expect(unrecognized.every((u) => u.subject.length > 0)).toBe(true);
+    },
+    120_000,
+  );
 
   it.runIf(isShallow)("SKIPS BY NAME on a shallow clone", () => {
     // A named absence, not a quiet pass over one merge.
