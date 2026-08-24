@@ -65,19 +65,28 @@ describe("the per-mutant config is at parity with the root config", () => {
  * failure" from "ran everything and failed".
  */
 describe("the per-mutant child bails on the first failure, and only on a failure", () => {
-  const marker = join(tmpdir(), "fx-bail-contract.marker");
-  const runWithMarker = (fixture: string): number => {
+  // A marker PER FIXTURE, not one shared path. These two cases run sequentially today, so a shared
+  // path works -- but it would break silently the moment anyone marked this block `concurrent`, and
+  // the failure would be maximally confusing: the green fixture's marker would make the bail case
+  // report that bail did not fire. Keying the path to the fixture removes the hazard outright
+  // rather than relying on an ordering guarantee stated nowhere near here.
+  const markerFor = (fixture: string): string =>
+    join(tmpdir(), `fx-bail-contract-${fixture.replace(/.*\//, "").replace(/\W+/g, "-")}.marker`);
+  const runWithMarker = (fixture: string): { code: number; marker: string } => {
+    const marker = markerFor(fixture);
     rmSync(marker, { force: true });
     process.env["FX_BAIL_MARKER"] = marker;
     try {
-      return childRun(ROOT, fixture, INERT_TARGET);
+      return { code: childRun(ROOT, fixture, INERT_TARGET), marker };
     } finally {
       delete process.env["FX_BAIL_MARKER"];
     }
   };
 
   it("stops at the first failing case, and still reports the failure", () => {
-    const code = runWithMarker("tests/mutation/source/fixtures/bailStopsAfterFailure.fixture.ts");
+    const { code, marker } = runWithMarker(
+      "tests/mutation/source/fixtures/bailStopsAfterFailure.fixture.ts",
+    );
     expect(code, "a bailed run still exits non-zero: the verdict is unchanged").not.toBe(0);
     expect(
       existsSync(marker),
@@ -86,7 +95,9 @@ describe("the per-mutant child bails on the first failure, and only on a failure
   });
 
   it("runs every case when nothing fails, so a surviving mutant is unaffected", () => {
-    const code = runWithMarker("tests/mutation/source/fixtures/bailNeverFiresWhenGreen.fixture.ts");
+    const { code, marker } = runWithMarker(
+      "tests/mutation/source/fixtures/bailNeverFiresWhenGreen.fixture.ts",
+    );
     expect(code, "premise: this fixture is green, so bail has nothing to fire on").toBe(0);
     expect(
       existsSync(marker),
