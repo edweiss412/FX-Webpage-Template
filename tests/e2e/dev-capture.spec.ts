@@ -23,6 +23,7 @@ import { PNG } from "pngjs";
 import { signInAs, signOut } from "./helpers/signInAs";
 import { ADMIN_FIXTURE, NORMAL_ADMIN_FIXTURE } from "./helpers/fixtures";
 import { seedShowWithCrew, deleteSeededShow, type SeededShow } from "./helpers/seedShowWithCrew";
+import { awaitModalHydrated } from "./helpers/awaitModalHydrated";
 import { settleDashboardAdminState } from "./helpers/dashboardState";
 import { openShowReviewModal } from "./helpers/openShowReviewModal";
 import { seedStagedRow, cleanupStagedRow, openStep3Modal } from "./helpers/devCaptureStaged";
@@ -43,23 +44,6 @@ test.afterAll(async () => {
     await restoreDashboardState?.();
   }
 });
-
-/** Effect-flush hydration gate (published-review-modal.interactions:104-120
- *  pattern): synthetic clicks before the shell's initial-focus effect are
- *  silently lost — wait for focus to land on the modal close button. */
-async function awaitModalHydrated(page: Page): Promise<void> {
-  // Loaded frame, not the streaming skeleton twin (both carry the panel data
-  // attribute — crew-actions.spec.ts:18-22 pattern): anchor on the title.
-  const loaded = `[data-testid="published-show-review-modal"]:has([data-testid="published-show-review-title"])`;
-  await expect(page.locator(loaded)).toBeVisible({ timeout: 30_000 });
-  await expect(page.locator(`[data-testid="published-show-review-modal"]`)).toHaveCount(1);
-  await expect
-    .poll(
-      () => page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset?.testid),
-      { message: "modal effect flush (initial focus applied)" },
-    )
-    .toBe("published-show-review-close");
-}
 
 const RAIL_RGB = "rgb(255, 0, 254)";
 const CONTENT_RGB = "rgb(1, 255, 0)";
@@ -159,6 +143,44 @@ async function captureAndUnzip(
   return last!;
 }
 
+/**
+ * Open the share-hub capture row and click it, establishing its presence rather
+ * than sampling it.
+ *
+ * The row unmounts with the popover, and a prior capture attempt's preCapture
+ * closes that popover, so a `count()` guard is a point-in-time read: the row can
+ * be counted and then unmount before the click, which leaves `click()` waiting
+ * for an element that is never coming back. Measured on CI run 32560658149 —
+ * the click ate the whole 60s test timeout and the case reported as a
+ * `waitForEvent("download")` starve, one run into an otherwise green five-count.
+ *
+ * Each attempt re-establishes the row (re-opening the kebab when it is not
+ * visible) and clicks it under its own bounded timeout, so a detach costs one
+ * short retry instead of the case's entire budget, and an unclickable row fails
+ * by name.
+ */
+async function clickDevCapture(page: Page): Promise<void> {
+  const captureRow = page.getByTestId("share-hub-dev-capture");
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (!(await captureRow.isVisible())) {
+      await page.getByTestId("share-hub-kebab").click();
+      await expect(captureRow).toBeVisible({ timeout: 10_000 });
+    }
+    try {
+      await captureRow.click({ timeout: 10_000 });
+      return;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw new Error(
+    `share-hub-dev-capture never accepted a click in 3 attempts: ${
+      lastError instanceof Error ? lastError.message : String(lastError)
+    }`,
+  );
+}
+
 test.describe("dev-capture full-content proof + redaction (spec §3.4/§4.4)", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
@@ -170,15 +192,7 @@ test.describe("dev-capture full-content proof + redaction (spec §3.4/§4.4)", (
     await awaitModalHydrated(page);
     await page.getByTestId("share-hub-kebab").click();
     await expect(page.getByTestId("share-hub-dev-capture")).toBeVisible();
-    const { png, telemetry, rawJson } = await captureAndUnzip(page, async () => {
-      // Re-open the kebab if a prior attempt's preCapture closed it (the
-      // capture row unmounts with the popover, so retries must re-mount it).
-      if ((await page.getByTestId("share-hub-dev-capture").count()) === 0) {
-        await page.getByTestId("share-hub-kebab").click();
-        await expect(page.getByTestId("share-hub-dev-capture")).toBeVisible();
-      }
-      await page.getByTestId("share-hub-dev-capture").click();
-    });
+    const { png, telemetry, rawJson } = await captureAndUnzip(page, () => clickDevCapture(page));
     expect(countPixels(png, RAIL_RGB)).toBeGreaterThanOrEqual(1);
     expect(countPixels(png, CONTENT_RGB)).toBeGreaterThanOrEqual(1);
     expect(Object.keys(telemetry).sort()).toEqual(["clientSnapshot", "meta", "server"]);

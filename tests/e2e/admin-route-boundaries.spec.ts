@@ -58,6 +58,10 @@ async function lookupPublishedShowWithCrew(): Promise<{ slug: string; crewId: st
     .select("id, slug")
     .eq("published", true)
     .eq("archived", false)
+    // Scoped to the seed corpus (the prefix supabase/seed.ts:22 manages): the
+    // shared local database also holds other suites' published shows, several
+    // with no crew, and an unscoped pick races them for row order.
+    .like("drive_file_id", "seed-fixture:%")
     .limit(1);
   if (showRes.error || !showRes.data?.length) {
     throw new Error(
