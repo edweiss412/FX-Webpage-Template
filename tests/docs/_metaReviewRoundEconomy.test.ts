@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 
 import { ROUND_THRESHOLD } from "../../lib/reviewRounds/constants";
-import { checkCorpus, readArcs, type Problem } from "../../lib/reviewRounds/corpus";
+import { arcSumTotals, checkCorpus, readArcs, type Problem } from "../../lib/reviewRounds/corpus";
 import { parseFiling } from "../../lib/reviewRounds/filing";
 import {
   ARC_SUM_FREEZE,
@@ -1235,6 +1235,133 @@ describe("clause B scoping - satisfaction and suppression (spec §3.1)", () => {
       { path: "feat/foo/cccccccccccc.jsonl", body: half("cccccccccccc") },
     ]);
     expect(problems).toEqual([]);
+  });
+});
+
+describe("arcSumTotals derives clause A when no caller supplies it (mutation survivors)", () => {
+  // The gate hands `arcSumTotals` the clause-A set it already computed; the
+  // REPORT hands it nothing and the function derives it. That derivation is
+  // corpus.ts's own behaviour, so corpus.ts's own suite pins it - the report
+  // suite is deliberately NOT in this surface's `suitePaths`, since dragging
+  // its 120s real-history case into every mutant would cost far more than it
+  // catches. Both mutants below survived precisely because nothing here
+  // exercised the no-caller path.
+  const HALF = ROUND_THRESHOLD / 2;
+  const half = (baseSha: string) =>
+    rows(...Array.from({ length: HALF }, (_, i) => ({ round: i + 1, baseSha })));
+  const markedOf = (files: Fixture[]) =>
+    arcSumTotals(readArcs(write(files)))
+      .filter((t) => t.marked)
+      .map((t) => `${t.branch} ${t.stage}`)
+      .sort();
+
+  // Kills logical-connector &&>||. Widened to `||`, every arc with no filing
+  // for the stage lands in the derived clause-A set, so clause B suppresses
+  // the very obligation it exists to report and the derived answer goes
+  // silently empty.
+  it("marks an arc owing only by sum, where no base reaches the threshold", () => {
+    const files: Fixture[] = [
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: half("aaaaaaaaaaaa") },
+      { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: half("bbbbbbbbbbbb") },
+    ];
+    expect(markedOf(files)).toEqual(["feat/foo diff"]);
+  });
+
+  // Kills relational-boundary >=>>. Narrowed to `>`, a base sitting EXACTLY at
+  // the per-base threshold is not recognised as clause A's, so clause B
+  // reports it too and one duty is announced twice.
+  it("stays residual when a base sits exactly AT the per-base threshold", () => {
+    const files: Fixture[] = [
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: rows(...OBLIGING) },
+      { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: half("bbbbbbbbbbbb") },
+    ];
+    expect(markedOf(files)).toEqual([]);
+    // And the derived answer agrees with the gate's supplied one over the same
+    // corpus - the two paths must never disagree about who owes.
+    const root = write(files);
+    expect(
+      arcSumTotals(readArcs(root)).filter((t) => t.marked).map((t) => `${t.branch} ${t.stage}`),
+    ).toEqual(
+      checkCorpus(root, { resolvableIds: new Set<string>() })
+        .filter((p) => p.kind === "missing_arc_filing")
+        .map((p) => `${p.message.split(":")[0]} diff`),
+    );
+  });
+});
+
+describe("clause B's message, asserted by value (mutation survivors)", () => {
+  // Every assertion here was written to kill a specific surviving mutant the
+  // source-mutation gate found in `arcSumTotals`. The message is operator-facing
+  // output: a wrong breakdown sends a reader to the wrong file, and no other
+  // assertion in this suite looks at it.
+  const seq = (baseSha: string, n: number, over: Record<string, unknown> = {}) =>
+    rows(...Array.from({ length: n }, (_, i) => ({ round: i + 1, baseSha, ...over })));
+
+  // One base contributing exactly ONE round, one contributing three, and a
+  // third contributing NONE of this stage. Kills three mutants at once:
+  //   integer-literal 0>1  - the `?? 0` default, which would list the
+  //                          spec-only base as though it burned a diff round
+  //   relational >>=       - the `n > 0` filter, which would list it at 0
+  //   integer-literal 0>1  - the same filter as `n > 1`, dropping the base
+  //                          that contributed exactly one round
+  it("breaks the total down per base, omitting bases with none of this stage", () => {
+    const problems = check([
+      { path: "feat/foo/aaaaaaaaaaaa.jsonl", body: seq("aaaaaaaaaaaa", 1) },
+      { path: "feat/foo/bbbbbbbbbbbb.jsonl", body: seq("bbbbbbbbbbbb", 3) },
+      // Counted rounds, but of a DIFFERENT stage - contributes 0 to diff.
+      { path: "feat/foo/cccccccccccc.jsonl", body: seq("cccccccccccc", 2, { stage: "spec" }) },
+    ]);
+    const message = problems.find((p) => p.kind === "missing_arc_filing")?.message ?? "";
+    expect(message).toContain(`(aaaaaaaaaaaa 1, bbbbbbbbbbbb 3)`);
+    expect(message).not.toContain("cccccccccccc");
+    // Kills integer-literal 0>1 on `group[0]?.dir` - `group[1]` resolves to a
+    // different arc, and the `?? branch` fallback then prints a bare branch
+    // name where a reader needs the path they must go and edit.
+    expect(message).toContain("docs/review-rounds/feat/foo");
+  });
+});
+
+describe("the freeze conjunction's two filters (mutation survivors)", () => {
+  const HALF = ROUND_THRESHOLD / 2;
+  const GF = ARC_SUM_GRANDFATHERED[0]!;
+  const half = (baseSha: string, over: Record<string, unknown> = {}) =>
+    rows(...Array.from({ length: HALF }, (_, i) => ({ round: i + 1, baseSha, ...over })));
+
+  // Kills logical-connector &&>|| on the row filter. Widened to `||`, a
+  // post-freeze row of ANY OTHER stage breaks an exemption that this stage's
+  // own rows fully earn.
+  it("judges the freeze on THIS stage's rows, not on every row in the directory", () => {
+    const pre = { branch: GF.branch, startedAt: "2026-08-01T00:00:00.000Z" };
+    const other = GF.stage === "diff" ? "spec" : "diff";
+    const problems = check([
+      { path: `${GF.branch}/aaaaaaaaaaaa.jsonl`, body: half("aaaaaaaaaaaa", { ...pre, stage: GF.stage }) },
+      { path: `${GF.branch}/bbbbbbbbbbbb.jsonl`, body: half("bbbbbbbbbbbb", { ...pre, stage: GF.stage }) },
+      // A different stage, well after the freeze, and below threshold itself.
+      {
+        path: `${GF.branch}/cccccccccccc.jsonl`,
+        body: rows({ round: 1, baseSha: "cccccccccccc", branch: GF.branch, stage: other,
+          startedAt: "2026-08-23T00:00:00.000Z" }),
+      },
+    ]);
+    expect(problems).toEqual([]);
+  });
+
+  // Kills relational-boundary <><= on the freeze comparison. The freeze is
+  // STRICT: a row started exactly AT the boundary does not predate it, so it
+  // cannot be proven older and the exemption is refused.
+  it("treats a row started exactly at the freeze as not predating it", () => {
+    const problems = check([
+      {
+        path: `${GF.branch}/aaaaaaaaaaaa.jsonl`,
+        body: half("aaaaaaaaaaaa", { branch: GF.branch, stage: GF.stage, startedAt: "2026-08-01T00:00:00.000Z" }),
+      },
+      {
+        path: `${GF.branch}/bbbbbbbbbbbb.jsonl`,
+        body: half("bbbbbbbbbbbb", { branch: GF.branch, stage: GF.stage, startedAt: ARC_SUM_FREEZE }),
+      },
+    ]);
+    expect(problems.map((p) => p.kind)).toEqual(["missing_arc_filing"]);
+    expect(problems[0]?.message).toContain("freeze");
   });
 });
 
