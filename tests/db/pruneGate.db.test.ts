@@ -40,9 +40,6 @@
  * The "every transaction rolls back" test at the bottom pins that no body below
  * forgets its closing `throw`, which is the one thing inlining `begin` could lose.
  */
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import ts from "typescript";
 import { afterAll, describe, expect, test } from "vitest";
 import postgres, { type Sql } from "postgres";
 import { assertLocalDbUrl } from "./_localDbUrl";
@@ -176,6 +173,22 @@ for (const t of TARGETS) {
               await tx`insert into public.app_events (level, source, message, occurred_at)
                        values ('info', ${MARKER}, 'old', now() - interval '90 days')`;
             }
+            // Rollback witness. AC-3 is the ONE transaction here whose commit would
+            // otherwise leave nothing to find: its seeded row is deleted by the very
+            // prune it runs, so a commit erases its own evidence. This row is dated
+            // NOW, so the prune's `occurred_at < now() - retain` cannot touch it and it
+            // perturbs neither `due` nor the returned count — it exists only to survive
+            // a commit that should never happen, where the leak check at the bottom
+            // finds it. Its marker differs from MARKER so the `gone` count below still
+            // measures exactly the seeded row.
+            const WITNESS = `prune-gate-witness-${t.table}-${process.pid}`;
+            if (isSyncLog) {
+              await tx`insert into public.sync_log (drive_file_id, status, message, occurred_at)
+                       values (${WITNESS}, 'x', 'witness', now())`;
+            } else {
+              await tx`insert into public.app_events (level, source, message, occurred_at)
+                       values ('info', ${WITNESS}, 'witness', now())`;
+            }
             const [due] = isSyncLog
               ? await tx<{ n: number }[]>`select count(*)::int as n from public.sync_log
                                           where occurred_at < now() - interval '60 days'`
@@ -236,6 +249,17 @@ for (const t of TARGETS) {
             throw new RollbackSignal();
           }),
         );
+        // Observed, not inferred. This is the one transaction here whose commit is
+        // silently catastrophic rather than merely wrong: the marker row would be gone
+        // for good, withPosture's `finally` would update zero rows without saying so,
+        // and the reset gate would be disabled for every other suite that relies on it.
+        // Unlike AC-3's net-delete, this one always leaves evidence, so it is checked.
+        const [marker] = await sql<{ n: number }[]>`
+          select count(*)::int as n from public.destructive_reset_gate where id = 'default'`;
+        expect(
+          marker!.n,
+          "the transaction COMMITTED: the posture marker row is gone and the reset gate is now disabled",
+        ).toBe(1);
       });
     });
 
@@ -439,69 +463,44 @@ describe("rollback discipline", () => {
     expect(outside!.n).toBe(0);
   });
 
-  // Inlining `begin` at every site is what keeps this file verifiable to the
-  // destructive-target guard (see the header), and the one thing it could lose is
-  // the guarantee the old helper enforced by construction: that every transaction
-  // ends by throwing, and so always rolls back. A body that forgets the throw
-  // COMMITS — silently, against a database this suite has deliberately put into a
-  // deleting posture. So the guarantee is asserted rather than assumed.
+  // ── Why there is no source-level pin on the closing throw ──────────────────
   //
-  // Parsed, not counted. The first version of this compared raw substring totals of
+  // There was one, twice, and it lost twice. It first compared substring totals of
   // `sql.begin(` against `throw new RollbackSignal();`, and diff review r4 defeated it
-  // with one ordinary edit: COMMENTING OUT the throw in AC-3's body leaves the text in
-  // place, so the totals still matched while that callback resolved normally — and
-  // postgres commits a transaction whose callback resolves. AC-3 is the case that runs
-  // the prune for real, so the pin would have stayed green while both targets committed
-  // a global delete. A comment is not a statement; only the parser knows the difference.
-  test("every transaction in this file ends by throwing, so none can commit", () => {
-    const file = join(process.cwd(), "tests/db/pruneGate.db.test.ts");
-    const sf = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
-
-    const lineOf = (n: ts.Node) => sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
-    const transactions: { line: number; endsWithThrow: boolean }[] = [];
-
-    const visit = (n: ts.Node): void => {
-      if (
-        ts.isCallExpression(n) &&
-        ts.isPropertyAccessExpression(n.expression) &&
-        n.expression.name.text === "begin" &&
-        ts.isIdentifier(n.expression.expression) &&
-        n.expression.expression.text === "sql"
-      ) {
-        const cb = n.arguments[0];
-        // The LAST statement, not merely a contained one: a throw that is present but
-        // not last leaves whatever follows it unreachable, which is its own defect.
-        const last =
-          cb !== undefined &&
-          (ts.isArrowFunction(cb) || ts.isFunctionExpression(cb)) &&
-          ts.isBlock(cb.body)
-            ? cb.body.statements[cb.body.statements.length - 1]
-            : undefined;
-        transactions.push({
-          line: lineOf(n),
-          endsWithThrow:
-            last !== undefined &&
-            ts.isThrowStatement(last) &&
-            last.expression !== undefined &&
-            ts.isNewExpression(last.expression) &&
-            ts.isIdentifier(last.expression.expression) &&
-            last.expression.expression.text === "RollbackSignal",
-        });
-      }
-      ts.forEachChild(n, visit);
-    };
-    ts.forEachChild(sf, visit);
-
+  // by COMMENTING OUT AC-3's throw: the text stayed on the page, the totals matched.
+  // It was rewritten to parse the file and require the LAST statement of every callback
+  // to be that throw, and r5 defeated it twice over — a bare `return` before the throw
+  // makes it unreachable while it is still lexically last, and nothing about the source
+  // shape stops a statement running on the checked base client `sql` instead of `tx`,
+  // which under `max: 2` commits on a second connection and is then visible to the
+  // transaction under READ COMMITTED.
+  //
+  // Both escapes are real and both were demonstrated. The point is that they are two
+  // members of an OPEN class — every way to make an async callback resolve without
+  // throwing, times every way to name a client — and a recognizer grown one member per
+  // review round is the arms race this repo's round-economy rule exists to stop. So the
+  // recognizer is GONE rather than widened a third time.
+  //
+  // What replaces it observes the database instead of reading the source. The property
+  // that actually matters is not "the source contains a throw", it is "this suite left
+  // nothing behind", and that is closed over a finite set: the rows this run wrote.
+  // No spelling defeats it, because it never looks at spelling.
+  //
+  // The one case this could not see on its own is AC-3, whose commit deletes its own
+  // seeded row via the prune it runs and so erases its own evidence. That is closed by
+  // the dated-now witness row inside that transaction rather than left as a limit: the
+  // prune cannot delete a row that is not past the cutoff, so a commit strands it here.
+  // Verified by planting both of r5's mutations — the `tx` -> `sql` seed and the bare
+  // `return` before AC-3's throw — and watching this test fail on each.
+  test("this suite left nothing behind in either pruned table", async () => {
+    const RUN = `prune-gate-%${process.pid}`;
+    const [syncLog] = await sql<{ n: number }[]>`
+      select count(*)::int as n from public.sync_log where drive_file_id like ${RUN}`;
+    const [appEvents] = await sql<{ n: number }[]>`
+      select count(*)::int as n from public.app_events where source like ${RUN}`;
     expect(
-      transactions.length,
-      "no sql.begin transactions found — this test is scanning the wrong file, or the shape changed",
-    ).toBeGreaterThan(0);
-
-    const committing = transactions.filter((t) => !t.endsWithThrow).map((t) => t.line);
-    expect(
-      committing,
-      `transaction(s) opened at line ${committing.join(", ")} do not END with ` +
-        "throw new RollbackSignal(), so they COMMIT",
-    ).toEqual([]);
+      { sync_log: syncLog!.n, app_events: appEvents!.n },
+      "a transaction COMMITTED: rows this run seeded are still in the database",
+    ).toEqual({ sync_log: 0, app_events: 0 });
   });
 });
