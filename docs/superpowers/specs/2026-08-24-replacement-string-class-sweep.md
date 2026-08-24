@@ -129,6 +129,19 @@ falsifies the record it exists to be — the probes README makes that binding ex
 judge REPORTS the excluded population's site count on every run so the exclusion cannot
 grow in silence.
 
+**A text prefilter is allowed, and must be at least as permissive as the AST matcher.** Walking
+every tracked file is wasteful when most contain no `.replace` at all, so a cheap regex decides
+which files get parsed. That regex is part of the matcher's semantics, not an implementation
+detail beneath them: `/\.replace(All)?\s*\(/` looks obviously right and is wrong, because a
+wrapped callee spells `(s.replace)(a, v)` — `.replace` followed by `)` — so the file is skipped
+before the matcher can see it. This arc shipped exactly that pair for one round: the callee repair
+of §3.3 was unreachable in any file whose only `.replace` had a wrapped callee, because the
+prefilter had already dropped the file.
+
+The rule is therefore stated rather than left to judgement: **an optimization that can change the
+answer is a defect, not an optimization.** The prefilter matches `/\.replace(All)?\b/`, which is
+strictly weaker than the AST test it precedes, and AC-4b pins the pair.
+
 ### 3.3 Transparent wrappers are asked of the compiler
 
 `("literal")`, `("literal" as string)`, `(fn!)` and `x satisfies string` all denote the
@@ -287,9 +300,35 @@ guard's repair breaking a redaction path is the one outcome this sweep must not 
 §6 gives it the capture-preserving form, and the probe record's §6 is the derivation
 that found it rather than a reviewer.
 
-The remaining 43 sites are tooling and test scaffolding, and the mutation-harness ones are
-not cosmetic either: several substitute JavaScript SOURCE TEXT, which is exactly the input
-family where a `$` sequence appears by accident.
+That leaves 43, and calling them "tooling and test scaffolding" would hide the second real
+finding of this sweep. **Six of them are one class: a harness applying an author-written
+`from` → `to` edit through a replacement string.**
+
+| Site | What it does with the result |
+| --- | --- |
+| `scripts/intraleg-killer-audit.mjs:767` | **`writeFileSync(kill.file, before.replace(kill.from, kill.to))`** |
+| `scripts/share-link-flash-adversary-matrix.mjs:876` | **`writeFileSync(p, src.replace(find, replace))`** |
+| `tests/mutation/source/surfaceCases.ts:149` | asserts a registry control changes the source |
+| `tests/db/connectionCensus.test.ts:1690` | the same assertion, same shape |
+| `tests/cross-cutting/pgCronCiVacuity.test.ts:202` | rewrites suite source in memory for a probe |
+| `tests/docs/agentsHeavyPhaseRule.test.ts:826` | the `editRule(find, replace)` helper |
+
+The two `writeFileSync` sites are the severe ones. A `$` sequence in an authored `to` there does
+not mis-score a test; it writes corrupted source to disk, which is exactly the sibling-arc
+incident of the same day.
+
+**And every one of these validates the PATTERN side while none validates the replacement side.**
+`intraleg-killer-audit` refuses on `ANCHOR-NOT-UNIQUE`; `share-link-flash-adversary-matrix`
+refuses when the anchor is `AMBIGUOUS (${hits} hits)`; `connectionCensus` asserts
+`occurrences).toBe(1)`; `pgCronCiVacuity` throws "suite refactored; update the probe anchors".
+Meticulous about anchor uniqueness, unaware that the replacement argument is a mini-language.
+That is this document's thesis, demonstrated six times over inside the code it repairs — and the
+one harness that DID think about it, `tests/mutation/browser/mutate.test.ts:90`, guards precisely
+this and is the template for the shared test.
+
+The other 37 substitute fixture ids, CSS class names, digits, a zero-width space, JSON field
+names, and AGENTS.md prose. Several substitute JavaScript SOURCE TEXT, which is the input family
+where a `$` sequence arrives by accident rather than by design.
 
 ## 6. Disposition of every offender
 
@@ -375,7 +414,16 @@ no silent site carries a STATIC hint of deliberate substitution grammar, and the
 confined to a value that acquires a `$` sequence at runtime AND was meant to be interpreted.
 
 So the repair rule for a silent site is READ IT, one line each, and the reading is what the
-commit records. **It earned its keep on first use.** Reading the silent bucket surfaced
+commit records. **All 45 were read at spec time rather than deferred to implementation**, and the
+read produced one class of six (§5), two individually-noted sites, and no site needing a
+disposition other than the wrap. The two worth naming: `premiseScan.test.ts:5301` substitutes
+GENERATED CODE TEXT and looked like a seventh class member, but the call sits inside
+`premiseHolds(...)`, so a mis-applied replacement makes the premise false and the suite fails
+loudly — a conservative failure, which §2's consequence bound sends to documented limits rather
+than to a finding; and `fake-codex.mjs:63` substitutes an environment variable's value, the only
+site whose replacement originates outside the process.
+
+**The rule earned its keep on first use.** Reading the silent bucket surfaced
 `tests/mutation/source/surfaceCases.ts:149`,
 `source.replace(surface.control.from, surface.control.to)` — the source mutation harness applying
 a registry row's control to prove its own overlay is live. `control.to` is registry-authored code
@@ -480,11 +528,12 @@ than as a round.
 | ID | Criterion |
 | --- | --- |
 | AC-1 | `judgeSource` accepts exactly the four node kinds in §3.1 and reports every other second-argument form, with one fixture case per accepted kind and per reported kind. |
-| AC-1b | A CHAINED call reports every offender in the chain, not only the outermost: `s.replace(a, v).replace(b, w)` yields two findings, and a three-link chain yields three. The repo-wide assertion additionally reconciles its total against `count-conservative.mts`, so a visitor that stops descending cannot pass by agreeing with itself. |
+| AC-1b | A CHAINED call reports every offender in the chain, not only the outermost: `s.replace(a, v).replace(b, w)` yields two findings, and a three-link chain yields three. The repo-wide assertion additionally reconciles its total against `count-conservative.mts`, so a visitor that stops descending cannot pass by agreeing with itself. **The comparison oracle must resolve wrappers and prefilter exactly as the judge does** — spec round 5 found it doing neither, which made the cross-check vacuous on precisely the axis under review; both now come from one shared module. |
 | AC-2 | Transparent wrappers resolve: `("x" as string)`, `("x")`, `(fn!)` and a `satisfies` form each classify as their inner expression. |
 | AC-3 | A call with fewer than two arguments and no spread is not-in-population, counted, and never reported. |
 | AC-3b | A call with a `SpreadElement` at argument index 0 or 1 is REPORTED, not bucketed as not-in-population — asserted for `s.replace(...args)`, `s.replace(...args, b)` where `b` is an accepted literal, and `s.replace(a, ...rest)`. |
 | AC-4 | The population is derived from disk and excludes `node_modules/**` and `docs/**`; a file added under a new top-level directory is scanned without any edit to the scanner. |
+| AC-4b | Any text prefilter admits every file the AST matcher would report on. Asserted by running BOTH over a fixture set that includes each wrapped-callee spelling and comparing the file sets, so a prefilter tightened later fails rather than silently shrinking the population. |
 | AC-5 | The repo-wide assertion reports zero offenders at the PR's head. |
 | AC-6 | The guard's premise is executable: the suite fails loudly if the walk finds no call sites at all, so a broken walker cannot read as a clean bill. |
 | AC-7 | All 52 in-population offenders are repaired; the four `docs/**` sites are outside the population by rule, not by an enumerated exemption. |

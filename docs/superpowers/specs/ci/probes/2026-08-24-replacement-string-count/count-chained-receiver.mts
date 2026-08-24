@@ -3,6 +3,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
+import { PREFILTER, replaceCallee } from "./_shared.mjs";
 import { skipTransparent } from "../../../../../../tests/_shared/outerExpressions";
 const R = ".";
 const EXT = /\.(ts|tsx|js|jsx|mjs|cjs|mts|cts)$/;
@@ -11,8 +12,7 @@ const tracked = execFileSync("git", ["ls-files"], { encoding: "utf8", maxBuffer:
 const ok = (a: ts.Expression) => ts.isStringLiteral(a) || ts.isNoSubstitutionTemplateLiteral(a) ||
   ts.isArrowFunction(a) || ts.isFunctionExpression(a);
 const isRepl = (n: ts.Node): n is ts.CallExpression =>
-  ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) &&
-  /^replace(All)?$/.test(n.expression.name.text);
+  replaceCallee(n) !== null;
 const offender = (n: ts.CallExpression) => {
   const a = n.arguments; const sp = a.findIndex((x) => ts.isSpreadElement(x));
   if (sp === 0 || sp === 1) return true;
@@ -23,7 +23,7 @@ const nested: string[] = [];
 let full = 0;
 for (const file of tracked) {
   const source = readFileSync(file, "utf8");
-  if (!/\.replace(All)?\s*\(/.test(source)) continue;
+  if (!PREFILTER.test(source)) continue;
   const src = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
   const walk = (n: ts.Node, insideMatched: boolean): void => {
     const matched = isRepl(n);

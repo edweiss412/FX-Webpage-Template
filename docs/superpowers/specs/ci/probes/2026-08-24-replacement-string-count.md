@@ -275,3 +275,35 @@ arc's own shape sweep. The offender count did not move, at 56 across 32 files, w
 decision this record carries. And the cover's 2 + 54 reconciles against the conservative judge's
 56 — the two scripts agree on the total by independent routes, which is what caught an early
 draft of the cover rewrite reading 54 after an early `return` skipped chained calls.
+
+## 9. One matcher, five derivations — and the planted defect that proves it
+
+Spec rounds 2, 4 and 5 each found the SAME wrapper-resolution class in a different position: the
+replacement argument, then the callee, then const binding initializers, then the file-level text
+prefilter that runs before any of them. Round 5's finding also landed the sharper half — the
+repairs kept arriving in ONE script while four siblings kept their own copies, and one of those
+siblings is the independent oracle the spec's AC-1b compares against, so the cross-check was
+vacuous on exactly the axis under review.
+
+Four positions in one class is a fact about placement. `_shared.mts` now holds the single
+definition of `PREFILTER`, `replaceCallee`, `litText`, `isAccepted` and `classify`, and all five
+derivations import it. A derivation that wants a different answer has to say so rather than drift
+into one.
+
+**The prefilter deserves its own sentence** because it is the one that made every other repair
+unreachable. `/\.replace(All)?\s*\(/` looks obviously correct and is wrong: a wrapped callee
+spells `(s.replace)(a, v)`, where `.replace` is followed by `)`, so the file was skipped before
+the AST matcher could see it. An optimization that can change the answer is a defect, not an
+optimization. It now matches `/\.replace(All)?\b/`, strictly weaker than the test it precedes.
+
+**Proved by planting the defect rather than by reading the code.** Edit the live
+`tests/codexGuard/fixtures/fake-codex.mjs:63` from `a.path.replace(...)` to the
+meaning-preserving `(a.path.replace)(...)` and re-run:
+
+```
+before the repair (reviewer's measurement):   calls=1205  offenders=55   <- file silently skipped
+after the repair  (this measurement):         calls=1206  offenders=56   <- seen and classified
+```
+
+Unmoved with the edit reverted: 1206 calls, 56 offenders across 32 files, 2 capture-preserving,
+12 receiver-only. Five derivations reach those totals by different routes and agree.
