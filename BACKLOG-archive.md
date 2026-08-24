@@ -38,6 +38,69 @@ What shipped instead. The score's jurisdiction is DISCLOSED at the dispatch boun
 
 **RE-FILE TRIGGER (L-E, jurisdiction spec §4, verbatim):** a declaration form that the structure-keyed trigger does not read, found in the live briefs corpus; the repair is another CommonMark structure, never a prose recognizer.
 
+## BL-DERIVED-NUMBERS-IN-DOCS-ROT — a number a document states about an artifact goes stale unless a command produces it at write time — CLOSED 2026-08-22 (`docs/derived-numbers-provenance`, CONVENTION)
+
+**Status:** RESOLVED 2026-08-22 — CONVENTION, NO TEST · **Effort (as shipped):** S (filed M; the count retired the test that made it M) · **Facing:** process · **Class:** documentation fidelity · **Shipped by:** `docs/derived-numbers-provenance` · **Spec:** `docs/superpowers/specs/ci/2026-08-22-derived-number-provenance-convention.md` · **Probe record:** `docs/superpowers/specs/ci/probes/2026-08-22-derived-number-population-census.md`
+
+**Resolution.** The row's own first scheduled step decided it. A `## Stating a figure` section now sits
+in the probe directory's README requiring an IMMUTABLE anchor — an object id, or an honest declaration
+that a measurement is not reproducible and why. No lint, no meta-test, no CI wiring.
+
+**The sharpening the count produced, and it is the part worth keeping.** The row proposed that a figure
+either carry its producing command or be script-assembled. **That is not sufficient.** A command says
+how a figure was derived, not what from, and a command run against a moving tree answers differently
+tomorrow. The corpus supplied the counterexample: `2026-08-16-timing-scan-binding-probes.md` anchors
+every probe in it to `origin/fix/scanner-scope-totality` and prints the `git show` that materialises the
+scanner from it — a producing command, exactly as the row asked — and names no sha anywhere. That branch
+has since been deleted (`git ls-remote origin 'refs/heads/fix/scanner-scope-totality'` returns nothing),
+so the record now names nothing a reader can fetch. It is unrepairable — no edit recovers the tree it
+measured, and inventing a plausible sha would be a guess wearing provenance's clothes — so it stands as
+the README's worked counterexample. **What the arc does NOT claim** is a count of how many other
+records are adequately bound: the anchor screen only detects a record naming no immutable anchor at
+all, since one unrelated object id anywhere makes a whole document pass, and spec review round 2
+retired a draft that read it as a certificate.
+
+**Why no test, measured rather than argued.** The gate the row sketched — a bare count near an
+artifact path must name its producing command — reds 23 times on the corpus at `b52481446`, at least
+15 of them on lines that state no artifact figure at all. Its reds are probe and task ordinals, arithmetic demonstrated in place,
+control-outcome table cells, a retraction and an environment note. Fifteen state no artifact figure at
+all and one more states a figure in order to retract it; the remaining seven are real figures whose
+binding this arc does not decide, and they would be no safer for passing, because the gate demands a
+producing COMMAND on the line and a producing command is not a binding. It is also blind to the one
+record the anchor screen flags: that file's single red is a task ordinal, so the rule fires on the
+wrong lines of the right file. A rule whose satisfaction does not imply the property it protects
+cannot be repaired by tiering. A record-level presence check fares
+worse still — one red, and it is false.
+
+**And the classification the row asked for is not mechanizable.** Three variants of one token-matching
+heuristic give 31.7%, 59.7% and 35.1%; 653 of the best variant's 725 hits are below 100, the range
+where token collision is expected — magnitude, not proven coincidence. The spread alone proves only that the heuristic is unreliable — that correction came
+from spec review round 1 and is carried in the record. What settles it is that the record scoring zero
+under every variant, `2026-08-21-abort-reachability-correction.md`, is on inspection one of the
+best-provenanced in the corpus: it names the blob it mutated and the blob it produced, the exact
+condition edit, and the verbatim vitest line, using indented transcript instead of fenced blocks. No
+adjustment to a token rule reaches that, and the partition that does work is a hand classification,
+affordable at 23 lines and nowhere beyond.
+
+**The rot is not in the population the row scoped.** Three of its four measured instances happened in
+ledger-class documents. A first draft sized that with the same census and reported a tenfold
+provenance gap; **that comparison was withdrawn in review** — the instrument asks whether a prose
+figure reappears in a commanded block in the same file, probe records structurally carry such blocks
+and ledger prose does not, so no ratio between the genres is licensed, and the binding census that
+replaced it has a document-sized unit while a ledger file holds hundreds of entries. Filed as
+`BL-LEDGER-FIGURE-PROVENANCE` on the orchestrator's 2026-08-22 ruling, resting on the incidents rather
+than on a number, with its overlap against `BL-CLOSEOUT-COUNT-PROSE-DRIFT` allocated by a stated rule
+(the owner is the document a figure is STATED IN) rather than declared absent.
+
+**Re-open trigger:** a probe record ships stating a figure whose only anchor is mutable. The convention
+is written down now, so that is a convention violation with a named home rather than a detection
+problem, and the census script prints the mutable-only list on every run.
+
+**Declined and fenced so it is not rebuilt.** The per-figure detector, for the measurement above. The
+census script must not be promoted into a gate without re-deriving that measurement — its three
+readings exist to show a token-matching classifier cannot be trusted here, and an arc that picks one
+and gates on it ships the unreliability instead of removing it.
+
 ## BL-PANE-COMPACTION-SEND-AUTHORIZATION — the pane-compaction send path needs its own arc — CLOSED 2026-08-21
 
 **Status:** SHIPPED 2026-08-21 · **Effort (as shipped):** L · **Severity (as filed):** the six probe chains below each exited 0 and SENT bytes before their repair · **Class:** authorization model · **Facing:** product · **Shipped by:** `feat/pane-compaction-send-auth`
