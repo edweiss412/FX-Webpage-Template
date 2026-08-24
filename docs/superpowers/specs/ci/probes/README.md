@@ -20,9 +20,11 @@ Written under the probe-before-argue rule in [`../../../../agents/spec-self-revi
 A figure a record states about an artifact — a count, a duration, a score, a size — is **bound** or it
 rots. Bound means a reader can still tell, later, what the figure was measured against.
 
-**The anchor has to be immutable.** A commit sha, a blob id, a tag that does not move. A branch or a
-remote ref is not an anchor: it moves, and it can be deleted, and then the record names nothing at
-all. `2026-08-16-timing-scan-binding-probes.md` is the worked example — it pins its probes to
+**The anchor has to be immutable.** A commit sha or a blob id — an object id names its own content
+and cannot be repointed at different content. A ref is not an anchor, and that includes a tag:
+branches, remote refs and tags alike can be moved or deleted, and then the record names nothing at
+all. A tag reads as permanent by convention, which is the reason to say plainly that nothing enforces
+it. `2026-08-16-timing-scan-binding-probes.md` is the worked example — it pins its probes to
 `origin/fix/scanner-scope-totality` and prints the `git show` that materialises them, names no sha
 anywhere, and that branch no longer exists.
 

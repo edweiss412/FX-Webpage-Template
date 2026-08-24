@@ -280,8 +280,15 @@ grew a JavaScript lexer one grammar corner per round across 20 diff rounds with 
 Declined before round 1 rather than after round 20.
 
 **Also declined: a record-level presence check** ("every probe record names at least one producing
-command"). It reds on exactly one record, `2026-08-21-abort-reachability-correction.md`, which §2(c)
-shows is a false red. One red, and it is wrong.
+command"). Its producer is the census table's `commanded` column, and two rows read `0` at
+`b52481446`, not one — the same exclusion §3 already had to state applies again here. `README.md` is
+the directory index and states no figures, so it is outside a question about figure-stating records.
+That leaves exactly one probe record, `2026-08-21-abort-reachability-correction.md`, which §2(c) shows
+is a false red. One red, and it is wrong.
+
+Stating the exclusion twice is not redundancy. §3 says the walked population is every `*.md`, so a
+sentence that means "figure-stating records" has to say so — and the first draft of this paragraph,
+further down the same document, did not.
 
 ## 5. What ships
 
