@@ -7582,6 +7582,56 @@ describe("YAML quoted scalar advisory — the channel that lexes the whole file"
     );
   });
 
+  // ANCHOR PARITY. A quoted scalar and the plain spelling of the same body must
+  // report on the SAME line, because quoting is not supposed to change where the
+  // scanner thinks the command is.
+  //
+  // Two anchor rules meet here and could disagree. A MAPPING VALUE anchors to
+  // its key's line; a SEQUENCE ITEM has no key of its own, so it anchors to its
+  // own starting line — and anchoring a sequence item to the containing `args:`
+  // key would put the quoted spelling one line above the plain spelling of the
+  // identical item. The `args:` block-sequence shape is the fixture that can
+  // tell them apart, because its key and its item are on different lines.
+  //
+  // The expectation is DERIVED from the plain spelling in every row, so this
+  // asserts agreement rather than a remembered line number.
+  test.each([
+    [
+      "a block-SEQUENCE item, where the key and the item are on different lines",
+      (scalar: string) =>
+        [
+          "name: x",
+          "on:",
+          "  push:",
+          "jobs:",
+          "  x:",
+          "    steps:",
+          "      - uses: docker://alpine",
+          "        with:",
+          "          args:",
+          `            - ${scalar}`,
+          "",
+        ].join("\n"),
+    ],
+    [
+      "a MAPPING value, where the key and the scalar share a line",
+      (scalar: string) => withScalar("args", scalar),
+    ],
+  ])("AC-2: quoting does not move the reported line — %s", (_label, build) => {
+    const body = CANONICAL_BODY;
+    const lineFor = (scalar: string) =>
+      scanShellIndirection(build(scalar), WORKFLOW_FILE).map((hit) => hit.line);
+    const plain = lineFor(body);
+    premiseHolds(
+      "the plain spelling reports exactly one advisory, so the parity rows below are not all comparing empties",
+      plain.length === 1,
+    );
+    expect({ single: lineFor(`'${body}'`), double: lineFor(`"${body}"`) }).toEqual({
+      single: plain,
+      double: plain,
+    });
+  });
+
   // The new code is gated on the YAML extension — the same predicate that
   // already selects the continuation transform — so a `.sh` file never reaches
   // it. Verified against the tree BEFORE the change and re-verified after,
