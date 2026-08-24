@@ -46,6 +46,15 @@ export function verifyEvidence(
   opts: { local?: boolean },
 ): string[] {
   const problems: string[] = [];
+  // A non-object record is a DIFFERENT failure from a malformed one, and the
+  // cast alone does not save the property read: `null` and a bare string both
+  // reach `run.entries` and throw a TypeError, which surfaces as a crashed
+  // parser step rather than as the problem list this function exists to return.
+  if (typeof record !== "object" || record === null || Array.isArray(record)) {
+    return [
+      `capture evidence record is not a JSON object (got ${record === null ? "null" : typeof record})`,
+    ];
+  }
   const run = record as Record<string, unknown>;
   const entries = (Array.isArray(run.entries) ? run.entries : []) as Entry[];
 
@@ -97,12 +106,36 @@ export function verifyEvidence(
   }
 
   const completeThrough = refusedAt === -1 ? entries.length : refusedAt;
-  for (const entry of entries.slice(0, completeThrough)) {
+  const completed = entries.slice(0, completeThrough);
+  for (const entry of completed) {
     for (const field of [...PRE_ENCODE, ...POST_ENCODE]) {
       if (entry[field] === null || entry[field] === undefined) {
         problems.push(`${identityOf(entry)} is complete but ${field} is missing`);
       }
     }
+  }
+
+  // Layer 2's PREMISE, asserted on the record rather than assumed.
+  //
+  // `checkGeometry` records a SKIP when it finds no committed baseline, which is
+  // right on its own: certifying a comparison that never happened would let every
+  // new manifest entry pass its own first run. But nothing read the skip back, so
+  // if the baseline naming or the output directory ever moves, EVERY entry skips,
+  // the geometry layer performs zero comparisons, and the run is green. A layer
+  // that silently checks nothing is the failure mode this repo has a rule about.
+  //
+  // One skip is ordinary (a newly added manifest entry). ALL of them, on a run
+  // that completed entries at all, means the baselines were not where the layer
+  // looked -- so that is the condition, and it cannot fire on an empty set.
+  const skipped = completed.filter(
+    (entry) => (entry as Record<string, unknown>).geometrySkippedReason !== undefined,
+  );
+  if (completed.length > 0 && skipped.length === completed.length) {
+    problems.push(
+      `layer 2 compared nothing: all ${completed.length} completed entries record ` +
+        `geometrySkippedReason (${[...new Set(skipped.map((e) => String((e as Record<string, unknown>).geometrySkippedReason)))].join(", ")}). ` +
+        "One skip is a new manifest entry; every entry skipping means the baselines were not where the layer looked",
+    );
   }
 
   return problems;

@@ -170,3 +170,55 @@ describe("an absent record is distinguished from a malformed one", () => {
     expect(absentRecordProblem(fileURLToPath(import.meta.url))).toBeNull();
   });
 });
+
+describe("layer 2's premise is asserted on the record, not assumed", () => {
+  it("reports a run where every completed entry skipped the geometry check", () => {
+    // The failure this catches: the baseline naming or the output directory
+    // moves, `checkGeometry` finds no committed baseline for ANY entry, records
+    // a skip for each, and the run goes green having compared nothing. A skip is
+    // correctly not a pass, but nothing read the skip back.
+    const allSkipped = CLEAN.map((e) => ({ ...e, geometrySkippedReason: "no-committed-baseline" }));
+    const problems = verifyEvidence({ ...HEADER, entries: allSkipped }, EXPECTED, {});
+
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain("layer 2 compared nothing");
+    expect(problems[0]).toContain("no-committed-baseline");
+  });
+
+  it("stays silent when only some entries skipped", () => {
+    // One skip is an ordinary newly-added manifest entry. Firing here would make
+    // the check unusable the first time anyone adds a capture.
+    const oneSkipped = CLEAN.map((e, i) =>
+      i === 0 ? { ...e, geometrySkippedReason: "no-committed-baseline" } : e,
+    );
+    expect(verifyEvidence({ ...HEADER, entries: oneSkipped }, EXPECTED, {})).toEqual([]);
+  });
+
+  it("cannot fire on an empty completed set", () => {
+    // Guards the premise of the premise: `0 === 0` would report a comparison
+    // failure on a run that never got far enough to compare anything, which is
+    // already reported as a missing-identities problem and would double-count.
+    const problems = verifyEvidence({ ...HEADER, entries: [] }, EXPECTED, {});
+    expect(problems.some((p) => p.includes("layer 2 compared nothing"))).toBe(false);
+  });
+});
+
+describe("a non-object record is its own failure, not a crash", () => {
+  it.each([
+    ["null", null],
+    ["a string", "not a record"],
+    ["an array", []],
+    ["a number", 42],
+  ])("returns a problem for %s rather than throwing", (_label, value) => {
+    // The failure this catches: `record as Record<string, unknown>` is a cast,
+    // not a check, so `run.entries` on null threw a TypeError and the parser
+    // step crashed instead of reporting. A crashed verifier and a rejected
+    // record look different to an operator and must stay that way.
+    let problems: string[] = [];
+    expect(() => {
+      problems = verifyEvidence(value, EXPECTED, {});
+    }).not.toThrow();
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain("not a JSON object");
+  });
+});
