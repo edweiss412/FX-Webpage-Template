@@ -35,11 +35,45 @@ const BASE = process.env.SEAM_BASE ?? "origin/main";
 /** The only declarations this arc's diff may touch. */
 const PERMITTED = new Set([
   "scanWorkflowSource", // Task 1: the accept-set gate on the site channel
-  "scanShellIndirection", // Task 2: blank-and-rescan on the advisory channel
+  "scanShellIndirection", // Task 2: the exported wrapper
+  "scanShellIndirectionIn", // Task 2: the implementation it delegates to
   "RAW_IS_SHELL_TEXT_STYLES", // Task 1: the named accept-set
   "quotedExecutableScalars", // Task 2: new helper
   "blankRanges", // Task 2: new helper
+  "QuotedExecutableScalar", // Task 2: the helper's return type
 ]);
+
+// The `yaml` import declaration, which this arc must extend by ONE binding
+// (`isSeq`, for the `args:` sequence spelling) and may not otherwise disturb.
+//
+// A blanket exemption for `<ImportDeclaration>` is exactly the hole review
+// demonstrated on the first allowlist: swapping the imported `isPair` and
+// `isScalar` bindings flips both predicates from true to false, and the gate
+// said PASS. So the allowance is CONDITIONAL and the condition is checked
+// rather than trusted — every binding present at base must still be present at
+// HEAD under the same local name. Additions pass; a rename, a re-alias, a swap,
+// or a removal does not, and the line then falls back to being denied like any
+// other unowned change.
+const yamlBindings = (text, label) => {
+  const sf = ts.createSourceFile(label, text, ts.ScriptTarget.Latest, true);
+  const pairs = new Map();
+  for (const st of sf.statements) {
+    if (!ts.isImportDeclaration(st)) continue;
+    const bindings = st.importClause?.namedBindings;
+    if (!bindings || !ts.isNamedImports(bindings)) continue;
+    for (const el of bindings.elements)
+      pairs.set(el.propertyName?.text ?? el.name.text, el.name.text);
+  }
+  return pairs;
+};
+
+/** True when HEAD's imports are a pure SUPERSET of base's, name-for-name. */
+const importsOnlyGrew = (baseText, headText) => {
+  const base = yamlBindings(baseText, "base");
+  const head = yamlBindings(headText, "head");
+  for (const [imported, local] of base) if (head.get(imported) !== local) return false;
+  return true;
+};
 
 /** Every TOP-LEVEL statement, with its name and line range. */
 function topLevel(text, label) {
@@ -51,7 +85,19 @@ function topLevel(text, label) {
     // OUTSIDE it and is allowed to change. A comment cannot move behaviour, and
     // this arc edits the module header deliberately.
     const range = [lineOf(st.getStart(sf)), lineOf(st.getEnd())];
-    if (ts.isFunctionDeclaration(st) || ts.isClassDeclaration(st))
+    // Type aliases and interfaces are NAMED here rather than left to the
+    // catch-all below. Both classes carry a real identifier, so lumping them
+    // into `<TypeAliasDeclaration>` would make every one of them share a single
+    // opaque owner: permitting this arc's `QuotedExecutableScalar` would have
+    // permitted every other type alias in the file at the same time. Naming
+    // them keeps the allowance one declaration wide, which is the whole point
+    // of an allowlist.
+    if (
+      ts.isFunctionDeclaration(st) ||
+      ts.isClassDeclaration(st) ||
+      ts.isTypeAliasDeclaration(st) ||
+      ts.isInterfaceDeclaration(st)
+    )
       out.push({ name: st.name?.text ?? "<anonymous>", range });
     else if (ts.isVariableStatement(st))
       for (const d of st.declarationList.declarations)
@@ -80,8 +126,11 @@ function read(rev) {
   }
 }
 
-const headDecls = topLevel(readFileSync(FILE, "utf8"), `${FILE}@HEAD`);
-const baseDecls = topLevel(read(BASE), `${FILE}@${BASE}`);
+const headText = readFileSync(FILE, "utf8");
+const baseText = read(BASE);
+const headDecls = topLevel(headText, `${FILE}@HEAD`);
+const baseDecls = topLevel(baseText, `${FILE}@${BASE}`);
+const importsGrewOnly = importsOnlyGrew(baseText, headText);
 if (headDecls.length === 0 || baseDecls.length === 0) {
   console.error("ABORT: no top-level declaration parsed — the check cannot range over what it cannot see.");
   process.exit(2);
@@ -114,7 +163,7 @@ const judge = (lines, decls, side) => {
     // header deliberately.
     const owners = decls.filter(({ range: [lo, hi] }) => line >= lo && line <= hi);
     for (const owner of owners)
-      if (!PERMITTED.has(owner.name))
+      if (!PERMITTED.has(owner.name) && !(owner.name === "<ImportDeclaration>" && importsGrewOnly))
         violations.push(`${side} ${FILE}:${line} in \`${owner.name}\` (${owner.range[0]}-${owner.range[1]}), which this arc may not touch`);
   }
 };
@@ -122,6 +171,9 @@ judge(sides.new, headDecls, "added/changed");
 judge(sides.old, baseDecls, "deleted/changed");
 
 console.log(`permitted declarations: ${[...PERMITTED].join(", ")}`);
+console.log(
+  `import declarations: ${importsGrewOnly ? "additive only — permitted" : "changed a binding — DENIED"}`,
+);
 console.log(`hunk lines: new-side ${sides.new.length}, old-side ${sides.old.length}`);
 if (violations.length) {
   console.error(`FAIL: ${violations.length} line(s) outside the permitted set:`);
