@@ -128,6 +128,17 @@ const KNOWN_DANGLING: Record<string, string> = {
   // not exempted — the stale-row ratchet below is what proves that.
   "BL-RESOLVED":
     "cited in docs/audits/pr-38-217-bug-audit-2026-07-02.md — no entry as of 2026-08-02",
+  // FORWARD REFERENCE, and the stale-row ratchet is the removal mechanism.
+  // BL-LEDGER-FIGURE-PROVENANCE fences itself against this id, and the spec and
+  // probe record beside it cite the same fence, because the orchestrator's
+  // 2026-08-22 routing ruling requires both rows to name their boundary. The
+  // entry itself is FILED ON ANOTHER BRANCH — ci/app-e2e-batch2, PR #875, open
+  // and BLOCKED at the time of writing — which lands before this one. This row
+  // is debt that #875's merge repays: once it is on main and this branch merges
+  // main, the id resolves and the ratchet FAILS this row as stale, which is
+  // what forces its deletion rather than anyone remembering to look.
+  "BL-CLOSEOUT-COUNT-PROSE-DRIFT":
+    "cited by BL-LEDGER-FIGURE-PROVENANCE's boundary sentence and by the 2026-08-22 derived-number spec and probe record — filed on ci/app-e2e-batch2 (PR #875), unmerged as of 2026-08-22",
   // L-wave forward references (spec 2026-08-06-l-wave-design.md + its plan): ids the
   // wave's W-LDOCS branch FILES as part of its ratified decompositions/filings. Each
   // row is debt that the filing commit repays — the stale-row ratchet forces removal
