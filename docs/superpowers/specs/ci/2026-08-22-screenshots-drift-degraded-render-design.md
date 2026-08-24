@@ -322,6 +322,7 @@ capture-evidence.json (new, gitignored — see below), uploaded on **both** outc
 
 | field | source | discriminates |
 | --- | --- | --- |
+| `eventName` | `GITHUB_EVENT_NAME` | **trigger population — gates whether any reading below is drawn from one population at all** |
 | `runnerName`, `runnerArch`, `runnerOs` | `RUNNER_NAME` / `RUNNER_ARCH` / `RUNNER_OS` | runner population |
 | `cpuModel`, `cpuCount` | `os.cpus()` inside the pinned image | rasterizer and SIMD path |
 | `capturedAtUtc` per entry | the capture clock | time-of-day effects |
@@ -338,11 +339,19 @@ identity: re-encoding identical pixels at two compression levels yields differen
 container would report a render change whenever only encoding moved, which is exactly the confusion §6
 exists to resolve. Occurrence B’s diagnosis used decoded pixels for the same reason.
 
-**Runner identity requires explicit passthrough.** The capture runs inside `docker run` forwarding only
-`-e CI=true` (`.github/workflows/screenshots-drift.yml:113`), so the three runner variables do not reach
-the process that writes the record. The step gains `-e RUNNER_NAME -e RUNNER_ARCH -e RUNNER_OS` — the
-value-less form forwards the host value while `-e CI=true` sets a literal, and both forms appear in the
-step. `os.cpus()` needs no passthrough.
+**Runner identity and the trigger both require explicit passthrough.** The capture runs inside
+`docker run` forwarding only `-e CI=true` (`.github/workflows/screenshots-drift.yml:113`), so neither the
+three runner variables nor `GITHUB_EVENT_NAME` reaches the process that writes the record. The step gains
+`-e RUNNER_NAME -e RUNNER_ARCH -e RUNNER_OS -e GITHUB_EVENT_NAME` — the value-less form forwards the host
+value while `-e CI=true` sets a literal, and both forms appear in the step. `os.cpus()` needs no
+passthrough: it reads the container's view of the host CPU.
+
+**`eventName` is in the record because a measurement demanded it, not because more fields are better.**
+§7 records the probe: both failures are `pull_request` runs and all nine non-reproducing probes are
+`workflow_dispatch` runs, so the only population ever sampled for a non-reproduction is one neither
+failure came from. Without the field, a future operator holding two records has no way to notice they are
+comparing across triggers, and every runner-population reading built on that pair is unsound in a way the
+record itself conceals. It costs one environment variable to make that visible.
 
 **The record is written even when nothing renders.** The §4.2.1 replacement class produces no
 `captureSelector`, and the r1 draft would have produced no record either — the one outcome most in need of
@@ -374,13 +383,21 @@ Read in order; the first matching row wins.
 | `refusedReason` is `selector-absent` | **replacement-class fault** (§4.2.1). The named markers, if any, say which branch replaced the surface; none means an unmarked replacement, still attributed as selector-absent. |
 | `faultHits` non-empty | **faulted render**, mechanism A. Refused; no drift reported. |
 | `refusedReason` is geometry and `faultHits` is empty | **an unmarked layout-changing fault, or a real UI change — and the record NARROWS this rather than deciding it.** See the note below; do not read this row as unique attribution. |
+| the two records being compared differ in `eventName` | **cross-trigger comparison — not a mechanism, and a stop rather than an answer.** Nothing is refuted; the two records are simply drawn from different populations, so neither reading below is admissible from this pair. Obtain a record from each side under one trigger, then read on. |
 | `pixelSha256` differs, geometry identical, deltas concentrated below 32 in short runs | **rasterization variance**, mechanism B. Compare `cpuModel` across the passing and failing records. |
 | `pixelSha256` differs, geometry identical, long runs and large deltas | **content change at fixed geometry.** Correlate `capturedAtUtc` for a time-dependent render. |
 | `pixelSha256` identical, `webpSha256` differs | **encoder difference.** `cpuModel` names the population. |
 | everything identical, gate still red | a committed-bytes problem, not a capture problem. |
 
-Rows 3 and 4 are distinguishable only because the record carries decoded-pixel identity; a container hash
-would collapse them into each other and into row 5.
+**The cross-trigger row's POSITION is load-bearing, not cosmetic.** The table is first-match-wins, and the
+row sits ahead of every reading that compares two records because a mis-sampled pair produces a confident
+wrong answer rather than no answer — which is exactly what happened to the 0/9 account §7 corrects. Placed
+after the runner-population row it would never fire on the case it exists for. It is also the one row that
+returns no mechanism, and that is the point: the honest output of an inadmissible comparison is a refusal
+to read it.
+
+The two decoded-pixel rows are distinguishable only because the record carries decoded-pixel identity; a
+container hash would collapse them into each other and into the encoder row.
 
 **The geometry row narrows; it does not attribute, and the r2 draft overclaimed that it did.** On a
 geometry refusal no image is written, so there is no candidate image to diff, and `faultHits` is empty by
@@ -410,8 +427,9 @@ flag-shaped residue would need the dataflow analysis §4.2 declines; §8.5 recor
   **This arc ships its first scheduled step — and ships it as an instrument, not as an answer.** The row
   asked for runner identity captured on both outcomes; §5 delivers that plus the decoded-pixel hash.
   `runnerName` + `cpuModel` + `pixelSha256` is the triple that makes a runner-keyed reading **testable**,
-  because it separates “the pixels moved” from “the encoding moved” and then keys the population. §6 row 3
-  is the row’s reading procedure. The trap this arc sets is the row’s instrument, not an unrelated one.
+  because it separates “the pixels moved” from “the encoding moved” and then keys the population. §6’s
+  rasterization-variance row is the row’s reading procedure, and §6’s cross-trigger row is the
+  admissibility check that must clear before it. The trap this arc sets is the row’s instrument, not an unrelated one.
 
   **What is proven and what is not.** The replay proves *rasterization variance*: identical geometry,
   identical content, sub-pixel deltas. It does **not** prove the variance is keyed to runner or CPU rather
@@ -428,10 +446,27 @@ flag-shaped residue would need the dataflow analysis §4.2 declines; §8.5 recor
   tolerance. Those are different products with different failure modes, and choosing between them needs the
   population data §5 begins collecting. This spec states the question and does not answer it.
 
-  The 0/9 dispatched non-reproductions are **consistent with** a runner-population effect, which reproduces
-  only when a dispatch lands on the minority population. They are equally consistent with any other rare
-  per-run condition, and with no runner identity recorded for those nine runs they discriminate nothing.
-  This is the reading the instrument is built to settle, stated as a reading.
+  **The 0/9 is a MIS-SAMPLE, which is a sharper correction than “uninformative”.** Probed 2026-08-24
+  against `repos/edweiss412/FX-Webpage-Template/actions/workflows/screenshots-drift.yml/runs`. Both
+  failures are `pull_request`: occurrence A is run 32528532727 on `be5d3d810db2`, occurrence B is run
+  31930558546 on `b5aa6ef7`, and each is the only screenshots-drift run its sha ever had — one run
+  returned per `head_sha`, `run_attempt` 1. The nine non-reproducing probes are every one
+  `workflow_dispatch`, and every one on `119895a7c756`: seven at 2026-08-16T11:32Z and two at 11:06Z.
+  Six further dispatches on that sha were cancelled and are not among the nine.
+
+  So the probes never sampled the population either failure came from. The baseline is not the difference:
+  `119895a7c756` is a descendant of `b5aa6ef7` and `git diff` between them over `public/help/screenshots/`
+  is empty, so both trees carry byte-identical committed baselines. What moved is the trigger, and a
+  trigger is not cosmetic — a `pull_request` run builds the merge ref while a `workflow_dispatch` run
+  builds the branch head, and the two can be routed to different runner pools.
+
+  **This names no mechanism and must not be read as naming one.** `pull_request` is not hereby a suspect;
+  nine dispatches is a small sample and the two triggers may well share a pool. What the measurement
+  retires is the inference the previous wording invited. 0/9 was never weak evidence *against* a
+  runner-population effect, because it is not evidence about the failing population at all — a comparison
+  across triggers is inadmissible before it is uninformative. That is why §5 records `eventName` and why
+  §6’s cross-trigger row precedes both readings it would otherwise corrupt. The row keeps its unprobed
+  status on the runner question, now for a stated reason rather than an absence.
 
 **The rows’ shared one-class assertion is corrected, not honored.** Working them together was right and is
 what surfaced both mechanisms; closing them together would have shipped a false certification.
@@ -524,8 +559,12 @@ what surfaced both mechanisms; closing them together would have shipped a false 
   mutants: one adding a plain-string route, one adding a template-literal route. The second is the one a
   quote-only parser fails.
 - **AC-5** The evidence record is written and uploaded on both a passing and a failing run, with every
-  field that applies populated — including the three runner fields, which requires the Task 5 passthrough,
-  and with post-encode fields `null` exactly on refused entries. Proven against a real dispatched run.
+  field that applies populated — including `eventName` and the three runner fields, which require the
+  Task 7 passthrough, and with post-encode fields `null` exactly on refused entries. Proven against a real
+  CI run under **each** trigger this arc can produce: a `workflow_dispatch` run and the `pull_request`
+  runs the arc’s own PR already fires. One trigger is not enough, and §7 is the reason — a proof drawn only
+  from dispatch would certify the instrument on precisely the population that mis-sampled the question the
+  instrument exists to answer.
 - **AC-6** `pixelSha256` is computed over decoded RGB. Proven by re-encoding one committed baseline at two
   PNG compression levels and asserting `pixelSha256` holds where a container hash would not.
 - **AC-7** `data-degraded` on a captured surface does **not** trigger a refusal, proven against

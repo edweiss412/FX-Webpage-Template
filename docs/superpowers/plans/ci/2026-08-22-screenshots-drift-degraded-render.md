@@ -264,7 +264,7 @@ explicitly not this layer's job.
 
 ## Task 7 — workflow, plus an executable check on the artifact
 
-<!-- task: red=`pnpm vitest run tests/cross-cutting/ci-workflow-speedup.test.ts` red-state=authored red-target=`.github/workflows/screenshots-drift.yml:113` why=`only CI is forwarded, so runner identity cannot reach the capture` ac=AC-5 -->
+<!-- task: red=`pnpm vitest run tests/cross-cutting/ci-workflow-speedup.test.ts` red-state=authored red-target=`.github/workflows/screenshots-drift.yml:113` why=`only CI is forwarded, so neither runner identity nor the trigger can reach the capture` ac=AC-5 -->
 
 Workflow edits join the existing `screenshots-drift` describe block at
 `tests/cross-cutting/ci-workflow-speedup.test.ts:84`.
@@ -278,10 +278,17 @@ defect the workflow's own comment records against `public/fonts/**`, a render in
 of this filter when a file moved. The allow-list additions are asserted by name in the same describe block,
 so a third instrument added later fails the test rather than going dark.
 
-**Failure mode this catches:** the capture runs inside `docker run` forwarding only `-e CI=true`, so the
-three runner variables never reach the process writing the record — the instrument would record empty
-runner fields forever and spec §6 rows 3 and 5 could never fire. Asserted by name, distinguishing `-e VAR`
-(forwards) from `-e VAR=value` (sets a literal).
+**Failure mode this catches:** the capture runs inside `docker run` forwarding only `-e CI=true`, so
+neither the three runner variables nor `GITHUB_EVENT_NAME` reaches the process writing the record — the
+instrument would record those four fields empty forever, spec §6's rasterization-variance and encoder rows
+could never fire, and its cross-trigger row could never fire either. All four are asserted by name,
+distinguishing `-e VAR` (forwards) from `-e VAR=value` (sets a literal).
+
+**`GITHUB_EVENT_NAME` is the one whose absence would be silent in a second way.** An empty runner field is
+visibly empty and a parser can reject it, which is what the clean-run branch below does. An absent trigger
+is worse than empty: two records that never carried the field look comparable, and spec §7 measured the
+consequence — nine non-reproducing probes read as evidence about a population they were never drawn from.
+So the parser treats `eventName` exactly like a runner field on a CI run, required and non-empty.
 
 **AC-5 needs an assertion that can fail, not an observation.** A green workflow proves only that the steps
 exited zero; it says nothing about the artifact's schema or values. So the job gains a parser step, and
@@ -301,10 +308,12 @@ three things about it are load-bearing:
    with exactly one refused entry carrying a `refusedReason`, every earlier entry complete, and none after
    it.
 3. **A named local invocation that can actually satisfy its own checks.** The runner fields come from
-   `RUNNER_*`, which exist on a GitHub runner and not on a developer machine, so a local run asserting them
-   non-empty fails by construction. The parser takes a `--local` mode that treats the three runner fields
-   as not-applicable and asserts everything else; CI runs it without the flag, where the fields are
-   required. The verification section names the exact command.
+   `RUNNER_*` and the trigger from `GITHUB_EVENT_NAME`, all four of which exist on a GitHub runner and not
+   on a developer machine, so a local run asserting them non-empty fails by construction. The parser takes
+   a `--local` mode that treats those four as not-applicable and asserts everything else; CI runs it
+   without the flag, where all four are required. The verification section names the exact command.
+   `--local` must not be reachable from the workflow — a mode that waives four fields is a mode that
+   silently satisfies AC-5, so the workflow assertion names the flagless invocation.
 
 Upload moves to `if: always()`. The record is gitignored — required, or the instrument reds the gate's own
 untracked check.
@@ -385,7 +394,8 @@ Every id below is claimed by a task marker above.
   via a template-literal route, plus an assertion on the parsed route set itself.
 - **AC-5** The record is written and uploaded on both outcomes, and a CI step parses it **branching on the
   run's outcome**: on a clean run it fails on a record short of the manifest-derived expectation, a missing
-  pre- or post-encode field, an empty runner field, or a hash not matching the staging artifact; on a
+  pre- or post-encode field, an empty runner field, an empty `eventName`, or a hash not matching the
+  staging artifact; on a
   refused run it requires the record to end with exactly one refused entry carrying a reason, every earlier
   entry complete and none after it. **It must NOT reject a short record unconditionally** — the capture
   aborts on the first refusal, so a short record is the correct shape for a genuine refusal, and an
