@@ -30,7 +30,7 @@ the probe.
 ```
 $ pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-24-replacement-string-count/count-conservative.mts
 files scanned (tracked, JS/TS ext):   3664
-files containing a replace call:      496
+files containing a replace call:      496   @ 8bf870991
 replace/replaceAll call sites:        1201
   literal replacement:                1120
   replacer function:                  25
@@ -74,7 +74,7 @@ function             25
 const-literal        11
 one-arg               0
 offender             45
-TOTAL              1201   files 496
+TOTAL              1201   files 496   @ 8bf870991
 offender files       24
 ```
 
@@ -91,12 +91,22 @@ Either number reds the repository, so the tier decision does not turn on this.
 
 ### The population moves with the branch; the offender count does not
 
-Both blocks above were run at the base `8bf870991`. Re-run on this branch they report
-**1204 sites across 498 files, 1123 literal** — the two probe scripts in this directory
-each substitute a string literal and joined the population they measure. Offenders are
-unmoved at **56 across 32 files**, so every decision in this record stands. The spec's
-probe domain is stated as the derivation rather than as the pair of numbers for exactly
-this reason.
+Both blocks above were run at the base `8bf870991` and are stamped as such, because they are
+records of a run rather than claims about the tree. Every artifact this arc commits is itself a
+`.mts` file containing `.replace` calls, so the population counts its own instruments and grows
+on each commit that adds one.
+
+It has now gone stale twice — first at 1204/498 when the two count scripts landed, then at
+1206/499 when the shape sweep did, each caught by a reviewer re-running the derivation. Writing a
+third number here would schedule a third staleness, so the current population is stated as the
+command and nothing else:
+
+```
+$ pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-24-replacement-string-count/count-conservative.mts
+```
+
+What is invariant, and what every decision in this record actually rests on: **offenders are
+unmoved at 56 across 32 files** at the base and at every head since.
 
 ## 4. The 56, by directory
 
@@ -151,10 +161,19 @@ author DELIBERATELY wrote with a `$n` capture reference. Wrapping one of those t
 live capture into literal text, so they have to be found before the sweep, not after.
 
 `count-capture-cover.mts` runs three passes: (A) a `$` sequence in the call's own replacement
-text, any node kind; (B) the replacement is an identifier bound in the same file to a
-`$`-bearing string literal; (C) every identifier B could not resolve, intersected against every
-`$`-bearing string const in the repository. A and B are the finding set; C is the completeness
-argument, and the script exits non-zero if C is ever non-empty.
+text, any node kind; (B) the replacement resolves to a same-file string-literal const bearing a
+`$`; (C) every replacement B could not resolve, intersected against every `$`-bearing string
+const in the repository. A and B are the finding set; C is the completeness argument, and the
+script exits non-zero if C or the spread bucket is ever non-empty.
+
+Spec round 2 rewrote this script. As first written it derived its own classification and drifted
+from the judge three ways: it read the RAW argument while the judge strips transparent wrappers
+(so `(TOK)`, `TOK as string`, `TOK!`, `TOK satisfies string` escaped every pass); it had no
+spread rule; and its name map was last-write-wins, so an inner `const TOK = "plain"` hid an outer
+`$`-bearing binding and the audit would have prescribed a corrupting wrap — the same shadowing
+unsoundness §3 declines for the judge. Pass B now records EVERY binding per name and treats more
+than one as unresolved rather than guessing, and the script mirrors the judge's wrapper and
+spread rules explicitly. Removing that duplication is the spec's structural repair; see spec §6.
 
 ```
 $ pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-24-replacement-string-count/count-capture-cover.mts
@@ -218,3 +237,43 @@ The sweep also retires an assumption. §2's "the single-argument bucket is empty
 against `history.replaceState` and router usage; this pass shows the whole sub-two-argument
 bucket is empty — zero zero-argument calls and zero one-argument calls — so bucket 2 of §3.1 is
 unoccupied rather than merely small.
+
+## 8. The counts at `1af34932f`, re-derived
+
+Round 2 of the spec review re-ran the committed derivations and found the population figures a
+commit behind. Refreshed, and stamped, so the record is dated rather than wrong:
+
+```
+$ pnpm exec tsx …/count-conservative.mts                     @ 1af34932f
+files scanned (tracked, JS/TS ext):   3668
+files containing a replace call:      499
+replace/replaceAll call sites:        1206
+  literal replacement:                1125
+  replacer function:                  25
+  single-argument (no replacement):   0
+  OFFENDERS (runtime value):          56
+  offender files:                     32
+
+$ pnpm exec tsx …/count-unclassifiable-shapes.mts            @ 1af34932f
+replace/replaceAll calls: 1206
+  spread at index 0 or 1 (UNCLASSIFIABLE):     0
+  spread only at index >1 (indexing intact):   0
+  zero arguments:                              0
+  exactly one non-spread argument:             0
+  replace.call / replace.apply:                0
+
+$ pnpm exec tsx …/count-capture-cover.mts                    @ 1af34932f
+A. textual  $ at the call site:        1
+B. same-file const bearing a $:        1
+!. spread: replacement not locatable:  0
+C. unresolved / ambiguous names:       13
+   $-bearing string consts repo-wide:  12
+   INTERSECTION (needs hand-reading):  0
+CAPTURE-PRESERVING SITES: 2   every other offender takes the ordinary wrap: 54
+```
+
+Three readings worth stating. The population grew by two sites and one file, both of them this
+arc's own shape sweep. The offender count did not move, at 56 across 32 files, which is every
+decision this record carries. And the cover's 2 + 54 reconciles against the conservative judge's
+56 — the two scripts agree on the total by independent routes, which is what caught an early
+draft of the cover rewrite reading 54 after an early `return` skipped chained calls.

@@ -50,15 +50,24 @@ BY NAME. A site the judge cannot classify is reported, never silently accepted. 
 reads source and emits findings; it never rewrites code, so its worst case is a named
 site a human dispositions, not a silent wrong output.
 
-**Probe domain.** The repository's live `.replace`/`.replaceAll` call sites, enumerated
-from disk by
-`docs/superpowers/specs/ci/probes/2026-08-24-replacement-string-count/count-conservative.mts`.
-The domain is that DERIVATION and not a frozen pair of numbers, because the walker's own
-population grows as this branch adds files: 1201 sites in 496 files at the base
-`8bf870991`, and 1204 in 498 once the two probe scripts joined it. What does not move is
-the offender count, 56 across 32 files at both, and that is the figure §4's tier decision
-rests on. A probe drawn from outside that corpus, or more than one ordinary edit away from
-a site in it, files to §8 rather than to a review round.
+**Probe domain.** The repository's live `.replace`/`.replaceAll` call sites at the reviewed
+head, enumerated from disk by
+
+```
+$ pnpm exec tsx docs/superpowers/specs/ci/probes/2026-08-24-replacement-string-count/count-conservative.mts
+```
+
+**The domain is that command, and this section deliberately states no cardinality for it.** Every
+artifact this arc commits is itself a `.ts`/`.mts` file containing `.replace` calls, so the
+population counts its own instruments and moves on every commit that adds one — it did so twice,
+and both times a number written here went stale between the writing and the review. A figure that
+invalidates itself on the next commit is not a specification, it is a snapshot; the command is the
+specification, and the probe record's dated blocks are where snapshots live.
+
+What does NOT move is the offender count: **56 sites across 32 files**, unchanged at the base and
+at every head since, which is the figure §4's tier decision rests on. A probe drawn from outside
+this corpus, or more than one ordinary edit away from a site in it, files to §8 rather than to a
+review round.
 
 **Threat fence.** The guard defends against an ordinary contributor accidentally
 interpolating a runtime value into a replacement position. Adversarial obfuscation —
@@ -146,9 +155,11 @@ location; the gate proposes no repair.
 
 The probe record is the authority; the figures are quoted here at authoring time.
 
-**56 offender sites across 32 files** at `8bf870991`, out of 1201 call sites in 496 files.
-1120 sites pass a string literal, 25 already pass a replacer function, and the
-single-argument bucket is empty — checked directly, not assumed.
+**56 offender sites across 32 files.** The surrounding population is quoted from the probe
+record's dated block rather than restated as a live figure (§2 explains why): at the base
+`8bf870991` the walk saw 1201 call sites in 496 files, 1120 passing a string literal and 25
+already passing a replacer function, with the sub-two-argument bucket empty — checked directly,
+not assumed. The offender count is the part that has not moved since.
 
 By top-level directory, sites and then files. The two columns differ because chained calls
 put several sites on one line:
@@ -174,7 +185,7 @@ exactly one takes the capture-preserving form, because its replacement is a deli
 
 ```
 $ pnpm exec tsx …/count-conservative.mts --list      # the 56, by name
-$ pnpm exec tsx …/count-dollar-consts.mts            # which const replacements carry a `$`
+$ pnpm exec tsx …/count-capture-cover.mts            # which replacements carry a `$`
 ```
 
 So the gate reds nothing on its first run and ships `fail`.
@@ -251,13 +262,33 @@ Repairs take one of two forms:
 The capture-preserving sites are identified by derivation rather than by reading 56 lines.
 `count-capture-cover.mts` runs three complementary passes, because no single one covers the
 class: (A) the call's own replacement text carries a `$` sequence, which catches any node kind;
-(B) the replacement is an identifier bound in the same file to a `$`-bearing literal, which pass
-A cannot see because the `$` is in the declaration; and (C) every identifier pass B could not
+(B) the replacement resolves to a same-file string-literal const bearing a `$`, which pass A
+cannot see because the `$` is in the declaration; and (C) every replacement pass B could not
 resolve, intersected against every `$`-bearing string const in the repository. A and B are the
-finding set. **C is the completeness argument** — 12 unresolved names against 12 `$`-bearing
-consts repo-wide, intersection EMPTY — and it is what lets the union of A and B be called a
-cover rather than a list of what happened to be noticed. The script exits non-zero if C is ever
-non-empty, so the claim re-checks itself.
+finding set. **C is the completeness argument** — 13 unresolved or ambiguous names against 12
+`$`-bearing consts repo-wide, intersection EMPTY — and it is what lets the union of A and B be
+called a cover rather than a list of what happened to be noticed. The script exits non-zero if C
+or the spread bucket is ever non-empty, so the claim re-checks itself.
+
+**The cover's classification is the JUDGE'S, never its own.** Spec round 2 found three
+independent ways an independently-derived cover drifts from the judge it audits: it read the RAW
+argument while the judge strips transparent wrappers, so `(TOK)`, `TOK as string`, `TOK!` and
+`TOK satisfies string` escaped every pass; it had no spread rule, so §3.1's unclassifiable calls
+were invisible to it; and its name map was last-write-wins, which is precisely the shadowing
+unsoundness R6 rejects — an inner `const TOK = "plain"` hid an outer `$`-bearing one and the
+audit prescribed a corrupting wrap. Two were reported and the third was found by sweeping the
+class instead of patching the reports.
+
+So the rule, and it is structural rather than a list of three fixes: **a cover that re-derives
+the judge's decisions is a second implementation, and it will drift again.** Pass B now records
+EVERY binding per name and treats more than one as unresolved rather than guessing; the shipped
+audit consumes `judgeSource`'s own reported sites, inheriting wrapper resolution, the spread rule
+and the accept-set by construction. The script in the probe directory is the pre-implementation
+stand-in and mirrors those rules explicitly, which is the only reason its numbers can be trusted
+before the scanner module exists. (Its own repair drew the same lesson one level down: removing
+the duplication introduced an early `return` that skipped recursion into a chained call's
+receiver, dropping two of `shapeHoldEntry`'s three sites and reading 54 where the judge reads 56.
+The cover and `count-conservative.mts` agreeing at 56 is what caught it.)
 
 Pass A finds one site, the `docs/**` one already excepted. Pass B finds **exactly one
 in-population site**:
